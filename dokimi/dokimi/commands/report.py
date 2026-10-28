@@ -122,6 +122,10 @@ def cmd_report_generate(args: argparse.Namespace) -> None:
     except ValueError as exc:  # not UTF-8 or not JSON
         print(f"Error: {args.eval} is not valid JSON: {exc}", file=sys.stderr)
         raise SystemExit(1) from None
+    evaluations = eval_data.get("evaluations", []) if isinstance(eval_data, dict) else eval_data
+    if isinstance(evaluations, list) and not evaluations:  # {}, {"evaluations": []}, []
+        print(f"Error: --eval {args.eval} holds no evaluations", file=sys.stderr)
+        raise SystemExit(1)
     if not isinstance(eval_data, dict):
         print(f"Error: {args.eval} must hold a JSON object", file=sys.stderr)
         raise SystemExit(1)
