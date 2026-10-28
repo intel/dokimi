@@ -149,10 +149,15 @@ Credentials are read from the environment: `OPENAI_API_KEY`,
 credentials (`GOOGLE_APPLICATION_CREDENTIALS`, with `VERTEXAI_PROJECT` and
 `VERTEXAI_LOCATION`) for Vertex. For an OpenAI-compatible server (vLLM, a
 gateway), use provider `openai` with `OPENAI_API_BASE` (or `OPENAI_BASE_URL`)
-set to its `/v1` URL. Any model name the server serves works, such as
-`--judges openai/glm-5.3` in `eval cross-judge`. `OPENAI_API_KEY` must be set
-even when the server ignores it. litellm has no price for such a model, so cost
-is reported as unknown and a `--max-usd` run stops after its first call.
+set to its `/v1` URL. A model name that litellm does not take for OpenAI's own
+goes to that server, such as `glm-5.3` or `meta-llama/Llama-3.1-8B`
+(`--judges openai/glm-5.3` in `eval cross-judge`); so does a bare `claude-*`,
+Bedrock or Vertex id, which needs its cloud's provider to reach that cloud. A
+name that starts with a litellm provider prefix (`deepseek/`, `groq/`,
+`ollama/`) keeps that provider's route: write it as `openai/<name>` to send it
+to the server. `OPENAI_API_KEY` must be set even when the server ignores it.
+litellm has no price for such a model, so cost is reported as unknown and
+`novelty --max-usd` stops the run after its first call.
 
 The judge must be a different model from the one under measurement, because a
 model that grades its own answers inflates the scores. `novelty` refuses a
