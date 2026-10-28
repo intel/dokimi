@@ -112,7 +112,7 @@ def _tied_groups(candidates: list[Candidate]) -> list[list[str]]:
     """
     by_words: dict[tuple[str, ...], list[str]] = {}
     for candidate in candidates:
-        words = tuple(tokenize(candidate.description))
+        words = tuple(sorted(tokenize(candidate.description)))
         if words:
             by_words.setdefault(words, []).append(candidate.name)
     return [group for group in by_words.values() if len(group) > 1]
