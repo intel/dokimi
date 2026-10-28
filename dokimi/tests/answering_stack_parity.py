@@ -260,6 +260,7 @@ def run_stack_p(
     context7_id: Optional[str] = LIBRARY_ID,
     questions: Optional[List[Dict[str, Any]]] = None,
     registry: Any = None,
+    judge_placeholder: bool = False,
 ) -> Observed:
     """Stack P end to end on the fixture: answer, then judge, through the real pipeline code."""
     from dokimi.orchestrator import pipeline as pipeline_mod
@@ -283,6 +284,7 @@ def run_stack_p(
         context7_id=context7_id,
         product_key=PRODUCT_KEY,
         registry=registry,
+        judge_placeholder=judge_placeholder,
     )
     qs = QUESTIONS if questions is None else questions
     mark = len(provider_calls.calls)

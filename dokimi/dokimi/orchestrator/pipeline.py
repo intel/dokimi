@@ -96,6 +96,7 @@ class EvaluationPipeline:
         product_key: Optional[str] = None,
         questions_root: Optional[Path] = None,
         registry: Optional[Any] = None,
+        judge_placeholder: bool = False,
     ):
         """
         Initialize pipeline.
@@ -192,6 +193,8 @@ class EvaluationPipeline:
         self.judge_model = judge_model
         self.judge_provider = judge_provider
         self.judge_temperature = judge_temperature
+        # Judge the no-retrieval placeholder answers too (off: they are not scored).
+        self.judge_placeholder = judge_placeholder
 
         self.personas_count = personas_count
         self.questions_per_topic = questions_per_topic
@@ -676,6 +679,7 @@ class EvaluationPipeline:
             model=self.judge_model,
             provider=self.judge_provider,
             temperature=self.judge_temperature,
+            judge_placeholder=self.judge_placeholder,
             run_metadata={
                 "question_model": self.model,
                 "question_provider": self.provider,

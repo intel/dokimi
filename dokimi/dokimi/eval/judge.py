@@ -21,7 +21,7 @@ from dokimi.llm import ChatModel, ask_parsed
 from dokimi.llm import ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
 from dokimi.eval.diagnoser import diagnose
 from dokimi.eval.question_text import require_question_texts
-from dokimi.records import BASELINE, CONTEXT, Record, RecordLike, records
+from dokimi.records import BASELINE, CONTEXT, NO_RETRIEVAL_SOURCES, Record, RecordLike, records
 from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
 # One calibration scale for both the single judge and the panel, so their
 # numbers mean the same thing and can be compared.
@@ -195,6 +195,9 @@ class Judge:
     - Code Quality
     - Actionability
     """
+
+    #: Class default, so a Judge built without __init__ (tests build one with __new__) keeps the default.
+    judge_placeholder: bool = False
     
     def __init__(
         self,
@@ -205,6 +208,7 @@ class Judge:
         temperature: Optional[float] = None,
         seed: Optional[int] = None,
         prompt_template: Optional[str] = None,
+        judge_placeholder: bool = False,
     ):
         """
         Args:
@@ -218,6 +222,9 @@ class Judge:
             prompt_template: Replaces :data:`JUDGE_PROMPT` on the ungrounded
                 path. Exists so the judge can be measured under a rewording of
                 its own prompt; production scoring leaves it unset.
+            judge_placeholder: Judge a context answer that is the no-retrieval
+                placeholder ("[FALLBACK: ...]") too. Off by default: a question
+                with no document reaching the prompt is not scored as an answer.
         """
         if not LANGCHAIN_AVAILABLE:
             raise ImportError(
@@ -233,6 +240,7 @@ class Judge:
         self.prompt_sha256 = JUDGE_PROMPT_SHA256
         self.run_metadata = dict(run_metadata) if run_metadata else {}
         self.prompt_template = prompt_template
+        self.judge_placeholder = judge_placeholder
         # Accumulate judge-side token/cost telemetry across all judge calls
         # (Phase-C.0 covered answering; the judge path was untracked).
         self._usage_lock = threading.Lock()
@@ -371,9 +379,11 @@ class Judge:
         context_answer = answer.answer(CONTEXT)
         baseline_answer = answer.answer(BASELINE)
 
-        # Evaluate context arm
+        # Evaluate context arm. The no-retrieval placeholder is not an answer: it is
+        # left unjudged unless the caller opted in with judge_placeholder.
         with_docs_eval = None
-        if context_answer is not None and context_answer.text:
+        placeholder = context_answer is not None and context_answer.doc_source in NO_RETRIEVAL_SOURCES
+        if context_answer is not None and context_answer.text and (self.judge_placeholder or not placeholder):
             with_docs_eval = self._judge_answer(
                 library_name=library_name,
                 question=question_text,

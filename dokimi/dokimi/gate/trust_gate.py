@@ -201,15 +201,19 @@ def evaluate_trust(
     # artifacts judged before that carry no retrieval outcome at all, and the
     # check reports "not measured" for them rather than a pass. So does a mix of
     # the two below ``min_retrieval_coverage``: the rate would describe a subset.
-    measured = [h for r in valid if (h := r.retrieval_hit) is not None]
-    if measured and len(measured) / n < cfg["min_retrieval_coverage"]:
+    # Over every evaluation, not only the both-arms-scored ones: a question with no
+    # document is not judged by default, and it still records that it missed.
+    every = records(evaluations, kind="evaluations")
+    measured = [h for r in every if (h := r.retrieval_hit) is not None]
+    n_all = len(every)
+    if measured and len(measured) / n_all < cfg["min_retrieval_coverage"]:
         checks.append(TrustCheck(
             name="retrieval_hit_rate",
             passed=True,
             value=None,
             threshold=cfg["min_retrieval_hit_rate"],
             message=(
-                f"Not measured: only {len(measured)} of {n} evaluations record a retrieval "
+                f"Not measured: only {len(measured)} of {n_all} evaluations record a retrieval "
                 f"outcome (retrieval_hit), under the {cfg['min_retrieval_coverage']:.0%} coverage "
                 f"floor; {sum(measured)} of those {len(measured)} hit"
             ),
@@ -219,7 +223,7 @@ def evaluate_trust(
     elif measured:
         retrieval_hits = sum(measured)
         hit_rate = retrieval_hits / len(measured)
-        coverage = "" if len(measured) == n else f"; {n - len(measured)} unrecorded"
+        coverage = "" if len(measured) == n_all else f"; {n_all - len(measured)} unrecorded"
         checks.append(TrustCheck(
             name="retrieval_hit_rate",
             passed=hit_rate >= cfg["min_retrieval_hit_rate"],

@@ -182,11 +182,13 @@ class TestRetrievalHitRate:
         ]
 
     def test_fails_when_retrieval_never_returned_a_doc(self):
-        evals = self._judged(n_hit=0, n_miss=12)
-        assert all(e["with_docs"]["aggregate"] > 0 for e in evals)
+        evals = self._judged(n_hit=2, n_miss=12)
+        # The placeholder is not judged by default: only the two hits carry a with-docs score,
+        # and the twelve misses still count against the rate.
+        assert sum(e["with_docs"] is None for e in evals) == 12
         check = next(c for c in evaluate_trust(evals).checks if c.name == "retrieval_hit_rate")
         assert not check.passed, check.message
-        assert check.value == 0.0
+        assert check.value == round(2 / 14, 3)
         assert check.measured
 
     def test_rate_counts_recorded_hits(self):

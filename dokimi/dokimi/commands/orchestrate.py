@@ -60,6 +60,7 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
             judge_model=args.judge_model,
             judge_provider=args.judge_provider,
             judge_temperature=args.judge_temperature,
+            judge_placeholder=getattr(args, "judge_placeholder", False),
             personas_count=args.personas_count,
             questions_per_topic=args.questions_per_topic,
             # Only pass top_k when explicitly set; otherwise let pipeline use config default
@@ -122,6 +123,8 @@ def register(sub, positive_int) -> None:
     eval_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, choices=JUDGE_PROVIDERS)
     eval_p.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
                         help="Judge sampling temperature, recorded as judge_temperature in the eval output")
+    eval_p.add_argument("--judge-placeholder", action="store_true", dest="judge_placeholder",
+                        help="Judge the no-retrieval placeholder answers too (default: they are not scored)")
     eval_p.add_argument("--personas-count", type=positive_int, default=5, help="Target number of personas")
     eval_p.add_argument("--questions-per-topic", type=positive_int, default=2, help="Questions per topic per persona")
     eval_p.add_argument("--top-k", type=positive_int, default=None, help="Docs to retrieve before reranking (default from config/products.yaml retrieval.top_k)")

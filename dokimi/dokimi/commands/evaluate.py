@@ -203,6 +203,7 @@ def cmd_eval_score(args: argparse.Namespace) -> None:
         model=args.judge_model,
         provider=args.judge_provider,
         temperature=args.judge_temperature,
+        judge_placeholder=getattr(args, "judge_placeholder", False),
         run_metadata={
             "question_model": run.meta.get("question_model", "unknown"),
             "question_provider": run.meta.get("question_provider", "unknown"),
@@ -478,6 +479,8 @@ def register(sub, positive_int) -> None:
     score_p.add_argument("--concurrency", type=positive_int, default=DEFAULT_CONCURRENCY, help="Parallel judge calls (default: 5)")
     score_p.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
                          help="Judge sampling temperature, recorded as judge_temperature in the output")
+    score_p.add_argument("--judge-placeholder", action="store_true", dest="judge_placeholder",
+                         help="Judge the no-retrieval placeholder answers too (default: they are not scored)")
     score_p.set_defaults(func=cmd_eval_score)
 
     # eval ragas

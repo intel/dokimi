@@ -51,3 +51,19 @@ def test_benchmark_run_judge_temperature_reaches_the_pipeline(monkeypatch, tmp_p
 def test_benchmark_run_judge_temperature_defaults_to_provider_default():
     args = _subparser("benchmark", "run").parse_args(["--library", "onetbb"])
     assert args.judge_temperature is None
+
+
+def test_judge_placeholder_flag_is_off_by_default_and_parses_when_given():
+    run = _subparser("benchmark", "run")
+    assert run.parse_args(["--library", "onetbb"]).judge_placeholder is False
+    assert run.parse_args(["--library", "onetbb", "--judge-placeholder"]).judge_placeholder is True
+
+
+def test_judge_placeholder_flag_judges_the_placeholder_answers(monkeypatch, tmp_path, provider_calls):
+    from tests.answering_stack_parity import run_stack_p
+
+    # q-empty and q-rerank carry the placeholder as their with-docs answer: with the flag they
+    # are judged again, so P's judge calls go back to the 12 that Stack A makes.
+    p = run_stack_p(monkeypatch, tmp_path, provider_calls, judge_placeholder=True)
+    assert len(p.judge_inputs) == 12
+    assert len([e for e in p.evaluations if e["delta"] is not None]) == 6

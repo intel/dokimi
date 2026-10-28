@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import pytest
 
@@ -55,7 +55,6 @@ DIFFERENCES = {f"D{i}" for i in range(1, 10)}
 PINNED: Tuple[Tuple[str, str, Any, Any], ...] = (
     # shared: the two stacks agree today
     ("shared", "retrieval.count", 6, 6),
-    ("shared", "judge.calls", 12, 12),
     ("shared", "reranker.calls", 5, 5),
     ("shared", "answer.roles", ("user",), ("user",)),
     ("shared", "answer.system", None, None),
@@ -110,23 +109,27 @@ PINNED: Tuple[Tuple[str, str, Any, Any], ...] = (
     # D8 library id: EvaluationPipeline with no context7_id (the `orchestrate` path without
     # --context7-id). `benchmark run` passes the registry's context7_id, so it is not this row.
     ("D8", "library_id", "registry/lib", "registry/lib"),
-    # D9 statistics. The delta also moves with D3: P's q-rerank is judged with no docs
-    # (delta 0), A's falls back to raw docs (delta 20), so a D3 fix flips this row too.
-    ("D9", "stats.delta_mean", 13.33, 16.67),
-    ("D9", "significance.n", 6, 6),
+    # D2 judge calls: P no longer judges the placeholder with-docs answers of q-empty and
+    # q-rerank (D2, D3), so 2 of the 12 calls are gone. A still judges all 12.
+    ("D2", "judge.calls", 10, 12),
+    # D9 statistics. P's paired deltas are q-docs, q-docs-2, q-docs-3, q-gt: 4 pairs, below
+    # MIN_PAIRS_FOR_TEST (6), so P has no significance test. A has 6 pairs.
+    ("D9", "stats.delta_mean", 20.0, 16.67),
+    ("D9", "stats.pairs", 4, 6),
+    ("D9", "significance.n", None, 6),
     ("D9", "significance.correction", None, "holm"),
-    ("D9", "significance.significant", False, False),
+    ("D9", "significance.significant", None, False),
     # what the judge sees per case: no docs (D2), reranker raises (D3), ground-truth chunk (D5)
     (
         "D2",
         "judge.contexts.q-empty",
-        ("(No documentation provided)", "(No documentation retrieved)"),
+        ("(No documentation provided)",),
         ("(No documentation retrieved)",),
     ),
     (
         "D3",
         "judge.contexts.q-rerank",
-        ("(No documentation provided)", "(No documentation retrieved)"),
+        ("(No documentation provided)",),
         ("(No documentation retrieved)", ("docs", "Passage", 3, True)),
     ),
     (
@@ -139,7 +142,8 @@ PINNED: Tuple[Tuple[str, str, Any, Any], ...] = (
     ("shared", "judge.ground_truth.q-gt", (GROUND_TRUTH_CHUNK,), (GROUND_TRUTH_CHUNK,)),
     ("shared", "judge.ground_truth.others", (None,), (None,)),
     # the per-question deltas that feed D9's statistics (P: stored "delta"; A: "docs" vs "baseline").
-    # q-rerank is the one that moves with D3: P judges it with no docs (0), A with the raw docs (20).
+    # q-empty and q-rerank have no P delta (no with-docs judgement, D2/D3); A's q-empty is 0 and
+    # its q-rerank falls back to the raw docs (20).
     (
         "D9",
         "delta.per_question",
@@ -147,9 +151,9 @@ PINNED: Tuple[Tuple[str, str, Any, Any], ...] = (
             ("q-docs", 20.0),
             ("q-docs-2", 20.0),
             ("q-docs-3", 20.0),
-            ("q-empty", 0.0),
+            ("q-empty", None),
             ("q-gt", 20.0),
-            ("q-rerank", 0.0),
+            ("q-rerank", None),
         ),
         (
             ("q-docs", 20.0),
@@ -310,6 +314,7 @@ def _observe(tmp_path: Path, provider_calls) -> Dict[str, Tuple[Any, Any]]:
 
     sig_p = _significance_p(p)
     sig_a = a.artifact["summary"]["per_arm"]["docs"]["significance"]
+    paired_p = _paired_deltas(p)
 
     return {
         "retrieval.count": (len(p.client.calls), len(a.client.calls)),
@@ -318,7 +323,8 @@ def _observe(tmp_path: Path, provider_calls) -> Dict[str, Tuple[Any, Any]]:
         "answer.roles": (sampling(p_all, "roles"), sampling(a_all, "roles")),
         "answer.system": (sampling(p_all, "system"), sampling(a_all, "system")),
         "answer.cache_blocks": (sampling(p_all, "cache_blocks"), sampling(a_all, "cache_blocks")),
-        "stats.delta_mean": (sig_p["delta_mean"], sig_a["delta_mean"]),
+        "stats.delta_mean": (round(sum(paired_p) / len(paired_p), 2), sig_a["delta_mean"]),
+        "stats.pairs": (len(paired_p), sig_a["n"]),
         "retrieval.passed": (
             distinct([c["passed"] for c in p.client.calls]),
             distinct([c["passed"] for c in a.client.calls]),
@@ -372,9 +378,16 @@ def _observe(tmp_path: Path, provider_calls) -> Dict[str, Tuple[Any, Any]]:
         ),
         "max_tokens.lands_in": (_where_4000_lands(p), _where_4000_lands(a)),
         "library_id": (p_noid.client.calls[0]["library_id"], a_lib),
-        "significance.n": (sig_p["n"], sig_a["n"]),
-        "significance.correction": (sig_p.get("correction"), sig_a.get("correction")),
-        "significance.significant": (sig_p["significant"], sig_a["significant"]),
+        # None: the paired test does not run below MIN_PAIRS_FOR_TEST pairs (P has 4 here)
+        "significance.n": (sig_p["n"] if sig_p else None, sig_a["n"]),
+        "significance.correction": (
+            sig_p.get("correction") if sig_p else None,
+            sig_a.get("correction"),
+        ),
+        "significance.significant": (
+            sig_p["significant"] if sig_p else None,
+            sig_a["significant"],
+        ),
         "record.shape": (_record_shape(p_rec_empty), _record_shape(a_rec_empty)),
         "answer.token_usage.context_chars": (
             "context_chars" in docs_block(p, p_rec_docs)["token_usage"],
@@ -410,12 +423,16 @@ def _observe(tmp_path: Path, provider_calls) -> Dict[str, Tuple[Any, Any]]:
     }
 
 
-def _significance_p(obs: Observed) -> Dict[str, Any]:
+def _significance_p(obs: Observed) -> Optional[Dict[str, Any]]:
+    """Stack P's paired test; None when it does not run (fewer pairs than MIN_PAIRS_FOR_TEST)."""
     from dokimi.report.eval_report import significance_test
 
-    result = significance_test(obs.evaluations)
-    assert result is not None, "P paired test did not run on the fixture"
-    return result
+    return significance_test(obs.evaluations)
+
+
+def _paired_deltas(obs: Observed) -> List[float]:
+    """The deltas of the questions both arms were judged on."""
+    return [e["delta"] for e in obs.evaluations if e.get("delta") is not None]
 
 
 def _record_shape(rec: Dict[str, Any]) -> str:
