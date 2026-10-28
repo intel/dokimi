@@ -860,7 +860,8 @@ def register(sub, positive_int) -> None:
                            help="Directory of skills to take the competitors from: every "
                                 "skill the catalog lists (skills.yaml when present, else every "
                                 "SKILL.md under it; a template/ copy and vendored or VCS "
-                                "directories like .git are left out) except "
+                                "directories like .git are left out, and a byte-identical "
+                                "copy under another path counts once) except "
                                 "the artifact itself, i.e. the "
                                 "siblings a harness lists next to it. Combines with "
                                 "--competitors")

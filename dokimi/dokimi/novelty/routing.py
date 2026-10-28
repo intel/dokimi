@@ -30,11 +30,11 @@ as a routing rate.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import random
 import re
-import hashlib
 from collections import Counter
 from dataclasses import dataclass
 from functools import partial
@@ -284,7 +284,7 @@ def model_routing(
                     prompt, accept=partial(_is_pick_reply, n_cards=len(order)), draw=repeat,
                 )
             except Exception as exc:  # noqa: BLE001 - one failed query must not lose the rest
-                row = {**base, "picked": None, "error": str(exc)[:200]}
+                row = {**base, "picked": None, "error": str(exc)[:200] or type(exc).__name__}
             else:
                 # A reply that is not a usable pick is the model declining to route, not a
                 # transport failure: it stays in the denominator like an explicit abstention,
@@ -628,5 +628,3 @@ def load_queries(path: str) -> list[str]:
         raise RoutingInputError(f"{path}: queries must be a list of strings, "
                                 "or one query per line")
     return [q for q in listed if q.strip()]
-
-
