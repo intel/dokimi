@@ -57,7 +57,7 @@ jobs:
   # runner for the same reason.
   static:
     name: Static checks (ruff, schema, zizmor, licenses, pre-commit, bandit, secrets, changelog, schema compat)
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository_owner == 'intel' && 'dokimi-ec2' || 'ubuntu-latest' }}
     steps:
       # Full history: the commit scan, the changelog and schema checks diff
       # against the base branch's tip (fetched by this checkout).
@@ -242,7 +242,7 @@ jobs:
 
   typecheck:
     name: mypy
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository_owner == 'intel' && 'dokimi-ec2' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -408,7 +408,7 @@ jobs:
   package-smoke:
     name: Package install smoke test (py${{ matrix.python-version }})
     needs: static
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository_owner == 'intel' && 'dokimi-ec2' || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
