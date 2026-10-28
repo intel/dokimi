@@ -114,6 +114,15 @@ def test_an_unreadable_trace_leaves_process_null_and_still_grades(setup, monkeyp
     assert rec["grade"]["status"] == "grader_failure"
 
 
+def test_an_agent_that_left_no_trace_is_not_given_a_process_metrics_error(setup, monkeypatch):
+    # No events and no turns: the metrics are not run on the missing trace, so they record no failure.
+    monkeypatch.setenv("FAKE_ACTION", "silent")
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    rec = json.loads((setup["out"] / "b1/fix_add__guidance-raw__m-1__r1/result.json").read_text())
+    assert rec["process"] is None
+    assert not any("process metrics failed" in e for e in rec["agent"]["trace_errors"])
+
+
 def test_a_process_metrics_error_leaves_process_null_and_keeps_the_cost_and_the_grade(setup, monkeypatch):
     # The metric is best-effort: a counter that raises must not fail the task or drop the cost the harness reported.
     def refuse(*args, **kwargs):
