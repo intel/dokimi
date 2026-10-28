@@ -233,8 +233,8 @@ How to read the results:
   is gone. The scan checks that a path, identifier or command exists, not
   that what the guidance says about it is true: a count or a description of
   the code (`public api` where the code declares `cdef api`) can be stale
-  while every claim is `ok`. A review
-  that lists the scan under what it checked names what the scan covers.
+  while every claim is `ok`. A review that lists the scan under what it
+  checked names what the scan covers.
 - **Reach:** a guidance file nobody loads cannot help anyone. Run `reach`
   before you judge the guidance's content. `loaded` comes from the harness
   itself, not from the harness's documentation, so a result that contradicts
@@ -246,19 +246,21 @@ How to read the results:
 A review also says which of its points come from reading rather than from a command:
 
 - **Past review comments:** no command counts how many of them the guidance
-  would have prevented. A count by hand follows the mining rules in
-  [preparing-a-repository.md](dokimi/docs/preparing-a-repository.md): take
-  comments the author then addressed, and read the reply before counting a
-  miss, since a change the author meant or declined with a reason is none.
-  Count each comment once, and check that a fix the review cites is still on
-  the default branch. To measure it instead, replay the merged pull requests
-  as `dokimi:review_replay` tasks and compare `guidance:none` with
-  `guidance:raw` in step 4.
+  would have prevented. To count by hand, take the comments the author then
+  addressed, and read the reply before counting a miss: a change the author
+  meant, or declined with a reason, is none. Count each comment once, and
+  check that a fix the review cites is still on the default branch. The
+  count takes every addressed comment, not only issues raised in at least
+  two PRs: that filter picks which comments become review rules
+  ([preparing-a-repository.md](dokimi/docs/preparing-a-repository.md#6-review-rules-learned-from-past-reviews)),
+  while the count asks what the guidance would have caught. To measure it
+  instead, replay the merged pull requests as `dokimi:review_replay` tasks
+  and compare `guidance:none` with `guidance:raw` in step 4.
 - **A rule the review proposes:** read every file it names; that the name
   exists is not enough (a workflow that calls another one holds no matrix of
   its own). Check it against the existing guidance: a nested `AGENTS.md` may
   keep old code on purpose. Put what applies to one directory in that
-  directory's file, and keep it about as long as the bullets around it.
+  directory's file.
 
 The contract a repository codes against: [repo-evaluation-contract.md](dokimi/docs/repo-evaluation-contract.md).
 
