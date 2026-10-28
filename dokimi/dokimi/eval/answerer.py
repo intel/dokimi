@@ -15,8 +15,7 @@ logger = logging.getLogger(__name__)
 
 from dokimi.utils import question_id
 from dokimi.artifacts import save_artifact
-from dokimi.llm import ChatModel
-from dokimi.llm import llm_call_with_usage, ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
+from dokimi.llm import llm_call_with_usage, LANGCHAIN_AVAILABLE
 from dokimi.defaults import DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER
 from dokimi.metrics.usage import UsageRecord, to_record
 
@@ -95,15 +94,9 @@ class Answerer:
         self.provider = provider
         self.api_key = api_key
 
-        self.llm: Optional[ChatModel]
-        if provider == "openai":
-            self.llm = ChatOpenAI(model=model, api_key=api_key)
-        elif provider == "anthropic":
-            self.llm = ChatAnthropic(model=model, api_key=api_key)
-        elif provider in ("google", "gemini", "google-vertex", "openrouter",
-                          "amazon-bedrock", "vertex_ai"):
-            self.llm = None  # llm_call_with_usage handles these natively
-        else:
+        # The answer call goes through llm_call_with_usage, which picks the provider's client itself.
+        if provider not in ("openai", "anthropic", "google", "gemini", "google-vertex",
+                            "openrouter", "amazon-bedrock", "vertex_ai"):
             raise ValueError(
                 f"Unsupported provider: '{provider}'. "
                 "Use 'openai', 'anthropic', 'google', 'openrouter', or 'amazon-bedrock'."
@@ -357,24 +350,7 @@ class Answerer:
         retrieval_metadata: Optional[Dict[str, Any]] = None,
         verbatim: bool = False,
     ) -> Dict[str, Any]:
-        """Generate context-arm answer."""
-        if not docs:
-            # No LLM call is made — emit a zero-cost/zero-token metrics block so
-            # this row carries the same telemetry shape as answered rows.
-            empty = UsageRecord(model=self.model, provider=self.provider,
-                                cost_usd=0.0, n_calls=0)
-            token_usage = empty.as_token_usage_dict()
-            token_usage["context_chars"] = 0
-            return {
-                "answer": "[No documentation retrieved]",
-                "retrieved_docs": [],
-                "model": self.model,
-                "doc_source": "none",
-                "retrieval_metadata": retrieval_metadata if self.debug_retrieval else None,
-                "token_usage": token_usage,
-                "metrics": empty.as_metrics_dict(answer_chars=0),
-            }
-
+        """Generate context-arm answer. Called only with a non-empty *docs* (see ``_generate_answer_pair``)."""
         # ~4k tokens at ~4 chars/token; keeps prompt within most models' context window
         MAX_DOC_CHARS = 15_000
 
