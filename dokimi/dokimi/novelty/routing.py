@@ -611,13 +611,16 @@ def load_queries(path: str) -> list[str]:
     Blank queries are dropped, so the result can be empty.
 
     Raises:
-        RoutingInputError: The file holds something other than a list of strings. A file
-            that cannot be read raises as reading it does.
+        RoutingInputError: The file cannot be read (missing, unreadable or not UTF-8), or
+            holds something other than a list of strings.
     """
-    raw = Path(path).read_text(encoding="utf-8-sig")
+    try:
+        raw = Path(path).read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise RoutingInputError(f"cannot read --queries {path}: {exc}") from None
     try:
         data = json.loads(raw)
-    except json.JSONDecodeError:
+    except (ValueError, RecursionError):  # JSONDecodeError is a ValueError
         data = None
     if not isinstance(data, (list, dict)):      # one-per-line, e.g. "[urgent] build fails"
         data = raw.splitlines()
