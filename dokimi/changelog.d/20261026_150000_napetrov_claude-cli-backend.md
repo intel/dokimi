@@ -17,3 +17,11 @@
 - The `--provider` choices of every command come from one tuple,
   `dokimi.llm.ANSWER_PROVIDERS`. `tools` keeps API providers only, since it needs
   tool calling.
+- A CLI provider refuses an agentic arm (`mcp_agent`, `skill_agent`, `skill_catalog`) and
+  `--session-turns` in `arms run` and `arms matrix-run`, before any answer is paid for: the CLI
+  runs one prompt with no tools and no conversation.
+- Independence checks treat an alias and its full id as one model (`opus` and
+  `claude-opus-…`). The novelty default judge on `claude-cli` is another Claude family than the answerer.
+- The CLI child process drops `ANTHROPIC_*`, `CLAUDE_*` and `CLAUDECODE` variables from the
+  environment (except `CLAUDE_CONFIG_DIR` and `CLAUDE_CODE_OAUTH_TOKEN`), so a billing or
+  session setting in the caller does not reroute the call.

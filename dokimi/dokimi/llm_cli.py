@@ -60,6 +60,13 @@ CLAUDE_ENV_DROP = frozenset({
     # Set, they win over the CLI's login: the run would bill the key or token, not the subscription.
     "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
 })
+#: Dropped by prefix, so a variable not yet listed (an endpoint, a model alias override, a
+#: provider switch such as CLAUDE_CODE_USE_BEDROCK) cannot change who is billed or which
+#: session the child joins.
+CLAUDE_ENV_DROP_PREFIXES = ("ANTHROPIC_", "CLAUDE_", "CLAUDECODE")
+#: Kept despite a prefix: where the account's login lives, and the token ``claude setup-token``
+#: makes for a headless login.
+CLAUDE_ENV_KEEP = frozenset({"CLAUDE_CONFIG_DIR", "CLAUDE_CODE_OAUTH_TOKEN"})
 
 #: The flags that strip the CLI to a bare completion; see the module docstring.
 CLAUDE_ISOLATION = ("--tools", "", "--setting-sources", "", "--strict-mcp-config",
@@ -115,6 +122,8 @@ class CliBackend:
     auth_argv: Tuple[str, ...]
     parse_auth: Callable[[process.Completed], Tuple[Optional[bool], str]]  # -> (authenticated, method)
     env_drop: frozenset = frozenset()
+    env_drop_prefixes: Tuple[str, ...] = ()
+    env_keep: frozenset = frozenset()
     supports: frozenset = frozenset()  # of "temperature", "seed", "max_tokens"
     login_hint: str = ""
     aliases: Tuple[str, ...] = ()
@@ -138,8 +147,28 @@ def _claude_error(payload: Dict[str, Any], done: process.Completed) -> CliCallEr
     if any(w in lowered for w in ("authentication", "not logged in", "/login")):
         return CliCallError(f"claude-cli: {message} (sign in: claude setup-token, or claude /login)",
                             retryable=False)
+    if "usage limit" in lowered:  # a subscription cap: it resets in hours, a retry cannot help
+        return CliCallError(f"claude-cli: {message}", retryable=False)
     retryable = status in _RETRYABLE_STATUS or any(w in lowered for w in _RETRYABLE_WORDS)
     return CliCallError(f"claude-cli: {message}", retryable=retryable)
+
+
+def _main_model(model_usage: Dict[str, Any], requested: str) -> Optional[str]:
+    """The model the CLI answered with: the requested family if listed, else the one with most output.
+
+    ``modelUsage`` also lists the helper models a call used (a title or a classifier), so
+    its first key is not always the answering model.
+    """
+    names = [n for n in model_usage if isinstance(n, str)]
+    if not names:
+        return None
+    for name in names:
+        if _family(name) == _family(requested):
+            return name
+    def output(name: str) -> int:
+        stats = model_usage.get(name)
+        return int(stats.get("outputTokens") or 0) if isinstance(stats, dict) else 0
+    return max(names, key=output)
 
 
 def _claude_parse(done: process.Completed, model: str, provider: str) -> CliResult:
@@ -170,7 +199,7 @@ def _claude_parse(done: process.Completed, model: str, provider: str) -> CliResu
     return CliResult(
         text=str(payload.get("result") or ""),
         usage=usage,
-        model_id=next(iter(model_usage), None),
+        model_id=_main_model(model_usage, model),
         list_cost_usd=float(list_cost) if isinstance(list_cost, (int, float)) else None,
         finish_reason="length" if payload.get("stop_reason") == "max_tokens" else "stop",
     )
@@ -197,6 +226,8 @@ CLAUDE_CLI = CliBackend(
     auth_argv=("claude", "auth", "status"),
     parse_auth=_claude_auth,
     env_drop=CLAUDE_ENV_DROP,
+    env_drop_prefixes=CLAUDE_ENV_DROP_PREFIXES,
+    env_keep=CLAUDE_ENV_KEEP,
     login_hint="claude setup-token (headless) or claude, then /login",
     aliases=("haiku", "sonnet", "opus"),
     model_prefixes=("claude-",),
@@ -215,6 +246,37 @@ def accepts_model(provider: str, model: str) -> bool:
     """Whether *provider*'s CLI takes *model*: one of its aliases, or a full id it names."""
     cli = BACKENDS[provider]
     return model in cli.aliases or model.startswith(cli.model_prefixes)
+
+
+def _family(model: str) -> Optional[str]:
+    """The alias a Claude model name belongs to: ``sonnet``, or of ``claude-sonnet-5-5``."""
+    name = model.strip().lower()
+    if name in CLAUDE_CLI.aliases:
+        return name
+    if name.startswith("claude-"):
+        for part in name.split("-"):
+            if part in CLAUDE_CLI.aliases:
+                return part
+    return None
+
+
+def same_model(provider_a: str, model_a: str, provider_b: str, model_b: str) -> bool:
+    """Whether two model refs name one model, for the independence and self-judge checks.
+
+    An alias the CLI resolves (``sonnet``) is the same model as a full id of its family
+    (``claude-sonnet-5-5``): which version the alias is today is not known here, so the
+    check errs toward "same", and a warning is the cost of being wrong. Refs that involve
+    no CLI provider are left to the caller's own comparison (this returns ``False``).
+    """
+    if provider_a not in BACKENDS and provider_b not in BACKENDS:
+        return False
+    a, b = model_a.strip().lower(), model_b.strip().lower()
+    if a == b:
+        return True
+    if a not in CLAUDE_CLI.aliases and b not in CLAUDE_CLI.aliases:
+        return False  # two full ids that differ are two models
+    fa, fb = _family(a), _family(b)
+    return fa is not None and fa == fb
 
 
 def check_sampling(provider: str, temperature: Optional[float], seed: Optional[int]) -> None:
@@ -240,8 +302,14 @@ def work_dir(name: str) -> Path:
     return path
 
 
+def _passed_on(name: str, cli: CliBackend) -> bool:
+    if name in cli.env_keep:
+        return True
+    return name not in cli.env_drop and not name.startswith(cli.env_drop_prefixes)
+
+
 def _env(cli: CliBackend) -> process.Env:
-    return process.Env.only([k for k in os.environ if k not in cli.env_drop])
+    return process.Env.only([k for k in os.environ if _passed_on(k, cli)])
 
 
 def call(provider: str, *, model: str, prompt: str, system: Optional[str] = None,

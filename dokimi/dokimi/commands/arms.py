@@ -627,6 +627,7 @@ def _build_arms_output(args: argparse.Namespace, specs: list[str], questions: li
     plugins = create_plugins([s.strip() for s in args.plugins.split(",") if s.strip()])
     validate_plugins_for_harness(plugins, args.harness)
     treatments = wrap_treatments(treatments, plugins)
+    refuse_cli_arms(args, treatments)
     plugin_set = plugin_set_metadata(plugins)
     print(f"Arms: {', '.join(t.name for t in treatments)}")
     if args.matrix_cell:

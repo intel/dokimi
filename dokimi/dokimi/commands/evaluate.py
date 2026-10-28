@@ -32,7 +32,10 @@ def _warn_judge_independence(
     context: str = "run",
 ) -> bool:
     """Emit a non-fatal warning when answer and judge use the same model/provider."""
-    same = normalize_model_ref(answer_provider, answer_model) == normalize_model_ref(judge_provider, judge_model)
+    from dokimi.llm_cli import same_model
+
+    same = (normalize_model_ref(answer_provider, answer_model) == normalize_model_ref(judge_provider, judge_model)
+            or same_model(answer_provider, answer_model, judge_provider, judge_model))
     if same:
         print(
             "⚠ Evaluator independence warning "

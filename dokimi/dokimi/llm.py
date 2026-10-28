@@ -452,6 +452,8 @@ class Reply:
     finish_reason: Optional[str] = None
     tool_calls: Tuple[ToolCall, ...] = ()
     response: Any = field(default=None, compare=False, repr=False)
+    #: The model the provider resolved to, when it says (a CLI names the version behind an alias).
+    model_id: Optional[str] = None
 
     @property
     def truncated(self) -> bool:
@@ -537,7 +539,7 @@ def _cli_reply(request: Request) -> Reply:
               for m in request.messages if m.get("role") == "system"]
     out = llm_cli.call(request.provider, model=request.model, prompt=prompt_text(request),
                        system="\n\n".join(system) or None)
-    return Reply(text=out.text, usage=out.usage, finish_reason=out.finish_reason)
+    return Reply(text=out.text, usage=out.usage, finish_reason=out.finish_reason, model_id=out.model_id)
 
 
 class LiteLLMAdapter:

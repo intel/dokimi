@@ -239,7 +239,9 @@ def analyze(
         concurrency=config.concurrency, allow_self_judge=config.allow_self_judge,
         placebo_text=config.placebo_text, seed=config.seed,
     )
-    if config.allow_self_judge and judge.model == answerer.model:
+    from dokimi.novelty.client import same_client
+
+    if config.allow_self_judge and same_client(judge, answerer):
         warnings.append(
             "judge and answerer are the same model (--allow-self-judge): scores are inflated"
         )

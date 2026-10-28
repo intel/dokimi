@@ -255,7 +255,9 @@ def run_measurement(
             irrelevant context actively harms them.
         seed: Seed for the ``shuffled`` control, so the control is reproducible.
     """
-    if judge.model == answerer.model and not allow_self_judge:
+    from dokimi.novelty.client import same_client
+
+    if same_client(judge, answerer) and not allow_self_judge:
         raise SelfJudgeError(
             f"judge model {judge.model!r} is the answering model; grading a response with "
             "the model that produced it inflates the score. Pass a different --judge-model, "

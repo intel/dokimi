@@ -108,7 +108,9 @@ def test_a_failed_call_says_whether_another_attempt_can_help(runner, answer, ret
     assert llm.is_retryable(info.value) is retryable
 
 
-@pytest.mark.parametrize("status", sorted(llm_cli._RETRYABLE_STATUS))
+# The status and word lists are written out here, not read from llm_cli: dropping a
+# member from the module must fail a test, not drop the test with it.
+@pytest.mark.parametrize("status", [408, 429, 500, 502, 503, 504, 529])
 def test_each_retryable_status_is_retried_whatever_the_message(runner, status):
     runner.answers.append(reply(_err("something went wrong", status), returncode=1))
     with pytest.raises(llm_cli.CliCallError) as info:
@@ -116,12 +118,21 @@ def test_each_retryable_status_is_retried_whatever_the_message(runner, status):
     assert info.value.retryable is True
 
 
-@pytest.mark.parametrize("word", llm_cli._RETRYABLE_WORDS)
+@pytest.mark.parametrize("word", ["rate limit", "rate_limit", "overloaded", "timed out"])
 def test_each_retryable_word_is_retried_without_a_status(runner, word):
     runner.answers.append(reply(_err(f"API said: {word}", None), returncode=1))
     with pytest.raises(llm_cli.CliCallError) as info:
         llm_cli.call("claude-cli", model="sonnet", prompt="p")
     assert info.value.retryable is True
+
+
+@pytest.mark.parametrize("status", [None, 429])
+def test_a_subscription_usage_limit_is_not_retried(runner, status):
+    # It resets after hours: three more CLI starts would only delay the same failure.
+    runner.answers.append(reply(_err("Claude AI usage limit reached|1761660000", status), returncode=1))
+    with pytest.raises(llm_cli.CliCallError, match="usage limit") as info:
+        llm_cli.call("claude-cli", model="sonnet", prompt="p")
+    assert info.value.retryable is False
 
 
 @pytest.mark.parametrize("answer", [
@@ -245,14 +256,21 @@ def test_backends_command_prints_one_row_per_backend(monkeypatch, capsys):
 
 
 def test_benchmark_preflight_checks_the_login_not_a_key(monkeypatch):
-    from dokimi.commands.benchmark import _credential_error
+    from dokimi.commands.benchmark import _provider_checks
 
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")  # no key anywhere: the CLI login is what counts
     monkeypatch.setattr(process, "run", _auth_runner({"loggedIn": False}))
-    assert "not signed in" in _credential_error("claude-cli")
+    errors, _ = _provider_checks(["claude-cli"])
+    assert any("not signed in" in e for e in errors)
     monkeypatch.setattr(process, "run", _auth_runner({"loggedIn": True}))
-    assert _credential_error("claude-cli") is None
+    assert _provider_checks(["claude-cli"]) == ([], [])
     monkeypatch.setattr(process, "run", _auth_runner(None))
-    assert "not installed" in _credential_error("claude-cli")
+    errors, _ = _provider_checks(["claude-cli"])
+    assert any("not installed" in e for e in errors)
+    monkeypatch.setattr(process, "run", _auth_runner({"loggedIn": True}))
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    errors, _ = _provider_checks(["openai"])
+    assert any("missing OPENAI_API_KEY" in e for e in errors)
 
 
 def test_a_judge_panel_refuses_sampling_on_the_cli_with_explicit_judges():
@@ -263,10 +281,11 @@ def test_a_judge_panel_refuses_sampling_on_the_cli_with_explicit_judges():
 
 
 def test_an_unanswered_login_check_is_a_warning_not_a_pass(monkeypatch):
-    from dokimi.commands.benchmark import _credential_error, _login_warning
+    from dokimi.commands.benchmark import _login_warning, _provider_checks
 
     monkeypatch.setattr(process, "run", _auth_runner("no answer"))
-    assert _credential_error("claude-cli") is None
+    assert _provider_checks(["claude-cli"]) == ([], [
+        "claude-cli: could not check the login ('claude auth status' gave no answer)"])
     assert "could not check the login" in _login_warning("claude-cli")
     monkeypatch.setattr(process, "run", _auth_runner({"loggedIn": True}))
     assert _login_warning("claude-cli") is None
@@ -297,3 +316,131 @@ def test_answerer_and_generators_accept_the_cli_provider(runner):
     runner.answers.extend([reply(_ok("persona")), reply(_ok("question"))])
     assert PersonaGenerator(model="haiku", provider="claude-cli").llm.invoke("p").content == "persona"
     assert QuestionGenerator(model="haiku", provider="claude-cli").llm.invoke("q").content == "question"
+
+
+def test_the_child_env_drops_billing_and_session_variables_by_prefix(runner, monkeypatch):
+    # Named in review: an endpoint, a model alias override and a provider switch each
+    # change who is billed; a messaging socket joins the parent's session.
+    for name, value in {
+        "ANTHROPIC_BASE_URL": "https://gateway.example", "ANTHROPIC_DEFAULT_SONNET_MODEL": "other",
+        "ANTHROPIC_CUSTOM_HEADERS": "x: y", "CLAUDE_CODE_USE_BEDROCK": "1",
+        "CLAUDE_CODE_MESSAGING_SOCKET": "/tmp/sock", "CLAUDE_CODE_SSE_PORT": "1234",
+        "CLAUDE_CODE_OAUTH_TOKEN": "headless-token", "CLAUDE_CONFIG_DIR": "/accounts/work",
+    }.items():
+        monkeypatch.setenv(name, value)
+    runner.answers.append(reply(_ok()))
+    llm_cli.call("claude-cli", model="sonnet", prompt="p")
+    env = runner.calls[0].env
+    for name in ("ANTHROPIC_BASE_URL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_CUSTOM_HEADERS",
+                 "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_SSE_PORT"):
+        assert name not in env, name
+    # The login is kept: the headless token and the account's config dir.
+    assert env["CLAUDE_CODE_OAUTH_TOKEN"] == "headless-token"
+    assert env["CLAUDE_CONFIG_DIR"] == "/accounts/work"
+
+
+def test_the_work_dir_is_under_the_users_cache_not_the_shared_temp_dir(monkeypatch, tmp_path):
+    import tempfile
+
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path / "shared-tmp"))
+    path = llm_cli.work_dir("claude-cli")
+    assert path == tmp_path / "cache" / "dokimi" / "cli" / "claude-cli" and path.is_dir()
+    assert not (tmp_path / "shared-tmp").exists()
+
+
+def test_a_reply_names_the_main_model_the_cli_resolved(runner):
+    # modelUsage lists a helper model too; the main one has the output tokens.
+    payload = json.loads(_ok(modelUsage={"claude-haiku-5-5": {"outputTokens": 9},
+                                         "claude-sonnet-5-5": {"outputTokens": 3}}))
+    runner.answers.append(reply(json.dumps(payload)))
+    out = llm_cli.call("claude-cli", model="sonnet", prompt="p")
+    assert out.model_id == "claude-sonnet-5-5"
+
+
+def test_the_llm_reply_carries_the_resolved_model_id(runner):
+    runner.answers.append(reply(_ok()))
+    request = llm.Request(model="sonnet", provider="claude-cli", litellm_model="sonnet",
+                          messages=[{"role": "user", "content": "ping"}], max_tokens=50)
+    assert llm._cli_reply(request).model_id == "claude-sonnet-5-5"
+
+
+def test_an_alias_and_its_full_id_are_one_model_for_the_identity_checks():
+    same = llm_cli.same_model
+    assert same("claude-cli", "sonnet", "claude-cli", "claude-sonnet-5-5")
+    assert same("anthropic", "claude-sonnet-5-5", "claude-cli", "sonnet")
+    assert not same("claude-cli", "sonnet", "claude-cli", "claude-opus-5-5")
+    assert not same("claude-cli", "claude-sonnet-5-5", "claude-cli", "claude-sonnet-4-5")
+    assert not same("openai", "gpt-6.1-sol", "claude-cli", "sonnet")
+
+
+def test_the_independence_warning_fires_for_an_alias_against_its_full_id(capsys):
+    from dokimi.commands.evaluate import _warn_judge_independence
+
+    assert _warn_judge_independence("claude-cli", "sonnet", "claude-cli", "claude-sonnet-5-5")
+    assert "independence warning" in capsys.readouterr().err
+    assert not _warn_judge_independence("claude-cli", "sonnet", "claude-cli", "claude-opus-5-5")
+
+
+def test_the_novelty_default_judge_on_the_cli_is_another_family():
+    from dokimi.novelty.client import default_judge
+
+    judge, provider = default_judge("sonnet", "claude-cli")
+    assert provider == "claude-cli" and not llm_cli.same_model("claude-cli", judge, "claude-cli", "sonnet")
+
+
+def test_a_novelty_judge_of_the_answerers_family_counts_as_the_answerer():
+    # run_measurement refuses a judge that same_client matches with the answerer, unless allowed.
+    from dokimi.novelty.client import LLMClient, same_client
+
+    judge = LLMClient(model="claude-sonnet-5-5", provider="anthropic")
+    answerer = LLMClient(model="sonnet", provider="claude-cli")
+    assert same_client(judge, answerer) and same_client(answerer, judge)
+    assert not same_client(LLMClient(model="opus", provider="claude-cli"), answerer)
+
+
+def test_an_agentic_arm_or_a_session_is_refused_on_the_cli_before_any_answer():
+    from dokimi.commands import arms_refusals
+    from dokimi.treatments import create_treatments
+
+    plain = create_treatments(["baseline", "docs"], top_k=3, rerank_threshold=0.3)
+    agentic = create_treatments(["baseline", "agent"], top_k=3, rerank_threshold=0.3)
+    cli = argparse.Namespace(provider="claude-cli", session_turns=None)
+    arms_refusals.refuse_cli_arms(cli, plain)
+    with pytest.raises(ValueError, match="agentic arm"):
+        arms_refusals.refuse_cli_arms(cli, agentic)
+    with pytest.raises(ValueError, match="--session-turns"):
+        arms_refusals.refuse_cli_arms(argparse.Namespace(provider="claude-cli", session_turns=3), plain)
+    arms_refusals.refuse_cli_arms(argparse.Namespace(provider="openai", session_turns=3), agentic)
+
+
+def test_a_cli_judge_given_a_temperature_stops_the_full_pipeline_before_any_work(monkeypatch, capsys):
+    from dokimi.commands import orchestrate
+    from dokimi import orchestrator
+
+    def pipeline_must_not_start(*args, **kwargs):
+        raise AssertionError("the pipeline started before the sampling refusal")
+
+    monkeypatch.setattr(orchestrator, "EvaluationPipeline", pipeline_must_not_start)
+    args = argparse.Namespace(repo="owner/repo", description=None, product="demo",
+                              judge_provider="claude-cli", judge_temperature=0.0)
+    with pytest.raises(SystemExit):
+        orchestrate.cmd_evaluate(args)
+    assert "takes no temperature" in capsys.readouterr().err
+
+
+def test_every_command_with_a_hidden_or_default_model_refuses_the_cli_without_a_claude_model():
+    from dokimi.cli import parse_args
+
+    cases = [
+        ["questions", "generate", "--product", "p", "--provider", "claude-cli"],
+        ["questions", "analyze", "--product", "p", "--provider", "claude-cli"],
+        ["questions", "panel-review", "--product", "p", "--provider", "claude-cli"],
+        ["personas", "discover", "--product", "p", "--provider", "claude-cli"],
+        ["subjects", "run", "subject.toml", "--provider", "claude-cli"],
+    ]
+    for argv in cases:
+        with pytest.raises(SystemExit):
+            parse_args(argv)
+    assert parse_args(["subjects", "run", "subject.toml", "--provider", "claude-cli",
+                       "--model", "haiku"]).model == "haiku"
