@@ -507,7 +507,11 @@ under several judges (absolute, and with `--grounded` against each question's
 measures, and labels each arm `CONSISTENT ±`, `LEANING ±`, `JUDGE-DEPENDENT` or
 `NO DETECTABLE EFFECT`, on Holm-adjusted p over the measures that vote, or
 `NOT MEASURED` when no voting measure compared a single question (every call
-errored, or every judge was gated out); `--strict` exits 1 on that too. With
+errored, or every judge was gated out); `--strict` exits 1 on that too. A
+`--judges` judge that leaves answers unscored prints how many and its first
+error, which the report keeps under `unscored`; one that scored none of its
+answers exits 2 once the report is written, with or without `--strict`, as
+`eval pairwise` does when every comparison fails. With
 `--validity` reports, a judge that failed its gate is shown but does not vote
 (its grounded and checklist measures included, in any context);
 `--require-validated` leaves only judges that passed. The stored measure is
