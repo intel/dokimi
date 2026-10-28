@@ -128,6 +128,29 @@ def test_compare_treats_a_bedrock_alias_and_its_profile_as_one_judge(compare, ca
     assert capsys.readouterr().err == ""
 
 
+def test_a_snapshot_its_alias_and_another_route_are_one_judge_model():
+    base = _eval(judge=("anthropic", "claude-sonnet-4-5"))
+    assert baseline_mod._model_mismatches(base, _eval(judge=("anthropic", "claude-sonnet-4-5-20250929"))) == ([], [])
+    assert baseline_mod._model_mismatches(base, _eval(judge=("amazon-bedrock", "us.anthropic.claude-sonnet-4-5"))) == (
+        [], [])
+
+
+def test_a_panel_is_the_same_only_when_its_judges_pair_one_to_one():
+    same = baseline_mod._same_recorded
+    assert same(("panel", "anthropic/m,anthropic/m"), ("panel", "m,anthropic/m"))
+    assert not same(("panel", "anthropic/m,anthropic/m,anthropic/m"), ("panel", "anthropic/m,anthropic/m"))
+    assert not same(("panel", "m-20240101,m-20240101"), ("panel", "m,m-20250101"))
+    assert not same(("panel", "m"), ("anthropic", "m"))
+
+
+def test_two_snapshots_of_one_judge_model_are_a_mismatch():
+    lines, _ = baseline_mod._model_mismatches(
+        _eval(judge=("anthropic", "claude-sonnet-4-5-20240620")),
+        _eval(judge=("anthropic", "claude-sonnet-4-5-20250929")))
+    assert lines == ["judge model: baseline anthropic/claude-sonnet-4-5-20240620, "
+                     "current anthropic/claude-sonnet-4-5-20250929"]
+
+
 def test_compare_names_a_role_the_baseline_does_not_record(compare, capsys):
     old = _eval()
     del old["run_metadata"]

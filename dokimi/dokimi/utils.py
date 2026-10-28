@@ -3,10 +3,11 @@
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Tuple, Dict, Any
 
-from dokimi.defaults import BEDROCK_MODEL_IDS, bedrock_profile
+from dokimi.defaults import bedrock_profile
 
 
 def parse_frontmatter(text: str) -> "Tuple[Dict[str, Any], str]":
@@ -113,15 +114,45 @@ def retry_writable(func: Any, path: str, _exc: Any) -> None:
         pass
 
 
-def normalize_model_ref(provider: str, model: str) -> str:
-    """Normalize provider and model names for comparison.
+# Bedrock cross-region inference profiles: the same model served from another region. They are dropped
+# from any provider's name, not only Bedrock's: no non-Bedrock id is known to start with one of them.
+_REGION_PROFILES = ("us-gov.", "global.", "apac.", "us.", "eu.", "jp.", "au.", "ca.")
 
-    On Bedrock a bare known name and its inference profile are the same model.
+
+def _model_core(model: str) -> tuple[str, str | None]:
+    """A model name reduced to ``(id, snapshot date or None)``.
+
+    The route goes (``openrouter/anthropic/``, ``bedrock/``, ``vertex_ai/``, an ARN's
+    ``inference-profile/``), and so do the case, the region profile (``eu.``) and a Bedrock
+    revision (``-v1:0``). Vertex's ``@20250929`` is the snapshot ``-20250929``.
     """
-    prov, name = (provider or "").strip().lower(), (model or "").strip()
-    if prov == "amazon-bedrock":
-        name = BEDROCK_MODEL_IDS.get(name, name)
-    return f"{prov}/{name.lower()}"
+    name = (model or "").strip().lower().rsplit("/", 1)[-1]
+    name = re.sub(r"-v\d+:\d+$", "", name)
+    for prefix in _REGION_PROFILES:
+        if name.startswith(prefix):
+            name = name[len(prefix):]
+            break
+    name = re.sub(r"@(?=\d{8}$)", "-", name)
+    snapshot = re.search(r"-(\d{8})$", name)
+    return (name[:snapshot.start()], snapshot.group(1)) if snapshot else (name, None)
+
+
+def same_model(a: str, b: str) -> bool:
+    """Whether two model names are one model.
+
+    The same id matches, and so does a dated snapshot and its undated alias (the alias runs
+    some snapshot of it), or the same id behind another route or region profile. Two dated
+    ids match only on the same date, and a bare family name (``haiku``) is not a full id.
+
+    The provider is not part of the identity: the same weights on Bedrock and on the direct
+    API are still one model for the self-judge warning and for a baseline's model check.
+    """
+    (base_a, date_a), (base_b, date_b) = _model_core(a), _model_core(b)
+    if not (base_a and base_b) or (date_a and date_b and date_a != date_b):
+        return False
+    # a lowercase word before the first dot is taken as a vendor prefix (``anthropic.``, ``amazon.``) and
+    # dropped; a dot after a digit or a dash (``gpt-4.1``, ``qwen2.5``) is part of the name
+    return re.sub(r"^[a-z]+\.", "", base_a) == re.sub(r"^[a-z]+\.", "", base_b)
 
 
 def _read_key(value: str) -> str:

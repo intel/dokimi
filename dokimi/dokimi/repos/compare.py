@@ -75,9 +75,10 @@ from pathlib import Path
 from typing import Any
 
 from dokimi.eval.stats import adjust_pvalues, bootstrap_ci, mean_ci
+from dokimi.utils import same_model
 
 from .process_counts import process_order, process_values
-from .report import (load_cells, mismatch_warnings, model_matches, model_mismatch, resolved_models, unmeasured_note,
+from .report import (load_cells, mismatch_warnings, model_mismatch, resolved_models, unmeasured_note,
                      uptake_counts)
 
 #: Largest number of non-zero deltas whose sign-flip distribution is enumerated (2**16 patterns).
@@ -198,23 +199,24 @@ def _provenance(batch_dirs: list[Path], cells: list[dict[str, Any]], baseline: s
 
 
 def _models_equivalent(base_models: set[str], treat_models: set[str]) -> bool:
-    """Whether base and treatment model sets are equivalent under model_matches() logic.
+    """Whether base and treatment model sets are equivalent under same_model() logic.
 
-    Two resolved model sets are equivalent if they differ only by provider prefixes or
-    version suffixes that model_matches() considers equivalent. For each base model,
+    Two resolved model sets are equivalent if each model in one matches a model in the other
+    under same_model(): provider prefixes, regional profiles, revision suffixes, case and
+    undated snapshot aliases do not count as different models. For each base model,
     there must be a matching treatment model and the reverse; the set sizes may differ, since one arm can
     hold several spellings of the same model across repetitions.
     """
     if base_models == treat_models:
         return True
     # Check if each base model has an equivalent in treatment models
-    # (model_matches is already bidirectional, so one call per pair suffices)
+    # (same_model is symmetric, so one call per pair suffices)
     for base_model in base_models:
-        if not any(model_matches(base_model, treat_model) for treat_model in treat_models):
+        if not any(same_model(base_model, treat_model) for treat_model in treat_models):
             return False
     # Check the reverse: every treatment model matches some base model
     for treat_model in treat_models:
-        if not any(model_matches(treat_model, base_model) for base_model in base_models):
+        if not any(same_model(treat_model, base_model) for base_model in base_models):
             return False
     return True
 

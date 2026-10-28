@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from dokimi.utils import normalize_model_ref
+from dokimi.utils import same_model
 
 BASELINES_DIR = Path("baselines/eval")
 
@@ -88,7 +88,8 @@ def _recorded_models(eval_data: Dict[str, Any]) -> Dict[str, Optional[Tuple[str,
 
     The judge is top-level (``judge_provider``/``judge_model``); the answerer is in
     ``run_metadata``. A panel (``judge_model: "panel(N)"``) records its judges only in
-    ``panel_config.models``; it maps to ``("panel", <sorted, normalized models>)``. A role
+    ``panel_config.models``; it maps to ``("panel", <the judges' raw "provider/model" strings, sorted and comma-joined>)``;
+``_same_recorded`` splits and compares them. A role
     the artifact does not record maps to ``None``.
     """
     meta = eval_data.get("run_metadata")
@@ -106,8 +107,7 @@ def _recorded_models(eval_data: Dict[str, Any]) -> Dict[str, Optional[Tuple[str,
         models = panel.get("models") if isinstance(panel, dict) else None
         if not (isinstance(models, list) and all(isinstance(m, str) for m in models)):
             models = []
-        judge = ("panel", ",".join(sorted(
-            normalize_model_ref(*m.split("/", 1)) if "/" in m else m for m in models))) if models else None
+        judge = ("panel", ",".join(sorted(models))) if models else None
     else:
         judge = pair(eval_data.get("judge_provider") or meta.get("judge_provider"), judge_model)
     return {
@@ -121,7 +121,8 @@ def _model_mismatches(baseline_data: Dict[str, Any],
     """Per role (answer, judge): lines for a recorded model that differs between the two
     runs, and the roles that could not be compared because a side does not record them.
 
-    A Bedrock alias and its inference profile count as one model.
+    Two model names that ``same_model`` matches (a Bedrock alias and its profile, a snapshot and its
+    alias, one model behind another route) count as one model.
     """
     base, cur = _recorded_models(baseline_data), _recorded_models(eval_data)
     lines, unverified = [], []
@@ -129,9 +130,36 @@ def _model_mismatches(baseline_data: Dict[str, Any],
         b, c = base[role], cur[role]
         if not (b and c):
             unverified.append(role)
-        elif normalize_model_ref(*b) != normalize_model_ref(*c):
+        elif not _same_recorded(b, c):
             lines.append(f"{role} model: baseline {b[0]}/{b[1]}, current {c[0]}/{c[1]}")
     return lines, unverified
+
+
+def _same_recorded(b: Tuple[str, str], c: Tuple[str, str]) -> bool:
+    """Whether two recorded (provider, model) pairs name one model. A panel is the same when both
+    have the same number of judges and each judge of one pairs with a different judge of the other."""
+    if (b[0] == "panel") != (c[0] == "panel"):
+        return False
+    if b[0] != "panel":
+        return same_model(b[1], c[1])
+    xs, ys = b[1].split(","), c[1].split(",")
+    if len(xs) != len(ys):
+        return False
+    # same_model is not transitive (a snapshot matches its alias, two snapshots do not match each other),
+    # so pair the judges by augmenting paths rather than greedily
+    partner: dict[int, int] = {}  # index in ys -> index in xs
+
+    def place(i: int, tried: set[int]) -> bool:
+        for j, y in enumerate(ys):
+            if j in tried or not same_model(xs[i], y):
+                continue
+            tried.add(j)
+            if j not in partner or place(partner[j], tried):
+                partner[j] = i
+                return True
+        return False
+
+    return all(place(i, set()) for i in range(len(xs)))
 
 
 def cmd_baseline_save(args: argparse.Namespace) -> None:

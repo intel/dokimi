@@ -874,7 +874,7 @@ def test_model_warnings_follow_the_selected_model(tmp_path):
 
 
 @pytest.mark.outcome("cjm-model-answered")
-def test_model_matches_equivalence_does_not_warn(tmp_path):
+def test_same_model_equivalence_does_not_warn(tmp_path):
     """Equivalent model IDs (Bedrock provider-prefix variants) do not trigger a warning."""
     b = tmp_path / "b1"
     # Request: Bedrock-prefixed, baseline resolve: shorter form, treatment resolve: base form without version
@@ -883,7 +883,7 @@ def test_model_matches_equivalence_does_not_warn(tmp_path):
     _cell(b, "fix_a", "guidance:raw", 1, model="us.anthropic.claude-haiku-4-5-20251001-v1:0",
           model_resolved="claude-haiku-4-5-20251001")
     s = compare([b], "guidance:none")
-    # No warning about different resolved models—they are equivalent under model_matches()
+    # No warning about different resolved models—they are equivalent under same_model()
     assert [w for w in s["warnings"]
             if "was answered by" in w and "baseline" in w and "treatment" in w] == []
     # But cells mismatch still warns (the actual mismatch, not the compare mismatch)
@@ -912,7 +912,7 @@ def test_compare_models_equivalent_pins_symmetric_coverage(tmp_path):
     m = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
     # Baseline: full Bedrock-prefixed model
     _cell(b, "fix_a", "guidance:none", 1, model=m, model_resolved="us.anthropic.claude-haiku-4-5-20251001-v1:0")
-    # Treatment: shorter form (treated as equivalent by model_matches)
+    # Treatment: shorter form (treated as equivalent by same_model)
     _cell(b, "fix_a", "guidance:raw", 1, model=m, model_resolved="claude-haiku-4-5-20251001")
     # No warning because both forms are equivalent
     assert [w for w in compare([b], "guidance:none")["warnings"] if "was answered by" in w] == []

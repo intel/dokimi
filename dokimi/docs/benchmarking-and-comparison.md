@@ -780,11 +780,14 @@ python cli.py baseline compare \
 ```
 
 When the answer or judge model recorded in the baseline differs from the
-current eval's (a Bedrock alias and its inference profile count as one model),
+current eval's (one model under `utils.same_model`: a Bedrock alias and its inference profile, a
+dated snapshot and its undated alias, a regional profile, a `-vN:M` revision or another route count
+as the same model; two different dated snapshots do not),
 `compare` prints a warning naming both before the table: the score changes then
 mix the model change with the content change. With `--strict` it exits 1
 instead. A baseline saved before a default-model change is such a baseline. A panel
-artifact (`eval panel-score`) is compared by its set of judge models. A role either
+artifact (`eval panel-score`) is compared by its judge models: the panels must have the same
+number of judges, and each judge must pair with a different judge of the other panel. A role either
 side does not record (an older artifact, or answers with no model) is named on
 stderr as not compared, and `--strict` exits 1 on it as well, since it cannot
 vouch for that role. A malformed record in either file (no `question_id`) exits 2,

@@ -152,8 +152,10 @@ def test_independence_warning_sees_a_bedrock_alias_and_its_profile_as_one_model(
     assert _warn_judge_independence("amazon-bedrock", profile, "amazon-bedrock", bare)
     assert "independence warning" in capsys.readouterr().err
     assert not _warn_judge_independence("amazon-bedrock", "claude-haiku-5-5", "amazon-bedrock", bare)
-    # the alias only exists on Bedrock: the same strings on another provider stay distinct
-    assert not _warn_judge_independence("anthropic", profile, "anthropic", bare)
+    # the same model answering and judging is the same bias on any route, so it warns on the direct API too
+    assert _warn_judge_independence("anthropic", profile, "anthropic", bare)
+    assert _warn_judge_independence("anthropic", "claude-sonnet-5-5", "amazon-bedrock", "claude-sonnet-5-5")
+    assert not _warn_judge_independence("anthropic", "claude-sonnet-5-5", "anthropic", "claude-haiku-5-5")
 
 
 @pytest.mark.parametrize("model, provider", [
