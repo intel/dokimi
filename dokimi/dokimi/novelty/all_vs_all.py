@@ -42,14 +42,16 @@ def load_queries_by_skill(path: str) -> dict[str, list[str]]:
     it. Blank requests are dropped, and a skill left with none is dropped with them.
 
     Raises:
-        RoutingInputError: The file is not JSON, is not an object, names a skill twice, or a
-            value is not a list of strings.
+        RoutingInputError: The file is not JSON, is nested too deeply, is not an object,
+            names a skill twice, or a value is not a list of strings.
     """
     try:
         data = json.loads(Path(path).read_text(encoding="utf-8-sig"),
                           object_pairs_hook=_no_repeated_key(path))
     except json.JSONDecodeError as exc:
         raise RoutingInputError(f"{path}: not JSON: {exc}") from None
+    except RecursionError:
+        raise RoutingInputError(f"{path}: nested too deeply to read") from None
     if not isinstance(data, dict):
         raise RoutingInputError(f"{path}: expected an object of skill name to query list")
     by_skill: dict[str, list[str]] = {}

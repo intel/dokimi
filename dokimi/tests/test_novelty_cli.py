@@ -877,6 +877,16 @@ def test_a_command_given_a_frontmatter_nested_too_deeply_exits_with_a_message(tm
     assert "RecursionError" not in str(exc.value)
 
 
+def test_all_vs_all_names_a_competitor_nested_too_deeply_and_exits_with_a_message(tmp_path):
+    queries = tmp_path / "q.json"
+    queries.write_text('{"deep": ["a request"]}', encoding="utf-8")
+    args = _parse("novelty", "routing", "--all-vs-all", "--competitors", _deep_skill(tmp_path),
+                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
+    with pytest.raises(SystemExit, match="maximum recursion") as exc:
+        args.func(args)
+    assert "RecursionError" not in str(exc.value)
+
+
 def test_item_analysis_accepts_a_probe_file_that_records_no_digest(tmp_path):
     from dokimi.novelty.items import load_probe_cells
 

@@ -353,7 +353,7 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
         field = _routing_field(args, set(), left_out)
     except RoutingInputError as exc:
         raise SystemExit(str(exc)) from None
-    except (FileNotFoundError, ValueError) as exc:
+    except (OSError, ValueError, RecursionError) as exc:
         raise SystemExit(f"cannot load the field: {exc}") from None
     try:
         try:

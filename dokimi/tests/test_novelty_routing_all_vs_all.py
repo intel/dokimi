@@ -120,6 +120,25 @@ def test_a_queries_file_that_is_not_an_object_of_string_lists_is_refused(tmp_pat
         load_queries_by_skill(str(path))
 
 
+def test_a_queries_file_nested_too_deeply_is_refused_by_name(tmp_path):
+    path = tmp_path / "q.json"
+    path.write_text('{"linux-perf": ' + "[" * 100000 + "]" * 100000 + "}", encoding="utf-8")
+    with pytest.raises(RoutingInputError, match="nested too deeply"):
+        load_queries_by_skill(str(path))
+
+
+def test_a_queries_file_nested_too_deeply_exits_with_a_message(tmp_path):
+    path = tmp_path / "q.json"
+    path.write_text('{"linux-perf": ' + "[" * 100000 + "]" * 100000 + "}", encoding="utf-8")
+    root = tmp_path / "catalog"
+    _catalog_skill(root, "perf", "profile a slow binary with perf record and report")
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(path), "--out", str(tmp_path / "o.json"))
+    with pytest.raises(SystemExit, match="nested too deeply") as exc:
+        args.func(args)
+    assert "RecursionError" not in str(exc.value)
+
+
 def test_all_vs_all_writes_the_matrix_and_prints_the_attractors(tmp_path, capsys):
     root = tmp_path / "catalog"
     _catalog_skill(root, "perf", "profile a slow binary with perf record and report")
