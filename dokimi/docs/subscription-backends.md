@@ -63,7 +63,8 @@ What this means for results:
   `--exclude-dynamic-system-prompt-sections`. Tested and not working:
   `CLAUDE_CODE_HIDE_CWD`, `CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS` (Claude Code
   2.1.304). dokimi runs every call in one fixed empty directory
-  (`<tmp>/dokimi-cli/claude-cli`), so the stated environment is the same in the
+  (`$XDG_CACHE_HOME/dokimi/cli/claude-cli`, default
+  `~/.cache/dokimi/cli/claude-cli`), so the stated environment is the same in the
   with-docs and the without-docs arm, and the response cache still hits. A
   without-docs answer may still mention it ("the working directory isn't a git
   repository").
