@@ -245,6 +245,8 @@ def test_start_container_drops_capabilities_and_bounds_pids(tmp_path, monkeypatc
     for flag in ("--init", "--cap-drop", "--security-opt", "--pids-limit", "--cap-add"):
         assert flag in run_call
         assert all(i < image_at for i, arg in enumerate(run_call) if arg == flag)
+    assert "--privileged" not in run_call
+    assert [run_call[i + 1] for i, arg in enumerate(run_call) if arg == "--security-opt"] == ["no-new-privileges"]
 
 
 def test_solve_oracle_copies_the_whole_solution_directory(tmp_path, monkeypatch):
