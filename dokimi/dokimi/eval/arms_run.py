@@ -1,18 +1,20 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""One arms run from a typed run configuration.
+"""Arms runs, one or a matrix of them, from a typed run configuration.
 
 ``arms run``, ``arms matrix-run`` and ``subjects run`` each build an :class:`ArmsRunConfig`
 once from their parsed flags; a matrix cell is that config with the cell's model, provider,
 harness and plugins put in (:func:`cell_config`). :func:`run_arms` checks the config, builds
 the arms, the judge and the :class:`~dokimi.eval.arm_runner.ArmRunner`, and returns the
-``arms.v1`` output. Paths, saving, the rollup and exit codes stay with the commands.
+``arms.v1`` output; :func:`run_matrix` does that for every cell, after checking them all.
+Paths, saving, the rollup and exit codes stay with the commands.
 """
 
 from __future__ import annotations
 
 import functools
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 
 from dokimi.defaults import (
@@ -22,6 +24,7 @@ from dokimi.defaults import (
     DEFAULT_JUDGE_PROVIDER,
 )
 from dokimi.eval.cells import HARNESS_ARMS_RUNNER, MatrixCellDescriptor
+from dokimi.eval.question_text import EmptyQuestionError
 from dokimi.utils import question_id
 
 
@@ -64,6 +67,14 @@ class ArmsRunConfig:
 
 class LibraryIdError(ValueError):
     """No library id can be named for a doc arm, so the run stops before any answer."""
+
+
+class MatrixCellError(ValueError):
+    """A matrix cell refused or failed its run: the reason's message, and the cell's name."""
+
+    def __init__(self, cell: str, reason: Exception) -> None:
+        super().__init__(str(reason))
+        self.cell = cell
 
 
 def cell_config(config: ArmsRunConfig, cell: MatrixCellDescriptor) -> ArmsRunConfig:
@@ -344,3 +355,32 @@ def run_arms(config: ArmsRunConfig, specs: list[str], questions: list[dict]) -> 
         config.product, records, evaluations=evaluations, baseline_arm=config.baseline_arm,
         judge=judge,
     )
+
+
+def check_matrix(config: ArmsRunConfig, cells: list[MatrixCellDescriptor]) -> None:
+    """Refuse a matrix with a cell the in-process runner cannot run, or whose provider would
+    refuse the sampling on every answer. Raises ``ValueError`` naming the first such cell."""
+    validate_supported_matrix_harnesses(cells)
+    for cell in cells:
+        check_sampling_support(cell_config(config, cell))
+
+
+def run_matrix(config: ArmsRunConfig, cells: list[MatrixCellDescriptor], specs: list[str],
+               questions: list[dict],
+               on_cell: Callable[[MatrixCellDescriptor, dict], None]) -> None:
+    """Run *config* in every cell in turn, handing each cell and its ``arms.v1`` output to
+    *on_cell* as soon as the cell finishes, so a later cell's failure keeps the earlier ones.
+
+    Every cell is checked (:func:`check_matrix`) before the first one is paid for. A cell
+    that fails raises :class:`MatrixCellError` naming it; a bad question record
+    (``EmptyQuestionError``) and :class:`LibraryIdError` are not a cell's and pass through.
+    """
+    check_matrix(config, cells)
+    for cell in cells:
+        try:
+            output = run_arms(cell_config(config, cell), specs, questions)
+        except (EmptyQuestionError, LibraryIdError):
+            raise
+        except (ValueError, OSError, RecursionError) as exc:
+            raise MatrixCellError(cell.name, exc) from exc
+        on_cell(cell, output)

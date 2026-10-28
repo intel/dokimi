@@ -68,3 +68,45 @@ def test_a_doc_arm_without_a_library_id_stops_the_run_before_any_answer(command,
     # Not under "Error building arms/plugins" or "Error running matrix cell": the id is the
     # product's, not an arm's or a cell's.
     assert capsys.readouterr().err == "Error: cannot name a library id for 'demo'\n"
+
+
+def test_a_failing_matrix_cell_is_named_and_the_cells_before_it_are_kept(tmp_path, provider_calls,
+                                                                        capsys):
+    provider_calls.fake.respond = lambda request: "Use parallel_for."
+    questions = tmp_path / "q.json"
+    questions.write_text(json.dumps([{"id": "q1", "question": "How?"}]), encoding="utf-8")
+    cells = tmp_path / "cells.json"
+    cells.write_text(json.dumps({"matrix": {"cells": [
+        {"id": "ok", "model": "m", "provider": "openai", "harness": "arms-runner"},
+        {"id": "bad", "model": "m", "provider": "openai", "harness": "arms-runner",
+         "plugins": ["plugin:no-such-plugin"]},
+    ]}}), encoding="utf-8")
+    out = tmp_path / "out"
+    args = parse_args(["arms", "matrix-run", "--product", "demo", "--questions", str(questions),
+                       "--arms", "baseline", "--matrix-cells", str(cells), "--out-dir", str(out)])
+
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+
+    assert exc.value.code == 1
+    assert capsys.readouterr().err.startswith(
+        "Error running matrix cell 'bad': Unknown plugin spec: 'plugin:no-such-plugin'")
+    assert sorted(p.name for p in (out / "cells").iterdir()) == ["ok.json", "ok.md"]
+
+
+def test_run_matrix_checks_every_cell_before_the_first_is_paid_for(monkeypatch, provider_calls):
+    from dokimi.eval.arms_run import run_matrix
+    from dokimi.eval.cells import MatrixCellDescriptor
+
+    monkeypatch.setattr("dokimi.llm.unsupported_sampling_params",
+                        lambda model, provider, **kw: ["seed"] if model == "m-bad" else [])
+    monkeypatch.setattr("dokimi.eval.arms_run.probe_sampling", lambda *a: None)
+    cells = [MatrixCellDescriptor("ok", "m-ok", "openai", "arms-runner"),
+             MatrixCellDescriptor("bad", "m-bad", "openai", "arms-runner")]
+    finished = []
+
+    with pytest.raises(ValueError, match="does not support seed for model 'm-bad'"):
+        run_matrix(ArmsRunConfig(product="demo", seed=1), cells, ["baseline"],
+                   [{"id": "q1", "question": "How?"}], on_cell=lambda cell, out: finished.append(cell))
+
+    assert finished == [] and provider_calls.calls == []

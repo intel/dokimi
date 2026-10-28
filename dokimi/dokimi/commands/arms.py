@@ -98,18 +98,13 @@ def cmd_arms_matrix_run(args: argparse.Namespace) -> None:
 def run_matrix(config: ArmsRunConfig, *, arms: str, questions: str, matrix_cells: str,
                out_dir: Path, out_json: Path | None = None, out_md: Path | None = None,
                plugin_deltas: bool = True) -> None:
-    """Run *config* in every cell of *matrix_cells* and write the cells, plugin deltas and rollup.
+    """``arms matrix-run`` from a config: run every cell of *matrix_cells* and write the cells,
+    the plugin deltas and the rollup.
 
-    Every cell is checked before the first one runs. *out_json* defaults to
-    ``matrix-rollup.json`` in *out_dir*, *out_md* to *out_json* with a ``.md`` suffix.
+    *out_json* defaults to ``matrix-rollup.json`` in *out_dir*, *out_md* to *out_json* with a
+    ``.md`` suffix.
     """
-    from dokimi.eval.arms_run import (
-        LibraryIdError,
-        cell_config,
-        check_sampling_support,
-        run_arms,
-        validate_supported_matrix_harnesses,
-    )
+    from dokimi.eval import arms_run
     from dokimi.eval.cells import load_matrix_cells
     from dokimi.eval.matrix_rollup import build_matrix_rollup, strip_internal_payloads
     from dokimi.report.matrix_rollup_report import render_matrix_rollup_report
@@ -119,10 +114,8 @@ def run_matrix(config: ArmsRunConfig, *, arms: str, questions: str, matrix_cells
         specs = _parse_arm_specs(arms)
         loaded_questions = _load_questions(questions)
         cells = load_matrix_cells(matrix_cells)
-        validate_supported_matrix_harnesses(cells)
         _validate_unique_cell_filenames(cells)
-        for cell in cells:
-            check_sampling_support(cell_config(config, cell))
+        arms_run.check_matrix(config, cells)
     except (ValueError, OSError, RecursionError) as exc:
         print(f"Error loading matrix run inputs: {exc}", file=sys.stderr)
         sys.exit(1)
@@ -134,22 +127,23 @@ def run_matrix(config: ArmsRunConfig, *, arms: str, questions: str, matrix_cells
         print(f"Error: cannot write {cells_dir}: {exc}", file=sys.stderr)
         sys.exit(1)
     cell_artifacts = []
-    for cell in cells:
+
+    def save_cell(cell, output: dict) -> None:
         safe_name = _safe_name(cell.name)
         cell_json = cells_dir / f"{safe_name}.json"
-        cell_md = cells_dir / f"{safe_name}.md"
-        try:
-            output = run_arms(cell_config(config, cell), specs, loaded_questions)
-        except EmptyQuestionError:
-            raise  # a bad input record, not a cell error: cli.main reports it (exit 2)
-        except LibraryIdError as exc:
-            print(f"Error: {exc}", file=sys.stderr)
-            sys.exit(1)
-        except (ValueError, OSError, RecursionError) as exc:
-            print(f"Error running matrix cell {cell.name!r}: {exc}", file=sys.stderr)
-            sys.exit(1)
-        _save_arms_output(output, cell_json, cell_md)
+        _save_arms_output(output, cell_json, cells_dir / f"{safe_name}.md")
         cell_artifacts.append((cell.name, cell_json, output))
+
+    try:
+        arms_run.run_matrix(config, cells, specs, loaded_questions, on_cell=save_cell)
+    except EmptyQuestionError:
+        raise  # a bad input record, not a cell error: cli.main reports it (exit 2)
+    except arms_run.LibraryIdError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+    except arms_run.MatrixCellError as exc:
+        print(f"Error running matrix cell {exc.cell!r}: {exc}", file=sys.stderr)
+        sys.exit(1)
 
     rollup = build_matrix_rollup(
         library_name=config.product,
