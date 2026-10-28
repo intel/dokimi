@@ -4,10 +4,9 @@
 """The entry point for LLM calls in the framework.
 
 ``llm_call``, ``chat_completion``, the shims and ``utils.get_llm`` already delegate
-here. Not yet moved: ``utils.get_llm``'s own route and key table,
+here. Not yet moved: ``utils.get_llm``'s route and key table,
 ``commands/benchmark.py``'s ``_credential_env_var``, ``eval/ragas_eval.py``'s
-``_resolve_key``, and the judge, persona and validator redraw loops (which do not
-use :func:`ask_parsed` yet).
+``_resolve_key``, and the persona and validator redraw loops.
 
 Interface
 ---------
@@ -839,7 +838,7 @@ class Unparseable(ValueError):
 
 
 def ask_parsed(ask: Ask, prompt: str, parse: Callable[[str], Optional[T]], *,
-               attempts: int = ATTEMPTS, draw: int = 0, label: str = "LLM",
+               attempts: int = ATTEMPTS, draw: int = 0, label: str = "LLM", start: int = 0,
                reprompt: Optional[Callable[[str, int], str]] = None) -> Tuple[T, str]:
     """``(parse(reply), reply)`` for the first of *attempts* draws that parses.
 
@@ -851,6 +850,7 @@ def ask_parsed(ask: Ask, prompt: str, parse: Callable[[str], Optional[T]], *,
     sampling the same prompt returns the same reply, so a caller that pins it
     passes *reprompt*: ``reprompt(prompt, i)`` is the prompt of attempt ``i >= 1``.
     Transport faults are not retried here (:meth:`LLM.complete` does that).
+    *start* skips the attempts before it, which the caller has already answered.
 
     Raises:
         Unparseable: no attempt parsed. Errors from *ask* itself propagate as-is.
@@ -862,7 +862,7 @@ def ask_parsed(ask: Ask, prompt: str, parse: Callable[[str], Optional[T]], *,
             return False
 
     raw, error = "", ""
-    for attempt in range(attempts):
+    for attempt in range(start, attempts):
         asked = reprompt(prompt, attempt) if reprompt and attempt else prompt
         raw = ask(asked, draw=draw * attempts + attempt, cache_if=parses)
         try:
@@ -873,7 +873,7 @@ def ask_parsed(ask: Ask, prompt: str, parse: Callable[[str], Optional[T]], *,
             if value is not None:
                 return value, raw
             error = f"no parseable reply, last {str(raw)[:80]!r}"
-        logger.warning("%s reply unparseable (attempt %d/%d): %s", label, attempt + 1, attempts, error)
+        logger.warning("%s unparseable (attempt %d/%d): %s", label, attempt + 1, attempts, error)
     raise Unparseable(error, raw)
 
 
