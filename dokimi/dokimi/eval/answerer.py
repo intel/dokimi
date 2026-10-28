@@ -315,12 +315,11 @@ class Answerer:
         }
         
         try:
-            # Retrieve top-k docs
-            # Note: Context7 client returns single doc, so we call it once for now
-            # TODO: Update Context7 client to support top_k natively
+            # Retrieve top-k docs, the same request the arms stack sends (max_results=top_k)
             raw_docs = self.mcp_client.get_library_docs(
                 library_id=library_id,
                 query=question,
+                max_results=self.top_k,
                 max_tokens=max_tokens
             )
             metadata["raw_count"] = len(raw_docs)

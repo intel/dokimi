@@ -197,7 +197,8 @@ class TestRetrieveDocs:
             docs = answerer._retrieve_docs("uxlfoundation/oneTBB", "parallel_for", 4000)
 
             mock_mcp_client.get_library_docs.assert_called_once_with(
-                library_id="uxlfoundation/oneTBB", query="parallel_for", max_tokens=4000
+                library_id="uxlfoundation/oneTBB", query="parallel_for",
+                max_results=5, max_tokens=4000,
             )
             assert [d["content"] for d in docs] == [
                 mock_mcp_client.get_library_docs.return_value[0]["content"]

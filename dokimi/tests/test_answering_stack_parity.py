@@ -61,9 +61,9 @@ PINNED: Tuple[Tuple[str, str, Any, Any], ...] = (
     ("shared", "answer.system", None, None),
     ("shared", "answer.cache_blocks", False, False),
     # D1 retrieval request
-    ("D1", "retrieval.passed", ("max_tokens",), ("max_results",)),
-    # what each side asked for, not what came back: both get 4 docs; P keeps 3, A keeps 3
-    ("D1", "retrieval.max_results", 5, 3),
+    ("D1", "retrieval.passed", ("max_results", "max_tokens"), ("max_results",)),
+    # what each side asked for, not what came back: both get 4 docs; both ask for top_k=3
+    ("D1", "retrieval.max_results", 3, 3),
     ("D1", "retrieval.max_tokens", 4000, 8000),
     # D2 no docs found
     ("D2", "empty.answer_kinds", ("plain",), ("plain", "plain")),
