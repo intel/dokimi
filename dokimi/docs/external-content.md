@@ -51,7 +51,8 @@ way the readers expect. Substitute your own checkout path.
 
 Both manifests are optional — with no manifest, the readers fall back to a
 plain filesystem scan of the same directories (a `SKILL.md` under a `template/`
-or `templates/` directory is a scaffold and is left out). `skills.yaml` comes in two
+or `templates/` directory is a scaffold and is left out; vendored and VCS directories such
+as `.git`, `node_modules`, `site-packages` and `.venv` are not walked). `skills.yaml` comes in two
 shapes, and both hold a *list* of entries:
 
 ```yaml

@@ -30,7 +30,7 @@ measure the marginal value of any context-augmentation artifact:
 | `skill:<path>` | agent skill | injects a `SKILL.md` as context |
 | `agent[:source]` | **agentic** doc use | gives the model a doc-search tool; it decides when to call it |
 | `skill-agent:<path>` | **agentic** skill use | offers the skill via progressive disclosure |
-| `skill-catalog:<dir>` | **agentic** skill selection | offers every skill under `<dir>` (a `template/` copy and a byte-identical mirror that loads under the same skill name are left out); scores the one loaded against `expected_skill` |
+| `skill-catalog:<dir>` | **agentic** skill selection | offers every skill under `<dir>` (a `template/` copy, a byte-identical mirror that loads under the same skill name, and anything under a vendored or VCS directory such as `.git` or `node_modules` are left out); scores the one loaded against `expected_skill` |
 | `<spec1>+<spec2>[+...]` | **combined** treatment | merges multiple treatments into one arm (e.g., `docs+skill:path`) |
 
 The last two run through a tool-calling loop
@@ -290,7 +290,9 @@ artifact per cell, a `matrix_rollup.v1` JSON/Markdown report, and paired
 - **`skill-catalog:<dir>`** — skill selection. Every skill under `<dir>` is offered
   the same way, so the question is answered among its rivals. A `SKILL.md` under a
   `template/` or `templates/` directory, at any depth below `<dir>`, is not a skill and is
-  skipped (a real skill kept under such a directory is skipped too), and a `SKILL.md`
+  skipped (a real skill kept under such a directory is skipped too). Vendored and VCS
+  directories (`.git`, `.hg`, `.svn`, `node_modules`, `site-packages`, `.venv`, `venv`,
+  `.tox`, `.nox`, `__pycache__`) below `<dir>` are not walked, and no note says so. A `SKILL.md`
   byte-identical to another under `<dir>` that loads under the same skill name (a plugin's
   copy of `skills/`) is offered once. Questions that carry `expected_skill` are scored
   on the skill loaded first; see

@@ -116,6 +116,28 @@ def test_catalog_scan_exits_nonzero_on_load_error(tmp_path, capsys):
     assert exc_info.value.code == 1
 
 
+@pytest.mark.parametrize("broken", ["dangling-symlink", "directory"])
+def test_catalog_scan_exits_nonzero_on_a_skill_md_that_is_not_a_file(tmp_path, capsys, broken):
+    # discover_skills leaves such a SKILL.md out; the bare scan must still report it.
+    _write_skill(tmp_path, "good")
+    bad = tmp_path / "skills" / "bad" / "SKILL.md"
+    bad.parent.mkdir(parents=True)
+    if broken == "directory":
+        bad.mkdir()
+    else:
+        try:
+            bad.symlink_to(tmp_path / "missing.md")
+        except OSError:  # Windows without Developer Mode or the symlink privilege
+            pytest.skip("this OS refuses an unprivileged symlink")
+
+    parser = build_parser()
+    args = parser.parse_args(["catalog", "scan", "--root", str(tmp_path), "--kind", "skills"])
+    with pytest.raises(SystemExit) as exc_info:
+        args.func(args)
+    assert exc_info.value.code == 1
+    assert "bad" in capsys.readouterr().out
+
+
 def test_catalog_scan_exits_nonzero_on_a_task_that_exists_but_cannot_load(tmp_path, capsys):
     # The tasks-half sibling of the test above. Both halves need their own case:
     # skills failures carry an `error`, task failures a `failed` flag, and the

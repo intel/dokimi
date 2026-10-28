@@ -602,7 +602,8 @@ python cli.py novelty routing --artifact skill:path/to/skill \
 
 `--catalog <dir>` takes the competitors from a skill directory instead: every `SKILL.md`
 under it except the artifact itself (a `template/` copy and a byte-identical mirror that
-loads under the same skill name are left out).
+loads under the same skill name are left out, and vendored and VCS directories such as `.git`,
+`node_modules`, `site-packages` and virtualenvs are not walked).
 
 Two numbers, reported side by side and never merged:
 
