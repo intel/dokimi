@@ -107,8 +107,9 @@ def _tied_groups(candidates: list[Candidate]) -> list[list[str]]:
     """Groups of two or more skills whose descriptions have the same words, in field order.
 
     The words are the lexical arm's tokens, so case and punctuation do not split a group. Such
-    skills tie on every query that names neither of them (their cards differ only in the name),
-    so neither is the other's attractor: the group is reported once instead.
+    skills tie on a query that names neither of them when their names have the same number of
+    words (otherwise the shorter card wins), so neither is the other's attractor: the group is
+    reported once instead.
     """
     by_words: dict[tuple[str, ...], list[str]] = {}
     for candidate in candidates:

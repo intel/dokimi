@@ -669,7 +669,7 @@ the top lexical score, so no field order decides it), an own rate per skill, and
 table: a skill picked for other skills' queries, with `wrongly_picked` of `sibling_queries` and
 the skills whose queries it took (`from`). Skills whose descriptions have the same words (case and punctuation aside) are a tied group
 (`tied_groups`, named once on the console): a pick between them is in the confusion matrix but
-is no attractor. Every rate is over the queries that were scored:
+is no attractor, and a tied skill's own rate is lower by the picks inside its group. Every rate is over the queries that were scored:
 `n_scored` and `n_unscored` per skill say how many, a query with no content word or a failed
 model call is unscored, and a skill with none scored has an own rate of `null`, not 0.0. A run
 with any failed model call writes the result and exits non-zero. The saved file records the
