@@ -205,7 +205,11 @@ def test_a_new_banned_synonym_fails_and_names_the_registry_spelling(monkeypatch)
     # runs with that row removed: a new leaf must not get the exemption.
     allow = {k: v for k, v in load_allowlist().items() if k != "--trials"}
     problems = violations(uses(cli.build_parser()), allow)
-    assert any("`--trials` is a banned synonym of `reps`" in p and "`--reps`" in p for p in problems), problems
+    # Anchored on the injected leaf: catalog trigger-probe's own --trials gives the same text.
+    assert any(
+        p.startswith("dokimi run: ") and "`--trials` is a banned synonym of `reps`" in p and "`--reps`" in p
+        for p in problems
+    ), problems
 
 
 def test_an_allowlisted_banned_spelling_still_passes_on_a_new_leaf(monkeypatch):
