@@ -491,7 +491,8 @@ def test_the_arms_entry_point_refuses_a_cli_agentic_arm_before_any_answer(monkey
     monkeypatch.setattr(arms, "_validate_expected_skills", lambda *a, **k: None)
     args = argparse.Namespace(provider="claude-cli", model="sonnet", judge=False, session_turns=None,
                               top_k=3, rerank_threshold=0.3, product="p", context7_id=None,
-                              plugins="", harness="arms-runner", matrix_cell=None, judge_provider=None)
+                              plugins="", harness="arms-runner", matrix_cell=None, judge_provider=None,
+                              judge_model=None, max_iterations=5)
     with pytest.raises(ValueError, match="agentic arm"):
         arms._build_arms_output(args, ["baseline", "agent"], [])
 
@@ -516,7 +517,7 @@ def test_the_login_check_runs_with_the_same_reduced_env_as_the_call(monkeypatch)
         assert "ANTHROPIC_BASE_URL" not in call.env
 
 
-def test_the_session_turns_flag_defaults_to_none_so_only_a_session_run_is_refused():
+def test_the_session_turns_flag_defaults_to_none():
     from dokimi.cli import parse_args
 
     args = parse_args(["arms", "run", "--product", "p", "--questions", "q.json", "--arms", "baseline",
