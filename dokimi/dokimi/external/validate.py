@@ -83,7 +83,7 @@ def _strict_meta(text: str) -> tuple[dict, Optional[Finding]]:
     """The frontmatter of ``text``, or a ``frontmatter-parse`` error carrying the YAML message."""
     try:
         meta, _ = parse_frontmatter_strict(text)
-    except yaml.YAMLError as exc:
+    except (yaml.YAMLError, RecursionError) as exc:  # nesting too deep for the YAML parser
         message = " ".join(str(exc).split())  # the YAML message is several lines; keep one
         return {}, Finding(
             "error", "frontmatter-parse", f"frontmatter is not valid YAML: {message}"

@@ -173,9 +173,31 @@ def _answers_by_id(answers_path: str) -> dict[str, Record]:
     return out
 
 
+def _load_eval(eval_path: str) -> dict:
+    """The eval file's JSON object, or a RecordError naming the file."""
+    try:
+        with open(eval_path, encoding="utf-8") as f:
+            data = json.load(f)
+    except OSError as exc:
+        raise RecordError(f"cannot read {eval_path}: {exc}") from exc
+    except ValueError as exc:  # not JSON, or not UTF-8
+        raise RecordError(f"{eval_path} is not valid UTF-8 JSON: {exc}") from exc
+    if not isinstance(data, dict) or not isinstance(data.get("evaluations"), list):
+        raise RecordError(f"{eval_path} is not a JSON object with an `evaluations` list")
+    return data
+
+
+def _write_qa_json(path: str, payload: dict) -> None:
+    """Write the Q&A sidecar, or raise a RecordError naming ``path``."""
+    try:
+        with open(path, "w", encoding="utf-8") as jf:
+            json.dump(payload, jf, indent=2, ensure_ascii=False)
+    except OSError as exc:
+        raise RecordError(f"cannot write {path}: {exc.strerror or exc}") from exc
+
+
 def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = None):
-    with open(eval_path, encoding="utf-8") as f:
-        data = json.load(f)
+    data = _load_eval(eval_path)
 
     evals = records(data["evaluations"], source=eval_path, kind="evaluations")
     meta = data.get("run_metadata", {})
@@ -449,7 +471,7 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
 
     # Sidecar JSON: questions + answers + scores
     if qa_json_out is None:
-        qa_json_out = out_path.replace(".md", ".qa.json")
+        qa_json_out = os.path.splitext(out_path)[0] + ".qa.json"
 
     answers_by_id = _answers_by_id(eval_path.replace("/eval/", "/answers/"))
 
@@ -472,15 +494,14 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
             "without_docs_answer": _answer_text(a, BASELINE),
         })
 
-    with open(qa_json_out, "w", encoding="utf-8") as jf:
-        json.dump({
-            "eval_path": eval_path,
-            "report_path": out_path,
-            "generated_at": datetime.now(timezone.utc).isoformat(),
-            "run_metadata": meta,
-            "count": len(qa_records),
-            "records": qa_records,
-        }, jf, indent=2, ensure_ascii=False)
+    _write_qa_json(qa_json_out, {
+        "eval_path": eval_path,
+        "report_path": out_path,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "run_metadata": meta,
+        "count": len(qa_records),
+        "records": qa_records,
+    })
 
     print(f"✅ Report written to: {out_path}")
     print(f"✅ Q&A JSON written to: {qa_json_out}")

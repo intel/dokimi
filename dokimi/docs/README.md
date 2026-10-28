@@ -37,7 +37,7 @@ flowchart LR
 | `skill:` | a skill (`SKILL.md`) injected as context |
 | `profile:` | an agent persona system prompt |
 | `agent:` / `skill-agent:` | **agentic** use — the model gets a tool and *decides* whether to fetch docs / load the skill |
-| `skill-catalog:` | **selection** — every skill in a catalog is offered (a copy under a `template/` or `templates/` directory and a byte-identical mirror that loads under the same skill name are left out); scored on which one loads (`catalog trigger-set` builds the queries) |
+| `skill-catalog:` | **selection** — every skill in a catalog is offered (a copy under a `template/` or `templates/` directory, a byte-identical mirror that loads under the same skill name, and anything under a vendored or VCS directory such as `.git`, `node_modules` or `.venv` are left out); scored on which one loads (`catalog trigger-set` builds the queries) |
 
 Two fine-print notes:
 
@@ -255,6 +255,8 @@ code.
 - [coding-harnesses.md](coding-harnesses.md) — run executable coding tasks
   through Codex, Claude Code, or terminal-bench/Harbor harnesses and compare
   verifier pass rate against a baseline.
+- [answer-formats.md](answer-formats.md) — run Inspect AI, OpenAI evals,
+  skill-creator and promptfoo answer-only sets on the answers track
 - [context-window.md](context-window.md) — read a run's context window from
   its Claude Code trace with `cli.py context trace`: start-up load, growth,
   compactions, tool-result weight. No LLM call.

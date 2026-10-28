@@ -674,3 +674,82 @@ def test_cross_judge_names_a_result_file_measure_after_its_summary_judge(tmp_pat
     cli.main()
     md = out.with_suffix(".md").read_text(encoding="utf-8")
     assert " · judge-a |" in md and " · result |" not in md
+
+
+_GOOD_QUESTION = {"question_id": "q0", "arms": {"skill": {"coverage": 1}}}
+
+
+def _pairwise(verdict):
+    return {"verdicts": {"skill": {"q1": verdict}}}
+
+
+def _checklist(question):
+    return {"questions": [question]}
+
+
+@pytest.mark.parametrize("flag, content, where", [
+    pytest.param("--pairwise", _pairwise({}), "verdicts.skill.q1", id="no-score"),
+    pytest.param("--pairwise", _pairwise(5), "verdicts.skill.q1", id="verdict-not-an-object"),
+    pytest.param("--pairwise", _pairwise({"score": "x"}), "verdicts.skill.q1", id="score-not-a-number"),
+    pytest.param("--pairwise", _pairwise({"score": "1"}), "verdicts.skill.q1", id="score-a-numeric-string"),
+    pytest.param("--pairwise", _pairwise({"score": None}), "verdicts.skill.q1", id="null-score"),
+    pytest.param("--pairwise", _pairwise({"score": True}), "verdicts.skill.q1", id="bool-score"),
+    pytest.param("--pairwise", _pairwise({"score": float("nan")}), "verdicts.skill.q1", id="nan-score"),
+    pytest.param("--pairwise", _pairwise({"score": float("inf")}), "verdicts.skill.q1", id="infinite-score"),
+    pytest.param("--pairwise", _pairwise({"score": 10 ** 400}), "verdicts.skill.q1", id="score-past-float-range"),
+    pytest.param("--pairwise", {"verdicts": {"skill": 5}}, "verdicts.skill", id="arm-not-an-object"),
+    pytest.param("--checklist", {"questions": [5]}, "questions[0]", id="question-not-an-object"),
+    pytest.param("--checklist", {"questions": [_GOOD_QUESTION, {"arms": {"skill": {"coverage": 1}}}]},
+                 "questions[1]", id="no-question-id"),
+    pytest.param("--checklist", _checklist({"question_id": None, "arms": {"skill": {"coverage": 1}}}),
+                 "questions[0]", id="null-question-id"),
+    pytest.param("--checklist", _checklist({"question_id": True, "arms": {"skill": {"coverage": 1}}}),
+                 "questions[0]", id="bool-question-id"),
+    pytest.param("--checklist", _checklist({"question_id": ["q1"], "arms": {"skill": {"coverage": 1}}}),
+                 "questions[0]", id="unhashable-question-id"),
+    pytest.param("--checklist", _checklist({"question_id": "q1"}), "questions[0]", id="no-arms"),
+    pytest.param("--checklist", _checklist({"question_id": "q1", "arms": None}), "questions[0]", id="null-arms"),
+    pytest.param("--checklist", _checklist({"question_id": "q1", "arms": [1]}), "questions[0]", id="arms-not-an-object"),
+    pytest.param("--checklist", _checklist({"question_id": "q1", "arms": {"skill": 5}}), "questions[0]",
+                 id="arm-entry-not-an-object"),
+    pytest.param("--checklist", _checklist({"question_id": "q1", "arms": {"skill": {"coverage": "x"}}}),
+                 "questions[0]", id="coverage-not-a-number"),
+    pytest.param("--checklist", _checklist({"question_id": "q1", "arms": {"skill": {"coverage": True}}}),
+                 "questions[0]", id="bool-coverage"),
+    pytest.param("--checklist", _checklist({"question_id": "q1", "arms": {"skill": {"coverage": float("nan")}}}),
+                 "questions[0]", id="nan-coverage"),
+    pytest.param("--checklist", _checklist({"question_id": "q1", "arms": {"skill": {"coverage": 10 ** 400}}}),
+                 "questions[0]", id="coverage-past-float-range"),
+])
+def test_cross_judge_names_a_result_entry_of_the_wrong_shape_before_any_judge_call(
+        tmp_path, capsys, monkeypatch, flag, content, where):
+    from tests.test_judge_reliability import _cross_judge_args, _material_arms_run, _recording_judge
+
+    seen: dict = {}
+    _recording_judge(monkeypatch, seen)
+    wrong = tmp_path / "wrong.json"
+    wrong.write_text(json.dumps(content), encoding="utf-8")
+    args = _cross_judge_args(tmp_path, _material_arms_run(), "--no-stored", "--judges", "amazon-bedrock/m",
+                             flag, str(wrong))
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2
+    assert capsys.readouterr().err.startswith(f"Error: {wrong}: {where} ")
+    assert seen == {}  # no paid judge call was made
+
+
+def test_cross_judge_takes_a_checklist_arm_with_a_null_coverage(tmp_path, monkeypatch):
+    """`eval checklist` writes a null coverage for an arm with no scored point."""
+    from dokimi import cli
+
+    arms = tmp_path / "arms.json"
+    arms.write_text(json.dumps({"answers": [{"question_id": "q1", "arms": {"skill": {"answer": "s"}}}]}),
+                    encoding="utf-8")
+    result = tmp_path / "result.json"
+    result.write_text(json.dumps(_checklist({"question_id": "q1", "arms": {"skill": {"coverage": None}}})),
+                      encoding="utf-8")
+    out = tmp_path / "out.json"
+    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "cross-judge", "--answers", str(arms), "--no-stored",
+                                     "--checklist", str(result), "--output", str(out)])
+    cli.main()
+    assert " · result |" in out.with_suffix(".md").read_text(encoding="utf-8")

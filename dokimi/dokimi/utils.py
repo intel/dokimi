@@ -213,3 +213,14 @@ def read_json_input(path: str | os.PathLike[str], *, flag: str) -> Any:
     except (OSError, ValueError, RecursionError) as exc:  # JSONDecodeError and bad UTF-8 are ValueErrors
         reason = exc.strerror if isinstance(exc, OSError) and exc.strerror else exc
         raise InputError(f"{flag} {path}: {reason}") from exc
+
+
+def write_text_or_exit(path: Path, text: str, code: int = 1) -> None:
+    """Write ``text`` to ``path`` (creating parents), or exit ``code`` naming ``path`` when it cannot be written."""
+    import sys
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    except OSError as exc:
+        print(f"Error: cannot write {path}: {exc}", file=sys.stderr)
+        sys.exit(code)

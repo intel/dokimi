@@ -67,7 +67,8 @@ from .uptake import arm_uptake
 from .grading import EvalContext, failed_outcome, outcome, run_entry
 from .harness_profile import HarnessProfile
 from .host import probe_host, unmet, validate_tasks
-from .manifest import scratch_name
+from .manifest import match_glob, scratch_name
+from .process_metrics import process_metrics
 from .workspace import PrepError, Task, prepare_workspace
 
 SUPPORT_HOST = Path(__file__).resolve().parent / "support"
@@ -278,6 +279,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         "input_tokens": None, "output_tokens": None, "cache_read_tokens": None,
         "cache_write_tokens": None, "usage_scope": None, "subagent_calls": None,
         "plugins": [], "over_budget": False, "caps": caps, "network": network, "trace_errors": []}
+    process: dict[str, Any] | None = None  # null when the trace could not be read
     added = meta.get("arm_patch") or {}
     uptake_of = (added.get("added") or [], added.get("mcp_servers") or [])
     events = None  # the trace's events once it parsed; none: the uptake is unmeasured
@@ -301,6 +303,8 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
             cache_write_tokens=transcript.cache_write_tokens, usage_scope=transcript.usage_scope,
             subagent_calls=transcript.subagent_calls, plugins=transcript.plugins,
             over_budget=cost is not None and cost > caps["budget_usd"], trace_errors=transcript.errors[:5])
+        if events is not None:  # after the cost is recorded: a metric that fails must not cost the cell its record
+            process = _process_or_null(ctx, events, agent["trace_errors"])
         if meta.get("skills") and (transcript.events or transcript.result_seen):  # else it never started
             skills = skill_usage(transcript.events, [s["name"] for s in meta["skills"]], task.expected_skill)
         graded = run_entry(ctx, "grade", task, rd, grade_network, container_name(rd.name, "grade"))
@@ -314,7 +318,8 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
                               "model_resolved": meta.get("model_resolved"), "rep": rep,
                               "harness": opts.profile.name, "harness_version": meta["harness_version"],
                               "base_date": meta["base_date"], "execution": execution, "score_task": bool(task.score),
-                              "score_max": task.score["max"] if task.score else None, "agent": agent, "grade": grade}
+                              "score_max": task.score["max"] if task.score else None, "agent": agent,
+                              "process": process, "grade": grade}
     _add_arm_use(record, meta, task, skills, uptake_of, events)
     try:
         _own_dir(rd)  # the grader had the run dir read-write, and may have taken write access away
@@ -322,6 +327,22 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     except OSError as exc:
         raise CellCrash(f"cannot write result.json: {exc}", float(agent["charged_usd"])) from exc
     return record
+
+
+def run_process_metrics(ctx: EvalContext, events: list[dict[str, Any]]) -> dict[str, Any]:
+    """``result.json`` ``process``: the framework's counts and the manifest's ``process_metrics`` (contract §4.1)."""
+    globs = ctx.manifest.guidance_globs
+    return process_metrics(events, lambda path: any(match_glob(g, path) for g in globs),
+                           ctx.manifest.process_metrics)
+
+
+def _process_or_null(ctx: EvalContext, events: list[dict[str, Any]], errors: list[str]) -> dict[str, Any] | None:
+    """The cell's ``process``, or None when its metrics raise: a best-effort count must not fail the task."""
+    try:
+        return run_process_metrics(ctx, events)
+    except Exception as exc:  # noqa: BLE001  # a metric that fails is recorded, the grade still counts
+        errors.append(f"process metrics failed ({type(exc).__name__}): {str(exc)[:200]}")
+        return None
 
 
 class CellCrash(Exception):
