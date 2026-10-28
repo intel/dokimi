@@ -64,24 +64,52 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      # Whether a PR changes anything besides Markdown. A docs-only PR skips the
-      # steps below (the Docker smoke test cannot be affected by it); the benchmark
-      # job measures the docs, so it always runs. The job itself still takes a
-      # runner, as its steps are skipped, not the job.
+      # Whether this run changes code (anything but documentation). Code-free runs skip
+      # the steps below (the Docker smoke test cannot be affected by a documentation
+      # edit); the benchmark job measures the docs, so it always runs. The job itself
+      # still takes a runner, as its steps are skipped, not the job, and it reports
+      # success.
+      # Scope: a new push to a PR (`synchronize`) decides from what that push changed
+      # (before..after), so a docs-only push after a code push skips. Every other PR
+      # run decides from the whole PR, base...HEAD. A push that cannot be diffed
+      # (no before commit, or before is not an ancestor of after: a force push) runs
+      # everything, as does an empty diff.
+      # Documentation: the Markdown the repo keeps as docs. Root guides (AGENTS.md,
+      # README.md, ...), dokimi/*.md, dokimi/docs/, dokimi/changelog.d/ and .github/.
+      # Not dokimi/data/ (skill and profile Markdown the code reads at run time),
+      # dokimi/tests/ (fixtures) or .agent-eval/ (eval tasks): those count as code.
       - id: changes
         working-directory: .
         env:
           EVENT: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+          DOCS: '^([^/]+|dokimi/[^/]+|dokimi/docs/(.+/)?[^/]+|dokimi/changelog\.d/[^/]+|\.github/(.+/)?[^/]+)\.md$'
         run: |
-          if [ "$EVENT" != pull_request ]; then echo code=true >> "$GITHUB_OUTPUT"; exit 0; fi
-          # The base branch's current tip (fetched by the checkout), not base.sha
-          # (the base when the PR was opened).
-          if git diff --name-only "origin/$BASE_REF"...HEAD | grep -qv '\.md$'; then
-            echo code=true >> "$GITHUB_OUTPUT"
+          set_code() { echo "code=$1" >> "$GITHUB_OUTPUT"; echo "changes: code=$1 ($2)"; }
+          if [ "$EVENT" != pull_request ]; then set_code true "not a pull request"; exit 0; fi
+          # --no-renames: a rename from code to Markdown must count as the code it removes.
+          if [ "$ACTION" = synchronize ]; then
+            if ! { [ -n "$BEFORE" ] && [ -n "$AFTER" ] \
+                && git cat-file -e "$BEFORE^{commit}" && git cat-file -e "$AFTER^{commit}" \
+                && git merge-base --is-ancestor "$BEFORE" "$AFTER"; } 2>/dev/null; then
+              set_code true "force push, or the commits are not fetched"; exit 0
+            fi
+            scope=push
+            files=$(git diff --no-renames --name-only "$BEFORE" "$AFTER") \
+              || { set_code true "push diff failed"; exit 0; }
           else
-            echo code=false >> "$GITHUB_OUTPUT"
+            # The base branch's current tip (fetched by the checkout), not base.sha
+            # (the base when the PR was opened).
+            scope=pr
+            files=$(git diff --no-renames --name-only "origin/$BASE_REF"...HEAD) \
+              || { set_code true "PR diff failed"; exit 0; }
           fi
+          if [ -z "$files" ]; then set_code true "$scope diff is empty"; exit 0; fi
+          if printf '%s\n' "$files" | grep -qvE "$DOCS"; then set_code true "$scope changes code"; exit 0; fi
+          set_code false "$scope changes only documentation"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         if: steps.changes.outputs.code == 'true'
         with:
