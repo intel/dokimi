@@ -195,7 +195,7 @@ def parse_arms(spec: str) -> tuple[str, ...]:
     """``"no_artifact,full,placebo"`` -> the arm tuple a paired 2x2 can be computed from.
 
     Only the pairing is checked here; unknown arm names are refused by
-    :func:`run_measurement`.
+    :func:`check_arms`.
 
     Raises:
         ValueError: A set without ``no_artifact`` or without ``full``.
