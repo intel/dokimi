@@ -48,9 +48,22 @@ def test_summary_averages_the_complete_pairs_and_skips_a_failed_question(tmp_pat
         _evaluation("q2", 59.5, 40),
         _evaluation("q3", None, None),
         _evaluation("q4", 100, None),
+        _evaluation("q5", None, 30),
     ])
 
     assert result["steps"]["evaluation"]["summary"] == {"with_avg": 70.0, "without_avg": 45.0, "delta_avg": 25.0}
+
+
+def test_summary_rounds_the_delta_from_the_unrounded_means(tmp_path, monkeypatch):
+    """One pair, 60.04 against 50.06: the delta of the unrounded means is 9.98, which rounds to
+    10.0, while the rounded means 60.0 and 50.1 would give 9.9. A baseline-only question must
+    not reach the baseline mean either (the per-arm formula would give 40.0)."""
+    result = _run(tmp_path, monkeypatch, [
+        _evaluation("q1", 60.04, 50.06),
+        _evaluation("q2", None, 30),
+    ])
+
+    assert result["steps"]["evaluation"]["summary"] == {"with_avg": 60.0, "without_avg": 50.1, "delta_avg": 10.0}
 
 
 def test_summary_is_left_out_when_no_question_was_scored(tmp_path, monkeypatch):

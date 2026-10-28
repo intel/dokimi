@@ -157,6 +157,45 @@ def test_grouped_tables_print_the_count_and_unpaired_count_beside_their_means():
     assert "| manual | 1 | 40.0 | 40.0 | **+0.0** |" in gen_md
 
 
+# The eval report's groups: two golden questions (onetbb-Q prefix, one unpaired) and three
+# dynamic ones (one unpaired), in two difficulties. Pairs: (80, 60), (40, 40), (60, 50).
+GROUPED_EVALUATIONS = [
+    {"question_id": "onetbb-Q001", "question_text": "How do I pin threads?", "difficulty": "easy",
+     "with_docs": {"aggregate": 80.0}, "without_docs": {"aggregate": 60.0}, "delta": 20.0},
+    {"question_id": "onetbb-Q002", "question_text": "How do I size a pool?", "difficulty": "easy",
+     "with_docs": {"aggregate": 90.0}, "without_docs": None, "delta": None},
+    {"question_id": "gen-1", "question_text": "How do I flush a queue?", "difficulty": "hard",
+     "with_docs": {"aggregate": 40.0}, "without_docs": {"aggregate": 40.0}, "delta": 0.0},
+    {"question_id": "gen-2", "question_text": "How do I cancel a task?", "difficulty": "hard",
+     "with_docs": {"aggregate": 60.0}, "without_docs": {"aggregate": 50.0}, "delta": 10.0},
+    {"question_id": "gen-3", "question_text": "How do I wait on a flag?", "difficulty": "hard",
+     "with_docs": {"aggregate": 100.0}, "without_docs": None, "delta": None},
+]
+
+
+def test_eval_report_group_rows_count_their_unpaired_questions(tmp_path):
+    path = tmp_path / "eval" / "lib.json"
+    path.parent.mkdir()
+    path.write_text(json.dumps({"evaluations": GROUPED_EVALUATIONS}), encoding="utf-8")
+    md = tmp_path / "lib.md"
+    generate_report(str(path), str(md), str(tmp_path / "lib.qa.json"))
+    eval_md = md.read_text(encoding="utf-8")
+
+    assert _eval_report_all_row(eval_md) == {"with": 60.0, "without": 50.0, "delta": 10.0}
+    assert "| **All** | 5 (2 unpaired) |" in eval_md
+    # Summary table: the dynamic and golden rows. Whole lines, because the breakdown rows below
+    # carry the same cells with more columns after them.
+    lines = eval_md.splitlines()
+    assert "| Generated (dynamic) | 3 (1 unpaired) | 50.0 | 45.0 | **+5.0** |" in lines
+    assert "| Golden (static) | 2 (1 unpaired) | 80.0 | 60.0 | **+20.0** |" in lines
+    # Breakdown by type.
+    assert "| Dynamic (generated) | 3 (1 unpaired) | 50.0 | 45.0 | **+5.0** |" in eval_md
+    assert "| Golden (static) | 2 (1 unpaired) | 80.0 | 60.0 | **+20.0** |" in eval_md
+    # Breakdown by difficulty.
+    assert "| easy | 2 (1 unpaired) | 80.0 | 60.0 | **+20.0** |" in eval_md
+    assert "| hard | 3 (1 unpaired) | 50.0 | 45.0 | **+5.0** |" in eval_md
+
+
 def test_top_and_bottom_performers_rank_the_complete_pairs_like_the_overall_max():
     report = json.loads(ReportGenerator().generate_report({"evaluations": EVALUATIONS}, {"questions": []}, "json"))
     # q3 scored 100 in the context arm alone; it is not in any table that the Overall Max bounds.
