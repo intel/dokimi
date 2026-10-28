@@ -24,4 +24,6 @@
   `claude-opus-…`). The novelty default judge on `claude-cli` is another Claude family than the answerer.
 - The CLI child process drops `ANTHROPIC_*`, `CLAUDE_*` and `CLAUDECODE` variables from the
   environment (except `CLAUDE_CONFIG_DIR` and `CLAUDE_CODE_OAUTH_TOKEN`), so a billing or
-  session setting in the caller does not reroute the call.
+  session setting in the caller does not reroute the call. A Bedrock or Vertex route set
+  in that environment is dropped too: the CLI then uses its own login, and `backends` reports
+  that login, not the route.

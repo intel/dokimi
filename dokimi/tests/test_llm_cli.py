@@ -429,18 +429,85 @@ def test_a_cli_judge_given_a_temperature_stops_the_full_pipeline_before_any_work
     assert "takes no temperature" in capsys.readouterr().err
 
 
-def test_every_command_with_a_hidden_or_default_model_refuses_the_cli_without_a_claude_model():
+def test_every_command_with_a_hidden_or_default_model_refuses_the_cli_without_a_claude_model(capsys):
     from dokimi.cli import parse_args
 
     cases = [
-        ["questions", "generate", "--product", "p", "--provider", "claude-cli"],
-        ["questions", "analyze", "--product", "p", "--provider", "claude-cli"],
-        ["questions", "panel-review", "--product", "p", "--provider", "claude-cli"],
+        ["questions", "generate", "--product", "p", "--personas", "p.json", "--provider", "claude-cli"],
+        ["questions", "analyze", "--questions", "q.json", "--product", "p", "--provider", "claude-cli"],
+        ["questions", "panel-review", "--questions", "q.json", "--product", "p", "--provider", "claude-cli"],
         ["personas", "discover", "--product", "p", "--provider", "claude-cli"],
         ["subjects", "run", "subject.toml", "--provider", "claude-cli"],
     ]
     for argv in cases:
         with pytest.raises(SystemExit):
             parse_args(argv)
+        # the refusal is the model gate, not an unrelated argparse error
+        assert "takes a Claude model" in capsys.readouterr().err, argv
     assert parse_args(["subjects", "run", "subject.toml", "--provider", "claude-cli",
                        "--model", "haiku"]).model == "haiku"
+
+
+def test_every_agentic_arm_kind_is_refused_on_the_cli_including_wrapped_and_combined(demo_skill):
+    from dokimi.skills import load_skill
+
+    from dokimi.commands import arms_refusals
+    from dokimi.plugins import PluginWrappedTreatment
+    from dokimi.treatments.arms import (
+        BaselineTreatment,
+        CombinedTreatment,
+        MCPAgentTreatment,
+        SkillAgentTreatment,
+        SkillCatalogTreatment,
+    )
+
+    cli = argparse.Namespace(provider="claude-cli", session_turns=None)
+    skill = load_skill(demo_skill)
+    base = BaselineTreatment()
+    agentic = {
+        "mcp_agent": MCPAgentTreatment(mcp_client=None),
+        "skill_agent": SkillAgentTreatment(skill),
+        "skill_catalog": SkillCatalogTreatment([skill]),
+        "combined_with_agent": CombinedTreatment([base, SkillAgentTreatment(skill)]),
+        "plugin_wrapped_agent": PluginWrappedTreatment(SkillAgentTreatment(skill), []),
+    }
+    for kind, arm in agentic.items():
+        with pytest.raises(ValueError, match="agentic arm"):
+            arms_refusals.refuse_cli_arms(cli, [arm])
+    arms_refusals.refuse_cli_arms(
+        cli, [base, CombinedTreatment([base, base]), PluginWrappedTreatment(base, [])])
+
+
+def test_the_arms_entry_point_refuses_a_cli_agentic_arm_before_any_answer(monkeypatch):
+    from dokimi.commands import arms
+
+    def answer_must_not_run(*args, **kwargs):
+        raise AssertionError("an answer was paid for before the CLI refusal")
+
+    monkeypatch.setattr(arms, "_resolve_doc_library_id", lambda *a, **k: None)
+    monkeypatch.setattr(arms, "_validate_expected_skills", lambda *a, **k: None)
+    args = argparse.Namespace(provider="claude-cli", model="sonnet", judge=False, session_turns=None,
+                              top_k=3, rerank_threshold=0.3, product="p", context7_id=None,
+                              plugins="", harness="arms-runner", matrix_cell=None, judge_provider=None)
+    with pytest.raises(ValueError, match="agentic arm"):
+        arms._build_arms_output(args, ["baseline", "agent"], [])
+
+
+def test_an_alias_and_a_bedrock_or_prefixed_full_id_are_one_model_for_the_identity_checks():
+    assert llm_cli.same_model("claude-cli", "sonnet", "anthropic", "us.anthropic.claude-sonnet-5-5-v1:0")
+    assert llm_cli.same_model("claude-cli", "sonnet", "litellm", "anthropic/claude-sonnet-5-5")
+    assert not llm_cli.same_model("claude-cli", "sonnet", "anthropic", "us.anthropic.claude-opus-5-1-v1:0")
+
+
+def test_the_main_model_falls_back_to_most_output_when_the_requested_family_is_unknown():
+    usage = {"helper-a": {"outputTokens": 5}, "helper-b": {"outputTokens": 500}}
+    assert llm_cli._main_model(usage, "claude-fable-5-1") == "helper-b"
+
+
+def test_the_login_check_runs_with_the_same_reduced_env_as_the_call(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://gateway.example")
+    fake = _auth_runner({"loggedIn": True, "authMethod": "oauth_token"})
+    llm_cli.detect("claude-cli", runner=fake)
+    assert fake.calls
+    for call in fake.calls:
+        assert "ANTHROPIC_BASE_URL" not in call.env

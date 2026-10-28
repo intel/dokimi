@@ -41,5 +41,3 @@ def refuse_cli_arms(args: argparse.Namespace, treatments: list) -> None:
     if getattr(args, "session_turns", None) is not None:
         raise ValueError(f"--session-turns needs a conversation, which --provider {args.provider} "
                          "does not have: use an API provider for a session")
-
-

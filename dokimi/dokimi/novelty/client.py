@@ -289,14 +289,14 @@ def default_judge(model: str, provider: str | None = None,
         provider = answerer_provider
     if provider is not None and provider == "claude-cli":
         # The CLI's aliases: the first one not of the answerer's family, so the judge is never the answerer.
-        from dokimi.llm_cli import CLAUDE_CLI, same_model
+        from dokimi.llm_cli import same_model
 
         for alias in ("opus", "sonnet", "haiku"):
-            if alias in CLAUDE_CLI.aliases and not same_model("claude-cli", alias, "claude-cli", bare):
+            if not same_model("claude-cli", alias, "claude-cli", bare):
                 return alias, provider
-        raise ValueError(f"--judge-provider {provider}: no judge of another family than {model}; "
+        raise ValueError(f"judge provider {provider}: no judge of another family than {model}; "
                          "pass --judge-model as well")
-    candidates =[(m, p) for m, p in ((DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER),
+    candidates = [(m, p) for m, p in ((DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER),
                                       (DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER))
                   if m != bare]
     if provider is None:

@@ -162,8 +162,9 @@ def _main_model(model_usage: Dict[str, Any], requested: str) -> Optional[str]:
     names = [n for n in model_usage if isinstance(n, str)]
     if not names:
         return None
+    family = _family(requested)
     for name in names:
-        if _family(name) == _family(requested):
+        if family is not None and _family(name) == family:
             return name
     def output(name: str) -> int:
         stats = model_usage.get(name)
@@ -250,7 +251,7 @@ def accepts_model(provider: str, model: str) -> bool:
 
 def _family(model: str) -> Optional[str]:
     """The alias a Claude model name belongs to: ``sonnet``, or of ``claude-sonnet-5-5``."""
-    name = model.strip().lower()
+    name = model.strip().lower().rsplit("/", 1)[-1].rsplit("anthropic.", 1)[-1]
     if name in CLAUDE_CLI.aliases:
         return name
     if name.startswith("claude-"):

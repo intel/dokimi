@@ -11,6 +11,7 @@ from collections import Counter
 import sys
 from pathlib import Path
 
+from dokimi.commands.arms_refusals import refuse_cli_arms
 from dokimi.llm import ANSWER_PROVIDERS
 from dokimi.utils import question_id
 from dokimi.eval.judge import JUDGE_PROVIDERS
