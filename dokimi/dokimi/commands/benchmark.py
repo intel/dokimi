@@ -27,7 +27,7 @@ from dokimi.defaults import (
 from dokimi.commands.library import _load_registry
 
 
-def _run_single_library(entry, output_dir: str, model: str, provider: str, judge_model: str, judge_provider: str = DEFAULT_JUDGE_PROVIDER, doc_source_override=None, max_tokens_per_question: int = DEFAULT_MAX_TOKENS_PER_QUESTION, force_regen: bool = False, concurrency: int = DEFAULT_CONCURRENCY, questions_from=None, questions_root=None) -> dict:
+def _run_single_library(entry, output_dir: str, model: str, provider: str, judge_model: str, judge_provider: str = DEFAULT_JUDGE_PROVIDER, doc_source_override=None, max_tokens_per_question: int = DEFAULT_MAX_TOKENS_PER_QUESTION, force_regen: bool = False, concurrency: int = DEFAULT_CONCURRENCY, questions_from=None, questions_root=None, judge_temperature=None) -> dict:
     """Run full evaluation pipeline for one ProductEntry. Returns result dict."""
     from dokimi.orchestrator import EvaluationPipeline
     from pathlib import Path as _Path
@@ -58,6 +58,7 @@ def _run_single_library(entry, output_dir: str, model: str, provider: str, judge
         provider=provider,
         judge_model=judge_model,
         judge_provider=judge_provider,
+        judge_temperature=judge_temperature,
         context7_id=entry.context7_id,
         doc_source=doc_source,
         max_tokens_per_question=max_tokens_per_question,
@@ -247,6 +248,7 @@ def cmd_benchmark_run(args: argparse.Namespace) -> None:
             concurrency=concurrency,
             questions_from=questions_from,
             questions_root=questions_root,
+            judge_temperature=getattr(args, "judge_temperature", None),
         )
     else:
         print(f"\n🔁 Multi-run mode: {n_runs} evaluation passes")
@@ -269,6 +271,7 @@ def cmd_benchmark_run(args: argparse.Namespace) -> None:
                 concurrency=concurrency,
                 questions_from=qfrom,
                 questions_root=questions_root,
+                judge_temperature=getattr(args, "judge_temperature", None),
             )
             try:
                 eval_summary = r["result"]["steps"]["evaluation"]["summary"]
@@ -369,6 +372,8 @@ def register(sub, positive_int) -> None:
                              help=JUDGE_MODEL_HELP)
     bench_run_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider",
                              choices=JUDGE_PROVIDERS)
+    bench_run_p.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
+                             help="Judge sampling temperature, recorded as judge_temperature in the eval output (default: provider default)")
     bench_run_p.add_argument("--registry", default=None, help="Path to custom products.yaml")
     bench_run_p.add_argument("--max-tokens", type=positive_int, default=DEFAULT_MAX_TOKENS_PER_QUESTION, dest="max_tokens",
                              help="Max tokens to retrieve per question from doc source (default: 4000)")

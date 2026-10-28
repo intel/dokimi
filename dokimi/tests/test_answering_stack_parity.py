@@ -102,8 +102,8 @@ PINNED: Tuple[Tuple[str, str, Any, Any], ...] = (
         "(No documentation provided)",
         "(No documentation retrieved)",
     ),
-    # D6 judge temperature (CLI: P = benchmark run, A = arms run; benchmark run has no such flag)
-    ("D6", "cli.judge_temperature_flag", False, True),
+    # D6 judge temperature (CLI: P = benchmark run, A = arms run)
+    ("D6", "cli.judge_temperature_flag", True, True),
     # D7 --max-tokens (CLI defaults; where the configured value lands)
     ("D7", "cli.max_tokens_default", 4000, None),
     ("D7", "max_tokens.lands_in", "retrieval", "answer"),
