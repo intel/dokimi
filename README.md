@@ -9,12 +9,9 @@ SPDX-License-Identifier: Apache-2.0
 [![codecov](https://codecov.io/gh/intel/dokimi/graph/badge.svg?branch=main)](https://codecov.io/gh/intel/dokimi)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/intel/dokimi/badge)](https://scorecard.dev/viewer/?uri=github.com/intel/dokimi)
 
-**Dokimi measures whether the context you give an AI agent actually helps it.**
+### Proof, not popularity: find out whether your agent's skills, docs and `AGENTS.md` actually work.
 
-![The same eval set runs on agent A as it is and on agent B with one change; the same grader scores both, and the difference with its p-value decides](dokimi/docs/assets/readme/f01-ab-delta.png)
-
-<sub>Illustrative numbers. Change one thing, hold the model, eval set, grader
-and harness fixed, report the delta with its p-value.</sub>
+![The same eval set runs on agent A as it is and on agent B with one change; the same grader scores both, and the difference with its p-value decides](dokimi/docs/assets/readme/ab-test.png)
 
 **Documentation: <https://intel.github.io/dokimi/>**
 
@@ -35,7 +32,7 @@ scorecard that earned it.
 > because it was written or because it is popular; it gets trusted because it
 > passed a test that could have failed.
 
-![1. Does it help? Ship it or cut it. 2. Which parts help? Edit it. 3. Does guidance land? Fix the repo](dokimi/docs/assets/readme/f03-three-questions.png)
+![1. Does it help? Ship it or cut it. 2. Which parts help? Edit it. 3. Does guidance land? Fix the repo](dokimi/docs/assets/readme/three-questions.png)
 
 ## Which parts help: novelty
 
@@ -45,22 +42,34 @@ claims and asks the model about each one twice: without the skill and with
 it. A different model grades both answers. Every claim lands in one of four
 outcomes:
 
-![A 2x2 grid. Wrong without, right with: added, keep it. Right without and with: redundant, cut it for this model. Wrong both times: still missing, rewrite it. Right without, wrong with: degraded, fix it first](dokimi/docs/assets/readme/f05-novelty-2x2.png)
+![A 2x2 grid. Wrong without, right with: added, keep it. Right without and with: redundant, cut it for this model. Wrong both times: still missing, rewrite it. Right without, wrong with: degraded, fix it first](dokimi/docs/assets/readme/novelty-outcomes.png)
 
-The four outcomes are the direction to optimize in, claim by claim:
+The outcomes are painted back onto the skill's own text, so the author sees
+what to keep, cut, rewrite and fix, line by line ([more on novelty](dokimi/docs/skill-novelty.md)):
 
-- **Added** — the skill's real value. Keep it, and protect it when shortening.
-- **Redundant** — the model already knew it. Cut it to save context, for this model only.
-- **Still missing** — written but not picked up. Rewrite it: clearer, earlier, or as an exact value.
-- **Degraded** — the skill made the answer worse. Fix this first.
+![A SKILL.md with each line coloured by its outcome: added (keep), redundant (cut), degraded (fix), still missing (rephrase), and protected safety clauses (never cut)](dokimi/docs/assets/readme/annotated-skill.png)
 
-Dokimi maps the outcomes back onto the skill's own text and proposes shorter
-versions that drop redundant claims while keeping the added ones and the
-safety clauses. Re-measure the edited skill and the loop closes:
+## Optimize the skill for what you care about
 
-![Assess, diagnose, change, re-measure, then: better means keep it and guard it in CI; none or worse means reject it with numbers; unclear means explain and design the next experiment. A new model, harness or time means reassess](dokimi/docs/assets/readme/f11-loop-plain.png)
+The same outcomes drive automatic tuning. Choose what matters — answer
+quality, a smaller context (cheaper and faster runs), or keeping every safety
+clause — and Dokimi proposes variants of the skill and scores each one on
+every axis. Different goals produce different skills:
 
-More: [content novelty](dokimi/docs/skill-novelty.md).
+![One skill, three objectives. Effectiveness keeps 96% of the knowledge at 66% of the tokens. Efficiency keeps 92% of the knowledge at 21% of the tokens but drops most safety clauses. Safety keeps every guard at 60% of the tokens](dokimi/docs/assets/readme/optimization-directions.png)
+
+A variant counts only after it is re-measured on real tasks:
+
+![Assess, diagnose, change, re-measure, then: better means keep it and guard it in CI; none or worse means reject it with numbers; unclear means explain and design the next experiment. A new model, harness or time means reassess](dokimi/docs/assets/readme/improvement-loop.png)
+
+## Are the evals good enough?
+
+A score is only as good as the tasks behind it. Dokimi checks the eval set
+itself: that it is valid, that its graders fail an untouched workspace and
+pass the reference solution, that its tasks are real work, and which of the
+skill's claims no task exercises.
+
+![Four checks of an eval set: valid, graded right, relevant, covering. Below, a grid of the skill's claims against tasks, with claims no task exercises marked as untested gaps](dokimi/docs/assets/readme/eval-coverage.png)
 
 ## What measuring shows
 
