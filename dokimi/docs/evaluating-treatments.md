@@ -584,6 +584,23 @@ uv run reach eval --skills <skills-checkout>/skills --queries trigger_set.json \
 uv run reach diff --vary description control.json treatment.json   # A/B vs noise floor
 ```
 
+**Real harness, in dokimi: `catalog trigger-probe`.** Runs each query in a fresh
+`claude -p`: a new git repository with the catalog committed in `.claude/skills/`, a
+scratch `HOME` and `CLAUDE_CONFIG_DIR` (your own skills, settings and `CLAUDE.md` are not
+loaded; the model can still read any host path it has access to, the trigger set and its
+labels included), the query sent verbatim with no notice or task framing, and bundled skills
+left on as a user has them (`--sealed` turns them off). The skill chosen is read from the
+transcript's `Skill` calls, and the output's `skill_selection_summary` is scored by the
+same code as the `skill-catalog:` arm, one column per trial. `max_turns_hit` counts runs
+that ended on `--max-turns` (scored as no load), and the command exits 1 when Claude Code
+did not list a catalog skill (`not_listed`). Records are kept in `<out>.partial` while the
+probe runs:
+
+```bash
+python cli.py catalog trigger-probe --catalog <skills-checkout>/skills \
+  --trigger-set trigger_set.json --model <model> --trials 3 --out probe.json
+```
+
 Two things decide whether such a number means anything:
 
 - **Listing budget.** Claude Code shows skill descriptions only up to a budget (a
