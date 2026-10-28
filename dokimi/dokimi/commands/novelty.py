@@ -296,7 +296,7 @@ def _routing_field(args: argparse.Namespace, exclude: set[str],
     What was left out of the field, and why, is appended to ``left_out`` when given.
 
     Raises:
-        FileNotFoundError, ValueError: A reference or the catalog cannot be loaded.
+        OSError, ValueError, RecursionError: A reference or the catalog cannot be loaded.
     """
     from dokimi.novelty.routing import (
         catalog_competitors,
