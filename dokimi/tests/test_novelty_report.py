@@ -59,3 +59,13 @@ def test_found_conflicts_lead_whatever_the_coverage():
     assert "> **Conflicts first: 2 conflicting atoms, 1 pairs.**" in markdown
     assert "Conflicts not cleared" not in markdown
     assert "| harmful_conflicting | 2 |" in markdown
+
+
+@pytest.mark.parametrize("cost, line", [
+    ({"llm_calls": 2, "input_tokens": 200, "output_tokens": 20, "usd": 0.02},
+     "Cost: 2 LLM calls, 200 in / 20 out, usd 0.02."),
+    ({"llm_calls": 3, "input_tokens": 10, "output_tokens": 1, "usd": 0.001, "replayed_calls": 1},
+     "Cost: 3 LLM calls, 10 in / 1 out, usd 0.001, 1 replayed from the cache and not counted."),
+], ids=["live", "replayed"])
+def test_the_cost_line_names_replayed_calls_only_when_there_are_some(cost, line):
+    assert line in render_novelty_markdown(_artifact(cost=cost)).splitlines()

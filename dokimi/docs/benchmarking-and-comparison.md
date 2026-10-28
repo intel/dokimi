@@ -754,7 +754,10 @@ that never hits.
 
 A replayed entry reports the **stored** usage record — tokens, cost and latency
 as measured when the call was really made, not `$0`/`0s`, so cost stays
-comparable across runs. The flip side: latency from a cached run is a recording,
+comparable across runs. The run's `cost` totals (`novelty analyze`, `novelty
+routing --model`) are what this run spent, so they leave replayed records out of
+the token and `usd` sums and count them in `replayed_calls`; `llm_calls` still
+counts them. The flip side: latency from a cached run is a recording,
 not a measurement. That is why this cache is opt-in, and why it should stay off
 for any run whose latency numbers you intend to quote.
 

@@ -361,17 +361,21 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
         "lexical": lexical,
     }
     if args.model:
+        from dokimi.novelty.client import roll_up_cost
+
         selector = _client(args.model, args.provider, "selector", args)
         payload["model"] = dict(
             model_routing(candidates, queries, client=selector, gold=0, seed=args.seed,
                           repeats=args.repeats),
             queries_self_derived=self_derived,
         )
+        payload["cost"] = roll_up_cost([selector])
 
     out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     print(f"OK Saved routing measurement: {out}")
 
     _print_routing_summary(payload, len(competitors), self_derived)
+
 
 def _print_routing_summary(payload: dict, n_competitors: int, self_derived: bool) -> None:
     """The lexical line, the model line and their caveats, printed after a routing run."""
@@ -408,9 +412,20 @@ def _print_routing_summary(payload: dict, n_competitors: int, self_derived: bool
                   f"{noise['half_range']} (a crude sampling floor)")
         print("The model figure is an upper bound on harness behaviour: a harness that "
               "truncates descriptions in its own listing selects on less text.")
+        cost = payload["cost"]
+        if not cost["llm_calls"]:
+            print("cost     0 calls")
+        else:
+            spent = ("USD not known: a call had no price or no usage" if cost["usd"] is None
+                     else "<$0.0001" if 0 < cost["usd"] < 0.00005 else f"${cost['usd']:.4f}")
+            replayed = (f", {cost['replayed_calls']} replayed from the cache and not counted"
+                        if cost["replayed_calls"] else "")
+            print(f"cost     {cost['llm_calls']} calls, {cost['input_tokens']} input / "
+                  f"{cost['output_tokens']} output tokens, cache read "
+                  f"{cost['cache_read_tokens']} / write {cost['cache_write_tokens']}, "
+                  f"{spent}{replayed}")
     if self_derived:
         print("Self-derived queries: read as triage only.")
-
 
 
 def _refuse_no_queries(args: argparse.Namespace, queries: list[str], self_derived: bool,
