@@ -10,4 +10,6 @@
   `python-version` a setup step pins. A `3.14t` value or a `cp314t` tag is a free-threaded build,
   and a pre-release (`3.14.0-rc.1`) runs its minor version. A computed matrix, `include`,
   `exclude` or step version, a value such as `3.x` or `>=3.12`, a `python-version-file`, a call
-  to another repository's workflow, or no Python version make the claim `unresolved`.
+  to another repository's workflow, or no Python version make the claim `unresolved`, and so does
+  a range that holds for the matrices but that a setup step's pin widens (a lint job on another
+  Python).

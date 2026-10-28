@@ -963,7 +963,9 @@ value or a `cp314t` tag in any matrix string is a free-threaded build. A range
 is `ok` when its ends are the lowest and highest version the workflow runs
 (both ends written with `t`: of the free-threaded builds), a list when each
 version runs, and a version written with `t` must run free-threaded; anything
-else is `fail`. A matrix, an `include`, an `exclude` or a step version computed
+else is `fail`. A range that holds for the matrices alone, and whose ends only a
+version a setup step pins widens (a lint or docs job on another Python), is
+`unresolved`, since the range may leave that job out on purpose. A matrix, an `include`, an `exclude` or a step version computed
 from an expression (`${{ fromJSON(…) }}`), an `exclude` on a Python key over
 more than 256 combinations, a Python value that names no one version (`3.x`,
 `>=3.12`), a `python-version-file`, a call to another repository's workflow or

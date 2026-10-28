@@ -64,6 +64,10 @@ def _wf(matrix: str) -> dict[str, str]:
     return {".github/workflows/ci.yml": f"jobs:\n  test:\n    strategy:\n      matrix: {matrix}\n"}
 
 
+# a lint job on 3.11 that setup-python pins, and a test matrix of 3.12 to 3.14
+_LINT = ("jobs:\n  lint:\n    steps: [{uses: actions/setup-python@v6, with: {python-version: '3.11'}}]\n"
+         "  test:\n    strategy: {matrix: {python: ['3.12', '3.13', '3.14']}}\n")
+
 # 3.13, 3.14 and 3.15, plus a free-threaded 3.14 named only by its conda build tag
 CONDA = ("{python: ['3.13'], include: [{python: '3.14', spec: '3.14.* *_cp314'}, "
          "{python: '3.14', spec: '3.14.* *_cp314t'}, {python: '3.15'}]}")
@@ -327,6 +331,19 @@ CASES = [
      {".github/workflows/ci.yml": "jobs:\n  lint:\n    steps:\n      - uses: actions/setup-python@v6\n"
       "        with: {python-version: '3.12'}\n  test:\n    strategy:\n      matrix: {python: ['3.13', '3.14']}\n"},
      {("python_versions", "py3.12-3.14"): "ok"}),
+    ("a range that only a setup step's pin widens: unresolved",
+     "py3.12-3.14 `ci.yml`\n\npy3.11-3.14 `ci.yml`; Python 3.11 and 3.12 in `ci.yml`\n\npy3.12-3.14 and 3.15 `ci.yml`\n\n"
+     "py3.11-3.12 `steps.yml`\n\nPython 3.11–3.13 `steps.yml`\n\nPython 3.11-3.13, `cf.yml`",
+     {".github/workflows/ci.yml": _LINT,
+      ".github/workflows/steps.yml": "jobs:\n  a:\n    steps: [{with: {python-version: '3.11'}}]\n"
+      "  b:\n    steps: [{with: {python-version: '3.12'}}]\n",
+      ".github/workflows/cf.yml": "jobs:\n  call:\n    uses: ./.github/workflows/build.yml\n",
+      ".github/workflows/build.yml": "jobs:\n  lint:\n    steps: [{with: {python-version: '3.11'}}]\n"
+      "  t:\n    strategy: {matrix: {python: ['3.12', '3.13']}}\n"},
+     {("python_versions", "py3.12-3.14"): "unresolved", ("python_versions", "py3.11-3.14"): "ok",
+      ("python_versions", "Python 3.11 and 3.12"): "ok", ("python_versions", "py3.12-3.14 and 3.15"): "fail",
+      ("python_versions", "py3.11-3.12"): "ok", ("python_versions", "Python 3.11–3.13"): "fail",
+      ("python_versions", "Python 3.11-3.13"): "ok"}),
     ("a setup step's matrix key holds Python versions", "py3.12-3.14 in `ci.yml`",
      {".github/workflows/ci.yml": "jobs:\n  a:\n    strategy: {matrix: {v: ['3.12', '3.13']}}\n"
       "    steps: [{with: {python-version: '${{ matrix.v }}'}}]\n  b:\n    strategy: {matrix: {include: [{w: '3.14'}]}}\n"
@@ -417,6 +434,14 @@ def test_a_python_range_says_what_the_jobs_run(tmp_path):
     assert {c["claim"]: c["why"] for c in payload["claims"] if c["kind"] == "python_versions"} == {
         "py3.12-3.14t": "the jobs of .github/workflows/ci.yml run 3.13, 3.14, 3.14t, 3.15, not 3.12 to 3.14t",
         "Python 3.13–3.15": "the jobs of .github/workflows/ci.yml run 3.13, 3.14, 3.14t, 3.15"}
+
+
+def test_a_range_a_setup_step_widens_says_so(tmp_path):
+    docs = "  docs:\n    steps: [{with: {python-version: '3.13'}}]\n"  # a pin the matrix runs too is not named
+    payload = _scan(tmp_path, "py3.12-3.14 `ci.yml`\n", {".github/workflows/ci.yml": _LINT + docs})
+    assert [c["why"] for c in payload["claims"] if c["kind"] == "python_versions"] == [
+        "the matrices of .github/workflows/ci.yml run 3.12, 3.13, 3.14, as 3.12 to 3.14 says, "
+        "and a setup step also sets up 3.11: a job the range may leave out"]
 
 
 def test_a_workflow_is_read_once_per_scan(tmp_path, monkeypatch):
