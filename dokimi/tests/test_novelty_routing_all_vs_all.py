@@ -120,16 +120,25 @@ def test_a_queries_file_that_is_not_an_object_of_string_lists_is_refused(tmp_pat
         load_queries_by_skill(str(path))
 
 
-def test_a_queries_file_nested_too_deeply_is_refused_by_name(tmp_path):
+def _recursion_on_load(monkeypatch):
+    """Make json.loads hit the depth limit: whether a deep file does depends on the Python."""
+    def too_deep(*args, **kwargs):
+        raise RecursionError("maximum recursion depth exceeded")
+    monkeypatch.setattr(json, "loads", too_deep)
+
+
+def test_a_queries_file_nested_too_deeply_is_refused_by_name(tmp_path, monkeypatch):
     path = tmp_path / "q.json"
-    path.write_text('{"linux-perf": ' + "[" * 100000 + "]" * 100000 + "}", encoding="utf-8")
+    path.write_text('{"linux-perf": []}', encoding="utf-8")
+    _recursion_on_load(monkeypatch)
     with pytest.raises(RoutingInputError, match="nested too deeply"):
         load_queries_by_skill(str(path))
 
 
-def test_a_queries_file_nested_too_deeply_exits_with_a_message(tmp_path):
+def test_a_queries_file_nested_too_deeply_exits_with_a_message(tmp_path, monkeypatch):
     path = tmp_path / "q.json"
-    path.write_text('{"linux-perf": ' + "[" * 100000 + "]" * 100000 + "}", encoding="utf-8")
+    path.write_text('{"linux-perf": []}', encoding="utf-8")
+    _recursion_on_load(monkeypatch)
     root = tmp_path / "catalog"
     _catalog_skill(root, "perf", "profile a slow binary with perf record and report")
     args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
