@@ -16,19 +16,19 @@ ONE_EVALUATION = json.dumps({"evaluations": [
      "without_docs": {"aggregate": 60.0}, "delta": 20.0}]})
 
 
-def _generate(tmp_path, eval_path):
+def _generate(tmp_path, eval_path, fmt="markdown"):
     questions = tmp_path / "questions.json"
     questions.write_text('{"questions": []}', encoding="utf-8")
     args = build_parser().parse_args([
         "report", "generate", "--product", "p", "--eval", str(eval_path),
-        "--questions", str(questions), "--output", str(tmp_path / "r.md"),
+        "--questions", str(questions), "--output", str(tmp_path / "r.md"), "--format", fmt,
     ])
     args.func(args)
 
 
-def _err(tmp_path, eval_path, capsys):
+def _err(tmp_path, eval_path, capsys, fmt="markdown"):
     with pytest.raises(SystemExit) as exc:
-        _generate(tmp_path, eval_path)
+        _generate(tmp_path, eval_path, fmt)
     assert exc.value.code == 1
     return capsys.readouterr().err
 
@@ -92,11 +92,12 @@ def test_non_list_evaluations_exit_1_with_its_path(tmp_path, capsys, evaluations
     assert f"{bad} evaluations: expected a list of records" in _err(tmp_path, bad, capsys)
 
 
+@pytest.mark.parametrize("fmt", ["markdown", "json"])  # json never crashed: refused all the same
 @pytest.mark.parametrize("text", ['{"evaluations": []}', "{}", "[]"])
-def test_an_eval_with_no_evaluations_exits_1_and_writes_no_report(tmp_path, capsys, text):
+def test_an_eval_with_no_evaluations_exits_1_and_writes_no_report(tmp_path, capsys, text, fmt):
     empty = tmp_path / "empty.json"
     empty.write_text(text, encoding="utf-8")
-    err = _err(tmp_path, empty, capsys)
+    err = _err(tmp_path, empty, capsys, fmt)
     assert err == f"Error: --eval {empty} holds no evaluations\n"
     assert not (tmp_path / "r.md").exists()
 
