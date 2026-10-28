@@ -141,11 +141,11 @@ def resolve_model(model: str, provider: str) -> str:
     if name == "openai-codex":
         return f"openai/{model}"
     if name == "openai":
-        # litellm refuses a name off its OpenAI lists (glm-5.3 on OPENAI_API_BASE, meta-llama/x)
-        # or sends it elsewhere (claude-*): those get openai/. The rest keep route and cache key.
+        # A name litellm does not take for OpenAI's (glm-5.3, meta-llama/x, claude-*) gets openai/.
         import litellm
         known = litellm.open_ai_chat_completion_models | litellm.open_ai_text_completion_models
-        routed = model.split("/", 1)[0] in litellm.provider_list if "/" in model else model in known
+        ours = model in known or "ft:gpt-3.5-turbo" in model or "ft:gpt-4" in model  # as litellm
+        routed = model.split("/", 1)[0] in litellm.provider_list if "/" in model else ours
         return model if routed else f"openai/{model}"
     if "/" in model:
         return model

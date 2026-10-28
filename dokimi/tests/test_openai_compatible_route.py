@@ -39,10 +39,17 @@ def litellm_routes(monkeypatch):
     return routed
 
 
-@pytest.mark.parametrize("model", ["glm-5.3", "meta-llama/Llama-3.1-8B", "claude-sonnet-5-5"])
+@pytest.mark.parametrize("model", ["glm-5.3", "meta-llama/Llama-3.1-8B", "claude-sonnet-5-5",
+                                   "ft:gpt-5-mini:org::id"])  # a fine-tune litellm does not place
 def test_a_model_off_litellms_openai_lists_is_sent_to_the_openai_endpoint(litellm_routes, model):
     assert LLM(model, "openai").ask("Reply with OK.") == JUDGE_REPLY
     assert litellm_routes == [f"openai/{model}"]
+
+
+@pytest.mark.parametrize("model", ["gpt-4o", "gpt-3.5-turbo-instruct", "ft:gpt-4o-mini:org::id"])
+def test_a_name_litellm_takes_for_openais_goes_out_bare_and_still_routes(litellm_routes, model):
+    assert LLM(model, "openai").ask("Reply with OK.") == JUDGE_REPLY
+    assert litellm_routes == [model]
 
 
 def test_cross_judge_scores_with_an_openai_compatible_judge(litellm_routes, tmp_path):
