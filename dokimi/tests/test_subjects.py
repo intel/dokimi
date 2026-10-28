@@ -640,18 +640,18 @@ def test_subjects_reject_duplicate_runtime_arm_names(tmp_path: Path):
 
 
 def test_subjects_default_out_dir_sanitizes_subject_id(tmp_path: Path, monkeypatch):
-    def fake_matrix_run(args):
-        run_dir = Path(args.out_dir)
+    def fake_matrix_run(config, *, out_dir, **kw):
+        run_dir = Path(out_dir)
         run_dir.mkdir(parents=True)
         (run_dir / "matrix-rollup.json").write_text(json.dumps({
             "schema_version": "matrix_rollup.v1",
-            "library_name": args.product,
+            "library_name": config.product,
             "cells": [],
             "plugin_deltas": [],
             "warnings": [],
         }), encoding="utf-8")
 
-    monkeypatch.setattr("dokimi.commands.arms.cmd_arms_matrix_run", fake_matrix_run)
+    monkeypatch.setattr("dokimi.commands.arms.run_matrix", fake_matrix_run)
     descriptor_path = tmp_path / "subject.toml"
     questions = tmp_path / "questions.json"
     questions.write_text(json.dumps([{"id": "q1", "question": "Q?"}]), encoding="utf-8")
@@ -836,10 +836,10 @@ tasks = ["demo-widget"]
 
 
 def test_subject_work_preflight_loads_tasks_before_awareness(tmp_path: Path, monkeypatch, capsys):
-    def fail_if_called(args):
+    def fail_if_called(config, **kw):
         raise AssertionError("awareness matrix should not run before task preflight")
 
-    monkeypatch.setattr("dokimi.commands.arms.cmd_arms_matrix_run", fail_if_called)
+    monkeypatch.setattr("dokimi.commands.arms.run_matrix", fail_if_called)
     questions = tmp_path / "questions.json"
     questions.write_text(json.dumps([{"id": "q1", "question": "Q?"}]), encoding="utf-8")
     docs = tmp_path / "docs.md"
@@ -876,18 +876,18 @@ tasks = ["{missing_task.as_posix()}"]
 
 
 def test_subjects_run_writes_work_task_runs_when_requested(tmp_path: Path, monkeypatch):
-    def fake_matrix_run(args):
-        run_dir = Path(args.out_dir)
+    def fake_matrix_run(config, *, out_dir, **kw):
+        run_dir = Path(out_dir)
         run_dir.mkdir(parents=True)
         (run_dir / "matrix-rollup.json").write_text(json.dumps({
             "schema_version": "matrix_rollup.v1",
-            "library_name": args.product,
+            "library_name": config.product,
             "cells": [],
             "plugin_deltas": [],
             "warnings": [],
         }), encoding="utf-8")
 
-    monkeypatch.setattr("dokimi.commands.arms.cmd_arms_matrix_run", fake_matrix_run)
+    monkeypatch.setattr("dokimi.commands.arms.run_matrix", fake_matrix_run)
     task_dir = tmp_path / "task-one"
     (task_dir / "environment").mkdir(parents=True)
     (task_dir / "tests").mkdir()

@@ -25,35 +25,6 @@ from dokimi.eval.question_text import EmptyQuestionError
 if TYPE_CHECKING:
     from dokimi.eval.arms_run import ArmsRunConfig
 
-# Run-configuration fields the arms commands read off parsed args, shared with
-# any other command that drives an arms run by constructing its own Namespace.
-# Kept in one place so a new flag reaches every caller: enumerating these at each
-# call site is what lets a flag silently fall back to its default, since
-# run_config_from_args gives a field the Namespace lacks the config's default and
-# cannot tell a caller that omitted it from a user who chose the default.
-FORWARDED_RUN_CONFIG_FIELDS = (
-    "model",
-    "provider",
-    "harness",
-    "context7_id",
-    "judge",
-    "judge_model",
-    "judge_provider",
-    "top_k",
-    "rerank_threshold",
-    "max_iterations",
-    "max_tokens",
-    "grounded_from_topics",
-    "temperature",
-    "seed",
-    "judge_temperature",
-    "judge_panel",
-    "concurrency",
-    "stats_correction",
-    "session_turns",
-    "turn_reminder",
-)
-
 
 def run_config_from_args(args: argparse.Namespace, **overrides) -> ArmsRunConfig:
     """The run configuration in parsed *args*: the one place flags become an ``ArmsRunConfig``.
@@ -68,22 +39,6 @@ def run_config_from_args(args: argparse.Namespace, **overrides) -> ArmsRunConfig
 
     values = {f.name: getattr(args, f.name) for f in fields(ArmsRunConfig) if hasattr(args, f.name)}
     return ArmsRunConfig(**{**values, **overrides})
-
-
-def forwarded_run_config(args: argparse.Namespace, **overrides) -> dict:
-    """Copy the shared run-configuration fields off *args*.
-
-    Fields absent from *args* are omitted rather than defaulted, so
-    ``run_config_from_args`` applies the config's default instead of this helper
-    inventing one. Pass *overrides* for values the caller sets itself.
-    """
-    forwarded = {
-        field: getattr(args, field)
-        for field in FORWARDED_RUN_CONFIG_FIELDS
-        if hasattr(args, field)
-    }
-    forwarded.update(overrides)
-    return forwarded
 
 
 def judge_panel_roles(value: str) -> str:
@@ -130,6 +85,24 @@ def cmd_arms_run(args: argparse.Namespace) -> None:
 
 def cmd_arms_matrix_run(args: argparse.Namespace) -> None:
     """Run every cell in a matrix.cells descriptor and write a rollup."""
+    out_dir = Path(args.out_dir) if args.out_dir else Path(f"results/arms/{args.product}-matrix")
+    run_matrix(
+        run_config_from_args(args), arms=args.arms, questions=args.questions,
+        matrix_cells=args.matrix_cells, out_dir=out_dir,
+        out_json=Path(args.out_json) if args.out_json else None,
+        out_md=Path(args.out_md) if args.out_md else None,
+        plugin_deltas=args.plugin_deltas,
+    )
+
+
+def run_matrix(config: ArmsRunConfig, *, arms: str, questions: str, matrix_cells: str,
+               out_dir: Path, out_json: Path | None = None, out_md: Path | None = None,
+               plugin_deltas: bool = True) -> None:
+    """Run *config* in every cell of *matrix_cells* and write the cells, plugin deltas and rollup.
+
+    Every cell is checked before the first one runs. *out_json* defaults to
+    ``matrix-rollup.json`` in *out_dir*, *out_md* to *out_json* with a ``.md`` suffix.
+    """
     from dokimi.eval.arms_run import (
         LibraryIdError,
         cell_config,
@@ -142,11 +115,10 @@ def cmd_arms_matrix_run(args: argparse.Namespace) -> None:
     from dokimi.report.matrix_rollup_report import render_matrix_rollup_report
     from dokimi.report.plugin_delta_report import render_plugin_delta_report
 
-    config = run_config_from_args(args)
     try:
-        specs = _parse_arm_specs(args.arms)
-        questions = _load_questions(args.questions)
-        cells = load_matrix_cells(args.matrix_cells)
+        specs = _parse_arm_specs(arms)
+        loaded_questions = _load_questions(questions)
+        cells = load_matrix_cells(matrix_cells)
         validate_supported_matrix_harnesses(cells)
         _validate_unique_cell_filenames(cells)
         for cell in cells:
@@ -155,7 +127,6 @@ def cmd_arms_matrix_run(args: argparse.Namespace) -> None:
         print(f"Error loading matrix run inputs: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    out_dir = Path(args.out_dir) if args.out_dir else Path(f"results/arms/{args.product}-matrix")
     cells_dir = out_dir / "cells"
     try:
         cells_dir.mkdir(parents=True, exist_ok=True)
@@ -165,10 +136,10 @@ def cmd_arms_matrix_run(args: argparse.Namespace) -> None:
     cell_artifacts = []
     for cell in cells:
         safe_name = _safe_name(cell.name)
-        out_json = cells_dir / f"{safe_name}.json"
-        out_md = cells_dir / f"{safe_name}.md"
+        cell_json = cells_dir / f"{safe_name}.json"
+        cell_md = cells_dir / f"{safe_name}.md"
         try:
-            output = run_arms(cell_config(config, cell), specs, questions)
+            output = run_arms(cell_config(config, cell), specs, loaded_questions)
         except EmptyQuestionError:
             raise  # a bad input record, not a cell error: cli.main reports it (exit 2)
         except LibraryIdError as exc:
@@ -177,14 +148,14 @@ def cmd_arms_matrix_run(args: argparse.Namespace) -> None:
         except (ValueError, OSError, RecursionError) as exc:
             print(f"Error running matrix cell {cell.name!r}: {exc}", file=sys.stderr)
             sys.exit(1)
-        _save_arms_output(output, out_json, out_md)
-        cell_artifacts.append((cell.name, out_json, output))
+        _save_arms_output(output, cell_json, cell_md)
+        cell_artifacts.append((cell.name, cell_json, output))
 
     rollup = build_matrix_rollup(
-        library_name=args.product,
+        library_name=config.product,
         cell_artifacts=cell_artifacts,
         out_dir=out_dir,
-        compute_plugin_deltas=args.plugin_deltas,
+        compute_plugin_deltas=plugin_deltas,
     )
     for row in rollup.get("plugin_deltas", []):
         payload = row.get("_artifact_payload")
@@ -196,8 +167,8 @@ def cmd_arms_matrix_run(args: argparse.Namespace) -> None:
         print(f"OK Saved plugin delta:    {delta_json}")
 
     persisted = strip_internal_payloads(rollup)
-    out_json = Path(args.out_json) if args.out_json else out_dir / "matrix-rollup.json"
-    out_md = Path(args.out_md) if args.out_md else out_json.with_suffix(".md")
+    out_json = out_json or out_dir / "matrix-rollup.json"
+    out_md = out_md or out_json.with_suffix(".md")
     _save_artifact_or_exit("matrix_rollup", persisted, out_json)
     _write_report(out_md, render_matrix_rollup_report(persisted))
     print(f"OK Saved matrix rollup:   {out_json}")
