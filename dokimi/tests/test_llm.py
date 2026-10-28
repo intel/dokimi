@@ -63,6 +63,7 @@ def _no_ambient_bedrock_env(monkeypatch):
     ("openai", "meta-llama/Llama-3.1-8B", "openai/meta-llama/Llama-3.1-8B"),  # an org, not a route
     ("openai", "openai/glm-5.3", "openai/glm-5.3"),
     ("openai", "azure/gpt-4o", "azure/gpt-4o"),  # an explicit litellm route passes through
+    ("openai", "ollama/llama3", "ollama/llama3"),  # any litellm provider prefix passes through
     ("openai-codex", "gpt-5", "openai/gpt-5"),
     ("anthropic", "claude-sonnet-5-5", "anthropic/claude-sonnet-5-5"),
     ("openrouter", "openai/gpt-oss-120b", "openrouter/openai/gpt-oss-120b"),
