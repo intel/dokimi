@@ -229,6 +229,26 @@ def test_start_container_malformed_memory_falls_back_instead_of_crashing(tmp_pat
     assert run_call[run_call.index("--memory") + 1] == "2g"
 
 
+def test_start_container_drops_capabilities_and_bounds_pids(tmp_path, monkeypatch):
+    # Regression (#229 P2-1a): the task container had no cap drop, no-new-privileges or
+    # pids limit, unlike repos/container.py. Only the named capabilities the phase steps
+    # need (chown, DAC override, file owner, setuid/setgid for task scripts) are added back.
+    # The flags must sit before the image: after it, docker hands them to `sleep`.
+    task = load_task(_fixture_task(tmp_path))
+    run_call = next(c for c in _start(task, "container-6") if c[0] == "run")
+    image_at = run_call.index("img:latest")
+    assert run_call[run_call.index("--cap-drop") + 1] == "ALL"
+    assert run_call[run_call.index("--security-opt") + 1] == "no-new-privileges"
+    assert run_call[run_call.index("--pids-limit") + 1] == "32768"
+    added = {run_call[i + 1] for i, arg in enumerate(run_call) if arg == "--cap-add"}
+    assert added == {"CHOWN", "DAC_OVERRIDE", "FOWNER", "SETUID", "SETGID"}
+    for flag in ("--init", "--cap-drop", "--security-opt", "--pids-limit", "--cap-add"):
+        assert flag in run_call
+        assert all(i < image_at for i, arg in enumerate(run_call) if arg == flag)
+    assert "--privileged" not in run_call
+    assert [run_call[i + 1] for i, arg in enumerate(run_call) if arg == "--security-opt"] == ["no-new-privileges"]
+
+
 def test_solve_oracle_copies_the_whole_solution_directory(tmp_path, monkeypatch):
     # Regression test: a real run against uxlfoundation/skills'
     # onetbb-histogram-local-aggregation failed (reward 0) because solve.sh

@@ -28,10 +28,20 @@ def load_artifact_text(ref: str) -> tuple[str, str, str, str, str]:
         skill = load_skill(ref.removeprefix("skill:"))
         # Verbatim, as shorten.render promises: a rebuilt `description: a: b` is not YAML.
         lines = skill.path.read_text(encoding="utf-8").lstrip("﻿").splitlines()
-        end = next(i for i in range(1, len(lines)) if lines[i].strip() == "---")
+        end = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), None)
+        if end is None:
+            raise ValueError(f"{skill.path} has no closing '---' after its frontmatter")
         frontmatter = "\n".join(lines[: end + 1])
         return "skill", skill.name, skill.description, frontmatter, skill.body
     path = Path(ref.removeprefix("text:"))
     if not path.is_file():
         raise FileNotFoundError(f"artifact not found: {path}")
     return "text", path.stem, "", "", path.read_text(encoding="utf-8")
+
+
+def load_artifact_or_exit(ref: str) -> tuple[str, str, str, str, str]:
+    """:func:`load_artifact_text`, or exit naming ``ref`` when it is missing, unreadable or not UTF-8."""
+    try:
+        return load_artifact_text(ref)
+    except (OSError, ValueError, RecursionError) as exc:
+        raise SystemExit(f"cannot load --artifact {ref}: {exc}") from None

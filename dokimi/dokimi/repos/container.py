@@ -40,6 +40,7 @@ from pathlib import Path
 from typing import Protocol
 
 from dokimi import process
+from dokimi.container_policy import ContainerPolicy
 
 RUN_DIR = "/eval/run"
 WORKSPACE = f"{RUN_DIR}/workspace"
@@ -124,8 +125,10 @@ class DockerRunner:
     def argv(self, spec: ContainerSpec) -> list[str]:
         if spec.network not in NETWORKS:
             raise ContainerError(f"unknown network {spec.network!r} (known: {', '.join(NETWORKS)})")
-        out = [self.docker, "run", "--rm", "--init", "--security-opt", "no-new-privileges", "--cap-drop", "ALL",
-               "--pids-limit", str(PIDS_LIMIT), "--network", spec.network, "-w", spec.workdir]
+        flags = ContainerPolicy(network=spec.network, init=True, no_new_privileges=True, cap_drop_all=True,
+                                pids_limit=PIDS_LIMIT)
+        out = [self.docker, "run", "--rm", *flags.init_argv(), *flags.hardening_argv(), *flags.pids_argv(),
+               *flags.network_argv(), "-w", spec.workdir]
         if spec.name:
             out += ["--name", spec.name]
         user = spec.user or host_user()

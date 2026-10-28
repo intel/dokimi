@@ -83,8 +83,16 @@ def test_each_ecosystem_is_named_with_how_it_is_selected(tmp_path):
 def test_every_loadable_package_is_one_the_skill_loader_loads(tmp_path):
     root = _tree(tmp_path)
     loadable = {p.name for p in sf.detect_skill_packages(root) if p.loadable}
-    # The loader does not skip node_modules/ (a vendored copy loads as a skill); the scan does.
+    # node_modules/ is a vendored directory: the loader and the scan both skip it.
     assert loadable == {s.name for s in discover_skills(root)} - {"x"}
+
+
+def test_a_vendored_skill_is_not_listed_as_a_package(tmp_path):
+    _skill(tmp_path / "skills/a", "a")
+    _skill(tmp_path / "lib/site-packages/pkg/skills/b", "b")
+    _skill(tmp_path / "venv/skills/c", "c")
+    paths = [p.path.relative_to(tmp_path).as_posix() for p in sf.detect_skill_packages(tmp_path)]
+    assert paths == ["skills/a/SKILL.md"]
 
 
 def test_a_malformed_manifest_is_a_problem_not_a_crash(tmp_path):

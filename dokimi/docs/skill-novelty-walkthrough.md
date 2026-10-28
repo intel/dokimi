@@ -41,10 +41,10 @@ python cli.py novelty routing --artifact skill:skills/my-skill \
 ```
 
 The competitors are the skills a harness lists next to this one: `--catalog <dir>` takes
-every other `SKILL.md` under the directory (a `template/` copy and a byte-identical mirror
-that loads under the same skill name are left out), and `--competitors` adds or names them one by
-one. With no real siblings at hand, skip this step and say so; a field of competitors made
-up for the run measures nothing.
+every other skill the catalog lists (a `template/` copy and vendored or VCS directories
+such as `.git` are left out, and a byte-identical copy under another path counts once), and
+`--competitors` adds or names them one by one. With no real siblings at hand, skip this step and say so; a field of
+competitors made up for the run measures nothing.
 
 Read `recall@1` against the competitors, not alone. Measured on the study corpus, every
 `dpnp-*` skill scored 0.0 against its siblings, and `linux-perf` scored 0.0 recall@1 on

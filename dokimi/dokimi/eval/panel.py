@@ -23,10 +23,10 @@ import statistics
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from dokimi import caching
-from dokimi.llm import llm_call
+from dokimi.llm import ask_parsed, llm_call
 from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
 from dokimi.eval.question_text import require_question_texts
 # The panel had no numeric-claims criterion (see `eval/rubric.py`) until it was
@@ -36,8 +36,8 @@ from dokimi.eval.question_text import require_question_texts
 # runs (0.947 -> 0.895, 0.942 -> 0.904; pooled +5/-10, p = 0.30) — not
 # significant, and reported, not hidden.
 from dokimi.eval.rubric import (
-    FORMAT_REMINDER, NUMERIC_CLAIMS, NUMERIC_INSTRUCTION, NUMERIC_OUTPUT, SCORE_ANCHORS,
-    cap_for_wrong_figures,
+    NUMERIC_CLAIMS, NUMERIC_INSTRUCTION, NUMERIC_OUTPUT, SCORE_ANCHORS,
+    cap_for_wrong_figures, reminder_reprompt,
 )
 from dokimi.records import BASELINE, CONTEXT, Answer, RecordLike, records
 
@@ -293,38 +293,35 @@ class JudgePanel:
             return True
 
         pinned = config.temperature is not None or config.seed is not None
+        reprompt = reminder_reprompt(pinned)
+
+        def attempt_text(attempt: int) -> str:
+            return reprompt(prompt, attempt) if reprompt and attempt else prompt
+
+        def send(text: str, n: int, cache_if: Callable[[str], bool]) -> str:
+            return llm_call(text, model=config.model, provider=config.provider,
+                            temperature=config.temperature, seed=config.seed,
+                            draw=n, cache_if=cache_if)
+
         try:
             # Retry an unparseable reply rather than losing this role's vote to a
             # formatting failure, as ``Judge.score_answer`` does. Each attempt is
             # its own response-cache draw: under one cache key the retries replayed
             # the same unparseable reply. With sampling pinned the same prompt
             # returns the same reply live, so a re-draw then appends a reminder.
-            def ask(attempt: int) -> str:
-                attempt_prompt = prompt
-                if attempt and pinned:
-                    attempt_prompt = prompt + FORMAT_REMINDER.format(n=attempt)
-                return llm_call(attempt_prompt, model=config.model, provider=config.provider,
-                                temperature=config.temperature, seed=config.seed,
-                                draw=attempt, cache_if=parses)
-
             # A rerun starts at the attempt whose reply is stored: the unparseable
             # attempts before it were never stored and would be asked live again.
-            first, replayed = caching.first_replayed(3, ask) or (0, None)
-            last_parse_exc: Exception = ValueError("panel retry loop did not execute")
-            for attempt in range(first, 3):
-                raw = replayed if replayed is not None else ask(attempt)
-                replayed = None
-                try:
-                    data, scores = parse(raw)
-                    break
-                except Exception as parse_exc:
-                    last_parse_exc = parse_exc
-                    logger.warning(
-                        "Judge '%s' reply unparseable (attempt %d/3): %s",
-                        config.role, attempt + 1, parse_exc,
-                    )
-            else:
-                raise last_parse_exc
+            first, held = caching.first_replayed(
+                3, lambda i: send(attempt_text(i), i, parses)) or (0, None)
+
+            def ask(text: str, *, draw: int, cache_if: Callable[[str], bool]) -> str:
+                if draw == first and held is not None:
+                    return held
+                return send(text, draw, cache_if)
+
+            (data, scores), _ = ask_parsed(
+                ask, prompt, parse, start=first, reprompt=reprompt,
+                label=f"Judge '{config.role}' reply")
             # Hold the prompt's wrong-figure cap in Python, with the single
             # judge's own rule, so the two cannot disagree about what it means.
             capped: Dict[str, Any] = {"correctness": scores["correctness"],

@@ -17,7 +17,7 @@ BASE ?= baselines/baseline.json
 
 # `make dev` venv: at the repo root, outside this directory, so `bandit -r .`
 # and the docs benchmark (both run from here) do not scan it. CI's Python:
-# 3.13 until scikit-network ships cp314 wheels (see the top of ci.yml). An
+# 3.13 (see the top of ci.yml). An
 # existing venv on another Python is converted in place by re-running `make dev`.
 VENV ?= ../.venv
 PYTHON_VERSION ?= 3.13

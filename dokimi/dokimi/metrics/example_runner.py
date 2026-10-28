@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from dokimi import process
+from dokimi.container_policy import ContainerPolicy
 
 
 # Supported languages -> (file suffix, interpreter argv prefix for a file path).
@@ -191,13 +192,14 @@ def _run_docker(lang: str, code: str, policy: ExecutionPolicy,
     with tempfile.TemporaryDirectory() as tmp:
         script = Path(tmp) / f"snippet{suffix}"
         script.write_text(code, encoding="utf-8")
+        flags = ContainerPolicy(network="none", cpus=policy.cpus, memory_mb=policy.mem_mb, pids_limit=64,
+                                read_only=True)
         cmd = [
             "docker", "run", "--rm",
-            "--network", "none",
-            "--cpus", str(policy.cpus),
-            "--memory", f"{policy.mem_mb}m",
-            "--pids-limit", "64",
-            "--read-only",
+            *flags.network_argv(),
+            *flags.resource_argv(),
+            *flags.pids_argv(),
+            *flags.read_only_argv(),
             "-v", f"{tmp}:/work:ro",
             policy.docker_image,
             "timeout", str(policy.timeout),

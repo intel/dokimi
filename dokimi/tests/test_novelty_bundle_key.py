@@ -73,6 +73,33 @@ def test_a_key_for_an_artifact_that_cannot_be_loaded_is_refused(tmp_path):
         assert (verdict.ok, verdict.problem) == (False, "unloadable")
 
 
+
+def test_a_key_with_a_recorded_bundle_whose_skill_is_nested_too_deeply_is_refused(tmp_path):
+    from dokimi.novelty.bundle import check_answer_key
+
+    root = tmp_path / "deep"
+    root.mkdir()
+    (root / "SKILL.md").write_text(
+        "---\nname: deep\ndescription: " + "[" * 50000 + "]" * 50000 + "\n---\n\nBody.\n",
+        encoding="utf-8")
+    record = {"files": [{"path": "SKILL.md", "role": "entry_point", "words": 3, "end": 5}],
+              "resource_roles": []}
+    verdict = check_answer_key(f"skill:{root}", record, source="a.json")
+    assert (verdict.ok, verdict.problem) == (False, "unloadable")
+    assert "maximum recursion" in verdict.message
+
+
+def test_a_key_for_an_entry_point_that_cannot_be_read_is_refused(tmp_path):
+    from dokimi.novelty.bundle import check_answer_key
+
+    # An entry point that exists but is not readable (here: a directory) is an OSError
+    # other than FileNotFoundError; it must come back as a verdict, not a traceback.
+    root = tmp_path / "unreadable"
+    (root / "SKILL.md").mkdir(parents=True)
+    for record in ({}, {"files": [{"path": "SKILL.md", "role": "entry_point"}]}):
+        verdict = check_answer_key(f"skill:{root}", record)
+        assert (verdict.ok, verdict.problem) == (False, "unloadable")
+
 def test_a_record_without_usable_file_rows_is_refused(tmp_path):
     root = _key_skill(tmp_path)
     for broken in ({"include_resources": True, "files": []},
