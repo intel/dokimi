@@ -102,7 +102,7 @@ def _scan_tasks(args: argparse.Namespace, root: Path, report: dict, as_json: boo
     try:
         tasks = read_task_manifest(root, tasks_subdir=args.tasks_subdir)
     except ValueError as exc:
-        raise SystemExit(f"suites.json: {exc}") from exc
+        raise SystemExit(str(exc)) from exc
     if not as_json:
         print(f"# tasks ({len(tasks)} declared under {root})")
     failed = False
@@ -136,16 +136,47 @@ def cmd_catalog_scan(args: argparse.Namespace) -> None:
         raise SystemExit(1)
 
 
+def _write_trigger_set(args: argparse.Namespace, queries, catalog_root: Path) -> None:
+    """Write the query set to ``--out`` in ``--format``, or exit 1 naming ``--out`` when it cannot be written."""
+    import json
+
+    from dokimi.artifacts import ArtifactValidationError
+    from dokimi.external import trigger_set as ts
+
+    try:
+        if args.format == "questions":
+            from dokimi.questions.artifact import save_questions_artifact
+
+            save_questions_artifact(ts.to_questions(queries), args.out)
+        else:
+            # External tools' formats: no schema of ours to hold them to.
+            payload = (ts.to_reach(queries, catalog_id=str(catalog_root)) if args.format == "reach"
+                       else ts.to_skill_creator(queries, args.target))
+            Path(args.out).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    except ArtifactValidationError as exc:  # the path was writable; the payload failed the schema
+        raise SystemExit(f"Error: questions set rejected: {exc}") from exc
+    except (OSError, ValueError) as exc:  # unwritable --out: a directory, a file as parent, no permission, empty path (pathlib ValueError)
+        raise SystemExit(f"Error: cannot write --out {args.out}: {exc}") from exc
+
+
+def _discover_catalog_skills(catalog_root: Path) -> list:
+    from dokimi.skills import discover_skills
+
+    try:
+        return discover_skills(catalog_root)
+    except (OSError, ValueError, RecursionError) as exc:  # unreadable, non-UTF-8, bad frontmatter or nesting too deep
+        raise SystemExit(f"--catalog {catalog_root}: {exc}") from exc
+
+
 def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
     import json
 
     from dokimi.external import trigger_set as ts
-    from dokimi.skills import discover_skills
 
     catalog_root = Path(args.catalog)
     if not catalog_root.is_dir():
         raise SystemExit(f"--catalog is not a directory: {catalog_root}")
-    catalog = discover_skills(catalog_root)
+    catalog = _discover_catalog_skills(catalog_root)
     # Checked before any --rewrite call, so a bad invocation costs no LLM calls.
     if args.format == "skill-creator":
         if not args.target:
@@ -191,15 +222,7 @@ def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
         # cannot pick up a set with a mistyped label.
         print(json.dumps(summary, indent=2))
         raise SystemExit(1)
-    if args.format == "questions":
-        from dokimi.questions.artifact import save_questions_artifact
-
-        save_questions_artifact(ts.to_questions(queries), args.out)
-    else:
-        # External tools' formats: no schema of ours to hold them to.
-        payload = (ts.to_reach(queries, catalog_id=str(catalog_root)) if args.format == "reach"
-                   else ts.to_skill_creator(queries, args.target))
-        Path(args.out).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    _write_trigger_set(args, queries, catalog_root)
 
     print(json.dumps(summary, indent=2))
     multi = sum(len(q.acceptable) > 1 for q in ts.labelled(queries))
