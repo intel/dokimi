@@ -67,3 +67,12 @@ def test_judge_placeholder_flag_judges_the_placeholder_answers(monkeypatch, tmp_
     p = run_stack_p(monkeypatch, tmp_path, provider_calls, judge_placeholder=True)
     assert len(p.judge_inputs) == 12
     assert len([e for e in p.evaluations if e["delta"] is not None]) == 6
+
+
+def test_eval_output_is_stamped_with_the_method_version(monkeypatch):
+    from dokimi.defaults import ANSWERING_METHOD_VERSION
+    from dokimi.eval.judge import Judge
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key-not-used")
+    out = Judge(model="gpt-x", provider="openai")._build_evaluation_output([])
+    assert out["method_version"] == ANSWERING_METHOD_VERSION == 2

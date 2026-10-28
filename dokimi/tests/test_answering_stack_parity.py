@@ -168,6 +168,8 @@ PINNED: Tuple[Tuple[str, str, Any, Any], ...] = (
     ("only", "record.shape", "with_docs/without_docs", "arms"),
     ("only", "answer.token_usage.context_chars", True, False),
     ("only", "artifact.cost_summary", False, True),
+    # #228 step 2 stamp: the answers artifact carries method_version; the arms artifact does not
+    ("only", "artifact.method_version", 2, None),
 )
 
 
@@ -394,6 +396,7 @@ def _observe(tmp_path: Path, provider_calls) -> Dict[str, Tuple[Any, Any]]:
             "context_chars" in docs_block(a, a_rec_docs)["token_usage"],
         ),
         "artifact.cost_summary": ("cost_summary" in p.artifact, "cost_summary" in a.artifact),
+        "artifact.method_version": (p.artifact.get("method_version"), a.artifact.get("method_version")),
         "judge.contexts.q-empty": (_context_kinds(p, EMPTY_QUERY), _context_kinds(a, EMPTY_QUERY)),
         "judge.contexts.q-rerank": (
             _context_kinds(p, RERANK_QUERY),

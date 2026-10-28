@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 from dokimi.utils import question_id
 from dokimi.artifacts import save_artifact
+from dokimi.defaults import ANSWERING_METHOD_VERSION
 from dokimi.llm import llm_call_with_usage, LANGCHAIN_AVAILABLE
 from dokimi.defaults import DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER
 from dokimi.metrics.usage import UsageRecord, to_record
@@ -433,6 +434,7 @@ class Answerer:
 
         return {
             "generated_at": self._get_timestamp(),
+            "method_version": ANSWERING_METHOD_VERSION,
             "model": self.model,
             "provider": self.provider,
             "total_questions": len(answers),

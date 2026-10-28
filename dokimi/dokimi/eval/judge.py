@@ -22,7 +22,7 @@ from dokimi.llm import ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
 from dokimi.eval.diagnoser import diagnose
 from dokimi.eval.question_text import require_question_texts
 from dokimi.records import BASELINE, CONTEXT, NO_RETRIEVAL_SOURCES, Record, RecordLike, records
-from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
+from dokimi.defaults import ANSWERING_METHOD_VERSION, DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
 # One calibration scale for both the single judge and the panel, so their
 # numbers mean the same thing and can be compared.
 from dokimi.eval.rubric import (
@@ -648,6 +648,7 @@ class Judge:
         """Build the serialisable output structure for a set of evaluations."""
         output: Dict[str, Any] = {
             "evaluated_at": self._get_timestamp(),
+            "method_version": ANSWERING_METHOD_VERSION,
             "judge_model": self.model,
             "judge_provider": self.provider,
             "judge_temperature": self.temperature,

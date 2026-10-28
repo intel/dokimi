@@ -85,6 +85,10 @@
         }
       }
     },
+    "method_version": {
+      "type": "integer",
+      "description": "Answering method version (defaults.ANSWERING_METHOD_VERSION); absent on artifacts from before it was stamped."
+    },
     "judge_temperature": {
       "description": "Sampling temperature the judge ran at; null when left to the provider default."
     },
