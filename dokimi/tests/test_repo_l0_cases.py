@@ -137,6 +137,14 @@ CASES = [
     ("pytest --pyargs module below a deleted subpackage", _shell("pytest --pyargs pkg.tests.test_a pkg.tests.sub.test_b"),
      {"pkg/__init__.py": "", "pkg/other.py": ""},
      {("pytest_module", "pkg.tests.test_a"): "fail", ("pytest_module", "pkg.tests.sub.test_b"): "fail"}),
+    ("pytest --pyargs: a package only below another directory is no evidence of a miss",
+     _shell("pytest --pyargs pkg.tests.test_x tests.test_y"),
+     {"docs/examples/pkg/__init__.py": "", "sub/tests/__init__.py": ""},
+     {("pytest_module", "pkg.tests.test_x"): "unresolved", ("pytest_module", "tests.test_y"): "unresolved"}),
+    ("pytest --pyargs: a package at a directory above the guidance file, or in its src/", "x",
+     {"python/AGENTS.md": _shell("pytest --pyargs pkg.gone pkg2.gone"), "python/pkg/__init__.py": "",
+      "python/src/pkg2/__init__.py": ""},
+     {("pytest_module", "pkg.gone"): "fail", ("pytest_module", "pkg2.gone"): "fail"}),
     ("pytest --pyargs: a directory with no __init__.py is no module", _shell("pytest --pyargs pkg.tests"),
      {"pkg/__init__.py": "", "pkg/tests/test_a.py": ""},
      {("pytest_module", "pkg.tests"): "fail"}),
@@ -299,11 +307,16 @@ def test_a_path_into_a_submodule_says_so(tmp_path):
 
 
 def test_a_missing_pyargs_module_names_the_nearest_package(tmp_path):
-    payload = _scan(tmp_path, _shell("pytest --pyargs pkg.tests.gone pkg.tests.sub.test_b"),
-                    {"src/pkg/__init__.py": "", "src/pkg/tests/__init__.py": ""})
+    payload = _scan(tmp_path, _shell("pytest --pyargs pkg.tests.gone pkg.tests.sub.test_b lib.tests.test_a "
+                                     "other.tests.test_c"),
+                    {"src/pkg/__init__.py": "", "src/pkg/tests/__init__.py": "",
+                     "lib/__init__.py": "", "vendor/lib/tests/__init__.py": "", "docs/x/other/__init__.py": ""})
     why = {c["claim"]: c["why"] for c in payload["claims"]}
     assert why["pkg.tests.gone"] == "package pkg.tests (src/pkg/tests/) has no module gone"
     assert why["pkg.tests.sub.test_b"] == "package pkg.tests (src/pkg/tests/) has no module sub.test_b"
+    assert why["lib.tests.test_a"] == "package lib (lib/) has no module tests.test_a"  # not the vendored copy
+    assert why["other.tests.test_c"] == ("no module other.tests.test_c at an import root; package other is only "
+                                         "in docs/x/other/, which may not be the one imported")
 
 
 def test_no_claim_for_options_or_operators(tmp_path):

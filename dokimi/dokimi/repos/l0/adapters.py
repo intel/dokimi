@@ -691,7 +691,7 @@ def _pytest(scan: Scan, file: str, line: int, toks: list[str], text: str) -> Non
         kind, r = "pytest_path", scan.resolve_path(file, path)
         # with --pyargs pytest imports the name first, and reads it as a path only when no module has it
         if pyargs and _MODULE_NAME.match(path) and not (r and r[0].startswith("ok")):
-            kind, r = "pytest_module", _pytest_module(scan, path)
+            kind, r = "pytest_module", _pytest_module(scan, file, path)
         if r is None:
             continue
         scan.add(file, line, kind, path, r[0], r[1], text)
@@ -702,26 +702,35 @@ def _pytest(scan: Scan, file: str, line: int, toks: list[str], text: str) -> Non
                      f"{'defined' if ok else 'not defined'} in {r[1]}", text)
 
 
-def _pytest_module(scan: Scan, name: str) -> tuple[str, str]:
+def _pytest_module(scan: Scan, file: str, name: str) -> tuple[str, str]:
     """A ``--pyargs`` module: ``a.b`` is ``a/b.py`` or ``a/b/__init__.py`` below any directory of the tree.
 
     ``ok`` says the file is in the tree, not that it imports without an install. A directory with no
     ``__init__.py`` is no module (pytest skips namespace packages by default). A module missing below a
-    package the tree holds is ``fail``, at any depth (``a.b.c`` with ``a/b/`` gone is a miss in ``a``); one
-    with no enclosing package in the tree may be installed from elsewhere.
+    package the tree holds is ``fail``, at any depth (``a.b.c`` with ``a/b/`` gone is a miss in ``a``), when
+    that package is where an import would find it: at the root or in ``src/``, of the tree or of a directory
+    from ``file`` up. A package found only deeper (``docs/examples/a/``, a vendored copy) may not be the one
+    imported, and a module with no enclosing package in the tree may be installed: both are ``unresolved``.
     """
-    def find(rel: str) -> str | None:
-        return next((f for f in scan.by_name.get(posixpath.basename(rel), []) if f == rel or f.endswith("/" + rel)), None)
+    def found(rel: str) -> list[str]:
+        return [f for f in scan.by_name.get(posixpath.basename(rel), []) if f == rel or f.endswith("/" + rel)]
 
     rel = name.replace(".", "/")
-    hit = find(rel + ".py") or find(rel + "/__init__.py")
-    if hit:
-        return "ok", hit
-    parts = name.split(".")
-    for n in range(len(parts) - 1, 0, -1):  # the nearest enclosing package the tree holds
-        if home := find("/".join(parts[:n]) + "/__init__.py"):
+    hits = found(rel + ".py") or found(rel + "/__init__.py")
+    if hits:
+        return "ok", hits[0]
+    roots = {r for b in ancestors(file) for r in (b, posixpath.join(b, "src"))}
+    parts, deeper = name.split("."), ""
+    for n in range(len(parts) - 1, 0, -1):  # the nearest enclosing package at an import root
+        init = "/".join(parts[:n]) + "/__init__.py"
+        homes = found(init)
+        home = next((f for f in homes if f[: -len(init)].rstrip("/") in roots), None)
+        if home:
             package, rest = ".".join(parts[:n]), ".".join(parts[n:])
             return "fail", f"package {package} ({posixpath.dirname(home)}/) has no module {rest}"
+        deeper = deeper or next((f"package {'.'.join(parts[:n])} is only in {posixpath.dirname(f)}/" for f in homes), "")
+    if deeper:
+        return "unresolved", f"no module {name} at an import root; {deeper}, which may not be the one imported"
     return "unresolved", f"no module {name} in the tree; it may be installed from elsewhere"
 
 
