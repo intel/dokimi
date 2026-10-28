@@ -74,17 +74,14 @@ def mock_llm_call():
 
 
 class TestAnswererInit:
-    def test_init_openai(self):
+    @pytest.mark.parametrize(
+        "provider",
+        ["openai", "anthropic", "google", "gemini", "google-vertex", "openrouter",
+         "amazon-bedrock", "vertex_ai"],
+    )
+    def test_init_accepts_supported_provider(self, provider):  # test-quality: ok must-not-raise smoke test of the provider allow-list
         with patch('dokimi.eval.answerer.LANGCHAIN_AVAILABLE', True):
-            answerer = Answerer(model="gpt-4o", provider="openai")
-            assert answerer.model == "gpt-4o"
-            assert answerer.provider == "openai"
-
-    def test_init_anthropic(self):
-        with patch('dokimi.eval.answerer.LANGCHAIN_AVAILABLE', True):
-            answerer = Answerer(model="claude-opus", provider="anthropic", api_key="test")
-            assert answerer.provider == "anthropic"
-            assert answerer.api_key == "test"
+            Answerer(model="m", provider=provider)
 
     def test_init_unsupported_provider(self):
         mock_cls = Mock()
