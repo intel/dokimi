@@ -61,6 +61,7 @@ def _no_ambient_bedrock_env(monkeypatch):
     ("openai", "ft:gpt-4o-mini:org::id", "ft:gpt-4o-mini:org::id"),  # a fine-tune litellm takes as OpenAI's
     ("openai", "glm-5.3", "openai/glm-5.3"),  # off the lists: an OPENAI_API_BASE server's model
     ("openai", "claude-sonnet-5-5", "openai/claude-sonnet-5-5"),  # bare, litellm would pick anthropic
+    ("openai", "amazon.nova-pro-v1:0", "openai/amazon.nova-pro-v1:0"),  # bare, litellm would pick bedrock
     ("openai", "meta-llama/Llama-3.1-8B", "openai/meta-llama/Llama-3.1-8B"),  # an org, not a route
     ("openai", "openai/glm-5.3", "openai/glm-5.3"),
     ("openai", "azure/gpt-4o", "azure/gpt-4o"),  # an explicit litellm route passes through
