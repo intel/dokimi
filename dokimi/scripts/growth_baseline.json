@@ -1,6 +1,6 @@
 {
   "files": {
-    "dokimi/commands/novelty.py": {"lines": 984, "rationale": "estimate-only projection (expected_usd, arm scaling, extrapolation flag) in novelty CLI, on top of main's W-series and #173 lines; file split tracked separately"},
+    "dokimi/commands/novelty.py": {"lines": 999, "rationale": "estimate-only projection (expected_usd, arm scaling, extrapolation flag) in novelty CLI, on top of main's W-series and #173 lines, plus W1 routing cost output (#164); file split tracked separately"},
     "dokimi/harnesses/benchflow.py": {"lines": 869},
     "dokimi/harnesses/docker_solver.py": {"lines": 900, "rationale": "pre-existing when the gate was introduced"},
     "dokimi/llm.py": {"lines": 1118, "rationale": "grew on main in #180 (replay a stored retry) after #93 seeded this baseline; split it in its own PR"},
@@ -20,7 +20,7 @@
     "dokimi/commands/arms.py::_validate_expected_skills": {"complexity": 11},
     "dokimi/commands/benchmark.py::cmd_benchmark_batch": {"complexity": 11},
     "dokimi/commands/benchmark.py::cmd_benchmark_preflight": {"complexity": 21},
-    "dokimi/commands/catalog.py::cmd_catalog_trigger_set": {"complexity": 16},
+    "dokimi/commands/catalog.py::cmd_catalog_trigger_set": {"complexity": 15},
     "dokimi/commands/evaluate.py::cmd_eval_judge_validity": {"complexity": 29, "rationale": "grew on main in #73 (judge-validity --context stored) from 25 to 29 before the ratchet landed; split it in its own PR"},
     "dokimi/commands/judge_reliability.py::cmd_eval_cross_judge": {"complexity": 30, "rationale": "pre-existing when the gate was introduced"},
     "dokimi/commands/novelty.py::cmd_novelty_routing": {"complexity": 13, "rationale": "W8 adds the --repeats guard after main's no_queries handling raised the file; the command is split with the rest of novelty.py in a separate PR"},
@@ -36,7 +36,7 @@
     "dokimi/eval/arm_runner.py::ArmRunner.judge": {"complexity": 11},
     "dokimi/eval/checklist.py::ChecklistReport.format_markdown": {"complexity": 12},
     "dokimi/eval/degrade.py::build_pairs": {"complexity": 17, "rationale": "grew on main in #73 (judge-validity --context stored) from 10 to 17 before the ratchet landed; split it in its own PR"},
-    "dokimi/eval/judge.py::Judge._judge_answer": {"complexity": 13, "rationale": "grew on main in #180 (replay a stored retry) after #93 seeded this baseline; split it in its own PR"},
+    "dokimi/eval/judge.py::Judge._judge_answer": {"complexity": 12, "rationale": "grew on main in #180 (replay a stored retry) after #93 seeded this baseline; split it in its own PR"},
     "dokimi/eval/judge_context.py::JudgeContextStore.from_artifact": {"complexity": 13},
     "dokimi/eval/judge_sequential.py::run_sequential": {"complexity": 12, "rationale": "grew on main in #73 (judge-validity --context stored) from 6 to 12 before the ratchet landed; split it in its own PR"},
     "dokimi/eval/panel.py::JudgePanel._call_judge": {"complexity": 12, "rationale": "grew on main in #180 (replay a stored retry) after #93 seeded this baseline; split it in its own PR"},

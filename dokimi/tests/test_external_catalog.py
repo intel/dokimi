@@ -187,6 +187,15 @@ def test_read_skill_manifest_falls_back_to_bare_scan_without_manifest(tmp_path):
     assert entries[0].status is None
 
 
+@pytest.mark.parametrize("vendored", ["node_modules/pkg", ".venv/lib/python3.12/site-packages/pkg"])
+def test_read_skill_manifest_bare_scan_skips_vendored_copies(tmp_path, vendored):
+    _write_skill(tmp_path, "bare-skill")
+    _write_skill(tmp_path / vendored, "bare-skill")
+
+    entries = read_skill_manifest(tmp_path)
+    assert [e.path for e in entries] == [tmp_path / "skills" / "bare-skill"]
+
+
 # ── suites.json manifest ──────────────────────────────────────────────────────
 
 

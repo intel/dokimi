@@ -167,13 +167,22 @@ class LLMClient:
     def cost_summary(self) -> dict[str, Any]:
         """Roll up this client's usage.
 
-        ``usd`` stays ``None`` when any call had unknown pricing, rather than
-        silently reporting the sum of the priced subset as the total.
+        ``usd`` stays ``None`` when any call this run paid for had unknown pricing or
+        returned no usage (a replayed call is not paid for, so it cannot make it unknown),
+        rather than silently reporting the sum of the priced subset as the total.
+        Calls served from the response cache are counted in ``replayed_calls`` and
+        left out of the token and dollar totals.
         """
-        input_tokens = sum(u.prompt_tokens for u in self.usage)
-        output_tokens = sum(u.completion_tokens for u in self.usage)
-        costs = [u.cost_usd for u in self.usage]
-        priced = costs and None not in costs
+        # A replayed row is the response cache's copy of an earlier call: its tokens and
+        # price were not spent by this process, so it is counted apart, as the spend cap does.
+        billed = [u for u in self.usage if not u.replayed]
+        input_tokens = sum(u.prompt_tokens for u in billed)
+        output_tokens = sum(u.completion_tokens for u in billed)
+        cache_read = sum(u.cache_read_tokens for u in billed)
+        cache_write = sum(u.cache_write_tokens for u in billed)
+        costs = [u.cost_usd for u in billed]
+        # A call that returned no usage row has no price either, so it makes the total unknown.
+        priced = self.calls > 0 and len(self.usage) == self.calls and None not in costs
         usd = round(sum(c for c in costs if c is not None), 6) if priced else None
         return {
             "model": self.model,
@@ -182,6 +191,9 @@ class LLMClient:
             "llm_calls": self.calls,
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
+            "cache_read_tokens": cache_read,
+            "cache_write_tokens": cache_write,
+            "replayed_calls": len(self.usage) - len(billed),
             "usd": usd,
         }
 
@@ -238,6 +250,9 @@ def roll_up_cost(clients: list[LLMClient]) -> dict[str, Any]:
         "llm_calls": sum(row["llm_calls"] for row in per_role),
         "input_tokens": sum(row["input_tokens"] for row in per_role),
         "output_tokens": sum(row["output_tokens"] for row in per_role),
+        "cache_read_tokens": sum(row["cache_read_tokens"] for row in per_role),
+        "cache_write_tokens": sum(row["cache_write_tokens"] for row in per_role),
+        "replayed_calls": sum(row["replayed_calls"] for row in per_role),
         "usd": round(sum(p for p in usd_parts if p is not None), 6)
         if usd_parts and None not in usd_parts
         else None,

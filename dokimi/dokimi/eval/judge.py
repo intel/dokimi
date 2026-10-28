@@ -10,14 +10,14 @@ import math
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Dict, Any, Iterable, Optional, Sequence
+from typing import Callable, List, Dict, Any, Iterable, Optional, Sequence
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 from dokimi import caching
 from dokimi.artifacts import save_artifact
-from dokimi.llm import ChatModel
+from dokimi.llm import ChatModel, ask_parsed
 from dokimi.llm import ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
 from dokimi.eval.diagnoser import diagnose
 from dokimi.eval.question_text import require_question_texts
@@ -26,8 +26,8 @@ from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
 # One calibration scale for both the single judge and the panel, so their
 # numbers mean the same thing and can be compared.
 from dokimi.eval.rubric import (
-    FORMAT_REMINDER, NUMERIC_CLAIMS, NUMERIC_INSTRUCTION, NUMERIC_OUTPUT, SCORE_ANCHORS,
-    cap_for_wrong_figures,
+    NUMERIC_CLAIMS, NUMERIC_INSTRUCTION, NUMERIC_OUTPUT, SCORE_ANCHORS,
+    cap_for_wrong_figures, reminder_reprompt,
 )
 
 # The output format below uses N placeholders on purpose. Concrete example
@@ -515,12 +515,11 @@ class Judge:
         # without a retry the question loses its score for good and the report
         # still renders a clean-looking delta over the survivors.
         #
-        # A malformed reply is re-drawn without backoff. With judge sampling pinned
-        # the same prompt returns the same reply, so a re-draw then appends a
-        # format reminder. Each attempt is its own response-cache draw: with the
-        # cache on, retrying under one key replayed the same unparseable reply
-        # three times. Transport faults are retried by the transport layer, not
-        # here, so a failed call raises at once.
+        # ask_parsed re-draws a malformed reply without backoff. With judge sampling
+        # pinned the same prompt returns the same reply, so a re-draw then appends a
+        # format reminder. Each attempt is its own response-cache draw. Transport
+        # faults are retried by the transport layer, not here, so a failed call
+        # raises at once.
         def parse(raw: str) -> "tuple[Dict[str, Any], float]":
             scores = extract_json_object(raw)
             missing = required - scores.keys()
@@ -541,34 +540,32 @@ class Judge:
             return True
 
         pinned = self.temperature is not None or self.seed is not None
+        reprompt = reminder_reprompt(pinned)
 
-        def ask(attempt: int) -> Any:
-            attempt_prompt = prompt
-            if attempt and pinned:
-                attempt_prompt = prompt + FORMAT_REMINDER.format(n=attempt)
-            return self.llm.invoke(attempt_prompt, draw=draw * 3 + attempt, cache_if=parses)
+        def attempt_text(attempt: int) -> str:
+            return reprompt(prompt, attempt) if reprompt and attempt else prompt
+
+        def send(text: str, n: int) -> str:
+            response = self.llm.invoke(text, draw=n, cache_if=parses)
+            self._accumulate_usage(getattr(response, "usage", None))
+            return response.content if hasattr(response, "content") else str(response)
 
         # A rerun starts at the attempt whose reply is stored: the unparseable
         # attempts before it were never stored and would be asked live again.
-        first, response = caching.first_replayed(3, ask) or (0, None)
-        last_exc: Exception = ValueError("judge retry loop did not execute")
-        for attempt in range(first, 3):
+        first, held = caching.first_replayed(
+            3, lambda i: send(attempt_text(i), draw * 3 + i)) or (0, None)
+
+        def ask(text: str, *, draw: int, cache_if: Callable[[str], bool]) -> str:
+            attempt = draw % 3
             if attempt == max(first, 1):
                 with self._usage_lock:
                     self._usage_totals["redrawn_judgements"] += 1
-            if response is None:
-                response = ask(attempt)
-            raw = response.content if hasattr(response, "content") else str(response)
-            self._accumulate_usage(getattr(response, "usage", None))
-            response = None
-            try:
-                scores, aggregate = parse(raw)
-                break
-            except Exception as exc:
-                last_exc = exc
-                logger.warning("Judge response unparseable (attempt %d/3): %s", attempt + 1, exc)
-        else:
-            raise last_exc
+            if attempt == first and held is not None:
+                return held
+            return send(text, draw)
+
+        (scores, aggregate), _ = ask_parsed(
+            ask, prompt, parse, draw=draw, label="Judge response", start=first, reprompt=reprompt)
 
         # Python computes the aggregate on BOTH paths (the LLM sets aggregate=0
         # per instructions). Previously only the grounded path recomputed it and

@@ -7,14 +7,6 @@
 # dependencies") explains why each one does not affect Dokimi.
 
 [[IgnoredVulns]]
-id = "PYSEC-2026-2447"
-reason = "diskcache, via ragas: DiskCacheBackend is never constructed. See SECURITY.md."
-
-[[IgnoredVulns]]
-id = "PYSEC-2026-3046"
-reason = "ragas 0.3.9 does not ship the vulnerable module (first in 0.4.2). See SECURITY.md."
-
-[[IgnoredVulns]]
 id = "GHSA-v4x8-3wr5-3wq8"
 reason = "filelock ReadWriteLock on POSIX: no dependency of Dokimi uses ReadWriteLock; litellm caps filelock<4. See SECURITY.md."
 

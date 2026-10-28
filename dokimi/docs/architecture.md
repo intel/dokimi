@@ -73,7 +73,7 @@ points up:
 | tracks | `runner`, `report`, `subjects`, `novelty`, `harnesses`, `context`, `repos`, `explore`, `tool_preference`, `external`, `dashboard`, `orchestrator`, `datasets_export`, `coverage`, `task_formats`, and the checkers `config_check`, `schema_check`, `schema_compat` |
 | evaluation | `eval`, `personas`, `questions`, `treatments`, `plugins` |
 | components | `ingest`, `metrics`, `gate`, `mcp`, `skills`, `agent_profiles` |
-| foundation | `__init__` (the `dokimi` package itself), `_version`, `artifacts`, `records`, `llm`, `process`, `caching`, `config`, `registry`, `intents`, `defaults`, `console`, `utils`, `metrics/usage.py` |
+| foundation | `__init__` (the `dokimi` package itself), `_version`, `artifacts`, `records`, `llm`, `process`, `container_policy`, `caching`, `config`, `registry`, `intents`, `defaults`, `console`, `utils`, `metrics/usage.py` |
 
 So `report` (a track) can call `gate` (a component), and `gate` cannot import
 `report`. The sections below follow the tracks, not the layers.
@@ -334,7 +334,8 @@ next release.
   interval, grader failures, missing cells, cost).
 - `dokimi/repos/compare.py` — `repo compare`: treatment arms against a
   baseline arm over one or more batches, one value per task and arm (gate
-  share, score, cost, turns, chosen `grade.json` metrics), with an interval
+  share, score, cost, turns, chosen `grade.json` metrics, `result.json`
+  `process` counts), with an interval
   over tasks (bootstrap for gate and score, t for the rest), a sign-flip
   permutation p and Holm's correction.
 - `dokimi/repos/selfcheck.py` — `repo tasks check`: on each task

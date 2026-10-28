@@ -178,7 +178,8 @@ self-judge; `arms run` does not check, so name
 - **Competitors** are the other skills an agent sees next to this one when it
   picks a skill to load. For a catalog skill they are its siblings in the
   same catalog: `--catalog <dir>` takes every other skill under it (a `template/` copy and a
-  byte-identical mirror that loads under the same skill name are left out), and
+  byte-identical mirror that loads under the same skill name are left out, and vendored and
+  VCS directories such as `.git`, `node_modules`, `site-packages` and virtualenvs are not walked), and
   `--competitors skill:<path> …` names them one by one. Routing asks whether
   this skill wins the user requests meant for it. If you only have the one
   skill, skip step 2 and say so in the review: a number measured against

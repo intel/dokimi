@@ -36,7 +36,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from dokimi.skills.loader import skill_files
+from dokimi.skills.loader import VENDORED_DIR_NAMES, skill_files
 from dokimi.utils import parse_frontmatter
 
 FORMAT_AGENT_SKILL = "agent-skill"
@@ -60,7 +60,7 @@ _HOSTS = (
     (".agents/skills", "agents"),  # the cross-tool alias Codex and Gemini CLI read
     ("environment/skills", "task-bundled"),  # a SkillsBench / Harbor task's own skills
 )
-_SKIP_DIRS = frozenset({".git", "node_modules", "__pycache__", ".venv"})
+_SKIP_DIRS = VENDORED_DIR_NAMES  # the same dependency and VCS dirs discover_skills does not walk
 
 
 @dataclass
