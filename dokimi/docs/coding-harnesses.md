@@ -291,7 +291,7 @@ The result is in `metrics.isolation_probe` and `isolation_probe.json`:
   cgroup, so they count against `environment.memory_mb` (about 100 MB for a
   short session); the host launch ran outside it.
 - **Capabilities.** Every `docker-*` task container, `docker-oracle` included,
-  starts with `--cap-drop ALL`, `no-new-privileges` and `--pids-limit 32768`,
+  starts with `--init`, `--cap-drop ALL`, `no-new-privileges` and `--pids-limit 32768`,
   and gets back only `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `SETUID` and `SETGID`
   (`TASK_CONTAINER_HARDENING` in `harnesses/container_agent.py`). Every other
   capability Docker grants by default is dropped, so a step that needs one
