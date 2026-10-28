@@ -287,6 +287,7 @@ def default_judge(model: str, provider: str | None = None,
     bare = model.rsplit("/", 1)[-1].rsplit("anthropic.", 1)[-1]
     if provider is None and answerer_provider is not None and backend(answerer_provider) is not None:
         provider = answerer_provider
+    # Hard-coded for claude-cli; a second CLI backend (codex-cli) needs its own alias list here.
     if provider is not None and provider == "claude-cli":
         # The CLI's aliases: the first one not of the answerer's family, so the judge is never the answerer.
         from dokimi.llm_cli import same_model

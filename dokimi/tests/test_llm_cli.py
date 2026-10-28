@@ -480,10 +480,13 @@ def test_every_agentic_arm_kind_is_refused_on_the_cli_including_wrapped_and_comb
 
 def test_the_arms_entry_point_refuses_a_cli_agentic_arm_before_any_answer(monkeypatch):
     from dokimi.commands import arms
+    from dokimi.eval import arm_runner
 
-    def answer_must_not_run(*args, **kwargs):
-        raise AssertionError("an answer was paid for before the CLI refusal")
+    class RunnerMustNotStart:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("the arm runner started before the CLI refusal")
 
+    monkeypatch.setattr(arm_runner, "ArmRunner", RunnerMustNotStart)
     monkeypatch.setattr(arms, "_resolve_doc_library_id", lambda *a, **k: None)
     monkeypatch.setattr(arms, "_validate_expected_skills", lambda *a, **k: None)
     args = argparse.Namespace(provider="claude-cli", model="sonnet", judge=False, session_turns=None,
@@ -511,3 +514,11 @@ def test_the_login_check_runs_with_the_same_reduced_env_as_the_call(monkeypatch)
     assert fake.calls
     for call in fake.calls:
         assert "ANTHROPIC_BASE_URL" not in call.env
+
+
+def test_the_session_turns_flag_defaults_to_none_so_only_a_session_run_is_refused():
+    from dokimi.cli import parse_args
+
+    args = parse_args(["arms", "run", "--product", "p", "--questions", "q.json", "--arms", "baseline",
+                       "--provider", "claude-cli", "--model", "sonnet"])
+    assert args.session_turns is None
