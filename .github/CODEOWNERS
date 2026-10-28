@@ -3,17 +3,17 @@
 # GitHub handles or teams as ownership is assigned.
 
 # Default
-*                                   @napetrov @xaleryb @jharlow-intel @antonwolfy @vchamarthi @ndgrigorian
+*                                   @napetrov @xaleryb @jharlow-intel @antonwolfy @vchamarthi @ndgrigorian @vlad-perevezentsev
 
 # Static benchmark subsystem
-/dokimi/dokimi/runner/      @napetrov @xaleryb @jharlow-intel @antonwolfy @vchamarthi @ndgrigorian
-/dokimi/dokimi/metrics/     @napetrov @xaleryb @jharlow-intel @antonwolfy @vchamarthi @ndgrigorian
-/dokimi/dokimi/ingest/      @napetrov @xaleryb @jharlow-intel @antonwolfy @vchamarthi @ndgrigorian
-/dokimi/dokimi/gate/        @napetrov @xaleryb @jharlow-intel @antonwolfy @vchamarthi @ndgrigorian
-/dokimi/benchmarks/                   @napetrov @xaleryb @jharlow-intel @antonwolfy @vchamarthi @ndgrigorian
+/dokimi/dokimi/runner/      @napetrov @xaleryb @jharlow-intel @antonwolfy @vchamarthi @ndgrigorian @vlad-perevezentsev
+/dokimi/dokimi/metrics/     @napetrov @xaleryb @jharlow-intel @antonwolfy @vchamarthi @ndgrigorian @vlad-perevezentsev
+/dokimi/dokimi/ingest/      @napetrov @xaleryb @jharlow-intel @antonwolfy @vchamarthi @ndgrigorian @vlad-perevezentsev
+/dokimi/dokimi/gate/        @napetrov @xaleryb @jharlow-intel @antonwolfy @vchamarthi @ndgrigorian @vlad-perevezentsev
+/dokimi/benchmarks/                   @napetrov @xaleryb @jharlow-intel @antonwolfy @vchamarthi @ndgrigorian @vlad-perevezentsev
 
 # LLM evaluation subsystem
-/dokimi/dokimi/eval/        @napetrov @xaleryb @jharlow-intel @antonwolfy @vchamarthi @ndgrigorian
-/dokimi/dokimi/questions/   @napetrov @xaleryb @jharlow-intel @antonwolfy @vchamarthi @ndgrigorian
-/dokimi/dokimi/personas/    @napetrov @xaleryb @jharlow-intel @antonwolfy @vchamarthi @ndgrigorian
-/dokimi/dokimi/treatments/  @napetrov @xaleryb @jharlow-intel @antonwolfy @vchamarthi @ndgrigorian
+/dokimi/dokimi/eval/        @napetrov @xaleryb @jharlow-intel @antonwolfy @vchamarthi @ndgrigorian @vlad-perevezentsev
+/dokimi/dokimi/questions/   @napetrov @xaleryb @jharlow-intel @antonwolfy @vchamarthi @ndgrigorian @vlad-perevezentsev
+/dokimi/dokimi/personas/    @napetrov @xaleryb @jharlow-intel @antonwolfy @vchamarthi @ndgrigorian @vlad-perevezentsev
+/dokimi/dokimi/treatments/  @napetrov @xaleryb @jharlow-intel @antonwolfy @vchamarthi @ndgrigorian @vlad-perevezentsev
