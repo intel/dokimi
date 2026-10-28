@@ -168,8 +168,8 @@ class ReportGenerator:
         }
     
     def _top_performers(self, evaluations: Sequence[Record], mode: str, limit: int) -> List[Dict]:
-        """Get top N by aggregate score."""
-        scored = [(s, e) for e in evaluations if (s := e.score(_MODES[mode])) is not None]
+        """Get top N by aggregate score, over the complete pairs (the population the Overall Max covers)."""
+        scored = [(s, e) for e in _complete_pairs(evaluations) if (s := e.score(_MODES[mode])) is not None]
         scored.sort(reverse=True, key=lambda x: x[0])
         return [
             {
@@ -181,8 +181,8 @@ class ReportGenerator:
         ]
     
     def _bottom_performers(self, evaluations: Sequence[Record], mode: str, limit: int) -> List[Dict]:
-        """Get bottom N by aggregate score."""
-        scored = [(s, e) for e in evaluations if (s := e.score(_MODES[mode])) is not None]
+        """Get bottom N by aggregate score, over the complete pairs (the population the Overall Max covers)."""
+        scored = [(s, e) for e in _complete_pairs(evaluations) if (s := e.score(_MODES[mode])) is not None]
         scored.sort(key=lambda x: x[0])
         return [
             {
@@ -529,12 +529,17 @@ def _count_cell(entry: Dict[str, Any]) -> str:
     return str(entry["count"]) if not entry["unpaired"] else f"{entry['count']} ({entry['unpaired']} unpaired)"
 
 
+def _complete_pairs(evaluations: Sequence[Record]) -> List[Record]:
+    """The records scored in both arms: the questions the Overall statistics are computed over."""
+    return [e for e in evaluations if e.score(CONTEXT) is not None and e.score(BASELINE) is not None]
+
+
 def _unpaired_note(stats: Dict[str, Any]) -> List[str]:
     """A line saying what the overall means leave out; nothing when every question is paired."""
     if not stats["unpaired_questions"]:
         return []
     return [
-        f"_Averages, min/max and delta are over the {stats['paired_questions']} complete pairs; "
+        f"_Averages, min/max, delta and the top/bottom tables are over the {stats['paired_questions']} complete pairs; "
         f"{stats['unpaired_questions']} unpaired (scored in one arm only) left out._",
         "",
     ]

@@ -77,8 +77,19 @@ def test_paired_summary_counts_every_record_and_averages_only_the_pairs():
     assert (s.total, s.paired, s.unpaired) == (3, 2, 1)
     assert (s.with_mean, s.without_mean, s.delta_mean) == (60.0, 50.0, 10.0)
     assert (s.with_min, s.with_max) == (40.0, 80.0)  # the 100 of q3 is not in it
+    assert (s.without_min, s.without_max) == (40.0, 60.0)
     assert (s.delta_min, s.delta_max) == (0.0, 20.0)
     assert (s.improvements, s.degradations, s.neutral) == (1, 0, 1)
+
+
+def test_paired_summary_delta_is_not_the_difference_of_the_rounded_means():
+    from dokimi.eval.stats import paired_summary
+
+    # 60.04 - 50.06 = 9.98 rounds to 10.0; the rounded means 60.0 and 50.1 would give 9.9.
+    s = paired_summary([{"question_id": "q1", "question_text": "Q?",
+                         "with_docs": {"aggregate": 60.04}, "without_docs": {"aggregate": 50.06}}])
+    assert round(s.delta_mean, 1) == 10.0
+    assert round(round(s.with_mean, 1) - round(s.without_mean, 1), 1) == 9.9
 
 
 def test_paired_summary_of_nothing_is_all_zero():
@@ -110,3 +121,49 @@ def test_both_reports_take_the_delta_from_unrounded_means(tmp_path):
     generated = json.loads(ReportGenerator().generate_report({"evaluations": INEXACT}, {"questions": []}, "json"))["stats"]
     assert generated["delta"] == {"avg": 10.3, "min": 10.0, "max": 11.0}
     assert (generated["doc_improvements"], generated["doc_degradations"]) == (3, 0)
+    # One group holds every question here, so its delta is the same unrounded-mean delta.
+    assert json.loads(ReportGenerator().generate_report({"evaluations": INEXACT}, {"questions": []}, "json"))[
+        "clusters"][0]["delta_avg"] == 10.3
+
+
+# The grouped tables: q1 and q3 share a persona and a source type, so their group holds the
+# unpaired q3; q2 is a group of its own.
+QUESTIONS = [
+    {"id": "q1", "persona_id": "pins", "source_type": "generated"},
+    {"id": "q2", "persona_id": "pools", "source_type": "manual"},
+    {"id": "q3", "persona_id": "pins", "source_type": "generated"},
+]
+
+
+def test_grouped_tables_average_each_group_over_its_pairs_and_count_the_unpaired():
+    report = json.loads(ReportGenerator().generate_report(
+        {"evaluations": EVALUATIONS}, {"questions": QUESTIONS}, "json"))
+    clusters = {c["topic"]: c for c in report["clusters"]}
+    assert clusters["pins"] == {"topic": "pins", "count": 2, "unpaired": 1,
+                                "with_avg": 80.0, "without_avg": 60.0, "delta_avg": 20.0}
+    assert clusters["pools"] == {"topic": "pools", "count": 1, "unpaired": 0,
+                                 "with_avg": 40.0, "without_avg": 40.0, "delta_avg": 0.0}
+    sources = {s["source_type"]: s for s in report["sources_summary"]}
+    assert sources["generated"] == {"source_type": "generated", "count": 2, "unpaired": 1,
+                                    "with_avg": 80.0, "without_avg": 60.0, "delta_avg": 20.0}
+    assert sources["manual"]["with_avg"] == 40.0 and sources["manual"]["delta_avg"] == 0.0
+
+
+def test_grouped_tables_print_the_count_and_unpaired_count_beside_their_means():
+    gen_md = ReportGenerator().generate_report({"evaluations": EVALUATIONS}, {"questions": QUESTIONS}, "markdown")
+    assert "| pins | 2 (1 unpaired) | 80.0 | 60.0 | **+20.0** |" in gen_md
+    assert "| pools | 1 | 40.0 | 40.0 | **+0.0** |" in gen_md
+    assert "| generated | 2 (1 unpaired) | 80.0 | 60.0 | **+20.0** |" in gen_md
+    assert "| manual | 1 | 40.0 | 40.0 | **+0.0** |" in gen_md
+
+
+def test_top_and_bottom_performers_rank_the_complete_pairs_like_the_overall_max():
+    report = json.loads(ReportGenerator().generate_report({"evaluations": EVALUATIONS}, {"questions": []}, "json"))
+    # q3 scored 100 in the context arm alone; it is not in any table that the Overall Max bounds.
+    assert [(r["question_id"], r["score"]) for r in report["top_with_docs"]] == [("q1", 80.0), ("q2", 40.0)]
+    assert [(r["question_id"], r["score"]) for r in report["bottom_with_docs"]] == [("q2", 40.0), ("q1", 80.0)]
+    assert max(r["score"] for r in report["top_with_docs"]) == report["stats"]["with_docs"]["max"]
+
+    gen_md = ReportGenerator().generate_report({"evaluations": EVALUATIONS}, {"questions": []}, "markdown")
+    assert "| q3 |" not in gen_md
+    assert "over the 2 complete pairs; 1 unpaired (scored in one arm only) left out" in gen_md
