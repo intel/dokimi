@@ -327,11 +327,11 @@ CASES = [
      _wf("{python: ['3.13', '3.14.0-rc.1', '3.15.0a1']}"), {("python_versions", "py3.13-3.15"): "ok"}),
     ("a Python value that names no one version: unresolved", "py3.12-3.14 in `ci.yml`",
      _wf("{python: ['3.12', '3.x']}"), {("python_versions", "py3.12-3.14"): "unresolved"}),
-    ("a version a setup step pins runs too", "py3.12-3.14 in `ci.yml`",
+    ("a range that only a setup step's pin fills in: unresolved, not fail", "py3.12-3.14 in `ci.yml`",
      {".github/workflows/ci.yml": "jobs:\n  lint:\n    steps:\n      - uses: actions/setup-python@v6\n"
-      "        with: {python-version: '3.12'}\n  test:\n    strategy:\n      matrix: {python: ['3.13', '3.14']}\n"},
-     {("python_versions", "py3.12-3.14"): "ok"}),
-    ("a range that only a setup step's pin widens: unresolved",
+      "        with: {python-version: '3.14'}\n  test:\n    strategy:\n      matrix: {python: ['3.12', '3.13']}\n"},
+     {("python_versions", "py3.12-3.14"): "unresolved"}),
+    ("a range that a setup step's pin widens or fills in: unresolved; pins alone: read",
      "py3.12-3.14 `ci.yml`\n\npy3.11-3.14 `ci.yml`; Python 3.11 and 3.12 in `ci.yml`\n\npy3.12-3.14 and 3.15 `ci.yml`\n\n"
      "py3.11-3.12 `steps.yml`\n\nPython 3.11–3.13 `steps.yml`\n\nPython 3.11-3.13, `cf.yml`",
      {".github/workflows/ci.yml": _LINT,
@@ -340,10 +340,36 @@ CASES = [
       ".github/workflows/cf.yml": "jobs:\n  call:\n    uses: ./.github/workflows/build.yml\n",
       ".github/workflows/build.yml": "jobs:\n  lint:\n    steps: [{with: {python-version: '3.11'}}]\n"
       "  t:\n    strategy: {matrix: {python: ['3.12', '3.13']}}\n"},
-     {("python_versions", "py3.12-3.14"): "unresolved", ("python_versions", "py3.11-3.14"): "ok",
+     {("python_versions", "py3.12-3.14"): "unresolved", ("python_versions", "py3.11-3.14"): "unresolved",
       ("python_versions", "Python 3.11 and 3.12"): "ok", ("python_versions", "py3.12-3.14 and 3.15"): "fail",
       ("python_versions", "py3.11-3.12"): "ok", ("python_versions", "Python 3.11–3.13"): "fail",
-      ("python_versions", "Python 3.11-3.13"): "ok"}),
+      ("python_versions", "Python 3.11-3.13"): "unresolved"}),
+    ("a called workflow sets up the Python its caller passes",
+     "`ci.yml` runs py3.11-3.13\n\npy3.11-3.12 `ci.yml`\n\npy3.10-3.12 `pin.yml`\n\nPython 3.12-3.13 `chain.yml`\n\n"
+     "py3.12-3.13 `bare.yml`\n\nPython 3.11 and 3.12 in `test.yml`",
+     {".github/workflows/ci.yml": "jobs:\n  lint:\n    uses: ./.github/workflows/test.yml\n"
+      "    with: {python-version: '3.11'}\n  t:\n    strategy: {matrix: {ver: ['3.11', '3.12'], os: [a]}}\n"
+      "    uses: ./.github/workflows/test.yml\n    with: {python-version: '${{ matrix.ver }}', os: '${{ matrix.os }}'}\n",
+      ".github/workflows/pin.yml": "jobs:\n  lint:\n    uses: ./.github/workflows/test.yml\n"
+      "    with: {python-version: '3.10'}\n  t:\n    strategy: {matrix: {python: ['3.11', '3.12']}}\n",
+      ".github/workflows/chain.yml": "jobs:\n  c:\n    strategy: {matrix: {v: ['3.12', '3.13']}}\n"
+      "    uses: ./.github/workflows/mid.yml\n    with: {py: \"${{ matrix['v'] }}\"}\n",
+      ".github/workflows/mid.yml": "jobs:\n  m:\n    uses: ./.github/workflows/test.yml\n"
+      "    with: {python-version: '${{ inputs.py }}'}\n",
+      ".github/workflows/bare.yml": "jobs:\n  b:\n    strategy: {matrix: {python: ['3.12', '3.13']}}\n"
+      "    uses: ./.github/workflows/test.yml\n",
+      ".github/workflows/test.yml": "on: {workflow_call: {inputs: {python-version: {type: string}}}}\njobs:\n"
+      "  t:\n    steps: [{uses: actions/setup-python@v6, with: {python-version: '${{ inputs.python-version }}'}}]\n"},
+     {("python_versions", "py3.11-3.13"): "fail", ("python_versions", "py3.11-3.12"): "ok",
+      ("python_versions", "py3.10-3.12"): "unresolved", ("python_versions", "Python 3.12-3.13"): "ok",
+      ("python_versions", "py3.12-3.13"): "unresolved", ("python_versions", "Python 3.11 and 3.12"): "unresolved"}),
+    ("an exclude takes out a free-threaded tag under any key", "py3.13t-3.14t `ci.yml`",
+     _wf("{cibw: ['cp313t-*', 'cp314t-*'], os: [a], exclude: [{cibw: 'cp314t-*'}]}"),
+     {("python_versions", "py3.13t-3.14t"): "fail"}),
+    ("python-version wins over python-version-file", "py3.12-3.13 `ci.yml`",
+     {".github/workflows/ci.yml": "jobs:\n  a:\n    strategy: {matrix: {python: ['3.12', '3.13']}}\n"
+      "    steps: [{with: {python-version: '${{ matrix.python }}', python-version-file: .python-version}}]\n"},
+     {("python_versions", "py3.12-3.13"): "ok"}),
     ("a setup step's matrix key holds Python versions", "py3.12-3.14 in `ci.yml`",
      {".github/workflows/ci.yml": "jobs:\n  a:\n    strategy: {matrix: {v: ['3.12', '3.13']}}\n"
       "    steps: [{with: {python-version: '${{ matrix.v }}'}}]\n  b:\n    strategy: {matrix: {include: [{w: '3.14'}]}}\n"
@@ -436,12 +462,13 @@ def test_a_python_range_says_what_the_jobs_run(tmp_path):
         "Python 3.13–3.15": "the jobs of .github/workflows/ci.yml run 3.13, 3.14, 3.14t, 3.15"}
 
 
-def test_a_range_a_setup_step_widens_says_so(tmp_path):
+def test_a_range_a_setup_step_widens_or_fills_in_says_so(tmp_path):
     docs = "  docs:\n    steps: [{with: {python-version: '3.13'}}]\n"  # a pin the matrix runs too is not named
-    payload = _scan(tmp_path, "py3.12-3.14 `ci.yml`\n", {".github/workflows/ci.yml": _LINT + docs})
+    payload = _scan(tmp_path, "py3.12-3.14 `ci.yml`; py3.11-3.14 `ci.yml`\n", {".github/workflows/ci.yml": _LINT + docs})
     assert [c["why"] for c in payload["claims"] if c["kind"] == "python_versions"] == [
-        "the matrices of .github/workflows/ci.yml run 3.12, 3.13, 3.14, as 3.12 to 3.14 says, "
-        "and a setup step also sets up 3.11: a job the range may leave out"]
+        f"the matrices of .github/workflows/ci.yml run 3.12, 3.13, 3.14 and setup steps also set up 3.11; {r} "
+        "holds with those steps or without them, not both: the range may count those jobs or leave them out"
+        for r in ("3.12 to 3.14", "3.11 to 3.14")]
 
 
 def test_a_workflow_is_read_once_per_scan(tmp_path, monkeypatch):

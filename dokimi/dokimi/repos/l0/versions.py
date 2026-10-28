@@ -17,14 +17,17 @@ What a workflow runs is the values of every matrix key whose name holds ``python
 ``exclude`` takes out of every combination, and the ``python-version`` a step sets up
 (``actions/setup-python``, or another action's input of that name; ``${{ matrix.<key> }}`` there makes
 ``<key>`` a Python key), over all its jobs and the reusable workflows of this tree its jobs call
-(``uses: ./.github/workflows/x.yml``). A pre-release (``3.14.0-rc.1``, ``3.14.0a1``) runs its minor
-version. A free-threaded build is a ``3.14t`` value or a ``cp314t`` tag in any matrix string. A range is
-``ok`` when its ends are the lowest and highest version the workflow runs (both ends written with ``t``: the
-lowest and highest free-threaded one), a list when each version it names runs; a version written with ``t``
-must run free-threaded. A range that holds for the matrices alone, and whose ends only a version a setup step
-pins widens (a lint job on another Python), is ``unresolved``: the range may leave that job out. A matrix, ``include``, ``exclude`` or step version computed from an expression
-(``${{ fromJSON(...) }}``), one that names no one version (``3.x``, ``>=3.12``), a ``python-version-file``,
-or a call to another repository's workflow makes the claim ``unresolved``.
+(``uses: ./.github/workflows/x.yml``). In a called workflow, a step's ``${{ inputs.<name> }}`` is what the
+calling job passes as ``<name>``: a version it pins, or its own ``${{ matrix.<key> }}``, which makes ``<key>``
+a Python key of the caller. A pre-release (``3.14.0-rc.1``, ``3.14.0a1``) runs its minor version. A
+free-threaded build is a ``3.14t`` value or a ``cp314t`` tag in any matrix string, less one that ``exclude``
+takes out. A range is ``ok`` when its ends are the lowest and highest version the workflow runs (both ends
+written with ``t``: the lowest and highest free-threaded one), a list when each version it names runs; a
+version written with ``t`` must run free-threaded. A range that holds for the matrices and not with what setup
+steps pin, or the other way round, is ``unresolved``: the range may count those jobs (lint, docs) or leave them
+out. A matrix, ``include``, ``exclude`` or step version computed from an expression
+(``${{ fromJSON(...) }}``), one that names no one version (``3.x``, ``>=3.12``), a ``python-version-file``
+with no ``python-version``, or a call to another repository's workflow makes the claim ``unresolved``.
 """
 
 from __future__ import annotations
@@ -60,7 +63,7 @@ _MATRIX_VALUE = re.compile(r"^3\.(\d{1,2})(t)?(?:\.[\dx*]+)?(?:-?(?:dev|alpha|be
 # a CPython version spec that names no one version: the latest (`3.x`) or a range (`>=3.12`, `3.12 - 3.14`)
 _OPEN = re.compile(r"^(?:3(?:\.[x*])?|[<>=~^!].*|3[\d.]*\s+-\s+3[\d.]*)$")
 _TAG_VALUE = re.compile(r"^(?:cp|py)3(\d{1,2})(t)?$")  # `cp312`, `cp313t`, `py312` under a Python key
-_MATRIX_REF = re.compile(r"^\$\{\{\s*matrix(?:\.([\w-]+)|\[\s*['\"]([\w-]+)['\"]\s*\])\s*\}\}$")
+_REF = re.compile(r"^\$\{\{\s*(?P<ctx>matrix|inputs)(?:\.(?P<a>[\w-]+)|\[\s*['\"](?P<b>[\w-]+)['\"]\s*\])\s*\}\}$")
 _CP_TAG = re.compile(r"(?<![A-Za-z0-9])cp3(\d{1,2})t(?![A-Za-z0-9])")
 _MAX_JOBS = 256  # the most jobs GitHub makes from one matrix
 
@@ -142,8 +145,9 @@ def show(versions: set[Version] | list[Version]) -> str:
 def judge(scan: Scan, claim: tuple[list[tuple[Version, Version]], list[Version]], flows: list[str]) -> tuple[str, str]:
     """(status, why) for the versions a line gives, against the union of what its workflows run.
 
-    A range that holds for the matrices alone, and whose ends only the versions setup steps pin widen, is
-    ``unresolved``: such a step is often one job (lint, docs) that the range leaves out on purpose.
+    A range that holds for the matrices and not with the versions setup steps pin, or the other way round, is
+    ``unresolved``: such a step is often one job (lint, docs) that a range counts or leaves out on purpose. With
+    no matrix version, the pins are what the workflow runs.
     """
     matrices: set[Version] = set()
     pinned: set[Version] = set()
@@ -159,15 +163,16 @@ def judge(scan: Scan, claim: tuple[list[tuple[Version, Version]], list[Version]]
     if not runs:
         return "unresolved", f"no Python version in the matrices or setup steps of {where}"
     ranges, singles = claim
-    off = [(a, b) for a, b in ranges if not _range_holds(a, b, runs)]
-    widened = [(a, b) for a, b in off if _range_holds(a, b, matrices)]
+    off = [r for r in ranges if not _range_holds(*r, runs) and not _range_holds(*r, matrices)]
+    either = [r for r in ranges if matrices and _range_holds(*r, runs) != _range_holds(*r, matrices)]
     named = [v for a, b in ranges for v in (a, b) if v[1]] + singles
-    wrong = [_span(a, b) for a, b in off if (a, b) not in widened] + [show([v]) for v in named if v not in runs]
+    wrong = [_span(*r) for r in off] + [show([v]) for v in named if v not in runs]
     if wrong:
         return "fail", f"the jobs of {where} run {show(runs)}, not {', '.join(wrong)}"
-    if widened:
-        return "unresolved", (f"the matrices of {where} run {show(matrices)}, as {', '.join(_span(a, b) for a, b in widened)} "
-                              f"says, and a setup step also sets up {show(pinned - matrices)}: a job the range may leave out")
+    if either:
+        return "unresolved", (f"the matrices of {where} run {show(matrices)} and setup steps also set up "
+                              f"{show(pinned - matrices)}; {', '.join(_span(*r) for r in either)} holds with those "
+                              "steps or without them, not both: the range may count those jobs or leave them out")
     return "ok", f"the jobs of {where} run {show(runs)}"
 
 
@@ -186,15 +191,23 @@ def _read(scan: Scan, path: str) -> tuple[frozenset[Version], frozenset[Version]
     many lines can name one workflow."""
     unknown: list[str] = []
     pinned: set[Version] = set()
-    return frozenset(workflow_versions(scan, path, unknown, set(), pinned)), frozenset(pinned), tuple(unknown)
+    return frozenset(workflow_versions(scan, path, unknown, {}, pinned)), frozenset(pinned), tuple(unknown)
 
 
-def workflow_versions(scan: Scan, path: str, unknown: list[str], seen: set[str], pinned: set[Version]) -> set[Version]:
+def workflow_versions(scan: Scan, path: str, unknown: list[str], seen: dict[str, set[str]], pinned: set[Version],
+                      inputs: set[str] | None = None) -> set[Version]:
     """What the matrices of ``path`` and the local workflows it calls run; the versions their setup steps pin go
-    to ``pinned``, and why any of it is not known to ``unknown``."""
+    to ``pinned``, and why any of it is not known to ``unknown``.
+
+    For a called workflow, ``inputs`` gets the names of the inputs its setup steps take a version from; ``seen``
+    holds them for each workflow read, so a second caller gets them too.
+    """
     if path in seen:
+        if inputs is not None:
+            inputs |= seen[path]
         return set()
-    seen.add(path)
+    reads: set[str] = set()
+    seen[path] = reads
     try:
         doc = yaml.safe_load(scan.text(path))
     except yaml.YAMLError:
@@ -204,44 +217,79 @@ def workflow_versions(scan: Scan, path: str, unknown: list[str], seen: set[str],
     out: set[Version] = set()
     for job in (jobs.values() if isinstance(jobs, dict) else []):
         if isinstance(job, dict):
-            out |= _job(scan, path, job, unknown, seen, pinned)
+            out |= _job(scan, path, job, unknown, seen, pinned, reads if inputs is not None else None)
+    if inputs is not None:
+        inputs |= reads
     return out
 
 
-def _job(scan: Scan, path: str, job: dict[Any, Any], unknown: list[str], seen: set[str],
-         pinned: set[Version]) -> set[Version]:
+def _job(scan: Scan, path: str, job: dict[Any, Any], unknown: list[str], seen: dict[str, set[str]],
+         pinned: set[Version], inputs: set[str] | None) -> set[Version]:
     """What one job's matrix, and a local workflow it calls, run; the Python its steps pin goes to ``pinned``."""
     keys: set[str] = set()  # the matrix keys a setup step takes its version from
-    pinned |= setup_versions(job.get("steps"), path, unknown, keys)
-    out = _called(scan, path, job.get("uses"), unknown, seen, pinned)
+    pinned |= setup_versions(job.get("steps"), path, unknown, keys, inputs)
+    called: set[str] = set()  # the inputs the called workflow sets up Python from
+    out = _called(scan, path, job.get("uses"), unknown, seen, pinned, called)
+    pinned |= _passed(job.get("with"), called, path, unknown, keys, inputs)
     strategy = job.get("strategy")
     if isinstance(strategy, dict) and "matrix" in strategy:
         out |= matrix_versions(strategy["matrix"], path, unknown, keys)
     return out
 
 
-def setup_versions(steps: Any, path: str, unknown: list[str], keys: set[str]) -> set[Version]:
-    """The versions a job's steps set up with ``with: python-version``; ``${{ matrix.<key> }}`` goes to ``keys``."""
+def setup_versions(steps: Any, path: str, unknown: list[str], keys: set[str],
+                   inputs: set[str] | None = None) -> set[Version]:
+    """The versions a job's steps set up with ``with: python-version``; ``${{ matrix.<key> }}`` goes to ``keys``,
+    and in a called workflow (``inputs`` not None) ``${{ inputs.<name> }}`` goes to ``inputs``.
+
+    setup-python reads ``python-version-file`` only when ``python-version`` is not set.
+    """
     out: set[Version] = set()
     where = f"a setup step of {path}"
     for step in steps if isinstance(steps, list) else []:
         given = step.get("with") if isinstance(step, dict) else None
         if not isinstance(given, dict):
             continue
-        if "python-version-file" in given:
-            unknown.append(f"{where} reads its Python version from {given['python-version-file']}")
         value = given.get("python-version")
-        ref = _MATRIX_REF.match(value.strip()) if isinstance(value, str) else None
-        if ref:
-            keys.add(ref.group(1) or ref.group(2))
-        elif isinstance(value, (str, int, float)):
-            for item in str(value).strip().splitlines():  # setup-python takes one version per line
-                out |= _value("python-version", item, where, unknown)
+        if "python-version-file" in given and value in (None, ""):
+            unknown.append(f"{where} reads its Python version from {given['python-version-file']}")
+        out |= _setup(value, where, unknown, keys, inputs)
     return out
 
 
-def _called(scan: Scan, path: str, uses: Any, unknown: list[str], seen: set[str], pinned: set[Version]) -> set[Version]:
-    """The versions of a reusable workflow a job of ``path`` calls with ``uses:``."""
+def _setup(value: Any, where: str, unknown: list[str], keys: set[str], inputs: set[str] | None) -> set[Version]:
+    """The versions one ``python-version`` value pins; a matrix or input reference goes to ``keys`` or ``inputs``."""
+    ref = _REF.match(value.strip()) if isinstance(value, str) else None
+    if ref and ref["ctx"] == "matrix":
+        keys.add(ref["a"] or ref["b"])
+        return set()
+    if ref and inputs is not None:
+        inputs.add(ref["a"] or ref["b"])
+        return set()
+    out: set[Version] = set()
+    if isinstance(value, (str, int, float)):
+        for item in str(value).strip().splitlines():  # setup-python takes one version per line
+            out |= _value("python-version", item, where, unknown)
+    return out
+
+
+def _passed(given: Any, names: set[str], path: str, unknown: list[str], keys: set[str],
+            inputs: set[str] | None) -> set[Version]:
+    """The versions a job of ``path`` passes to the inputs ``names`` a called workflow sets up Python from."""
+    out: set[Version] = set()
+    for name in sorted(names):
+        if isinstance(given, dict) and name in given:
+            out |= _setup(given[name], f"a job of {path}", unknown, keys, inputs)
+        else:  # the input's default is not read
+            unknown.append(f"a job of {path} calls a workflow that sets up Python from inputs.{name}, "
+                           "and does not pass it")
+    return out
+
+
+def _called(scan: Scan, path: str, uses: Any, unknown: list[str], seen: dict[str, set[str]], pinned: set[Version],
+            inputs: set[str]) -> set[Version]:
+    """The versions of a reusable workflow a job of ``path`` calls with ``uses:``; ``inputs`` gets the names of
+    the inputs it sets up Python from."""
     if not isinstance(uses, str):
         return set()
     if not uses.startswith("./"):
@@ -251,7 +299,7 @@ def _called(scan: Scan, path: str, uses: Any, unknown: list[str], seen: set[str]
     if target not in scan.file_set:
         unknown.append(f"a job of {path} calls {target}, which the tree does not hold")
         return set()
-    return workflow_versions(scan, target, unknown, seen, pinned)
+    return workflow_versions(scan, target, unknown, seen, pinned, inputs)
 
 
 def matrix_versions(matrix: Any, path: str, unknown: list[str], keys: Collection[str] = ()) -> set[Version]:
@@ -290,7 +338,8 @@ def _included(entries: list[Any], keys: Collection[str], where: str, unknown: li
 
 
 def _excluded(matrix: dict[Any, Any], keys: Collection[str], where: str, unknown: list[str]) -> set[tuple[Any, int]]:
-    """``(key, index)`` of each Python value that ``exclude`` takes out of every combination of the matrix."""
+    """``(key, index)`` of each value of a Python key, or with a ``cp3XYt`` tag, that ``exclude`` takes out of
+    every combination of the matrix."""
     given = matrix.get("exclude")
     if isinstance(given, str) and "${{" in given:
         unknown.append(f"{where} computes its exclude ({given.strip()})")
@@ -298,8 +347,8 @@ def _excluded(matrix: dict[Any, Any], keys: Collection[str], where: str, unknown
     base = {k: v if isinstance(v, list) else [v] for k, v in matrix.items() if k not in ("include", "exclude")}
     gone: set[tuple[Any, int]] = set()
     for key, values in base.items():
-        if not _python_key(str(key), keys) or not any(key in r for r in rules):
-            continue  # an entry with no Python key takes as much out of every Python version's combinations
+        if not _counted(str(key), values, keys) or not any(key in r for r in rules):
+            continue  # an entry without the key takes as much out of every one of its values' combinations
         names = [k for k in base if k != key]
         if prod(len(base[k]) for k in names) > _MAX_JOBS:
             unknown.append(f"{where} excludes Python versions from more than {_MAX_JOBS} combinations")
@@ -320,6 +369,11 @@ def _same(a: Any, b: Any) -> bool:
     """Scalars compare as text (``3.14`` and ``'3.14'``); a list or mapping only as the same YAML node."""
     scalar = (str, int, float)
     return str(a).strip() == str(b).strip() if isinstance(a, scalar) and isinstance(b, scalar) else a is b
+
+
+def _counted(key: str, values: list[Any], keys: Collection[str]) -> bool:
+    """A key whose values are read for versions: a Python key, or one with a ``cp3XYt`` tag in a value."""
+    return _python_key(key, keys) or any(isinstance(v, str) and _CP_TAG.search(v) for v in values)
 
 
 def _python_key(key: str, keys: Collection[str]) -> bool:

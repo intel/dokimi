@@ -957,20 +957,26 @@ the values of every matrix key whose name holds `python` (`3.12`, `cp312` or
 out of every combination of the matrix, and the `python-version` its steps set
 up (`actions/setup-python`, or another action's input of that name;
 `${{ matrix.<key> }}` there makes `<key>` a Python key), over its jobs and the
-workflows of this tree its jobs call with `uses: ./…`. A pre-release
-(`3.14.0-rc.1`, `3.14.0a1`, `3.14-dev`) runs its minor version, and a `3.14t`
-value or a `cp314t` tag in any matrix string is a free-threaded build. A range
-is `ok` when its ends are the lowest and highest version the workflow runs
-(both ends written with `t`: of the free-threaded builds), a list when each
-version runs, and a version written with `t` must run free-threaded; anything
-else is `fail`. A range that holds for the matrices alone, and whose ends only a
-version a setup step pins widens (a lint or docs job on another Python), is
-`unresolved`, since the range may leave that job out on purpose. A matrix, an `include`, an `exclude` or a step version computed
-from an expression (`${{ fromJSON(…) }}`), an `exclude` on a Python key over
-more than 256 combinations, a Python value that names no one version (`3.x`,
-`>=3.12`), a `python-version-file`, a call to another repository's workflow or
-to one the tree lacks, a workflow that is not valid YAML, and a workflow with no
-Python version make the claim `unresolved`. Python that a job installs any other
+workflows of this tree its jobs call with `uses: ./…`. In a called workflow, a
+step's `${{ inputs.<name> }}` is what the calling job passes as `<name>` in its
+`with:`: a version it pins, or its own `${{ matrix.<key> }}`, which makes `<key>`
+a Python key of the caller's matrix. A pre-release (`3.14.0-rc.1`, `3.14.0a1`,
+`3.14-dev`) runs its minor version, and a `3.14t` value or a `cp314t` tag in
+any matrix string is a free-threaded build, less a value that `exclude` takes
+out. A range is `ok` when its ends are the lowest and highest version the
+workflow runs (both ends written with `t`: of the free-threaded builds), a list
+when each version runs, and a version written with `t` must run free-threaded;
+anything else is `fail`. A range that holds for the matrices and not with the
+versions setup steps pin, or with them and not for the matrices alone (a lint
+or docs job on another Python), is `unresolved`, since the range may count that
+job or leave it out on purpose; with no matrix version, the pins are what the
+workflow runs. A matrix, an `include`, an `exclude` or a step version computed
+from an expression (`${{ fromJSON(…) }}`), an `exclude` over more than 256
+combinations, a Python value that names no one version (`3.x`, `>=3.12`), a
+`python-version-file` with no `python-version`, an input a called workflow
+sets up Python from that its caller does not pass, a call to another
+repository's workflow or to one the tree lacks, a workflow that is not valid
+YAML, and a workflow with no Python version make the claim `unresolved`. Python that a job installs any other
 way (a `run:` step, a container image) is not read.
 
 Not checked by L0 (a follow-up): the `#fragment` of a link (`docs/x.md#setup`

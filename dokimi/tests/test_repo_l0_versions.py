@@ -53,6 +53,7 @@ def test_runs_of_versions(text, expected):
      {(12, False)}),                                                     # by two entries, one with no Python key
     ({"os": ["a"], "include": [{"python": "3.14", "spec": "3.14.* *_cp314t"}]}, {(14, False), (14, True)}),
     ({"python": ["3.12"], "exclude": [{"python": "3.11"}]}, {(12, False)}),
+    ({"cibw": ["cp313t-*", "cp314t-*", ["cp315t"]], "os": ["a"], "exclude": [{"cibw": "cp314t-*"}]}, {(13, True)}),
 ])
 def test_matrix_versions(matrix, expected):
     unknown: list[str] = []
@@ -77,6 +78,26 @@ def test_setup_versions():
     assert setup_versions(steps, "ci.yml", unknown, keys) == {(12, False), (13, True), (14, False)}
     assert keys == {"py", "ver"} and unknown == []
     assert setup_versions({"with": {"python-version": "3.12"}}, "ci.yml", unknown, keys) == set()  # not a list
+
+
+def test_setup_versions_reads_a_version_file_only_without_a_version():
+    unknown: list[str] = []
+    steps = [{"with": {"python-version": "3.12", "python-version-file": "a"}},
+             {"with": {"python-version": "", "python-version-file": "b"}}, {"with": {"python-version-file": "c"}}]
+    assert setup_versions(steps, "ci.yml", unknown, set()) == {(12, False)}
+    assert unknown == [f"a setup step of ci.yml reads its Python version from {f}" for f in "bc"]
+
+
+def test_setup_versions_reads_inputs_only_in_a_called_workflow():
+    steps = [{"with": {"python-version": "${{ inputs.py }}"}}, {"with": {"python-version": "${{ inputs['v'] }}"}}]
+    keys: set[str] = set()
+    inputs: set[str] = set()
+    assert setup_versions(steps, "t.yml", [], keys, inputs) == set()
+    assert inputs == {"py", "v"} and keys == set()
+    unknown: list[str] = []  # in a workflow GitHub runs itself, an input is not known
+    assert setup_versions(steps, "t.yml", unknown, keys) == set()
+    assert unknown == ["a setup step of t.yml gives a computed Python version (${{ inputs.py }})",
+                       "a setup step of t.yml gives a computed Python version (${{ inputs['v'] }})"]
 
 
 _BOMB = """
