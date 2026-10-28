@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 
 import pytest
@@ -875,6 +876,34 @@ def test_a_command_given_a_frontmatter_nested_too_deeply_exits_with_a_message(tm
         args.func(args)
     assert "maximum recursion" in str(exc.value)
     assert "RecursionError" not in str(exc.value)
+
+
+def test_all_vs_all_names_a_competitor_nested_too_deeply_and_exits_with_a_message(tmp_path):
+    queries = tmp_path / "q.json"
+    queries.write_text('{"deep": ["a request"]}', encoding="utf-8")
+    args = _parse("novelty", "routing", "--all-vs-all", "--competitors", _deep_skill(tmp_path),
+                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
+    with pytest.raises(SystemExit, match="maximum recursion") as exc:
+        args.func(args)
+    assert "RecursionError" not in str(exc.value)
+
+
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0, reason="root reads any file")
+def test_all_vs_all_names_an_unreadable_competitor_and_exits_with_a_message(tmp_path):
+    root = tmp_path / "locked"
+    root.mkdir()
+    skill = root / "SKILL.md"
+    skill.write_text("---\nname: locked\ndescription: x\n---\n\nBody.\n", encoding="utf-8")
+    skill.chmod(0)
+    queries = tmp_path / "q.json"
+    queries.write_text('{"locked": ["a request"]}', encoding="utf-8")
+    args = _parse("novelty", "routing", "--all-vs-all", "--competitors", f"skill:{root}",
+                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
+    try:
+        with pytest.raises(SystemExit, match="cannot load the field"):
+            args.func(args)
+    finally:
+        skill.chmod(0o644)
 
 
 def test_item_analysis_accepts_a_probe_file_that_records_no_digest(tmp_path):
