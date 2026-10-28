@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
+from dokimi.commands.inputs import placebo_text_for_arms_or_exit, read_text_or_exit
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
     DEFAULT_ANSWER_PROVIDER,
@@ -93,6 +94,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
             )
         return
 
+    placebo_text = placebo_text_for_arms_or_exit(args.placebo_text, _arms(args.arms))
     extractor, answerer, judge = _clients(args)
     config = AnalyzeConfig(
         artifact_ref=args.artifact,
@@ -104,10 +106,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
         budgets=tuple(args.budgets),
         concurrency=args.concurrency,
         allow_self_judge=args.allow_self_judge,
-        placebo_text=(
-            Path(args.placebo_text).read_text(encoding="utf-8")
-            if args.placebo_text else None
-        ),
+        placebo_text=placebo_text,
         cache_dir=Path(args.cache_dir) if args.cache_dir else None,
         seed=args.seed,
         include_resources=args.include_resources,
@@ -118,7 +117,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
         result = analyze(artifact_bundle.text, config,
                          extractor=extractor, answerer=answerer, judge=judge,
                          artifact_bundle=artifact_bundle)
-    except (SelfJudgeError, ExtractionError) as exc:
+    except (SelfJudgeError, ExtractionError, ValueError) as exc:
         raise SystemExit(str(exc)) from None
 
     out_dir = Path(args.out_dir) if args.out_dir else _default_dir(args.artifact)
@@ -172,21 +171,21 @@ def cmd_novelty_atoms(args: argparse.Namespace) -> None:
 
 def cmd_novelty_probe(args: argparse.Namespace) -> None:
     """Run the paired probes against a saved atom set and print the 2×2."""
-    from dokimi.novelty.atoms import load_atoms
+    from dokimi.novelty.atoms import load_atoms_or_exit
     from dokimi.novelty.bundle import check_answer_key
     from dokimi.novelty.measure import SelfJudgeError, run_measurement
     from dokimi.novelty.probes import build_probe_set
     from dokimi.novelty.report import build_probe_record
 
-    atoms, saved_spans = load_atoms(args.atoms)
+    atoms, saved_spans, saved = load_atoms_or_exit(args.atoms)
     _warn_unread(saved_spans, "the atoms probed here leave out whatever those spans assert")
-    saved = json.loads(Path(args.atoms).read_text(encoding="utf-8"))
     verdict = check_answer_key(args.artifact, saved.get("bundle"), source=args.atoms)
     if not verdict.ok:
         raise SystemExit(verdict.message)
     for note in verdict.notes:
         print(note, file=sys.stderr)
     settings = _settings(args)
+    placebo_text = read_text_or_exit(args.placebo_text, "--placebo-text")
     extractor, answerer, judge = _clients(args)
     if saved.get("extractor") == answerer.model:
         print(f"WARNING: {answerer.model} extracted these atoms, so the model under measurement "
@@ -208,9 +207,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
             atoms, probe_set.probes, verdict.text, answerer=answerer, judge=judge,
             arms=_arms(args.arms), concurrency=args.concurrency,
             allow_self_judge=args.allow_self_judge, seed=args.seed,
-            placebo_text=(
-                Path(args.placebo_text).read_text(encoding="utf-8") if args.placebo_text else None
-            ),
+            placebo_text=placebo_text,
         )
     except (SelfJudgeError, ValueError) as exc:
         raise SystemExit(str(exc)) from None
@@ -281,6 +278,192 @@ def cmd_novelty_items(args: argparse.Namespace) -> None:
                   f"{agreement['n_atoms_multi_kind']} atoms asked by several kinds")
 
 
+def _routing_card(ref: str):
+    """An artifact or competitor reference as the selector sees it: ``(candidate, body)``."""
+    from dokimi.novelty.routing import load_candidate
+
+    candidate, body, warning = load_candidate(ref)
+    if warning:
+        print(f"WARNING: {warning}", file=sys.stderr)
+    return candidate, body
+
+
+def _routing_field(args: argparse.Namespace, exclude: set[str],
+                   left_out: list[str] | None = None) -> list:
+    """The field ``--competitors`` and ``--catalog`` name, without the names in ``exclude``.
+
+    What was left out of the field, and why, is appended to ``left_out`` when given.
+
+    Raises:
+        OSError, ValueError, RecursionError: A reference or the catalog cannot be loaded.
+    """
+    from dokimi.novelty.routing import (
+        catalog_competitors,
+        disables_model_invocation,
+        non_skill_reason,
+        skill_file,
+    )
+
+    competitors = []
+    for ref in args.competitors or []:
+        reason = non_skill_reason(ref)
+        if reason:
+            print(f"WARNING: skipped competitor {ref}: {reason}", file=sys.stderr)
+            if left_out is not None:
+                left_out.append(f"{ref}: {reason}")
+            continue
+        candidate = _routing_card(ref)[0]
+        ref_file = skill_file(ref)
+        if (ref_file and not args.include_disabled
+                and disables_model_invocation(ref_file)):
+            print(f"WARNING: skipped competitor {ref}: disable-model-invocation "
+                  "(--include-disabled keeps it)", file=sys.stderr)
+            if left_out is not None:
+                left_out.append(f"{ref}: disable-model-invocation")
+            continue
+        competitors.append(candidate)
+    if args.catalog:
+        notes: list[str] = []
+        catalog = catalog_competitors(args.catalog,
+                                      exclude | {c.name for c in competitors}, notes,
+                                      include_disabled=args.include_disabled)
+        for note in notes:
+            print(f"WARNING: {note}", file=sys.stderr)
+        if left_out is not None:
+            left_out.extend(notes)
+        no_description = [c.name for c in catalog if not c.description]
+        if no_description:
+            print(f"WARNING: {len(no_description)} catalog skill(s) have no description, "
+                  f"so their card is a name only: {', '.join(sorted(no_description))}",
+                  file=sys.stderr)
+        print(f"--catalog {args.catalog}: {len(catalog)} competitors", file=sys.stderr)
+        competitors += catalog
+    return competitors
+
+
+def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
+    """Every skill in the field is the gold in turn: confusion matrix and attractors."""
+    from dokimi.novelty.all_vs_all import all_vs_all, load_queries_by_skill
+    from dokimi.novelty.routing import RoutingInputError, tokenize
+
+    _check_all_vs_all_args(args)
+    left_out: list[str] = []
+    try:
+        field = _routing_field(args, set(), left_out)
+    except RoutingInputError as exc:
+        raise SystemExit(str(exc)) from None
+    except (OSError, ValueError, RecursionError) as exc:
+        raise SystemExit(f"cannot load the field: {exc}") from None
+    try:
+        try:
+            queries_by_skill = load_queries_by_skill(args.queries_by_skill)
+        except (OSError, UnicodeDecodeError) as exc:
+            raise SystemExit(f"cannot read the queries: {exc}") from None
+        selector = _client(args.model, args.provider, "selector", args) if args.model else None
+        if selector is not None:
+            # One call per query with a content word, each sending every card in the field.
+            calls = sum(bool(tokenize(q)) for qs in queries_by_skill.values() for q in qs)
+            print(
+                f"all-vs-all: --model makes {calls} model calls, one per query, over "
+                f"{len(field)} cards each",
+                file=sys.stderr,
+            )
+        result = all_vs_all(field, queries_by_skill, client=selector, seed=args.seed)
+    except RoutingInputError as exc:
+        raise SystemExit(str(exc)) from None
+    without = [c.name for c in field if c.name not in queries_by_skill]
+    if without:
+        print(f"WARNING: {len(without)} skill(s) in the field have no queries, so they only "
+              f"compete: {', '.join(sorted(without))}", file=sys.stderr)
+    _warn_blind_skills(result, queries_by_skill)
+
+    model_arm = result.get("model") or {}
+    failed = model_arm.get("n_failed", 0)
+    sent = sum(model_arm.get("n_scored", {}).values()) + failed  # contentless ones are not sent
+    if failed:
+        print(f"WARNING: {failed} model call(s) failed (first error: "
+              f"{model_arm['first_error']}); those queries are left out of "
+              "every rate in the model arm", file=sys.stderr)
+
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"mode": "all_vs_all", "queries_by_skill": args.queries_by_skill,
+               "n_candidates": len(field), "result": result}
+    payload["field"] = _field_record(args, field, left_out)
+    out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    if failed:
+        raise SystemExit(f"{failed} of {sent} model call(s) failed "
+                         f"({model_arm['first_error']}); the partial result, with those queries "
+                         f"left out of every rate, is in {out}")
+    print(f"OK Saved all-vs-all routing: {out}")
+    print(f"all-vs-all: {len(field)} skills in the field, {result['n_queries']} queries over "
+          f"{len(queries_by_skill)} skills with queries")
+    _print_attractors(result)
+
+
+def _field_record(args: argparse.Namespace, competitors: list, left_out: list[str]) -> dict:
+    """The field rule a routing result was measured under, saved next to the result."""
+    return {"include_disabled": bool(args.include_disabled),
+            "competitors": [c.name for c in competitors], "left_out": left_out}
+
+
+def _check_all_vs_all_args(args: argparse.Namespace) -> None:
+    """Refuse the flag combinations ``--all-vs-all`` cannot run with."""
+    if args.artifact:
+        raise SystemExit("--all-vs-all takes no --artifact: every skill in the field is the "
+                         "gold in turn")
+    if args.queries or args.queries_from_headings:
+        raise SystemExit("--all-vs-all takes --queries-by-skill, not --queries or "
+                         "--queries-from-headings")
+    if args.repeats > 1:
+        raise SystemExit("--all-vs-all takes no --repeats: it makes one call per query")
+    if not args.queries_by_skill:
+        raise SystemExit("--all-vs-all needs --queries-by-skill <file>: a JSON object of skill "
+                         "name to the requests that should select it")
+    if not args.out:
+        raise SystemExit("--all-vs-all needs --out <file>")
+
+
+def _warn_blind_skills(result: dict, queries_by_skill: dict[str, list[str]]) -> None:
+    """Warn when the lexical arm scores none of a skill's queries: its own rate is then None."""
+    lexical = result.get("lexical")
+    if not lexical:
+        return
+    blind = [name for name in sorted(queries_by_skill) if lexical["n_scored"].get(name) == 0]
+    if blind:
+        print(f"WARNING: the lexical arm cannot score any query of {', '.join(blind)} "
+              "(no content word in them), so their lexical own_rate is None", file=sys.stderr)
+
+
+def _print_attractors(result: dict) -> None:
+    """The top five attractors of each arm, one line each, and what the arm left out.
+
+    A tie and an unscored query name no pick, so a "no skill was picked" line beside them
+    would read as a clean result; the line after the attractors says how many there were.
+    Skills with the same description words are one tied group, named once, not each other's
+    attractor.
+    """
+    from dokimi.novelty.all_vs_all import TIE
+
+    for group in result["tied_groups"]:
+        print(f"tied: {', '.join(group)} have the same description; one group, not attractors "
+              "of each other")
+    for arm in ("lexical", "model"):
+        if arm not in result:
+            continue
+        section = result[arm]
+        rows = section["attractors"][:5]
+        if not rows:
+            print(f"{arm}: no skill was picked for another skill's query")
+        for row in rows:
+            print(f"{arm}: {row['skill']} picked for {row['wrongly_picked']} of "
+                  f"{row['sibling_queries']} sibling queries (from {', '.join(row['from'])})")
+        tied = sum(picks.get(TIE, 0) for picks in section["confusion"].values())
+        unscored = sum(section["n_unscored"].values())
+        if tied or unscored:
+            print(f"{arm}: {tied} tied and {unscored} unscored queries are not counted as picks")
+
+
 def cmd_novelty_routing(args: argparse.Namespace) -> None:
     """Can this artifact be selected against its competitors? Lexical floor, model on top."""
     if args.repeats > 1 and not args.model:
@@ -289,37 +472,32 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
             "measures nothing"
         )
     from dokimi.novelty.routing import (
-        Candidate,
         RoutingInputError,
-        catalog_competitors,
         check_field,
+        disables_model_invocation,
         headings_as_queries,
         lexical_routing,
-        load_candidate,
         load_queries,
         model_routing,
+        skill_file,
     )
 
-    def card(ref: str) -> tuple[Candidate, str]:
-        candidate, body, warning = load_candidate(ref)
-        if warning:
-            print(f"WARNING: {warning}", file=sys.stderr)
-        return candidate, body
-
+    if args.all_vs_all:
+        return _cmd_routing_all_vs_all(args)
+    if not args.artifact:
+        raise SystemExit("pass --artifact <skill:path>, or --all-vs-all for the whole field")
     try:
-        gold, body = card(args.artifact)
-        competitors = [card(ref)[0] for ref in args.competitors or []]
-        if args.catalog:
-            catalog = catalog_competitors(args.catalog,
-                                          {gold.name, *(c.name for c in competitors)})
-            no_description = [c.name for c in catalog if not c.description]
-            if no_description:
-                print(f"WARNING: {len(no_description)} catalog skill(s) have no description, "
-                      f"so their card is a name only: {', '.join(sorted(no_description))}",
-                      file=sys.stderr)
-            print(f"--catalog {args.catalog}: {len(catalog)} competitors", file=sys.stderr)
-            competitors += catalog
-    except (FileNotFoundError, ValueError) as exc:
+        gold, body = _routing_card(args.artifact)
+        artifact_file = skill_file(args.artifact)
+        if artifact_file and disables_model_invocation(artifact_file):
+            print(f"WARNING: {args.artifact} sets disable-model-invocation, so no harness lists "
+                  "it and the model cannot select it; its routing rate is not a harness rate",
+                  file=sys.stderr)
+        left_out: list[str] = []
+        competitors = _routing_field(args, {gold.name}, left_out)
+    except RoutingInputError as exc:
+        raise SystemExit(str(exc)) from None
+    except (OSError, ValueError, RecursionError) as exc:
         raise SystemExit(f"cannot load an artifact: {exc}") from None
     # Checked before the query file is read, so the message is about the real problem.
     try:
@@ -357,6 +535,7 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
         "status": "ok",
         "n_candidates": len(candidates),
         "queries_self_derived": self_derived,
+        "field": _field_record(args, competitors, left_out),
         "lexical": lexical,
     }
     if args.model:
@@ -450,15 +629,14 @@ def _refuse_no_queries(args: argparse.Namespace, queries: list[str], self_derive
 
 def cmd_novelty_shorten(args: argparse.Namespace) -> None:
     """Score shortening candidates on the five axes and optionally write the best one."""
-    from dokimi.novelty.analyze import load_artifact_text
-    from dokimi.novelty.atoms import load_atoms
+    from dokimi.novelty.artifact import load_artifact_or_exit
+    from dokimi.novelty.atoms import load_atoms_or_exit
     from dokimi.novelty.bundle import entry_point_only
     from dokimi.novelty.retention import RetentionOracle, error_warning
     from dokimi.novelty.shorten import build_candidates, pick_best
 
-    atoms, spans = load_atoms(args.atoms)
-    _kind, _name, _description, frontmatter, _body = load_artifact_text(args.artifact)
-    saved = json.loads(Path(args.atoms).read_text(encoding="utf-8"))
+    atoms, spans, saved = load_atoms_or_exit(args.atoms)
+    _kind, _name, _description, frontmatter, _body = load_artifact_or_exit(args.artifact)
     try:
         spans, atoms, note = entry_point_only(saved.get("bundle"), spans, atoms)
     except ValueError as exc:
@@ -514,13 +692,11 @@ def cmd_novelty_shorten(args: argparse.Namespace) -> None:
 
 def cmd_novelty_view(args: argparse.Namespace) -> None:
     """Re-render the annotated view from a saved novelty artifact plus its atoms."""
-    from dokimi.artifacts import load_artifact
-    from dokimi.novelty.atoms import load_atoms
+    from dokimi.commands.novelty_view_inputs import load_view_inputs
     from dokimi.novelty.attribute import attribute_spans
     from dokimi.novelty.report import render_annotated_html, render_annotated_markdown
 
-    artifact = load_artifact("novelty", Path(args.novelty))
-    atoms, spans = load_atoms(args.atoms)
+    artifact, atoms, spans = load_view_inputs(args.novelty, args.atoms)
     _warn_unread(spans, "they render as `unread`, not as text that carries nothing")
     # Re-rendering needs per-atom outcomes; the artifact carries aggregates, so a view
     # rebuilt from it alone would colour by category only. Say so instead of implying the
@@ -564,7 +740,7 @@ def _bundle_from_args(args: argparse.Namespace):
             max_file_words=args.max_file_words,
             max_total_words=args.max_resource_words,
         )
-    except (FileNotFoundError, ValueError) as exc:
+    except (OSError, ValueError, RecursionError) as exc:
         raise SystemExit(f"cannot load --artifact {args.artifact}: {exc}") from None
     note = artifact_bundle.coverage_note()
     if note:
@@ -663,18 +839,35 @@ def register(sub, positive_int) -> None:
     routing_p = novelty_sub.add_parser(
         "routing", help="Can the artifact be selected against competitors? (name+description)"
     )
-    routing_p.add_argument("--artifact", required=True,
-                           help="skill:<path> or text:<path> under test")
+    routing_p.add_argument("--artifact", default=None,
+                           help="skill:<path> or text:<path> under test (required unless "
+                                "--all-vs-all)")
+    routing_p.add_argument("--all-vs-all", action="store_true", dest="all_vs_all",
+                           help="Route every skill that has queries against the whole field, "
+                                "in turn: a confusion matrix and the attractors, the skills "
+                                "picked for queries written for another skill. Takes "
+                                "--queries-by-skill and --out, and no --artifact")
+    routing_p.add_argument("--queries-by-skill", default=None, dest="queries_by_skill",
+                           help="With --all-vs-all: a JSON object of skill name to the list of "
+                                "requests that should select that skill")
     routing_p.add_argument("--competitors", nargs="+", default=None,
                            help="Other artifacts the selector sees. Selection among one "
                                 "candidate is not routing: the sibling confusion is the "
                                 "failure mode (every `dpnp-*` skill scored 0.0 lexically)")
     routing_p.add_argument("--catalog", default=None,
-                           help="Directory of skills to take the competitors from: every SKILL.md "
-                                "under it except the artifact itself (a template/ copy, a byte-"
-                                "identical mirror that loads under the same skill name, and "
-                                "vendored or VCS directories like .git are left out), i.e. the "
-                                "siblings a harness lists next to it. Combines with --competitors")
+                           help="Directory of skills to take the competitors from: every "
+                                "skill the catalog lists (skills.yaml when present, else every "
+                                "SKILL.md under it; a template/ copy and vendored or VCS "
+                                "directories like .git are left out, and a byte-identical "
+                                "copy under another path counts once) except "
+                                "the artifact itself, i.e. the "
+                                "siblings a harness lists next to it. Combines with "
+                                "--competitors")
+    routing_p.add_argument("--include-disabled", action="store_true", dest="include_disabled",
+                           help="Keep skills that set disable-model-invocation in the field. "
+                                "Off by default: no harness lists them, so the model cannot "
+                                "select them and a card for one measures a choice that does "
+                                "not exist")
     routing_p.add_argument("--queries", default=None,
                            help="JSON list (or one per line) of user-shaped requests that "
                                 "should select this artifact, written independently of it")

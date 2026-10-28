@@ -239,6 +239,10 @@ def _kept_estimate(step: dict) -> dict:
     return {**step, "stdout": payload, "stderr": stderr}
 
 
+# Runs main refuses only after the extraction calls it had already made.
+REFUSED_BEFORE_ANY_CALL = {"run/arms-without-full"}
+
+
 @pytest.mark.parametrize("name", list(CASES))
 def test_no_setting_bill_or_tier_record_differs_from_main(name, tmp_path):
     golden = json.loads(GOLDEN.read_text(encoding="utf-8"))
@@ -251,7 +255,12 @@ def test_no_setting_bill_or_tier_record_differs_from_main(name, tmp_path):
         assert [_kept_estimate(step) for step in steps] == [
             _kept_estimate(step) for step in golden[name]]
     else:
-        assert steps == golden[name]
+        expected = golden[name]
+        if name in REFUSED_BEFORE_ANY_CALL:
+            # Intended change: the arm and placebo checks now run before the clients are
+            # built, so the refusal makes no model call. Same status and output as on main.
+            expected = [dict(step, calls=[]) for step in expected]
+        assert steps == expected
 
 
 def test_the_golden_cases_are_the_ones_this_module_runs():
