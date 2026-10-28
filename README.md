@@ -49,27 +49,31 @@ what to keep, cut, rewrite and fix, line by line ([more on novelty](dokimi/docs/
 
 ![A SKILL.md with each line coloured by its outcome: added (keep), redundant (cut), degraded (fix), still missing (rephrase), and protected safety clauses (never cut)](dokimi/docs/assets/readme/annotated-skill.png)
 
-## Optimize the skill for what you care about
+## Shorten the skill without losing what matters
 
-The same outcomes drive automatic tuning. Choose what matters — answer
-quality, a smaller context (cheaper and faster runs), or keeping every safety
-clause — and Dokimi proposes variants of the skill and scores each one on
-every axis. Different goals produce different skills:
+The same outcomes drive shortening. Dokimi proposes shorter versions of the
+skill under different strategies (by value per token, or with every safety
+clause pinned) and token budgets, and scores each candidate on tokens,
+knowledge kept and safety clauses kept. Different strategies cut different
+lines:
 
-![One skill, three objectives. Effectiveness keeps 96% of the knowledge at 66% of the tokens. Efficiency keeps 92% of the knowledge at 21% of the tokens but drops most safety clauses. Safety keeps every guard at 60% of the tokens](dokimi/docs/assets/readme/optimization-directions.png)
+![One skill, three shortening strategies. Safety-pinned at a 75% budget keeps 96% of the knowledge in 66% of the tokens. By value at a 50% budget keeps 92% of the knowledge in 21% of the tokens but only 16% of the safety clauses. Safety-pinned at a 50% budget keeps every safety clause and 81% of the knowledge in 60% of the tokens](dokimi/docs/assets/readme/shortening-strategies.png)
 
-A variant counts only after it is re-measured on real tasks:
+Pick a candidate, re-measure it on your tasks, and decide:
 
 ![Assess, diagnose, change, re-measure, then: better means keep it and guard it in CI; none or worse means reject it with numbers; unclear means explain and design the next experiment. A new model, harness or time means reassess](dokimi/docs/assets/readme/improvement-loop.png)
 
 ## Are the evals good enough?
 
-A score is only as good as the tasks behind it. Dokimi checks the eval set
-itself: that it is valid, that its graders fail an untouched workspace and
-pass the reference solution, that its tasks are real work, and which of the
-skill's claims no task exercises.
+A score is only as good as the evals behind it. Before any agent run, Dokimi
+checks the eval set itself: that it parses, that each task's grader fails an
+untouched workspace and passes the reference solution, and that an LLM judge
+scores degraded answers lower.
 
-![Four checks of an eval set: valid, graded right, relevant, covering. Below, a grid of the skill's claims against tasks, with claims no task exercises marked as untested gaps](dokimi/docs/assets/readme/eval-coverage.png)
+![Three checks of an eval set: valid (dokimi repo validate), graded right (dokimi repo tasks check), judge checked (dokimi eval judge-validity)](dokimi/docs/assets/readme/eval-checks.png)
+
+**Where it is going:** mapping each claim in a skill to the tasks that
+exercise it, so the claims no eval tests are listed next to the score.
 
 ## What measuring shows
 
