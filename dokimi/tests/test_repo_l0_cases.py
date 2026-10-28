@@ -134,6 +134,9 @@ CASES = [
      {("pytest_module", "pkg.tests.gone"): "fail", ("pytest_module", "numpy.tests"): "unresolved",
       ("pytest_path", "nsdir"): "ok", ("pytest_module", "nsdir"): None,
       ("pytest_path", "test_gone.py"): "unresolved", ("pytest_module", "test_gone.py"): None}),
+    ("pytest --pyargs module below a deleted subpackage", _shell("pytest --pyargs pkg.tests.test_a pkg.tests.sub.test_b"),
+     {"pkg/__init__.py": "", "pkg/other.py": ""},
+     {("pytest_module", "pkg.tests.test_a"): "fail", ("pytest_module", "pkg.tests.sub.test_b"): "fail"}),
     ("pytest --pyargs: a directory with no __init__.py is no module", _shell("pytest --pyargs pkg.tests"),
      {"pkg/__init__.py": "", "pkg/tests/test_a.py": ""},
      {("pytest_module", "pkg.tests"): "fail"}),
@@ -293,6 +296,14 @@ def test_a_path_into_a_submodule_says_so(tmp_path):
     payload = _scan(tmp_path, "`third/dep/lib.h`\n", {".gitmodules": '[submodule "d"]\n\tpath = third/dep\n',
                                                      "third/README": ""})
     assert "inside the submodule third/dep" in payload["claims"][0]["why"]
+
+
+def test_a_missing_pyargs_module_names_the_nearest_package(tmp_path):
+    payload = _scan(tmp_path, _shell("pytest --pyargs pkg.tests.gone pkg.tests.sub.test_b"),
+                    {"src/pkg/__init__.py": "", "src/pkg/tests/__init__.py": ""})
+    why = {c["claim"]: c["why"] for c in payload["claims"]}
+    assert why["pkg.tests.gone"] == "package pkg.tests (src/pkg/tests/) has no module gone"
+    assert why["pkg.tests.sub.test_b"] == "package pkg.tests (src/pkg/tests/) has no module sub.test_b"
 
 
 def test_no_claim_for_options_or_operators(tmp_path):

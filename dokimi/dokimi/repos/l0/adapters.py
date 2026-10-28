@@ -705,8 +705,10 @@ def _pytest(scan: Scan, file: str, line: int, toks: list[str], text: str) -> Non
 def _pytest_module(scan: Scan, name: str) -> tuple[str, str]:
     """A ``--pyargs`` module: ``a.b`` is ``a/b.py`` or ``a/b/__init__.py`` below any directory of the tree.
 
-    A directory with no ``__init__.py`` is no module (pytest skips namespace packages by default). A module
-    missing from a package the tree holds is ``fail``; any other missing module may be installed from elsewhere.
+    ``ok`` says the file is in the tree, not that it imports without an install. A directory with no
+    ``__init__.py`` is no module (pytest skips namespace packages by default). A module missing below a
+    package the tree holds is ``fail``, at any depth (``a.b.c`` with ``a/b/`` gone is a miss in ``a``); one
+    with no enclosing package in the tree may be installed from elsewhere.
     """
     def find(rel: str) -> str | None:
         return next((f for f in scan.by_name.get(posixpath.basename(rel), []) if f == rel or f.endswith("/" + rel)), None)
@@ -715,10 +717,11 @@ def _pytest_module(scan: Scan, name: str) -> tuple[str, str]:
     hit = find(rel + ".py") or find(rel + "/__init__.py")
     if hit:
         return "ok", hit
-    package, _, leaf = name.rpartition(".")
-    home = find(package.replace(".", "/") + "/__init__.py") if package else None
-    if home:
-        return "fail", f"package {package} ({posixpath.dirname(home)}/) has no module {leaf}"
+    parts = name.split(".")
+    for n in range(len(parts) - 1, 0, -1):  # the nearest enclosing package the tree holds
+        if home := find("/".join(parts[:n]) + "/__init__.py"):
+            package, rest = ".".join(parts[:n]), ".".join(parts[n:])
+            return "fail", f"package {package} ({posixpath.dirname(home)}/) has no module {rest}"
     return "unresolved", f"no module {name} in the tree; it may be installed from elsewhere"
 
 
