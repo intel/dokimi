@@ -214,6 +214,35 @@ Guidelines:
 
 Versioning, the changelog and releases: [docs/releasing.md](docs/releasing.md).
 
+### Adding or renaming a CLI flag
+
+Every concept a `dokimi` flag can name is one row of `CONCEPTS` in
+`dokimi/cli_flags.py`: its canonical spellings, its type and the synonyms banned for it.
+`tests/test_cli_flags.py` walks every parser of `dokimi.cli.build_parser()` and fails when
+a flag is neither a canonical spelling nor a row of `tests/data/cli_flags_allowlist.txt`.
+A banned synonym fails too, with the canonical spelling in the message. Until the flags
+move onto the registry, `cli_flags.py` is data only: no command reads it.
+
+- **New flag.** Use the canonical spelling of its concept. A new concept needs a row in
+  `CONCEPTS`, which reviewers look at.
+- **Snapshot.** From `dokimi/`, after `make dev`, run `make cli-snapshot` and commit
+  `docs/reference/cli-interface.json` with the change. CI's `typecheck` job and
+  `tests/test_cli_flags.py` check it against the code, so a flag change without a
+  regenerated snapshot fails the PR. The ratchet compares spellings only: a reviewer checks
+  that the option's type matches the `kind` of its concept.
+- **Non-canonical spelling.** Only if the flag must keep it, add one row to
+  `tests/data/cli_flags_allowlist.txt` with the reason after `#`, for example
+  `--sample-size  # the spelling the external runner already passes`. An allowlist row
+  exempts its spelling on every command, so a new command may use an allowlisted banned
+  spelling without failing.
+- **Removing or renaming.** An allowlist row that no parser uses fails the test, and so
+  does a row for a spelling that is now canonical. Delete the row when the flag goes.
+- **Why the snapshot test runs on one Python.** The dumper hashes validators with
+  `ast.dump`, whose output differs between Python versions. The snapshot is written by the
+  pinned interpreter (`make dev`, Python 3.13), and its content check runs there only: the
+  `typecheck` job on every PR, and the Python 3.13 test leg on `main`. The other test legs
+  run the ratchet and the structural checks.
+
 ## Docs-drift checklist
 
 When your change touches user-facing behavior, confirm:
