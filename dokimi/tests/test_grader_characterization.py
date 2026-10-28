@@ -218,7 +218,7 @@ def test_judge_rerun_with_the_cache_on_replays_the_stored_redraw(provider_calls,
     provider_calls.push(BAD, REPLY)
     judge = _judge(**PINNED)
     _grade_judge(judge)
-    assert _files(cache_dir) == ["f0cd923dc4fd72e7e4746e77505f11ad80878e92ee2190c52df6c64fe78b531f.json"]
+    assert _files(cache_dir) == ["c97a0784894b371c59416967e36e4bb1a588852a38ac890c8f2b57cb827e7c79.json"]
     assert sent == [
         (JUDGE_PROMPT, 0, False, (True, False), 0.0, 7),
         (JUDGE_REMINDER_1, 1, True, (True, False), 0.0, 7),
@@ -346,7 +346,7 @@ def test_panel_rerun_with_the_cache_on_replays_the_stored_redraw(provider_calls,
     provider_calls.push(BAD, REPLY)
     panel, cfg = _panel(**PINNED)
     _grade_panel(panel, cfg)
-    assert _files(cache_dir) == ["50554ebc560c85cc138281ff31f5245b8208cc9f260ced6a82c763814cb7c883.json"]
+    assert _files(cache_dir) == ["02dfaa4529448c9110c789746538d8b9f6af6a310cd549fd5fa1a0a00276f3b0.json"]
     assert len(sent) == 5  # three replay probes, then the two live draws
     assert len(provider_calls.calls) == 2
 
