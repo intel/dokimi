@@ -324,7 +324,7 @@ def test_the_child_env_drops_billing_and_session_variables_by_prefix(runner, mon
     for name, value in {
         "ANTHROPIC_BASE_URL": "https://gateway.example", "ANTHROPIC_DEFAULT_SONNET_MODEL": "other",
         "ANTHROPIC_CUSTOM_HEADERS": "x: y", "CLAUDE_CODE_USE_BEDROCK": "1",
-        "CLAUDE_CODE_MESSAGING_SOCKET": "/tmp/sock", "CLAUDE_CODE_SSE_PORT": "1234",
+        "CLAUDE_CODE_MESSAGING_SOCKET": "messaging.sock", "CLAUDE_CODE_SSE_PORT": "1234",
         "CLAUDE_CODE_OAUTH_TOKEN": "headless-token", "CLAUDE_CONFIG_DIR": "/accounts/work",
     }.items():
         monkeypatch.setenv(name, value)
@@ -471,7 +471,7 @@ def test_every_agentic_arm_kind_is_refused_on_the_cli_including_wrapped_and_comb
         "combined_with_agent": CombinedTreatment([base, SkillAgentTreatment(skill)]),
         "plugin_wrapped_agent": PluginWrappedTreatment(SkillAgentTreatment(skill), []),
     }
-    for kind, arm in agentic.items():
+    for arm in agentic.values():
         with pytest.raises(ValueError, match="agentic arm"):
             arms_refusals.refuse_cli_arms(cli, [arm])
     arms_refusals.refuse_cli_arms(
