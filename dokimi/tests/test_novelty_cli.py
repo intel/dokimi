@@ -121,6 +121,77 @@ def test_a_missing_artifact_exits_with_a_message(capsys):
 
 
 
+def _non_utf8_file(tmp_path):
+    path = tmp_path / "bin.txt"
+    path.write_bytes(b"\xff\xfe\x00")
+    return path
+
+
+@pytest.mark.parametrize("make_path", [
+    lambda tmp_path: tmp_path / "missing.txt",
+    lambda tmp_path: tmp_path,
+    _non_utf8_file,
+], ids=["missing", "directory", "not-utf8"])
+def test_an_unreadable_placebo_text_exits_with_a_message(tmp_path, make_path):
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\n\n# S\n\nText.\n",
+                                    encoding="utf-8")
+    placebo = make_path(tmp_path)
+    args = _parse("novelty", "analyze", "--artifact", f"skill:{skill}",
+                  "--placebo-text", str(placebo))
+    with pytest.raises(SystemExit, match=f"^cannot read --placebo-text {re.escape(str(placebo))}"):
+        args.func(args)
+
+
+@pytest.mark.parametrize("sub", ["analyze", "probe"])
+def test_placebo_text_is_read_before_a_model_client_is_built(tmp_path, monkeypatch, sub):
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\n\n# S\n\nText.\n",
+                                    encoding="utf-8")
+    argv = ["novelty", sub, "--artifact", f"skill:{skill}",
+            "--placebo-text", str(tmp_path / "missing.txt")]
+    if sub == "probe":
+        atoms = tmp_path / "atoms.json"
+        atoms.write_text('{"atoms": [], "spans": [], "bundle": {}}', encoding="utf-8")
+        argv += ["--atoms", str(atoms)]
+
+    def built(*_args, **_kwargs):
+        raise AssertionError("a model client was built before --placebo-text was read")
+
+    monkeypatch.setattr("dokimi.commands.novelty._clients", built)
+    args = _parse(*argv)
+    with pytest.raises(SystemExit, match="^cannot read --placebo-text"):
+        args.func(args)
+
+
+@pytest.mark.parametrize(("arms", "placebo", "message"), [
+    ("no_artifact,full,placebo", "", "^the placebo arm needs --placebo-text"),
+    ("no_artifact,full,placebo", None, "^the placebo arm needs --placebo-text"),
+    ("no_artifact,full,bogus", None, r"^unknown novelty arms: \['bogus'\]"),
+])
+def test_analyze_exits_with_the_message_when_the_arms_cannot_run(
+        tmp_path, monkeypatch, arms, placebo, message):
+    from tests.test_novelty_analyze import SKILL
+
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(SKILL, encoding="utf-8")
+    argv = ["novelty", "analyze", "--artifact", f"skill:{skill}", "--arms", arms]
+    if placebo is not None:
+        (tmp_path / "placebo.txt").write_text(placebo, encoding="utf-8")
+        argv += ["--placebo-text", str(tmp_path / "placebo.txt")]
+
+    def built(*_args, **_kwargs):
+        raise AssertionError("a model client was built for arms that cannot run")
+
+    monkeypatch.setattr("dokimi.commands.novelty._clients", built)
+    args = _parse(*argv)
+    with pytest.raises(SystemExit, match=message):
+        args.func(args)
+
+
 def test_coverage_note_printed_to_stderr_for_atoms(tmp_path, monkeypatch, capsys):
     """The coverage note is printed to stderr on entry-point run."""
     skill = tmp_path / "s" / "SKILL.md"
@@ -395,6 +466,21 @@ def test_probe_refuses_a_stale_answer_key_before_building_a_client(tmp_path):
         args.func(args)
 
 
+def test_probe_exits_with_a_message_on_an_unreadable_placebo_text(tmp_path):
+    from dokimi.novelty.atoms import save_atoms
+    from dokimi.novelty.bundle import load_bundle
+
+    root = _bundle_skill(tmp_path)
+    bundle = load_bundle(f"skill:{root}", include_resources=True)
+    atoms = tmp_path / "atoms.json"
+    save_atoms([], [], atoms, extractor="e", cap=None, bundle=bundle.summary())
+    missing = tmp_path / "missing.txt"
+    args = _parse("novelty", "probe", "--artifact", f"skill:{root}", "--atoms", str(atoms),
+                  "--placebo-text", str(missing))
+    with pytest.raises(SystemExit, match=f"^cannot read --placebo-text {re.escape(str(missing))}"):
+        args.func(args)
+
+
 def test_shorten_restricts_a_bundle_answer_key_to_the_entry_point(tmp_path, capsys):
     from dokimi.novelty.atoms import save_atoms
     from dokimi.novelty.bundle import load_bundle
@@ -436,6 +522,42 @@ def test_item_analysis_refuses_a_file_that_carries_no_probe_runs(tmp_path):
     path.write_text(json.dumps({"model": "m", "paired": {}}), encoding="utf-8")
     args = _parse("novelty", "items", "--probes", str(path))
     with pytest.raises(SystemExit, match="no probe runs"):
+        args.func(args)
+
+
+@pytest.mark.parametrize("content", [
+    None, "{not json", b"\xff\xfe\x00bad",
+    pytest.param("[" * 100000 + "]" * 100000, id="nested_deeply"),
+])
+def test_item_analysis_exits_with_a_message_on_an_unreadable_probes_file(tmp_path, content):
+    path = tmp_path / "novelty.json"
+    if isinstance(content, str):
+        path.write_text(content, encoding="utf-8")
+    elif content is not None:
+        path.write_bytes(content)
+    args = _parse("novelty", "items", "--probes", str(path))
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert str(exc.value).startswith(str(path))  # 3.14 parses deep nesting, then refuses the list
+
+
+@pytest.mark.parametrize("top, run", [
+    ({"model": ["m"]}, {}),
+    ({"model": None}, {}),
+    ({"artifact": {"a": 1}}, {}),
+    ({"ref_digest": [1]}, {}),
+    ({}, {"atom_id": ["a"]}),
+    ({}, {"probe_kind": ["x"]}),
+    ({}, {"arm": {}}),
+    ({}, {"verdict": ["x"]}),
+], ids=["model", "model_null", "artifact", "ref_digest", "atom_id", "probe_kind", "arm", "verdict"])
+def test_item_analysis_refuses_a_probe_field_that_is_not_a_string(tmp_path, top, run):
+    path = tmp_path / "novelty.json"
+    body = {"model": "m", "runs": [{"atom_id": "a1", "probe_kind": "direct", "arm": "full",
+                                    "verdict": "correct", **run}], **top}
+    path.write_text(json.dumps(body), encoding="utf-8")
+    args = _parse("novelty", "items", "--probes", str(path))
+    with pytest.raises(SystemExit, match="not a string"):
         args.func(args)
 
 
@@ -722,3 +844,45 @@ def test_a_bundle_run_capped_by_the_budget_warns_without_advising_the_flag_it_pa
     assert "coverage: 25% of the artifact's readable words were measured\n" in out
     assert "WARNING: only 25%" in out
     assert "--include-resources" not in out
+
+
+def _deep_skill(tmp_path, name="deep"):
+    root = tmp_path / name
+    root.mkdir()
+    (root / "SKILL.md").write_text(
+        f"---\nname: {name}\ndescription: " + "[" * 5000 + "\n---\n\nBody.\n", encoding="utf-8")
+    return f"skill:{root}"
+
+
+def test_load_artifact_or_exit_names_a_frontmatter_nested_too_deeply(tmp_path):
+    from dokimi.novelty.artifact import load_artifact_or_exit
+
+    with pytest.raises(SystemExit, match="^cannot load --artifact skill:.*maximum recursion"):
+        load_artifact_or_exit(_deep_skill(tmp_path))
+
+
+@pytest.mark.parametrize("sub", ["analyze", "atoms", "probe", "shorten", "routing"])
+def test_a_command_given_a_frontmatter_nested_too_deeply_exits_with_a_message(tmp_path, sub):
+    atoms = tmp_path / "atoms.json"
+    atoms.write_text('{"atoms": [], "spans": []}', encoding="utf-8")
+    extra = {
+        "probe": ["--atoms", str(atoms)],
+        "shorten": ["--atoms", str(atoms)],
+        "routing": ["--competitors", _deep_skill(tmp_path, "other")],
+    }.get(sub, [])
+    args = _parse("novelty", sub, "--artifact", _deep_skill(tmp_path), *extra)
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert "maximum recursion" in str(exc.value)
+    assert "RecursionError" not in str(exc.value)
+
+
+def test_item_analysis_accepts_a_probe_file_that_records_no_digest(tmp_path):
+    from dokimi.novelty.items import load_probe_cells
+
+    path = tmp_path / "novelty.json"
+    path.write_text(json.dumps({"model": "m", "artifact": "skill:x", "ref_digest": None, "runs": [
+        {"atom_id": "a1", "probe_kind": "direct", "arm": "full", "verdict": "correct"}]}),
+        encoding="utf-8")
+    cells, _ = load_probe_cells([str(path)])
+    assert (cells[0]["artifact"], cells[0]["ref_digest"]) == ("skill:x", None)

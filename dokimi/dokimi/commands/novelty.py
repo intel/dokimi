@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
+from dokimi.commands.inputs import placebo_text_for_arms_or_exit, read_text_or_exit
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
     DEFAULT_ANSWER_PROVIDER,
@@ -94,6 +95,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
             )
         return
 
+    placebo_text = placebo_text_for_arms_or_exit(args.placebo_text, _arms(args.arms))
     extractor, answerer, judge = _clients(args)
     config = AnalyzeConfig(
         artifact_ref=args.artifact,
@@ -105,10 +107,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
         budgets=tuple(args.budgets),
         concurrency=args.concurrency,
         allow_self_judge=args.allow_self_judge,
-        placebo_text=(
-            Path(args.placebo_text).read_text(encoding="utf-8")
-            if args.placebo_text else None
-        ),
+        placebo_text=placebo_text,
         cache_dir=Path(args.cache_dir) if args.cache_dir else None,
         seed=args.seed,
         include_resources=args.include_resources,
@@ -119,7 +118,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
         result = analyze(artifact_bundle.text, config,
                          extractor=extractor, answerer=answerer, judge=judge,
                          artifact_bundle=artifact_bundle)
-    except (SelfJudgeError, ExtractionError) as exc:
+    except (SelfJudgeError, ExtractionError, ValueError) as exc:
         raise SystemExit(str(exc)) from None
 
     out_dir = Path(args.out_dir) if args.out_dir else _default_dir(args.artifact)
@@ -173,21 +172,21 @@ def cmd_novelty_atoms(args: argparse.Namespace) -> None:
 
 def cmd_novelty_probe(args: argparse.Namespace) -> None:
     """Run the paired probes against a saved atom set and print the 2×2."""
-    from dokimi.novelty.atoms import load_atoms
+    from dokimi.novelty.atoms import load_atoms_or_exit
     from dokimi.novelty.bundle import check_answer_key
     from dokimi.novelty.measure import SelfJudgeError, run_measurement
     from dokimi.novelty.probes import build_probe_set
     from dokimi.novelty.report import build_probe_record
 
-    atoms, saved_spans = load_atoms(args.atoms)
+    atoms, saved_spans, saved = load_atoms_or_exit(args.atoms)
     _warn_unread(saved_spans, "the atoms probed here leave out whatever those spans assert")
-    saved = json.loads(Path(args.atoms).read_text(encoding="utf-8"))
     verdict = check_answer_key(args.artifact, saved.get("bundle"), source=args.atoms)
     if not verdict.ok:
         raise SystemExit(verdict.message)
     for note in verdict.notes:
         print(note, file=sys.stderr)
     settings = _settings(args)
+    placebo_text = read_text_or_exit(args.placebo_text, "--placebo-text")
     extractor, answerer, judge = _clients(args)
     if saved.get("extractor") == answerer.model:
         print(f"WARNING: {answerer.model} extracted these atoms, so the model under measurement "
@@ -209,9 +208,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
             atoms, probe_set.probes, verdict.text, answerer=answerer, judge=judge,
             arms=_arms(args.arms), concurrency=args.concurrency,
             allow_self_judge=args.allow_self_judge, seed=args.seed,
-            placebo_text=(
-                Path(args.placebo_text).read_text(encoding="utf-8") if args.placebo_text else None
-            ),
+            placebo_text=placebo_text,
         )
     except (SelfJudgeError, ValueError) as exc:
         raise SystemExit(str(exc)) from None
@@ -320,7 +317,7 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
                       file=sys.stderr)
             print(f"--catalog {args.catalog}: {len(catalog)} competitors", file=sys.stderr)
             competitors += catalog
-    except (FileNotFoundError, ValueError) as exc:
+    except (OSError, ValueError, RecursionError) as exc:
         raise SystemExit(f"cannot load an artifact: {exc}") from None
     # Checked before the query file is read, so the message is about the real problem.
     try:
@@ -451,15 +448,14 @@ def _refuse_no_queries(args: argparse.Namespace, queries: list[str], self_derive
 
 def cmd_novelty_shorten(args: argparse.Namespace) -> None:
     """Score shortening candidates on the five axes and optionally write the best one."""
-    from dokimi.novelty.analyze import load_artifact_text
-    from dokimi.novelty.atoms import load_atoms
+    from dokimi.novelty.artifact import load_artifact_or_exit
+    from dokimi.novelty.atoms import load_atoms_or_exit
     from dokimi.novelty.bundle import entry_point_only
     from dokimi.novelty.retention import RetentionOracle, error_warning
     from dokimi.novelty.shorten import build_candidates, pick_best
 
-    atoms, spans = load_atoms(args.atoms)
-    _kind, _name, _description, frontmatter, _body = load_artifact_text(args.artifact)
-    saved = json.loads(Path(args.atoms).read_text(encoding="utf-8"))
+    atoms, spans, saved = load_atoms_or_exit(args.atoms)
+    _kind, _name, _description, frontmatter, _body = load_artifact_or_exit(args.artifact)
     try:
         spans, atoms, note = entry_point_only(saved.get("bundle"), spans, atoms)
     except ValueError as exc:
@@ -515,13 +511,11 @@ def cmd_novelty_shorten(args: argparse.Namespace) -> None:
 
 def cmd_novelty_view(args: argparse.Namespace) -> None:
     """Re-render the annotated view from a saved novelty artifact plus its atoms."""
-    from dokimi.artifacts import load_artifact
-    from dokimi.novelty.atoms import load_atoms
+    from dokimi.commands.novelty_view_inputs import load_view_inputs
     from dokimi.novelty.attribute import attribute_spans
     from dokimi.novelty.report import render_annotated_html, render_annotated_markdown
 
-    artifact = load_artifact("novelty", Path(args.novelty))
-    atoms, spans = load_atoms(args.atoms)
+    artifact, atoms, spans = load_view_inputs(args.novelty, args.atoms)
     _warn_unread(spans, "they render as `unread`, not as text that carries nothing")
     # Re-rendering needs per-atom outcomes; the artifact carries aggregates, so a view
     # rebuilt from it alone would colour by category only. Say so instead of implying the
@@ -565,7 +559,7 @@ def _bundle_from_args(args: argparse.Namespace):
             max_file_words=args.max_file_words,
             max_total_words=args.max_resource_words,
         )
-    except (FileNotFoundError, ValueError) as exc:
+    except (OSError, ValueError, RecursionError) as exc:
         raise SystemExit(f"cannot load --artifact {args.artifact}: {exc}") from None
     note = artifact_bundle.coverage_note()
     if note:
