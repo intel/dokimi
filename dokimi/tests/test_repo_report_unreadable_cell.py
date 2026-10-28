@@ -118,6 +118,7 @@ _BAD_FIELDS = [
     pytest.param("grade", {**_GOOD["grade"], "score": 10**400}, id="grade-score-overflows-a-float"),
     pytest.param("score_max", True, id="score-max-a-bool"),
     pytest.param("agent", {**_GOOD["agent"], "num_turns": 10**400}, id="num-turns-overflows"),
+    pytest.param("agent", {**_GOOD["agent"], "num_turns": "3"}, id="num-turns-a-string"),
     pytest.param("agent", {**_GOOD["agent"], "input_tokens": True}, id="input-tokens-a-bool"),
     pytest.param("skills", [], id="skills-not-a-mapping"),
     pytest.param("skills", {"measured": True, "expected_skill": "s"}, id="skills-no-skill-invoked"),

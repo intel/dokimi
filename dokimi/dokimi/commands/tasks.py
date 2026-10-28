@@ -132,8 +132,8 @@ def _select_tasks(args: argparse.Namespace) -> list:
         else:
             task_names = [t.strip() for t in args.tasks.split(",") if t.strip()]
             tasks = [load_task(t, root=root) for t in task_names]
-    except ValueError as exc:
-        raise SystemExit(str(exc)) from None
+    except (ValueError, OSError, RecursionError) as exc:  # a missing or unreadable task, deeply nested YAML
+        raise SystemExit(f"Error: {exc}") from None
     if not tasks:
         raise SystemExit("No tasks selected. Pass --tasks <name[,name]> or --all.")
     return tasks

@@ -36,6 +36,18 @@ def test_load_profile_names_the_file_it_cannot_read(tmp_path, kind):
         load_profile(path)
 
 
+def test_load_profile_names_a_file_whose_read_raises_oserror(tmp_path, monkeypatch):
+    path = tmp_path / "profile.yaml"
+    path.write_text("name: x", encoding="utf-8")
+
+    def deny(self, *args, **kwargs):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr("pathlib.Path.read_text", deny)
+    with pytest.raises(ProfileError, match="profile.yaml.*denied"):
+        load_profile(path)
+
+
 @pytest.mark.parametrize("kind", ["non-utf8", "unreadable"])
 def test_repo_budget_exits_1_on_a_harness_file_it_cannot_read(tmp_path, capsys, kind):
     path = _bad_profile(tmp_path, kind)

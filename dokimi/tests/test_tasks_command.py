@@ -211,3 +211,20 @@ def test_tasks_run_with_some_cells_errored_keeps_exit_0_and_counts(tmp_path, mon
     out, err = capsys.readouterr()
     assert code == 0
     assert "codex: 0/0 pass (n/a), 1 errored" in out and "incomplete" not in err
+
+
+def test_tasks_run_with_a_missing_task_exits_with_a_message(tmp_path):
+    args = build_parser().parse_args([
+        "tasks", "run", "--tasks", "no-such-task", "--tasks-root", str(tmp_path), "--harnesses", "codex",
+        "--model", "m", "--dry-run",
+    ])
+    with pytest.raises(SystemExit) as excinfo:
+        args.func(args)
+    assert str(excinfo.value).startswith("Error:") and "no-such-task" in str(excinfo.value)
+
+
+def test_tasks_inspect_of_a_missing_path_exits_with_an_error_prefix(tmp_path):
+    args = build_parser().parse_args(["tasks", "inspect", str(tmp_path / "nope")])
+    with pytest.raises(SystemExit) as excinfo:
+        args.func(args)
+    assert str(excinfo.value).startswith("Error:")

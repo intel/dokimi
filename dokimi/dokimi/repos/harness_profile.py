@@ -210,7 +210,7 @@ def load_profile(name_or_path: str | Path) -> HarnessProfile:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     except yaml.YAMLError as exc:
         raise ProfileError(f"{path}: not valid YAML: {exc}") from exc
-    except (OSError, UnicodeDecodeError) as exc:
+    except (OSError, UnicodeDecodeError, RecursionError) as exc:  # RecursionError: deeply nested `[`
         raise ProfileError(f"{path}: cannot read: {exc}") from exc
     return parse_profile(raw, str(path))
 

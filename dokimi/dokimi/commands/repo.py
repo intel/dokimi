@@ -83,7 +83,7 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
         tree = open_source(RepoSource.parse(args.source), _cache_dir(args))
         manifest = _load_manifest(tree, args, guidance_default=True)
         static = json.loads(Path(args.static).read_text(encoding="utf-8")) if args.static else None
-    except (SourceError, ManifestError, OSError, ValueError) as exc:  # ValueError: bad JSON or UTF-8
+    except (SourceError, ManifestError, OSError, ValueError, RecursionError) as exc:  # ValueError: bad JSON or UTF-8
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
     payload = scan_repo(tree, manifest, static)
@@ -314,7 +314,7 @@ def _load_manifest(tree, args: argparse.Namespace, *, guidance_default: bool = F
         return load_manifest(tree, path)
     try:
         raw = yaml.safe_load(Path(args.manifest_file).read_text(encoding="utf-8"))
-    except (OSError, ValueError, yaml.YAMLError) as exc:  # ValueError: not UTF-8
+    except (OSError, ValueError, RecursionError, yaml.YAMLError) as exc:  # ValueError: not UTF-8
         raise ManifestError(args.manifest_file, [str(exc)]) from exc
     return parse_manifest(raw, path)
 
