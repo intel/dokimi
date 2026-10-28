@@ -85,6 +85,9 @@ CASES = [
      {"pkg/.gitignore": "dist/\n", "pkg/a.c": ""}, {("path", "pkg/dist"): "unresolved"}),
     ("a whitelisting .gitignore keeps a missing file a rename", "`pkg/old.c`",
      {"pkg/.gitignore": "*\n!*/\n!.gitignore\n!*.c\n", "pkg/a.c": ""}, {("path", "pkg/old.c"): "fail"}),
+    ("an anchored re-include under a whitelist keeps a missing path a rename", "`pkg/setup.py` `pkg/olddir/`",
+     {"pkg/.gitignore": "*\n!*/\n!/.gitignore\n!/setup.py\n!/olddir/\n", "pkg/keep.txt": ""},
+     {("path", "pkg/setup.py"): "fail", ("path", "pkg/olddir/"): "fail"}),
     ("gitignored glob, one name it could stand for re-included", "`pkg/*.cxx`",
      {"pkg/.gitignore": "*.cxx\n!x.cxx\n", "pkg/a.pyx": ""}, {("path", "pkg/*.cxx"): "unresolved"}),
     ("gitignored directory contents, no trailing slash", "`pkg/include`",
@@ -321,9 +324,14 @@ def test_a_path_into_a_submodule_says_so(tmp_path):
      ".gitignore:1 (`pkg/resources/cmake`)"),
     ("`pkg/include/pkg/*.h`", {".gitignore": "pkg/include/pkg/*.h\n", "pkg/a.py": ""},
      ".gitignore:1 (`pkg/include/pkg/*.h`)"),
+    # tried from the root first; the guidance file's own directory is the one ignored
+    ("x", {"pkg/AGENTS.md": "`gen/out.h`\n", "pkg/.gitignore": "/gen/\n", "pkg/a.c": ""},
+     "pkg/.gitignore:1 (`/gen/`)"),
+    ("x", {"pkg/AGENTS.md": "`resources/*.h`\n", "pkg/.gitignore": "/resources/*.h\n", "pkg/a.c": ""},
+     "pkg/.gitignore:1 (`/resources/*.h`)"),
 ])
 def test_a_gitignored_path_names_the_line_that_ignores_it(tmp_path, agents, files, line):
-    claim = _scan(tmp_path, agents + "\n", files)["claims"][0]
+    claim = next(c for c in _scan(tmp_path, agents + "\n", files)["claims"] if c["kind"] == "path")
     assert claim["status"] == "unresolved"
     assert f"{line} ignores it" in claim["why"], claim["why"]
 

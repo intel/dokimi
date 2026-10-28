@@ -179,11 +179,25 @@ def example(pat: str, fill: str) -> str | None:
     return "".join(out)
 
 
+def _trim(line: str) -> str:
+    """``line`` without its trailing spaces, as git trims it: a tab stays, and so does a space after a ``\\``."""
+    end, i = len(line), 0
+    while i < len(line):
+        if line[i] != " ":
+            end = len(line)
+            i += line[i] == "\\"  # the escaped character, a space or a second backslash
+        elif end == len(line):
+            end = i
+        i += 1
+    return line[:end]
+
+
 def parse(source: str, text: str) -> list[Rule]:
     base = posixpath.dirname(source)
     rules = []
-    for n, raw in enumerate(text.splitlines(), 1):
-        line = re.sub(r"(?<!\\)\s+$", "", raw)  # trailing spaces go unless escaped
+    # git splits at "\n" only and drops a "\r" before it, and skips a byte-order mark
+    for n, raw in enumerate(text.removeprefix("\ufeff").split("\n"), 1):
+        line = _trim(raw.removesuffix("\r"))
         if not line or line.startswith("#"):
             continue
         negated = line.startswith("!")
@@ -219,6 +233,11 @@ class GitIgnore:
         or with ``negated`` of each ``!`` rule."""
         found = (example(r.name, fill) for r in self.rules if r.name and r.negated == negated)
         return list(dict.fromkeys(n for n in found if n))
+
+    def reincludes(self, path: str, is_dir: bool = False) -> bool:
+        """Whether the last line that matches ``path`` itself is a ``!`` line."""
+        rule = self._last(posixpath.normpath(path).strip("/"), is_dir)
+        return rule is not None and rule.negated
 
     def ignored_by(self, path: str, is_dir: bool = False) -> Rule | None:
         """The rule that ignores ``path`` or one of its directories, or ``None`` when git would not."""

@@ -44,9 +44,12 @@ IGNORES = {
         "[^x]z.bin",
         "[a-]w",
         "[[:digit:]]9.d",
+        "tab\t",  # git trims spaces, not tabs
+        "bs\\\\ ",  # an escaped backslash does not keep the space after it
         "",
     ]),
     "sub/.gitignore": "!*.o\nlocal\n",
+    "crlf/.gitignore": "\ufeffbom\r\nlone\rcr\n",  # git skips the mark, splits at \n only, drops \r before it
 }
 
 PATHS = [
@@ -66,6 +69,7 @@ PATHS = [
     "d/e/f", "dbe/f", "]q", "aq",
     "sub/local", "local", "sub/deeper/local",
     "!bang", "sp ", "sp", "yz.bin", "xz.bin", "-w", "aw", "99.d",
+    "tab\t", "tab", "bs\\", "bs\\ ", "crlf/bom", "crlf/lone\rcr", "crlf/lone", "crlf/cr",
 ]
 
 
@@ -73,10 +77,10 @@ def _git_ignored(root: Path) -> set[str]:
     # HOME and XDG_CONFIG_HOME too: the default core.excludesFile is $XDG_CONFIG_HOME/git/ignore
     env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
            "HOME": str(root), "XDG_CONFIG_HOME": str(root)}
-    out = subprocess.run(["git", "-C", str(root), "check-ignore", "--no-index", "--", *PATHS],
-                         capture_output=True, text=True, env=env, check=False)
+    out = subprocess.run(["git", "-C", str(root), "check-ignore", "--no-index", "--stdin", "-z"],
+                         input="\0".join(PATHS).encode(), capture_output=True, env=env, check=False)
     assert out.returncode in (0, 1), out.stderr  # 1: nothing ignored
-    return set(out.stdout.split("\n")) - {""}
+    return set(out.stdout.decode().split("\0")) - {""}  # -z and bytes: names unquoted, a \r kept
 
 
 def test_the_matcher_ignores_what_git_ignores(tmp_path):
@@ -129,6 +133,7 @@ def test_many_stars_do_not_backtrack():
     ("gen.h", "gen.h", "pkg/gen.h"), ("[0-9]*.png", "0x.png", "img/0x.png"),
     ("gen_[a-c].h", "gen_a.h", "gen_a.h"), ("[!x]?.o", "ax.o", "ax.o"), ("[[:upper:]]*", "Ax", "Ax"),
     ("\\*.h", "*.h", "*.h"), ("build/out*/", "outx", "build/outx/f"),
+    ("[_]gen.h", "_gen.h", "_gen.h"), ("[-]gen.h", "-gen.h", "-gen.h"), ("[.]gen.h", ".gen.h", ".gen.h"),
 ])
 def test_a_rule_names_a_file_it_ignores(line, name, path):
     rules = GitIgnore({".gitignore": line}, lambda _: line)

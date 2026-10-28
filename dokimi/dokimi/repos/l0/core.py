@@ -318,7 +318,7 @@ class Scan:
         hits = [x for x in self.by_name.get(posixpath.basename(target), []) if x.endswith("/" + target)]
         if hits:
             return "ok_suffix", f"below a directory the text does not name; {len(hits)} match(es), e.g. {hits[0]}"
-        return self._missing([cands[0]], rel.endswith("/"), "tried " + ", ".join(cands), "unresolved")
+        return self._missing(cands, rel.endswith("/"), "tried " + ", ".join(cands), "unresolved")
 
     def _glob(self, bases: list[str], rel: str) -> tuple[str, str]:
         """A glob is judged like the plain path it generalises (see :meth:`resolve_path`)."""
@@ -344,8 +344,8 @@ class Scan:
             hit = next((x for x in every if rx.match(x)), None)
             if hit:
                 return "ok_suffix", f"below a directory the text does not name; e.g. {hit}"
-        full = posixpath.normpath(posixpath.join(bases[0], pat))
-        return self._missing(self._probes(full), rel.endswith("/"),
+        probes = [p for b in bases for p in self._probes(posixpath.normpath(posixpath.join(b, pat)))]
+        return self._missing(probes, rel.endswith("/"),
                              f"glob {pat} matches nothing in the tree; a build may create it", "unresolved")
 
     def _probes(self, full: str) -> list[str]:
@@ -363,7 +363,8 @@ class Scan:
     def _missing(self, paths: list[str], is_dir: bool, why: str, status: str = "fail") -> tuple[str, str]:
         """``status`` for a path the tree lacks, unless a ``.gitignore`` ignores it: a build output.
 
-        ``paths`` are the files a glob names, or the one path; any of them being ignored is enough.
+        ``paths`` are the files a glob names, or the path at each base it is tried from; any of them
+        being ignored is enough.
         """
         rule = next(filter(None, (self._ignored_by(p, is_dir) for p in paths)), None)
         if rule is None:
@@ -375,13 +376,14 @@ class Scan:
         """The rule that ignores ``path``, read as a directory too: without a trailing slash it may
         still name one (``dist`` under ``dist/``).
 
-        A directory also counts when every file probed directly inside it would be (``include/*``):
-        a plain name and each name a ``!`` line re-includes, so a whitelist (``*``, ``!*/``,
-        ``!*.py``) does not hide a renamed directory.
+        A directory no ``!`` line re-includes also counts when every file probed directly inside it
+        would be (``include/*``): a plain name and each name a ``!`` line re-includes, so a whitelist
+        (``*``, ``!*/``, ``!*.py``) does not hide a renamed directory, nor ``!/setup.py`` a renamed file.
         """
         ig = self.gitignore()
-        rule = ig.ignored_by(path, is_dir=True) if is_dir else ig.ignored_by(path) or ig.ignored_by(path, is_dir=True)
-        if rule is not None:
+        readings = (True,) if is_dir else (False, True)
+        rule = next(filter(None, (ig.ignored_by(path, d) for d in readings)), None)
+        if rule is not None or any(ig.reincludes(path, d) for d in readings):
             return rule
         inside = [ig.ignored_by(posixpath.join(path, n)) for n in ("file", *ig.names("x", negated=True))]
         return inside[0] if all(inside) else None
