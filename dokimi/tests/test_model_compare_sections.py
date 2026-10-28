@@ -319,7 +319,7 @@ def test_goldens_reach_every_section_branch():
 def test_adjusted_verdict_is_strictly_below_alpha(monkeypatch, p, p_wilcoxon, significant):
     # A p exactly at alpha is not significant, for the t-test and for the Wilcoxon clause.
     fake = {"p_ttest": p, "p_wilcoxon": p_wilcoxon, "significant": True}
-    monkeypatch.setattr(model_compare, "significance_test", lambda *_: dict(fake))
+    monkeypatch.setattr(model_compare, "significance_test", lambda *_, **__: dict(fake))
     scores = {"r": [{"with_docs": 60, "without_docs": 50}] * 6}
     sigs, tested = model_compare._adjusted_significance(["r"], scores, "holm")
     assert tested == 1

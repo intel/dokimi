@@ -211,7 +211,8 @@ def adjust_pvalues(
     ``3 * round(0.016666, 4) = 0.0501`` (not significant). The correction math
     runs at full precision and only the returned values are rounded;
     ``rounded=False`` returns them unrounded, for a decision against alpha —
-    the rounded 0.049998 displays as 0.05.
+    the rounded 0.049998 displays as 0.05. To decide significance, use
+    :func:`correct_family`, which returns both.
     """
     if method not in CORRECTIONS:
         raise ValueError(f"method must be one of {CORRECTIONS}, got {method!r}")
@@ -244,6 +245,23 @@ def adjust_pvalues(
             out[idx] = finish(running)
 
     return out
+
+
+def correct_family(
+    pvals: Sequence[Optional[float]], method: str = "holm"
+) -> List[Tuple[Optional[float], Optional[bool]]]:
+    """Return ``(display p, significant)`` per input, in input order.
+
+    The verdict is ``adjusted < ALPHA`` on the unrounded adjusted p, and the
+    display p is that value rounded to 4 decimals. Deciding on the rounded
+    value flips the verdict at the boundary (see :func:`adjust_pvalues`).
+    Both entries are ``None`` where the input p is ``None``.
+    """
+    exact = adjust_pvalues(pvals, method=method, rounded=False)
+    return [
+        (None, None) if adj is None else (_round_p(adj), adj < ALPHA)
+        for adj in exact
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -470,18 +488,21 @@ def paired_test(
     *,
     confidence: float = 0.95,
     seed: int = 0,
+    rounded: bool = True,
 ) -> Optional[Dict[str, Any]]:
     """Paired comparison of ``treatment`` against ``control``.
 
     Returns ``None`` when the vectors are empty, mismatched in length, or hold
     fewer than two pairs. Effect size and CI are always computed;
     ``p_ttest``/``p_wilcoxon`` are ``None`` without SciPy or below
-    :data:`MIN_PAIRS_FOR_TEST` pairs.
+    :data:`MIN_PAIRS_FOR_TEST` pairs. ``rounded=False`` leaves the p-values
+    unrounded for a caller that corrects them first, then :func:`_finalize`.
     """
     if len(treatment) != len(control) or len(treatment) < 2:
         return None
     deltas = [t - c for t, c in zip(treatment, control, strict=True)]
-    return _finalize(_describe_deltas(deltas, confidence=confidence, seed=seed))
+    result = _describe_deltas(deltas, confidence=confidence, seed=seed)
+    return _finalize(result) if rounded else result
 
 
 def arm_significance(
@@ -541,9 +562,9 @@ def _apply_correction(
     interaction contrasts are separate families, and pooling them would inflate
     the multiplier on both.
     """
-    adjusted = adjust_pvalues([r["p_ttest"] for r in results], method=correction)
+    decided = correct_family([r["p_ttest"] for r in results], method=correction)
     tested = sum(1 for r in results if r["p_ttest"] is not None)
-    for res, adj in zip(results, adjusted, strict=True):
+    for res, (adj, adj_significant) in zip(results, decided, strict=True):
         res["p_adjusted"] = adj
         res["correction"] = correction
         res["correction_family"] = label
@@ -554,6 +575,6 @@ def _apply_correction(
         p_w = res["p_wilcoxon"]
         # None, not False, when there was no p to adjust: see _describe_deltas.
         res["significant_adjusted"] = (
-            None if adj is None
-            else bool(adj < ALPHA and (p_w is None or p_w < ALPHA))
+            None if adj_significant is None
+            else bool(adj_significant and (p_w is None or p_w < ALPHA))
         )
