@@ -51,6 +51,7 @@ class Transcript:
     events: list[dict[str, Any]] = field(default_factory=list)
     cost_usd: float | None = None
     num_turns: int | None = None
+    result_seen: bool = False  # the harness wrote its final result record, so the agent started
     input_tokens: int | None = None
     output_tokens: int | None = None
     cache_read_tokens: int | None = None
@@ -161,6 +162,7 @@ def _apply(out: Transcript, rec: dict[str, Any], t: float | None,
     elif kind == "result":
         out.answer = str(rec.get("result") or "").strip()
         out.cost_usd = rec.get("total_cost_usd")
+        out.result_seen = True
         turns = rec.get("num_turns")
         out.num_turns = turns if isinstance(turns, int) and not isinstance(turns, bool) else None
         out.is_error = bool(rec.get("is_error"))

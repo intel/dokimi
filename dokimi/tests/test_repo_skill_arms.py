@@ -125,6 +125,17 @@ def test_a_task_without_expected_skill_reports_no_selection(setup, monkeypatch):
     assert "skill selected correct" not in format_report(summarize(setup["out"] / "b1"))
 
 
+def test_a_result_with_a_non_integer_num_turns_and_no_tool_events_still_measures_skill_uptake(setup, monkeypatch):
+    # The agent finished (a result record) but made no tool call and reported "3" turns: it started, so uptake is 0, not unmeasured.
+    raw = json.dumps({"type": "result", "result": "ok", "num_turns": "3"})
+    monkeypatch.setattr("dokimi.repos.runner.convert", lambda trace, _raw, workdir=None: convert(trace, raw, workdir))
+    _run(setup, "--arm", "skill:skills/lint", "--task", "fix_add")
+    rd = next((setup["out"] / "b1").glob("fix_add__*"))
+    result = json.loads((rd / "result.json").read_text())
+    assert result["agent"]["num_turns"] is None
+    assert result["skills"]["measured"] is True and result["skills"]["skills_used"] == []
+
+
 def test_catalog_arm_counts_the_expected_skill_picked_first(setup, monkeypatch):
     monkeypatch.setenv("FAKE_SKILLS", "lint,format")  # the agent picks the right skill first
     _run(setup, "--arm", "guidance:none+skill-catalog:skills", "--task", "fix_lint")

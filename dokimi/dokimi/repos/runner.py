@@ -290,7 +290,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         meta["harness_version"] = transcript.harness_version or opts.harness_version
         meta["model_resolved"] = transcript.model_resolved()  # an alias can map `model` to another one
         _write_json(rd / "meta.json", meta)
-        if transcript.events or transcript.num_turns is not None:  # else the agent never started
+        if transcript.events or transcript.result_seen:  # else the agent never started
             events = transcript.events
         cost = transcript.cost_usd
         agent.update(
@@ -301,7 +301,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
             cache_write_tokens=transcript.cache_write_tokens, usage_scope=transcript.usage_scope,
             subagent_calls=transcript.subagent_calls, plugins=transcript.plugins,
             over_budget=cost is not None and cost > caps["budget_usd"], trace_errors=transcript.errors[:5])
-        if meta.get("skills") and (transcript.events or transcript.num_turns is not None):  # else it never started
+        if meta.get("skills") and (transcript.events or transcript.result_seen):  # else it never started
             skills = skill_usage(transcript.events, [s["name"] for s in meta["skills"]], task.expected_skill)
         graded = run_entry(ctx, "grade", task, rd, grade_network, container_name(rd.name, "grade"))
         grade = outcome(task, rd, graded)
