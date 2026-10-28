@@ -27,6 +27,7 @@ from dokimi import llm
 from tests.answering_stack_parity import (
     DOCS_QUERY,
     EMPTY_QUERY,
+    GROUND_TRUTH_CHUNK,
     GROUND_TRUTH_QUERY,
     PRODUCT,
     QUESTIONS,
@@ -40,6 +41,7 @@ from tests.answering_stack_parity import (
     distinct,
     docs_block,
     judge_context_strings,
+    judge_inputs_for,
     prompt_shape,
     request_shape,
     run_stack_a,
@@ -133,6 +135,31 @@ PINNED: Tuple[Tuple[str, str, Any, Any], ...] = (
         ("(No documentation provided)", ("docs", "Doc 1: ", 3, False)),
         ("(No documentation retrieved)", ("docs", "Passage", 3, True)),
     ),
+    # what the judge is handed as ground truth: the q-gt chunk on both stacks, None on the rest
+    ("shared", "judge.ground_truth.q-gt", (GROUND_TRUTH_CHUNK,), (GROUND_TRUTH_CHUNK,)),
+    ("shared", "judge.ground_truth.others", (None,), (None,)),
+    # the per-question deltas that feed D9's statistics (P: stored "delta"; A: "docs" vs "baseline").
+    # q-rerank is the one that moves with D3: P judges it with no docs (0), A with the raw docs (20).
+    (
+        "D9",
+        "delta.per_question",
+        (
+            ("q-docs", 20.0),
+            ("q-docs-2", 20.0),
+            ("q-docs-3", 20.0),
+            ("q-empty", 0.0),
+            ("q-gt", 20.0),
+            ("q-rerank", 0.0),
+        ),
+        (
+            ("q-docs", 20.0),
+            ("q-docs-2", 20.0),
+            ("q-docs-3", 20.0),
+            ("q-empty", 0.0),
+            ("q-gt", 20.0),
+            ("q-rerank", 20.0),
+        ),
+    ),
     # only in one stack
     ("only", "record.shape", "with_docs/without_docs", "arms"),
     ("only", "answer.token_usage.context_chars", True, False),
@@ -198,6 +225,20 @@ def _context_kinds(obs: Observed, question: str) -> Tuple[Any, ...]:
             shape = context_shape(c, question)
             kinds.append(("docs", shape["starts_with"], shape["chunks"], shape["whole_passage"]))
     return tuple(sorted(kinds, key=repr))
+
+
+def _judge_ground_truths(obs: Observed, question: str) -> Tuple[Any, ...]:
+    """The distinct ``ground_truth`` values the judge was handed for one question."""
+    return tuple(sorted({j.get("ground_truth") for j in judge_inputs_for(obs, question)}, key=repr))
+
+
+def _judge_ground_truths_elsewhere(obs: Observed) -> Tuple[Any, ...]:
+    """The distinct ``ground_truth`` values the judge was handed for every other question."""
+    seen = set()
+    for q in QUESTIONS:
+        if q["question"] != GROUND_TRUTH_QUERY:
+            seen |= {j.get("ground_truth") for j in judge_inputs_for(obs, q["question"])}
+    return tuple(sorted(seen, key=repr))
 
 
 def _where_4000_lands(obs: Observed) -> str:
@@ -341,6 +382,23 @@ def _observe(tmp_path: Path, provider_calls) -> Dict[str, Tuple[Any, Any]]:
         "judge.contexts.q-gt": (
             _context_kinds(p, GROUND_TRUTH_QUERY),
             _context_kinds(a, GROUND_TRUTH_QUERY),
+        ),
+        "judge.ground_truth.q-gt": (
+            _judge_ground_truths(p, GROUND_TRUTH_QUERY),
+            _judge_ground_truths(a, GROUND_TRUTH_QUERY),
+        ),
+        "judge.ground_truth.others": (
+            _judge_ground_truths_elsewhere(p),
+            _judge_ground_truths_elsewhere(a),
+        ),
+        "delta.per_question": (
+            tuple(sorted((e["question_id"], e["delta"]) for e in p.evaluations)),
+            # Stack A's judge.score_answer deltas: the "docs" arm against the "baseline" arm
+            tuple(
+                sorted(
+                    (r["question_id"], r["deltas_vs_baseline"].get("docs")) for r in a.evaluations
+                )
+            ),
         ),
     }
 
