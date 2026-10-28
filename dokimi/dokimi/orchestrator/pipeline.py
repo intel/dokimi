@@ -10,7 +10,7 @@ from typing import List, Dict, Any, Optional
 from pathlib import Path
 
 from dokimi.defaults import DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER, DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER, DEFAULT_RETRIEVAL_TOP_K
-from dokimi.mcp.factory import create_doc_source_client
+from dokimi.mcp.factory import create_doc_source_client, resolve_library_id_for_product
 from dokimi.records import BASELINE, CONTEXT, records as read_records
 
 logger = logging.getLogger(__name__)
@@ -95,6 +95,7 @@ class EvaluationPipeline:
         questions_from: Optional[Path] = None,
         product_key: Optional[str] = None,
         questions_root: Optional[Path] = None,
+        registry: Optional[Any] = None,
     ):
         """
         Initialize pipeline.
@@ -199,6 +200,8 @@ class EvaluationPipeline:
         self.debug_retrieval = debug_retrieval
         self.doc_source = doc_source
         self.context7_id = context7_id
+        # Product registry for the library id (defaults to the bundled products.yaml).
+        self.registry = registry
         self.max_tokens_per_question = max_tokens_per_question
         self.force_regen = force_regen
 
@@ -444,14 +447,23 @@ class EvaluationPipeline:
         
         return personas
     
+    def _library_id(self, mcp_client) -> str:
+        """The doc-source library id: explicit id, then the registry's ``context7_id``, then the client.
+
+        The same order the arms stack uses (``commands/arms.py``, ``_resolve_doc_library_id``).
+        """
+        return resolve_library_id_for_product(
+            self.product_key, mcp_client, explicit_id=self.context7_id, registry=self.registry,
+        )
+
     def _generate_questions(self, personas: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Generate questions from personas."""
         from dokimi.questions import RagasSeedExtractor, QuestionGenerator
 
         # Extract topics
         mcp_client = create_doc_source_client(self.doc_source)
-        library_id = self.context7_id or mcp_client.resolve_library_id(self.product)
-        
+        library_id = self._library_id(mcp_client)
+
         extractor = RagasSeedExtractor(mcp_client=mcp_client, cache_dir=Path(".cache/topics"))
         topics = extractor.extract_topics(
             library_id=library_id,
@@ -619,8 +631,8 @@ class EvaluationPipeline:
 
         # Setup documentation source client
         mcp_client = create_doc_source_client(self.doc_source)
-        library_id = self.context7_id or mcp_client.resolve_library_id(self.product)
-        
+        library_id = self._library_id(mcp_client)
+
         # Generate answers
         answerer = Answerer(
             mcp_client=mcp_client,

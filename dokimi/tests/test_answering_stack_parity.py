@@ -109,7 +109,7 @@ PINNED: Tuple[Tuple[str, str, Any, Any], ...] = (
     ("D7", "max_tokens.lands_in", "retrieval", "answer"),
     # D8 library id: EvaluationPipeline with no context7_id (the `orchestrate` path without
     # --context7-id). `benchmark run` passes the registry's context7_id, so it is not this row.
-    ("D8", "library_id", "client/resolved", "registry/lib"),
+    ("D8", "library_id", "registry/lib", "registry/lib"),
     # D9 statistics. The delta also moves with D3: P's q-rerank is judged with no docs
     # (delta 0), A's falls back to raw docs (delta 20), so a D3 fix flips this row too.
     ("D9", "stats.delta_mean", 13.33, 16.67),
@@ -253,15 +253,6 @@ def _where_4000_lands(obs: Observed) -> str:
 
 
 def _observe(tmp_path: Path, provider_calls) -> Dict[str, Tuple[Any, Any]]:
-    with pytest.MonkeyPatch.context() as mp:
-        p = run_stack_p(mp, tmp_path / "p", provider_calls)
-    with pytest.MonkeyPatch.context() as mp:
-        a = run_stack_a(mp, tmp_path / "a", provider_calls)
-    with pytest.MonkeyPatch.context() as mp:
-        p_noid = run_stack_p(
-            mp, tmp_path / "p-noid", provider_calls, context7_id=None, questions=QUESTIONS[:1]
-        )
-
     from dokimi.commands.arms import _resolve_doc_library_id
     from dokimi.registry import ProductRegistry
     from dokimi.treatments.arms import DocTreatment
@@ -272,6 +263,22 @@ def _observe(tmp_path: Path, provider_calls) -> Dict[str, Tuple[Any, Any]]:
         f"    description: fixture\n    context7_id: {REGISTRY_ID}\n",
         encoding="utf-8",
     )
+    registry = ProductRegistry(registry_path)
+
+    with pytest.MonkeyPatch.context() as mp:
+        p = run_stack_p(mp, tmp_path / "p", provider_calls)
+    with pytest.MonkeyPatch.context() as mp:
+        a = run_stack_a(mp, tmp_path / "a", provider_calls)
+    with pytest.MonkeyPatch.context() as mp:
+        p_noid = run_stack_p(
+            mp,
+            tmp_path / "p-noid",
+            provider_calls,
+            context7_id=None,
+            questions=QUESTIONS[:1],
+            registry=registry,
+        )
+
     a_lib = _resolve_doc_library_id(
         [DocTreatment(a.client, name="docs", top_k=3, reranker=a.reranker)],
         PRODUCT,
