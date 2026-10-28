@@ -254,12 +254,39 @@ def test_an_attractor_outside_the_tied_group_is_still_reported():
     }]
 
 
-def test_a_tied_group_member_is_not_counted_as_a_sibling_query():
-    field = [Candidate(name="a", description="format json output"),
-             Candidate(name="b", description="format json output"),
+def test_a_tied_group_member_is_a_real_attractor_for_an_outside_query_only():
+    # A query naming jsonfmt breaks the tie, so jsonfmt is picked for c's query: an attractor.
+    # jsonpretty's queries land on jsonfmt, its group-mate, so they are neither an attraction
+    # nor sibling queries: jsonfmt's sibling count is c's one query, not c's plus jsonpretty's two.
+    field = [Candidate(name="jsonfmt", description="format json output"),
+             Candidate(name="jsonpretty", description="format json output"),
              Candidate(name="c", description="profile binary")]
-    result = all_vs_all(field, {"a": ["format json", "format json"], "c": ["profile"]})
-    assert result["lexical"]["attractors"] == []
+    result = all_vs_all(field, {"c": ["jsonfmt format"],
+                                "jsonpretty": ["format json", "format json"]})
+    assert result["lexical"]["attractors"] == [{
+        "skill": "jsonfmt", "wrongly_picked": 1, "sibling_queries": 1, "rate": 1.0,
+        "from": ["c"],
+    }]
+
+
+def test_two_empty_descriptions_are_not_a_tied_group():
+    field = [Candidate(name="a", description=""), Candidate(name="b", description="  ")]
+    assert all_vs_all(field, {"a": ["alpha"]})["tied_groups"] == []
+
+
+def test_the_model_arm_does_not_count_a_pick_of_the_group_mate():
+    def transport(prompt: str, system: str | None):
+        lines = prompt.split("TOOLS:", 1)[1].strip().splitlines()
+        return json.dumps({"pick": next(i + 1 for i, line in enumerate(lines)
+                                        if "jsonfmt" in line)}), None
+
+    field = [Candidate(name="jsonfmt", description="format json output"),
+             Candidate(name="jsonpretty", description="format json output"),
+             Candidate(name="c", description="profile binary")]
+    client = LLMClient(model="m", role="selector", transport=transport)
+    model = all_vs_all(field, {"c": ["profile"], "jsonpretty": ["format json"]},
+                       client=client)["model"]
+    assert [(row["skill"], row["from"]) for row in model["attractors"]] == [("jsonfmt", ["c"])]
 
 
 def test_a_three_way_tie_is_not_a_perfect_pick():
@@ -602,7 +629,7 @@ def test_console_names_a_tied_group_once_and_not_as_attractors(tmp_path, capsys)
     stdout = _run_console(tmp_path, capsys,
                           {"fft": "fast transforms", "linalg": "fast transforms",
                            "gold": "something unrelated entirely"},
-                          {"gold": ["something unrelated"]})
+                          {"fft": ["fast transforms"], "gold": ["something unrelated"]})
     assert ("tied: fft, linalg have the same description; one group, not attractors of each "
             "other") in stdout
     assert "sibling queries" not in stdout

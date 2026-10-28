@@ -444,7 +444,8 @@ def _print_attractors(result: dict) -> None:
 
     A tie and an unscored query name no pick, so a "no skill was picked" line beside them
     would read as a clean result; the line after the attractors says how many there were.
-    Skills with identical cards are one tied group, named once, not each other's attractor.
+    Skills with the same description words are one tied group, named once, not each other's
+    attractor.
     """
     from dokimi.novelty.all_vs_all import TIE
 

@@ -104,16 +104,18 @@ def all_vs_all(candidates: list[Candidate], queries_by_skill: dict[str, list[str
 
 
 def _tied_groups(candidates: list[Candidate]) -> list[list[str]]:
-    """Groups of two or more skills with the same non-empty description, in field order.
+    """Groups of two or more skills whose descriptions have the same words, in field order.
 
-    Such skills tie on every query their description matches (the name differs, so the card
-    does not), so neither is the other's attractor: the group is reported once instead.
+    The words are the lexical arm's tokens, so case and punctuation do not split a group. Such
+    skills tie on every query that names neither of them (their cards differ only in the name),
+    so neither is the other's attractor: the group is reported once instead.
     """
-    by_description: dict[str, list[str]] = {}
+    by_words: dict[tuple[str, ...], list[str]] = {}
     for candidate in candidates:
-        if candidate.description.strip():
-            by_description.setdefault(candidate.description, []).append(candidate.name)
-    return [group for group in by_description.values() if len(group) > 1]
+        words = tuple(tokenize(candidate.description))
+        if words:
+            by_words.setdefault(words, []).append(candidate.name)
+    return [group for group in by_words.values() if len(group) > 1]
 
 
 def _check_all_vs_all_input(names: list[str], queries_by_skill: dict[str, list[str]]) -> None:

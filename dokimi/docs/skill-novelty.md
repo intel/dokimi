@@ -663,7 +663,7 @@ matrix (gold to picked to count, with `(none)` for a query no card shares a word
 the model arm, an abstention, and `(tie)` for a query on which two or more other cards tie for
 the top lexical score, so no field order decides it), an own rate per skill, and an attractor
 table: a skill picked for other skills' queries, with `wrongly_picked` of `sibling_queries` and
-the skills whose queries it took (`from`). Skills with the same description are a tied group
+the skills whose queries it took (`from`). Skills whose descriptions have the same words (case and punctuation aside) are a tied group
 (`tied_groups`, named once on the console): a pick between them is in the confusion matrix but
 is no attractor. Every rate is over the queries that were scored:
 `n_scored` and `n_unscored` per skill say how many, a query with no content word or a failed
