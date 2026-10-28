@@ -243,6 +243,7 @@ def test_start_container_drops_capabilities_and_bounds_pids(tmp_path, monkeypatc
     added = {run_call[i + 1] for i, arg in enumerate(run_call) if arg == "--cap-add"}
     assert added == {"CHOWN", "DAC_OVERRIDE", "FOWNER", "SETUID", "SETGID"}
     for flag in ("--init", "--cap-drop", "--security-opt", "--pids-limit", "--cap-add"):
+        assert flag in run_call
         assert all(i < image_at for i, arg in enumerate(run_call) if arg == flag)
 
 
