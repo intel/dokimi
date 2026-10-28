@@ -21,7 +21,8 @@ paired_vectors(evaluations, arm_a, arm_b)
     Per-question paired score vectors for two arms, complete cases only.
 paired_summary(evaluations)
     Both arms and their delta over the complete pairs, with the unpaired count.
-    Every report that prints arm means or a delta calls it.
+    Called by the eval report, the report generator and the pipeline summary. The
+    dashboard and the model-compare summary still average each arm separately.
 mean_ci(values, ...)
     Student-t CI for the mean, coherent with ``p_ttest``; bootstrap fallback.
 point_biserial(flags, totals)
