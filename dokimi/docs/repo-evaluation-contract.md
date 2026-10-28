@@ -941,17 +941,21 @@ link to a directory inside the tree is followed, as in a checkout, so
 `linkdir/core.py` with `linkdir -> src/pkg` is `ok`.
 
 A line that names a workflow of the tree (a code span or a link ending in
-`.yml` or `.yaml` under `.github/workflows/`; a bare file name that several
-workflows end in is the one in `.github/workflows/` itself, else none of them)
-is also checked for the Python versions it gives. A run of versions that `py`,
-`Python` or `cp` starts is a `python_versions` claim when it is a range written
-with a dash (`py3.12-3.14t`, `Python 3.12–3.14`) or a list of two or more
-(`Python 3.12, 3.13 and 3.14`); a single version gets no claim, `to` is no
-range ("moved from Python 3.11 to 3.13"), and a `cp` tag starts no range
-(`cp313-cp313` is the two tags of a wheel's name). What the workflow runs is
-the values of every matrix key whose name holds `python`, the keys of `include`
-entries too (`exclude` is not read), and the `python-version` its steps set up
-(`actions/setup-python`, or another action's input of that name;
+`.yml` or `.yaml` under `.github/workflows/`, a blob or tree link to
+`source.url` too; a bare file name that several workflows end in is the one in
+`.github/workflows/` itself, else none of them) is also checked for the Python
+versions it gives. A run of versions that `py`, `Python` or `cp` starts is a
+`python_versions` claim when it is a range written with a dash (`py3.12-3.14t`,
+`Python 3.12–3.14`) or a list of two or more (`Python 3.12, 3.13 and 3.14`); a
+single version gets no claim, `to` is no range ("moved from Python 3.11 to
+3.13"), and a `cp` tag starts no range (`cp313-cp313` is the two tags of a
+wheel's name). A version with no marker in front needs its dot (`30` in
+"Python 3.12, 3.13, 30 min timeout" is no version), and the workflow's own
+name, in a code span or a link text, is no version. What the workflow runs is
+the values of every matrix key whose name holds `python` (`3.12`, `cp312` or
+`py312`), the keys of `include` entries too, less a value that `exclude` takes
+out of every combination of the matrix, and the `python-version` its steps set
+up (`actions/setup-python`, or another action's input of that name;
 `${{ matrix.<key> }}` there makes `<key>` a Python key), over its jobs and the
 workflows of this tree its jobs call with `uses: ./…`. A pre-release
 (`3.14.0-rc.1`, `3.14.0a1`, `3.14-dev`) runs its minor version, and a `3.14t`
@@ -959,8 +963,9 @@ value or a `cp314t` tag in any matrix string is a free-threaded build. A range
 is `ok` when its ends are the lowest and highest version the workflow runs
 (both ends written with `t`: of the free-threaded builds), a list when each
 version runs, and a version written with `t` must run free-threaded; anything
-else is `fail`. A matrix or a step version computed from an expression
-(`${{ fromJSON(…) }}`), a Python value that names no one version (`3.x`,
+else is `fail`. A matrix, an `include`, an `exclude` or a step version computed
+from an expression (`${{ fromJSON(…) }}`), an `exclude` on a Python key over
+more than 256 combinations, a Python value that names no one version (`3.x`,
 `>=3.12`), a `python-version-file`, a call to another repository's workflow or
 to one the tree lacks, a workflow that is not valid YAML, and a workflow with no
 Python version make the claim `unresolved`. Python that a job installs any other

@@ -5,22 +5,25 @@
 
 A table row such as ``| conda tests, py3.12-3.14t | `conda-package.yml` |`` goes stale when the workflow's
 matrix moves on, and every path and name on the line still resolves. Only a line that names a workflow the
-tree holds (a code span or a link ending in ``.yml``/``.yaml`` under ``.github/workflows/``) is checked, and
-only a run of versions that a ``py``, ``Python`` or ``cp`` marker starts: a range written with a dash
-(``Python 3.12-3.14``, ``py310–py313``) or a list of two or more (``Python 3.12, 3.13 and 3.14``). A single version is often one
-job of many and gets no claim. A ``cp`` tag starts no range: ``cp313-cp313`` is the two tags of a wheel's name.
+tree holds (a code span or a link ending in ``.yml``/``.yaml`` under ``.github/workflows/``, a blob or tree
+link to this repository too) is checked, and only a run of versions that a ``py``, ``Python`` or ``cp``
+marker starts: a range written with a dash (``Python 3.12-3.14``, ``py310–py313``) or a list of two or more
+(``Python 3.12, 3.13 and 3.14``). A single version is often one job of many and gets no claim. A ``cp`` tag
+starts no range: ``cp313-cp313`` is the two tags of a wheel's name. Without a marker in front, a version
+needs its dot (``30 min`` after a list is no version), and the workflow's own name is no version.
 
 What a workflow runs is the values of every matrix key whose name holds ``python`` (``python``,
-``python-version``, the keys of ``include`` entries; ``exclude`` is not read), and the ``python-version`` a
-step sets up (``actions/setup-python``, or another action's input of that name; ``${{ matrix.<key> }}``
-there makes ``<key>`` a Python key), over all its jobs and the reusable workflows of this tree its jobs call
+``python-version``, the keys of ``include`` entries; ``3.12``, ``cp312`` or ``py312``), less a value that
+``exclude`` takes out of every combination, and the ``python-version`` a step sets up
+(``actions/setup-python``, or another action's input of that name; ``${{ matrix.<key> }}`` there makes
+``<key>`` a Python key), over all its jobs and the reusable workflows of this tree its jobs call
 (``uses: ./.github/workflows/x.yml``). A pre-release (``3.14.0-rc.1``, ``3.14.0a1``) runs its minor
 version. A free-threaded build is a ``3.14t`` value or a ``cp314t`` tag in any matrix string. A range is
 ``ok`` when its ends are the lowest and highest version the workflow runs (both ends written with ``t``: the
 lowest and highest free-threaded one), a list when each version it names runs; a version written with ``t``
-must run free-threaded. A matrix or step version computed from an expression (``${{ fromJSON(...) }}``), one
-that names no one version (``3.x``, ``>=3.12``), a ``python-version-file``, or a call to another
-repository's workflow makes the claim ``unresolved``.
+must run free-threaded. A matrix, ``include``, ``exclude`` or step version computed from an expression
+(``${{ fromJSON(...) }}``), one that names no one version (``3.x``, ``>=3.12``), a ``python-version-file``,
+or a call to another repository's workflow makes the claim ``unresolved``.
 """
 
 from __future__ import annotations
@@ -28,6 +31,8 @@ from __future__ import annotations
 import posixpath
 import re
 from collections.abc import Collection
+from itertools import product
+from math import prod
 from typing import TYPE_CHECKING, Any
 
 import yaml
@@ -40,20 +45,23 @@ WORKFLOWS = ".github/workflows/"
 Version = tuple[int, bool]  # (minor, free-threaded) of a CPython 3 version
 
 _PY = r"(?:[Cc][Pp]ython ?|[Pp]ython ?|[Pp]y)"
-_VER = r"3(?:\.\d{1,2}|\d{1,2})t?(?![\d.]*\d)"
+_DOTTED = r"3\.\d{1,2}t?(?![\d.]*\d)"  # `3.12`, `3.14t`; not a patch release
+_VER = r"3(?:\.\d{1,2}|\d{1,2})t?(?![\d.]*\d)"  # also `312` and `314t`, only right after a `py` or `cp`
 _DASH = r"\s*[-–—]\s*"  # not `to`: "moved from Python 3.11 to 3.13" is no range
 _SEP = r"\s*(?:,|/|&|\band\b|\bor\b)\s*"
-_SPAN = rf"{_VER}(?:{_DASH}(?:{_PY}|cp)?{_VER})?"  # one version, or a range written with a dash
+_TO = rf"(?:{_DASH}(?:(?:{_PY}|cp){_VER}|{_DOTTED}))?"  # the end of a range written with a dash
 # a `cp` tag is one version and starts no range: `cp313-cp313` is the two tags of a wheel's name
-_ITEM = rf"(?<![\w.])(?:cp{_VER}|{_PY}{_SPAN})"
-_RUN = re.compile(rf"{_ITEM}(?:{_SEP}(?:{_ITEM}|{_SPAN}))*")
+_ITEM = rf"(?<![\w.])(?:cp{_VER}|{_PY}{_VER}{_TO})"
+_RUN = re.compile(rf"{_ITEM}(?:{_SEP}(?:{_ITEM}|{_DOTTED}{_TO}))*")  # `30 min` after a list is no version
 _ONE = re.compile(rf"(?:cp|{_PY})?(?P<a>{_VER})(?:{_DASH}(?:cp|{_PY})?(?P<b>{_VER}))?")
 # `3.14`, `3.14t`, `3.14.2`, `3.12.x`, and a pre-release: `3.14-dev`, `3.14.0-rc.1`, `3.15.0-alpha.1`, `3.14.0a1`
 _MATRIX_VALUE = re.compile(r"^3\.(\d{1,2})(t)?(?:\.[\dx*]+)?(?:-?(?:dev|alpha|beta|rc|a|b)[.\d]*)?(t)?$")
 # a CPython version spec that names no one version: the latest (`3.x`) or a range (`>=3.12`, `3.12 - 3.14`)
 _OPEN = re.compile(r"^(?:3(?:\.[x*])?|[<>=~^!].*|3[\d.]*\s+-\s+3[\d.]*)$")
+_TAG_VALUE = re.compile(r"^(?:cp|py)3(\d{1,2})(t)?$")  # `cp312`, `cp313t`, `py312` under a Python key
 _MATRIX_REF = re.compile(r"^\$\{\{\s*matrix(?:\.([\w-]+)|\[\s*['\"]([\w-]+)['\"]\s*\])\s*\}\}$")
 _CP_TAG = re.compile(r"(?<![A-Za-z0-9])cp3(\d{1,2})t(?![A-Za-z0-9])")
+_MAX_JOBS = 256  # the most jobs GitHub makes from one matrix
 
 
 def check(scan: Scan, file: str, pieces: Pieces) -> None:
@@ -66,10 +74,7 @@ def check(scan: Scan, file: str, pieces: Pieces) -> None:
             entry[1].append(wf)
             entry[2].append(s)
     for n, (ctx, flows, spellings) in sorted(lines.items()):
-        text = ctx
-        for s in spellings:  # a file name such as `py312-wheels.yml` is not a version
-            text = text.replace(s, " ")
-        for m in _RUN.finditer(text):
+        for m in _RUN.finditer(_unnamed(ctx, spellings, flows)):
             run = m.group(0).strip()
             claim = parse(run)
             if claim is not None:
@@ -77,16 +82,30 @@ def check(scan: Scan, file: str, pieces: Pieces) -> None:
                 scan.add(file, n, "python_versions", run, status, why, ctx)
 
 
+def _unnamed(text: str, spellings: list[str], flows: list[str]) -> str:
+    """The line with its workflows' names blanked: ``py312-wheels.yml`` is no version, in a code span, a link
+    target or a link text (``[py310-py313](...)`` too)."""
+    for s in spellings:
+        text = text.replace(s, " ")
+    for f in flows:
+        stem = posixpath.splitext(posixpath.basename(f))[0]
+        if _RUN.search(stem):
+            text = re.sub(rf"(?<![\w.-]){re.escape(stem)}(?![\w-])", " ", text)
+    return text
+
+
 def workflow(scan: Scan, name: str) -> str | None:
     """The workflow file a code span or link names, by its path or its bare file name.
 
-    A bare name is the file in ``.github/workflows/`` itself, the directory GitHub runs workflows from; else
-    the one workflow path the name ends. A name that several of them end, and none there, names no workflow.
+    A blob or tree link to this repository names the file at its path. A bare name is the file in
+    ``.github/workflows/`` itself, the directory GitHub runs workflows from; else the one workflow path the
+    name ends. A name that several of them end, and none there, names no workflow.
     """
-    s = name.strip().strip("<>").split("#")[0]
+    s = name.strip().strip("<>")
+    s = scan.own_path(s) or s.split("#")[0]
     if not s.endswith((".yml", ".yaml")) or " " in s:
         return None
-    s = re.sub(r"^(?:\.{1,2}/)+", "", s)
+    s = re.sub(r"^(?:\.{0,2}/)+", "", s)  # `/`, `./` and `../` in front
     flows = scan.cached("workflows", lambda: [f for f in scan.files if f.startswith(WORKFLOWS)])
     for exact in (s, WORKFLOWS + s):
         if exact in flows:
@@ -217,21 +236,75 @@ def _called(scan: Scan, path: str, uses: Any, unknown: list[str], seen: set[str]
 
 
 def matrix_versions(matrix: Any, path: str, unknown: list[str], keys: Collection[str] = ()) -> set[Version]:
-    """The versions one ``strategy.matrix`` runs; ``keys`` hold Python versions too, whatever their names."""
+    """The versions one ``strategy.matrix`` runs; ``keys`` hold Python versions too, whatever their names.
+
+    A value that ``exclude`` takes out of every combination does not run; an ``include`` entry runs anyway.
+    """
     if isinstance(matrix, str):
         unknown.append(f"a matrix of {path} is computed ({matrix.strip()})")
         return set()
     out: set[Version] = set()
     if not isinstance(matrix, dict):
         return out
+    where = f"a matrix of {path}"
+    gone = _excluded(matrix, keys, where, unknown)
     for key, values in matrix.items():
-        if key == "exclude":
-            continue
-        for value in values if isinstance(values, list) else [values]:
-            pairs = value.items() if key == "include" and isinstance(value, dict) else [(key, value)]
-            for k, v in pairs:
-                out |= _value(str(k), v, f"a matrix of {path}", unknown, str(k) in keys)
+        items = values if isinstance(values, list) else [values]
+        if key == "include":
+            out |= _included(items, keys, where, unknown)
+        elif key != "exclude":
+            for i, value in enumerate(items):
+                if (key, i) not in gone:
+                    out |= _value(str(key), value, where, unknown, str(key) in keys)
     return out
+
+
+def _included(entries: list[Any], keys: Collection[str], where: str, unknown: list[str]) -> set[Version]:
+    """What the ``include`` entries of a matrix run; a computed ``include`` adds what is not known."""
+    out: set[Version] = set()
+    for entry in entries:
+        if isinstance(entry, str) and "${{" in entry:
+            unknown.append(f"{where} computes its include ({entry.strip()})")
+        for k, v in entry.items() if isinstance(entry, dict) else []:
+            out |= _value(str(k), v, where, unknown, str(k) in keys)
+    return out
+
+
+def _excluded(matrix: dict[Any, Any], keys: Collection[str], where: str, unknown: list[str]) -> set[tuple[Any, int]]:
+    """``(key, index)`` of each Python value that ``exclude`` takes out of every combination of the matrix."""
+    given = matrix.get("exclude")
+    if isinstance(given, str) and "${{" in given:
+        unknown.append(f"{where} computes its exclude ({given.strip()})")
+    rules = [r for r in given if isinstance(r, dict)] if isinstance(given, list) else []
+    base = {k: v if isinstance(v, list) else [v] for k, v in matrix.items() if k not in ("include", "exclude")}
+    gone: set[tuple[Any, int]] = set()
+    for key, values in base.items():
+        if not _python_key(str(key), keys) or not any(key in r for r in rules):
+            continue  # an entry with no Python key takes as much out of every Python version's combinations
+        names = [k for k in base if k != key]
+        if prod(len(base[k]) for k in names) > _MAX_JOBS:
+            unknown.append(f"{where} excludes Python versions from more than {_MAX_JOBS} combinations")
+            continue
+        for i, value in enumerate(values):
+            combos = ({**dict(zip(names, c, strict=True)), key: value} for c in product(*(base[k] for k in names)))
+            if all(any(_matches(r, combo) for r in rules) for combo in combos):
+                gone.add((key, i))
+    return gone
+
+
+def _matches(rule: dict[Any, Any], combo: dict[Any, Any]) -> bool:
+    """An ``exclude`` entry matches a combination that holds each of its keys with the same value."""
+    return all(k in combo and _same(v, combo[k]) for k, v in rule.items())
+
+
+def _same(a: Any, b: Any) -> bool:
+    """Scalars compare as text (``3.14`` and ``'3.14'``); a list or mapping only as the same YAML node."""
+    scalar = (str, int, float)
+    return str(a).strip() == str(b).strip() if isinstance(a, scalar) and isinstance(b, scalar) else a is b
+
+
+def _python_key(key: str, keys: Collection[str]) -> bool:
+    return "python" in key.lower() or key.lower() == "py" or key in keys
 
 
 def _value(key: str, value: Any, where: str, unknown: list[str], python: bool = False) -> set[Version]:
@@ -240,11 +313,13 @@ def _value(key: str, value: Any, where: str, unknown: list[str], python: bool = 
         return set()
     text = str(value).strip()
     out = {(int(m), True) for m in _CP_TAG.findall(text)}
-    if not python and "python" not in key.lower() and key.lower() != "py":
+    if not python and not _python_key(key, ()):
         return out
-    m = _MATRIX_VALUE.match(text)
+    m, tag = _MATRIX_VALUE.match(text), _TAG_VALUE.match(text)
     if m:
         out.add((int(m.group(1)), bool(m.group(2) or m.group(3))))
+    elif tag:
+        out.add((int(tag.group(1)), bool(tag.group(2))))
     elif "${{" in text:
         unknown.append(f"{where} gives a computed Python version ({text})")
     elif _OPEN.match(text):

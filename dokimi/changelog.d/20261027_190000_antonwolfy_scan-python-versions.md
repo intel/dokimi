@@ -6,7 +6,8 @@
   line that names a workflow under `.github/workflows/`, a dashed range (`py3.12-3.14t`) or a list
   of two or more versions (`Python 3.12, 3.13 and 3.14`) is now a `python_versions` claim, `fail`
   when the workflow, and the local workflows it calls, run other versions: the values of matrix
-  keys that name Python, and the `python-version` a setup step pins. A `3.14t` value or a
-  `cp314t` tag is a free-threaded build, and a pre-release (`3.14.0-rc.1`) runs its minor version.
-  A computed matrix or step version, a value such as `3.x` or `>=3.12`, a `python-version-file`,
-  a call to another repository's workflow, or no Python version make the claim `unresolved`.
+  keys that name Python, less what `exclude` takes out of every combination, and the
+  `python-version` a setup step pins. A `3.14t` value or a `cp314t` tag is a free-threaded build,
+  and a pre-release (`3.14.0-rc.1`) runs its minor version. A computed matrix, `include`,
+  `exclude` or step version, a value such as `3.x` or `>=3.12`, a `python-version-file`, a call
+  to another repository's workflow, or no Python version make the claim `unresolved`.

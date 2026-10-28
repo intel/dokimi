@@ -344,6 +344,41 @@ CASES = [
       ".github/workflows/a/x.yml": "jobs:\n  t:\n    strategy: {matrix: {python: ['3.10', '3.11']}}\n",
       ".github/workflows/b/x.yml": "jobs:\n  t:\n    strategy: {matrix: {python: ['3.10', '3.11']}}\n"},
      {("python_versions", "py3.12-3.13"): "ok", ("python_versions", "py3.10-3.11"): None}),
+    ("a computed include or exclude: unresolved", "py3.12-3.14 `ci.yml`\n\nPython 3.12-3.14 `ex.yml`",
+     {".github/workflows/ci.yml": "jobs:\n  t:\n    strategy:\n      matrix: "
+      "{python: ['3.12'], include: '${{ fromJSON(needs.s.outputs.x) }}'}\n",
+      ".github/workflows/ex.yml": "jobs:\n  t:\n    strategy:\n      matrix: "
+      "{python: ['3.12', '3.14'], exclude: '${{ fromJSON(needs.s.outputs.x) }}'}\n"},
+     {("python_versions", "py3.12-3.14"): "unresolved", ("python_versions", "Python 3.12-3.14"): "unresolved"}),
+    ("a cp312 matrix value runs that version", "cp312, cp313 and cp313t wheels `ci.yml`",
+     _wf("{python: [cp312, cp313, cp313t]}"), {("python_versions", "cp312, cp313 and cp313t"): "ok"}),
+    ("a workflow name with no version in it is not blanked", "python 3.12, 3.13 in `python.yml`",
+     {".github/workflows/python.yml": "jobs:\n  t:\n    strategy:\n      matrix: {python: ['3.12', '3.13']}\n"},
+     {("python_versions", "python 3.12, 3.13"): "ok"}),
+    ("a workflow's name in a link text is no version",
+     "[py310-py313.yml](.github/workflows/py310-py313.yml) and [py310-py313](.github/workflows/py310-py313.yml) "
+     "run Python 3.12, 3.13",
+     {".github/workflows/py310-py313.yml": "jobs:\n  t:\n    strategy:\n      matrix: {python: ['3.12', '3.13']}\n"},
+     {("python_versions", "py310-py313"): None, ("python_versions", "Python 3.12, 3.13"): "ok"}),
+    ("a blob link or a root-relative link to the workflow",
+     f"| py3.12-3.14 | [conda]({U}/blob/main/.github/workflows/ci.yml) |\n\n"
+     "Python 3.13 and 3.14 in [CI](/.github/workflows/ci.yml)\n\n"
+     f"[CI]({U}/blob/py3.10-3.11/.github/workflows/ci.yml) at a release branch",
+     _wf("{python: ['3.13']}"),
+     {("python_versions", "py3.12-3.14"): "fail", ("python_versions", "Python 3.13 and 3.14"): "fail",
+      ("python_versions", "py3.10-3.11"): None}),
+    ("an exclude takes out a version only from every combination",
+     "py3.12-3.13 `full.yml`\n\npy3.12-3.14 `part.yml`\n\nPython 3.12-3.13 `joint.yml`\n\nPython 3.12–3.14 `back.yml`",
+     {".github/workflows/full.yml": "jobs:\n  t:\n    strategy:\n      matrix: "
+      "{python: ['3.12', '3.13', '3.14'], exclude: [{python: '3.14'}]}\n",
+      ".github/workflows/part.yml": "jobs:\n  t:\n    strategy:\n      matrix: "
+      "{python: ['3.12', '3.13', '3.14'], os: [a, b], exclude: [{python: '3.14', os: a}]}\n",
+      ".github/workflows/joint.yml": "jobs:\n  t:\n    strategy:\n      matrix: "
+      "{python: ['3.12', '3.13', '3.14'], os: [a, b], exclude: [{python: '3.14', os: a}, {python: 3.14, os: b}]}\n",
+      ".github/workflows/back.yml": "jobs:\n  t:\n    strategy:\n      matrix: "
+      "{python: ['3.12', '3.14'], exclude: [{python: '3.14'}], include: [{python: '3.14', extra: x}]}\n"},
+     {("python_versions", "py3.12-3.13"): "ok", ("python_versions", "py3.12-3.14"): "ok",
+      ("python_versions", "Python 3.12-3.13"): "ok", ("python_versions", "Python 3.12–3.14"): "ok"}),
     ("a version in the workflow's own name is not read", "`build-py3.11-3.12.yml` builds Python 3.13 and 3.14",
      {".github/workflows/build-py3.11-3.12.yml": "jobs:\n  w:\n    strategy:\n      matrix: {python: ['3.13', '3.14']}\n"},
      {("python_versions", "Python 3.13 and 3.14"): "ok", ("python_versions", "py3.11-3.12"): None}),

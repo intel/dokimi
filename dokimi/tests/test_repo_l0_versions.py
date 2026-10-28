@@ -5,6 +5,9 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
+
 import pytest
 
 from dokimi.repos.l0.versions import _RUN, matrix_versions, parse, setup_versions
@@ -27,6 +30,9 @@ def _runs(text: str) -> list[tuple[str, object]]:
     ("numpy3.1-3.2 and dpctl 0.22", []),                                 # no marker at a word start
     ("`pkg-1.0-cp313-cp313-linux_x86_64.whl`", [("cp313", None), ("cp313", None)]),  # a wheel's tags, no range
     ("cp312-cp314 wheels", [("cp312", None), ("cp314", None)]),         # a `cp` tag starts no range
+    ("Python 3.12, 3.13, 30 min timeout", [("Python 3.12, 3.13", ([], [(12, False), (13, False)]))]),
+    ("Python 3.11 / 3.12 on 32 cores", [("Python 3.11 / 3.12", ([], [(11, False), (12, False)]))]),  # no dot: no version
+    ("py3.12-32 cores", [("py3.12", None)]),                             # nor as a range end
 ])
 def test_runs_of_versions(text, expected):
     assert _runs(text) == expected
@@ -39,6 +45,12 @@ def test_runs_of_versions(text, expected):
     ({"python": ["3.14.0-rc.1", "3.15.0-alpha.1", "3.13.0b2", "3.11.0rc1", "3.14t-dev", "3.12.x", "3.13.1t"]},
      {(14, False), (15, False), (13, False), (11, False), (14, True), (12, False), (13, True)}),  # a pre-release: its minor
     ({"version": ["3.12"], "os": ["3.13"]}, {(12, False)}),               # a setup step names `version`
+    ({"python": ["cp312", "cp313t", "py314", "pypy310"]}, {(12, False), (13, True), (14, False)}),
+    ({"python": [["3.12"], {"v": "3.11"}, "3.13"]}, {(13, False)}),  # a nested list or mapping is not read
+    ({"python": ["3.12", "3.13"], "os": ["a"], "exclude": [{"python": "3.13", "os": "a"}, {"os": "b"}, "x"]},
+     {(12, False)}),                                                     # 3.13 is out of every combination
+    ({"python": ["3.12", "3.13"], "os": ["a", "b"], "exclude": [{"os": "a"}, {"python": "3.13", "os": "b"}]},
+     {(12, False)}),                                                     # by two entries, one with no Python key
     ({"os": ["a"], "include": [{"python": "3.14", "spec": "3.14.* *_cp314t"}]}, {(14, False), (14, True)}),
     ({"python": ["3.12"], "exclude": [{"python": "3.11"}]}, {(12, False)}),
 ])
@@ -67,17 +79,46 @@ def test_setup_versions():
     assert setup_versions({"with": {"python-version": "3.12"}}, "ci.yml", unknown, keys) == set()  # not a list
 
 
-@pytest.mark.timeout(5)  # str() of the bomb never returns
-def test_nested_matrix_values_are_not_read():
-    bomb: list = ["3.12"]
+_BOMB = """
+from dokimi.repos.l0.versions import matrix_versions
+
+def bomb():
+    b = ["3.12"]
     for _ in range(40):  # what YAML aliases build: 2**40 leaves through shared lists
-        bomb = [bomb, bomb]
-    assert matrix_versions({"python": ["3.13", bomb], "include": [{"python": bomb}]}, "ci.yml", []) == {(13, False)}
+        b = [b, b]
+    return b
+
+one, other = bomb(), bomb()
+matrix = {"python": ["3.13", one], "include": [{"python": one}], "exclude": [{"python": other}]}
+print(sorted(matrix_versions(matrix, "ci.yml", [])))
+"""
+
+
+def test_nested_matrix_values_are_not_read():
+    # str() of a bomb, or == between two of them, runs in C and never returns. No timeout inside the process
+    # can stop that (SIGALRM waits for the C call, a timer thread for the GIL), so the call runs in a child
+    # that the timeout kills.
+    out = subprocess.run([sys.executable, "-c", _BOMB], capture_output=True, text=True, timeout=20, check=True)
+    assert out.stdout.strip() == "[(13, False)]"
+
+
+def test_an_exclude_over_too_many_combinations_is_unknown():
+    unknown: list[str] = []
+    matrix = {"python": ["3.12", "3.13"], "a": list(range(20)), "b": list(range(20)), "exclude": [{"python": "3.13"}]}
+    assert matrix_versions(matrix, "ci.yml", unknown) == {(12, False), (13, False)}
+    assert unknown == ["a matrix of ci.yml excludes Python versions from more than 256 combinations"]
+    other: list[str] = []  # an exclude that names no Python key is not counted out
+    assert matrix_versions({**matrix, "exclude": [{"a": 0}]}, "ci.yml", other) == {(12, False), (13, False)}
+    assert other == []
 
 
 def test_a_computed_matrix_is_unknown():
     unknown: list[str] = []
     assert matrix_versions("${{ fromJSON(needs.plan.outputs.matrix) }}", "ci.yml", unknown) == set()
     assert matrix_versions({"python": ["${{ inputs.python }}"]}, "ci.yml", unknown) == set()
+    assert matrix_versions({"python": ["3.12"], "include": ["${{ fromJSON(a) }}"], "exclude": "${{ fromJSON(b) }}"},
+                           "ci.yml", unknown) == {(12, False)}
     assert unknown == ["a matrix of ci.yml is computed (${{ fromJSON(needs.plan.outputs.matrix) }})",
-                       "a matrix of ci.yml gives a computed Python version (${{ inputs.python }})"]
+                       "a matrix of ci.yml gives a computed Python version (${{ inputs.python }})",
+                       "a matrix of ci.yml computes its exclude (${{ fromJSON(b) }})",
+                       "a matrix of ci.yml computes its include (${{ fromJSON(a) }})"]
