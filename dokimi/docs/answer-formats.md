@@ -96,11 +96,13 @@ the run's pass rates and mean scores are under `run_metadata.summary` (or
 | `wrong` | A planted wrong answer | fail it |
 | `empty` | `""` | fail it |
 | `hedge` | A fixed non-committal sentence; skipped when a check value occurs in it | fail it |
-| `stuffed` | Two or more literal check values, listed with no sentence around them (a single value is the right answer, not stuffing) | fail it |
+| `stuffed` | Two or more values of a block with one literal check (a single value is the right answer, not stuffing); not built for a block that needs every value (`mode: all`) or for several checks, which the stuffed answer satisfies by design | fail it |
 
 An attack the grader accepts, or a canary it rejects, is a violation, and any
 violation makes the run `blocked`: the command prints the pass rates and the
-violations and exits 1 (`-o` writes `redteam.v1`). A `negate` check passes an
+violations and exits 1 (`-o` writes `redteam.v1`). A run that probed no question
+(nothing graded, or only judge checks without `--judge`) is `inconclusive` and
+also exits 1. An unwritable `-o` exits 2. A `negate` check passes an
 answer that lacks its value, so a block with one gets no `wrong`, `empty` or
 `hedge` probe; `stuffed` still runs. A probe the grader cannot
 score is unscored and does not block. `judge` checks are unscored unless

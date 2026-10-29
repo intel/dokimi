@@ -9,12 +9,16 @@ Each question with a ``grading`` block is graded against five synthetic answers:
 - ``wrong``: a planted wrong answer; it must fail.
 - ``empty``: the empty answer; it must fail.
 - ``hedge``: a non-committal answer that carries no check value; it must fail.
-- ``stuffed``: every literal check value listed with no sentence around it; it must fail.
+- ``stuffed``: every literal check value listed with no sentence around it; it must fail. Built only
+  for a block of one literal check (or one negated check), since a block that needs every value, or
+  several checks that each accept one value, is satisfied by the stuffed answer by design.
 
 An answer the grader accepts when it should reject it (or rejects a canary) is a violation, and
-any violation blocks the run. A probe the grader cannot score (a judge check with no judge model,
-a regex past its timeout) is reported as unscored and does not block. The canary is only built for
-a question whose grading is one literal check; other questions get the four attacks alone.
+any violation blocks the run. A run that probed no question at all (nothing graded, or only judge
+checks without a judge) is ``inconclusive``: it is not a pass, and it exits 1 like a blocked run.
+A probe the grader cannot score (a judge check with no judge model, a regex past its timeout) is
+reported as unscored. The canary is only built for a question whose grading is one literal check;
+other questions get the other attacks alone.
 
 Nothing here calls a model unless the caller passes ``ask`` (the judge of judge checks).
 """
@@ -33,7 +37,7 @@ EXPECTED = {"canary": True, "wrong": False, "empty": False, "hedge": False, "stu
 WRONG = "PLANTED-WRONG-ANSWER-7731"
 HEDGE = ("I am not certain. It could be several things, depending on the setup, "
          "and I cannot say which one applies here.")
-BLOCKED, PASS = "blocked", "pass"
+BLOCKED, PASS, INCONCLUSIVE = "blocked", "pass", "inconclusive"
 
 _LITERAL = frozenset({"match", "fuzzy", "exact", "choice", "json"})
 
@@ -68,13 +72,21 @@ def canary_for(grading: Mapping[str, Any]) -> Optional[str]:
 
 
 def stuffed_for(grading: Mapping[str, Any]) -> Optional[str]:
-    """Every literal check value, listed with no sentence around them; None unless there are two or more.
+    """Every value of the block's one literal check, listed with no sentence around them.
 
-    One value listed alone is the right answer itself, not stuffing, so it is not an attack. A choice
-    check is left out: its answer is a bare letter, which is a legitimate answer.
+    Only a block of one literal check is stuffed, and a positive check must accept any one of its
+    values (mode ``any``): a block that needs every value, or several checks, is satisfied by the
+    stuffed answer by design, so accepting it is not a violation. A negated check fails the stuffed
+    answer that carries its value, so it is always a real attack. One value listed alone is the right
+    answer itself, not stuffing. A choice check is left out: its answer is a bare letter.
     """
-    values = [str(v) for c in grading.get("checks", []) if c.get("type") in _LITERAL - {"choice"}
-              for v in _literal_values(c)]
+    checks = grading.get("checks", [])
+    if len(checks) != 1 or checks[0].get("type") not in _LITERAL - {"choice"}:
+        return None
+    check = checks[0]
+    if not check.get("negate") and str(check.get("mode", "any")) == "all":
+        return None
+    values = [str(v) for v in _literal_values(check)]
     return " ".join(values) if len(values) >= 2 else None
 
 
@@ -145,12 +157,17 @@ def run(questions: list[Mapping[str, Any]], *, ask: Optional[Ask] = None) -> dic
                      "probes": {name: p.as_dict() for name, p in probes.items()}})
     violations = [{"question_id": r["question_id"], "attack": name, "passed": p["passed"]}
                   for r in rows for name, p in r["probes"].items() if p["violation"]]
+    summary = _summary(rows)
+    if violations:
+        status = BLOCKED
+    else:
+        status = PASS if summary["probed"] else INCONCLUSIVE
     return {
-        "status": BLOCKED if violations else PASS,
+        "status": status,
         "attacks": _attack_rates(rows),
         "violations": violations,
         "questions": rows,
-        "summary": _summary(rows),
+        "summary": summary,
     }
 
 
