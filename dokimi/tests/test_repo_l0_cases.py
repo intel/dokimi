@@ -123,6 +123,38 @@ CASES = [
     ("pytest option values", _shell("pytest -k slow_case --cov agent tests/test_x.py"),
      {"tests/test_x.py": "def test_a():\n    pass\n"},
      {("pytest_path", "tests/test_x.py"): "ok"}),
+    ("pytest --pyargs modules",
+     _shell("python -m pytest -ra --pyargs pkg.tests pkg.tests.test_a::test_x pkg.tests.test_a::test_y"),
+     {"src/pkg/__init__.py": "", "src/pkg/tests/__init__.py": "", "src/pkg/tests/test_a.py": "def test_x(): pass\n"},
+     {("pytest_module", "pkg.tests"): "ok", ("pytest_module", "pkg.tests.test_a"): "ok",
+      ("pytest_node", "pkg.tests.test_a::test_x"): "ok", ("pytest_node", "pkg.tests.test_a::test_y"): "fail"}),
+    ("pytest --pyargs: of two copies of a module, the node is read in the one at an import root",
+     _shell("pytest --pyargs pkg.tests.test_a::test_new pkg.tests.test_a::test_old"),
+     {"pkg/__init__.py": "", "pkg/tests/__init__.py": "", "pkg/tests/test_a.py": "def test_new(): pass\n",
+      "benchmarks/pkg/tests/test_a.py": "def test_old(): pass\n", "vendor/pkg/tests/test_a.py": "def test_old(): pass\n"},
+     {("pytest_node", "pkg.tests.test_a::test_new"): "ok", ("pytest_node", "pkg.tests.test_a::test_old"): "fail"}),
+    ("pytest --pyargs module missing",
+     _shell("pytest --pyargs pkg.tests.gone numpy.tests nsdir test_gone.py"),
+     {"pkg/__init__.py": "", "pkg/tests/__init__.py": "", "xpkg/tests/gone.py": "", "nsdir/test_a.py": ""},
+     {("pytest_module", "pkg.tests.gone"): "fail", ("pytest_module", "numpy.tests"): "unresolved",
+      ("pytest_path", "nsdir"): "ok", ("pytest_module", "nsdir"): None,
+      ("pytest_path", "test_gone.py"): "unresolved", ("pytest_module", "test_gone.py"): None}),
+    ("pytest --pyargs module below a deleted subpackage", _shell("pytest --pyargs pkg.tests.test_a pkg.tests.sub.test_b"),
+     {"pkg/__init__.py": "", "pkg/other.py": ""},
+     {("pytest_module", "pkg.tests.test_a"): "fail", ("pytest_module", "pkg.tests.sub.test_b"): "fail"}),
+    ("pytest --pyargs: a package only below another directory is no evidence of a miss",
+     _shell("pytest --pyargs pkg.tests.test_x tests.test_y"),
+     {"docs/examples/pkg/__init__.py": "", "sub/tests/__init__.py": ""},
+     {("pytest_module", "pkg.tests.test_x"): "unresolved", ("pytest_module", "tests.test_y"): "unresolved"}),
+    ("pytest --pyargs: a package at a directory above the guidance file, or in its src/", "x",
+     {"python/AGENTS.md": _shell("pytest --pyargs pkg.gone pkg2.gone"), "python/pkg/__init__.py": "",
+      "python/src/pkg2/__init__.py": ""},
+     {("pytest_module", "pkg.gone"): "fail", ("pytest_module", "pkg2.gone"): "fail"}),
+    ("pytest --pyargs: a directory with no __init__.py is no module", _shell("pytest --pyargs pkg.tests"),
+     {"pkg/__init__.py": "", "pkg/tests/test_a.py": ""},
+     {("pytest_module", "pkg.tests"): "fail"}),
+    ("dotted name without --pyargs is a path", _shell("pytest pkg.tests"), {"pkg/tests/__init__.py": ""},
+     {("pytest_path", "pkg.tests"): "unresolved", ("pytest_module", "pkg.tests"): None}),
     # pre-commit
     ("no pre-commit config", _shell("pre-commit run lint"), {}, {("precommit_hook", "lint"): "fail"}),
     ("odd pre-commit config", _shell("pre-commit run lint"), {".pre-commit-config.yaml": "- not\n- a mapping\n"},
@@ -277,6 +309,19 @@ def test_a_path_into_a_submodule_says_so(tmp_path):
     payload = _scan(tmp_path, "`third/dep/lib.h`\n", {".gitmodules": '[submodule "d"]\n\tpath = third/dep\n',
                                                      "third/README": ""})
     assert "inside the submodule third/dep" in payload["claims"][0]["why"]
+
+
+def test_a_missing_pyargs_module_names_the_nearest_package(tmp_path):
+    payload = _scan(tmp_path, _shell("pytest --pyargs pkg.tests.gone pkg.tests.sub.test_b lib.tests.test_a "
+                                     "other.tests.test_c"),
+                    {"src/pkg/__init__.py": "", "src/pkg/tests/__init__.py": "",
+                     "lib/__init__.py": "", "vendor/lib/tests/__init__.py": "", "docs/x/other/__init__.py": ""})
+    why = {c["claim"]: c["why"] for c in payload["claims"]}
+    assert why["pkg.tests.gone"] == "package pkg.tests (src/pkg/tests/) has no module gone"
+    assert why["pkg.tests.sub.test_b"] == "package pkg.tests (src/pkg/tests/) has no module sub.test_b"
+    assert why["lib.tests.test_a"] == "package lib (lib/) has no module tests.test_a"  # not the vendored copy
+    assert why["other.tests.test_c"] == ("no module other.tests.test_c at an import root; package other is only "
+                                         "in docs/x/other/, which may not be the one imported")
 
 
 def test_no_claim_for_options_or_operators(tmp_path):
