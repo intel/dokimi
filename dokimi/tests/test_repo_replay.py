@@ -324,6 +324,23 @@ def test_prs_without_a_task_say_why_and_rewritten_history_is_flagged(hist, tmp_p
     assert sorted(p.name for p in out.iterdir()) == ["review_replay_pr12", "review_replay_pr14"]
 
 
+def test_a_pr_merged_by_fast_forward_is_skipped_not_cut_to_its_last_commit(hist, tmp_path, capsys):
+    """mergeCommit is the head, so mergeCommit^1 is the PR's first commit: the patch would lose it."""
+    root = hist["root"]
+    main = git(root, "rev-parse", "--abbrev-ref", "HEAD")
+    git(root, "checkout", "-qb", "pr30")
+    _set(root, "src/r.py", 2, "r2 first commit")
+    _commit(root, "one")
+    _set(root, "src/r.py", 9, "r9 second commit")
+    head = _commit(root, "two")
+    git(root, "checkout", "-q", main)
+    git(root, "merge", "-q", "--ff-only", "pr30")
+    with pytest.raises(SystemExit):
+        _replay(root, _pages(_pr(30, head, head, [_t("src/r.py", 2, head)])), tmp_path / "tasks")
+    assert "PR 30: skipped: merged by fast-forward: its mergeCommit is its head" in capsys.readouterr().out
+    assert not (tmp_path / "tasks/review_replay_pr30").exists()
+
+
 def test_a_crlf_file_survives_git_am_in_a_base64_patch(hist, tmp_path, monkeypatch):
     root = hist["root"]
     _replay(root, _pages(_pr(15, hist["rev15"], hist["merge15"], [_t("src/w.bat", 2, hist["rev15"])])),

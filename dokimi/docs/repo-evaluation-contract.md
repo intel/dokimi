@@ -705,7 +705,9 @@ by a reviewer: it has no line and is never gold.
 
 - The reviewed revision is the `originalCommit` most gold threads were written
   on (on a tie, the one with the latest comment). `base` is its merge base with
-  `mergeCommit^1`, the base branch as the PR merged.
+  `mergeCommit^1`, the base branch as the PR merged. That holds for a squash,
+  merge-commit or rebase merge; a PR merged by fast-forward (`mergeCommit` is
+  `headRefOid`) is skipped, since its `mergeCommit^1` is one of its own commits.
 - `change.patch` is the diff from `base` to the reviewed revision as one commit
   titled with the PR's title, binary files included. `git am` strips the CR at
   the end of each line of a plain mail, so a diff holding a CR (a file with

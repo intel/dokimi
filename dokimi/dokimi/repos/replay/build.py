@@ -98,6 +98,9 @@ def _make(h: History, manifest: RepoManifest, pr: PullRequest, opts: Options,
     """``(task.json, gold.json, change.patch)`` of ``pr``; :class:`_Skip` when it gives no task."""
     _check_pr(h, pr)
     assert pr.merge is not None
+    if pr.merge == pr.head:  # mergeCommit^1 is then the PR's own commit, not the base branch
+        raise _Skip("merged by fast-forward: its mergeCommit is its head, so the base branch it merged into "
+                    "is unknown")
     threads = _candidates(h, pr, notes)
     if not threads:
         raise _Skip("no review thread on a line by a reviewer")
