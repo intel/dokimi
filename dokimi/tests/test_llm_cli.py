@@ -284,6 +284,16 @@ def test_benchmark_preflight_checks_the_login_not_a_key(monkeypatch):
     assert any("missing OPENAI_API_KEY" in e for e in errors)
 
 
+def test_the_preflight_probes_a_cli_provider_once_for_its_error_and_its_warning(monkeypatch):
+    from dokimi.commands.benchmark import _provider_checks
+
+    fake = _auth_runner("no answer")
+    monkeypatch.setattr(process, "run", fake)
+    errors, warnings = _provider_checks(["claude-cli", "claude-cli"])
+    assert errors == [] and len(warnings) == 1
+    assert [c.argv[-1] for c in fake.calls] == ["--version", "status"]  # one detect, not one per check
+
+
 def test_a_judge_panel_refuses_sampling_on_the_cli_with_explicit_judges():
     from dokimi.eval.panel import JudgeConfig, JudgePanel
 

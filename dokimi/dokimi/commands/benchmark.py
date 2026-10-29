@@ -83,14 +83,17 @@ def _credential_env_var(provider: str) -> str:
     }.get(provider, "OPENAI_API_KEY")
 
 
-def _credential_error(provider: str) -> str | None:
-    """Why *provider* cannot run here, or ``None``: a missing key, or a CLI not signed in."""
+def _credential_error(provider: str, status=None) -> str | None:
+    """Why *provider* cannot run here, or ``None``: a missing key, or a CLI not signed in.
+
+    *status* is the provider's ``llm_cli.detect`` result when the caller already has it.
+    """
     from dokimi import llm_cli
 
     if llm_cli.backend(provider) is None:
         key = _credential_env_var(provider)
         return None if os.environ.get(key) else f"missing {key} for provider {provider}"
-    status = llm_cli.detect(provider)
+    status = status or llm_cli.detect(provider)
     if not status.installed:
         return f"{provider}: '{status.binary}' is not installed"
     if status.authenticated is False:
@@ -99,20 +102,27 @@ def _credential_error(provider: str) -> str | None:
 
 
 def _provider_checks(providers: list[str]) -> tuple[list[str], list[str]]:
-    """The errors (a missing key, a CLI not installed or signed in) and warnings for *providers*."""
+    """The errors (a missing key, a CLI not installed or signed in) and warnings for *providers*.
+
+    A CLI provider is probed once: ``detect`` runs ``--version`` and ``auth status``, and two
+    probes of a flaky ``auth status`` could give an error-free pass and a warning in one preflight.
+    """
+    from dokimi import llm_cli
+
     names = sorted(set(providers))
-    errors = [e for e in map(_credential_error, names) if e]
-    warnings = [w for w in map(_login_warning, names) if w]
+    statuses = {n: llm_cli.detect(n) for n in names if llm_cli.backend(n) is not None}
+    errors = [e for e in (_credential_error(n, statuses.get(n)) for n in names) if e]
+    warnings = [w for w in (_login_warning(n, statuses.get(n)) for n in names) if w]
     return errors, warnings
 
 
-def _login_warning(provider: str) -> str | None:
+def _login_warning(provider: str, status=None) -> str | None:
     """A warning when a CLI provider's login could not be checked (no answer from ``auth status``)."""
     from dokimi import llm_cli
 
     if llm_cli.backend(provider) is None:
         return None
-    status = llm_cli.detect(provider)
+    status = status or llm_cli.detect(provider)
     if status.installed and status.authenticated is None:
         return f"{provider}: could not check the login ('{status.binary} auth status' gave no answer)"
     return None
