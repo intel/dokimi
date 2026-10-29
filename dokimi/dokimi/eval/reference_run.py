@@ -21,8 +21,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Mapping, Optional
 
+from dokimi.caching import is_empty_reply
 from dokimi.eval.reference_checks import Ask, Grade, grade, validate_grading
-from dokimi.records import NO_RETRIEVAL_SOURCES, Record, Run, read
+from dokimi.records import NO_RETRIEVAL_SOURCES, Answer, Record, Run, read
 
 SCORER = "reference"
 
@@ -91,12 +92,25 @@ def grading_by_id(questions: list[Mapping[str, Any]]) -> dict[str, Mapping[str, 
     return out
 
 
-def _grade_record(rec: Record, grading: Mapping[str, Any], ask: Optional[Ask]) -> dict[str, Grade]:
-    out: dict[str, Grade] = {}
+def _answer_state(answer: Answer) -> tuple[Optional[str], bool]:
+    """The text to grade, and whether the answer is an error.
+
+    An errored answer, and an empty one (no content, or only whitespace), has no answer to
+    grade: it is an error, never graded as "" (a negated check would pass it). A no-retrieval
+    placeholder ("[FALLBACK: ...]") is not the model's answer either, but it is unscored, not an error.
+    """
+    if answer.doc_source in NO_RETRIEVAL_SOURCES and not answer.error:
+        return None, False
+    if answer.error or is_empty_reply(answer.text):
+        return None, True
+    return answer.text, False
+
+
+def _grade_record(rec: Record, grading: Mapping[str, Any], ask: Optional[Ask]) -> dict[str, tuple[Grade, bool]]:
+    out: dict[str, tuple[Grade, bool]] = {}
     for name, answer in rec.answers.items():
-        # A no-retrieval placeholder ("[FALLBACK: ...]") is not the model's answer: unscored.
-        text = None if answer.error or answer.doc_source in NO_RETRIEVAL_SOURCES else answer.text
-        out[name] = grade(grading, rec.question_text, text, ask)
+        text, errored = _answer_state(answer)
+        out[name] = (grade(grading, rec.question_text, text, ask), errored)
     return out
 
 
@@ -114,8 +128,8 @@ def score(data: Any, questions: list[Mapping[str, Any]], *, ask: Optional[Ask] =
     out = ReferenceRun(run=run, evaluations=[], missing=missing)
     for rec, per_condition in zip(graded, grades, strict=True):
         blocks = {}
-        for name, g in per_condition.items():
-            out.tally.setdefault(name, ConditionTally()).add(g, errored=bool(rec.answers[name].error))
+        for name, (g, errored) in per_condition.items():
+            out.tally.setdefault(name, ConditionTally()).add(g, errored=errored)
             blocks[name] = {**g.as_dict(), "scorer": SCORER}
         out.evaluations.append(_evaluation(run, rec, blocks))
     return out

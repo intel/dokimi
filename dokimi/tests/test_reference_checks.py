@@ -400,3 +400,17 @@ def test_read_promptfoo_refuses_several_providers(tmp_path):
     path.write_text(json.dumps({"results": {"results": rows}}), encoding="utf-8")
     with pytest.raises(ValueError, match="2 providers"):
         read_log(path)
+
+
+@pytest.mark.parametrize("reply", ["", "   \n\t", None])
+def test_an_empty_reply_is_an_error_not_a_score_in_eval_reference(reply):
+    """An empty reply is no answer: never graded (a negated check would pass "" as a 1.0)."""
+    negated = {"checks": [{"type": "match", "values": ["i don't know"], "location": "any", "negate": True}]}
+    plain = {"checks": [{"type": "match", "values": ["paris"], "location": "any"}]}
+    for grading in (negated, plain):
+        data = {"baseline_arm": "baseline", "arms": ["baseline", "skill"], "answers": [
+            {"question_id": "q1", "question_text": "Capital?",
+             "arms": {"baseline": {"answer": "Paris"}, "skill": {"answer": reply}}}]}
+        result = score(data, [{"id": "q1", "question": "Capital?", "grading": grading}])
+        tally = result.tally["skill"].as_dict()
+        assert (tally["n"], tally["errors"], tally["pass_rate"], tally["mean_score"]) == (0, 1, None, None)
