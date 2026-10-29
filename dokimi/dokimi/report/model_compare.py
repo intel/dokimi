@@ -7,7 +7,7 @@ Public API
 ----------
 check_run_consistency(runs, group_name, treatment_arm=None)
     Validate a list of (run_id, run_data) pairs before comparison.
-    Raises SystemExit on hard errors; returns a list of warning strings.
+    Hard errors exit 2 (a usage refusal: the runs cannot be compared); returns a list of warning strings.
 
 non_baseline_arms(run_data)
     The arm names in one artifact other than its baseline.
@@ -295,7 +295,7 @@ def _check_judge_context(runs: list[tuple[str, dict]], group_name: str) -> None:
     stamps = {rid: data.get("judge_context") for rid, data in runs if "evaluations" in data}
     mixed = sorted(rid for rid, s in stamps.items() if s == JUDGE_CONTEXT_MIXED)
     if mixed:
-        raise SystemExit(
+        usage_exit(
             f"Error [{group_name}]: {', '.join(mixed)} judged some answers on the stored "
             "treatment material and some on report snippets (judge_context "
             f"{JUDGE_CONTEXT_MIXED!r}); such a run pools with nothing, not even another "
@@ -303,7 +303,7 @@ def _check_judge_context(runs: list[tuple[str, dict]], group_name: str) -> None:
         )
     if len(set(stamps.values())) > 1:
         detail = ", ".join(f"{rid}={s or '<unstamped>'}" for rid, s in stamps.items())
-        raise SystemExit(
+        usage_exit(
             f"Error [{group_name}]: runs were judged under different judge_context "
             f"protocols ({detail}). The judge saw different evidence for the same "
             "answers, so the scores cannot be pooled. Re-run answering and judging "
@@ -322,7 +322,7 @@ def check_run_consistency(
     """Check runs for consistency problems; return warning strings.
 
     Hard errors (different ``baseline_arm``, different treatment arms, or
-    duplicate configurations without ``pool_replicates``) raise ``SystemExit``
+    duplicate configurations without ``pool_replicates``) exit 2 through ``usage_exit``
     immediately. Soft warnings (hash mismatch) are collected and returned.
     """
     if len(runs) < 2:
@@ -335,7 +335,7 @@ def check_run_consistency(
     unique_baselines = set(baseline_arms.values())
     if len(unique_baselines) > 1:
         detail = ", ".join(f"{rid}={arm}" for rid, arm in baseline_arms.items())
-        raise SystemExit(
+        usage_exit(
             f"Error [{group_name}]: runs have different baseline_arm values ({detail}). "
             "Comparing runs with different baselines produces meaningless deltas."
         )
@@ -369,7 +369,7 @@ def check_run_consistency(
                 f"{rid}={'/'.join(sorted(arms)) if arms else '<none scored>'}"
                 for rid, arms in per_run.items()
             )
-            raise SystemExit(
+            usage_exit(
                 f"Error [{group_name}]: runs are scored on {len(distinct)} different "
                 f"treatment arms ({detail}). Each run's delta would measure a different "
                 "treatment, so the comparison is confounded. Compare runs that share one "
@@ -395,7 +395,7 @@ def check_run_consistency(
             detail = ", ".join(
                 f"{rid}={'/'.join(sorted(d)[:1])[:19]}…" for rid, d in by_run.items() if d
             )
-            raise SystemExit(
+            usage_exit(
                 f"Error [{group_name}]: arm '{shared_arm}' carries "
                 f"{len(all_digests)} different prompt digests across runs ({detail}). "
                 "The arm name comes from the profile's frontmatter id, so an edited "
@@ -436,7 +436,7 @@ def check_run_consistency(
                 f"{key[0]} ({key[1]}) judged by {key[2] or 'n/a'} -> runs {', '.join(ids)}"
                 for key, ids in dupes.items()
             )
-            raise SystemExit(
+            usage_exit(
                 f"Error [{group_name}]: {len(dupes)} configuration(s) appear more than "
                 f"once ({detail}). These are replicates of one measurement, not rival "
                 "models; ranking them against each other reports sampling noise as a "
