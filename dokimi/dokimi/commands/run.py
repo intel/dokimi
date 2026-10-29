@@ -7,13 +7,45 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 
 from dokimi.report.json_report import write_json
 from dokimi.report.markdown_report import write_compare_report, write_run_report
-from dokimi.runner.compare import compare_snapshots
-from dokimi.runner.run import DocLoadError, run_benchmark, save_snapshot
+from dokimi.runner.compare import CompareInputError, compare_snapshots
+from dokimi.runner.run import DocLoadError, load_benchmark_spec, run_benchmark, save_snapshot
+from dokimi.runner.spec import DocSelectionError
+
+
+def _run_or_exit(root: Path, spec_path: Path) -> dict:
+    """Run the benchmark; a bad spec or doc selection exits 2, an unreadable doc exits 1.
+
+    Exit 1 is also the verdict code of --strict, and an unwritable output exits 1 too (see _write_outputs).
+    """
+    try:
+        load_benchmark_spec(spec_path)  # fail on a spec that cannot be read, parsed or validated, before the run
+    except (RuntimeError, ValueError) as exc:
+        print(f"Error: {spec_path}: {exc}", file=sys.stderr)
+        sys.exit(2)
+    try:
+        return run_benchmark(root, spec_path)
+    except DocLoadError as exc:
+        print(f"❌ {exc}", file=sys.stderr)
+        sys.exit(1)
+    except DocSelectionError as exc:  # e.g. fewer documents than the manifest's min_docs
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(2)
+
+
+def _write_outputs(writes) -> None:
+    """Run each (writer, data, path); an unwritable path exits 1 naming it."""
+    for writer, data, path in writes:
+        try:
+            writer(data, path)
+        except OSError as exc:
+            print(f"Error: cannot write {path}: {exc}", file=sys.stderr)
+            sys.exit(1)
 
 
 def cmd_run(args: argparse.Namespace) -> None:
@@ -23,13 +55,8 @@ def cmd_run(args: argparse.Namespace) -> None:
     out_json = Path(args.out_json).resolve()
     out_md = Path(args.out_md).resolve()
 
-    try:
-        result = run_benchmark(root, spec_path)
-    except DocLoadError as exc:
-        print(f"❌ {exc}", file=sys.stderr)
-        sys.exit(1)
-    save_snapshot(result, out_json)
-    write_run_report(result, out_md)
+    result = _run_or_exit(root, spec_path)
+    _write_outputs(((save_snapshot, result, out_json), (write_run_report, result, out_md)))
     print(json.dumps(result["summary"], indent=2))
 
     # Strict mode: check hard gate and critical bands
@@ -67,6 +94,39 @@ def cmd_run(args: argparse.Namespace) -> None:
             sys.exit(1)
 
 
+def _load_compare_spec(spec_path: Path) -> dict | None:
+    """The `compare --spec` mapping; any unreadable or wrong-shape spec is a ``CompareInputError`` naming the file."""
+    import yaml
+
+    try:
+        spec_data = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, RecursionError, yaml.YAMLError) as exc:
+        raise CompareInputError(f"Invalid spec {spec_path}: {exc}") from exc
+    if spec_data is not None and not isinstance(spec_data, dict):
+        raise CompareInputError(f"Invalid spec {spec_path}: root must be a mapping")
+    thresholds = (spec_data or {}).get("thresholds", {})
+    if not isinstance(thresholds, dict):
+        raise CompareInputError(f"Invalid spec {spec_path}: `thresholds` must be a mapping")
+    regressions = thresholds.get("regressions", {})
+    if not isinstance(regressions, dict):
+        raise CompareInputError(f"Invalid spec {spec_path}: `thresholds.regressions` must be a mapping")
+    for name, value in regressions.items():
+        if not _non_negative_number(value):
+            raise CompareInputError(
+                f"Invalid spec {spec_path}: `thresholds.regressions.{name}` must be a finite non-negative number, got {value!r}"
+            )
+    return spec_data
+
+
+def _non_negative_number(value: object) -> bool:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(value) and value >= 0
+    except OverflowError:
+        return False
+
+
 def cmd_compare(args: argparse.Namespace) -> None:
     """Compare two snapshots and show regression analysis."""
     base = Path(args.base).resolve()
@@ -75,14 +135,13 @@ def cmd_compare(args: argparse.Namespace) -> None:
     out_json = Path(args.out_json).resolve()
     out_md = Path(args.out_md).resolve()
 
-    spec_data = None
-    if spec_path:
-        import yaml
-        spec_data = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
-
-    result = compare_snapshots(base, cand, spec=spec_data)
-    write_json(result, out_json)
-    write_compare_report(result, out_md)
+    try:
+        spec_data = _load_compare_spec(spec_path) if spec_path else None
+        result = compare_snapshots(base, cand, spec=spec_data)
+    except CompareInputError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(2)
+    _write_outputs(((write_json, result, out_json), (write_compare_report, result, out_md)))
     print(json.dumps(result["diff"], indent=2))
 
 

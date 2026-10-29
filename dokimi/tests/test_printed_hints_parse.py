@@ -7,12 +7,15 @@ The hints are read by people who copy them, so each one is captured from the cod
 the argv is taken from the text, and the argv goes through the same parse_args the CLI uses.
 """
 
+import ast
 import json
 import re
 import shlex
+from pathlib import Path
 
 import pytest
 
+import dokimi
 from dokimi import cli
 from dokimi.commands import personas as personas_cmd
 
@@ -90,3 +93,28 @@ def test_baseline_only_report_hint_parses():
 
     # The report quotes the command with a "> " prefix on every line.
     _assert_hints_parse("\n".join(line.removeprefix("> ") for line in _BASELINE_ONLY_LIMITATION))
+
+
+def _docstring_nodes(tree: ast.AST) -> set[int]:
+    """ids of the string constants that are docstrings: prose, not text a user is shown or copies."""
+    nodes = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            body = node.body
+            if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+                nodes.add(id(body[0].value))
+    return nodes
+
+
+def test_no_string_in_the_package_names_the_source_shim():
+    """Any string literal in the package that names `python cli.py` is a hint a user may copy; none may."""
+    package = Path(dokimi.__file__).parent
+    offenders = []
+    for path in sorted(package.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        docstrings = _docstring_nodes(tree)
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Constant) and isinstance(node.value, str)
+                    and id(node) not in docstrings and "python cli.py" in node.value):
+                offenders.append(f"{path.relative_to(package)}:{node.lineno}: {node.value.strip()}")
+    assert not offenders, "hints name the source shim, not `dokimi`:\n" + "\n".join(offenders)

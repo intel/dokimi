@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -74,6 +75,123 @@ def _table(rows: list[dict], window: int | None) -> str:
     return "\n".join(lines)
 
 
+def _trace_arms(args: argparse.Namespace) -> dict[str, list[str]]:
+    """``label -> trace paths`` from ``--arm LABEL=GLOB`` and the positional traces."""
+    import glob
+
+    arms: dict[str, list[str]] = {}
+    for spec in args.arm or []:
+        label, sep, pattern = spec.partition("=")
+        if not sep or not label:
+            sys.exit(f"--arm wants LABEL=GLOB, got {spec!r}")
+        arms.setdefault(label, []).extend(sorted(glob.glob(pattern, recursive=True)) or [pattern])
+    if args.traces:
+        arms.setdefault("runs", []).extend(args.traces)
+    if not arms:
+        sys.exit("give traces, or --arm LABEL=GLOB")
+    return arms
+
+
+def _read_arms(arms: dict[str, list[str]], shell: str) -> tuple[dict[str, list], bool]:
+    """The runs of each arm, and whether some trace could not be read (reported on stderr)."""
+    from dokimi.context import TraceError
+    from dokimi.context.consistency import read_run
+
+    loaded: dict[str, list] = {}
+    failed = False
+    for label, names in arms.items():
+        loaded[label] = []
+        for name in _unique_traces(label, names):
+            try:
+                loaded[label].append(read_run(Path(name), shell))
+            except TraceError as exc:
+                print(f"✗ {exc}", file=sys.stderr)
+                failed = True
+    return loaded, failed
+
+
+def cmd_context_consistency(args: argparse.Namespace) -> None:
+    """Result stability, path stability and contract conformance of repeated runs of one task."""
+    from dokimi.context.consistency import apply_outcomes, load_contract, load_outcomes, profile
+
+    arms = _trace_arms(args)
+    try:
+        contract = load_contract(Path(args.contract)) if args.contract else None
+        outcomes = load_outcomes(Path(args.outcomes)) if args.outcomes else None
+    except (OSError, ValueError) as exc:
+        sys.exit(f"✗ {exc}")
+
+    loaded, failed = _read_arms(arms, args.shell)
+    missing: set[str] = set()
+    if outcomes is not None:  # over every arm at once: a key that two arms share is caught
+        try:
+            missing = set(apply_outcomes([r for runs in loaded.values() for r in runs], outcomes))
+        except ValueError as exc:
+            sys.exit(f"✗ {exc}")
+
+    report = {}
+    for label, runs in loaded.items():
+        for run in runs:
+            if run.name in missing:
+                print(f"warning: {label}: no outcome for {run.name}; left unjudged", file=sys.stderr)
+        if len(runs) < 2:
+            print(f"warning: {label}: {len(runs)} run(s); path stability needs at least 2", file=sys.stderr)
+        report[label] = profile(runs, contract, args.threshold)
+        report[label]["outcome_source"] = "outcomes file" if outcomes is not None else "harness result event"
+        report[label]["shell"] = args.shell  # the grain the step counts were taken at
+
+    if args.json:
+        print(json.dumps(report, indent=2))
+    else:
+        print(_consistency_text(report))
+    if failed:
+        sys.exit(1)
+
+
+def _unique_traces(label: str, names: list[str]) -> list[str]:
+    """Each trace once: a repeated ``--arm`` or overlapping globs must not count one run twice."""
+    seen: dict[str, str] = {}
+    for name in names:
+        if os.path.abspath(name) in seen:
+            print(f"warning: {label}: {name} given twice; counted once", file=sys.stderr)
+        seen.setdefault(os.path.abspath(name), name)
+    return list(seen.values())
+
+
+def _fmt(v, pct=False) -> str:
+    if v is None:
+        return "–"
+    return f"{v:.0%}" if pct else f"{v:.2f}"
+
+
+def _consistency_text(report: dict) -> str:
+    cols = ["runs", "judged", "success", "pass^k", "mix JSD", "order dist", "action dist", "calls CV",
+            "strategies", "conform"]
+    lines = ["| arm | " + " | ".join(cols) + " |", "|" + "---|" * (len(cols) + 1)]
+    for label, p in report.items():
+        r, path = p["result"], p["path"]
+        hats = [k for k in r if k.startswith("pass^")]
+        top = hats[-1] if hats else None
+        conform = p.get("contract", {}).get("conformance_rate")
+        lines.append("| " + " | ".join([
+            label, str(r["runs"]), str(r["judged"]), _fmt(r["success_rate"], True),
+            f"{_fmt(r[top], True)} ({top})" if top else "–",
+            _fmt(path["mix_jsd"]), _fmt(path["order_distance"]), _fmt(path["action_distance"]),
+            _fmt(path["tool_calls_cv"]), str(len(p["strategies"])), _fmt(conform, True)]) + " |")
+    for label, p in report.items():
+        lines.append(f"\n{label}: {p['verdict']}  (outcome from {p['outcome_source']})")
+        for i, g in enumerate(p["strategies"], 1):
+            shown = " → ".join(g["path"][:12]) + (" …" if len(g["path"]) > 12 else "")
+            lines.append(f"  S{i} ×{len(g['runs'])} {g['verdict']} ({g['passed']}/{g['judged']}): {shown}")
+        c = p.get("contract")
+        if c:
+            for rule, count in c["violations"].items():
+                lines.append(f"  ✗ {rule}: {count}/{p['result']['runs']} runs")
+            if c["passed_but_nonconforming"]:
+                lines.append(f"  ! {c['passed_but_nonconforming']} passing run(s) broke the contract")
+    return "\n".join(lines)
+
+
 def register(sub, positive_int) -> None:
     """Add the `context` subcommand group."""
     context_p = sub.add_parser(
@@ -96,3 +214,26 @@ def register(sub, positive_int) -> None:
                          help="Also give every call's token counts and every compaction event")
     trace_p.add_argument("--json", action="store_true", help="Print the summaries as JSON")
     trace_p.set_defaults(func=cmd_context_trace)
+
+    cons_p = context_sub.add_parser(
+        "consistency",
+        help="Repeated runs of one task, read from their stream-json traces: result stability "
+        "(success, pass@k, pass^k), path stability (tool mix JSD, order and action edit distance, "
+        "resource spread), strategy groups, and conformance to an optional process contract.",
+    )
+    cons_p.add_argument("traces", nargs="*", help="Traces of one arm (or use --arm)")
+    cons_p.add_argument("--arm", action="append", metavar="LABEL=GLOB",
+                        help="An arm to compare, e.g. no-skill='runs/base/*.jsonl'; repeatable")
+    cons_p.add_argument("--outcomes", metavar="JSON",
+                        help="Verifier verdicts, trace -> true/false; without it a run passes "
+                        "when the harness ended cleanly, which is not task success")
+    cons_p.add_argument("--contract", metavar="YAML",
+                        help="Process contract: named actions and rules (requires, forbids, "
+                        "before, after_last, last_ok)")
+    cons_p.add_argument("--threshold", type=float, default=0.34,
+                        help="Max order distance of collapsed paths within one strategy (default 0.34)")
+    cons_p.add_argument("--shell", choices=("split", "call"), default="split",
+                        help="split (default): one step per chained shell command, shell writes "
+                        "count as edits; call: one step per tool call")
+    cons_p.add_argument("--json", action="store_true", help="Print the profiles as JSON")
+    cons_p.set_defaults(func=cmd_context_consistency)

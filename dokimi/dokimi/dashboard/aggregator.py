@@ -149,9 +149,6 @@ class ResultsAggregator:
                 return None
 
         questions = []
-        with_scores = []
-        without_scores = []
-        deltas = []
 
         for ev in recs:
             q_id = ev.question_id
@@ -164,13 +161,6 @@ class ResultsAggregator:
             with_score = _as_float(ev.score(CONTEXT))
             without_score = _as_float(ev.score(BASELINE))
             delta = _as_float(ev.delta)
-
-            if with_score is not None:
-                with_scores.append(with_score)
-            if without_score is not None:
-                without_scores.append(without_score)
-            if delta is not None:
-                deltas.append(delta)
 
             q_source = ev.raw.get("question_source", "persona")
             grounded = bool((with_eval or {}).get("grounded") or (without_eval or {}).get("grounded"))
@@ -190,6 +180,7 @@ class ResultsAggregator:
             ))
 
         by_source = _compute_by_source(questions)
+        means = _arm_means(questions)
 
         return ProductSnapshot(
             product=product,
@@ -197,9 +188,9 @@ class ResultsAggregator:
             evaluated_at=data.get("evaluated_at", ""),
             judge_model=data.get("judge_model", "unknown"),
             total_questions=len(questions),
-            avg_with_docs=round(sum(with_scores) / len(with_scores), 1) if with_scores else None,
-            avg_without_docs=round(sum(without_scores) / len(without_scores), 1) if without_scores else None,
-            avg_delta=round(sum(deltas) / len(deltas), 1) if deltas else None,
+            avg_with_docs=means["avg_with_docs"],
+            avg_without_docs=means["avg_without_docs"],
+            avg_delta=means["avg_delta"],
             questions=sorted(questions, key=lambda q: (q.with_docs_score or 0)),  # worst first
             source_file=str(path),
             by_source=by_source,
@@ -215,15 +206,35 @@ def _compute_by_source(questions: "List[QuestionResult]") -> "Dict[str, Dict]":
 
     result = {}
     for source, qs in groups.items():
-        with_scores = [q.with_docs_score for q in qs if q.with_docs_score is not None]
-        without_scores = [q.without_docs_score for q in qs if q.without_docs_score is not None]
-        deltas = [q.delta for q in qs if q.delta is not None]
         grounded_count = sum(1 for q in qs if q.grounded)
         result[source] = {
             "count": len(qs),
             "grounded": grounded_count,
-            "avg_with_docs": round(sum(with_scores) / len(with_scores), 1) if with_scores else None,
-            "avg_without_docs": round(sum(without_scores) / len(without_scores), 1) if without_scores else None,
-            "avg_delta": round(sum(deltas) / len(deltas), 1) if deltas else None,
+            **_arm_means(qs),
         }
     return result
+
+
+def _arm_means(questions: "List[QuestionResult]") -> "Dict[str, Optional[float]]":
+    """``avg_with_docs``, ``avg_without_docs`` and ``avg_delta`` over the complete pairs.
+
+    The questions scored in both arms, the ones :func:`dokimi.eval.stats.paired_summary`
+    averages for ``report generate``, so the delta is the difference of the two means.
+    With no pair there is no delta: an arm keeps its mean over its own scores when the
+    other arm scored nothing (a baseline-only run), and otherwise neither mean is given,
+    so two means over different questions never stand side by side.
+    """
+    with_s = [q.with_docs_score for q in questions if q.with_docs_score is not None]
+    without_s = [q.without_docs_score for q in questions if q.without_docs_score is not None]
+    pairs = [(q.with_docs_score, q.without_docs_score) for q in questions
+             if q.with_docs_score is not None and q.without_docs_score is not None]
+    if pairs:
+        with_s, without_s = [w for w, _ in pairs], [wo for _, wo in pairs]
+    elif with_s and without_s:
+        with_s = without_s = []
+
+    def _mean(vals: "List[float]") -> Optional[float]:
+        return round(sum(vals) / len(vals), 1) if vals else None
+
+    return {"avg_with_docs": _mean(with_s), "avg_without_docs": _mean(without_s),
+            "avg_delta": _mean([w - wo for w, wo in pairs])}
