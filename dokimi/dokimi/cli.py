@@ -52,7 +52,7 @@ def _route_help(text: str | None, path: tuple[str, ...]) -> str:
     """The one-line help of a route with its cost label: the parser's text, else the table's."""
     base = text or cli_routes.summary_of(path) or ""
     cost = cli_routes.cost_of(path)
-    return f"{base} [{cost}]" if cost else base
+    return " ".join(part for part in (base, f"[{cost}]" if cost else "") if part)
 
 
 def _label_routes(parser: argparse.ArgumentParser, prefix: tuple[str, ...] = ()) -> None:

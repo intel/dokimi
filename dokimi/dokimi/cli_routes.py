@@ -197,19 +197,30 @@ def moved_text(argv: list[str]) -> str:
     return "moved: " + shlex.join(["dokimi", *argv])
 
 
+def _resolve(path: tuple[str, ...]) -> tuple[str, ...] | None:
+    """``path`` with its first word resolved from an alias to its root; None if no root has it."""
+    if not path:
+        return None
+    heads = {name: root.name for root in ROOTS for name in (root.name, *root.aliases)}
+    head = heads.get(path[0])
+    return None if head is None else (head, *path[1:])
+
+
 def _is_route(path: tuple[str, ...]) -> bool:
     """True when argv ``path`` names a root or an alias, or a group or leaf under one.
 
     ``moved_argv`` matches by prefix, so a tombstone on a group shadows every route under it.
     """
-    if not path:
-        return False
-    heads = {name: root.name for root in ROOTS for name in (root.name, *root.aliases)}
-    head = heads.get(path[0])
-    if head is None:
-        return False
-    full = (head, *path[1:])
-    return any(leaf.path[: len(full)] == full for leaf in LEAVES)
+    full = _resolve(path)
+    return full is not None and any(leaf.path[: len(full)] == full for leaf in LEAVES)
+
+
+def _extends_a_leaf(path: tuple[str, ...]) -> bool:
+    """True when ``path`` is longer than a live leaf it starts with: the leaf takes it as arguments."""
+    full = _resolve(path)
+    return full is not None and any(
+        len(leaf.path) < len(full) and full[: len(leaf.path)] == leaf.path for leaf in LEAVES
+    )
 
 
 def tombstone_problems(tombstones: tuple[Tombstone, ...] | None = None) -> list[str]:
@@ -218,6 +229,8 @@ def tombstone_problems(tombstones: tuple[Tombstone, ...] | None = None) -> list[
     for tomb in TOMBSTONES if tombstones is None else tombstones:
         if _is_route(tomb.old):
             problems.append(f"{' '.join(tomb.old)} is still a live route")
+        if _extends_a_leaf(tomb.old):
+            problems.append(f"{' '.join(tomb.old)} extends a live route and would shadow it")
         if not _is_route(tomb.new):
             problems.append(
                 f"{' '.join(tomb.old)} points at {' '.join(tomb.new)}, which is not a route"

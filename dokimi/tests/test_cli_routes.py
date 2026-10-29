@@ -129,6 +129,9 @@ def test_the_tombstone_check_follows_groups_aliases_and_roots():
     assert cli_routes.tombstone_problems(root) == []
     nowhere = (cli_routes.Tombstone(("old-tool",), ("no-such-root",)),)
     assert cli_routes.tombstone_problems(nowhere)
+    # compare takes positional files, so "compare x" is a live invocation, not a free old path
+    extends = (cli_routes.Tombstone(("compare", "x"), ("compare",)),)
+    assert cli_routes.tombstone_problems(extends)
 
 
 def test_a_tombstone_rewrites_the_argv_and_exits_2(monkeypatch, capsys):
