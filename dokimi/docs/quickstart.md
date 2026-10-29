@@ -173,7 +173,9 @@ python cli.py dashboard generate
 ```
 
 Aggregates per-library results from `eval/*.json` into `DASHBOARD.md` /
-`dashboard.json` for cross-library comparison.
+`dashboard.json` for cross-library comparison. Like `report generate`, it averages both
+arms and the delta, per library and per question source, over the questions scored in
+both arms; a run that scored one arm only shows that arm's mean.
 
 ## Full run (single command)
 
