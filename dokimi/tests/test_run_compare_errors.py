@@ -103,12 +103,15 @@ _SPEC_MIN_DOCS = (
 )
 
 
-def test_run_exits_2_when_the_root_has_fewer_docs_than_min_docs(tmp_path, monkeypatch, capsys):
-    (tmp_path / "docs").mkdir()
-    (tmp_path / "docs" / "a.md").write_text("# A\n\ntext\n", encoding="utf-8")
+@pytest.mark.parametrize("docs", [0, 1])
+@pytest.mark.parametrize("strict", [[], ["--strict"]], ids=["plain", "strict"])
+def test_run_exits_2_when_the_root_has_fewer_docs_than_min_docs(tmp_path, monkeypatch, capsys, docs, strict):
+    (tmp_path / "docs").mkdir()  # none measured is a min_docs violation too, as the README says
+    for i in range(docs):
+        (tmp_path / "docs" / f"{i}.md").write_text("# A\n\ntext\n", encoding="utf-8")
     spec = tmp_path / "spec.yaml"
     spec.write_text(_SPEC_MIN_DOCS, encoding="utf-8")
-    code = _main(monkeypatch, "run", "--root", str(tmp_path), "--spec", str(spec),
+    code = _main(monkeypatch, "run", *strict, "--root", str(tmp_path), "--spec", str(spec),
                  "--out-json", str(tmp_path / "o.json"), "--out-md", str(tmp_path / "o.md"))
     assert code == 2
     err = capsys.readouterr().err
