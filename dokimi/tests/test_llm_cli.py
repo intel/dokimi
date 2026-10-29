@@ -129,6 +129,14 @@ def test_each_retryable_word_is_retried_without_a_status(runner, word):
     assert info.value.retryable is True
 
 
+@pytest.mark.parametrize("status", [None, 400, 401, 404, 501])
+def test_a_bad_request_or_auth_failure_is_not_retried(runner, status):
+    runner.answers.append(reply(_err("invalid request error", status), returncode=1))
+    with pytest.raises(llm_cli.CliCallError) as info:
+        llm_cli.call("claude-cli", model="sonnet", prompt="p")
+    assert info.value.retryable is False
+
+
 @pytest.mark.parametrize("status", [None, 429])
 def test_a_subscription_usage_limit_is_not_retried(runner, status):
     # It resets after hours: three more CLI starts would only delay the same failure.
