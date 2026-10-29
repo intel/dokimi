@@ -247,6 +247,19 @@ def test_a_negated_whole_answer_check_is_not_stuffed(check):
 
 
 @pytest.mark.parametrize("check", [
+    {"type": "match", "values": ["Paris", "Lyon"], "mode": "all", "negate": True},  # location end
+    {"type": "match", "values": ["Paris", "Lyon"], "mode": "all", "location": "begin", "negate": True},
+])
+def test_a_negated_all_mode_check_is_not_stuffed(check):
+    # "Paris Lyon" ends with only one value, so the "all" match is false and the negated check passes
+    # it: a correct grader would be blamed for accepting it. The positive rule skips mode all alike.
+    grading = {"checks": [check]}
+    assert redteam.attacks(grading)["stuffed"] is None
+    result = run([_q("1", grading)])
+    assert result["violations"] == [] and "stuffed" not in result["questions"][0]["probes"]
+
+
+@pytest.mark.parametrize("check", [
     {"type": "match", "values": ["31"]},  # the planted answer ends in 7731
     {"type": "match", "values": ["1"]},  # the planted answer ends in 1
     {"type": "fuzzy", "values": ["on"]},  # the planted answer contains "on" in "wrong"
