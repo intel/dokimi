@@ -212,16 +212,16 @@ def _detail(g: Any) -> str:
 
 def run(questions: list[Mapping[str, Any]], *, ask: Optional[Ask] = None) -> dict[str, Any]:
     """Red-team every question with a grading block. Raises ValueError for a block that cannot be graded."""
-    gradings = grading_by_id(questions)
+    grading_by_id(questions)  # refuses a set with a block that cannot be graded; the blocks are read per question
     rows: list[dict[str, Any]] = []
     for q in questions:
-        qid = str(q.get("id"))
-        if qid not in gradings:
+        if "grading" not in q:
             continue
+        qid, grading = str(q.get("id")), q["grading"]  # not looked up by id: ids may repeat
         text = str(q.get("question") or q.get("text") or "")
-        probes = probe(gradings[qid], text, ask)
+        probes = probe(grading, text, ask)
         rows.append({"question_id": qid, "canary": "canary" in probes,
-                     "negated_only": negated_only(gradings[qid]),
+                     "negated_only": negated_only(grading),
                      "probes": {name: p.as_dict() for name, p in probes.items()}})
     violations = [{"question_id": r["question_id"], "attack": name, "passed": p["passed"]}
                   for r in rows for name, p in r["probes"].items() if p["violation"]]
