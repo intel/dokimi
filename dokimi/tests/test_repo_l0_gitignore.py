@@ -136,6 +136,21 @@ def test_a_line_git_cannot_read_matches_nothing(line, path):
     assert GitIgnore({".gitignore": line}, lambda _: line).ignored_by(path) is None
 
 
+# git check-ignore ignores nothing for each of these lines: none leaves a pattern
+@pytest.mark.parametrize("line", ["", " ", "/", "//", "!", "!/"])
+def test_a_line_with_no_pattern_is_no_rule(line):
+    text = f"gen.h\n{line}\n"
+    rules = GitIgnore({".gitignore": text}, lambda _: text)
+    assert [r.line for r in rules.rules] == [1]
+    assert rules.ignored_by("a/b") is None and rules.ignored_by("a", is_dir=True) is None
+    assert rules.reincluded_by("gen.h") is None and rules.names("x", negated=True) == []
+
+
+def test_a_tree_without_a_gitignore_ignores_nothing():
+    rules = GitIgnore(["src/a.py", "README.md"], lambda f: pytest.fail(f"read {f}"))
+    assert rules.ignored_by("src/a.py") is None and rules.names("x") == []
+
+
 def test_many_stars_do_not_backtrack():
     # A backtracking [^/]* per star takes ~15 s here; the line and the path are repository content.
     line = "*a" * 9 + "*b"
