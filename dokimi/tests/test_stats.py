@@ -624,17 +624,17 @@ def test_paired_test_rejects_a_length_mismatch_in_both_directions():
     assert stats.paired_test([1, 2, 3, 4], [1, 2, 3]) is None  # treatment longer
 
 
-def test_mean_ci_forwards_the_seed_to_the_bootstrap_fallback(monkeypatch):
+def test_mean_ci_forwards_the_confidence_and_the_seed_to_the_bootstrap_fallback(monkeypatch):
     seen = {}
 
-    def fake(vals, confidence=0.95, **kw):
-        seen.update(kw)
+    def fake(vals, confidence=None, **kw):
+        seen.update(kw, confidence=confidence)
         return {"mean": 0.0, "lo": 0.0, "hi": 0.0, "n": len(vals)}
 
     monkeypatch.setattr(stats, "HAS_SCIPY", False)
     monkeypatch.setattr(stats, "bootstrap_ci", fake)
-    stats.mean_ci([1.0, 2.0, 3.0], seed=7)
-    assert seen == {"seed": 7}
+    stats.mean_ci([1.0, 2.0, 3.0], confidence=0.8, seed=7)
+    assert seen == {"seed": 7, "confidence": 0.8}
 
 
 def test_bootstrap_ci_defaults_are_pinned():
