@@ -132,6 +132,28 @@ def test_the_tombstone_check_follows_groups_aliases_and_roots():
     # compare takes positional files, so "compare x" is a live invocation, not a free old path
     extends = (cli_routes.Tombstone(("compare", "x"), ("compare",)),)
     assert cli_routes.tombstone_problems(extends)
+    # an empty old path matches every argv; an option is not a command
+    assert cli_routes.tombstone_problems((cli_routes.Tombstone((), ("data",)),))
+    assert cli_routes.tombstone_problems((cli_routes.Tombstone(("--version",), ("data",)),))
+
+
+def test_a_tombstone_matches_an_alias_typed_on_the_command_line():
+    tombs = (cli_routes.Tombstone(("library", "old-intents"), ("library", "intents")),)
+    assert cli_routes.moved_argv(["product", "old-intents"], tombs) == ["library", "intents"]
+    assert cli_routes.moved_argv(["library", "old-intents", "x"], tombs) == [
+        "library",
+        "intents",
+        "x",
+    ]
+    assert cli_routes.moved_argv(["library", "list"], tombs) is None
+
+
+def test_every_alias_points_at_its_own_root_parser():
+    sub = _subparsers(build_parser())
+    assert sub is not None
+    for root in cli_routes.ROOTS:
+        for alias in root.aliases:
+            assert sub.choices[alias] is sub.choices[root.name], (alias, root.name)
 
 
 def test_a_tombstone_rewrites_the_argv_and_exits_2(monkeypatch, capsys):

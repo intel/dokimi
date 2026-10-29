@@ -182,12 +182,24 @@ def summary_of(path: tuple[str, ...]) -> str | None:
     return leaf.summary if leaf is not None else None
 
 
+def _canonical(path: tuple[str, ...]) -> tuple[str, ...]:
+    """``path`` with its first word replaced by the root name when that word is an alias."""
+    if not path:
+        return path
+    head = next((root.name for root in ROOTS if path[0] in (root.name, *root.aliases)), path[0])
+    return (head, *path[1:])
+
+
 def moved_argv(
     argv: list[str], tombstones: tuple[Tombstone, ...] | None = None
 ) -> list[str] | None:
-    """The argv a tombstone rewrites ``argv`` to, or None when no tombstone matches its start."""
+    """The argv a tombstone rewrites ``argv`` to, or None when no tombstone matches its start.
+
+    An alias typed on the command line (``product`` for ``library``) matches the root's tombstones.
+    """
+    canon = _canonical(tuple(argv))
     for tomb in TOMBSTONES if tombstones is None else tombstones:
-        if tuple(argv[: len(tomb.old)]) == tomb.old:
+        if canon[: len(tomb.old)] == _canonical(tomb.old):
             return [*tomb.new, *argv[len(tomb.old) :]]
     return None
 
@@ -227,6 +239,8 @@ def tombstone_problems(tombstones: tuple[Tombstone, ...] | None = None) -> list[
     """Why a tombstone is wrong: its old path is still a live route, or it points nowhere."""
     problems = []
     for tomb in TOMBSTONES if tombstones is None else tombstones:
+        if not tomb.old or tomb.old[0].startswith("-"):  # an empty path matches every argv
+            problems.append(f"{' '.join(tomb.old) or '(empty)'} is not a command path")
         if _is_route(tomb.old):
             problems.append(f"{' '.join(tomb.old)} is still a live route")
         if _extends_a_leaf(tomb.old):
