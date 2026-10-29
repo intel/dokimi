@@ -21,7 +21,8 @@ The `novelty` and `arms` steps take `--model` and `--provider`; `arms run` also
 needs `--judge-provider` (it does not fall back to `--provider` for the judge);
 `tasks run` and `repo` take `--model` only. The provider is one of `openai`,
 `anthropic`, `amazon-bedrock`, `google-vertex`, `openrouter` or `openai-codex`;
-`arms run --judge-provider` also takes `google`, an alias of `google-vertex`.
+`arms run --judge-provider` takes `google`, an alias of `google-vertex`, but not
+`openai-codex`.
 Credentials are read from the environment: `OPENAI_API_KEY`,
 `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `AWS_REGION` with
 `AWS_BEARER_TOKEN_BEDROCK` for Bedrock, and Google application-default
@@ -44,9 +45,14 @@ the scores. `novelty` refuses a self-judge; `arms run` does not check, so name
 
 - **Competitors** are the other skills an agent sees next to this one when it
   picks a skill to load. For a catalog skill they are its siblings in the
-  same catalog: `--catalog <dir>` takes every other skill under it (a `template/` copy and a
-  byte-identical mirror that loads under the same skill name are left out, and
-  vendored and VCS directories such as `.git`, `node_modules`, `site-packages` and virtualenvs are not walked), and
+  same catalog: `--catalog <dir>` takes every other skill the catalog lists: a root
+  `skills.yaml` decides what it lists; without one, every `SKILL.md` under it
+  counts except a `template/` copy (vendored and VCS directories such as `.git`,
+  `node_modules`, `site-packages` and virtualenvs are not walked). A
+  byte-identical mirror that loads under the same skill name counts once, and a
+  skill that sets `disable-model-invocation` is left out unless
+  `--include-disabled` is passed
+  ([the full rule](skill-novelty.md#can-the-artifact-be-selected-at-all)). And
   `--competitors skill:<path> …` names them one by one. Routing asks whether
   this skill wins the user requests meant for it. If you only have the one
   skill, skip step 2 and say so in the review: a number measured against
