@@ -102,8 +102,12 @@ schema: repo_manifest.v1
 id: my-repo
 guidance:
   globs: ["**/AGENTS.md", "**/CLAUDE.md", ".github/copilot-instructions.md"]
-  also_scan: ["CONTRIBUTING.md"]
 ```
+
+A glob that matches no file is only a warning. To scan a file the globs leave out,
+add `also_scan: ["CONTRIBUTING.md"]` under `guidance`: `also_scan` names files the
+repository has and the gate must see, so a missing one makes the scan `incomplete`
+and `repo scan --fail-on-fail` exits 1.
 
 The `id` must be lowercase: start with a letter or digit, then use only letters, digits, `.`, `_` and `-`.
 `reach` always adds the harness's own guidance file names (for example `CLAUDE.md`, `CLAUDE.local.md` or `AGENTS.md`).

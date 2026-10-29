@@ -594,6 +594,7 @@ def test_unreadable_build_inputs_warn_and_mark_the_scan_incomplete(tmp_path):
     assert payload["incomplete"] is True
     assert any(w.startswith("build file not scanned: defs.bzl: ") and "binary" in w for w in payload["warnings"])
     assert any(w.startswith("build file not scanned: third_party/zlib.BUILD: ") for w in payload["warnings"])
+    assert payload["incomplete_reasons"] == [w for w in payload["warnings"] if w.startswith("build file not scanned: ")]
 
 
 @pytest.mark.parametrize("name", ["zlib.BUILD", "BUILD.zlib", "BUILD.zlib.bazel"])
