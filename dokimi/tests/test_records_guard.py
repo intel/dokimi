@@ -40,7 +40,7 @@ READ_BASELINE: dict[str, tuple[int, str]] = {
            "every judge's call"),
     "dokimi.report.generator": (6, "reads the statistics dict it computed from the evaluations, not a record"),
     "dokimi.report.model_compare": (
-        17, "reads the per-question score rows extract_scores built, which use the binary score names"),
+        16, "reads the per-question score rows extract_scores built, which use the binary score names"),
 }
 
 

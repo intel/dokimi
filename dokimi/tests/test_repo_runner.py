@@ -279,6 +279,20 @@ def test_score_only_grade_without_a_numeric_score_metric_is_grader_failure(tmp_p
     assert "no numeric metrics.recall" in got["reasons"][-1]
 
 
+def test_the_score_bound_is_inclusive_at_its_edge(tmp_path):
+    import math
+
+    from dokimi.repos.grading import SCORE_BOUND, score_value
+    task = Task("rev", {"score": {"metric": "m", "max": 1}}, tmp_path)
+
+    def read(value):
+        return score_value(task, {"metrics": {"m": value}})
+
+    assert read(SCORE_BOUND) == SCORE_BOUND and read(-SCORE_BOUND) == -SCORE_BOUND
+    assert read(math.nextafter(SCORE_BOUND, math.inf)) is None
+    assert read(math.nextafter(-SCORE_BOUND, -math.inf)) is None
+
+
 # ------------------------------------------------------------------ tasks check, through the CLI
 
 
