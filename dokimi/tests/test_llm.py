@@ -335,6 +335,19 @@ def test_a_reply_without_content_is_asked_again_not_replayed(cache_dir, fake_llm
     assert not list(cache_dir.glob("*.json"))
 
 
+@pytest.mark.parametrize("stale", [None, "", "  \n"])
+def test_an_empty_entry_stored_before_the_rule_is_not_replayed(stale, cache_dir, fake_llm):
+    """A leftover empty entry must not replay as the answer with no live call."""
+    fake_llm.push("seed", "live answer")
+    llm = LLM("m", "openai")
+    assert llm.ask("p") == "seed"
+    [entry] = cache_dir.glob("*.json")
+    stored = json.loads(entry.read_text(encoding="utf-8"))
+    entry.write_text(json.dumps({**stored, "text": stale}), encoding="utf-8")
+    assert llm.complete("p").text == "live answer"
+    assert len(fake_llm.requests) == 2
+
+
 def test_chat_is_never_response_cached(cache_dir, fake_llm):
     fake_llm.push("a", "b")
     llm = LLM("m", "openai")
