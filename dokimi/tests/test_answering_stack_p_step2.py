@@ -76,3 +76,17 @@ def test_eval_output_is_stamped_with_the_method_version(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key-not-used")
     out = Judge(model="gpt-x", provider="openai")._build_evaluation_output([])
     assert out["method_version"] == ANSWERING_METHOD_VERSION == 2
+
+
+def test_eval_output_says_whether_the_placeholder_was_judged(monkeypatch):
+    """The two modes give different numbers on the same answers under one method_version."""
+    from tests.artifact_fixtures import artifact_fixture
+    from dokimi.eval.judge import Judge
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key-not-used")
+    default = Judge(model="gpt-x", provider="openai")._build_evaluation_output([])
+    opted_in = Judge(model="gpt-x", provider="openai", judge_placeholder=True)._build_evaluation_output([])
+
+    assert default["judge_placeholder"] is False
+    assert opted_in["judge_placeholder"] is True
+    artifact_fixture("eval", opted_in)  # eval.v1 declares the key

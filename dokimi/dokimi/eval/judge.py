@@ -652,6 +652,7 @@ class Judge:
         output: Dict[str, Any] = {
             "evaluated_at": self._get_timestamp(),
             "method_version": ANSWERING_METHOD_VERSION,
+            "judge_placeholder": self.judge_placeholder,
             "judge_model": self.model,
             "judge_provider": self.provider,
             "judge_temperature": self.temperature,
