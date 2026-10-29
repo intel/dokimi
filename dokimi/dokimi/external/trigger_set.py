@@ -187,8 +187,9 @@ def build_trigger_set(
 
     *sources* is ``[(questions, rule), ...]`` — a question list and the
     :func:`resolve_label` rule that labels it. *rewrite* maps question text to a
-    new query text and is given nothing but that text. *specs* names each source
-    in the refusal of an ``@field`` rule that labels none of its questions.
+    new query text and is given nothing but that text. When *specs* (one name per
+    source) is given, an ``@field`` rule that labels none of its source's questions
+    is refused, naming the source; without it such questions stay unlabelled.
     """
     out: List[TriggerQuery] = []
     seen: set = set()
@@ -214,10 +215,9 @@ def build_trigger_set(
             tq.reach = dict(extra) if isinstance(extra, dict) else {}
             out.append(tq)
         chunk = out[first:]
-        if rule.startswith("@") and chunk and not any(tq.labelled for tq in chunk):
+        if specs is not None and rule.startswith("@") and chunk and not any(tq.labelled for tq in chunk):
             # A typo in the path, not a set of negatives.
-            where = specs[index] if specs is not None else f"source {index + 1}"
-            raise TriggerSetInputError(f"{where}: {rule} resolves for none of {len(chunk)} questions")
+            raise TriggerSetInputError(f"{specs[index]}: {rule} resolves for none of {len(chunk)} questions")
     # Every question has passed validation before the first rewrite call, so a refused set costs no model call.
     for tq in out:
         if rewrite is not None:
