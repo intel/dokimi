@@ -95,12 +95,14 @@ the run's pass rates and mean scores are under `run_metadata.summary` (or
 | `canary` | The right answer, built from the one literal check (`match`, `fuzzy`, `exact`, `choice`, `json`); a question with several checks, a `regex`, a `judge` or a `negate` has none | pass it |
 | `wrong` | A planted wrong answer | fail it |
 | `empty` | `""` | fail it |
-| `hedge` | A non-committal sentence with no check value in it | fail it |
+| `hedge` | A fixed non-committal sentence; skipped when a check value occurs in it | fail it |
 | `stuffed` | Two or more literal check values, listed with no sentence around them (a single value is the right answer, not stuffing) | fail it |
 
 An attack the grader accepts, or a canary it rejects, is a violation, and any
 violation makes the run `blocked`: the command prints the pass rates and the
-violations and exits 1 (`-o` writes `redteam.v1`). A probe the grader cannot
+violations and exits 1 (`-o` writes `redteam.v1`). A `negate` check passes an
+answer that lacks its value, so a block with one gets no `wrong`, `empty` or
+`hedge` probe; `stuffed` still runs. A probe the grader cannot
 score is unscored and does not block. `judge` checks are unscored unless
 `--judge` is given, so the default run makes no model call. Nothing here
 changes a score; it tells you whether a grading block is worth trusting.

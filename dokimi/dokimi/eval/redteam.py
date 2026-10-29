@@ -79,8 +79,21 @@ def stuffed_for(grading: Mapping[str, Any]) -> Optional[str]:
 
 
 def attacks(grading: Mapping[str, Any]) -> dict[str, Optional[str]]:
-    """The synthetic answer for each attack; None where the attack does not apply to the block."""
-    return {"canary": canary_for(grading), "wrong": WRONG, "empty": "", "hedge": HEDGE,
+    """The synthetic answer for each attack; None where the attack does not apply to the block.
+
+    A ``negate`` check passes an answer that lacks its value, so a wrong or empty answer passes it
+    by design; ``stuffed`` still runs, since it carries the negated value and must fail. The hedge is
+    fixed text, so it is skipped when a check value occurs in it (the grader would accept it).
+    """
+    checks = grading.get("checks", [])
+    negated = any(c.get("negate") for c in checks)
+    values = [str(v).strip().lower() for c in checks if c.get("type") in _LITERAL - {"choice"}
+              for v in _literal_values(c)]
+    clashes = any(v and v in HEDGE.lower() for v in values)
+    return {"canary": canary_for(grading),
+            "wrong": None if negated else WRONG,
+            "empty": None if negated else "",
+            "hedge": None if negated or clashes else HEDGE,
             "stuffed": stuffed_for(grading)}
 
 
