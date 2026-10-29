@@ -27,7 +27,7 @@ from dokimi.defaults import (
 from dokimi.commands.library import _load_registry
 
 
-def _run_single_library(entry, output_dir: str, model: str, provider: str, judge_model: str, judge_provider: str = DEFAULT_JUDGE_PROVIDER, doc_source_override=None, max_tokens_per_question: int = DEFAULT_MAX_TOKENS_PER_QUESTION, force_regen: bool = False, concurrency: int = DEFAULT_CONCURRENCY, questions_from=None, questions_root=None, judge_temperature=None, judge_placeholder=False) -> dict:
+def _run_single_library(entry, output_dir: str, model: str, provider: str, judge_model: str, judge_provider: str = DEFAULT_JUDGE_PROVIDER, doc_source_override=None, max_tokens_per_question: int = DEFAULT_MAX_TOKENS_PER_QUESTION, force_regen: bool = False, concurrency: int = DEFAULT_CONCURRENCY, questions_from=None, questions_root=None, judge_temperature=None, judge_placeholder=False, registry=None) -> dict:
     """Run full evaluation pipeline for one ProductEntry. Returns result dict."""
     from dokimi.orchestrator import EvaluationPipeline
     from pathlib import Path as _Path
@@ -66,6 +66,7 @@ def _run_single_library(entry, output_dir: str, model: str, provider: str, judge
         force_regen=force_regen,
         questions_from=questions_from,
         product_key=entry.key,
+        registry=registry,
         questions_root=_Path(questions_root) if questions_root else None,
     )
     result = pipeline.run(concurrency=concurrency)
@@ -251,6 +252,7 @@ def cmd_benchmark_run(args: argparse.Namespace) -> None:
             questions_root=questions_root,
             judge_temperature=getattr(args, "judge_temperature", None),
             judge_placeholder=getattr(args, "judge_placeholder", False),
+            registry=registry,
         )
     else:
         print(f"\n🔁 Multi-run mode: {n_runs} evaluation passes")
@@ -275,6 +277,7 @@ def cmd_benchmark_run(args: argparse.Namespace) -> None:
                 questions_root=questions_root,
                 judge_temperature=getattr(args, "judge_temperature", None),
                 judge_placeholder=getattr(args, "judge_placeholder", False),
+                registry=registry,
             )
             try:
                 eval_summary = r["result"]["steps"]["evaluation"]["summary"]
@@ -329,6 +332,7 @@ def cmd_benchmark_batch(args: argparse.Namespace) -> None:
                 force_regen=getattr(args, "force_regen", False),
                 concurrency=getattr(args, "concurrency", DEFAULT_CONCURRENCY),
                 questions_root=getattr(args, "questions_root", None),
+                registry=registry,
             )
             results.append(r)
         except Exception as exc:
