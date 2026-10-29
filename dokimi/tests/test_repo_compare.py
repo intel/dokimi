@@ -746,8 +746,8 @@ def test_non_finite_metrics_are_not_measurements(tmp_path, bad):
     json.dumps(s, allow_nan=False)
 
 
-@pytest.mark.parametrize("bad", [float("inf"), float("-inf"), float("nan")])
-def test_a_non_finite_cost_rejects_the_cell_with_a_message(tmp_path, capsys, bad):
+@pytest.mark.parametrize("bad", [float("inf"), float("-inf"), float("nan"), "1", True])
+def test_an_unusable_cost_rejects_the_cell_naming_it(tmp_path, capsys, bad):
     b = tmp_path / "b1"
     _cell(b, "fix_0", "guidance:none", 1, cost=bad)
     _cell(b, "fix_0", "guidance:raw", 1)
@@ -756,6 +756,7 @@ def test_a_non_finite_cost_rejects_the_cell_with_a_message(tmp_path, capsys, bad
         args.func(args)
     err = capsys.readouterr().err
     assert exc.value.code == 1 and "has no usable `agent`" in err and "Traceback" not in err
+    assert "fix_0__guidance-none__m-1__r1" in err and "guidance-raw" not in err
 
 
 def test_a_batch_given_as_dot_keeps_its_directory_name(tmp_path, monkeypatch):

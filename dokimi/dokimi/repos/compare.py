@@ -87,8 +87,8 @@ from dokimi.context.consistency import Run, order_distance, pass_hat, run_from_e
 from dokimi.eval.stats import adjust_pvalues, bootstrap_ci, mean_ci
 
 from .process_counts import process_order, process_values
-from .report import (load_cells, mismatch_warnings, model_matches, model_mismatch, resolved_models, unmeasured_note,
-                     uptake_counts)
+from .report import (load_cells, mismatch_warnings, model_matches, model_mismatch, reading_cells, resolved_models,
+                     unmeasured_note, uptake_counts)
 
 #: Largest number of non-zero deltas whose sign-flip distribution is enumerated (2**16 patterns).
 EXACT_MAX = 16
@@ -588,24 +588,25 @@ def _task_values(cells: list[dict[str, Any]], metrics: tuple[str, ...], pass_k: 
         groups[(rec["model"], rec["task"])].append(rec)
     out = {}
     for key, recs in groups.items():
-        score_task = any(r["score_task"] for r in recs)
-        found = {"cost_usd": [r["agent"].get("cost_usd") for r in recs],
-                 "turns": [r["agent"].get("num_turns") for r in recs],
-                 **{f"metric:{name}": [r["metrics"].get(name) for r in recs] for name in metrics}}
-        found.update(_process_lists(recs))
-        if score_task:
-            found["score"] = [0.0 if r["grade"]["status"] == "grader_failure" else (r["grade"]["score"] or 0.0)
-                              for r in recs]
-        else:
-            found["gate"] = [float(bool(r["grade"]["success"])) for r in recs]
+        with reading_cells([f"{r['batch']}/{r['cell']}/result.json" for r in recs]):
+            score_task = any(r["score_task"] for r in recs)
+            found = {"cost_usd": [r["agent"].get("cost_usd") for r in recs],
+                     "turns": [r["agent"].get("num_turns") for r in recs],
+                     **{f"metric:{name}": [r["metrics"].get(name) for r in recs] for name in metrics}}
+            found.update(_process_lists(recs))
+            if score_task:
+                found["score"] = [0.0 if r["grade"]["status"] == "grader_failure" else (r["grade"]["score"] or 0.0)
+                                  for r in recs]
+            else:
+                found["gate"] = [float(bool(r["grade"]["success"])) for r in recs]
+            # unmeasured: a grader failure, or an agent outage (see _agent_outage); either way its 0 is not a measurement
+            grader_failed = any(r["grade"]["status"] == "grader_failure" or _agent_outage(r) for r in recs)
         nums = {measure: _finite(vals) for measure, vals in found.items()}
         score_max_vals = [r.get("score_max") for r in recs]
         maxes = set(_finite(score_max_vals))  # cells of two eval trees may differ
         # If any cell has unknown max, or maxes differ, top is None; otherwise take the single value
         has_unknown_max = any(v is None for v in score_max_vals)
         top = (maxes.pop() if len(maxes) == 1 and not has_unknown_max else None) if score_task else 1.0
-        # unmeasured: a grader failure, or an agent outage (see _agent_outage); either way its 0 is not a measurement
-        grader_failed = any(r["grade"]["status"] == "grader_failure" or _agent_outage(r) for r in recs)
         n = {measure: len(v) for measure, v in nums.items()}
         values = {measure: (sum(v) / len(v) if v else None) for measure, v in nums.items()}
         if pass_k and not score_task:

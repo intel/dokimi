@@ -28,6 +28,10 @@ def _run(*argv: str) -> None:
     args.func(args)
 
 
+def _no_constant(name: str) -> None:
+    raise ValueError(f"{name} in the JSON output")
+
+
 _CORRUPT = [
     pytest.param(b"{not json", id="not-json"),
     pytest.param(b"\xff\xfe", id="not-utf8"),
@@ -115,7 +119,8 @@ _BAD_FIELDS = [
     pytest.param("agent", {**_GOOD["agent"], "cost_usd": "0.1"}, id="cost-a-string"),
     pytest.param("agent", {**_GOOD["agent"], "cost_usd": True}, id="cost-a-bool"),
     pytest.param("grade", {**_GOOD["grade"], "score": True}, id="grade-score-a-bool"),
-    pytest.param("grade", {**_GOOD["grade"], "score": 10**400}, id="grade-score-overflows-a-float"),
+    pytest.param("grade", {**_GOOD["grade"], "score": "1"}, id="grade-score-a-string"),
+    pytest.param("grade", {**_GOOD["grade"], "score_only": "false", "score": 1.0}, id="grade-score-only-a-string"),
     pytest.param("score_max", True, id="score-max-a-bool"),
     pytest.param("agent", {**_GOOD["agent"], "num_turns": 10**400}, id="num-turns-overflows"),
     pytest.param("agent", {**_GOOD["agent"], "num_turns": "3"}, id="num-turns-a-string"),
@@ -172,8 +177,10 @@ def test_a_valid_skills_block_is_accepted_by_repo_report(tmp_path, capsys, skill
     batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": json.dumps(rec).encode()})
     _run("report", str(batch), "--json")
     row = json.loads(capsys.readouterr().out)["rows"][0]
-    if skills.get("measured", True):
+    if skills and skills.get("measured", True):
         assert {k: row[k] for k in shown} == shown
+        if "skill_expected" not in shown:
+            assert "skill_expected" not in row
     else:
         assert "skill_measured" not in row
 
@@ -212,7 +219,7 @@ def test_deltas_that_would_overflow_when_squared_are_rejected_with_a_message(tmp
 def test_deltas_at_the_bound_compare_without_overflow(tmp_path, capsys, cmd):
     batch = _three_task_batch(tmp_path, _SAFE_MAGNITUDE, -_SAFE_MAGNITUDE)
     _run(cmd[0], str(batch), *cmd[1:], "--json")
-    assert json.loads(capsys.readouterr().out)
+    assert json.loads(capsys.readouterr().out, parse_constant=_no_constant)
 
 
 def test_a_result_file_with_a_score_task_and_no_score_only_is_accepted(tmp_path, capsys):
@@ -308,33 +315,72 @@ def test_a_score_task_result_file_without_grade_success_exits_1(tmp_path, capsys
     assert "has no usable `grade`" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("cmd", [("report",), ("compare", "--baseline", "a")], ids=["report", "compare"])
-def test_a_cell_shape_the_checks_miss_exits_1_without_a_traceback(tmp_path, capsys, monkeypatch, cmd):
+def _two_arm_batch(tmp_path, rec):
+    return _batch(tmp_path, "b1", {"t__a__m__r1/result.json": json.dumps(rec).encode(),
+                                   "t__b__m__r1/result.json": json.dumps({**rec, "arm": "b"}).encode()})
+
+
+_CMDS = pytest.mark.parametrize("cmd", [("report",), ("compare", "--baseline", "a")], ids=["report", "compare"])
+
+
+@_CMDS
+def test_a_cell_shape_the_checks_miss_exits_1_naming_the_cell(tmp_path, capsys, monkeypatch, cmd):
     from dokimi.repos import report
 
     monkeypatch.setattr(report, "_check_cell", lambda path, rec: None)
-    rec = {**_GOOD, "grade": "x"}
-    batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": json.dumps(rec).encode(),
-                                    "t__b__m__r1/result.json": json.dumps({**rec, "arm": "b"}).encode()})
+    batch = _two_arm_batch(tmp_path, {**_GOOD, "grade": "x"})
     with pytest.raises(SystemExit) as exc:
         _run(cmd[0], str(batch), *cmd[1:])
     assert exc.value.code == 1
-    assert "unexpected shape" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "t__a__m__r1" in err and "result.json" in err and "unexpected shape" in err
 
 
-@pytest.mark.parametrize("cmd", [("report",), ("compare", "--baseline", "a")], ids=["report", "compare"])
+@_CMDS
 @pytest.mark.parametrize("exc", [KeyError("k"), TypeError("t"), AttributeError("a"), OverflowError("o"), ValueError("v")],
                          ids=lambda e: type(e).__name__)
-def test_each_cell_shape_error_exits_1_without_a_traceback(tmp_path, capsys, monkeypatch, cmd, exc):
+def test_each_cell_shape_error_exits_1_naming_the_cell(tmp_path, capsys, monkeypatch, cmd, exc):
     from dokimi.repos import compare, report
 
-    def boom(batch_dir):
+    def boom(recs):
         raise exc
 
-    monkeypatch.setattr(report, "load_cells", boom)
-    monkeypatch.setattr(compare, "load_cells", boom)
-    batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": json.dumps(_GOOD).encode()})
+    monkeypatch.setattr(report, "process_means", boom)
+    monkeypatch.setattr(compare, "_process_lists", boom)
+    batch = _two_arm_batch(tmp_path, _GOOD)
     with pytest.raises(SystemExit) as raised:
         _run(cmd[0], str(batch), *cmd[1:])
     assert raised.value.code == 1
-    assert f"unexpected shape ({type(exc).__name__}" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "t__a__m__r1" in err and f"unexpected shape ({type(exc).__name__}" in err
+
+
+@pytest.mark.parametrize("target", ["pass_hat", "order_distance"])
+def test_an_error_in_compare_statistics_is_not_reported_as_a_bad_cell(tmp_path, monkeypatch, target):
+    from dokimi.repos import compare
+
+    def boom(*args):
+        raise KeyError("a defect, not a cell")
+
+    monkeypatch.setattr(compare, target, boom)
+    batch = _two_arm_batch(tmp_path, _GOOD)
+    with pytest.raises(KeyError, match="a defect, not a cell"):
+        _run("compare", str(batch), "--baseline", "a", "--pass-k", "1", "--path-stability")
+
+
+@_CMDS
+@pytest.mark.parametrize("score", ["NaN", "Infinity", "-Infinity", "1e200", pytest.param("9" * 400, id="400-digits")])
+def test_a_stored_unmeasurable_score_is_read_as_a_grader_failure(tmp_path, capsys, cmd, score):
+    rec = {**_GOOD, "score_task": True, "grade": {"status": "graded", "score_only": True, "success": None,
+                                                  "score": 0.5, "reasons": []}}
+    text = json.dumps(rec).replace("0.5", score)
+    batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": text.encode(),
+                                    "t__b__m__r1/result.json": json.dumps({**rec, "arm": "b"}).encode()})
+    _run(cmd[0], str(batch), *cmd[1:], "--json")
+    out = json.loads(capsys.readouterr().out, parse_constant=_no_constant)
+    if cmd[0] == "report":
+        row = next(r for r in out["rows"] if r["arm"] == "a")
+        assert row["grader_failures"] == 1 and row["score"] == 0.0
+    else:
+        row = next(r for r in out["comparisons"] if r["measure"] == "score")
+        assert (row["baseline_mean"], row["treatment_mean"]) == (0.0, 0.5)

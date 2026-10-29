@@ -38,6 +38,8 @@ from __future__ import annotations
 import json
 import re
 from collections import defaultdict
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -114,9 +116,38 @@ def _grade_usable(rec: dict[str, Any]) -> bool:
         return False
     if "score_task" in rec:
         return "score" in grade
-    if "score_only" not in grade:
+    if not isinstance(grade.get("score_only"), bool):
         return False
     return "score" in grade or not grade["score_only"]
+
+
+def _is_number(value: object) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _fail_unmeasurable_score(rec: dict[str, Any]) -> None:
+    """Read a stored NaN, infinite or out-of-bound ``grade.score`` as the grader failure grading now records."""
+    grade = rec.get("grade")
+    if isinstance(grade, dict) and _is_number(grade.get("score")) and not _optional_number(grade["score"]):
+        reasons = grade.get("reasons")
+        if not isinstance(reasons, list):
+            reasons = []
+        grade.update(status="grader_failure", success=False, score=None,
+                     reasons=[*reasons, f"score {grade['score']!r} is not finite or exceeds {SCORE_BOUND:g}"])
+
+
+# what a cell field of the wrong shape raises past _check_cell
+_MALFORMED_CELL = (KeyError, TypeError, AttributeError, OverflowError, ValueError)
+
+
+@contextmanager
+def reading_cells(files: list[str]) -> Iterator[None]:
+    """Re-raise a field of the wrong shape, read inside the block, as a :class:`CellFileError` naming ``files``."""
+    try:
+        yield
+    except _MALFORMED_CELL as exc:
+        raise CellFileError(f"a field of {', '.join(files)} has an unexpected shape "
+                            f"({type(exc).__name__}: {exc})") from exc
 
 
 def _check_cell(path: Path, rec: dict[str, Any]) -> None:
@@ -147,11 +178,13 @@ def load_cells(batch_dir: Path) -> tuple[list[dict[str, Any]], list[str]]:
     finished = []
     for path in sorted(batch_dir.glob("*/result.json")):
         rec = _read_object(path)
+        _fail_unmeasurable_score(rec)
         _check_cell(path, rec)
         rec["cell"] = path.parent.name
         # The row's kind is the task's, not what its cells' grades say. The runner records it from the
         # eval dir's task.json; the cell's copy is in the run dir, which the grader could rewrite.
-        rec["score_task"] = bool(rec["score_task"] if "score_task" in rec else rec["grade"]["score_only"])
+        with reading_cells([str(path)]):
+            rec["score_task"] = bool(rec["score_task"] if "score_task" in rec else rec["grade"]["score_only"])
         finished.append(rec)
     done = {r["cell"] for r in finished}
     unsupported = {p.parent.name for p in batch_dir.glob(f"*/{UNSUPPORTED_FILE}")}
@@ -183,41 +216,42 @@ def summarize(batch_dir: Path) -> dict[str, Any]:
     rows = []
     for key in sorted(groups):
         recs = groups[key]
-        n = len(recs)
-        failures = sum(r["grade"]["status"] == "grader_failure" for r in recs)
-        score_only = any(r["score_task"] for r in recs)
-        row: dict[str, Any] = {"task": key[0], "arm": key[1], "model": key[2], "n": n,
-                               "grader_failures": failures,
-                               "agent_timeouts": sum(bool(r["agent"]["timed_out"]) for r in recs),
-                               "agent_errors": sum(bool(r["agent"]["is_error"]) for r in recs),
-                               "over_budget": sum(bool(r["agent"]["over_budget"]) for r in recs),
-                               "cost_unknown": sum(r["agent"]["cost_usd"] is None for r in recs),
-                               "missing": missing_by.get((key[0], _cell_arm(key[1]), _cell_model(key[2])), 0),
-                               "cost_usd": _mean([r["agent"]["cost_usd"] for r in recs]),
-                               "total_cost_usd": round(sum(r["agent"]["cost_usd"] or 0 for r in recs), 6),
-                               "turns": _mean([r["agent"]["num_turns"] for r in recs]),
-                               "process": process_means(recs),
-                               **{k: _mean([r["agent"].get(k) for r in recs]) for k in _TOKENS},
-                               "networks": sorted({str(r["agent"].get("network")) for r in recs}),
-                               "model_resolved": sorted({m for r in recs for m in resolved_models(r)})}
-        uptake = uptake_counts(recs)
-        if uptake is not None:
-            row["uptake"] = uptake
-        if score_only:
-            scores = [0.0 if r["grade"]["status"] == "grader_failure" else r["grade"]["score"] for r in recs]
-            row.update(kind="score", score=_mean([0.0 if s is None else s for s in scores]))
-        else:
-            wins = sum(bool(r["grade"]["success"]) for r in recs)
-            row.update(kind="gate", successes=wins, success_rate=round(wins / n, 4), ci95=wilson(wins, n))
-        used = [r["skills"] for r in recs if r.get("skills") and r["skills"].get("measured", True)]
-        if used:  # cells whose trace was unreadable are not counted: no rate from a missing measurement
-            row["skill_measured"] = len(used)
-            row["skill_invoked"] = sum(bool(u["skill_invoked"]) for u in used)
-            expecting = [u for u in used if u.get("expected_skill")]  # a task naming no skill has nothing to select
-            if expecting:
-                row["skill_expected"] = len(expecting)
-                row["skill_selected_correct"] = sum(bool(u["skill_selected_correct"]) for u in expecting)
-        rows.append(row)
+        with reading_cells([str(batch_dir / r["cell"] / "result.json") for r in recs]):
+            n = len(recs)
+            failures = sum(r["grade"]["status"] == "grader_failure" for r in recs)
+            score_only = any(r["score_task"] for r in recs)
+            row: dict[str, Any] = {"task": key[0], "arm": key[1], "model": key[2], "n": n,
+                                   "grader_failures": failures,
+                                   "agent_timeouts": sum(bool(r["agent"]["timed_out"]) for r in recs),
+                                   "agent_errors": sum(bool(r["agent"]["is_error"]) for r in recs),
+                                   "over_budget": sum(bool(r["agent"]["over_budget"]) for r in recs),
+                                   "cost_unknown": sum(r["agent"]["cost_usd"] is None for r in recs),
+                                   "missing": missing_by.get((key[0], _cell_arm(key[1]), _cell_model(key[2])), 0),
+                                   "cost_usd": _mean([r["agent"]["cost_usd"] for r in recs]),
+                                   "total_cost_usd": round(sum(r["agent"]["cost_usd"] or 0 for r in recs), 6),
+                                   "turns": _mean([r["agent"]["num_turns"] for r in recs]),
+                                   "process": process_means(recs),
+                                   **{k: _mean([r["agent"].get(k) for r in recs]) for k in _TOKENS},
+                                   "networks": sorted({str(r["agent"].get("network")) for r in recs}),
+                                   "model_resolved": sorted({m for r in recs for m in resolved_models(r)})}
+            uptake = uptake_counts(recs)
+            if uptake is not None:
+                row["uptake"] = uptake
+            if score_only:
+                scores = [0.0 if r["grade"]["status"] == "grader_failure" else r["grade"]["score"] for r in recs]
+                row.update(kind="score", score=_mean([0.0 if s is None else s for s in scores]))
+            else:
+                wins = sum(bool(r["grade"]["success"]) for r in recs)
+                row.update(kind="gate", successes=wins, success_rate=round(wins / n, 4), ci95=wilson(wins, n))
+            used = [r["skills"] for r in recs if r.get("skills") and r["skills"].get("measured", True)]
+            if used:  # cells whose trace was unreadable are not counted: no rate from a missing measurement
+                row["skill_measured"] = len(used)
+                row["skill_invoked"] = sum(bool(u["skill_invoked"]) for u in used)
+                expecting = [u for u in used if u.get("expected_skill")]  # a task naming no skill has nothing to select
+                if expecting:
+                    row["skill_expected"] = len(expecting)
+                    row["skill_selected_correct"] = sum(bool(u["skill_selected_correct"]) for u in expecting)
+            rows.append(row)
     return {"batch": str(batch_dir), "cells": len(cells), "missing": missing, "rows": rows,
             "unsupported": load_unsupported(batch_dir),
             "total_cost_usd": round(sum(r["agent"]["cost_usd"] or 0 for r in cells), 6),
