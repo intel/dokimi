@@ -211,6 +211,7 @@ def test_docker_backend_locks_the_container_down():
     assert argv[argv.index("timeout") + 1] == "7" and call.timeout == 37
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits: Windows chmod sets only read-only")
 def test_docker_backend_mount_is_readable_by_a_root_without_capabilities():
     # The container's root has no CAP_DAC_OVERRIDE, and the mount belongs to the host user:
     # it can enter the directory and read the snippet only through the "other" permission bits.
