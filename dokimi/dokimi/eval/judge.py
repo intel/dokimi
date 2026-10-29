@@ -328,7 +328,10 @@ class Judge:
                     "error": str(e),
                     "with_docs": None,
                     "without_docs": None,
-                    "delta": None
+                    "delta": None,
+                    # What retrieval returned does not depend on the judge: the trust
+                    # gate's coverage floor must not count this row as unrecorded.
+                    "retrieval_hit": answer.retrieval_hit,
                 }
             elapsed = time.time() - t0
             with lock:

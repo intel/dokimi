@@ -68,3 +68,35 @@ def test_all_hits_pass_the_zero_check():
     check = _zero_check(evaluate_trust(_rows(14, 0)))
     assert check.value == 0.0
     assert check.passed is True
+
+
+def _retrieval_check(verdict):
+    (check,) = [c for c in verdict.checks if c.name == "retrieval_hit_rate"]
+    return check
+
+
+def test_judge_error_rows_keep_the_retrieval_outcome_of_their_answer(monkeypatch):
+    """5 of 20 answers fail in the judge: the retrieval rate is still measured over all 20."""
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key-not-used")
+    judge = Judge(model="gpt-x", provider="openai")
+    judge.llm = MagicMock()
+    judge.llm.invoke.side_effect = lambda msgs, *a, **k: GOOD
+    real = judge._evaluate_answer_pair
+
+    def flaky(library_name, item):
+        if int(item.question_id[1:]) >= 15:
+            raise RuntimeError("judge down")
+        return real(library_name, item)
+
+    judge._evaluate_answer_pair = flaky
+    answers = [
+        {"question_id": f"q{i}", "question_text": "q?",
+         "with_docs": dict(HIT), "without_docs": {"answer": "baseline"}}
+        for i in range(20)
+    ]
+    rows = judge.evaluate_answers("L", answers)
+    assert sum("error" in r for r in rows) == 5
+    check = _retrieval_check(evaluate_trust(rows))
+    assert check.value == 1.0
+    assert check.measured is not False
+    assert "(20/20)" in check.message
