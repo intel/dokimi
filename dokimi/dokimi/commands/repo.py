@@ -278,7 +278,7 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
             only=only, salt=args.salt, max_turns=args.max_turns, budget_usd=args.budget,
             timeout_s=args.timeout, keep=args.keep,
         )
-    except ReachError as exc:
+    except (SourceError, ProfileError, ReachError) as exc:  # ProfileError: --bin cannot run its version command
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
     path = save_reach(payload, out_dir)

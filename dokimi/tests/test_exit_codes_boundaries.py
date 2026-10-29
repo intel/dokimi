@@ -206,6 +206,32 @@ def test_repo_reach_probe_workspace_failure_keeps_exit_1(tmp_path, monkeypatch, 
     assert "probe workspace" in capsys.readouterr().err
 
 
+def test_repo_reach_unrunnable_harness_binary_keeps_exit_1_with_a_message(tmp_path, monkeypatch, capsys):
+    # run_reach asks the harness for its version first: a --bin that cannot run is a runtime failure
+    # and must print its message, not escape as a ProfileError traceback.
+    (tmp_path / "CLAUDE.md").write_text("# guidance\n", encoding="utf-8")
+    _argv(monkeypatch, "repo", "reach", str(tmp_path), "--model", "m", "--bin", str(tmp_path / "no-such-claude"),
+          "--out", str(tmp_path / "out"))
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 1
+    assert "cannot run" in capsys.readouterr().err
+
+
+def test_repo_reach_workspace_source_error_keeps_exit_1_with_a_message(tmp_path, monkeypatch, capsys):
+    (tmp_path / "CLAUDE.md").write_text("# guidance\n", encoding="utf-8")
+
+    def links_escape(*args, **kwargs):
+        raise SourceError("path escapes the repository: ../x")
+
+    monkeypatch.setattr("dokimi.repos.reach.run_reach", links_escape)
+    _argv(monkeypatch, "repo", "reach", str(tmp_path), "--model", "m", "--out", str(tmp_path / "out"))
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 1
+    assert "path escapes the repository" in capsys.readouterr().err
+
+
 # ── benchmark batch: nothing selected is a usage refusal, as with an unknown library ───────
 
 class _NoLibraries:
