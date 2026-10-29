@@ -44,7 +44,8 @@ the scores. `novelty` refuses a self-judge; `arms run` does not check, so name
 - **Competitors** are the other skills an agent sees next to this one when it
   picks a skill to load. For a catalog skill they are its siblings in the
   same catalog: `--catalog <dir>` takes every other skill under it (a `template/` copy and a
-  byte-identical mirror that loads under the same skill name are left out), and
+  byte-identical mirror that loads under the same skill name are left out, and
+  vendored and VCS directories such as `.git`, `node_modules`, `site-packages` and virtualenvs are not walked), and
   `--competitors skill:<path> …` names them one by one. Routing asks whether
   this skill wins the user requests meant for it. If you only have the one
   skill, skip step 2 and say so in the review: a number measured against
@@ -108,12 +109,36 @@ How to read the results:
   look. Harness tool names (`run_in_background`) and placeholders
   (`<name>`, `caseNN_*`) can show up as `fail` too. `unresolved` also needs
   a look: it can be a path the scan could not check, or one whose directory
-  is gone.
+  is gone. The scan checks that a path, identifier or command exists, not
+  that what the guidance says about it is true: a count or a description of
+  the code (`public api` where the code declares `cdef api`) can be stale
+  while every claim is `ok`. A review that lists the scan under what it
+  checked names what the scan covers.
 - **Reach:** a guidance file nobody loads cannot help anyone. Run `reach`
   before you judge the guidance's content. `loaded` comes from the harness
   itself, not from the harness's documentation, so a result that contradicts
-  the docs is a finding.
+  the docs is a finding. `reach` probes the tree as it is: with no
+  `CLAUDE.md` in the tree, it does not show what one would turn off.
 - **Step 4:** without tasks there is no outcome measurement. The review
   should say so rather than infer one from steps 1–3.
+
+A review also says which of its points come from reading rather than from a command:
+
+- **Past review comments:** no command counts how many of them the guidance
+  would have prevented. To count by hand, take the comments the author then
+  addressed, and read the reply before counting a miss: a change the author
+  meant, or declined with a reason, is none. Count each comment once, and
+  check that a fix the review cites is still on the default branch. The
+  count takes every addressed comment, not only issues raised in at least
+  two PRs: that filter picks which comments become review rules
+  ([preparing-a-repository.md](preparing-a-repository.md#6-review-rules-learned-from-past-reviews)),
+  while the count asks what the guidance would have caught. To measure it
+  instead, replay the merged pull requests as `dokimi:review_replay` tasks
+  and compare `guidance:none` with `guidance:raw` in step 4.
+- **A rule the review proposes:** read every file it names; that the name
+  exists is not enough (a workflow that calls another one holds no matrix of
+  its own). Check it against the existing guidance: a nested `AGENTS.md` may
+  keep old code on purpose. Put what applies to one directory in that
+  directory's file.
 
 The contract a repository codes against: [repo-evaluation-contract.md](repo-evaluation-contract.md).
