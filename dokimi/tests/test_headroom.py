@@ -203,12 +203,28 @@ def test_the_table_lists_the_control_arm_once():
     assert header == ["question", "reps", "no-skill", "skill", "flag", "provisional"]
 
 
-@pytest.mark.parametrize("kwargs", [{"ceiling": 0.0}, {"ceiling": 1.5}, {"floor": 0.9},
-                                    {"min_reps": 0}])
-def test_unusable_thresholds_are_refused(kwargs):
+@pytest.mark.parametrize("kwargs, message", [
+    ({"ceiling": 0.0}, r"ceiling must be in \(0, 1\], not 0\.0"),
+    ({"ceiling": -0.1}, r"ceiling must be in \(0, 1\], not -0\.1"),
+    ({"ceiling": 1.5}, r"ceiling must be in \(0, 1\], not 1\.5"),
+    ({"floor": 0.9}, r"floor must be in \[0, ceiling\), not 0\.9 \(ceiling 0\.9\)"),
+    ({"floor": -0.1}, r"floor must be in \[0, ceiling\), not -0\.1"),
+    ({"min_reps": 0}, r"min_reps must be at least 1, not 0"),
+    ({"min_reps": -1}, r"min_reps must be at least 1, not -1"),
+])
+def test_unusable_thresholds_are_refused(kwargs, message):
     run = _run([("1", {"baseline": 50, "skill": 50})])
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=message):
         headroom([run], **kwargs)
+
+
+def test_the_threshold_boundaries_are_accepted():
+    # ceiling 1.0 is the top of (0, 1]; floor 0 is the bottom of [0, ceiling); one rep is the least.
+    run = _run([("1", {"baseline": 100, "skill": 100}), ("2", {"baseline": 99, "skill": 99})])
+    result = headroom([run], ceiling=1.0, floor=0.0, min_reps=1)
+    assert _flags(result) == {"1": CEILING, "2": None}
+    assert result["thresholds"] == {"ceiling": 1.0, "floor": 0.0, "min_reps": 1}
+    assert headroom([run], ceiling=0.5, floor=0.49)["thresholds"]["floor"] == 0.49
 
 
 def test_binary_answers_are_refused():
