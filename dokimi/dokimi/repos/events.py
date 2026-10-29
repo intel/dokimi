@@ -138,6 +138,12 @@ def _apply_result(block: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> No
             result_of["output"], result_of["output_truncated"] = clip_output(output)
 
 
+def _set_num_turns(out: Transcript, turns: Any) -> None:
+    out.num_turns = turns if isinstance(turns, int) and not isinstance(turns, bool) else None
+    if out.num_turns is None and turns is not None:
+        out.errors.append(f"result num_turns {str(turns)[:50]!r} is not an integer; recorded as null")
+
+
 def _apply(out: Transcript, rec: dict[str, Any], t: float | None,
            by_id: dict[str, dict[str, Any]], workdir: str | None) -> None:
     kind = rec.get("type")
@@ -170,8 +176,7 @@ def _apply(out: Transcript, rec: dict[str, Any], t: float | None,
         out.answer = str(rec.get("result") or "").strip()
         out.cost_usd = rec.get("total_cost_usd")
         out.result_seen = True
-        turns = rec.get("num_turns")
-        out.num_turns = turns if isinstance(turns, int) and not isinstance(turns, bool) else None
+        _set_num_turns(out, rec.get("num_turns"))
         out.is_error = bool(rec.get("is_error"))
         out.result_subtype = rec.get("subtype")
         out.subagent_calls = out.subagent_calls or 0

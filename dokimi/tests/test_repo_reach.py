@@ -963,4 +963,6 @@ def test_reach_resalts_when_a_guidance_file_already_holds_its_token(tmp_path, mo
 @pytest.mark.parametrize("turns, expected", [(3, 3), ("3", None), (True, None), (2.5, None), (None, None)])
 def test_num_turns_is_an_int_or_none(turns, expected):
     raw = json.dumps({"type": "result", "result": "ok", "num_turns": turns})
-    assert convert("claude-stream-json", raw).num_turns == expected
+    got = convert("claude-stream-json", raw)
+    assert got.num_turns == expected
+    assert any("num_turns" in e for e in got.errors) == (expected is None and turns is not None)
