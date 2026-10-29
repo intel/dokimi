@@ -400,7 +400,8 @@ def cmd_repo_compare(args: argparse.Namespace) -> None:
             sys.exit(1)
     arms = [a for spec in args.arm for a in spec.split(",") if a] if args.arm else None
     try:
-        summary = compare(dirs, args.baseline, arms, args.model, tuple(args.metric or ()))
+        summary = compare(dirs, args.baseline, arms, args.model, tuple(args.metric or ()),
+                          pass_k=args.pass_k, path_stability=args.path_stability)
     except CompareError as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
@@ -547,5 +548,9 @@ def register(repo_sub, positive_int, source_help: str, cache_help: str) -> None:
     compare_p.add_argument("--model", action="append", default=None, help="Only this model; repeatable")
     compare_p.add_argument("--metric", action="append", default=None,
                            help="Also compare this numeric or boolean grade.json metric; repeatable")
+    compare_p.add_argument("--pass-k", type=positive_int, default=None, dest="pass_k", metavar="K",
+                           help="Also compare pass^K: the chance K cells of a task all pass its gate")
+    compare_p.add_argument("--path-stability", action="store_true", dest="path_stability",
+                           help="Also compare path_distance: how much the tool paths of a task's cells differ")
     compare_p.add_argument("--json", action="store_true", help="Print the comparison as JSON")
     compare_p.set_defaults(func=cmd_repo_compare)

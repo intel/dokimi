@@ -115,6 +115,7 @@ nav:
       - adding-doc-source.md
       - evaluating-treatments.md
       - tool-preference.md
+      - run-consistency.md
       - coding-harnesses.md
       - answer-formats.md
       - context-window.md

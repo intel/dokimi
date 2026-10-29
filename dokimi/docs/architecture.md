@@ -383,6 +383,11 @@ tokens, one call per message id), the compaction events, tool-result sizes and
 failures per tool, and repeated tool calls. `python cli.py context trace`
 prints one or more traces as a comparison table; it calls no model. Guide:
 [context-window.md](context-window.md).
+`dokimi/context/consistency.py` reads repeated runs of one task into three
+separate profiles: result (`pass@k`, `pass^k`), path (tool-mix JSD, edit
+distance of tool and action sequences, resource spread, strategy groups) and
+conformance to a YAML process contract; `python cli.py context consistency`.
+Guide: [run-consistency.md](run-consistency.md).
 
 ## Shared building blocks
 
