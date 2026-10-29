@@ -126,6 +126,7 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("repo", "reach"), PAID),
     Leaf(("repo", "budget"), FREE),
     Leaf(("repo", "tasks", "check"), FREE),
+    Leaf(("repo", "tasks", "replay"), FREE),
     Leaf(("repo", "run"), PAID),
     Leaf(("repo", "report"), FREE),
     Leaf(("repo", "compare"), FREE),
@@ -151,6 +152,7 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("ingest", "docling"), FREE),
     Leaf(("tools", "preference"), PAID),
     Leaf(("context", "trace"), FREE),
+    Leaf(("context", "consistency"), FREE),
     Leaf(("data", "schema", "list"), FREE),
     Leaf(("data", "schema", "show"), FREE),
 )
