@@ -19,6 +19,10 @@ adjust_pvalues(pvals, method)
     Holm-Bonferroni (default) or Benjamini-Hochberg adjusted p-values.
 paired_vectors(evaluations, arm_a, arm_b)
     Per-question paired score vectors for two arms, complete cases only.
+paired_summary(evaluations)
+    Both arms and their delta over the complete pairs, with the unpaired count.
+    Called by the eval report, the report generator and the pipeline summary. The
+    dashboard and the model-compare summary still average each arm separately.
 mean_ci(values, ...)
     Student-t CI for the mean, coherent with ``p_ttest``; bootstrap fallback.
 point_biserial(flags, totals)
@@ -45,9 +49,10 @@ from __future__ import annotations
 
 import math
 import random
+from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-from dokimi.records import RecordLike, records
+from dokimi.records import BASELINE, CONTEXT, RecordLike, records
 
 try:
     from scipy import stats as _sp_stats
@@ -331,6 +336,64 @@ def paired_vectors(
             a_vals.append(float(a))
             b_vals.append(float(b))
     return a_vals, b_vals
+
+
+@dataclass(frozen=True)
+class PairedSummary:
+    """Both arms of one question set over its complete pairs, and the delta between them.
+
+    Every number is over the questions scored in both arms. The ``unpaired`` ones
+    (scored in one arm, or neither) are left out of all of them and counted here,
+    so no report can print a context mean over questions its baseline mean lacks.
+    The values are unrounded: round only when rendering.
+    """
+
+    total: int
+    paired: int
+    unpaired: int
+    with_mean: float
+    without_mean: float
+    delta_mean: float
+    with_min: float
+    with_max: float
+    without_min: float
+    without_max: float
+    delta_min: float
+    delta_max: float
+    improvements: int
+    degradations: int
+    neutral: int
+
+
+def paired_summary(evaluations: Iterable[RecordLike]) -> PairedSummary:
+    """The arms and their delta over the complete pairs of ``evaluations``.
+
+    The delta is the difference of the two paired means, which is also the mean of the
+    per-question deltas (``context - baseline``). Averaging each arm over *every* scored
+    question instead gives two means over different questions, whose difference is not
+    the delta the page prints beside them. An empty input gives zeros throughout.
+    """
+    recs = records(evaluations, source="evaluations", kind="evaluations")
+    with_s, without_s = paired_vectors(recs, CONTEXT, BASELINE)
+    deltas = [w - wo for w, wo in zip(with_s, without_s, strict=True)]
+    paired = len(deltas)
+    return PairedSummary(
+        total=len(recs),
+        paired=paired,
+        unpaired=len(recs) - paired,
+        with_mean=_mean(with_s) if paired else 0.0,
+        without_mean=_mean(without_s) if paired else 0.0,
+        delta_mean=_mean(deltas) if paired else 0.0,
+        with_min=min(with_s, default=0.0),
+        with_max=max(with_s, default=0.0),
+        without_min=min(without_s, default=0.0),
+        without_max=max(without_s, default=0.0),
+        delta_min=min(deltas, default=0.0),
+        delta_max=max(deltas, default=0.0),
+        improvements=sum(1 for d in deltas if d > 0),
+        degradations=sum(1 for d in deltas if d < 0),
+        neutral=sum(1 for d in deltas if d == 0),
+    )
 
 
 def point_biserial(flags: Sequence[bool], totals: Sequence[float]) -> Dict[str, Any]:
