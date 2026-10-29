@@ -113,7 +113,7 @@ def _read_task_yaml(path: Path) -> dict:
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     except OSError as exc:
         raise ValueError(f"Explore task {path} cannot be read: {exc}") from exc
-    except (UnicodeDecodeError, yaml.YAMLError, RecursionError) as exc:
+    except (ValueError, yaml.YAMLError, RecursionError) as exc:  # ValueError: bad UTF-8, an invalid YAML timestamp
         raise ValueError(f"Explore task {path} is not valid UTF-8 YAML: {exc}") from exc
     if not isinstance(data, dict):
         raise ValueError(f"Explore task {path} must hold a YAML mapping")
@@ -138,7 +138,7 @@ def _task_from_data(
     if not references:
         raise ValueError(f"Explore task {path} has no references")
     repo_root = data.get("repo_root")
-    if repo_root and not isinstance(repo_root, str):
+    if repo_root is not None and not isinstance(repo_root, str):
         raise ValueError(f"Explore task {path} repo_root must be a path string")
     if repo_root:
         resolved_root = (path.parent / repo_root).resolve()

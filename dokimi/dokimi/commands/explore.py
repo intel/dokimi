@@ -121,13 +121,9 @@ def cmd_explore_run(args: argparse.Namespace) -> None:
 
     if args.out_md:
         from dokimi.report.exploration_report import render_explore_report
+        from dokimi.utils import write_text_or_exit
 
-        try:
-            Path(args.out_md).parent.mkdir(parents=True, exist_ok=True)
-            Path(args.out_md).write_text(render_explore_report(output), encoding="utf-8")
-        except OSError as exc:
-            print(f"Error: cannot write {args.out_md}: {exc}", file=sys.stderr)
-            raise SystemExit(1) from exc
+        write_text_or_exit(Path(args.out_md), render_explore_report(output))
         print(f"Saved exploration report: {args.out_md}")
 
     for arm, stats in output["summary"]["per_arm"].items():

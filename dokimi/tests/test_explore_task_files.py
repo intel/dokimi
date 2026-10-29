@@ -32,6 +32,11 @@ def _exit_message(argv) -> str:
         (b"id: x\nquery: q\nreferences: [a.py]\n", "references must be a list"),
         (b"id: x\nquery: q\nreferences:\n  - lines: [1]\n", "references must be a list"),
         (b"id: x\nquery: q\nreferences:\n  - path: a.py\nrepo_root: 5\n", "repo_root must be"),
+        pytest.param(b"id: x\nquery: q\nreferences:\n  - path: a.py\nrepo_root: 0\n", "repo_root must be",
+                     id="falsy-root"),
+        pytest.param(b"id: x\nquery: q\nreferences:\n  - path: a.py\nrepo_root: []\n", "repo_root must be",
+                     id="empty-list-root"),
+        pytest.param(b"id: x\ncreated: 2020-13-45\n", "is not valid UTF-8 YAML", id="bad-timestamp"),
     ],
 )
 def test_a_malformed_task_file_names_the_file(tmp_path, argv_tail, content, message):
@@ -66,3 +71,12 @@ def test_a_task_file_that_cannot_be_read_names_the_file(tmp_path, monkeypatch):
     monkeypatch.setattr(Path, "read_text", deny)
     out = _exit_message(["explore", "list", "--tasks-root", str(tmp_path)])
     assert f"Explore task {unreadable} cannot be read" in out
+
+
+def test_selecting_a_task_by_id_fails_on_a_malformed_sibling_naming_it(tmp_path):
+    (tmp_path / "ok.yaml").write_text(GOOD, encoding="utf-8")
+    bad = tmp_path / "bad.yaml"
+    bad.write_text("id: [unclosed\n", encoding="utf-8")  # it might declare the id asked for
+    out = _exit_message(["explore", "run", "--tasks", "ok", "--tasks-root", str(tmp_path)])
+    assert str(bad) in out
+    assert "is not valid UTF-8 YAML" in out
