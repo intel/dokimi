@@ -19,6 +19,7 @@ from dokimi.commands import (
     catalog,
     context,
     dashboard,
+    data,
     dataset,
     evaluate,
     explore,
@@ -35,9 +36,71 @@ from dokimi.commands import (
     tasks,
     tools,
 )
-from dokimi import __version__, process
+from dokimi import __version__, cli_routes, process
 from dokimi.console import tolerate_console_encoding
 from dokimi.defaults import JUDGE_MODEL_FOR_PROVIDER, default_judge_model
+
+
+def _subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersAction | None:
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            return action
+    return None
+
+
+def _route_help(text: str | None, path: tuple[str, ...]) -> str:
+    """The one-line help of a route with its cost label: the parser's text, else the table's."""
+    base = text or cli_routes.summary_of(path) or ""
+    cost = cli_routes.cost_of(path)
+    return f"{base} [{cost}]" if cost else base
+
+
+def _label_routes(parser: argparse.ArgumentParser, prefix: tuple[str, ...] = ()) -> None:
+    """Append the cost label to every subcommand's help line, at every depth."""
+    sub = _subparsers(parser)
+    if sub is None:
+        return
+    listed = {action.dest: action for action in sub._choices_actions}
+    visited: set[int] = set()
+    for name, child in sub.choices.items():
+        if id(child) in visited:  # an alias: the same parser under a second name
+            continue
+        visited.add(id(child))
+        path = (*prefix, name)
+        if name in listed:
+            listed[name].help = _route_help(listed[name].help, path)
+        _label_routes(child, path)
+
+
+class _RoutedParser(argparse.ArgumentParser):
+    """The top-level parser. Its ``--help`` lists the roots by section (``dokimi.cli_routes``)."""
+
+    routed = False  # set on the top-level parser only; its subparsers keep argparse's layout
+
+    def format_help(self) -> str:
+        if not self.routed:
+            return super().format_help()
+        sub = _subparsers(self)
+        listed = {action.dest: action for action in sub._choices_actions} if sub else {}
+        fmt = self._get_formatter()
+        fmt.add_usage(self.usage, self._actions, self._mutually_exclusive_groups)
+        for section in cli_routes.SECTIONS:
+            roots = [root for root in cli_routes.ROOTS if root.section == section]
+            if not roots:
+                continue
+            fmt.start_section(section)  # the formatter adds the colon
+            for root in roots:
+                action = listed.get(root.name)
+                if action is None:  # a route with no help= in its parser: listed from the table
+                    action = argparse.Action([], root.name, help=_route_help(None, (root.name,)))
+                    if root.aliases:
+                        action.metavar = f"{root.name} ({', '.join(root.aliases)})"
+                fmt.add_argument(action)
+            fmt.end_section()
+        fmt.start_section("options")
+        fmt.add_arguments([action for action in self._actions if action.option_strings])
+        fmt.end_section()
+        return fmt.format_help()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -53,7 +116,8 @@ def build_parser() -> argparse.ArgumentParser:
             raise argparse.ArgumentTypeError(f"must be >= 1, got {value}")
         return ivalue
 
-    p = argparse.ArgumentParser(prog="dokimi")
+    p = _RoutedParser(prog="dokimi")
+    p.routed = True
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -81,7 +145,9 @@ def build_parser() -> argparse.ArgumentParser:
     repo.register(sub, positive_int)            # repo (repositories as subjects)
     tools.register(sub, positive_int)           # tools (tool-choice probes)
     context.register(sub, positive_int)         # context (context window of a run)
+    data.register(sub, positive_int)            # data (schema; M2 adds export, import and models)
 
+    _label_routes(p)
     return p
 
 
@@ -92,7 +158,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     read once every flag is parsed, so the two flags can come in either order.
     """
     parser = build_parser()
-    args = parser.parse_args(argv)
+    raw = list(sys.argv[1:] if argv is None else argv)
+    moved = cli_routes.moved_argv(raw)
+    if moved is not None:  # a tombstone: say where the command went, do not run anything
+        parser.exit(2, cli_routes.moved_text(moved) + "\n")
+    args = parser.parse_args(raw)
     if getattr(args, "judge_model", None) is JUDGE_MODEL_FOR_PROVIDER:
         model = default_judge_model(args.judge_provider)
         if model is None:
