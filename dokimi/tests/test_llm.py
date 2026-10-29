@@ -66,6 +66,7 @@ def _no_ambient_bedrock_env(monkeypatch):
     ("openai", "openai/glm-5.3", "openai/glm-5.3"),
     ("openai", "azure/gpt-4o", "azure/gpt-4o"),  # an explicit litellm route passes through
     ("openai", "ollama/llama3", "ollama/llama3"),  # any litellm provider prefix passes through
+    ("openai", "crusoe/x", "crusoe/x"),  # a provider litellm registers in JSON, not provider_list
     ("openai-codex", "gpt-5", "openai/gpt-5"),
     ("anthropic", "claude-sonnet-5-5", "anthropic/claude-sonnet-5-5"),
     ("openrouter", "openai/gpt-oss-120b", "openrouter/openai/gpt-oss-120b"),

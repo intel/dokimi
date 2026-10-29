@@ -144,7 +144,7 @@ def resolve_model(model: str, provider: str) -> str:
         import litellm
         known = litellm.open_ai_chat_completion_models | litellm.open_ai_text_completion_models
         ours = model in known or "ft:gpt-3.5-turbo" in model or "ft:gpt-4" in model  # as litellm
-        routed = model.split("/", 1)[0] in litellm.provider_list if "/" in model else ours
+        routed = (p := model.split("/", 1)[0]) in litellm.provider_list or litellm.JSONProviderRegistry.exists(p) if "/" in model else ours
         return model if routed else f"openai/{model}"
     if "/" in model:
         return model
