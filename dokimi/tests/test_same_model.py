@@ -57,6 +57,12 @@ CASES = [
     ("arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.claude-sonnet-4-5-20250929-v1:0",
      "claude-sonnet-4-5-20250929", True),
     ("bedrock/converse/openai.gpt-oss-120b", "openai/gpt-oss-120b", True),
+    ("azure/gpt-4o", "gpt-4o", True),  # a litellm route that is not one of dokimi's providers
+    ("groq/llama-3.1-8b", "llama-3.1-8b", True),
+    ("together_ai/meta-llama/llama-3-8b", "meta-llama/llama-3-8b", True),
+    ("models/gemini-2.0-flash", "gemini-2.0-flash", True),
+    ("arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0",
+     "claude-sonnet-4-5-20250929", True),
 ]
 
 
@@ -74,3 +80,10 @@ def test_same_model_is_symmetric(a, b, same):
 def test_a_bedrock_alias_and_its_profile_are_one_model(bare, profile):
     assert same_model(bare, profile)
     assert same_model(f"amazon-bedrock/{bare}", f"amazon-bedrock/{profile}")
+
+
+def test_every_provider_dokimi_accepts_is_a_route_not_an_organization():
+    from dokimi.llm import PROVIDER_ALIASES, PROVIDERS
+
+    for provider in [*PROVIDERS, *PROVIDER_ALIASES]:
+        assert same_model(f"{provider}/gpt-4o", "gpt-4o"), provider

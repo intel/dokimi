@@ -120,10 +120,14 @@ _REGION_PROFILES = ("us-gov.", "global.", "apac.", "us.", "eu.", "jp.", "au.", "
 
 
 # Leading path segments that name how a model is reached, not which model it is: a provider or a gateway
-# (``anthropic/``, ``openrouter/``, ``bedrock/converse/``, ``vertex_ai/``). Any other segment (a Hugging Face
-# organization such as ``meta-llama/``) is part of the id.
-_ROUTES = frozenset({"openai", "anthropic", "google", "google-vertex", "vertex_ai", "openrouter", "amazon-bedrock",
-                     "bedrock", "converse"})
+# (``anthropic/``, ``openrouter/``, ``bedrock/converse/``, ``azure/``). Any other segment (a Hugging Face
+# organization such as ``meta-llama/``) is part of the id. Every provider of ``llm.PROVIDERS`` and its aliases is
+# one (pinned by a test); the rest are litellm route prefixes.
+_ROUTES = frozenset({
+    "openai", "openai-codex", "anthropic", "google", "gemini", "google-vertex", "openrouter", "amazon-bedrock",
+    "bedrock", "converse", "vertex_ai", "azure", "azure_ai", "models", "groq", "ollama", "mistral", "deepseek",
+    "together_ai", "fireworks_ai", "xai", "cohere", "huggingface",
+})
 
 
 def _model_core(model: str) -> tuple[str, str | None]:
@@ -135,8 +139,9 @@ def _model_core(model: str) -> tuple[str, str | None]:
     ``org/name`` id stays, so a re-upload under another organization is another model.
     """
     name = (model or "").strip().lower()
-    if "inference-profile/" in name:
-        name = name.rsplit("inference-profile/", 1)[-1]
+    for marker in ("inference-profile/", "foundation-model/"):  # the tail of a Bedrock ARN
+        if marker in name:
+            name = name.rsplit(marker, 1)[-1]
     parts = name.split("/")
     while len(parts) > 1 and parts[0] in _ROUTES:
         parts.pop(0)
