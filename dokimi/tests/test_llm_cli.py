@@ -15,6 +15,7 @@ import json
 import pytest
 
 from dokimi import llm, llm_cli, process
+from dokimi.metrics.usage import UsageRecord
 from dokimi.process import FakeRunner, reply
 
 
@@ -47,6 +48,8 @@ def runner(monkeypatch, tmp_path):
     fake = FakeRunner(lambda call: fake.answers.pop(0))
     fake.answers = []  # type: ignore[attr-defined]
     monkeypatch.setattr(llm_cli.process, "run", fake)
+    # The version is part of the cache key; a test of the key sets its own.
+    monkeypatch.setattr(llm_cli, "cli_version", lambda provider: "2.1.303 (Claude Code)")
     return fake
 
 
@@ -268,7 +271,7 @@ def test_benchmark_preflight_checks_the_login_not_a_key(monkeypatch):
     errors, _ = _provider_checks(["claude-cli"])
     assert any("not installed" in e for e in errors)
     monkeypatch.setattr(process, "run", _auth_runner({"loggedIn": True}))
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY")
     errors, _ = _provider_checks(["openai"])
     assert any("missing OPENAI_API_KEY" in e for e in errors)
 
@@ -523,3 +526,52 @@ def test_the_session_turns_flag_defaults_to_none():
     args = parse_args(["arms", "run", "--product", "p", "--questions", "q.json", "--arms", "baseline",
                        "--provider", "claude-cli", "--model", "sonnet"])
     assert args.session_turns is None
+
+
+def test_the_resolved_model_is_on_the_usage_row_and_in_its_metrics(runner):
+    runner.answers.append(reply(_ok()))
+    usage = llm.llm_call_with_usage("ping", model="sonnet", provider="claude-cli")[1]
+    assert usage.resolved_model == "claude-sonnet-5-5"
+    assert usage.as_metrics_dict()["resolved_model"] == "claude-sonnet-5-5"
+    assert "resolved_model" not in UsageRecord().as_metrics_dict()
+
+
+def test_a_sum_of_usage_rows_keeps_every_resolved_model_it_mixes():
+    sonnet = UsageRecord(resolved_model="claude-sonnet-5-5")
+    assert (sonnet + UsageRecord()).resolved_model == "claude-sonnet-5-5"
+    assert (sonnet + UsageRecord(resolved_model="claude-sonnet-5-5")).resolved_model == "claude-sonnet-5-5"
+    mixed = sonnet + UsageRecord(resolved_model="claude-opus-5-0")
+    assert mixed.resolved_model == "claude-opus-5-0,claude-sonnet-5-5"
+
+
+def test_a_cached_cli_reply_replays_the_resolved_model(runner, monkeypatch, tmp_path):
+    monkeypatch.setenv("DOKIMI_RESPONSE_CACHE", str(tmp_path / "responses"))
+    runner.answers.append(reply(_ok()))
+    first = llm.llm_call_with_usage("ping", model="sonnet", provider="claude-cli")[1]
+    second = llm.llm_call_with_usage("ping", model="sonnet", provider="claude-cli")[1]
+    assert len(runner.calls) == 1  # the second reply came from the cache
+    assert second.replayed and second.resolved_model == first.resolved_model == "claude-sonnet-5-5"
+
+
+def test_a_new_cli_version_misses_the_response_cache(runner, monkeypatch, tmp_path):
+    # An alias resolves inside the CLI: a new release can move "sonnet" to another model,
+    # so its answers must not be replayed for the new one.
+    monkeypatch.setenv("DOKIMI_RESPONSE_CACHE", str(tmp_path / "responses"))
+    runner.answers.extend([reply(_ok("OLD")), reply(_ok("NEW"))])
+    monkeypatch.setattr(llm_cli, "cli_version", lambda provider: "2.1.303 (Claude Code)")
+    assert llm.llm_call_with_usage("ping", model="sonnet", provider="claude-cli")[0] == "OLD"
+    monkeypatch.setattr(llm_cli, "cli_version", lambda provider: "2.1.400 (Claude Code)")
+    assert llm.llm_call_with_usage("ping", model="sonnet", provider="claude-cli")[0] == "NEW"
+    assert len(runner.calls) == 2
+
+
+def test_the_cli_version_is_its_first_line_and_is_read_once(monkeypatch):
+    llm_cli._version_line.cache_clear()
+    fake = FakeRunner(lambda call: reply("2.1.303 (Claude Code)\nmore"))
+    monkeypatch.setattr(llm_cli.process, "run", fake)
+    try:
+        assert llm_cli.cli_version("claude-cli") == "2.1.303 (Claude Code)"
+        assert llm_cli.cli_version("claude-cli") == "2.1.303 (Claude Code)"
+        assert len(fake.calls) == 1
+    finally:
+        llm_cli._version_line.cache_clear()

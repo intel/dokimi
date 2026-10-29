@@ -18,6 +18,16 @@ def test_judge_hands_sampling_params_to_its_client_and_output():
     assert j._build_evaluation_output([])["judge_temperature"] == 0.0
 
 
+def test_the_judge_record_names_the_resolved_models_it_was_judged_by():
+    from dokimi.metrics.usage import UsageRecord
+
+    j = Judge(model="sonnet", provider="claude-cli")
+    assert "judge_resolved_models" not in j._build_evaluation_output([])
+    j._accumulate_usage(UsageRecord(resolved_model="claude-sonnet-5-5"))
+    j._accumulate_usage(UsageRecord(resolved_model="claude-sonnet-5-5"))
+    assert j._build_evaluation_output([])["judge_resolved_models"] == ["claude-sonnet-5-5"]
+
+
 def test_judge_defaults_leave_sampling_unset():
     j = Judge(model="m", provider="openai")
     assert j.temperature is None

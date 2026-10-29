@@ -41,6 +41,7 @@ without calling a model (``cli.py backends``).
 
 from __future__ import annotations
 
+import functools
 import json
 import os
 from dataclasses import dataclass
@@ -191,16 +192,17 @@ def _claude_parse(done: process.Completed, model: str, provider: str) -> CliResu
     completion = int(u.get("output_tokens") or 0)
     model_usage = payload.get("modelUsage") or {}
     list_cost = payload.get("total_cost_usd")
+    resolved = _main_model(model_usage, model)
     usage = UsageRecord(
         prompt_tokens=prompt, completion_tokens=completion, total_tokens=prompt + completion,
         cache_read_tokens=cache_read, cache_write_tokens=cache_write,
         cost_usd=None, latency_sec=done.elapsed_sec, model=model, provider=provider,
-        n_calls=1, cost_known_calls=0,
+        n_calls=1, cost_known_calls=0, resolved_model=resolved or "",
     )
     return CliResult(
         text=str(payload.get("result") or ""),
         usage=usage,
-        model_id=_main_model(model_usage, model),
+        model_id=resolved,
         list_cost_usd=float(list_cost) if isinstance(list_cost, (int, float)) else None,
         finish_reason="length" if payload.get("stop_reason") == "max_tokens" else "stop",
     )
@@ -311,6 +313,33 @@ def _passed_on(name: str, cli: CliBackend) -> bool:
 
 def _env(cli: CliBackend) -> process.Env:
     return process.Env.only([k for k in os.environ if _passed_on(k, cli)])
+
+
+def cache_extra(provider: str) -> Dict[str, str]:
+    """What the response-cache key takes from a CLI backend: its version, and nothing otherwise.
+
+    An alias resolves inside the CLI, so a new release can answer ``sonnet`` with another
+    model, and its replies must not be replayed for the new one. The resolved id is known
+    only after the call, so the version stands in for it; a move the CLI does not ship
+    with is not seen.
+    """
+    return {"cli_version": cli_version(provider)} if backend(provider) is not None else {}
+
+
+def cli_version(provider: str) -> str:
+    """The CLI's version line, or ``""`` when it cannot be read. Read once per process."""
+    return _version_line(provider)
+
+
+@functools.lru_cache(maxsize=None)
+def _version_line(provider: str) -> str:
+    cli = BACKENDS[provider]
+    try:
+        done = process.run([cli.binary, "--version"], timeout=30, env=_env(cli))
+    except OSError:
+        return ""
+    lines = done.stdout.strip().splitlines()
+    return lines[0] if lines else ""
 
 
 def call(provider: str, *, model: str, prompt: str, system: Optional[str] = None,

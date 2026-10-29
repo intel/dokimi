@@ -243,6 +243,8 @@ class Judge:
             "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0,
             "redrawn_judgements": 0,
         }
+        # The model names a CLI judge's aliases resolved to, for the judge record.
+        self._resolved_models: set = set()
 
         check_sampling(provider, temperature, seed)
         self.llm: ChatModel
@@ -632,6 +634,7 @@ class Judge:
             t["prompt_tokens"] += _int(usage.prompt_tokens)
             t["completion_tokens"] += _int(usage.completion_tokens)
             t["total_tokens"] += _int(usage.total_tokens)
+            self._resolved_models.update(n for n in usage.resolved_model.split(",") if n)
             cost = usage.cost_usd
             if isinstance(cost, (int, float)):
                 t["cost_usd"] += float(cost)
@@ -649,6 +652,9 @@ class Judge:
         }
         with self._usage_lock:
             totals = dict(self._usage_totals)
+            resolved = sorted(self._resolved_models)
+        if resolved:
+            output["judge_resolved_models"] = resolved
         # cost_usd is null (not 0.0) when no judge call had known pricing, so a
         # missing price reads distinct from a genuinely free judge.
         output["judge_metrics"] = {

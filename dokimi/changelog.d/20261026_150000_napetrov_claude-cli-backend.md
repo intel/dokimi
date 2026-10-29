@@ -20,6 +20,11 @@
 - A CLI provider refuses an agentic arm (`mcp_agent`, `skill_agent`, `skill_catalog`) and
   `--session-turns` in `arms run` and `arms matrix-run`, before any answer is paid for: the CLI
   runs one prompt with no tools and no conversation.
+- A CLI reply records the model the CLI resolved its alias to: `resolved_model` on each usage
+  row (answers, judge calls), `judge_resolved_models` in the judge record. The response-cache
+  key takes the CLI version, so a new release that moves `sonnet` does not replay the old
+  model's replies. The resolved id is known only after a call, so a move the CLI does not
+  ship with is not caught.
 - Independence checks treat an alias and its full id as one model (`opus` and
   `claude-opus-…`). The novelty default judge on `claude-cli` is another Claude family than the answerer.
 - The CLI child process drops `ANTHROPIC_*`, `CLAUDE_*` and `CLAUDECODE` variables from the

@@ -810,7 +810,7 @@ class LLM:
         # reasoning-starved completion is a different answer). temperature/seed
         # belong in it too, only when set: a pinned run must not be served a
         # free-sampling reply, and entries cached before they existed still hit.
-        return {"stream": stream, "max_tokens": max_tokens,
+        return {"stream": stream, "max_tokens": max_tokens, **llm_cli.cache_extra(self.provider),
                 **_sampling_kwargs(temperature=self.temperature, seed=self.seed)}
 
     def _labels(self) -> Tuple[str, str]:
