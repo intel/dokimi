@@ -84,6 +84,17 @@ def test_a_judge_provider_with_no_default_judge_there_exits(argv):
         novelty_cmd._clients(args)
 
 
+@pytest.mark.parametrize("model", ["sonnet", "opus", "haiku", "claude-opus-5-5"])
+def test_a_cli_answerer_with_no_judge_flags_is_judged_on_the_cli_by_another_family(model):
+    from dokimi.llm_cli import same_model
+
+    args = _parse("novelty", "analyze", "--artifact", "skill:x", "--model", model,
+                  "--provider", "claude-cli")
+    _extractor, _answerer, judge = novelty_cmd._clients(args)
+    assert judge.provider == "claude-cli"
+    assert not same_model("claude-cli", judge.model, "claude-cli", model)
+
+
 def test_a_named_judge_without_a_provider_runs_on_the_answer_provider():
     args = _parse("novelty", "analyze", "--artifact", "skill:x", "--provider", "openrouter",
                   "--judge-model", "j")
