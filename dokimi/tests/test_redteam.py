@@ -571,3 +571,21 @@ def test_command_exits_1_on_an_empty_question_set(tmp_path, monkeypatch):
     with pytest.raises(SystemExit) as exc:
         cmd_eval_redteam(_args(tmp_path / "questions.json"))
     assert exc.value.code == 1
+
+
+def test_a_blocked_run_still_writes_the_artifact(tmp_path, monkeypatch):
+    _patch_questions(monkeypatch, [_q("1", {"checks": [{"type": "regex", "values": [".*"]}]})])
+    out = tmp_path / "blocked.json"
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_redteam(_args(tmp_path / "questions.json", output=out))
+    assert exc.value.code == 1
+    assert json.loads(out.read_text(encoding="utf-8"))["status"] == "blocked"
+
+
+def test_an_inconclusive_run_still_writes_the_artifact(tmp_path, monkeypatch):
+    _patch_questions(monkeypatch, [{"id": "1", "question": "Capital of France?"}])
+    out = tmp_path / "inconclusive.json"
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_redteam(_args(tmp_path / "questions.json", output=out))
+    assert exc.value.code == 1
+    assert json.loads(out.read_text(encoding="utf-8"))["status"] == "inconclusive"
