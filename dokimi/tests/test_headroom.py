@@ -63,6 +63,12 @@ def test_floor_needs_every_arm_at_zero_not_just_the_baseline():
     assert _flags(headroom([run])) == {"1": FLOOR, "2": None}
 
 
+def test_floor_needs_the_baseline_at_the_floor_too_not_just_the_skill_arms():
+    # The baseline answers question 1 (40) though the skill arm scores 0: no floor.
+    run = _run([("1", {"baseline": 40, "skill": 0}), ("2", {"baseline": 0, "skill": 0})])
+    assert _flags(headroom([run])) == {"1": None, "2": FLOOR}
+
+
 def test_thresholds_are_configurable():
     run = _run([("1", {"baseline": 60, "skill": 10}), ("2", {"baseline": 5, "skill": 15})])
     result = headroom([run], ceiling=0.5, floor=0.2)
