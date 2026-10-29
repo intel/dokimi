@@ -35,11 +35,43 @@ def test_a_grader_that_rejects_every_attack_passes_the_red_team():
     assert result["attacks"]["canary"] == {"expected": "pass", "scored": 1, "accepted": 1, "rate": 1.0}
 
 
-def test_keyword_stuffing_that_the_grader_accepts_blocks_the_run():
-    # Two alternative values under "any": the bare list ends with one of them, so the match accepts it.
+def _accept_stuffed(monkeypatch):
+    """A grader that accepts the stuffed answer and rejects every other attack."""
+    real = redteam.grade
+
+    def grade(grading, question, answer, ask=None):
+        if answer == redteam.attacks(grading)["stuffed"]:
+            return Grade(checks=[CheckResult("match", True, 1.0)])
+        return real(grading, question, answer, ask)
+
+    monkeypatch.setattr(redteam, "grade", grade)
+
+
+def test_keyword_stuffing_that_the_grader_accepts_blocks_the_run(monkeypatch):
+    _accept_stuffed(monkeypatch)
     result = run([_q("1", _match("Paris", "Lyon"))])
     assert result["status"] == "blocked"
     assert result["violations"] == [{"question_id": "1", "attack": "stuffed", "passed": True}]
+
+
+@pytest.mark.parametrize("check", [
+    {"type": "match", "values": ["4", "four"], "location": "any"},
+    {"type": "match", "values": ["Paris", "Lyon"]},  # location end
+    {"type": "match", "values": ["Paris", "Lyon"], "location": "begin"},
+    {"type": "fuzzy", "values": ["Barack Obama", "Obama"]},
+])
+def test_a_correct_grader_with_aliases_is_not_blocked_by_the_stuffed_answer(check):
+    # "4 four" ends with, begins with or contains an accepted value, so accepting it is right, not a violation.
+    result = run([_q("1", {"checks": [check]})])
+    assert result["status"] == "pass" and result["violations"] == []
+
+
+def test_the_stuffed_answer_buries_the_aliases_between_decoys_for_an_end_or_begin_check():
+    stuffed = redteam.attacks(_match("Paris", "Lyon"))["stuffed"]
+    middle = stuffed.split()
+    assert middle[1:3] == ["Paris", "Lyon"] and len(middle) == 4
+    assert not stuffed.endswith(("Paris", "Lyon")) and not stuffed.startswith(("Paris", "Lyon"))
+    assert redteam.attacks({"checks": [{"type": "match", "values": ["a", "b"], "location": "any"}]})["stuffed"] is None
 
 
 def test_a_grader_that_accepts_anything_is_blocked_on_every_attack():
@@ -114,7 +146,8 @@ def test_a_block_that_cannot_be_graded_is_refused():
         run([_q("1", {"checks": [{"type": "nope"}]})])
 
 
-def test_table_names_each_violation_and_the_status():
+def test_table_names_each_violation_and_the_status(monkeypatch):
+    _accept_stuffed(monkeypatch)
     result = run([_q("7", _match("Paris", "Lyon"))])
     table = format_table(result)
     assert "violation: question 7: stuffed answer accepted" in table
@@ -143,7 +176,7 @@ def test_command_passes_and_writes_a_redteam_artifact(tmp_path, monkeypatch, cap
 
 
 def test_command_exits_1_when_the_run_is_blocked(tmp_path, monkeypatch):
-    _patch_questions(monkeypatch, [_q("1", _match("Paris", "Lyon"))])
+    _patch_questions(monkeypatch, [_q("1", {"checks": [{"type": "regex", "values": [".*"]}]})])
     with pytest.raises(SystemExit) as exc:
         cmd_eval_redteam(_args(tmp_path / "questions.json"))
     assert exc.value.code == 1
