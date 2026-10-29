@@ -15,7 +15,9 @@ Each question with a ``grading`` block is graded against five synthetic answers:
   several checks that each accept one value, is satisfied by the stuffed answer by design. Also built
   for a negated check of one or more values, whose stuffed answer carries the forbidden value; not
   built for a negated ``exact``, ``json`` or location-``exact`` match, which the listed values never
-  equal, so the check passes the stuffed answer by design.
+  equal, nor for a negated ``mode: all`` match, whose stuffed answer can pass the negation by its
+  location (``Paris Lyon`` ends with one value only). The skip covers every negated ``mode: all``
+  match, which is wider than that case and never a false block.
 
 An answer the grader accepts when it should reject it (or rejects a canary) is a violation, and
 any violation blocks the run. A run that probed no question at all (nothing graded, or only judge
@@ -98,17 +100,20 @@ def stuffed_for(grading: Mapping[str, Any]) -> Optional[str]:
     accepting it is not a violation. A single positive value listed alone is the right answer itself,
     not stuffing. A negated check is stuffed with its one or more values: the stuffed answer carries
     the forbidden value, so it must fail, unless the check compares the whole answer (see
-    ``_whole_answer``), which the listed values never equal. A choice check is left out: its answer is
-    a bare letter.
+    ``_whole_answer``), which the listed values never equal, or is ``mode: all``, which the stuffed
+    answer can pass by its location (the skip is kept for every such check, for simplicity). A choice
+    check is left out: its answer is a bare letter.
     """
     checks = grading.get("checks", [])
     if len(checks) != 1 or checks[0].get("type") not in _LITERAL - {"choice"}:
         return None
     check = checks[0]
     values = [str(v) for v in _literal_values(check)]
+    mode = str(check.get("mode", "any"))
     if check.get("negate"):
-        return " ".join(values) if values and not _whole_answer(check) else None
-    if len(values) < 2 or str(check.get("mode", "any")) == "all":
+        built = bool(values) and not _whole_answer(check) and mode != "all"
+        return " ".join(values) if built else None
+    if len(values) < 2 or mode == "all":
         return None
     return " ".join(values)
 
