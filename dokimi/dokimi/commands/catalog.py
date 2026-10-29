@@ -211,7 +211,7 @@ def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
         chunk = queries[start:start + len(qs)]
         start += len(qs)
         if rule.startswith("@") and chunk and not any(q.labelled for q in chunk):
-            raise SystemExit(f"{spec}: {rule} resolves for none of {len(chunk)} questions")
+            usage_exit(f"{spec}: {rule} resolves for none of {len(chunk)} questions")
     summary = ts.lint_summary(queries)
     if summary["label_unresolved"]:
         print(f"warning: {summary['label_unresolved']} questions have an unresolved @field label; "
