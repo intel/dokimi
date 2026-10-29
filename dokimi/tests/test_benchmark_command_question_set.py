@@ -328,15 +328,17 @@ def test_preflight_fails_before_any_call(monkeypatch, tmp_path, capsys, prefligh
     assert "Preflight OK" not in captured.out
 
 
-def _preflight_with_doc_source(monkeypatch, tmp_path, *extra):
+def _preflight_with_doc_source(monkeypatch, tmp_path, *extra, error=None, credential=True):
     for key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
         monkeypatch.delenv(key, raising=False)
-    monkeypatch.setenv("OPENAI_API_KEY", "test")
+    if credential:
+        monkeypatch.setenv("OPENAI_API_KEY", "test")
     monkeypatch.setattr(benchmark, "_load_registry", lambda args: _Registry())
+    # By default a failure of the check itself (the source cannot be reached), not a bad --doc-source value.
+    failure = error or RuntimeError("doc source unreachable")
 
     def broken_client(doc_source):
-        # A failure of the check itself (the source cannot be reached), not a bad --doc-source value.
-        raise RuntimeError("doc source unreachable")
+        raise failure
 
     monkeypatch.setattr("dokimi.mcp.factory.create_doc_source_client", broken_client)
     args = build_parser().parse_args([
@@ -355,6 +357,26 @@ def test_preflight_check_failure_alone_stays_1(monkeypatch, tmp_path, capsys):
         _preflight_with_doc_source(monkeypatch, tmp_path)
     assert exc.value.code == 1
     assert "doc source check failed" in capsys.readouterr().err
+
+
+@pytest.mark.outcome("pinned-questions-preflight")
+def test_preflight_doc_source_value_rejected_by_the_factory_is_a_refusal(monkeypatch, tmp_path, capsys):
+    # The factory's ValueError says the --doc-source value is bad: exit 2, not a failed check.
+    with pytest.raises(SystemExit) as exc:
+        _preflight_with_doc_source(monkeypatch, tmp_path, error=ValueError("no such format"))
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "doc source invalid: local:docs (no such format)" in err
+    assert "doc source check failed" not in err
+
+
+@pytest.mark.outcome("pinned-questions-preflight")
+def test_preflight_missing_credential_wins_over_a_check_failure(monkeypatch, tmp_path, capsys):
+    with pytest.raises(SystemExit) as exc:
+        _preflight_with_doc_source(monkeypatch, tmp_path, credential=False)
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "missing OPENAI_API_KEY" in err and "doc source check failed" in err
 
 
 @pytest.mark.outcome("pinned-questions-preflight")
