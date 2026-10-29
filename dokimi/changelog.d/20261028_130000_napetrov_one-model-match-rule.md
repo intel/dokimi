@@ -9,3 +9,5 @@
   compare` no longer reports or refuses (`--strict`) a judge or answer that only changed its route, region or
   snapshot alias; `repo compare` pairs arms by the same rule. Scores are not recomputed, but a comparison that
   used to refuse or warn about such a pair may now pass.
+  `dokimi run` stores `run_metadata.evaluator_independence_warning` by this rule too, as `dokimi eval` does (it
+  was an exact provider-and-model match, so the printed warning and the stored flag disagreed).
