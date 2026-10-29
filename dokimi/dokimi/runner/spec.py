@@ -25,6 +25,10 @@ class SpecValidationError(ValueError):
     """Raised when a spec fails JSON Schema validation."""
 
 
+class DocSelectionError(ValueError):
+    """Raised when a ``golden_manifest`` glob is unusable or matches a document count outside its bounds."""
+
+
 def is_full_spec(spec: dict) -> bool:
     """Return True if ``spec`` is a complete v1 spec (vs. a minimal/legacy one).
 
@@ -62,7 +66,7 @@ def load_spec(spec_path: Path, *, validate: bool = True) -> dict:
     """Read a spec YAML and, for full v1 specs, validate it against the schema."""
     try:
         content = Path(spec_path).read_text(encoding="utf-8")
-    except OSError as exc:
+    except (OSError, ValueError) as exc:  # ValueError covers bad UTF-8
         raise RuntimeError(f"Failed to read spec file: {spec_path}: {exc}") from exc
 
     try:
@@ -99,8 +103,8 @@ def select_docs(root: Path, manifest: dict) -> list[Path]:
     """Resolve and bound the document set from a ``golden_manifest``.
 
     Applies ``include``/``exclude`` globs (relative to ``root``) and enforces
-    ``min_docs``/``max_docs``. Raises ``ValueError`` if the resulting count
-    violates the manifest bounds.
+    ``min_docs``/``max_docs``. Raises :class:`DocSelectionError` if a pattern
+    is unusable or the resulting count violates the manifest bounds.
     """
     root = Path(root)
     root_resolved = root.resolve()
@@ -109,7 +113,11 @@ def select_docs(root: Path, manifest: dict) -> list[Path]:
 
     selected: set[Path] = set()
     for pattern in include:
-        for p in root.glob(pattern):
+        try:
+            matches = list(root.glob(pattern))
+        except (ValueError, NotImplementedError) as exc:  # an empty or absolute pattern
+            raise DocSelectionError(f"golden_manifest include pattern {pattern!r}: {exc}") from exc
+        for p in matches:
             # Reject matches that escape root (e.g. via ".." in a pattern).
             if p.is_file() and p.resolve().is_relative_to(root_resolved):
                 selected.add(p)
@@ -123,12 +131,12 @@ def select_docs(root: Path, manifest: dict) -> list[Path]:
     min_docs = manifest.get("min_docs")
     max_docs = manifest.get("max_docs")
     if min_docs is not None and n < min_docs:
-        raise ValueError(
+        raise DocSelectionError(
             f"golden_manifest violation: matched {n} document(s) under {root}, "
             f"fewer than min_docs={min_docs}. include={include} exclude={exclude}"
         )
     if max_docs is not None and n > max_docs:
-        raise ValueError(
+        raise DocSelectionError(
             f"golden_manifest violation: matched {n} document(s) under {root}, "
             f"more than max_docs={max_docs}. include={include} exclude={exclude}"
         )

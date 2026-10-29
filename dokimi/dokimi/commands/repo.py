@@ -11,6 +11,7 @@ import math
 import re
 import sys
 from pathlib import Path
+from typing import Any
 
 
 def _normalize_whitespace(text: str, max_len: int | None = 100) -> str:
@@ -73,6 +74,14 @@ def cmd_repo_validate(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def _read_static(path: str) -> Any:
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError, RecursionError) as exc:  # ValueError: bad JSON or UTF-8
+        print(f"✗ --static {path}: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
 def cmd_repo_scan(args: argparse.Namespace) -> None:
     """L0: check every mechanically checkable claim in the guidance against the same tree."""
     from dokimi.artifacts import save_artifact, stamp
@@ -82,10 +91,10 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
     try:
         tree = open_source(RepoSource.parse(args.source), _cache_dir(args))
         manifest = _load_manifest(tree, args, guidance_default=True)
-        static = json.loads(Path(args.static).read_text(encoding="utf-8")) if args.static else None
-    except (SourceError, ManifestError, OSError, json.JSONDecodeError) as exc:
+    except (SourceError, ManifestError, OSError, ValueError, RecursionError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
+    static = _read_static(args.static) if args.static else None
     payload = scan_repo(tree, manifest, static)
     if args.out:
         try:
@@ -314,7 +323,7 @@ def _load_manifest(tree, args: argparse.Namespace, *, guidance_default: bool = F
         return load_manifest(tree, path)
     try:
         raw = yaml.safe_load(Path(args.manifest_file).read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError) as exc:
+    except (OSError, ValueError, RecursionError, yaml.YAMLError) as exc:  # ValueError: not UTF-8
         raise ManifestError(args.manifest_file, [str(exc)]) from exc
     return parse_manifest(raw, path)
 

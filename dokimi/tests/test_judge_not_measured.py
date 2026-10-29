@@ -28,7 +28,7 @@ def _strict_exit(argv):
     return 0
 
 
-def test_cross_judge_strict_exits_1_when_no_arm_was_measured(tmp_path, monkeypatch, capsys):
+def test_cross_judge_strict_fails_when_no_arm_was_measured(tmp_path, monkeypatch, capsys):
     import json
 
     from dokimi.eval import judge as judge_mod
@@ -49,11 +49,15 @@ def test_cross_judge_strict_exits_1_when_no_arm_was_measured(tmp_path, monkeypat
         del ev["scores"]["skill"]
     empty = tmp_path / "empty.json"
     empty.write_text(json.dumps(unpaired), encoding="utf-8")
-    for argv, arms in ((["--answers", str(errored), "--no-stored", "--judges", "amazon-bedrock/m"], {"skill": "NOT MEASURED"}),
-                       (["--answers", str(empty)], {})):
+    # A judge that errored on every call is a failed run (exit 2), not only an incomplete verdict.
+    for argv, arms, exit_code, why in (
+        (["--answers", str(errored), "--no-stored", "--judges", "amazon-bedrock/m"], {"skill": "NOT MEASURED"},
+         2, "Error: amazon-bedrock/m (aggregate) scored none of its 16 answers"),
+        (["--answers", str(empty)], {}, 1, "✗ incomplete"),
+    ):
         code = _strict_exit(["eval", "cross-judge", *argv, "--output", str(tmp_path / "cj.json"), "--strict"])
-        assert code == 1
-        assert "✗ incomplete" in capsys.readouterr().err
+        assert code == exit_code
+        assert why in capsys.readouterr().err
         summary = json.loads((tmp_path / "cj.json").read_text())["summary"]
         assert {a: r["label"] for a, r in summary["arms"].items()} == arms
 

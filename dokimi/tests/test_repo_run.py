@@ -115,6 +115,15 @@ def test_an_unreadable_trace_leaves_process_null_and_still_grades(setup, monkeyp
     assert rec["grade"]["status"] == "grader_failure"
 
 
+def test_an_agent_that_left_no_trace_is_not_given_a_process_metrics_error(setup, monkeypatch):
+    # No events and no turns: the metrics are not run on the missing trace, so they record no failure.
+    monkeypatch.setenv("FAKE_ACTION", "silent")
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    rec = json.loads((setup["out"] / "b1/fix_add__guidance-raw__m-1__r1/result.json").read_text())
+    assert rec["process"] is None
+    assert not any("process metrics failed" in e for e in rec["agent"]["trace_errors"])
+
+
 def test_a_process_metrics_error_leaves_process_null_and_keeps_the_cost_and_the_grade(setup, monkeypatch):
     # The metric is best-effort: a counter that raises must not fail the task or drop the cost the harness reported.
     def refuse(*args, **kwargs):
@@ -894,6 +903,31 @@ def test_a_task_json_the_pin_cannot_read_pins_the_graders_and_a_non_object_one_d
     assert ("graders" in json.loads((setup["out"] / "b1/_eval/batch.json").read_text())) is pinned
 
 
+@pytest.mark.parametrize("text", ["{", "[]", '"pin"', pytest.param("[" * 100000, id="deep")])
+def test_a_batch_whose_pin_is_unreadable_exits_1_naming_the_file(setup, capsys, text):
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    (setup["out"] / "b1/_eval/batch.json").write_text(text)
+    capsys.readouterr()
+    with pytest.raises(SystemExit) as exc:
+        _run(setup, "--arm", "guidance:none", "--task", "fix_add")
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert err.startswith("✗ ") and str(Path("_eval") / "batch.json") in err and "use another --batch" in err
+
+
+def test_a_batch_whose_pin_is_a_directory_exits_1_naming_the_file(setup, capsys):
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    pin = setup["out"] / "b1/_eval/batch.json"
+    pin.unlink()
+    pin.mkdir()
+    capsys.readouterr()
+    with pytest.raises(SystemExit) as exc:
+        _run(setup, "--arm", "guidance:none", "--task", "fix_add")
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert err.startswith("✗ ") and str(Path("_eval") / "batch.json") in err and "use another --batch" in err
+
+
 def test_graders_digest_follows_the_grader_sources(tmp_path, monkeypatch):
     from dokimi.repos import graders
 
@@ -924,3 +958,33 @@ def test_graders_digest_covers_main_and_pairs_names_with_contents(tmp_path, monk
     assert graders.graders_digest() == base
     (tmp_path / "main.py").rename(tmp_path / "other.py")  # same bytes under another name
     assert graders.graders_digest() != base
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), 1e200, 10**400], ids=["nan", "inf", "huge", "overflow"])
+def test_a_grader_score_that_is_no_measurement_is_a_grader_failure_and_the_batch_stays_reportable(
+        setup, monkeypatch, capsys, bad):
+    import dokimi.repos.grading as grading
+    read_grade = grading.read_grade
+
+    def bad_recall(run_dir):  # the grader of one cell writes `bad` as its score metric
+        path = run_dir / "grade.json"
+        if run_dir.name == "review_add__guidance-none__m-1__r1" and path.is_file():
+            doc = json.loads(path.read_text())
+            doc["metrics"]["recall"] = bad
+            path.write_text(json.dumps(doc))
+        return read_grade(run_dir)
+
+    monkeypatch.setattr(grading, "read_grade", bad_recall)
+    _run(setup, "--arm", "guidance:none,guidance:raw", "--task", "fix_add", "--task", "review_add")
+    batch = setup["out"] / "b1"
+    grade = json.loads((batch / "review_add__guidance-none__m-1__r1/result.json").read_text())["grade"]
+    assert grade["status"] == "grader_failure" and grade["score"] is None
+    assert grade["reasons"] == [
+        "grade.json has no numeric metrics.recall that is finite and within +-1e+150 (task.json `score`)"]
+    rows = {(r["task"], r["arm"]): r for r in _report(setup)["rows"]}
+    assert rows[("review_add", "guidance:none")]["grader_failures"] == 1
+    assert rows[("review_add", "guidance:none")]["score"] == 0.0
+    capsys.readouterr()
+    args = build_parser().parse_args(["repo", "compare", str(batch), "--baseline", "guidance:none"])
+    args.func(args)
+    assert "review_add" in capsys.readouterr().out
