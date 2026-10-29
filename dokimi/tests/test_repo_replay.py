@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+import dokimi.repos.replay.threads as threads_module
 from dokimi.cli import build_parser
 from dokimi.repos import RepoSource, load_manifest, open_source
 from dokimi.repos.replay import History, ReplayError, load_pull_requests
@@ -440,7 +442,6 @@ def test_a_prompt_file_replaces_the_default_prompt(hist, tmp_path):
 @pytest.mark.parametrize("content, message", [
     (None, "cannot read the threads file"),
     ("{not json", "cannot read the threads file"),
-    pytest.param("[" * 100_000 + "]" * 100_000, "cannot read the threads file", id="nested-too-deep"),
     ('{"data": {"search": {"nodes": []}}}', "the threads file holds no pull request"),
     ('[{"number": "7", "reviewThreads": []}]', "a pull request's number must be an integer, not '7'"),
     ('[{"number": 7, "reviewThreads": "x"}]', "pull request 7: reviewThreads is not a list of nodes"),
@@ -454,6 +455,23 @@ def test_an_unusable_threads_file_exits_1_with_the_reason(hist, tmp_path, capsys
     with pytest.raises(SystemExit) as exc:
         args.func(args)
     assert exc.value.code == 1 and message in capsys.readouterr().err
+    assert not (tmp_path / "tasks").exists()
+
+
+def test_a_threads_file_nested_past_the_parsers_limit_exits_1(hist, tmp_path, capsys, monkeypatch):
+    """How deep ``json.loads`` goes depends on the interpreter (on 3.14, on the C stack), so the
+    RecursionError is raised here rather than by a deep document."""
+    def too_deep(*_args, **_kwargs):
+        raise RecursionError("maximum recursion depth exceeded while decoding a JSON array")
+
+    monkeypatch.setattr(threads_module, "json", SimpleNamespace(loads=too_deep))
+    path = tmp_path / "threads.json"
+    path.write_text("[[]]", encoding="utf-8")
+    args = build_parser().parse_args(["repo", "tasks", "replay", str(hist["root"]), "--threads", str(path),
+                                      "--out", str(tmp_path / "tasks")])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 1 and "cannot read the threads file" in capsys.readouterr().err
     assert not (tmp_path / "tasks").exists()
 
 
