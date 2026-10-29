@@ -40,19 +40,22 @@ def test_first_prompt_tokens_is_compared_per_task_over_the_cells_that_have_it(tm
 
 
 def test_first_prompt_tokens_of_an_older_batch_is_no_row_not_zero(tmp_path):
-    old, mixed = tmp_path / "old", tmp_path / "mixed"
+    old, mixed, reverse = tmp_path / "old", tmp_path / "mixed", tmp_path / "reverse"
     for rep in (1, 2):
         _first(old, "t1", "guidance:none", rep, None)
         _first(old, "t1", "guidance:raw", rep, None)
         _first(mixed, "t1", "guidance:none", rep, None)
         _first(mixed, "t1", "guidance:raw", rep, 19_380)
+        _first(reverse, "t1", "guidance:none", rep, 16_315)
+        _first(reverse, "t1", "guidance:raw", rep, None)
     s = compare([old], "guidance:none")
     assert "first_prompt_tokens" not in {r["measure"] for r in s["comparisons"]}
     assert not s["unpaired"] and not s["warnings"]
-    s = compare([mixed], "guidance:none")
-    assert "first_prompt_tokens" not in {r["measure"] for r in s["comparisons"]} and not s["unpaired"]
-    assert s["warnings"] == ["guidance:raw m-1: only one arm reports first_prompt_tokens for any shared task; "
-                             "not compared"]
+    for batch in (mixed, reverse):  # the arm without it is the baseline, then the treatment
+        s = compare([batch], "guidance:none")
+        assert "first_prompt_tokens" not in {r["measure"] for r in s["comparisons"]} and not s["unpaired"]
+        assert s["warnings"] == ["guidance:raw m-1: only one arm reports first_prompt_tokens for any shared task; "
+                                 "not compared"]
 
 
 def _three_tasks(b: Path) -> None:

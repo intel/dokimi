@@ -454,12 +454,13 @@ def test_first_prompt_tokens_is_the_first_main_thread_call_counted_once():
     def msg(mid, usage, parent=None):
         return {"type": "assistant", "parent_tool_use_id": parent,
                 "message": {"id": mid, "usage": usage, "content": [{"type": "text", "text": "x"}]}}
-    lines = [  # a subagent's call comes first; the main call's two content blocks share one message id,
-        # and its first block's usage is sparse: the call's prompt is the merge of both, not the first line's
+    lines = [  # a subagent's call comes first; the main call's three content blocks share one message id,
+        # and its first and last blocks' usage is sparse: the call's prompt is the merge, not the first or last line's
         msg("s1", {"input_tokens": 9, "cache_read_input_tokens": 50_000}, parent="t1"),
         msg("m1", {"input_tokens": 4, "cache_read_input_tokens": 16_315}),
         msg("m1", {"input_tokens": 4, "cache_creation_input_tokens": 3_061, "cache_read_input_tokens": 16_315,
                    "output_tokens": 80}),
+        msg("m1", {"input_tokens": 4, "cache_read_input_tokens": 16_315, "output_tokens": 80}),
         msg("m2", {"input_tokens": 1, "cache_read_input_tokens": 19_500}),
     ]
     assert convert("claude-stream-json", "\n".join(json.dumps(x) for x in lines)).first_prompt_tokens == 19_380
