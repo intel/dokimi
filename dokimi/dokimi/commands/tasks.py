@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+
 from dokimi.exit_codes import usage_exit
 
 _TASKS_ROOT_HELP = (
@@ -79,13 +80,13 @@ def cmd_tasks_inspect(args: argparse.Namespace) -> None:
     try:
         reports = [r.as_dict() for r in inspect_path(Path(args.path))]
     except FileNotFoundError as exc:
-        usage_exit(f"error: {exc}")
+        usage_exit(f"Error: {exc}")
     payload = {"root": str(args.path), "items": reports}
     if args.out:
         try:
             save_artifact("task_inspect", payload, Path(args.out))
         except OSError as exc:
-            usage_exit(f"error: cannot write {args.out}: {exc}")
+            usage_exit(f"Error: cannot write {args.out}: {exc}")
     if args.json:
         print(json.dumps(stamp("task_inspect", dict(payload)), indent=2, default=str))
     else:
@@ -157,8 +158,8 @@ def _select_tasks(args: argparse.Namespace) -> list:
         else:
             task_names = [t.strip() for t in args.tasks.split(",") if t.strip()]
             tasks = [load_task(t, root=root) for t in task_names]
-    except ValueError as exc:
-        usage_exit(str(exc))
+    except (ValueError, OSError, RecursionError) as exc:  # a missing or unreadable task, deeply nested YAML
+        usage_exit(f"Error: {exc}")
     if not tasks:
         usage_exit("No tasks selected. Pass --tasks <name[,name]> or --all.")
     return tasks
@@ -219,24 +220,30 @@ def cmd_tasks_run(args: argparse.Namespace) -> None:
     try:
         runner.validate_harnesses()
     except ValueError as exc:
-        usage_exit(str(exc))
+        usage_exit(f"Error: {exc}")
     try:
         output = runner.run()
     except PreflightError as exc:
         # A missing tool (bench, Compose v2): one line, not a traceback.
-        raise SystemExit(f"error: {exc}") from None
+        raise SystemExit(f"Error: {exc}") from None
 
     out_json = Path(args.out_json) if args.out_json else Path(args.output_dir) / "task_runs.json"
     from dokimi.artifacts import save_artifact
 
-    save_artifact("task_runs", output, out_json)
+    try:
+        save_artifact("task_runs", output, out_json)
+    except OSError as exc:
+        usage_exit(f"Error: cannot write {out_json}: {exc}")
     print(f"Saved task run artifact: {out_json}")
 
     out_md = Path(args.out_md) if args.out_md else out_json.with_suffix(".md")
     from dokimi.report.task_runs_report import render_task_runs_report
 
-    out_md.parent.mkdir(parents=True, exist_ok=True)
-    out_md.write_text(render_task_runs_report(output), encoding="utf-8")
+    try:
+        out_md.parent.mkdir(parents=True, exist_ok=True)
+        out_md.write_text(render_task_runs_report(output), encoding="utf-8")
+    except OSError as exc:
+        usage_exit(f"Error: cannot write {out_md}: {exc} (the artifact is saved at {out_json})")
     print(f"Saved task run report:   {out_md}")
 
     _print_summary(output)

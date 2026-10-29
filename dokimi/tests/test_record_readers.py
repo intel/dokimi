@@ -326,6 +326,21 @@ def test_plugin_delta_names_the_file_with_the_malformed_record(tmp_path, monkeyp
     assert not (tmp_path / "d.json").exists()
 
 
+def test_plugin_delta_exits_2_with_a_message_on_an_unreadable_arms_file(tmp_path, capsys):
+    from dokimi.cli import build_parser
+
+    unreadable = tmp_path / "b.json"
+    unreadable.mkdir()  # reading a directory raises IsADirectoryError, as a permission error would
+    args = build_parser().parse_args(["arms", "plugin-delta", "--baseline-json", str(unreadable),
+                                      "--plugin-json", str(tmp_path / "p.json"),
+                                      "--out-json", str(tmp_path / "d.json")])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2
+    assert "b.json" in capsys.readouterr().err
+    assert not (tmp_path / "d.json").exists()
+
+
 def _ev(qid, w, wo, delta):
     return {"question_id": qid, "question_text": f"q{qid}",
             "with_docs": {"aggregate": w}, "without_docs": {"aggregate": wo}, "delta": delta}

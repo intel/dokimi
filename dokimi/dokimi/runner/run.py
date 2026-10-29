@@ -69,6 +69,9 @@ def _load_spec(spec_path: Path) -> dict:
     return data
 
 
+load_benchmark_spec = _load_spec
+
+
 class DocLoadError(RuntimeError):
     """A document the run selected could not be read: the run refuses rather than score around it."""
 

@@ -6,8 +6,9 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
-from dokimi.exit_codes import usage_exit
+from dokimi.exit_codes import EXIT_USAGE, usage_exit
 
 _TASKS_ROOT_HELP = (
     "Directory of exploration task YAML files (default: data/explore_tasks of a "
@@ -27,7 +28,7 @@ def cmd_explore_list(args: argparse.Namespace) -> None:
     default_repo_root = Path(args.repo_root) if getattr(args, "repo_root", None) else None
     try:
         tasks = discover_explore_tasks(root, default_repo_root=default_repo_root)
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, ValueError) as exc:  # a task file that cannot be read or parsed
         usage_exit(str(exc))
     for task in tasks:
         n_refs = len(task.references)
@@ -89,7 +90,7 @@ def cmd_explore_run(args: argparse.Namespace) -> None:
             tasks = [
                 load_explore_task(t, root=root, default_repo_root=default_repo_root) for t in ids
             ]
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, ValueError) as exc:  # a task file that cannot be read or parsed
         usage_exit(str(exc))
     if not tasks:
         usage_exit("No tasks selected. Pass --tasks <id[,id]> or --all.")
@@ -110,14 +111,18 @@ def cmd_explore_run(args: argparse.Namespace) -> None:
     output = runner.run()
 
     out_json = Path(args.out_json) if args.out_json else output_root / "explore_runs.json"
-    save_artifact("explore_runs", output, out_json)
+    try:
+        save_artifact("explore_runs", output, out_json)
+    except OSError as exc:
+        print(f"Error: cannot write {out_json}: {exc}", file=sys.stderr)
+        raise SystemExit(EXIT_USAGE) from exc
     print(f"Saved explore run artifact: {out_json}")
 
     if args.out_md:
         from dokimi.report.exploration_report import render_explore_report
+        from dokimi.utils import write_text_or_exit
 
-        Path(args.out_md).parent.mkdir(parents=True, exist_ok=True)
-        Path(args.out_md).write_text(render_explore_report(output), encoding="utf-8")
+        write_text_or_exit(Path(args.out_md), render_explore_report(output))
         print(f"Saved exploration report: {args.out_md}")
 
     for arm, stats in output["summary"]["per_arm"].items():

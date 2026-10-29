@@ -925,13 +925,13 @@ def _resource_usage_lines(runs: list[tuple[str, dict]], pooled: bool) -> list[st
 
 def _run_summary(scores: list[dict]) -> dict:
     """One run's arm means and paired-delta counts over the common questions."""
-    with_docs_scores = [s["with_docs"] for s in scores if s["with_docs"] is not None]
-    without_docs_scores = [s["without_docs"] for s in scores if s["without_docs"] is not None]
-    # Average the per-question deltas rather than differencing the two arm
-    # means. The arm means are filtered independently, so when any question
-    # is missing a score they cover different question subsets and their
-    # difference is not a paired delta.
-    paired_deltas = [s["delta"] for s in scores if s.get("delta") is not None]
+    # Arm means and delta over the pairs (`eval.stats.paired_summary`); one-arm runs keep theirs.
+    pairs = [s for s in scores if s.get("delta") is not None]
+    with_docs_scores = [s["with_docs"] for s in pairs or scores if s["with_docs"] is not None]
+    without_docs_scores = [s["without_docs"] for s in pairs or scores if s["without_docs"] is not None]
+    if not pairs and with_docs_scores and without_docs_scores:  # both arms, never on one question
+        with_docs_scores = without_docs_scores = []
+    paired_deltas = [s["delta"] for s in pairs]
     # Per-run, distinct from the section-level has_treatment: a single run may
     # lack a treatment arm while others in the comparison have one.
     paired = bool(with_docs_scores) and bool(paired_deltas)
@@ -1057,14 +1057,12 @@ def _difficulty_cells(sc: list[dict], has_treatment: bool) -> str:
     """One run's cells of a difficulty row: context mean and delta, or the baseline."""
     if not sc:
         return " — | — |" if has_treatment else " — |"
-    with_scores = [s["with_docs"] for s in sc if s["with_docs"] is not None]
-    if with_scores:
-        # Same pairing rule as the overall summary: average the per-question
-        # deltas, never the difference of two means filtered over different
-        # question subsets.
-        diff_deltas = [s["delta"] for s in sc if s.get("delta") is not None]
-        delta_cell = _fmt_delta(round(sum(diff_deltas) / len(diff_deltas), 1)) if diff_deltas else "—"
-        return f" {_avg(with_scores)} | {delta_cell} |"
+    if any(s["with_docs"] is not None for s in sc):
+        # Same pairs and one-arm rule as the overall summary: the context mean
+        # covers the questions the delta does.
+        st = _run_summary(sc)
+        delta_cell = "—" if st["delta_avg"] is None else _fmt_delta(st["delta_avg"])
+        return f" {_num_or_dash(st['with_avg'])} | {delta_cell} |"
     # No treatment score in this bucket: report the baseline.
     without_scores = [s["without_docs"] for s in sc if s["without_docs"] is not None]
     wo = _avg(without_scores) if without_scores else None

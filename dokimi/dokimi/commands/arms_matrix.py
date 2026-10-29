@@ -31,7 +31,7 @@ def prepare_matrix_cells(args: argparse.Namespace, cells: list, specs: list[str]
             setup = prepare(cell_args, specs, questions)
         except EmptyQuestionError:
             raise  # a bad input record, not a cell setup error: cli.main reports it (exit 2)
-        except (ValueError, FileNotFoundError) as exc:
+        except (ValueError, OSError, RecursionError) as exc:
             print(f"Error building matrix cell {cell.name!r}: {exc}", file=sys.stderr)
             sys.exit(EXIT_USAGE)
         try:

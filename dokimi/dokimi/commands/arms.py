@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 from dokimi.commands.arms_matrix import prepare_matrix_cells
 from dokimi.commands.arms_sampling import _check_sampling_support, _probe_sampling
-from dokimi.utils import question_id
+from dokimi.utils import question_id, write_text_or_exit
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
@@ -96,14 +96,14 @@ def cmd_arms_run(args: argparse.Namespace) -> None:
         setup = _prepare_arms(args, specs, questions)
     except EmptyQuestionError:
         raise  # a bad input record, not an arm setup error: cli.main reports it (exit 2)
-    except (ValueError, FileNotFoundError) as exc:
+    except (ValueError, OSError, RecursionError) as exc:
         print(f"Error building arms/plugins: {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
     try:
         output = _run_arms(args, setup, questions)
     except EmptyQuestionError:
         raise
-    except (ValueError, FileNotFoundError) as exc:
+    except (ValueError, OSError, RecursionError) as exc:
         # The run itself failed (a record, a model call, a judge): a runtime failure, exit 1.
         print(f"Error running arms: {exc}", file=sys.stderr)
         sys.exit(1)
@@ -124,7 +124,6 @@ def cmd_arms_run(args: argparse.Namespace) -> None:
 
 def cmd_arms_matrix_run(args: argparse.Namespace) -> None:
     """Run every cell in a matrix.cells descriptor and write a rollup."""
-    from dokimi.artifacts import save_artifact
     from dokimi.eval.cells import load_matrix_cells
     from dokimi.eval.matrix_rollup import build_matrix_rollup, strip_internal_payloads
     from dokimi.report.matrix_rollup_report import render_matrix_rollup_report
@@ -136,7 +135,7 @@ def cmd_arms_matrix_run(args: argparse.Namespace) -> None:
         cells = load_matrix_cells(args.matrix_cells)
         _validate_supported_matrix_harnesses(cells)
         _validate_unique_cell_filenames(cells)
-    except (ValueError, FileNotFoundError) as exc:
+    except (ValueError, OSError, RecursionError) as exc:
         print(f"Error loading matrix run inputs: {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
     # Every cell is set up and probed before a directory is written or an answer is paid for:
@@ -145,9 +144,12 @@ def cmd_arms_matrix_run(args: argparse.Namespace) -> None:
                                     prepare=_prepare_arms, probe=_probe_setup)
 
     out_dir = Path(args.out_dir) if args.out_dir else Path(f"results/arms/{args.product}-matrix")
-    out_dir.mkdir(parents=True, exist_ok=True)
     cells_dir = out_dir / "cells"
-    cells_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        cells_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        print(f"Error: cannot write {cells_dir}: {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
     cell_artifacts = []
     for cell, cell_args, setup in prepared:
         safe_name = _safe_name(cell.name)
@@ -157,7 +159,7 @@ def cmd_arms_matrix_run(args: argparse.Namespace) -> None:
             output = _run_arms(cell_args, setup, questions)
         except EmptyQuestionError:
             raise  # a bad input record, not a cell error: cli.main reports it (exit 2)
-        except (ValueError, FileNotFoundError) as exc:
+        except (ValueError, OSError, RecursionError) as exc:
             print(f"Error running matrix cell {cell.name!r}: {exc}", file=sys.stderr)
             sys.exit(1)
         _save_arms_output(output, out_json, out_md)
@@ -174,24 +176,22 @@ def cmd_arms_matrix_run(args: argparse.Namespace) -> None:
         if not payload:
             continue
         delta_json = Path(row["artifact"])
-        save_artifact("plugin_delta", payload, delta_json)
-        delta_md = delta_json.with_suffix(".md")
-        delta_md.write_text(render_plugin_delta_report(payload), encoding="utf-8")
+        _save_artifact_or_exit("plugin_delta", payload, delta_json)
+        write_text_or_exit(delta_json.with_suffix(".md"), render_plugin_delta_report(payload))
         print(f"OK Saved plugin delta:    {delta_json}")
 
     persisted = strip_internal_payloads(rollup)
     out_json = Path(args.out_json) if args.out_json else out_dir / "matrix-rollup.json"
     out_md = Path(args.out_md) if args.out_md else out_json.with_suffix(".md")
-    save_artifact("matrix_rollup", persisted, out_json)
-    out_md.parent.mkdir(parents=True, exist_ok=True)
-    out_md.write_text(render_matrix_rollup_report(persisted), encoding="utf-8")
+    _save_artifact_or_exit("matrix_rollup", persisted, out_json)
+    write_text_or_exit(out_md, render_matrix_rollup_report(persisted))
     print(f"OK Saved matrix rollup:   {out_json}")
     print(f"OK Saved matrix report:   {out_md}")
 
 
 def cmd_arms_plugin_delta(args: argparse.Namespace) -> None:
     """Compare paired no-plugin/plugin arms artifacts."""
-    from dokimi.artifacts import load_artifact, save_artifact
+    from dokimi.artifacts import load_artifact
     from dokimi.eval.plugin_delta import PluginDeltaError, compare_plugin_runs
     from dokimi.records import records
     from dokimi.report.plugin_delta_report import render_plugin_delta_report
@@ -203,17 +203,16 @@ def cmd_arms_plugin_delta(args: argparse.Namespace) -> None:
             for section in ("answers", "evaluations"):
                 records(artifact.get(section) or [], source=f"{path} {section}", kind=section)
         output = compare_plugin_runs(baseline, plugin)
-    except (PluginDeltaError, ValueError, FileNotFoundError) as exc:
+    except (PluginDeltaError, ValueError, OSError, RecursionError) as exc:
         print(f"Error computing plugin delta: {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
 
     out_json = Path(args.out_json) if args.out_json else Path("results/arms/plugin_delta.json")
-    save_artifact("plugin_delta", output, out_json)
+    _save_artifact_or_exit("plugin_delta", output, out_json)
     print(f"OK Saved plugin delta: {out_json}")
 
     out_md = Path(args.out_md) if args.out_md else out_json.with_suffix(".md")
-    out_md.parent.mkdir(parents=True, exist_ok=True)
-    out_md.write_text(render_plugin_delta_report(output), encoding="utf-8")
+    write_text_or_exit(out_md, render_plugin_delta_report(output))
     print(f"OK Saved plugin delta report: {out_md}")
 
     print(
@@ -499,7 +498,7 @@ def _refuse_external_trigger_set(path: str) -> None:
 
     try:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):
         return  # the questions loader reports it
     fmt = detect_trigger_format(data)
     if fmt and fmt != FORMAT_QUESTIONS:
@@ -702,9 +701,8 @@ def _prepare_arms(args: argparse.Namespace, specs: list[str], questions: list[di
 
 
 def _probe_setup(setup: _ArmsSetup) -> None:
-    """The sampling probes of a set-up run: one real model call per distinct (model, provider, sampling) key."""
+    """The sampling probes of a set-up run: one real model call per distinct key, before the first answer."""
     for model, provider, temperature, seed in setup.probes:
-        # Real model calls, still before the first answer: a sampling value the provider refuses fails here.
         _probe_sampling(model, provider, temperature, seed)
 
 
@@ -742,14 +740,28 @@ def _run_arms(args: argparse.Namespace, setup: _ArmsSetup, questions: list[dict]
     )
 
 
+def _save_artifact_or_exit(kind: str, payload: dict, path: Path) -> None:
+    """``save_artifact``, or exit 2 naming ``path`` when it cannot be written."""
+    from dokimi.artifacts import save_artifact
+
+    try:
+        save_artifact(kind, payload, path)
+    except OSError as exc:
+        print(f"Error: cannot write {path}: {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+
+
 def _save_arms_output(output: dict, out_json: Path, out_md: Path) -> None:
     from dokimi.eval.arm_runner import ArmRunner
     from dokimi.report.arms_report import render_arms_report
 
-    ArmRunner.save(output, out_json)
+    try:
+        ArmRunner.save(output, out_json)
+    except OSError as exc:
+        print(f"Error: cannot write {out_json}: {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
     print(f"OK Saved arms comparison: {out_json}")
-    out_md.parent.mkdir(parents=True, exist_ok=True)
-    out_md.write_text(render_arms_report(output), encoding="utf-8")
+    write_text_or_exit(out_md, render_arms_report(output))
     print(f"OK Saved arms report:     {out_md}")
 
 

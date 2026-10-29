@@ -13,7 +13,7 @@ import pytest
 import dokimi.eval.arm_runner as arm_runner_mod
 from dokimi.artifacts import ArtifactValidationError, validate_artifact
 from dokimi.cli import build_parser
-from dokimi.commands.arms import _load_questions
+from dokimi.commands.arms import _load_questions, cmd_arms_matrix_run
 from dokimi.eval.matrix_rollup import build_matrix_rollup, strip_internal_payloads
 from dokimi.report.matrix_rollup_report import _md_cell, render_matrix_rollup_report
 
@@ -160,7 +160,7 @@ def test_arms_matrix_run_parser_accepts_required_args():
         "matrix.json",
     ])
 
-    assert args.arms_cmd == "matrix-run"
+    assert args.func is cmd_arms_matrix_run
     assert args.matrix_cells == "matrix.json"
     assert args.plugin_deltas is True
 

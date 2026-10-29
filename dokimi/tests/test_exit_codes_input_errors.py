@@ -38,7 +38,7 @@ def _report_eval_missing(tmp_path):
 
 def _report_generate_missing_questions(tmp_path):
     eval_file = tmp_path / "eval.json"  # a readable eval, so the questions file is the refusal
-    eval_file.write_text("{}", encoding="utf-8")
+    eval_file.write_text('{"evaluations": [{"question_id": "q1"}]}', encoding="utf-8")  # a run that judged something
     return ["report", "generate", "--product", "lib", "--eval", str(eval_file),
             "--questions", _missing(tmp_path)]
 

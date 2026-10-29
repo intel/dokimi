@@ -11,21 +11,25 @@ import pytest
 
 from dokimi.cli import build_parser
 
+ONE_EVALUATION = json.dumps({"evaluations": [
+    {"question_id": "q1", "question_text": "How?", "with_docs": {"aggregate": 80.0},
+     "without_docs": {"aggregate": 60.0}, "delta": 20.0}]})
 
-def _generate(tmp_path, eval_path):
+
+def _generate(tmp_path, eval_path, fmt="markdown"):
     questions = tmp_path / "questions.json"
     questions.write_text('{"questions": []}', encoding="utf-8")
     args = build_parser().parse_args([
         "report", "generate", "--product", "p", "--eval", str(eval_path),
-        "--questions", str(questions), "--output", str(tmp_path / "r.md"),
+        "--questions", str(questions), "--output", str(tmp_path / "r.md"), "--format", fmt,
     ])
     args.func(args)
 
 
-def _err(tmp_path, eval_path, capsys):
+def _err(tmp_path, eval_path, capsys, fmt="markdown", code=2):
     with pytest.raises(SystemExit) as exc:
-        _generate(tmp_path, eval_path)
-    assert exc.value.code == 2
+        _generate(tmp_path, eval_path, fmt)
+    assert exc.value.code == code
     return capsys.readouterr().err
 
 
@@ -62,7 +66,7 @@ def test_eval_json_that_is_not_an_object_is_rejected(tmp_path, capsys, text):
 def test_an_unwritable_output_exits_2_naming_the_path(tmp_path, capsys, monkeypatch, target):
     monkeypatch.setattr("dokimi.report.ReportGenerator.generate_report", lambda self, **kw: "report")
     ev = tmp_path / "ev.json"
-    ev.write_text('{"evaluations": []}', encoding="utf-8")
+    ev.write_text(ONE_EVALUATION, encoding="utf-8")
     questions = tmp_path / "questions.json"
     questions.write_text('{"questions": []}', encoding="utf-8")
     if target == "is_a_directory":
@@ -88,10 +92,38 @@ def test_non_list_evaluations_exit_2_with_its_path(tmp_path, capsys, evaluations
     assert f"{bad} evaluations: expected a list of records" in _err(tmp_path, bad, capsys)
 
 
+@pytest.mark.parametrize("fmt", ["markdown", "json"])  # json never crashed: refused all the same
+@pytest.mark.parametrize("text", ['{"evaluations": []}', "{}", "[]"])
+def test_an_eval_with_no_evaluations_exits_1_and_writes_no_report(tmp_path, capsys, text, fmt):
+    empty = tmp_path / "empty.json"
+    empty.write_text(text, encoding="utf-8")
+    err = _err(tmp_path, empty, capsys, fmt, code=1)  # a run that judged nothing failed: a verdict, not a bad flag
+    assert err == f"Error: --eval {empty} holds no evaluations\n"
+    assert not (tmp_path / "r.md").exists()
+
+
+def test_an_eval_with_one_evaluation_writes_the_report(tmp_path):
+    ev = tmp_path / "ev.json"
+    ev.write_text(ONE_EVALUATION, encoding="utf-8")
+    _generate(tmp_path, ev)
+    report = (tmp_path / "r.md").read_text(encoding="utf-8")
+    assert "**Total Questions:** 1" in report
+    assert "| 100% |" in report  # the one record's diagnosis is the failure analysis' whole total
+
+
+def test_the_failure_analysis_shows_n_a_rates_for_zero_evaluations():
+    """The pipeline reports straight from its own run, which can judge no answers."""
+    from dokimi.report.generator import ReportGenerator
+
+    md = ReportGenerator().generate_report({"evaluations": []}, {"questions": []})
+    rows = [line for line in md.split("## Failure Analysis")[1].splitlines() if line.startswith("| ")]
+    assert len(rows) > 1 and all(" | 0 | n/a | " in row for row in rows[1:])
+
+
 @pytest.mark.parametrize("kind", ["missing", "directory"])
 def test_generate_unreadable_questions_exits_2_naming_the_path(tmp_path, capsys, kind):
     ev = tmp_path / "ev.json"
-    ev.write_text('{"evaluations": []}', encoding="utf-8")
+    ev.write_text(ONE_EVALUATION, encoding="utf-8")
     qs = tmp_path / "nope.json"
     if kind == "directory":
         qs.mkdir()
