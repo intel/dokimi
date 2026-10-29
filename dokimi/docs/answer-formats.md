@@ -105,15 +105,17 @@ the run's pass rates and mean scores are under `run_metadata.summary` (or
 
 An attack the grader accepts, or a canary it rejects, is a violation, and any
 violation makes the run `blocked`: the command prints the pass rates and the
-violations and exits 1 (`-o` writes `redteam.v1`). A run that probed no question
-(nothing graded, or only judge checks without `--judge`) is `inconclusive` and
-also exits 1. An unwritable `-o` exits 2. A `negate` check passes an
-answer that lacks its value, so a block of only negated checks gets none of
-`wrong`, `empty` and `hedge`
-and is reported as `negated_only`, and `stuffed` still runs: its probe is the negated value itself, so a
-block of one negated value is probed and a run whose only probes are those passes when they are rejected
-(`negated_only` in the table is the sign that the block is checked for that value alone). A question with no
-probe at all is counted as `unprobed`. A block with a positive check
+violations and exits 1 (`-o` writes `redteam.v1`). A run in which a graded
+question was not measured is `inconclusive` and also exits 1: a question whose
+`judge` checks have no verdict without `--judge` (no probe scored), or a block
+of only negated checks. A `negate` check passes an answer that lacks its value,
+so a block of only negated checks gets none of `wrong`, `empty` and `hedge`: it
+is reported as `negated_only`, its `stuffed` probe (the negated value itself)
+still runs, but the grader would accept any answer without that value, so
+nothing was verified about it. The table names every question that was not
+measured and counts it as `unprobed`; only a run that measured every graded
+question and found no violation is `pass`. An unwritable `-o` exits 2.
+A block with a positive check
 is graded as written, `threshold` included, so a negated check's share of the score
 counts: a block it lifts over the line is blocked.
 A probe the grader cannot
