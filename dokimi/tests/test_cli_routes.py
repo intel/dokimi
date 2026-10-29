@@ -117,6 +117,20 @@ def test_the_tombstone_table_is_empty_and_its_check_finds_a_live_route():
     assert cli_routes.tombstone_problems(bad)  # the old path is still a live route
 
 
+def test_the_tombstone_check_follows_groups_aliases_and_roots():
+    # moved_argv matches by prefix: a group tombstone shadows the live routes under it.
+    shadows = (cli_routes.Tombstone(("repo", "tasks"), ("tasks", "run")),)
+    assert cli_routes.tombstone_problems(shadows)
+    # an alias is a live route too
+    alias = (cli_routes.Tombstone(("product",), ("library", "list")),)
+    assert cli_routes.tombstone_problems(alias)
+    # a root is a valid destination, and an unknown name is a valid old path
+    root = (cli_routes.Tombstone(("old-tool",), ("library",)),)
+    assert cli_routes.tombstone_problems(root) == []
+    nowhere = (cli_routes.Tombstone(("old-tool",), ("no-such-root",)),)
+    assert cli_routes.tombstone_problems(nowhere)
+
+
 def test_a_tombstone_rewrites_the_argv_and_exits_2(monkeypatch, capsys):
     # Test-only entry: no command moves in this release.
     monkeypatch.setattr(

@@ -84,6 +84,8 @@ class _RoutedParser(argparse.ArgumentParser):
         listed = {action.dest: action for action in sub._choices_actions} if sub else {}
         fmt = self._get_formatter()
         fmt.add_usage(self.usage, self._actions, self._mutually_exclusive_groups)
+        # A parser root missing from cli_routes.ROOTS is left out of this list;
+        # test_route_table_matches_the_parser_leaves_and_roots fails on it.
         for section in cli_routes.SECTIONS:
             roots = [root for root in cli_routes.ROOTS if root.section == section]
             if not roots:

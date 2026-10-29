@@ -197,14 +197,28 @@ def moved_text(argv: list[str]) -> str:
     return "moved: " + shlex.join(["dokimi", *argv])
 
 
+def _is_route(path: tuple[str, ...]) -> bool:
+    """True when argv ``path`` names a root or an alias, or a group or leaf under one.
+
+    ``moved_argv`` matches by prefix, so a tombstone on a group shadows every route under it.
+    """
+    if not path:
+        return False
+    heads = {name: root.name for root in ROOTS for name in (root.name, *root.aliases)}
+    head = heads.get(path[0])
+    if head is None:
+        return False
+    full = (head, *path[1:])
+    return any(leaf.path[: len(full)] == full for leaf in LEAVES)
+
+
 def tombstone_problems(tombstones: tuple[Tombstone, ...] | None = None) -> list[str]:
     """Why a tombstone is wrong: its old path is still a live route, or it points nowhere."""
-    live = {leaf.path for leaf in LEAVES}
     problems = []
     for tomb in TOMBSTONES if tombstones is None else tombstones:
-        if tomb.old in live:
+        if _is_route(tomb.old):
             problems.append(f"{' '.join(tomb.old)} is still a live route")
-        if tomb.new not in live:
+        if not _is_route(tomb.new):
             problems.append(
                 f"{' '.join(tomb.old)} points at {' '.join(tomb.new)}, which is not a route"
             )
