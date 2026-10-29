@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""data: schemas of the artifacts and of the CLI routes. ``data schema show KIND`` prints one as JSON."""
+"""data: schemas. ``data schema show KIND`` prints one as JSON; ``cli_routes`` is the only kind so far."""
 
 from __future__ import annotations
 
@@ -28,10 +28,10 @@ def cmd_schema_show(args: argparse.Namespace) -> None:
 
 
 def register(sub, positive_int):  # noqa: ARG001 - the registry passes it to every command
-    data_p = sub.add_parser("data", help="Schemas of the artifacts and the CLI routes")
+    data_p = sub.add_parser("data", help="Schemas: today the CLI route table")
     data_sub = data_p.add_subparsers(dest="data_cmd", required=True)
 
-    schema_p = data_sub.add_parser("schema", help="Print an artifact or route schema")
+    schema_p = data_sub.add_parser("schema", help="Print the CLI route table as JSON")
     schema_sub = schema_p.add_subparsers(dest="schema_cmd", required=True)
 
     list_p = schema_sub.add_parser("list", help="List the schema kinds")

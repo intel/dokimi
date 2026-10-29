@@ -210,3 +210,13 @@ def test_the_route_schema_rejects_a_document_whose_shape_drifted(damage):
     doc = cli_routes.document()
     damage(doc)
     assert schema_errors("cli_routes.v1", doc)
+
+
+def test_the_data_help_promises_only_the_kinds_it_has():
+    from dokimi.commands.data import SCHEMA_KINDS
+
+    helps = {path: action.help for path, action in _help_actions(build_parser())}
+    assert set(SCHEMA_KINDS) == {"cli_routes"}  # widen the help below when a kind is added
+    for path in (("data",), ("data", "schema")):
+        assert "artifact" not in helps[path].lower(), helps[path]
+        assert "route" in helps[path].lower(), helps[path]
