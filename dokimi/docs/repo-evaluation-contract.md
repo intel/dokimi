@@ -643,6 +643,146 @@ review thread of a merged PR, anchored on a line of the reviewed revision.
   thread, a lower bound on precision. Humans miss problems and raise
   non-defects, so neither is a verdict.
 - The oracle answer is one finding per thread, at its anchor.
+- `repo tasks replay` writes these tasks from recorded review threads (§4.6).
+
+### 4.6 Replay tasks from review threads
+
+`repo tasks replay` writes `dokimi:review_replay` tasks (§4.5) from the review
+threads of merged pull requests, so `gold.json` is not written by hand. It
+makes no GitHub call: the threads come from a file `gh api graphql` wrote, so a
+private repository works the same way and the command needs no network for a
+local source.
+
+```bash
+# a window of merged PRs with their threads; --slurp writes the pages as one JSON list
+gh api graphql --paginate --slurp -F query=@replay-threads.graphql \
+    -F q='repo:IntelPython/dpnp is:pr is:merged merged:2026-10-01..2026-10-27' > threads.json
+python cli.py repo tasks replay ~/dpnp --threads threads.json --out ~/dpnp/.agent-eval/tasks
+```
+
+`replay-threads.graphql` asks for the fields the command reads. A search
+returns at most 1000 pull requests, so split a larger window by date. The
+query reads up to 100 threads per pull request and 50 comments per thread;
+raise `first:` for a pull request with more.
+
+```graphql
+query($q: String!, $endCursor: String) {
+  search(query: $q, type: ISSUE, first: 10, after: $endCursor) {
+    pageInfo { hasNextPage endCursor }
+    nodes {
+      ... on PullRequest {
+        number title url author { login __typename }
+        headRefOid mergeCommit { oid }
+        reviewThreads(first: 100) {
+          nodes {
+            path originalLine diffSide subjectType
+            comments(first: 50) {
+              nodes { author { login __typename } body createdAt url originalCommit { oid } }
+            }
+          }
+        }
+        reviews(first: 50) { nodes { author { login __typename } body } }
+      }
+    }
+  }
+}
+```
+
+Any JSON holding pull request objects with `number` and `reviewThreads` is
+read: one response, the pages `--paginate --slurp` writes, or a list of pull
+requests. A pull request on two pages is read once. A commit that is not given
+as a full 40- or 64-character hex SHA counts as missing.
+
+**Gold threads.** A thread is gold when its first comment was written by
+someone other than the PR's author and not by a bot (`__typename` `Bot`, or a
+login ending in `[bot]`), on a line of the new file (`subjectType` other than
+`FILE`, `diffSide` other than `LEFT`, an `originalLine`), and names its
+`originalCommit`. Every
+other thread is listed with the reason, and so is every non-empty review body
+by a reviewer: it has no line and is never gold.
+
+**One task per pull request**, in `<out>/review_replay_pr<number>/`:
+
+- The reviewed revision is the `originalCommit` most gold threads were written
+  on (on a tie, the one with the latest comment). `base` is its merge base with
+  `mergeCommit^1`, the base branch as the PR merged. That holds for a squash,
+  merge-commit or rebase merge; a PR merged by fast-forward (`mergeCommit` is
+  `headRefOid`) is skipped, since its `mergeCommit^1` is one of its own commits.
+- `change.patch` is the diff from `base` to the reviewed revision as one commit
+  titled with the PR's title, binary files included. `git am` strips the CR at
+  the end of each line of a plain mail, so a diff holding a CR (a file with
+  CRLF line ends) is written base64-encoded, which keeps it.
+- `task.json` has `family: review`, `grader: dokimi:review_replay`,
+  `score: {metric: recall, max: 1.0}`, `review_patch`, `gold`, `window`
+  (`--window`, default 5) and the prompt (`--prompt-file` replaces the default,
+  which asks for the findings JSON of §4.5). For the reader it adds
+  `source_pr`, `source_url`, `reviewed_commit`, `merge_commit` and
+  `left_out_files`.
+- `gold.json` holds `{id, file, line, kind, comment, addressed, reply, url}`
+  per thread. `id` is `pr<number>-t<n>`, `n` being the thread's position among
+  all the PR's threads, so ids stay the same when a thread is dropped. `kind`
+  is `unknown`, and `reply` is the PR author's first later comment in the
+  thread.
+
+GitHub names a thread's file as it is now, so the file's name at the
+thread's `originalCommit` is followed back through its renames from
+`headRefOid`, one commit at a time (`git log --follow`). A thread written on
+another revision is carried to the reviewed one commit by commit along the
+first-parent path between the two, or through the one diff between them when
+history was rewritten. It is left out when its line changed on the way, and so
+is a thread whose line is not in the file at the reviewed revision. A thread
+that a commit on the first-parent path up to the reviewed revision answered (as
+`addressed` reads it) is left out too: the change under review holds the fix.
+
+**Guidance and `eval_dir` are left out.** Workspace preparation applies the
+arm before the review patch (§3, steps 5 and 7): `guidance:none` deletes the
+files the guidance globs match and `guidance:rev:` replaces them, so a hunk on
+one would not apply, and a guidance file the PR adds would reach every arm.
+`eval_dir` is never in a workspace. Files of either kind are left out of the
+patch and listed in `left_out_files`, and their threads are left out of
+`gold.json`. A pull request that changes nothing else gets no task.
+
+**`addressed`** is true when one of the PR's own commits after the thread
+changed its file within `window` lines of its line; deleting the file is such
+a change. The command walks the first-parent commits from the thread's
+`originalCommit` to `headRefOid` and carries the line through each. A commit
+counts when it has one parent and no bot wrote it (`[bot]` in its author's name
+or email, as in pre-commit.ci's fixes); a commit GitHub made from a reviewer's
+suggestion counts, since accepting it is the response. Any other commit only
+moves the line: a merge of the base branch into the PR does, and the commits it
+brings in are not on that path, so a change another PR made next to the line is
+not a response. When such a commit rewrites the line itself, the walk stops
+there with `addressed` false and the thread is listed for a maintainer to
+check. A fix that a later merge undid is still addressed, since the author
+accepted the comment. When no first-parent path leads from the thread's
+`originalCommit` to `headRefOid` (a force-push rewrote history, or the revision
+is reached only through a merge), the diff between the two is read instead,
+and the thread is listed too.
+
+**Before a run** a maintainer sets `kind`, and sets `addressed` to false where
+`reply` declines the comment ("it's intended") but a commit changed the lines
+nearby for another reason. A task directory that has a `task.json` is kept as
+it is on the next run; `--force` rewrites it.
+
+**Commits.** For a remote source the commits the clone lacks are fetched from
+`origin` by SHA: the reviewed revision of a squash-merged PR is reachable only
+from `refs/pull/<number>/head`, which GitHub serves. A local repository is read
+as it is, so fetch those refs first, for example
+`git fetch origin '+refs/pull/*/head:refs/remotes/origin/pull/*'`. A thread
+whose revision is still missing is listed and left out.
+
+The command exits 1 when the threads file cannot be read or holds no pull
+request, when no pull request gave a task (written, or kept from before), and
+on an error that is not one pull request's own: a malformed pull request, the
+source, the manifest, the prompt file, or a task it cannot write. Each prints
+`✗` and the reason. A git failure while one pull request is built skips that
+pull request with the reason.
+`repo tasks check` then runs the tasks, and two arms measure the guidance
+(§9):
+
+```bash
+python cli.py repo compare repo-runs/replay --baseline guidance:none --metric recall_addressed
+```
 
 ## 5. Aligning oneDAL `dev/agent_evals` (uxlfoundation/oneDAL#3818)
 
@@ -1113,6 +1253,14 @@ python cli.py repo run ~/oneDAL@<sha> --manifest dev/agent_evals/repo-eval.yaml 
     --bin /opt/claude-2.1.286/claude --agent-network host --budget 1 --max-batch-usd 20
 python cli.py repo report repo-runs/pilot
 python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric root_cause_fixed
+```
+
+```bash
+# review tasks from the threads of merged PRs (§4.6): no LLM, no docker, no GitHub call
+python cli.py repo tasks replay ~/dpnp --threads threads.json --out ~/dpnp/.agent-eval/tasks
+python cli.py repo run ~/dpnp --task review_replay_pr3107 --arm guidance:none,guidance:raw \
+    --model claude-sonnet-5-5 --batch replay --agent-network host
+python cli.py repo compare repo-runs/replay --baseline guidance:none --metric recall_addressed
 ```
 
 - Each cell holds the §4 inputs plus `agent.stdout` (the raw trace) and
