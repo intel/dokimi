@@ -754,7 +754,8 @@ command prints `Error: ...` on stderr and exits 2, after the table. Scores are c
 and shown rounded down, so 0.89996 prints as 0.89. Without `--no-skill-arm`, the runs must
 declare the same baseline; the default is that baseline. With `--no-skill-arm`, the arm must
 be one the runs list (exit 2 otherwise, naming the arms that exist), and the declared
-baselines are not checked. Only arms runs are read. The flags are descriptive: they do not
+baselines are not checked. A threshold out of range (`--ceiling` in (0, 1], `--floor` in
+[0, ceiling), `--min-reps` at least 1) exits 2. Only arms runs are read. The flags are descriptive: they do not
 change any score or any gate.
 
 ## Scope and caveats
