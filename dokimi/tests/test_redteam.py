@@ -538,3 +538,36 @@ def test_without_the_judge_flag_no_judge_is_built_and_judge_checks_stay_unscored
         cmd_eval_redteam(_args(tmp_path / "questions.json", output=out))
     assert exc.value.code == 1
     assert json.loads(out.read_text(encoding="utf-8"))["summary"]["unscored"] == 3
+
+
+@pytest.mark.parametrize("grading", [
+    {"checks": [{"type": "match", "values": []}]},
+    {"checks": [{"type": "match", "values": [""]}]},
+    {"checks": []},
+    None,
+])
+def test_a_degenerate_grading_block_is_refused_not_passed(grading):
+    with pytest.raises(ValueError, match="cannot be graded"):
+        run([_q("1", grading)])
+
+
+def test_an_empty_question_list_is_inconclusive_not_pass():
+    result = run([])
+    assert result["status"] == "inconclusive" and result["summary"]["questions"] == 0
+
+
+def test_command_exits_2_with_the_problem_when_a_grading_block_cannot_be_graded(tmp_path, monkeypatch, capsys):
+    _patch_questions(monkeypatch, [_q("7", {"checks": [{"type": "match", "values": []}]})])
+    out = tmp_path / "redteam.json"
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_redteam(_args(tmp_path / "questions.json", output=out))
+    assert exc.value.code == 2
+    assert "7: check 0: match has no values" in capsys.readouterr().err
+    assert not out.exists()
+
+
+def test_command_exits_1_on_an_empty_question_set(tmp_path, monkeypatch):
+    _patch_questions(monkeypatch, [])
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_redteam(_args(tmp_path / "questions.json"))
+    assert exc.value.code == 1
