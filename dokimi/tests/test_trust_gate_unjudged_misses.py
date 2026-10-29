@@ -10,6 +10,7 @@ most questions miss passes a fail-severity check it fails on intel/main.
 
 from unittest.mock import MagicMock
 
+from dokimi.eval.diagnoser import EMPTY_RETRIEVAL, INSUFFICIENT_DATA, summarise_diagnoses
 from dokimi.eval.judge import Judge
 from dokimi.gate.trust_gate import evaluate_trust
 
@@ -100,3 +101,9 @@ def test_judge_error_rows_keep_the_retrieval_outcome_of_their_answer(monkeypatch
     assert check.value == 1.0
     assert check.measured is not False
     assert "(20/20)" in check.message
+
+
+def test_unjudged_misses_stay_empty_retrievals_in_the_failure_analysis():
+    summary = summarise_diagnoses(_rows(10, 4))
+    assert summary["counts"][EMPTY_RETRIEVAL] == 4
+    assert summary["counts"][INSUFFICIENT_DATA] == 0

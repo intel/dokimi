@@ -53,6 +53,14 @@ def test_empty_retrieval_no_docs():
     assert result["label"] == EMPTY_RETRIEVAL
 
 
+def test_unjudged_retrieval_miss_is_an_empty_retrieval_not_insufficient_data():
+    """The judge leaves the no-document placeholder unjudged, so its delta is None."""
+    answer = _make_answer(doc_source="fallback_none", retrieved_docs=[])
+    result = diagnose(answer, None)
+    assert result["label"] == EMPTY_RETRIEVAL
+    assert result["evidence"]["doc_source"] == "fallback_none"
+
+
 def test_empty_retrieval_no_mcp_client():
     answer = _make_answer(doc_source="none", retrieved_docs=[])
     result = diagnose(answer, -2.0)

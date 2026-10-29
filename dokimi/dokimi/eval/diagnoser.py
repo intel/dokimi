@@ -30,12 +30,13 @@ knowledge_sufficient
     added noise rather than signal.
 
 insufficient_data
-    Delta could not be computed (one or both answers missing).
+    Delta could not be computed (one or both answers missing or errored). A
+    retrieval miss that was left unjudged is ``empty_retrieval``, not this.
 """
 
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 
-from dokimi.records import Answer, RecordLike, records
+from dokimi.records import NO_RETRIEVAL_SOURCES, Answer, RecordLike, records
 
 # Keyword-overlap score below which retrieved docs are considered off-topic
 LOW_RELEVANCE_CUTOFF = 0.3
@@ -95,6 +96,10 @@ def diagnose(
         - ``evidence``: dict of signals used to reach the diagnosis
     """
     if delta is None:
+        # A retrieval miss is left unjudged, so it has no delta; it is still an
+        # empty retrieval, not a missing or errored answer.
+        if context_answer is not None and not context_answer.error and context_answer.doc_source in NO_RETRIEVAL_SOURCES:
+            return _result(EMPTY_RETRIEVAL, {"doc_source": context_answer.doc_source, "retrieved_count": 0})
         return _result(INSUFFICIENT_DATA, {})
 
     if delta >= 0:
