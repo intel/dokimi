@@ -165,7 +165,7 @@ def render_arms_report(data: Dict[str, Any]) -> str:
                 delta_s = "—"
             else:
                 delta_s = f"{delta:+.1f}"
-            lines.append(f"| `{arm}` | {avg_s} | {delta_s} | {stats.get('n', 0)} | {stats.get('errors', 0)} |")
+            lines.append(f"| `{arm}` | {avg_s} | {delta_s} | {stats.get('n', 0)} | {stats.get('errors', '—')} |")
         lines.append("")
         lines.extend(_significance_lines(summary, arms, baseline))
         lines.extend(_interaction_lines(summary))
