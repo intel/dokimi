@@ -184,6 +184,7 @@ LAST_OK = parse_contract({"actions": {"test": {"tool": "Bash", "command": "pytes
     ("cat > ci.sh <<'EOF'\nset -e\nEOF\npytest -q; echo done", True),
     ("pytest -q; set -e; echo done", True), ("# set -o pipefail\npytest -q | tail -5", True),
     ("echo 'set -e'; pytest -q; echo done", True), ("grep -r pipefail .; pytest -q | tail -5", True),
+    ("grep -e foo x; pytest -q; echo done", True), ("grep -o pipefail x; pytest -q | tail -5", True),
     ("set -euo pipefail; pytest -q | tail -5; echo done", False), ("set -o errexit; pytest -q; echo done", False),
     ("set -e; set +e; pytest -q; echo done", True), ("set -o pipefail; set +o pipefail; pytest -q | tail -5", True),
     # a trailing `&` backgrounds the whole list or group it ends, and nothing before it
@@ -268,6 +269,7 @@ def test_events_from_a_normalized_trace_split_like_a_bash_call():
     ("if x; then pytest; fi", [("Bash:x", True), ("Bash:pytest", False)]),
     ("if x; then make; pytest; fi", [("Bash:x", True), ("Bash:make", True), ("Bash:pytest", False)]),
     ("select x in a b; do pytest; done", [("Bash:pytest", True)]),
+    ("until x; do pytest; done", [("Bash:x", True), ("Bash:pytest", True)]),
     ("(for f in a; do pytest; done)", [("Bash:pytest", True)]),
     ("! while read f; do pytest $f; done", [("Bash:read", True), ("Bash:pytest", True)]),
     ("if c; then :; else for f in a; do pytest; done; fi", [("Bash:c", True), ("Bash::", True), ("Bash:pytest", True)]),
