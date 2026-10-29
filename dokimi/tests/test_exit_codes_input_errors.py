@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Exit codes of the input and usage refusals, per command (exit-code table, CLI API v2 §2.6).
+"""Exit codes of the input and usage refusals, per command (the exit-code table in docs/quickstart.md).
 
 A bad input file, an input the command cannot use, a flag combination it refuses and a
 missing credential exit 2. Exit 1 is reserved for a verdict or a gate that ran and failed.

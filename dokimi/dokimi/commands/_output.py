@@ -14,7 +14,7 @@ from dokimi.exit_codes import EXIT_USAGE
 
 @contextlib.contextmanager
 def exit_on_unwritable(path: Path):
-    """Exit 2 naming ``path`` when an output write inside the block fails (exit-code table, §2.6)."""
+    """Exit 2 naming ``path`` when an output write inside the block fails (exit-code table in docs/quickstart.md)."""
     try:
         yield
     except OSError as exc:

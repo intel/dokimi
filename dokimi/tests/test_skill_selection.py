@@ -252,7 +252,7 @@ def test_trigger_set_cli_rejects_a_label_path_that_never_resolves(tmp_path, cata
     with pytest.raises(SystemExit, match="resolves for none of 1 questions") as exc:
         _run_cli(["catalog", "trigger-set", "--catalog", str(catalog),
                   "--questions", f"{qfile}=@metadata.skil_under_test", "--out", str(tmp_path / "o.json")])
-    assert exc.value.code == 2  # a path typo is an input refusal (§2.6)
+    assert exc.value.code == 2  # a path typo is an input refusal (docs/quickstart.md)
 
 
 @pytest.mark.parametrize(

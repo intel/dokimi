@@ -243,8 +243,8 @@ per answer in `answers/<product>.json`.
 
 ## Exit codes
 
-Every `dokimi` command uses the same three codes, so a script can tell a bad
-invocation from a failed check.
+`dokimi` commands use three codes, so a script can tell a bad invocation from a
+failed check.
 
 | Code | Meaning | Examples |
 |------|---------|----------|
@@ -254,7 +254,8 @@ invocation from a failed check.
 
 A command that validates its input and then runs exits 2 for the first and 1
 for the second. Not every command follows this yet: `repo run` and
-`repo tasks check` still exit 1 for their input refusals.
+`repo tasks check` still exit 1 for their input refusals, and `tools preference`
+exits 2 when every call failed or `--max-cost-usd` skipped calls.
 
 ## Troubleshooting
 

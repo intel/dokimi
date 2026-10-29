@@ -431,7 +431,7 @@ def test_preflight_rejects_an_unwritable_output_dir(monkeypatch, tmp_path, capsy
     with pytest.raises(SystemExit) as exc:
         _preflight(monkeypatch, tmp_path, "--output-dir", str(blocker / "out"))
 
-    assert exc.value.code == 2  # unwritable output is an input refusal (§2.6)
+    assert exc.value.code == 2  # unwritable output is an input refusal (docs/quickstart.md)
     assert "output dir not writable" in capsys.readouterr().err
 
 

@@ -45,7 +45,8 @@ ExpectedSkill = Union[str, List[str], None]
 
 
 class TriggerSetInputError(ValueError):
-    """The question sources cannot form a trigger set: a duplicate id, or a question with no text.
+    """The question sources cannot form a trigger set: a duplicate id, a question with no text, or an
+    ``@field`` rule that labels none of its source's questions.
 
     A usage error (exit 2). A rewrite that fails is a runtime error and stays a plain ValueError.
     """

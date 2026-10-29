@@ -24,10 +24,10 @@ def read_text_or_exit(path: str | None, flag: str) -> str | None:
 
 
 def placebo_text_for_arms_or_exit(path: str | None, arms: tuple[str, ...]) -> str | None:
-    """The ``--placebo-text`` of an analyze run, checked against its arms before any model call.
+    """The ``--placebo-text`` of an analyze or probe run, checked against its arms before any model call.
 
-    A typo in --arms or --placebo-text would otherwise cost the extraction calls that run
-    before the measurement checks the same thing.
+    A typo in --arms or --placebo-text would otherwise cost the model calls (the extraction
+    of an analyze run, the wordings of a probe) that run before the measurement checks the same thing.
     """
     from dokimi.novelty.measure import check_arms
 
