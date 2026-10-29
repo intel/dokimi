@@ -36,7 +36,7 @@ metrics:
 | --- | --- | --- |
 | `none` (default) | Nothing runs; examples reported as `skipped` | Untrusted corpora, or you only want extraction |
 | `subprocess` | Host subprocess with per-process CPU/memory caps, minimal env, temp cwd; its process group is killed when it exits or times out. **No network isolation and no process-count cap.** Requires `allow_host: true`. | Trusted, self-owned documentation |
-| `docker` | Container with `--network none`, read-only mounts, CPU/memory/pid limits, per-example timeout | Untrusted documentation |
+| `docker` | Container with `--network none`, no capabilities (`--cap-drop ALL`, `no-new-privileges`), read-only mounts, CPU/memory/pid limits, per-example timeout | Untrusted documentation |
 
 ### Why `none` is the default
 
@@ -65,4 +65,7 @@ DOC_BENCH_EXAMPLE_BACKEND=none dokimi run --spec benchmarks/spec.v1.yaml
   counts all of the user's processes, not the snippet's). Only use it on
   documentation you trust.
 - For anything else, use `docker`, which adds `--network none` and a read-only
-  filesystem. See also [SECURITY.md](../SECURITY.md).
+  filesystem, and drops every capability with `no-new-privileges`, so the
+  image's root cannot gain any back through a setuid binary. The snippet's
+  temp directory is mounted world-readable for that capability-less root.
+  See also [SECURITY.md](../SECURITY.md).
