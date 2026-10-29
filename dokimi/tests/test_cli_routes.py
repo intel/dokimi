@@ -218,6 +218,14 @@ def test_a_tombstone_keeps_the_arguments_after_the_old_path_whatever_the_lengths
     ]
 
 
+def test_an_empty_argv_matches_no_tombstone():
+    tombs = (cli_routes.Tombstone(("old-tool",), ("library",)),)
+    assert cli_routes.moved_argv([], tombs) is None
+    with pytest.raises(SystemExit) as exc:  # argparse still asks for a command
+        parse_args([])
+    assert exc.value.code == 2
+
+
 def test_every_alias_points_at_its_own_root_parser():
     sub = _subparsers(build_parser())
     assert sub is not None
