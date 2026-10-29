@@ -589,3 +589,15 @@ def test_an_inconclusive_run_still_writes_the_artifact(tmp_path, monkeypatch):
         cmd_eval_redteam(_args(tmp_path / "questions.json", output=out))
     assert exc.value.code == 1
     assert json.loads(out.read_text(encoding="utf-8"))["status"] == "inconclusive"
+
+
+@pytest.mark.parametrize("check", [
+    {"type": "exact", "values": ["Paris", "Lyon"]},
+    {"type": "match", "values": ["Paris", "Lyon"], "location": "exact"},
+    {"type": "json", "values": ["Paris", "Lyon"]},
+])
+def test_aliases_of_a_whole_answer_check_are_stuffed_bare_and_the_grader_rejects_the_list(check):
+    # The list equals none of the values, so a grader that accepts it is wrong; the real one does not.
+    assert redteam.attacks({"checks": [check]})["stuffed"] == "Paris Lyon"
+    result = run([_q("1", {"checks": [check]})])
+    assert result["status"] == "pass" and result["questions"][0]["probes"]["stuffed"]["passed"] is False
