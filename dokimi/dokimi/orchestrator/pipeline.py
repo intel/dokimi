@@ -10,8 +10,8 @@ from typing import List, Dict, Any, Optional
 from pathlib import Path
 
 from dokimi.defaults import DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER, DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER, DEFAULT_RETRIEVAL_TOP_K
+from dokimi.eval.stats import paired_summary
 from dokimi.mcp.factory import create_doc_source_client
-from dokimi.records import BASELINE, CONTEXT, records as read_records
 
 logger = logging.getLogger(__name__)
 
@@ -380,17 +380,14 @@ class EvaluationPipeline:
             "path": str(self.eval_path)
         }
         
-        # Compute summary stats
-        scored = read_records(evaluations, source="evaluations", kind="evaluations")
-        with_scores = [s for s in (r.score(CONTEXT) for r in scored) if s is not None]
-        without_scores = [s for s in (r.score(BASELINE) for r in scored) if s is not None]
-        deltas = [r.delta for r in scored if r.delta is not None]
-        
-        if with_scores and without_scores and deltas:
+        # Summary stats over the complete pairs, the numbers the reports print for the same file.
+        summary = paired_summary(evaluations)
+
+        if summary.paired:
             results["steps"]["evaluation"]["summary"] = {
-                "with_avg": round(sum(with_scores) / len(with_scores), 1),
-                "without_avg": round(sum(without_scores) / len(without_scores), 1),
-                "delta_avg": round(sum(deltas) / len(deltas), 1)
+                "with_avg": round(summary.with_mean, 1),
+                "without_avg": round(summary.without_mean, 1),
+                "delta_avg": round(summary.delta_mean, 1)
             }
             print(f"✓ Evaluated {len(evaluations)} answers: "
                   f"context={results['steps']['evaluation']['summary']['with_avg']}, "

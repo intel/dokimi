@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import os
 import re
@@ -27,12 +28,19 @@ def _parse(*argv):
 
 
 def test_every_subcommand_is_registered():
-    for sub in ("analyze", "atoms", "probe", "shorten", "view"):
+    handlers = {
+        "analyze": novelty_cmd.cmd_novelty_analyze,
+        "atoms": novelty_cmd.cmd_novelty_atoms,
+        "probe": novelty_cmd.cmd_novelty_probe,
+        "shorten": novelty_cmd.cmd_novelty_shorten,
+        "view": novelty_cmd.cmd_novelty_view,
+    }
+    for sub, handler in handlers.items():
         args = _parse("novelty", sub, *(
             ["--artifact", "skill:x"] if sub != "view" else ["--novelty", "n.json"]
         ), *(["--atoms", "a.json"] if sub in ("probe", "shorten", "view") else []))
-        assert args.novelty_cmd == sub
-        assert callable(args.func)
+        # The command that runs is the subcommand's own handler (`_stops_at_cap` wraps it).
+        assert inspect.unwrap(args.func) is handler
 
 
 def test_the_judge_defaults_to_a_different_model_than_the_answerer():
