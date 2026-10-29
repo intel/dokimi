@@ -106,6 +106,8 @@ nav:
       - user-journeys/flow-map.md
       - user-journeys/traceability.md
   - Using Dokimi:
+      - what-it-measures.md
+      - reviewing.md
       - external-content.md
       - quickstart.md
       - user-flow.md
@@ -113,6 +115,7 @@ nav:
       - adding-doc-source.md
       - evaluating-treatments.md
       - tool-preference.md
+      - run-consistency.md
       - coding-harnesses.md
       - answer-formats.md
       - context-window.md

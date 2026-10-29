@@ -1149,7 +1149,7 @@ def test_cli_prints_a_failed_preflight_as_one_line(tmp_path, monkeypatch):
     with pytest.raises(SystemExit) as exc:
         args.func(args)
     assert str(exc.value) == (
-        "error: benchflow preflight: `docker compose version` exited 1; install it"
+        "Error: benchflow preflight: `docker compose version` exited 1; install it"
     )
 
 
@@ -1595,7 +1595,7 @@ def test_subject_work_prints_a_failed_preflight_as_one_line(tmp_path, monkeypatc
                                       "benchflow:oracle", "--tasks-root", str(tmp_path / "tasks")])
     with pytest.raises(SystemExit) as exc:
         _run_subject_work(load_subject(subject), args, out_dir=tmp_path / "out")
-    assert str(exc.value).startswith("error: benchflow preflight")
+    assert str(exc.value).startswith("Error: benchflow preflight")
 
 
 def test_a_pack_loaded_by_its_frontmatter_name_is_treatment(tmp_path):
