@@ -222,6 +222,11 @@ def test_replay_matches_record_each_credited_pair_nearest_first(tmp_path):
                      .read_text())
     assert doc["details"]["matches"] == g["matches"] and "matches" not in doc["metrics"] and check_grade(doc) == []
     assert review.grade_replay({}, d, fence([_f(30)]))["matches"] == []
+    # a thread with no comment and a finding with no severity or message keep "", not "None"
+    write(tmp_path, "bare/gold.json", json.dumps([{"id": "t", "file": "src/calc.py", "line": 5, "kind": "docs"}]))
+    assert review.grade_replay({}, tmp_path / "bare", fence([{"file": "src/calc.py", "line": 5}]))["matches"] == [
+        {"thread": "t", "thread_file": "src/calc.py", "thread_line": 5, "comment": "",
+         "finding": 0, "file": "src/calc.py", "line": 5, "severity": "", "message": "", "distance": 0}]
     # t_op is credited first (distance 0), but matches follow threads_hit
     later = review.grade_replay({}, d, fence([_f(5), _f(3)]))["matches"]
     assert [(m["thread"], m["finding"], m["distance"]) for m in later] == [("t_doc", 1, 1), ("t_op", 0, 0)]

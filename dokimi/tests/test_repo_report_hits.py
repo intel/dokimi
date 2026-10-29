@@ -52,18 +52,21 @@ def _batch(tmp: Path) -> Path:
 
 def test_hits_list_each_credited_pair_by_task_arm_and_rep(tmp_path):
     batch = _batch(tmp_path)
+    # by directory name r10 sorts before r2; the hits follow rep order
+    _put(batch, "pr3098-t2", "guidance:none", 10, _graded(tmp_path, fence([_f(5)])))
     found = load_hits(batch)
-    assert (found["replay_cells"], found["without_matches"]) == (4, 1)  # the parse error has no hit to miss
+    assert (found["replay_cells"], found["without_matches"]) == (5, 1)  # the parse error has no hit to miss
     assert [(h["task"], h["arm"], h["rep"], h["thread"], h["finding"], h["distance"]) for h in found["hits"]] == [
         ("pr3098-t2", "guidance:none", 1, "t_op", 0, 1),
-        ("pr3098-t2", "guidance:none", 2, "t_doc", 0, 0), ("pr3098-t2", "guidance:none", 2, "t_op", 1, 0)]
+        ("pr3098-t2", "guidance:none", 2, "t_doc", 0, 0), ("pr3098-t2", "guidance:none", 2, "t_op", 1, 0),
+        ("pr3098-t2", "guidance:none", 10, "t_op", 0, 0)]
     assert found["hits"][0] == {
         "task": "pr3098-t2", "arm": "guidance:none", "model": "m-1", "rep": 1, "cell": "pr3098-t2__guidance-none__m-1__r1",
         "thread": "t_op", "thread_file": "src/calc.py", "thread_line": 5,
         "comment": "mul adds instead of multiplying\nsecond line", "finding": 0, "file": "src/calc.py", "line": 6,
         "severity": "minor", "message": "The TODO is repeated five\ntimes and has no issue URL", "distance": 1}
     assert format_hits(found).splitlines() == [
-        f"{batch}: 3 credited hit(s) in 4 {REPLAY} cell(s)",
+        f"{batch}: 4 credited hit(s) in 5 {REPLAY} cell(s)",
         "pr3098-t2",
         "  guidance:none  m-1  r1",
         "    t_op src/calc.py:5  mul adds instead of multiplying second line",
@@ -73,6 +76,9 @@ def test_hits_list_each_credited_pair_by_task_arm_and_rep(tmp_path):
         "      finding 0 src/calc.py:4 minor, 0 line(s) away: " + "x" * 97 + "...",
         "    t_op src/calc.py:5  mul adds instead of multiplying second line",
         "      finding 1 src/calc.py:5 minor, 0 line(s) away: mul adds",
+        "  guidance:none  m-1  r10",
+        "    t_op src/calc.py:5  mul adds instead of multiplying second line",
+        "      finding 0 src/calc.py:5 minor, 0 line(s) away: ",
         "1 cell(s) graded without hit details"]
 
 
