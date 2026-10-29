@@ -94,6 +94,17 @@ def test_provisional_flag_is_kept_next_to_the_ceiling_flag():
                                  "flagged_provisional": 1, "no_flag": 0}
 
 
+def test_summary_counts_each_kind_of_item_apart():
+    # Three runs. "f1", "f2" and "ok" are in all three; "cp" and "up" only in the first, so they are provisional.
+    steady = [("f1", {"baseline": 0, "skill": 0}), ("f2", {"baseline": 0, "skill": 0}),
+              ("ok", {"baseline": 50, "skill": 60})]
+    first = [("cp", {"baseline": 95, "skill": 95}), ("up", {"baseline": 50, "skill": 60}), *steady]
+    result = headroom([_run(first), _run(steady), _run(steady)])
+    assert _flags(result) == {"cp": CEILING, "up": None, "f1": FLOOR, "f2": FLOOR, "ok": None}
+    assert result["summary"] == {"items": 5, "ceiling": 1, "floor": 2, "provisional": 2,
+                                 "flagged_provisional": 1, "no_flag": 2}
+
+
 def test_the_ceiling_reads_the_mean_over_runs():
     # One run at the top does not make a ceiling: the mean (0.85) is below 0.9.
     runs = [_run([("1", {"baseline": 100, "skill": 100})]), _run([("1", {"baseline": 70, "skill": 70})])]
