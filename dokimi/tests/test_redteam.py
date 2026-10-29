@@ -437,3 +437,26 @@ def test_the_judge_ask_sends_the_prompt_to_the_named_model_and_returns_the_reply
     monkeypatch.setattr("dokimi.eval.judge.Judge", fake_judge)
     assert judge_ask("judge-x", "openai")("is it covered?", draw=2) == "YES"
     assert made == {"model": "judge-x", "provider": "openai"} and sent == {"prompt": "is it covered?", "draw": 2}
+
+
+def _many_violations():
+    return run([_q(str(i), {"checks": [{"type": "regex", "values": [".*"]}]}) for i in range(8)])  # 24 violations
+
+
+def test_the_table_names_dash_o_when_it_cuts_the_violations_and_no_artifact_is_written():
+    table = format_table(_many_violations())
+    assert "... 4 more violations; rerun with -o FILE to list them all" in table
+    assert "in the artifact" not in table
+
+
+def test_the_table_points_to_the_artifact_when_dash_o_was_given(tmp_path):
+    table = format_table(_many_violations(), output=tmp_path / "r.json")
+    assert "... 4 more violations in the artifact" in table
+    assert "rerun with -o" not in table
+
+
+def test_the_command_prints_the_cut_violations_with_the_output_path_it_wrote(tmp_path, monkeypatch, capsys):
+    _patch_questions(monkeypatch, [_q(str(i), {"checks": [{"type": "regex", "values": [".*"]}]}) for i in range(8)])
+    with pytest.raises(SystemExit):
+        cmd_eval_redteam(_args(tmp_path / "questions.json", output=tmp_path / "r.json"))
+    assert "4 more violations in the artifact" in capsys.readouterr().out
