@@ -57,6 +57,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "result": "result.v1",
     "repo_budget": "repo_budget.v1",
     "task_inspect": "task_inspect.v1",
+    "redteam": "redteam.v1",
 }
 
 # kind -> superseded versions still accepted on *load*, newest first. An artifact written under an
