@@ -81,9 +81,12 @@ fix the locks can take:
     shared Windows host), that account can hold the lock and stall a holder.
   - In the soft locks. GHSA-567q-5qvw-pf92 (CVE-2026-112907) is in the soft
     locks on Windows: another local account that can create files in the lock
-    directory can stall or break a lock holder. huggingface-hub takes a
-    `SoftFileLock` for its download cache, so it applies to dataset and model
-    downloads on a shared Windows host. Where `SoftFileLock` stands in for a
+    directory can stall or break a lock holder. For its download cache
+    huggingface-hub takes `FileLock`, which on Windows is `WindowsFileLock`, and
+    a `SoftFileLock` only when that raises `NotImplementedError` (the locked
+    filelock's `WindowsFileLock` raises `OSError` instead); so it applies to the
+    Hugging Face cache on a shared Windows host only where that fallback
+    happens. Where `SoftFileLock` stands in for a
     missing `flock`, three more apply: GHSA-9j6q-wvj5-jgjg (CVE-2026-112912,
     low) tells another account that can write the lock directory whether a path
     exists and is writable for the lock user; GHSA-rfpc-qcw5-3pc4
