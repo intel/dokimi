@@ -134,6 +134,7 @@ def test_a_result_with_a_non_integer_num_turns_and_no_tool_events_still_measures
     result = json.loads((rd / "result.json").read_text())
     assert result["agent"]["num_turns"] is None
     assert result["skills"]["measured"] is True and result["skills"]["skills_used"] == []
+    assert result["process"] is not None  # its tool calls are counted (zero), not left unmeasured
 
 
 def test_catalog_arm_counts_the_expected_skill_picked_first(setup, monkeypatch):
