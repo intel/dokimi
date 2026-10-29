@@ -131,7 +131,7 @@ def _model_core(model: str) -> tuple[str, str | None]:
 
     The route goes (``openrouter/anthropic/``, ``bedrock/``, ``vertex_ai/``, an ARN's
     ``inference-profile/``), and so do the case, the region profile (``eu.``) and a Bedrock
-    revision (``-v1:0``). Vertex's ``@20250929`` is the snapshot ``-20250929``. The organization of an
+    revision (``-v1:0`` or ``-1:0``). Vertex's ``@20250929`` is the snapshot ``-20250929``. The organization of an
     ``org/name`` id stays, so a re-upload under another organization is another model.
     """
     name = (model or "").strip().lower()
@@ -141,7 +141,7 @@ def _model_core(model: str) -> tuple[str, str | None]:
     while len(parts) > 1 and parts[0] in _ROUTES:
         parts.pop(0)
     name = "/".join(parts)
-    name = re.sub(r"-v\d+:\d+$", "", name)
+    name = re.sub(r"-v?\d+:\d+$", "", name)
     for prefix in _REGION_PROFILES:
         if name.startswith(prefix):
             name = name[len(prefix):]

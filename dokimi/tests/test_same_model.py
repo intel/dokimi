@@ -32,6 +32,9 @@ CASES = [
     ("us.anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5-20251001", True),
     ("eu.anthropic.claude-sonnet-4-5-20250929-v1:0", "us.anthropic.claude-sonnet-4-5", True),
     ("m-v1:0", "m-v3:0", True),  # Bedrock revision suffix
+    ("openai.gpt-oss-120b-1:0", "gpt-oss-120b", True),  # a plain -N:M revision
+    ("openai.gpt-oss-120b-1:0", "openai.gpt-oss-120b-2:0", True),
+    ("openai.gpt-oss-120b-1:0", "gpt-oss-20b", False),
     ("claude-sonnet-4-5", "us.anthropic.claude-sonnet-4-5-20250929-v1:0", True),  # alias vs full Bedrock id
     ("claude-x-20250929", "claude-x-20241022", False),
     ("anthropic/claude-sonnet-4-5", "amazon-bedrock/claude-sonnet-4-5", True),  # same model, another route
