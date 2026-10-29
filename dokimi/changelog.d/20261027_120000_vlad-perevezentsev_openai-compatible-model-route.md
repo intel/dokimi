@@ -20,7 +20,7 @@
 
 ### Documentation
 
-- **README: running against an OpenAI-compatible server** — provider `openai` with
+- **`docs/reviewing.md`: running against an OpenAI-compatible server** — provider `openai` with
   `OPENAI_API_BASE` / `OPENAI_BASE_URL`, which names reach the server and which keep a
   litellm provider prefix's route (write `openai/<name>` for those), a placeholder
   `OPENAI_API_KEY` for a server that ignores it, and why cost is unknown and
