@@ -108,13 +108,14 @@ violation makes the run `blocked`: the command prints the pass rates and the
 violations and exits 1 (`-o` writes `redteam.v1`). A run that probed no question
 (nothing graded, or only judge checks without `--judge`) is `inconclusive` and
 also exits 1. An unwritable `-o` exits 2. A `negate` check passes an
-answer that lacks its value, so `wrong`, `empty` and `hedge` grade the block's
-non-negated checks alone; a block of only negated checks gets none of the three
+answer that lacks its value, so a block of only negated checks gets none of
+`wrong`, `empty` and `hedge`
 and is reported as `negated_only`, and `stuffed` still runs: its probe is the negated value itself, so a
 block of one negated value is probed and a run whose only probes are those passes when they are rejected
 (`negated_only` in the table is the sign that the block is checked for that value alone). A question with no
-probe at all is counted as `unprobed`. A `threshold` block
-is graded the same way, so a negated check's share of the score is not counted.
+probe at all is counted as `unprobed`. A block with a positive check
+is graded as written, `threshold` included, so a negated check's share of the score
+counts: a block it lifts over the line is blocked.
 A probe the grader cannot
 score is unscored and does not block. `judge` checks are unscored unless
 `--judge` is given, so the default run makes no model call. Nothing here
