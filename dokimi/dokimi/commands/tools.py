@@ -134,7 +134,7 @@ def _check_out_json_writable(path: str) -> None:
         tmp.unlink()
     except (OSError, ValueError) as exc:
         print(f"Error: cannot write {path}: {exc}", file=sys.stderr)
-        raise SystemExit(2) from None
+        raise SystemExit(EXIT_USAGE) from None
 
 
 def cmd_tools_preference(args: argparse.Namespace) -> None:
@@ -185,14 +185,14 @@ def cmd_tools_preference(args: argparse.Namespace) -> None:
         first = next(r["error"] for r in results if r["error"])
         print(f"Error: all {len(results)} call(s) failed ({first}); see results[].error in {args.out_json}",
               file=sys.stderr)
-        raise SystemExit(2)
+        raise SystemExit(EXIT_USAGE)
     if data["summary"]["n_skipped"]:
         why = (f"--max-cost-usd {args.max_cost_usd:g} reached"
                if u["cost_known_calls"] == u["n_calls"]
                else "a call came back with no price, so --max-cost-usd cannot be enforced")
         print(f"Error: {why}; {data['summary']['n_skipped']} of {len(results)} call(s) not run, "
               f"the summary covers the rest. See {args.out_json}", file=sys.stderr)
-        raise SystemExit(2)
+        raise SystemExit(EXIT_USAGE)
 
 
 def register(sub: argparse._SubParsersAction, positive_int) -> None:
