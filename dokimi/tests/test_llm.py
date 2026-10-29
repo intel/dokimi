@@ -59,6 +59,7 @@ def _no_ambient_bedrock_env(monkeypatch):
     ("openai", "gpt-6.1-sol", "gpt-6.1-sol"),  # on litellm's lists: bare, so its cache key holds
     ("openai", "gpt-3.5-turbo-instruct", "gpt-3.5-turbo-instruct"),  # litellm's text-completion route
     ("openai", "ft:gpt-4o-mini:org::id", "ft:gpt-4o-mini:org::id"),  # a fine-tune litellm takes as OpenAI's
+    ("openai", "ft:gpt-3.5-turbo:org::id", "ft:gpt-3.5-turbo:org::id"),  # the other fine-tune family litellm takes as OpenAI's
     ("openai", "glm-5.3", "openai/glm-5.3"),  # off the lists: an OPENAI_API_BASE server's model
     ("openai", "claude-sonnet-5-5", "openai/claude-sonnet-5-5"),  # bare, litellm would pick anthropic
     ("openai", "amazon.nova-pro-v1:0", "openai/amazon.nova-pro-v1:0"),  # bare, litellm would pick bedrock
