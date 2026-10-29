@@ -389,6 +389,10 @@ class EvaluationPipeline:
         
         # Summary stats over the complete pairs, the numbers the reports print for the same file.
         summary = paired_summary(evaluations)
+        # Questions scored in one arm only (a retrieval miss is left unjudged, a judge may fail)
+        # are in none of the averages: say how many, so the line is not read as covering all.
+        results["steps"]["evaluation"]["paired"] = summary.paired
+        results["steps"]["evaluation"]["unpaired"] = summary.unpaired
 
         if summary.paired:
             results["steps"]["evaluation"]["summary"] = {
@@ -399,7 +403,9 @@ class EvaluationPipeline:
             print(f"✓ Evaluated {len(evaluations)} answers: "
                   f"context={results['steps']['evaluation']['summary']['with_avg']}, "
                   f"baseline={results['steps']['evaluation']['summary']['without_avg']}, "
-                  f"delta={results['steps']['evaluation']['summary']['delta_avg']:+.1f}")
+                  f"delta={results['steps']['evaluation']['summary']['delta_avg']:+.1f}"
+                  + (f" (over the {summary.paired} scored in both arms; {summary.unpaired} left out)"
+                     if summary.unpaired else ""))
         else:
             print(f"✓ Evaluated {len(evaluations)} answers (summary unavailable)")
         

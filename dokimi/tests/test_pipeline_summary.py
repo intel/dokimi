@@ -70,3 +70,18 @@ def test_summary_is_left_out_when_no_question_was_scored(tmp_path, monkeypatch):
     result = _run(tmp_path, monkeypatch, [_evaluation("q1", None, None)])
 
     assert "summary" not in result["steps"]["evaluation"]
+
+
+def test_summary_says_how_many_questions_it_left_out(tmp_path, monkeypatch, capsys):
+    """3 of 10 questions are unjudged retrieval misses: the means are over 7, and the
+    run result and the printed line say so instead of reading as a result over all 10."""
+    evaluations = [_evaluation(f"q{i}", 80, 60) for i in range(7)]
+    evaluations += [_evaluation(f"m{i}", None, 60) for i in range(3)]
+
+    result = _run(tmp_path, monkeypatch, evaluations)
+
+    step = result["steps"]["evaluation"]
+    assert (step["paired"], step["unpaired"]) == (7, 3)
+    printed = capsys.readouterr().out
+    assert "Evaluated 10 answers: context=80.0, baseline=60.0, delta=+20.0" in printed
+    assert "over the 7 scored in both arms; 3 left out" in printed
