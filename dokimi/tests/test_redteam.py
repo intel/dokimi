@@ -131,3 +131,27 @@ def test_command_exits_2_on_an_unreadable_question_set(tmp_path, capsys):
         cmd_eval_redteam(_args(tmp_path / "missing.json"))
     assert exc.value.code == 2
     assert capsys.readouterr().err.startswith("Error:")
+
+
+def test_a_negated_check_is_not_blocked_by_the_answers_it_passes_by_design():
+    # "must not say Paris": a wrong, empty or hedged answer lacks Paris and so passes the check.
+    grading = {"checks": [{"type": "match", "values": ["Paris"], "negate": True}]}
+    probes = redteam.probe(grading, "Capital of France?")
+    assert "wrong" not in probes and "empty" not in probes and "hedge" not in probes
+    assert "canary" not in probes
+
+
+@pytest.mark.parametrize("value", ["one", "SETUP"])
+def test_a_check_value_that_occurs_in_the_hedge_skips_the_hedge_probe(value):
+    # The hedge sentence says "which one" and "the setup"; a grader that accepts the word would
+    # be blamed for a hedge it was never asked to reject.
+    grading = {"checks": [{"type": "fuzzy", "values": [value]}]}
+    assert redteam.attacks(grading)["hedge"] is None
+    assert redteam.attacks({"checks": [{"type": "match", "values": ["Paris"]}]})["hedge"] == redteam.HEDGE
+
+
+def test_a_negated_check_still_fails_the_stuffed_answer_that_carries_its_value():
+    grading = {"checks": [{"type": "match", "values": ["Paris", "Lyon"], "negate": True}]}
+    assert redteam.attacks(grading)["stuffed"] == "Paris Lyon"
+    probes = redteam.probe(grading, "Q?")
+    assert probes["stuffed"].passed is False and not probes["stuffed"].violation
