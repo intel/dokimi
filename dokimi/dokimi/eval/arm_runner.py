@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
+from dokimi.caching import is_empty_reply
 from dokimi.utils import question_id  # noqa: F401  (re-exported: callers import it from here)
 from dokimi.artifacts import save_artifact
 from dokimi.llm import llm_call_with_usage
@@ -398,6 +399,12 @@ class ArmRunner:
         final_chars = len(final_text or "")
 
         rec = to_record(usage, self.model, self.provider)
+        if is_empty_reply(final_text):
+            # As a session that stopped on an empty reply: an error cell, never an answer.
+            # The call was paid for, so its usage counts; no answer-length keys (see _session_spend).
+            return {"error": "empty_reply", "answer": None,
+                    "token_usage": rec.as_token_usage_dict(), "metrics": rec.as_metrics_dict(),
+                    "metadata": cfg_metadata, "elapsed_sec": round(time.time() - t0, 2)}
         return {
             "answer": final_text,
             "raw_answer": answer_text if shapers else None,
@@ -614,9 +621,13 @@ class ArmRunner:
             gt = rec.ground_truth
             for arm_name in arm_names(rec):
                 answer = rec.answer(arm_name)
-                if answer is None or not answer.text:
-                    # An answer that errored is an error on the cell, not a missing score.
-                    scores[arm_name] = {"error": answer.error} if answer is not None and answer.error else None
+                if answer is None or is_empty_reply(answer.text):
+                    # An answer that errored is an error on the cell, not a missing score. An empty
+                    # reply is never judged: it is an error on the cell too (as a session's empty turn).
+                    if answer is None:
+                        scores[arm_name] = None
+                    else:
+                        scores[arm_name] = {"error": answer.error or "empty_reply"}
                     continue
                 context, source = self.judge_context.resolve_with_source(
                     rec.question_id, arm_name, dict(answer.raw)
