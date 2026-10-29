@@ -1064,14 +1064,12 @@ def _difficulty_cells(sc: list[dict], has_treatment: bool) -> str:
     """One run's cells of a difficulty row: context mean and delta, or the baseline."""
     if not sc:
         return " — | — |" if has_treatment else " — |"
-    with_scores = [s["with_docs"] for s in sc if s["with_docs"] is not None]
-    if with_scores:
-        # Same pairing rule as the overall summary: average the per-question
-        # deltas, never the difference of two means filtered over different
-        # question subsets.
-        diff_deltas = [s["delta"] for s in sc if s.get("delta") is not None]
-        delta_cell = _fmt_delta(round(sum(diff_deltas) / len(diff_deltas), 1)) if diff_deltas else "—"
-        return f" {_avg(with_scores)} | {delta_cell} |"
+    if any(s["with_docs"] is not None for s in sc):
+        # Same pairs and one-arm rule as the overall summary: the context mean
+        # covers the questions the delta does.
+        st = _run_summary(sc)
+        delta_cell = "—" if st["delta_avg"] is None else _fmt_delta(st["delta_avg"])
+        return f" {_num_or_dash(st['with_avg'])} | {delta_cell} |"
     # No treatment score in this bucket: report the baseline.
     without_scores = [s["without_docs"] for s in sc if s["without_docs"] is not None]
     wo = _avg(without_scores) if without_scores else None

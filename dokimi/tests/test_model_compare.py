@@ -531,6 +531,28 @@ def test_run_summary_gives_no_means_for_two_arms_without_a_pair():
     assert _summary_row(run) == "| **a** | 2 | 0 (2 unscored) | — | — | — | — | — |"
 
 
+def _difficulty_row(run: dict, difficulty: str) -> str:
+    lines = generate_section_report([("a", run)], ["a"], "t")
+    return next(ln for ln in lines if ln.startswith(f"| {difficulty} |"))
+
+
+def test_difficulty_row_averages_the_context_arm_over_the_pairs():
+    """The context mean of a difficulty row covers the questions its delta does."""
+    # Q3 is scored in the context arm only: over every context score the mean is 73.3.
+    run = _eval_run([_scored("Q1", 60, 80), _scored("Q2", 40, 40), _scored("Q3", None, 100)])
+    assert _difficulty_row(run, "easy") == "| easy | 3 | 60.0 | +10.0 |"
+
+
+def test_difficulty_row_without_a_pair_shows_no_context_mean():
+    """Both arms scored in a bucket, never on one question: no mean; context arm only: its mean."""
+    run = _eval_run([_scored("Q1", 60, 80),
+                     {**_scored("Q2", None, 80), "difficulty": "hard"},
+                     {**_scored("Q3", 60, None), "difficulty": "hard"},
+                     {**_scored("Q4", None, 70), "difficulty": "medium"}])
+    assert _difficulty_row(run, "hard") == "| hard | 2 | — | — |"
+    assert _difficulty_row(run, "medium") == "| medium | 1 | 70.0 | — |"
+
+
 def test_extract_scores_refuses_a_record_without_question_id():
     """It used to drop the record; a run with an unidentifiable question is malformed."""
     run = _eval_run([
