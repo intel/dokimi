@@ -256,3 +256,18 @@ def test_report_flags_tool_counts_that_include_failed_calls():
     assert "Tool counts of `old`, `mixed` include failed calls" in md
     assert "Tool counts of `new`" not in md
     assert "include failed calls" not in _agentic_report({"new": {**row, "tool_counts": TOOL_COUNTS}})
+
+
+def test_summary_table_shows_the_errors_count_beside_n():
+    data = {
+        "library_name": "oneTBB", "model": "m", "provider": "openai",
+        "arms": ["baseline", "skill"], "baseline_arm": "baseline", "total_questions": 3,
+        "summary": {"per_arm": {
+            "baseline": {"avg_aggregate": 70.0, "n": 2, "errors": 1},
+            "skill": {"avg_aggregate": 60.0, "n": 1, "errors": 2, "delta_vs_baseline": None},
+        }},
+    }
+    md = render_arms_report(data)
+    assert "| Arm | Avg | Δ vs baseline | n | Errors |" in md
+    assert "| `baseline` | 70.0 | (baseline) | 2 | 1 |" in md
+    assert "| `skill` | 60.0 | — | 1 | 2 |" in md

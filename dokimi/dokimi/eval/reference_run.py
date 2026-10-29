@@ -30,7 +30,7 @@ SCORER = "reference"
 
 @dataclass
 class ConditionTally:
-    """Counts for one condition. An errored answer (the answer call failed) is ``errors``, apart from
+    """Counts for one condition. An errored grade (the answer call or a judge call failed) is ``errors``, apart from
     ``unscored`` (no check could score it, e.g. no judge): neither enters ``n``, the pass rate or the mean."""
 
     n: int = 0
@@ -41,10 +41,10 @@ class ConditionTally:
     check_unscored: int = 0
     score_sum: float = 0.0
 
-    def add(self, g: Grade, *, errored: bool = False) -> None:
+    def add(self, g: Grade) -> None:
         score = g.score
         if score is None:
-            if errored:
+            if g.error is not None:
                 self.errors += 1
             else:
                 self.unscored += 1
@@ -92,25 +92,27 @@ def grading_by_id(questions: list[Mapping[str, Any]]) -> dict[str, Mapping[str, 
     return out
 
 
-def _answer_state(answer: Answer) -> tuple[Optional[str], bool]:
-    """The text to grade, and whether the answer is an error.
+def _answer_state(answer: Answer) -> tuple[Optional[str], Optional[str]]:
+    """The text to grade, and why there is none when it is an error.
 
     An errored answer, and an empty one (no content, or only whitespace), has no answer to
     grade: it is an error, never graded as "" (a negated check would pass it). A no-retrieval
     placeholder ("[FALLBACK: ...]") is not the model's answer either, but it is unscored, not an error.
     """
     if answer.doc_source in NO_RETRIEVAL_SOURCES and not answer.error:
-        return None, False
-    if answer.error or is_empty_reply(answer.text):
-        return None, True
-    return answer.text, False
+        return None, None
+    if answer.error:
+        return None, str(answer.error)
+    if is_empty_reply(answer.text):
+        return None, "empty_reply"
+    return answer.text, None
 
 
-def _grade_record(rec: Record, grading: Mapping[str, Any], ask: Optional[Ask]) -> dict[str, tuple[Grade, bool]]:
-    out: dict[str, tuple[Grade, bool]] = {}
+def _grade_record(rec: Record, grading: Mapping[str, Any], ask: Optional[Ask]) -> dict[str, Grade]:
+    out: dict[str, Grade] = {}
     for name, answer in rec.answers.items():
-        text, errored = _answer_state(answer)
-        out[name] = (grade(grading, rec.question_text, text, ask), errored)
+        text, error = _answer_state(answer)
+        out[name] = grade(grading, rec.question_text, text, ask, answer_error=error)
     return out
 
 
@@ -128,8 +130,8 @@ def score(data: Any, questions: list[Mapping[str, Any]], *, ask: Optional[Ask] =
     out = ReferenceRun(run=run, evaluations=[], missing=missing)
     for rec, per_condition in zip(graded, grades, strict=True):
         blocks = {}
-        for name, (g, errored) in per_condition.items():
-            out.tally.setdefault(name, ConditionTally()).add(g, errored=errored)
+        for name, g in per_condition.items():
+            out.tally.setdefault(name, ConditionTally()).add(g)
             blocks[name] = {**g.as_dict(), "scorer": SCORER}
         out.evaluations.append(_evaluation(run, rec, blocks))
     return out

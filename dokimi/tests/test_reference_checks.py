@@ -414,3 +414,56 @@ def test_an_empty_reply_is_an_error_not_a_score_in_eval_reference(reply):
         result = score(data, [{"id": "q1", "question": "Capital?", "grading": grading}])
         tally = result.tally["skill"].as_dict()
         assert (tally["n"], tally["errors"], tally["pass_rate"], tally["mean_score"]) == (0, 1, None, None)
+
+
+# --- a judge that fails makes the answer an error, not a pass on the other checks -----------------
+
+def _judge_raises(prompt, draw=0, cache_if=None):
+    raise TimeoutError()
+
+
+def _judge_unparsed(prompt, draw=0, cache_if=None):
+    return "I cannot tell"
+
+
+_MIXED = {"checks": [{"type": "match", "values": ["paris"], "location": "any"},
+                     {"type": "judge", "criterion": "names the capital"}], "threshold": 0.5}
+
+
+@pytest.mark.parametrize("ask,error", [
+    (_judge_raises, "judge: TimeoutError"),
+    (_judge_unparsed, "judge: no YES or NO in the reply"),
+])
+def test_a_judge_failure_is_an_error_not_a_pass_decided_by_the_other_checks(ask, error):
+    g = grade(_MIXED, "Q?", "Paris", ask)
+    assert (g.score, g.passed, g.error) == (None, None, error)
+    assert g.as_dict()["error"] == error
+    tally = ConditionTally()
+    tally.add(g)
+    assert (tally.n, tally.errors, tally.unscored) == (0, 1, 0)
+
+
+def test_eval_reference_counts_a_judge_failure_as_an_error_for_every_arm():
+    data = {"baseline_arm": "baseline", "arms": ["baseline", "skill"], "answers": [
+        {"question_id": "q1", "question_text": "Capital?",
+         "arms": {"baseline": {"answer": "Paris"}, "skill": {"answer": "Paris"}}}]}
+    result = score(data, [{"id": "q1", "question": "Capital?", "grading": _MIXED}], ask=_judge_raises)
+    for arm in ("baseline", "skill"):
+        tally = result.tally[arm].as_dict()
+        assert (tally["n"], tally["errors"], tally["pass_rate"]) == (0, 1, None)
+        cell = result.evaluations[0]["scores"][arm]
+        assert (cell["passed"], cell["aggregate"], cell["error"]) == (None, None, "judge: TimeoutError")
+
+
+def test_a_reference_cell_carries_its_answer_error_as_an_arm_cell_does(tmp_path):
+    data = {"baseline_arm": "baseline", "arms": ["baseline", "skill"], "answers": [
+        {"question_id": "q1", "question_text": "Capital?",
+         "arms": {"baseline": {"answer": "Paris"},
+                  "skill": {"answer": None, "error": "generation_failed: HTTP 500"}}}]}
+    grading = {"checks": [{"type": "match", "values": ["paris"], "location": "any"}]}
+    result = score(data, [{"id": "q1", "question": "Capital?", "grading": grading}])
+    kind, payload = artifact(result, data, judge_model=None, judge_provider=None, questions_path="q.json")
+    scores = payload["evaluations"][0]["scores"]
+    assert scores["skill"]["error"] == "generation_failed: HTTP 500"
+    assert "error" not in scores["baseline"]
+    save_artifact(kind, payload, tmp_path / "arms.json")  # validates arms.v1 with the error on the cell

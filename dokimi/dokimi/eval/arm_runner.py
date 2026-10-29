@@ -394,15 +394,15 @@ class ArmRunner:
             return {"error": f"generation_failed: {exc}", "answer": None,
                     "metadata": cfg_metadata}
 
-        raw_chars = len(answer_text or "")
-        final_text = self._apply_shapers(shapers, answer_text)
-        final_chars = len(final_text or "")
-
         rec = to_record(usage, self.model, self.provider)
-        if is_empty_reply(final_text):  # an error cell, as a session's empty turn; the usage still counts
+        # Read on the reply the model gave, before the shapers: a footer added to nothing is not an answer.
+        if is_empty_reply(answer_text):  # an error cell, as a session's empty turn; the usage still counts
             return {"error": "empty_reply", "answer": None, "token_usage": rec.as_token_usage_dict(),
                     "metrics": rec.as_metrics_dict(), "metadata": cfg_metadata,
                     "elapsed_sec": round(time.time() - t0, 2)}
+        final_text = self._apply_shapers(shapers, answer_text)
+        raw_chars = len(answer_text or "")
+        final_chars = len(final_text or "")
         return {
             "answer": final_text,
             "raw_answer": answer_text if shapers else None,
@@ -760,18 +760,15 @@ class ArmRunner:
         per_arm, errors = cell_values(evaluations, self.arm_names)
 
         summary: Dict[str, Any] = {"per_arm": {}}
-        base_avg = None
         for arm_name, vals in per_arm.items():
             avg = round(sum(vals) / len(vals), 1) if vals else None
             summary["per_arm"][arm_name] = {"avg_aggregate": avg, "n": len(vals), "errors": errors.get(arm_name, 0)}
-            if arm_name == baseline_arm:
-                base_avg = avg
-        if base_avg is not None:
-            # Paired over the questions both arms scored; the unpaired means above are still reported.
-            for arm_name, stats in summary["per_arm"].items():
-                stats["delta_vs_baseline"] = (
-                    paired_delta(evaluations, baseline_arm, arm_name) if arm_name != baseline_arm else None
-                )
+        # Paired over the questions both arms scored; the unpaired means above are still reported.
+        # Always present: null for the baseline, and for an arm with no question both arms scored.
+        for arm_name, stats in summary["per_arm"].items():
+            stats["delta_vs_baseline"] = (
+                paired_delta(evaluations, baseline_arm, arm_name) if arm_name != baseline_arm else None
+            )
 
         # Paired statistics. Every arm is tested against the *same* baseline
         # sample question-by-question, so the arms are mutually comparable and

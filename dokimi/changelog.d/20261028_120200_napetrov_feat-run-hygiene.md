@@ -5,3 +5,7 @@
 - **Judge failures with an empty message are counted.** A judge exception whose message is empty (for example `TimeoutError()`) is recorded under its class name, so it is counted as an error rather than dropped.
 - **Empty replies and content-less replies are not cached.** Neither is stored in or replayed from the response cache, so a later run asks the model again.
 - **`delta_vs_baseline` is paired.** It is the mean of arm minus baseline over the questions both arms scored. Before, it was the difference of two unpaired means, so a question one arm errored on moved the delta.
+- **A judge failure is an error, not a pass.** In `eval reference`, a judge check whose call raised, or whose reply had no YES or NO, makes the answer an error: no score and no pass, even when its other checks passed. Before, the other checks decided the pass. The block carries `error`, as an arm cell does.
+- **An empty reply stays an error when an output shaper adds text.** Emptiness is read on the model's reply before the shapers run, so a footer on an empty reply is not an answer.
+- **`delta_vs_baseline` is always present.** It is `null` when no question has both arms scored, instead of missing.
+- **The arms summary shows errors.** The Markdown report has an `Errors` column, and the console summary shows the count per arm.

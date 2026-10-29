@@ -117,3 +117,34 @@ def test_delta_vs_baseline_is_paired_over_the_questions_both_arms_scored():
     summary = runner._summarize(evaluations, "baseline")
     assert summary["per_arm"]["skill"]["delta_vs_baseline"] == -10.0
     assert summary["per_arm"]["skill"]["avg_aggregate"] == 55.0  # the unpaired mean is still reported
+
+
+@pytest.mark.parametrize("reply", ["", "   \n\t", None])
+def test_an_empty_reply_stays_an_error_cell_when_an_output_shaper_adds_text(monkeypatch, reply):
+    """Emptiness is read on the reply the model gave, before the shapers run: a footer is not an answer."""
+    import dokimi.plugins as plugins
+
+    usage = {"prompt_tokens": 4, "completion_tokens": 0, "total_tokens": 4}
+    monkeypatch.setattr(arm_runner_mod, "llm_call_with_usage", lambda *a, **k: (reply, usage))
+    monkeypatch.setattr(plugins, "take_output_shapers", lambda cfg: (["footer"], {}))
+    monkeypatch.setattr(plugins, "apply_output_shapers", lambda shapers, text: text + "\n\n-- Source: docs")
+    runner = ArmRunner([BaselineTreatment()])
+    [rec] = runner.run("lib", [{"id": "q1", "question": "How?"}], concurrency=1)
+    cell = rec["arms"]["baseline"]
+    assert cell["answer"] is None
+    assert cell["error"] == "empty_reply"
+
+
+def test_delta_vs_baseline_is_present_as_null_when_the_baseline_has_no_scored_question():
+    runner = ArmRunner.__new__(ArmRunner)
+    runner.treatments = [SimpleNamespace(name="baseline"), SimpleNamespace(name="skill")]
+    runner.turn_reminder = None
+    runner.stats_correction = "holm"
+    evaluations = [
+        {"question_id": "1", "question_text": "Q1",
+         "scores": {"baseline": {"error": "generation_failed: HTTP 500"}, "skill": {"aggregate": 90}}},
+    ]
+    summary = runner._summarize(evaluations, "baseline")
+    assert "delta_vs_baseline" in summary["per_arm"]["skill"]
+    assert summary["per_arm"]["skill"]["delta_vs_baseline"] is None
+    assert summary["per_arm"]["skill"]["errors"] == 0 and summary["per_arm"]["baseline"]["errors"] == 1

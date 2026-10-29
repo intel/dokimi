@@ -103,7 +103,8 @@ def cmd_arms_run(args: argparse.Namespace) -> None:
             delta = stats.get("delta_vs_baseline")
             avg_s = "n/a" if avg is None else f"{avg:.1f}"
             delta_s = "" if (delta is None or arm == args.baseline_arm) else f" (delta {delta:+.1f})"
-            print(f"  {arm:<24} {avg_s}{delta_s}")
+            err_s = f" ({stats['errors']} errors)" if stats.get("errors") else ""
+            print(f"  {arm:<24} {avg_s}{delta_s}{err_s}")
 
 
 def cmd_arms_matrix_run(args: argparse.Namespace) -> None:
