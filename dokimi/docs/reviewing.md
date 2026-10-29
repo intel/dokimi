@@ -20,7 +20,8 @@ pip install -e .                 # installs the `dokimi` command
 The `novelty` and `arms` steps take `--model` and `--provider`; `arms run` also
 needs `--judge-provider` (it does not fall back to `--provider` for the judge);
 `tasks run` and `repo` take `--model` only. The provider is one of `openai`,
-`anthropic`, `amazon-bedrock`, `google-vertex` or `openrouter`.
+`anthropic`, `amazon-bedrock`, `google-vertex`, `openrouter` or `openai-codex`;
+`arms run --judge-provider` also takes `google`, an alias of `google-vertex`.
 Credentials are read from the environment: `OPENAI_API_KEY`,
 `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `AWS_REGION` with
 `AWS_BEARER_TOKEN_BEDROCK` for Bedrock, and Google application-default
