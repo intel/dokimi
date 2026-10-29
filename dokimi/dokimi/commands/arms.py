@@ -126,6 +126,7 @@ def cmd_arms_matrix_run(args: argparse.Namespace) -> None:
             cell_args = argparse.Namespace(**vars(args))
             _apply_matrix_cell(cell_args, cell)
             _check_sampling_support(cell_args)
+            _refuse_cli_cell(cell_args, specs)
     except (ValueError, FileNotFoundError) as exc:
         print(f"Error loading matrix run inputs: {exc}", file=sys.stderr)
         sys.exit(1)
@@ -560,6 +561,15 @@ def _apply_matrix_cell(args: argparse.Namespace, matrix_cell) -> None:
     args.provider = matrix_cell.provider
     args.harness = matrix_cell.harness
     args.plugins = ",".join(matrix_cell.plugin_specs)
+
+
+def _refuse_cli_cell(args: argparse.Namespace, specs: list[str]) -> None:
+    """A matrix cell on a CLI provider with an agentic arm is refused before the first cell is answered."""
+    from dokimi import llm_cli
+    from dokimi.treatments import create_treatments
+
+    if llm_cli.backend(args.provider) is not None:
+        refuse_cli_arms(args, create_treatments(specs, top_k=args.top_k, rerank_threshold=args.rerank_threshold))
 
 
 def _check_sampling_support(args: argparse.Namespace) -> None:
