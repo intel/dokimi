@@ -6,32 +6,65 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
+from typing import Any
 
 from dokimi.gate.regression import detect_regressions
 
 
+_REQUIRED_SUMMARY_KEYS = {"docs", "score", "coverage", "freshness_lite", "readability"}
+
+
+class CompareInputError(ValueError):
+    """A snapshot or spec that ``compare`` cannot read or that has the wrong shape."""
+
+
+def _load_snapshot(path: Path, role: str) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, RecursionError) as exc:  # ValueError covers JSONDecodeError and bad UTF-8
+        raise CompareInputError(f"Invalid {role} snapshot {path}: {exc}") from exc
+
+
+def _check_summary(path: Path, payload: object, role: str) -> None:
+    summary = payload.get("summary") if isinstance(payload, dict) else None
+    if not isinstance(summary, dict):
+        raise CompareInputError(f"Snapshot missing summary object: {path}")
+    missing = _REQUIRED_SUMMARY_KEYS - set(summary.keys())
+    # example_pass_rate is optional (may not be present in old snapshots)
+    if missing:
+        raise CompareInputError(f"Snapshot {path} missing summary keys: {sorted(missing)}")
+    for key in sorted(_REQUIRED_SUMMARY_KEYS | {"example_pass_rate"}):
+        value = summary.get(key)
+        if key in summary and not _valid_number(key, value):
+            kind = "an integer" if key == "docs" else "a finite number"
+            raise CompareInputError(f"Invalid {role} snapshot {path}: summary `{key}` must be {kind}, got {value!r}")
+
+
+def _valid_number(key: str, value: object) -> bool:
+    if isinstance(value, bool):
+        return False
+    if key == "docs":
+        return isinstance(value, int)
+    return isinstance(value, (int, float)) and _is_finite(value)
+
+
+def _is_finite(value: int | float) -> bool:
+    """True for a finite number; an int too large for a float is not finite."""
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
+
+
 def compare_snapshots(base_path: Path, cand_path: Path, spec: dict | None = None) -> dict:
     """Compare two run snapshots and return summary and metric deltas."""
-    try:
-        base = json.loads(base_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ValueError(f"Invalid base snapshot {base_path}: {exc}") from exc
+    base = _load_snapshot(base_path, "base")
+    cand = _load_snapshot(cand_path, "candidate")
 
-    try:
-        cand = json.loads(cand_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ValueError(f"Invalid candidate snapshot {cand_path}: {exc}") from exc
-
-    required = {"docs", "score", "coverage", "freshness_lite", "readability"}
     for path, payload in ((base_path, base), (cand_path, cand)):
-        summary = payload.get("summary") if isinstance(payload, dict) else None
-        if not isinstance(summary, dict):
-            raise ValueError(f"Snapshot missing summary object: {path}")
-        missing = required - set(summary.keys())
-        # example_pass_rate is optional (may not be present in old snapshots)
-        if missing:
-            raise ValueError(f"Snapshot {path} missing summary keys: {sorted(missing)}")
+        _check_summary(path, payload, "base" if path == base_path else "candidate")
 
     diff = {
         "docs": cand["summary"]["docs"] - base["summary"]["docs"],
@@ -52,7 +85,7 @@ def compare_snapshots(base_path: Path, cand_path: Path, spec: dict | None = None
     # Add regression analysis if spec provided
     if spec is not None:
         if not isinstance(spec, dict):
-            raise ValueError("spec must be a dict (mapping)")
+            raise CompareInputError("spec must be a dict (mapping)")
         regressions = detect_regressions(diff, spec)
         result["regressions"] = {
             "score": {

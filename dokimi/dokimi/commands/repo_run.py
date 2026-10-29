@@ -142,8 +142,13 @@ def _uses_builtin_graders(content: Path, manifest: RepoManifest) -> bool:
 
 def _pin_batch(batch_dir: Path, pin: dict[str, str]) -> None:
     path = batch_dir / "_eval" / "batch.json"
-    if path.is_file():
-        old = json.loads(path.read_text(encoding="utf-8"))
+    if path.exists():
+        try:
+            old = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, RecursionError) as exc:  # unreadable, bad JSON or UTF-8, deep nesting
+            old = exc
+        if not isinstance(old, dict):
+            raise ValueError(f"batch {batch_dir.name} has an unreadable pin ({path}); use another --batch")
         changed = [k for k in pin if old.get(k) != pin[k]]
         if changed:
             was = ", ".join(f"{k} {old.get(k)}" for k in changed)
@@ -379,23 +384,28 @@ def _harness_bin(name: str) -> Path:
 
 def cmd_repo_report(args: argparse.Namespace) -> None:
     """Per (task, arm, model): gated success, grader failures, missing cells, cost, turns; or the replay hits."""
-    from dokimi.repos.report import format_hits, format_report, load_hits, summarize
+    from dokimi.repos.report import CellFileError, format_hits, format_report, load_hits, summarize
 
     batch_dir = Path(args.batch_dir)
     if not batch_dir.is_dir():
         print(f"✗ not a directory: {batch_dir}", file=sys.stderr)
         sys.exit(1)
-    if args.hits:
-        found = load_hits(batch_dir)
-        print(json.dumps(found, indent=2) if args.json else format_hits(found))
-        return
-    summary = summarize(batch_dir)
+    try:
+        if args.hits:
+            found = load_hits(batch_dir)
+            print(json.dumps(found, indent=2) if args.json else format_hits(found))
+            return
+        summary = summarize(batch_dir)
+    except CellFileError as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(1)
     print(json.dumps(summary, indent=2) if args.json else format_report(summary))
 
 
 def cmd_repo_compare(args: argparse.Namespace) -> None:
     """Per (treatment, model, measure): per-task deltas against the baseline, 95% CI, sign-flip p."""
     from dokimi.repos.compare import CompareError, compare, format_compare
+    from dokimi.repos.report import CellFileError
 
     dirs = [Path(d) for d in args.batch_dirs]
     for d in dirs:
@@ -406,7 +416,7 @@ def cmd_repo_compare(args: argparse.Namespace) -> None:
     try:
         summary = compare(dirs, args.baseline, arms, args.model, tuple(args.metric or ()),
                           pass_k=args.pass_k, path_stability=args.path_stability)
-    except CompareError as exc:
+    except (CompareError, CellFileError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
     print(json.dumps(summary, indent=2) if args.json else format_compare(summary))
