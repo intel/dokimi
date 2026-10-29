@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import functools
 import json
 
 import pytest
@@ -742,13 +743,17 @@ def test_the_failed_call_count_is_over_the_calls_sent_not_every_query(
     assert "makes 1 model calls" in capsys.readouterr().err
 
 
-def _word_client(model, provider, role, args):
-    """A selector that picks the card holding the request's word, wherever it is shuffled."""
+def _word_client(model, provider, role, args, swap=None):
+    """A selector that picks the card holding the request's word, wherever it is shuffled.
+
+    With ``swap``, it picks the card holding ``swap[word]`` instead.
+    """
     def transport(prompt: str, system: str | None):
         request, cards = prompt.split("REQUEST:", 1)[1].split("TOOLS:", 1)
+        word = (swap or {}).get(request.strip(), request.strip())
         lines = cards.strip().splitlines()
         return json.dumps({"pick": next(i + 1 for i, line in enumerate(lines)
-                                        if request.strip() in line)}), None
+                                        if word in line)}), None
     return LLMClient(model=model, provider=provider, role=role, transport=transport)
 
 
@@ -771,12 +776,15 @@ def test_the_seed_on_the_command_line_is_the_seed_the_saved_model_arm_records(
 
 def test_console_prints_the_top_five_attractors_of_each_arm_by_count(
         tmp_path, capsys, monkeypatch):
-    # Each of six skills takes the gold queries that name its word: alpha one, ... foxtrot six.
+    # Lexically, each of six skills takes the gold queries that name its word: alpha one, ...
+    # foxtrot six. The selector sends each word to the mirror skill's card instead (alpha's
+    # to foxtrot), so the model arm counts the other way round and leaves out foxtrot.
     import dokimi.commands.novelty as novelty_cmd
 
-    monkeypatch.setattr(novelty_cmd, "_client", _word_client)
     words = {"alpha": "anvil", "bravo": "barley", "charlie": "cobalt", "delta": "dune",
              "echo": "ember", "foxtrot": "fjord"}
+    mirror = dict(zip(words.values(), reversed(words.values()), strict=True))
+    monkeypatch.setattr(novelty_cmd, "_client", functools.partial(_word_client, swap=mirror))
     root = tmp_path / "catalog"
     _cat(root, {**words, "gold": "something unrelated entirely"})
     queries = _write_queries(tmp_path, {"gold": [word for count, word in
@@ -787,10 +795,12 @@ def test_console_prints_the_top_five_attractors_of_each_arm_by_count(
                   "--model", "m")
     args.func(args)
     lines = [line for line in capsys.readouterr().out.splitlines() if "sibling" in line]
+    top_five = {"lexical": [("foxtrot", 6), ("echo", 5), ("delta", 4), ("charlie", 3),
+                            ("bravo", 2)],
+                "model": [("alpha", 6), ("bravo", 5), ("charlie", 4), ("delta", 3),
+                          ("echo", 2)]}
     assert lines == [f"{arm}: {name} picked for {count} of 21 sibling queries (from gold)"
-                     for arm in ("lexical", "model")
-                     for name, count in [("foxtrot", 6), ("echo", 5), ("delta", 4),
-                                         ("charlie", 3), ("bravo", 2)]]
+                     for arm, rows in top_five.items() for name, count in rows]
 
 
 def test_attractors_tied_on_count_and_golds_tied_in_from_are_in_name_order():
