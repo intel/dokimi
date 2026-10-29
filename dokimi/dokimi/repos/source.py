@@ -41,6 +41,10 @@ class SourceError(ValueError):
     """Raised for an unusable source spec or a git operation that failed."""
 
 
+class SourceArgumentError(SourceError):
+    """A source spec that is wrong as typed (no git operation failed): a caller reports it as a usage error."""
+
+
 @dataclass(frozen=True)
 class RepoSource:
     """A parsed source spec. ``rev`` is ``None`` for an unpinned working tree."""
@@ -358,7 +362,7 @@ def open_source(source: RepoSource, cache_dir: Path | None = None) -> RepoTree:
         # ls-tree lists paths relative to -C, git show reads them from the root.
         prefix = _git(Path(source.location), "rev-parse", "--show-prefix").strip()
         if prefix:
-            raise SourceError(f"{source.location} is {prefix!r} inside a repository; give its root")
+            raise SourceArgumentError(f"{source.location} is {prefix!r} inside a repository; give its root")
         sha = resolve_rev(Path(source.location), source.rev)
         return GitTree(Path(source.location), sha, label=f"{source.location}@{sha[:12]}")
     git_dir = ensure_clone(source.location, cache_dir or default_cache_dir())
