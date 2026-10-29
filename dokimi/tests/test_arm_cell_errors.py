@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -97,3 +98,22 @@ def test_a_judge_exception_with_an_empty_message_is_still_an_error_cell():
     [row] = runner.judge(judge, "lib", [rec], baseline_arm="baseline")
     assert row["scores"]["skill"]["error"] == "TimeoutError"
     assert cell_values([row], ["baseline", "skill"])[1] == {"baseline": 0, "skill": 1}
+
+
+def test_delta_vs_baseline_is_paired_over_the_questions_both_arms_scored():
+    runner = ArmRunner.__new__(ArmRunner)
+    runner.treatments = [SimpleNamespace(name="baseline"), SimpleNamespace(name="skill")]
+    runner.turn_reminder = None
+    runner.stats_correction = "holm"
+    evaluations = [
+        {"question_id": "1", "question_text": "Q1",
+         "scores": {"baseline": {"aggregate": 80}, "skill": {"aggregate": 70}}},
+        # Scored by the baseline only: left out of the paired delta, not counted against the skill arm.
+        {"question_id": "2", "question_text": "Q2",
+         "scores": {"baseline": {"aggregate": 60}, "skill": {"error": "generation_failed: HTTP 500"}}},
+        {"question_id": "3", "question_text": "Q3",
+         "scores": {"baseline": {"aggregate": 50}, "skill": {"aggregate": 40}}},
+    ]
+    summary = runner._summarize(evaluations, "baseline")
+    assert summary["per_arm"]["skill"]["delta_vs_baseline"] == -10.0
+    assert summary["per_arm"]["skill"]["avg_aggregate"] == 55.0  # the unpaired mean is still reported

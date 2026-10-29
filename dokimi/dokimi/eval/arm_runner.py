@@ -26,7 +26,7 @@ from dokimi.defaults import DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER
 from dokimi.eval import stats as arm_stats
 from dokimi.eval.interactions import interaction_significance
 from dokimi.eval.arm_summary import (
-    cell_values, cost_summary, summarize_agentic_usage, summarize_skill_selection,
+    cell_values, cost_summary, paired_delta, summarize_agentic_usage, summarize_skill_selection,
 )
 from dokimi.eval.cells import Cell
 from dokimi.eval.question_text import question_text_of, require_question_texts
@@ -775,10 +775,11 @@ class ArmRunner:
             if arm_name == baseline_arm:
                 base_avg = avg
         if base_avg is not None:
+            # Paired: over the questions both arms scored, so a question one arm errored on
+            # does not shift the delta. The unpaired means above are still reported.
             for arm_name, stats in summary["per_arm"].items():
-                avg = stats["avg_aggregate"]
                 stats["delta_vs_baseline"] = (
-                    round(avg - base_avg, 1) if avg is not None and arm_name != baseline_arm else None
+                    paired_delta(evaluations, baseline_arm, arm_name) if arm_name != baseline_arm else None
                 )
 
         # Paired statistics. Every arm is tested against the *same* baseline

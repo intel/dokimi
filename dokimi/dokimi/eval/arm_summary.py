@@ -13,7 +13,7 @@ tests keep working.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List, Mapping, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from dokimi.records import RecordLike
 from dokimi.records import records as as_records
@@ -264,6 +264,20 @@ def cost_summary(records: Iterable[RecordLike]) -> Dict[str, Any]:
                                 if prompt else None),
         }
     return out
+
+
+def paired_delta(evaluations: Iterable[Any], baseline_arm: str, arm_name: str) -> Optional[float]:
+    """The mean of ``arm - baseline`` over the questions that both arms scored; ``None`` if none.
+
+    A question one arm errored on (or left unscored) is not in the delta at all: the
+    difference of two unpaired means would compare different questions.
+    """
+    diffs: List[float] = []
+    for ev in as_records(evaluations, source="evaluations", kind="evaluations"):
+        base, arm = ev.score(baseline_arm), ev.score(arm_name)
+        if base is not None and arm is not None:
+            diffs.append(float(arm) - float(base))
+    return round(sum(diffs) / len(diffs), 1) if diffs else None
 
 
 def cell_values(evaluations: Iterable[Any], arm_names: Sequence[str]) -> Tuple[Dict[str, List[float]], Dict[str, int]]:
