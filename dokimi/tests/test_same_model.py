@@ -37,6 +37,9 @@ CASES = [
     ("openai.gpt-oss-120b-1:0", "gpt-oss-20b", False),
     ("claude-sonnet-4-5", "us.anthropic.claude-sonnet-4-5-20250929-v1:0", True),  # alias vs full Bedrock id
     ("claude-x-20250929", "claude-x-20241022", False),
+    ("gpt-4o-2024-08-06", "gpt-4o", True),  # OpenAI's dashed snapshot and its alias
+    ("gpt-4o-2024-08-06", "gpt-4o-2024-05-13", False),
+    ("gpt-4o-2024-08-06", "gpt-4o-20240806", True),
     ("anthropic/claude-sonnet-4-5", "amazon-bedrock/claude-sonnet-4-5", True),  # same model, another route
     ("anthropic/claude-x", "claude-x", True),
     ("vertex_ai/claude-x", "claude-x", True),

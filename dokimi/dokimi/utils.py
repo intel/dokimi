@@ -127,7 +127,7 @@ _ROUTES = frozenset({"openai", "anthropic", "google", "google-vertex", "vertex_a
 
 
 def _model_core(model: str) -> tuple[str, str | None]:
-    """A model name reduced to ``(id, snapshot date or None)``.
+    """A model name reduced to ``(id, snapshot date or None)``. A snapshot is ``-YYYYMMDD`` or OpenAI's ``-YYYY-MM-DD``.
 
     The route goes (``openrouter/anthropic/``, ``bedrock/``, ``vertex_ai/``, an ARN's
     ``inference-profile/``), and so do the case, the region profile (``eu.``) and a Bedrock
@@ -147,8 +147,8 @@ def _model_core(model: str) -> tuple[str, str | None]:
             name = name[len(prefix):]
             break
     name = re.sub(r"@(?=\d{8}$)", "-", name)
-    snapshot = re.search(r"-(\d{8})$", name)
-    return (name[:snapshot.start()], snapshot.group(1)) if snapshot else (name, None)
+    snapshot = re.search(r"-(\d{8}|\d{4}-\d{2}-\d{2})$", name)
+    return (name[:snapshot.start()], snapshot.group(1).replace("-", "")) if snapshot else (name, None)
 
 
 def same_model(a: str, b: str) -> bool:
