@@ -41,3 +41,22 @@ def refuse_cli_arms(args: argparse.Namespace, treatments: list) -> None:
     if getattr(args, "session_turns", None) is not None:
         raise ValueError(f"--session-turns needs a conversation, which --provider {args.provider} "
                          "does not have: use an API provider for a session")
+
+
+def refuse_cli_cell_model(matrix_cell) -> None:
+    """A matrix cell sets provider and model after the parse-time model gate has read only --model."""
+    from dokimi import llm_cli
+
+    if llm_cli.backend(matrix_cell.provider) and not llm_cli.accepts_model(matrix_cell.provider,
+                                                                          matrix_cell.model):
+        raise ValueError(f"matrix cell {matrix_cell.name!r}: provider {matrix_cell.provider} takes a "
+                         f"Claude model (sonnet, haiku, opus or a claude-* id), not {matrix_cell.model!r}")
+
+
+def refuse_cli_cell(args: argparse.Namespace, specs: list[str]) -> None:
+    """A matrix cell on a CLI provider with an agentic arm is refused before the first cell is answered."""
+    from dokimi import llm_cli
+    from dokimi.treatments import create_treatments
+
+    if llm_cli.backend(args.provider) is not None:
+        refuse_cli_arms(args, create_treatments(specs, top_k=args.top_k, rerank_threshold=args.rerank_threshold))
