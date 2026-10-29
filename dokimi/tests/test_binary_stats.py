@@ -197,7 +197,7 @@ def test_a_units_list_of_the_wrong_length_is_rejected():
         mcnemar_test([True, False], [False, False], units=["a"])
 
 
-def test_the_interval_follows_the_confidence_and_the_seed():
+def test_the_interval_follows_the_confidence():
     treat = [True] * 6 + [False] * 4
     control = [False] * 3 + [True] * 3 + [False] * 4
     wide = mcnemar_test(treat, control)
@@ -205,9 +205,10 @@ def test_the_interval_follows_the_confidence_and_the_seed():
     assert narrow["ci_confidence"] == 0.5
     assert wide["ci_lo"] < narrow["ci_lo"] <= narrow["ci_hi"] < wide["ci_hi"]
     deltas = [1.0] * 3 + [0.0] * 7
-    boot = binary_stats.bootstrap_ci(deltas, seed=7)
-    seeded = mcnemar_test(treat, control, seed=7)
-    assert (seeded["ci_lo"], seeded["ci_hi"]) == (boot["lo"], boot["hi"])
+    boot = binary_stats.bootstrap_ci(deltas)
+    assert (wide["ci_lo"], wide["ci_hi"]) == (boot["lo"], boot["hi"])
+    # The seed is pinned by test_the_seed_reaches_an_interval_that_depends_on_it: these deltas give
+    # (0.0, 0.6) for every seed, so no seed assertion can fail on them.
 
 
 def test_the_seed_reaches_an_interval_that_depends_on_it():
