@@ -63,7 +63,9 @@ from __future__ import annotations
 import json
 import re
 
-VERSION = "1"  # bump when a result for the same inputs changes; grade.json records it
+# Bump when a result for the same inputs changes (a metric or ``pass``); grade.json records it. A field added
+# to ``details`` that leaves the result as it was (``matches``) does not: a reader tells it by its presence.
+VERSION = "1"
 SEVERE = ("blocker", "major")
 
 
