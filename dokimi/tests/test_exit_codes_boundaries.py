@@ -195,6 +195,43 @@ def test_repo_manifest_path_leaving_the_tree_exits_2_with_a_message(command, tmp
     assert "path escapes the repository" in capsys.readouterr().err
 
 
+def _expect_exit(monkeypatch, capsys, code, *argv):
+    _argv(monkeypatch, *argv)
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == code
+    return capsys.readouterr().err
+
+
+def test_repo_validate_invalid_manifest_exits_2(tmp_path, monkeypatch, capsys):
+    (tmp_path / ".agent-eval").mkdir()
+    (tmp_path / ".agent-eval" / "repo-eval.yaml").write_text("schema: no-such-schema\n", encoding="utf-8")
+    err = _expect_exit(monkeypatch, capsys, 2, "repo", "validate", str(tmp_path))
+    assert err.startswith("✗ ")
+
+
+def test_repo_budget_unknown_harness_exits_2(tmp_path, monkeypatch, capsys):
+    err = _expect_exit(monkeypatch, capsys, 2, "repo", "budget", str(tmp_path), "--harness", "no-such-harness")
+    assert "no harness profile" in err
+
+
+@pytest.mark.parametrize("command", ["report", "compare"])
+def test_repo_report_and_compare_batch_that_is_not_a_directory_exit_2(command, tmp_path, monkeypatch, capsys):
+    missing = tmp_path / "no-such-batch"
+    extra = ["--baseline", "none"] if command == "compare" else []
+    err = _expect_exit(monkeypatch, capsys, 2, "repo", command, str(missing), *extra)
+    assert f"not a directory: {missing}" in err
+
+
+def test_repo_scan_unwritable_out_exits_2(tmp_path, monkeypatch, capsys):
+    (tmp_path / "AGENTS.md").write_text("# guidance\n", encoding="utf-8")
+    blocker = tmp_path / "blocker"
+    blocker.write_text("a file, not a directory", encoding="utf-8")
+    out = blocker / "scan.json"
+    err = _expect_exit(monkeypatch, capsys, 2, "repo", "scan", str(tmp_path), "--out", str(out))
+    assert f"cannot write {out}" in err
+
+
 def test_repo_reach_unknown_harness_profile_exits_2(tmp_path, monkeypatch, capsys):
     _argv(monkeypatch, "repo", "reach", str(tmp_path), "--harness", "no-such-harness",
           "--model", "m", "--out", str(tmp_path / "out"))
