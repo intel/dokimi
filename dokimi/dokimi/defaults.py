@@ -92,8 +92,8 @@ JUDGE_MODEL_HELP = (f"Judge model (default: the default judge for --judge-provid
 DEFAULT_RETRIEVAL_TOP_K = 3
 
 # Version of the answering and judging method, stamped in the answers and eval artifacts.
-# Bump it when a change moves scores, so that compare can refuse runs of different versions.
-# An artifact without the stamp predates it (#228 step 2); treat it as version 1.
+# Bump it when a change moves scores. Nothing reads it yet: a later compare is meant to refuse
+# runs of different versions. An artifact without the stamp predates it (#228 step 2); treat it as version 1.
 ANSWERING_METHOD_VERSION = 2
 DEFAULT_MAX_TOKENS_PER_QUESTION = 4000
 DEFAULT_CONCURRENCY = 5

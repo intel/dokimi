@@ -199,11 +199,11 @@ RAGAS meta-evaluation can be run after answer generation to add faithfulness and
 
 Every serious run should answer "Can we trust this run?" before interpreting deltas. The trust gate checks:
 
-- minimum evaluated question count,
-- zero-score fraction,
-- minimum `with_docs` average,
-- average delta,
-- score coefficient of variation,
+- minimum evaluated question count (both arms scored; a question with no document is not judged by default, so it is not counted here),
+- zero-score fraction (over the both-arm-scored questions only, so questions with no document leave it too),
+- minimum `with_docs` average (same subset),
+- average delta (same subset),
+- score coefficient of variation (same subset),
 - inter-rater agreement when panel data exists,
 - retrieval hit rate — the share of questions where at least one document reached the `with_docs` prompt, from the per-evaluation `retrieval_hit` the judge and panel record; eval files judged before that field existed show it as not measured, and so do files where fewer than 80% of evaluations record it (`min_retrieval_coverage`), since the rate would then describe a subset,
 - multi-run variance when `--multi-run N` is used.
