@@ -60,3 +60,31 @@ def test_the_registry_key_not_the_display_name_finds_the_declared_id(tmp_path, r
 
     assert library_id == "org/declared"
     assert client.asked == []
+
+
+def test_question_generation_extracts_topics_for_the_declared_library(tmp_path, registry, monkeypatch):
+    """The question step asks the extractor for the registry's id, not for whatever the
+    client resolves the display name to: the arms stack and this step must agree."""
+    import dokimi.questions as questions
+
+    client = _RecordingClient()
+    seen = {}
+
+    class _StopHere(Exception):
+        pass
+
+    class _Extractor:
+        def __init__(self, **kwargs):
+            pass
+
+        def extract_topics(self, library_id, **kwargs):
+            seen["library_id"] = library_id
+            raise _StopHere
+
+    monkeypatch.setattr("dokimi.orchestrator.pipeline.create_doc_source_client", lambda source: client)
+    monkeypatch.setattr(questions, "RagasSeedExtractor", _Extractor)
+
+    with pytest.raises(_StopHere):
+        _pipeline(tmp_path, registry)._generate_questions({})
+
+    assert seen["library_id"] == "org/declared"
