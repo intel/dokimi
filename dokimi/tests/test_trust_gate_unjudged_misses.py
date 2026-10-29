@@ -10,6 +10,8 @@ most questions miss passes a fail-severity check it fails on intel/main.
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from dokimi.eval.diagnoser import EMPTY_RETRIEVAL, INSUFFICIENT_DATA, summarise_diagnoses
 from dokimi.eval.judge import Judge
 from dokimi.gate.trust_gate import evaluate_trust
@@ -17,10 +19,6 @@ from dokimi.gate.trust_gate import evaluate_trust
 GOOD = MagicMock(content=(
     '{"correctness": 60, "completeness": 60, "specificity": 60, '
     '"code_quality": 60, "actionability": 60, "aggregate": 0}'
-))
-ZERO = MagicMock(content=(
-    '{"correctness": 0, "completeness": 0, "specificity": 0, '
-    '"code_quality": 0, "actionability": 0, "aggregate": 0}'
 ))
 HIT = {
     "answer": "use parallel_for",
@@ -41,7 +39,7 @@ def _rows(n_hit, n_miss):
     judge._accumulate_usage = lambda usage: None
     judge.temperature = judge.seed = None
     judge.llm = MagicMock()
-    judge.llm.invoke.side_effect = lambda msgs, *a, **k: ZERO if "FALLBACK" in str(msgs) else GOOD
+    judge.llm.invoke.return_value = GOOD
     rows = []
     for i in range(n_hit + n_miss):
         rows.append(judge._evaluate_answer_pair("L", {
@@ -107,3 +105,32 @@ def test_unjudged_misses_stay_empty_retrievals_in_the_failure_analysis():
     summary = summarise_diagnoses(_rows(10, 4))
     assert summary["counts"][EMPTY_RETRIEVAL] == 4
     assert summary["counts"][INSUFFICIENT_DATA] == 0
+
+
+def _row(question_id, context, baseline, retrieval_hit):
+    """An eval record as the judge writes it: a null condition is one that was not scored."""
+    return {
+        "question_id": question_id,
+        "question_text": "q?",
+        "with_docs": None if context is None else {"aggregate": context},
+        "without_docs": None if baseline is None else {"aggregate": baseline},
+        "delta": None if context is None or baseline is None else context - baseline,
+        "retrieval_hit": retrieval_hit,
+    }
+
+
+@pytest.mark.parametrize("extra", [
+    # no context score, and no retrieval outcome recorded: an older artifact, or a judge error
+    # on an answer whose outcome was never stamped
+    _row("legacy", None, 60, None),
+    # a document reached the prompt, but the context answer was not scored (judge error)
+    _row("judge-error", None, 60, True),
+    # a miss with no baseline score: it is not a question both arms were meant to score
+    _row("no-baseline", None, None, False),
+], ids=["legacy-row", "hit-not-scored", "miss-without-baseline"])
+def test_only_a_recorded_miss_with_a_baseline_counts_as_unusable(extra):
+    rows = [_row(f"q{i}", 70, 60, True) for i in range(10)]
+
+    check = _zero_check(evaluate_trust(rows + [extra]))
+
+    assert (check.value, check.message.split(" ")[0]) == (0.0, "0/10")
