@@ -52,13 +52,13 @@ def _source_tree(args: argparse.Namespace) -> tuple:
 
 def cmd_repo_validate(args: argparse.Namespace) -> None:
     """Validate a repository's repo-eval.yaml and its tasks against one snapshot."""
-    from dokimi.repos import ManifestError, check_repo
+    from dokimi.repos import ManifestError, SourceError, check_repo
     from dokimi.repos.source import base_opener
 
     source, tree = _source_tree(args)
     try:  # the manifest in the tree: a usage error
         manifest = _load_manifest(tree, args)
-    except ManifestError as exc:
+    except (SourceError, ManifestError) as exc:  # SourceError: a manifest path that leaves the tree
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
     open_base = base_opener(source, tree)
@@ -104,13 +104,13 @@ def _read_static(path: str) -> Any:
 def cmd_repo_scan(args: argparse.Namespace) -> None:
     """L0: check every mechanically checkable claim in the guidance against the same tree."""
     from dokimi.artifacts import save_artifact, stamp
-    from dokimi.repos import ManifestError
+    from dokimi.repos import ManifestError, SourceError
     from dokimi.repos.l0 import scan_repo
 
     _, tree = _source_tree(args)
     try:  # the manifest and the --static document: a usage error
         manifest = _load_manifest(tree, args, guidance_default=True)
-    except (ManifestError, OSError, json.JSONDecodeError) as exc:
+    except (SourceError, ManifestError, OSError, json.JSONDecodeError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
     static = _read_static(args.static) if args.static else None

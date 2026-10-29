@@ -183,6 +183,18 @@ def test_repo_reach_fetch_failure_keeps_exit_1(tmp_path, monkeypatch, capsys):
     assert "git fetch failed" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("command", ["validate", "scan"])
+def test_repo_manifest_path_leaving_the_tree_exits_2_with_a_message(command, tmp_path, monkeypatch, capsys):
+    # The tree refuses a path that escapes it with SourceError; the manifest is the caller's input.
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _argv(monkeypatch, "repo", command, str(repo), "--manifest", "../x.yaml")
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    assert "path escapes the repository" in capsys.readouterr().err
+
+
 def test_repo_reach_unknown_harness_profile_exits_2(tmp_path, monkeypatch, capsys):
     _argv(monkeypatch, "repo", "reach", str(tmp_path), "--harness", "no-such-harness",
           "--model", "m", "--out", str(tmp_path / "out"))
