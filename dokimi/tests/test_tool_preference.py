@@ -817,11 +817,10 @@ def test_dry_run_names_the_groups_a_factor_is_skipped_for(capsys):
     args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--dry-run",
                                       "--factors", "assertive,exclusion,long_desc"])
     args.func(args)
-    out = capsys.readouterr().out
-    assert "exclusion: skipped for 2 of 3 groups (G02, N01)" in out
-    assert "long_desc: skipped for 2 of 3 groups (G02 twin B, N01)" in out
-    assert "assertive: skipped" not in out
-    assert "vendor_name: skipped" not in out
+    skipped = [line.strip() for line in capsys.readouterr().out.splitlines() if ": skipped for " in line]
+    # in the order --factors gave them (FACTORS has long_desc first), and only the factors asked for
+    assert skipped == ["exclusion: skipped for 2 of 3 groups (G02, N01)",
+                       "long_desc: skipped for 2 of 3 groups (G02 twin B, N01)"]
 
 
 def test_dry_run_names_twin_a_when_only_twin_a_lacks_the_field(tmp_path, capsys):
