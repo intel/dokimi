@@ -148,13 +148,18 @@ def test_inspect_blank_or_missing_target_is_unsupported_not_a_pass(tmp_path):
     assert _checks(imp) == _checks(imp, 1) == [{"type": "unsupported", "native": "match"}]
 
 
-def test_inspect_punctuation_only_target_is_unsupported_for_match_only(tmp_path):
-    # `match` drops punctuation, so "..." would be found in every answer; `includes` keeps it.
+def test_inspect_punctuation_only_target_is_unsupported_for_match_and_exact(tmp_path):
+    # `match` drops punctuation, so "..." would be found in every answer; `exact` SQuAD-normalises
+    # it (and "the") to "", which equals no answer; `includes` keeps it.
     path = _jsonl(tmp_path / "s.jsonl", [{"input": "q", "target": "..."},
-                                         {"input": "r", "target": ["!!", "x"]}])
+                                         {"input": "r", "target": ["!!", "x"]},
+                                         {"input": "s", "target": ["The", "Paris"]}])
     imp = import_path(path, fmt="inspect-samples")
     assert _checks(imp) == [{"type": "unsupported", "native": "match"}]
     assert _checks(imp, 1)[0]["values"] == ["x"]
+    exact = import_path(path, fmt="inspect-samples", scorer="exact")
+    assert _checks(exact) == [{"type": "unsupported", "native": "exact"}]
+    assert _checks(exact, 2) == [{"type": "exact", "values": ["Paris"]}]
     kept = import_path(path, fmt="inspect-samples", scorer="includes")
     assert grade(kept.questions[0]["grading"], "q", "I refuse to answer").passed is False
 
@@ -399,6 +404,25 @@ def test_promptfoo_blank_values_are_unsupported_not_refused_later(tmp_path):
     imp = import_path(_write(tmp_path / "promptfooconfig.yaml", cfg), fmt="promptfoo")
     assert [c["type"] for c in _checks(imp)] == ["unsupported", "unsupported", "unsupported", "match"]
     assert validate_grading(imp.questions[0]["grading"]) == []
+
+
+@pytest.mark.parametrize("assertion", ["{type: llm-rubric, value: ''}", "{type: factuality, value: '  '}",
+                                       "{type: contains-any, value: []}"])
+def test_promptfoo_blank_judge_or_empty_list_is_unsupported_not_refused_later(tmp_path, assertion):
+    cfg = f"prompts: ['{{{{q}}}}']\ntests:\n  - vars: {{q: x}}\n    assert:\n      - {assertion}\n"
+    imp = import_path(_write(tmp_path / "promptfooconfig.yaml", cfg), fmt="promptfoo")
+    kind = assertion.split(",")[0].removeprefix("{type: ")
+    assert _checks(imp) == [{"type": "unsupported", "native": kind}]
+    assert f"assert `{kind}` not translated" in imp.lossy
+
+
+def test_promptfoo_blank_judge_beside_a_good_assert_keeps_the_file_gradable(tmp_path):
+    cfg = ("prompts: ['{{q}}']\ntests:\n  - vars: {q: x}\n    assert:\n"
+           "      - {type: llm-rubric, value: ''}\n      - {type: contains-any, value: []}\n"
+           "      - {type: llm-rubric, value: Is polite}\n")
+    imp = import_path(_write(tmp_path / "promptfooconfig.yaml", cfg), fmt="promptfoo")
+    assert validate_grading(imp.questions[0]["grading"]) == []
+    assert _checks(imp)[2] == {"type": "judge", "criterion": "Is polite", "native": "llm-rubric"}
 
 
 def test_promptfoo_punctuation_only_values_are_real_checks_not_a_pass(tmp_path):
