@@ -6,7 +6,9 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -73,28 +75,43 @@ PATHS = [
 ]
 
 
+# What `git check-ignore` printed for PATHS, so the matcher is checked on a host without git too.
+GIT_IGNORED = {
+    "x.o", "deep/x.o", "build/a/b.c", "src/build/x.c", "build/keep.txt", "top.txt",
+    "docs/gen", "docs/a/b/gen", "cache", "x/cache/y.txt", "logs/a/b.txt", "a/b", "a/x/y/b",
+    "data/x.csv", "#hash", "a.tmp", "ay.bin", "include/x.h", "z.h", "1.d", "]x.e", "ax", "bx",
+    "dbe/f", "]q", "aq", "sub/local", "sub/deeper/local", "!bang", "sp ", "yz.bin", "-w", "aw",
+    "99.d", "tab\t", "bs\\", "crlf/bom", "crlf/lone\rcr",
+}
+
+
 def _git_ignored(root: Path) -> set[str]:
-    # HOME and XDG_CONFIG_HOME too: the default core.excludesFile is $XDG_CONFIG_HOME/git/ignore
+    # HOME and XDG_CONFIG_HOME too: the default core.excludesFile is $XDG_CONFIG_HOME/git/ignore,
+    # and git before 2.32 reads $HOME/.gitconfig whatever GIT_CONFIG_GLOBAL says
     env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
            "HOME": str(root), "XDG_CONFIG_HOME": str(root)}
+    # No template: a host init.templateDir could bring info/exclude rules
+    subprocess.run(["git", "init", "-q", "--template=", str(root)], check=True, env=env)
+    for rel, text in IGNORES.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text, encoding="utf-8")
+    # --no-index matches the names alone, so PATHS (a tab, a \r, a trailing space) need no files
     out = subprocess.run(["git", "-C", str(root), "check-ignore", "--no-index", "--stdin", "-z"],
                          input="\0".join(PATHS).encode(), capture_output=True, env=env, check=False)
     assert out.returncode in (0, 1), out.stderr  # 1: nothing ignored
     return set(out.stdout.decode().split("\0")) - {""}  # -z and bytes: names unquoted, a \r kept
 
 
-def test_the_matcher_ignores_what_git_ignores(tmp_path):
-    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
-    for rel, text in IGNORES.items():
-        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
-        (tmp_path / rel).write_text(text, encoding="utf-8")
-    for rel in PATHS:
-        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
-        (tmp_path / rel).write_text("", encoding="utf-8")
-
+def test_the_matcher_ignores_what_git_ignores():
     rules = GitIgnore(IGNORES, IGNORES.__getitem__)
-    ours = {p for p in PATHS if rules.ignored_by(p) is not None}
-    assert ours == _git_ignored(tmp_path)
+    assert {p for p in PATHS if rules.ignored_by(p) is not None} == GIT_IGNORED
+
+
+# Windows git may read a \ in a path as a separator, and init sets core.ignorecase there
+@pytest.mark.skipif(shutil.which("git") is None or sys.platform == "win32",
+                    reason="needs a POSIX git")
+def test_git_still_ignores_what_the_matcher_is_checked_against(tmp_path):
+    assert _git_ignored(tmp_path) == GIT_IGNORED
 
 
 @pytest.mark.parametrize("path, source, line", [
@@ -141,6 +158,13 @@ def test_a_rule_names_a_file_it_ignores(line, name, path):
     assert rules.ignored_by(path) is not None
 
 
-def test_a_class_no_candidate_fits_and_a_negation_name_nothing():
-    line = "[!a-zA-Z0-9_.-]*.o\n!keep.o\n"
-    assert GitIgnore({".gitignore": line}, lambda _: line).names("x") == []
+def test_a_class_no_candidate_fits_names_nothing():
+    line = "[!a-zA-Z0-9_.-]*.o\ngen.h\n"
+    assert GitIgnore({".gitignore": line}, lambda _: line).names("x") == ["gen.h"]
+
+
+def test_a_negation_is_named_only_when_asked_for():
+    line = "gen.h\n!keep.o\n"
+    rules = GitIgnore({".gitignore": line}, lambda _: line)
+    assert rules.names("x") == ["gen.h"]
+    assert rules.names("x", negated=True) == ["keep.o"]
