@@ -18,10 +18,9 @@ import sys
 def _ask(args: argparse.Namespace):
     if not args.judge:
         return None
-    from dokimi.eval.judge import Judge
+    from dokimi.eval.judge import judge_ask
 
-    llm = Judge(model=args.judge_model, provider=args.judge_provider).llm
-    return lambda prompt, draw=0, cache_if=None: llm.invoke(prompt, draw=draw, cache_if=cache_if).content
+    return judge_ask(args.judge_model, args.judge_provider)
 
 
 def cmd_eval_redteam(args: argparse.Namespace) -> None:

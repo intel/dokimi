@@ -44,7 +44,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Mapping, Optional
 
-from dokimi.eval.reference_checks import Ask, grade, grade_check
+from dokimi.eval.reference_checks import Ask, check_values, grade, grade_check
 from dokimi.eval.reference_run import grading_by_id
 
 ATTACKS = ("canary", "wrong", "empty", "hedge", "stuffed")
@@ -60,20 +60,13 @@ NEGATION_SKIPPED = ("wrong", "empty", "hedge")
 _LITERAL = frozenset({"match", "fuzzy", "exact", "choice", "json"})
 
 
-def _literal_values(check: Mapping[str, Any]) -> list[Any]:
-    raw = check.get("values", check.get("value"))
-    if raw is None:
-        return []
-    return list(raw) if isinstance(raw, (list, tuple)) else [raw]
-
-
 def canary_for(grading: Mapping[str, Any]) -> Optional[str]:
     """The right answer for a grading block of one literal check, or None when none is built."""
     checks = grading.get("checks", [])
     if len(checks) != 1 or checks[0].get("type") not in _LITERAL or checks[0].get("negate"):
         return None
     check = checks[0]
-    kind, values = check["type"], _literal_values(check)
+    kind, values = check["type"], check_values(check)
     mode, location = str(check.get("mode", "any")), str(check.get("location", "end"))
     if not values or (len(values) > 1 and mode == "all"):
         return None
@@ -121,7 +114,7 @@ def stuffed_for(grading: Mapping[str, Any]) -> Optional[str]:
     if len(checks) != 1 or checks[0].get("type") not in _LITERAL - {"choice"}:
         return None
     check = checks[0]
-    values = [str(v) for v in _literal_values(check)]
+    values = [str(v) for v in check_values(check)]
     mode = str(check.get("mode", "any"))
     if check.get("negate"):
         built = bool(values) and not _whole_answer(check) and mode != "all"
