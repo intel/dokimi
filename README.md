@@ -37,9 +37,11 @@ answers. Every claim lands in one of four outcomes
 ![A 2x2 grid. Wrong without, right with: added, keep it. Right without and with: redundant, cut it for this model. Wrong both times: still missing, rewrite it. Right without, wrong with: degraded, fix it first](dokimi/docs/assets/readme/novelty-outcomes.png)
 
 What measuring shows so far ([evidence](dokimi/docs/skill-novelty-evidence.md)):
-most of a skill repeats what a frontier model already knows; a plausible wrong
-value planted in a skill is repeated in 85–94% of cases in a small study; and what a small model
-needs, a large one may not, so every verdict is per model.
+under lenient grading, 70% of what a skill says a frontier model already
+produces unprompted; under strict grading, which also checks exact values, 38%
+is still missing even with the skill in context; a plausible wrong value
+planted in a skill is repeated in 85–94% of cases in a small study; and
+what a small model needs, a large one may not, so every verdict is per model.
 
 ## Start here
 
