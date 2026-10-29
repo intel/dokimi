@@ -2,13 +2,13 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/intel/dokimi/schemas/redteam.v1.json",
   "title": "Verifier red team v1",
-  "description": "Whether a question set's grading blocks reject the synthetic wrong, empty, hedged and stuffed answers they should, and accept a canary right answer. Written by `eval redteam`; status is blocked when any attack is accepted or a canary is rejected.",
+  "description": "Whether a question set's grading blocks reject the synthetic wrong, empty, hedged and stuffed answers they should, and accept a canary right answer. Written by `eval redteam`; status is blocked when any attack is accepted or a canary is rejected, and inconclusive when no question was probed (nothing graded, or only judge checks without a judge).",
   "type": "object",
   "required": ["schema_version", "status", "questions_path", "attacks", "violations", "questions", "summary"],
   "additionalProperties": false,
   "properties": {
     "schema_version": {"const": "redteam.v1"},
-    "status": {"enum": ["pass", "blocked"]},
+    "status": {"enum": ["pass", "blocked", "inconclusive"]},
     "questions_path": {"type": "string"},
     "attacks": {
       "type": "object",

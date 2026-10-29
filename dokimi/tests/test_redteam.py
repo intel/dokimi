@@ -63,9 +63,32 @@ def test_a_rejected_canary_is_a_violation(monkeypatch):
 def test_a_judge_check_without_a_judge_is_unscored_and_does_not_block():
     grading = {"checks": [{"type": "judge", "criterion": "names the capital"}]}
     result = run([_q("1", grading)])
-    assert result["status"] == "pass"
+    assert result["status"] == "inconclusive"  # nothing was graded, so nothing was verified
+    assert result["violations"] == []
     assert result["summary"]["unscored"] == 3  # wrong, empty and hedge; no canary, no stuffing
     assert result["summary"]["probed"] == 0
+
+
+@pytest.mark.parametrize("questions", [
+    [{"id": "1", "question": "Capital of France?"}],  # no grading block at all
+    [_q("1", {"checks": [{"type": "judge", "criterion": "names the capital"}]})],
+])
+def test_a_run_that_probed_nothing_is_inconclusive_not_pass(questions):
+    result = run(questions)
+    assert result["status"] == "inconclusive"
+    assert result["summary"]["probed"] == 0
+
+
+def test_stuffing_is_not_an_attack_on_a_block_that_needs_every_value():
+    # "Paris Lyon" satisfies a block that requires both values, so the grader is right to accept it.
+    result = run([_q("1", _match("Paris", "Lyon", mode="all"))])
+    assert result["status"] == "pass"
+    assert "stuffed" not in result["questions"][0]["probes"]
+
+
+def test_stuffing_is_not_an_attack_on_several_checks_that_each_accept_a_value():
+    grading = {"checks": [{"type": "match", "values": ["Paris"]}, {"type": "match", "values": ["Lyon"]}]}
+    assert redteam.attacks(grading)["stuffed"] is None
 
 
 @pytest.mark.parametrize("grading", [
@@ -124,6 +147,23 @@ def test_command_exits_1_when_the_run_is_blocked(tmp_path, monkeypatch):
     with pytest.raises(SystemExit) as exc:
         cmd_eval_redteam(_args(tmp_path / "questions.json"))
     assert exc.value.code == 1
+
+
+def test_command_exits_1_when_nothing_was_graded(tmp_path, monkeypatch):
+    _patch_questions(monkeypatch, [{"id": "1", "question": "Capital of France?"}])
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_redteam(_args(tmp_path / "questions.json"))
+    assert exc.value.code == 1
+
+
+def test_command_exits_2_when_the_artifact_cannot_be_written(tmp_path, monkeypatch, capsys):
+    _patch_questions(monkeypatch, [_q("1", _match("Paris"))])
+    blocker = tmp_path / "a_file"
+    blocker.write_text("not a directory", encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_redteam(_args(tmp_path / "questions.json", output=blocker / "out.json"))
+    assert exc.value.code == 2  # not 1: CI must not read an unwritable -o as a blocked run
+    assert capsys.readouterr().err.startswith("Error:")
 
 
 def test_command_exits_2_on_an_unreadable_question_set(tmp_path, capsys):

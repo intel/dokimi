@@ -4,7 +4,8 @@
 """``eval redteam``: check that a question set's grading rejects the answers it should.
 
 Reads a questions set (with ``grading`` blocks), grades synthetic attacks against it and prints
-the pass rates. Exits 1 when any attack is accepted or a canary is rejected. Judge checks are not
+the pass rates. Exits 1 when any attack is accepted, a canary is rejected, or nothing was graded
+(``inconclusive``); exits 2 on an unreadable input or an unwritable ``-o``. Judge checks are not
 scored unless ``--judge`` is given, so the default run makes no model call.
 """
 
@@ -37,7 +38,11 @@ def cmd_eval_redteam(args: argparse.Namespace) -> None:
     result["questions_path"] = str(args.questions)
     print(format_table(result))
     if args.output:
-        save_artifact("redteam", result, args.output)
+        try:
+            save_artifact("redteam", result, args.output)
+        except (OSError, ValueError) as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(2)
         print(f"Wrote redteam artifact to {args.output}")
     if result["status"] != "pass":
         sys.exit(1)
