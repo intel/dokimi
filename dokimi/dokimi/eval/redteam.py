@@ -49,7 +49,7 @@ from dokimi.eval.reference_run import grading_by_id
 
 ATTACKS = ("canary", "wrong", "empty", "hedge", "stuffed")
 EXPECTED = {"canary": True, "wrong": False, "empty": False, "hedge": False, "stuffed": False}
-# Planted wrong answers, tried in order; the first that carries no positive check value is used.
+# Planted wrong answers, tried in order; the first that no positive literal check accepts is used.
 WRONG_CANDIDATES = ("PLANTED-WRONG-ANSWER-7731", "QZX-BOGUS-REPLY-4096", "ZKV-MISMATCH-2508", "XJQ-NONSENSE-6349")
 HEDGE = ("I am not certain. It could be several things, depending on the setup, "
          "and I cannot say which one applies here.")

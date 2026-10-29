@@ -61,7 +61,8 @@ def test_keyword_stuffing_that_the_grader_accepts_blocks_the_run(monkeypatch):
     {"type": "fuzzy", "values": ["Barack Obama", "Obama"]},
 ])
 def test_a_correct_grader_with_aliases_is_not_blocked_by_the_stuffed_answer(check):
-    # "4 four" ends with, begins with or contains an accepted value, so accepting it is right, not a violation.
+    # The stuffed answer is built so that a correct grader rejects it (values between decoys) or it is
+    # not built at all (fuzzy, numeric, location any): a correct grader is never blocked.
     result = run([_q("1", {"checks": [check]})])
     assert result["status"] == "pass" and result["violations"] == []
 
