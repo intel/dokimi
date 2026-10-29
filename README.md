@@ -38,7 +38,7 @@ answers. Every claim lands in one of four outcomes
 
 What measuring shows so far ([evidence](dokimi/docs/skill-novelty-evidence.md)):
 most of a skill repeats what a frontier model already knows; a plausible wrong
-value planted in a skill is repeated 94% of the time; and what a small model
+value planted in a skill is repeated in 85–94% of cases in a small study; and what a small model
 needs, a large one may not, so every verdict is per model.
 
 ## Start here

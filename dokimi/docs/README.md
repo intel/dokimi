@@ -80,7 +80,7 @@ From the studies so far ([evidence](skill-novelty-evidence.md)):
   produces unprompted. Under strict grading, which also checks exact values,
   38% is still missing even with the skill in context.
 - **Models believe their context, even when it is wrong.** A plausible wrong
-  value planted in a skill is repeated 94% of the time.
+  value planted in a skill is repeated in 85–94% of cases in a small study.
 - **Value depends on the model.** What a small model needs, a frontier model
   may already know, so every verdict is per model.
 
