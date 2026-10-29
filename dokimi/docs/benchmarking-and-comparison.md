@@ -568,7 +568,8 @@ The intended input is one judged arms JSON file per model for regular questions
 and/or golden questions. The report extracts the `baseline_arm` score as the
 baseline and the treatment arm as the context arm, then computes:
 
-- overall context-arm, baseline, and delta per run,
+- overall context-arm, baseline, and delta per run, all three over the questions
+  scored in both arms (a run that scored one arm only shows that arm's mean),
 - statistical significance of context-arm minus baseline (paired t-test,
   Wilcoxon signed-rank, Cohen's d_z), corrected across the compared runs \u2014
   every run tests the same "did the treatment help?" question, so they form one

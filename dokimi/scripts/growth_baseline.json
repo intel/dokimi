@@ -30,7 +30,6 @@
     "dokimi/commands/report.py::cmd_report_model_compare": {"complexity": 12},
     "dokimi/commands/tools.py::cmd_tools_preference": {"complexity": 11},
     "dokimi/context/trace.py::_apply": {"complexity": 18},
-    "dokimi/dashboard/aggregator.py::ResultsAggregator._load_snapshot": {"complexity": 13},
     "dokimi/eval/agent_runner.py::_summarize_tool_usage": {"complexity": 11},
     "dokimi/eval/agent_runner.py::run_agent_loop": {"complexity": 14},
     "dokimi/eval/arm_runner.py::ArmRunner.judge": {"complexity": 11},

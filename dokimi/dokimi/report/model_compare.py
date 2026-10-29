@@ -932,13 +932,13 @@ def _resource_usage_lines(runs: list[tuple[str, dict]], pooled: bool) -> list[st
 
 def _run_summary(scores: list[dict]) -> dict:
     """One run's arm means and paired-delta counts over the common questions."""
-    with_docs_scores = [s["with_docs"] for s in scores if s["with_docs"] is not None]
-    without_docs_scores = [s["without_docs"] for s in scores if s["without_docs"] is not None]
-    # Average the per-question deltas rather than differencing the two arm
-    # means. The arm means are filtered independently, so when any question
-    # is missing a score they cover different question subsets and their
-    # difference is not a paired delta.
-    paired_deltas = [s["delta"] for s in scores if s.get("delta") is not None]
+    # Arm means and delta over the pairs (`eval.stats.paired_summary`); one-arm runs keep theirs.
+    pairs = [s for s in scores if s.get("delta") is not None]
+    with_docs_scores = [s["with_docs"] for s in pairs or scores if s["with_docs"] is not None]
+    without_docs_scores = [s["without_docs"] for s in pairs or scores if s["without_docs"] is not None]
+    if not pairs and with_docs_scores and without_docs_scores:  # both arms, never on one question
+        with_docs_scores = without_docs_scores = []
+    paired_deltas = [s["delta"] for s in pairs]
     # Per-run, distinct from the section-level has_treatment: a single run may
     # lack a treatment arm while others in the comparison have one.
     paired = bool(with_docs_scores) and bool(paired_deltas)

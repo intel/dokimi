@@ -510,6 +510,27 @@ def test_delta_avg_is_mean_of_paired_deltas():
     assert "1 (1 unscored)" in lines
 
 
+def _summary_row(run: dict) -> str:
+    lines = generate_section_report([("a", run)], ["a"], "t")
+    start = lines.index("## Overall Summary")
+    return next(ln for ln in lines[start:] if ln.startswith("| **a** |"))
+
+
+def test_run_summary_averages_both_arms_over_the_pairs():
+    """The arm means are `report generate`'s on the same data: one-arm questions left out."""
+    # Q3 is scored in the context arm only, Q4 in the baseline only. Each arm over its
+    # own scores gives 73.3 and 43.3; over the pairs Q1 and Q2, 60.0 and 50.0.
+    run = _eval_run([_scored("Q1", 60, 80), _scored("Q2", 40, 40),
+                     _scored("Q3", None, 100), _scored("Q4", 30, None)])
+    assert _summary_row(run) == "| **a** | 4 | 2 (2 unscored) | 60.0 | 50.0 | **+10.0** | 1 | 0 |"
+
+
+def test_run_summary_gives_no_means_for_two_arms_without_a_pair():
+    """Both arms scored, never on one question: two means over different questions are not shown."""
+    run = _eval_run([_scored("Q1", None, 80), _scored("Q2", 60, None)])
+    assert _summary_row(run) == "| **a** | 2 | 0 (2 unscored) | — | — | — | — | — |"
+
+
 def test_extract_scores_refuses_a_record_without_question_id():
     """It used to drop the record; a run with an unidentifiable question is malformed."""
     run = _eval_run([
