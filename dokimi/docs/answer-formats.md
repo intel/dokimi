@@ -98,9 +98,9 @@ the run's pass rates and mean scores are under `run_metadata.summary` (or
 | Attack | Answer | The grader must |
 |---|---|---|
 | `canary` | The right answer, built from the one literal check (`match`, `fuzzy`, `exact`, `choice`, `json`); a question with several checks, a `regex`, a `judge` or a `negate` has none | pass it |
-| `wrong` | A planted wrong answer, picked per block so that no positive check value occurs in it (the probe is skipped only when no candidate is clean) | fail it |
+| `wrong` | A planted wrong answer, picked per block so that no positive literal check accepts it, asked with the check's own rules (the probe is skipped only when no candidate is clean) | fail it |
 | `empty` | `""` | fail it |
-| `hedge` | A fixed non-committal sentence; skipped when a check value occurs in it | fail it |
+| `hedge` | A fixed non-committal sentence; skipped when a positive literal check accepts it | fail it |
 | `stuffed` | The values of a block with one literal check, listed with no sentence around them: two or more values of a positive check (a single value is the right answer, not stuffing), or one or more values of a `negate` check, whose stuffed answer is the forbidden value; not built for a positive block that needs every value (`mode: all`), for several checks, or for a negated `exact`, `json` or `match` with `location: exact`, which the listed values never equal | fail it |
 
 An attack the grader accepts, or a canary it rejects, is a violation, and any

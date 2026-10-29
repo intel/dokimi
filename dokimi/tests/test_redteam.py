@@ -304,3 +304,21 @@ def test_a_match_without_punctuation_stripping_gets_a_canary_the_grader_accepts(
     assert canary_for(grading) == "The answer is Paris"  # a full stop would end the answer, not the value
     result = run([_q("1", grading)])
     assert result["status"] == "pass" and result["questions"][0]["canary"] is True
+
+
+def test_a_numeric_check_does_not_block_on_a_planted_answer_it_reads_as_its_number():
+    # The planted answer ends in 7731 and a numeric match reads that number: a clean candidate is chosen by
+    # asking the check itself, not by looking for the value's text in it.
+    check = {"type": "match", "values": ["-7731.0"], "numeric": True}
+    wrong = redteam.attacks({"checks": [check]})["wrong"]
+    assert wrong is not None and "7731" not in wrong
+    result = run([_q("1", {"checks": [check]})])
+    assert result["status"] == "pass" and result["violations"] == []
+
+
+def test_a_short_value_the_check_does_not_find_in_the_hedge_keeps_the_hedge_probe():
+    # "one" occurs in "which one applies", but an end match reads the last words of the hedge only.
+    grading = {"checks": [{"type": "match", "values": ["one"]}]}
+    assert redteam.attacks(grading)["hedge"] == redteam.HEDGE
+    result = run([_q("1", grading)])
+    assert result["questions"][0]["probes"]["hedge"]["passed"] is False

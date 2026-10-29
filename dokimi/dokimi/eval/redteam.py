@@ -7,7 +7,7 @@ Each question with a ``grading`` block is graded against five synthetic answers:
 
 - ``canary``: the right answer, built from the one literal check; it must pass.
 - ``wrong``: a planted wrong answer; it must fail. Its text is picked so that no positive literal
-  check value occurs in it; the probe is skipped only when no candidate is clean.
+  check accepts it; the probe is skipped only when no candidate is clean.
 - ``empty``: the empty answer; it must fail.
 - ``hedge``: a non-committal answer that carries no check value; it must fail.
 - ``stuffed``: every literal check value listed with no sentence around it; it must fail. Built for
@@ -39,7 +39,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Mapping, Optional
 
-from dokimi.eval.reference_checks import Ask, grade, squad_normalize
+from dokimi.eval.reference_checks import Ask, grade, grade_check
 from dokimi.eval.reference_run import grading_by_id
 
 ATTACKS = ("canary", "wrong", "empty", "hedge", "stuffed")
@@ -133,23 +133,14 @@ def negated_only(grading: Mapping[str, Any]) -> bool:
     return bool(checks) and all(c.get("negate") for c in checks)
 
 
-def _contains(value: str, text: str) -> bool:
-    """Whether the text carries the value: a raw substring, or one after the grader's normalisation."""
-    raw = value.strip().lower()
-    norm = squad_normalize(value)
-    return (bool(raw) and raw in text.lower()) or (bool(norm) and norm in squad_normalize(text))
-
-
-def _positive_values(grading: Mapping[str, Any]) -> list[str]:
-    """The values of the block's non-negated literal checks, bare choice letters left out."""
-    return [str(v) for c in _positive_checks(grading) if c.get("type") in _LITERAL - {"choice"}
-            for v in _literal_values(c)]
+def _accepts(grading: Mapping[str, Any], text: str) -> bool:
+    """Whether a non-negated literal check of the block accepts the text on its own, by the grader's rules."""
+    return any(grade_check(c, "", text, None).passed for c in _positive_checks(grading) if c.get("type") in _LITERAL)
 
 
 def wrong_for(grading: Mapping[str, Any]) -> Optional[str]:
-    """The first planted wrong answer that carries none of the block's positive values, or None."""
-    values = _positive_values(grading)
-    return next((w for w in WRONG_CANDIDATES if not any(_contains(v, w) for v in values)), None)
+    """The first planted wrong answer that no positive literal check of the block accepts, or None."""
+    return next((w for w in WRONG_CANDIDATES if not _accepts(grading, w)), None)
 
 
 def attacks(grading: Mapping[str, Any]) -> dict[str, Optional[str]]:
@@ -159,12 +150,13 @@ def attacks(grading: Mapping[str, Any]) -> dict[str, Optional[str]]:
     check passes them by design, but a positive check still rejects them, so they run and the probe
     grades the non-negated checks alone. A block of only negated checks gets none of the three.
     ``stuffed`` still runs, since it carries the negated value and must fail. The planted wrong answer
-    is chosen per block so that no positive value occurs in it, and the hedge is fixed text, so it is
-    skipped when a positive value occurs in it (the grader would accept it).
+    is chosen per block so that no positive check accepts it, and the hedge is fixed text, so it is
+    skipped when a positive check accepts it (each is asked with the grader's own rules, so a numeric
+    match that reads a number out of the planted answer, or a short value the check does not find in the
+    hedge, are judged as the grader judges them).
     """
-    positive = _positive_checks(grading)
-    clashes = any(_contains(v, HEDGE) for v in _positive_values(grading))
-    applies = bool(positive)
+    applies = bool(_positive_checks(grading))
+    clashes = _accepts(grading, HEDGE)
     return {"canary": canary_for(grading),
             "wrong": wrong_for(grading) if applies else None,
             "empty": "" if applies else None,
