@@ -52,6 +52,7 @@ FORWARDED_RUN_CONFIG_FIELDS = (
 
 
 from dokimi.eval.question_text import EmptyQuestionError
+from dokimi.exit_codes import EXIT_USAGE
 
 def forwarded_run_config(args: argparse.Namespace, **overrides) -> dict:
     """Copy the shared run-configuration fields off *args*.
@@ -90,7 +91,7 @@ def cmd_arms_run(args: argparse.Namespace) -> None:
         raise  # a bad input record, not an arm setup error: cli.main reports it (exit 2)
     except (ValueError, FileNotFoundError) as exc:
         print(f"Error building arms/plugins: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
 
     out_json = Path(args.out_json) if args.out_json else Path(f"results/arms/{args.product}.json")
     out_md = Path(args.out_md) if args.out_md else Path(f"results/arms/{args.product}.md")
@@ -126,7 +127,7 @@ def cmd_arms_matrix_run(args: argparse.Namespace) -> None:
             _check_sampling_support(cell_args)
     except (ValueError, FileNotFoundError) as exc:
         print(f"Error loading matrix run inputs: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
 
     out_dir = Path(args.out_dir) if args.out_dir else Path(f"results/arms/{args.product}-matrix")
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -191,7 +192,7 @@ def cmd_arms_plugin_delta(args: argparse.Namespace) -> None:
         output = compare_plugin_runs(baseline, plugin)
     except (PluginDeltaError, ValueError, FileNotFoundError) as exc:
         print(f"Error computing plugin delta: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
 
     out_json = Path(args.out_json) if args.out_json else Path("results/arms/plugin_delta.json")
     save_artifact("plugin_delta", output, out_json)
@@ -622,7 +623,7 @@ def _build_arms_output(args: argparse.Namespace, specs: list[str], questions: li
         library_id = _resolve_doc_library_id(treatments, args.product, args.context7_id)
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
-        raise SystemExit(1) from exc
+        raise SystemExit(EXIT_USAGE) from exc
     plugins = create_plugins([s.strip() for s in args.plugins.split(",") if s.strip()])
     validate_plugins_for_harness(plugins, args.harness)
     treatments = wrap_treatments(treatments, plugins)

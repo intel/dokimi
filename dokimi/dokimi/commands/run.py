@@ -14,6 +14,7 @@ from dokimi.report.json_report import write_json
 from dokimi.report.markdown_report import write_compare_report, write_run_report
 from dokimi.runner.compare import compare_snapshots
 from dokimi.runner.run import DocLoadError, run_benchmark, save_snapshot
+from dokimi.exit_codes import EXIT_USAGE
 
 
 def cmd_run(args: argparse.Namespace) -> None:
@@ -27,7 +28,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         result = run_benchmark(root, spec_path)
     except DocLoadError as exc:
         print(f"❌ {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
     save_snapshot(result, out_json)
     write_run_report(result, out_md)
     print(json.dumps(result["summary"], indent=2))

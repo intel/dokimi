@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dokimi.exit_codes import EXIT_USAGE
 
 
 def _load_custom(cls, flag: str, value):
@@ -24,12 +25,12 @@ def _load_custom(cls, flag: str, value):
     path = _Path(value)
     if not path.is_file():
         print(f"Error: {flag} {value}: not a file", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
     try:
         return cls(path=path)
     except (OSError, ValueError, yaml.YAMLError) as exc:  # unreadable, not UTF-8, not YAML
         print(f"Error: cannot read {flag} {value}: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
 
 
 def _load_registry(args):
@@ -61,7 +62,7 @@ def cmd_library_list(args: argparse.Namespace) -> None:
             keys = set(intents.products_for(domain))
         except KeyError as exc:
             print(f"Error: {exc}", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(EXIT_USAGE)
         entries = [e for e in entries if e.key in keys]
     if not entries:
         print("Registry is empty.")
@@ -83,7 +84,7 @@ def cmd_library_show(args: argparse.Namespace) -> None:
         entry = registry.get(args.name)
     except KeyError as exc:
         print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
     domains = _load_intents(args).domains_for(entry.key)
     print(f"Key          : {entry.key}")
     print(f"Name         : {entry.name}")

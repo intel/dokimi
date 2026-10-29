@@ -321,7 +321,7 @@ def test_cli_json_and_bad_source(tmp_path, capsys):
     assert data["totals"]["start"] == 1
     with pytest.raises(SystemExit) as exc:
         _run(["repo", "budget", str(tmp_path / "missing")], capsys)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
 
 
 @pytest.mark.outcome("cjm-repo-budget")
@@ -333,7 +333,7 @@ def test_cli_out_writes_the_inventory(tmp_path, capsys):
     assert "| start | guidance | AGENTS.md | 1 |" in out  # the table still prints
     with pytest.raises(SystemExit) as exc:  # a parent that is a file cannot become a directory
         _run(["repo", "budget", str(tmp_path), "--out", str(tmp_path / "AGENTS.md" / "b.json")], capsys)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
 
 
 def test_imports_must_exist_to_be_counted(tmp_path):

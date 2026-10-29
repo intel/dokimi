@@ -683,7 +683,7 @@ def test_repo_reach_cli_manifest_file_and_a_failed_scenario(tmp_path, monkeypatc
     args = build_parser().parse_args([*base, "--manifest-file", str(tmp_path / "nope.yaml"), "--dry-run"])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1 and "nope.yaml" in capsys.readouterr().err
+    assert exc.value.code == 2 and "nope.yaml" in capsys.readouterr().err
 
     monkeypatch.setenv("FAKE_MODE", "crash")
     (tmp_path / "work").mkdir()
@@ -740,7 +740,7 @@ def test_repo_reach_rejects_selections_that_would_drop_scenarios(tmp_path, capsy
                                       "--model", "m", "--dry-run", *extra])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert message in capsys.readouterr().err
 
 

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from dokimi.exit_codes import usage_exit
 
 _TASKS_ROOT_HELP = (
     "Directory of exploration task YAML files (default: data/explore_tasks of a "
@@ -27,7 +28,7 @@ def cmd_explore_list(args: argparse.Namespace) -> None:
     try:
         tasks = discover_explore_tasks(root, default_repo_root=default_repo_root)
     except FileNotFoundError as exc:
-        raise SystemExit(str(exc)) from exc
+        usage_exit(str(exc))
     for task in tasks:
         n_refs = len(task.references)
         print(f"{task.id}\t{task.product}\t{n_refs} ref(s)\t{task.query[:60]}")
@@ -55,7 +56,7 @@ def _build_arms(specs: list[str], output_root: Path):
         elif spec.startswith("command:"):
             template = spec[len("command:"):]
             if not template:
-                raise SystemExit("'command:' arm requires a template")
+                usage_exit("'command:' arm requires a template")
 
             def _factory(task, _template=template, _spec=spec):
                 return CommandExplorer(
@@ -66,9 +67,7 @@ def _build_arms(specs: list[str], output_root: Path):
 
             arms[spec] = _factory
         else:
-            raise SystemExit(
-                f"Unknown explore arm: '{spec}'. Valid: oracle, empty, command:<template>"
-            )
+            usage_exit(f"Unknown explore arm: '{spec}'. Valid: oracle, empty, command:<template>")
     return arms
 
 
@@ -91,13 +90,13 @@ def cmd_explore_run(args: argparse.Namespace) -> None:
                 load_explore_task(t, root=root, default_repo_root=default_repo_root) for t in ids
             ]
     except FileNotFoundError as exc:
-        raise SystemExit(str(exc)) from exc
+        usage_exit(str(exc))
     if not tasks:
-        raise SystemExit("No tasks selected. Pass --tasks <id[,id]> or --all.")
+        usage_exit("No tasks selected. Pass --tasks <id[,id]> or --all.")
 
     specs = [s.strip() for s in args.arms.split(",") if s.strip()]
     if not specs:
-        raise SystemExit("No arms selected. Pass --arms oracle,empty[,command:<tmpl>].")
+        usage_exit("No arms selected. Pass --arms oracle,empty[,command:<tmpl>].")
     output_root = Path(args.output_dir)
     arms = _build_arms(specs, output_root)
 

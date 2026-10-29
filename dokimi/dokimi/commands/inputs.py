@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from dokimi.exit_codes import usage_exit
 
 
 def read_text_or_exit(path: str | None, flag: str) -> str | None:
@@ -19,7 +20,7 @@ def read_text_or_exit(path: str | None, flag: str) -> str | None:
     try:
         return Path(path).read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
-        raise SystemExit(f"cannot read {flag} {path}: {exc}") from None
+        usage_exit(f"cannot read {flag} {path}: {exc}")
 
 
 def placebo_text_for_arms_or_exit(path: str | None, arms: tuple[str, ...]) -> str | None:
@@ -34,5 +35,5 @@ def placebo_text_for_arms_or_exit(path: str | None, arms: tuple[str, ...]) -> st
     try:
         check_arms(arms, placebo_text)
     except ValueError as exc:
-        raise SystemExit(str(exc)) from None
+        usage_exit(str(exc))
     return placebo_text

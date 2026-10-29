@@ -241,6 +241,17 @@ def _kept_estimate(step: dict) -> dict:
 
 # Runs main refuses only after the extraction calls it had already made.
 REFUSED_BEFORE_ANY_CALL = {"run/arms-without-full"}
+# Input refusals from the arm-set checks. Main raised the message as the exit status (a
+# string), which reaches stderr only when the interpreter exits. The exit-code table (CLI API
+# v2 §2.6) makes these exit 2, and usage_exit prints the message before raising.
+ARMS_REFUSALS = {"estimate/arms-without-full", "estimate/arms-without-baseline",
+                 "probe/arms-without-baseline", "run/arms-without-full"}
+
+
+def _refusal_as_exit_2(step: dict[str, Any]) -> dict[str, Any]:
+    if isinstance(step["status"], str):
+        return {**step, "status": 2, "stderr": step["stderr"] + step["status"] + "\n"}
+    return step
 
 
 @pytest.mark.parametrize("name", list(CASES))
@@ -251,11 +262,12 @@ def test_no_setting_bill_or_tier_record_differs_from_main(name, tmp_path):
     for step_coverage in coverage:
         if step_coverage is not None:
             _check_headline(step_coverage)
+    expected = [_refusal_as_exit_2(step) if name in ARMS_REFUSALS else step
+                for step in golden[name]]
     if name.startswith("estimate/"):
         assert [_kept_estimate(step) for step in steps] == [
-            _kept_estimate(step) for step in golden[name]]
+            _kept_estimate(step) for step in expected]
     else:
-        expected = golden[name]
         if name in REFUSED_BEFORE_ANY_CALL:
             # Intended change: the arm and placebo checks now run before the clients are
             # built, so the refusal makes no model call. Same status and output as on main.

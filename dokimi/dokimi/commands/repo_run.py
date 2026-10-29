@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from dokimi.repos.workspace import Arm
 
 from dokimi.repos.harness_profile import DELEGATION_MODES
+from dokimi.exit_codes import EXIT_USAGE
 
 
 def _context(args: argparse.Namespace, out: Path, pin: bool = False):
@@ -349,7 +350,7 @@ def cmd_repo_report(args: argparse.Namespace) -> None:
     batch_dir = Path(args.batch_dir)
     if not batch_dir.is_dir():
         print(f"✗ not a directory: {batch_dir}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
     summary = summarize(batch_dir)
     print(json.dumps(summary, indent=2) if args.json else format_report(summary))
 
@@ -362,7 +363,7 @@ def cmd_repo_compare(args: argparse.Namespace) -> None:
     for d in dirs:
         if not d.is_dir():
             print(f"✗ not a directory: {d}", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(EXIT_USAGE)
     arms = [a for spec in args.arm for a in spec.split(",") if a] if args.arm else None
     try:
         summary = compare(dirs, args.baseline, arms, args.model, tuple(args.metric or ()))

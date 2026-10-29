@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 
 from .client import LLMClient, accepting
 from .spans import Span
+from dokimi.exit_codes import usage_exit
 
 ATOM_KINDS = ("proposition", "edge", "motif", "contract", "example")
 ATOM_TAGS = (
@@ -629,5 +630,5 @@ def load_atoms_or_exit(path) -> tuple[list[Atom], list[Span], dict]:
         atoms, spans = _atoms_from_record(data)
         _check_bundle_shape(data.get("bundle"))
     except (OSError, ValueError, RecursionError) as exc:
-        raise SystemExit(f"cannot read atoms from {path}: {exc}") from None
+        usage_exit(f"cannot read atoms from {path}: {exc}")
     return atoms, spans, data

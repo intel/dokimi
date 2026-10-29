@@ -8,11 +8,12 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from typing import NoReturn
+from dokimi.exit_codes import EXIT_USAGE
 
 
 def _fail(message: str) -> NoReturn:
     print(f"Error: {message}", file=sys.stderr)
-    raise SystemExit(1)
+    raise SystemExit(EXIT_USAGE)
 
 
 def load_view_inputs(novelty_path: str, atoms_path: str):

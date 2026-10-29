@@ -320,7 +320,8 @@ def test_preflight_fails_before_any_call(monkeypatch, tmp_path, capsys, prefligh
     with pytest.raises(SystemExit) as exc:
         _preflight(monkeypatch, tmp_path, *preflight_args(tmp_path), env=env)
 
-    assert exc.value.code == 1
+    # A missing credential is a usage refusal (2); the question-set checks are a failed gate (1).
+    assert exc.value.code == (2 if message.startswith("missing OPENAI_API_KEY") else 1)
     captured = capsys.readouterr()
     assert message in captured.err
     assert "Preflight OK" not in captured.out
@@ -397,7 +398,7 @@ def test_run_rejects_an_unusable_questions_from_before_any_call(
     with pytest.raises(SystemExit) as exc:
         benchmark.cmd_benchmark_run(args)
 
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert message in capsys.readouterr().err
     assert calls == []
 

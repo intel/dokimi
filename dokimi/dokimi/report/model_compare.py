@@ -41,6 +41,7 @@ from typing import Any
 from dokimi.records import Record, RecordError, arm_answers, arm_names, arm_scores, records
 from dokimi.eval.judge_context import PROTOCOL_MIXED as JUDGE_CONTEXT_MIXED
 from dokimi.eval import stats as arm_stats
+from dokimi.exit_codes import usage_exit
 
 #: Mirrors :data:`dokimi.eval.stats.HAS_SCIPY` — the hypothesis tests
 #: now live there, so probing for SciPy twice could only ever disagree. Still a
@@ -64,18 +65,18 @@ def load_run(path: str) -> dict[str, Any]:
     """Load a judged arms JSON file.  Raises SystemExit with a clear message on failure."""
     try:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
-    except FileNotFoundError as exc:
-        raise SystemExit(f"Error: File not found: {path}") from exc
+    except FileNotFoundError:
+        usage_exit(f"Error: File not found: {path}")
     except OSError as exc:  # permission denied, a directory, an I/O error
-        raise SystemExit(f"Error: cannot read {path}: {exc.strerror or exc}") from exc
+        usage_exit(f"Error: cannot read {path}: {exc.strerror or exc}")
     except ValueError as exc:  # JSONDecodeError, or bytes that are not UTF-8
-        raise SystemExit(f"Error: Invalid JSON in {path}: {exc}") from exc
+        usage_exit(f"Error: Invalid JSON in {path}: {exc}")
     if isinstance(data, dict):
         for section in ("answers", "evaluations"):
             try:
                 records(data.get(section) or [], source=f"{path} {section}", kind=section)
             except RecordError as exc:
-                raise SystemExit(f"Error: {exc}") from exc
+                usage_exit(f"Error: {exc}")
     return data
 
 
@@ -106,7 +107,7 @@ def _section(run_data: dict, section: str) -> list[Record]:
     try:
         return records(run_data.get(section) or [], source=section, kind=section)
     except RecordError as exc:
-        raise SystemExit(f"Error: {exc}") from exc
+        usage_exit(f"Error: {exc}")
 
 
 def non_baseline_arms(run_data: dict) -> set[str]:
@@ -487,17 +488,13 @@ def extract_scores(
 
             if force_treatment_arm is not None:
                 if force_treatment_arm not in evaluation.conditions:
-                    raise SystemExit(
-                        f"Error: --treatment-arm '{force_treatment_arm}' not found in "
-                        f"question '{qid}'. Available arms: {list(evaluation.conditions)}"
-                    )
+                    usage_exit(f"Error: --treatment-arm '{force_treatment_arm}' not found in "
+                               f"question '{qid}'. Available arms: {list(evaluation.conditions)}")
                 target_arm: str | None = force_treatment_arm
             else:
                 if len(treatment_arms) > 1:
-                    raise SystemExit(
-                        f"Error: run has multiple non-baseline arms {treatment_arms} in "
-                        f"question '{qid}'. Use --treatment-arm to select one explicitly."
-                    )
+                    usage_exit(f"Error: run has multiple non-baseline arms {treatment_arms} in "
+                               f"question '{qid}'. Use --treatment-arm to select one explicitly.")
                 target_arm = treatment_arms[0] if treatment_arms else None
 
             if target_arm is not None and target_arm in evaluation.scores:
@@ -537,17 +534,13 @@ def extract_scores(
 
             if force_treatment_arm is not None:
                 if force_treatment_arm not in arms:
-                    raise SystemExit(
-                        f"Error: --treatment-arm '{force_treatment_arm}' not found in "
-                        f"question '{qid}'. Available arms: {list(arms)}"
-                    )
+                    usage_exit(f"Error: --treatment-arm '{force_treatment_arm}' not found in "
+                               f"question '{qid}'. Available arms: {list(arms)}")
                 treatment_arm = force_treatment_arm
             else:
                 if len(treatment_arms) > 1:
-                    raise SystemExit(
-                        f"Error: run has multiple non-baseline arms {treatment_arms} in "
-                        f"question '{qid}'. Use --treatment-arm to select one explicitly."
-                    )
+                    usage_exit(f"Error: run has multiple non-baseline arms {treatment_arms} in "
+                               f"question '{qid}'. Use --treatment-arm to select one explicitly.")
                 treatment_arm = treatment_arms[0] if treatment_arms else None
 
             # The inline ``evaluation.aggregate_score`` of each arm (records.py).

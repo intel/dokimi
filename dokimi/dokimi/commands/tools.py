@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 
 from dokimi.defaults import DEFAULT_ANSWER_PROVIDER
+from dokimi.exit_codes import EXIT_USAGE, usage_exit
 
 PROVIDERS = ["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"]
 
@@ -100,7 +101,7 @@ def _write_items(path: str, items: list) -> None:
         Path(path).write_text(json.dumps(items, indent=1), encoding="utf-8")
     except OSError as exc:
         print(f"Error: cannot write --items-out {path}: {exc}", file=sys.stderr)
-        raise SystemExit(1) from None
+        raise SystemExit(EXIT_USAGE) from None
 
 
 def _save_result(data: dict, path: str) -> None:
@@ -114,7 +115,7 @@ def _save_result(data: dict, path: str) -> None:
         raise SystemExit(1) from None
     except (OSError, ValueError) as exc:  # unwritable path, including an empty one (pathlib ValueError)
         print(f"Error: cannot write {path}: {exc}", file=sys.stderr)
-        raise SystemExit(1) from None
+        raise SystemExit(EXIT_USAGE) from None
 
 
 def _check_out_json_writable(path: str) -> None:
@@ -142,11 +143,11 @@ def cmd_tools_preference(args: argparse.Namespace) -> None:
     try:
         doc = tp.load_groups(json.loads(Path(args.groups).read_text(encoding="utf-8")))
     except (OSError, RecursionError, ValueError, tp.GroupsError) as exc:
-        raise SystemExit(f"--groups {args.groups}: {exc}") from exc
+        usage_exit(f"--groups {args.groups}: {exc}")
     factors = list(dict.fromkeys(f for f in args.factors.split(",") if f)) if args.factors else list(tp.FACTORS)
     unknown = sorted(set(factors) - set(tp.FACTORS))
     if unknown:
-        raise SystemExit(f"--factors: unknown {unknown} (known: {', '.join(tp.FACTORS)})")
+        usage_exit(f"--factors: unknown {unknown} (known: {', '.join(tp.FACTORS)})")
     items = tp.build_items(doc, factors)
     n_pair = sum(i["kind"] == "pair" for i in items)
     print(f"{len(doc['groups'])} groups -> {len(items)} items ({n_pair} pair, {len(items) - n_pair} control)"
@@ -159,7 +160,7 @@ def cmd_tools_preference(args: argparse.Namespace) -> None:
     if args.dry_run:
         return
     if not args.model:
-        raise SystemExit("--model is required unless --dry-run")
+        usage_exit("--model is required unless --dry-run")
     _check_out_json_writable(args.out_json)
 
     def progress(done: int, total: int) -> None:

@@ -698,7 +698,7 @@ def test_cli_passes_model_and_metric_and_refuses_a_missing_dir(tmp_path, capsys)
     args = build_parser().parse_args(["repo", "compare", str(tmp_path / "nope"), "--baseline", "guidance:none"])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1 and "not a directory" in capsys.readouterr().err
+    assert exc.value.code == 2 and "not a directory" in capsys.readouterr().err
 
 
 def test_cli_exits_on_a_bad_baseline(tmp_path, capsys):

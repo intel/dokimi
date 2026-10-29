@@ -9,6 +9,7 @@ import argparse
 import sys
 import json
 from pathlib import Path
+from dokimi.exit_codes import EXIT_USAGE
 
 
 def _write_combined_report(args, regular_runs, golden_runs, run_ids, warnings) -> None:
@@ -28,7 +29,7 @@ def _write_combined_report(args, regular_runs, golden_runs, run_ids, warnings) -
         )
     except OSError as exc:
         print(f"Error: cannot write {args.out}: {exc}", file=sys.stderr)
-        raise SystemExit(1) from None
+        raise SystemExit(EXIT_USAGE) from None
 
 
 def cmd_report_model_compare(args: argparse.Namespace) -> None:
@@ -41,11 +42,11 @@ def cmd_report_model_compare(args: argparse.Namespace) -> None:
     run_ids = [rid.strip() for rid in args.run_ids.split(",")]
     if not run_ids or any(not rid for rid in run_ids) or len(set(run_ids)) != len(run_ids):
         print("Error: --run-ids must contain unique, non-empty labels", file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(EXIT_USAGE)
 
     if not args.regular_runs and not args.golden_runs:
         print("Error: must provide at least --regular-runs or --golden-runs", file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(EXIT_USAGE)
 
     for flag, paths in (("--regular-runs", args.regular_runs), ("--golden-runs", args.golden_runs)):
         if paths and len(paths) != len(run_ids):
@@ -54,7 +55,7 @@ def cmd_report_model_compare(args: argparse.Namespace) -> None:
                 f"number of run IDs ({len(run_ids)})",
                 file=sys.stderr,
             )
-            raise SystemExit(1)
+            raise SystemExit(EXIT_USAGE)
 
     regular_runs = []
     if args.regular_runs:
@@ -102,10 +103,10 @@ def cmd_report_eval(args: argparse.Namespace) -> None:
         generate_report(eval_path=args.eval, out_path=out)
     except RecordError as exc:
         print(f"Error: {exc}", file=sys.stderr)
-        raise SystemExit(1) from None
+        raise SystemExit(EXIT_USAGE) from None
     except OSError as exc:
         print(f"Error: cannot write {out}: {exc}", file=sys.stderr)
-        raise SystemExit(1) from None
+        raise SystemExit(EXIT_USAGE) from None
 
 
 def cmd_report_generate(args: argparse.Namespace) -> None:
@@ -118,23 +119,23 @@ def cmd_report_generate(args: argparse.Namespace) -> None:
         eval_data = json.loads(Path(args.eval).read_text(encoding="utf-8"))
     except OSError as exc:
         print(f"Error: cannot read {args.eval}: {exc}", file=sys.stderr)
-        raise SystemExit(1) from None
+        raise SystemExit(EXIT_USAGE) from None
     except ValueError as exc:  # not UTF-8 or not JSON
         print(f"Error: {args.eval} is not valid JSON: {exc}", file=sys.stderr)
-        raise SystemExit(1) from None
+        raise SystemExit(EXIT_USAGE) from None
     if not isinstance(eval_data, dict):
         print(f"Error: {args.eval} must hold a JSON object", file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(EXIT_USAGE)
     from dokimi.questions.artifact import load_questions
 
     try:
         questions_data = load_questions(args.questions).artifact
     except OSError as exc:
         print(f"Error: cannot read {args.questions}: {exc}", file=sys.stderr)
-        raise SystemExit(1) from None
+        raise SystemExit(EXIT_USAGE) from None
     except ValueError as exc:  # ArtifactValidationError: names the record and the fix
         print(f"Error: {exc}", file=sys.stderr)
-        raise SystemExit(1) from exc
+        raise SystemExit(EXIT_USAGE) from exc
 
     # Generate report
     generator = ReportGenerator()
@@ -146,7 +147,7 @@ def cmd_report_generate(args: argparse.Namespace) -> None:
         )
     except RecordError as exc:
         print(f"Error: {args.eval} {exc}", file=sys.stderr)
-        raise SystemExit(1) from None
+        raise SystemExit(EXIT_USAGE) from None
 
     print(f"Loaded {len(eval_data.get('evaluations', []))} evaluations from {args.eval}")
     print(f"Loaded {len(questions_data.get('questions', []))} questions from {args.questions}")
@@ -158,7 +159,7 @@ def cmd_report_generate(args: argparse.Namespace) -> None:
         output_path.write_text(report, encoding="utf-8")
     except OSError as exc:
         print(f"Error: cannot write {output_path}: {exc}", file=sys.stderr)
-        raise SystemExit(1) from None
+        raise SystemExit(EXIT_USAGE) from None
 
     print(f"\n✅ Generated report: {output_path}")
 

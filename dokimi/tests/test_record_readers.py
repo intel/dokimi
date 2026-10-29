@@ -281,7 +281,7 @@ def test_report_eval_exits_cleanly_naming_the_file(tmp_path, capsys):
     path, out = _id_less_eval(tmp_path), tmp_path / "r.md"
     with pytest.raises(SystemExit) as exc:
         cmd_report_eval(argparse.Namespace(eval=str(path), out=str(out), product="P", run_id=None))
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert f"Error: {path}[1]: missing question_id" in capsys.readouterr().err
     assert not out.exists()
 
@@ -296,7 +296,7 @@ def test_report_generate_exits_cleanly_naming_the_file(tmp_path, capsys, fmt):
     with pytest.raises(SystemExit) as exc:
         cmd_report_generate(argparse.Namespace(eval=str(path), questions=str(questions), format=fmt,
                                                output=str(out), product="P"))
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert f"Error: {path} evaluations[1]: missing question_id" in capsys.readouterr().err
     assert not out.exists()
 

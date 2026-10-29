@@ -871,7 +871,7 @@ tasks = ["{missing_task.as_posix()}"]
     with pytest.raises(SystemExit) as excinfo:
         args.func(args)
 
-    assert excinfo.value.code == 1
+    assert excinfo.value.code == 2
     assert "Error loading subject work: Task directory not found" in capsys.readouterr().err
 
 

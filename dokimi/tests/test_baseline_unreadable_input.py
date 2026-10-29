@@ -31,12 +31,12 @@ def run(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("content", ["{not json", "[1, 2]", "null"])
-def test_save_exits_1_on_an_invalid_eval_file(run, tmp_path, capsys, content):
+def test_save_exits_2_on_an_invalid_eval_file(run, tmp_path, capsys, content):
     bad = tmp_path / "bad.json"
     bad.write_text(content, encoding="utf-8")
     with pytest.raises(SystemExit) as exc:
         run("save", "--from-eval", str(bad), "--name", "b")
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     err = capsys.readouterr().err
     assert str(bad) in err
     assert not (tmp_path / "baselines" / "b.json").exists()
@@ -57,19 +57,19 @@ def test_a_non_object_eval_file_is_reported_by_its_json_type(run, tmp_path, caps
     assert f"got {type_name}" in capsys.readouterr().err
 
 
-def test_save_exits_1_on_an_eval_file_that_is_not_utf8(run, tmp_path, capsys):
+def test_save_exits_2_on_an_eval_file_that_is_not_utf8(run, tmp_path, capsys):
     bad = tmp_path / "bad.json"
     bad.write_bytes(b"\xff\xfe")
     with pytest.raises(SystemExit) as exc:
         run("save", "--from-eval", str(bad), "--name", "b")
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert str(bad) in capsys.readouterr().err
 
 
-def test_save_exits_1_on_a_directory_given_as_the_eval_file(run, tmp_path, capsys):
+def test_save_exits_2_on_a_directory_given_as_the_eval_file(run, tmp_path, capsys):
     with pytest.raises(SystemExit) as exc:
         run("save", "--from-eval", str(tmp_path), "--name", "b")
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert str(tmp_path) in capsys.readouterr().err
 
 
@@ -102,7 +102,7 @@ def test_a_corrupt_manifest_exits_with_a_message_in_every_subcommand(run, tmp_pa
     manifest = tmp_path / "baselines" / "manifest.json"
     manifest.parent.mkdir()
     manifest.write_text(content, encoding="utf-8")
-    for argv, code in ((("save", "--from-eval", str(good)), 1), (("list",), 1),
+    for argv, code in ((("save", "--from-eval", str(good)), 2), (("list",), 2),
                        (("compare", "--eval", str(good)), 2)):
         with pytest.raises(SystemExit) as exc:
             run(*argv)
@@ -122,7 +122,7 @@ def test_save_reports_a_corrupt_manifest_before_an_invalid_eval_file(run, tmp_pa
     manifest.write_text("{truncated", encoding="utf-8")
     with pytest.raises(SystemExit) as exc:
         run("save", "--from-eval", str(bad), "--name", "b")
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     err = capsys.readouterr().err
     assert str(manifest) in err
     assert str(bad) not in err
@@ -146,7 +146,7 @@ def test_a_manifest_entry_of_the_wrong_shape_exits_with_a_message_in_every_subco
     manifest = tmp_path / "baselines" / "manifest.json"
     manifest.parent.mkdir()
     manifest.write_text('{"baselines": [%s, %s]}' % (_GOOD_ENTRY, entry), encoding="utf-8")
-    for argv, code in ((("save", "--from-eval", str(good)), 1), (("list",), 1),
+    for argv, code in ((("save", "--from-eval", str(good)), 2), (("list",), 2),
                        (("compare", "--eval", str(good)), 2)):
         with pytest.raises(SystemExit) as exc:
             run(*argv)

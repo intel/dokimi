@@ -25,7 +25,7 @@ def _generate(tmp_path, eval_path):
 def _err(tmp_path, eval_path, capsys):
     with pytest.raises(SystemExit) as exc:
         _generate(tmp_path, eval_path)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     return capsys.readouterr().err
 
 
@@ -59,7 +59,7 @@ def test_eval_json_that_is_not_an_object_is_rejected(tmp_path, capsys, text):
 
 
 @pytest.mark.parametrize("target", ["is_a_directory", "parent_is_a_file"])
-def test_an_unwritable_output_exits_1_naming_the_path(tmp_path, capsys, monkeypatch, target):
+def test_an_unwritable_output_exits_2_naming_the_path(tmp_path, capsys, monkeypatch, target):
     monkeypatch.setattr("dokimi.report.ReportGenerator.generate_report", lambda self, **kw: "report")
     ev = tmp_path / "ev.json"
     ev.write_text('{"evaluations": []}', encoding="utf-8")
@@ -77,7 +77,7 @@ def test_an_unwritable_output_exits_1_naming_the_path(tmp_path, capsys, monkeypa
     ])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert f"Error: cannot write {out}" in capsys.readouterr().err
 
 
@@ -89,7 +89,7 @@ def test_non_list_evaluations_exit_1_with_its_path(tmp_path, capsys, evaluations
 
 
 @pytest.mark.parametrize("kind", ["missing", "directory"])
-def test_generate_unreadable_questions_exits_1_naming_the_path(tmp_path, capsys, kind):
+def test_generate_unreadable_questions_exits_2_naming_the_path(tmp_path, capsys, kind):
     ev = tmp_path / "ev.json"
     ev.write_text('{"evaluations": []}', encoding="utf-8")
     qs = tmp_path / "nope.json"
@@ -101,13 +101,13 @@ def test_generate_unreadable_questions_exits_1_naming_the_path(tmp_path, capsys,
     ])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: cannot read ") and str(qs) in err
     assert "Traceback" not in err
 
 
-def test_report_eval_unwritable_out_exits_1_naming_the_path(tmp_path, capsys):
+def test_report_eval_unwritable_out_exits_2_naming_the_path(tmp_path, capsys):
     ev = tmp_path / "ev.json"
     ev.write_text('{"evaluations": []}', encoding="utf-8")
     blocker = tmp_path / "blocker"
@@ -118,12 +118,12 @@ def test_report_eval_unwritable_out_exits_1_naming_the_path(tmp_path, capsys):
     ])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: cannot write ") and str(out) in err
 
 
-def test_model_compare_unwritable_out_exits_1_naming_the_path(tmp_path, capsys):
+def test_model_compare_unwritable_out_exits_2_naming_the_path(tmp_path, capsys):
     run = tmp_path / "run.json"
     run.write_text(json.dumps({"baseline_arm": "baseline", "evaluations": [
         {"question_id": f"q{i}", "question_text": "q", "category": "", "difficulty": "easy",
@@ -138,6 +138,6 @@ def test_model_compare_unwritable_out_exits_1_naming_the_path(tmp_path, capsys):
     ])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: cannot write ") and str(out) in err

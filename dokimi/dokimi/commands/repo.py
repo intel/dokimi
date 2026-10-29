@@ -11,6 +11,7 @@ import math
 import re
 import sys
 from pathlib import Path
+from dokimi.exit_codes import EXIT_USAGE
 
 
 def _normalize_whitespace(text: str, max_len: int | None = 100) -> str:
@@ -26,7 +27,7 @@ def _write_json(path: str, payload: dict) -> None:
         Path(path).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     except OSError as exc:
         print(f"✗ cannot write {path}: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
 
 
 def cmd_repo_validate(args: argparse.Namespace) -> None:
@@ -40,7 +41,7 @@ def cmd_repo_validate(args: argparse.Namespace) -> None:
         manifest = _load_manifest(tree, args)
     except (SourceError, ManifestError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
     open_base = base_opener(source, tree)
     report = check_repo(tree, manifest, open_base)
     if open_base is None:
@@ -85,14 +86,14 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
         static = json.loads(Path(args.static).read_text(encoding="utf-8")) if args.static else None
     except (SourceError, ManifestError, OSError, json.JSONDecodeError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
     payload = scan_repo(tree, manifest, static)
     if args.out:
         try:
             save_artifact("repo_readiness", payload, Path(args.out))
         except OSError as exc:
             print(f"✗ cannot write {args.out}: {exc}", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(EXIT_USAGE)
     static_info = payload["static"]
     static_errors = static_info["errors"] if static_info is not None else []
     for problem in static_errors:  # on stderr in --json mode too
@@ -133,14 +134,14 @@ def cmd_repo_inspect(args: argparse.Namespace) -> None:
         tree = open_source(RepoSource.parse(args.source), _cache_dir(args))
     except SourceError as exc:
         print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
     payload = inspect_repo(tree, large=args.large_bytes)
     if args.out:
         try:
             save_artifact("repo_environment", payload, Path(args.out))
         except OSError as exc:
             print(f"✗ cannot write {args.out}: {exc}", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(EXIT_USAGE)
     if args.json:
         print(json.dumps(stamp("repo_environment", dict(payload)), indent=2))
     else:
@@ -176,7 +177,7 @@ def cmd_repo_fetch(args: argparse.Namespace) -> None:
         tree = open_source(source, _cache_dir(args))
     except SourceError as exc:
         print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
     assert isinstance(tree, GitTree)
     if args.json:
         print(json.dumps({"sha": tree.sha, "git_dir": str(tree.git_dir)}, indent=2))
@@ -233,7 +234,7 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
         )
     except (SourceError, ManifestError, ProfileError, ReachError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
     path = save_reach(payload, out_dir)
     print(format_matrix(payload))
     print(f"wrote {path}")
@@ -253,14 +254,14 @@ def cmd_repo_budget(args: argparse.Namespace) -> None:
         tree = open_source(RepoSource.parse(args.source), _cache_dir(args))
     except (SourceError, ProfileError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
     payload = budget(tree, profile.guidance_names, profile.import_max_depth)
     if args.out:
         try:
             save_artifact("repo_budget", payload, Path(args.out))
         except OSError as exc:
             print(f"✗ cannot write {args.out}: {exc}", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(EXIT_USAGE)
     if args.json:
         print(json.dumps(stamp("repo_budget", dict(payload)), indent=2))
     else:

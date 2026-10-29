@@ -13,6 +13,7 @@ import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from dokimi.exit_codes import usage_exit
 
 
 def cmd_catalog_trigger_probe(args: argparse.Namespace) -> None:
@@ -109,7 +110,7 @@ def _labelled_queries(args: argparse.Namespace, names: set) -> list:
         data = json.loads(Path(args.trigger_set).read_text(encoding="utf-8"))
         _fmt, queries = ts.read_trigger_set(data, target=args.target)
     except (OSError, ValueError) as exc:
-        raise SystemExit(f"--trigger-set: {exc}") from exc
+        usage_exit(f"--trigger-set: {exc}")
     queries = [q for q in queries if q.labelled][: args.limit or None]
     if not queries:  # else nothing runs, and an empty summary reads as a probe that ran
         raise InputError(f"--trigger-set has no labelled queries: {args.trigger_set}"

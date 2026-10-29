@@ -485,7 +485,7 @@ def test_trigger_set_cli_exits_with_a_message_when_out_cannot_be_written(tmp_pat
     with pytest.raises(SystemExit, match=rf"Error: cannot write --out {re.escape(str(out))}: ") as exc:
         _run_cli(["catalog", "trigger-set", "--catalog", str(catalog), "--out", str(out),
                   "--questions", f"{q}=@skills", "--format", fmt, "--target", "linux-perf"])
-    assert exc.value.code != 0 and isinstance(exc.value.code, str)
+    assert exc.value.code == 2
     assert list(out.iterdir()) == []
 
 
@@ -501,7 +501,7 @@ def test_trigger_set_cli_reports_a_schema_rejection_not_a_write_failure(tmp_path
     with pytest.raises(SystemExit, match=r"Error: questions set rejected: record 1: bad shape") as exc:
         _run_cli(["catalog", "trigger-set", "--catalog", str(catalog), "--out", str(tmp_path / "o.json"),
                   "--questions", f"{q}=@skills", "--format", "questions"])
-    assert "cannot write" not in exc.value.code
+    assert "cannot write" not in str(exc.value)
 
 
 @pytest.mark.parametrize("fmt", ["reach", "skill-creator", "questions"])
@@ -510,7 +510,7 @@ def test_trigger_set_cli_exits_with_a_message_when_out_is_empty(tmp_path, catalo
     with pytest.raises(SystemExit, match=r"Error: cannot write --out : ") as exc:
         _run_cli(["catalog", "trigger-set", "--catalog", str(catalog), "--out", "",
                   "--questions", f"{q}=@skills", "--format", fmt, "--target", "linux-perf"])
-    assert isinstance(exc.value.code, str)
+    assert exc.value.code == 2
 
 
 # ── review round 3 ───────────────────────────────────────────────────────

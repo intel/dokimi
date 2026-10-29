@@ -25,6 +25,7 @@ from dokimi.defaults import (
     JUDGE_MODEL_HELP,
 )
 from dokimi.commands.library import _load_registry
+from dokimi.exit_codes import EXIT_USAGE
 
 
 def _run_single_library(entry, output_dir: str, model: str, provider: str, judge_model: str, judge_provider: str = DEFAULT_JUDGE_PROVIDER, doc_source_override=None, max_tokens_per_question: int = DEFAULT_MAX_TOKENS_PER_QUESTION, force_regen: bool = False, concurrency: int = DEFAULT_CONCURRENCY, questions_from=None, questions_root=None) -> dict:
@@ -133,18 +134,20 @@ def cmd_benchmark_preflight(args: argparse.Namespace) -> None:
         entry = registry.get(args.library)
     except KeyError as exc:
         print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
 
     plan = _resolved_benchmark_plan(entry, args)
     _print_plan(plan)
 
     errors: list[str] = []
     warnings: list[str] = []
+    credential_errors: list[str] = []
 
     for provider in {args.provider, args.judge_provider}:
         key = _credential_env_var(provider)
         if not os.environ.get(key):
-            errors.append(f"missing {key} for provider {provider}")
+            credential_errors.append(f"missing {key} for provider {provider}")
+    errors.extend(credential_errors)
 
     try:
         Path(plan["output_dir"]).mkdir(parents=True, exist_ok=True)
@@ -207,7 +210,8 @@ def cmd_benchmark_preflight(args: argparse.Namespace) -> None:
         print("Errors:", file=sys.stderr)
         for item in errors:
             print(f"  ✗ {item}", file=sys.stderr)
-        sys.exit(1)
+        # No credentials is a usage refusal (2); the other preflight errors are a failed gate (1).
+        sys.exit(EXIT_USAGE if credential_errors else 1)
     print("✅ Preflight OK")
 
 
@@ -219,7 +223,7 @@ def cmd_benchmark_run(args: argparse.Namespace) -> None:
         entry = registry.get(args.library)
     except KeyError as exc:
         print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
 
     output_dir = args.output_dir or f"results/{entry.key}{DEFAULT_RESULTS_SUFFIX}"
     n_runs = getattr(args, "multi_run", 1)
@@ -231,7 +235,7 @@ def cmd_benchmark_run(args: argparse.Namespace) -> None:
         _, _, problem = _check_questions_from(questions_from, entry.key)
         if problem:
             print(f"Error: {problem}", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(EXIT_USAGE)
 
     if n_runs == 1:
         _run_single_library(
