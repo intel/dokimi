@@ -244,6 +244,13 @@ def test_get_llm_imports_llm_cli_from_its_own_module():
     assert borrowed == []  # it works only while llm.py happens to import the module
 
 
+def test_the_reviewing_guide_lists_every_answer_provider():
+    from pathlib import Path
+
+    text = (Path(__file__).resolve().parents[1] / "docs" / "reviewing.md").read_text(encoding="utf-8")
+    assert [p for p in llm.ANSWER_PROVIDERS if f"`{p}`" not in text] == []
+
+
 def _auth_runner(status: dict | None, version: str = "2.1.304 (Claude Code)"):
     def handle(call):
         if call.argv[-1] == "--version":
