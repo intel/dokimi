@@ -150,6 +150,19 @@ def test_an_exclude_over_too_many_combinations_is_unknown():
     assert other == []
 
 
+def test_the_exclude_cap_counts_every_combination_and_comparison():
+    # the Python key's own values count toward the 256 jobs, and so do the entries an exclude is read with
+    wide = {"python": [f"3.{i}" for i in range(100)], "os": list(range(256)),
+            "exclude": [{"python": f"3.{i}"} for i in range(100)]}
+    unknown: list[str] = []
+    assert len(matrix_versions(wide, "ci.yml", unknown)) == 100
+    assert unknown == ["a matrix of ci.yml excludes Python versions from more than 256 combinations"]
+    many = {f"python{i}": ["3.12"] for i in range(1000)} | {"exclude": [{f"python{i}": "3.12"} for i in range(1000)]}
+    unknown = []
+    assert matrix_versions(many, "ci.yml", unknown) == {(12, False)}
+    assert unknown == ["a matrix of ci.yml has an exclude too large to read"]
+
+
 def test_a_computed_matrix_is_unknown():
     unknown: list[str] = []
     assert matrix_versions("${{ fromJSON(needs.plan.outputs.matrix) }}", "ci.yml", unknown) == set()

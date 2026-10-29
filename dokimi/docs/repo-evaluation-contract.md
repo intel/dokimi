@@ -972,7 +972,7 @@ or docs job on another Python), is `unresolved`, since the range may count that
 job or leave it out on purpose; with no matrix version, the pins are what the
 workflow runs. A matrix, an `include`, an `exclude` or a step version computed
 from an expression (`${{ fromJSON(…) }}`), an `exclude` over more than 256
-combinations, a Python value that names no one version (`3.x`, `>=3.12`), a
+combinations or too large to read, a Python value that names no one version (`3.x`, `>=3.12`), a
 `python-version-file` with no `python-version`, an input a called workflow
 sets up Python from that its caller does not pass, a call to another
 repository's workflow or to one the tree lacks, a workflow that is not valid

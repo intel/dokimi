@@ -66,6 +66,7 @@ _TAG_VALUE = re.compile(r"^(?:cp|py)3(\d{1,2})(t)?$")  # `cp312`, `cp313t`, `py3
 _REF = re.compile(r"^\$\{\{\s*(?P<ctx>matrix|inputs)(?:\.(?P<a>[\w-]+)|\[\s*['\"](?P<b>[\w-]+)['\"]\s*\])\s*\}\}$")
 _CP_TAG = re.compile(r"(?<![A-Za-z0-9])cp3(\d{1,2})t(?![A-Za-z0-9])")
 _MAX_JOBS = 256  # the most jobs GitHub makes from one matrix
+_MAX_WORK = 10**6  # the comparisons of matrix values an exclude is read with
 
 
 def check(scan: Scan, file: str, pieces: Pieces) -> None:
@@ -346,14 +347,22 @@ def _excluded(matrix: dict[Any, Any], keys: Collection[str], where: str, unknown
         unknown.append(f"{where} computes its exclude ({given.strip()})")
     rules = [r for r in given if isinstance(r, dict)] if isinstance(given, list) else []
     base = {k: v if isinstance(v, list) else [v] for k, v in matrix.items() if k not in ("include", "exclude")}
+    # an entry without the key takes as much out of every one of its values' combinations
+    named = {k for r in rules for k in r}
+    counted = [k for k, v in base.items() if k in named and _counted(str(k), v, keys)]
     gone: set[tuple[Any, int]] = set()
-    for key, values in base.items():
-        if not _counted(str(key), values, keys) or not any(key in r for r in rules):
-            continue  # an entry without the key takes as much out of every one of its values' combinations
+    if not counted:
+        return gone
+    jobs = prod(len(v) for v in base.values())
+    if jobs > _MAX_JOBS:
+        unknown.append(f"{where} excludes Python versions from more than {_MAX_JOBS} combinations")
+        return gone
+    if len(counted) * jobs * (len(base) + sum(len(r) for r in rules)) > _MAX_WORK:
+        unknown.append(f"{where} has an exclude too large to read")
+        return gone
+    for key in counted:
+        values = base[key]
         names = [k for k in base if k != key]
-        if prod(len(base[k]) for k in names) > _MAX_JOBS:
-            unknown.append(f"{where} excludes Python versions from more than {_MAX_JOBS} combinations")
-            continue
         for i, value in enumerate(values):
             combos = ({**dict(zip(names, c, strict=True)), key: value} for c in product(*(base[k] for k in names)))
             if all(any(_matches(r, combo) for r in rules) for combo in combos):
