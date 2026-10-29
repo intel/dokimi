@@ -182,6 +182,17 @@ class TestRetrievalHitRate:
         ]
 
     def test_fails_when_retrieval_never_returned_a_doc(self):
+        evals = self._judged(n_hit=0, n_miss=14)
+        # Every question is an unjudged miss: nothing is scored in both arms, the run is not
+        # trusted, and the message names the cause (0 of 14 hit) beside the question count.
+        verdict = evaluate_trust(evals)
+        assert not verdict.is_trusted
+        assert [c.name for c in verdict.failures] == ["min_questions"]
+        check = next(c for c in verdict.checks if c.name == "retrieval_hit_rate")
+        assert not check.passed and check.measured and check.value == 0.0
+        assert "(0/14)" in check.message
+
+    def test_fails_when_retrieval_rarely_returned_a_doc(self):
         evals = self._judged(n_hit=2, n_miss=12)
         # The placeholder is not judged by default: only the two hits carry a with-docs score,
         # and the twelve misses still count against the rate.

@@ -15,7 +15,7 @@ import statistics
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional
 
-from dokimi.records import BASELINE, CONTEXT, RecordLike, records
+from dokimi.records import BASELINE, CONTEXT, Record, RecordLike, records
 
 
 # ── Thresholds (can be overridden via spec/config) ────────────────────────────
@@ -94,6 +94,60 @@ class TrustVerdict:
         return "✅ PASS"
 
 
+def _retrieval_check(every: List[Record], cfg: Dict[str, Any]) -> TrustCheck:
+    """The retrieval hit rate over every evaluation, ``measured=False`` when it cannot be read.
+
+    A question "hit" retrieval when at least one document reached the
+    context-arm prompt. The judge stamps that per evaluation as
+    ``retrieval_hit`` (from the answer's retrieved_docs / doc_source); eval
+    artifacts judged before that carry no retrieval outcome at all, and the
+    check reports "not measured" for them rather than a pass. So does a mix of
+    the two below ``min_retrieval_coverage``: the rate would describe a subset.
+    Over every evaluation, not only the both-arms-scored ones: a question with no
+    document is not judged by default, and it still records that it missed.
+    """
+    measured = [h for r in every if (h := r.retrieval_hit) is not None]
+    n_all = len(every)
+    if measured and len(measured) / n_all < cfg["min_retrieval_coverage"]:
+        return TrustCheck(
+            name="retrieval_hit_rate",
+            passed=True,
+            value=None,
+            threshold=cfg["min_retrieval_hit_rate"],
+            message=(
+                f"Not measured: only {len(measured)} of {n_all} evaluations record a retrieval "
+                f"outcome (retrieval_hit), under the {cfg['min_retrieval_coverage']:.0%} coverage "
+                f"floor; {sum(measured)} of those {len(measured)} hit"
+            ),
+            severity="warn",
+            measured=False,
+        )
+    if measured:
+        retrieval_hits = sum(measured)
+        hit_rate = retrieval_hits / len(measured)
+        coverage = "" if len(measured) == n_all else f"; {n_all - len(measured)} unrecorded"
+        return TrustCheck(
+            name="retrieval_hit_rate",
+            passed=hit_rate >= cfg["min_retrieval_hit_rate"],
+            value=round(hit_rate, 3),
+            threshold=cfg["min_retrieval_hit_rate"],
+            message=(
+                f"Retrieval hit rate = {hit_rate:.1%} ({retrieval_hits}/{len(measured)}{coverage}) "
+                f"(min {cfg['min_retrieval_hit_rate']:.0%})"
+            ),
+            severity="warn",
+        )
+    return TrustCheck(
+        name="retrieval_hit_rate",
+        passed=True,
+        value=None,
+        threshold=cfg["min_retrieval_hit_rate"],
+        message="Not measured: the evaluations record no retrieval outcome (retrieval_hit)",
+        severity="warn",
+        measured=False,
+    )
+
+
 def evaluate_trust(
     evaluations: Iterable[RecordLike],
     thresholds: Optional[Dict[str, Any]] = None,
@@ -135,6 +189,10 @@ def evaluate_trust(
         severity="fail",
     ))
     if n == 0:
+        # Nothing is scored in both arms (every question an unjudged miss, say): the
+        # retrieval rate is still known, and it is the cause, so it goes beside the count.
+        if any(r.retrieval_hit is not None for r in every):
+            checks.append(_retrieval_check(every, cfg))
         return TrustVerdict(checks=checks)  # can't compute anything else
 
     # ── 2. Zero-score fraction ─────────────────────────────────────────────
@@ -210,55 +268,7 @@ def evaluate_trust(
         ))
 
     # ── 7. Retrieval hit rate ─────────────────────────────────────────────
-    # A question "hit" retrieval when at least one document reached the
-    # context-arm prompt. The judge stamps that per evaluation as
-    # ``retrieval_hit`` (from the answer's retrieved_docs / doc_source); eval
-    # artifacts judged before that carry no retrieval outcome at all, and the
-    # check reports "not measured" for them rather than a pass. So does a mix of
-    # the two below ``min_retrieval_coverage``: the rate would describe a subset.
-    # Over every evaluation, not only the both-arms-scored ones: a question with no
-    # document is not judged by default, and it still records that it missed.
-    measured = [h for r in every if (h := r.retrieval_hit) is not None]
-    n_all = len(every)
-    if measured and len(measured) / n_all < cfg["min_retrieval_coverage"]:
-        checks.append(TrustCheck(
-            name="retrieval_hit_rate",
-            passed=True,
-            value=None,
-            threshold=cfg["min_retrieval_hit_rate"],
-            message=(
-                f"Not measured: only {len(measured)} of {n_all} evaluations record a retrieval "
-                f"outcome (retrieval_hit), under the {cfg['min_retrieval_coverage']:.0%} coverage "
-                f"floor; {sum(measured)} of those {len(measured)} hit"
-            ),
-            severity="warn",
-            measured=False,
-        ))
-    elif measured:
-        retrieval_hits = sum(measured)
-        hit_rate = retrieval_hits / len(measured)
-        coverage = "" if len(measured) == n_all else f"; {n_all - len(measured)} unrecorded"
-        checks.append(TrustCheck(
-            name="retrieval_hit_rate",
-            passed=hit_rate >= cfg["min_retrieval_hit_rate"],
-            value=round(hit_rate, 3),
-            threshold=cfg["min_retrieval_hit_rate"],
-            message=(
-                f"Retrieval hit rate = {hit_rate:.1%} ({retrieval_hits}/{len(measured)}{coverage}) "
-                f"(min {cfg['min_retrieval_hit_rate']:.0%})"
-            ),
-            severity="warn",
-        ))
-    else:
-        checks.append(TrustCheck(
-            name="retrieval_hit_rate",
-            passed=True,
-            value=None,
-            threshold=cfg["min_retrieval_hit_rate"],
-            message="Not measured: the evaluations record no retrieval outcome (retrieval_hit)",
-            severity="warn",
-            measured=False,
-        ))
+    checks.append(_retrieval_check(every, cfg))
 
     # ── 8. Multi-run variance (optional) ─────────────────────────────────
     multirun_std = None
