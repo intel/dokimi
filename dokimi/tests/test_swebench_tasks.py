@@ -306,10 +306,11 @@ def test_an_empty_marked_section_falls_back_to_the_whole_log():
     assert grader.grade(log, _CONFIG)["resolved"] is True
 
 
-def test_a_bare_seaborn_status_word_is_skipped_not_an_index_error():
+@pytest.mark.parametrize("parser", ["seaborn", "pytest", "pytest_options", "pytest_v2"])
+def test_a_bare_status_word_is_skipped_not_an_index_error(parser):
     # A line that is only FAILED or PASSED has no test name; it must not raise.
     log = "FAILED\nPASSED\n PASSED \nPASSED t.py::f\n"
-    assert grader.parse_seaborn(log) == {"t.py::f": "PASSED"}
+    assert getattr(grader, f"parse_{parser}")(log) == {"t.py::f": "PASSED"}
 
 
 def test_pytest_v2_reads_coloured_and_old_style_lines():

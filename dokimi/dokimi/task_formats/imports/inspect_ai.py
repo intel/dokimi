@@ -19,7 +19,7 @@ import ast
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
-from dokimi.eval.reference_checks import blank_value
+from dokimi.eval.reference_checks import blank_value, squad_normalize
 from dokimi.task_formats.imports.common import (
     Imported, as_list, choice_targets, judge, match, question, render_input, render_mcq, unsupported,
 )
@@ -50,10 +50,11 @@ def _choices(value: Any) -> list[str]:
 
 
 def _checks(scorer: str, kwargs: Mapping[str, Any], targets: list[str], imp: Imported) -> list[dict[str, Any]]:
-    # A target the scorer normalises to nothing ("", or "..." for `match`) is in every answer, so it
-    # is dropped; with none left nothing is graded.
+    # A target the scorer normalises to nothing ("", or "..." for `match`) is in every answer, and
+    # one `exact` SQuAD-normalises to nothing ("...", "the") equals none, so it is dropped; with none
+    # left nothing is graded.
     norm = {"ignore_punctuation": scorer == "match"}
-    targets = [t for t in targets if not blank_value("match", norm, t)]
+    targets = [t for t in targets if not blank_value("match", norm, t) and (scorer != "exact" or squad_normalize(t))]
     if not targets and scorer in ("match", "includes", "exact", "model_graded_qa", "model_graded_fact"):
         imp.note("sample without a usable target: not graded")
         return [unsupported(scorer)]
