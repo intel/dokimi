@@ -42,7 +42,9 @@ class SourceError(ValueError):
 
 
 class SourceArgumentError(SourceError):
-    """A source spec that is wrong as typed (no git operation failed): a caller reports it as a usage error."""
+    """A source or a path that is wrong as given or as laid out: a local path that is not the repository
+    root, a path that leaves the tree, a link that goes nowhere. No git operation failed, so a caller
+    reports it as a usage error; a SourceError that is not this one is a failed clone, fetch or `git show`."""
 
 
 @dataclass(frozen=True)
@@ -115,7 +117,7 @@ class WorkTree:
     def _resolve(self, path: str) -> Path:
         target = (self.root / path).resolve()
         if not target.is_relative_to(self.root):
-            raise SourceError(f"path escapes the repository: {path}")
+            raise SourceArgumentError(f"path escapes the repository: {path}")
         return target
 
     def files(self) -> list[str]:
@@ -153,13 +155,13 @@ class WorkTree:
         try:
             target = self._resolve(path)
         except (RuntimeError, OSError) as exc:  # a link loop (RuntimeError before Python 3.13)
-            raise SourceError(f"too many levels of symbolic links: {path}") from exc
+            raise SourceArgumentError(f"too many levels of symbolic links: {path}") from exc
         if target.is_dir() and dirs:
             return target.relative_to(self.root).as_posix()
         if target.is_dir():
-            raise SourceError(f"{path} links to a directory: {target.relative_to(self.root).as_posix()}")
+            raise SourceArgumentError(f"{path} links to a directory: {target.relative_to(self.root).as_posix()}")
         if not target.is_file():
-            raise SourceError(f"{path} links to nothing: {target.relative_to(self.root).as_posix()}")
+            raise SourceArgumentError(f"{path} links to nothing: {target.relative_to(self.root).as_posix()}")
         return target.relative_to(self.root).as_posix()
 
     def read_many(self, paths: list[str], max_bytes: int = READ_MANY_LIMIT,
@@ -233,26 +235,26 @@ class GitTree:
                 text = _git(self.git_dir, "show", f"{self.sha}:{head}")
                 base = posixpath.normpath(posixpath.join(posixpath.dirname(head), text))
                 if posixpath.isabs(text) or base == ".." or base.startswith("../"):
-                    raise SourceError(f"path escapes the repository: {head} -> {text}")
+                    raise SourceArgumentError(f"path escapes the repository: {head} -> {text}")
                 path = posixpath.normpath(posixpath.join(base, *parts[hop:]))
                 if path == ".." or path.startswith("../"):
-                    raise SourceError(f"path escapes the repository: {start}")
+                    raise SourceArgumentError(f"path escapes the repository: {start}")
                 continue
             if path not in self._links():
                 if path in self._dir_set() and dirs:
                     return path
                 if path in self._dir_set():
-                    raise SourceError(f"{start} links to a directory: {path}" if path != start
+                    raise SourceArgumentError(f"{start} links to a directory: {path}" if path != start
                                       else f"{path} is a directory")
                 if path != start and path not in self.files():
-                    raise SourceError(f"{start} links to nothing: {path}")
+                    raise SourceArgumentError(f"{start} links to nothing: {path}")
                 return path
             text = _git(self.git_dir, "show", f"{self.sha}:{path}")
             target = posixpath.normpath(posixpath.join(posixpath.dirname(path), text))
             if posixpath.isabs(text) or target == ".." or target.startswith("../"):
-                raise SourceError(f"path escapes the repository: {path} -> {text}")
+                raise SourceArgumentError(f"path escapes the repository: {path} -> {text}")
             path = target
-        raise SourceError(f"too many levels of symbolic links: {start}")
+        raise SourceArgumentError(f"too many levels of symbolic links: {start}")
 
     def read_many(self, paths: list[str], max_bytes: int = READ_MANY_LIMIT,
                   skipped: dict[str, str] | None = None) -> dict[str, str]:

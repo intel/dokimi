@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""The validation/runtime boundary of the exit-code table (CLI API v2 §2.6).
+"""The validation/runtime boundary of the exit-code table (docs/quickstart.md).
 
 Only input and usage validation exits 2. A failure while the run is under way (an arm run,
 a fetch, a probe workspace, a model call, a missing optional dependency) keeps the code it
@@ -244,6 +244,20 @@ def test_repo_manifest_path_leaving_the_tree_exits_2_with_a_message(command, tmp
         cli.main()
     assert exc.value.code == 2
     assert "path escapes the repository" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("command", ["validate", "scan"])
+def test_repo_manifest_read_that_fails_in_git_keeps_exit_1(command, tmp_path, monkeypatch, capsys):
+    # A `git show` that fails while the manifest is read (a blob fetched lazily from origin that is gone)
+    # is a fetch failure, not a bad manifest path: exit 1, as on main.
+    def failing_load(tree, args, **kwargs):
+        raise SourceError("git show failed: fatal: could not fetch the blob from promisor remote")
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setattr("dokimi.commands.repo._load_manifest", failing_load)
+    err = _expect_exit(monkeypatch, capsys, 1, "repo", command, str(repo))
+    assert "git show failed" in err
 
 
 def _expect_exit(monkeypatch, capsys, code, *argv):

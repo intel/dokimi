@@ -54,17 +54,30 @@ def _source_tree(args: argparse.Namespace) -> tuple:
         sys.exit(1)
 
 
+def _manifest_or_exit(tree, args: argparse.Namespace, *, guidance_default: bool = False,
+                      also_usage: tuple = ()) -> Any:
+    """The manifest of the tree. A bad manifest or a manifest path that leaves the tree is a usage error
+    (2); a failed `git show` (a blob fetched lazily from origin) is a fetch failure (1)."""
+    from dokimi.repos import ManifestError, SourceError
+    from dokimi.repos.source import SourceArgumentError
+
+    try:
+        return _load_manifest(tree, args, guidance_default=guidance_default)
+    except (SourceArgumentError, ManifestError, *also_usage) as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+    except SourceError as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
 def cmd_repo_validate(args: argparse.Namespace) -> None:
     """Validate a repository's repo-eval.yaml and its tasks against one snapshot."""
-    from dokimi.repos import ManifestError, SourceError, check_repo
+    from dokimi.repos import check_repo
     from dokimi.repos.source import base_opener
 
     source, tree = _source_tree(args)
-    try:  # the manifest in the tree: a usage error
-        manifest = _load_manifest(tree, args)
-    except (SourceError, ManifestError) as exc:  # SourceError: a manifest path that leaves the tree
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+    manifest = _manifest_or_exit(tree, args)
     open_base = base_opener(source, tree)
     report = check_repo(tree, manifest, open_base)
     if open_base is None:
@@ -108,15 +121,10 @@ def _read_static(path: str) -> Any:
 def cmd_repo_scan(args: argparse.Namespace) -> None:
     """L0: check every mechanically checkable claim in the guidance against the same tree."""
     from dokimi.artifacts import save_artifact, stamp
-    from dokimi.repos import ManifestError, SourceError
     from dokimi.repos.l0 import scan_repo
 
     _, tree = _source_tree(args)
-    try:  # the manifest and the --static document: a usage error
-        manifest = _load_manifest(tree, args, guidance_default=True)
-    except (SourceError, ManifestError, OSError, json.JSONDecodeError) as exc:
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+    manifest = _manifest_or_exit(tree, args, guidance_default=True, also_usage=(OSError, json.JSONDecodeError))
     static = _read_static(args.static) if args.static else None
     payload = scan_repo(tree, manifest, static)
     if args.out:
