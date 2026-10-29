@@ -16,7 +16,7 @@ reason = "filelock ReadWriteLock on Windows: no dependency of Dokimi uses ReadWr
 
 [[IgnoredVulns]]
 id = "GHSA-567q-5qvw-pf92"
-reason = "filelock soft locks on Windows, used by huggingface_hub; no fix below 4.2.1 and litellm caps filelock<4. See SECURITY.md."
+reason = "filelock soft locks on Windows, used by huggingface_hub only as a fallback; no fix below 4.2.1 and litellm caps filelock<4. See SECURITY.md."
 
 [[IgnoredVulns]]
 id = "GHSA-j8f7-rjxc-mr56"

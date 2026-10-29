@@ -64,11 +64,11 @@ fix the locks can take:
     it follows a symlink at the lock path into SQLite) and GHSA-cwqr-hh33-gh44
     (CVE-2026-112915; a crafted lock database stalls every acquire).
   - In `StrictSoftFileLock` and `SoftReadWriteLock`, which no dependency of
-    Dokimi uses: GHSA-9c4x-gm8v-wgc4 (CVE-2026-112911; they adopt a protocol
-    directory another account created), GHSA-6627-m3xw-93mp (CVE-2026-112908;
-    claim directories created without the lock's mode) and GHSA-m462-7rxw-wvpg
-    (CVE-2026-112938; the strict lock follows a symlink swapped in at
-    `<path>.filelock`).
+    Dokimi uses: GHSA-9c4x-gm8v-wgc4 (CVE-2026-112911; both adopt a protocol
+    directory another account created). In `StrictSoftFileLock` only:
+    GHSA-6627-m3xw-93mp (CVE-2026-112908; claim directories created without the
+    lock's mode) and GHSA-m462-7rxw-wvpg (CVE-2026-112938; it follows a symlink
+    swapped in at `<path>.filelock`).
   - In `UnixFileLock`, GHSA-69hj-f68j-2879 (CVE-2026-112909): another local
     account that can rename or hard-link a file of the lock user onto a lock path
     not yet created makes the next acquire truncate that file and, with an
