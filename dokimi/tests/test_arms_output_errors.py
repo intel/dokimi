@@ -119,7 +119,9 @@ def _matrix_run(tmp_path: Path, out_dir: Path, *extra: str):
 def _stub_matrix(monkeypatch, tmp_path):
     from dokimi.commands import arms
 
-    monkeypatch.setattr(arms, "_build_arms_output", lambda *a, **k: {})
+    monkeypatch.setattr(arms, "_prepare_arms", lambda *a, **k: None)
+    monkeypatch.setattr(arms, "_probe_setup", lambda *a, **k: None)
+    monkeypatch.setattr(arms, "_run_arms", lambda *a, **k: {})
     monkeypatch.setattr(arms, "_save_arms_output", lambda *a, **k: None)
     delta = tmp_path / "out" / "delta.json"
     rollup = {"plugin_deltas": [{"artifact": str(delta), "_artifact_payload": {"d": 1}}]}
