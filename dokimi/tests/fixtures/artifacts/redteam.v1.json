@@ -38,5 +38,5 @@
       }
     }
   ],
-  "summary": {"questions": 2, "probed": 2, "no_canary": 0, "negated_only": 0, "unscored": 1, "violations": 2}
+  "summary": {"questions": 2, "probed": 2, "unprobed": 0, "no_canary": 0, "negated_only": 0, "unscored": 1, "violations": 2}
 }

@@ -6,12 +6,16 @@
 Each question with a ``grading`` block is graded against five synthetic answers:
 
 - ``canary``: the right answer, built from the one literal check; it must pass.
-- ``wrong``: a planted wrong answer; it must fail.
+- ``wrong``: a planted wrong answer; it must fail. Its text is picked so that no positive literal
+  check value occurs in it; the probe is skipped only when no candidate is clean.
 - ``empty``: the empty answer; it must fail.
 - ``hedge``: a non-committal answer that carries no check value; it must fail.
-- ``stuffed``: every literal check value listed with no sentence around it; it must fail. Built only
-  for a block of one literal check (or one negated check), since a block that needs every value, or
-  several checks that each accept one value, is satisfied by the stuffed answer by design.
+- ``stuffed``: every literal check value listed with no sentence around it; it must fail. Built for
+  a positive check of two or more values (mode ``any``), since a block that needs every value, or
+  several checks that each accept one value, is satisfied by the stuffed answer by design. Also built
+  for a negated check of one or more values, whose stuffed answer carries the forbidden value; not
+  built for a negated ``exact``, ``json`` or location-``exact`` match, which the listed values never
+  equal, so the check passes the stuffed answer by design.
 
 An answer the grader accepts when it should reject it (or rejects a canary) is a violation, and
 any violation blocks the run. A run that probed no question at all (nothing graded, or only judge
@@ -38,7 +42,8 @@ from dokimi.eval.reference_run import grading_by_id
 
 ATTACKS = ("canary", "wrong", "empty", "hedge", "stuffed")
 EXPECTED = {"canary": True, "wrong": False, "empty": False, "hedge": False, "stuffed": False}
-WRONG = "PLANTED-WRONG-ANSWER-7731"
+# Planted wrong answers, tried in order; the first that carries no positive check value is used.
+WRONG_CANDIDATES = ("PLANTED-WRONG-ANSWER-7731", "QZX-BOGUS-REPLY-4096", "ZKV-MISMATCH-2508", "XJQ-NONSENSE-6349")
 HEDGE = ("I am not certain. It could be several things, depending on the setup, "
          "and I cannot say which one applies here.")
 BLOCKED, PASS, INCONCLUSIVE = "blocked", "pass", "inconclusive"
@@ -79,23 +84,33 @@ def canary_for(grading: Mapping[str, Any]) -> Optional[str]:
     return f"The answer is {text}."
 
 
-def stuffed_for(grading: Mapping[str, Any]) -> Optional[str]:
-    """Every value of the block's one literal check, listed with no sentence around them.
+def _whole_answer(check: Mapping[str, Any]) -> bool:
+    """Whether the check compares the whole answer, so a listed value never equals it."""
+    kind = check.get("type")
+    return kind in ("exact", "json") or (kind == "match" and str(check.get("location", "end")) == "exact")
 
-    Only a block of one literal check is stuffed, and a positive check must accept any one of its
-    values (mode ``any``): a block that needs every value, or several checks, is satisfied by the
-    stuffed answer by design, so accepting it is not a violation. A negated check fails the stuffed
-    answer that carries its value, so it is always a real attack. One value listed alone is the right
-    answer itself, not stuffing. A choice check is left out: its answer is a bare letter.
+
+def stuffed_for(grading: Mapping[str, Any]) -> Optional[str]:
+    """The block's one literal check's values, listed with no sentence around them; None when not built.
+
+    A positive check needs two or more values and must accept any one of them (mode ``any``): a block
+    that needs every value, or several checks, is satisfied by the stuffed answer by design, so
+    accepting it is not a violation. A single positive value listed alone is the right answer itself,
+    not stuffing. A negated check is stuffed with its one or more values: the stuffed answer carries
+    the forbidden value, so it must fail, unless the check compares the whole answer (see
+    ``_whole_answer``), which the listed values never equal. A choice check is left out: its answer is
+    a bare letter.
     """
     checks = grading.get("checks", [])
     if len(checks) != 1 or checks[0].get("type") not in _LITERAL - {"choice"}:
         return None
     check = checks[0]
-    if not check.get("negate") and str(check.get("mode", "any")) == "all":
-        return None
     values = [str(v) for v in _literal_values(check)]
-    return " ".join(values) if len(values) >= 2 else None
+    if check.get("negate"):
+        return " ".join(values) if values and not _whole_answer(check) else None
+    if len(values) < 2 or str(check.get("mode", "any")) == "all":
+        return None
+    return " ".join(values)
 
 
 def _positive_checks(grading: Mapping[str, Any]) -> list[Mapping[str, Any]]:
@@ -113,11 +128,23 @@ def negated_only(grading: Mapping[str, Any]) -> bool:
     return bool(checks) and all(c.get("negate") for c in checks)
 
 
-def _clashes_with_hedge(value: str) -> bool:
-    """Whether the hedge carries the value: a raw substring, or one after the grader's normalisation."""
+def _contains(value: str, text: str) -> bool:
+    """Whether the text carries the value: a raw substring, or one after the grader's normalisation."""
     raw = value.strip().lower()
     norm = squad_normalize(value)
-    return (bool(raw) and raw in HEDGE.lower()) or (bool(norm) and norm in squad_normalize(HEDGE))
+    return (bool(raw) and raw in text.lower()) or (bool(norm) and norm in squad_normalize(text))
+
+
+def _positive_values(grading: Mapping[str, Any]) -> list[str]:
+    """The values of the block's non-negated literal checks, bare choice letters left out."""
+    return [str(v) for c in _positive_checks(grading) if c.get("type") in _LITERAL - {"choice"}
+            for v in _literal_values(c)]
+
+
+def wrong_for(grading: Mapping[str, Any]) -> Optional[str]:
+    """The first planted wrong answer that carries none of the block's positive values, or None."""
+    values = _positive_values(grading)
+    return next((w for w in WRONG_CANDIDATES if not any(_contains(v, w) for v in values)), None)
 
 
 def attacks(grading: Mapping[str, Any]) -> dict[str, Optional[str]]:
@@ -126,15 +153,15 @@ def attacks(grading: Mapping[str, Any]) -> dict[str, Optional[str]]:
     The wrong, empty and hedge answers apply when the block has a non-negated check: a negated
     check passes them by design, but a positive check still rejects them, so they run and the probe
     grades the non-negated checks alone. A block of only negated checks gets none of the three.
-    ``stuffed`` still runs, since it carries the negated value and must fail. The hedge is fixed
-    text, so it is skipped when a non-negated check value occurs in it (the grader would accept it).
+    ``stuffed`` still runs, since it carries the negated value and must fail. The planted wrong answer
+    is chosen per block so that no positive value occurs in it, and the hedge is fixed text, so it is
+    skipped when a positive value occurs in it (the grader would accept it).
     """
     positive = _positive_checks(grading)
-    clashes = any(_clashes_with_hedge(str(v)) for c in positive if c.get("type") in _LITERAL - {"choice"}
-                  for v in _literal_values(c))
+    clashes = any(_contains(v, HEDGE) for v in _positive_values(grading))
     applies = bool(positive)
     return {"canary": canary_for(grading),
-            "wrong": WRONG if applies else None,
+            "wrong": wrong_for(grading) if applies else None,
             "empty": "" if applies else None,
             "hedge": None if not applies or clashes else HEDGE,
             "stuffed": stuffed_for(grading)}
@@ -221,6 +248,7 @@ def _summary(rows: list[dict[str, Any]]) -> dict[str, int]:
     return {
         "questions": len(rows),
         "probed": sum(1 for r in rows if any(p["passed"] is not None for p in r["probes"].values())),
+        "unprobed": sum(1 for r in rows if not any(p["passed"] is not None for p in r["probes"].values())),
         "no_canary": sum(1 for r in rows if not r["canary"]),
         "negated_only": sum(1 for r in rows if r["negated_only"]),
         "unscored": sum(1 for p in probes if p["passed"] is None),
@@ -243,6 +271,6 @@ def format_table(result: dict[str, Any]) -> str:
         lines.append(f"  {s['negated_only']} questions with only negated checks: "
                      f"{', '.join(NEGATION_SKIPPED[:-1])} and {NEGATION_SKIPPED[-1]} not run")
     lines.append(f"status {result['status']}: {s['questions']} questions, {s['probed']} probed, "
-                 f"{s['no_canary']} without a canary, {s['unscored']} probes unscored, "
+                 f"{s['unprobed']} unprobed, {s['no_canary']} without a canary, {s['unscored']} probes unscored, "
                  f"{s['violations']} violations")
     return "\n".join(lines)

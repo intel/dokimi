@@ -93,10 +93,10 @@ the run's pass rates and mean scores are under `run_metadata.summary` (or
 | Attack | Answer | The grader must |
 |---|---|---|
 | `canary` | The right answer, built from the one literal check (`match`, `fuzzy`, `exact`, `choice`, `json`); a question with several checks, a `regex`, a `judge` or a `negate` has none | pass it |
-| `wrong` | A planted wrong answer | fail it |
+| `wrong` | A planted wrong answer, picked per block so that no positive check value occurs in it (the probe is skipped only when no candidate is clean) | fail it |
 | `empty` | `""` | fail it |
 | `hedge` | A fixed non-committal sentence; skipped when a check value occurs in it | fail it |
-| `stuffed` | Two or more values of a block with one literal check (a single value is the right answer, not stuffing); not built for a block that needs every value (`mode: all`) or for several checks, which the stuffed answer satisfies by design | fail it |
+| `stuffed` | The values of a block with one literal check, listed with no sentence around them: two or more values of a positive check (a single value is the right answer, not stuffing), or one or more values of a `negate` check, whose stuffed answer is the forbidden value; not built for a positive block that needs every value (`mode: all`), for several checks, or for a negated `exact`, `json` or `match` with `location: exact`, which the listed values never equal | fail it |
 
 An attack the grader accepts, or a canary it rejects, is a violation, and any
 violation makes the run `blocked`: the command prints the pass rates and the
@@ -105,7 +105,10 @@ violations and exits 1 (`-o` writes `redteam.v1`). A run that probed no question
 also exits 1. An unwritable `-o` exits 2. A `negate` check passes an
 answer that lacks its value, so `wrong`, `empty` and `hedge` grade the block's
 non-negated checks alone; a block of only negated checks gets none of the three
-and is reported as `negated_only`, and `stuffed` still runs. A `threshold` block
+and is reported as `negated_only`, and `stuffed` still runs: its probe is the negated value itself, so a
+block of one negated value is probed and a run whose only probes are those passes when they are rejected
+(`negated_only` in the table is the sign that the block is checked for that value alone). A question with no
+probe at all is counted as `unprobed`. A `threshold` block
 is graded the same way, so a negated check's share of the score is not counted.
 A probe the grader cannot
 score is unscored and does not block. `judge` checks are unscored unless
