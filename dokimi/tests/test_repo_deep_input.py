@@ -49,7 +49,8 @@ def test_a_deeply_nested_static_file_exits_1(repo, tmp_path, capsys):
     with pytest.raises(SystemExit) as exc:
         _run("scan", str(repo), "--manifest-file", str(manifest), "--static", str(static))
     assert exc.value.code == 1
-    assert capsys.readouterr().err.startswith("✗ ")
+    err = capsys.readouterr().err
+    assert err.startswith("✗ ") and str(static) in err
 
 
 @pytest.mark.parametrize("command", [["budget"], ["reach", "--model", "m", "--dry-run"]])
@@ -78,3 +79,17 @@ def test_load_manifest_reports_a_repo_manifest_it_cannot_read(repo, content):
 def test_a_non_utf8_repo_manifest_exits_1(repo, capsys, command):
     (repo / ".agent-eval" / "repo-eval.yaml").write_bytes(b"\xff\xfe\x00bad")
     _exits_1_naming(capsys, "repo-eval.yaml", command[0], str(repo), *command[1:])
+
+
+def test_load_manifest_reports_a_repo_manifest_it_has_no_permission_to_read(repo, monkeypatch):
+    from dokimi.repos.source import WorkTree
+
+    (repo / ".agent-eval" / "repo-eval.yaml").write_text("id: toy\n", encoding="utf-8")
+
+    def denied(self, path):
+        raise PermissionError(13, "Permission denied", path)
+
+    monkeypatch.setattr(WorkTree, "read_text", denied)
+    tree = open_source(RepoSource.parse(str(repo)), repo.parent / "cache")
+    with pytest.raises(ManifestError, match="cannot read: .*Permission denied"):
+        load_manifest(tree)

@@ -228,7 +228,7 @@ def load_manifest(tree: RepoTree, path: str = DEFAULT_MANIFEST_PATH) -> RepoMani
         raw = yaml.safe_load(tree.read_text(path))
     except yaml.YAMLError as exc:
         raise ManifestError(path, [f"not valid YAML: {exc}"]) from exc
-    except (UnicodeDecodeError, RecursionError) as exc:  # not UTF-8, deeply nested `[`
+    except (OSError, UnicodeDecodeError, RecursionError) as exc:  # unreadable, not UTF-8, deeply nested `[`
         raise ManifestError(path, [f"cannot read: {exc}"]) from exc
     return parse_manifest(raw, path)
 
