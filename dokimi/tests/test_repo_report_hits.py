@@ -109,3 +109,20 @@ def test_report_counts_answers_that_did_not_parse_per_row(tmp_path):
     at = next(i for i, line in enumerate(lines) if line.startswith("pr3014-t1"))
     assert lines[at + 1].strip() == "1 agent answer(s) whose findings JSON did not parse (counted as failed)"
     assert sum("did not parse" in line for line in lines) == 1
+
+
+def test_hits_and_report_skip_unreadable_grades_and_list_a_match_without_text(tmp_path):
+    batch = tmp_path / "b1"
+    bad = {1: "{not json", 2: "[]",
+           3: json.dumps({"grader": REPLAY, "metrics": {"parse_error": "yes"}, "details": []}),
+           4: json.dumps({"grader": REPLAY, "metrics": [], "details": {"threads_hit": ["t"],
+                          "matches": [None, "t", {"thread": "t", "finding": 0, "distance": 0}]}})}
+    for rep, text in bad.items():
+        _cell(batch, "a", "guidance:none", rep)
+        (batch / f"a__guidance-none__m-1__r{rep}" / "grade.json").write_text(text)
+    found = load_hits(batch)
+    assert (found["replay_cells"], found["without_matches"]) == (2, 0)  # 1 and 2 name no grader
+    assert [(h["rep"], h["thread"]) for h in found["hits"]] == [(4, "t")]
+    assert format_hits(found).splitlines()[-2:] == [
+        "    t None:None  ", "      finding 0 None:None None, 0 line(s) away: "]
+    assert [r["parse_errors"] for r in summarize(batch)["rows"]] == [0]  # a non-boolean parse_error is not one
