@@ -1071,8 +1071,10 @@ would be as a file or as a directory: under that whitelist `*` ignores a missing
 `olddir` read as a file, so a directory needs its trailing slash to be checked
 as a rename. A glob counts when one of the files it is
 probed with would be: its wildcards filled in, and each name an ignoring line
-matches that the glob matches too (`gen.h` for `pkg/g*.h`). The probe tries a
-few names, not every name the glob matches. `.git/info/exclude` and
+matches that the glob matches too (`gen.h` for `pkg/g*.h`), when a literal
+starts or ends the glob's last segment: `maintenance/*` or `pkg/*_*` would match
+the name of any rule (`_skbuild`), which says nothing about the glob. The probe
+tries a few names, not every name the glob matches. `.git/info/exclude` and
 `core.excludesFile` belong to a clone, not the tree,
 and are not read. `ok_suffix`
 and `ok_basename` resolve a path but cannot see it renamed, which then reads as

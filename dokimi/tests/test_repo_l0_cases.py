@@ -118,10 +118,12 @@ CASES = [
     ("a directory with one file re-included is a rename", "`pkg/include/` `pkg/include`",
      {"pkg/.gitignore": "include/*\n!include/keep.h\n", "pkg/a.c": ""},
      {("path", "pkg/include/"): "fail", ("path", "pkg/include"): "fail"}),
-    ("gitignored glob the fill-in name misses", "`img/*.png` `pkg/g*.h` `pkg/gen_*.h`",
+    ("gitignored glob the fill-in name misses", "`img/*.png` `pkg/g*.h` `pkg/gen_*.h` `pkg/gen*`",
      {"img/.gitignore": "[0-9]*.png\n", "img/a.c": "", "pkg/.gitignore": "gen.h\ngen_[a-c].h\n", "pkg/a.c": ""},
      {("path", "img/*.png"): "unresolved", ("path", "pkg/g*.h"): "unresolved",
-      ("path", "pkg/gen_*.h"): "unresolved"}),
+      ("path", "pkg/gen_*.h"): "unresolved", ("path", "pkg/gen*"): "unresolved"}),
+    ("a glob of wildcards and no literal end is not probed with rule names", "`pkg/*` `pkg/*_*`",
+     {"pkg/.gitignore": "_skbuild\n", "pkg/a.py": ""}, {("path", "pkg/*"): "ok", ("path", "pkg/*_*"): "fail"}),
     ("a glob no ignoring rule's names fit", "`pkg/*.c`", {"pkg/.gitignore": "gen.h\n", "pkg/a.h": ""},
      {("path", "pkg/*.c"): "fail"}),
     ("gitignored directory glob", "`pkg/gen*/`", {"pkg/.gitignore": "gen*/\n", "pkg/a.c": ""},
@@ -566,6 +568,13 @@ def test_a_path_into_a_submodule_says_so(tmp_path):
     payload = _scan(tmp_path, "`third/dep/lib.h`\n", {".gitmodules": '[submodule "d"]\n\tpath = third/dep\n',
                                                      "third/README": ""})
     assert "inside the submodule third/dep" in payload["claims"][0]["why"]
+
+
+def test_a_glob_an_unrelated_rule_spells_names_no_rule(tmp_path):
+    files = {".gitignore": "_skbuild\n", "pkg/a.py": ""}
+    claim = _scan(tmp_path, "`maintenance/*`\n", files)["claims"][0]
+    assert (claim["status"], claim["why"]) == ("unresolved", "glob maintenance/* matches nothing in the tree; "
+                                               "a build may create it")
 
 
 @pytest.mark.parametrize("agents, files, line", [

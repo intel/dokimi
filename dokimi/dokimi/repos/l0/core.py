@@ -353,11 +353,14 @@ class Scan:
 
         Its wildcards filled in, and each name an ignoring rule matches that the glob matches too
         (``gen.h`` for ``g*.h``); two fillings, so one re-included (``!x.cxx``) leaves the other.
+        Rule names count only for a last segment a literal starts or ends: ``*`` or ``*_*`` matches
+        the name of an unrelated rule (``_skbuild``), which is no evidence the glob is ignored.
         """
         folder, name = posixpath.split(full)
         rx = glob_regex(full)
+        named = name[:1] not in "*?[" or name[-1:] not in "*?]"
         paths = [posixpath.join(_fill(folder, fill), n) for fill in _FILLS
-                 for n in (_fill(name, fill), *self.gitignore().names(fill))]
+                 for n in (_fill(name, fill), *(self.gitignore().names(fill) if named else ()))]
         return [p for p in dict.fromkeys(paths) if rx.match(p)]
 
     def _missing(self, paths: list[str], is_dir: bool, why: str, status: str = "fail") -> tuple[str, str]:
