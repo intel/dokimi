@@ -911,7 +911,7 @@ def test_a_batch_whose_pin_is_unreadable_exits_1_naming_the_file(setup, capsys, 
         _run(setup, "--arm", "guidance:none", "--task", "fix_add")
     assert exc.value.code == 1
     err = capsys.readouterr().err
-    assert err.startswith("✗ ") and "_eval/batch.json" in err and "use another --batch" in err
+    assert err.startswith("✗ ") and str(Path("_eval") / "batch.json") in err and "use another --batch" in err
 
 
 def test_a_batch_whose_pin_is_a_directory_exits_1_naming_the_file(setup, capsys):
@@ -924,7 +924,7 @@ def test_a_batch_whose_pin_is_a_directory_exits_1_naming_the_file(setup, capsys)
         _run(setup, "--arm", "guidance:none", "--task", "fix_add")
     assert exc.value.code == 1
     err = capsys.readouterr().err
-    assert err.startswith("✗ ") and "_eval/batch.json" in err and "use another --batch" in err
+    assert err.startswith("✗ ") and str(Path("_eval") / "batch.json") in err and "use another --batch" in err
 
 
 def test_graders_digest_follows_the_grader_sources(tmp_path, monkeypatch):
