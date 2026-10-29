@@ -171,3 +171,33 @@ def test_arms_run_exits_1_on_an_unreadable_questions_file(tmp_path, capsys, kind
         args.func(args)
     assert exc.value.code == 1
     assert capsys.readouterr().err.startswith("Error building arms/plugins:")
+
+
+@pytest.mark.parametrize("kind", ["directory", "deep"])
+def test_matrix_run_exits_1_on_an_unreadable_questions_file(tmp_path, capsys, kind):
+    args = _matrix_run(tmp_path, tmp_path / "out")
+    questions = Path(args.questions)
+    questions.unlink()
+    if kind == "directory":
+        questions.mkdir()
+    else:
+        questions.write_text("[" * 100000, encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 1
+    assert capsys.readouterr().err.startswith("Error loading matrix run inputs:")
+
+
+@pytest.mark.parametrize("error", [PermissionError("denied"), RecursionError("deep")], ids=lambda e: type(e).__name__)
+def test_matrix_run_exits_1_when_a_cell_cannot_read_its_inputs(tmp_path, monkeypatch, capsys, error):
+    from dokimi.commands import arms
+
+    def build(*a, **k):
+        raise error
+
+    monkeypatch.setattr(arms, "_build_arms_output", build)
+    args = _matrix_run(tmp_path, tmp_path / "out")
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 1
+    assert capsys.readouterr().err.startswith("Error running matrix cell 'c1':")

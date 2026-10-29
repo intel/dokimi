@@ -123,7 +123,7 @@ def cmd_arms_matrix_run(args: argparse.Namespace) -> None:
             cell_args = argparse.Namespace(**vars(args))
             _apply_matrix_cell(cell_args, cell)
             _check_sampling_support(cell_args)
-    except (ValueError, FileNotFoundError) as exc:
+    except (ValueError, OSError, RecursionError) as exc:
         print(f"Error loading matrix run inputs: {exc}", file=sys.stderr)
         sys.exit(1)
 
@@ -145,7 +145,7 @@ def cmd_arms_matrix_run(args: argparse.Namespace) -> None:
             output = _build_arms_output(cell_args, specs, questions)
         except EmptyQuestionError:
             raise  # a bad input record, not a cell error: cli.main reports it (exit 2)
-        except (ValueError, FileNotFoundError) as exc:
+        except (ValueError, OSError, RecursionError) as exc:
             print(f"Error running matrix cell {cell.name!r}: {exc}", file=sys.stderr)
             sys.exit(1)
         _save_arms_output(output, out_json, out_md)
