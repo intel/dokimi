@@ -126,13 +126,16 @@ def test_the_help_label_of_a_route_comes_from_its_literal_cost():
 
 def test_every_route_help_line_ends_in_its_cost_label():
     top = build_parser()
-    checked = 0
+    seen = set()
     for path, action in _help_actions(top):
         cost = cli_routes.cost_of(path)
         assert cost in ("free", "paid"), path
         assert action.help and action.help.endswith(f" [{cost}]"), (path, action.help)
-        checked += 1
-    assert checked >= len(cli_routes.LEAVES)
+        seen.add(path)
+    # A leaf whose parser has no help= is not in _choices_actions at all, so it must be named:
+    # a count would be made up by the root and group lines. `run` and `compare` take the
+    # table's summary in the top-level list instead (the test below).
+    assert {leaf.path for leaf in cli_routes.LEAVES if leaf.summary is None} <= seen
 
 
 def test_run_and_compare_have_a_one_line_help_in_the_top_level_list():
