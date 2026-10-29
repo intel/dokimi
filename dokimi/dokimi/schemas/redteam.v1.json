@@ -66,11 +66,12 @@
     },
     "summary": {
       "type": "object",
-      "required": ["questions", "probed", "no_canary", "negated_only", "unscored", "violations"],
+      "required": ["questions", "probed", "unprobed", "no_canary", "negated_only", "unscored", "violations"],
       "additionalProperties": false,
       "properties": {
         "questions": {"type": "integer", "minimum": 0},
         "probed": {"type": "integer", "minimum": 0},
+        "unprobed": {"type": "integer", "minimum": 0},
         "no_canary": {"type": "integer", "minimum": 0},
         "negated_only": {"type": "integer", "minimum": 0},
         "unscored": {"type": "integer", "minimum": 0},

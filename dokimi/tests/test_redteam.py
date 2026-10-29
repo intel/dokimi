@@ -221,8 +221,59 @@ def test_a_block_of_only_negated_checks_runs_no_wrong_empty_or_hedge_probe_and_r
     row = result["questions"][0]
     assert row["negated_only"] is True and result["summary"]["negated_only"] == 1
     assert not {"wrong", "empty", "hedge"} & set(row["probes"])
-    assert result["status"] == "inconclusive"
+    assert set(row["probes"]) == {"stuffed"}  # the forbidden value itself, which must fail
+    assert result["status"] == "pass"
     assert "1 questions with only negated checks: wrong, empty and hedge not run" in format_table(result)
+
+
+def test_a_negated_single_value_is_stuffed_with_that_value_and_must_fail():
+    grading = {"checks": [{"type": "match", "values": ["Paris"], "negate": True}]}
+    assert redteam.attacks(grading)["stuffed"] == "Paris"
+    probes = redteam.probe(grading, "Capital of France?")
+    assert set(probes) == {"stuffed"} and probes["stuffed"].passed is False and not probes["stuffed"].violation
+
+
+@pytest.mark.parametrize("check", [
+    {"type": "exact", "values": ["Paris", "Lyon"], "negate": True},
+    {"type": "match", "values": ["Paris", "Lyon"], "location": "exact", "negate": True},
+    {"type": "json", "values": [1, 2], "negate": True},
+])
+def test_a_negated_whole_answer_check_is_not_stuffed(check):
+    # "Paris Lyon" is neither "Paris" nor "Lyon", so the negated check passes it: that is not an attack.
+    grading = {"checks": [check]}
+    assert redteam.attacks(grading)["stuffed"] is None
+    result = run([_q("1", grading)])
+    assert result["violations"] == [] and "stuffed" not in result["questions"][0]["probes"]
+
+
+@pytest.mark.parametrize("check", [
+    {"type": "match", "values": ["31"]},  # the planted answer ends in 7731
+    {"type": "match", "values": ["1"]},  # the planted answer ends in 1
+    {"type": "fuzzy", "values": ["on"]},  # the planted answer contains "on" in "wrong"
+])
+def test_a_check_value_in_the_planted_wrong_answer_does_not_block_a_grader_that_rejects_it(check):
+    result = run([_q("1", {"checks": [check]})])
+    assert result["status"] == "pass" and result["violations"] == []
+    assert result["questions"][0]["probes"]["wrong"]["passed"] is False  # still probed, on a clean wrong answer
+
+
+def test_the_planted_wrong_answer_carries_none_of_the_positive_check_values():
+    grading = {"checks": [{"type": "match", "values": ["1", "on"]}]}
+    wrong = redteam.attacks(grading)["wrong"]
+    assert wrong is not None and "1" not in wrong and "on" not in wrong.lower()
+
+
+def test_the_wrong_attack_is_skipped_when_every_candidate_carries_a_check_value(monkeypatch):
+    monkeypatch.setattr(redteam, "WRONG_CANDIDATES", ("PLANTED-WRONG-ANSWER-7731",))
+    assert redteam.attacks({"checks": [{"type": "match", "values": ["31"]}]})["wrong"] is None
+
+
+def test_the_summary_counts_the_questions_that_were_not_probed():
+    questions = [_q("1", _match("Paris")), _q("2", {"checks": [{"type": "judge", "criterion": "names the capital"}]})]
+    result = run(questions)
+    assert result["summary"]["probed"] == 1 and result["summary"]["unprobed"] == 1
+    assert result["status"] == "pass"
+    assert "1 unprobed" in format_table(result)
 
 
 @pytest.mark.parametrize("check", [
