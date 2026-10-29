@@ -460,3 +460,23 @@ def test_the_command_prints_the_cut_violations_with_the_output_path_it_wrote(tmp
     with pytest.raises(SystemExit):
         cmd_eval_redteam(_args(tmp_path / "questions.json", output=tmp_path / "r.json"))
     assert "4 more violations in the artifact" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("check", [
+    {"type": "match", "value": "Paris", "location": "exact"},
+    {"type": "json", "value": "Paris"},
+    {"type": "json", "value": 3},
+    {"type": "exact", "value": "Paris"},
+    {"type": "match", "value": "Paris", "location": "begin"},
+    {"type": "choice", "values": ["b", "a"]},
+])
+def test_the_canary_for_each_literal_check_is_accepted_by_the_grader(check):
+    from dokimi.eval.reference_checks import grade
+
+    grading = {"checks": [check]}
+    assert grade(grading, "Q?", canary_for(grading)).passed is True
+
+
+def test_the_canary_is_the_bare_value_for_a_whole_answer_match_and_a_json_string():
+    assert canary_for({"checks": [{"type": "match", "value": "Paris", "location": "exact"}]}) == "Paris"
+    assert canary_for({"checks": [{"type": "json", "value": "Paris"}]}) == '"Paris"'
