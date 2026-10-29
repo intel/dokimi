@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/plan.v1.json",
+  "title": "Run plan v1",
+  "description": "What a run is going to measure, declared before any paid call: the subjects and suites it reads, the models, harnesses and grader it uses, the one variable its arms vary, and every cell (arm x model x task x rep) it promises to run. A result.v1 points back at a plan by plan_digest (dokimi.runner.plan.plan_digest); completeness is computed from the plan's cells, never from what happened to finish.",
+  "type": "object",
+  "required": ["schema_version", "subjects", "suites", "models", "harnesses", "grader", "varied_variable", "cells",
+               "budget"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "plan.v1"},
+    "generated_at": {"type": "string", "description": "Left out of plan_digest: re-stamping a plan does not change it."},
+    "subjects": {
+      "type": "array",
+      "description": "What is under test: a skill, repository, doc source or profile, pinned by commit and content.",
+      "items": {
+        "type": "object",
+        "required": ["id", "sha", "fingerprint"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "kind": {"type": "string"},
+          "sha": {"type": ["string", "null"], "description": "commit the subject was read at; null when it is not in git"},
+          "fingerprint": {"type": ["string", "null"], "description": "digest of the subject's content as the run sees it"}
+        }
+      }
+    },
+    "suites": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "hash", "reasons"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "hash": {"type": "string", "minLength": 1, "description": "digest of the suite's task/question content"},
+          "reasons": {"type": "array", "items": {"type": "string"},
+                      "description": "why this suite was selected (changed file, label, policy)"}
+        }
+      }
+    },
+    "models": {"type": "array", "minItems": 1, "items": {"type": ["string", "null"]},
+               "description": "requested model ids; null for a cell that calls no model (an oracle or probe harness)"},
+    "harnesses": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "grader": {
+      "type": "object",
+      "required": ["id", "digest"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "digest": {"type": ["string", "null"], "description": "digest of the verifier or judge prompt the run grades with"}
+      }
+    },
+    "varied_variable": {
+      "description": "The one thing the arms differ in. A list names a factorial design (2x2: code and guidance), not several free variables.",
+      "oneOf": [
+        {"type": "string", "minLength": 1},
+        {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      ]
+    },
+    "cells": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["cell_id", "arm", "model", "task", "rep"],
+        "additionalProperties": false,
+        "properties": {
+          "cell_id": {"type": "string", "minLength": 1,
+                      "description": "dokimi.runner.plan.cell_id(arm, model, task, rep): stable across re-plans; completeness refuses an id that does not match the coordinates"},
+          "arm": {"type": "string", "minLength": 1,
+                  "description": "the full condition the cell runs under. When a plan crosses several harnesses, the harness is part of the arm (e.g. docker-claude/skill), so cell ids stay distinct; a cell has no separate harness key"},
+          "model": {"type": ["string", "null"]},
+          "task": {"type": "string", "minLength": 1},
+          "rep": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "required": ["cells"],
+      "additionalProperties": false,
+      "properties": {
+        "cells": {"type": "integer", "minimum": 0,
+                  "description": "number of distinct planned cells; completeness refuses a plan where it differs"},
+        "agent_calls": {"type": ["integer", "null"], "minimum": 0},
+        "cost_usd": {"type": ["number", "null"], "minimum": 0},
+        "wall_sec": {"type": ["number", "null"], "minimum": 0}
+      }
+    }
+  }
+}

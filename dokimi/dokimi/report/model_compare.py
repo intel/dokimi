@@ -614,7 +614,7 @@ def _fmt_delta(d: float | None) -> str:
 
 
 def significance_test(
-    with_scores: list[float], without_scores: list[float]
+    with_scores: list[float], without_scores: list[float], *, rounded: bool = True
 ) -> dict | None:
     """Paired t-test, Wilcoxon, and Cohen's d_z (sample SD).  Requires scipy.
 
@@ -630,7 +630,7 @@ def significance_test(
     if not HAS_SCIPY or len(with_scores) < arm_stats.MIN_PAIRS_FOR_TEST:
         return None
 
-    result = arm_stats.paired_test(with_scores, without_scores)
+    result = arm_stats.paired_test(with_scores, without_scores, rounded=rounded)
     if result is None:
         return None
 
@@ -882,11 +882,11 @@ _BASELINE_ONLY_LIMITATION = [
     "> ",
     "> **To generate full comparison with delta analysis, add a treatment arm:**",
     "> ```bash",
-    "> python cli.py arms run \\",
+    "> dokimi arms run \\",
+    ">   --product oneTBB --questions questions/oneTBB.json \\",
     ">   --arms \"baseline,docs\" \\",
     ">   --judge \\",
-    ">   --judge-model claude-sonnet-5-5 \\",
-    ">   [other parameters]",
+    ">   --judge-model claude-sonnet-5-5",
     "> ```",
     "> ",
     "> Treatment arm options: `docs` (Context7 documentation), `skill:<path>` (local skill), `agent` (agentic doc retrieval).",
@@ -990,25 +990,25 @@ def _adjusted_significance(
     """
     sigs: dict[str, dict | None] = {}
     for run_id in run_ids:
-        # Filter for paired scores: both baseline and treatment must be non-None
         paired = [(s["with_docs"], s["without_docs"]) for s in all_run_scores[run_id]
                   if s["with_docs"] is not None and s["without_docs"] is not None]
         if paired:
             with_paired, without_paired = zip(*paired, strict=True)
-            sigs[run_id] = significance_test(list(with_paired), list(without_paired))
+            sigs[run_id] = significance_test(list(with_paired), list(without_paired), rounded=False)
         else:
             sigs[run_id] = None
 
     tested = [sig for rid in run_ids if (sig := sigs[rid]) and sig["p_ttest"] is not None]
-    adjusted = arm_stats.adjust_pvalues([sig["p_ttest"] for sig in tested], method=correction)
-    for sig, p_adj in zip(tested, adjusted, strict=True):
+    decided = arm_stats.correct_family([sig["p_ttest"] for sig in tested], method=correction)
+    for sig, (p_adj, adj_significant) in zip(tested, decided, strict=True):
         sig["p_adjusted"] = p_adj
-        # Same conjunction as the raw verdict, with the adjusted p in place of the raw one.
+        # Same conjunction as the raw verdict, with the adjusted verdict in place of the raw one.
         sig["significant_adjusted"] = bool(
-            p_adj is not None and p_adj < arm_stats.ALPHA
+            adj_significant
             and (sig["p_wilcoxon"] is None or sig["p_wilcoxon"] < arm_stats.ALPHA)
         )
-    return sigs, len(tested)
+    # Correct on the exact p-values, then round: 3 * round(0.016666, 4) is 0.0501.
+    return {rid: sig and arm_stats._finalize(sig) for rid, sig in sigs.items()}, len(tested)
 
 
 def _significance_row(run_id: str, sig: dict) -> str:

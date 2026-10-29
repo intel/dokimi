@@ -1,7 +1,8 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""repo tasks check / repo run / repo report / repo compare: the repository-mode runner (contract §3, §4, §4.3)."""
+"""repo tasks check / repo tasks replay / repo run / repo report / repo compare: the repository-mode runner
+(contract §3, §4, §4.3, §4.5)."""
 
 from __future__ import annotations
 
@@ -51,6 +52,7 @@ def _context(args: argparse.Namespace, out: Path, pin: bool = False):
     content = out / "_eval" / "content"
     # a pinned batch keeps its content until the pin is checked
     staged = export_eval_dir(tree, manifest, content.with_name("content.next") if pin else content)
+    _require_grade(staged, manifest, args.task)  # before the pin and the image build
     runner = DockerRunner(args.docker)
     image, ctx_dir = args.image, None
     if not image:
@@ -109,6 +111,21 @@ def context_digest(root: Path) -> str:
         elif path.is_dir():
             h.update(f"D {rel}\0".encode())
     return h.hexdigest()
+
+
+def _require_grade(content: Path, manifest: RepoManifest, ids: list[str] | None) -> None:
+    """Refuse the selected tasks when one needs ``entry_points.grade`` and the manifest has none."""
+    from dokimi.repos.manifest import ManifestError, TaskSummary, grade_problems
+    from dokimi.repos.workspace import PrepError, load_tasks
+
+    try:
+        tasks = load_tasks(content, manifest, ids)
+    except (OSError, ValueError, PrepError):
+        return  # reported where the run loads its tasks
+    graders = [(t.id, str(t.raw.get("grader") or "") if isinstance(t.raw, dict) else "") for t in tasks]
+    problems = grade_problems(manifest, [TaskSummary(i, "", "", g, ()) for i, g in graders])
+    if problems:
+        raise ManifestError(manifest.path, problems)
 
 
 def _uses_builtin_graders(content: Path, manifest: RepoManifest) -> bool:
@@ -190,6 +207,40 @@ def cmd_repo_tasks_check(args: argparse.Namespace) -> None:
         sys.exit(1)
     if len(bad) == len(results):  # --allow-unsupported passed every task by: none was checked
         print(f"✗ incomplete: no task passed the self-check (0 ok, {len(allowed)} unsupported)", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_repo_tasks_replay(args: argparse.Namespace) -> None:
+    """One dokimi:review_replay task per merged PR of a recorded threads file (contract §4.6; no LLM, no GitHub)."""
+    from dokimi.repos import RepoSource, open_source
+    from dokimi.repos.replay import DEFAULT_PROMPT, History, Options, build_all, read_threads
+    from dokimi.repos.workspace import source_git_dir
+
+    from .repo import _cache_dir, _load_manifest
+
+    try:
+        prs = read_threads(Path(args.threads))
+        prompt = Path(args.prompt_file).read_text(encoding="utf-8").strip() if args.prompt_file else DEFAULT_PROMPT
+        if not prompt:
+            raise ValueError(f"the prompt file {args.prompt_file} is empty")
+        source = RepoSource.parse(args.source)
+        tree = open_source(source, _cache_dir(args))
+        manifest = _load_manifest(tree, args)
+        opts = Options(out=Path(args.out), window=args.window, prompt=prompt, force=args.force, fetch=source.remote)
+        outcomes = build_all(History(source_git_dir(source, tree, _cache_dir(args))), manifest, prs, opts)
+    except _errors() as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(1)
+    for o in outcomes:
+        what = f"{o.status} {o.task}: {o.n_gold} gold thread(s), {o.n_addressed} addressed" \
+            if o.status == "written" else f"{o.status}{f' {o.task}' if o.task else ''}: {o.reason}"
+        print(f"PR {o.pr}: {what}")
+        for note in o.notes:
+            print(f"  {note}")
+    n = {k: sum(o.status == k for o in outcomes) for k in ("written", "kept", "skipped")}
+    print(f"{n['written']} task(s) written, {n['kept']} kept, {n['skipped']} pull request(s) skipped; in {opts.out}")
+    if not n["written"] and not n["kept"]:
+        print("✗ no pull request gave a task", file=sys.stderr)
         sys.exit(1)
 
 
@@ -349,7 +400,8 @@ def cmd_repo_compare(args: argparse.Namespace) -> None:
             sys.exit(1)
     arms = [a for spec in args.arm for a in spec.split(",") if a] if args.arm else None
     try:
-        summary = compare(dirs, args.baseline, arms, args.model, tuple(args.metric or ()))
+        summary = compare(dirs, args.baseline, arms, args.model, tuple(args.metric or ()),
+                          pass_k=args.pass_k, path_stability=args.path_stability)
     except CompareError as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
@@ -394,7 +446,7 @@ def _common(p: argparse.ArgumentParser, source_help: str, cache_help: str, posit
 
 
 def register(repo_sub, positive_int, source_help: str, cache_help: str) -> None:
-    tasks_p = repo_sub.add_parser("tasks", help="Task self-checks (no LLM)")
+    tasks_p = repo_sub.add_parser("tasks", help="Task self-checks, and review tasks built from past reviews (no LLM)")
     tasks_sub = tasks_p.add_subparsers(dest="repo_tasks_cmd", required=True)
     check_p = tasks_sub.add_parser(
         "check", help="Per task: grade on the untouched workspace must fail the gate, oracle then grade must "
@@ -413,6 +465,32 @@ def register(repo_sub, positive_int, source_help: str, cache_help: str) -> None:
                          "which no task is ok")
     check_p.add_argument("--out", default="repo-check", help="Work directory (default: repo-check)")
     check_p.set_defaults(func=cmd_repo_tasks_check)
+
+    replay_p = tasks_sub.add_parser(
+        "replay", help="Write one dokimi:review_replay task per merged pull request of a threads file `gh api "
+        "graphql` wrote: the change as reviewed, and gold.json from the reviewers' threads on its lines. No "
+        "LLM and no GitHub call. Exits 1 when no pull request gave a task, and on an error that is not one "
+        "pull request's own (the threads file, the source, the manifest, the prompt file, writing a task)")
+    replay_p.add_argument("source", help=source_help)
+    replay_p.add_argument("--threads", required=True,
+                          help="JSON holding the merged pull requests with their reviewThreads, as the query in "
+                          "the contract (§4.6) returns them; pages of --paginate --slurp are read too")
+    replay_p.add_argument("--out", required=True,
+                          help="Directory that gets one <task id>/ per pull request, usually the manifest's `tasks`")
+    replay_p.add_argument("--manifest", default=".agent-eval/repo-eval.yaml",
+                          help="Manifest path relative to the repository root: its guidance globs and eval_dir "
+                          "are left out of every patch")
+    replay_p.add_argument("--manifest-file", default=None, dest="manifest_file",
+                          help="Read the manifest from this local file instead of from the tree")
+    replay_p.add_argument("--window", type=positive_int, default=5,
+                          help="task.json `window`, and how near a thread's line a later commit of the PR must "
+                          "change the file for `addressed` (default 5)")
+    replay_p.add_argument("--prompt-file", default=None, dest="prompt_file",
+                          help="The agent's prompt (default: a review prompt asking for the findings JSON)")
+    replay_p.add_argument("--force", action="store_true",
+                          help="Rewrite a task directory that has a task.json (default: keep it and its edits)")
+    replay_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
+    replay_p.set_defaults(func=cmd_repo_tasks_replay)
 
     run_p = repo_sub.add_parser(
         "run", help="Run an agent per (task, arm, model, rep) in the image and grade each run; one "
@@ -470,5 +548,9 @@ def register(repo_sub, positive_int, source_help: str, cache_help: str) -> None:
     compare_p.add_argument("--model", action="append", default=None, help="Only this model; repeatable")
     compare_p.add_argument("--metric", action="append", default=None,
                            help="Also compare this numeric or boolean grade.json metric; repeatable")
+    compare_p.add_argument("--pass-k", type=positive_int, default=None, dest="pass_k", metavar="K",
+                           help="Also compare pass^K: the chance K cells of a task all pass its gate")
+    compare_p.add_argument("--path-stability", action="store_true", dest="path_stability",
+                           help="Also compare path_distance: how much the tool paths of a task's cells differ")
     compare_p.add_argument("--json", action="store_true", help="Print the comparison as JSON")
     compare_p.set_defaults(func=cmd_repo_compare)

@@ -93,6 +93,19 @@ def test_dokimi_egress_widens_the_agent_solve_into_an_allowlist(tmp_path):
     assert resolve(task).solve.mode == "none"  # the oracle is not the agent
 
 
+@pytest.mark.parametrize("mode, want", [("Public", "public"), ("No-Network", "none")])  # a mode, an alias
+def test_a_task_network_mode_is_read_whatever_its_case(tmp_path, mode, want):
+    task = load_task(_task(tmp_path, f'[environment]\nnetwork_mode = "{mode}"\n'))
+    assert resolve(task).verify.mode == want
+
+
+def test_a_single_host_given_as_a_string_is_one_host_not_its_letters(tmp_path):
+    allowed = '[environment]\nnetwork_mode = "allowlist"\nallowed_hosts = "pypi.org"\n'
+    assert resolve(load_task(_task(tmp_path / "a", allowed))).verify.hosts == ("pypi.org:443",)
+    egress = load_task(_task(tmp_path / "e", '[environment]\negress = "huggingface.co"\n'))
+    assert resolve(egress, agent=True).solve.hosts == ("huggingface.co:443",)
+
+
 def test_cli_overrides_win_over_the_task(tmp_path):
     task = load_task(_task(tmp_path, '[environment]\nnetwork_mode = "public"\n'))
     plan = resolve(task, ["verify=none", "solve=allowlist:httpbin.org:80"])
@@ -178,6 +191,7 @@ def test_an_allowlisted_verifier_goes_through_its_own_sidecar(tmp_path):
     assert side[side.index("--allow") + 1] == "files.pythonhosted.org:443,pypi.org:443"
     verify = args[_index(args, _exec_of("test.sh"))]
     assert "HTTPS_PROXY=http://egress:3128" in verify
+    assert "NO_PROXY=localhost,127.0.0.1,::1" in verify and "no_proxy=localhost,127.0.0.1,::1" in verify
     oracle = args[_index(args, _exec_of("solve.sh"))]
     assert not any("PROXY" in x for x in oracle)
     assert metrics["network"]["verify_egress"]["status"] == "ok"
@@ -213,7 +227,49 @@ def test_a_verify_sidecar_that_never_gets_ready_is_removed(tmp_path, monkeypatch
     result = harness.run(load_task(_task(tmp_path)), output_dir=tmp_path / "out")
     assert "-verify did not start" in result.metrics["error"]
     started = _index(cli.args, lambda a: a[0] == "start" and a[-1].endswith("-verify"))
-    assert any(a[:2] == ["rm", "-f"] and a[-1].endswith("-verify") for a in cli.args[started:])
+    # removed once: close() leaves a sidecar it saw removed alone
+    assert sum(a[:2] == ["rm", "-f"] and a[-1].endswith("-verify") for a in cli.args[started:]) == 1
+
+
+def test_a_verify_sidecar_whose_failed_start_cannot_be_removed_is_retried_by_close(tmp_path, monkeypatch):
+    monkeypatch.setattr("dokimi.harnesses.container_agent.time.sleep", lambda _s: None)
+
+    def stuck(call):
+        if call.argv[-1].endswith("-verify") and call.argv[1] in ("logs", "rm"):
+            return reply("") if call.argv[1] == "logs" else reply(timed_out=True)
+        return None
+
+    cli = DockerCLI(answer=stuck)
+    harness = replace(create_harness("docker-oracle", runner=cli), network=("verify=allowlist:pypi.org",))
+    result = harness.run(load_task(_task(tmp_path)), output_dir=tmp_path / "out")
+    assert "-verify did not start" in result.metrics["error"]
+    started = _index(cli.args, lambda a: a[0] == "start" and a[-1].endswith("-verify"))
+    network_rm = max(i for i, a in enumerate(cli.args) if a[:2] == ["network", "rm"])
+    removals = [i for i, a in enumerate(cli.args) if a[:2] == ["rm", "-f"] and a[-1].endswith("-verify")]
+    # the failed start's own removal, then close()'s retry, both before the network goes
+    assert len([i for i in removals if started < i < network_rm]) == 2
+
+
+def test_open_clears_a_verify_sidecar_a_crashed_run_left(tmp_path):
+    cli, _ = _oracle(tmp_path, "verify=allowlist:pypi.org")
+    create = _index(cli.args, lambda a: a[:3] == ["network", "create", "--internal"])
+    assert any(a[:2] == ["rm", "-f"] and a[-1].endswith("-verify") for a in cli.args[:create])
+
+
+def test_a_verify_sidecar_removal_that_times_out_keeps_the_verdict_and_is_retried(tmp_path):
+    def slow_removal(call):
+        return reply(timed_out=True) if call.argv[1] == "rm" and call.argv[-1].endswith("-verify") else None
+
+    cli = DockerCLI(answer=slow_removal)
+    harness = replace(create_harness("docker-oracle", runner=cli), network=("verify=allowlist:pypi.org",))
+    result = harness.run(load_task(_task(tmp_path)), output_dir=tmp_path / "out")
+    assert (result.returncode, result.reward) == (0, 1.0)  # the verifier had finished: its verdict stands
+    assert result.metrics["network"]["verify_egress"]["status"] == "ok"
+    verified = _index(cli.args, _exec_of("test.sh"))
+    removals = [i for i, a in enumerate(cli.args) if a[:2] == ["rm", "-f"] and a[-1].endswith("-verify")]
+    network_rm = max(i for i, a in enumerate(cli.args) if a[:2] == ["network", "rm"])
+    # stopped after the verifier, then retried by close() before the network goes
+    assert len([i for i in removals if verified < i < network_rm]) == 2 and removals[-1] < network_rm
 
 
 def test_build_none_builds_offline(tmp_path):

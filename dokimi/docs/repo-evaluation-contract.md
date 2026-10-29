@@ -194,6 +194,10 @@ tasks: dev/agent_evals/tasks
 explore_tasks: null                       # optional ExploreBench YAML directory
 
 build_systems: [bazel, make]              # selects L0 claim-check adapters
+
+process_metrics:                          # optional repository counters, result.json `process.counters` (§4.1)
+  bazel_cmds: '\bbazel(?:isk)?\b'          # a plain regex searches the command text
+  icpx_missing: {regex: "icpx is not found", match: output}   # match: text (default), output or any
 ```
 
 Rules:
@@ -202,7 +206,18 @@ Rules:
 - `eval_dir`, `tasks` and `entry_points` come together or not at all. Without them the
   manifest is *guidance-only*: `scan` and `reach` run on it and `validate` checks its
   globs, while `tasks check` and `run` refuse it. `image` and `explore_tasks` need
-  `eval_dir`.
+  `eval_dir`, and so does `process_metrics`.
+- `entry_points.grade` is required only when some task's `grader` does not
+  start with `dokimi:` (a grader built into the framework); `repo validate`
+  names the tasks that need it.
+- `process_metrics` maps a name (letters, digits, `_`; not
+  starting with a digit) to a Python regex,
+  given as a string or as `{regex: <regex>, match: text|output|any}`. For each
+  name the framework counts the `command` events of the run whose `text`
+  (default), `output` or either contains a match (`re.search`); denied commands
+  count too, since the agent asked for them, but a denied command is searched in
+  its `text` only (its `output` is the hook's refusal message). `repo validate` refuses a regex
+  that does not compile.
 - `eval_dir` is a proper subdirectory, and `tasks` and `explore_tasks` sit inside it: it is the
   one directory deleted from every workspace (§3).
 - `{eval_dir}`, `{source_dir}`, `{run_dir}`, `{out}` and `{task}` are the only
@@ -405,6 +420,20 @@ Code's `modelUsage`), `main` when the harness reported the parent's only, and
 `null` when it reported none. `subagent_calls` counts the parent's and
 subagents' `Agent`/`Task` calls; `null` when the harness wrote no result record.
 
+`result.json` `process` holds what the framework counts in the events, the
+parent's and subagents' together, so a grader need not:
+
+| Key | Meaning |
+|---|---|
+| `tool_calls` | every event: each tool call the agent made |
+| `commands` | `command` events |
+| `failed_commands` | commands not denied whose `rc` is neither `0` nor `null` |
+| `denied_commands` | commands with `denied: true` (a hook or the harness's permissions refused them) |
+| `guidance_read` | sorted, distinct workspace paths (normalized: `./a`, `a/../b`; not `~`) of `read` events (the Read tool only, in a Claude Code trace), neither denied nor failed (`rc` 1: the file does not exist), that `guidance.globs` match. Guidance opened through Bash (`cat AGENTS.md`) is not counted, so `[]` means no Read-tool read; to count it, add a `process_metrics` counter on the command text (§2), which also counts denied commands, unlike this row |
+| `counters` | each `process_metrics` name (§2) and its count |
+
+`process` is `null` when the trace could not be read, the agent left none (no event and no result record), or computing the metrics failed (the error is in `agent.trace_errors`).
+
 A cell of an arm that installs skills also has a `skills` object in
 `result.json`: `measured`, `skills_installed` (the installed skill names),
 `skills_used` (the installed skills the agent called with the `Skill` tool or
@@ -565,8 +594,8 @@ A review task with `pass: null` is scored, not gated: give it `score`. A `gate`
 on its metrics is not applied (`success` is null), and without `score` the run
 is a grader failure. A clean-diff control (no seeds) has `recall: null`, so it
 takes no `score`; its gate is the default `["pass"]`. The manifest's
-`entry_points.grade` is still required (`repo_manifest.v1`), even when every
-task uses a built-in grader.
+`entry_points.grade` is optional when every task's `grader` starts with
+`dokimi:`.
 
 Both review graders read the answer the same way. Its last parseable
 ` ```json ` fence (one nesting arrays or objects more than 100 deep counts
@@ -614,6 +643,146 @@ review thread of a merged PR, anchored on a line of the reviewed revision.
   thread, a lower bound on precision. Humans miss problems and raise
   non-defects, so neither is a verdict.
 - The oracle answer is one finding per thread, at its anchor.
+- `repo tasks replay` writes these tasks from recorded review threads (§4.6).
+
+### 4.6 Replay tasks from review threads
+
+`repo tasks replay` writes `dokimi:review_replay` tasks (§4.5) from the review
+threads of merged pull requests, so `gold.json` is not written by hand. It
+makes no GitHub call: the threads come from a file `gh api graphql` wrote, so a
+private repository works the same way and the command needs no network for a
+local source.
+
+```bash
+# a window of merged PRs with their threads; --slurp writes the pages as one JSON list
+gh api graphql --paginate --slurp -F query=@replay-threads.graphql \
+    -F q='repo:IntelPython/dpnp is:pr is:merged merged:2026-10-01..2026-10-27' > threads.json
+python cli.py repo tasks replay ~/dpnp --threads threads.json --out ~/dpnp/.agent-eval/tasks
+```
+
+`replay-threads.graphql` asks for the fields the command reads. A search
+returns at most 1000 pull requests, so split a larger window by date. The
+query reads up to 100 threads per pull request and 50 comments per thread;
+raise `first:` for a pull request with more.
+
+```graphql
+query($q: String!, $endCursor: String) {
+  search(query: $q, type: ISSUE, first: 10, after: $endCursor) {
+    pageInfo { hasNextPage endCursor }
+    nodes {
+      ... on PullRequest {
+        number title url author { login __typename }
+        headRefOid mergeCommit { oid }
+        reviewThreads(first: 100) {
+          nodes {
+            path originalLine diffSide subjectType
+            comments(first: 50) {
+              nodes { author { login __typename } body createdAt url originalCommit { oid } }
+            }
+          }
+        }
+        reviews(first: 50) { nodes { author { login __typename } body } }
+      }
+    }
+  }
+}
+```
+
+Any JSON holding pull request objects with `number` and `reviewThreads` is
+read: one response, the pages `--paginate --slurp` writes, or a list of pull
+requests. A pull request on two pages is read once. A commit that is not given
+as a full 40- or 64-character hex SHA counts as missing.
+
+**Gold threads.** A thread is gold when its first comment was written by
+someone other than the PR's author and not by a bot (`__typename` `Bot`, or a
+login ending in `[bot]`), on a line of the new file (`subjectType` other than
+`FILE`, `diffSide` other than `LEFT`, an `originalLine`), and names its
+`originalCommit`. Every
+other thread is listed with the reason, and so is every non-empty review body
+by a reviewer: it has no line and is never gold.
+
+**One task per pull request**, in `<out>/review_replay_pr<number>/`:
+
+- The reviewed revision is the `originalCommit` most gold threads were written
+  on (on a tie, the one with the latest comment). `base` is its merge base with
+  `mergeCommit^1`, the base branch as the PR merged. That holds for a squash,
+  merge-commit or rebase merge; a PR merged by fast-forward (`mergeCommit` is
+  `headRefOid`) is skipped, since its `mergeCommit^1` is one of its own commits.
+- `change.patch` is the diff from `base` to the reviewed revision as one commit
+  titled with the PR's title, binary files included. `git am` strips the CR at
+  the end of each line of a plain mail, so a diff holding a CR (a file with
+  CRLF line ends) is written base64-encoded, which keeps it.
+- `task.json` has `family: review`, `grader: dokimi:review_replay`,
+  `score: {metric: recall, max: 1.0}`, `review_patch`, `gold`, `window`
+  (`--window`, default 5) and the prompt (`--prompt-file` replaces the default,
+  which asks for the findings JSON of §4.5). For the reader it adds
+  `source_pr`, `source_url`, `reviewed_commit`, `merge_commit` and
+  `left_out_files`.
+- `gold.json` holds `{id, file, line, kind, comment, addressed, reply, url}`
+  per thread. `id` is `pr<number>-t<n>`, `n` being the thread's position among
+  all the PR's threads, so ids stay the same when a thread is dropped. `kind`
+  is `unknown`, and `reply` is the PR author's first later comment in the
+  thread.
+
+GitHub names a thread's file as it is now, so the file's name at the
+thread's `originalCommit` is followed back through its renames from
+`headRefOid`, one commit at a time (`git log --follow`). A thread written on
+another revision is carried to the reviewed one commit by commit along the
+first-parent path between the two, or through the one diff between them when
+history was rewritten. It is left out when its line changed on the way, and so
+is a thread whose line is not in the file at the reviewed revision. A thread
+that a commit on the first-parent path up to the reviewed revision answered (as
+`addressed` reads it) is left out too: the change under review holds the fix.
+
+**Guidance and `eval_dir` are left out.** Workspace preparation applies the
+arm before the review patch (§3, steps 5 and 7): `guidance:none` deletes the
+files the guidance globs match and `guidance:rev:` replaces them, so a hunk on
+one would not apply, and a guidance file the PR adds would reach every arm.
+`eval_dir` is never in a workspace. Files of either kind are left out of the
+patch and listed in `left_out_files`, and their threads are left out of
+`gold.json`. A pull request that changes nothing else gets no task.
+
+**`addressed`** is true when one of the PR's own commits after the thread
+changed its file within `window` lines of its line; deleting the file is such
+a change. The command walks the first-parent commits from the thread's
+`originalCommit` to `headRefOid` and carries the line through each. A commit
+counts when it has one parent and no bot wrote it (`[bot]` in its author's name
+or email, as in pre-commit.ci's fixes); a commit GitHub made from a reviewer's
+suggestion counts, since accepting it is the response. Any other commit only
+moves the line: a merge of the base branch into the PR does, and the commits it
+brings in are not on that path, so a change another PR made next to the line is
+not a response. When such a commit rewrites the line itself, the walk stops
+there with `addressed` false and the thread is listed for a maintainer to
+check. A fix that a later merge undid is still addressed, since the author
+accepted the comment. When no first-parent path leads from the thread's
+`originalCommit` to `headRefOid` (a force-push rewrote history, or the revision
+is reached only through a merge), the diff between the two is read instead,
+and the thread is listed too.
+
+**Before a run** a maintainer sets `kind`, and sets `addressed` to false where
+`reply` declines the comment ("it's intended") but a commit changed the lines
+nearby for another reason. A task directory that has a `task.json` is kept as
+it is on the next run; `--force` rewrites it.
+
+**Commits.** For a remote source the commits the clone lacks are fetched from
+`origin` by SHA: the reviewed revision of a squash-merged PR is reachable only
+from `refs/pull/<number>/head`, which GitHub serves. A local repository is read
+as it is, so fetch those refs first, for example
+`git fetch origin '+refs/pull/*/head:refs/remotes/origin/pull/*'`. A thread
+whose revision is still missing is listed and left out.
+
+The command exits 1 when the threads file cannot be read or holds no pull
+request, when no pull request gave a task (written, or kept from before), and
+on an error that is not one pull request's own: a malformed pull request, the
+source, the manifest, the prompt file, or a task it cannot write. Each prints
+`✗` and the reason. A git failure while one pull request is built skips that
+pull request with the reason.
+`repo tasks check` then runs the tasks, and two arms measure the guidance
+(§9):
+
+```bash
+python cli.py repo compare repo-runs/replay --baseline guidance:none --metric recall_addressed
+```
 
 ## 5. Aligning oneDAL `dev/agent_evals` (uxlfoundation/oneDAL#3818)
 
@@ -815,11 +984,11 @@ in one request.
 
 | Check | Claims |
 |---|---|
-| generic | Markdown links (inline and reference definitions, `<angle-bracket>` targets; relative, and blob/tree links to `source.url`), paths and globs in code spans (see below), identifiers (a word in some tracked file that is not prose; a missing ALL_CAPS name is `unresolved`, since a tool outside the tree may read it), `python <script>` paths, a command wrapped in backticks inside a shell fence |
+| generic | Markdown links (inline and reference definitions, `<angle-bracket>` targets; relative, and blob/tree links to `source.url`), paths and globs in code spans (see below), identifiers (a word in some tracked file that is not prose; a missing ALL_CAPS name is `unresolved`, since a tool outside the tree may read it), `python <script>` paths, a command wrapped in backticks inside a shell fence, Python versions on a line that names a workflow, against what its jobs run (see below) |
 | `bazel` | `--config` values against `.bazelrc` and its imports, flag aliases, labels against the target and output names (`name`, `outs`, and the files of a top-level `exports_files([...])`) that the package's `BUILD.bazel`, else `BUILD`, spells out in either quote style (a package that calls a macro or computes a name, `"t_" + s`, a comprehension or `exports_files(glob(...))`, gives `unresolved`, not `fail`), macros and keyword arguments in Starlark fences against tracked `.bzl` files, `load()` symbols against the public top-level names (a `def` or an assignment) of the in-tree `.bzl` an absolute label names, labels of an external repository against its BUILD file when the tree holds one (see below), and `@<module>//` alone as this repository |
 | `make` | targets against the rules of every makefile (a `%:` catch-all or a rule named by a variable gives `unresolved`), `VAR=value` against the makefiles |
 | `cmake` | `-D` variables against the CMake sources (CMake built-ins and `<Pkg>_DIR`/`_ROOT` pass), `--preset` against `CMake(User)Presets.json`, `-S <dir>` against a `CMakeLists.txt` in that directory (`ok` when any ancestor directory of the guidance file holds it; `fail` only after a literal `cd`, and there a miss inside a declared submodule is `unresolved`; without a `cd` the directory the command runs in is not known, so a miss is `unresolved`; a glob such as `examples/*` is not a literal directory and gets no claim; a `%VAR%`, a drive path such as `C:/x`, and a `-S` word holding a backslash get no claim) |
-| `pytest` | path arguments and `::test` nodes |
+| `pytest` | path arguments and `::test` nodes; with `--pyargs`, a dotted name that is no path in the tree is a module: `pkg.tests` is `pkg/tests.py` or `pkg/tests/__init__.py` below any directory (a directory with no `__init__.py` is no module, as in pytest by default). `ok` means that file is in the tree, not that it imports without an install (a `src/` layout needs one); `fail` when the tree holds a package the name lies in but not the module (`pkg.tests.test_a` with `pkg/__init__.py` and no `pkg/tests/`), and that package is where an import would find it: at the root or in `src/`, of the tree or of a directory from the guidance file up; `unresolved` when the tree holds no such package (an installed one), or holds it only deeper (`docs/examples/pkg/`, a vendored copy), where it may not be the one imported |
 | `pre-commit` | `pre-commit run <hook>` against hook ids and aliases |
 
 `build_systems` picks the adapters. Without it they are detected from the
@@ -924,6 +1093,45 @@ name a branch). `refs/heads/` and `refs/tags/` belong to the ref, and a link to
 a ref alone is not checked. A
 link to a directory inside the tree is followed, as in a checkout, so
 `linkdir/core.py` with `linkdir -> src/pkg` is `ok`.
+
+A line that names a workflow of the tree (a code span or a link ending in
+`.yml` or `.yaml` under `.github/workflows/`, a blob or tree link to
+`source.url` too; a bare file name that several workflows end in is the one in
+`.github/workflows/` itself, else none of them) is also checked for the Python
+versions it gives. A run of versions that `py`, `Python` or `cp` starts is a
+`python_versions` claim when it is a range written with a dash (`py3.12-3.14t`,
+`Python 3.12–3.14`) or a list of two or more (`Python 3.12, 3.13 and 3.14`); a
+single version gets no claim, `to` is no range ("moved from Python 3.11 to
+3.13"), and a `cp` tag starts no range (`cp313-cp313` is the two tags of a
+wheel's name). A version with no marker in front needs its dot (`30` in
+"Python 3.12, 3.13, 30 min timeout" is no version), and the workflow's own
+name, in a code span or a link text, is no version. What the workflow runs is
+the values of every matrix key whose name holds `python` (`3.12`, `cp312` or
+`py312`), the keys of `include` entries too, less a value that `exclude` takes
+out of every combination of the matrix, and the `python-version` its steps set
+up (`actions/setup-python`, or another action's input of that name;
+`${{ matrix.<key> }}` there makes `<key>` a Python key), over its jobs and the
+workflows of this tree its jobs call with `uses: ./…`. In a called workflow, a
+step's `${{ inputs.<name> }}` is what the calling job passes as `<name>` in its
+`with:`: a version it pins, or its own `${{ matrix.<key> }}`, which makes `<key>`
+a Python key of the caller's matrix. A pre-release (`3.14.0-rc.1`, `3.14.0a1`,
+`3.14-dev`) runs its minor version, and a `3.14t` value or a `cp314t` tag in
+any matrix string is a free-threaded build, less a value that `exclude` takes
+out. A range is `ok` when its ends are the lowest and highest version the
+workflow runs (both ends written with `t`: of the free-threaded builds), a list
+when each version runs, and a version written with `t` must run free-threaded;
+anything else is `fail`. A range that holds for the matrices and not with the
+versions setup steps pin, or with them and not for the matrices alone (a lint
+or docs job on another Python), is `unresolved`, since the range may count that
+job or leave it out on purpose; with no matrix version, the pins are what the
+workflow runs. A matrix, an `include`, an `exclude` or a step version computed
+from an expression (`${{ fromJSON(…) }}`), an `exclude` over more than 256
+combinations or too large to read, a Python value that names no one version (`3.x`, `>=3.12`), a
+`python-version-file` with no `python-version`, an input a called workflow
+sets up Python from that its caller does not pass, a call to another
+repository's workflow or to one the tree lacks, a workflow that is not valid
+YAML, and a workflow with no Python version make the claim `unresolved`. Python that a job installs any other
+way (a `run:` step, a container image) is not read.
 
 Not checked by L0 (a follow-up): the `#fragment` of a link (`docs/x.md#setup`
 is checked as `docs/x.md`; a bare `#anchor` is skipped), and HTML in Markdown
@@ -1061,6 +1269,14 @@ python cli.py repo report repo-runs/pilot
 python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric root_cause_fixed
 ```
 
+```bash
+# review tasks from the threads of merged PRs (§4.6): no LLM, no docker, no GitHub call
+python cli.py repo tasks replay ~/dpnp --threads threads.json --out ~/dpnp/.agent-eval/tasks
+python cli.py repo run ~/dpnp --task review_replay_pr3107 --arm guidance:none,guidance:raw \
+    --model claude-sonnet-5-5 --batch replay --agent-network host
+python cli.py repo compare repo-runs/replay --baseline guidance:none --metric recall_addressed
+```
+
 - Each cell holds the §4 inputs plus `agent.stdout` (the raw trace) and
   `result.json`, the framework's verdict. A cell with `result.json` is skipped
   on a rerun unless `--force`; a cell without one is reported as missing, not
@@ -1106,15 +1322,21 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
 - The report gives, per (task, arm, model), passes over finished cells with a
   Wilson 95% interval (score-only tasks: the mean of `score.metric`), grader
   failures (counted as failures too), missing cells, and mean cost and turns.
+  When cells carry `result.json` `process` (§4.1), a line under the row gives
+  the mean of each count over the cells that have it (`guidance_read` counted
+  as paths; `counter:<name>` for `process_metrics`); a `null` or absent
+  `process` is left out, not counted as zero.
 - `repo compare` reduces cells to one value per (task, arm, model) first:
   repetitions share a task's difficulty and are not paired across arms, so the
   task is the unit. Per treatment arm, model and measure (gate share, score,
-  cost, turns, each `--metric` from `grade.json`) it gives the mean per-task
+  cost, turns, each `--metric` from `grade.json`, and each `process` count a
+  compared cell reports as `process:<key>` or `counter:<name>`) it gives the mean per-task
   delta against the baseline with a 95% interval over tasks (a bootstrap for
-  gate and score, a t interval for cost, turns and metrics, `-` for a single
+  gate and score, a t interval for cost, turns, metrics and process counts, `-` for a single
   task), the tasks up, down and tied, and a two-sided sign-flip permutation p (exact up to 16
   changed tasks; at one cell per task and arm it equals McNemar's exact test).
-  Holm's correction runs over the gate and score comparisons of one call; the
+  A `process` count only one arm reports for the shared tasks of a
+  (treatment, model) is not compared; a warning names it. Holm's correction runs over the gate and score comparisons of one call; the
   rest are descriptive. A gate or score comparison carries `headroom`:
   `ceiling` (both arms at 1.0 or the task's `score.max` on every paired
   task), `floor` (both at 0 on every one), `near_ceiling` (the baseline at
@@ -1137,6 +1359,15 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
   unpaired with the reason: no cells in one arm, a task that is gated in one
   arm and score-only in the other, or a measure (such as a metric) one arm
   lacks. A metric's `n_baseline`/`n_treatment` count the cells that report it.
+  With repeated cells per task (from `repo run --reps N`), two descriptive measures read the repetitions themselves:
+  `--pass-k K` adds `pass^K`, the chance K of a task's cells all pass its gate
+  (`C(c,K)/C(n,K)`; a task with fewer than K cells has none), so an arm that
+  moves a task from 2/3 to 3/3 is told apart from one that moves the rate
+  without making any task reliable; `--path-stability` adds `path_distance`,
+  the mean order distance of the cells' tool paths from `events.jsonl` (0 same
+  steps in the same order, 1 nothing in common; see
+  [run-consistency.md](run-consistency.md)). A steadier path is not a better
+  one: read it beside the gate.
   The output names the batches behind each selector and each batch's pin
   (`tree`, `eval_dir`, `image`, `graders` from `_eval/batch.json`) with its cells'
   harness versions, and warns when a bare `ARM` pools several batches, when a

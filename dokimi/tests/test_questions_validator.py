@@ -583,3 +583,43 @@ class TestBackendSelectionEdges:
                                     embedding_model="all-mpnet-base-v2")
         assert "calibrated for" in caplog.text
         assert val.similarity_threshold == EMBEDDING_BACKENDS["local"][1]
+
+
+class TestLlmKeyRouting:
+    """The validator's LLM key is resolved by get_llm, through the real get_llm.
+
+    The litellm wrapper is patched so the test sees the key each provider gets.
+    OPENROUTER_API_KEY is only for openrouter.
+    """
+
+    @staticmethod
+    def _key_for(provider, env, api_key=None):
+        with patch('dokimi.questions.validator.LANGCHAIN_AVAILABLE', True), \
+             patch('dokimi.llm._GetLLMCompat') as compat, \
+             patch.dict('os.environ', env, clear=True):
+            QuestionValidator(llm_provider=provider, llm_model="some-model", api_key=api_key)
+        compat.assert_called_once()
+        return compat.call_args.kwargs["key"]
+
+    @pytest.mark.parametrize(
+        "provider", ["google", "google-vertex", "openai-codex", "amazon-bedrock"]
+    )
+    def test_openrouter_key_is_not_sent_to_another_provider(self, provider):
+        key = self._key_for(provider, {"OPENROUTER_API_KEY": "sk-or-secret"})
+        assert not key
+
+    def test_google_vertex_uses_gemini_key(self):
+        key = self._key_for("google-vertex", {"OPENROUTER_API_KEY": "sk-or-secret",
+                                              "GEMINI_API_KEY": "gem-key"})
+        assert key == "gem-key"
+
+    def test_openrouter_falls_back_to_its_own_key(self):
+        key = self._key_for("openrouter", {"OPENROUTER_API_KEY": "sk-or-secret"})
+        assert key == "sk-or-secret"
+
+    @pytest.mark.parametrize("provider", ["openrouter", "google-vertex"])
+    def test_an_explicit_key_beats_the_environment(self, provider):
+        # Pins `api_key or env` (not `env or api_key`) for openrouter, where
+        # both keys are read from the environment, and for the other providers.
+        env = {"OPENROUTER_API_KEY": "sk-or-secret", "GEMINI_API_KEY": "gem-key"}
+        assert self._key_for(provider, env, api_key="explicit-key") == "explicit-key"

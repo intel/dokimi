@@ -78,6 +78,56 @@ refused (a few hundred bytes of nested aliases expand without bound), and
 frontmatter nested too deeply to parse is a parse error. YAML and TOML dates
 and times become ISO strings, and YAML sets sorted lists.
 
+### SWE-bench rows: `tasks run --swe-bench`
+
+`python cli.py tasks run --swe-bench <rows.jsonl> --tasks <instance_id>[,...]
+--harnesses docker-oracle,docker-claude` runs SWE-bench rows (Lite, Verified,
+or any file with the same fields) with the `docker-*` harnesses; `--all`
+runs every row. Each row is staged under `<output-dir>/swe-bench-tasks/<id>/`
+as a task the harness already runs, by `dokimi/harnesses/swebench.py`:
+
+- environment: the prebuilt SWE-bench instance image
+  (`swebench/sweb.eval.x86_64.<id with __ as _1776_>:latest`, or the row's own
+  `image_name`/`docker_image`), with the checkout moved to `/app` and `/testbed`
+  left as a link to it. Nothing is built but that one layer; the first run pulls
+  the image (about 4 GB, 1-2.5 GB of it unique per instance).
+- oracle (`docker-oracle`): the row's gold `patch`, applied as SWE-bench applies
+  a prediction (`git apply`, then `patch --fuzz=5`).
+- verifier: SWE-bench's eval script (reinstall the repo, reset and apply
+  `test_patch`, run the repo's test command on the files it touches), then
+  `swebench_grade.py`, which parses the log with the repo's SWE-bench parser:
+  reward 1 only when every `FAIL_TO_PASS` and `PASS_TO_PASS` test passes.
+  Unlike upstream, a skipped `FAIL_TO_PASS` test (or a row with none) does
+  not resolve. The end of the eval log goes to `run.log`; the grader's exit
+  code is the verdict too.
+
+The image's `testbed` conda env is first on `PATH`, so an in-container agent's
+`python` and `pytest` are the repo's. A host-side agent
+(`docker-claude-host`) is refused: the instruction names container paths and
+the host has no `testbed` env.
+
+The per-repo test commands and parsers are a table,
+`dokimi/harnesses/swebench_specs.json`, generated from the `swebench`
+package by `scripts/gen_swebench_specs.py`; dokimi does not depend on
+`swebench`. Rows from a repo outside the table (SWE-bench Multilingual,
+SWE-smith, SWE-Gym repos) are refused with the repo's name, and so is a
+version the table lacks. The solve runs offline (see
+[Network policy](#network-policy)); the verifier gets an allowlist of
+`pypi.org` and `files.pythonhosted.org`, because the eval script's install
+step fetches build requirements and the packages a gold patch adds
+(`pylint-dev__pylint-4661`, `astropy__astropy-12907` fail offline).
+`--network verify=none` runs fully offline, `--network verify=public` gives
+the verifier upstream's network. A file is checked row by row before any task
+is written.
+
+`--all` skips the rows in `swebench.KNOWN_BAD`, whose gold patch fails in the
+prebuilt image under that default: `psf__requests-863`, `-1724`, `-1766`,
+`-1921`, `-1963`, `-2148`, `-2317` and `-2674` (their tests fetch httpbin.org),
+`sphinx-doc__sphinx-7985`, `-8269` and `-8475` (`test_build_linkcheck.py`
+checks live links), and the six Harbor's SWE-bench adapter lists as failing under its
+oracle (harbor 6099b8c, `adapters/swebench/README.md`, Known Issues). Naming
+one in `--tasks` still runs it.
+
 ### Other eval formats: `tasks inspect`
 
 `python cli.py tasks inspect <path> [--json] [--out FILE]` names the eval-task format of a
@@ -108,15 +158,15 @@ real files in each format, with their sources in its `MANIFEST.yaml`.
 | `harbor` | directory with `task.toml` | executable | Harbor-backed harnesses (unless Harbor would refuse it), `docker-*` (with `environment/Dockerfile`) |
 | `task-md` | directory with a BenchFlow `task.md` | executable | `benchflow*`, `docker-*` (with `environment/Dockerfile`) |
 | `terminal-bench-v1` | directory with `task.yaml` + `run-tests.sh` / `Dockerfile` / `solution.sh` | executable | `docker-*` run it as it is; `harbor`, `benchflow` through a cached Harbor export (not a `solution.yaml` task) |
-| `swe-bench` | JSON/JSONL rows with `instance_id`, `repo`, `base_commit`, `problem_statement` (`FAIL_TO_PASS`) | executable | none yet |
-| `inspect-samples` | JSON/JSONL/CSV rows with `input` and `target` (or the keys a `FieldSpec` names) | answer-only | none yet |
-| `inspect-task` | `.py` importing `inspect_ai` with a `@task` function | answer-only (executable with a `sandbox=`) | none yet |
-| `openai-evals` | JSONL rows with `input` (chat messages) and `ideal` | answer-only | none yet |
+| `swe-bench` | JSON/JSONL rows with `instance_id`, `repo`, `base_commit`, `problem_statement` (`FAIL_TO_PASS`) | executable | `docker-*` via `tasks run --swe-bench` (Python SWE-bench repos) |
+| `inspect-samples` | JSON/JSONL/CSV rows with `input` and `target` (or the keys a `FieldSpec` names) | answer-only | `questions import` ([answer-only formats](answer-formats.md)) |
+| `inspect-task` | `.py` importing `inspect_ai` with a `@task` function | answer-only (executable with a `sandbox=`) | `questions import` ([answer-only formats](answer-formats.md)) |
+| `openai-evals` | JSONL rows with `input` (chat messages) and `ideal` | answer-only | `questions import` ([answer-only formats](answer-formats.md)) |
 | `openai-evals-spec` | registry YAML with `class: evals.elsuite.*` run specs | answer-only | none yet |
-| `skill-creator-evals` | `evals.json` with `skill_name` and `evals[].prompt` | answer-only | none yet |
+| `skill-creator-evals` | `evals.json` with `skill_name` and `evals[].prompt` | answer-only | `questions import` ([answer-only formats](answer-formats.md)) |
+| `promptfoo` | `promptfooconfig*.yaml`/`.json`, or a config with `prompts`, `providers`/`targets` and `tests`/`scenarios`/`redteam` | answer-only | `questions import` ([answer-only formats](answer-formats.md)) |
 | `skill-creator-trigger` | rows with `query` and `should_trigger` | trigger | `catalog trigger-set` |
 | `skill-reach` | `QuerySet` (`queries[]` with `query_id`/`id`, `text`, `expected_skill`) | trigger | `catalog trigger-set` |
-| `promptfoo` | `promptfooconfig*.yaml`/`.json`, or a config with `prompts`, `providers`/`targets` and `tests`/`scenarios`/`redteam` | answer-only | none yet |
 | `promptfoo-tests` | CSV with `__expected` columns, or rows of `{vars, assert}` | answer-only | none yet |
 | `dokimi-questions` | questions.v1/v2 JSON | answer-only (trigger with `expected_skill`) | questions track |
 | `dokimi-explore-task` | YAML with `id`, `query` and `references[].path` | localization | explore track |
@@ -145,7 +195,8 @@ sets `deploy.resources.limits.memory`, which `docker compose` honours and
 dokimi reads as the task's own value. `DOKIMI_TBENCH_V1_MEMORY_MB` changes the
 8192 default. The Harbor export writes the same value to `task.toml`.
 
-`tasks list` and `tasks run` still read only the first three.
+`tasks list` and `tasks run` still read only the first three; `tasks run --swe-bench`
+also takes a SWE-bench file.
 
 The `docker-*` harnesses mount the oracle at `/solution` and `/oracle` and the
 verifier at `/tests` and `/verifier`, because a script written for one layout
@@ -290,6 +341,16 @@ The result is in `metrics.isolation_probe` and `isolation_probe.json`:
 - **Memory.** The agent's CLI and its tmpfs HOME run inside the task's
   cgroup, so they count against `environment.memory_mb` (about 100 MB for a
   short session); the host launch ran outside it.
+- **Capabilities.** Every `docker-*` task container, `docker-oracle` included,
+  starts with `--init`, `--cap-drop ALL`, `no-new-privileges` and `--pids-limit 32768`,
+  and gets back only `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `SETUID` and `SETGID`
+  (`TASK_CONTAINER_HARDENING` in `harnesses/container_agent.py`). Every other
+  capability Docker grants by default is dropped, so a step that needs one
+  fails: signalling another user's process (`KILL`), a raw socket (`NET_RAW`),
+  `mknod` (`MKNOD`), `chroot` (`SYS_CHROOT`). Without `FSETID`, `chmod g+s` on
+  a file whose group root is not in exits 0 and leaves the bit off. A port
+  below 1024 still binds: Docker sets the container's
+  `ip_unprivileged_port_start` to 0.
 - **Network.** The container sits on a per-run `--internal` Docker network,
   which has no route out. The agent reaches the LLM through an allowlisting
   CONNECT proxy (`harnesses/egress_proxy.py`, stdlib only). It runs in a

@@ -49,6 +49,7 @@ from pathlib import Path
 from typing import Callable, Iterable, Optional
 
 from dokimi import process
+from dokimi.repos.container import PIDS_LIMIT
 
 from . import egress_proxy
 from .agent_sandbox import (
@@ -83,6 +84,18 @@ LABEL = "dokimi.run"  # on the network, sidecar and task container: find leftove
 _FILE_VARS = ("NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "AWS_CA_BUNDLE",
               "GOOGLE_APPLICATION_CREDENTIALS", "AWS_SHARED_CREDENTIALS_FILE", "AWS_CONFIG_FILE")
 PROXY_PORT = 3128
+# The task container's hardening flags are the ones repos/container.py sets, --init included
+# (PID 1 reaps the orphans a step leaves behind). Unlike there, root here gets back the few
+# capabilities its own steps need: CHOWN and FOWNER (chown/chmod of the agent's tree) and
+# DAC_OVERRIDE (root writing the agent's files). SETUID/SETGID are for task scripts that drop
+# privileges (apt's _apt sandbox, su); the harness's own `exec -u` steps need neither.
+# KILL, NET_BIND_SERVICE and the rest stay dropped.
+TASK_CONTAINER_HARDENING = (
+    "--init", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+    "--pids-limit", str(PIDS_LIMIT),
+    "--cap-add", "CHOWN", "--cap-add", "DAC_OVERRIDE", "--cap-add", "FOWNER",
+    "--cap-add", "SETUID", "--cap-add", "SETGID",
+)
 _PROBE_TIMEOUT_SEC = 120.0
 DOCKER_STEP_TIMEOUT = 600.0  # a docker step without a budget of its own (cp, exec, inspect, ...)
 # The sidecar needs only a Python 3 interpreter. Pinned by digest (a tag moves, and
@@ -135,6 +148,7 @@ class ContainerSandbox:
     _log_read: bool = False  # a teardown read of the sidecar's log has succeeded
     _scratch: Optional[Path] = None
     runner: process.Runner = field(default=process.run, repr=False)  # starts the probe's docker exec
+    _verifier: Optional["ContainerSandbox"] = field(default=None, repr=False)  # close() retries its removal
 
     @classmethod
     def open(cls, run_id: str, docker: Docker, log, *, source_env: dict[str, str],
@@ -155,8 +169,9 @@ class ContainerSandbox:
         sandbox = cls(network=f"dokimi-net-{run_id}", proxy_name=f"dokimi-egress-{run_id}",
                       allow=sorted(set(allow)), binary=binary, files=files,
                       label=f"{LABEL}={run_id}", runner=runner)
-        # A crashed run with the same id may still hold the network: container first.
-        for leftover in (run_id, sandbox.proxy_name):
+        # A crashed run with the same id may still hold the network: containers first,
+        # its verifier sidecar too (a removal that timed out twice leaves it running).
+        for leftover in (run_id, sandbox.proxy_name, f"{sandbox.proxy_name}-verify"):
             docker(["rm", "-f", leftover], log, check=False)
         docker(["network", "rm", sandbox.network], log, check=False)
         docker(["network", "create", "--internal", "--label", sandbox.label, sandbox.network], log)
@@ -189,15 +204,17 @@ class ContainerSandbox:
     def verifier_sidecar(self, docker: Docker, log, allow: list[str]) -> "ContainerSandbox":
         """A fresh sidecar on this network for the verifier's allowlist, after :meth:`stop_proxy`.
 
-        Its own name and decision log; no LLM hosts. The caller stops it before :meth:`close`.
+        Its own name and decision log; no LLM hosts. The caller stops it once the verifier is
+        done (:meth:`stop_proxy_quietly`); :meth:`close` retries a removal that timed out.
         """
         side = ContainerSandbox(network=self.network, proxy_name=f"{self.proxy_name}-verify",
                                 allow=sorted(allow), binary=None, label=self.label, runner=self.runner)
         docker(["rm", "-f", side.proxy_name], log, check=False)
+        self._verifier = side  # before the start: close() retries a removal that times out below
         try:
             side._start_proxy(docker, log)
-        except BaseException:  # started, it holds the upstream proxy env and the network: close() can't see it
-            docker(["rm", "-f", side.proxy_name], log, check=False)
+        except BaseException:  # started, it holds the upstream proxy env and the network
+            side._stopped = not docker(["rm", "-f", side.proxy_name], log, check=False).timed_out
             raise
         return side
 
@@ -358,14 +375,21 @@ class ContainerSandbox:
             raise subprocess.TimeoutExpired(removed.argv, DOCKER_STEP_TIMEOUT)
         self._stopped = True
 
-    def close(self, docker: Docker, log, output_dir: Optional[Path]) -> None:
-        """Stop the sidecar, save its decisions as ``egress.jsonl``, drop the network.
-        No file when the log is unknown: an empty one would read as a clean run."""
+    def stop_proxy_quietly(self, docker: Docker, log) -> None:
+        """:meth:`stop_proxy` once nothing runs behind the sidecar: a removal that times out is
+        logged, not raised, and :meth:`close` retries it."""
         try:
             self.stop_proxy(docker, log)
         except subprocess.TimeoutExpired as exc:  # teardown is best-effort: go on to the network
             if log is not None:
-                log.write(f"\n[sidecar removal] timed out after {exc.timeout:g}s\n")
+                log.write(f"\n[sidecar removal] {self.proxy_name} timed out after {exc.timeout:g}s\n")
+
+    def close(self, docker: Docker, log, output_dir: Optional[Path]) -> None:
+        """Stop the sidecars, save the solve's decisions as ``egress.jsonl``, drop the network.
+        No file when the log is unknown: an empty one would read as a clean run."""
+        for side in (self._verifier, self):  # a verifier sidecar left running holds the network too
+            if side is not None:
+                side.stop_proxy_quietly(docker, log)
         if output_dir is not None and self.log_known:
             with (output_dir / "egress.jsonl").open("w", encoding="utf-8") as fh:
                 for row in self.log:

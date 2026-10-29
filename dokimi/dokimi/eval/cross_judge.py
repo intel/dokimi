@@ -49,6 +49,8 @@ comparisons; it is evidence the other one was never checked.
 
 from __future__ import annotations
 
+import logging
+import math
 import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -61,6 +63,8 @@ from dokimi.records import Answer, Record, RecordError, RecordLike, Run, arm_ans
 from dokimi.records import record as as_record
 from dokimi.records import records as as_records
 from dokimi.eval.stats import adjust_pvalues, mean_ci
+
+logger = logging.getLogger(__name__)
 
 ALPHA = 0.05
 
@@ -80,6 +84,23 @@ class Measure:
     #: "stored" when every score saw the stored material, "none" when none did,
     #: "mixed" when a stored measure's scores differ (no PASS validates it).
     context: str = "none"
+    #: Answers sent to the judge, how many it returned no score for, and why the
+    #: first of those failed. Zero for a measure read from a file.
+    asked: int = 0
+    unscored: int = 0
+    first_error: Optional[str] = None
+
+    def record(self, key: Tuple[Union[str, int], str], value: Optional[float], error: Optional[str]) -> None:
+        """Keep one judged answer's score; an *error* instead counts it as unscored."""
+        self.scores[key] = value
+        if error is not None:
+            self.unscored += 1
+            self.first_error = self.first_error or error
+
+    def unscored_note(self, name: Optional[str] = None) -> str:
+        """``<name> (<kind>): N of M answers unscored, first error: ...``; *name* defaults to the measure's."""
+        return (f"{name or self.name} ({self.kind}): {self.unscored} of {self.asked} answers unscored, "
+                f"first error: {self.first_error}")
 
     def versus(self, arm: str, baseline: str) -> Dict[str, Any]:
         pairs = [
@@ -234,20 +255,55 @@ def stored_measure(data: Dict[str, Any], name: Optional[str] = None) -> Optional
     return m if m.scores else None
 
 
+def _number(x: Any) -> float:
+    """A score or coverage from a result file: a finite JSON number, not a bool or a string.
+
+    Raises TypeError, ValueError, or OverflowError for an integer past a float's range."""
+    if isinstance(x, bool) or not isinstance(x, (int, float)):
+        raise TypeError(x)
+    value = float(x)
+    if not math.isfinite(value):
+        raise ValueError(x)
+    return value
+
+
 def coverage_measure(checklist: Dict[str, Any], name: str) -> Measure:
+    """An `eval checklist` report as a measure: each arm scores its coverage.
+
+    Raises ValueError naming the first question that is not ``{question_id, arms: {arm:
+    {coverage}}}`` with a finite number or null as the coverage.
+    """
     m = Measure(name=name, kind="coverage")
-    for q in checklist.get("questions") or []:
-        for arm, v in (q.get("arms") or {}).items():
-            m.scores[(q["question_id"], arm)] = v.get("coverage")
+    for i, q in enumerate(checklist.get("questions") or []):
+        try:
+            qid, arms = q["question_id"], q["arms"]
+            if qid is None or isinstance(qid, bool):
+                raise TypeError(qid)
+            for arm, v in arms.items():
+                coverage = v.get("coverage")
+                m.scores[(qid, arm)] = None if coverage is None else _number(coverage)
+        except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
+            raise ValueError(f"questions[{i}] is not a checklist question: a question_id and an arms "
+                             "object of {arm: {coverage: a finite number or null}}") from None
     return m
 
 
 def pairwise_measure(pairwise: Dict[str, Any], name: str, baseline_arm: str) -> Measure:
-    """An `eval pairwise` report as a measure: the arm scores its verdict, the baseline 0."""
+    """An `eval pairwise` report as a measure: the arm scores its verdict, the baseline 0.
+
+    Raises ValueError naming the first verdict that is not an object with a finite number as
+    its ``score``.
+    """
     m = Measure(name=name, kind="pairwise")
     for arm, by_q in (pairwise.get("verdicts") or {}).items():
+        if not isinstance(by_q, dict):
+            raise ValueError(f"verdicts.{arm} is not an object of per-question verdicts")
         for qid, v in by_q.items():
-            m.scores[(qid, arm)] = float(v["score"])
+            try:
+                score = _number(v["score"])
+            except (KeyError, TypeError, ValueError, OverflowError):
+                raise ValueError(f"verdicts.{arm}.{qid} has no score that is a finite number") from None
+            m.scores[(qid, arm)] = score
             m.scores[(qid, baseline_arm)] = 0.0
     return m
 
@@ -303,9 +359,9 @@ def score_measure(
         try:
             return (qid, arm), float(
                 scorer(library, question, answer, (ground_truth or {}).get(qid), context)
-            )
-        except Exception:  # an unscored answer drops out of the pairing, it does not kill the run
-            return (qid, arm), None
+            ), None
+        except Exception as exc:  # an unscored answer drops out of the pairing, it does not kill the run
+            return (qid, arm), None, _reason(exc)
 
     if not stored_flags:
         context_label = "none"
@@ -315,13 +371,28 @@ def score_measure(
         context_label = "none"
     else:
         context_label = "mixed"  # some answers fell back to snippets: no single-context PASS describes it
-    m = Measure(name=name, kind="grounded" if ground_truth else "aggregate", context=context_label)
+    m = Measure(name=name, kind="grounded" if ground_truth else "aggregate", context=context_label,
+                asked=len(jobs))
     with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
-        for i, (key, value) in enumerate(pool.map(one, jobs), 1):
-            m.scores[key] = value
+        for i, (key, value, error) in enumerate(pool.map(one, jobs), 1):
+            m.record(key, value, error)
             if progress:
                 progress(i, len(jobs))
+    # One line per measure, not one per call: with no key or a dead endpoint every
+    # call fails the same way, and the measure would otherwise read NOT MEASURED
+    # with no reason anywhere.
+    if m.unscored:
+        logger.warning("%s", m.unscored_note())
     return m
+
+
+def _reason(exc: Exception) -> str:
+    """The first line of *exc*'s message, led by its type unless the message names it (litellm's do)."""
+    text = next(iter(str(exc).strip().splitlines()), "")
+    kind = type(exc).__name__
+    if not text:
+        return kind
+    return text if kind in text else f"{kind}: {text}"
 
 
 def _short(name: str) -> str:
@@ -429,7 +500,14 @@ class CrossJudgeReport:
                 )
         lines += ["", "\\* p < 0.05 after Holm over the measures that vote on the arm; two-sided sign test "
                   "over questions."]
+        lines += ["\n" + m.unscored_note(f"`{m.name}`") for m in self.unscored()]
         return "\n".join(lines) + "\n"
 
+    def unscored(self) -> List[Measure]:
+        """The measures whose judge returned no score for some answer."""
+        return [m for m in self.measures if m.unscored]
+
     def to_dict(self) -> Dict[str, Any]:
-        return {"schema_version": "cross_judge.v0", "summary": self.summary()}
+        return {"schema_version": "cross_judge.v0", "summary": self.summary(), "unscored": [
+            {"measure": m.name, "kind": m.kind, "asked": m.asked, "unscored": m.unscored,
+             "first_error": m.first_error} for m in self.unscored()]}

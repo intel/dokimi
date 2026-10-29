@@ -14,6 +14,11 @@ unchanged; to recapture, from a ``main`` checkout's ``dokimi/`` with this file a
 JSON copied in::
 
     python -m tests.test_novelty_settings_parity --write
+
+The one intended change to an estimate is its bill: ``tokens``, ``expected_usd``, ``by_role``,
+``expected_calls``, and the atom count and totals that the projected atoms move. ``_kept_estimate``
+drops exactly those and compares the rest of the payload, the settings echo on stderr and the
+tier record with its overrides included.
 """
 
 from __future__ import annotations
@@ -201,15 +206,61 @@ def _capture(name: str, tmp_path: Path) -> list[dict[str, Any]]:
     return steps
 
 
+# The stderr note the estimate prints: the one whose wording changed is cut from both sides.
+_ESTIMATE_NOTES = ("The estimate counts calls", "expected_usd prices")
+# The bill the estimate now projects, and the atom count and totals that move with it.
+_BILL_KEYS = ("tokens", "expected_usd")
+_ESTIMATE_BILL_KEYS = (
+    "by_role",
+    "expected_calls",
+    "n_atoms",
+    "total_calls",
+    "total_calls_if_every_pair_escalates",
+)
+
+
+def _kept_estimate(step: dict) -> dict:
+    """An estimate step with only the bill removed; the rest of the payload is compared whole.
+
+    The settings echo on stderr, the tier record with its overrides, the forfeits and the
+    caveat all stay. A refusal has no payload and is kept whole.
+    """
+    if not step["stdout"]:
+        return step
+    payload = json.loads(step["stdout"])
+    for key in _BILL_KEYS:
+        payload.pop(key, None)
+    payload["estimate"] = {
+        key: value for key, value in payload["estimate"].items() if key not in _ESTIMATE_BILL_KEYS
+    }
+    stderr = step["stderr"]
+    for note in _ESTIMATE_NOTES:
+        stderr = stderr.split(note)[0]
+    return {**step, "stdout": payload, "stderr": stderr}
+
+
+# Runs main refuses only after the extraction calls it had already made.
+REFUSED_BEFORE_ANY_CALL = {"run/arms-without-full"}
+
+
 @pytest.mark.parametrize("name", list(CASES))
 def test_no_setting_bill_or_tier_record_differs_from_main(name, tmp_path):
     golden = json.loads(GOLDEN.read_text(encoding="utf-8"))
     steps = _capture(name, tmp_path)
     coverage = [step.pop("coverage") for step in steps]
-    assert steps == golden[name]
     for step_coverage in coverage:
         if step_coverage is not None:
             _check_headline(step_coverage)
+    if name.startswith("estimate/"):
+        assert [_kept_estimate(step) for step in steps] == [
+            _kept_estimate(step) for step in golden[name]]
+    else:
+        expected = golden[name]
+        if name in REFUSED_BEFORE_ANY_CALL:
+            # Intended change: the arm and placebo checks now run before the clients are
+            # built, so the refusal makes no model call. Same status and output as on main.
+            expected = [dict(step, calls=[]) for step in expected]
+        assert steps == expected
 
 
 def test_the_golden_cases_are_the_ones_this_module_runs():

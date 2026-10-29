@@ -9,7 +9,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, Sequence
 
 from dokimi.defaults import (
     DEFAULT_CONCURRENCY,
@@ -20,6 +20,9 @@ from dokimi.defaults import (
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY
 from dokimi.utils import write_text_or_exit
+
+if TYPE_CHECKING:
+    from dokimi.eval.cross_judge import Measure
 
 
 def _read_json(path: str):
@@ -50,6 +53,19 @@ def _judge_name(doc: dict, path: str) -> str:
     summary = doc.get("summary")
     judge = summary.get("judge") if isinstance(summary, dict) else None
     return judge if isinstance(judge, str) and judge else Path(path).stem
+
+
+def _result_measure(path: str, key: str, kind: type, build):
+    """The measure an `eval pairwise` or `eval checklist` file gives, or exit 2 naming the file.
+
+    *build* is ``(doc, name) -> Measure``; it raises ValueError on an entry of the wrong shape.
+    """
+    doc = _load_json_object(path, key, kind)
+    try:
+        return build(doc, _judge_name(doc, path))
+    except ValueError as exc:
+        print(f"Error: {path}: {exc}", file=sys.stderr)
+        sys.exit(2)
 
 
 def _load_answers(path: str):
@@ -373,9 +389,10 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
             sys.exit(2)
         report.measures.append(m)
 
-    # Read every result file before the first judge call, so a bad path costs no paid calls.
-    pairwise = [(path, _load_json_object(path, "verdicts")) for path in args.pairwise or []]
-    checklists = [(path, _load_json_object(path, "questions", list)) for path in args.checklist or []]
+    # Read every result file, and its entries, before the first judge call, so a bad file costs no paid calls.
+    from_files = [_result_measure(p, "verdicts", dict, lambda doc, name: pairwise_measure(doc, name, baseline))
+                  for p in args.pairwise or []]
+    from_files += [_result_measure(p, "questions", list, coverage_measure) for p in args.checklist or []]
     validity = [_load_json_object(v, "summary")["summary"] for v in args.validity or []]
     specs = [j.strip() for j in (args.judges or "").split(",") if j.strip()]
     if specs:
@@ -397,10 +414,7 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
                 concurrency=args.concurrency, progress=_progress(), ground_truth=grounding,
                 store=materials,
             ))
-    for path, pw in pairwise:
-        report.measures.append(pairwise_measure(pw, _judge_name(pw, path), baseline))
-    for path, ck in checklists:
-        report.measures.append(coverage_measure(ck, _judge_name(ck, path)))
+    report.measures += from_files
     answers_model = data.get("model") if isinstance(data, dict) else None
     for v in validity:
         if v.get("answers_model") and answers_model and v["answers_model"] != answers_model:
@@ -420,8 +434,24 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
     print()
     print(md)
     print(f"✅ Cross-judge report saved to {out} (+ .md)")
+    _scored_nothing_exit(report.unscored())
     if args.strict:
         _strict_cross_judge_exit(report.summary()["arms"], report.baseline_arm)
+
+
+def _scored_nothing_exit(unscored: Sequence[Measure]) -> None:
+    """Exit 2 when a ``--judges`` judge scored none of its answers.
+
+    That is a judge that could not run (no key, an unknown model, a dead endpoint),
+    not a measurement, so it fails the run even without ``--strict`` and even when
+    other measures still label every arm. A judge that scored some answers only warns.
+    """
+    dead = [m for m in unscored if m.unscored == m.asked]
+    for m in dead:
+        print(f"Error: {m.name} ({m.kind}) scored none of its {m.asked} answers, first error: {m.first_error}",
+              file=sys.stderr)
+    if dead:
+        sys.exit(2)
 
 
 def _strict_cross_judge_exit(arms: dict[str, dict[str, Any]], baseline_arm: str) -> None:

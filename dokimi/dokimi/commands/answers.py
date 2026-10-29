@@ -90,17 +90,21 @@ def cmd_answers_generate(args: argparse.Namespace) -> None:
     # Setup documentation source client
     doc_source = getattr(args, "doc_source", "context7")
     print(f"Documentation source: {doc_source}")
-    mcp_client = create_doc_source_client(doc_source)
     context7_id = getattr(args, "context7_id", None)
-    if context7_id:
-        print(f"Using explicit Context7 library ID: {context7_id}")
-    try:
-        library_id = resolve_library_id_for_product(
-            args.product, mcp_client, explicit_id=context7_id
-        )
-    except ValueError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        raise SystemExit(1) from exc
+    if doc_source == "none":
+        # Baseline only: imported evals (`questions import`) are asked without doc context.
+        mcp_client, library_id = None, args.product
+    else:
+        mcp_client = create_doc_source_client(doc_source)
+        if context7_id:
+            print(f"Using explicit Context7 library ID: {context7_id}")
+        try:
+            library_id = resolve_library_id_for_product(
+                args.product, mcp_client, explicit_id=context7_id
+            )
+        except ValueError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            raise SystemExit(1) from exc
 
     print(f"Generating answers for {args.product} (library_id={library_id})")
     print(f"Using model: {args.provider}/{args.model}")
@@ -161,7 +165,8 @@ def register(sub, positive_int) -> None:
     gen_a_p.add_argument("--debug-retrieval", action="store_true", help="Include retrieval metadata in output")
     gen_a_p.add_argument("--concurrency", type=positive_int, default=DEFAULT_CONCURRENCY, help="Parallel API calls (default: 5)")
     gen_a_p.add_argument("--doc-source", default="context7",
-                         help="Documentation source: 'context7' (default), 'local:<path>', 'url:<url>'")
+                         help="Documentation source: 'context7' (default), 'local:<path>', 'url:<url>', "
+                              "'none' (baseline answers only)")
     gen_a_p.add_argument("--context7-id", default=None, dest="context7_id",
                          help="Explicit Context7 library ID. Overrides auto-resolution.")
     gen_a_p.add_argument("--ragas", action="store_true",

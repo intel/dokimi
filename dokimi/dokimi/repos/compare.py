@@ -13,7 +13,16 @@ cells are first reduced to one value per (task, arm, model):
   failure counts as 0);
 - **cost_usd**, **turns**: the per-cell means the harness reported;
 - **metric:<name>**: the mean of ``grade.json`` ``metrics.<name>`` over the
-  cells that report it (``true`` is 1), for ``--metric``.
+  cells that report it (``true`` is 1), for ``--metric``;
+- **pass^k**: for ``--pass-k K``, the chance that K cells drawn from the
+  task's n all pass its gate, ``C(c,K)/C(n,K)`` over c passes (τ-bench). The
+  gate is the per-cell rate; pass^k says whether the task passes every time.
+  A task with fewer than K cells has none;
+- **path_distance**: for ``--path-stability``, the mean order distance of the
+  tool paths (``events.jsonl``, main thread) over every pair of the task's
+  cells, 0 the same steps in the same order, 1 nothing in common
+  (:mod:`dokimi.context.consistency`). A task with under two traced cells has
+  none. A negative delta is a steadier path, not a better one.
 
 A task enters a comparison only when both arms have a value for it; the others
 are listed as unpaired, with the reason (no cells in one arm, a task kind that
@@ -40,6 +49,12 @@ differ is on two scales. A grader failure or an agent outage (an error result wi
 one turn, or a non-zero exit with no turn count that is not a timeout) in either arm scores a 0 that says the
 measurement failed, not that the task had no room. Any other case has no flag: ``None``. The flag is a note;
 p and Holm are unchanged.
+
+Every ``result.json`` ``process`` count a cell of the compared arms reports
+(:mod:`.process_counts`: ``process:<key>``, ``counter:<name>``) is a measure
+too, the per-task mean over the cells that have it, descriptive like cost. A
+count only one arm reports for the shared tasks of a (treatment, model) (an
+older batch, a counter one arm added) is not compared and a warning names it.
 
 Each selector's batches are reported with the stamp ``repo run`` pins a batch
 to (``tree``, ``eval_dir`` digest, ``image``) and the harness versions of its
@@ -68,8 +83,10 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from dokimi.context.consistency import Run, order_distance, pass_hat, run_from_events
 from dokimi.eval.stats import adjust_pvalues, bootstrap_ci, mean_ci
 
+from .process_counts import process_order, process_values
 from .report import (load_cells, mismatch_warnings, model_matches, model_mismatch, resolved_models, unmeasured_note,
                      uptake_counts)
 
@@ -103,8 +120,10 @@ def selector_matches(selector: tuple[str | None, str], cell: dict[str, Any]) -> 
     return cell["arm"] == arm and (batch is None or cell["batch"] == batch)
 
 
-def load_batches(batch_dirs: list[Path], metrics: tuple[str, ...] = ()) -> tuple[list[dict[str, Any]], list[str]]:
-    """Finished cells of every batch, each with its ``batch`` and the requested ``grade.json`` metrics."""
+def load_batches(batch_dirs: list[Path], metrics: tuple[str, ...] = (),
+                 paths: bool = False) -> tuple[list[dict[str, Any]], list[str]]:
+    """Finished cells of every batch, each with its ``batch``, the requested ``grade.json`` metrics and,
+    for ``paths``, its tool path (``path``, ``None`` without ``events.jsonl``)."""
     names = [d.resolve().name for d in batch_dirs]  # resolved: Path('.').name is empty
     if len(set(names)) != len(names):
         raise CompareError(f"batch directories must have distinct names: {', '.join(names)}")
@@ -115,6 +134,8 @@ def load_batches(batch_dirs: list[Path], metrics: tuple[str, ...] = ()) -> tuple
         for rec in found:
             rec["batch"] = name
             rec["metrics"] = _grade_metrics(batch_dir / rec["cell"] / "grade.json", metrics) if metrics else {}
+            if paths:
+                rec["path"] = _cell_path(batch_dir / rec["cell"] / "events.jsonl")
             cells.append(rec)
     return cells, missing
 
@@ -129,28 +150,40 @@ def batch_stamp(batch_dir: Path) -> dict[str, str]:
 
 
 def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None = None,
-            models: list[str] | None = None, metrics: tuple[str, ...] = (), seed: int = 0) -> dict[str, Any]:
+            models: list[str] | None = None, metrics: tuple[str, ...] = (), seed: int = 0,
+            pass_k: int | None = None, path_stability: bool = False) -> dict[str, Any]:
     metrics = tuple(dict.fromkeys(metrics))
-    cells, missing = load_batches(batch_dirs, metrics)
+    if pass_k is not None and pass_k < 1:
+        raise CompareError(f"--pass-k must be at least 1, got {pass_k}")
+    cells, missing = load_batches(batch_dirs, metrics, path_stability)
     _check_metrics(metrics, cells)
     base_sel = parse_selector(baseline)
     if not any(selector_matches(base_sel, c) for c in cells):
         raise CompareError(f"no finished cell matches the baseline {baseline!r}")
     treatments = _treatments(cells, baseline, base_sel, treatments)
-    measures = ["gate", "score", "cost_usd", "turns", *(f"metric:{m}" for m in metrics)]
-    base_vals = _task_values([c for c in cells if selector_matches(base_sel, c)], metrics)
+    measures = ["gate", "score", *([f"pass^{pass_k}"] if pass_k else []),
+                *(["path_distance"] if path_stability else []), "cost_usd", "turns", *(f"metric:{m}" for m in metrics)]
+    base_vals = _task_values([c for c in cells if selector_matches(base_sel, c)], metrics, pass_k, path_stability)
     rows: list[dict[str, Any]] = []
     unpaired: list[dict[str, Any]] = []
+    one_arm: list[str] = []
+    measures += _process_measures(cells, [baseline, *treatments])
     for text in treatments:
-        treat_vals = _task_values([c for c in cells if selector_matches(parse_selector(text), c)], metrics)
+        treat_vals = _task_values([c for c in cells if selector_matches(parse_selector(text), c)], metrics,
+                                  pass_k, path_stability)
         unpaired += _one_arm_models(text, base_vals, treat_vals, models)
         shared_models = sorted({m for m, _ in base_vals} & {m for m, _ in treat_vals})
         for model in [m for m in shared_models if not models or m in models]:
-            _compare_model(text, model, base_vals, treat_vals, measures, seed, rows, unpaired)
+            skipped = _compare_model(text, model, base_vals, treat_vals, measures, seed, rows, unpaired)
+            if skipped:
+                one_arm.append(f"{text} {model}: only one arm reports {', '.join(skipped)} for any shared task; "
+                               "not compared")
     _check_models(models, rows, unpaired)
     _holm(rows)
+    provenance = _provenance(batch_dirs, cells, baseline, treatments, models)
+    provenance["warnings"] += one_arm
     return {"batches": [str(d) for d in batch_dirs], "baseline": baseline, "treatments": treatments,
-            "cells": len(cells), "missing": missing, **_provenance(batch_dirs, cells, baseline, treatments, models),
+            "cells": len(cells), "missing": missing, **provenance,
             "comparisons": rows, "unpaired": unpaired}
 
 
@@ -260,6 +293,13 @@ def _built_from_tree(stamp: dict[str, Any]) -> bool:
     return repo.startswith("dokimi/") and (tag.startswith("worktree-") or bool(revision) and tag == revision[:12])
 
 
+def _process_measures(cells: list[dict[str, Any]], selectors: list[str]) -> list[str]:
+    """The ``process`` counters any cell of the compared arms reports; none when no cell has ``process``."""
+    sels = [parse_selector(text) for text in selectors]
+    found = {k for c in cells if any(selector_matches(s, c) for s in sels) for k in process_values(c)}
+    return sorted(found, key=process_order)
+
+
 def _check_metrics(metrics: tuple[str, ...], cells: list[dict[str, Any]]) -> None:
     """A ``--metric`` that no finished cell reports is a typo or not a number: refuse it, not print nothing."""
     unknown = [m for m in metrics if not any(m in c["metrics"] for c in cells)]
@@ -283,8 +323,11 @@ def _holm(rows: list[dict[str, Any]]) -> None:
 
 def _compare_model(treatment: str, model: str, base_vals: dict[tuple[str, str], dict[str, Any]],
                    treat_vals: dict[tuple[str, str], dict[str, Any]], measures: list[str], seed: int,
-                   rows: list[dict[str, Any]], unpaired: list[dict[str, Any]]) -> None:
-    """Append one row per measure of one (treatment, model), and the tasks only one arm has."""
+                   rows: list[dict[str, Any]], unpaired: list[dict[str, Any]]) -> list[str]:
+    """Append one row per measure of one (treatment, model), and the tasks only one arm has.
+
+    Returns the process measures only one arm reports for any shared task: they are skipped, not unpaired.
+    """
     base_tasks = {t for m, t in base_vals if m == model}
     treat_tasks = {t for m, t in treat_vals if m == model}
     for task in sorted(base_tasks ^ treat_tasks):
@@ -295,29 +338,66 @@ def _compare_model(treatment: str, model: str, base_vals: dict[tuple[str, str], 
         b, t = base_vals[(model, task)]["kind"], treat_vals[(model, task)]["kind"]
         if b != t:  # batches of different eval trees: the primary result of this task has no pair
             unpaired.append(_unpaired(treatment, model, task, None, f"{b} task in baseline, {t} in treatment"))
+    skipped = []
     for measure in measures:
-        pairs = []
-        for task in shared:
-            base, treat = base_vals[(model, task)], treat_vals[(model, task)]
-            if measure in PRIMARY and not base["kind"] == treat["kind"] == measure:
-                continue  # a task of the other kind, or one listed above
-            pair = _pair(task, base, treat, measure)
-            if pair is None:
-                lacking = [arm for arm, v in (("baseline", base), ("treatment", treat))
-                           if v["values"].get(measure) is None]
-                unpaired.append(_unpaired(treatment, model, task, measure,
-                                          f"no {measure} in {' or '.join(lacking)}"))
-            else:
-                pairs.append(pair)
-        if pairs:
-            flag = None
-            if measure in PRIMARY:
-                tops = [(base_vals[(model, p["task"])]["top"], treat_vals[(model, p["task"])]["top"]) for p in pairs]
-                failed = [base_vals[(model, p["task"])]["grader_failed"]
-                          or treat_vals[(model, p["task"])]["grader_failed"] for p in pairs]
-                flag = headroom(pairs, tops, failed)
-            rows.append({"treatment": treatment, "model": model, "measure": measure,
-                         **paired_summary(pairs, measure, seed=seed), "headroom": flag})
+        if measure.startswith(("process:", "counter:")):
+            has = [any(vals[(model, t)]["values"].get(measure) is not None for t in shared)
+                   for vals in (base_vals, treat_vals)]
+            if not all(has):  # an arm that reports no such count at all (an older batch) leaves no task out of a pair
+                if any(has):
+                    skipped.append(measure)
+                continue
+        row = _compare_measure(treatment, model, measure, shared, base_vals, treat_vals, seed, unpaired)
+        if row is not None:
+            rows.append(row)
+    return skipped
+
+
+def _measure_pairs(treatment: str, model: str, shared: list[str], base_vals: dict[tuple[str, str], dict[str, Any]],
+                   treat_vals: dict[tuple[str, str], dict[str, Any]], measure: str,
+                   unpaired: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The paired tasks of one measure; the tasks lacking it go to ``unpaired``.
+
+    ``pass^K`` and ``path_distance`` are optional: a score task has no ``pass^K``, and a task with too
+    few cells for either is one line with a count, not one entry per task."""
+    pairs, short = [], 0
+    for task in shared:
+        base, treat = base_vals[(model, task)], treat_vals[(model, task)]
+        if measure in PRIMARY and not base["kind"] == treat["kind"] == measure:
+            continue  # a task of the other kind, or one listed above
+        if measure.startswith("pass^") and "score" in (base["kind"], treat["kind"]):
+            continue  # pass^K is a gate measure: a score task has none to lack
+        pair = _pair(task, base, treat, measure)
+        if pair is not None:
+            pairs.append(pair)
+        elif measure.startswith("pass^") or measure == "path_distance":
+            short += 1
+        else:
+            lacking = [arm for arm, v in (("baseline", base), ("treatment", treat))
+                       if v["values"].get(measure) is None]
+            unpaired.append(_unpaired(treatment, model, task, measure, f"no {measure} in {' or '.join(lacking)}"))
+    if short:
+        unpaired.append(_unpaired(treatment, model, f"{short} task(s)", measure,
+                                  f"too few cells in baseline or treatment for {measure}"))
+    return pairs
+
+
+def _compare_measure(treatment: str, model: str, measure: str, shared: list[str],
+                     base_vals: dict[tuple[str, str], dict[str, Any]],
+                     treat_vals: dict[tuple[str, str], dict[str, Any]], seed: int,
+                     unpaired: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """The row of one measure over the shared tasks of one (treatment, model), or None with no pair."""
+    pairs = _measure_pairs(treatment, model, shared, base_vals, treat_vals, measure, unpaired)
+    if not pairs:
+        return None
+    flag = None
+    if measure in PRIMARY:
+        tops = [(base_vals[(model, p["task"])]["top"], treat_vals[(model, p["task"])]["top"]) for p in pairs]
+        failed = [base_vals[(model, p["task"])]["grader_failed"]
+                  or treat_vals[(model, p["task"])]["grader_failed"] for p in pairs]
+        flag = headroom(pairs, tops, failed)
+    return {"treatment": treatment, "model": model, "measure": measure,
+            **paired_summary(pairs, measure, seed=seed), "headroom": flag}
 
 
 def headroom(pairs: list[dict[str, Any]], tops: list[tuple[float | None, float | None]],
@@ -500,7 +580,8 @@ def _format_header(summary: dict[str, Any]) -> list[str]:
     return lines
 
 
-def _task_values(cells: list[dict[str, Any]], metrics: tuple[str, ...]) -> dict[tuple[str, str], dict[str, Any]]:
+def _task_values(cells: list[dict[str, Any]], metrics: tuple[str, ...], pass_k: int | None = None,
+                 path_stability: bool = False) -> dict[tuple[str, str], dict[str, Any]]:
     """One value per measure for each (model, task) of one arm."""
     groups: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for rec in cells:
@@ -511,6 +592,7 @@ def _task_values(cells: list[dict[str, Any]], metrics: tuple[str, ...]) -> dict[
         found = {"cost_usd": [r["agent"].get("cost_usd") for r in recs],
                  "turns": [r["agent"].get("num_turns") for r in recs],
                  **{f"metric:{name}": [r["metrics"].get(name) for r in recs] for name in metrics}}
+        found.update(_process_lists(recs))
         if score_task:
             found["score"] = [0.0 if r["grade"]["status"] == "grader_failure" else (r["grade"]["score"] or 0.0)
                               for r in recs]
@@ -524,10 +606,18 @@ def _task_values(cells: list[dict[str, Any]], metrics: tuple[str, ...]) -> dict[
         top = (maxes.pop() if len(maxes) == 1 and not has_unknown_max else None) if score_task else 1.0
         # unmeasured: a grader failure, or an agent outage (see _agent_outage); either way its 0 is not a measurement
         grader_failed = any(r["grade"]["status"] == "grader_failure" or _agent_outage(r) for r in recs)
+        n = {measure: len(v) for measure, v in nums.items()}
+        values = {measure: (sum(v) / len(v) if v else None) for measure, v in nums.items()}
+        if pass_k and not score_task:
+            gates = nums["gate"]
+            values[f"pass^{pass_k}"] = pass_hat(len(gates), int(sum(gates)), pass_k) if len(gates) >= pass_k else None
+            n[f"pass^{pass_k}"] = len(gates)
+        if path_stability:
+            runs: list[Run] = [r["path"] for r in recs if r.get("path") is not None]
+            values["path_distance"] = order_distance(runs)
+            n["path_distance"] = len(runs)
         out[key] = {"kind": "score" if score_task else "gate", "grader_failed": grader_failed,
-                    "top": top,
-                    "n": {measure: len(v) for measure, v in nums.items()},
-                    "values": {measure: (sum(v) / len(v) if v else None) for measure, v in nums.items()}}
+                    "top": top, "n": n, "values": values}
     return out
 
 
@@ -542,6 +632,22 @@ def _agent_outage(rec: dict[str, Any]) -> bool:
     rc = agent.get("rc")
     crashed = isinstance(rc, int) and not isinstance(rc, bool) and rc != 0
     return crashed and not turns and not agent.get("timed_out")
+
+
+def _cell_path(path: Path) -> Run | None:
+    """A cell's main-thread tool path from its ``events.jsonl``; ``None`` when it has none."""
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return None
+    events = []
+    for line in lines:
+        try:
+            events.append(json.loads(line))
+        except (ValueError, RecursionError):  # a deeply nested line is as unreadable as a broken one
+            continue
+    run = run_from_events(events, str(path))
+    return run if run.events else None  # a crashed cell leaves no path; it is not a steady one
 
 
 def _grade_metrics(path: Path, names: tuple[str, ...]) -> dict[str, float]:
@@ -565,6 +671,12 @@ def _grade_metrics(path: Path, names: tuple[str, ...]) -> dict[str, float]:
 
 def _finite(values: list[Any]) -> list[float]:
     return [float(v) for v in values if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)]
+
+
+def _process_lists(recs: list[dict[str, Any]]) -> dict[str, list[float | None]]:
+    """Each process measure any of ``recs`` reports, with every cell's value (``None`` where it has none)."""
+    values = [process_values(r) for r in recs]
+    return {name: [v.get(name) for v in values] for name in {k for v in values for k in v}}
 
 
 def _mean(values: list[Any]) -> float | None:
