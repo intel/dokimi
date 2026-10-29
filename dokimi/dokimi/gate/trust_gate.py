@@ -114,9 +114,11 @@ def evaluate_trust(
     cfg = {**DEFAULTS, **(thresholds or {})}
     checks: List[TrustCheck] = []
 
-    # Every check is over the questions scored in both arms.
+    # Parsed once: ``evaluations`` may be a one-shot iterable.
+    every = records(evaluations, kind="evaluations")
+    # The score checks below are over the questions scored in both arms.
     valid = [
-        r for r in records(evaluations, kind="evaluations")
+        r for r in every
         if r.score(CONTEXT) is not None and r.score(BASELINE) is not None
     ]
     with_scores: List[float] = [r.score(CONTEXT) or 0 for r in valid]
@@ -141,7 +143,7 @@ def evaluate_trust(
     # has always counted those questions, judged at zero. Leaving them out would
     # let a run with many misses pass this fail-severity check.
     unjudged_misses = [
-        r for r in records(evaluations, kind="evaluations")
+        r for r in every
         if r.score(CONTEXT) is None and r.score(BASELINE) is not None
         and r.retrieval_hit is False
     ]
@@ -216,7 +218,6 @@ def evaluate_trust(
     # the two below ``min_retrieval_coverage``: the rate would describe a subset.
     # Over every evaluation, not only the both-arms-scored ones: a question with no
     # document is not judged by default, and it still records that it missed.
-    every = records(evaluations, kind="evaluations")
     measured = [h for r in every if (h := r.retrieval_hit) is not None]
     n_all = len(every)
     if measured and len(measured) / n_all < cfg["min_retrieval_coverage"]:
