@@ -227,6 +227,27 @@ def test_the_threshold_boundaries_are_accepted():
     assert headroom([run], ceiling=0.5, floor=0.49)["thresholds"]["floor"] == 0.49
 
 
+def test_no_runs_are_refused():
+    with pytest.raises(ValueError, match="no runs to read"):
+        headroom([])
+
+
+def test_a_run_with_no_questions_has_no_items():
+    result = headroom([_run([])])
+    assert result["items"] == [] and result["runs"] == 1
+    assert result["summary"] == {"items": 0, "ceiling": 0, "floor": 0, "provisional": 0,
+                                 "flagged_provisional": 0, "no_flag": 0}
+
+
+def test_a_run_with_no_evaluations_flags_nothing_and_has_no_reps():
+    # The answers are there but nothing was judged: every score is None.
+    run = records.read({"baseline_arm": "baseline", "answers": [
+        {"question_id": "1", "question_text": "q", "arms": {"baseline": {"answer": "a"}, "skill": {"answer": "b"}}}]})
+    item = headroom([run])["items"][0]
+    assert (item["reps"], item["provisional"], item["flag"], item["no_skill"]) == (0, True, None, None)
+    assert item["unscored_arms"] == ["baseline", "skill"]
+
+
 def test_binary_answers_are_refused():
     binary = records.read({"answers": [{"question_id": "1", "question_text": "q",
                                         "with_docs": {"answer": "a"}, "without_docs": {"answer": "b"}}]})
@@ -378,3 +399,23 @@ def test_the_registered_options_reach_the_analysis_through_the_real_parser(tmp_p
     saved = json.loads(out.read_text(encoding="utf-8"))
     assert saved["thresholds"] == {"ceiling": 0.5, "floor": 0.2, "min_reps": 1}
     assert {i["question_id"]: i["flag"] for i in saved["items"]} == {"1": CEILING, "2": FLOOR}
+
+
+def test_command_reads_a_file_with_no_questions(tmp_path, capsys):
+    path = tmp_path / "empty.json"
+    path.write_text(json.dumps({"baseline_arm": "baseline", "answers": [], "evaluations": []}), encoding="utf-8")
+    out = tmp_path / "headroom.json"
+    cmd_eval_headroom(_args([path], output=out))
+    assert "(no item is flagged or provisional)" in capsys.readouterr().out
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    assert saved["items"] == [] and saved["summary"]["items"] == 0 and saved["runs"] == 1
+
+
+def test_command_reads_a_file_nothing_was_judged_in(tmp_path, capsys):
+    path = tmp_path / "unjudged.json"
+    path.write_text(json.dumps({"baseline_arm": "baseline", "answers": [
+        {"question_id": "1", "question_text": "q", "arms": {"baseline": {"answer": "a"}, "skill": {"answer": "b"}}}]}),
+        encoding="utf-8")
+    cmd_eval_headroom(_args([path]))
+    printed = capsys.readouterr().out
+    assert "yes" in printed and "no run scored these arms" in printed and "1 (baseline, skill)" in printed
