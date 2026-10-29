@@ -107,19 +107,42 @@ def _parse_lines(value) -> tuple[int, int] | None:
     return (min(start, end), max(start, end))
 
 
+def _read_task_yaml(path: Path) -> dict:
+    """The mapping in the task file at ``path``; any unreadable or malformed file is a ``ValueError`` naming it."""
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except OSError as exc:
+        raise ValueError(f"Explore task {path} cannot be read: {exc}") from exc
+    except (ValueError, yaml.YAMLError, RecursionError) as exc:  # ValueError: bad UTF-8, an invalid YAML timestamp
+        raise ValueError(f"Explore task {path} is not valid UTF-8 YAML: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"Explore task {path} must hold a YAML mapping")
+    return data
+
+
 def _task_from_data(
     data: dict, path: Path, default_repo_root: Path | None = None
 ) -> ExploreTask:
     missing = [k for k in ("id", "query", "references") if k not in data]
     if missing:
         raise ValueError(f"Explore task {path} missing required field(s): {missing}")
-    references = tuple(
-        ExploreReference(path=str(ref["path"]), lines=_parse_lines(ref.get("lines")))
-        for ref in data["references"]
-    )
+    raw_refs = data["references"]
+    if not isinstance(raw_refs, list) or not all(
+        isinstance(ref, dict) and "path" in ref for ref in raw_refs
+    ):
+        raise ValueError(f"Explore task {path} references must be a list of entries with a 'path'")
+    try:
+        references = tuple(
+            ExploreReference(path=str(ref["path"]), lines=_parse_lines(ref.get("lines")))
+            for ref in raw_refs
+        )
+    except ValueError as exc:
+        raise ValueError(f"Explore task {path}: {exc}") from exc
     if not references:
         raise ValueError(f"Explore task {path} has no references")
     repo_root = data.get("repo_root")
+    if repo_root is not None and not isinstance(repo_root, str):
+        raise ValueError(f"Explore task {path} repo_root must be a path string")
     if repo_root:
         resolved_root = (path.parent / repo_root).resolve()
     elif default_repo_root is not None:
@@ -157,12 +180,11 @@ def load_explore_task(
     """
     candidate = Path(ref)
     if candidate.is_file():
-        data = yaml.safe_load(candidate.read_text(encoding="utf-8")) or {}
-        return _task_from_data(data, candidate, default_repo_root)
+        return _task_from_data(_read_task_yaml(candidate), candidate, default_repo_root)
 
     root = _tasks_root(root)
     files = _task_files(root)
-    loaded = [(path, yaml.safe_load(path.read_text(encoding="utf-8")) or {}) for path in files]
+    loaded = [(path, _read_task_yaml(path)) for path in files]
     id_matches = [(path, data) for path, data in loaded if str(data.get("id")) == ref]
     if len(id_matches) > 1:
         paths = ", ".join(str(p) for p, _ in id_matches)
@@ -188,8 +210,7 @@ def discover_explore_tasks(
     root = _tasks_root(root)
     tasks = []
     for path in _task_files(root):
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        tasks.append(_task_from_data(data, path, default_repo_root))
+        tasks.append(_task_from_data(_read_task_yaml(path), path, default_repo_root))
     by_id: dict[str, list[Path]] = {}
     for t in tasks:
         by_id.setdefault(t.id, []).append(t.path)

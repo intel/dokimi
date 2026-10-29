@@ -99,6 +99,13 @@ def test_guidance_read_is_the_workspace_guidance_files_the_agent_read():
     assert run_process_metrics(ctx, events)["guidance_read"] == ["AGENTS.md"]
 
 
+def test_a_read_that_only_the_second_guidance_glob_matches_is_guidance():
+    # MANIFEST's globs are "**/AGENTS.md" and ".github/instructions/*.md": each one counts.
+    ctx = SimpleNamespace(manifest=parse_manifest(MANIFEST))
+    events = [{"kind": "read", "path": ".github/instructions/c.md"}]
+    assert run_process_metrics(ctx, events)["guidance_read"] == [".github/instructions/c.md"]
+
+
 def test_a_command_the_permissions_denied_is_denied_not_failed():
     # A permission denial comes back as an is_error result (rc 1); a hook denial has rc null. Neither ran.
     events = [{"kind": "command", "text": "rm -rf build", "rc": 1, "denied": True},
