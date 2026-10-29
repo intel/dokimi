@@ -95,11 +95,50 @@ def test_the_ceiling_reads_the_mean_over_runs():
     assert item["no_skill"] == 0.95 and item["flag"] == CEILING
 
 
-def test_reps_count_the_arm_scored_least_often():
+def test_reps_count_the_runs_that_scored_the_baseline():
+    # The skill arm missed one run; the baseline scored all three, so the item has three reps.
     runs = [_run([("1", {"baseline": 50, "skill": 50})]) for _ in range(3)]
     runs[2] = _run([("1", {"baseline": 50, "skill": None})])
     item = headroom(runs)["items"][0]
-    assert item["reps"] == 2 and item["provisional"] is True
+    assert item["reps"] == 3 and item["provisional"] is False
+
+
+def test_reps_follow_the_baseline_even_when_a_skill_arm_was_scored_in_more_runs():
+    runs = [_run([("1", {"baseline": 50, "skill": 50})]), _run([("1", {"baseline": None, "skill": 50})]),
+            _run([("1", {"baseline": None, "skill": 50})])]
+    item = headroom(runs)["items"][0]
+    assert item["reps"] == 1 and item["provisional"] is True
+
+
+def test_an_item_the_baseline_never_scored_has_no_reps_and_no_flag():
+    runs = [_run([("1", {"baseline": None, "skill": 95})]) for _ in range(3)]
+    item = headroom(runs)["items"][0]
+    assert (item["reps"], item["no_skill"], item["flag"]) == (0, None, None)
+
+
+def test_an_arm_no_run_scored_is_listed_as_unscored():
+    run = _run([("1", {"baseline": 40, "skill": 60, "other": None})])
+    item = headroom([run], min_reps=1)["items"][0]
+    assert item["unscored_arms"] == ["other"] and item["arms"]["other"] is None
+
+
+def test_an_arm_scored_in_some_runs_is_not_unscored():
+    runs = [_run([("1", {"baseline": 40, "skill": 60, "other": 50})]),
+            _run([("1", {"baseline": 40, "skill": 60, "other": None})])]
+    item = headroom(runs, min_reps=1)["items"][0]
+    assert item["unscored_arms"] == [] and item["arms"]["other"] == 0.5
+
+
+def test_floor_leaves_out_an_arm_no_run_scored():
+    # "other" never answered; the arms that did are all at zero, so the item is a floor.
+    run = _run([("1", {"baseline": 0, "skill": 0, "other": None})])
+    assert _flags(headroom([run])) == {"1": FLOOR}
+
+
+def test_floor_needs_a_non_baseline_arm_that_scored():
+    # Only the baseline answered (at zero): nothing shows the question is unanswerable for a skill.
+    assert _flags(headroom([_run([("1", {"baseline": 0})])])) == {"1": None}
+    assert _flags(headroom([_run([("1", {"baseline": 0, "skill": None})])])) == {"1": None}
 
 
 def test_unknown_no_skill_arm_is_refused_and_lists_the_arms():
@@ -159,6 +198,12 @@ def test_runs_that_declare_different_baselines_need_an_explicit_arm():
     with pytest.raises(ValueError, match="--no-skill-arm"):
         headroom([a, b])
     assert headroom([a, b], no_skill_arm="baseline")["no_skill_arm"] == "baseline"
+
+
+def test_table_notes_the_arms_no_run_scored():
+    run = _run([("1", {"baseline": 40, "skill": 60, "other": None}), ("2", {"baseline": 40, "skill": 60})])
+    table = format_table(headroom([run], min_reps=1))
+    assert "no run scored" in table and "1 (other)" in table and "2 (" not in table
 
 
 def test_table_names_each_flagged_item():
@@ -228,7 +273,7 @@ def test_repeated_input_files_count_as_one_run(tmp_path, capsys):
     assert saved["runs"] == 1 and saved["inputs"] == [str(one)]
     assert saved["items"][0]["reps"] == 1 and saved["items"][0]["provisional"] is True
     err = capsys.readouterr().err
-    assert err.count("counted once") == 3 and f"skipped {copy}: same content as {one}" in err
+    assert err.count("counted once") == 3 and f"skipped {copy}: byte-identical to {one}, counted once" in err
 
 
 def test_distinct_input_files_each_count_as_a_run(tmp_path):
@@ -238,6 +283,16 @@ def test_distinct_input_files_each_count_as_a_run(tmp_path):
     saved = json.loads(out.read_text(encoding="utf-8"))
     item = saved["items"][0]
     assert (saved["runs"], item["reps"], item["provisional"], item["flag"]) == (3, 3, False, CEILING)
+
+
+def test_command_exits_2_when_the_output_cannot_be_written(tmp_path, capsys):
+    path = _arms_file(tmp_path / "arms.json", {"1": {"baseline": 95, "skill": 95}})
+    blocker = tmp_path / "a-file"
+    blocker.write_text("not a directory, so -o cannot be written beneath it", encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_headroom(_args([path], output=blocker / "headroom.json"))
+    assert exc.value.code == 2
+    assert capsys.readouterr().err.startswith("Error: ")
 
 
 def test_command_refuses_a_question_id_repeated_within_one_file(tmp_path, capsys):

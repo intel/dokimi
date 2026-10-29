@@ -9,9 +9,12 @@ measures nothing about the skill. An item is a **floor** when every arm scores a
 ``floor`` (default 0): no arm answers it, which points at the question, its checks or the
 grader rather than at any skill.
 
+An item's floor test leaves out an arm no run scored (listed in ``unscored_arms``), and needs at
+least one non-baseline arm that did score: the baseline alone at zero shows nothing about a skill.
+
 An item with fewer than ``min_reps`` runs behind it is ``provisional``: one run's flag may be
-noise. Its reps are the smallest number of runs in which any of its arms was scored, so a single
-artifact gives every item one rep. Each arm's score is the mean over the runs that scored it.
+noise. Its reps are the number of runs in which the no-skill arm scored it, so a single artifact
+gives every item one rep. Each arm's score is the mean over the runs that scored it.
 
 A run is one ``arms.v1`` file (or any artifact :mod:`dokimi.records` reads as an arms run), one
 per repetition of the same question set. Each ``Run`` passed here counts as one run, so callers
@@ -45,6 +48,7 @@ class ItemHeadroom:
     provisional: bool
     no_skill: Optional[float]
     arms: Dict[str, Optional[float]]
+    unscored_arms: List[str]
     flag: Optional[str]
 
     def as_dict(self) -> Dict[str, Any]:
@@ -54,6 +58,7 @@ class ItemHeadroom:
             "provisional": self.provisional,
             "no_skill": self.no_skill,
             "arms": dict(self.arms),
+            "unscored_arms": list(self.unscored_arms),
             "flag": self.flag,
         }
 
@@ -73,13 +78,16 @@ def _mean(values: List[float]) -> Optional[float]:
     return sum(values) / len(values) if values else None
 
 
-def _flag(no_skill: Optional[float], arms: Dict[str, Optional[float]], ceiling: float, floor: float) -> Optional[str]:
+def _flag(
+    no_skill: Optional[float], arms: Dict[str, Optional[float]], control: str, ceiling: float, floor: float,
+) -> Optional[str]:
     # The mean of 0-1 scores is float division: a mean that is exactly the threshold can land a
     # few ulps off it. The tolerance is far below one score step (0.01 at the finest), so it only
     # absorbs that error.
     if no_skill is not None and no_skill >= ceiling - _EPS:
         return CEILING
-    if arms and all(v is not None and v <= floor + _EPS for v in arms.values()):
+    scored = {arm: v for arm, v in arms.items() if v is not None}
+    if any(arm != control for arm in scored) and all(v <= floor + _EPS for v in scored.values()):
         return FLOOR
     return None
 
@@ -107,7 +115,7 @@ def headroom(
     for qid in sorted(scores, key=_sort_key):
         per_arm = scores[qid]
         arms = {arm: _mean(per_arm.get(arm, [])) for arm in sorted(arms_of[qid])}
-        reps = min((len(per_arm.get(arm, [])) for arm in arms_of[qid]), default=0)
+        reps = len(per_arm.get(control, []))
         no_skill = arms.get(control)
         items.append(ItemHeadroom(
             question_id=qid,
@@ -115,7 +123,8 @@ def headroom(
             provisional=reps < min_reps,
             no_skill=no_skill,
             arms=arms,
-            flag=_flag(no_skill, arms, ceiling, floor),
+            unscored_arms=[arm for arm, value in arms.items() if value is None],
+            flag=_flag(no_skill, arms, control, ceiling, floor),
         ))
 
     summary = {
@@ -223,6 +232,10 @@ def format_table(result: Dict[str, Any]) -> str:
     lines = [_line(head, widths)] + [_line(r, widths) for r in rows]
     if not rows:
         lines.append("(no item is flagged or provisional)")
+    unscored = [f"{item['question_id']} ({', '.join(item['unscored_arms'])})"
+                for item in result["items"] if item["unscored_arms"]]
+    if unscored:
+        lines.append("note: no run scored these arms, so the floor test leaves them out: " + "; ".join(unscored))
     s = result["summary"]
     th = result["thresholds"]
     lines.append("")

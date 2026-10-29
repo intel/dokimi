@@ -736,16 +736,21 @@ python cli.py eval headroom run1/arms.json run2/arms.json run3/arms.json \
 
 - **ceiling**: the no-skill arm's mean over the runs is at least `--ceiling` (0-1; the
   0-100 aggregate divided by 100). Default 0.9.
-- **floor**: every arm's mean is at most `--floor`. Default 0.
-- **provisional**: fewer than `--min-reps` runs scored the item (the smallest count over
-  its arms). Default 3. One file gives every item one rep, so every item is provisional.
+- **floor**: every arm that a run scored has a mean at most `--floor`, and at least one
+  non-baseline arm scored. Default 0. An arm no run scored is left out of this test and
+  listed in the item's `unscored_arms`; the baseline alone at zero is not a floor.
+- **provisional**: fewer than `--min-reps` runs scored the item with its no-skill arm (the
+  reps are those runs). Default 3. One file gives every item one rep, so every item is
+  provisional.
 
 A run is one file. A file repeated on the command line, or byte-identical to an earlier
 one, is skipped with a note, so it does not add a rep. A question id repeated within one
 file is an error (exit 2): it would count as two runs.
 
-The table on stdout lists flagged and provisional items, with the no-skill arm in its own
-column; `-o` writes a `headroom.v1` artifact with every item. Scores are compared unrounded
+The table always goes to stdout: the flagged and provisional items, with the no-skill arm
+in its own column, a note naming any arm no run scored, and the counts. The JSON goes to
+`-o` only, as a `headroom.v1` artifact with every item; if that file cannot be written the
+command prints `Error: ...` on stderr and exits 2, after the table. Scores are compared unrounded
 and shown rounded down, so 0.89996 prints as 0.89. Without `--no-skill-arm`, the runs must
 declare the same baseline; the default is that baseline. With `--no-skill-arm`, the arm must
 be one the runs list (exit 2 otherwise, naming the arms that exist), and the declared

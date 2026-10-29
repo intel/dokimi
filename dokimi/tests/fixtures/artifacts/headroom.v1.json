@@ -11,6 +11,7 @@
       "provisional": true,
       "no_skill": 0.95,
       "arms": {"baseline": 0.95, "skill": 0.94},
+      "unscored_arms": [],
       "flag": "ceiling"
     },
     {
@@ -19,6 +20,7 @@
       "provisional": true,
       "no_skill": 0.4,
       "arms": {"baseline": 0.4, "skill": 0.7},
+      "unscored_arms": [],
       "flag": null
     }
   ],

@@ -25,14 +25,15 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["question_id", "reps", "provisional", "no_skill", "arms", "flag"],
+        "required": ["question_id", "reps", "provisional", "no_skill", "arms", "unscored_arms", "flag"],
         "additionalProperties": false,
         "properties": {
           "question_id": {"type": "string"},
-          "reps": {"type": "integer", "minimum": 0, "description": "Smallest number of runs in which any of the item's arms was scored."},
+          "reps": {"type": "integer", "minimum": 0, "description": "Number of runs in which the no-skill arm scored the item."},
           "provisional": {"type": "boolean", "description": "True when reps is below thresholds.min_reps."},
           "no_skill": {"type": ["number", "null"], "description": "Unrounded mean over runs of the no-skill arm, 0-1."},
           "arms": {"type": "object", "additionalProperties": {"type": ["number", "null"]}, "description": "Mean over runs of each arm, 0-1; null when no run scored it."},
+          "unscored_arms": {"type": "array", "items": {"type": "string"}, "uniqueItems": true, "description": "The arms no run scored (null in arms), sorted; the floor test leaves them out."},
           "flag": {"enum": ["ceiling", "floor", null]}
         }
       }

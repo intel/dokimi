@@ -20,7 +20,7 @@ from dokimi import records
 
 
 def cmd_eval_headroom(args: argparse.Namespace) -> None:
-    from dokimi.artifacts import save_artifact
+    from dokimi.artifacts import ArtifactValidationError, save_artifact
     from dokimi.eval.headroom import format_table, headroom, repeated_ids
 
     runs: list[records.Run] = []
@@ -34,7 +34,7 @@ def cmd_eval_headroom(args: argparse.Namespace) -> None:
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(2)
         if digest in first_seen:
-            print(f"note: skipped {path}: same content as {first_seen[digest]}, counted once", file=sys.stderr)
+            print(f"note: skipped {path}: byte-identical to {first_seen[digest]}, counted once", file=sys.stderr)
             continue
         dupes = repeated_ids(run)
         if dupes:
@@ -53,7 +53,11 @@ def cmd_eval_headroom(args: argparse.Namespace) -> None:
     result["inputs"] = inputs
     print(format_table(result))
     if args.output:
-        save_artifact("headroom", result, args.output)
+        try:
+            save_artifact("headroom", result, args.output)
+        except (OSError, ArtifactValidationError) as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(2)
         print(f"Wrote headroom artifact to {args.output}")
 
 
