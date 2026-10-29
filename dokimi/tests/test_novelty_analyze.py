@@ -587,6 +587,35 @@ def test_a_tier_writes_its_forfeits_into_the_run_it_produced(tmp_path):
     validate_artifact("novelty", dict(artifact, schema_version="novelty.v1"))
 
 
+def test_a_capped_run_says_how_far_through_the_artifact_the_cap_reached(tmp_path):
+    # One extraction batch sends all five spans; the cap keeps the first atom, from s0002.
+    artifact = _analyze(tmp_path, max_atoms=1).artifact
+    # s0001 and s0002 are 15 of the body's 42 span tokens.
+    reached = {"last_span": "s0002", "spans": 2, "of": 5, "tokens_share": 0.3571}
+    assert artifact["extraction"]["reached"] == reached
+    warning = ("atom extraction hit the cap of 1 at span s0002 (2 of 5 spans, 35% of the "
+               "tokens): rates describe the opening of the artifact, not the whole; pass "
+               "--all-atoms for the full sweep")
+    assert warning in artifact["warnings"]
+    assert not any("sampled atoms" in w for w in artifact["warnings"])
+    assert ("1 atoms (cap-per-artifact:1), 1 probed. The atom cap stopped extraction at span "
+            "s0002 (2 of 5 spans, 35% of the tokens): the atoms come from the opening of the "
+            "artifact, not the whole.") in render_novelty_markdown(artifact)
+    validate_artifact("novelty", dict(artifact, schema_version="novelty.v1"))
+
+
+def test_the_reach_is_null_only_when_the_cap_did_not_bind(tmp_path):
+    # A cap the last atom meets binds, and reaches that atom's span; one above it does not.
+    artifact = _analyze(tmp_path, max_atoms=2).artifact
+    assert artifact["atoms"]["n"] == 2 and artifact["spans"]["capped_atom_set"] is True
+    assert artifact["extraction"]["reached"]["last_span"] == "s0003"
+    uncapped = _analyze(tmp_path / "again", max_atoms=3).artifact
+    assert uncapped["extraction"]["reached"] is None
+    assert not any("hit the cap" in w for w in uncapped["warnings"])
+    assert "atom cap stopped" not in render_novelty_markdown(uncapped)
+    validate_artifact("novelty", dict(uncapped, schema_version="novelty.v1"))
+
+
 def test_skipping_the_faithfulness_check_is_recorded_as_a_warning(tmp_path):
     result = _analyze(tmp_path, verify_faithfulness=False)
     assert result.artifact["atoms"]["faithfulness"] == {}

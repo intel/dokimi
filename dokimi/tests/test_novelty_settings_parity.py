@@ -135,12 +135,9 @@ def _headline_coverage(text: str, work: Path) -> dict[str, Any]:
     """The coverage lines stdout printed, beside the ``bundle`` figures in the record."""
     printed = [line for line in text.splitlines() if line.startswith(COVERAGE_LINES)]
     record = work / "out" / "novelty.json"
-    bundle = (
-        json.loads(record.read_text(encoding="utf-8")).get("bundle") or {}
-        if record.exists()
-        else {}
-    )
-    return {"printed": printed, "measured_share": bundle.get("measured_share")}
+    saved = json.loads(record.read_text(encoding="utf-8")) if record.exists() else {}
+    return {"printed": printed, "measured_share": (saved.get("bundle") or {}).get("measured_share"),
+            "reached": (saved.get("extraction") or {}).get("reached")}
 
 
 def _check_headline(coverage: dict[str, Any]) -> None:
@@ -153,8 +150,10 @@ def _check_headline(coverage: dict[str, Any]) -> None:
     # An integer floor of the decimal share, not a float product (0.29 * 100 < 29).
     pct = f"{int(Decimal(str(share)).scaleb(2).to_integral_value(ROUND_FLOOR))}%"
     assert printed, "a run with a record must print its coverage line"
+    # A capped run's words went into the input; its atoms do not cover all of them.
+    went = "went into the input" if coverage["reached"] else "were measured"
     assert printed[0].startswith(
-        f"coverage: {pct} of the artifact's readable words were measured"
+        f"coverage: {pct} of the artifact's readable words {went}"
     ), printed
     warned = [line.startswith(f"WARNING: only {pct} ") for line in printed[1:]]
     assert warned == ([True] if share <= 0.5 else []), printed
@@ -241,6 +240,13 @@ def _kept_estimate(step: dict) -> dict:
 
 # Runs main refuses only after the extraction calls it had already made.
 REFUSED_BEFORE_ANY_CALL = {"run/arms-without-full"}
+# Intended change: the cap warning says how far the cap reached instead of calling the
+# atoms a sample. In the warnings and on stderr alike.
+CAP_WARNING_ON_MAIN = ("atom extraction hit the cap of 1; rates describe the sampled atoms, "
+                       "not the whole artifact")
+CAP_WARNING = ("atom extraction hit the cap of 1 at span s0002 (2 of 5 spans, 35% of the "
+               "tokens): rates describe the opening of the artifact, not the whole; pass "
+               "--all-atoms for the full sweep")
 
 
 @pytest.mark.parametrize("name", list(CASES))
@@ -255,7 +261,7 @@ def test_no_setting_bill_or_tier_record_differs_from_main(name, tmp_path):
         assert [_kept_estimate(step) for step in steps] == [
             _kept_estimate(step) for step in golden[name]]
     else:
-        expected = golden[name]
+        expected = json.loads(json.dumps(golden[name]).replace(CAP_WARNING_ON_MAIN, CAP_WARNING))
         if name in REFUSED_BEFORE_ANY_CALL:
             # Intended change: the arm and placebo checks now run before the clients are
             # built, so the refusal makes no model call. Same status and output as on main.

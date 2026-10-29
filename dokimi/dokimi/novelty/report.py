@@ -229,6 +229,45 @@ def _render_items(artifact: dict) -> list[str]:
     return lines
 
 
+def floored_percent(share: float) -> str:
+    """A 0-1 share as a whole percent, ``<1%`` for a share above 0 and under 1%.
+
+    Floored on the 4-place share, in integers: a float product floors 0.29 to 28, and
+    49.99% must not print as "50%" beside a "below 50%" warning, nor a cap that stopped
+    short of the end as "100%". A true 49.996% is already 0.5 by the time it is stored.
+    """
+    return "<1%" if 0 < share < 0.01 else f"{round(share * 10000) // 100}%"
+
+
+def describe_reach(reached: dict) -> str:
+    """Where a capped extraction stopped: ``span s0012 (12 of 61 spans, 23% of the tokens)``."""
+    return (f"span {reached['last_span']} ({reached['spans']} of {reached['of']} spans, "
+            f"{floored_percent(reached['tokens_share'])} of the tokens)")
+
+
+def coverage_reach(extraction: dict | None) -> tuple[str, str]:
+    """The verb and tail of the headline's coverage line, from the ``extraction`` record.
+
+    The coverage share counts the words that went into the input. Under a binding cap the
+    atoms come from the opening of those words only, so the line must not say they were
+    measured, and it says how far the atoms reach.
+    """
+    reached = (extraction or {}).get("reached")
+    if not reached:
+        return "were measured", ""
+    return ("went into the input", "; the capped atoms come from the first "
+            f"{floored_percent(reached['tokens_share'])} of its tokens")
+
+
+def _capped_at(artifact: dict) -> str:
+    """The report header's sentence on where a binding cap stopped extraction, or ``""``."""
+    reached = (artifact.get("extraction") or {}).get("reached")
+    if not reached:
+        return ""
+    return (f" The atom cap stopped extraction at {describe_reach(reached)}: the atoms "
+            "come from the opening of the artifact, not the whole.")
+
+
 def _render_bundle(artifact: dict) -> list[str]:
     """Which file of the artifact carried the knowledge — and what was not read at all.
 
@@ -384,7 +423,7 @@ def render_novelty_markdown(artifact: dict) -> str:
         f"Model **{artifact['model']}** ({artifact['provider']}), judged by "
         f"**{artifact['judge_model']}**. Artifact: {artifact['artifact']['tokens']} tokens, "
         f"{artifact['atoms']['n']} atoms ({artifact['atoms']['sampling']}), "
-        f"{artifact['atoms']['n_probed']} probed."
+        f"{artifact['atoms']['n_probed']} probed.{_capped_at(artifact)}"
     )
     lines.append("")
 

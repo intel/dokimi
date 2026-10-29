@@ -898,6 +898,13 @@ sampled-rate ones. `--estimate-only` cannot know the atom count yet, so it lists
 > tier `triage` forfeits: no paraphrase probe, so a `redundant` verdict is unprotected
 > against the model matching the artifact's own wording
 
+The cap is not a sample: extraction walks the spans in document order and stops at it, so a
+capped run measures the opening of the artifact. Its warning says how far that is, as in
+`atom extraction hit the cap of 25 at span s0012 (12 of 61 spans, 23% of the tokens): rates
+describe the opening of the artifact, not the whole; pass --all-atoms for the full sweep`,
+`extraction.reached` records it, and the headline's `coverage:` line then says the words
+went into the input and the capped atoms come from the first 23% of its tokens.
+
 That is the point of naming tiers at all. The cheap run is useful; a cheap run quoted as a
 sweep is not.
 
@@ -964,6 +971,7 @@ lost to a failed call (with its error). The
 | `retried_batches` | batches whose reply did not parse, or had no usable atom, and were split and re-asked |
 | `calls`, `batches` | calls made, splits included, against the calls the run would make with no splitting |
 | `last_error` | the error behind the unread spans (a failed call first); errors a split recovered from are not recorded |
+| `reached` | on a capped run, how far the cap reached: `last_span`, the last span any kept atom cites (a batch the cap cut mid-reply was sent whole, but its later spans gave no atom); `spans`, the spans up to and including it, `of` all spans; `tokens_share`, those spans' share of the span tokens. `null` when the cap did not bind |
 
 `probe`, `shorten` and `view` read `atoms.json` and repeat the warning. Unread spans are left out
 of `frac_carrying_nothing` (numerator and denominator) and dead weight, reported as

@@ -198,6 +198,8 @@ class ExtractionReport:
         call_error: The last failed call on a span that stayed unread. Errors that
             splitting recovered from are not recorded: they did not lose anything, and
             quoting one would blame the wrong cause.
+        reached: How far through the artifact a capped atom set reached (see
+            :func:`_cap_reach`); ``None`` when the cap did not bind.
     """
 
     unread_span_ids: list[str] = field(default_factory=list)
@@ -212,6 +214,7 @@ class ExtractionReport:
     parse_error: str = ""
     call_error: str = ""
     unusable_error: str = ""
+    reached: dict | None = None
 
     @property
     def last_error(self) -> str:
@@ -287,6 +290,7 @@ class ExtractionReport:
             "calls": self.calls,
             "batches": self.batches,
             "last_error": self.last_error,
+            "reached": self.reached,
         }
 
 
@@ -318,8 +322,9 @@ def extract_atoms(
             affordable; too large and the model starts skipping spans.
         cap: Stop after this many atoms. Recorded in the artifact as the sampling
             rule, so a capped run is never quoted as a full sweep.
-        report: Filled in place with what could not be read and what re-asking cost.
-            Spans no call could read are also marked ``unread`` in place.
+        report: Filled in place with what could not be read and what re-asking cost,
+            and how far a binding cap reached (``reached``). Spans no call could read
+            are also marked ``unread`` in place.
 
     Returns:
         Atoms in extraction order, de-duplicated by id.
@@ -406,7 +411,30 @@ def extract_atoms(
         # Only when nothing was read: spans that were read and asserted nothing are a
         # result, and a recovered parse error is not a failure.
         raise ExtractionError(f"no atoms: every extraction call failed ({lost})") from lost
+    report.reached = _cap_reach(spans, atoms, cap)
     return atoms
+
+
+def _cap_reach(spans: list[Span], atoms: list[Atom], cap: int | None) -> dict | None:
+    """How far through the artifact a capped atom set reached; ``None`` under the cap.
+
+    Extraction walks the spans in document order and stops at the cap, so a capped set
+    covers the opening of the artifact, not a sample of it. The reach is the last span any
+    kept atom cites, not the last batch sent: a batch the cap cut mid-reply was sent whole,
+    but its later spans gave no atom. ``spans`` counts the spans up to and including it,
+    ``of`` all of them, and ``tokens_share`` is their share of the span tokens.
+    """
+    if cap is None or not atoms or len(atoms) < cap:
+        return None
+    order = {span.id: index for index, span in enumerate(spans)}
+    last = max(order[span_id] for atom in atoms for span_id in atom.span_ids if span_id in order)
+    reached = sum(span.tokens for span in spans[:last + 1])
+    return {
+        "last_span": spans[last].id,
+        "spans": last + 1,
+        "of": len(spans),
+        "tokens_share": round(reached / sum(span.tokens for span in spans), 4),
+    }
 
 
 def _mark_unread(batch: list[Span], report: ExtractionReport) -> None:

@@ -221,6 +221,48 @@ def test_a_capped_extraction_counts_only_the_batches_it_reached():
     ) in report.warnings(len(spans))
 
 
+def _three_per_span(prompt, system):
+    rows = [dict(row, statement=f"{row['statement']} ({k})",
+                 question=f"q{k} {row['span_ids'][0]}")
+            for row in _rows(prompt) for k in range(3)]
+    return json.dumps(rows), None
+
+
+def test_a_capped_extraction_records_the_last_span_its_atoms_reached(tmp_path):
+    """60 spans, 3 atoms each, 10 per batch: the 25th atom is span 9's, mid-batch."""
+    from dokimi.novelty.atoms import save_atoms
+
+    doc = "\n\n".join(f"Setting number {i} defaults to {i * 10}." for i in range(1, 61))
+    spans = segment(doc)
+    report = ExtractionReport()
+    atoms = extract_atoms(spans, client=LLMClient(model="x", transport=_three_per_span),
+                          batch_spans=10, cap=25, report=report)
+    assert len(atoms) == 25 and report.batches == 1
+    # The batch sent s0001-s0010; the cap cut its reply inside s0009's atoms.
+    # Nine spans of 8 tokens, of 480 tokens in all: 72 / 480.
+    assert [s.tokens for s in spans[:9]] == [8] * 9 and sum(s.tokens for s in spans) == 480
+    assert report.reached == {"last_span": "s0009", "spans": 9, "of": 60, "tokens_share": 0.15}
+    path = tmp_path / "atoms.json"
+    save_atoms(atoms, spans, path, cap=25, extraction=report)
+    assert json.loads(path.read_text())["extraction"]["reached"] == report.reached
+
+
+@pytest.mark.parametrize("cap, reached", [
+    (None, None),
+    (31, None),
+    # Met on the last span: still a capped set, and its reach is the whole artifact.
+    (30, {"last_span": "s0010", "spans": 10, "of": 10, "tokens_share": 1.0}),
+])
+def test_an_extraction_the_cap_did_not_stop_reaches_nothing_or_the_end(cap, reached):
+    """No cap, a cap above the 30 atoms, and a cap the last atom meets exactly."""
+    spans = segment(DOC)
+    report = ExtractionReport()
+    atoms = extract_atoms(spans, client=LLMClient(model="x", transport=_three_per_span),
+                          cap=cap, report=report)
+    assert len(atoms) == 30 and len(spans) == 10
+    assert report.reached == report.as_dict()["reached"] == reached
+
+
 def _half_lost(n: int = 50, silent: frozenset[int] = frozenset()):
     """``n`` one-sentence spans, the first batch lost; every read span carries an atom
     except those at the ``silent`` indexes, which are read and assert nothing."""

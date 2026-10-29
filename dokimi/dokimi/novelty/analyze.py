@@ -182,10 +182,11 @@ def analyze(
     sampling = (
         f"cap-per-artifact:{config.max_atoms}" if config.max_atoms is not None else "full"
     )
-    if config.max_atoms is not None and len(atom_list) >= config.max_atoms:
+    if extraction.reached:
         warnings.append(
-            f"atom extraction hit the cap of {config.max_atoms}; rates describe the "
-            "sampled atoms, not the whole artifact"
+            f"atom extraction hit the cap of {config.max_atoms} at "
+            f"{report.describe_reach(extraction.reached)}: rates describe the opening of "
+            "the artifact, not the whole; pass --all-atoms for the full sweep"
         )
     if not atom_list:
         warnings.append("no atoms with span provenance were extracted; nothing to measure")
