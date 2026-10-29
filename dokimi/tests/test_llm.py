@@ -270,12 +270,15 @@ MAIN_WRITTEN = [
     ("22510fd74bf01210757177f302f9b6728b81e9e3b31572bd6245f0c88af78dfd",
      lambda: get_llm("openrouter", "openai/gpt-oss-120b", "k", temperature=0.0).invoke(
          "ask", draw=1)),
+    # Off the installed price map, so routed as openai/gpt-6.1-terra here; main sent it bare.
+    ("c6dc142638019230bb9f5876e709302f8eafd63ea9a22a5990bc086fd7d07e3e",
+     lambda: LLM("gpt-6.1-terra", "openai", api_key="k").complete("ask")),
 ]
 
 
 @pytest.mark.parametrize("key, call", MAIN_WRITTEN,
                          ids=["plain", "system+prefix", "pinned+max_tokens+draw", "stream",
-                              "get_llm-bedrock", "get_llm-openrouter"])
+                              "get_llm-bedrock", "get_llm-openrouter", "openai-rerouted"])
 def test_an_entry_main_wrote_is_hit(key, call, cache_dir, fake_llm):
     usage = UsageRecord(total_tokens=7, cost_usd=0.002, cost_known_calls=1)
     (cache_dir / f"{key}.json").write_text(

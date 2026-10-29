@@ -8,8 +8,11 @@
   and panel, `eval cross-judge --judges openai/<model>` (#136), whose arms read NOT MEASURED
   before, and question and persona generation. A name litellm takes for OpenAI's
   (`gpt-6.1-sol`, `o3`, a `ft:gpt-4o-mini:…` fine-tune), or one with a litellm provider prefix
-  (`azure/…`, `ollama/…`), keeps its route and its response-cache entries. The double-prefix
-  workaround (`openai/openai/<model>`) still works.
+  (`azure/…`, `ollama/…`), keeps its route. Every name keeps its response-cache entries: on
+  provider openai the key holds the model name as given, not the route, so it does not move
+  with this fix or with litellm's price map (the remote one or the installed backup, which
+  can disagree on a new model). The double-prefix workaround (`openai/openai/<model>`) still
+  works.
 - **`--provider openai` no longer hands a bare name to another cloud with the OpenAI key** —
   a bare name that litellm assigns to another provider (about 450 in litellm 1.106: `claude-*`
   to Anthropic, `amazon.nova-pro-v1:0` and the other Bedrock ids, `gemini-*` to Vertex, Cohere

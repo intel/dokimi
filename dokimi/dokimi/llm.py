@@ -39,13 +39,13 @@ What a caller can rely on:
 - **Retry.** Transient errors (:func:`is_retryable`) are retried
   ``max_retries`` times with doubling backoff; anything else is raised on the
   first attempt.
-- **Response cache** (:mod:`dokimi.caching`, off unless
-  ``DOKIMI_RESPONSE_CACHE`` is set). ``complete`` is cached, ``chat`` never is:
-  replaying a completion would skip the tool calls an agent loop measures. The
-  key holds the litellm model, the messages, ``stream`` and ``max_tokens``, and
-  ``temperature``/``seed`` when set; ``draw=n`` is an independent sample with its
-  own entry (draw 0 adds nothing). ``cache_if(text)`` decides whether a reply may
-  be stored *or replayed*. A replay returns the stored usage record.
+- **Response cache** (:mod:`dokimi.caching`, off unless ``DOKIMI_RESPONSE_CACHE`` is set).
+  ``complete`` is cached, ``chat`` never is: replaying a completion would skip the tool calls an
+  agent loop measures. The key holds the litellm model (on openai the caller's name, as the route
+  there moves with litellm's price map), the messages, ``stream`` and ``max_tokens``, and
+  ``temperature``/``seed`` when set; ``draw=n`` is an independent sample with its own entry
+  (draw 0 adds nothing). ``cache_if(text)`` decides whether a reply may be stored *or
+  replayed*. A replay returns the stored usage record.
 - **Usage.** Every reply carries a :class:`UsageRecord`; ``cost_usd`` is ``None``
   when litellm has no price for the model, never a fake ``0.0``.
 - **Truncation.** A live ``complete``/``ask`` reply cut at the output ceiling
@@ -707,8 +707,8 @@ class LLM:
             model=self.model, provider=self.provider,
         )
         key = caching.response_cache_key(
-            litellm_model=self.litellm_model, messages=messages,
-            extra=caching.draw_extra(self._cache_extra(stream, max_tokens), draw),
+            litellm_model=self.model if _canonical(self.provider) == "openai" else self.litellm_model,
+            messages=messages, extra=caching.draw_extra(self._cache_extra(stream, max_tokens), draw),
         )
         hit = caching.load_response(key)
         if hit is not None and caching.keeps(cache_if, cast(str, hit[0])):

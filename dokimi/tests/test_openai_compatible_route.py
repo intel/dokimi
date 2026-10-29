@@ -52,6 +52,25 @@ def test_a_name_litellm_takes_for_openais_goes_out_bare_and_still_routes(litellm
     assert litellm_routes == [model]
 
 
+def test_a_reply_cached_under_one_litellm_price_map_replays_under_the_other(litellm_routes, monkeypatch, tmp_path):
+    """A new model is on litellm's remote price map but not on its installed backup
+    (``LITELLM_LOCAL_MODEL_COST_MAP``): the route is bare under one and ``openai/`` under the
+    other, and the response-cache key must not follow it."""
+    import litellm
+
+    from dokimi import caching
+
+    monkeypatch.setenv(caching.RESPONSE_CACHE_ENV, str(tmp_path))
+    listed = set(litellm.open_ai_chat_completion_models) - {"gpt-6.1-terra"}
+    monkeypatch.setattr(litellm, "open_ai_chat_completion_models", listed | {"gpt-6.1-terra"})
+    assert LLM("gpt-6.1-terra", "openai").ask("Reply with OK.") == JUDGE_REPLY
+    monkeypatch.setattr(litellm, "open_ai_chat_completion_models", listed)
+    off_map = LLM("gpt-6.1-terra", "openai")
+    assert off_map.litellm_model == "openai/gpt-6.1-terra"
+    assert off_map.ask("Reply with OK.") == JUDGE_REPLY
+    assert litellm_routes == ["gpt-6.1-terra"]  # the second ask replayed, nothing sent
+
+
 def test_cross_judge_scores_with_an_openai_compatible_judge(litellm_routes, tmp_path):
     """The reported command: before the fix every score failed and the arm read NOT MEASURED."""
     from dokimi.cli import build_parser
