@@ -12,6 +12,7 @@ import re
 import pytest
 
 from dokimi import cli_routes
+from dokimi.artifacts import schema_errors
 from dokimi.cli import build_parser, parse_args
 
 SECTION_HEADING = re.compile(r"^(%s):$" % "|".join(re.escape(s) for s in cli_routes.SECTIONS))
@@ -187,3 +188,25 @@ def test_data_schema_list_names_the_kinds(capsys):
     args = parse_args(["data", "schema", "list"])
     args.func(args)
     assert capsys.readouterr().out.split() == ["cli_routes"]
+
+
+def test_the_route_document_validates_against_its_schema():
+    assert schema_errors("cli_routes.v1", cli_routes.document()) == []
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        lambda doc: doc["roots"][0].pop("cost"),
+        lambda doc: doc["leaves"][0].update(cost="cheap"),
+        lambda doc: doc["leaves"][0].pop("path"),
+        lambda doc: doc.pop("tombstones"),
+        lambda doc: doc.update(schema_version="cli_routes.v2"),
+        lambda doc: doc["roots"][0].update(extra=1),
+    ],
+    ids=["root-no-cost", "bad-cost", "leaf-no-path", "no-tombstones", "wrong-version", "extra-key"],
+)
+def test_the_route_schema_rejects_a_document_whose_shape_drifted(damage):
+    doc = cli_routes.document()
+    damage(doc)
+    assert schema_errors("cli_routes.v1", doc)
