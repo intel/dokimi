@@ -9,7 +9,7 @@ SPDX-License-Identifier: Apache-2.0
 [![codecov](https://codecov.io/gh/intel/dokimi/graph/badge.svg?branch=main)](https://codecov.io/gh/intel/dokimi)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/intel/dokimi/badge)](https://scorecard.dev/viewer/?uri=github.com/intel/dokimi)
 
-### Proof, not popularity: find out whether your agent's skills, docs and `AGENTS.md` actually work.
+**Proof, not popularity: find out whether your agent's skills, docs and `AGENTS.md` actually work.**
 
 ![The same eval set runs on agent A as it is and on agent B with one change; the same grader scores both, and the difference with its p-value decides](dokimi/docs/assets/readme/ab-test.png)
 

@@ -7,7 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 
 Source on GitHub: [intel/dokimi](https://github.com/intel/dokimi).
 
-### Proof, not popularity: find out whether your agent's skills, docs and `AGENTS.md` actually work.
+**Proof, not popularity: find out whether your agent's skills, docs and `AGENTS.md` actually work.**
 
 ![The same eval set runs on agent A as it is and on agent B with one change; the same grader scores both, and the difference with its p-value decides](assets/readme/ab-test.png)
 
