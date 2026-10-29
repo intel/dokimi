@@ -72,6 +72,9 @@ def test_a_judge_provider_alone_takes_the_generator_when_the_judge_is_measured()
     ("--model", f"us.anthropic.{DEFAULT_JUDGE_MODEL}", "--provider", "amazon-bedrock",
      "--judge-provider", "amazon-bedrock"),
     ("--model", DEFAULT_JUDGE_MODEL, "--provider", "anthropic", "--judge-provider", "anthropic"),
+    # A CLI alias is its family's full id: refused here, not after the paid extraction.
+    ("--model", "sonnet", "--provider", "claude-cli", "--judge-provider", "anthropic"),
+    ("--model", "sonnet", "--provider", "claude-cli", "--judge-provider", "amazon-bedrock"),
     # The default answerer is the generator, so openai has no default judge left either.
     ("--judge-provider", "openai"),
 ])

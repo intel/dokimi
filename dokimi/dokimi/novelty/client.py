@@ -282,7 +282,7 @@ def default_judge(model: str, provider: str | None = None,
     Raises:
         ValueError: ``provider`` runs no default judge other than ``model``.
     """
-    from dokimi.llm_cli import backend
+    from dokimi.llm_cli import backend, same_model
 
     bare = model.rsplit("/", 1)[-1].rsplit("anthropic.", 1)[-1]
     if provider is None and answerer_provider is not None and backend(answerer_provider) is not None:
@@ -290,8 +290,6 @@ def default_judge(model: str, provider: str | None = None,
     # Hard-coded for claude-cli; a second CLI backend (codex-cli) needs its own alias list here.
     if provider is not None and provider == "claude-cli":
         # The CLI's aliases: the first one not of the answerer's family, so the judge is never the answerer.
-        from dokimi.llm_cli import same_model
-
         for alias in ("opus", "sonnet", "haiku"):
             if not same_model("claude-cli", alias, "claude-cli", bare):
                 return alias, provider
@@ -299,7 +297,7 @@ def default_judge(model: str, provider: str | None = None,
                          "pass --judge-model as well")
     candidates = [(m, p) for m, p in ((DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER),
                                       (DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER))
-                  if m != bare]
+                  if m != bare and not same_model(answerer_provider or "", bare, p, m)]
     if provider is None:
         return candidates[0]
     for m, p in candidates:
