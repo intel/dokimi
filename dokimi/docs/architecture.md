@@ -342,8 +342,13 @@ next release.
   `grade` must fail the untouched workspace and pass it after `oracle`, and an
   isolation probe must not see the tasks or the source from the agent's
   container.
+- `dokimi/repos/replay/` — `repo tasks replay`: one `dokimi:review_replay`
+  task per merged pull request of a threads file `gh api graphql` wrote (the
+  change as reviewed, gold from the reviewers' threads on its lines, and
+  `addressed` from the PR's own later commits), read with git and no GitHub
+  call. It is the one command that writes into a repository's tasks directory.
 
-Entry points: `python cli.py repo {validate,scan,fetch,reach,budget,tasks check,run,report}`
+Entry points: `python cli.py repo {validate,scan,fetch,reach,budget,tasks check,tasks replay,run,report}`
 (`python cli.py repo --help` is the current list). The interface a repository
 codes against is [repo-evaluation-contract.md](repo-evaluation-contract.md),
 still marked PROPOSED: the per-host egress proxy (§2) is not implemented, so

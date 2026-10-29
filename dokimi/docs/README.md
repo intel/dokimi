@@ -5,28 +5,84 @@ SPDX-License-Identifier: Apache-2.0
 
 # Dokimi: measure what actually helps an agent
 
-*Dokimi* — Greek δοκιμή, "test, proof" ([why the name](../../README.md)).
-
 Source on GitHub: [intel/dokimi](https://github.com/intel/dokimi).
 
-The idea in three points:
+**Proof, not popularity: find out whether your agent's skills, docs and `AGENTS.md` actually work.**
 
-- An agent is more than its model. It is **model + the context you give it**:
-  docs, skills, MCP servers, system prompts (agent profiles), plugins.
-- All of that is cheap to write — and easy to over-claim. Does it really help,
-  or does it just add tokens?
-- So we test it like an experiment: **change one thing, keep everything else
-  fixed, measure the delta — and check it is statistically significant.**
+![The same eval set runs on agent A as it is and on agent B with one change; the same grader scores both, and the difference with its p-value decides](assets/readme/ab-test.png)
 
-```mermaid
-flowchart LR
-    Q([same questions]) --> M1[model]
-    Q --> M2[model + artifact]
-    M1 -- "answers → judge" --> S1([score A])
-    M2 -- "answers → judge" --> S2([score B])
-    S1 --> D{{"delta = B − A<br/>p-value: real or noise?"}}
-    S2 --> D
-```
+## What it is
+
+An AI agent is its model plus the context it is given: skills, instructions,
+product docs, MCP servers, a repository's own `AGENTS.md`. All of that is cheap
+to write and easy to over-claim, and marketplaces rank it by popularity, which
+buries niche expert tooling such as HPC and numerical libraries.
+
+Dokimi treats context like an experiment. It runs the same questions, coding
+tasks or repository tasks with and without one change, grades both the same
+way (an LLM judge for answers, tests in Docker for code), and reports the
+difference with paired statistics, per model. An artifact ships with the
+scorecard that earned it.
+
+> **dokimi** — Greek *δοκιμή*, "test, proof". An artifact does not get trusted
+> because it was written or because it is popular; it gets trusted because it
+> passed a test that could have failed.
+
+![1. Does it help? Ship it or cut it. 2. Which parts help? Edit it. 3. Does guidance land? Fix the repo](assets/readme/three-questions.png)
+
+## Which parts help: novelty
+
+A single delta says whether a skill helps, not which of its parts do. Dokimi
+splits the skill (or any document, such as an `AGENTS.md`) into individual
+claims and asks the model about each one twice: without the skill and with
+it. A different model grades both answers. Every claim lands in one of four
+outcomes:
+
+![A 2x2 grid. Wrong without, right with: added, keep it. Right without and with: redundant, cut it for this model. Wrong both times: still missing, rewrite it. Right without, wrong with: degraded, fix it first](assets/readme/novelty-outcomes.png)
+
+The outcomes are painted back onto the skill's own text, so the author sees
+what to keep, cut, rewrite and fix, line by line ([more on novelty](skill-novelty.md)):
+
+![A SKILL.md with each line coloured by its outcome: added (keep), redundant (cut), degraded (fix), still missing (rephrase), and protected safety clauses (never cut)](assets/readme/annotated-skill.png)
+
+## Shorten the skill without losing what matters
+
+The same outcomes drive shortening. Dokimi proposes shorter versions of the
+skill under different strategies (by value per token, or with every safety
+clause pinned) and token budgets, and scores each candidate on tokens,
+knowledge kept and safety clauses kept. Different strategies cut different
+lines:
+
+![One skill, three shortening strategies. Safety-pinned at a 75% budget keeps 96% of the knowledge in 66% of the tokens. By value at a 50% budget keeps 92% of the knowledge in 21% of the tokens but only 16% of the safety clauses. Safety-pinned at a 50% budget keeps every safety clause and 81% of the knowledge in 60% of the tokens](assets/readme/shortening-strategies.png)
+
+Pick a candidate, re-measure it on your tasks, and decide:
+
+![Assess, diagnose, change, re-measure, then: better means keep it and guard it in CI; none or worse means reject it with numbers; unclear means explain and design the next experiment. A new model, harness or time means reassess](assets/readme/improvement-loop.png)
+
+## Are the evals good enough?
+
+A score is only as good as the evals behind it. Before any agent run, Dokimi
+checks the eval set itself: that it parses, that each task's grader fails an
+untouched workspace and passes the reference solution, and that an LLM judge
+scores degraded answers lower.
+
+![Three checks of an eval set: valid (dokimi repo validate), graded right (dokimi repo tasks check), judge checked (dokimi eval judge-validity)](assets/readme/eval-checks.png)
+
+**Where it is going:** mapping each claim in a skill to the tasks that
+exercise it, so the claims no eval tests are listed next to the score.
+
+## What measuring shows
+
+From the studies so far ([evidence](skill-novelty-evidence.md)):
+
+- **Much of a skill repeats what the model already knows.** For a frontier
+  model under lenient grading, 70% of what a skill says the model already
+  produces unprompted. Under strict grading, which also checks exact values,
+  38% is still missing even with the skill in context.
+- **Models believe their context, even when it is wrong.** A plausible wrong
+  value planted in a skill is repeated in 85–94% of cases in a small study.
+- **Value depends on the model.** What a small model needs, a frontier model
+  may already know, so every verdict is per model.
 
 ## What can be compared (arms)
 
@@ -263,6 +319,11 @@ code.
 - [run-consistency.md](run-consistency.md) — repeated runs of one task with
   `cli.py context consistency`: result stability (pass^k), path stability
   (tool mix, order, actions, strategies), process-contract conformance.
+
+- [what-it-measures.md](what-it-measures.md) — the three things Dokimi measures:
+  enabled vs disabled arms, novel vs known content, and repositories.
+- [reviewing.md](reviewing.md) — review a skill or a repository's agent setup,
+  cheapest step first, with costs and how to read the results.
 
 ## Content novelty
 
