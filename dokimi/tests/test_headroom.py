@@ -14,8 +14,11 @@ import json
 import pytest
 
 from dokimi import records
+from dokimi.cli import build_parser
 from dokimi.commands.headroom import cmd_eval_headroom
-from dokimi.eval.headroom import CEILING, FLOOR, format_table, headroom
+from dokimi.eval.headroom import (
+    CEILING, DEFAULT_CEILING, DEFAULT_FLOOR, DEFAULT_MIN_REPS, FLOOR, format_table, headroom,
+)
 
 
 def _run(items, baseline="baseline"):
@@ -323,3 +326,22 @@ def test_command_passes_non_default_thresholds_to_the_analysis(tmp_path):
     assert {i["question_id"]: i["flag"] for i in saved["items"]} == {"1": CEILING, "2": FLOOR}
     assert saved["thresholds"] == {"ceiling": 0.5, "floor": 0.2, "min_reps": 1}
     assert [i["provisional"] for i in saved["items"]] == [False, False]
+
+
+def test_the_registered_options_default_to_the_documented_thresholds(tmp_path):
+    args = build_parser().parse_args(["eval", "headroom", str(tmp_path / "a.json")])
+    assert (args.ceiling, args.floor, args.min_reps) == (DEFAULT_CEILING, DEFAULT_FLOOR, DEFAULT_MIN_REPS)
+    assert (args.no_skill_arm, args.output) == (None, None)
+    assert args.func is cmd_eval_headroom
+
+
+def test_the_registered_options_reach_the_analysis_through_the_real_parser(tmp_path):
+    path = _arms_file(tmp_path / "arms.json", {"1": {"baseline": 60, "skill": 10},
+                                               "2": {"baseline": 5, "skill": 15}})
+    out = tmp_path / "headroom.json"
+    args = build_parser().parse_args(["eval", "headroom", str(path), "--ceiling", "0.5", "--floor", "0.2",
+                                      "--min-reps", "1", "--no-skill-arm", "baseline", "-o", str(out)])
+    args.func(args)
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    assert saved["thresholds"] == {"ceiling": 0.5, "floor": 0.2, "min_reps": 1}
+    assert {i["question_id"]: i["flag"] for i in saved["items"]} == {"1": CEILING, "2": FLOOR}
