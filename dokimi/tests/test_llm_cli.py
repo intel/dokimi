@@ -271,7 +271,7 @@ def test_benchmark_preflight_checks_the_login_not_a_key(monkeypatch):
     errors, _ = _provider_checks(["claude-cli"])
     assert any("not installed" in e for e in errors)
     monkeypatch.setattr(process, "run", _auth_runner({"loggedIn": True}))
-    monkeypatch.delenv("OPENAI_API_KEY")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     errors, _ = _provider_checks(["openai"])
     assert any("missing OPENAI_API_KEY" in e for e in errors)
 
