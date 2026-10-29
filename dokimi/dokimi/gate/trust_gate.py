@@ -136,14 +136,27 @@ def evaluate_trust(
         return TrustVerdict(checks=checks)  # can't compute anything else
 
     # ── 2. Zero-score fraction ─────────────────────────────────────────────
-    zero_with = sum(1 for v in with_scores if v == 0)
-    zero_frac = zero_with / n
+    # A retrieval miss is not judged by default (the no-document placeholder is not a
+    # with-docs answer). It still counts here as unusable: the zero-score check
+    # has always counted those questions, judged at zero. Leaving them out would
+    # let a run with many misses pass this fail-severity check.
+    unjudged_misses = [
+        r for r in records(evaluations, kind="evaluations")
+        if r.score(CONTEXT) is None and r.score(BASELINE) is not None
+        and r.retrieval_hit is False
+    ]
+    zero_with = sum(1 for v in with_scores if v == 0) + len(unjudged_misses)
+    unusable_n = n + len(unjudged_misses)
+    zero_frac = zero_with / unusable_n
     checks.append(TrustCheck(
         name="zero_score_fraction",
         passed=zero_frac <= cfg["max_zero_fraction"],
         value=round(zero_frac, 3),
         threshold=cfg["max_zero_fraction"],
-        message=f"{zero_with}/{n} questions scored 0 in the context arm ({zero_frac:.1%})",
+        message=(
+            f"{zero_with}/{unusable_n} questions scored 0 or had no document in the context "
+            f"arm ({zero_frac:.1%})"
+        ),
         severity="fail",
     ))
 
