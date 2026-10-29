@@ -280,7 +280,7 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
     except SourceError as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
-    try:  # the manifest and the scenarios it selects: a usage error
+    try:  # the manifest and the scenarios it selects: a usage error; a failed git read is a fetch failure (1)
         manifest = _load_manifest(tree, args, guidance_default=True)
         files = probe_files(tree, manifest, profile)
         available = [s.id for s in scenarios(files, kinds)]
