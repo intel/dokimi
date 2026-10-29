@@ -1,0 +1,15 @@
+### Added
+
+- **`repo run` records each cell's start context, and `repo compare` compares it** — `result.json`
+  `agent.first_prompt_tokens` is what the first main-thread model call was sent (input plus cache
+  creation plus cache read tokens, one call per message id, as `context trace` reads it): start-up and
+  the task. It is `null` for a trace without that call and for the `text` format. `repo compare` adds a
+  descriptive `first_prompt_tokens` row; a batch written before the field has no such row.
+- **`repo compare --task ID`** — repeatable: compares only those task ids. An id no finished cell of the
+  batches has exits 1 and names it; the tasks left out are not listed as unpaired, and the `--json`
+  summary (`task_filter`) and the text header (`tasks: N of M (--task)`) record the selection.
+- **Reading notes under a `repo compare` comparison** — a gate or score row of 2+ tasks whose interval
+  includes 0 says it is inconclusive and gives `mde`, the smallest effect 80% power detects at that
+  spread (`mde` is in every `--json` row); a row whose interval and p disagree says so and why
+  (`interval_p_disagree`), and for gate and score that p is the one to read; descriptive rows with
+  p below 0.05 are named as uncorrected and outside Holm's family. No number changes.

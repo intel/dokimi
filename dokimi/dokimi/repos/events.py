@@ -20,7 +20,9 @@ subagent made carries ``agent``: the id of the parent's tool call that started i
 
 Token counts cover the same scope as ``cost_usd``: summed over ``modelUsage``
 (parent, subagents and helper models) when the result has it, else the parent's
-``usage``; ``usage_scope`` says which (``tree`` or ``main``).
+``usage``; ``usage_scope`` says which (``tree`` or ``main``). ``first_prompt_tokens`` is
+the prompt of the first main-thread model call, everything start-up loaded plus the
+task, read as :mod:`dokimi.context.trace` reads it (one call per message id).
 """
 
 from __future__ import annotations
@@ -31,6 +33,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any
+
+from dokimi.context.trace import parse_trace
 
 TRACE_FORMATS = ("claude-stream-json", "text")
 OUTPUT_LIMIT = 8192
@@ -56,6 +60,7 @@ class Transcript:
     cache_read_tokens: int | None = None
     cache_write_tokens: int | None = None
     usage_scope: str | None = None  # "tree": tokens include subagents and helper models; "main": parent only
+    first_prompt_tokens: int | None = None  # the first main-thread call's prompt; None for a format without usage
     subagent_calls: int | None = None  # counted once the harness's result record is seen
     is_error: bool = False
     harness_version: str | None = None
@@ -112,6 +117,8 @@ def _claude_stream_json(raw: str, workdir: str | None) -> Transcript:
             _apply(out, rec, t, by_id, workdir)
         except (AttributeError, TypeError) as exc:  # valid JSON of an unexpected shape
             out.errors.append(f"line {n}: unexpected shape ({exc})")
+    main = parse_trace(raw).main_calls()
+    out.first_prompt_tokens = main[0]["prompt_tokens"] if main else None
     return out
 
 

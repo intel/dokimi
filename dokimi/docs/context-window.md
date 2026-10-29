@@ -79,3 +79,7 @@ point `CLAUDE_CONFIG_DIR` at an empty directory to leave it out. The
 `surface` field of `--json` (the tool, skill and agent counts, and the names of
 the MCP servers and loaded plugins) shows what start-up offered, so two runs
 that differ there are not the same condition.
+
+`repo run` records **first** for every cell as `result.json`
+`agent.first_prompt_tokens`, and `repo compare` compares it between arms as
+the descriptive measure `first_prompt_tokens`.
