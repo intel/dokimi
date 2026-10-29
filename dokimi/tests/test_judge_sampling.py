@@ -28,6 +28,19 @@ def test_the_judge_record_names_the_resolved_models_it_was_judged_by():
     assert j._build_evaluation_output([])["judge_resolved_models"] == ["claude-sonnet-5-5"]
 
 
+def test_the_arms_judge_record_names_the_resolved_models_too():
+    # arms run and matrix-run build the judge record in ArmRunner, not in Judge.
+    from dokimi.eval.arm_runner import ArmRunner
+    from dokimi.metrics.usage import UsageRecord
+    from dokimi.treatments import BaselineTreatment
+
+    runner, j = ArmRunner([BaselineTreatment()]), Judge(model="opus", provider="claude-cli")
+    assert "judge_resolved_models" not in runner.build_output("oneTBB", [], [], judge=j)
+    j._accumulate_usage(UsageRecord(resolved_model="claude-opus-5-5"))
+    out = runner.build_output("oneTBB", [], [], judge=j)
+    assert out["judge_resolved_models"] == ["claude-opus-5-5"]
+
+
 def test_judge_defaults_leave_sampling_unset():
     j = Judge(model="m", provider="openai")
     assert j.temperature is None

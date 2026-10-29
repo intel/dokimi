@@ -742,11 +742,12 @@ class ArmRunner:
         # cost_summary so a full run's spend is auditable from one artifact).
         if judge is not None and hasattr(judge, "_usage_totals"):
             with judge._usage_lock:
-                totals = dict(judge._usage_totals)
-            totals["cost_usd"] = (
-                round(totals["cost_usd"], 6) if totals["cost_known_calls"] else None
-            )
-            out["judge_metrics"] = totals
+                t = dict(judge._usage_totals)
+                resolved = sorted(getattr(judge, "_resolved_models", ()))
+            t["cost_usd"] = round(t["cost_usd"], 6) if t["cost_known_calls"] else None
+            out["judge_metrics"] = t
+            if resolved:  # the model a CLI alias judge ran as, as eval score records it
+                out["judge_resolved_models"] = resolved
         return out
 
     def _summarize(
