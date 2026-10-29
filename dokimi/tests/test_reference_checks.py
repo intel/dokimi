@@ -156,7 +156,7 @@ def test_scored_grade_with_an_unjudged_check_is_counted_in_the_summary():
     tally = ConditionTally()
     tally.add(grade({"checks": [{"type": "match", "values": ["1996"], "location": "any"},
                                 {"type": "judge", "reference": "1996"}]}, "Q?", "In 1996."))
-    assert tally.as_dict() == {"n": 1, "unscored": 0, "judge_unscored": 1, "check_unscored": 0,
+    assert tally.as_dict() == {"n": 1, "unscored": 0, "errors": 0, "judge_unscored": 1, "check_unscored": 0,
                                "pass_rate": 1.0, "mean_score": 1.0}
 
 
@@ -165,7 +165,7 @@ def test_a_timed_out_check_next_to_a_pass_is_counted_in_the_summary():
     tally = ConditionTally()
     tally.add(grade({"checks": [{"type": "regex", "values": ["(a|aa)+$"]},
                                 {"type": "match", "values": ["!"], "location": "any"}]}, "Q?", "a" * 40 + "!"))
-    assert tally.as_dict() == {"n": 1, "unscored": 0, "judge_unscored": 0, "check_unscored": 1,
+    assert tally.as_dict() == {"n": 1, "unscored": 0, "errors": 0, "judge_unscored": 0, "check_unscored": 1,
                                "pass_rate": 1.0, "mean_score": 1.0}
 
 
@@ -293,8 +293,9 @@ def test_score_binary_answers_gives_eval_v1(tmp_path):
     ]}
     result = score(data, _QUESTIONS)
     assert result.missing == ["3"]
-    assert result.tally["without_docs"].as_dict() == {"n": 2, "unscored": 0, "judge_unscored": 0,
-                                                      "check_unscored": 0, "pass_rate": 0.5, "mean_score": 0.5}
+    assert result.tally["without_docs"].as_dict() == {"n": 2, "unscored": 0, "errors": 0,
+                                                      "judge_unscored": 0, "check_unscored": 0,
+                                                      "pass_rate": 0.5, "mean_score": 0.5}
     kind, payload = artifact(result, data, judge_model=None, judge_provider=None, questions_path="q.json")
     assert kind == "eval"
     first = payload["evaluations"][0]
@@ -365,7 +366,7 @@ def test_read_inspect_json_log(tmp_path):
     save_artifact("eval", run.eval_artifact(), tmp_path / "e.json")
 
 
-def test_errored_inspect_sample_stays_unscored_in_eval_reference(tmp_path):
+def test_errored_inspect_sample_is_an_error_not_a_score_in_eval_reference(tmp_path):
     log = {"eval": {"model": "m"}, "samples": [
         {"id": "q1", "input": "Q1", "output": {"completion": "Paris"}, "scores": {"match": {"value": "C"}}},
         {"id": "q2", "input": "Q2", "output": {"completion": ""}, "scores": {},
@@ -378,7 +379,8 @@ def test_errored_inspect_sample_stays_unscored_in_eval_reference(tmp_path):
     checks = {"checks": [{"type": "match", "values": ["paris"], "location": "any"}]}
     questions = [{"id": q, "question": q, "grading": checks} for q in ("q1", "q2")]
     tally = score(run.answers_artifact(), questions).tally["without_docs"].as_dict()
-    assert (tally["n"], tally["unscored"], tally["pass_rate"]) == (1, 1, 1.0)
+    # The errored sample is counted as an error, apart from the unscored ones, and not in n or the rate.
+    assert (tally["n"], tally["unscored"], tally["errors"], tally["pass_rate"]) == (1, 0, 1, 1.0)
 
 
 def test_read_promptfoo_output_keys_by_test_and_prompt(tmp_path):

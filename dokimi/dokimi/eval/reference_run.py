@@ -29,17 +29,24 @@ SCORER = "reference"
 
 @dataclass
 class ConditionTally:
+    """Counts for one condition. An errored answer (the answer call failed) is ``errors``, apart from
+    ``unscored`` (no check could score it, e.g. no judge): neither enters ``n``, the pass rate or the mean."""
+
     n: int = 0
     passed: int = 0
     unscored: int = 0
+    errors: int = 0
     judge_unscored: int = 0
     check_unscored: int = 0
     score_sum: float = 0.0
 
-    def add(self, g: Grade) -> None:
+    def add(self, g: Grade, *, errored: bool = False) -> None:
         score = g.score
         if score is None:
-            self.unscored += 1
+            if errored:
+                self.errors += 1
+            else:
+                self.unscored += 1
             return
         self.n += 1
         self.score_sum += score
@@ -52,6 +59,7 @@ class ConditionTally:
         return {
             "n": self.n,
             "unscored": self.unscored,
+            "errors": self.errors,
             "judge_unscored": self.judge_unscored,
             "check_unscored": self.check_unscored,
             "pass_rate": round(self.passed / self.n, 4) if self.n else None,
@@ -107,7 +115,7 @@ def score(data: Any, questions: list[Mapping[str, Any]], *, ask: Optional[Ask] =
     for rec, per_condition in zip(graded, grades, strict=True):
         blocks = {}
         for name, g in per_condition.items():
-            out.tally.setdefault(name, ConditionTally()).add(g)
+            out.tally.setdefault(name, ConditionTally()).add(g, errored=bool(rec.answers[name].error))
             blocks[name] = {**g.as_dict(), "scorer": SCORER}
         out.evaluations.append(_evaluation(run, rec, blocks))
     return out

@@ -13,7 +13,7 @@ tests keep working.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, Mapping
+from typing import Any, Dict, Iterable, List, Mapping, Sequence, Tuple
 
 from dokimi.records import RecordLike
 from dokimi.records import records as as_records
@@ -264,3 +264,20 @@ def cost_summary(records: Iterable[RecordLike]) -> Dict[str, Any]:
                                 if prompt else None),
         }
     return out
+
+
+def cell_values(evaluations: Iterable[Any], arm_names: Sequence[str]) -> Tuple[Dict[str, List[float]], Dict[str, int]]:
+    """Per arm, the aggregates that count, and how many cells errored instead.
+
+    An errored cell (the answer call failed, or the judge raised) has no aggregate, so it
+    is left out of the mean and its ``n``; the errors are counted apart, not as scores.
+    """
+    values: Dict[str, List[float]] = {name: [] for name in arm_names}
+    errors: Dict[str, int] = {name: 0 for name in arm_names}
+    for ev in as_records(evaluations, source="evaluations", kind="evaluations"):
+        for arm_name, cell in ev.scores.items():
+            if (v := ev.score(arm_name)) is not None:
+                values.setdefault(arm_name, []).append(float(v))
+            elif cell is not None and cell.error:
+                errors[arm_name] = errors.get(arm_name, 0) + 1
+    return values, errors

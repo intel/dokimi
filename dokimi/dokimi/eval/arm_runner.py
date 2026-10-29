@@ -25,7 +25,7 @@ from dokimi.defaults import DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER
 from dokimi.eval import stats as arm_stats
 from dokimi.eval.interactions import interaction_significance
 from dokimi.eval.arm_summary import (
-    cost_summary, summarize_agentic_usage, summarize_skill_selection,
+    cell_values, cost_summary, summarize_agentic_usage, summarize_skill_selection,
 )
 from dokimi.eval.cells import Cell
 from dokimi.eval.question_text import question_text_of, require_question_texts
@@ -615,7 +615,8 @@ class ArmRunner:
             for arm_name in arm_names(rec):
                 answer = rec.answer(arm_name)
                 if answer is None or not answer.text:
-                    scores[arm_name] = None
+                    # An answer that errored is an error on the cell, not a missing score.
+                    scores[arm_name] = {"error": answer.error} if answer is not None and answer.error else None
                     continue
                 context, source = self.judge_context.resolve_with_source(
                     rec.question_id, arm_name, dict(answer.raw)
@@ -752,17 +753,13 @@ class ArmRunner:
     def _summarize(
         self, evaluations: List[Dict[str, Any]], baseline_arm: str
     ) -> Dict[str, Any]:
-        per_arm: Dict[str, List[float]] = {name: [] for name in self.arm_names}
-        for ev in as_records(evaluations, source="evaluations", kind="evaluations"):
-            for arm_name in ev.scores:
-                if (v := ev.score(arm_name)) is not None:
-                    per_arm.setdefault(arm_name, []).append(float(v))
+        per_arm, errors = cell_values(evaluations, self.arm_names)
 
         summary: Dict[str, Any] = {"per_arm": {}}
         base_avg = None
         for arm_name, vals in per_arm.items():
             avg = round(sum(vals) / len(vals), 1) if vals else None
-            summary["per_arm"][arm_name] = {"avg_aggregate": avg, "n": len(vals)}
+            summary["per_arm"][arm_name] = {"avg_aggregate": avg, "n": len(vals), "errors": errors.get(arm_name, 0)}
             if arm_name == baseline_arm:
                 base_avg = avg
         if base_avg is not None:
