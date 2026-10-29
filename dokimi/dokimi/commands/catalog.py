@@ -139,7 +139,7 @@ def cmd_catalog_scan(args: argparse.Namespace) -> None:
 
 
 def _write_trigger_set(args: argparse.Namespace, queries, catalog_root: Path) -> None:
-    """Write the query set to ``--out`` in ``--format``, or exit 1 naming ``--out`` when it cannot be written."""
+    """Write the query set to ``--out`` in ``--format``, or exit 2 naming ``--out`` when it cannot be written."""
     import json
 
     from dokimi.artifacts import ArtifactValidationError

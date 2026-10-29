@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""`novelty view`: read the saved novelty artifact and atoms file, or exit 1 naming the bad one."""
+"""`novelty view`: read the saved novelty artifact and atoms file, or exit 2 naming the bad one."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ def _fail(message: str) -> NoReturn:
 
 
 def load_view_inputs(novelty_path: str, atoms_path: str):
-    """``(artifact, atoms, spans)`` from the two files; an unreadable or invalid one exits 1."""
+    """``(artifact, atoms, spans)`` from the two files; an unreadable or invalid one exits 2."""
     from dokimi.artifacts import load_artifact
     from dokimi.novelty.atoms import load_atoms
 

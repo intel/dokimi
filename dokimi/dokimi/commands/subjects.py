@@ -276,7 +276,7 @@ def register(sub, positive_int) -> None:
 
 
 def _run_plan(descriptor, args: argparse.Namespace) -> tuple[Path, str, list[str]]:
-    """The output dir, baseline arm name and per-product questions, or exit 1 when the descriptor cannot run.
+    """The output dir, baseline arm name and per-product questions, or exit 2 when the descriptor cannot run.
 
     Checked before anything is written, so a descriptor that cannot run leaves no output dir behind."""
     from dokimi.subjects.loader import awareness_arm_specs

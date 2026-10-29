@@ -22,7 +22,7 @@ def _normalize_whitespace(text: str, max_len: int | None = 100) -> str:
 
 
 def _write_json(path: str, payload: dict) -> None:
-    """Write a --out report as JSON, or exit 1 with `cannot write`."""
+    """Write a --out report as JSON, or exit 2 with `cannot write`."""
     try:
         Path(path).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     except OSError as exc:

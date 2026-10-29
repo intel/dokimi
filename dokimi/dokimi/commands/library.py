@@ -16,7 +16,7 @@ from dokimi.exit_codes import EXIT_USAGE
 
 
 def _load_custom(cls, flag: str, value):
-    """``cls()`` for the bundled file, else ``cls`` over the file named by ``flag``; exit 1 if it cannot be read."""
+    """``cls()`` for the bundled file, else ``cls`` over the file named by ``flag``; exit 2 if it cannot be read."""
     import yaml
     from pathlib import Path as _Path
 
@@ -41,7 +41,7 @@ def _load_registry(args):
 
 
 def _load_registry_checked(args):
-    """`_load_registry` for the `library` commands: a bad --registry file exits 1 (benchmark keeps its own)."""
+    """`_load_registry` for the `library` commands: a bad --registry file exits 2 (benchmark keeps its own)."""
     from dokimi.registry import ProductRegistry
     return _load_custom(ProductRegistry, "--registry", getattr(args, "registry", None))
 

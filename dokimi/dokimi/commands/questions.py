@@ -17,7 +17,7 @@ from dokimi.exit_codes import EXIT_USAGE
 
 
 def _load_questions_json(path: str):
-    """Parse the questions file, or exit 1 naming it when it is missing, unreadable or not JSON."""
+    """Parse the questions file, or exit 2 naming it when it is missing, unreadable or not JSON."""
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError, RecursionError) as exc:
@@ -41,7 +41,7 @@ def _extract_questions(questions_data, source: str) -> list:
 
 
 def _read_json_input(path: str):
-    """The parsed JSON at ``path``, or exit 1 with a message naming the file."""
+    """The parsed JSON at ``path``, or exit 2 with a message naming the file."""
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:  # ValueError covers JSONDecodeError and bad UTF-8
@@ -50,7 +50,7 @@ def _read_json_input(path: str):
 
 
 def _load_personas(path: str) -> list:
-    """The ``personas`` list of a personas file, or exit 1 with a message naming the file."""
+    """The ``personas`` list of a personas file, or exit 2 with a message naming the file."""
     data = _read_json_input(path)
     personas = data.get("personas") if isinstance(data, dict) else None
     if not isinstance(personas, list):

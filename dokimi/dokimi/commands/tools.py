@@ -96,7 +96,7 @@ def _print_skipped(skipped: dict, n_groups: int) -> None:
 
 
 def _write_items(path: str, items: list) -> None:
-    """Write the probe items to ``path``, or exit 1 naming it when it cannot be written."""
+    """Write the probe items to ``path``, or exit 2 naming it when it cannot be written."""
     try:
         Path(path).write_text(json.dumps(items, indent=1), encoding="utf-8")
     except OSError as exc:
@@ -105,7 +105,7 @@ def _write_items(path: str, items: list) -> None:
 
 
 def _save_result(data: dict, path: str) -> None:
-    """Save the tool_preference artifact to ``path``, or exit 1 naming it when it cannot be written."""
+    """Save the tool_preference artifact to ``path``, or exit 2 naming it when it cannot be written."""
     from dokimi.artifacts import ArtifactValidationError, save_artifact
 
     try:
