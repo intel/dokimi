@@ -13,6 +13,7 @@ tests keep working.
 
 from __future__ import annotations
 
+import time
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from dokimi.records import Answer, RecordLike
@@ -271,6 +272,17 @@ def unjudged_cell(answer: Optional[Answer]) -> Optional[Dict[str, str]]:
     if answer is None:
         return None
     return {"error": answer.error or "empty_reply"}
+
+
+def empty_reply_cell(rec: Any, metadata: Any, started: float, **extra: Any) -> Dict[str, Any]:
+    """The answer cell of a call that returned no text: an error, never an answer.
+
+    The call was paid for, so its usage (*rec*) is still recorded. *started* is the ``time.time()``
+    at the start of the arm; *extra* carries what the agent loop adds to a cell.
+    """
+    return {"error": "empty_reply", "answer": None, "token_usage": rec.as_token_usage_dict(),
+            "metrics": rec.as_metrics_dict(), "metadata": metadata,
+            "elapsed_sec": round(time.time() - started, 2), **extra}
 
 
 def paired_delta(evaluations: Iterable[Any], baseline_arm: str, arm_name: str) -> Optional[float]:

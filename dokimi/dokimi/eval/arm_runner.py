@@ -26,7 +26,7 @@ from dokimi.defaults import DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER
 from dokimi.eval import stats as arm_stats
 from dokimi.eval.interactions import interaction_significance
 from dokimi.eval.arm_summary import (
-    cell_values, cost_summary, paired_delta, summarize_agentic_usage, summarize_skill_selection, unjudged_cell,
+    cell_values, cost_summary, empty_reply_cell, paired_delta, summarize_agentic_usage, summarize_skill_selection, unjudged_cell,
 )
 from dokimi.eval.cells import Cell
 from dokimi.eval.question_text import question_text_of, require_question_texts
@@ -397,9 +397,7 @@ class ArmRunner:
         rec = to_record(usage, self.model, self.provider)
         # Read on the reply the model gave, before the shapers: a footer added to nothing is not an answer.
         if is_empty_reply(answer_text):  # an error cell, as a session's empty turn; the usage still counts
-            return {"error": "empty_reply", "answer": None, "token_usage": rec.as_token_usage_dict(),
-                    "metrics": rec.as_metrics_dict(), "metadata": cfg_metadata,
-                    "elapsed_sec": round(time.time() - t0, 2)}
+            return empty_reply_cell(rec, cfg_metadata, t0)
         final_text = self._apply_shapers(shapers, answer_text)
         raw_chars = len(answer_text or "")
         final_chars = len(final_text or "")
@@ -571,8 +569,13 @@ class ArmRunner:
                     "tool_usage": tool_usage, "metadata": cfg_metadata}
 
         raw_answer = result["answer"]
-        final_answer = self._apply_shapers(shapers, raw_answer)
         rec = to_record(result.get("usage") or result["token_usage"], self.model, self.provider)
+        if is_empty_reply(raw_answer):  # read before the shapers: a footer added to nothing is not an answer
+            return empty_reply_cell(
+                rec, cfg_metadata, t0, agentic=True, transcript=result["transcript"],
+                tool_call_count=result["tool_call_count"], tool_usage=result.get("tool_usage", {}),
+                iterations=result["iterations"], stopped_reason=result["stopped_reason"])
+        final_answer = self._apply_shapers(shapers, raw_answer)
         metrics = rec.as_metrics_dict(
             answer_chars=len(raw_answer or ""), final_chars=len(final_answer or "")
         )

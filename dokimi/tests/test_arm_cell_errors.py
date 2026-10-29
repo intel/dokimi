@@ -135,6 +135,36 @@ def test_an_empty_reply_stays_an_error_cell_when_an_output_shaper_adds_text(monk
     assert cell["error"] == "empty_reply"
 
 
+@pytest.mark.parametrize("reply, stopped", [("", "answered"), ("  \n", "answered"), (None, "max_iterations")])
+def test_an_agentic_empty_reply_stays_an_error_cell_when_an_output_shaper_adds_text(
+        monkeypatch, demo_skill, reply, stopped):
+    """The agent loop's empty reply is read before the shapers, as on the single-turn path."""
+    import dokimi.eval.agent_runner as agent_runner_mod
+    import dokimi.plugins as plugins
+    from dokimi.skills import load_skill
+    from dokimi.treatments import SkillAgentTreatment
+
+    usage = {"prompt_tokens": 4, "completion_tokens": 0, "total_tokens": 4}
+    loop_result = {"answer": reply, "transcript": [], "tool_call_count": 0, "tool_usage": {},
+                   "iterations": 1, "stopped_reason": stopped, "usage": usage, "token_usage": usage,
+                   "per_turn": []}
+    monkeypatch.setattr(agent_runner_mod, "run_agent_loop", lambda **kw: dict(loop_result))
+    monkeypatch.setattr(plugins, "take_output_shapers", lambda cfg: (["footer"], {}))
+    monkeypatch.setattr(plugins, "apply_output_shapers", lambda shapers, text: (text or "") + "\n\n-- Source: docs")
+    runner = ArmRunner([SkillAgentTreatment(load_skill(demo_skill))])
+    [rec] = runner.run("lib", [{"id": "q1", "question": "How?"}], concurrency=1)
+    cell = rec["arms"]["skill_agent:demo-skill"]
+    assert cell["answer"] is None
+    assert cell["error"] == "empty_reply"
+    assert cell["token_usage"]["total_tokens"] == 4  # the loop was paid for, so its usage still counts
+    assert cell["stopped_reason"] == stopped
+    judge = MagicMock()
+    judge.score_answer.return_value = {"aggregate": 60.0}
+    [row] = runner.judge(judge, "lib", [rec], baseline_arm="skill_agent:demo-skill")
+    assert row["scores"]["skill_agent:demo-skill"] == {"error": "empty_reply"}
+    assert judge.score_answer.call_count == 0
+
+
 def test_delta_vs_baseline_is_present_as_null_when_the_baseline_has_no_scored_question():
     runner = ArmRunner.__new__(ArmRunner)
     runner.treatments = [SimpleNamespace(name="baseline"), SimpleNamespace(name="skill")]
