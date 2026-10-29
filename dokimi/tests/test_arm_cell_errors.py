@@ -78,3 +78,22 @@ def test_judge_records_a_legacy_empty_answer_without_error_as_an_error_cell():
     [row] = runner.judge(judge, "lib", [rec], baseline_arm="baseline")
     assert row["scores"]["skill"] == {"error": "empty_reply"}
     assert cell_values([row], ["baseline", "skill"])[1] == {"baseline": 0, "skill": 1}
+
+
+def test_a_judge_exception_with_an_empty_message_is_still_an_error_cell():
+    runner = ArmRunner.__new__(ArmRunner)
+    runner.judge_context = MagicMock()
+    runner.judge_context.resolve_with_source.return_value = ("", "snippets")
+
+    def score_answer(**kw):
+        if kw["answer"] == "x":
+            raise TimeoutError()  # str() of this is ""
+        return {"aggregate": 60.0}
+
+    judge = MagicMock()
+    judge.score_answer.side_effect = score_answer
+    rec = {"question_id": "q1", "question_text": "How?",
+           "arms": {"baseline": {"answer": "base"}, "skill": {"answer": "x"}}}
+    [row] = runner.judge(judge, "lib", [rec], baseline_arm="baseline")
+    assert row["scores"]["skill"]["error"] == "TimeoutError"
+    assert cell_values([row], ["baseline", "skill"])[1] == {"baseline": 0, "skill": 1}

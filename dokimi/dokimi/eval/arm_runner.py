@@ -642,7 +642,8 @@ class ArmRunner:
                     )
                 except Exception as exc:
                     logger.exception("Judging arm %s failed", arm_name)
-                    score = {"error": str(exc)}
+                    # str() of some exceptions is empty (TimeoutError()); an empty error reads as no error.
+                    score = {"error": str(exc) or type(exc).__name__}
                 if isinstance(score, dict):
                     score = {**score, "judge_context_source": source}
                     digest = (self.judge_context.digest_of(rec.question_id, arm_name)
