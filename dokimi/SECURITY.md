@@ -52,11 +52,14 @@ fix the locks can take:
   in 4.0.9). Every litellm release requires `filelock<4.0`, so neither fix can be
   locked. datasets, huggingface-hub and litellm (main lock) and cachecontrol,
   python-discovery and virtualenv (tools lock) take `FileLock`, which is
-  `UnixFileLock` on Linux and macOS and `WindowsFileLock` on Windows; on Unix it
-  falls back to `SoftFileLock` on a filesystem without `flock`, and
-  huggingface-hub does the same itself. Their lock directories are the Hugging
-  Face cache (`~/.cache/huggingface` unless `HF_HOME` moves it) and the tools'
-  user cache and data directories. Drop all thirteen when litellm allows
+  `UnixFileLock` on Linux and macOS and `WindowsFileLock` on Windows. On a Unix
+  filesystem without `flock`, filelock turns that lock into a `SoftFileLock`
+  itself. huggingface-hub switches to a `SoftFileLock` when `FileLock` raises
+  `NotImplementedError`, but neither class raises it on its own platform
+  (`WindowsFileLock` reports a failed open as `OSError`), so that code never
+  runs. Their lock directories are the Hugging Face cache
+  (`~/.cache/huggingface` unless `HF_HOME` moves it) and the tools' user cache
+  and data directories. Drop all thirteen when litellm allows
   `filelock>=4.2.1`.
   - In the SQLite-backed `ReadWriteLock`, which no dependency of Dokimi uses:
     GHSA-v4x8-3wr5-3wq8 and GHSA-9vhv-jxww-xfm5 (CVE-2026-112940,
@@ -79,20 +82,16 @@ fix the locks can take:
     `mode`, so the lock file takes the directory's inherited ACL. Where that ACL
     lets another account read new files (a cache outside the user profile on a
     shared Windows host), that account can hold the lock and stall a holder.
-  - In the soft locks. GHSA-567q-5qvw-pf92 (CVE-2026-112907) is in the soft
-    locks on Windows: another local account that can create files in the lock
-    directory can stall or break a lock holder. For its download cache
-    huggingface-hub takes `FileLock`, which on Windows is `WindowsFileLock`, and
-    a `SoftFileLock` only when that raises `NotImplementedError` (the locked
-    filelock's `WindowsFileLock` raises `OSError` instead); so it applies to the
-    Hugging Face cache on a shared Windows host only where that fallback
-    happens. Where `SoftFileLock` stands in for a
-    missing `flock`, three more apply: GHSA-9j6q-wvj5-jgjg (CVE-2026-112912,
-    low) tells another account that can write the lock directory whether a path
-    exists and is writable for the lock user; GHSA-rfpc-qcw5-3pc4
-    (CVE-2026-112939) lets an account that can write a holder's marker but not
-    remove it forge the holder's PID and admit a second holder
-    (huggingface-hub's shared-blob fallback marker is `0o666`); and
+  - In the soft locks on Windows, which no dependency of Dokimi takes:
+    GHSA-567q-5qvw-pf92 (CVE-2026-112907; another local account that can create
+    files in the lock directory can stall or break a lock holder).
+  - In `SoftFileLock` where it stands in for a missing `flock` on Unix:
+    GHSA-9j6q-wvj5-jgjg (CVE-2026-112912, low) tells another account that can
+    write the lock directory whether a path exists and is writable for the lock
+    user; GHSA-rfpc-qcw5-3pc4 (CVE-2026-112939) lets an account that can write a
+    holder's marker but not remove it forge the holder's PID and admit a second
+    holder (the marker takes the lock's `mode` less the umask, so
+    huggingface-hub's markers are group-writable under umask `002`); and
     GHSA-fq56-3cx3-fjxp (CVE-2026-112935) admits two holders when an account
     that can create files in the lock directory gets a stale-lock break to meet
     a reused inode (ext4, xfs).
