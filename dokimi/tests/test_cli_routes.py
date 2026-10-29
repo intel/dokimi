@@ -74,6 +74,56 @@ def test_help_lists_each_root_under_its_section():
     assert listed == {root.name: root.section for root in cli_routes.ROOTS}
 
 
+# The commands that can make a model call. Written out here, not read from cli_routes, so a
+# label that says `free` on a command that spends money (or the reverse) fails a test.
+PAID_PATHS = {
+    ("evaluate",),
+    ("answers", "generate"),
+    ("benchmark", "run"),
+    ("benchmark", "batch"),
+    ("arms", "run"),
+    ("arms", "matrix-run"),
+    ("subjects", "run"),
+    ("tasks", "run"),
+    ("explore", "run"),
+    ("catalog", "trigger-set"),
+    ("catalog", "trigger-probe"),
+    ("novelty", "analyze"),
+    ("novelty", "atoms"),
+    ("novelty", "probe"),
+    ("novelty", "shorten"),
+    ("novelty", "routing"),
+    ("repo", "reach"),
+    ("repo", "run"),
+    ("personas", "discover"),
+    ("questions", "generate"),
+    ("questions", "analyze"),
+    ("questions", "refine"),
+    ("questions", "panel-review"),
+    ("eval", "score"),
+    ("eval", "ragas"),
+    ("eval", "judge-validity"),
+    ("eval", "checklist"),
+    ("eval", "judge-wording"),
+    ("eval", "cross-judge"),
+    ("eval", "pairwise"),
+    ("eval", "reference"),
+    ("eval", "panel-score"),
+    ("tools", "preference"),
+}
+
+
+def test_the_paid_leaves_are_exactly_the_ones_written_out_here():
+    assert {leaf.path for leaf in cli_routes.LEAVES if leaf.cost == "paid"} == PAID_PATHS
+
+
+def test_the_help_label_of_a_route_comes_from_its_literal_cost():
+    top = build_parser()
+    for path, action in _help_actions(top):
+        paid = any(p[: len(path)] == path for p in PAID_PATHS)
+        assert action.help.endswith(" [paid]" if paid else " [free]"), (path, action.help)
+
+
 def test_every_route_help_line_ends_in_its_cost_label():
     top = build_parser()
     checked = 0
@@ -149,6 +199,22 @@ def test_a_tombstone_matches_an_alias_typed_on_the_command_line():
     assert cli_routes.moved_argv(["library", "list"], tombs) is None
 
 
+def test_a_tombstone_keeps_the_arguments_after_the_old_path_whatever_the_lengths():
+    longer_old = (cli_routes.Tombstone(("product", "old-intents", "all"), ("library", "intents")),)
+    assert cli_routes.moved_argv(["product", "old-intents", "all", "x"], longer_old) == [
+        "library",
+        "intents",
+        "x",
+    ]
+    longer_new = (cli_routes.Tombstone(("product", "old"), ("library", "show", "intents")),)
+    assert cli_routes.moved_argv(["product", "old", "x"], longer_new) == [
+        "library",
+        "show",
+        "intents",
+        "x",
+    ]
+
+
 def test_every_alias_points_at_its_own_root_parser():
     sub = _subparsers(build_parser())
     assert sub is not None
@@ -182,6 +248,19 @@ def test_data_schema_show_prints_the_route_table_as_json(capsys):
     assert doc == cli_routes.document()
     assert doc["schema_version"] == "cli_routes.v1"
     assert {"path": ["eval", "score"], "cost": "paid"} in doc["leaves"]
+
+
+def test_the_route_document_reports_each_roots_section_aliases_and_cost():
+    doc = cli_routes.document()
+    assert doc["sections"] == ["The loop", "Subjects", "Evals", "Analysis and data"]
+    roots = {root["name"]: root for root in doc["roots"]}
+    assert roots["library"] == {
+        "name": "library", "section": "Subjects", "aliases": ["product"], "cost": "free"
+    }
+    assert roots["repo"] == {"name": "repo", "section": "Subjects", "aliases": [], "cost": "paid"}
+    assert roots["data"]["section"] == "Analysis and data"
+    assert roots["evaluate"]["cost"] == "paid"
+    assert {leaf["cost"] for leaf in doc["leaves"]} == {"free", "paid"}
 
 
 def test_data_schema_list_names_the_kinds(capsys):
