@@ -43,6 +43,7 @@
 --competitors
 --context
 --context7-id
+--contract  # context consistency (#155) adds it: no registry concept yet; a F1b migration names it
 --count
 --custom-questions
 --debug-retrieval
@@ -130,9 +131,12 @@
 --only
 --out-json
 --out-md
+--outcomes  # context consistency (#155) adds it: no registry concept yet; a F1b migration names it
 --output
 --output-dir
 --pairwise
+--pass-k  # repo compare (#155) adds it: no registry concept yet; a F1b migration names it
+--path-stability  # repo compare (#155) adds it: no registry concept yet; a F1b migration names it
 --personas
 --personas-count
 --placebo-text
@@ -141,6 +145,7 @@
 --pool-replicates
 --probes
 --product
+--prompt-file  # repo tasks replay (#265) adds it: no registry concept yet; a F1b migration names it
 --provider
 --queries
 --queries-by-skill  # novelty routing (#172) adds it: no registry concept yet; a F1b migration names it
@@ -172,6 +177,7 @@
 --sealed  # catalog trigger-probe (#217) adds it: no registry concept yet
 --sequential
 --session-turns
+--shell  # context consistency (#155) adds it: no registry concept yet; a F1b migration names it
 --sim-threshold
 --skip-work
 --source-dir
@@ -187,6 +193,7 @@
 --target-intermediate
 --tasks-root
 --tasks-subdir
+--threads  # repo tasks replay (#265) adds it: no registry concept yet; a F1b migration names it
 --threshold
 --tier
 --tools
