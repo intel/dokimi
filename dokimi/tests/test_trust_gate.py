@@ -374,8 +374,8 @@ class TestScoreCv:
         assert check.value == 0.283
 
     def test_a_mean_below_one_is_still_divided(self):
-        # sd(0.5, 1.5) = 0.707 over a mean of exactly 1.0
-        check = _check(evaluate_trust([_row(0.5, 0), _row(1.5, 0)]), "score_cv")
+        # sd(0.25, 0.75) = 0.354 over a mean of 0.5
+        check = _check(evaluate_trust([_row(0.25, 0), _row(0.75, 0)]), "score_cv")
         assert check.value == 0.707
 
     def test_an_all_zero_context_arm_reads_as_cv_one(self):
