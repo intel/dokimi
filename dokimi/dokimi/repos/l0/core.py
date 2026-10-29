@@ -376,15 +376,18 @@ class Scan:
         """The rule that ignores ``path``, read as a directory too: without a trailing slash it may
         still name one (``dist`` under ``dist/``).
 
-        A directory no ``!`` line re-includes also counts when every file probed directly inside it
-        would be (``include/*``): a plain name and each name a ``!`` line re-includes, so a whitelist
-        (``*``, ``!*/``, ``!*.py``) does not hide a renamed directory, nor ``!/setup.py`` a renamed file.
+        A path no ``!`` line names (``!/setup.py``, ``!*.py``; ``!*/`` names every directory, not this
+        one) also counts when every file probed directly inside it would be (``include/*``, or ``out/*``
+        with ``!*/``): a plain name and each name a ``!`` line re-includes, so a whitelist (``*``,
+        ``!*/``, ``!*.py``) does not hide a renamed directory.
         """
         ig = self.gitignore()
         readings = (True,) if is_dir else (False, True)
         rule = next(filter(None, (ig.ignored_by(path, d) for d in readings)), None)
-        if rule is not None or any(ig.reincludes(path, d) for d in readings):
+        if rule is not None:
             return rule
+        if any(r and r.name.strip("*") for r in (ig.reincluded_by(path, d) for d in readings)):
+            return None
         inside = [ig.ignored_by(posixpath.join(path, n)) for n in ("file", *ig.names("x", negated=True))]
         return inside[0] if all(inside) else None
 

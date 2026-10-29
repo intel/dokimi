@@ -234,10 +234,10 @@ class GitIgnore:
         found = (example(r.name, fill) for r in self.rules if r.name and r.negated == negated)
         return list(dict.fromkeys(n for n in found if n))
 
-    def reincludes(self, path: str, is_dir: bool = False) -> bool:
-        """Whether the last line that matches ``path`` itself is a ``!`` line."""
+    def reincluded_by(self, path: str, is_dir: bool = False) -> Rule | None:
+        """The ``!`` line that matches ``path`` itself last, or ``None`` when the last match ignores it or none does."""
         rule = self._last(posixpath.normpath(path).strip("/"), is_dir)
-        return rule is not None and rule.negated
+        return rule if rule is not None and rule.negated else None
 
     def ignored_by(self, path: str, is_dir: bool = False) -> Rule | None:
         """The rule that ignores ``path`` or one of its directories, or ``None`` when git would not."""

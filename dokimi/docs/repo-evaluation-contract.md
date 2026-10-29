@@ -1062,11 +1062,14 @@ path that a tracked `.gitignore` ignores is `unresolved` rather than `fail`,
 with the `.gitignore` line in the reason (also for a path that was `unresolved`
 already): guidance that warns about generated files names paths no snapshot
 holds. A directory counts as ignored when git ignores it, or, when no `!` line
-re-includes the directory itself, would ignore every file probed directly inside
-it: a plain name and each name a `!` line re-includes, so `include/*` ignores
-`include/` and a whitelist of `*`, `!*/`, `!*.py` does not ignore a missing
-directory, nor `!/setup.py` a missing `setup.py`. A path without a trailing slash counts when it
-would be as a file or as a directory, and a glob when one of the files it is
+names the directory itself (`!*/` names every directory, so it does not count),
+would ignore every file probed directly inside it: a plain name and each name a
+`!` line re-includes. So `include/*` ignores `include/`, and so does `out/*` with
+`!*/`, while a whitelist of `*`, `!*/`, `!*.py` does not ignore a missing
+`olddir/`, nor `!/setup.py` a missing `setup.py`. A path without a trailing slash counts when it
+would be as a file or as a directory: under that whitelist `*` ignores a missing
+`olddir` read as a file, so a directory needs its trailing slash to be checked
+as a rename. A glob counts when one of the files it is
 probed with would be: its wildcards filled in, and each name an ignoring line
 matches that the glob matches too (`gen.h` for `pkg/g*.h`). The probe tries a
 few names, not every name the glob matches. `.git/info/exclude` and
