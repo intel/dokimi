@@ -416,11 +416,9 @@ def _field_record(args: argparse.Namespace, competitors: list, left_out: list[st
 def _check_all_vs_all_args(args: argparse.Namespace) -> None:
     """Refuse the flag combinations ``--all-vs-all`` cannot run with."""
     if args.artifact:
-        usage_exit("--all-vs-all takes no --artifact: every skill in the field is the "
-                   "gold in turn")
+        usage_exit("--all-vs-all takes no --artifact: every skill in the field is the gold in turn")
     if args.queries or args.queries_from_headings:
-        usage_exit("--all-vs-all takes --queries-by-skill, not --queries or "
-                   "--queries-from-headings")
+        usage_exit("--all-vs-all takes --queries-by-skill, not --queries or --queries-from-headings")
     if args.repeats > 1:
         usage_exit("--all-vs-all takes no --repeats: it makes one call per query")
     if not args.queries_by_skill:
@@ -473,8 +471,7 @@ def _print_attractors(result: dict) -> None:
 def cmd_novelty_routing(args: argparse.Namespace) -> None:
     """Can this artifact be selected against its competitors? Lexical floor, model on top."""
     if args.repeats > 1 and not args.model:
-        usage_exit("--repeats needs --model: the lexical floor is deterministic, so repeating it "
-                   "measures nothing")
+        usage_exit("--repeats needs --model: the lexical floor is deterministic, so repeating it measures nothing")
     from dokimi.novelty.routing import (
         RoutingInputError,
         check_field,
@@ -624,9 +621,8 @@ def _refuse_no_queries(args: argparse.Namespace, queries: list[str], self_derive
                                "reason": reason, "queries_self_derived": self_derived,
                                "n_candidates": n_candidates}, indent=2),
                    encoding="utf-8")
-    usage_exit(f"no usable queries: {reason}. Pass --queries <file> with requests "
-               f"written independently of the artifact, one per line or a JSON "
-               f"list. Wrote {out} with status no_queries")
+    usage_exit(f"no usable queries: {reason}. Pass --queries <file> with requests written independently "
+               f"of the artifact, one per line or a JSON list. Wrote {out} with status no_queries")
 
 
 def cmd_novelty_shorten(args: argparse.Namespace) -> None:
