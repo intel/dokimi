@@ -16,7 +16,7 @@ import json
 import pytest
 
 from dokimi import cli
-from dokimi.commands import benchmark, evaluate
+from dokimi.commands import arms_sampling, benchmark, evaluate
 from dokimi.records import RecordError
 from dokimi.repos import SourceError
 from dokimi.repos.reach import ReachError
@@ -86,6 +86,46 @@ def test_arm_run_unknown_arm_spec_exits_2(tmp_path, monkeypatch, capsys):
     assert "Error building arms/plugins" in capsys.readouterr().err
 
 
+@pytest.fixture
+def fresh_probe_cache():
+    # _probe_sampling is cached per process; each test starts with no cached probe.
+    arms_sampling._probe_sampling.cache_clear()
+    yield
+    arms_sampling._probe_sampling.cache_clear()
+
+
+def test_matrix_cell_refused_at_probe_stops_before_any_answer(tmp_path, monkeypatch, capsys, fresh_probe_cache):
+    # Cell 1 is accepted, cell 2 refuses the temperature. Every cell is probed before the first
+    # answer, so the refusal costs no answer call and writes no cell artifact.
+    probed = []
+
+    def fake_usage(prompt, model, provider="openai", **kwargs):
+        probed.append(model)
+        if model == "reject-temp-model":
+            raise RuntimeError("400: temperature not supported for this model")
+        return ("OK", {})
+
+    answered = []
+    monkeypatch.setattr("dokimi.llm.llm_call_with_usage", fake_usage)
+    monkeypatch.setattr("dokimi.eval.arm_runner.ArmRunner.run",
+                        lambda self, *a, **k: answered.append(1) or [])
+    cells = tmp_path / "cells.json"
+    cells.write_text(json.dumps({"cells": [
+        {"id": "cell-ok", "model": "gpt-4o-mini", "provider": "openai", "harness": "arms-runner"},
+        {"id": "cell-bad", "model": "reject-temp-model", "provider": "openai", "harness": "arms-runner"},
+    ]}), encoding="utf-8")
+    _argv(monkeypatch, "arms", "matrix-run", "--product", "onedal", "--questions", _questions(tmp_path),
+          "--arms", "baseline", "--matrix-cells", str(cells), "--temperature", "0.5",
+          "--out-dir", str(tmp_path / "matrix"))
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 1
+    assert probed == ["gpt-4o-mini", "reject-temp-model"]  # each cell probed once, in order
+    assert answered == []
+    assert not (tmp_path / "matrix" / "cells").exists()
+    assert "matrix cell 'cell-bad'" in capsys.readouterr().err
+
+
 # ── repo fetch / reach: a fetch failure keeps 1; a bad source or profile is 2 ──────────────
 
 def _failed_fetch(source, cache_dir=None):
@@ -107,6 +147,30 @@ def test_repo_fetch_unpinned_remote_exits_2(monkeypatch, capsys):
         cli.main()
     assert exc.value.code == 2
     assert "must be pinned" in capsys.readouterr().err
+
+
+REPO_SOURCE_COMMANDS = ["validate", "scan", "inspect", "budget"]
+
+
+@pytest.mark.parametrize("command", REPO_SOURCE_COMMANDS)
+def test_repo_unreachable_source_keeps_exit_1(command, tmp_path, monkeypatch, capsys):
+    # A pinned source that cannot be fetched is a fetch failure (network), not a bad invocation.
+    _argv(monkeypatch, "repo", command, f"https://127.0.0.1:9/example.git@{PIN}",
+          "--cache-dir", str(tmp_path / "cache"))
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 1
+    assert "✗" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("command", REPO_SOURCE_COMMANDS)
+def test_repo_unpinned_remote_exits_2_for_every_source_command(command, tmp_path, monkeypatch, capsys):
+    _argv(monkeypatch, "repo", command, "https://example.com/example.git",
+          "--cache-dir", str(tmp_path / "cache"))
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    assert "✗" in capsys.readouterr().err
 
 
 def test_repo_reach_fetch_failure_keeps_exit_1(tmp_path, monkeypatch, capsys):
@@ -226,8 +290,27 @@ def test_trigger_set_question_without_text_exits_2(tmp_path, monkeypatch, capsys
     assert "has no text" in capsys.readouterr().err
 
 
-def test_trigger_set_strict_refusal_exits_2(tmp_path, monkeypatch, capsys):
+def test_trigger_set_no_text_refused_before_any_rewrite_call(tmp_path, monkeypatch, capsys):
+    # The set is refused on its second question; the first must not have been sent to the rewrite model.
+    rewrite_calls = []
+    monkeypatch.setattr("dokimi.llm.llm_call", lambda *args, **kwargs: rewrite_calls.append(1) or "rewritten")
+    spec = _trigger_questions(tmp_path, [
+        {"id": "1", "text": "perf shows low IPC", "metadata": {"skill_under_test": "linux-perf"}},
+        {"id": "2", "metadata": {"skill_under_test": "linux-perf"}},
+    ])
+    _argv(monkeypatch, "catalog", "trigger-set", "--catalog", str(_skill_root(tmp_path)),
+          "--questions", spec, "--rewrite", "--model", "m", "--out", str(tmp_path / "o.json"))
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    assert "has no text" in capsys.readouterr().err
+    assert rewrite_calls == []
+    assert not (tmp_path / "o.json").exists()
+
+
+def test_trigger_set_strict_refusal_exits_1(tmp_path, monkeypatch, capsys):
     # One question is labelled and one is not, so the set has an unresolved label; --strict refuses it.
+    # --strict is a lint gate over a valid set: its verdict is exit 1, as on main.
     spec = _trigger_questions(tmp_path, [
         {"id": "1", "text": "perf shows low IPC", "metadata": {"skill_under_test": "linux-perf"}},
         {"id": "2", "text": "what is the weather"},
@@ -236,7 +319,7 @@ def test_trigger_set_strict_refusal_exits_2(tmp_path, monkeypatch, capsys):
           "--questions", spec, "--strict", "--out", str(tmp_path / "o.json"))
     with pytest.raises(SystemExit) as exc:
         cli.main()
-    assert exc.value.code == 2
+    assert exc.value.code == 1
     assert not (tmp_path / "o.json").exists()
 
 

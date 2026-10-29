@@ -30,16 +30,31 @@ def _write_json(path: str, payload: dict) -> None:
         sys.exit(EXIT_USAGE)
 
 
-def cmd_repo_validate(args: argparse.Namespace) -> None:
-    """Validate a repository's repo-eval.yaml and its tasks against one snapshot."""
-    from dokimi.repos import ManifestError, RepoSource, SourceError, check_repo, open_source
-    from dokimi.repos.source import base_opener
+def _source_tree(args: argparse.Namespace) -> tuple:
+    """The source (source, tree): as typed a usage error (2); its clone or fetch a runtime failure (1)."""
+    from dokimi.repos import RepoSource, SourceError, open_source
 
     try:
         source = RepoSource.parse(args.source)
-        tree = open_source(source, _cache_dir(args))
+    except SourceError as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+    try:  # network, git, unknown revision
+        return source, open_source(source, _cache_dir(args))
+    except SourceError as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_repo_validate(args: argparse.Namespace) -> None:
+    """Validate a repository's repo-eval.yaml and its tasks against one snapshot."""
+    from dokimi.repos import ManifestError, check_repo
+    from dokimi.repos.source import base_opener
+
+    source, tree = _source_tree(args)
+    try:  # the manifest in the tree: a usage error
         manifest = _load_manifest(tree, args)
-    except (SourceError, ManifestError) as exc:
+    except ManifestError as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
     open_base = base_opener(source, tree)
@@ -77,14 +92,14 @@ def cmd_repo_validate(args: argparse.Namespace) -> None:
 def cmd_repo_scan(args: argparse.Namespace) -> None:
     """L0: check every mechanically checkable claim in the guidance against the same tree."""
     from dokimi.artifacts import save_artifact, stamp
-    from dokimi.repos import ManifestError, RepoSource, SourceError, open_source
+    from dokimi.repos import ManifestError
     from dokimi.repos.l0 import scan_repo
 
-    try:
-        tree = open_source(RepoSource.parse(args.source), _cache_dir(args))
+    _, tree = _source_tree(args)
+    try:  # the manifest and the --static document: a usage error
         manifest = _load_manifest(tree, args, guidance_default=True)
         static = json.loads(Path(args.static).read_text(encoding="utf-8")) if args.static else None
-    except (SourceError, ManifestError, OSError, json.JSONDecodeError) as exc:
+    except (ManifestError, OSError, json.JSONDecodeError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
     payload = scan_repo(tree, manifest, static)
@@ -127,14 +142,9 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
 def cmd_repo_inspect(args: argparse.Namespace) -> None:
     """Static inspection: instruction files, check surfaces, launch risks, file inventory."""
     from dokimi.artifacts import save_artifact, stamp
-    from dokimi.repos import RepoSource, SourceError, open_source
     from dokimi.repos.environment import inspect_repo
 
-    try:
-        tree = open_source(RepoSource.parse(args.source), _cache_dir(args))
-    except SourceError as exc:
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+    _, tree = _source_tree(args)
     payload = inspect_repo(tree, large=args.large_bytes)
     if args.out:
         try:
@@ -269,16 +279,15 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
 def cmd_repo_budget(args: argparse.Namespace) -> None:
     """What the repository puts into an agent's context at start-up, lazily and on demand."""
     from dokimi.artifacts import save_artifact, stamp
-    from dokimi.repos import RepoSource, SourceError, open_source
     from dokimi.repos.budget import budget
     from dokimi.repos.harness_profile import ProfileError, load_profile
 
-    try:
+    try:  # the harness profile: a usage error
         profile = load_profile(args.harness)
-        tree = open_source(RepoSource.parse(args.source), _cache_dir(args))
-    except (SourceError, ProfileError) as exc:
+    except ProfileError as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
+    _, tree = _source_tree(args)
     payload = budget(tree, profile.guidance_names, profile.import_max_depth)
     if args.out:
         try:

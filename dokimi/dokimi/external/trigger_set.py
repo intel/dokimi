@@ -208,13 +208,16 @@ def build_trigger_set(
             tq.source_text = prior if isinstance(prior, str) else None
             extra = q.get(REACH_FIELDS)
             tq.reach = dict(extra) if isinstance(extra, dict) else {}
-            if rewrite is not None:
-                tq.source_text, tq.text = tq.source_text or text, rewrite(text).strip()
-                if not tq.text:
-                    raise ValueError(f"rewrite returned empty text for question {qid}")
-            tq.lint = lint_query(tq, catalog)
-            tq.lint["label_unresolved"] = not tq.labelled
             out.append(tq)
+    # Every question has passed validation before the first rewrite call, so a refused set costs no model call.
+    for tq in out:
+        if rewrite is not None:
+            original = tq.text
+            tq.source_text, tq.text = tq.source_text or original, rewrite(original).strip()
+            if not tq.text:
+                raise ValueError(f"rewrite returned empty text for question {tq.id}")
+        tq.lint = lint_query(tq, catalog)
+        tq.lint["label_unresolved"] = not tq.labelled
     return out
 
 

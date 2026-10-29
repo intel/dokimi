@@ -17,7 +17,7 @@ import json
 import sys
 from pathlib import Path
 from typing import Any
-from dokimi.exit_codes import EXIT_USAGE, usage_exit
+from dokimi.exit_codes import usage_exit
 
 
 def _skill_row(skill, review) -> dict:
@@ -229,9 +229,9 @@ def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
         args.strict and (summary["names_skill"] or summary["exam_framing"] or summary["label_unresolved"])
     ):
         # Refuse before writing, so a pipeline that only checks for the file
-        # cannot pick up a set with a mistyped label.
+        # cannot pick up a set with a mistyped label. A lint gate verdict: exit 1, as on main.
         print(json.dumps(summary, indent=2))
-        sys.exit(EXIT_USAGE)
+        sys.exit(1)
     _write_trigger_set(args, queries, catalog_root)
 
     print(json.dumps(summary, indent=2))
