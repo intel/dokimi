@@ -400,3 +400,21 @@ def test_a_repeated_question_id_grades_each_row_with_its_own_block():
     assert {v["attack"] for v in result["violations"]} == {"wrong", "empty", "hedge"}
     assert [r["canary"] for r in result["questions"]] == [True, True]
     assert result["summary"]["questions"] == 2 and result["summary"]["violations"] == 3
+
+
+def test_the_artifact_names_the_judge_that_graded_the_judge_checks(tmp_path, monkeypatch):
+    _patch_questions(monkeypatch, [_q("1", _match("Paris"))])
+    monkeypatch.setattr("dokimi.eval.judge.Judge", lambda **kw: SimpleNamespace(llm=None))
+    out = tmp_path / "judged.json"
+    cmd_eval_redteam(_args(tmp_path / "questions.json", output=out, judge=True,
+                           judge_model="judge-x", judge_provider="openai"))
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    assert (saved["judge_model"], saved["judge_provider"]) == ("judge-x", "openai")
+
+
+def test_the_artifact_has_no_judge_without_the_judge_flag(tmp_path, monkeypatch):
+    _patch_questions(monkeypatch, [_q("1", _match("Paris"))])
+    out = tmp_path / "plain.json"
+    cmd_eval_redteam(_args(tmp_path / "questions.json", output=out, judge_model="judge-x"))
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    assert saved["judge_model"] is None and saved["judge_provider"] is None

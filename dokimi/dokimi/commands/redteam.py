@@ -36,6 +36,8 @@ def cmd_eval_redteam(args: argparse.Namespace) -> None:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(2)
     result["questions_path"] = str(args.questions)
+    result["judge_model"] = args.judge_model if args.judge else None
+    result["judge_provider"] = args.judge_provider if args.judge else None
     print(format_table(result))
     if args.output:
         try:
