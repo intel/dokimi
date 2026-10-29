@@ -88,9 +88,9 @@ def _recorded_models(eval_data: Dict[str, Any]) -> Dict[str, Optional[Tuple[str,
 
     The judge is top-level (``judge_provider``/``judge_model``); the answerer is in
     ``run_metadata``. A panel (``judge_model: "panel(N)"``) records its judges only in
-    ``panel_config.models``; it maps to ``("panel", <the judges' raw "provider/model" strings, sorted and comma-joined>)``;
-``_same_recorded`` splits and compares them. A role
-    the artifact does not record maps to ``None``.
+    ``panel_config.models``; it maps to ``("panel", <the judges' raw "provider/model" strings,
+    sorted and comma-joined>)``, which ``_same_recorded`` splits and compares. A role the
+    artifact does not record maps to ``None``.
     """
     meta = eval_data.get("run_metadata")
     if not isinstance(meta, dict):
