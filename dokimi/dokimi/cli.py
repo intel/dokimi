@@ -75,11 +75,7 @@ def _label_routes(parser: argparse.ArgumentParser, prefix: tuple[str, ...] = ())
 class _RoutedParser(argparse.ArgumentParser):
     """The top-level parser. Its ``--help`` lists the roots by section (``dokimi.cli_routes``)."""
 
-    routed = False  # set on the top-level parser only; its subparsers keep argparse's layout
-
     def format_help(self) -> str:
-        if not self.routed:
-            return super().format_help()
         sub = _subparsers(self)
         listed = {action.dest: action for action in sub._choices_actions} if sub else {}
         fmt = self._get_formatter()
@@ -119,9 +115,8 @@ def build_parser() -> argparse.ArgumentParser:
         return ivalue
 
     p = _RoutedParser(prog="dokimi")
-    p.routed = True
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    sub = p.add_subparsers(dest="cmd", required=True)
+    sub = p.add_subparsers(dest="cmd", required=True, parser_class=argparse.ArgumentParser)
 
     # Order preserved to keep --help output stable.
     run.register(sub, positive_int)             # run

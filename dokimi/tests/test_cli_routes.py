@@ -220,3 +220,13 @@ def test_the_data_help_promises_only_the_kinds_it_has():
     for path in (("data",), ("data", "schema")):
         assert "artifact" not in helps[path].lower(), helps[path]
         assert "route" in helps[path].lower(), helps[path]
+
+
+def test_only_the_top_level_parser_lists_its_commands_by_section():
+    top = build_parser()
+    assert "The loop:" in top.format_help()
+    sub = _subparsers(top)
+    assert sub is not None
+    for name, child in sub.choices.items():
+        assert type(child) is argparse.ArgumentParser, name
+        assert "The loop:" not in child.format_help(), name
