@@ -17,6 +17,7 @@
     {
       "question_id": "1",
       "canary": true,
+      "negated_only": false,
       "probes": {
         "canary": {"passed": true, "expected": true, "violation": false, "detail": ""},
         "wrong": {"passed": false, "expected": false, "violation": false, "detail": ""},
@@ -28,6 +29,7 @@
     {
       "question_id": "2",
       "canary": true,
+      "negated_only": false,
       "probes": {
         "canary": {"passed": false, "expected": true, "violation": true, "detail": "not a match"},
         "wrong": {"passed": null, "expected": false, "violation": false, "detail": "not judged: no judge model"},
@@ -36,5 +38,5 @@
       }
     }
   ],
-  "summary": {"questions": 2, "probed": 2, "no_canary": 0, "unscored": 1, "violations": 2}
+  "summary": {"questions": 2, "probed": 2, "no_canary": 0, "negated_only": 0, "unscored": 1, "violations": 2}
 }
