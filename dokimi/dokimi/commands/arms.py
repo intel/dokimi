@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 # any other command that drives an arms run by constructing its own Namespace.
 # Kept in one place so a new flag reaches every caller: enumerating these at each
 # call site is what lets a flag silently fall back to its default, since
-# _build_arms_output reads them with getattr defaults and cannot tell a caller
+# _prepare_arms and its helpers read them with getattr defaults and cannot tell a caller
 # that omitted a field from a user who chose the default.
 FORWARDED_RUN_CONFIG_FIELDS = (
     "model",
@@ -65,7 +65,7 @@ def forwarded_run_config(args: argparse.Namespace, **overrides) -> dict:
     """Copy the shared run-configuration fields off *args*.
 
     Fields absent from *args* are omitted rather than defaulted, so
-    ``_build_arms_output`` applies its own default instead of this helper
+    the arms helpers apply their own default instead of this helper
     inventing one. Pass *overrides* for values the caller sets itself.
     """
     forwarded = {

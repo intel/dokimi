@@ -1000,7 +1000,7 @@ plugins = []
 
 
 def test_forwarded_run_config_covers_fields_read_with_a_default():
-    """The forwarded set must stay a superset of what _build_arms_output consults.
+    """The forwarded set must stay a superset of what the arms run helpers consult.
 
     Anything read there with a getattr default is silently absent when a caller
     building its own Namespace omits it, which is how a flag stops propagating.
@@ -1010,8 +1010,14 @@ def test_forwarded_run_config_covers_fields_read_with_a_default():
 
     from dokimi.commands import arms as arms_mod
 
-    source = inspect.getsource(arms_mod._build_arms_output)
-    read_with_default = set(re.findall(r'getattr\(args,\s*"([a-z_0-9]+)"', source))
+    # _build_arms_output is a one-line wrapper; the reads live in the helpers it calls.
+    readers = ("_prepare_arms", "_check_judge_inputs", "_build_judge", "_run_arms", "_refuse_judged_session")
+    read_with_default: set[str] = set()
+    for name in readers:
+        found = set(re.findall(r'getattr\(args,\s*"([a-z_0-9]+)"', inspect.getsource(getattr(arms_mod, name))))
+        read_with_default |= found
+    # A guard that finds nothing guards nothing: a rename that moves the reads away must fail here.
+    assert {"temperature", "judge_panel", "session_turns"} <= read_with_default
     missing = read_with_default - set(arms_mod.FORWARDED_RUN_CONFIG_FIELDS)
     assert not missing, f"read with a getattr default but never forwarded: {sorted(missing)}"
 
