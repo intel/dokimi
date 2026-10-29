@@ -675,6 +675,15 @@ def test_zero_variance_tolerance_scales_with_the_mean():
     assert res["n"] == 8
 
 
+def test_zero_variance_tolerance_is_relative_not_absolute():
+    """The same noise is degenerate at a mean of 1e6 (tolerance 1e-3) and not at a mean of 1."""
+    pytest.importorskip("scipy")
+    big = [1e6 + (1e-4 if i % 2 else -1e-4) for i in range(8)]
+    small = [1.0 + (1e-4 if i % 2 else -1e-4) for i in range(8)]
+    assert stats.mean_ci(big)["method"] == "degenerate"
+    assert stats.mean_ci(small)["method"] == "student_t"
+
+
 def test_adjusted_pvalues_are_rounded_to_four_places_by_default():
     assert stats.adjust_pvalues([0.0123456]) == [0.0123]
 
