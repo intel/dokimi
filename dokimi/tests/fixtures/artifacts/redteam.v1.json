@@ -1,0 +1,40 @@
+{
+  "schema_version": "redteam.v1",
+  "status": "blocked",
+  "questions_path": "questions.json",
+  "attacks": {
+    "canary": {"expected": "pass", "scored": 2, "accepted": 1, "rate": 0.5},
+    "wrong": {"expected": "fail", "scored": 1, "accepted": 0, "rate": 0.0},
+    "empty": {"expected": "fail", "scored": 2, "accepted": 0, "rate": 0.0},
+    "hedge": {"expected": "fail", "scored": 2, "accepted": 0, "rate": 0.0},
+    "stuffed": {"expected": "fail", "scored": 1, "accepted": 1, "rate": 1.0}
+  },
+  "violations": [
+    {"question_id": "1", "attack": "stuffed", "passed": true},
+    {"question_id": "2", "attack": "canary", "passed": false}
+  ],
+  "questions": [
+    {
+      "question_id": "1",
+      "canary": true,
+      "probes": {
+        "canary": {"passed": true, "expected": true, "violation": false, "detail": ""},
+        "wrong": {"passed": false, "expected": false, "violation": false, "detail": ""},
+        "empty": {"passed": false, "expected": false, "violation": false, "detail": ""},
+        "hedge": {"passed": false, "expected": false, "violation": false, "detail": ""},
+        "stuffed": {"passed": true, "expected": false, "violation": true, "detail": ""}
+      }
+    },
+    {
+      "question_id": "2",
+      "canary": true,
+      "probes": {
+        "canary": {"passed": false, "expected": true, "violation": true, "detail": "not a match"},
+        "wrong": {"passed": null, "expected": false, "violation": false, "detail": "not judged: no judge model"},
+        "empty": {"passed": false, "expected": false, "violation": false, "detail": ""},
+        "hedge": {"passed": false, "expected": false, "violation": false, "detail": ""}
+      }
+    }
+  ],
+  "summary": {"questions": 2, "probed": 2, "no_canary": 0, "unscored": 1, "violations": 2}
+}
