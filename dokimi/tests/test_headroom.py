@@ -105,6 +105,12 @@ def test_summary_counts_each_kind_of_item_apart():
                                  "flagged_provisional": 1, "no_flag": 2}
 
 
+def test_items_list_numeric_ids_in_numeric_order_then_the_other_ids():
+    scores = {"baseline": 50, "skill": 60}
+    run = _run([(qid, scores) for qid in ["q1", "10", "b", "2", "a", "1"]])
+    assert [i["question_id"] for i in headroom([run])["items"]] == ["1", "2", "10", "a", "b", "q1"]
+
+
 def test_the_ceiling_reads_the_mean_over_runs():
     # One run at the top does not make a ceiling: the mean (0.85) is below 0.9.
     runs = [_run([("1", {"baseline": 100, "skill": 100})]), _run([("1", {"baseline": 70, "skill": 70})])]
