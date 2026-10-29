@@ -418,3 +418,22 @@ def test_the_artifact_has_no_judge_without_the_judge_flag(tmp_path, monkeypatch)
     cmd_eval_redteam(_args(tmp_path / "questions.json", output=out, judge_model="judge-x"))
     saved = json.loads(out.read_text(encoding="utf-8"))
     assert saved["judge_model"] is None and saved["judge_provider"] is None
+
+
+def test_the_judge_ask_sends_the_prompt_to_the_named_model_and_returns_the_reply(monkeypatch):
+    from dokimi.eval.judge import judge_ask
+
+    made, sent = {}, {}
+
+    class FakeLLM:
+        def invoke(self, prompt, draw=0, cache_if=None):
+            sent.update(prompt=prompt, draw=draw)
+            return SimpleNamespace(content="YES")
+
+    def fake_judge(**kw):
+        made.update(kw)
+        return SimpleNamespace(llm=FakeLLM())
+
+    monkeypatch.setattr("dokimi.eval.judge.Judge", fake_judge)
+    assert judge_ask("judge-x", "openai")("is it covered?", draw=2) == "YES"
+    assert made == {"model": "judge-x", "provider": "openai"} and sent == {"prompt": "is it covered?", "draw": 2}
