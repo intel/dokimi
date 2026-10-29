@@ -322,3 +322,13 @@ def test_a_short_value_the_check_does_not_find_in_the_hedge_keeps_the_hedge_prob
     assert redteam.attacks(grading)["hedge"] == redteam.HEDGE
     result = run([_q("1", grading)])
     assert result["questions"][0]["probes"]["hedge"]["passed"] is False
+
+
+def test_a_threshold_block_that_a_negated_check_lifts_over_the_line_is_blocked():
+    # Half the score comes from "must not say London", which every wrong, empty or hedged answer earns:
+    # the real grader passes them at 0.5, so the block is gameable.
+    grading = {"threshold": 0.5, "checks": [{"type": "match", "values": ["Paris"]},
+                                            {"type": "match", "values": ["London"], "negate": True}]}
+    result = run([_q("1", grading)])
+    assert result["status"] == "blocked"
+    assert {v["attack"] for v in result["violations"]} == {"wrong", "empty", "hedge"}

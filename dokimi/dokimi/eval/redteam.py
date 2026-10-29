@@ -26,9 +26,10 @@ A probe the grader cannot score (a judge check with no judge model, a regex past
 reported as unscored. The canary is only built for a question whose grading is one literal check;
 other questions get the other attacks alone.
 
-A ``negate`` check passes a wrong, empty or hedged answer by design, so those three attacks grade
-the block's non-negated checks alone. A block of only negated checks gets none of them and is
-reported as ``negated_only``; its stuffed answer still runs.
+A ``negate`` check passes a wrong, empty or hedged answer by design, so a block of only negated
+checks gets none of those three attacks and is reported as ``negated_only``; its stuffed answer still
+runs. A block with a positive check is graded as written, ``threshold`` included: a negated check's
+share of the score counts, so a block whose negated checks lift a wrong answer over the line is blocked.
 
 Nothing here calls a model unless the caller passes ``ask`` (the judge of judge checks).
 """
@@ -122,11 +123,6 @@ def _positive_checks(grading: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     return [c for c in grading.get("checks", []) if not c.get("negate")]
 
 
-def _positive_only(grading: Mapping[str, Any]) -> Mapping[str, Any]:
-    """The grading block with its negated checks removed; the threshold and the rest are kept."""
-    return {**grading, "checks": _positive_checks(grading)}
-
-
 def negated_only(grading: Mapping[str, Any]) -> bool:
     """Whether every check of the block is negated, so no answer is wrong by its positive checks."""
     checks = grading.get("checks", [])
@@ -146,9 +142,8 @@ def wrong_for(grading: Mapping[str, Any]) -> Optional[str]:
 def attacks(grading: Mapping[str, Any]) -> dict[str, Optional[str]]:
     """The synthetic answer for each attack; None where the attack does not apply to the block.
 
-    The wrong, empty and hedge answers apply when the block has a non-negated check: a negated
-    check passes them by design, but a positive check still rejects them, so they run and the probe
-    grades the non-negated checks alone. A block of only negated checks gets none of the three.
+    The wrong, empty and hedge answers apply when the block has a non-negated check, and are graded
+    against the whole block as written. A block of only negated checks gets none of the three.
     ``stuffed`` still runs, since it carries the negated value and must fail. The planted wrong answer
     is chosen per block so that no positive check accepts it, and the hedge is fixed text, so it is
     skipped when a positive check accepts it (each is asked with the grader's own rules, so a numeric
@@ -186,12 +181,10 @@ class Probe:
 def probe(grading: Mapping[str, Any], question: str, ask: Optional[Ask] = None) -> dict[str, Probe]:
     """Grade every applicable attack against one grading block."""
     out: dict[str, Probe] = {}
-    positive = _positive_only(grading)
     for name, answer in attacks(grading).items():
         if answer is None:
             continue
-        block = positive if name in NEGATION_SKIPPED else grading
-        g = grade(block, question, answer, ask)
+        g = grade(grading, question, answer, ask)
         out[name] = Probe(name, g.passed, _detail(g))
     return out
 
