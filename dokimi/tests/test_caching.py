@@ -297,7 +297,7 @@ def test_usage_values_of_every_field_type_replay(monkeypatch, tmp_path):
 
 
 def test_null_text_is_replayed_not_a_miss(monkeypatch, tmp_path):
-    """A reply without content is stored as null text and must still replay."""
+    """A well-formed null entry loads (load_response); complete() still refuses to replay it (keeps)."""
     monkeypatch.setenv(caching.RESPONSE_CACHE_ENV, str(tmp_path))
     (tmp_path / "empty.json").write_text(
         json.dumps({"text": None, "usage": {}}), encoding="utf-8"
@@ -404,9 +404,12 @@ def test_an_empty_reply_is_not_kept_even_when_the_judge_test_accepts_it():
     assert caching.keeps(lambda _text: True, "") is False
 
 
-def test_a_content_less_reply_stored_as_null_is_still_kept():
-    # llm.complete stores a content-less reply as None, as it always has.
-    assert caching.keeps(None, None) is True
+def test_a_content_less_reply_is_never_stored_or_replayed():
+    # A reply with no content (None) stored as null would replay as "no answer" on every
+    # later run. complete() takes no tools, so a tool-call reply never reaches this test:
+    # chat() is the tool-calling path and is never response-cached.
+    assert caching.keeps(None, None) is False
+    assert caching.keeps(lambda _text: True, None) is False
 
 
 def test_a_reply_with_text_is_kept_only_when_the_judge_test_accepts_it():

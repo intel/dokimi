@@ -718,7 +718,7 @@ class LLM:
         if reply.response is not None and not getattr(reply.response, "choices", None):
             raise IndexError("reply has no choices")  # as llm_call always did; not cached
         _warn_if_truncated(reply, self.model, max_tokens)
-        # A content-less reply is stored as null, as it always was.
+        # A content-less reply (None) is not stored: keeps() refuses it, so it is never replayed.
         text = cast(str, reply.text)
         if caching.keeps(cache_if, text):
             caching.store_response(key, text, reply.usage)

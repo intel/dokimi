@@ -287,6 +287,15 @@ def test_a_cached_reply_is_replayed_with_its_stored_usage(cache_dir):
     assert second.usage.cost_usd == 0.001  # what the real call cost, not $0
 
 
+def test_a_content_less_reply_is_not_cached_so_the_next_call_asks_again(cache_dir):
+    usage = UsageRecord(prompt_tokens=1, completion_tokens=0, total_tokens=1)
+    fake = FakeAdapter(Reply(text=None, usage=usage), Reply(text="answer", usage=usage))
+    llm = LLM("m", "openai", adapter=fake)
+    assert llm.complete("ask").text is None
+    assert llm.complete("ask").text == "answer"
+    assert len(fake.requests) == 2
+
+
 def test_sampling_and_max_tokens_key_their_own_entries(cache_dir, fake_llm):
     fake_llm.push("free", "pinned", "seeded", "capped")
     assert LLM("m", "openai").ask("p") == "free"
@@ -316,13 +325,14 @@ def test_cache_if_guards_both_storing_and_replaying(cache_dir, fake_llm):
     assert len(fake_llm.requests) == 2
 
 
-def test_a_reply_without_content_is_stored_and_replayed_as_before(cache_dir, fake_llm):
-    fake_llm.push(Reply(text=None, usage=UsageRecord()))
+def test_a_reply_without_content_is_asked_again_not_replayed(cache_dir, fake_llm):
+    fake_llm.push(*(Reply(text=None, usage=UsageRecord()) for _ in range(3)))
     llm = LLM("m", "openai")
     assert llm.complete("p").text is None
     assert llm.complete("p").text is None
     assert llm.ask("p") == ""
-    assert len(fake_llm.requests) == 1
+    assert len(fake_llm.requests) == 3
+    assert not list(cache_dir.glob("*.json"))
 
 
 def test_chat_is_never_response_cached(cache_dir, fake_llm):
