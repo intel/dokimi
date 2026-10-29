@@ -78,7 +78,11 @@ and `judge_provider` set to `reference`. The summary's `judge_unscored` counts t
 counted answers whose pass leaves out a judge check that had no verdict. The
 summary's `check_unscored` does the same for a deterministic check that did not
 run to a result (a `regex` past its limit): the pass is decided on the checks
-that ran, and the count shows how many passes left one out.
+that ran, and the count shows how many passes left one out. An answer whose
+call failed is counted as `errors`, not `unscored`, and leaves the pass rate and
+the mean out just as an unscored answer does. An arms summary has the same
+count per arm as `errors`. An empty reply is never cached (on store or replay),
+so a rerun asks the model again instead of replaying an empty answer.
 
 `eval reference` writes eval.v1 for an `answers generate` file and an arms
 artifact for an `arms run` file. Each block carries `scorer: reference`, and

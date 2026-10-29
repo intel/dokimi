@@ -286,7 +286,13 @@ def keeps(cache_if: Optional[Callable[[str], bool]], text: str) -> bool:
     all three of the judge's attempts are stored that way, every later run
     replays the failure without calling the model. Checking on replay too means
     entries stored before the check existed stop poisoning the run.
+
+    An empty or whitespace-only reply is never kept, on store or on replay: a stored
+    empty answer would be replayed as a failed answer on every later run. ``None``
+    (a content-less reply, stored as null) is kept as before.
     """
+    if text is not None and not text.strip():
+        return False
     return cache_if is None or cache_if(text)
 
 

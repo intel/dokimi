@@ -388,3 +388,27 @@ def test_no_temp_files_are_left_behind(monkeypatch, tmp_path):
     monkeypatch.setenv(caching.RESPONSE_CACHE_ENV, str(tmp_path))
     caching.store_response("k", "answer", _usage())
     assert [p.name for p in tmp_path.iterdir()] == ["k.json"]
+
+
+# ---------------------------------------------------------------------------
+# keeps: empty replies are never stored or replayed
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("text", ["", "   ", "\n\t"])
+def test_an_empty_reply_is_not_kept_even_without_a_judge_test(text):
+    assert caching.keeps(None, text) is False
+
+
+def test_an_empty_reply_is_not_kept_even_when_the_judge_test_accepts_it():
+    assert caching.keeps(lambda _text: True, "") is False
+
+
+def test_a_content_less_reply_stored_as_null_is_still_kept():
+    # llm.complete stores a content-less reply as None, as it always has.
+    assert caching.keeps(None, None) is True
+
+
+def test_a_reply_with_text_is_kept_only_when_the_judge_test_accepts_it():
+    assert caching.keeps(None, "Paris") is True
+    assert caching.keeps(lambda text: text.startswith("{"), "Paris") is False
