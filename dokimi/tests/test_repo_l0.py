@@ -297,7 +297,9 @@ def test_a_missing_also_scan_file_is_named_as_the_cause(tmp_path, capsys):
     reason = "guidance/also_scan matches no file: CONTRIBUTING.md"
     out = tmp_path / "readiness.json"
     assert _exit_code(argv + ["--out", str(out)]) is None
-    lines = capsys.readouterr().out.splitlines()
+    captured = capsys.readouterr()
+    assert captured.err == ""  # without --fail-on-fail the reason is only in the summary
+    lines = captured.out.splitlines()
     assert lines[1:5] == ["  claims: 0 (ok 0, unresolved 0, fail 0)", f"  warning: {NO_CLAUDE}",
                           f"  warning: {reason}", f"  incomplete: {reason} (repo scan --fail-on-fail exits 1)"]
     data = load_artifact("repo_readiness", out)

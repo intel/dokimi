@@ -32,6 +32,7 @@ def _scan(
     build_systems=ALL,
     links: dict[str, str] | None = None,
     also_scan: list[str] | None = None,
+    globs: tuple[str, ...] = ("**/AGENTS.md",),
 ):
     root = tmp_path / "r"
     for rel, text in {"AGENTS.md": agents, "ev/tasks/t/task.json": "{}", **files}.items():
@@ -55,7 +56,7 @@ def _scan(
             "id": "case",
             "source": {"url": "https://github.com/acme/case"},
             "eval_dir": "ev",
-            "guidance": {"globs": ["**/AGENTS.md"], **({"also_scan": also_scan} if also_scan else {})},
+            "guidance": {"globs": list(globs), **({"also_scan": also_scan} if also_scan else {})},
             "entry_points": {"grade": "true"},
             "tasks": "ev/tasks",
             "build_systems": list(build_systems),
@@ -590,11 +591,16 @@ def test_unreadable_build_inputs_warn_and_mark_the_scan_incomplete(tmp_path):
         "defs.bzl": "def m(name):\n    pass\n\0",
         "third_party/zlib.BUILD": 'cc_library(name = "zlib")\n\0',
     }
-    payload = _scan(tmp_path, agents, files)
+    payload = _scan(tmp_path, agents, files, globs=("**/AGENTS.md", "**/CLAUDE.md"))
     assert payload["incomplete"] is True
     assert any(w.startswith("build file not scanned: defs.bzl: ") and "binary" in w for w in payload["warnings"])
     assert any(w.startswith("build file not scanned: third_party/zlib.BUILD: ") for w in payload["warnings"])
-    assert payload["incomplete_reasons"] == [w for w in payload["warnings"] if w.startswith("build file not scanned: ")]
+    # the glob with no match is a warning but not a reason: it may name a file a later base adds
+    assert "guidance glob matches no file: **/CLAUDE.md" in payload["warnings"]
+    assert payload["incomplete_reasons"] == [
+        "build file not scanned: defs.bzl: binary (a NUL byte)",
+        "build file not scanned: third_party/zlib.BUILD: binary (a NUL byte)",
+    ]
 
 
 @pytest.mark.parametrize("name", ["zlib.BUILD", "BUILD.zlib", "BUILD.zlib.bazel"])
