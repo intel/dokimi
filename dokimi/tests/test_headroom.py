@@ -46,6 +46,18 @@ def test_the_threshold_compares_the_unrounded_mean():
     assert _flags(headroom([run])) == {"1": None}
 
 
+def test_a_mean_exactly_at_the_ceiling_is_flagged_though_float_division_undershoots():
+    # Two runs at 85 and 95 average to exactly 90; 0.85 + 0.95 over 2 is 0.8999999999999999 in floats.
+    runs = [_run([("1", {"baseline": 85, "skill": 85})]), _run([("1", {"baseline": 95, "skill": 95})])]
+    assert _flags(headroom(runs, min_reps=1)) == {"1": CEILING}
+
+
+def test_a_mean_exactly_at_the_floor_is_flagged_though_float_division_overshoots():
+    # Two runs at 20 and 40 average to exactly 30; every arm at 30 is at the floor 0.3.
+    runs = [_run([("1", {"baseline": 20, "skill": 20})]), _run([("1", {"baseline": 40, "skill": 40})])]
+    assert _flags(headroom(runs, floor=0.3, min_reps=1)) == {"1": FLOOR}
+
+
 def test_floor_needs_every_arm_at_zero_not_just_the_baseline():
     run = _run([("1", {"baseline": 0, "skill": 0}), ("2", {"baseline": 0, "skill": 40})])
     assert _flags(headroom([run])) == {"1": FLOOR, "2": None}

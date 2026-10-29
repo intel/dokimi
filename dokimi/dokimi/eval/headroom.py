@@ -29,6 +29,8 @@ DEFAULT_CEILING = 0.9
 DEFAULT_FLOOR = 0.0
 DEFAULT_MIN_REPS = 3
 
+_EPS = 1e-9  # float error bound for a threshold comparison on a mean of 0-1 scores
+
 CEILING = "ceiling"
 FLOOR = "floor"
 
@@ -73,9 +75,12 @@ def _rounded(value: Optional[float]) -> Optional[float]:
 
 
 def _flag(no_skill: Optional[float], arms: Dict[str, Optional[float]], ceiling: float, floor: float) -> Optional[str]:
-    if no_skill is not None and no_skill >= ceiling:
+    # The mean of 0-1 scores is float division: a mean that is exactly the threshold can land a
+    # few ulps off it. The tolerance is far below one score step (0.01 at the finest), so it only
+    # absorbs that error.
+    if no_skill is not None and no_skill >= ceiling - _EPS:
         return CEILING
-    if arms and all(v is not None and v <= floor for v in arms.values()):
+    if arms and all(v is not None and v <= floor + _EPS for v in arms.values()):
         return FLOOR
     return None
 
