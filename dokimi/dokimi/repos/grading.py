@@ -53,6 +53,7 @@ from .manifest import RepoManifest
 from .workspace import Task
 
 GRADE_SCHEMA = "repo_grade.v1"
+SCORE_BOUND = 1e150  # the largest |score| `repo report` reads: squared deltas and sums stay finite
 _PLACEHOLDER_RE = re.compile(r"\{([a-z_]+)\}")
 CONTAINER_PATHS = {"run_dir": RUN_DIR, "eval_dir": CONTENT_DIR, "source_dir": SOURCE_DIR}
 GRADE_HOME = "grade-home"  # under {run_dir}, which the agent's container never mounts
@@ -260,7 +261,14 @@ def score_value(task: Task, grade: dict[str, Any] | None) -> float | None:
     if not task.score or grade is None:
         return None
     value = (grade.get("metrics") or {}).get(task.score["metric"])
-    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return None
+    try:
+        score = float(value)
+    except OverflowError:
+        return None
+    # NaN (no comparison holds), inf or a huge score is no measurement: `repo report` refuses such a cell
+    return score if abs(score) <= SCORE_BOUND else None
 
 
 def outcome(task: Task, run_dir: Path, result: ContainerResult, error: str | None = None) -> dict[str, Any]:

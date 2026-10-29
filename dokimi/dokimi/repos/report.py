@@ -43,6 +43,7 @@ from typing import Any
 
 import math
 
+from .grading import SCORE_BOUND
 from .process_counts import process_line, process_means
 from .runner import UNSUPPORTED_FILE, slug
 
@@ -79,7 +80,7 @@ _AGENT_NUMBERS = ("cost_usd", "num_turns", *_TOKENS)
 
 
 # keeps per-task deltas squared (variance in eval/stats.py mean_ci) and sums finite
-_SAFE_MAGNITUDE = 1e150
+_SAFE_MAGNITUDE = SCORE_BOUND
 
 
 def _optional_number(value: object) -> bool:

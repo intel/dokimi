@@ -948,3 +948,32 @@ def test_graders_digest_covers_main_and_pairs_names_with_contents(tmp_path, monk
     assert graders.graders_digest() == base
     (tmp_path / "main.py").rename(tmp_path / "other.py")  # same bytes under another name
     assert graders.graders_digest() != base
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), 1e200, 10**400], ids=["nan", "inf", "huge", "overflow"])
+def test_a_grader_score_that_is_no_measurement_is_a_grader_failure_and_the_batch_stays_reportable(
+        setup, monkeypatch, capsys, bad):
+    import dokimi.repos.grading as grading
+    read_grade = grading.read_grade
+
+    def bad_recall(run_dir):  # the grader of one cell writes `bad` as its score metric
+        path = run_dir / "grade.json"
+        if run_dir.name == "review_add__guidance-none__m-1__r1" and path.is_file():
+            doc = json.loads(path.read_text())
+            doc["metrics"]["recall"] = bad
+            path.write_text(json.dumps(doc))
+        return read_grade(run_dir)
+
+    monkeypatch.setattr(grading, "read_grade", bad_recall)
+    _run(setup, "--arm", "guidance:none,guidance:raw", "--task", "fix_add", "--task", "review_add")
+    batch = setup["out"] / "b1"
+    grade = json.loads((batch / "review_add__guidance-none__m-1__r1/result.json").read_text())["grade"]
+    assert grade["status"] == "grader_failure" and grade["score"] is None
+    assert grade["reasons"] == ["grade.json has no numeric metrics.recall (task.json `score`)"]
+    rows = {(r["task"], r["arm"]): r for r in _report(setup)["rows"]}
+    assert rows[("review_add", "guidance:none")]["grader_failures"] == 1
+    assert rows[("review_add", "guidance:none")]["score"] == 0.0
+    capsys.readouterr()
+    args = build_parser().parse_args(["repo", "compare", str(batch), "--baseline", "guidance:none"])
+    args.func(args)
+    assert "review_add" in capsys.readouterr().out
