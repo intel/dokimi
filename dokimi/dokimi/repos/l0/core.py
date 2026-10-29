@@ -481,6 +481,8 @@ class Scan:
         self._cd, self._cd_stack = None, []
 
     def check_file(self, file: str) -> None:
+        from . import versions
+
         pieces = split(self.text(file))
         for n, target, ctx in pieces.links:
             self.check_link(file, n, target, ctx)
@@ -488,6 +490,7 @@ class Scan:
             self.check_span(file, n, span, ctx)
         for fence in pieces.fences:
             self.check_fence(file, fence)
+        versions.check(self, file, pieces)
 
 
 def ancestors(file: str) -> list[str]:

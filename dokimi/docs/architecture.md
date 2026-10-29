@@ -342,8 +342,13 @@ next release.
   `grade` must fail the untouched workspace and pass it after `oracle`, and an
   isolation probe must not see the tasks or the source from the agent's
   container.
+- `dokimi/repos/replay/` — `repo tasks replay`: one `dokimi:review_replay`
+  task per merged pull request of a threads file `gh api graphql` wrote (the
+  change as reviewed, gold from the reviewers' threads on its lines, and
+  `addressed` from the PR's own later commits), read with git and no GitHub
+  call. It is the one command that writes into a repository's tasks directory.
 
-Entry points: `python cli.py repo {validate,scan,fetch,reach,budget,tasks check,run,report}`
+Entry points: `python cli.py repo {validate,scan,fetch,reach,budget,tasks check,tasks replay,run,report}`
 (`python cli.py repo --help` is the current list). The interface a repository
 codes against is [repo-evaluation-contract.md](repo-evaluation-contract.md),
 still marked PROPOSED: the per-host egress proxy (§2) is not implemented, so
@@ -378,6 +383,11 @@ tokens, one call per message id), the compaction events, tool-result sizes and
 failures per tool, and repeated tool calls. `python cli.py context trace`
 prints one or more traces as a comparison table; it calls no model. Guide:
 [context-window.md](context-window.md).
+`dokimi/context/consistency.py` reads repeated runs of one task into three
+separate profiles: result (`pass@k`, `pass^k`), path (tool-mix JSD, edit
+distance of tool and action sequences, resource spread, strategy groups) and
+conformance to a YAML process contract; `python cli.py context consistency`.
+Guide: [run-consistency.md](run-consistency.md).
 
 ## Shared building blocks
 
