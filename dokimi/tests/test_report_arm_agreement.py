@@ -206,3 +206,35 @@ def test_top_and_bottom_performers_rank_the_complete_pairs_like_the_overall_max(
     gen_md = ReportGenerator().generate_report({"evaluations": EVALUATIONS}, {"questions": []}, "markdown")
     assert "| q3 |" not in gen_md
     assert "over the 2 complete pairs; 1 unpaired (scored in one arm only) left out" in gen_md
+
+
+# Four complete pairs: two improved ((80, 60), (70, 50)), one degraded ((40, 50)), one neutral
+# ((60, 60)). Two more questions are unpaired, one per arm. The win rate and the degradation rate
+# are over the four pairs, the same set the Overall delta uses: 50% and 25%. Over all six
+# questions they would be 33% and 17%.
+WIN_RATE_EVALUATIONS = [
+    {"question_id": "q1", "question_text": "How do I pin threads?",
+     "with_docs": {"aggregate": 80.0}, "without_docs": {"aggregate": 60.0}, "delta": 20.0},
+    {"question_id": "q2", "question_text": "How do I size a pool?",
+     "with_docs": {"aggregate": 40.0}, "without_docs": {"aggregate": 50.0}, "delta": -10.0},
+    {"question_id": "q3", "question_text": "How do I flush a queue?",
+     "with_docs": {"aggregate": 60.0}, "without_docs": {"aggregate": 60.0}, "delta": 0.0},
+    {"question_id": "q4", "question_text": "How do I cancel a task?",
+     "with_docs": {"aggregate": 70.0}, "without_docs": {"aggregate": 50.0}, "delta": 20.0},
+    {"question_id": "q5", "question_text": "How do I wait on a flag?",
+     "with_docs": {"aggregate": 90.0}, "without_docs": None, "delta": None},
+    {"question_id": "q6", "question_text": "How do I join a thread?",
+     "with_docs": None, "without_docs": {"aggregate": 30.0}, "delta": None},
+]
+
+
+def test_eval_report_win_and_degradation_rates_divide_by_the_complete_pairs(tmp_path):
+    path = tmp_path / "eval" / "lib.json"
+    path.parent.mkdir()
+    path.write_text(json.dumps({"evaluations": WIN_RATE_EVALUATIONS}), encoding="utf-8")
+    md = tmp_path / "lib.md"
+    generate_report(str(path), str(md), str(tmp_path / "lib.qa.json"))
+    eval_md = md.read_text(encoding="utf-8")
+
+    assert "- **Win rate:** 50% questions improved with context (2/4)." in eval_md
+    assert "- **Degradations:** 1 questions (25%)." in eval_md

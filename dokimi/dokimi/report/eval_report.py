@@ -470,10 +470,10 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
         f'- **Dynamic vs Static agreement:** {dyn_stats["delta_avg"]:+} vs {static_stats["delta_avg"]:+} — '
         + ("good consistency, benchmark is stable." if abs(dyn_stats["delta_avg"] - static_stats["delta_avg"]) < 3
            else "notable gap — investigate question quality."),
-        f'- **Win rate:** {round(all_stats["improvements"]/all_stats["count"]*100) if all_stats["count"] else 0}% questions improved with context '
-        f'({all_stats["improvements"]}/{all_stats["count"]}).',
+        f'- **Win rate:** {round(all_stats["improvements"]/all_stats["valid"]*100) if all_stats["valid"] else 0}% questions improved with context '
+        f'({all_stats["improvements"]}/{all_stats["valid"]}).',
         f'- **Degradations:** {all_stats["degradations"]} questions '
-        f'({round(all_stats["degradations"]/all_stats["count"]*100) if all_stats["count"] else 0}%).',
+        f'({round(all_stats["degradations"]/all_stats["valid"]*100) if all_stats["valid"] else 0}%).',
         "",
     ]
 
