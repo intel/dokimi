@@ -44,7 +44,8 @@ and a newline stop the chain. `&&` alone does not hide it, but a later `||` does
 (`pytest && echo PASS || echo FAIL`), and so does a `;` or newline after
 `pytest && git diff`, for `pytest` (even under `set -e`; `git diff` is then the
 last command of the list and exits on failure). `last_ok` does not accept such
-a step as a passing check.
+a step as a passing check. A `set` inside `( ... )` ends with the subshell:
+`(set -e; make); pytest; echo done` hides `pytest`.
 
 The line is read for what it runs, not parsed as a shell would: quotes,
 backslashes, `$(...)` and backticks are kept whole; `for`/`if`/`while`/`case`

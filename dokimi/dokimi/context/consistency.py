@@ -310,18 +310,25 @@ def _masks(parts: list[tuple[str, str]]) -> list[bool]:
     """Per command of a line, whether the status the call reports may be another's: a pipe without
     `pipefail`; a later command after `||`, or after `;` or a newline (not under `set -e`); a
     trailing `&`, whose status is always 0 for the list or group it ends; a loop body, whose status
-    is the last iteration's. `set -e` / `set -o pipefail` count from the command that sets them on."""
+    is the last iteration's. `set -e` / `set -o pipefail` count from the command that sets them on,
+    to the end of the ``( ... )`` subshell that set them."""
     errexit = pipefail = False
     out, loops = [], 0
+    outer: list[tuple[bool, bool]] = []  # the options each open subshell started from
     backgrounded = {j for k, (_, sep) in enumerate(parts) if sep == "&"
                     for j in range(_background_start(parts, k), k + 1)}
     for i, (seg, sep) in enumerate(parts):
+        opens, closes = shell.parens(seg)
+        outer += [(errexit, pipefail)] * opens
         errexit, pipefail = _set_options(seg, errexit, pipefail)
+        piped = not pipefail and "|" in shell.tokens(seg)
+        for _ in range(min(closes, len(outer))):  # the separator after `)` is the outer shell's
+            errexit, pipefail = outer.pop()
         loops += _opens_loop(seg)
         loops -= bool(loops and re.match(r"^done\b", seg))
         # `done`, `fi` after the last command close it: its status is the call's
         sep = sep if sep == "&" or any(shell.clean(later) for later, _ in parts[i + 1:]) else ""
-        out.append((not pipefail and "|" in shell.tokens(seg)) or _hides_status(sep, errexit)
+        out.append(piped or _hides_status(sep, errexit)
                    or _list_hides(parts, i) or i in backgrounded or (loops > 0 and not errexit))
     return out
 

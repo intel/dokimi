@@ -191,6 +191,12 @@ LAST_OK = parse_contract({"actions": {"test": {"tool": "Bash", "command": "pytes
     ("(cd sub; pytest -q) &", True), ("{ pytest -q && git diff; }; echo done", True),
     ('set -e; { pytest -q; echo ")"; } &', True), (r"set -e; { pytest -q; echo \); } &", True),
     ('set -e; (pytest -q; echo "\\"(") &', True),
+    # a `set` inside `( ... )` ends with the subshell; inside `{ ... }` it stays
+    ("(set -e; make); pytest -q; echo done", True), ("(set -e); pytest -q; echo done", True),
+    ("(set -o pipefail); pytest -q | tail -5", True), ("(set -e; pytest -q); echo done", True),
+    ("(set -e; pytest -q; make)", False), ("(set -o pipefail; pytest -q | tail -5)", False),
+    ('(set -e; echo "("); pytest -q; echo done', True), ("while x; do (set -e; pytest -q); done", True),
+    ("{ set -e; }; pytest -q; echo done", False),
 ])
 def test_a_later_command_hides_the_status_of_an_earlier_one(command, hidden):
     for grain in ("split", "call"):
