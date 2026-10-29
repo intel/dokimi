@@ -180,16 +180,19 @@ def build_trigger_set(
     sources: Sequence[tuple],
     catalog: Sequence[Skill],
     rewrite: Optional[Callable[[str], str]] = None,
+    specs: Optional[Sequence[str]] = None,
 ) -> List[TriggerQuery]:
     """Label, optionally rewrite, and lint questions.
 
     *sources* is ``[(questions, rule), ...]`` — a question list and the
     :func:`resolve_label` rule that labels it. *rewrite* maps question text to a
-    new query text and is given nothing but that text.
+    new query text and is given nothing but that text. *specs* names each source
+    in the refusal of an ``@field`` rule that labels none of its questions.
     """
     out: List[TriggerQuery] = []
     seen: set = set()
-    for questions, rule in sources:
+    for index, (questions, rule) in enumerate(sources):
+        first = len(out)
         for q in questions:
             raw = question_id(q)
             qid = str(f"q{len(out) + 1}" if raw is None else raw)
@@ -209,6 +212,11 @@ def build_trigger_set(
             extra = q.get(REACH_FIELDS)
             tq.reach = dict(extra) if isinstance(extra, dict) else {}
             out.append(tq)
+        chunk = out[first:]
+        if rule.startswith("@") and chunk and not any(tq.labelled for tq in chunk):
+            # A typo in the path, not a set of negatives.
+            where = specs[index] if specs is not None else f"source {index + 1}"
+            raise TriggerSetInputError(f"{where}: {rule} resolves for none of {len(chunk)} questions")
     # Every question has passed validation before the first rewrite call, so a refused set costs no model call.
     for tq in out:
         if rewrite is not None:

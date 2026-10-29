@@ -170,17 +170,6 @@ def _discover_catalog_skills(catalog_root: Path) -> list:
         usage_exit(f"--catalog {catalog_root}: {exc}")
 
 
-def _refuse_unresolved_field_rules(sources: list[tuple[Any, str]], specs: list[str], queries: list[Any]) -> None:
-    """An @field rule that resolves for no question in its source is a typo in the path, not a set
-    of negatives; refuse it rather than write "nothing loads"."""
-    start = 0
-    for (qs, rule), spec in zip(sources, specs, strict=True):
-        chunk = queries[start:start + len(qs)]
-        start += len(qs)
-        if rule.startswith("@") and chunk and not any(q.labelled for q in chunk):
-            usage_exit(f"{spec}: {rule} resolves for none of {len(chunk)} questions")
-
-
 def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
     import json
 
@@ -213,14 +202,13 @@ def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
             return llm_call(ts.REWRITE_PROMPT + text, model=args.model, provider=args.provider)
 
     try:
-        queries = ts.build_trigger_set(sources, catalog, rewrite=rewrite)
+        queries = ts.build_trigger_set(sources, catalog, rewrite=rewrite, specs=specs)
     except ts.TriggerSetInputError as exc:
         usage_exit(str(exc))
     except ValueError as exc:
         # A --rewrite that returned nothing: a runtime failure, not a bad invocation.
         print(str(exc), file=sys.stderr)
         sys.exit(1)
-    _refuse_unresolved_field_rules(sources, specs, queries)
     summary = ts.lint_summary(queries)
     if summary["label_unresolved"]:
         print(f"warning: {summary['label_unresolved']} questions have an unresolved @field label; "

@@ -78,8 +78,9 @@ def test_arm_run_sampling_probe_failure_keeps_exit_1_before_any_answer(tmp_path,
 
 
 def test_arm_run_unknown_arm_spec_exits_2(tmp_path, monkeypatch, capsys):
-    _argv(monkeypatch, *_arms_argv(tmp_path)[:-4], "--arms", "no-such-arm-kind",
-          "--out-json", str(tmp_path / "a.json"), "--out-md", str(tmp_path / "a.md"))
+    _argv(monkeypatch, "arms", "run", "--product", "onedal", "--questions", _questions(tmp_path),
+          "--arms", "no-such-arm-kind", "--out-json", str(tmp_path / "a.json"),
+          "--out-md", str(tmp_path / "a.md"))
     with pytest.raises(SystemExit) as exc:
         cli.main()
     assert exc.value.code == 2
@@ -187,12 +188,14 @@ REPO_SOURCE_COMMANDS = ["validate", "scan", "inspect", "budget"]
 @pytest.mark.parametrize("command", REPO_SOURCE_COMMANDS)
 def test_repo_unreachable_source_keeps_exit_1(command, tmp_path, monkeypatch, capsys):
     # A pinned source that cannot be fetched is a fetch failure (network), not a bad invocation.
+    # open_source is stubbed, so the result does not depend on git, the network or the host.
+    monkeypatch.setattr("dokimi.repos.open_source", _failed_fetch)
     _argv(monkeypatch, "repo", command, f"https://127.0.0.1:9/example.git@{PIN}",
           "--cache-dir", str(tmp_path / "cache"))
     with pytest.raises(SystemExit) as exc:
         cli.main()
     assert exc.value.code == 1
-    assert "✗" in capsys.readouterr().err
+    assert "✗ git fetch failed" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("command", REPO_SOURCE_COMMANDS)
@@ -385,9 +388,14 @@ def test_trigger_set_rewrite_returning_nothing_keeps_exit_1(tmp_path, monkeypatc
     assert "rewrite returned empty text" in capsys.readouterr().err
 
 
-def test_trigger_set_question_without_text_exits_2(tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize(
+    "text_fields",
+    [{}, {"text": ""}, {"text": "   "}, {"text": None}, {"text": 5}],
+    ids=["missing", "empty", "whitespace", "null", "not-a-string"],
+)
+def test_trigger_set_question_without_text_exits_2(text_fields, tmp_path, monkeypatch, capsys):
     spec = _trigger_questions(tmp_path, [
-        {"id": "1", "metadata": {"skill_under_test": "linux-perf"}},
+        {"id": "1", **text_fields, "metadata": {"skill_under_test": "linux-perf"}},
     ])
     _argv(monkeypatch, "catalog", "trigger-set", "--catalog", str(_skill_root(tmp_path)),
           "--questions", spec, "--out", str(tmp_path / "o.json"))
@@ -415,6 +423,25 @@ def test_trigger_set_no_text_refused_before_any_rewrite_call(tmp_path, monkeypat
     assert not (tmp_path / "o.json").exists()
 
 
+def test_trigger_set_unresolved_field_rule_is_refused_before_any_rewrite_call(tmp_path, monkeypatch, capsys):
+    # A mistyped @field path labels no question: exit 2, and none of the questions was sent to --rewrite.
+    rewrite_calls = []
+    monkeypatch.setattr("dokimi.llm.llm_call", lambda *args, **kwargs: rewrite_calls.append(1) or "rewritten")
+    path = tmp_path / "q.json"
+    path.write_text(json.dumps({"questions": [
+        {"id": str(i), "text": f"question {i}", "metadata": {"skill_under_test": "linux-perf"}} for i in range(3)
+    ]}), encoding="utf-8")
+    _argv(monkeypatch, "catalog", "trigger-set", "--catalog", str(_skill_root(tmp_path)),
+          "--questions", f"{path}=@metadata.skil_under_test", "--rewrite", "--model", "m",
+          "--out", str(tmp_path / "o.json"))
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    assert "resolves for none of 3 questions" in capsys.readouterr().err
+    assert rewrite_calls == []
+    assert not (tmp_path / "o.json").exists()
+
+
 def test_trigger_set_strict_refusal_exits_1(tmp_path, monkeypatch, capsys):
     # One question is labelled and one is not, so the set has an unresolved label; --strict refuses it.
     # --strict is a lint gate over a valid set: its verdict is exit 1, as on main.
@@ -428,6 +455,8 @@ def test_trigger_set_strict_refusal_exits_1(tmp_path, monkeypatch, capsys):
         cli.main()
     assert exc.value.code == 1
     assert not (tmp_path / "o.json").exists()
+    # The gate that fired is the unresolved label: the summary is printed before the exit.
+    assert json.loads(capsys.readouterr().out)["label_unresolved"] == 1
 
 
 # ── evaluate: a missing optional dependency keeps its base exit (a message, exit 1) ────────
