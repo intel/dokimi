@@ -251,8 +251,9 @@ def setup_versions(steps: Any, path: str, unknown: list[str], keys: set[str],
         if not isinstance(given, dict):
             continue
         value = given.get("python-version")
-        if "python-version-file" in given and value in (None, ""):
-            unknown.append(f"{where} reads its Python version from {given['python-version-file']}")
+        file = given.get("python-version-file")
+        if "python-version-file" in given and value in (None, ""):  # str() of YAML aliases can explode
+            unknown.append(f"{where} reads its Python version from {file if isinstance(file, str) else 'a file'}")
         out |= _setup(value, where, unknown, keys, inputs)
     return out
 

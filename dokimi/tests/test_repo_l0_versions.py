@@ -123,6 +123,23 @@ def test_nested_matrix_values_are_not_read():
     assert out.stdout.strip() == "[(13, False)]"
 
 
+_FILE_BOMB = """
+from dokimi.repos.l0.versions import setup_versions
+
+b = ["3.12"]
+for _ in range(40):
+    b = [b, b]
+unknown = []
+setup_versions([{"with": {"python-version-file": b}}], "ci.yml", unknown, set())
+print(unknown)
+"""
+
+
+def test_a_nested_version_file_is_not_read():
+    out = subprocess.run([sys.executable, "-c", _FILE_BOMB], capture_output=True, text=True, timeout=20, check=True)
+    assert out.stdout.strip() == "['a setup step of ci.yml reads its Python version from a file']"
+
+
 def test_an_exclude_over_too_many_combinations_is_unknown():
     unknown: list[str] = []
     matrix = {"python": ["3.12", "3.13"], "a": list(range(20)), "b": list(range(20)), "exclude": [{"python": "3.13"}]}
