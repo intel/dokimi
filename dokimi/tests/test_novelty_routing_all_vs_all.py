@@ -740,3 +740,67 @@ def test_the_failed_call_count_is_over_the_calls_sent_not_every_query(
     with pytest.raises(SystemExit, match="^1 of 1 model call"):
         args.func(args)
     assert "makes 1 model calls" in capsys.readouterr().err
+
+
+def _word_client(model, provider, role, args):
+    """A selector that picks the card holding the request's word, wherever it is shuffled."""
+    def transport(prompt: str, system: str | None):
+        request, cards = prompt.split("REQUEST:", 1)[1].split("TOOLS:", 1)
+        lines = cards.strip().splitlines()
+        return json.dumps({"pick": next(i + 1 for i, line in enumerate(lines)
+                                        if request.strip() in line)}), None
+    return LLMClient(model=model, provider=provider, role=role, transport=transport)
+
+
+def test_the_seed_on_the_command_line_is_the_seed_the_saved_model_arm_records(
+        tmp_path, monkeypatch):
+    import dokimi.commands.novelty as novelty_cmd
+
+    monkeypatch.setattr(novelty_cmd, "_client", _word_client)
+    root = tmp_path / "catalog"
+    _cat(root, {"perf": "profile a slow binary", "db": "tune a slow database query"})
+    queries = _write_queries(tmp_path, {"perf": ["profile"], "db": ["database"]})
+    out = tmp_path / "o.json"
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(out), "--model", "m",
+                  "--seed", "5")
+    args.func(args)
+    model = json.loads(out.read_text(encoding="utf-8"))["result"]["model"]
+    assert (model["model"], model["seed"]) == ("m", 5)
+
+
+def test_console_prints_the_top_five_attractors_of_each_arm_by_count(
+        tmp_path, capsys, monkeypatch):
+    # Each of six skills takes the gold queries that name its word: alpha one, ... foxtrot six.
+    import dokimi.commands.novelty as novelty_cmd
+
+    monkeypatch.setattr(novelty_cmd, "_client", _word_client)
+    words = {"alpha": "anvil", "bravo": "barley", "charlie": "cobalt", "delta": "dune",
+             "echo": "ember", "foxtrot": "fjord"}
+    root = tmp_path / "catalog"
+    _cat(root, {**words, "gold": "something unrelated entirely"})
+    queries = _write_queries(tmp_path, {"gold": [word for count, word in
+                                                 enumerate(words.values(), 1)
+                                                 for _ in range(count)]})
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"),
+                  "--model", "m")
+    args.func(args)
+    lines = [line for line in capsys.readouterr().out.splitlines() if "sibling" in line]
+    assert lines == [f"{arm}: {name} picked for {count} of 21 sibling queries (from gold)"
+                     for arm in ("lexical", "model")
+                     for name, count in [("foxtrot", 6), ("echo", 5), ("delta", 4),
+                                         ("charlie", 3), ("bravo", 2)]]
+
+
+def test_attractors_tied_on_count_and_golds_tied_in_from_are_in_name_order():
+    # zeta comes first in the field and mu first in the queries: name order has to win.
+    field = [Candidate("zeta", "zebra stripes"), Candidate("alpha", "apple orchard"),
+             Candidate("mu", "something unrelated entirely"),
+             Candidate("beta", "another unrelated thing")]
+    queries = {"mu": ["apple", "orchard", "zebra"], "beta": ["zebra"], "zeta": ["stripes"]}
+    assert all_vs_all(field, queries)["lexical"]["attractors"] == [
+        {"skill": "alpha", "wrongly_picked": 2, "sibling_queries": 5, "rate": 0.4,
+         "from": ["mu"]},
+        {"skill": "zeta", "wrongly_picked": 2, "sibling_queries": 4, "rate": 0.5,
+         "from": ["beta", "mu"]}]
