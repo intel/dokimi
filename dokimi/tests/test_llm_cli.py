@@ -385,11 +385,12 @@ def test_the_independence_warning_fires_for_an_alias_against_its_full_id(capsys)
     assert not _warn_judge_independence("claude-cli", "sonnet", "claude-cli", "claude-opus-5-5")
 
 
-def test_the_novelty_default_judge_on_the_cli_is_another_family():
+@pytest.mark.parametrize("answerer", ["sonnet", "opus", "claude-opus-5-1", "claude-sonnet-5-5"])
+def test_the_novelty_default_judge_on_the_cli_is_another_family(answerer):
     from dokimi.novelty.client import default_judge
 
-    judge, provider = default_judge("sonnet", "claude-cli")
-    assert provider == "claude-cli" and not llm_cli.same_model("claude-cli", judge, "claude-cli", "sonnet")
+    judge, provider = default_judge(answerer, "claude-cli")
+    assert provider == "claude-cli" and not llm_cli.same_model("claude-cli", judge, "claude-cli", answerer)
 
 
 def test_a_novelty_judge_of_the_answerers_family_counts_as_the_answerer():
@@ -436,6 +437,7 @@ def test_every_command_with_a_hidden_or_default_model_refuses_the_cli_without_a_
     from dokimi.cli import parse_args
 
     cases = [
+        ["answers", "generate", "--product", "p", "--questions", "q.json", "--provider", "claude-cli"],
         ["questions", "generate", "--product", "p", "--personas", "p.json", "--provider", "claude-cli"],
         ["questions", "analyze", "--questions", "q.json", "--product", "p", "--provider", "claude-cli"],
         ["questions", "panel-review", "--questions", "q.json", "--product", "p", "--provider", "claude-cli"],
@@ -498,6 +500,37 @@ def test_the_arms_entry_point_refuses_a_cli_agentic_arm_before_any_answer(monkey
                               judge_model=None, max_iterations=5)
     with pytest.raises(ValueError, match="agentic arm"):
         arms._build_arms_output(args, ["baseline", "agent"], [])
+
+
+def test_a_matrix_with_a_cli_agentic_cell_is_refused_before_the_first_cell_is_answered(monkeypatch, tmp_path, capsys):
+    from dokimi.commands import arms
+    from dokimi.eval import arm_runner
+    from dokimi.eval import cells as eval_cells
+
+    class RunnerMustNotStart:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("a cell was answered before the CLI refusal")
+
+    cells = [
+        argparse.Namespace(name="api", model="gpt-6.1-sol", provider="openai", harness="arms-runner",
+                           plugin_specs=[]),
+        argparse.Namespace(name="cli", model="sonnet", provider="claude-cli", harness="arms-runner",
+                           plugin_specs=[]),
+    ]
+    monkeypatch.setattr(arm_runner, "ArmRunner", RunnerMustNotStart)
+    monkeypatch.setattr(eval_cells, "load_matrix_cells", lambda path: cells)
+    monkeypatch.setattr(arms, "_load_questions", lambda path: [])
+    monkeypatch.setattr(arms, "_validate_supported_matrix_harnesses", lambda cells: None)
+    monkeypatch.setattr(arms, "_validate_unique_cell_filenames", lambda cells: None)
+    args = argparse.Namespace(arms="baseline,agent", questions="q.json", matrix_cells="m.json",
+                              product="p", out_dir=str(tmp_path), top_k=3, rerank_threshold=0.3,
+                              temperature=None, seed=None, judge=False, session_turns=None,
+                              plugins="", harness="arms-runner", matrix_cell=None, judge_provider=None,
+                              judge_model=None, max_iterations=5, context7_id=None)
+    with pytest.raises(SystemExit):
+        arms.cmd_arms_matrix_run(args)
+    assert "agentic arm" in capsys.readouterr().err
+    assert not tmp_path.joinpath("cells").exists()
 
 
 def test_an_alias_and_a_bedrock_or_prefixed_full_id_are_one_model_for_the_identity_checks():

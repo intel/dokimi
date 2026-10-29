@@ -75,7 +75,7 @@ CLAUDE_ISOLATION = ("--tools", "", "--setting-sources", "", "--strict-mcp-config
 
 #: ``api_error_status`` values worth another attempt.
 _RETRYABLE_STATUS = frozenset({408, 429, 500, 502, 503, 504, 529})
-_RETRYABLE_WORDS = ("rate limit", "rate_limit", "overloaded", "usage limit", "timed out")
+_RETRYABLE_WORDS = ("rate limit", "rate_limit", "overloaded", "timed out")
 
 DEFAULT_TIMEOUT_SEC = 600.0
 
