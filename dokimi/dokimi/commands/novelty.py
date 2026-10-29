@@ -1004,10 +1004,7 @@ def _role_models(args: argparse.Namespace) -> dict[str, tuple[str, str]]:
     if args.judge_model:
         judge_model, judge_provider = args.judge_model, args.judge_provider or args.provider
     else:
-        try:
-            judge_model, judge_provider = default_judge(args.model, args.judge_provider)
-        except ValueError as exc:
-            raise ValueError(str(exc)) from None
+        judge_model, judge_provider = default_judge(args.model, args.judge_provider)
     extract_model = args.extract_model or judge_model
     extract_provider = args.extract_provider or judge_provider
     return {

@@ -37,7 +37,9 @@ def _report_eval_missing(tmp_path):
 
 
 def _report_generate_missing_questions(tmp_path):
-    return ["report", "generate", "--product", "lib", "--eval", _missing(tmp_path),
+    eval_file = tmp_path / "eval.json"  # a readable eval, so the questions file is the refusal
+    eval_file.write_text("{}", encoding="utf-8")
+    return ["report", "generate", "--product", "lib", "--eval", str(eval_file),
             "--questions", _missing(tmp_path)]
 
 
@@ -75,7 +77,7 @@ def test_input_or_usage_refusal_exits_2_with_a_message(argv_for, tmp_path, monke
     assert "usage:" not in err, "argparse refused the flags; the case does not reach the rule"
     assert "Traceback" not in err
     # A refusal may print its message, or raise it as a string; both must say what is wrong.
-    assert err.strip() or isinstance(exc.value.code, str), "a refusal must say what is wrong"
+    assert err.strip(), "a refusal must say what is wrong"
     assert exc.value.code == 2
 
 
@@ -84,8 +86,7 @@ def test_explore_list_without_a_bundled_task_root_exits_2(tmp_path, monkeypatch,
     monkeypatch.setattr("sys.argv", ["dokimi", "explore", "list"])
     with pytest.raises(SystemExit) as exc:
         cli.main()
-    message = capsys.readouterr().err or str(exc.value.code)
-    assert "Pass --tasks-root" in message
+    assert "Pass --tasks-root" in capsys.readouterr().err
     assert exc.value.code == 2
 
 

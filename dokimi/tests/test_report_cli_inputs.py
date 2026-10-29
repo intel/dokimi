@@ -82,7 +82,7 @@ def test_an_unwritable_output_exits_2_naming_the_path(tmp_path, capsys, monkeypa
 
 
 @pytest.mark.parametrize("evaluations", ["null", "5"])
-def test_non_list_evaluations_exit_1_with_its_path(tmp_path, capsys, evaluations):
+def test_non_list_evaluations_exit_2_with_its_path(tmp_path, capsys, evaluations):
     bad = tmp_path / "evd.json"
     bad.write_text(f'{{"evaluations": {evaluations}}}', encoding="utf-8")
     assert f"{bad} evaluations: expected a list of records" in _err(tmp_path, bad, capsys)
