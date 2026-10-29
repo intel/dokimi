@@ -270,7 +270,8 @@ def _summary(rows: list[dict[str, Any]]) -> dict[str, int]:
     }
 
 
-def format_table(result: dict[str, Any]) -> str:
+def format_table(result: dict[str, Any], output: Any = None) -> str:
+    """The pass-rate table; ``output`` is the ``-o`` path when an artifact is written, else None."""
     lines = [f"{'attack':<8} {'expected':<9} {'scored':>6} {'accepted':>8} {'rate':>6}"]
     for name, a in result["attacks"].items():
         rate = "-" if a["rate"] is None else f"{a['rate']:.2f}"
@@ -279,7 +280,9 @@ def format_table(result: dict[str, Any]) -> str:
         verb = "accepted" if v["attack"] != "canary" else "rejected"
         lines.append(f"  violation: question {v['question_id']}: {v['attack']} answer {verb}")
     if len(result["violations"]) > 20:
-        lines.append(f"  ... {len(result['violations']) - 20} more violations in the artifact")
+        more = len(result["violations"]) - 20
+        lines.append(f"  ... {more} more violations in the artifact" if output
+                     else f"  ... {more} more violations; rerun with -o FILE to list them all")
     s = result["summary"]
     if s["negated_only"]:
         lines.append(f"  {s['negated_only']} questions with only negated checks: "
