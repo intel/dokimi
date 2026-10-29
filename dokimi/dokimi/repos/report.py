@@ -340,6 +340,9 @@ def load_hits(batch_dir: Path) -> dict[str, Any]:
     ``grade.json`` ``details.matches``, by task, arm, model and rep. ``replay_cells`` counts the cells whose
     ``grade.json`` names that grader; ``without_matches`` those graded before ``matches`` was recorded."""
     cells, _ = load_cells(batch_dir)
+    bad = next((r for r in cells if not isinstance(r.get("rep"), int)), None)  # load_cells checks the rest of the key
+    if bad is not None:
+        raise CellFileError(f"{batch_dir / bad['cell'] / 'result.json'} has no usable `rep`")
     hits: list[dict[str, Any]] = []
     replay = without = 0
     for rec in sorted(cells, key=lambda r: (r["task"], r["arm"], r["model"], r["rep"])):

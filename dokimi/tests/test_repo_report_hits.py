@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from dokimi.cli import build_parser
 from dokimi.repos.graders import main, review
 from dokimi.repos.report import format_hits, format_report, load_hits, summarize
@@ -126,3 +128,15 @@ def test_hits_and_report_skip_unreadable_grades_and_list_a_match_without_text(tm
     assert format_hits(found).splitlines()[-2:] == [
         "    t None:None  ", "      finding 0 None:None None, 0 line(s) away: "]
     assert [r["parse_errors"] for r in summarize(batch)["rows"]] == [0]  # a non-boolean parse_error is not one
+
+
+def test_hits_refuse_a_cell_with_no_rep_as_the_table_refuses_a_malformed_cell(tmp_path, capsys):
+    batch = _batch(tmp_path)
+    path = batch / "pr3098-t2__guidance-none__m-1__r1" / "result.json"
+    rec = json.loads(path.read_text())
+    del rec["rep"]  # the table never reads it; --hits sorts by it
+    path.write_text(json.dumps(rec))
+    with pytest.raises(SystemExit) as stopped:
+        _cli(capsys, str(batch), "--hits")
+    assert stopped.value.code == 1
+    assert capsys.readouterr().err.strip() == f"✗ {path} has no usable `rep`"
