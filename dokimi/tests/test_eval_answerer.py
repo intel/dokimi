@@ -84,9 +84,7 @@ class TestAnswererInit:
             Answerer(model="m", provider=provider)
 
     def test_init_unsupported_provider(self):
-        mock_cls = Mock()
-        with patch('dokimi.eval.answerer.ChatOpenAI', mock_cls, create=True), \
-             patch('dokimi.eval.answerer.LANGCHAIN_AVAILABLE', True):
+        with patch('dokimi.eval.answerer.LANGCHAIN_AVAILABLE', True):
             with pytest.raises(ValueError) as exc:
                 Answerer(provider="unsupported")
             assert "Unsupported provider" in str(exc.value)
