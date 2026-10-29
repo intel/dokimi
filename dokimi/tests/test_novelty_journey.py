@@ -186,10 +186,37 @@ def test_probing_atoms_from_a_changed_artifact_is_refused(tmp_path, skill, stub_
     _run("novelty", "atoms", "--artifact", f"skill:{skill}", "--include-resources",
          "--extract-model", "extractor-m", "--out", str(atoms_out))
     (skill / "references" / "new.md").write_text("Another reference.\n", encoding="utf-8")
-    with pytest.raises(SystemExit, match="files changed"):
+    with pytest.raises(SystemExit, match="files changed") as exc:
         _run("novelty", "probe", "--artifact", f"skill:{skill}", "--atoms", str(atoms_out),
              "--model", "model-a", "--judge-model", "judge-m",
              "--out", str(tmp_path / "p.json"))
+    assert exc.value.code == 2  # an atoms file this artifact cannot use: an input refusal
+
+
+@pytest.mark.parametrize("command", ["analyze", "probe"])
+def test_a_judge_that_is_the_answering_model_is_refused_with_exit_2(command, tmp_path, skill, stub_models, capsys):
+    atoms_out = tmp_path / "atoms.json"
+    _run("novelty", "atoms", "--artifact", f"skill:{skill}", "--extract-model", "extractor-m",
+         "--out", str(atoms_out))
+    extra = ["--atoms", str(atoms_out), "--out", str(tmp_path / "p.json")] if command == "probe" else \
+        ["--out-dir", str(tmp_path / "out")]
+    with pytest.raises(SystemExit) as exc:
+        _run("novelty", command, "--artifact", f"skill:{skill}", "--model", "model-a",
+             "--judge-model", "model-a", *extra)
+    assert exc.value.code == 2
+    assert "is the answering model" in capsys.readouterr().err
+
+
+def test_probe_refuses_an_unknown_arm_before_any_model_call(tmp_path, skill, stub_models, capsys):
+    atoms_out = tmp_path / "atoms.json"
+    _run("novelty", "atoms", "--artifact", f"skill:{skill}", "--extract-model", "extractor-m",
+         "--out", str(atoms_out))
+    with pytest.raises(SystemExit) as exc:
+        _run("novelty", "probe", "--artifact", f"skill:{skill}", "--atoms", str(atoms_out),
+             "--model", "model-a", "--judge-model", "judge-m", "--arms", "no_artifact,full,no-such-arm",
+             "--out", str(tmp_path / "p.json"))
+    assert exc.value.code == 2
+    assert "unknown novelty arms" in capsys.readouterr().err
 
 
 @pytest.mark.outcome("cjm-novelty-remeasure")

@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
-from dokimi.commands.inputs import placebo_text_for_arms_or_exit, read_text_or_exit
+from dokimi.commands.inputs import placebo_text_for_arms_or_exit
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
     DEFAULT_ANSWER_PROVIDER,
@@ -119,7 +119,9 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
         result = analyze(artifact_bundle.text, config,
                          extractor=extractor, answerer=answerer, judge=judge,
                          artifact_bundle=artifact_bundle)
-    except (SelfJudgeError, ExtractionError, ValueError) as exc:
+    except SelfJudgeError as exc:  # the judge is the answering model: the flags contradict
+        usage_exit(str(exc))
+    except (ExtractionError, ValueError) as exc:  # a model failure under way
         raise SystemExit(str(exc)) from None
 
     out_dir = Path(args.out_dir) if args.out_dir else _default_dir(args.artifact)
@@ -183,11 +185,11 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
     _warn_unread(saved_spans, "the atoms probed here leave out whatever those spans assert")
     verdict = check_answer_key(args.artifact, saved.get("bundle"), source=args.atoms)
     if not verdict.ok:
-        raise SystemExit(verdict.message)
+        usage_exit(verdict.message)
     for note in verdict.notes:
         print(note, file=sys.stderr)
     settings = _settings(args)
-    placebo_text = read_text_or_exit(args.placebo_text, "--placebo-text")
+    placebo_text = placebo_text_for_arms_or_exit(args.placebo_text, _arms(args.arms))
     extractor, answerer, judge = _clients(args)
     if saved.get("extractor") == answerer.model:
         print(f"WARNING: {answerer.model} extracted these atoms, so the model under measurement "
@@ -211,7 +213,9 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
             allow_self_judge=args.allow_self_judge, seed=args.seed,
             placebo_text=placebo_text,
         )
-    except (SelfJudgeError, ValueError) as exc:
+    except SelfJudgeError as exc:
+        usage_exit(str(exc))
+    except ValueError as exc:  # a model failure under way
         raise SystemExit(str(exc)) from None
 
     payload = build_probe_record(

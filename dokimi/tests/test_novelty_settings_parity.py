@@ -239,8 +239,9 @@ def _kept_estimate(step: dict) -> dict:
     return {**step, "stdout": payload, "stderr": stderr}
 
 
-# Runs main refuses only after the extraction calls it had already made.
-REFUSED_BEFORE_ANY_CALL = {"run/arms-without-full"}
+# Runs main refuses only after the model calls it had already made (the extraction of `analyze`,
+# the probe wordings of `probe`).
+REFUSED_BEFORE_ANY_CALL = {"run/arms-without-full", "probe/arms-without-baseline"}
 # Input refusals from the arm-set checks. Main raised the message as the exit status (a
 # string), which reaches stderr only when the interpreter exits. The exit-code table (CLI API
 # v2 §2.6) makes these exit 2, and usage_exit prints the message before raising.
@@ -271,7 +272,7 @@ def test_no_setting_bill_or_tier_record_differs_from_main(name, tmp_path):
         if name in REFUSED_BEFORE_ANY_CALL:
             # Intended change: the arm and placebo checks now run before the clients are
             # built, so the refusal makes no model call. Same status and output as on main.
-            expected = [dict(step, calls=[]) for step in expected]
+            expected = [*expected[:-1], dict(expected[-1], calls=[])]  # the refused step is the last
         assert steps == expected
 
 
