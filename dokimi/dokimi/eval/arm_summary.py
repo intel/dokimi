@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
-from dokimi.records import RecordLike
+from dokimi.records import Answer, RecordLike
 from dokimi.records import records as as_records
 
 #: Stamp on an agentic answer's ``tool_usage["counts"]``: its tool counts skip
@@ -264,6 +264,13 @@ def cost_summary(records: Iterable[RecordLike]) -> Dict[str, Any]:
                                 if prompt else None),
         }
     return out
+
+
+def unjudged_cell(answer: Optional[Answer]) -> Optional[Dict[str, str]]:
+    """The cell of an answer that is not judged: an error for an errored or empty one, ``None`` for none."""
+    if answer is None:
+        return None
+    return {"error": answer.error or "empty_reply"}
 
 
 def paired_delta(evaluations: Iterable[Any], baseline_arm: str, arm_name: str) -> Optional[float]:

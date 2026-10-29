@@ -26,7 +26,7 @@ from dokimi.defaults import DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER
 from dokimi.eval import stats as arm_stats
 from dokimi.eval.interactions import interaction_significance
 from dokimi.eval.arm_summary import (
-    cell_values, cost_summary, paired_delta, summarize_agentic_usage, summarize_skill_selection,
+    cell_values, cost_summary, paired_delta, summarize_agentic_usage, summarize_skill_selection, unjudged_cell,
 )
 from dokimi.eval.cells import Cell
 from dokimi.eval.question_text import question_text_of, require_question_texts
@@ -399,12 +399,10 @@ class ArmRunner:
         final_chars = len(final_text or "")
 
         rec = to_record(usage, self.model, self.provider)
-        if is_empty_reply(final_text):
-            # As a session that stopped on an empty reply: an error cell, never an answer.
-            # The call was paid for, so its usage counts; no answer-length keys (see _session_spend).
-            return {"error": "empty_reply", "answer": None,
-                    "token_usage": rec.as_token_usage_dict(), "metrics": rec.as_metrics_dict(),
-                    "metadata": cfg_metadata, "elapsed_sec": round(time.time() - t0, 2)}
+        if is_empty_reply(final_text):  # an error cell, as a session's empty turn; the usage still counts
+            return {"error": "empty_reply", "answer": None, "token_usage": rec.as_token_usage_dict(),
+                    "metrics": rec.as_metrics_dict(), "metadata": cfg_metadata,
+                    "elapsed_sec": round(time.time() - t0, 2)}
         return {
             "answer": final_text,
             "raw_answer": answer_text if shapers else None,
@@ -622,12 +620,7 @@ class ArmRunner:
             for arm_name in arm_names(rec):
                 answer = rec.answer(arm_name)
                 if answer is None or is_empty_reply(answer.text):
-                    # An answer that errored is an error on the cell, not a missing score. An empty
-                    # reply is never judged: it is an error on the cell too (as a session's empty turn).
-                    if answer is None:
-                        scores[arm_name] = None
-                    else:
-                        scores[arm_name] = {"error": answer.error or "empty_reply"}
+                    scores[arm_name] = unjudged_cell(answer)  # an errored or empty answer is never judged
                     continue
                 context, source = self.judge_context.resolve_with_source(
                     rec.question_id, arm_name, dict(answer.raw)
@@ -642,7 +635,6 @@ class ArmRunner:
                     )
                 except Exception as exc:
                     logger.exception("Judging arm %s failed", arm_name)
-                    # str() of some exceptions is empty (TimeoutError()); an empty error reads as no error.
                     score = {"error": str(exc) or type(exc).__name__}
                 if isinstance(score, dict):
                     score = {**score, "judge_context_source": source}
@@ -775,8 +767,7 @@ class ArmRunner:
             if arm_name == baseline_arm:
                 base_avg = avg
         if base_avg is not None:
-            # Paired: over the questions both arms scored, so a question one arm errored on
-            # does not shift the delta. The unpaired means above are still reported.
+            # Paired over the questions both arms scored; the unpaired means above are still reported.
             for arm_name, stats in summary["per_arm"].items():
                 stats["delta_vs_baseline"] = (
                     paired_delta(evaluations, baseline_arm, arm_name) if arm_name != baseline_arm else None
