@@ -65,6 +65,9 @@ def cmd_catalog_trigger_probe(args: argparse.Namespace) -> None:
         records = list(pool.map(one, queries))
     runs = [v for r in records for v in r["arms"].values()]
     listed = {s.rsplit(":", 1)[-1] for v in runs for s in v["tool_usage"]["skill"]["listed"]}
+    if runs and not listed:  # an older Claude Code, or every run failed before its init event
+        print("warning: Claude Code listed no skills in any run; not_listed was not checked",
+              file=sys.stderr)
     # A skill the harness never offered (a frontmatter name that is not its directory's,
     # a nested layout) reads as a 0% recall; say so instead of scoring it.
     not_listed = sorted(names - listed) if listed else []
@@ -108,6 +111,9 @@ def _labelled_queries(args: argparse.Namespace, names: set) -> list:
     except (OSError, ValueError) as exc:
         raise SystemExit(f"--trigger-set: {exc}") from exc
     queries = [q for q in queries if q.labelled][: args.limit or None]
+    if not queries:  # else nothing runs, and an empty summary reads as a probe that ran
+        raise InputError(f"--trigger-set has no labelled queries: {args.trigger_set}"
+                         + (f" (read with --target {args.target!r})" if args.target else ""))
     # As the skill-catalog: arm refuses it: a label no run can load scores as a miss.
     unknown = sorted({s for q in queries for s in q.acceptable} - names)
     if unknown:

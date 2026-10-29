@@ -49,6 +49,7 @@ from pathlib import Path
 from typing import Callable, Iterable, Optional
 
 from dokimi import process
+from dokimi.repos.container import PIDS_LIMIT
 
 from . import egress_proxy
 from .agent_sandbox import (
@@ -83,6 +84,18 @@ LABEL = "dokimi.run"  # on the network, sidecar and task container: find leftove
 _FILE_VARS = ("NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "AWS_CA_BUNDLE",
               "GOOGLE_APPLICATION_CREDENTIALS", "AWS_SHARED_CREDENTIALS_FILE", "AWS_CONFIG_FILE")
 PROXY_PORT = 3128
+# The task container's hardening flags are the ones repos/container.py sets, --init included
+# (PID 1 reaps the orphans a step leaves behind). Unlike there, root here gets back the few
+# capabilities its own steps need: CHOWN and FOWNER (chown/chmod of the agent's tree) and
+# DAC_OVERRIDE (root writing the agent's files). SETUID/SETGID are for task scripts that drop
+# privileges (apt's _apt sandbox, su); the harness's own `exec -u` steps need neither.
+# KILL, NET_BIND_SERVICE and the rest stay dropped.
+TASK_CONTAINER_HARDENING = (
+    "--init", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+    "--pids-limit", str(PIDS_LIMIT),
+    "--cap-add", "CHOWN", "--cap-add", "DAC_OVERRIDE", "--cap-add", "FOWNER",
+    "--cap-add", "SETUID", "--cap-add", "SETGID",
+)
 _PROBE_TIMEOUT_SEC = 120.0
 DOCKER_STEP_TIMEOUT = 600.0  # a docker step without a budget of its own (cp, exec, inspect, ...)
 # The sidecar needs only a Python 3 interpreter. Pinned by digest (a tag moves, and

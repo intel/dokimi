@@ -593,7 +593,9 @@ left on as a user has them (`--sealed` turns them off). The skill chosen is read
 transcript's `Skill` calls, and the output's `skill_selection_summary` is scored by the
 same code as the `skill-catalog:` arm, one column per trial. `max_turns_hit` counts runs
 that ended on `--max-turns` (scored as no load), and the command exits 1 when Claude Code
-did not list a catalog skill (`not_listed`). Records are kept in `<out>.partial` while the
+did not list a catalog skill (`not_listed`). When no run listed any skill, `not_listed`
+stays empty and a warning on stderr says it was not checked. A trigger set with no
+labelled query exits 2 before any run. Records are kept in `<out>.partial` while the
 probe runs:
 
 ```bash

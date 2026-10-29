@@ -94,17 +94,20 @@ class TaskCatalogEntry:
         return self.task is not None and not self.skipped and not self.failed
 
 
-def _scan_skill_files(root: Path) -> list[SkillCatalogEntry]:
+def _scan_skill_files(root: Path, notes: list[str] | None = None) -> list[SkillCatalogEntry]:
     """One entry per ``SKILL.md`` under *root*, as the manifest path gives.
 
     A skill that does not load is an error row, so one broken skill does not abort the scan.
     A ``SKILL.md`` under a ``template``/``templates`` directory is a scaffold and is left
-    out, as :func:`dokimi.skills.discover_skills` leaves it out; one under a vendored or
-    VCS directory is a dependency's copy and is not walked, as there too.
+    out, as :func:`dokimi.skills.discover_skills` leaves it out; *notes* gets a line for it.
+    One under a vendored or VCS directory is a dependency's copy and is not walked, as there too.
+    Byte-identical copies are kept here: ``catalog scan`` reports them.
     """
     found: list[SkillCatalogEntry] = []
     for skill_file in walk_skill_files(root):
         if TEMPLATE_DIR_NAMES.intersection(skill_file.relative_to(root).parts[:-1]):
+            if notes is not None:
+                notes.append(f"left out {skill_file}: a template, not a skill")
             continue
         try:
             skill = load_skill(skill_file)
@@ -168,13 +171,17 @@ def _manifest_items(manifest_path: Path) -> tuple[list, bool]:
     return items, list_shape
 
 
-def read_skill_manifest(root: Path) -> list[SkillCatalogEntry]:
-    """Read skills under *root*, preferring a ``skills.yaml`` manifest."""
+def read_skill_manifest(root: Path, notes: list[str] | None = None) -> list[SkillCatalogEntry]:
+    """Read skills under *root*, preferring a ``skills.yaml`` manifest.
+
+    *notes* receives one line per template the filesystem scan leaves out (a manifest lists
+    its skills, so it has none).
+    """
 
     root = Path(root)
     manifest_path = root / "skills.yaml"
     if not manifest_path.is_file():
-        return _scan_skill_files(root)
+        return _scan_skill_files(root, notes)
 
     items, list_shape = _manifest_items(manifest_path)
     entries: list[SkillCatalogEntry] = []

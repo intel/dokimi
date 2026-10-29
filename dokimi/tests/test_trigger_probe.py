@@ -377,6 +377,41 @@ def test_cli_refuses_a_label_that_names_no_catalog_skill(tmp_path, monkeypatch):
     _cli(tmp_path, monkeypatch, "--out", "probe.json", expected=["sum-fast", "io-read"])
 
 
+@pytest.mark.parametrize("trigger_set, extra", [
+    ({"questions": [{"id": "a", "question": "q a"}]}, ()),
+    ({"questions": [{"id": "a", "question": "q a"}]}, ("--target", "sum-fast")),
+    ({"queries": []}, ()),
+], ids=["unlabelled", "unlabelled-with-target", "empty-reach-set"])
+def test_cli_exits_2_on_a_set_with_no_labelled_query_before_any_run(tmp_path, monkeypatch, capsys,
+                                                                    trigger_set, extra):
+    from dokimi import cli
+
+    runs: list = []
+    monkeypatch.setattr(tp, "probe_trigger_set", lambda queries, *a, **kw: runs.append(queries) or [])
+    _catalog(tmp_path)
+    (tmp_path / "ts.json").write_text(json.dumps(trigger_set), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("sys.argv", ["dokimi", "catalog", "trigger-probe", "--catalog", "cat", "--trigger-set",
+                                     "ts.json", "--claude", "sh", "--out", "probe.json", *extra])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert err.startswith("Error: --trigger-set has no labelled queries: ts.json")
+    assert ("--target 'sum-fast'" in err) == bool(extra)
+    assert runs == [] and not (tmp_path / "probe.json").exists()
+    assert not (tmp_path / "probe.json.partial").exists()
+
+
+def test_cli_warns_when_no_run_listed_any_skill(tmp_path, monkeypatch, capsys):
+    warning = "warning: Claude Code listed no skills in any run; not_listed was not checked"
+    _cli(tmp_path, monkeypatch, "--out", "probe.json", init_skills=())
+    assert warning in capsys.readouterr().err
+    assert json.loads((tmp_path / "probe.json").read_text(encoding="utf-8"))["not_listed"] == []
+    _cli(tmp_path, monkeypatch, "--out", "probe.json")
+    assert "warning" not in capsys.readouterr().err
+
+
 def test_cli_fails_when_claude_code_did_not_list_a_catalog_skill(tmp_path, monkeypatch):
     with pytest.raises(SystemExit, match="did not list: io-read"):
         _cli(tmp_path, monkeypatch, "--out", "probe.json", init_skills=("sum-fast", "dataviz"))

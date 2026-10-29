@@ -93,6 +93,19 @@ def test_dokimi_egress_widens_the_agent_solve_into_an_allowlist(tmp_path):
     assert resolve(task).solve.mode == "none"  # the oracle is not the agent
 
 
+@pytest.mark.parametrize("mode, want", [("Public", "public"), ("No-Network", "none")])  # a mode, an alias
+def test_a_task_network_mode_is_read_whatever_its_case(tmp_path, mode, want):
+    task = load_task(_task(tmp_path, f'[environment]\nnetwork_mode = "{mode}"\n'))
+    assert resolve(task).verify.mode == want
+
+
+def test_a_single_host_given_as_a_string_is_one_host_not_its_letters(tmp_path):
+    allowed = '[environment]\nnetwork_mode = "allowlist"\nallowed_hosts = "pypi.org"\n'
+    assert resolve(load_task(_task(tmp_path / "a", allowed))).verify.hosts == ("pypi.org:443",)
+    egress = load_task(_task(tmp_path / "e", '[environment]\negress = "huggingface.co"\n'))
+    assert resolve(egress, agent=True).solve.hosts == ("huggingface.co:443",)
+
+
 def test_cli_overrides_win_over_the_task(tmp_path):
     task = load_task(_task(tmp_path, '[environment]\nnetwork_mode = "public"\n'))
     plan = resolve(task, ["verify=none", "solve=allowlist:httpbin.org:80"])
@@ -178,6 +191,7 @@ def test_an_allowlisted_verifier_goes_through_its_own_sidecar(tmp_path):
     assert side[side.index("--allow") + 1] == "files.pythonhosted.org:443,pypi.org:443"
     verify = args[_index(args, _exec_of("test.sh"))]
     assert "HTTPS_PROXY=http://egress:3128" in verify
+    assert "NO_PROXY=localhost,127.0.0.1,::1" in verify and "no_proxy=localhost,127.0.0.1,::1" in verify
     oracle = args[_index(args, _exec_of("solve.sh"))]
     assert not any("PROXY" in x for x in oracle)
     assert metrics["network"]["verify_egress"]["status"] == "ok"
