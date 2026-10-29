@@ -575,3 +575,44 @@ def test_the_cli_version_is_its_first_line_and_is_read_once(monkeypatch):
         assert len(fake.calls) == 1
     finally:
         llm_cli._version_line.cache_clear()
+
+
+@pytest.mark.parametrize(
+    "answer, status, exits, printed",
+    [
+        ("claude-cli", {"loggedIn": False}, True, "is not signed in"),
+        ("claude-cli", "no answer", False, "could not check the login"),
+        ("claude-cli", {"loggedIn": True}, False, "Preflight OK"),
+        ("openai", {"loggedIn": False}, True, "is not signed in"),
+    ],
+    ids=["signed-out-is-an-error", "no-answer-is-a-warning", "signed-in-passes", "judge-login-is-checked"],
+)
+def test_benchmark_preflight_exit_status_follows_the_cli_login(monkeypatch, tmp_path, capsys,
+                                                                answer, status, exits, printed):
+    from dokimi.cli import build_parser
+    from dokimi.commands import benchmark
+    from dokimi.registry import ProductEntry
+
+    class Registry:
+        def get(self, key):
+            return ProductEntry(key="onetbb", name="oneTBB", description="TBB", doc_sources=["local:docs"])
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test")
+    monkeypatch.setattr(benchmark, "_load_registry", lambda args: Registry())
+    monkeypatch.setattr("dokimi.mcp.factory.create_doc_source_client", lambda doc_source: object())
+    monkeypatch.setattr(process, "run", _auth_runner(status))
+    args = build_parser().parse_args([
+        "benchmark", "preflight", "--library", "onetbb", "--doc-source", "local:docs",
+        "--provider", answer, "--model", "sonnet" if answer == "claude-cli" else "gpt-4o",
+        "--judge-provider", "claude-cli", "--judge-model", "opus",
+        "--output-dir", str(tmp_path / "out"),
+    ])
+    if exits:
+        with pytest.raises(SystemExit) as exc:
+            args.func(args)
+        assert exc.value.code == 1
+    else:
+        args.func(args)
+    captured = capsys.readouterr()
+    assert printed in captured.out + captured.err
+    assert ("Preflight OK" in captured.out) is (not exits)
