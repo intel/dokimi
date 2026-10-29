@@ -40,7 +40,7 @@ def test_run_exits_2_on_a_bad_spec(tmp_path, monkeypatch, capsys, content):
     assert code == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: ") and str(spec) in err
-    assert not (tmp_path / "o.json").exists()
+    assert not (tmp_path / "o.json").exists() and not (tmp_path / "o.md").exists()
 
 
 @pytest.mark.parametrize("which", ["--base", "--candidate"])
@@ -118,6 +118,34 @@ def test_run_exits_2_when_the_root_has_fewer_docs_than_min_docs(tmp_path, monkey
     assert err.startswith("Error: ") and "min_docs" in err and "Traceback" not in err
 
 
+@pytest.mark.parametrize("pattern", ["", "/etc/*"], ids=["empty", "absolute"])
+def test_run_exits_2_on_an_unusable_include_pattern(tmp_path, monkeypatch, capsys, pattern):
+    spec = tmp_path / "spec.yaml"
+    spec.write_text(_SPEC_MIN_DOCS.replace("'docs/**/*.md'", repr(pattern)), encoding="utf-8")
+    code = _main(monkeypatch, "run", "--root", str(tmp_path), "--spec", str(spec),
+                 "--out-json", str(tmp_path / "o.json"), "--out-md", str(tmp_path / "o.md"))
+    assert code == 2
+    err = capsys.readouterr().err
+    assert err.startswith("Error: ") and f"include pattern {pattern!r}" in err
+
+
+def test_run_does_not_report_a_metric_error_as_bad_input(tmp_path, monkeypatch):
+    from dokimi.runner import run
+
+    def boom(text):
+        raise ValueError("a defect, not an input")
+
+    monkeypatch.setattr(run.coverage, "score", boom)
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "a.md").write_text("# A\n\ntext\n", encoding="utf-8")
+    spec = tmp_path / "spec.yaml"
+    spec.write_text(_SPEC_MIN_DOCS.replace("min_docs: 3", "min_docs: 1"), encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["dokimi", "run", "--root", str(tmp_path), "--spec", str(spec),
+                                     "--out-json", str(tmp_path / "o.json"), "--out-md", str(tmp_path / "o.md")])
+    with pytest.raises(ValueError, match="a defect, not an input"):
+        cli.main()
+
+
 @pytest.mark.parametrize("which", ["--base", "--candidate"])
 @pytest.mark.parametrize("field,value", [
     ("docs", "1"), ("score", None), ("coverage", True), ("score", float("nan")), ("score", float("inf")),
@@ -136,20 +164,39 @@ def test_compare_exits_2_on_a_non_numeric_summary_value(tmp_path, monkeypatch, c
     assert err.startswith("Error: ") and f"Invalid {role} snapshot {bad}" in err and f"`{field}`" in err
 
 
+def test_compare_does_not_report_a_regression_check_error_as_bad_input(tmp_path, monkeypatch):
+    from dokimi.runner import compare
+
+    def boom(diff, spec):
+        raise ValueError("a defect, not an input")
+
+    monkeypatch.setattr(compare, "detect_regressions", boom)
+    good = _snapshot(tmp_path / "good.json")
+    spec = tmp_path / "spec.yaml"
+    spec.write_text("thresholds: {}\n", encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["dokimi", "compare", "--base", good, "--candidate", good, "--spec", str(spec),
+                                     "--out-json", str(tmp_path / "c.json"), "--out-md", str(tmp_path / "c.md")])
+    with pytest.raises(ValueError, match="a defect, not an input"):
+        cli.main()
+
+
 def _blocked(tmp_path):
     blocker = tmp_path / "blocker"
     blocker.write_text("x", encoding="utf-8")  # a regular file: nothing can be created below it
     return blocker
 
 
-def test_compare_exits_1_when_an_output_cannot_be_written(tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize("which", ["json", "md"])
+def test_compare_exits_1_when_an_output_cannot_be_written(tmp_path, monkeypatch, capsys, which):
     good = _snapshot(tmp_path / "good.json")
-    target = _blocked(tmp_path) / "c.json"
+    blocked = _blocked(tmp_path) / "out"
+    outs = {"json": str(tmp_path / "c.json"), "md": str(tmp_path / "c.md")}
+    outs[which] = str(blocked)
     code = _main(monkeypatch, "compare", "--base", good, "--candidate", good,
-                 "--out-json", str(target), "--out-md", str(tmp_path / "c.md"))
+                 "--out-json", outs["json"], "--out-md", outs["md"])
     assert code == 1
     err = capsys.readouterr().err
-    assert f"Error: cannot write {target}" in err and "Traceback" not in err
+    assert f"Error: cannot write {blocked}" in err and "Traceback" not in err
 
 
 @pytest.mark.parametrize("which", ["json", "md"])

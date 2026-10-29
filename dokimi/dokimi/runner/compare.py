@@ -16,26 +16,30 @@ from dokimi.gate.regression import detect_regressions
 _REQUIRED_SUMMARY_KEYS = {"docs", "score", "coverage", "freshness_lite", "readability"}
 
 
+class CompareInputError(ValueError):
+    """A snapshot or spec that ``compare`` cannot read or that has the wrong shape."""
+
+
 def _load_snapshot(path: Path, role: str) -> Any:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError, RecursionError) as exc:  # ValueError covers JSONDecodeError and bad UTF-8
-        raise ValueError(f"Invalid {role} snapshot {path}: {exc}") from exc
+        raise CompareInputError(f"Invalid {role} snapshot {path}: {exc}") from exc
 
 
 def _check_summary(path: Path, payload: object, role: str) -> None:
     summary = payload.get("summary") if isinstance(payload, dict) else None
     if not isinstance(summary, dict):
-        raise ValueError(f"Snapshot missing summary object: {path}")
+        raise CompareInputError(f"Snapshot missing summary object: {path}")
     missing = _REQUIRED_SUMMARY_KEYS - set(summary.keys())
     # example_pass_rate is optional (may not be present in old snapshots)
     if missing:
-        raise ValueError(f"Snapshot {path} missing summary keys: {sorted(missing)}")
+        raise CompareInputError(f"Snapshot {path} missing summary keys: {sorted(missing)}")
     for key in sorted(_REQUIRED_SUMMARY_KEYS | {"example_pass_rate"}):
         value = summary.get(key)
         if key in summary and not _valid_number(key, value):
             kind = "an integer" if key == "docs" else "a finite number"
-            raise ValueError(f"Invalid {role} snapshot {path}: summary `{key}` must be {kind}, got {value!r}")
+            raise CompareInputError(f"Invalid {role} snapshot {path}: summary `{key}` must be {kind}, got {value!r}")
 
 
 def _valid_number(key: str, value: object) -> bool:
@@ -81,7 +85,7 @@ def compare_snapshots(base_path: Path, cand_path: Path, spec: dict | None = None
     # Add regression analysis if spec provided
     if spec is not None:
         if not isinstance(spec, dict):
-            raise ValueError("spec must be a dict (mapping)")
+            raise CompareInputError("spec must be a dict (mapping)")
         regressions = detect_regressions(diff, spec)
         result["regressions"] = {
             "score": {
