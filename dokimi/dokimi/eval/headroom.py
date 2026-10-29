@@ -47,8 +47,8 @@ class ItemHeadroom:
             "question_id": self.question_id,
             "reps": self.reps,
             "provisional": self.provisional,
-            "no_skill": self.no_skill,
-            "arms": self.arms,
+            "no_skill": _rounded(self.no_skill),
+            "arms": {arm: _rounded(v) for arm, v in self.arms.items()},
             "flag": self.flag,
         }
 
@@ -64,7 +64,12 @@ def check_thresholds(ceiling: float, floor: float, min_reps: int) -> None:
 
 
 def _mean(values: List[float]) -> Optional[float]:
-    return round(sum(values) / len(values), 4) if values else None
+    # Unrounded: the thresholds compare the exact mean (a 89.996 item is not a ceiling).
+    return sum(values) / len(values) if values else None
+
+
+def _rounded(value: Optional[float]) -> Optional[float]:
+    return None if value is None else round(value, 4)
 
 
 def _flag(no_skill: Optional[float], arms: Dict[str, Optional[float]], ceiling: float, floor: float) -> Optional[str]:

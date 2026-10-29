@@ -40,6 +40,12 @@ def test_no_skill_at_the_ceiling_is_flagged_and_just_below_is_not():
     assert _flags(headroom([run])) == {"1": CEILING, "2": None}
 
 
+def test_the_threshold_compares_the_unrounded_mean():
+    # 89.996 is below 0.9; rounding the mean to 4 decimals would have flagged it.
+    run = _run([("1", {"baseline": 89.996, "skill": 99})])
+    assert _flags(headroom([run])) == {"1": None}
+
+
 def test_floor_needs_every_arm_at_zero_not_just_the_baseline():
     run = _run([("1", {"baseline": 0, "skill": 0}), ("2", {"baseline": 0, "skill": 40})])
     assert _flags(headroom([run])) == {"1": FLOOR, "2": None}
