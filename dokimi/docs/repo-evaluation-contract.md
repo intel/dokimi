@@ -730,7 +730,9 @@ thread's `originalCommit` is followed back through its renames from
 another revision is carried to the reviewed one commit by commit along the
 first-parent path between the two, or through the one diff between them when
 history was rewritten. It is left out when its line changed on the way, and so
-is a thread whose line is not in the file at the reviewed revision.
+is a thread whose line is not in the file at the reviewed revision. A thread
+that a commit on the first-parent path up to the reviewed revision answered (as
+`addressed` reads it) is left out too: the change under review holds the fix.
 
 **Guidance and `eval_dir` are left out.** Workspace preparation applies the
 arm before the review patch (§3, steps 5 and 7): `guidance:none` deletes the

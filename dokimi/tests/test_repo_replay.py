@@ -433,10 +433,34 @@ def test_a_thread_on_an_earlier_revision_is_carried_forward_through_a_rename(his
     """Two threads at r2 make it the reviewed revision; the one at rev is on moved.py, renamed.py at r2."""
     threads = [_t("src/renamed.py", 3, hist["rev"]), _t("src/long.py", 20, hist["r2"]),
                _t("src/long.py", 25, hist["r2"])]
-    _replay(hist["root"], _pages(_pr(7, hist["r2"], hist["merge7"], threads)), tmp_path / "tasks")
+    # --window 1: the author's fix of lines 5-10 would otherwise answer it before r2
+    _replay(hist["root"], _pages(_pr(7, hist["r2"], hist["merge7"], threads)), tmp_path / "tasks", "--window", "1")
     task, gold, _ = _load(tmp_path / "tasks", 7)
     assert task["reviewed_commit"] == hist["r2"]
     assert [(g["file"], g["line"]) for g in gold] == [("src/renamed.py", 3), ("src/long.py", 20), ("src/long.py", 25)]
+
+
+def test_a_thread_answered_before_the_reviewed_revision_is_left_out(hist, tmp_path, capsys):
+    """t1 at ``a`` is answered by ``b`` (line 12), and ``b`` is the reviewed revision, so the patch
+    holds the fix. t4 at the later ``c`` stays: ``c`` is not in the change under review."""
+    root = hist["root"]
+    main = git(root, "rev-parse", "--abbrev-ref", "HEAD")
+    git(root, "checkout", "-qb", "pr40")
+    _set(root, "src/long.py", 10, "a10")
+    _set(root, "src/long.py", 30, "a30")
+    a = _commit(root, "a")
+    _set(root, "src/long.py", 12, "guard added after review")
+    b = _commit(root, "b")
+    _set(root, "src/long.py", 37, "c37")
+    c = _commit(root, "c")
+    merge = _squash(root, main, "pr40")
+    threads = [_t("src/long.py", 10, a, replies=[("alice", "fixed")]), _t("src/long.py", 30, b),
+               _t("src/long.py", 31, b), _t("src/long.py", 35, c)]
+    _replay(root, _pages(_pr(40, c, merge, threads)), tmp_path / "tasks")
+    task, gold, patch = _load(tmp_path / "tasks", 40)
+    assert task["reviewed_commit"] == b and "+guard added after review" in patch
+    assert [(g["id"], g["line"]) for g in gold] == [("pr40-t2", 30), ("pr40-t3", 31), ("pr40-t4", 35)]
+    assert f"pr40-t1 left out: answered before the reviewed revision {b[:12]}" in capsys.readouterr().out
 
 
 def test_a_remote_source_fetches_the_prs_commits_by_sha(hist, tmp_path):

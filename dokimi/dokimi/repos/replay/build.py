@@ -7,7 +7,8 @@ The reviewed revision is the ``originalCommit`` most gold threads were written o
 the one with the latest comment). ``base`` is its merge base with the base branch as the
 PR merged (``mergeCommit^1``), and ``change.patch`` is the diff from ``base`` to it as one
 commit titled with the PR's title. A thread written on another revision is carried to the
-reviewed one commit by commit, and left out when its line changed on the way.
+reviewed one commit by commit, and left out when its line changed on the way or a commit
+before the reviewed revision answered it (the change under review then holds the fix).
 
 Files the guidance globs match, and files under ``eval_dir``, are left out of the patch and
 their threads out of the gold: the arms delete or replace guidance before the patch is
@@ -169,6 +170,10 @@ def _gold(h: History, manifest: RepoManifest, pr: PullRequest, threads: list[Thr
             notes.append(f"{t.id} left out: {why} ({_where(t)})")
             continue
         assert path is not None
+        if h.chain(t.commit, rev) and addressed(h, t.commit, path, t.line, rev, window)[0]:
+            notes.append(f"{t.id} left out: answered before the reviewed revision {rev[:12]}, so the change "
+                         f"under review holds the fix ({_where(t)})")
+            continue
         done, why = addressed(h, t.commit, path, t.line, pr.head, window)
         if why:
             notes.append(f"{t.id}: addressed={str(done).lower()}: {why}; check it")
