@@ -143,6 +143,16 @@ def test_a_panel_is_the_same_only_when_its_judges_pair_one_to_one():
     assert not same(("panel", "m"), ("anthropic", "m"))
 
 
+def test_a_panel_pairs_its_judges_by_augmenting_paths_not_first_match():
+    """``m`` matches both snapshots and ``m-20240101`` only its own: a first-match pairing gives ``m`` the
+    judge ``m-20240101`` and strands the second baseline judge, though a valid pairing exists."""
+    same = baseline_mod._same_recorded
+    assert same(("panel", "m,m-20240101"), ("panel", "m-20240101,m-20250101"))
+    assert same(("panel", "m-20240101,m-20250101"), ("panel", "m,m-20240101"))  # the reverse side and order
+    assert same(("panel", "m-20240101,m"), ("panel", "m-20240101,m-20250101"))
+    assert not same(("panel", "m-20240101,m-20240101"), ("panel", "m,m-20250101"))
+
+
 def test_a_panel_that_gained_a_judge_is_a_mismatch():
     """Every judge of the baseline panel can pair with one of the current, and a third one is added:
     pairing alone would pass it, so the sizes are compared first."""
