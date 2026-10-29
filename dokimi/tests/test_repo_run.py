@@ -978,7 +978,8 @@ def test_a_grader_score_that_is_no_measurement_is_a_grader_failure_and_the_batch
     batch = setup["out"] / "b1"
     grade = json.loads((batch / "review_add__guidance-none__m-1__r1/result.json").read_text())["grade"]
     assert grade["status"] == "grader_failure" and grade["score"] is None
-    assert grade["reasons"] == ["grade.json has no numeric metrics.recall (task.json `score`)"]
+    assert grade["reasons"] == [
+        "grade.json has no numeric metrics.recall that is finite and within +-1e+150 (task.json `score`)"]
     rows = {(r["task"], r["arm"]): r for r in _report(setup)["rows"]}
     assert rows[("review_add", "guidance:none")]["grader_failures"] == 1
     assert rows[("review_add", "guidance:none")]["score"] == 0.0

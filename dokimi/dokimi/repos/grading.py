@@ -311,7 +311,8 @@ def _grade_reasons(task: Task, grade: dict[str, Any] | None, failed: bool) -> li
         return ["grade.json is score-only (pass: null) but task.json has no `score`"]
     if not failed and task.score and score_value(task, grade) is None:
         # a missing score would leave the mean, while a grader failure counts as 0
-        return [f"grade.json has no numeric metrics.{task.score['metric']} (task.json `score`)"]
+        return ["grade.json has no numeric metrics." + task.score["metric"]
+                + f" that is finite and within +-{SCORE_BOUND:g} (task.json `score`)"]
     return []
 
 
