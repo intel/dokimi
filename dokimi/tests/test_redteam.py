@@ -222,7 +222,8 @@ def test_a_block_of_only_negated_checks_runs_no_wrong_empty_or_hedge_probe_and_r
     assert row["negated_only"] is True and result["summary"]["negated_only"] == 1
     assert not {"wrong", "empty", "hedge"} & set(row["probes"])
     assert set(row["probes"]) == {"stuffed"}  # the forbidden value itself, which must fail
-    assert result["status"] == "pass"
+    assert result["status"] == "inconclusive"  # the real grader accepts any wrong answer: nothing was verified
+    assert result["summary"]["probed"] == 0 and result["summary"]["unprobed"] == 1
     assert "1 questions with only negated checks: wrong, empty and hedge not run" in format_table(result)
 
 
@@ -285,7 +286,7 @@ def test_the_summary_counts_the_questions_that_were_not_probed():
     questions = [_q("1", _match("Paris")), _q("2", {"checks": [{"type": "judge", "criterion": "names the capital"}]})]
     result = run(questions)
     assert result["summary"]["probed"] == 1 and result["summary"]["unprobed"] == 1
-    assert result["status"] == "pass"
+    assert result["status"] == "inconclusive"
     assert "1 unprobed" in format_table(result)
 
 
@@ -332,3 +333,27 @@ def test_a_threshold_block_that_a_negated_check_lifts_over_the_line_is_blocked()
     result = run([_q("1", grading)])
     assert result["status"] == "blocked"
     assert {v["attack"] for v in result["violations"]} == {"wrong", "empty", "hedge"}
+
+
+def test_one_probed_question_does_not_make_a_set_pass_when_the_others_were_not_measured():
+    judge = {"checks": [{"type": "judge", "criterion": "names the capital"}]}
+    questions = [_q(str(i), judge) for i in range(5)] + [_q("m", _match("Paris"))]
+    result = run(questions)
+    assert result["status"] == "inconclusive" and result["violations"] == []
+    assert result["summary"]["probed"] == 1 and result["summary"]["unprobed"] == 5
+    table = format_table(result)
+    assert "not measured: question 0 (no probe scored)" in table
+    assert "question m" not in table.split("not measured:")[1]
+
+
+def test_a_question_with_only_negated_checks_is_named_in_the_table_as_not_measured():
+    only_negated = {"checks": [{"type": "match", "values": ["error"], "negate": True}]}
+    result = run([_q("g", only_negated), _q("m", _match("Paris"))])
+    assert result["status"] == "inconclusive"
+    assert "not measured: question g (only negated checks)" in format_table(result)
+
+
+def test_a_violation_still_blocks_a_set_with_unmeasured_questions():
+    judge = {"checks": [{"type": "judge", "criterion": "names the capital"}]}
+    result = run([_q("j", judge), _q("1", {"checks": [{"type": "regex", "values": [".*"]}]})])
+    assert result["status"] == "blocked"

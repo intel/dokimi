@@ -20,8 +20,9 @@ Each question with a ``grading`` block is graded against five synthetic answers:
   match, which is wider than that case and never a false block.
 
 An answer the grader accepts when it should reject it (or rejects a canary) is a violation, and
-any violation blocks the run. A run that probed no question at all (nothing graded, or only judge
-checks without a judge) is ``inconclusive``: it is not a pass, and it exits 1 like a blocked run.
+any violation blocks the run. A run with a question whose correctness no probe measured (a judge check without a judge, a block of
+only negated checks) is ``inconclusive``, and so is one with nothing graded: it is not a pass, and it exits 1
+like a blocked run. Only a run that measured every graded question and found no violation is ``pass``.
 A probe the grader cannot score (a judge check with no judge model, a regex past its timeout) is
 reported as unscored. The canary is only built for a question whose grading is one literal check;
 other questions get the other attacks alone.
@@ -212,7 +213,7 @@ def run(questions: list[Mapping[str, Any]], *, ask: Optional[Ask] = None) -> dic
     if violations:
         status = BLOCKED
     else:
-        status = PASS if summary["probed"] else INCONCLUSIVE
+        status = PASS if rows and not summary["unprobed"] else INCONCLUSIVE
     return {
         "status": status,
         "attacks": _attack_rates(rows),
@@ -233,12 +234,26 @@ def _attack_rates(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return out
 
 
+def _unmeasured(row: Mapping[str, Any]) -> str:
+    """Why a question's correctness was not measured, or "" when a probe scored it.
+
+    A block of only negated checks gets no wrong, empty or hedge probe: the real grader accepts any
+    answer without the forbidden value, so nothing was verified about it, whatever its stuffed probe said.
+    """
+    if row["negated_only"]:
+        return "only negated checks"
+    if not any(p["passed"] is not None for p in row["probes"].values()):
+        return "no probe scored"
+    return ""
+
+
 def _summary(rows: list[dict[str, Any]]) -> dict[str, int]:
     probes = [p for r in rows for p in r["probes"].values()]
+    unprobed = sum(1 for r in rows if _unmeasured(r))
     return {
         "questions": len(rows),
-        "probed": sum(1 for r in rows if any(p["passed"] is not None for p in r["probes"].values())),
-        "unprobed": sum(1 for r in rows if not any(p["passed"] is not None for p in r["probes"].values())),
+        "probed": len(rows) - unprobed,
+        "unprobed": unprobed,
         "no_canary": sum(1 for r in rows if not r["canary"]),
         "negated_only": sum(1 for r in rows if r["negated_only"]),
         "unscored": sum(1 for p in probes if p["passed"] is None),
@@ -260,6 +275,10 @@ def format_table(result: dict[str, Any]) -> str:
     if s["negated_only"]:
         lines.append(f"  {s['negated_only']} questions with only negated checks: "
                      f"{', '.join(NEGATION_SKIPPED[:-1])} and {NEGATION_SKIPPED[-1]} not run")
+    unmeasured = [f"question {r['question_id']} ({why})" for r in result["questions"] if (why := _unmeasured(r))]
+    if unmeasured:
+        lines.append(f"  not measured: {', '.join(unmeasured[:20])}"
+                     + (f", and {len(unmeasured) - 20} more" if len(unmeasured) > 20 else ""))
     lines.append(f"status {result['status']}: {s['questions']} questions, {s['probed']} probed, "
                  f"{s['unprobed']} unprobed, {s['no_canary']} without a canary, {s['unscored']} probes unscored, "
                  f"{s['violations']} violations")
