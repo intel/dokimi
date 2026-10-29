@@ -120,7 +120,8 @@ is graded as written, `threshold` included, so a negated check's share of the sc
 counts: a block it lifts over the line is blocked.
 A probe the grader cannot
 score is unscored and does not block. `judge` checks are unscored unless
-`--judge` is given, so the default run makes no model call. Nothing here
+`--judge` is given, so the default run makes no model call; with `--judge` the
+artifact records `judge_model` and `judge_provider` (both `null` without it). Nothing here
 changes a score; it tells you whether a grading block is worth trusting.
 
 ## What does not carry over

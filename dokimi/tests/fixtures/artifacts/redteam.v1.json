@@ -2,6 +2,8 @@
   "schema_version": "redteam.v1",
   "status": "blocked",
   "questions_path": "questions.json",
+  "judge_model": null,
+  "judge_provider": null,
   "attacks": {
     "canary": {"expected": "pass", "scored": 2, "accepted": 1, "rate": 0.5},
     "wrong": {"expected": "fail", "scored": 1, "accepted": 0, "rate": 0.0},
