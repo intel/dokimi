@@ -143,6 +143,14 @@ def test_a_panel_is_the_same_only_when_its_judges_pair_one_to_one():
     assert not same(("panel", "m"), ("anthropic", "m"))
 
 
+def test_a_panel_that_gained_a_judge_is_a_mismatch():
+    """Every judge of the baseline panel can pair with one of the current, and a third one is added:
+    pairing alone would pass it, so the sizes are compared first."""
+    same = baseline_mod._same_recorded
+    assert not same(("panel", "m,m-20240101"), ("panel", "m,m-20240101,m"))
+    assert not same(("panel", "m,m-20240101,m"), ("panel", "m,m-20240101"))
+
+
 def test_two_snapshots_of_one_judge_model_are_a_mismatch():
     lines, _ = baseline_mod._model_mismatches(
         _eval(judge=("anthropic", "claude-sonnet-4-5-20240620")),
