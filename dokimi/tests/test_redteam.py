@@ -480,3 +480,61 @@ def test_the_canary_for_each_literal_check_is_accepted_by_the_grader(check):
 def test_the_canary_is_the_bare_value_for_a_whole_answer_match_and_a_json_string():
     assert canary_for({"checks": [{"type": "match", "value": "Paris", "location": "exact"}]}) == "Paris"
     assert canary_for({"checks": [{"type": "json", "value": "Paris"}]}) == '"Paris"'
+
+
+def _covered(covered):
+    """A judge that finds the point covered (or absent) in both polarities, consistently."""
+    from dokimi.eval.checklist import ASK_COVERED
+
+    def ask(prompt, draw=0, cache_if=None):
+        return "YES" if (ASK_COVERED in prompt) == covered else "NO"
+
+    return ask
+
+
+_JUDGE_ONLY = {"checks": [{"type": "judge", "criterion": "names the capital"}]}
+
+
+def test_a_judge_check_is_scored_when_an_ask_is_given_and_a_judge_that_rejects_every_attack_passes():
+    result = run([_q("1", _JUDGE_ONLY)], ask=_covered(False))
+    assert result["status"] == "pass" and result["summary"]["unscored"] == 0
+    assert all(p["passed"] is False for p in result["questions"][0]["probes"].values())
+
+
+def test_a_judge_that_accepts_every_answer_blocks_the_run():
+    result = run([_q("1", _JUDGE_ONLY)], ask=_covered(True))
+    assert result["status"] == "blocked"
+    assert {v["attack"] for v in result["violations"]} == {"wrong", "empty", "hedge"}
+
+
+def test_the_judge_flag_grades_judge_checks_with_the_named_model(tmp_path, monkeypatch):
+    made = {}
+
+    def fake_judge(**kw):
+        made.update(kw)
+        return SimpleNamespace(llm=SimpleNamespace(invoke=lambda prompt, draw=0, cache_if=None:
+                                                   SimpleNamespace(content=_covered(True)(prompt))))
+
+    _patch_questions(monkeypatch, [_q("1", _JUDGE_ONLY)])
+    monkeypatch.setattr("dokimi.eval.judge.Judge", fake_judge)
+    out = tmp_path / "judged.json"
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_redteam(_args(tmp_path / "questions.json", output=out, judge=True,
+                               judge_model="judge-x", judge_provider="openai"))
+    assert exc.value.code == 1  # the stub judge accepts every attack
+    assert made == {"model": "judge-x", "provider": "openai"}
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    assert saved["status"] == "blocked" and saved["summary"]["unscored"] == 0
+
+
+def test_without_the_judge_flag_no_judge_is_built_and_judge_checks_stay_unscored(tmp_path, monkeypatch):
+    def refuse(**kw):
+        raise AssertionError("a judge was built without --judge")
+
+    _patch_questions(monkeypatch, [_q("1", _JUDGE_ONLY)])
+    monkeypatch.setattr("dokimi.eval.judge.Judge", refuse)
+    out = tmp_path / "plain.json"
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_redteam(_args(tmp_path / "questions.json", output=out))
+    assert exc.value.code == 1
+    assert json.loads(out.read_text(encoding="utf-8"))["summary"]["unscored"] == 3
