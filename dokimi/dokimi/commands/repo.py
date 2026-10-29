@@ -31,7 +31,7 @@ def _write_json(path: str, payload: dict) -> None:
 
 
 def _source_tree(args: argparse.Namespace) -> tuple:
-    """The source (source, tree): as typed a usage error (2); its clone or fetch a runtime failure (1)."""
+    """The source (source, tree): a malformed string or unpinned remote is a usage error (2); a clone, fetch or pin resolution failure is 1."""
     from dokimi.repos import RepoSource, SourceError, open_source
 
     try:
@@ -39,7 +39,9 @@ def _source_tree(args: argparse.Namespace) -> tuple:
     except SourceError as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
-    try:  # network, git, unknown revision
+    # 2 = malformed source string, unpinned remote, manifest/profile errors; 1 = clone/fetch/resolve of a pin
+    # (incl. pinned local non-git source, pin absent locally, remote pin missing from origin).
+    try:
         return source, open_source(source, _cache_dir(args))
     except SourceError as exc:
         print(f"✗ {exc}", file=sys.stderr)
