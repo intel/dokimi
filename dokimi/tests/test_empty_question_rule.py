@@ -196,6 +196,32 @@ def test_arms_run_refuses_a_blank_question_before_any_answer_is_paid_for(tmp_pat
     assert answered == [] and not out.exists()
 
 
+def test_matrix_run_reports_a_blank_question_as_bad_input_not_a_failed_cell(tmp_path, monkeypatch, capsys):
+    """A blank question is the question set's fault, so it exits 2 like ``arms run``, not 1 as a cell failure."""
+    import dokimi.eval.arms_run as arms_run
+    from dokimi import cli
+
+    questions = tmp_path / "q.json"
+    questions.write_text(json.dumps({"questions": [{"id": "q1", "question": "How?"},
+                                                   {"id": "q2", "question": "   "}]}), encoding="utf-8")
+    cells = tmp_path / "cells.json"
+    cells.write_text(json.dumps({"matrix": {"cells": [
+        {"id": "c", "model": "m", "provider": "openai", "harness": "arms-runner"}]}}), encoding="utf-8")
+    answered = []
+    monkeypatch.setattr(ArmRunner, "run", lambda self, library_name, questions, **kw: answered.append(1) or [
+        _arms_record(q["id"], q["question"]) for q in questions])
+    monkeypatch.setattr(arms_run, "probe_sampling", lambda *a: None)
+    out = tmp_path / "mx"
+    monkeypatch.setattr(sys, "argv", ["dokimi", "arms", "matrix-run", "--product", "lib", "--questions", str(questions),
+                                      "--arms", "baseline", "--matrix-cells", str(cells), "--judge",
+                                      "--out-dir", str(out)])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    err = capsys.readouterr().err
+    assert exc.value.code == 2 and err.startswith("Error: question 'q2'"), err  # not "Error running matrix cell"
+    assert answered == [] and not list(out.glob("cells/*.json"))
+
+
 # ── a record that would never be judged is skipped, not refused ──────────
 
 def _blank(qid="q2", **extra):
