@@ -12,9 +12,9 @@ one file per cell. Two jobs:
    `used_system_prompt` (the whole point of a `profile:` arm is that a system
    prompt reaches the model -- 7720/7720 pre-existing records have it false).
 2. **Report paired deltas.** A failed judge call leaves a score record with
-   `aggregate: None`, so the artifact's own `delta_vs_baseline` can subtract
-   means taken over different question counts (39 vs 40 was observed). Only
-   questions where *both* arms scored are comparable.
+   `aggregate: None`, and the per-arm means are taken over different question
+   counts (39 vs 40 was observed). Only questions where *both* arms scored are
+   comparable, as in the artifact's `delta_vs_baseline`.
 
 Usage:
     python scripts/check_treatment_batch.py results/unified_judge/persona-batch \\
