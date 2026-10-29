@@ -711,20 +711,25 @@ def _pytest_module(scan: Scan, file: str, name: str) -> tuple[str, str]:
     that package is where an import would find it: at the root or in ``src/``, of the tree or of a directory
     from ``file`` up. A package found only deeper (``docs/examples/a/``, a vendored copy) may not be the one
     imported, and a module with no enclosing package in the tree may be installed: both are ``unresolved``.
+    Of two copies of the module, the one at an import root is the one named and the one a ``::test`` is read in.
     """
     def found(rel: str) -> list[str]:
         return [f for f in scan.by_name.get(posixpath.basename(rel), []) if f == rel or f.endswith("/" + rel)]
 
-    rel = name.replace(".", "/")
-    hits = found(rel + ".py") or found(rel + "/__init__.py")
-    if hits:
-        return "ok", hits[0]
     roots = {r for b in ancestors(file) for r in (b, posixpath.join(b, "src"))}
+
+    def at_root(f: str, leaf: str) -> bool:
+        return f[: -len(leaf)].rstrip("/") in roots
+
+    rel = name.replace(".", "/")
+    for leaf in (rel + ".py", rel + "/__init__.py"):
+        if hits := found(leaf):
+            return "ok", next((f for f in hits if at_root(f, leaf)), hits[0])
     parts, deeper = name.split("."), ""
     for n in range(len(parts) - 1, 0, -1):  # the nearest enclosing package at an import root
         init = "/".join(parts[:n]) + "/__init__.py"
         homes = found(init)
-        home = next((f for f in homes if f[: -len(init)].rstrip("/") in roots), None)
+        home = next((f for f in homes if at_root(f, init)), None)
         if home:
             package, rest = ".".join(parts[:n]), ".".join(parts[n:])
             return "fail", f"package {package} ({posixpath.dirname(home)}/) has no module {rest}"

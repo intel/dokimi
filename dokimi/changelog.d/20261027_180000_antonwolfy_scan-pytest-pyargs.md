@@ -9,4 +9,4 @@
   `pkg`) and the package sits at the root or in `src/`, of the tree or of a directory above
   the guidance file, and `unresolved` when it holds no such package (an installed one) or
   holds it only deeper (`docs/examples/pkg/`). A `::test` node after a module is checked in
-  the module's file. Without `--pyargs` a dotted name stays a path.
+  the module's file, the copy at an import root when the tree holds more than one. Without `--pyargs` a dotted name stays a path.
