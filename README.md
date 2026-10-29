@@ -52,7 +52,7 @@ cd dokimi && pip install -e .     # installs the `dokimi` command
 | Check a skill | `dokimi catalog scan --root <catalog> --kind skills` (free) | [Reviewing a skill](dokimi/docs/reviewing.md#a-skill) |
 | Check a repository's agent setup | `dokimi repo scan <repo>` (free) | [Reviewing a repository](dokimi/docs/reviewing.md#a-repositorys-agent-setup) |
 | See which parts of a skill help | `dokimi novelty analyze --artifact skill:<dir> --tier triage --estimate-only` (free estimate) | [Content novelty](dokimi/docs/skill-novelty.md) |
-| Compare with and without a change | `dokimi arms run --arms baseline,skill:<dir> …` | [Quickstart](dokimi/docs/quickstart.md) |
+| Compare with and without a change | `dokimi arms run --arms baseline,skill:<dir> …` | [Evaluating treatments](dokimi/docs/evaluating-treatments.md) |
 | Write evals you can trust | the [`dokimi-design-evals`](dokimi/data/skills/dokimi-design-evals/SKILL.md) skill | [External content](dokimi/docs/external-content.md) |
 
 Every step lists its cost; the free ones come first.
