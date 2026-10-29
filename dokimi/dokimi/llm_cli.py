@@ -113,6 +113,10 @@ class AuthStatus:
     hint: str = ""
 
 
+class SamplingError(ValueError):
+    """A temperature or seed given to a CLI provider, which takes neither; ``cli.main`` reports it (exit 2)."""
+
+
 @dataclass(frozen=True)
 class CliBackend:
     """One CLI: how to call it, read its reply, and ask it whether it is signed in."""
@@ -284,9 +288,10 @@ def same_model(provider_a: str, model_a: str, provider_b: str, model_b: str) -> 
 
 
 def check_sampling(provider: str, temperature: Optional[float], seed: Optional[int]) -> None:
-    """Raise ``ValueError`` before a run when a CLI *provider* is given a temperature or seed."""
+    """Raise :class:`SamplingError` before a run when a CLI *provider* is given a temperature or seed."""
     if provider in BACKENDS and (temperature is not None or seed is not None):
-        raise ValueError(f"{provider} takes no temperature or seed: drop --judge-temperature/--seed")
+        raise SamplingError(f"{provider} takes no temperature or seed: leave out the judge temperature "
+                            "and seed options")
 
 
 def work_dir(name: str) -> Path:

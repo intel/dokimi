@@ -307,6 +307,23 @@ def test_the_preflight_probes_a_cli_provider_once_for_its_error_and_its_warning(
     assert [c.argv[-1] for c in fake.calls] == ["--version", "status"]  # one detect, not one per check
 
 
+@pytest.mark.parametrize("argv", [
+    ["eval", "score", "--judge-provider", "claude-cli", "--judge-temperature", "0"],
+    ["eval", "panel-score", "--provider", "claude-cli", "--judge-temperature", "0"],
+])
+def test_a_cli_judge_given_a_temperature_is_an_error_line_and_exit_2(argv, tmp_path, monkeypatch, capsys):
+    from dokimi import cli
+
+    answers = tmp_path / "answers.json"
+    answers.write_text("[]", encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["dokimi", *argv, "--product", "p", "--answers", str(answers)])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    err = capsys.readouterr().err
+    assert exc.value.code == 2 and err.startswith("Error: claude-cli takes no temperature")
+    assert "Traceback" not in err
+
+
 def test_a_judge_panel_refuses_sampling_on_the_cli_with_explicit_judges():
     from dokimi.eval.panel import JudgeConfig, JudgePanel
 
