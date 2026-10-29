@@ -311,3 +311,15 @@ def test_command_refuses_a_question_id_repeated_within_one_file(tmp_path, capsys
     assert exc.value.code == 2
     err = capsys.readouterr().err
     assert str(path) in err and "question_id '1' appears more than once" in err
+
+
+def test_command_passes_non_default_thresholds_to_the_analysis(tmp_path):
+    # With the defaults neither item is flagged: 0.6 < 0.9, and 0.15 > 0.0.
+    path = _arms_file(tmp_path / "arms.json", {"1": {"baseline": 60, "skill": 10},
+                                               "2": {"baseline": 5, "skill": 15}})
+    out = tmp_path / "headroom.json"
+    cmd_eval_headroom(_args([path], ceiling=0.5, floor=0.2, min_reps=1, output=out))
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    assert {i["question_id"]: i["flag"] for i in saved["items"]} == {"1": CEILING, "2": FLOOR}
+    assert saved["thresholds"] == {"ceiling": 0.5, "floor": 0.2, "min_reps": 1}
+    assert [i["provisional"] for i in saved["items"]] == [False, False]
