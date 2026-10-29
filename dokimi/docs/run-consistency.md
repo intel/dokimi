@@ -121,8 +121,9 @@ a number or a mapping is refused.
 
 `last_ok` also fails when the status the call reported may be another
 command's: a pipe without `pipefail`, a later command after `||`, or after `;`
-or a newline (not under `set -e`), a trailing `&`, or a loop body (not under
-`set -e`), whose status is the last iteration's. `command -v pytest` looks `pytest` up and is a `Bash:command`
+or a newline (not under `set -e`), a trailing `&` (the list or `{ }` / `if ... fi`
+group it ends, whose status is always 0), or a loop body (not under `set -e`),
+whose status is the last iteration's. `command -v pytest` looks `pytest` up and is a `Bash:command`
 step, not a test run.
 
 Name every equivalent way to do a step: `make check`, `sh tools/check.sh` and

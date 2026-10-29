@@ -278,13 +278,42 @@ def _set_options(seg: str, errexit: bool, pipefail: bool) -> tuple[bool, bool]:
     return errexit, pipefail
 
 
+_GROUP_OPENS = ("if", "while", "until", "for", "select", "{")
+_GROUP_CLOSES = ("fi", "done", "}")
+_GROUP_BEFORE = ("then", "do", "else", "elif", "!", "{", "(")
+
+
+def _group_balance(seg: str) -> int:
+    """Groups a segment closes (+1 each) less those it opens (-1 each): `fi`, `done`, `}` and an
+    unopened `)` close; `if`, `while`, `until`, `for`, `select`, `{` and `(` open. A keyword counts
+    where a command could start, so `echo fi` is no group."""
+    words = shell.tokens(seg)
+    keywords = sum((w in _GROUP_CLOSES) - (w in _GROUP_OPENS)
+                   for i, w in enumerate(words) if i == 0 or words[i - 1] in _GROUP_BEFORE)
+    return keywords + words.count(")") - words.count("(")
+
+
+def _background_start(parts: list[tuple[str, str]], k: int) -> int:
+    """The first command a trailing `&` after part ``k`` backgrounds: the group it closes (`{ ... }`,
+    `( ... )`, `if ... fi`, `for ... done`) back to where it opens, and the `&&` / `||` list before
+    it."""
+    depth = 0
+    for j in range(k, -1, -1):
+        depth += _group_balance(parts[j][0])
+        if depth <= 0 and (j == 0 or parts[j - 1][1] not in ("&&", "||")):
+            return j
+    return k
+
+
 def _masks(parts: list[tuple[str, str]]) -> list[bool]:
     """Per command of a line, whether the status the call reports may be another's: a pipe without
     `pipefail`; a later command after `||`, or after `;` or a newline (not under `set -e`); a
-    trailing `&`, whose status is always 0; a loop body, whose status is the last iteration's.
-    `set -e` / `set -o pipefail` count from the command that sets them on."""
+    trailing `&`, whose status is always 0 for the list or group it ends; a loop body, whose status
+    is the last iteration's. `set -e` / `set -o pipefail` count from the command that sets them on."""
     errexit = pipefail = False
     out, loops = [], 0
+    backgrounded = {j for k, (_, sep) in enumerate(parts) if sep == "&"
+                    for j in range(_background_start(parts, k), k + 1)}
     for i, (seg, sep) in enumerate(parts):
         errexit, pipefail = _set_options(seg, errexit, pipefail)
         loops += _opens_loop(seg)
@@ -292,7 +321,7 @@ def _masks(parts: list[tuple[str, str]]) -> list[bool]:
         # `done`, `fi` after the last command close it: its status is the call's
         sep = sep if sep == "&" or any(shell.clean(later) for later, _ in parts[i + 1:]) else ""
         out.append((not pipefail and "|" in shell.tokens(seg)) or _hides_status(sep, errexit)
-                   or _list_hides(parts, i) or (loops > 0 and not errexit))
+                   or _list_hides(parts, i) or i in backgrounded or (loops > 0 and not errexit))
     return out
 
 

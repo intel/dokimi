@@ -487,3 +487,18 @@ def test_a_shell_write_is_not_a_read_and_fd_one_is_stdout():
     c = parse_contract({"actions": {"guide": {"tool": "Read", "file_path": r"AGENTS\.md$"}},
                         "rules": [{"requires": "guide"}]})
     assert check_contract(_run("r", ("Bash", {"command": "echo x > AGENTS.md"})), c) == ["requires: guide"]
+
+
+def test_a_single_run_is_single_run_passed_or_failed_not_stable():
+    assert profile([_run("a", READ, TEST)])["strategies"][0]["verdict"] == "single run, passed"
+    assert profile([_run("a", READ, TEST, ok=False)])["strategies"][0]["verdict"] == "single run, failed"
+
+
+def test_a_float_token_count_is_counted():
+    assert parse_run(_trace(TEST).replace('"output_tokens": 10', '"output_tokens": 9.0')).output_tokens == 9
+
+
+def test_a_message_id_seen_twice_counts_its_largest_usage_once():
+    lines = [{"type": "assistant", "message": {"id": "x", "usage": {"output_tokens": n}, "content": []}}
+             for n in (9, 5)]
+    assert parse_run("\n".join(json.dumps(x) for x in lines)).output_tokens == 9

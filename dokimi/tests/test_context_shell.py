@@ -76,6 +76,11 @@ def _steps(command: str) -> list[tuple[str, str]]:
     ("timeout --signal KILL 5 make", [("Bash:make", "Bash:make(timeout --signal KILL 5 make)")]),
     ("timeout --kill-after 5 300 make", [("Bash:make", "Bash:make(timeout --kill-after 5 300 make)")]),
     ("nice --adjustment 5 make", [("Bash:make", "Bash:make(nice --adjustment 5 make)")]),
+    ("([[ -f a && -f b ]] && pytest)", [("Bash:pytest", "Bash:pytest(pytest)")]),
+    ('(grep ")" f && make)', [("Bash:grep", 'Bash:grep(grep ")" f)'), ("Bash:make", "Bash:make(make)")]),
+    ("make $(nproc))", [("Bash:make", "Bash:make(make $(nproc))")]),
+    ("command -V pytest", [("Bash:command", "Bash:command(command -V pytest)")]),
+    ("command pytest -v", [("Bash:pytest", "Bash:pytest(command pytest -v)")]),
 ])
 def test_control_syntax_and_wrappers_are_not_steps(command, steps):
     assert _steps(command) == steps
@@ -181,6 +186,9 @@ LAST_OK = parse_contract({"actions": {"test": {"tool": "Bash", "command": "pytes
     ("echo 'set -e'; pytest -q; echo done", True), ("grep -r pipefail .; pytest -q | tail -5", True),
     ("set -euo pipefail; pytest -q | tail -5; echo done", False), ("set -o errexit; pytest -q; echo done", False),
     ("set -e; set +e; pytest -q; echo done", True), ("set -o pipefail; set +o pipefail; pytest -q | tail -5", True),
+    # a trailing `&` backgrounds the whole list or group it ends, and nothing before it
+    ("{ pytest -q; } &", True), ("if x; then pytest -q; fi &", True), ("make && { pytest -q; } &", True),
+    ("(cd sub; pytest -q) &", True), ("{ pytest -q && git diff; }; echo done", True),
 ])
 def test_a_later_command_hides_the_status_of_an_earlier_one(command, hidden):
     for grain in ("split", "call"):
@@ -245,3 +253,25 @@ def test_events_from_a_normalized_trace_split_like_a_bash_call():
     run = run_from_events([{"kind": "command", "text": "make && pytest", "rc": 1}, {"kind": "read", "path": "a"}])
     assert [e.kind for e in run.events] == ["Bash:make", "Bash:pytest", "Read"]
     assert run.calls() == 2 and run.failed_calls() == 1
+
+
+@pytest.mark.parametrize("command, masked", [
+    ("for f in a; do pytest $f; done; make", [("Bash:pytest", True), ("Bash:make", False)]),
+    ("if x; then pytest; fi", [("Bash:x", True), ("Bash:pytest", False)]),
+    ("if x; then make; pytest; fi", [("Bash:x", True), ("Bash:make", True), ("Bash:pytest", False)]),
+    ("select x in a b; do pytest; done", [("Bash:pytest", True)]),
+    ("(for f in a; do pytest; done)", [("Bash:pytest", True)]),
+    ("! while read f; do pytest $f; done", [("Bash:read", True), ("Bash:pytest", True)]),
+    ("if c; then :; else for f in a; do pytest; done; fi", [("Bash:c", True), ("Bash::", True), ("Bash:pytest", True)]),
+    ("for a in b; do for g in c; do :; done; pytest; done", [("Bash::", True), ("Bash:pytest", True)]),
+    # a trailing `&` ends at its group; the commands after it are their own
+    ("{ make; } & pytest -q", [("Bash:make", True), ("Bash:pytest", False)]),
+    ("if x; then make; fi & pytest -q", [("Bash:x", True), ("Bash:make", True), ("Bash:pytest", False)]),
+    ("echo fi & pytest -q", [("Bash:echo", True), ("Bash:pytest", False)]),
+    ("{ make; }; pytest -q", [("Bash:make", True), ("Bash:pytest", False)]),
+    ("set -o errexit; make; pytest", [("Bash:make", False), ("Bash:pytest", False)]),
+    ("set -ue; make; pytest", [("Bash:make", False), ("Bash:pytest", False)]),
+    ("set -e\nmake\npytest", [("Bash:make", False), ("Bash:pytest", False)]),
+])
+def test_loop_bodies_and_errexit_set_which_status_is_masked(command, masked):
+    assert [(e.kind, e.masked) for e in _events("Bash", {"command": command})] == masked
