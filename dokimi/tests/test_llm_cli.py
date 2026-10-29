@@ -231,6 +231,19 @@ def test_judge_and_get_llm_reach_the_cli_backend(runner):
     assert resp.content == "generated" and resp.usage.provider == "claude-cli"
 
 
+def test_get_llm_imports_llm_cli_from_its_own_module():
+    import ast
+    import inspect
+
+    from dokimi.utils import get_llm
+
+    tree = ast.parse(inspect.getsource(get_llm))
+    borrowed = [alias.name for node in ast.walk(tree)
+                if isinstance(node, ast.ImportFrom) and node.module == "dokimi.llm"
+                for alias in node.names if alias.name == "llm_cli"]
+    assert borrowed == []  # it works only while llm.py happens to import the module
+
+
 def _auth_runner(status: dict | None, version: str = "2.1.304 (Claude Code)"):
     def handle(call):
         if call.argv[-1] == "--version":

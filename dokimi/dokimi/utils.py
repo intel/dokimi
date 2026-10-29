@@ -161,7 +161,8 @@ def get_llm(provider: str, model: str, api_key: str | None = None,
     ``max_tokens=2000``, Bedrock reads only its bearer token) and its cache keys,
     until the judge, generator and validator move to ``LLM``.
     """
-    from dokimi.llm import LLM, _GetLLMCompat, _Invoker, llm_cli
+    from dokimi import llm_cli
+    from dokimi.llm import LLM, _GetLLMCompat, _Invoker
 
     if llm_cli.backend(provider) is not None:  # a logged-in CLI: no route, no key
         return _Invoker(LLM(model, provider, temperature=temperature, seed=seed))
