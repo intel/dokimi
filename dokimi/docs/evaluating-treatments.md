@@ -723,6 +723,28 @@ Two gates are deliberately statistical rather than absolute:
   questions both arms scored. It pools questions; a mean of per-cell means differs slightly
   when the sets have different sizes — say which one a report uses.
 
+## Headroom: items a comparison cannot learn from
+
+A skill cannot raise an item the no-skill arm already answers, and an item no arm
+answers points at the question or its grader, not at the skill. `eval headroom` flags
+both, from one or more arms files of the same question set (one file per repetition):
+
+```bash
+python cli.py eval headroom run1/arms.json run2/arms.json run3/arms.json \
+    --no-skill-arm baseline --ceiling 0.9 --floor 0 --min-reps 3 -o headroom.json
+```
+
+- **ceiling**: the no-skill arm's mean over the runs is at least `--ceiling` (0-1; the
+  0-100 aggregate divided by 100). Default 0.9.
+- **floor**: every arm's mean is at most `--floor`. Default 0.
+- **provisional**: fewer than `--min-reps` runs scored the item (the smallest count over
+  its arms). Default 3. One file gives every item one rep, so every item is provisional.
+
+The table on stdout lists flagged and provisional items; `-o` writes a `headroom.v1`
+artifact with every item. `--no-skill-arm` defaults to the baseline the runs declare, and
+the runs must agree on it. Only arms runs are read. The flags are descriptive: they do
+not change any score or any gate.
+
 ## Scope and caveats
 
 - **Three levels of fidelity for skills/MCP.** (1) `skill:` / `mcp:` inject
