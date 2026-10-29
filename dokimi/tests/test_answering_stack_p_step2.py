@@ -8,44 +8,57 @@ in numbers. These tests cover the parts that table cannot see: the value a flag
 parses to, and where it lands.
 """
 
-from types import SimpleNamespace
+import pytest
 
 from tests.test_answering_stack_parity import _subparser
 
 
-def test_benchmark_run_judge_temperature_reaches_the_pipeline(monkeypatch, tmp_path):
+class _FakePipeline:
+    """Stands in for EvaluationPipeline: keeps the kwargs ``benchmark run`` builds it with."""
+
+    built: list = []
+
+    def __init__(self, **kwargs):
+        _FakePipeline.built.append(kwargs)
+
+    def run(self, concurrency):
+        return {"steps": {}}
+
+
+@pytest.mark.parametrize("extra, runs", [([], 1), (["--multi-run", "2"], 2)], ids=["single-run", "multi-run"])
+def test_benchmark_run_hands_the_judge_flags_to_the_pipeline(monkeypatch, tmp_path, extra, runs):
+    """The real handler runs; only the pipeline is faked. Both flags reach it in every mode."""
     from dokimi.commands import benchmark
     from dokimi import orchestrator
 
+    _FakePipeline.built = []
+    monkeypatch.setattr(orchestrator, "EvaluationPipeline", _FakePipeline)
     args = _subparser("benchmark", "run").parse_args(
-        ["--library", "onetbb", "--judge-temperature", "0.2"]
+        ["--library", "onetbb", "--output-dir", str(tmp_path), "--judge-temperature", "0.3",
+         "--judge-placeholder", *extra]
     )
-    assert args.judge_temperature == 0.2
 
-    seen = {}
+    benchmark.cmd_benchmark_run(args)
 
-    class FakePipeline:
-        def __init__(self, **kwargs):
-            seen.update(kwargs)
+    assert len(_FakePipeline.built) == runs
+    for kwargs in _FakePipeline.built:
+        assert kwargs["judge_temperature"] == 0.3
+        assert kwargs["judge_placeholder"] is True
 
-        def run(self, concurrency):
-            return {"steps": {}}
 
-    monkeypatch.setattr(orchestrator, "EvaluationPipeline", FakePipeline)
-    entry = SimpleNamespace(
-        name="oneTBB", key="onetbb", repo=None, description="d",
-        doc_sources=["context7"], context7_id="uxlfoundation/oneTBB",
-    )
-    benchmark._run_single_library(
-        entry,
-        output_dir=str(tmp_path),
-        model="m",
-        provider="openai",
-        judge_model="jm",
-        judge_provider="openai",
-        judge_temperature=args.judge_temperature,
-    )
-    assert seen["judge_temperature"] == 0.2
+def test_benchmark_run_leaves_the_judge_flags_off_when_not_given(monkeypatch, tmp_path):
+    from dokimi.commands import benchmark
+    from dokimi import orchestrator
+
+    _FakePipeline.built = []
+    monkeypatch.setattr(orchestrator, "EvaluationPipeline", _FakePipeline)
+    args = _subparser("benchmark", "run").parse_args(["--library", "onetbb", "--output-dir", str(tmp_path)])
+
+    benchmark.cmd_benchmark_run(args)
+
+    (kwargs,) = _FakePipeline.built
+    assert kwargs["judge_temperature"] is None
+    assert kwargs["judge_placeholder"] is False
 
 
 def test_benchmark_run_judge_temperature_defaults_to_provider_default():
