@@ -20,13 +20,30 @@ from dokimi.eval.arm_runner import ArmRunner
 from dokimi.eval.arms_run import ArmsRunConfig
 
 
-def test_the_config_defaults_are_what_arms_run_runs_without_a_flag():
+ARMS_RUN = ["arms", "run", "--product", "demo", "--questions", "q.json", "--arms", "baseline"]
+
+
+@pytest.mark.parametrize("judge_provider", [[], ["--judge-provider", "openai"]])
+def test_the_config_defaults_are_what_arms_run_runs_without_a_flag(judge_provider):
     # A command without some flag (subjects run has no --temperature) and a caller building
     # the config itself both run with these defaults, so they must not drift from the flags'.
-    args = parse_args(["arms", "run", "--product", "demo", "--questions", "q.json",
-                       "--arms", "baseline"])
+    # The judge model's default hangs on the judge provider, as --judge-model's does.
+    args = parse_args([*ARMS_RUN, *judge_provider])
+    config = ArmsRunConfig(product="demo", judge_provider=args.judge_provider)
 
-    assert run_config_from_args(args) == ArmsRunConfig(product="demo")
+    assert run_config_from_args(args) == config
+
+
+def test_a_judge_provider_with_no_default_judge_needs_a_judge_model(capsys):
+    with pytest.raises(SystemExit) as exc:
+        parse_args([*ARMS_RUN, "--judge-provider", "openrouter"])
+    assert exc.value.code == 2
+    assert "--judge-provider openrouter has no default judge model" in capsys.readouterr().err
+
+    with pytest.raises(ValueError, match="'openrouter' has no default judge model"):
+        ArmsRunConfig(product="demo", judge_provider="openrouter")
+    assert ArmsRunConfig(product="demo", judge_provider="openrouter",
+                         judge_model="m").judge_model == "m"
 
 
 @pytest.fixture

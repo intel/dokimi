@@ -20,8 +20,9 @@ from dataclasses import dataclass, replace
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
     DEFAULT_ANSWER_PROVIDER,
-    DEFAULT_JUDGE_MODEL,
     DEFAULT_JUDGE_PROVIDER,
+    JUDGE_MODEL_FOR_PROVIDER,
+    default_judge_model,
 )
 from dokimi.eval.cells import HARNESS_ARMS_RUNNER, MatrixCellDescriptor
 from dokimi.eval.question_text import EmptyQuestionError
@@ -49,7 +50,8 @@ class ArmsRunConfig:
     baseline_arm: str = "baseline"
     stats_correction: str = "holm"
     judge: bool = False
-    judge_model: str = DEFAULT_JUDGE_MODEL
+    #: Left out, the default judge that runs on ``judge_provider``, as for ``--judge-model``.
+    judge_model: str = JUDGE_MODEL_FOR_PROVIDER
     judge_provider: str = DEFAULT_JUDGE_PROVIDER
     judge_temperature: float | None = None
     judge_panel: str = ""
@@ -63,6 +65,14 @@ class ArmsRunConfig:
     session_turns: int | None = None
     turn_reminder: str | None = None
     concurrency: int = 5
+
+    def __post_init__(self) -> None:
+        if self.judge_model is JUDGE_MODEL_FOR_PROVIDER:
+            model = default_judge_model(self.judge_provider)
+            if model is None:
+                raise ValueError(f"judge provider {self.judge_provider!r} has no default judge "
+                                 f"model; pass judge_model")
+            object.__setattr__(self, "judge_model", model)
 
 
 class LibraryIdError(ValueError):
