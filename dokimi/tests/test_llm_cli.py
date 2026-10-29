@@ -533,6 +533,41 @@ def test_a_matrix_with_a_cli_agentic_cell_is_refused_before_the_first_cell_is_an
     assert not tmp_path.joinpath("cells").exists()
 
 
+def _matrix_run(monkeypatch, tmp_path, cli_model, arms_spec, capsys):
+    """matrix-run on an API cell then a CLI cell, where no cell may run: the error it exits with."""
+    from dokimi.cli import build_parser
+    from dokimi.commands import arms
+
+    cells = tmp_path / "cells.json"
+    cells.write_text(json.dumps({"matrix": {"cells": [
+        {"id": "api", "model": "gpt-6.1-sol", "provider": "openai", "harness": "arms-runner"},
+        {"id": "cli", "model": cli_model, "provider": "claude-cli", "harness": "arms-runner"},
+    ]}}), encoding="utf-8")
+    questions = tmp_path / "q.json"
+    questions.write_text(json.dumps([{"id": "q1", "question": "Q?"}]), encoding="utf-8")
+    def cell_must_not_run(*a, **kw):
+        raise AssertionError("a matrix cell ran before the CLI cell was refused")
+
+    monkeypatch.setattr(arms, "_build_arms_output", cell_must_not_run)
+    args = build_parser().parse_args(
+        ["arms", "matrix-run", "--product", "p", "--questions", str(questions), "--arms", arms_spec,
+         "--matrix-cells", str(cells), "--out-dir", str(tmp_path / "out")])
+    with pytest.raises(SystemExit):
+        args.func(args)
+    return capsys.readouterr().err
+
+
+def test_a_matrix_cell_pairing_a_cli_provider_with_a_non_claude_model_is_refused(
+        monkeypatch, tmp_path, capsys):
+    from dokimi.commands import arms
+
+    assert "takes a Claude model" in _matrix_run(monkeypatch, tmp_path, "gpt-6.1-sol", "baseline", capsys)
+    # arms run --matrix-cells/--matrix-cell applies the cell the same way
+    named = argparse.Namespace(matrix_cells=str(tmp_path / "cells.json"), matrix_cell="cli")
+    with pytest.raises(ValueError, match="takes a Claude model"):
+        arms._apply_named_matrix_cell(named)
+
+
 def test_an_alias_and_a_bedrock_or_prefixed_full_id_are_one_model_for_the_identity_checks():
     assert llm_cli.same_model("claude-cli", "sonnet", "anthropic", "us.anthropic.claude-sonnet-5-5-v1:0")
     assert llm_cli.same_model("claude-cli", "sonnet", "litellm", "anthropic/claude-sonnet-5-5")

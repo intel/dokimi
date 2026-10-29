@@ -556,6 +556,13 @@ def _apply_named_matrix_cell(args: argparse.Namespace) -> None:
 
 
 def _apply_matrix_cell(args: argparse.Namespace, matrix_cell) -> None:
+    from dokimi import llm_cli
+
+    if llm_cli.backend(matrix_cell.provider) and not llm_cli.accepts_model(matrix_cell.provider,
+                                                                          matrix_cell.model):
+        # The parse-time model gate reads --model only; a cell sets the pair after it.
+        raise ValueError(f"matrix cell {matrix_cell.name!r}: provider {matrix_cell.provider} takes a "
+                         f"Claude model (sonnet, haiku, opus or a claude-* id), not {matrix_cell.model!r}")
     args.matrix_cell = matrix_cell.name
     args.model = matrix_cell.model
     args.provider = matrix_cell.provider
