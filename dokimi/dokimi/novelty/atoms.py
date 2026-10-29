@@ -520,7 +520,68 @@ def load_atoms(path) -> tuple[list[Atom], list[Span]]:
     """
     from pathlib import Path
 
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    return _atoms_from_record(json.loads(Path(path).read_text(encoding="utf-8")))
+
+
+def _is_int(value) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_str_list(value) -> bool:
+    return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+
+_STR = (lambda v: isinstance(v, str), "a string")
+_INT = (_is_int, "an integer")
+_STR_LIST = (_is_str_list, "a list of strings")
+_OBJ = (lambda v: isinstance(v, dict), "an object")
+_STR_OR_NULL = (lambda v: v is None or isinstance(v, str), "a string or null")
+
+# Every field a reader takes from a row: (type check, what it should be), and the fields
+# a row must have.
+_SPAN_FIELDS = {"id": _STR, "kind": _STR, "text": _STR, "start": _INT, "end": _INT,
+                "heading_path": _STR_LIST, "protection": _STR_LIST, "atom_ids": _STR_LIST}
+_SPAN_REQUIRED = ("id", "kind", "text", "start", "end")
+_ATOM_FIELDS = {"id": _STR, "statement": _STR, "question": _STR, "answer": _STR,
+                "kind": _STR, "faithfulness": _STR, "tags": _STR_LIST,
+                "span_ids": _STR_LIST, "meta": _OBJ}
+_ATOM_REQUIRED = ("statement",)
+_FILE_FIELDS = {"path": _STR, "role": _STR, "start": _INT, "end": _INT, "words": _INT,
+                "sha256": _STR_OR_NULL}
+_FILE_REQUIRED = ("path",)
+_EXCLUDED_FIELDS = {"path": _STR, "role": _STR, "reason": _STR, "words": _INT}
+
+
+def _check_rows(where: str, rows, fields: dict, required: tuple = ()) -> None:
+    """Raise ValueError unless ``rows`` is a list of objects whose fields have their types."""
+    if not (isinstance(rows, list) and all(isinstance(row, dict) for row in rows)):
+        raise ValueError(f"'{where}' is not a list of objects")
+    for row in rows:
+        for key in required:
+            if key not in row:
+                raise ValueError(f"'{where}' has a row without '{key}'")
+        for key, (ok, expected) in fields.items():
+            if key in row and not ok(row[key]):
+                raise ValueError(f"'{where}' has a row whose '{key}' is not {expected}")
+
+
+def _check_record_fields(data: dict) -> None:
+    """Raise ValueError unless the spans, atoms and extraction record have their types."""
+    _check_rows("spans", data.get("spans", []), _SPAN_FIELDS, _SPAN_REQUIRED)
+    _check_rows("atoms", data.get("atoms", []), _ATOM_FIELDS, _ATOM_REQUIRED)
+    extraction = data.get("extraction")
+    if extraction is not None and not isinstance(extraction, dict):
+        raise ValueError("'extraction' is not an object")
+    unread = (extraction or {}).get("unread_span_ids")
+    if unread is not None and not _is_str_list(unread):
+        raise ValueError("'extraction.unread_span_ids' is not a list of strings")
+
+
+def _atoms_from_record(data) -> tuple[list[Atom], list[Span]]:
+    """The atoms and spans of a parsed atoms record; ValueError when it is not one."""
+    if not isinstance(data, dict):
+        raise ValueError(f"the file holds {type(data).__name__}, not an object")
+    _check_record_fields(data)
     atoms = [Atom.from_dict(row) for row in data.get("atoms", [])]
     unread = set((data.get("extraction") or {}).get("unread_span_ids") or ())
     spans = [
@@ -534,3 +595,39 @@ def load_atoms(path) -> tuple[list[Atom], list[Span]]:
         for row in data.get("spans", [])
     ]
     return atoms, spans
+
+
+def _check_bundle_shape(bundle) -> None:
+    """Raise ValueError unless a ``bundle`` record has the types its readers rely on."""
+    if bundle is None:
+        return
+    if not isinstance(bundle, dict):
+        raise ValueError("'bundle' is not an object")
+    for key in ("max_file_words", "max_total_words", "n_files", "resource_words_measured"):
+        if bundle.get(key) is not None and not _is_int(bundle[key]):
+            raise ValueError(f"'bundle.{key}' is not an integer")
+    if bundle.get("artifact_name") is not None and not isinstance(bundle["artifact_name"], str):
+        raise ValueError("'bundle.artifact_name' is not a string")
+    if bundle.get("resource_roles") is not None and not _is_str_list(bundle["resource_roles"]):
+        raise ValueError("'bundle.resource_roles' is not a list of strings")
+    if bundle.get("files") is not None:
+        _check_rows("bundle.files", bundle["files"], _FILE_FIELDS, _FILE_REQUIRED)
+    if bundle.get("excluded") is not None:
+        _check_rows("bundle.excluded", bundle["excluded"], _EXCLUDED_FIELDS)
+
+
+def load_atoms_or_exit(path) -> tuple[list[Atom], list[Span], dict]:
+    """:func:`load_atoms` plus the parsed record, for a command.
+
+    Exits with the file named when it cannot be read or is not an atom set, including a
+    ``bundle`` whose fields do not have the types its readers use.
+    """
+    from pathlib import Path
+
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        atoms, spans = _atoms_from_record(data)
+        _check_bundle_shape(data.get("bundle"))
+    except (OSError, ValueError, RecursionError) as exc:
+        raise SystemExit(f"cannot read atoms from {path}: {exc}") from None
+    return atoms, spans, data

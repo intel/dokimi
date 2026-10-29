@@ -103,6 +103,7 @@ dokimi = [
   "schemas/*.json",
   "repos/profiles/*.yaml",
   "repos/support/*.py",
+  "harnesses/swebench_specs.json",
 ]
 
 [tool.scriv]

@@ -13,7 +13,7 @@ re-drawn prompt. Both scorers import it; it imports neither.
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 # ── Calibration anchors ───────────────────────────────────────────────────────
 
@@ -82,6 +82,17 @@ FORMAT_REMINDER = (
     "Reply with the JSON object only, in exactly the output format above, with "
     "every listed key and an integer for every score."
 )
+
+
+def reminder_reprompt(pinned: bool) -> Optional[Callable[[str, int], str]]:
+    """The ``reprompt`` for :func:`dokimi.llm.ask_parsed` at a judge's sampling.
+
+    At pinned sampling a re-draw appends :data:`FORMAT_REMINDER`; unpinned, the
+    re-draw is a new sample of the plain prompt, so there is no reprompt.
+    """
+    if not pinned:
+        return None
+    return lambda prompt, n: prompt + FORMAT_REMINDER.format(n=n)
 
 #: A verdict after a colon, a dash or an opening parenthesis, optionally
 #: qualified: "64 B: wrong", "64 B - wrong", "64 B (wrong)", "64 B: partially wrong".

@@ -217,12 +217,11 @@ def test_tools_lock_exempts_only_pins_younger_than_the_cooldown() -> None:
 
 
 def test_main_lock_exempts_only_security_bumps_younger_than_the_cooldown() -> None:
-    """gitpython 3.2.1 fixes CVE-2026-114145, certifi 2026.10.19 fixes GHSA-6q48-6c7w-9gw2, and
-    pillow 13.0.0 fixes the eight CVEs `pip-audit` reported on 2026-10-20. Drop each exemption once
-    its release is 7 days old."""
+    """certifi 2026.10.19 fixes GHSA-6q48-6c7w-9gw2. Drop the exemption once its release is 7 days
+    old. gitpython and pillow left the lock with ragas, and their exemptions with them."""
     cmd = header_command("requirements.lock.txt")
     exempt = {a.split("=", 1)[1] for a in cmd if a.startswith("--exclude-newer-package=")}
-    assert exempt == {"gitpython=false", "certifi=false", "pillow=false"}, exempt
+    assert exempt == {"certifi=false"}, exempt
 
 
 def test_the_published_package_builds_with_the_locked_backend() -> None:

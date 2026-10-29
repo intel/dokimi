@@ -28,6 +28,9 @@
 
 A warning is printed when the trace says a model other than the requested one
 answered a cell (``model_resolved``): a harness alias can pin an older model.
+
+A row's ``process`` holds the mean ``result.json`` ``process`` counts of its
+cells (:mod:`.process_counts`), printed on a line of its own under the row.
 """
 
 from __future__ import annotations
@@ -35,28 +38,153 @@ from __future__ import annotations
 import json
 import re
 from collections import defaultdict
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 import math
 
+from .grading import SCORE_BOUND
+from .process_counts import process_line, process_means
 from .runner import UNSUPPORTED_FILE, slug
 
 _TOKENS = ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens")
 
 
+class CellFileError(ValueError):
+    """A batch file that cannot be read as the JSON object ``repo run`` wrote."""
+
+
+def _read_object(path: Path) -> dict[str, Any]:
+    """The JSON object in ``path``, or a :class:`CellFileError` naming the file."""
+    try:
+        rec = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise CellFileError(f"cannot read {path}: {exc}") from exc
+    except (ValueError, RecursionError) as exc:  # JSONDecodeError, bad UTF-8, deep nesting
+        raise CellFileError(f"{path} is not valid JSON: {exc}") from exc
+    if not isinstance(rec, dict):
+        raise CellFileError(f"{path} must hold a JSON object")
+    return rec
+
+
+def _planned_cells(plan_path: Path) -> set[str]:
+    """The cell names in ``plan.json``, or a :class:`CellFileError` when it holds no ``cells`` list of names."""
+    cells = _read_object(plan_path).get("cells")
+    if not isinstance(cells, list) or not all(isinstance(c, str) for c in cells):
+        raise CellFileError(f"{plan_path} must hold a `cells` list of cell names")
+    return set(cells)
+
+
+_AGENT_KEYS = ("timed_out", "is_error", "over_budget", "cost_usd", "num_turns")
+_AGENT_NUMBERS = ("cost_usd", "num_turns", *_TOKENS)
+
+
+# keeps per-task deltas squared (variance in eval/stats.py mean_ci) and sums finite
+_SAFE_MAGNITUDE = SCORE_BOUND
+
+
+def _optional_number(value: object) -> bool:
+    """True for None or a finite, non-bool number small enough that its squared deltas and sums stay finite."""
+    if value is None:
+        return True
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(float(value)) and abs(float(value)) <= _SAFE_MAGNITUDE
+    except OverflowError:
+        return False
+
+
+def _skills_usable(skills: object) -> bool:
+    """True when ``skills`` is absent, or a mapping holding the keys :func:`summarize` reads."""
+    if skills is None:
+        return True
+    if not isinstance(skills, dict):
+        return False
+    if not skills or not skills.get("measured", True):
+        return True
+    needed = ["skill_invoked"] + (["skill_selected_correct"] if skills.get("expected_skill") else [])
+    return all(k in skills for k in needed)
+
+
+def _grade_usable(rec: dict[str, Any]) -> bool:
+    """True when ``grade`` holds the keys :func:`summarize` reads for the cell's kind."""
+    grade = rec.get("grade")
+    if not isinstance(grade, dict) or any(k not in grade for k in ("status", "success")):
+        return False
+    if "score_task" in rec:
+        return "score" in grade
+    if not isinstance(grade.get("score_only"), bool):
+        return False
+    return "score" in grade or not grade["score_only"]
+
+
+def _is_number(value: object) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _fail_unmeasurable_score(rec: dict[str, Any]) -> None:
+    """Read a stored NaN, infinite or out-of-bound ``grade.score`` as the grader failure grading now records."""
+    grade = rec.get("grade")
+    if isinstance(grade, dict) and _is_number(grade.get("score")) and not _optional_number(grade["score"]):
+        reasons = grade.get("reasons")
+        if not isinstance(reasons, list):
+            reasons = []
+        grade.update(status="grader_failure", success=False, score=None,
+                     reasons=[*reasons, f"score {grade['score']!r} is not finite or exceeds {SCORE_BOUND:g}"])
+
+
+# what a cell field of the wrong shape raises past _check_cell
+_MALFORMED_CELL = (KeyError, TypeError, AttributeError, OverflowError, ValueError)
+
+
+@contextmanager
+def reading_cells(files: list[str]) -> Iterator[None]:
+    """Re-raise a field of the wrong shape, read inside the block, as a :class:`CellFileError` naming ``files``."""
+    try:
+        yield
+    except _MALFORMED_CELL as exc:
+        raise CellFileError(f"a field of {', '.join(files)} has an unexpected shape "
+                            f"({type(exc).__name__}: {exc})") from exc
+
+
+def _check_cell(path: Path, rec: dict[str, Any]) -> None:
+    """Raise a :class:`CellFileError` unless ``rec`` has the fields the report and compare read."""
+    if not _grade_usable(rec) or not _optional_number(rec["grade"].get("score")):
+        raise CellFileError(f"{path} has no usable `grade`")
+    agent = rec.get("agent")
+    if not isinstance(agent, dict) or any(k not in agent for k in _AGENT_KEYS):
+        raise CellFileError(f"{path} has no usable `agent`")
+    if not all(_optional_number(agent.get(k)) for k in _AGENT_NUMBERS):
+        raise CellFileError(f"{path} has no usable `agent`")
+    if not _optional_number(rec.get("score_max")):
+        raise CellFileError(f"{path} has no usable `score_max`")
+    if not _skills_usable(rec.get("skills")):
+        raise CellFileError(f"{path} has no usable `skills`")
+    if "score_task" in rec and not isinstance(rec["score_task"], bool):
+        raise CellFileError(f"{path} has no usable `score_task`")
+    for key in ("task", "arm", "model"):
+        if not isinstance(rec.get(key), str):
+            raise CellFileError(f"{path} has no usable `{key}`")
+
+
 def load_cells(batch_dir: Path) -> tuple[list[dict[str, Any]], list[str]]:
     """Finished cells (their ``result.json``) and the names of missing ones."""
     plan_path = batch_dir / "_eval" / "plan.json"
-    planned = set(json.loads(plan_path.read_text(encoding="utf-8"))["cells"]) if plan_path.is_file() else set()
+    planned = _planned_cells(plan_path) if plan_path.is_file() else set()
     started = {p.parent.name for p in batch_dir.glob("*/meta.json")}
     finished = []
     for path in sorted(batch_dir.glob("*/result.json")):
-        rec = json.loads(path.read_text(encoding="utf-8"))
+        rec = _read_object(path)
+        _fail_unmeasurable_score(rec)
+        _check_cell(path, rec)
         rec["cell"] = path.parent.name
         # The row's kind is the task's, not what its cells' grades say. The runner records it from the
         # eval dir's task.json; the cell's copy is in the run dir, which the grader could rewrite.
-        rec["score_task"] = bool(rec.get("score_task", rec["grade"]["score_only"]))
+        with reading_cells([str(path)]):
+            rec["score_task"] = bool(rec["score_task"] if "score_task" in rec else rec["grade"]["score_only"])
         finished.append(rec)
     done = {r["cell"] for r in finished}
     unsupported = {p.parent.name for p in batch_dir.glob(f"*/{UNSUPPORTED_FILE}")}
@@ -69,7 +197,7 @@ def load_unsupported(batch_dir: Path) -> list[dict[str, Any]]:
     for path in sorted(batch_dir.glob(f"*/{UNSUPPORTED_FILE}")):
         if (path.parent / "result.json").is_file():
             continue
-        rec = json.loads(path.read_text(encoding="utf-8"))
+        rec = _read_object(path)
         out.append({"cell": path.parent.name, "task": rec.get("task"), "arm": rec.get("arm"),
                     "model": rec.get("model"), "reason": rec.get("reason")})
     return out
@@ -88,40 +216,42 @@ def summarize(batch_dir: Path) -> dict[str, Any]:
     rows = []
     for key in sorted(groups):
         recs = groups[key]
-        n = len(recs)
-        failures = sum(r["grade"]["status"] == "grader_failure" for r in recs)
-        score_only = any(r["score_task"] for r in recs)
-        row: dict[str, Any] = {"task": key[0], "arm": key[1], "model": key[2], "n": n,
-                               "grader_failures": failures,
-                               "agent_timeouts": sum(bool(r["agent"]["timed_out"]) for r in recs),
-                               "agent_errors": sum(bool(r["agent"]["is_error"]) for r in recs),
-                               "over_budget": sum(bool(r["agent"]["over_budget"]) for r in recs),
-                               "cost_unknown": sum(r["agent"]["cost_usd"] is None for r in recs),
-                               "missing": missing_by.get((key[0], _cell_arm(key[1]), _cell_model(key[2])), 0),
-                               "cost_usd": _mean([r["agent"]["cost_usd"] for r in recs]),
-                               "total_cost_usd": round(sum(r["agent"]["cost_usd"] or 0 for r in recs), 6),
-                               "turns": _mean([r["agent"]["num_turns"] for r in recs]),
-                               **{k: _mean([r["agent"].get(k) for r in recs]) for k in _TOKENS},
-                               "networks": sorted({str(r["agent"].get("network")) for r in recs}),
-                               "model_resolved": sorted({m for r in recs for m in resolved_models(r)})}
-        uptake = uptake_counts(recs)
-        if uptake is not None:
-            row["uptake"] = uptake
-        if score_only:
-            scores = [0.0 if r["grade"]["status"] == "grader_failure" else r["grade"]["score"] for r in recs]
-            row.update(kind="score", score=_mean([0.0 if s is None else s for s in scores]))
-        else:
-            wins = sum(bool(r["grade"]["success"]) for r in recs)
-            row.update(kind="gate", successes=wins, success_rate=round(wins / n, 4), ci95=wilson(wins, n))
-        used = [r["skills"] for r in recs if r.get("skills") and r["skills"].get("measured", True)]
-        if used:  # cells whose trace was unreadable are not counted: no rate from a missing measurement
-            row["skill_measured"] = len(used)
-            row["skill_invoked"] = sum(bool(u["skill_invoked"]) for u in used)
-            expecting = [u for u in used if u.get("expected_skill")]  # a task naming no skill has nothing to select
-            if expecting:
-                row["skill_expected"] = len(expecting)
-                row["skill_selected_correct"] = sum(bool(u["skill_selected_correct"]) for u in expecting)
-        rows.append(row)
+        with reading_cells([str(batch_dir / r["cell"] / "result.json") for r in recs]):
+            n = len(recs)
+            failures = sum(r["grade"]["status"] == "grader_failure" for r in recs)
+            score_only = any(r["score_task"] for r in recs)
+            row: dict[str, Any] = {"task": key[0], "arm": key[1], "model": key[2], "n": n,
+                                   "grader_failures": failures,
+                                   "agent_timeouts": sum(bool(r["agent"]["timed_out"]) for r in recs),
+                                   "agent_errors": sum(bool(r["agent"]["is_error"]) for r in recs),
+                                   "over_budget": sum(bool(r["agent"]["over_budget"]) for r in recs),
+                                   "cost_unknown": sum(r["agent"]["cost_usd"] is None for r in recs),
+                                   "missing": missing_by.get((key[0], _cell_arm(key[1]), _cell_model(key[2])), 0),
+                                   "cost_usd": _mean([r["agent"]["cost_usd"] for r in recs]),
+                                   "total_cost_usd": round(sum(r["agent"]["cost_usd"] or 0 for r in recs), 6),
+                                   "turns": _mean([r["agent"]["num_turns"] for r in recs]),
+                                   "process": process_means(recs),
+                                   **{k: _mean([r["agent"].get(k) for r in recs]) for k in _TOKENS},
+                                   "networks": sorted({str(r["agent"].get("network")) for r in recs}),
+                                   "model_resolved": sorted({m for r in recs for m in resolved_models(r)})}
+            uptake = uptake_counts(recs)
+            if uptake is not None:
+                row["uptake"] = uptake
+            if score_only:
+                scores = [0.0 if r["grade"]["status"] == "grader_failure" else r["grade"]["score"] for r in recs]
+                row.update(kind="score", score=_mean([0.0 if s is None else s for s in scores]))
+            else:
+                wins = sum(bool(r["grade"]["success"]) for r in recs)
+                row.update(kind="gate", successes=wins, success_rate=round(wins / n, 4), ci95=wilson(wins, n))
+            used = [r["skills"] for r in recs if r.get("skills") and r["skills"].get("measured", True)]
+            if used:  # cells whose trace was unreadable are not counted: no rate from a missing measurement
+                row["skill_measured"] = len(used)
+                row["skill_invoked"] = sum(bool(u["skill_invoked"]) for u in used)
+                expecting = [u for u in used if u.get("expected_skill")]  # a task naming no skill has nothing to select
+                if expecting:
+                    row["skill_expected"] = len(expecting)
+                    row["skill_selected_correct"] = sum(bool(u["skill_selected_correct"]) for u in expecting)
+            rows.append(row)
     return {"batch": str(batch_dir), "cells": len(cells), "missing": missing, "rows": rows,
             "unsupported": load_unsupported(batch_dir),
             "total_cost_usd": round(sum(r["agent"]["cost_usd"] or 0 for r in cells), 6),
@@ -158,6 +288,7 @@ def format_report(summary: dict[str, Any]) -> str:
                          + unmeasured_note(r["uptake"]))
         if notes:
             lines.append(" " * (width + 2) + "  " + ", ".join(notes))
+        lines += process_line(r.get("process"), width)
     if summary["missing"]:
         shown = summary["missing"][:10]
         lines.append("missing (no result.json; rerun the batch): " + ", ".join(shown)

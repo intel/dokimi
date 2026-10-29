@@ -13,6 +13,7 @@ it, and nothing else noticed that ``eval ragas`` could not start.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import os
 import subprocess
 import sys
@@ -36,6 +37,12 @@ for provider in ("openai", "anthropic"):
 
 
 def test_ragas_imports_and_evaluator_builds_from_installed_deps():
+    # The lock leaves the `[ragas]` extra out; test-latest installs it and sets
+    # DOKIMI_REQUIRE_RAGAS=1, so there a missing ragas fails instead of skipping.
+    if importlib.util.find_spec("ragas") is None:
+        if os.environ.get("DOKIMI_REQUIRE_RAGAS") == "1":
+            pytest.fail("DOKIMI_REQUIRE_RAGAS=1 but ragas is not installed")
+        pytest.skip("the [ragas] extra is not installed")
     proc = subprocess.run(
         [sys.executable, "-c", _PROBE],
         cwd=REPO,
@@ -45,6 +52,21 @@ def test_ragas_imports_and_evaluator_builds_from_installed_deps():
         timeout=120,
     )
     assert proc.returncode == 0, proc.stderr[-3000:]
+
+
+def test_the_real_import_check_fails_instead_of_skipping_when_ragas_is_required(monkeypatch):
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
+    outcomes = (pytest.fail.Exception, pytest.skip.Exception)
+    # Catch both: a skip that escapes here would skip this test too, and CI stays green.
+    monkeypatch.setenv("DOKIMI_REQUIRE_RAGAS", "1")
+    with pytest.raises(outcomes) as required:
+        test_ragas_imports_and_evaluator_builds_from_installed_deps()
+    assert required.type is pytest.fail.Exception
+    assert "DOKIMI_REQUIRE_RAGAS=1" in str(required.value)
+    monkeypatch.delenv("DOKIMI_REQUIRE_RAGAS")
+    with pytest.raises(outcomes) as optional:
+        test_ragas_imports_and_evaluator_builds_from_installed_deps()
+    assert optional.type is pytest.skip.Exception
 
 
 def test_ragas_without_the_extra_exits_with_the_install_command(monkeypatch, tmp_path):

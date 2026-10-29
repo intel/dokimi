@@ -132,9 +132,12 @@ def test_ragas_falls_back_to_the_default_judge_for_an_unsupported_provider(monke
     openai_mod.ChatOpenAI = chat("openai")
     anthropic_mod = types.ModuleType("langchain_anthropic")
     anthropic_mod.ChatAnthropic = chat("anthropic")
+    core_models = types.ModuleType("langchain_core.language_models")
+    core_models.BaseChatModel = object
     monkeypatch.setitem(sys.modules, "ragas.llms", ragas_llms)
     monkeypatch.setitem(sys.modules, "langchain_openai", openai_mod)
     monkeypatch.setitem(sys.modules, "langchain_anthropic", anthropic_mod)
+    monkeypatch.setitem(sys.modules, "langchain_core.language_models", core_models)
 
     evaluator = RagasEvaluator.__new__(RagasEvaluator)
     evaluator.llm_model, evaluator.provider, evaluator.api_key = "gemini-x", "google", None

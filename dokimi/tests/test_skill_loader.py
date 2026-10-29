@@ -95,6 +95,46 @@ def test_discovery_skips_a_template_directory(tmp_path, dirname):
     assert [s.name for s in discover_skills(root)] == ["linux-perf"]
 
 
+@pytest.mark.parametrize("vendored", ["node_modules/pkg", ".git/modules/sub", ".venv/lib/python3.12/site-packages/pkg"])
+def test_discovery_skips_vendored_copies(tmp_path, vendored):
+    root = tmp_path / "repo"
+    _write_skill(root / "skills" / "linux-perf", "linux-perf", "Profile Linux programs.")
+    # A different version of the same skill, so the mirror rule would not drop it.
+    _write_skill(root / vendored / "skills" / "linux-perf", "linux-perf", "Profile programs, v0.")
+    _write_skill(root / vendored / "skills" / "other", "other", "Someone else's skill.")
+    notes: list[str] = []
+    assert [s.name for s in discover_skills(root, notes=notes)] == ["linux-perf"]
+    assert notes == []
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        ".git",
+        ".hg",
+        ".svn",
+        "node_modules",
+        "site-packages",
+        ".venv",
+        "venv",
+        ".tox",
+        ".nox",
+        "__pycache__",
+    ],
+)
+def test_discovery_skips_each_vendored_name(tmp_path, name):
+    root = tmp_path / "repo"
+    _write_skill(root / "skills" / "a", "a", "Skill a.")
+    _write_skill(root / "skills" / "a" / name / "pkg", "b", "Vendored b.")
+    assert [s.name for s in discover_skills(root)] == ["a"]
+
+
+def test_discovery_walks_a_root_inside_a_vendored_directory(tmp_path):
+    root = tmp_path / "node_modules" / "pkg" / "skills"
+    _write_skill(root / "a", "a", "Skill a.")
+    assert [s.name for s in discover_skills(root)] == ["a"]
+
+
 def test_discovery_reports_a_skipped_template(tmp_path):
     root = tmp_path / "catalog"
     _write_skill(root / "template", "template-skill", "Replace with description of the skill.")
@@ -259,6 +299,14 @@ def test_a_skill_md_that_is_a_directory_is_not_a_skill(tmp_path):
 def test_discovery_ignores_a_directory_named_skill_md(tmp_path):
     root = tmp_path / "catalog"
     (root / "broken" / "SKILL.md").mkdir(parents=True)
+    _write_skill(root / "linux-perf", "linux-perf", "Profile Linux programs.")
+    assert [s.name for s in discover_skills(root)] == ["linux-perf"]
+
+
+def test_discovery_ignores_a_dangling_skill_md_symlink(tmp_path):
+    root = tmp_path / "catalog"
+    (root / "broken").mkdir(parents=True)
+    (root / "broken" / "SKILL.md").symlink_to(tmp_path / "missing.md")
     _write_skill(root / "linux-perf", "linux-perf", "Profile Linux programs.")
     assert [s.name for s in discover_skills(root)] == ["linux-perf"]
 

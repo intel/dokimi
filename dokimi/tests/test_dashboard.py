@@ -13,6 +13,8 @@ from dokimi.dashboard.aggregator import (
     ResultsAggregator,
 )
 from dokimi.dashboard.markdown_renderer import render_dashboard, save_dashboard_markdown, save_dashboard_json
+from dokimi.eval.stats import paired_summary
+from dokimi.records import records
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -63,6 +65,46 @@ def test_aggregator_finds_eval_files(tmp_path):
     assert p.avg_with_docs == 75.0
     assert p.avg_without_docs == 55.0
     assert p.avg_delta == 20.0
+
+
+# Two pairs, a question scored in the context arm only, one in the baseline arm only.
+_ONE_ARM_EVALS = [
+    _ev("q1", "Q1?", 80, 60), _ev("q2", "Q2?", 40, 40),
+    _ev("q3", "Q3?", 100, None), _ev("q4", "Q4?", None, 30),
+]
+
+
+def test_aggregator_averages_both_arms_over_the_complete_pairs(tmp_path):
+    """The snapshot's means are `report generate`'s, which leaves one-arm questions out."""
+    _make_eval_file(tmp_path, "oneTBB", _ONE_ARM_EVALS)
+    p = ResultsAggregator(tmp_path).aggregate().products[0]
+    s = paired_summary(records(_ONE_ARM_EVALS, kind="evaluations"))
+    assert (p.avg_with_docs, p.avg_without_docs, p.avg_delta) == (60.0, 50.0, 10.0)
+    assert (p.avg_with_docs, p.avg_without_docs, p.avg_delta) == (
+        round(s.with_mean, 1), round(s.without_mean, 1), round(s.delta_mean, 1))
+    assert p.total_questions == 4
+
+
+def test_by_source_averages_over_the_pairs_and_a_group_without_one_has_no_means(tmp_path):
+    """Each source row is over its own pairs; a group scored in one arm per question has none."""
+    chunk = [{**_ev("c1", "C1?", 90, None), "question_source": "chunk"},
+             {**_ev("c2", "C2?", None, 20), "question_source": "chunk"}]
+    _make_eval_file(tmp_path, "oneTBB", _ONE_ARM_EVALS + chunk)
+    p = ResultsAggregator(tmp_path).aggregate().products[0]
+    assert p.by_source["persona"] == {"count": 4, "grounded": 0, "avg_with_docs": 60.0,
+                                      "avg_without_docs": 50.0, "avg_delta": 10.0}
+    assert p.by_source["chunk"] == {"count": 2, "grounded": 0, "avg_with_docs": None,
+                                    "avg_without_docs": None, "avg_delta": None}
+    assert (p.avg_with_docs, p.avg_without_docs, p.avg_delta) == (60.0, 50.0, 10.0)
+
+
+def test_baseline_only_run_keeps_its_baseline_mean(tmp_path):
+    """No pair because no context arm ran: the baseline mean is still the score shown."""
+    _make_eval_file(tmp_path, "oneTBB", [_ev("q1", "Q1?", None, 60), _ev("q2", "Q2?", None, 40)])
+    p = ResultsAggregator(tmp_path).aggregate().products[0]
+    assert (p.avg_with_docs, p.avg_without_docs, p.avg_delta) == (None, 50.0, None)
+    assert p.doc_score == 50.0
+    assert p.status == "fair"
 
 
 def test_aggregator_multiple_products(tmp_path):

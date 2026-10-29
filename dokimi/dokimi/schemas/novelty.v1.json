@@ -448,9 +448,12 @@
         "llm_calls": {"type": "integer", "minimum": 0},
         "input_tokens": {"type": "integer", "minimum": 0},
         "output_tokens": {"type": "integer", "minimum": 0},
+        "cache_read_tokens": {"type": "integer", "minimum": 0},
+        "cache_write_tokens": {"type": "integer", "minimum": 0},
+        "replayed_calls": {"type": "integer", "minimum": 0, "description": "Calls served from the response cache; left out of the token and usd totals."},
         "usd": {
           "type": ["number", "null"],
-          "description": "null when any call had unknown pricing — distinct from a genuinely free run."
+          "description": "null when any call this run paid for had unknown pricing, a call returned no usage, or no call was made — distinct from a genuinely free run. Replayed calls are left out of the sum."
         },
         "by_role": {"type": "array", "items": {"type": "object"}}
       }

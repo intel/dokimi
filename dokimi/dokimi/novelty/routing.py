@@ -30,6 +30,7 @@ as a routing rate.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import random
@@ -39,6 +40,8 @@ from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 
+from dokimi.skills import Skill
+from dokimi.utils import parse_frontmatter
 
 from .client import LLMClient, parse_json_object
 
@@ -281,7 +284,7 @@ def model_routing(
                     prompt, accept=partial(_is_pick_reply, n_cards=len(order)), draw=repeat,
                 )
             except Exception as exc:  # noqa: BLE001 - one failed query must not lose the rest
-                row = {**base, "picked": None, "error": str(exc)[:200]}
+                row = {**base, "picked": None, "error": str(exc)[:200] or type(exc).__name__}
             else:
                 # A reply that is not a usable pick is the model declining to route, not a
                 # transport failure: it stays in the denominator like an explicit abstention,
@@ -422,6 +425,43 @@ def headings_as_queries(body: str, *, limit: int = 40) -> list[str]:
     return [h for h in headings if len(tokenize(h)) >= 2][:limit]
 
 
+def non_skill_reason(ref: str) -> str | None:
+    """Why a ``skill:`` reference names something other than a skill, or ``None``.
+
+    A shell glob over a skills directory hands the field every file beside the skills (a
+    ``.mjs`` helper, a ``registry.json``), and a directory with no ``SKILL.md`` in it is not a
+    skill either. Only ``skill:`` references are checked: a ``text:`` or plain path is a text
+    artifact, which is a legitimate competitor.
+    """
+    if not ref.startswith("skill:"):
+        return None
+    path = Path(ref.removeprefix("skill:"))
+    if path.is_file() and path.name != "SKILL.md":
+        return f"{path.name} is not a SKILL.md"
+    if path.is_dir() and not (path / "SKILL.md").is_file():
+        return "the directory has no SKILL.md"
+    return None
+
+
+def skill_file(ref: str) -> Path | None:
+    """The ``SKILL.md`` a ``skill:`` reference names, or ``None`` for any other reference."""
+    if not ref.startswith("skill:"):
+        return None
+    path = Path(ref.removeprefix("skill:"))
+    return path / "SKILL.md" if path.is_dir() else path
+
+
+def disables_model_invocation(skill_md: Path) -> bool:
+    """Whether a ``SKILL.md`` sets ``disable-model-invocation``, so no harness lists it.
+
+    The model cannot select such a skill, so a card for it measures a choice that does not
+    exist. The truthy spellings are the ones ``repos.budget`` reads, so the two agree.
+    """
+    meta, _body = parse_frontmatter(skill_md.read_text(encoding="utf-8"))
+    return str(meta.get("disable-model-invocation", "")).strip().lower() in (
+        "1", "true", "yes", "on")
+
+
 class RoutingInputError(ValueError):
     """A competitor field or query file in which selection is not a measurement."""
 
@@ -442,20 +482,98 @@ def load_candidate(ref: str) -> tuple[Candidate, str, str | None]:
     return Candidate(name=name or ref, description=description), body, warning
 
 
-def catalog_competitors(root: str, exclude: set[str]) -> list[Candidate]:
+def catalog_competitors(root: str, exclude: set[str],
+                        notes: list[str] | None = None, *,
+                        include_disabled: bool = False) -> list[Candidate]:
     """Every skill under ``root`` whose name is not in ``exclude``.
 
     The field a harness would list next to the artifact, rather than one the caller picks.
+    Skills come from the catalog reader, so a ``skills.yaml`` manifest decides which skills
+    the catalog has. A declared skill that cannot be loaded is left out and described in
+    ``notes`` (when given) rather than aborting the run. A skill with
+    ``disable-model-invocation`` is left out too, unless ``include_disabled``. A mirror, a
+    byte-identical ``SKILL.md`` under another path (a plugin copy of the ``skills/`` tree), is
+    left out too: the copy nearest the catalog root stands for the card.
 
     Raises:
-        ValueError: ``root`` is not a directory, or a skill under it cannot be loaded.
+        ValueError: ``root`` is not a directory, or its ``skills.yaml`` is invalid (with no
+            manifest every ``SKILL.md`` is read, and a broken one is skipped with a note).
+        RoutingInputError: Two skills in the field share a name with different content; the
+            message names both paths.
     """
-    from dokimi.skills import discover_skills
-
     if not Path(root).is_dir():
         raise ValueError(f"--catalog is not a directory: {root}")
-    return [Candidate(name=s.name, description=s.description)
-            for s in discover_skills(root) if s.name not in exclude]
+    eligible = _eligible_catalog_skills(root, exclude, notes, include_disabled)
+    _refuse_conflicting_names(eligible)
+    keeper = _keepers_by_copy(eligible)
+    candidates: list[Candidate] = []
+    for skill, digest in eligible:
+        if keeper[(skill.name, digest)] is not skill:
+            if notes is not None:
+                notes.append(f"left out catalog skill {skill.name!r} at {skill.path}: "
+                             f"identical to {keeper[(skill.name, digest)].path}")
+            continue
+        candidates.append(Candidate(name=skill.name, description=skill.description))
+    return candidates
+
+
+def _eligible_catalog_skills(root: str, exclude: set[str], notes: list[str] | None,
+                             include_disabled: bool) -> list[tuple[Skill, str]]:
+    """Each loadable, non-excluded catalog skill with the sha256 of its ``SKILL.md``."""
+    from dokimi.external.catalog import read_skill_manifest
+
+    eligible: list[tuple[Skill, str]] = []
+    for entry in read_skill_manifest(Path(root), notes):
+        skill = entry.skill
+        if skill is None or not entry.loaded:
+            if notes is not None:
+                notes.append(f"skipped catalog entry {entry.name!r}: {entry.error}")
+            continue
+        if skill.name in exclude:
+            continue
+        if not include_disabled and disables_model_invocation(skill.path):
+            if notes is not None:
+                notes.append(f"left out catalog skill {skill.name!r}: "
+                             "disable-model-invocation (--include-disabled keeps it)")
+            continue
+        eligible.append((skill, hashlib.sha256(skill.path.read_bytes()).hexdigest()))
+    return eligible
+
+
+def _refuse_conflicting_names(eligible: list[tuple[Skill, str]]) -> None:
+    """Two skills with one name and different bytes cannot both stand for the card.
+
+    check_field would only say "pass each competitor once", which is not the problem.
+    """
+    copies_by_name: dict[str, list[tuple[str, str]]] = {}
+    for skill, digest in eligible:
+        copies_by_name.setdefault(skill.name, []).append((skill.path.as_posix(), digest))
+    for name in sorted(copies_by_name):
+        copies = sorted(copies_by_name[name])
+        first_path, first_digest = copies[0]
+        other = next((path for path, digest in copies if digest != first_digest), None)
+        if other is not None:
+            raise RoutingInputError(
+                f"catalog has {name} at {first_path} and {other} with "
+                "different content; dedupe or rename"
+            )
+
+
+def _keepers_by_copy(eligible: list[tuple[Skill, str]]) -> dict[tuple[str, str], Skill]:
+    """The copy with the fewest path parts stands for each group of identical copies.
+
+    A group is one name with one digest: two skills with identical text but different names
+    (``skills/a`` and ``skills/b`` without a frontmatter name) are two cards, not copies.
+    Ties go to the path that sorts first, so the choice does not depend on directory order.
+    """
+    keeper: dict[tuple[str, str], Skill] = {}
+    for skill, digest in eligible:
+        group = (skill.name, digest)
+        best = keeper.get(group)
+        if best is None or (len(skill.path.parts), skill.path.as_posix()) < (
+                len(best.path.parts), best.path.as_posix()):
+            keeper[group] = skill
+    return keeper
 
 
 def check_field(gold: Candidate, competitors: list[Candidate]) -> None:
@@ -493,13 +611,16 @@ def load_queries(path: str) -> list[str]:
     Blank queries are dropped, so the result can be empty.
 
     Raises:
-        RoutingInputError: The file holds something other than a list of strings. A file
-            that cannot be read raises as reading it does.
+        RoutingInputError: The file cannot be read (missing, unreadable or not UTF-8), or
+            holds something other than a list of strings.
     """
-    raw = Path(path).read_text(encoding="utf-8-sig")
+    try:
+        raw = Path(path).read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise RoutingInputError(f"cannot read --queries {path}: {exc}") from None
     try:
         data = json.loads(raw)
-    except json.JSONDecodeError:
+    except (ValueError, RecursionError):  # JSONDecodeError is a ValueError
         data = None
     if not isinstance(data, (list, dict)):      # one-per-line, e.g. "[urgent] build fails"
         data = raw.splitlines()

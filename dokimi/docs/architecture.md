@@ -73,7 +73,7 @@ points up:
 | tracks | `runner`, `report`, `subjects`, `novelty`, `harnesses`, `context`, `repos`, `explore`, `tool_preference`, `external`, `dashboard`, `orchestrator`, `datasets_export`, `coverage`, `task_formats`, and the checkers `config_check`, `schema_check`, `schema_compat` |
 | evaluation | `eval`, `personas`, `questions`, `treatments`, `plugins` |
 | components | `ingest`, `metrics`, `gate`, `mcp`, `skills`, `agent_profiles` |
-| foundation | `__init__` (the `dokimi` package itself), `_version`, `artifacts`, `records`, `llm`, `process`, `caching`, `config`, `registry`, `intents`, `defaults`, `console`, `utils`, `metrics/usage.py` |
+| foundation | `__init__` (the `dokimi` package itself), `_version`, `artifacts`, `records`, `llm`, `process`, `container_policy`, `caching`, `config`, `registry`, `intents`, `defaults`, `console`, `utils`, `metrics/usage.py` |
 
 So `report` (a track) can call `gate` (a component), and `gate` cannot import
 `report`. The sections below follow the tracks, not the layers.
@@ -334,15 +334,21 @@ next release.
   interval, grader failures, missing cells, cost).
 - `dokimi/repos/compare.py` — `repo compare`: treatment arms against a
   baseline arm over one or more batches, one value per task and arm (gate
-  share, score, cost, turns, chosen `grade.json` metrics), with an interval
+  share, score, cost, turns, chosen `grade.json` metrics, `result.json`
+  `process` counts), with an interval
   over tasks (bootstrap for gate and score, t for the rest), a sign-flip
   permutation p and Holm's correction.
 - `dokimi/repos/selfcheck.py` — `repo tasks check`: on each task
   `grade` must fail the untouched workspace and pass it after `oracle`, and an
   isolation probe must not see the tasks or the source from the agent's
   container.
+- `dokimi/repos/replay/` — `repo tasks replay`: one `dokimi:review_replay`
+  task per merged pull request of a threads file `gh api graphql` wrote (the
+  change as reviewed, gold from the reviewers' threads on its lines, and
+  `addressed` from the PR's own later commits), read with git and no GitHub
+  call. It is the one command that writes into a repository's tasks directory.
 
-Entry points: `python cli.py repo {validate,scan,fetch,reach,budget,tasks check,run,report}`
+Entry points: `python cli.py repo {validate,scan,fetch,reach,budget,tasks check,tasks replay,run,report}`
 (`python cli.py repo --help` is the current list). The interface a repository
 codes against is [repo-evaluation-contract.md](repo-evaluation-contract.md),
 still marked PROPOSED: the per-host egress proxy (§2) is not implemented, so
@@ -377,6 +383,11 @@ tokens, one call per message id), the compaction events, tool-result sizes and
 failures per tool, and repeated tool calls. `python cli.py context trace`
 prints one or more traces as a comparison table; it calls no model. Guide:
 [context-window.md](context-window.md).
+`dokimi/context/consistency.py` reads repeated runs of one task into three
+separate profiles: result (`pass@k`, `pass^k`), path (tool-mix JSD, edit
+distance of tool and action sequences, resource spread, strategy groups) and
+conformance to a YAML process contract; `python cli.py context consistency`.
+Guide: [run-consistency.md](run-consistency.md).
 
 ## Shared building blocks
 

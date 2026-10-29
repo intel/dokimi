@@ -10,8 +10,6 @@ import sys
 import json
 from pathlib import Path
 
-from dokimi.report.markdown_report import write_compare_report, write_run_report
-
 
 def _write_combined_report(args, regular_runs, golden_runs, run_ids, warnings) -> None:
     """Write the combined model-compare report, exiting cleanly if the output is unwritable."""
@@ -89,17 +87,6 @@ def cmd_report_model_compare(args: argparse.Namespace) -> None:
     _write_combined_report(args, regular_runs, golden_runs, run_ids, all_warnings)
 
 
-def cmd_report(args: argparse.Namespace) -> None:
-    """Generate markdown report from JSON snapshot."""
-    data = json.loads(Path(args.input).read_text(encoding="utf-8"))
-    out_md = Path(args.out_md).resolve()
-
-    if "diff" in data:
-        write_compare_report(data, out_md)
-    else:
-        write_run_report(data, out_md)
-
-
 def cmd_report_eval(args: argparse.Namespace) -> None:
     """Generate quality report from eval JSON (dynamic vs static breakdown)."""
     from dokimi.records import RecordError
@@ -135,6 +122,12 @@ def cmd_report_generate(args: argparse.Namespace) -> None:
     except ValueError as exc:  # not UTF-8 or not JSON
         print(f"Error: {args.eval} is not valid JSON: {exc}", file=sys.stderr)
         raise SystemExit(1) from None
+    # Every --format: a report of no evaluations has nothing to show, and an empty
+    # eval means the run that wrote it judged nothing.
+    evaluations = eval_data.get("evaluations", []) if isinstance(eval_data, dict) else eval_data
+    if isinstance(evaluations, list) and not evaluations:  # {}, {"evaluations": []}, []
+        print(f"Error: --eval {args.eval} holds no evaluations", file=sys.stderr)
+        raise SystemExit(1)
     if not isinstance(eval_data, dict):
         print(f"Error: {args.eval} must hold a JSON object", file=sys.stderr)
         raise SystemExit(1)

@@ -507,7 +507,11 @@ under several judges (absolute, and with `--grounded` against each question's
 measures, and labels each arm `CONSISTENT ±`, `LEANING ±`, `JUDGE-DEPENDENT` or
 `NO DETECTABLE EFFECT`, on Holm-adjusted p over the measures that vote, or
 `NOT MEASURED` when no voting measure compared a single question (every call
-errored, or every judge was gated out); `--strict` exits 1 on that too. With
+errored, or every judge was gated out); `--strict` exits 1 on that too. A
+`--judges` judge that leaves answers unscored prints how many and its first
+error, which the report keeps under `unscored`; one that scored none of its
+answers exits 2 once the report is written, with or without `--strict`, as
+`eval pairwise` does when every comparison fails. With
 `--validity` reports, a judge that failed its gate is shown but does not vote
 (its grounded and checklist measures included, in any context);
 `--require-validated` leaves only judges that passed. The stored measure is
@@ -564,7 +568,9 @@ The intended input is one judged arms JSON file per model for regular questions
 and/or golden questions. The report extracts the `baseline_arm` score as the
 baseline and the treatment arm as the context arm, then computes:
 
-- overall context-arm, baseline, and delta per run,
+- overall context-arm, baseline, and delta per run, all three over the questions
+  scored in both arms (a run that scored one arm only shows that arm's mean); the
+  context mean and delta of each difficulty row follow the same rule,
 - statistical significance of context-arm minus baseline (paired t-test,
   Wilcoxon signed-rank, Cohen's d_z), corrected across the compared runs \u2014
   every run tests the same "did the treatment help?" question, so they form one
@@ -754,7 +760,10 @@ that never hits.
 
 A replayed entry reports the **stored** usage record — tokens, cost and latency
 as measured when the call was really made, not `$0`/`0s`, so cost stays
-comparable across runs. The flip side: latency from a cached run is a recording,
+comparable across runs. The run's `cost` totals (`novelty analyze`, `novelty
+routing --model`) are what this run spent, so they leave replayed records out of
+the token and `usd` sums and count them in `replayed_calls`; `llm_calls` still
+counts them. The flip side: latency from a cached run is a recording,
 not a measurement. That is why this cache is opt-in, and why it should stay off
 for any run whose latency numbers you intend to quote.
 

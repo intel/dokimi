@@ -30,7 +30,7 @@ measure the marginal value of any context-augmentation artifact:
 | `skill:<path>` | agent skill | injects a `SKILL.md` as context |
 | `agent[:source]` | **agentic** doc use | gives the model a doc-search tool; it decides when to call it |
 | `skill-agent:<path>` | **agentic** skill use | offers the skill via progressive disclosure |
-| `skill-catalog:<dir>` | **agentic** skill selection | offers every skill under `<dir>` (a `template/` copy and a byte-identical mirror that loads under the same skill name are left out); scores the one loaded against `expected_skill` |
+| `skill-catalog:<dir>` | **agentic** skill selection | offers every skill under `<dir>` (a `template/` copy, a byte-identical mirror that loads under the same skill name, and anything under a vendored or VCS directory such as `.git` or `node_modules` are left out); scores the one loaded against `expected_skill` |
 | `<spec1>+<spec2>[+...]` | **combined** treatment | merges multiple treatments into one arm (e.g., `docs+skill:path`) |
 
 The last two run through a tool-calling loop
@@ -290,7 +290,9 @@ artifact per cell, a `matrix_rollup.v1` JSON/Markdown report, and paired
 - **`skill-catalog:<dir>`** — skill selection. Every skill under `<dir>` is offered
   the same way, so the question is answered among its rivals. A `SKILL.md` under a
   `template/` or `templates/` directory, at any depth below `<dir>`, is not a skill and is
-  skipped (a real skill kept under such a directory is skipped too), and a `SKILL.md`
+  skipped (a real skill kept under such a directory is skipped too). Vendored and VCS
+  directories (`.git`, `.hg`, `.svn`, `node_modules`, `site-packages`, `.venv`, `venv`,
+  `.tox`, `.nox`, `__pycache__`) below `<dir>` are not walked, and no note says so. A `SKILL.md`
   byte-identical to another under `<dir>` that loads under the same skill name (a plugin's
   copy of `skills/`) is offered once. Questions that carry `expected_skill` are scored
   on the skill loaded first; see
@@ -580,6 +582,25 @@ uv run reach eval --skills <skills-checkout>/skills --queries trigger_set.json \
   --agent claude-code --model <model> -O skill_listing_budget_fraction=0.03 \
   --attempts 3 --workdir /tmp/reach-run --out eval.json -y
 uv run reach diff --vary description control.json treatment.json   # A/B vs noise floor
+```
+
+**Real harness, in dokimi: `catalog trigger-probe`.** Runs each query in a fresh
+`claude -p`: a new git repository with the catalog committed in `.claude/skills/`, a
+scratch `HOME` and `CLAUDE_CONFIG_DIR` (your own skills, settings and `CLAUDE.md` are not
+loaded; the model can still read any host path it has access to, the trigger set and its
+labels included), the query sent verbatim with no notice or task framing, and bundled skills
+left on as a user has them (`--sealed` turns them off). The skill chosen is read from the
+transcript's `Skill` calls, and the output's `skill_selection_summary` is scored by the
+same code as the `skill-catalog:` arm, one column per trial. `max_turns_hit` counts runs
+that ended on `--max-turns` (scored as no load), and the command exits 1 when Claude Code
+did not list a catalog skill (`not_listed`). When no run listed any skill, `not_listed`
+stays empty and a warning on stderr says it was not checked. A trigger set with no
+labelled query exits 2 before any run. Records are kept in `<out>.partial` while the
+probe runs:
+
+```bash
+python cli.py catalog trigger-probe --catalog <skills-checkout>/skills \
+  --trigger-set trigger_set.json --model <model> --trials 3 --out probe.json
 ```
 
 Two things decide whether such a number means anything:
