@@ -9,7 +9,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, Sequence
 
 from dokimi.defaults import (
     DEFAULT_CONCURRENCY,
@@ -20,6 +20,9 @@ from dokimi.defaults import (
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY
 from dokimi.utils import write_text_or_exit
+
+if TYPE_CHECKING:
+    from dokimi.eval.cross_judge import Measure
 
 
 def _read_json(path: str):
@@ -431,8 +434,24 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
     print()
     print(md)
     print(f"✅ Cross-judge report saved to {out} (+ .md)")
+    _scored_nothing_exit(report.unscored())
     if args.strict:
         _strict_cross_judge_exit(report.summary()["arms"], report.baseline_arm)
+
+
+def _scored_nothing_exit(unscored: Sequence[Measure]) -> None:
+    """Exit 2 when a ``--judges`` judge scored none of its answers.
+
+    That is a judge that could not run (no key, an unknown model, a dead endpoint),
+    not a measurement, so it fails the run even without ``--strict`` and even when
+    other measures still label every arm. A judge that scored some answers only warns.
+    """
+    dead = [m for m in unscored if m.unscored == m.asked]
+    for m in dead:
+        print(f"Error: {m.name} ({m.kind}) scored none of its {m.asked} answers, first error: {m.first_error}",
+              file=sys.stderr)
+    if dead:
+        sys.exit(2)
 
 
 def _strict_cross_judge_exit(arms: dict[str, dict[str, Any]], baseline_arm: str) -> None:
