@@ -290,7 +290,8 @@ def _group_balance(seg: str) -> int:
     words = shell.tokens(seg)
     keywords = sum((w in _GROUP_CLOSES) - (w in _GROUP_OPENS)
                    for i, w in enumerate(words) if i == 0 or words[i - 1] in _GROUP_BEFORE)
-    return keywords + words.count(")") - words.count("(")
+    opens, closes = shell.parens(seg)
+    return keywords + closes - opens
 
 
 def _background_start(parts: list[tuple[str, str]], k: int) -> int:

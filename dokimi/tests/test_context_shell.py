@@ -189,6 +189,8 @@ LAST_OK = parse_contract({"actions": {"test": {"tool": "Bash", "command": "pytes
     # a trailing `&` backgrounds the whole list or group it ends, and nothing before it
     ("{ pytest -q; } &", True), ("if x; then pytest -q; fi &", True), ("make && { pytest -q; } &", True),
     ("(cd sub; pytest -q) &", True), ("{ pytest -q && git diff; }; echo done", True),
+    ('set -e; { pytest -q; echo ")"; } &', True), (r"set -e; { pytest -q; echo \); } &", True),
+    ('set -e; (pytest -q; echo "\\"(") &', True),
 ])
 def test_a_later_command_hides_the_status_of_an_earlier_one(command, hidden):
     for grain in ("split", "call"):

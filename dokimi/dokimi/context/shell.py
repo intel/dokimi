@@ -197,6 +197,25 @@ def _mask(text: str) -> str:
     return "".join(out)
 
 
+def parens(segment: str) -> tuple[int, int]:
+    """How many ``(`` and ``)`` a segment has outside quotes, ``$(...)``, backticks and backslashes:
+    the subshells it opens and closes (``(cd sub``, ``make)``)."""
+    opens = closes = 0
+    quote, escaped = "", False
+    for ch in _mask(segment):
+        if escaped:
+            escaped = False
+        elif ch == "\\" and quote != "'":
+            escaped = True
+        elif quote:
+            quote = "" if ch == quote else quote
+        elif ch in "'\"":
+            quote = ch
+        else:
+            opens, closes = opens + (ch == "("), closes + (ch == ")")
+    return opens, closes
+
+
 def clean(segment: str) -> str:
     """The command of a segment without the compound-command syntax around it:
     ``do black $f`` -> ``black $f``, ``(cd sub`` -> ``cd sub``, ``make) 2>&1`` -> ``make 2>&1``; a
