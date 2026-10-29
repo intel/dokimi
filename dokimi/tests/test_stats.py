@@ -729,6 +729,11 @@ def test_arm_significance_includes_an_arm_with_two_pairs():
     assert all(sig["n"] == 2 for sig in res.values())
 
 
+def test_arm_significance_leaves_out_an_arm_with_fewer_than_two_pairs():
+    assert stats.arm_significance(_factorial_evaluations()[:1], "baseline") == {}
+    assert stats.arm_significance([], "baseline") == {}
+
+
 def test_arm_significance_correction_changes_the_adjusted_p():
     pytest.importorskip("scipy")
     holm = stats.arm_significance(_factorial_evaluations(), "baseline")
