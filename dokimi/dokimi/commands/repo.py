@@ -238,6 +238,16 @@ def _check_reach_flags(args: argparse.Namespace, kinds: tuple[str, ...]) -> None
         raise ReachError(f"--budget must be > 0, got {args.budget:g}")
 
 
+def _tree_read_exit_code(exc: Exception) -> int:
+    """Reading the manifest or the probed files: a path that leaves the tree, a bad manifest or a bad
+    scenario selection is a usage error (2); a failed `git show` or ls-tree is a fetch failure (1)."""
+    from dokimi.repos import SourceError
+    from dokimi.repos.source import SourceArgumentError
+
+    git_failure = isinstance(exc, SourceError) and not isinstance(exc, SourceArgumentError)
+    return 1 if git_failure else EXIT_USAGE
+
+
 def cmd_repo_reach(args: argparse.Namespace) -> None:
     """L1 reach probe: which guidance files one harness/version/model loads."""
     from dokimi.repos import ManifestError, RepoSource, SourceError, open_source
@@ -286,7 +296,7 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
             raise ReachError("no scenario selected (check --scenarios and --only)")
     except (SourceError, ManifestError, ReachError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        sys.exit(_tree_read_exit_code(exc))
     print(f"{len(files)} guidance files, {planned_count} scenarios, "
           f"at most ${args.budget:g} each", file=sys.stderr)
     out_dir = Path(args.out)

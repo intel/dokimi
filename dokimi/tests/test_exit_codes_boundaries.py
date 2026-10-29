@@ -246,7 +246,10 @@ def test_repo_manifest_path_leaving_the_tree_exits_2_with_a_message(command, tmp
     assert "path escapes the repository" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("command", ["validate", "scan"])
+REACH_ARGS = ["--harness", "claude-code", "--model", "m", "--out", "reach-out"]
+
+
+@pytest.mark.parametrize("command", ["validate", "scan", "reach"])
 def test_repo_manifest_read_that_fails_in_git_keeps_exit_1(command, tmp_path, monkeypatch, capsys):
     # A `git show` that fails while the manifest is read (a blob fetched lazily from origin that is gone)
     # is a fetch failure, not a bad manifest path: exit 1, as on main.
@@ -256,7 +259,8 @@ def test_repo_manifest_read_that_fails_in_git_keeps_exit_1(command, tmp_path, mo
     repo = tmp_path / "repo"
     repo.mkdir()
     monkeypatch.setattr("dokimi.commands.repo._load_manifest", failing_load)
-    err = _expect_exit(monkeypatch, capsys, 1, "repo", command, str(repo))
+    extra = [*REACH_ARGS[:-1], str(tmp_path / "reach-out")] if command == "reach" else []
+    err = _expect_exit(monkeypatch, capsys, 1, "repo", command, str(repo), *extra)
     assert "git show failed" in err
 
 
