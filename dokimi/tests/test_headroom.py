@@ -167,6 +167,24 @@ def test_floor_needs_a_non_baseline_arm_that_scored():
     assert _flags(headroom([_run([("1", {"baseline": 0, "skill": None})])])) == {"1": None}
 
 
+def test_a_given_no_skill_arm_replaces_the_declared_baseline():
+    # The runs declare "baseline"; the caller reads "skill" as the control. Every verdict follows "skill".
+    runs = [_run([("1", {"baseline": 10, "skill": 95}), ("2", {"baseline": 30, "skill": 0}),
+                  ("3", {"baseline": 0, "skill": 0}), ("4", {"baseline": 40, "skill": None})])
+            for _ in range(2)]
+    runs.append(_run([("1", {"baseline": 10, "skill": None}), ("2", {"baseline": 30, "skill": 0}),
+                      ("3", {"baseline": 0, "skill": 0}), ("4", {"baseline": 40, "skill": None})]))
+    declared = headroom(runs)
+    assert declared["no_skill_arm"] == "baseline" and _flags(declared) == {"1": None, "2": None, "3": FLOOR, "4": None}
+    given = headroom(runs, no_skill_arm="skill")
+    assert given["no_skill_arm"] == "skill"
+    assert _flags(given) == {"1": CEILING, "2": None, "3": FLOOR, "4": None}
+    by_id = {i["question_id"]: i for i in given["items"]}
+    assert (by_id["1"]["no_skill"], by_id["1"]["reps"], by_id["1"]["provisional"]) == (0.95, 2, True)
+    assert (by_id["2"]["reps"], by_id["2"]["provisional"]) == (3, False)
+    assert (by_id["4"]["no_skill"], by_id["4"]["reps"]) == (None, 0)
+
+
 def test_unknown_no_skill_arm_is_refused_and_lists_the_arms():
     # A mistyped arm used to read as "no ceiling anywhere" with exit 0.
     run = _run([("1", {"baseline": 99, "skill": 99})])
@@ -260,7 +278,13 @@ def test_runs_that_declare_different_baselines_need_an_explicit_arm():
     b = _run([("1", {"control": 50, "skill": 50})], baseline="control")
     with pytest.raises(ValueError, match="--no-skill-arm"):
         headroom([a, b])
-    assert headroom([a, b], no_skill_arm="baseline")["no_skill_arm"] == "baseline"
+    result = headroom([a, b], no_skill_arm="baseline")
+    assert result["no_skill_arm"] == "baseline" and result["runs"] == 2
+    item = result["items"][0]
+    # "baseline" was scored in run a only, so one rep; "control" is just another arm here.
+    assert (item["reps"], item["provisional"], item["no_skill"], item["flag"]) == (1, True, 0.5, None)
+    assert item["arms"] == {"baseline": 0.5, "control": 0.5, "skill": 0.5}
+    assert headroom([a, b], no_skill_arm="control")["items"][0]["reps"] == 1
 
 
 def test_table_notes_the_arms_no_run_scored():
