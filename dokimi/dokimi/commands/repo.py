@@ -170,19 +170,35 @@ def cmd_repo_fetch(args: argparse.Namespace) -> None:
     from dokimi.repos import RepoSource, SourceError, open_source
     from dokimi.repos.source import GitTree
 
-    try:
+    try:  # the source as typed: a usage error
         source = RepoSource.parse(args.source)
         if source.rev is None:
             raise SourceError("fetch needs a pinned source: <url-or-path>@<rev>")
-        tree = open_source(source, _cache_dir(args))
     except SourceError as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
+    try:  # the clone and fetch: a runtime failure (network, git, unknown revision)
+        tree = open_source(source, _cache_dir(args))
+    except SourceError as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(1)
     assert isinstance(tree, GitTree)
     if args.json:
         print(json.dumps({"sha": tree.sha, "git_dir": str(tree.git_dir)}, indent=2))
     else:
         print(f"{tree.sha}\t{tree.git_dir}")
+
+
+def _check_reach_flags(args: argparse.Namespace, kinds: tuple[str, ...]) -> None:
+    """Refuse a flag that would drop a scenario kind silently, or spend a budget that is not one."""
+    from dokimi.repos.reach import ReachError
+
+    # A typo would otherwise drop a scenario kind silently and still spend the budget.
+    unknown_kinds = sorted(set(kinds) - {"root", "cwd", "read"})
+    if unknown_kinds:
+        raise ReachError(f"unknown --scenarios kind(s) {', '.join(unknown_kinds)} (known: root, cwd, read)")
+    if not math.isfinite(args.budget) or args.budget <= 0:
+        raise ReachError(f"--budget must be > 0, got {args.budget:g}")
 
 
 def cmd_repo_reach(args: argparse.Namespace) -> None:
@@ -201,15 +217,19 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
 
     kinds = tuple(k.strip() for k in args.scenarios.split(",") if k.strip())
     only = tuple(args.only or ())
-    try:
-        # A typo would otherwise drop a scenario kind silently and still spend the budget.
-        unknown_kinds = sorted(set(kinds) - {"root", "cwd", "read"})
-        if unknown_kinds:
-            raise ReachError(f"unknown --scenarios kind(s) {', '.join(unknown_kinds)} (known: root, cwd, read)")
-        if not math.isfinite(args.budget) or args.budget <= 0:
-            raise ReachError(f"--budget must be > 0, got {args.budget:g}")
+    try:  # the arguments as typed: a usage error
+        _check_reach_flags(args, kinds)
         profile = load_profile(args.harness)
-        tree = open_source(RepoSource.parse(args.source), _cache_dir(args))
+        source = RepoSource.parse(args.source)
+    except (SourceError, ProfileError, ReachError) as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+    try:  # the clone and fetch: a runtime failure
+        tree = open_source(source, _cache_dir(args))
+    except SourceError as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(1)
+    try:  # the manifest and the scenarios it selects: a usage error
         manifest = _load_manifest(tree, args, guidance_default=True)
         files = probe_files(tree, manifest, profile)
         available = [s.id for s in scenarios(files, kinds)]
@@ -223,18 +243,22 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
         planned_count = len(scenarios(files, kinds, only))
         if not planned_count:
             raise ReachError("no scenario selected (check --scenarios and --only)")
-        print(f"{len(files)} guidance files, {planned_count} scenarios, "
-              f"at most ${args.budget:g} each", file=sys.stderr)
-        out_dir = Path(args.out)
+    except (SourceError, ManifestError, ReachError) as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+    print(f"{len(files)} guidance files, {planned_count} scenarios, "
+          f"at most ${args.budget:g} each", file=sys.stderr)
+    out_dir = Path(args.out)
+    try:  # the harness runs: a runtime failure
         payload = run_reach(
             tree=tree, manifest=manifest, profile=profile, model=args.model, out_dir=out_dir,
             bin_path=args.bin, work_dir=Path(args.work_dir) if args.work_dir else None, kinds=kinds,
             only=only, salt=args.salt, max_turns=args.max_turns, budget_usd=args.budget,
             timeout_s=args.timeout, keep=args.keep,
         )
-    except (SourceError, ManifestError, ProfileError, ReachError) as exc:
+    except ReachError as exc:
         print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        sys.exit(1)
     path = save_reach(payload, out_dir)
     print(format_matrix(payload))
     print(f"wrote {path}")

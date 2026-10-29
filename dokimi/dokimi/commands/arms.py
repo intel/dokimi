@@ -6,11 +6,13 @@
 from __future__ import annotations
 
 import argparse
-import functools
 from collections import Counter
+from dataclasses import dataclass
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
+from dokimi.commands.arms_sampling import _check_sampling_support, _probe_sampling
 from dokimi.utils import question_id
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
@@ -20,6 +22,10 @@ from dokimi.defaults import (
     JUDGE_MODEL_FOR_PROVIDER,
     JUDGE_MODEL_HELP,
 )
+
+if TYPE_CHECKING:
+    from dokimi.eval import Judge, JudgePanel
+    from dokimi.eval.arm_runner import ArmRunner
 
 # Run-configuration fields the arms commands read off parsed args, shared with
 # any other command that drives an arms run by constructing its own Namespace.
@@ -86,12 +92,20 @@ def cmd_arms_run(args: argparse.Namespace) -> None:
         specs = _parse_arm_specs(args.arms)
         questions = _load_questions(args.questions)
         _apply_named_matrix_cell(args)
-        output = _build_arms_output(args, specs, questions)
+        setup = _prepare_arms(args, specs, questions)
     except EmptyQuestionError:
         raise  # a bad input record, not an arm setup error: cli.main reports it (exit 2)
     except (ValueError, FileNotFoundError) as exc:
         print(f"Error building arms/plugins: {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
+    try:
+        output = _run_arms(args, setup, questions)
+    except EmptyQuestionError:
+        raise
+    except (ValueError, FileNotFoundError) as exc:
+        # The run itself failed (a record, a model call, a judge): a runtime failure, exit 1.
+        print(f"Error running arms: {exc}", file=sys.stderr)
+        sys.exit(1)
 
     out_json = Path(args.out_json) if args.out_json else Path(f"results/arms/{args.product}.json")
     out_md = Path(args.out_md) if args.out_md else Path(f"results/arms/{args.product}.md")
@@ -561,52 +575,80 @@ def _apply_matrix_cell(args: argparse.Namespace, matrix_cell) -> None:
     args.plugins = ",".join(matrix_cell.plugin_specs)
 
 
-def _check_sampling_support(args: argparse.Namespace) -> None:
-    """Reject sampling flags the answer provider would refuse on every answer."""
-    from dokimi.llm import unsupported_sampling_params
-
-    bad = unsupported_sampling_params(
-        args.model, args.provider,
-        temperature=getattr(args, "temperature", None),
-        seed=getattr(args, "seed", None),
-    )
-    if bad:
-        raise ValueError(
-            f"Provider '{args.provider}' does not support {', '.join(bad)} for "
-            f"model '{args.model}'. Drop the flag(s); every answer would "
-            "otherwise fail and the report would show null scores."
-        )
-    _probe_sampling(args.model, args.provider,
-                    getattr(args, "temperature", None), getattr(args, "seed", None))
-
-
-@functools.lru_cache(maxsize=None)
-def _probe_sampling(model: str, provider: str, temperature, seed) -> None:
-    """One short real call with the requested sampling, so a value the provider
-    rejects (gpt-5 accepts only temperature=1) fails before the run, not per answer."""
-    if temperature is None and seed is None:
-        return
-    from dokimi.llm import llm_call_with_usage
-
-    try:
-        llm_call_with_usage("Reply with OK.", model=model, provider=provider,
-                            max_tokens=16, temperature=temperature, seed=seed)
-    except Exception as exc:
-        raise ValueError(
-            f"Probe call to '{provider}/{model}' with temperature={temperature}, "
-            f"seed={seed} failed, so every call in the run would too: {exc}"
-        ) from exc
-
-
 def _refuse_judged_session(args: argparse.Namespace) -> None:
     """Refused before any answer is paid for: a session is measured, not judged."""
     if getattr(args, "session_turns", None) is not None and args.judge:
         raise ValueError("--session-turns is measurement-only; drop --judge")
 
 
-def _build_arms_output(args: argparse.Namespace, specs: list[str], questions: list[dict]) -> dict:
+@dataclass
+class _ArmsSetup:
+    """What a run needs, built and checked before any answer is paid for."""
+
+    runner: ArmRunner
+    judge: Judge | JudgePanel | None
+    # (model, provider, temperature, seed) of each real call that checks the sampling flags, answer side first
+    probes: list[tuple[str, str, float | None, int | None]]
+    library_id: str | None
+
+
+def _check_judge_inputs(args: argparse.Namespace, questions: list[dict]) -> tuple[str, str, float | None, None]:
+    """The judge's refusals, before any answer is paid for. Returns the judge's probe call."""
+    from dokimi.eval.question_text import require_question_text
+    from dokimi.llm import unsupported_sampling_params
+    from dokimi.utils import bedrock_litellm_model
+
+    # The judge refuses a blank question; here, that is before any answer is paid for.
+    # Every question is answered and then judged, so every one is checked.
+    for i, q in enumerate(questions):
+        require_question_text(q, i)
+    judge_model = args.judge_model
+    if args.judge_provider == "amazon-bedrock" and not getattr(args, "judge_panel", None):
+        # A single Bedrock judge goes through get_llm, which maps a bare name first.
+        judge_model = bedrock_litellm_model(args.judge_model)
+    bad_judge = unsupported_sampling_params(
+        judge_model, args.judge_provider,
+        temperature=getattr(args, "judge_temperature", None),
+    )
+    if bad_judge:
+        raise ValueError(
+            f"Judge provider '{args.judge_provider}' does not support "
+            f"{', '.join(bad_judge)} for model '{args.judge_model}'. Drop the "
+            "flag; every score would otherwise be null."
+        )
+    return (judge_model, args.judge_provider, getattr(args, "judge_temperature", None), None)
+
+
+def _build_judge(args: argparse.Namespace) -> Judge | JudgePanel | None:
+    """A judge, a panel, or None. An unknown panel role raises here, before any answer."""
     from dokimi.eval import Judge, JudgePanel
     from dokimi.eval.panel import JUDGE_ROLES, JudgeConfig
+
+    if not args.judge:
+        return None
+    panel_roles = [r.strip() for r in (getattr(args, "judge_panel", "") or "").split(",") if r.strip()]
+    if not panel_roles:
+        return Judge(model=args.judge_model, provider=args.judge_provider,
+                     temperature=getattr(args, "judge_temperature", None))
+    unknown = [r for r in panel_roles if r not in JUDGE_ROLES]
+    if unknown:
+        raise ValueError(
+            f"Unknown --judge-panel role(s): {', '.join(unknown)}. "
+            f"Available: {', '.join(JUDGE_ROLES)}"
+        )
+    # A panel reports grader spread and agreement per answer, which a
+    # single judge structurally cannot — judge choice alone moves scores.
+    return JudgePanel(
+        judges=[
+            JudgeConfig(role=r, model=args.judge_model, provider=args.judge_provider,
+                        temperature=getattr(args, "judge_temperature", None))
+            for r in panel_roles
+        ],
+    )
+
+
+def _prepare_arms(args: argparse.Namespace, specs: list[str], questions: list[dict]) -> _ArmsSetup:
+    """Setup and validation: a value that cannot be used is a ValueError, raised before any call."""
     from dokimi.eval.arm_runner import ArmRunner
     from dokimi.plugins import (
         create_plugins,
@@ -635,57 +677,11 @@ def _build_arms_output(args: argparse.Namespace, specs: list[str], questions: li
         print(f"Plugins: {plugin_set['plugin_set']} ({plugin_set['plugin_set_id']})")
 
     _check_sampling_support(args)
+    probes = [(args.model, args.provider, getattr(args, "temperature", None), getattr(args, "seed", None))]
     if args.judge:
-        from dokimi.eval.question_text import require_question_text
-
-        # The judge refuses a blank question; here, that is before any answer is paid for.
-        # Every question is answered and then judged, so every one is checked.
-        for i, q in enumerate(questions):
-            require_question_text(q, i)
-        from dokimi.llm import unsupported_sampling_params
-        from dokimi.utils import bedrock_litellm_model
-
-        judge_model = args.judge_model
-        if args.judge_provider == "amazon-bedrock" and not getattr(args, "judge_panel", None):
-            # A single Bedrock judge goes through get_llm, which maps a bare name first.
-            judge_model = bedrock_litellm_model(args.judge_model)
-        bad_judge = unsupported_sampling_params(
-            judge_model, args.judge_provider,
-            temperature=getattr(args, "judge_temperature", None),
-        )
-        if bad_judge:
-            raise ValueError(
-                f"Judge provider '{args.judge_provider}' does not support "
-                f"{', '.join(bad_judge)} for model '{args.judge_model}'. Drop the "
-                "flag; every score would otherwise be null."
-            )
-        _probe_sampling(judge_model, args.judge_provider,
-                        getattr(args, "judge_temperature", None), None)
-
+        probes.append(_check_judge_inputs(args, questions))
     # Built before any answer is paid for: an unsupported judge provider raises here.
-    judge: Judge | JudgePanel | None = None
-    if args.judge:
-        panel_roles = [r.strip() for r in (getattr(args, "judge_panel", "") or "").split(",") if r.strip()]
-        if panel_roles:
-            unknown = [r for r in panel_roles if r not in JUDGE_ROLES]
-            if unknown:
-                raise ValueError(
-                    f"Unknown --judge-panel role(s): {', '.join(unknown)}. "
-                    f"Available: {', '.join(JUDGE_ROLES)}"
-                )
-            # A panel reports grader spread and agreement per answer, which a
-            # single judge structurally cannot — judge choice alone moves scores.
-            judge = JudgePanel(
-                judges=[
-                    JudgeConfig(role=r, model=args.judge_model,
-                                provider=args.judge_provider,
-                                temperature=getattr(args, "judge_temperature", None))
-                    for r in panel_roles
-                ],
-            )
-        else:
-            judge = Judge(model=args.judge_model, provider=args.judge_provider,
-                          temperature=getattr(args, "judge_temperature", None))
+    judge = _build_judge(args)
 
     runner = ArmRunner(
         treatments,
@@ -703,10 +699,25 @@ def _build_arms_output(args: argparse.Namespace, specs: list[str], questions: li
         session_turns=getattr(args, "session_turns", None),
         turn_reminder=getattr(args, "turn_reminder", None),
     )
+    return _ArmsSetup(runner=runner, judge=judge, probes=probes, library_id=library_id)
+
+
+def _build_arms_output(args: argparse.Namespace, specs: list[str], questions: list[dict]) -> dict:
+    """Setup and run in one call, for the matrix path; cmd_arms_run calls the two halves itself."""
+    return _run_arms(args, _prepare_arms(args, specs, questions), questions)
+
+
+def _run_arms(args: argparse.Namespace, setup: _ArmsSetup, questions: list[dict]) -> dict:
+    from dokimi.eval import JudgePanel
+
+    runner, judge = setup.runner, setup.judge
+    for model, provider, temperature, seed in setup.probes:
+        # Real model calls, still before the first answer: a sampling value the provider refuses fails here.
+        _probe_sampling(model, provider, temperature, seed)
     records = runner.run(
         library_name=args.product,
         questions=questions,
-        library_id=library_id,
+        library_id=setup.library_id,
         concurrency=args.concurrency,
     )
 

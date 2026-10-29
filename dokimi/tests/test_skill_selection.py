@@ -460,7 +460,7 @@ def test_trigger_set_cli_checks_each_source_and_inputs(tmp_path, catalog, capsys
     named = _qfile(tmp_path, "named.json", [{"id": "3", "text": "use linux-perf here"}])
     with pytest.raises(SystemExit) as exc:
         _run_cli(base + ["--strict", "--questions", f"{named}=linux-perf"])
-    assert exc.value.code == 1 and not out.exists()
+    assert exc.value.code == 2 and not out.exists()
 
 
 def test_trigger_set_cli_writes_each_format(tmp_path, catalog, capsys):
@@ -682,7 +682,7 @@ def test_trigger_set_cli_strict_rejects_unresolved_labels(tmp_path, catalog, cap
     out.unlink()
     with pytest.raises(SystemExit) as exc:
         _run_cli(_ts(catalog, out, "--strict", "--questions", f"{q}=@metadata.s"))
-    assert exc.value.code == 1 and not out.exists()
+    assert exc.value.code == 2 and not out.exists()
 
 
 def test_trigger_set_cli_rejects_questions_without_text(tmp_path, catalog):

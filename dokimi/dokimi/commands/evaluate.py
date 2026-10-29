@@ -21,7 +21,7 @@ from dokimi.defaults import (
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY, NoUsablePairs
 from dokimi.utils import normalize_model_ref, write_text_or_exit
-from dokimi.exit_codes import EXIT_USAGE, usage_exit
+from dokimi.exit_codes import EXIT_USAGE
 
 
 def _warn_judge_independence(
@@ -62,7 +62,7 @@ def _write_json_or_exit(path: Path, payload: dict, code: int = EXIT_USAGE) -> No
 def _require_ragas() -> None:
     """Exit before any model call when the ragas extra is not installed."""
     if importlib.util.find_spec("ragas") is None:
-        usage_exit("RAGAS meta-evaluation needs the ragas extra: pip install 'dokimi[ragas]'")
+        sys.exit("RAGAS meta-evaluation needs the ragas extra: pip install 'dokimi[ragas]'")
 
 
 def _run_ragas_eval(answers, output_path, args) -> None:

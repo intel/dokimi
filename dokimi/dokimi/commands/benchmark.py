@@ -149,10 +149,27 @@ def _check_golden_set(questions_root: str, key: str, refuse: Callable[[str], Non
         refuse(f"golden set invalid: {golden} ({exc})")
 
 
-def cmd_benchmark_preflight(args: argparse.Namespace) -> None:
-    """Validate the resolved benchmark plan without running LLM calls."""
+def _check_doc_source(plan: dict, entry: Any, refuse: Callable[[str], None], errors: list[str],
+                      warnings: list[str]) -> None:
+    """The doc source must build. A --doc-source value the factory rejects is a refusal (exit 2);
+    a source that cannot be built is a failed check (exit 1)."""
     from dokimi.mcp.factory import create_doc_source_client
 
+    try:
+        client = create_doc_source_client(plan["doc_source"])
+        if plan["doc_source"] == "context7" and getattr(entry, "context7_id", None):
+            print(f"  context7_id: {entry.context7_id}")
+        elif plan["doc_source"] == "context7":
+            warnings.append("context7 id not pinned; client will resolve by target name")
+        _ = client
+    except ValueError as exc:
+        refuse(f"doc source invalid: {plan['doc_source']} ({exc})")
+    except Exception as exc:  # the source cannot be reached or built: a failed check
+        errors.append(f"doc source check failed: {plan['doc_source']} ({exc})")
+
+
+def cmd_benchmark_preflight(args: argparse.Namespace) -> None:
+    """Validate the resolved benchmark plan without running LLM calls."""
     registry = _load_registry(args)
     try:
         entry = registry.get(args.library)
@@ -183,15 +200,7 @@ def cmd_benchmark_preflight(args: argparse.Namespace) -> None:
     except OSError as exc:
         refuse(f"output dir not writable: {plan['output_dir']} ({exc})")
 
-    try:
-        client = create_doc_source_client(plan["doc_source"])
-        if plan["doc_source"] == "context7" and getattr(entry, "context7_id", None):
-            print(f"  context7_id: {entry.context7_id}")
-        elif plan["doc_source"] == "context7":
-            warnings.append("context7 id not pinned; client will resolve by target name")
-        _ = client
-    except Exception as exc:  # pragma: no cover - defensive for plugin clients
-        errors.append(f"doc source invalid: {plan['doc_source']} ({exc})")
+    _check_doc_source(plan, entry, refuse, errors, warnings)
 
     if plan["questions_from"]:
         qf, questions, problem = _check_questions_from(plan["questions_from"], entry.key)
@@ -320,7 +329,7 @@ def cmd_benchmark_batch(args: argparse.Namespace) -> None:
 
     if not entries:
         print("No libraries to run.", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
 
     print(f"Batch run: {len(entries)} libraries → {args.output_dir}")
     results = []

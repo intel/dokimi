@@ -335,7 +335,8 @@ def _preflight_with_doc_source(monkeypatch, tmp_path, *extra):
     monkeypatch.setattr(benchmark, "_load_registry", lambda args: _Registry())
 
     def broken_client(doc_source):
-        raise ValueError("no such source")
+        # A failure of the check itself (the source cannot be reached), not a bad --doc-source value.
+        raise RuntimeError("doc source unreachable")
 
     monkeypatch.setattr("dokimi.mcp.factory.create_doc_source_client", broken_client)
     args = build_parser().parse_args([
@@ -353,7 +354,7 @@ def test_preflight_check_failure_alone_stays_1(monkeypatch, tmp_path, capsys):
     with pytest.raises(SystemExit) as exc:
         _preflight_with_doc_source(monkeypatch, tmp_path)
     assert exc.value.code == 1
-    assert "doc source invalid" in capsys.readouterr().err
+    assert "doc source check failed" in capsys.readouterr().err
 
 
 @pytest.mark.outcome("pinned-questions-preflight")
@@ -366,7 +367,7 @@ def test_preflight_input_error_wins_over_a_check_failure(monkeypatch, tmp_path, 
         _preflight_with_doc_source(monkeypatch, tmp_path, "--output-dir", str(blocker / "out"))
     assert exc.value.code == 2
     err = capsys.readouterr().err
-    assert "output dir not writable" in err and "doc source invalid" in err
+    assert "output dir not writable" in err and "doc source check failed" in err
 
 
 @pytest.mark.outcome("pinned-questions-preflight")

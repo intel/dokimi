@@ -16,7 +16,8 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from dokimi.exit_codes import usage_exit
+from typing import Any
+from dokimi.exit_codes import EXIT_USAGE, usage_exit
 
 
 def _skill_row(skill, review) -> dict:
@@ -169,6 +170,17 @@ def _discover_catalog_skills(catalog_root: Path) -> list:
         usage_exit(f"--catalog {catalog_root}: {exc}")
 
 
+def _refuse_unresolved_field_rules(sources: list[tuple[Any, str]], specs: list[str], queries: list[Any]) -> None:
+    """An @field rule that resolves for no question in its source is a typo in the path, not a set
+    of negatives; refuse it rather than write "nothing loads"."""
+    start = 0
+    for (qs, rule), spec in zip(sources, specs, strict=True):
+        chunk = queries[start:start + len(qs)]
+        start += len(qs)
+        if rule.startswith("@") and chunk and not any(q.labelled for q in chunk):
+            usage_exit(f"{spec}: {rule} resolves for none of {len(chunk)} questions")
+
+
 def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
     import json
 
@@ -202,16 +214,13 @@ def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
 
     try:
         queries = ts.build_trigger_set(sources, catalog, rewrite=rewrite)
-    except ValueError as exc:
+    except ts.TriggerSetInputError as exc:
         usage_exit(str(exc))
-    # An @field rule that resolves for no question in its source is a typo in the
-    # path, not a set of negatives; refuse it rather than write "nothing loads".
-    start = 0
-    for (qs, rule), spec in zip(sources, specs, strict=True):
-        chunk = queries[start:start + len(qs)]
-        start += len(qs)
-        if rule.startswith("@") and chunk and not any(q.labelled for q in chunk):
-            usage_exit(f"{spec}: {rule} resolves for none of {len(chunk)} questions")
+    except ValueError as exc:
+        # A --rewrite that returned nothing: a runtime failure, not a bad invocation.
+        print(str(exc), file=sys.stderr)
+        sys.exit(1)
+    _refuse_unresolved_field_rules(sources, specs, queries)
     summary = ts.lint_summary(queries)
     if summary["label_unresolved"]:
         print(f"warning: {summary['label_unresolved']} questions have an unresolved @field label; "
@@ -222,7 +231,7 @@ def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
         # Refuse before writing, so a pipeline that only checks for the file
         # cannot pick up a set with a mistyped label.
         print(json.dumps(summary, indent=2))
-        raise SystemExit(1)
+        sys.exit(EXIT_USAGE)
     _write_trigger_set(args, queries, catalog_root)
 
     print(json.dumps(summary, indent=2))

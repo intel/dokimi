@@ -44,6 +44,13 @@ from dokimi.skills import Skill
 ExpectedSkill = Union[str, List[str], None]
 
 
+class TriggerSetInputError(ValueError):
+    """The question sources cannot form a trigger set: a duplicate id, or a question with no text.
+
+    A usage error (exit 2). A rewrite that fails is a runtime error and stays a plain ValueError.
+    """
+
+
 class LabelUnresolved(LookupError):
     """An ``@field.path`` label rule found no such field on the question.
 
@@ -187,11 +194,11 @@ def build_trigger_set(
             raw = question_id(q)
             qid = str(f"q{len(out) + 1}" if raw is None else raw)
             if qid in seen:
-                raise ValueError(f"duplicate question id across sources: {qid}")
+                raise TriggerSetInputError(f"duplicate question id across sources: {qid}")
             seen.add(qid)
             text = q.get("text") or q.get("question") or q.get("prompt") or q.get("question_text") or ""
             if not isinstance(text, str) or not text.strip():
-                raise ValueError(
+                raise TriggerSetInputError(
                     f"question {qid} has no text (looked in text, question, prompt, question_text)")
             try:
                 tq = TriggerQuery(id=qid, text=text, expected_skill=resolve_label(q, rule))
