@@ -65,8 +65,13 @@ A blank value is not a check. A `match` value that is blank once the check has
 normalised it (stripped, and with `ignore_punctuation` on, `...` too), or an
 empty `regex` pattern, is found in every answer, so a row whose
 `ideal`/`target` is blank imports as `unsupported`, and a hand-written `values`
-list with such an entry is refused by `eval reference`. A promptfoo assert
-whose value is blank (whitespace included) imports as `unsupported` too.
+list with such an entry is refused by `eval reference`. An Inspect `exact`
+target that SQuAD-normalises to nothing (`...`, `the`) equals no answer, so it
+is dropped, and a sample left with no target imports as `unsupported`. A
+promptfoo assert whose value is blank (whitespace included) imports as
+`unsupported` too, and so do a `contains*` or `icontains*` assert whose list of
+values is empty and a judged assert (`llm-rubric`, `factuality`, ...) whose
+value is blank or missing.
 
 Every check accepts `mode` (`any`/`all` over its `values`), `negate` and
 `weight`. A question's score is the weighted mean of the checks that were

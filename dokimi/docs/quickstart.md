@@ -161,7 +161,9 @@ python cli.py report generate \
 
 `reports/oneTBB.md` contains summary stats (min/max/avg context-arm/baseline/delta),
 top-N best and worst answers, top improvements and degradations, topic and
-persona clustering, and recommendations. The `reports/` directory is
+persona clustering, and recommendations. The summary stats cover only the questions
+scored in both arms; questions scored in one arm are counted and left out of them, and
+`report eval` computes the same numbers from the same file. The `reports/` directory is
 git-ignored.
 
 ### Step 6 — Dashboard (optional)
@@ -171,7 +173,9 @@ python cli.py dashboard generate
 ```
 
 Aggregates per-library results from `eval/*.json` into `DASHBOARD.md` /
-`dashboard.json` for cross-library comparison.
+`dashboard.json` for cross-library comparison. Like `report generate`, it averages both
+arms and the delta, per library and per question source, over the questions scored in
+both arms; a run that scored one arm only shows that arm's mean.
 
 ## Full run (single command)
 

@@ -13,6 +13,8 @@ file imports on code that predates ``correct_family``.
 
 from __future__ import annotations
 
+import pytest
+
 from dokimi.eval import stats
 from dokimi.eval.cross_judge import apply_holm
 from dokimi.report import model_compare
@@ -93,12 +95,15 @@ def test_apply_correction_records_family_fields_and_none_entries():
         assert res["family_tested"] == 2
 
 
-def test_apply_correction_uses_the_requested_method():
-    results = [{"p_ttest": 0.04, "p_wilcoxon": None}, {"p_ttest": 0.01, "p_wilcoxon": None}]
-    stats._apply_correction(results, correction="bh", label="arms")
-    # BH on [0.04, 0.01]: step-up gives 0.04 and min(0.04, 0.01 * 2) = 0.02.
-    assert [r["p_adjusted"] for r in results] == [0.04, 0.02]
-    assert all(r["correction"] == "bh" for r in results)
+# On [0.01, 0.02, 0.03] the two methods differ. Holm steps down: 3 * 0.01 = 0.03,
+# max(0.03, 2 * 0.02) = 0.04, max(0.04, 1 * 0.03) = 0.04. BH steps up: 0.03,
+# min(0.03, 0.02 * 3/2) = 0.03, min(0.03, 0.01 * 3) = 0.03.
+@pytest.mark.parametrize("correction, adjusted", [("bh", [0.03, 0.03, 0.03]), ("holm", [0.03, 0.04, 0.04])])
+def test_apply_correction_uses_the_requested_method(correction, adjusted):
+    results = [{"p_ttest": p, "p_wilcoxon": None} for p in (0.01, 0.02, 0.03)]
+    stats._apply_correction(results, correction=correction, label="arms")
+    assert [r["p_adjusted"] for r in results] == adjusted
+    assert all(r["correction"] == correction for r in results)
 
 
 def test_apply_correction_on_an_empty_family_adds_nothing():
