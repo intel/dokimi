@@ -218,7 +218,7 @@ def cmd_tasks_run(args: argparse.Namespace) -> None:
     try:
         runner.validate_harnesses()
     except ValueError as exc:
-        raise SystemExit(str(exc)) from None
+        raise SystemExit(f"Error: {exc}") from None
     try:
         output = runner.run()
     except PreflightError as exc:
