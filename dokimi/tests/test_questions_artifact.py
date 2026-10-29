@@ -570,6 +570,10 @@ def test_answers_generate_refuses_an_unusable_set_before_any_call(tmp_path, monk
     assert "record 0 (id 'q1'), `question`: '' should be non-empty" in capsys.readouterr().err
 
 
+ONE_EVALUATION = {"evaluations": [{"question_id": "q1", "with_docs": {"aggregate": 80.0},
+                                   "without_docs": {"aggregate": 60.0}, "delta": 20.0}]}
+
+
 def test_report_generate_reads_a_legacy_set(tmp_path, monkeypatch):
     seen: dict = {}
 
@@ -579,7 +583,7 @@ def test_report_generate_reads_a_legacy_set(tmp_path, monkeypatch):
 
     monkeypatch.setattr("dokimi.report.ReportGenerator.generate_report", generate_report)
     ev = tmp_path / "eval.json"
-    ev.write_text(json.dumps({"evaluations": []}), encoding="utf-8")
+    ev.write_text(json.dumps(ONE_EVALUATION), encoding="utf-8")
     src = tmp_path / "q.json"
     src.write_text(json.dumps([{"text": "How do I use parallel_for?"}]), encoding="utf-8")
     before = src.read_bytes()
@@ -612,7 +616,7 @@ def test_report_generate_refuses_malformed_questions_with_error_exit(tmp_path, m
     """report generate refuses an invalid questions argument with SystemExit(1) and Error message."""
     monkeypatch.chdir(tmp_path)
     ev = tmp_path / "eval.json"
-    ev.write_text(json.dumps({"evaluations": []}), encoding="utf-8")
+    ev.write_text(json.dumps(ONE_EVALUATION), encoding="utf-8")
     src = tmp_path / "q.json"
     # Pass a dict where a list is expected: invalid structure
     src.write_text(json.dumps({"questions": {"a": 1}}), encoding="utf-8")
@@ -689,7 +693,7 @@ def test_the_dropped_null_keys_are_the_ones_v1_leaves_open():
 
 def test_report_generate_prints_an_error_for_an_empty_question(tmp_path, capsys):
     ev = tmp_path / "eval.json"
-    ev.write_text(json.dumps({"evaluations": []}), encoding="utf-8")
+    ev.write_text(json.dumps(ONE_EVALUATION), encoding="utf-8")
     src = tmp_path / "q.json"
     src.write_text(json.dumps({"questions": [{"id": "q1", "question": ""}]}), encoding="utf-8")
     args = build_parser().parse_args(["report", "generate", "--product", "oneTBB", "--eval", str(ev),
