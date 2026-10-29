@@ -11,6 +11,10 @@
   says how many questions are unpaired (`paired_questions` and `unpaired_questions` in the JSON,
   and a note plus the Count cell in the Markdown). To see the new numbers, run `report generate`
   on an existing eval file again.
+  The top and bottom performer tables of `report generate` rank the complete pairs too. The
+  dashboard and the `report model-compare` run summary still average each arm over its own
+  scored questions, so for a file with an unpaired question their context and baseline means
+  differ from the ones `report generate` prints.
 
 ### Fixed
 
@@ -20,3 +24,5 @@
   so it can move by 0.1 in the Summary, Breakdown and Difficulty tables. The arm means themselves
   print as before. Where questions are unpaired, the Count cell now shows them, and a note says the
   means are over the complete pairs.
+  The win rate and the degradation rate in Key Observations divide by the complete pairs, not by
+  every question, so they can rise for a file with an unpaired question.
