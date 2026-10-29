@@ -11,8 +11,11 @@ Each question with a ``grading`` block is graded against five synthetic answers:
 - ``empty``: the empty answer; it must fail.
 - ``hedge``: a non-committal answer that carries no check value; it must fail.
 - ``stuffed``: every literal check value listed with no sentence around it; it must fail. Built for
-  a positive check of two or more values (mode ``any``), since a block that needs every value, or
-  several checks that each accept one value, is satisfied by the stuffed answer by design. Also built
+  a positive check of two or more values (mode ``any``) that does not read the list where it stands:
+  bare for ``exact``, ``json`` and location-``exact`` checks, between two decoys for a ``match`` at
+  ``begin`` or ``end``. It is not built for ``fuzzy``, numeric or location-``any`` checks, a block that
+  needs every value, or several checks that each accept one value: the grader is right to accept the
+  stuffed answer there. Also built
   for a negated check of one or more values, whose stuffed answer carries the forbidden value; not
   built for a negated ``exact``, ``json`` or location-``exact`` match, which the listed values never
   equal, nor for a negated ``mode: all`` match, whose stuffed answer can pass the negation by its
@@ -100,11 +103,19 @@ def stuffed_for(grading: Mapping[str, Any]) -> Optional[str]:
     A positive check needs two or more values and must accept any one of them (mode ``any``): a block
     that needs every value, or several checks, is satisfied by the stuffed answer by design, so
     accepting it is not a violation. A single positive value listed alone is the right answer itself,
-    not stuffing. A negated check is stuffed with its one or more values: the stuffed answer carries
-    the forbidden value, so it must fail, unless the check compares the whole answer (see
-    ``_whole_answer``), which the listed values never equal, or is ``mode: all``, which the stuffed
-    answer can pass by its location (the skip is kept for every such check, for simplicity). A choice
-    check is left out: its answer is a bare letter.
+    not stuffing. The list is an attack only where the check does not read it:
+
+    - a check on the whole answer (``exact``, ``json``, ``match`` at ``exact``): the bare list;
+    - a ``match`` at ``begin`` or ``end``: the list between two decoys the check rejects, so no accepted
+      value is at the place the check reads;
+    - ``match`` at ``any``, a numeric ``match`` and ``fuzzy`` find a listed value wherever it is, so the
+      grader is right to accept it and no probe is built.
+
+    A negated check is stuffed with its one or more values: the stuffed answer carries the forbidden
+    value, so it must fail, unless the check compares the whole answer (see ``_whole_answer``), which the
+    listed values never equal, or is ``mode: all``, which the stuffed answer can pass by its location
+    (the skip is kept for every such check, for simplicity). A choice check is left out: its answer is
+    a bare letter.
     """
     checks = grading.get("checks", [])
     if len(checks) != 1 or checks[0].get("type") not in _LITERAL - {"choice"}:
@@ -117,7 +128,12 @@ def stuffed_for(grading: Mapping[str, Any]) -> Optional[str]:
         return " ".join(values) if built else None
     if len(values) < 2 or mode == "all":
         return None
-    return " ".join(values)
+    if _whole_answer(check):
+        return " ".join(values)
+    if check.get("type") != "match" or check.get("numeric") or str(check.get("location", "end")) == "any":
+        return None
+    decoys = [w for w in WRONG_CANDIDATES if not grade_check(check, "", w, None).passed]
+    return f"{decoys[0]} {' '.join(values)} {decoys[1]}" if len(decoys) >= 2 else None
 
 
 def _positive_checks(grading: Mapping[str, Any]) -> list[Mapping[str, Any]]:
