@@ -101,7 +101,7 @@ the run's pass rates and mean scores are under `run_metadata.summary` (or
 | `wrong` | A planted wrong answer, picked per block so that no positive literal check accepts it, asked with the check's own rules (the probe is skipped only when no candidate is clean) | fail it |
 | `empty` | `""` | fail it |
 | `hedge` | A fixed non-committal sentence; skipped when a positive literal check accepts it | fail it |
-| `stuffed` | The values of a block with one literal check, listed with no sentence around them: two or more values of a positive check (a single value is the right answer, not stuffing), bare for a check on the whole answer and between two decoys for a `match` at `begin` or `end`, or one or more values of a `negate` check, whose stuffed answer is the forbidden value; not built for a positive block that needs every value (`mode: all`), for several checks, for `fuzzy`, numeric or `location: any` checks (they find a listed value wherever it is, so accepting it is right), or for a negated `exact`, `json` or `match` with `location: exact`, which the listed values never equal | fail it |
+| `stuffed` | The values of a block with one literal check, listed with no sentence around them: two or more values of a positive check (a single value is the right answer, not stuffing), bare for a check on the whole answer and between two decoys for a `match` at `begin` or `end`, or one or more values of a `negate` check, whose stuffed answer is the forbidden value; not built for a positive block that needs every value (`mode: all`), for several checks, for `fuzzy`, numeric or `location: any` checks (they find a listed value wherever it is, so accepting it is right), or for a negated check that the listed values cannot fail: a negated `exact`, `json` or `match` with `location: exact` (they never equal the list) and a negated `match` with `mode: all` (the list passes it by its location) | fail it |
 
 An attack the grader accepts, or a canary it rejects, is a violation, and any
 violation makes the run `blocked`: the command prints the pass rates and the
@@ -110,7 +110,7 @@ question was not measured is `inconclusive` and also exits 1: a question whose
 `judge` checks have no verdict without `--judge` (no probe scored), or a block
 of only negated checks. A `negate` check passes an answer that lacks its value,
 so a block of only negated checks gets none of `wrong`, `empty` and `hedge`: it
-is reported as `negated_only`, its `stuffed` probe (the negated value itself)
+is marked `negated_only` in the artifact (the table prints a line "N questions with only negated checks: wrong, empty and hedge not run"), its `stuffed` probe (the negated value itself)
 still runs, but the grader would accept any answer without that value, so
 nothing was verified about it. The table names every question that was not
 measured and counts it as `unprobed`; only a run that measured every graded
