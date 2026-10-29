@@ -561,6 +561,12 @@ def test_a_value_that_is_not_a_full_sha_reaches_no_git_command(hist):
     assert upper.head == hist["r2"]
 
 
+@pytest.mark.parametrize("value", ["a" * 40 + "^2", "a" * 40 + "~1", "a" * 41, "a" * 40 + "..HEAD", "b" * 64 + "^"])
+def test_a_sha_with_anything_after_it_is_not_a_sha(value):
+    got = load_pull_requests([_pr(7, value, value, [_t("src/long.py", 10, value)])])[0]
+    assert got.head is None and got.merge is None and got.threads[0].commit is None
+
+
 @pytest.mark.parametrize("change, reason", [
     ({"author": None}, "author unknown (a deleted account)"),
     ({"author": {"login": "renovate[bot]", "__typename": "User"}}, "by a bot (@renovate[bot])"),
