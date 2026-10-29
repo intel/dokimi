@@ -20,6 +20,10 @@ A probe the grader cannot score (a judge check with no judge model, a regex past
 reported as unscored. The canary is only built for a question whose grading is one literal check;
 other questions get the other attacks alone.
 
+A ``negate`` check passes a wrong, empty or hedged answer by design, so those three attacks grade
+the block's non-negated checks alone. A block of only negated checks gets none of them and is
+reported as ``negated_only``; its stuffed answer still runs.
+
 Nothing here calls a model unless the caller passes ``ask`` (the judge of judge checks).
 """
 
@@ -29,7 +33,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Mapping, Optional
 
-from dokimi.eval.reference_checks import Ask, grade
+from dokimi.eval.reference_checks import Ask, grade, squad_normalize
 from dokimi.eval.reference_run import grading_by_id
 
 ATTACKS = ("canary", "wrong", "empty", "hedge", "stuffed")
@@ -38,6 +42,8 @@ WRONG = "PLANTED-WRONG-ANSWER-7731"
 HEDGE = ("I am not certain. It could be several things, depending on the setup, "
          "and I cannot say which one applies here.")
 BLOCKED, PASS, INCONCLUSIVE = "blocked", "pass", "inconclusive"
+# The attacks a negated check makes unfit for a block: the answers it passes by design.
+NEGATION_SKIPPED = ("wrong", "empty", "hedge")
 
 _LITERAL = frozenset({"match", "fuzzy", "exact", "choice", "json"})
 
@@ -68,6 +74,8 @@ def canary_for(grading: Mapping[str, Any]) -> Optional[str]:
         return text
     if kind == "match" and location == "begin":
         return f"{text} is the answer."
+    if kind == "match" and location == "end" and not check.get("ignore_punctuation", True):
+        return f"The answer is {text}"  # the full stop would be the raw end of the answer, not the value
     return f"The answer is {text}."
 
 
@@ -90,22 +98,45 @@ def stuffed_for(grading: Mapping[str, Any]) -> Optional[str]:
     return " ".join(values) if len(values) >= 2 else None
 
 
+def _positive_checks(grading: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    return [c for c in grading.get("checks", []) if not c.get("negate")]
+
+
+def _positive_only(grading: Mapping[str, Any]) -> Mapping[str, Any]:
+    """The grading block with its negated checks removed; the threshold and the rest are kept."""
+    return {**grading, "checks": _positive_checks(grading)}
+
+
+def negated_only(grading: Mapping[str, Any]) -> bool:
+    """Whether every check of the block is negated, so no answer is wrong by its positive checks."""
+    checks = grading.get("checks", [])
+    return bool(checks) and all(c.get("negate") for c in checks)
+
+
+def _clashes_with_hedge(value: str) -> bool:
+    """Whether the hedge carries the value: a raw substring, or one after the grader's normalisation."""
+    raw = value.strip().lower()
+    norm = squad_normalize(value)
+    return (bool(raw) and raw in HEDGE.lower()) or (bool(norm) and norm in squad_normalize(HEDGE))
+
+
 def attacks(grading: Mapping[str, Any]) -> dict[str, Optional[str]]:
     """The synthetic answer for each attack; None where the attack does not apply to the block.
 
-    A ``negate`` check passes an answer that lacks its value, so a wrong or empty answer passes it
-    by design; ``stuffed`` still runs, since it carries the negated value and must fail. The hedge is
-    fixed text, so it is skipped when a check value occurs in it (the grader would accept it).
+    The wrong, empty and hedge answers apply when the block has a non-negated check: a negated
+    check passes them by design, but a positive check still rejects them, so they run and the probe
+    grades the non-negated checks alone. A block of only negated checks gets none of the three.
+    ``stuffed`` still runs, since it carries the negated value and must fail. The hedge is fixed
+    text, so it is skipped when a non-negated check value occurs in it (the grader would accept it).
     """
-    checks = grading.get("checks", [])
-    negated = any(c.get("negate") for c in checks)
-    values = [str(v).strip().lower() for c in checks if c.get("type") in _LITERAL - {"choice"}
-              for v in _literal_values(c)]
-    clashes = any(v and v in HEDGE.lower() for v in values)
+    positive = _positive_checks(grading)
+    clashes = any(_clashes_with_hedge(str(v)) for c in positive if c.get("type") in _LITERAL - {"choice"}
+                  for v in _literal_values(c))
+    applies = bool(positive)
     return {"canary": canary_for(grading),
-            "wrong": None if negated else WRONG,
-            "empty": None if negated else "",
-            "hedge": None if negated or clashes else HEDGE,
+            "wrong": WRONG if applies else None,
+            "empty": "" if applies else None,
+            "hedge": None if not applies or clashes else HEDGE,
             "stuffed": stuffed_for(grading)}
 
 
@@ -131,10 +162,12 @@ class Probe:
 def probe(grading: Mapping[str, Any], question: str, ask: Optional[Ask] = None) -> dict[str, Probe]:
     """Grade every applicable attack against one grading block."""
     out: dict[str, Probe] = {}
+    positive = _positive_only(grading)
     for name, answer in attacks(grading).items():
         if answer is None:
             continue
-        g = grade(grading, question, answer, ask)
+        block = positive if name in NEGATION_SKIPPED else grading
+        g = grade(block, question, answer, ask)
         out[name] = Probe(name, g.passed, _detail(g))
     return out
 
@@ -154,6 +187,7 @@ def run(questions: list[Mapping[str, Any]], *, ask: Optional[Ask] = None) -> dic
         text = str(q.get("question") or q.get("text") or "")
         probes = probe(gradings[qid], text, ask)
         rows.append({"question_id": qid, "canary": "canary" in probes,
+                     "negated_only": negated_only(gradings[qid]),
                      "probes": {name: p.as_dict() for name, p in probes.items()}})
     violations = [{"question_id": r["question_id"], "attack": name, "passed": p["passed"]}
                   for r in rows for name, p in r["probes"].items() if p["violation"]]
@@ -188,6 +222,7 @@ def _summary(rows: list[dict[str, Any]]) -> dict[str, int]:
         "questions": len(rows),
         "probed": sum(1 for r in rows if any(p["passed"] is not None for p in r["probes"].values())),
         "no_canary": sum(1 for r in rows if not r["canary"]),
+        "negated_only": sum(1 for r in rows if r["negated_only"]),
         "unscored": sum(1 for p in probes if p["passed"] is None),
         "violations": sum(1 for p in probes if p["violation"]),
     }
@@ -204,6 +239,9 @@ def format_table(result: dict[str, Any]) -> str:
     if len(result["violations"]) > 20:
         lines.append(f"  ... {len(result['violations']) - 20} more violations in the artifact")
     s = result["summary"]
+    if s["negated_only"]:
+        lines.append(f"  {s['negated_only']} questions with only negated checks: "
+                     f"{', '.join(NEGATION_SKIPPED[:-1])} and {NEGATION_SKIPPED[-1]} not run")
     lines.append(f"status {result['status']}: {s['questions']} questions, {s['probed']} probed, "
                  f"{s['no_canary']} without a canary, {s['unscored']} probes unscored, "
                  f"{s['violations']} violations")

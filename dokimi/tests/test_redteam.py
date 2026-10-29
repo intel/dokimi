@@ -195,3 +195,48 @@ def test_a_negated_check_still_fails_the_stuffed_answer_that_carries_its_value()
     assert redteam.attacks(grading)["stuffed"] == "Paris Lyon"
     probes = redteam.probe(grading, "Q?")
     assert probes["stuffed"].passed is False and not probes["stuffed"].violation
+
+
+def test_a_negated_check_does_not_silence_the_attacks_on_the_positive_check():
+    # regex ".*" accepts any answer, and "must not say Lyon" accepts the wrong one too: the block is
+    # gameable, so the run is blocked rather than passing with nothing probed.
+    grading = {"checks": [{"type": "regex", "values": [".*"]}, {"type": "match", "values": ["Lyon"], "negate": True}]}
+    result = run([_q("1", grading)])
+    assert result["status"] == "blocked"
+    assert {v["attack"] for v in result["violations"]} == {"wrong", "empty", "hedge"}
+    assert result["summary"]["probed"] == 1
+
+
+def test_a_negated_check_beside_a_positive_check_leaves_the_positive_check_to_reject_the_attacks():
+    grading = {"checks": [{"type": "match", "values": ["Paris"]}, {"type": "match", "values": ["Lyon"], "negate": True}]}
+    result = run([_q("1", grading)])
+    probes = result["questions"][0]["probes"]
+    assert result["status"] == "pass"
+    assert all(probes[name]["passed"] is False for name in ("wrong", "empty", "hedge"))
+
+
+def test_a_block_of_only_negated_checks_runs_no_wrong_empty_or_hedge_probe_and_reports_it():
+    grading = {"checks": [{"type": "match", "values": ["Paris"], "negate": True}]}
+    result = run([_q("1", grading)])
+    row = result["questions"][0]
+    assert row["negated_only"] is True and result["summary"]["negated_only"] == 1
+    assert not {"wrong", "empty", "hedge"} & set(row["probes"])
+    assert result["status"] == "inconclusive"
+    assert "1 questions with only negated checks: wrong, empty and hedge not run" in format_table(result)
+
+
+@pytest.mark.parametrize("check", [
+    {"type": "match", "values": ["several things depending on the setup"], "location": "any"},  # comma is punctuation
+    {"type": "fuzzy", "values": ["the setup and I"]},  # articles drop out of the grader's normalised text
+])
+def test_a_value_the_grader_finds_in_the_hedge_after_normalising_skips_the_hedge_probe(check):
+    assert redteam.attacks({"checks": [check]})["hedge"] is None
+    result = run([_q("1", {"checks": [check]})])
+    assert "hedge" not in {v["attack"] for v in result["violations"]}
+
+
+def test_a_match_without_punctuation_stripping_gets_a_canary_the_grader_accepts():
+    grading = {"checks": [{"type": "match", "values": ["Paris"], "ignore_punctuation": False}]}
+    assert canary_for(grading) == "The answer is Paris"  # a full stop would end the answer, not the value
+    result = run([_q("1", grading)])
+    assert result["status"] == "pass" and result["questions"][0]["canary"] is True
