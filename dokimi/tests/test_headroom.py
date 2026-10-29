@@ -102,10 +102,40 @@ def test_reps_count_the_arm_scored_least_often():
     assert item["reps"] == 2 and item["provisional"] is True
 
 
-def test_missing_no_skill_arm_is_never_a_ceiling():
+def test_unknown_no_skill_arm_is_refused_and_lists_the_arms():
+    # A mistyped arm used to read as "no ceiling anywhere" with exit 0.
     run = _run([("1", {"baseline": 99, "skill": 99})])
-    result = headroom([run], no_skill_arm="nope")
-    assert result["items"][0]["flag"] is None and result["no_skill_arm"] == "nope"
+    with pytest.raises(ValueError, match="'nope'.*the arms are: baseline, skill"):
+        headroom([run], no_skill_arm="nope")
+
+
+def test_repeated_question_id_in_one_run_is_refused():
+    run = records.read({"baseline_arm": "baseline", "answers": [
+        {"question_id": "1", "question_text": "q", "arms": {"baseline": {"answer": "a"}}},
+        {"question_id": "1", "question_text": "q", "arms": {"baseline": {"answer": "b"}}}]})
+    with pytest.raises(ValueError, match="question_id '1' more than once"):
+        headroom([run], no_skill_arm="baseline")
+
+
+def test_a_non_ascii_digit_question_id_is_refused_by_name():
+    # '²'.isdigit() is true and int('²') raises: the id must be named, not crash.
+    run = _run([("²", {"baseline": 50, "skill": 50})])
+    with pytest.raises(ValueError, match="question id '²'"):
+        headroom([run])
+
+
+def test_the_table_and_json_do_not_round_0_89996_up_to_the_ceiling():
+    run = _run([("1", {"baseline": 89.996, "skill": 99})])
+    result = headroom([run], min_reps=2)
+    assert result["items"][0]["no_skill"] == pytest.approx(0.89996) and result["items"][0]["flag"] is None
+    table = format_table(result)
+    assert "0.89" in table and "0.90" not in table
+
+
+def test_the_table_lists_the_control_arm_once():
+    result = headroom([_run([("1", {"baseline": 40, "skill": 60})])], min_reps=2)
+    header = format_table(result).splitlines()[0].split()
+    assert header == ["question", "reps", "no-skill", "skill", "flag", "provisional"]
 
 
 @pytest.mark.parametrize("kwargs", [{"ceiling": 0.0}, {"ceiling": 1.5}, {"floor": 0.9},
@@ -164,3 +194,59 @@ def test_command_exits_2_on_an_unreadable_input(tmp_path, capsys):
         cmd_eval_headroom(_args([tmp_path / "missing.json"]))
     assert exc.value.code == 2
     assert "file not found" in capsys.readouterr().err
+
+
+def _arms_file(path, scores, baseline="baseline"):
+    """An arms.v1 file on disk: ``scores`` is ``{question_id: {arm: aggregate}}``."""
+    payload = {"baseline_arm": baseline,
+               "answers": [{"question_id": qid, "question_text": f"question {qid}",
+                            "arms": {arm: {"answer": "x"} for arm in arms}}
+                           for qid, arms in scores.items()],
+               "evaluations": [{"question_id": qid,
+                                "scores": {arm: {"aggregate": v} for arm, v in arms.items()}}
+                               for qid, arms in scores.items()]}
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+def test_command_refuses_an_unknown_no_skill_arm_and_lists_the_arms(tmp_path, capsys):
+    path = _arms_file(tmp_path / "arms.json", {"1": {"baseline": 99, "skill": 99}})
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_headroom(_args([path], no_skill_arm="basline"))
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "'basline'" in err and "the arms are: baseline, skill" in err
+
+
+def test_repeated_input_files_count_as_one_run(tmp_path, capsys):
+    one = _arms_file(tmp_path / "run1.json", {"1": {"baseline": 95, "skill": 95}})
+    copy = tmp_path / "copy.json"
+    copy.write_bytes(one.read_bytes())
+    out = tmp_path / "headroom.json"
+    cmd_eval_headroom(_args([one, one, one, copy], output=out))
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    assert saved["runs"] == 1 and saved["inputs"] == [str(one)]
+    assert saved["items"][0]["reps"] == 1 and saved["items"][0]["provisional"] is True
+    err = capsys.readouterr().err
+    assert err.count("counted once") == 3 and f"skipped {copy}: same content as {one}" in err
+
+
+def test_distinct_input_files_each_count_as_a_run(tmp_path):
+    paths = [_arms_file(tmp_path / f"run{i}.json", {"1": {"baseline": 95 - i, "skill": 95}}) for i in range(3)]
+    out = tmp_path / "headroom.json"
+    cmd_eval_headroom(_args(paths, output=out))
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    item = saved["items"][0]
+    assert (saved["runs"], item["reps"], item["provisional"], item["flag"]) == (3, 3, False, CEILING)
+
+
+def test_command_refuses_a_question_id_repeated_within_one_file(tmp_path, capsys):
+    path = tmp_path / "dup.json"
+    path.write_text(json.dumps({"baseline_arm": "baseline", "answers": [
+        {"question_id": "1", "question_text": "q", "arms": {"baseline": {"answer": "a"}}},
+        {"question_id": "1", "question_text": "q", "arms": {"baseline": {"answer": "b"}}}]}))
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_headroom(_args([path]))
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert str(path) in err and "question_id '1' appears more than once" in err

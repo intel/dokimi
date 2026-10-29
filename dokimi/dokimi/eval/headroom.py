@@ -13,13 +13,16 @@ An item with fewer than ``min_reps`` runs behind it is ``provisional``: one run'
 noise. Its reps are the smallest number of runs in which any of its arms was scored, so a single
 artifact gives every item one rep. Each arm's score is the mean over the runs that scored it.
 
-The input is one or more ``arms.v1`` files (or any artifact :mod:`dokimi.records` reads as an
-arms run), one per repetition of the same question set. Nothing here draws a confidence
-interval; the paired statistics of a comparison stay in :mod:`dokimi.eval.stats`.
+A run is one ``arms.v1`` file (or any artifact :mod:`dokimi.records` reads as an arms run), one
+per repetition of the same question set. Each ``Run`` passed here counts as one run, so callers
+drop repeated inputs first (the CLI does, by content digest). A question id repeated within one
+run is refused: it would count as two runs. Nothing here draws a confidence interval; the paired
+statistics of a comparison stay in :mod:`dokimi.eval.stats`.
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
@@ -49,8 +52,8 @@ class ItemHeadroom:
             "question_id": self.question_id,
             "reps": self.reps,
             "provisional": self.provisional,
-            "no_skill": _rounded(self.no_skill),
-            "arms": {arm: _rounded(v) for arm, v in self.arms.items()},
+            "no_skill": self.no_skill,
+            "arms": dict(self.arms),
             "flag": self.flag,
         }
 
@@ -68,10 +71,6 @@ def check_thresholds(ceiling: float, floor: float, min_reps: int) -> None:
 def _mean(values: List[float]) -> Optional[float]:
     # Unrounded: the thresholds compare the exact mean (a 89.996 item is not a ceiling).
     return sum(values) / len(values) if values else None
-
-
-def _rounded(value: Optional[float]) -> Optional[float]:
-    return None if value is None else round(value, 4)
 
 
 def _flag(no_skill: Optional[float], arms: Dict[str, Optional[float]], ceiling: float, floor: float) -> Optional[str]:
@@ -95,9 +94,10 @@ def headroom(
 ) -> Dict[str, Any]:
     """Flag every item of ``runs`` (arms runs of one question set) by its headroom.
 
-    ``no_skill_arm`` defaults to the baseline the runs declare. Raises ValueError for
-    thresholds that cannot be used, a run that is not an arms run, or runs that disagree on
-    the no-skill arm.
+    ``no_skill_arm`` defaults to the baseline the runs declare, and must otherwise be an arm
+    the runs list. Raises ValueError for thresholds that cannot be used, a run that is not an
+    arms run, a question id repeated within a run, an unknown no-skill arm, or runs that
+    disagree on the baseline when none is given.
     """
     check_thresholds(ceiling, floor, min_reps)
     control = _no_skill_arm(runs, no_skill_arm)
@@ -143,6 +143,10 @@ def _no_skill_arm(runs: Sequence[Run], given: Optional[str]) -> str:
         if run.shape != "arms":
             raise ValueError("headroom reads arms runs only; a binary answers or eval file was given")
     if given is not None:
+        known = _known_arms(runs)
+        if given not in known:
+            listed = ", ".join(sorted(known)) or "none"
+            raise ValueError(f"no-skill arm {given!r} is not an arm of these runs; the arms are: {listed}")
         return given
     declared = {run.baseline for run in runs}
     only = next(iter(declared)) if len(declared) == 1 else None
@@ -151,11 +155,37 @@ def _no_skill_arm(runs: Sequence[Run], given: Optional[str]) -> str:
     return only
 
 
+def _known_arms(runs: Sequence[Run]) -> Set[str]:
+    """Every arm any run declares or any record lists, ``null`` ones included."""
+    known: Set[str] = set()
+    for run in runs:
+        known.update(run.conditions)
+        for rec in run:
+            known.update(arm_names(rec))
+    return known
+
+
+def repeated_ids(run: Run) -> List[str]:
+    """The question ids that more than one record of ``run`` carries, in first-seen order."""
+    seen: Set[str] = set()
+    repeated: List[str] = []
+    for rec in run:
+        if rec.key in seen and rec.key not in repeated:
+            repeated.append(rec.key)
+        seen.add(rec.key)
+    return repeated
+
+
 def _collect(runs: Sequence[Run]) -> Tuple[Dict[str, Dict[str, List[float]]], Dict[str, Set[str]]]:
     """Question id -> arm -> the per-run scores (0-1), and question id -> the arms it listed."""
     scores: Dict[str, Dict[str, List[float]]] = {}
     arms_of: Dict[str, Set[str]] = {}
-    for run in runs:
+    for index, run in enumerate(runs, start=1):
+        dupes = repeated_ids(run)
+        if dupes:
+            raise ValueError(
+                f"run {index} lists question_id {dupes[0]!r} more than once; "
+                "a run holds each question once (a repeat would count as a second run)")
         for rec in run:
             names = set(arm_names(rec)) | set(rec.scores)
             arms_of.setdefault(rec.key, set()).update(names)
@@ -168,12 +198,16 @@ def _collect(runs: Sequence[Run]) -> Tuple[Dict[str, Dict[str, List[float]]], Di
 
 
 def _sort_key(qid: str):
-    return (0, int(qid), "") if qid.isdigit() else (1, 0, qid)
+    if qid.isdigit() and not qid.isascii():
+        # isdigit() accepts superscripts and other digits int() refuses: name the id, do not crash.
+        raise ValueError(f"question id {qid!r} uses non-ASCII digits; use ASCII digits or a non-numeric id")
+    return (0, int(qid), qid) if qid.isdigit() else (1, 0, qid)
 
 
 def format_table(result: Dict[str, Any]) -> str:
     """The human-readable table: one row per flagged or provisional item, then the counts."""
-    arm_names_ = sorted({a for item in result["items"] for a in item["arms"]})
+    control = result["no_skill_arm"]
+    arm_names_ = sorted({a for item in result["items"] for a in item["arms"]} - {control})
     head = ["question", "reps", "no-skill", *arm_names_, "flag", "provisional"]
     rows = []
     for item in result["items"]:
@@ -202,7 +236,8 @@ def format_table(result: Dict[str, Any]) -> str:
 
 
 def _fmt(value: Optional[float]) -> str:
-    return "-" if value is None else f"{value:.2f}"
+    # Rounded down, with the flag's tolerance: 0.89996 shows 0.89, an exact 0.9 shows 0.90.
+    return "-" if value is None else f"{math.floor((value + _EPS) * 100) / 100:.2f}"
 
 
 def _line(cells: List[str], widths: List[int]) -> str:

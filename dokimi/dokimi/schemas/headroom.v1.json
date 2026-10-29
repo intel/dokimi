@@ -19,8 +19,8 @@
         "min_reps": {"type": "integer", "minimum": 1}
       }
     },
-    "runs": {"type": "integer", "minimum": 1, "description": "Number of arms.v1 inputs."},
-    "inputs": {"type": "array", "items": {"type": "string"}},
+    "runs": {"type": "integer", "minimum": 1, "description": "Number of distinct arms.v1 runs; a repeated input file counts once."},
+    "inputs": {"type": "array", "items": {"type": "string"}, "description": "The arms.v1 files read, repeats dropped."},
     "items": {
       "type": "array",
       "items": {
@@ -31,7 +31,7 @@
           "question_id": {"type": "string"},
           "reps": {"type": "integer", "minimum": 0, "description": "Smallest number of runs in which any of the item's arms was scored."},
           "provisional": {"type": "boolean", "description": "True when reps is below thresholds.min_reps."},
-          "no_skill": {"type": ["number", "null"], "description": "Mean over runs of the no-skill arm, 0-1."},
+          "no_skill": {"type": ["number", "null"], "description": "Unrounded mean over runs of the no-skill arm, 0-1."},
           "arms": {"type": "object", "additionalProperties": {"type": ["number", "null"]}, "description": "Mean over runs of each arm, 0-1; null when no run scored it."},
           "flag": {"enum": ["ceiling", "floor", null]}
         }

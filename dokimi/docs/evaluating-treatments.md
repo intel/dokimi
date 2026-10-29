@@ -740,10 +740,17 @@ python cli.py eval headroom run1/arms.json run2/arms.json run3/arms.json \
 - **provisional**: fewer than `--min-reps` runs scored the item (the smallest count over
   its arms). Default 3. One file gives every item one rep, so every item is provisional.
 
-The table on stdout lists flagged and provisional items; `-o` writes a `headroom.v1`
-artifact with every item. `--no-skill-arm` defaults to the baseline the runs declare, and
-the runs must agree on it. Only arms runs are read. The flags are descriptive: they do
-not change any score or any gate.
+A run is one file. A file repeated on the command line, or byte-identical to an earlier
+one, is skipped with a note, so it does not add a rep. A question id repeated within one
+file is an error (exit 2): it would count as two runs.
+
+The table on stdout lists flagged and provisional items, with the no-skill arm in its own
+column; `-o` writes a `headroom.v1` artifact with every item. Scores are compared unrounded
+and shown rounded down, so 0.89996 prints as 0.89. Without `--no-skill-arm`, the runs must
+declare the same baseline; the default is that baseline. With `--no-skill-arm`, the arm must
+be one the runs list (exit 2 otherwise, naming the arms that exist), and the declared
+baselines are not checked. Only arms runs are read. The flags are descriptive: they do not
+change any score or any gate.
 
 ## Scope and caveats
 
