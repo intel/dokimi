@@ -411,6 +411,16 @@ def test_on_a_tie_the_revision_with_the_latest_comment_is_the_reviewed_one(hist,
     assert [g["line"] for g in gold] == lines
 
 
+def test_the_revision_with_most_threads_is_reviewed_even_when_another_has_the_latest_comment(hist, tmp_path):
+    early, late = "2026-10-01T00:00:00Z", "2026-10-05T00:00:00Z"
+    threads = [*(_t("src/long.py", n, hist["rev"], created=early) for n in (30, 31, 32)),
+               _t("src/long.py", 20, hist["r2"], created=late)]
+    _replay(hist["root"], _pages(_pr(7, hist["r2"], hist["merge7"], threads)), tmp_path / "tasks")
+    task, gold, _ = _load(tmp_path / "tasks", 7)
+    assert task["reviewed_commit"] == hist["rev"] and task["base"] == hist["c0"]
+    assert [g["line"] for g in gold] == [30, 31, 32, 17]
+
+
 def test_a_file_edited_and_renamed_is_followed_one_commit_at_a_time(hist):
     """t5 and t17: one diff from rev to r2 has moved.py deleted, not renamed; commit by commit it is a rename."""
     h = History(hist["root"] / ".git")
