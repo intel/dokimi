@@ -119,14 +119,28 @@ def retry_writable(func: Any, path: str, _exc: Any) -> None:
 _REGION_PROFILES = ("us-gov.", "global.", "apac.", "us.", "eu.", "jp.", "au.", "ca.")
 
 
+# Leading path segments that name how a model is reached, not which model it is: a provider or a gateway
+# (``anthropic/``, ``openrouter/``, ``bedrock/converse/``, ``vertex_ai/``). Any other segment (a Hugging Face
+# organization such as ``meta-llama/``) is part of the id.
+_ROUTES = frozenset({"openai", "anthropic", "google", "google-vertex", "vertex_ai", "openrouter", "amazon-bedrock",
+                     "bedrock", "converse"})
+
+
 def _model_core(model: str) -> tuple[str, str | None]:
     """A model name reduced to ``(id, snapshot date or None)``.
 
     The route goes (``openrouter/anthropic/``, ``bedrock/``, ``vertex_ai/``, an ARN's
     ``inference-profile/``), and so do the case, the region profile (``eu.``) and a Bedrock
-    revision (``-v1:0``). Vertex's ``@20250929`` is the snapshot ``-20250929``.
+    revision (``-v1:0``). Vertex's ``@20250929`` is the snapshot ``-20250929``. The organization of an
+    ``org/name`` id stays, so a re-upload under another organization is another model.
     """
-    name = (model or "").strip().lower().rsplit("/", 1)[-1]
+    name = (model or "").strip().lower()
+    if "inference-profile/" in name:
+        name = name.rsplit("inference-profile/", 1)[-1]
+    parts = name.split("/")
+    while len(parts) > 1 and parts[0] in _ROUTES:
+        parts.pop(0)
+    name = "/".join(parts)
     name = re.sub(r"-v\d+:\d+$", "", name)
     for prefix in _REGION_PROFILES:
         if name.startswith(prefix):

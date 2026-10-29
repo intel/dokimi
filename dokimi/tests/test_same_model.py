@@ -42,6 +42,15 @@ CASES = [
     ("amazon-bedrock/us.anthropic.claude-sonnet-4-5", "amazon-bedrock/eu.anthropic.claude-sonnet-4-5", True),
     ("openrouter/anthropic/claude-sonnet-4-5", "anthropic/claude-sonnet-4-5", True),
     ("anthropic/claude-sonnet-5-5", "anthropic/us.anthropic.claude-sonnet-5-5", True),
+    # the organization is part of a Hugging Face style id; only a route is dropped
+    ("meta-llama/Llama-3.1-8B-Instruct", "myorg/Llama-3.1-8B-Instruct", False),
+    ("meta-llama/Llama-3.1-8B-Instruct", "meta-llama/Llama-3.1-8B-Instruct", True),
+    ("openrouter/meta-llama/llama-3.1-8b-instruct", "meta-llama/Llama-3.1-8B-Instruct", True),
+    ("openrouter/meta-llama/llama-3.1-8b-instruct", "openrouter/myorg/llama-3.1-8b-instruct", False),
+    ("meta-llama/Llama-3.1-8B-Instruct", "Llama-3.1-8B-Instruct", False),
+    ("arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+     "claude-sonnet-4-5-20250929", True),
+    ("bedrock/converse/openai.gpt-oss-120b", "openai/gpt-oss-120b", True),
 ]
 
 
