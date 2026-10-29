@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""`arms plugin-delta`: an unwritable output exits 1 with a message."""
+"""`arms plugin-delta`, `arms run` and `arms matrix-run`: an unwritable output exits 2 with a message."""
 
 from __future__ import annotations
 

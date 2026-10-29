@@ -16,7 +16,7 @@ import json
 import pytest
 
 from dokimi import cli
-from dokimi.commands import arms_sampling, benchmark, evaluate
+from dokimi.commands import arms, arms_sampling, benchmark, evaluate
 from dokimi.records import RecordError
 from dokimi.repos import SourceError
 from dokimi.repos.reach import ReachError
@@ -124,6 +124,38 @@ def test_matrix_cell_refused_at_probe_stops_before_any_answer(tmp_path, monkeypa
     assert answered == []
     assert not (tmp_path / "matrix" / "cells").exists()
     assert "matrix cell 'cell-bad'" in capsys.readouterr().err
+
+
+def test_matrix_cell_that_cannot_be_set_up_exits_2_before_any_answer(tmp_path, monkeypatch, capsys):
+    # Cell 2 cannot be set up (a refused input, not a model failure): usage error, and cell 1,
+    # which was set up, has not been answered or written either.
+    real_prepare = arms._prepare_arms
+    calls = []
+
+    def prepare(cell_args, specs, questions):
+        calls.append(cell_args.model)
+        if cell_args.model == "bad-cell-model":
+            raise ValueError("this cell names a harness that cannot run its plugins")
+        return real_prepare(cell_args, specs, questions)
+
+    answered = []
+    monkeypatch.setattr(arms, "_prepare_arms", prepare)
+    monkeypatch.setattr("dokimi.eval.arm_runner.ArmRunner.run",
+                        lambda self, *a, **k: answered.append(1) or [])
+    cells = tmp_path / "cells.json"
+    cells.write_text(json.dumps({"cells": [
+        {"id": "cell-ok", "model": "gpt-4o-mini", "provider": "openai", "harness": "arms-runner"},
+        {"id": "cell-bad", "model": "bad-cell-model", "provider": "openai", "harness": "arms-runner"},
+    ]}), encoding="utf-8")
+    _argv(monkeypatch, "arms", "matrix-run", "--product", "onedal", "--questions", _questions(tmp_path),
+          "--arms", "baseline", "--matrix-cells", str(cells), "--out-dir", str(tmp_path / "matrix"))
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    assert calls == ["gpt-4o-mini", "bad-cell-model"]
+    assert answered == []
+    assert not (tmp_path / "matrix").exists()
+    assert "Error building matrix cell 'cell-bad'" in capsys.readouterr().err
 
 
 # ── repo fetch / reach: a fetch failure keeps 1; a bad source or profile is 2 ──────────────
