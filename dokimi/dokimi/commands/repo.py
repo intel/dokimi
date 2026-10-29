@@ -440,7 +440,8 @@ def register(sub, positive_int) -> None:
     scan_p.add_argument("--static", default=None,
                         help="repo_static.v1 document the repository's `static` entry point wrote; merged into "
                         "the report, its claims replacing the framework's on the same file, line and text. "
-                        "An invalid document is reported and makes the command exit 1")
+                        "A file that cannot be read or is not JSON exits 2; a schema-invalid document is "
+                        "reported and makes the command exit 1")
     scan_p.add_argument("--out", default=None, help="Write the repo_readiness.v1 report to this file")
     scan_p.add_argument("--json", action="store_true", help="Print the full report as JSON")
     scan_p.add_argument("--fail-on-fail", action="store_true", dest="fail_on_fail",

@@ -1130,8 +1130,9 @@ scanned once, as the file it names.
 The report lists `warnings` for guidance the manifest names but the tree lacks:
 a glob with no match, a missing `also_scan` file, no guidance at all, and a
 guidance file that cannot be read (a link that dangles or leaves the tree, a
-binary file, a file over 2 MB), named with the reason. An invalid `--static`
-document is not merged, and the command exits 1. `--fail-on-fail` also exits 1
+binary file, a file over 2 MB), named with the reason. A `--static`
+file that cannot be read or is not JSON exits 2; a document that fails the
+`repo_static.v1` schema is not merged, and the command exits 1. `--fail-on-fail` also exits 1
 when any claim fails, an `also_scan` file is missing, a guidance file cannot be
 read, a Bazel build input (`BUILD`, `.bzl`, `.bazelrc`, ...) cannot be read, or no guidance file matched
 (`incomplete`). A glob that matches nothing
