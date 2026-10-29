@@ -390,3 +390,13 @@ def test_a_violation_still_blocks_a_set_with_unmeasured_questions():
     judge = {"checks": [{"type": "judge", "criterion": "names the capital"}]}
     result = run([_q("j", judge), _q("1", {"checks": [{"type": "regex", "values": [".*"]}]})])
     assert result["status"] == "blocked"
+
+
+def test_a_repeated_question_id_grades_each_row_with_its_own_block():
+    weak = {"checks": [{"type": "match", "values": ["Paris"]}], "threshold": 0.0}  # accepts everything
+    strong = {"checks": [{"type": "exact", "value": "Madrid"}]}
+    result = run([_q("a", weak), _q("a", strong)])
+    assert result["status"] == "blocked"
+    assert {v["attack"] for v in result["violations"]} == {"wrong", "empty", "hedge"}
+    assert [r["canary"] for r in result["questions"]] == [True, True]
+    assert result["summary"]["questions"] == 2 and result["summary"]["violations"] == 3
