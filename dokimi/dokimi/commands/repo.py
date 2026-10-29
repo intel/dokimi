@@ -194,7 +194,7 @@ def cmd_repo_inspect(args: argparse.Namespace) -> None:
 def cmd_repo_fetch(args: argparse.Namespace) -> None:
     """Clone (once) and fetch a pinned remote source into the cache; print the SHA."""
     from dokimi.repos import RepoSource, SourceError, open_source
-    from dokimi.repos.source import GitTree
+    from dokimi.repos.source import GitTree, SourceArgumentError
 
     try:  # the source as typed: a usage error
         source = RepoSource.parse(args.source)
@@ -205,6 +205,9 @@ def cmd_repo_fetch(args: argparse.Namespace) -> None:
         sys.exit(EXIT_USAGE)
     try:  # the clone and fetch: a runtime failure (network, git, unknown revision)
         tree = open_source(source, _cache_dir(args))
+    except SourceArgumentError as exc:  # a pinned local path that is not the repository root
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
     except SourceError as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
@@ -231,6 +234,7 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
     """L1 reach probe: which guidance files one harness/version/model loads."""
     from dokimi.repos import ManifestError, RepoSource, SourceError, open_source
     from dokimi.repos.harness_profile import ProfileError, load_profile
+    from dokimi.repos.source import SourceArgumentError
     from dokimi.repos.reach import (
         ReachError,
         format_matrix,
@@ -252,6 +256,9 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
         sys.exit(EXIT_USAGE)
     try:  # the clone and fetch: a runtime failure
         tree = open_source(source, _cache_dir(args))
+    except SourceArgumentError as exc:  # a pinned local path that is not the repository root
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
     except SourceError as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
