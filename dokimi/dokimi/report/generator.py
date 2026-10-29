@@ -469,7 +469,7 @@ class ReportGenerator:
             total_q = failure_summary.get("total", 1)
             for label, display in DIAGNOSIS_LABELS.items():
                 count = counts.get(label, 0)
-                rate = f"{count / total_q:.0%}"
+                rate = f"{count / total_q:.0%}" if total_q else "n/a"  # the pipeline may judge 0 answers
                 desc = DIAGNOSIS_DESCRIPTIONS.get(label, "")
                 lines.append(f"| {display} | {count} | {rate} | {desc} |")
 
