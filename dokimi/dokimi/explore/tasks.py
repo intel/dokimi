@@ -131,10 +131,13 @@ def _task_from_data(
         isinstance(ref, dict) and "path" in ref for ref in raw_refs
     ):
         raise ValueError(f"Explore task {path} references must be a list of entries with a 'path'")
-    references = tuple(
-        ExploreReference(path=str(ref["path"]), lines=_parse_lines(ref.get("lines")))
-        for ref in raw_refs
-    )
+    try:
+        references = tuple(
+            ExploreReference(path=str(ref["path"]), lines=_parse_lines(ref.get("lines")))
+            for ref in raw_refs
+        )
+    except ValueError as exc:
+        raise ValueError(f"Explore task {path}: {exc}") from exc
     if not references:
         raise ValueError(f"Explore task {path} has no references")
     repo_root = data.get("repo_root")

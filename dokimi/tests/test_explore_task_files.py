@@ -37,6 +37,12 @@ def _exit_message(argv) -> str:
         pytest.param(b"id: x\nquery: q\nreferences:\n  - path: a.py\nrepo_root: []\n", "repo_root must be",
                      id="empty-list-root"),
         pytest.param(b"id: x\ncreated: 2020-13-45\n", "is not valid UTF-8 YAML", id="bad-timestamp"),
+        pytest.param(b"id: x\nquery: q\nreferences:\n  - path: a.py\n    lines: [0]\n", "values must be >= 1",
+                     id="lines-zero"),
+        pytest.param(b"id: x\nquery: q\nreferences:\n  - path: a.py\n    lines: [1, 2, 3]\n",
+                     "must be [start, end] or [n]", id="lines-three"),
+        pytest.param(b"id: x\nquery: q\nreferences:\n  - path: a.py\n    lines: [x]\n", "must contain integers",
+                     id="lines-not-int"),
     ],
 )
 def test_a_malformed_task_file_names_the_file(tmp_path, argv_tail, content, message):
