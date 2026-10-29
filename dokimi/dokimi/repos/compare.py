@@ -77,7 +77,6 @@ from __future__ import annotations
 
 import itertools
 import json
-import math
 import random
 from collections import defaultdict
 from pathlib import Path
@@ -86,7 +85,7 @@ from typing import Any
 from dokimi.context.consistency import Run, order_distance, pass_hat, run_from_events
 from dokimi.eval.stats import adjust_pvalues, bootstrap_ci, mean_ci
 
-from .process_counts import process_order, process_values
+from .process_counts import as_measure, process_order, process_values
 from .report import (load_cells, mismatch_warnings, model_matches, model_mismatch, reading_cells, resolved_models,
                      unmeasured_note, uptake_counts)
 
@@ -655,7 +654,7 @@ def _grade_metrics(path: Path, names: tuple[str, ...]) -> dict[str, float]:
     """The requested numeric or boolean ``metrics`` of a cell's ``grade.json``; absent ones are left out."""
     try:
         grade = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):
         return {}
     found = grade.get("metrics") if isinstance(grade, dict) else None
     if not isinstance(found, dict):
@@ -665,13 +664,13 @@ def _grade_metrics(path: Path, names: tuple[str, ...]) -> dict[str, float]:
         value = found.get(name)
         if isinstance(value, bool):
             out[name] = 1.0 if value else 0.0
-        elif isinstance(value, (int, float)) and math.isfinite(value):  # NaN and inf are not measurements
-            out[name] = float(value)
+        elif (num := as_measure(value)) is not None:  # NaN, inf and a huge number are not measurements
+            out[name] = num
     return out
 
 
 def _finite(values: list[Any]) -> list[float]:
-    return [float(v) for v in values if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)]
+    return [num for v in values if (num := as_measure(v)) is not None]
 
 
 def _process_lists(recs: list[dict[str, Any]]) -> dict[str, list[float | None]]:

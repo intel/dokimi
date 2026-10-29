@@ -384,3 +384,44 @@ def test_a_stored_unmeasurable_score_is_read_as_a_grader_failure(tmp_path, capsy
     else:
         row = next(r for r in out["comparisons"] if r["measure"] == "score")
         assert (row["baseline_mean"], row["treatment_mean"]) == (0.0, 0.5)
+
+
+
+def _huge_in_t0(huge, files_for):
+    """Three tasks, arms a and b; arm a's value in task t0 is ``huge``, every other value is the task index."""
+    files = {}
+    for i in range(3):
+        for arm in ("a", "b"):
+            value = "HUGE" if (i, arm) == (0, "a") else i
+            for rel, rec in files_for(f"t{i}", arm, value).items():
+                files[f"t{i}__{arm}__m__r1/{rel}"] = json.dumps(rec).replace('"HUGE"', huge).encode()
+    return files
+
+
+_HUGE = pytest.mark.parametrize("huge", ["1e200", pytest.param("9" * 400, id="400-digits")])
+
+
+@_CMDS
+@_HUGE
+def test_a_process_counter_beyond_the_bound_is_left_out(tmp_path, capsys, cmd, huge):
+    files = _huge_in_t0(huge, lambda task, arm, value: {"result.json": {
+        **_GOOD, "task": task, "arm": arm, "process": {"counters": {"x": value}}}})
+    _run(cmd[0], str(_batch(tmp_path, "b1", files)), *cmd[1:], "--json")
+    out = json.loads(capsys.readouterr().out, parse_constant=_no_constant)
+    if cmd[0] == "report":
+        rows = {r["task"]: r for r in out["rows"] if r["arm"] == "a"}
+        assert "counter:x" not in rows["t0"].get("process", {}) and rows["t1"]["process"]["counter:x"] == 1.0
+    else:
+        row = next(r for r in out["comparisons"] if r["measure"] == "counter:x")
+        assert [t["task"] for t in row["tasks"]] == ["t1", "t2"]
+
+
+@_HUGE
+def test_a_grade_metric_beyond_the_bound_is_left_out(tmp_path, capsys, huge):
+    files = _huge_in_t0(huge, lambda task, arm, value: {"result.json": {**_GOOD, "task": task, "arm": arm},
+                                                         "grade.json": {"metrics": {"m1": value}}})
+    files["t1__b__m__r1/grade.json"] = b"[" * 100000  # a grade.json too deep to read has no metrics
+    _run("compare", str(_batch(tmp_path, "b1", files)), "--baseline", "a", "--metric", "m1", "--json")
+    out = json.loads(capsys.readouterr().out, parse_constant=_no_constant)
+    row = next(r for r in out["comparisons"] if r["measure"] == "metric:m1")
+    assert [t["task"] for t in row["tasks"]] == ["t2"]
