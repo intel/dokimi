@@ -44,6 +44,7 @@ from __future__ import annotations
 import functools
 import json
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
@@ -257,7 +258,7 @@ def _family(model: str) -> Optional[str]:
     if name in CLAUDE_CLI.aliases:
         return name
     if name.startswith("claude-"):
-        for part in name.split("-"):
+        for part in re.split(r"[-@]", name):
             if part in CLAUDE_CLI.aliases:
                 return part
     return None
