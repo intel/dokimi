@@ -217,7 +217,8 @@ def build_trigger_set(
         chunk = out[first:]
         if specs is not None and rule.startswith("@") and chunk and not any(tq.labelled for tq in chunk):
             # A typo in the path, not a set of negatives.
-            raise TriggerSetInputError(f"{specs[index]}: {rule} resolves for none of {len(chunk)} questions")
+            raise TriggerSetInputError(f"{specs[index]}: {rule} resolves for none of {len(chunk)} questions "
+                                       "(none has that field, so the file has no labels)")
     # Every question has passed validation before the first rewrite call, so a refused set costs no model call.
     for tq in out:
         if rewrite is not None:

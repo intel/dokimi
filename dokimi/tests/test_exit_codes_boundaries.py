@@ -480,6 +480,20 @@ def test_trigger_set_no_text_refused_before_any_rewrite_call(tmp_path, monkeypat
     assert not (tmp_path / "o.json").exists()
 
 
+def test_trigger_set_file_without_labels_is_refused_and_says_so(tmp_path, monkeypatch, capsys):
+    # A questions file read as a trigger set whose questions carry no expected_skill: the rule is
+    # @expected_skill, and the message must say the file has no labels, not blame a path typo.
+    path = tmp_path / "unlabelled.json"
+    path.write_text(json.dumps({"questions": [{"id": "u1", "question": "How do I cook rice?"}]}), encoding="utf-8")
+    _argv(monkeypatch, "catalog", "trigger-set", "--catalog", str(_skill_root(tmp_path)),
+          "--format", "questions", "--trigger-set", str(path), "--out", str(tmp_path / "o.json"))
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    assert "@expected_skill resolves for none of 1 questions (none has that field, so the file has no labels)" \
+        in capsys.readouterr().err
+
+
 def test_trigger_set_unresolved_field_rule_is_refused_before_any_rewrite_call(tmp_path, monkeypatch, capsys):
     # A mistyped @field path labels no question: exit 2, and none of the questions was sent to --rewrite.
     rewrite_calls = []
