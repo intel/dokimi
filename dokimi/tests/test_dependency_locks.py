@@ -124,9 +124,10 @@ def test_lock_is_compiled_with_hashes(name: str) -> None:
     assert "--generate-hashes" in compile_command(name).split(), name
 
 
-def test_tools_lock_is_constrained_to_main_lock() -> None:
-    """The tools lock is compiled against the main lock, so shared pins cannot drift."""
-    assert "--constraint=requirements.lock.txt" in header_command("requirements-ci.lock.txt")
+@pytest.mark.parametrize("name", ("requirements-ci.lock.txt", "requirements-mutation.lock.txt"))
+def test_tools_lock_is_constrained_to_main_lock(name: str) -> None:
+    """The tools locks are compiled against the main lock, so shared pins cannot drift."""
+    assert "--constraint=requirements.lock.txt" in header_command(name)
 
 
 @pytest.mark.parametrize("name", HASHED_LOCKS)
@@ -144,11 +145,6 @@ def test_every_pin_has_hashes(name: str) -> None:
         if not hashes or not all(HASH.search(h) for h in hashes):
             unhashed.append(line)
     assert not unhashed, f"{name}: pins without a valid --hash=sha256 line: {unhashed}"
-
-
-@pytest.mark.parametrize("name", ("requirements-ci.lock.txt", "requirements-mutation.lock.txt"))
-def test_tools_locks_are_constrained_to_main_lock_by_header(name: str) -> None:
-    assert "--constraint=requirements.lock.txt" in header_command(name)
 
 
 def test_mutation_tool_stays_out_of_the_shared_tools_lock() -> None:
