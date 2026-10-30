@@ -109,6 +109,24 @@ def test_task_matches_a_missing_cell_by_its_task_not_by_a_prefix(tmp_path):
     assert compare([b], "guidance:none", tasks=["fix__a"])["missing"] == ["b/fix__a__guidance-raw__m-1__r2"]
 
 
+def test_an_arm_or_metric_error_under_task_says_the_selection_is_the_reason(tmp_path):
+    b = tmp_path / "b"
+    _cell(b, "t1", "guidance:none", 1)
+    _cell(b, "t1", "guidance:raw", 1)
+    for arm in ("guidance:none", "guidance:other"):  # guidance:other ran only t2, with the metric
+        _cell(b, "t2", arm, 1, metrics={"tok": 3.0})
+    with pytest.raises(CompareError, match=r"no finished cell matches the treatment 'guidance:other' among the "
+                                           r"--task selection$"):
+        compare([b], "guidance:none", treatments=["guidance:other"], tasks=["t1"])
+    with pytest.raises(CompareError, match=r"no finished cell matches the baseline 'guidance:other' among the "
+                                           r"--task selection$"):
+        compare([b], "guidance:other", tasks=["t1"])
+    with pytest.raises(CompareError, match=r"reports a numeric or boolean --metric tok among the --task selection$"):
+        compare([b], "guidance:none", metrics=("tok",), tasks=["t1"])
+    with pytest.raises(CompareError, match=r"^no finished cell matches the treatment 'guidance:nope'$"):
+        compare([b], "guidance:none", treatments=["guidance:nope"])  # without --task, no selection to name
+
+
 def test_task_refuses_an_id_no_cell_has(tmp_path, capsys):
     b = tmp_path / "b"
     _three_tasks(b)

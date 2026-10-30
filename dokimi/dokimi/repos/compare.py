@@ -180,11 +180,13 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
         raise CompareError(f"--pass-k must be at least 1, got {pass_k}")
     cells, missing = load_batches(batch_dirs, metrics, path_stability)
     cells, missing, task_filter = _select_tasks(cells, missing, tasks)
-    _check_metrics(metrics, cells)
+    # the arms and metrics are checked among the selected cells, so a miss may be the selection's doing
+    scope = " among the --task selection" if task_filter else ""
+    _check_metrics(metrics, cells, scope)
     base_sel = parse_selector(baseline)
     if not any(selector_matches(base_sel, c) for c in cells):
-        raise CompareError(f"no finished cell matches the baseline {baseline!r}")
-    treatments = _treatments(cells, baseline, base_sel, treatments)
+        raise CompareError(f"no finished cell matches the baseline {baseline!r}{scope}")
+    treatments = _treatments(cells, baseline, base_sel, treatments, scope)
     measures = ["gate", "score", *([f"pass^{pass_k}"] if pass_k else []),
                 *(["path_distance"] if path_stability else []), "cost_usd", "turns", "first_prompt_tokens",
                 *(f"metric:{m}" for m in metrics)]
@@ -350,11 +352,11 @@ def _process_measures(cells: list[dict[str, Any]], selectors: list[str]) -> list
     return sorted(found, key=process_order)
 
 
-def _check_metrics(metrics: tuple[str, ...], cells: list[dict[str, Any]]) -> None:
+def _check_metrics(metrics: tuple[str, ...], cells: list[dict[str, Any]], scope: str = "") -> None:
     """A ``--metric`` that no finished cell reports is a typo or not a number: refuse it, not print nothing."""
     unknown = [m for m in metrics if not any(m in c["metrics"] for c in cells)]
     if unknown:
-        raise CompareError(f"no finished cell reports a numeric or boolean --metric {', '.join(unknown)}")
+        raise CompareError(f"no finished cell reports a numeric or boolean --metric {', '.join(unknown)}{scope}")
 
 
 def _check_models(models: list[str] | None, rows: list[dict[str, Any]], unpaired: list[dict[str, Any]]) -> None:
@@ -484,7 +486,7 @@ def _unpaired(treatment: str, model: str, task: str, measure: str | None, reason
 
 
 def _treatments(cells: list[dict[str, Any]], baseline: str, base_sel: tuple[str | None, str],
-                treatments: list[str] | None) -> list[str]:
+                treatments: list[str] | None, scope: str = "") -> list[str]:
     """The treatment selectors to compare, checked: each matches cells, and none of the baseline's."""
     if treatments is not None and not treatments:
         raise CompareError("no treatment arms named; leave --arm out to compare every other arm")
@@ -498,7 +500,7 @@ def _treatments(cells: list[dict[str, Any]], baseline: str, base_sel: tuple[str 
             raise CompareError(f"treatment {text!r} is the baseline")
         matched = [c for c in cells if selector_matches(sel, c)]
         if not matched:
-            raise CompareError(f"no finished cell matches the treatment {text!r}")
+            raise CompareError(f"no finished cell matches the treatment {text!r}{scope}")
         if any(selector_matches(base_sel, c) for c in matched):
             raise CompareError(f"treatment {text!r} also matches cells of the baseline {baseline!r}; "
                                "name its batch (BATCH/ARM)")
