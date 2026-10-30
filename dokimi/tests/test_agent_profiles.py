@@ -442,10 +442,11 @@ def test_the_api_name_check_would_actually_fire():
 
     contaminated = (
         "Call asnumpy() once at the edge, pass usm_type='device' and sycl_queue=q to "
-        "dpctl.tensor.empty(), and set dtype=float32."
+        "dpnp.tensor.empty(), and set dtype=float32."
     )
-    leaked = {m for shape in API_SHAPES for m in re.findall(shape, contaminated)}
-    assert leaked, "the API-name guard is vacuous"
+    # One name per shape: a dotted call, a bare call, a keyword argument. Each needs its own.
+    for shape, name in zip(API_SHAPES, ("tensor.empty(", "asnumpy()", "usm_type='"), strict=True):
+        assert name in re.findall(shape, contaminated), f"{shape} no longer catches {name}"
 
 
 def test_a_persona_that_paraphrases_its_skill_is_detected():
