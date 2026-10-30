@@ -40,7 +40,10 @@
     },
     "egress": {"type": "array", "items": {"type": "string", "pattern": "^(?:(?:\\*|[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)\\.)*[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?::(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?$"}, "description": "Hosts the agent container may reach through the framework egress proxy (contract §2). `*` stands for exactly one whole DNS label and the last two labels are literal, so `*`, `**` and `*.com` are refused. Same pattern as repos/manifest.py HOST_PATTERN."},
     "endpoint_env": {"type": ["string", "null"]},
-    "trace": {"enum": ["claude-stream-json", "text"]},
+    "trace": {"enum": ["claude-stream-json", "codex-json", "copilot-json", "text"]},
+    "bin_companions": {"type": "array", "items": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"}, "description": "File names the harness executable needs beside it (a helper it starts from its own directory). `repo run` mounts each, from beside --bin, read-only next to the executable in the agent's container."},
+    "native_prompt": {"type": "boolean", "description": "The harness runs its own built-in prompt (a native review mode such as `codex exec review --commit HEAD`): `invoke` need not pass {prompt}, the task prompt is not given to the agent, and `repo reach` refuses the profile. Default false."},
+    "answer_format": {"enum": ["codex-review"], "description": "Converts the final answer before grading: `codex-review` appends a ```json block of findings parsed from Codex's native review text (`- [P1] title — path:12-14` plus a body)."},
     "guidance": {
       "type": "object",
       "additionalProperties": false,

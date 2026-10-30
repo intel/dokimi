@@ -1,0 +1,653 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""Codex CLI and Copilot CLI JSON traces -> :class:`~dokimi.repos.events.Transcript` (contract §4.1).
+
+``codex-json`` is the stdout of ``codex exec --json`` (codex-cli 0.160): one
+``item.*`` event per agent message, shell command, file change, MCP call or web
+search, and ``turn.completed`` with token usage. Codex has no read tool, so a
+``read`` event is derived from a shell command that only prints files
+(``cat``, ``head``, ``tail``, ``sed -n``, ``nl``) and names them.
+
+``copilot-json`` is the stdout of ``copilot -p --output-format json`` (Copilot
+CLI 1.0.91): ``tool.execution_start`` / ``tool.execution_complete`` pairs,
+``assistant.message`` and a final ``result``. It reports no tokens and no cost.
+
+Neither CLI reports a cost, so ``cost_usd`` stays ``None`` and a batch budget
+counts the cell's cap.
+"""
+
+from __future__ import annotations
+
+import json
+import posixpath
+import re
+import shlex
+from datetime import datetime
+from typing import Any
+
+from .transcript import Transcript, _parse_time, clip_output, relative_path
+
+_BASH_WRAP = re.compile(r"^(?:/\S*/)?(?:ba|z)?sh -lc (.+)$", re.S)
+_PRINTERS = {"cat", "head", "tail", "nl", "sed"}
+_COPILOT_SHELL = {"bash", "powershell"}
+_COPILOT_READ = {"view"}
+_COPILOT_EDIT = {"edit", "create", "str_replace_editor", "write"}
+_PATCH_FILE = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$", re.M)
+_CONTINUATION = re.compile(r"\\\n")
+_HEREDOC = re.compile(r"<<-?[ \t]*(['\"]?)(\w+)\1([^\n]*)\n.*?^[ \t]*\2[ \t]*$", re.S | re.M)
+# a redirect that writes nowhere a read could be confused with: 2>&1, 2>/dev/null, &>/dev/null
+_HARMLESS_REDIRECT = re.compile(r"(?:(?<![^\s;&|(])\d+)?(?:>&\d+|>>?\s*/dev/null)(?=\s|$|[;&|])|&>>?\s*/dev/null(?=\s|$|[;&|])")
+# stderr sent to a file: stdout, what a printing command shows, is unchanged
+# (matched on the part with quoted text masked, so a quote glued to ``2`` or to the target is seen)
+_STDERR_FILE = re.compile(r"(?<![^\s;&|(])2>>?[ \t]*[^\s;&|<>()]+")
+_SYSTEM_BIN = {"/bin", "/usr/bin", "/usr/local/bin"}
+_ASSIGN = re.compile(r"[A-Za-z_]\w*=")  # a NAME=value word: a variable set for the command that follows
+_KEYWORDS = {"if", "then", "else", "elif", "do", "while", "until", "!"}
+_DIR_STACK = {"pushd", "popd"}
+_DIRS = {"cd"} | _DIR_STACK  # the builtins that change the directory
+_PIPE = re.compile(r"(?<!\|)\|(?!\|)")  # a pipe, not ||
+_GROUP_OPEN = re.compile(r"(?:^|[\s;&|(])\{(?=\s|$)")  # a brace group opens: ``{`` as a word
+_GROUP_CLOSE = re.compile(r"(?:^|\s)\}(?=\s|$|[;&|])")
+# the values of long options that take a separate word (``head --lines 5``), by command
+_LONG_VALUE = {
+    "head": {"--lines", "--bytes"},
+    "tail": {"--lines", "--bytes", "--sleep-interval", "--pid", "--max-unchanged-stats"},
+    "nl": {"--body-numbering", "--section-delimiter", "--footer-numbering", "--header-numbering",
+           "--number-format", "--number-separator", "--number-width", "--starting-line-number",
+           "--line-increment", "--join-blank-lines"},
+}
+
+
+def unwrap_shell(command: str) -> str:
+    """The script of ``/usr/bin/bash -lc '<script>'`` (how Codex reports a command), else ``command``."""
+    m = _BASH_WRAP.match(command.strip())
+    if not m:
+        return command
+    try:
+        parts = shlex.split(m.group(1))
+    except ValueError:
+        return command
+    return parts[0] if len(parts) == 1 else m.group(1)
+
+
+def shell_reads(script: str, cwd: str = "") -> list[str]:
+    """Files a command only prints: ``cat a b``, ``head -n 5 a``, ``sed -n '1,80p' a``, ``nl -ba a``.
+
+    A pipeline or a redirect is not a read of its arguments (``cat a > b`` writes b), so it gives nothing;
+    each ``&&`` / ``;`` / ``||`` / ``&`` / newline part is read on its own. ``cwd`` is the directory the
+    script starts in, relative to the workspace root. ``cd`` moves it for the parts that follow: a
+    relative path is joined to it and normalised (no ``.`` or ``..``). The directory is unknown (a
+    relative read is not recorded) after ``cd -``, a bare ``cd``, a ``cd`` to a computed path, a
+    ``pushd`` / ``popd``, ``env -C`` / ``--chdir`` (the command's reads, but absolute ones), a ``cd``
+    after ``if`` / ``then`` / ``do`` / ``else`` (it may not run), or a
+    ``||`` that follows a ``cd``. A subshell ``( ... )`` records no reads: its directory is not kept. A brace group that is
+    backgrounded or piped runs in a subshell, so the directory is restored after it. Absolute paths
+    are kept.
+    """
+    out: list[str] = []
+    walk = _Walk(posixpath.normpath(cwd) if cwd else "")
+    previous = ""
+    script = _HEREDOC.sub(lambda m: m.group(3), _CONTINUATION.sub(" ", script))  # a heredoc body is input, not commands
+    for part, after, in_subshell in _split_script(script):
+        op, previous = previous, after
+        if op == "||" and walk.moved:
+            walk.here = None
+        if in_subshell:  # a subshell: its reads are not tracked
+            if _runs_dir_before_parens(part):  # ``cd $(dirname f)``: the cd is outside the parentheses
+                walk.lose()
+            continue
+        walk.track_groups(_bare(part), after)
+        words = walk.words(part)
+        if words:
+            out.extend(walk.command(words, after))
+    return out
+
+
+class _Walk:
+    """Where ``shell_reads`` is in the script: the directory (``None``: unknown), whether a ``cd`` was seen, and
+    the open brace groups as (directory before it, in a pipeline)."""
+
+    def __init__(self, here: str | None) -> None:
+        self.here = here
+        self.moved = False  # a cd was seen: after ||, the directory is not known
+        self.groups: list[tuple[str | None, bool]] = []
+
+    def lose(self) -> None:
+        self.here, self.moved = None, True
+
+    def track_groups(self, bare: str, after: str) -> None:
+        """A brace group opening or closing in ``bare``; one that ran in a subshell restores the directory."""
+        opened = _GROUP_OPEN.search(bare)
+        if opened:
+            piped = bool(_PIPE.search(bare[:opened.start()]))
+            self.groups.append((self.here, piped))
+            if piped:  # the group runs in a pipeline's subshell: where it ends up is not tracked
+                self.here = None
+        closed = _GROUP_CLOSE.search(bare)
+        if closed and self.groups:
+            before, piped = self.groups.pop()
+            if piped or after == "&" or _PIPE.search(bare[closed.start():]):  # the group ran in a subshell
+                self.here = before
+
+    def words(self, part: str) -> list[str]:
+        """The words of ``part``; none when it cannot be split or is computed (a computed ``cd`` loses the directory)."""
+        part = _outside_quotes(part, _HARMLESS_REDIRECT)
+        part = _outside_quotes(part, _STDERR_FILE)
+        try:
+            words = shlex.split(part) if not _computed(part) else None
+        except ValueError:
+            return []
+        if words is None:
+            rough = part.split()
+            while rough and (rough[0] in _KEYWORDS or rough[0] == "{"):
+                rough = rough[1:]
+            rough, via_env, _ = _command_words(rough)
+            if rough[:1] and rough[0] in _DIRS and not via_env:  # ``builtin cd "$D"``: where it went is not known
+                self.lose()
+            return []
+        return words[1:] if words[:1] == ["{"] else words  # a brace group runs in this shell: its cd and reads count
+
+    def command(self, words: list[str], after: str) -> list[str]:
+        """Move the directory for a ``cd``; the files a printing command reads."""
+        conditional = False
+        while words and words[0] in _KEYWORDS:  # ``then cd x``: the cd may not run
+            words, conditional = words[1:], True
+        words, via_env, chdir = _command_words(words)
+        if not words:
+            return []
+        name = words[0]
+        if via_env and (name == "cd" or name in _DIR_STACK):  # ``env cd x`` runs no builtin: nothing moves
+            return []
+        if "/" in name:  # ``/bin/cat`` is cat; ``./cat`` or ``/bin/cd`` is some other program
+            name = posixpath.basename(name) if posixpath.dirname(name) in _SYSTEM_BIN else ""
+            if name == "cd" or name in _DIR_STACK:
+                return []
+        if name in _DIR_STACK or (conditional and name == "cd"):
+            self.lose()
+        elif name == "cd":
+            self.moved = True
+            if after != "&":  # a backgrounded cd runs in a subshell: this shell stays where it was
+                self.here = _cd(self.here, words[1:])
+        elif name in _PRINTERS:
+            files = _sed_files(words[1:]) if name == "sed" else _print_files(name, words[1:])
+            # ``env -C dir cat f`` reads dir/f, which is not known: only an absolute path is the same
+            return [self.resolve(f) for f in files if f.startswith("/") or (self.here is not None and not chdir)]
+        return []
+
+    def resolve(self, f: str) -> str:
+        return posixpath.normpath(f if f.startswith("/") else posixpath.join(self.here or "", f))
+
+
+def _cd(here: str | None, args: list[str]) -> str | None:
+    """The directory after ``cd <args>`` from ``here`` (``None``: unknown)."""
+    rest = list(args)
+    while rest and rest[0] in ("-L", "-P", "-e", "-@"):
+        rest.pop(0)
+    if rest and rest[0] == "--":
+        rest.pop(0)
+    if len(rest) != 1 or rest[0] == "-" or rest[0].startswith("~"):
+        return None  # home, the previous directory, or something we do not track
+    target = rest[0]
+    if target.startswith("/"):
+        return posixpath.normpath(target)
+    return None if here is None else posixpath.normpath(posixpath.join(here, target))
+
+
+def _runs_dir_before_parens(part: str) -> bool:
+    """Whether the command text before its first parenthesis runs a directory builtin, as ``cd $(...)`` does
+    (a subshell ``(cd x; ...)`` has no such text, so it changes nothing outside itself)."""
+    words = re.split(r"[()]", part, maxsplit=1)[0].split()
+    while words and (words[0] in _KEYWORDS or words[0] == "{"):
+        words = words[1:]
+    words, via_env, _ = _command_words(words)
+    return bool(words) and words[0] in _DIRS and not via_env
+
+
+def _computed(part: str) -> bool:
+    """A shell expansion outside single quotes (``$x``, backticks) or a pipe or redirect outside any quote."""
+    bare = re.sub(r"'[^']*'", "''", part)
+    if re.search(r"[$`]", bare):
+        return True
+    return bool(re.search(r"[|<>]", re.sub(r'"[^"]*"', '""', bare)))
+
+
+def _print_files(cmd: str, args: list[str]) -> list[str]:
+    """Operands of ``cat`` / ``head`` / ``tail`` / ``nl``, not the values of their options (``-n 5``, ``-ba``, ``-w 3``)."""
+    takes = {"head": "nc", "tail": "ncs", "nl": "bdfhilnsvw"}.get(cmd, "")  # short options that take a value
+    files, skip, ended = [], False, False
+    for a in args:
+        if skip:
+            skip = False
+        elif ended or not a.startswith("-"):
+            files.append(a)
+        elif a == "--":
+            ended = True
+        elif a.startswith("--"):
+            skip = a in _LONG_VALUE.get(cmd, ())  # the value is the next word
+        else:
+            for i, c in enumerate(a[1:], 1):
+                if c in takes:  # the value is the next word unless it is attached (-n5, -ba)
+                    skip = i == len(a) - 1
+                    break
+    return files
+
+
+class _SedScan:
+    """What the options of a ``sed`` command line say: ``-n`` (quiet), a script given by ``-e`` / ``-f``, an
+    in-place edit, and whether the next word is an option's value."""
+
+    def __init__(self) -> None:
+        self.quiet = self.scripted = self.skip = self.in_place = False
+
+    def long(self, a: str) -> None:
+        name = a.split("=", 1)[0]
+        if name == "--in-place":
+            self.in_place = True
+        self.quiet |= name in ("--quiet", "--silent")
+        if name in ("--expression", "--file"):
+            self.scripted = True
+            self.skip = "=" not in a
+        elif name == "--line-length":  # -l N: the value is not the script
+            self.skip = "=" not in a
+
+    def short(self, a: str) -> None:
+        """A cluster of short options: -n, -ne, -nE, -i.bak."""
+        for i, c in enumerate(a[1:], 1):
+            if c == "i":
+                self.in_place = True
+                return
+            self.quiet |= c == "n"
+            if c in "ef":
+                self.scripted = True
+            if c in "efl":
+                self.skip = i == len(a) - 1  # the value is the next word unless it is attached
+                return
+
+
+def _sed_files(args: list[str]) -> list[str]:
+    """Files of ``sed -n <script> files``; nothing for an in-place edit or a run without ``-n``."""
+    scan = _SedScan()
+    ended = False
+    positional: list[str] = []
+    for a in args:
+        if scan.skip:
+            scan.skip = False
+        elif ended or not a.startswith("-") or a == "-":
+            positional.append(a)
+        elif a == "--":
+            ended = True
+        elif a.startswith("--"):
+            scan.long(a)
+        else:
+            scan.short(a)
+        if scan.in_place:
+            return []
+    if not scan.quiet:
+        return []
+    files = positional if scan.scripted else positional[1:]
+    return [f for f in files if f != "-"]  # `-` is stdin: the script still counts it as a position
+
+
+def _bare(part: str) -> str:
+    """``part`` with the text inside quotes emptied, so only shell syntax is left to match."""
+    return re.sub(r"'[^']*'", "''", re.sub(r'"[^"]*"', '""', part))
+
+
+def _outside_quotes(part: str, rx: re.Pattern[str]) -> str:
+    """``part`` with each match of ``rx`` removed, matched with the text inside quotes masked: a match
+    starts outside quotes, and a quote glued to it (``'a'2>x``, ``2>x'y'``) is part of its word."""
+    masked = re.sub(r"\\.|'[^']*'|\"(?:\\.|[^\"\\])*\"",  # a backslash escape is masked too: ``\"`` opens no quote
+                    lambda m: "qq" if m.group()[0] == "\\" else m.group()[0] + "q" * (len(m.group()) - 2) + m.group()[-1],
+                    part, flags=re.DOTALL)
+    out, last = [], 0
+    for m in rx.finditer(masked):
+        out += [part[last:m.start()], " "]
+        last = m.end()
+    return "".join(out) + part[last:]
+
+
+def _command_words(words: list[str]) -> tuple[list[str], bool, bool]:
+    """The words from the command's name on; whether ``env`` runs it; and whether that ``env`` changes
+    directory (``-C`` / ``--chdir``). ``NAME=value`` words, ``builtin`` or ``command`` before a directory
+    builtin (which runs it), and ``env`` with its options and assignments come before the name and are skipped."""
+    via_env = chdir = False
+    while words:
+        if _ASSIGN.match(words[0]):
+            words = words[1:]
+        elif posixpath.basename(words[0]) in ("builtin", "command") and len(words) > 1 and words[1] in _DIRS:
+            words = words[1:]
+        elif posixpath.basename(words[0]) == "env":
+            words, via_env = words[1:], True
+            while words and (words[0].startswith("-") or _ASSIGN.match(words[0])):
+                opt = words[0]
+                chdir |= opt.startswith(("-C", "--chdir"))
+                words = words[2:] if opt in ("-C", "-u", "--chdir", "--unset") else words[1:]  # these take the next word as a value
+        else:
+            break
+    return words, via_env, chdir
+
+
+def _split_script(script: str) -> list[tuple[str, str, bool]]:
+    """``(part, operator after it, in a subshell)`` for each part of ``script`` split at unquoted ``&&``,
+    ``||``, ``;``, ``&`` and newlines (the operator is ``""`` after the last part). A ``#`` that starts a
+    word begins a comment, which runs to the end of the line and is dropped. A part inside ``( ... )``,
+    or holding a parenthesis, is in a subshell."""
+    splitter = _Splitter(script)
+    i = 0
+    while i < len(script):
+        i = splitter.step(i)
+    splitter.flush("")
+    return splitter.parts
+
+
+class _Splitter:
+    """The state of ``_split_script``: the parts so far, the one being built, the open quote and parentheses."""
+
+    def __init__(self, script: str) -> None:
+        self.script = script
+        self.parts: list[tuple[str, str, bool]] = []
+        self.cur: list[str] = []
+        self.quote = ""
+        self.depth = 0  # open parentheses
+        self.paren = False  # the part being built holds a parenthesis
+
+    def flush(self, op: str) -> None:
+        """End the part being built at ``op``."""
+        text = "".join(self.cur).strip()
+        if text:
+            self.parts.append((text, op if op != "\n" else ";", self.paren or self.depth > 0))
+        self.cur = []
+        self.paren = self.depth > 0
+
+    def step(self, i: int) -> int:
+        """Take the text at ``i``; the index to continue at."""
+        script, c = self.script, self.script[i]
+        if self.quote:
+            return self._quoted(i)
+        if c in "'\"":
+            self.quote = c
+            self.cur.append(c)
+        elif c == "\\" and i + 1 < len(script):
+            self.cur.append(c + script[i + 1])
+            return i + 2
+        elif c == "#" and (i == 0 or script[i - 1] in " \t\n;&|()"):
+            end = script.find("\n", i)  # the comment ends at the newline, which still splits
+            return len(script) if end < 0 else end
+        elif c in "()":
+            self.paren = True
+            self.depth = max(0, self.depth + (1 if c == "(" else -1))
+            self.cur.append(c)
+        else:
+            return self._operator(i)
+        return i + 1
+
+    def _quoted(self, i: int) -> int:
+        script, c = self.script, self.script[i]
+        self.cur.append(c)
+        if c == "\\" and self.quote == '"' and i + 1 < len(script):
+            i += 1
+            self.cur.append(script[i])
+        elif c == self.quote:
+            self.quote = ""
+        return i + 1
+
+    def _operator(self, i: int) -> int:
+        script, c = self.script, self.script[i]
+        two = script[i:i + 2]
+        op = two if two in ("&&", "||") else c if c in ";\n" else ""
+        if c == "&" and not op and script[i - 1:i] not in (">", "<") and script[i + 1:i + 2] != ">":
+            op = "&"
+        if not op:
+            self.cur.append(c)
+            return i + 1
+        self.flush(op)
+        return i + len(op)
+
+
+def codex_json(raw: str, workdir: str | None, cwd: str = "") -> Transcript:
+    out = Transcript()
+    messages: list[str] = []
+    by_id: dict[str, dict[str, Any]] = {}  # Track started items by ID to update on completion
+    event_reads: dict[int, list[dict[str, Any]]] = {}  # command event -> the read events derived from it
+    for n, line in enumerate(raw.splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            out.errors.append(f"line {n}: not JSON")
+            continue
+        if not isinstance(rec, dict):
+            continue
+        try:
+            _codex_apply(out, rec, messages, workdir, by_id, cwd, event_reads)
+        except (AttributeError, TypeError, ValueError) as exc:
+            out.errors.append(f"line {n}: unexpected shape ({exc})")
+    out.answer = messages[-1].strip() if messages else ""
+    out.agent_messages = messages
+    return out
+
+
+def _codex_apply(out: Transcript, rec: dict[str, Any], messages: list[str], workdir: str | None,
+                  by_id: dict[str, dict[str, Any]] | None = None, cwd: str = "",
+                  event_reads: dict[int, list[dict[str, Any]]] | None = None) -> None:
+    if by_id is None:
+        by_id = {}
+    if event_reads is None:
+        event_reads = {}
+    kind = rec.get("type")
+    if kind == "turn.completed":
+        _codex_usage(out, rec.get("usage") or {})
+    elif kind == "turn.failed" or (kind == "error" and not str(rec.get("message", "")).startswith("Reconnecting")):
+        # Only set is_error=True for turn.failed; a bare error after it should not override
+        if kind == "turn.failed":
+            out.is_error = True
+        msg = rec.get("message") or (rec.get("error") or {}).get("message")
+        out.errors.append(f"{kind}: {str(msg)[:200]}")
+    elif kind == "item.started":
+        # Record started items to preserve them even if completion is missing (timeout case)
+        item = rec.get("item") or {}
+        if item.get("type") == "command_execution":
+            _codex_command_started(out, item, workdir, by_id, cwd, event_reads)
+    elif kind == "item.completed":
+        _codex_item_completed(out, rec.get("item") or {}, messages, workdir, by_id, cwd, event_reads)
+
+
+def _codex_usage(out: Transcript, usage: dict[str, Any]) -> None:
+    out.num_turns = (out.num_turns or 0) + 1
+    out.result_seen = True  # a turn ended: the agent started, whatever else it printed
+    fresh, produced = int(usage.get("input_tokens") or 0), int(usage.get("output_tokens") or 0)
+    cached = max(int(usage.get("cached_input_tokens") or 0), 0)  # a negative count is malformed, not a credit
+    if fresh or produced:  # a missing or all-zero usage is not a measured zero: the counts stay None
+        # OpenAI counts the cached part inside input_tokens; Claude cells keep cache reads out of input_tokens.
+        # A malformed record with more cached than input never goes negative
+        out.input_tokens = (out.input_tokens or 0) + max(fresh - cached, 0)
+        out.output_tokens = (out.output_tokens or 0) + produced
+        if usage.get("cached_input_tokens") is not None:  # reported, so a zero is measured; absent, it stays None
+            out.cache_read_tokens = (out.cache_read_tokens or 0) + cached
+        out.usage_scope = "main"  # the turns are the parent's; Codex reports no subagent tokens here
+
+
+def _codex_key(item: dict[str, Any], script: str) -> str:
+    # Use item.id if available (handles overlapping commands with same text), fallback to text
+    item_id = item.get("id")
+    return str(item_id) if item_id else f"text:{script}"
+
+
+def _codex_command_started(out: Transcript, item: dict[str, Any], workdir: str | None,
+                           by_id: dict[str, dict[str, Any]], cwd: str,
+                           event_reads: dict[int, list[dict[str, Any]]]) -> None:
+    script = unwrap_shell(str(item.get("command") or ""))
+    read_events = [{"t": None, "kind": "read", "path": relative_path(path, workdir)}
+                   for path in shell_reads(script, cwd)]
+    out.events.extend(read_events)
+    event: dict[str, Any] = {"t": None, "kind": "command", "text": script, "rc": None}
+    event_reads[id(event)] = read_events
+    by_id[_codex_key(item, script)] = event
+    out.events.append(event)
+
+
+def _codex_item_completed(out: Transcript, item: dict[str, Any], messages: list[str], workdir: str | None,
+                          by_id: dict[str, dict[str, Any]], cwd: str,
+                          event_reads: dict[int, list[dict[str, Any]]]) -> None:
+    itype = item.get("type")
+    if itype == "agent_message":
+        messages.append(str(item.get("text") or ""))
+    elif itype == "command_execution":
+        script = unwrap_shell(str(item.get("command") or ""))
+        item_key = _codex_key(item, script)
+        if item_key in by_id:
+            _codex_command_finished(out, item, by_id.pop(item_key), event_reads)
+        else:
+            _codex_command_unstarted(out, item, script, workdir, cwd)
+    elif itype == "file_change":
+        for change in item.get("changes") or []:
+            if isinstance(change, dict) and change.get("path"):
+                out.events.append({"t": None, "kind": "edit", "path": relative_path(str(change["path"]), workdir)})
+    elif itype in ("mcp_tool_call", "web_search"):
+        name = f"{item.get('server')}.{item.get('tool')}" if itype == "mcp_tool_call" else "web_search"
+        out.events.append({"t": None, "kind": "tool", "name": name})
+
+
+def _codex_command_finished(out: Transcript, item: dict[str, Any], event: dict[str, Any],
+                            event_reads: dict[int, list[dict[str, Any]]]) -> None:
+    """Update the event from item.started with completion data."""
+    event["rc"] = item.get("exit_code")
+    if item.get("aggregated_output"):
+        event["output"], event["output_truncated"] = clip_output(str(item["aggregated_output"]))
+    derived = event_reads.get(id(event), [])
+    if _failed_read(str(event["text"]), derived, event["rc"]):  # drop the read events derived from it
+        dropped = {id(e) for e in derived}
+        out.events[:] = [e for e in out.events if id(e) not in dropped]
+
+
+def _codex_command_unstarted(out: Transcript, item: dict[str, Any], script: str, workdir: str | None,
+                             cwd: str) -> None:
+    """Fallback for item.completed without item.started."""
+    paths = shell_reads(script, cwd)
+    if not _failed_read(script, paths, item.get("exit_code")):
+        for path in paths:
+            out.events.append({"t": None, "kind": "read", "path": relative_path(path, workdir)})
+    event = {"t": None, "kind": "command", "text": script, "rc": item.get("exit_code")}
+    if item.get("aggregated_output"):
+        event["output"], event["output_truncated"] = clip_output(str(item["aggregated_output"]))
+    out.events.append(event)
+
+
+def _failed_read(script: str, reads: list[Any], rc: Any) -> bool:
+    """A non-zero exit of a command that is one part naming one file: that file was not read.
+
+    Otherwise the exit code does not say which read failed (``cat a missing`` prints ``a`` and
+    exits 1), so the reads are kept.
+    """
+    return rc not in (None, 0) and len(reads) == 1 and len(_split_script(script)) == 1
+
+
+class _CopilotRun:
+    """What ``copilot_json`` collects across the lines: the first timestamp, tool events by call id, the
+    answer (the final one, else the last message) and the turn count."""
+
+    def __init__(self) -> None:
+        self.start: datetime | None = None
+        self.by_id: dict[str, list[dict[str, Any]]] = {}
+        self.final = self.last = ""
+        self.turns = 0
+        self.result = False  # the final ``result`` record came: the agent started even with no turn
+
+    def offset(self, rec: dict[str, Any]) -> float | None:
+        """Seconds from the first timestamp to this record's."""
+        stamp = _parse_time(rec.get("timestamp"))
+        if stamp is None:
+            return None
+        if self.start is None:
+            self.start = stamp
+        return round((stamp - self.start).total_seconds(), 3)
+
+    def message(self, data: dict[str, Any]) -> None:
+        text = str(data.get("content") or "")
+        if text.strip():
+            self.last = text
+            if data.get("phase") == "final_answer":
+                self.final = text
+
+    def apply(self, out: Transcript, rec: dict[str, Any], t: float | None, workdir: str | None, cwd: str) -> None:
+        kind, data = rec.get("type"), rec.get("data") or {}
+        if kind == "assistant.turn_start":
+            self.turns += 1
+        elif kind == "assistant.message":
+            self.message(data)
+        elif kind == "tool.execution_start":
+            events = _copilot_tool(data, t, workdir, cwd)
+            out.events.extend(events)
+            self.by_id[str(data.get("toolCallId"))] = events
+        elif kind == "tool.execution_complete":
+            _copilot_result(out, self.by_id.get(str(data.get("toolCallId")), []), data)
+        elif kind == "result":
+            self.result = True
+            out.is_error = rec.get("exitCode") not in (0, None)
+
+
+def copilot_json(raw: str, workdir: str | None, cwd: str = "") -> Transcript:
+    out = Transcript()
+    run = _CopilotRun()
+    for n, line in enumerate(raw.splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            out.errors.append(f"line {n}: not JSON")
+            continue
+        if not isinstance(rec, dict):
+            continue
+        t = run.offset(rec)
+        try:
+            run.apply(out, rec, t, workdir, cwd)
+        except (AttributeError, TypeError, ValueError) as exc:
+            out.errors.append(f"line {n}: unexpected shape ({exc})")
+    out.answer = (run.final or run.last).strip()
+    out.num_turns = run.turns or None
+    out.result_seen = bool(run.turns) or run.result
+    return out
+
+
+def _copilot_tool(data: dict[str, Any], t: float | None, workdir: str | None, cwd: str = "") -> list[dict[str, Any]]:
+    name = str(data.get("toolName") or "")
+    args = data.get("arguments")
+    if name in _COPILOT_SHELL:
+        command = str((args or {}).get("command", "")) if isinstance(args, dict) else ""
+        # only bash is a POSIX script; a PowerShell command is not parsed for the files it reads
+        scripts = shell_reads(command, cwd) if name == "bash" else []
+        reads = [{"t": t, "kind": "read", "path": relative_path(p, workdir)} for p in scripts]
+        return [*reads, {"t": t, "kind": "command", "text": command, "rc": None}]
+    if name in _COPILOT_READ | _COPILOT_EDIT and isinstance(args, dict):
+        path = str(args.get("path") or args.get("file_path") or "")
+        if not path:  # a call without a path names no file
+            return []
+        return [{"t": t, "kind": "read" if name in _COPILOT_READ else "edit", "path": relative_path(path, workdir)}]
+    if name == "apply_patch":
+        text = args if isinstance(args, str) else str((args or {}).get("input", ""))
+        return [{"t": t, "kind": "edit", "path": relative_path(p.strip(), workdir)} for p in _PATCH_FILE.findall(text)]
+    return [{"t": t, "kind": "tool", "name": name}]
+
+
+def _copilot_result(out: Transcript, events: list[dict[str, Any]], data: dict[str, Any]) -> None:
+    """Fill in the completion; drop the reads of a failed ``view`` and of a failed one-file command."""
+    reads = [e for e in events if e["kind"] == "read"]
+    failed = data.get("success") is False
+    for event in events:
+        if event["kind"] != "command":
+            continue
+        shell = data.get("shellExecution") or {}
+        code = shell.get("exitCode") if isinstance(shell, dict) else None
+        event["rc"] = code if isinstance(code, int) else (None if data.get("success") is None
+                                                          else 0 if data.get("success") else 1)
+        failed = _failed_read(str(event["text"]), reads, event["rc"])
+        result = data.get("result") or {}
+        output = result.get("content") if isinstance(result, dict) else None
+        if isinstance(output, str) and output:
+            event["output"], event["output_truncated"] = clip_output(output)
+    if failed and reads:
+        dropped = {id(e) for e in reads}
+        out.events[:] = [e for e in out.events if id(e) not in dropped]
