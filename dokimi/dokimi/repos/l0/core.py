@@ -290,13 +290,13 @@ class Scan:
             bases = self._cd
         rel = re.sub(r"(^|/)\.\.\.(?=/|$)", r"\1**", p.lstrip("/"))  # `a/.../b` elides directories
         cands = list(dict.fromkeys(posixpath.normpath(posixpath.join(b, rel)) for b in bases))
-        if not any(self.exists(c) for c in cands) and (_ACTION_REF.match(p) or p in workflows.action_users(self)):
-            return self._action(p)
+        if _ACTION_REF.match(p) and not any(self.exists(c) for c in cands):
+            return None
         if any(c.startswith("..") for c in cands) and all(c.startswith("..") for c in cands):
             return "fail", f"resolves to {cands[0]}, outside the repository"
-        sub = self.submodule_of(cands)
-        if sub:
-            return "unresolved", f"inside the submodule {sub}, which this snapshot does not hold"
+        held = self._submodule_or_action(p, cands)
+        if held:
+            return held
         if any(c in rel for c in "*<>{"):
             return self._glob(bases, rel)
         for c in cands:
@@ -321,9 +321,16 @@ class Scan:
             return "ok_suffix", f"below a directory the text does not name; {len(hits)} match(es), e.g. {hits[0]}"
         return self._missing(cands, rel.endswith("/"), "tried " + ", ".join(cands), "unresolved")
 
-    def _action(self, name: str) -> tuple[str, str] | None:
-        """``ok`` for an Action a workflow uses, named without its ``@ref``; ``None`` (no path claim) for a reference."""
-        used = workflows.action_users(self).get(name)
+    def _submodule_or_action(self, name: str, cands: list[str]) -> tuple[str, str] | None:
+        """``unresolved`` for a path into a submodule, else ``ok`` for a used Action no candidate holds, else ``None``.
+
+        The Action is one a workflow step uses as ``uses: <name>@<ref>``, named here without the ref; the
+        submodule verdict comes first, as the snapshot does not hold what the name may be there.
+        """
+        sub = self.submodule_of(cands)
+        if sub:
+            return "unresolved", f"inside the submodule {sub}, which this snapshot does not hold"
+        used = None if any(self.exists(c) for c in cands) else workflows.action_users(self).get(name)
         return ("ok", f"used by {used}") if used else None
 
     def _glob(self, bases: list[str], rel: str) -> tuple[str, str]:

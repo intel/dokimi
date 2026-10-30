@@ -686,6 +686,17 @@ def test_a_path_the_tree_holds_stays_a_path_when_a_workflow_uses_the_same_name(t
     assert got[("AGENTS.md", "tools/gone")] == ("ok", "used by .github/workflows/ci.yml")  # not `fail` under tools/
 
 
+def test_a_used_action_inside_a_submodule_keeps_the_submodule_verdict(tmp_path):
+    got = _by_file(_scan(tmp_path, "Call `third/dep/lib`, `third/dep/lib@v1` and `tools/lib`.\n",
+                         {".gitmodules": '[submodule "d"]\n\tpath = third/dep\n', "third/README": "",
+                          ".github/workflows/ci.yml": "jobs:\n  x:\n    steps:\n"
+                          "      - uses: third/dep/lib@v1\n      - uses: tools/lib@v1\n"}))
+    assert got[("AGENTS.md", "third/dep/lib")] == ("unresolved", "inside the submodule third/dep, "
+                                                   "which this snapshot does not hold")
+    assert ("AGENTS.md", "third/dep/lib@v1") not in got  # a reference with its ref is no path claim, as before
+    assert got[("AGENTS.md", "tools/lib")] == ("ok", "used by .github/workflows/ci.yml")
+
+
 def test_links_inside_code_spans_are_not_links(tmp_path):
     got = _verdicts(_scan(tmp_path, "Write `[text](docs/guide.md)` in a page.\n"))
     assert not any(kind == "link" for kind, _ in got)

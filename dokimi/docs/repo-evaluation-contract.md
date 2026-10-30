@@ -1093,7 +1093,9 @@ that the tree does not hold at the file's directory or an ancestor is `ok` when 
 job or step uses it as `uses: <name>@<ref>`, in a `.yml` or `.yaml` workflow under
 `.github/workflows/` or a local composite action under `.github/` (`action.yml`,
 `action.yaml`); the reason names the first such file, workflows first (`used by
-.github/workflows/ci.yml`). This comes before the parent-directory `fail`, so a
+.github/workflows/ci.yml`). A name into a submodule stays `unresolved` (below)
+even when a step uses it, as the snapshot does not hold what is there; after that
+check, and before the parent-directory `fail`, the used Action is `ok`, so a
 `.github/actions/` beside it does not fail it. A name only in a `run:` script
 does not count, and an Action no step uses is judged as any other path. A link or path into a submodule is `unresolved`. A
 blob or tree link to `source.url` holds `<ref>/<path>` and the ref may contain
