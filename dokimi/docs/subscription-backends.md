@@ -59,8 +59,9 @@ What this means for results:
   `anthropic:claude-sonnet-5-5` get different prompts (the CLI adds its own text)
   and different sampling. Compare arms within one backend.
 - **The CLI states its environment, and nothing turns this off.** It does so
-  with no tools, with its own system prompt replaced, and with
-  `--exclude-dynamic-system-prompt-sections`. Tested and not working:
+  with no tools and with its own system prompt replaced;
+  `--exclude-dynamic-system-prompt-sections` was tried and does not remove it.
+  Tested and not working:
   `CLAUDE_CODE_HIDE_CWD`, `CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS` (Claude Code
   2.1.304). dokimi runs every call in one fixed empty directory
   (`$XDG_CACHE_HOME/dokimi/cli/claude-cli`, default
