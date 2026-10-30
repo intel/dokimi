@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 
 from dokimi.defaults import BEDROCK_MODEL_IDS
-from dokimi.utils import same_model
+from dokimi.utils import model_identity, same_model
 
 # (a, b, same) with a route-qualified name ("provider/model") where the route is part of the input.
 CASES = [
@@ -80,6 +80,17 @@ def test_same_model_is_symmetric(a, b, same):
 def test_a_bedrock_alias_and_its_profile_are_one_model(bare, profile):
     assert same_model(bare, profile)
     assert same_model(f"amazon-bedrock/{bare}", f"amazon-bedrock/{profile}")
+
+
+@pytest.mark.parametrize("a, b", [
+    ("anthropic.", "openai."),  # a vendor prefix with no id after it
+    ("anthropic.", "anthropic."),
+    ("us.anthropic.", "us.anthropic."),
+    ("openai/", "openai/"),  # a route with no id after it
+])
+def test_a_name_with_no_id_is_no_model(a, b):
+    assert same_model(a, b) is False
+    assert model_identity(a)[0] is None
 
 
 def test_every_provider_dokimi_accepts_is_a_route_not_an_organization():
