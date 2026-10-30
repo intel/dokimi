@@ -139,6 +139,9 @@ def test_a_long_system_prompt_goes_in_a_file_not_an_argument(runner):
     (reply(_err("API Error: 400 Bad Request: invalid request", None), returncode=1), False, "400"),
     # The structured status is authoritative: a quoted "error code 500" does not make a 400 retryable.
     (reply(_err("API Error: 400 invalid request; error code 500 in field x", 400), returncode=1), False, "400"),
+    # Without the JSON: the first status the text names decides, and a subscription cap is not retried.
+    (reply("", stderr="API Error: 400 Bad Request: invalid request; error code 500 in field x", returncode=1), False, "400"),
+    (reply("", stderr="Claude AI usage limit reached. Error 429", returncode=1), False, "usage limit"),
 ])
 def test_a_failed_call_says_whether_another_attempt_can_help(runner, answer, retryable, words):
     runner.answers.append(answer)
@@ -833,6 +836,8 @@ def test_a_pinned_bedrock_full_id_is_the_same_model_as_its_bare_full_id():
     assert same("amazon-bedrock", "us.anthropic.claude-sonnet-5-5-v2:0", "claude-cli", "claude-sonnet-5-5")
     assert not same("claude-cli", "claude-sonnet-5-5", "amazon-bedrock", "us.anthropic.claude-sonnet-5-6-v1:0")
     assert not same("claude-cli", "claude-sonnet-5-5", "amazon-bedrock", "us.anthropic.claude-opus-5-5-v1:0")
+    # Claude 2 ids carry their version before the revision: "claude-v2:1" is not a revision suffix.
+    assert not same("claude-cli", "claude-v2:1", "amazon-bedrock", "anthropic.claude-v2:0")
 
 
 def test_the_independence_warning_fires_for_a_pinned_bedrock_id_of_the_cli_model(capsys):

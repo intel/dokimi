@@ -77,10 +77,16 @@ CLAUDE_ISOLATION = ("--tools", "", "--setting-sources", "", "--strict-mcp-config
 #: ``api_error_status`` values worth another attempt.
 _RETRYABLE_STATUS = frozenset({408, 429, 500, 502, 503, 504, 529})
 _RETRYABLE_WORDS = ("rate limit", "rate_limit", "overloaded", "timed out")
-#: A retryable status the CLI prints as text, with no ``api_error_status``: ``API Error: 503 ...``.
-#: A status word has to sit before it, so a 500 inside a message about tokens does not count.
-_RETRYABLE_STATUS_TEXT = re.compile(
-    r"\b(?:status|code|http|error)\W{0,3}(?:%s)\b" % "|".join(str(s) for s in sorted(_RETRYABLE_STATUS)))
+#: A status the CLI prints as text, with no ``api_error_status``: ``API Error: 503 ...``. A status word has to
+#: sit before the number, so a 500 inside a message about tokens does not count.
+_STATUS_TEXT = re.compile(r"\b(?:status|code|http|error)\W{0,3}(\d{3})\b")
+
+
+def _text_status_retryable(lowered: str) -> bool:
+    """True when the first status the text names is one worth another attempt: ``API Error: 400 ...;
+    error code 500`` is a 400, so the 500 quoted inside it does not count."""
+    found = _STATUS_TEXT.search(lowered)
+    return found is not None and int(found.group(1)) in _RETRYABLE_STATUS
 
 DEFAULT_TIMEOUT_SEC = 600.0
 
@@ -165,7 +171,7 @@ def _claude_error(payload: Dict[str, Any], done: process.Completed) -> CliCallEr
         return CliCallError(f"claude-cli: {message}", retryable=False)
     retryable = status in _RETRYABLE_STATUS or any(w in lowered for w in _RETRYABLE_WORDS)
     if status is None:  # no structured status: a status the CLI printed as text is the only one there is
-        retryable = retryable or _RETRYABLE_STATUS_TEXT.search(lowered) is not None
+        retryable = retryable or _text_status_retryable(lowered)
     return CliCallError(f"claude-cli: {message}", retryable=retryable)
 
 
@@ -198,9 +204,10 @@ def _claude_parse(done: process.Completed, model: str, provider: str) -> CliResu
     if not isinstance(payload, dict):
         text = (done.stderr or done.stdout).strip()
         # No JSON, so no status field: the transient words and the status printed as text are checked.
+        # A subscription cap is not transient, as on the JSON path, whatever status it prints.
         lowered = text.lower()
-        retryable = (any(w in lowered for w in _RETRYABLE_WORDS)
-                     or _RETRYABLE_STATUS_TEXT.search(lowered) is not None)
+        retryable = "usage limit" not in lowered and (any(w in lowered for w in _RETRYABLE_WORDS)
+                                                      or _text_status_retryable(lowered))
         raise CliCallError(f"claude-cli: exit {done.returncode}, no JSON reply: {text[:300]}",
                            retryable=retryable)
     if payload.get("is_error") or done.returncode != 0:
@@ -283,8 +290,9 @@ def accepts_model(provider: str, model: str) -> bool:
 
 
 #: The Bedrock revision a pinned id ends with: ``-v1:0`` in ``us.anthropic.claude-sonnet-5-5-v1:0``.
-#: Only that form: a version inside the name (``claude-3-5-sonnet-20240620``) is part of the model.
-_BEDROCK_REVISION = re.compile(r"-v\d+:\d+$")
+#: Only that form: a version inside the name (``claude-3-5-sonnet-20240620``) is part of the model, and
+#: the revision follows a version digit (``claude-v2:1`` is Claude 2 itself, not a revision of ``claude``).
+_BEDROCK_REVISION = re.compile(r"(?<=\d)-v\d+:\d+$")
 
 
 def _full_id(model: str) -> str:
