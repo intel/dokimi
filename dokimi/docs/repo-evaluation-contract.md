@@ -1335,8 +1335,9 @@ python cli.py repo compare repo-runs/replay --baseline guidance:none --metric re
   misread, and change no number. A gate or score row of 2+ tasks whose
   interval includes 0 is inconclusive, not evidence of no effect: the note
   gives `mde`, the smallest mean delta a two-sided 5% test finds with 80% power
-  at that spread, `(1.959964 + 0.841621) * sd / sqrt(n)` over the per-task
-  deltas (every row has `mde` in `--json`; `null` for one task or deltas with
+  at that spread, `(t(0.975, n-1) + t(0.80, n-1)) * sd / sqrt(n)` over the
+  per-task deltas, the t quantiles at `n-1` degrees of freedom (every row has
+  `mde` in `--json`; `null` for one task or deltas with
   no spread, and then no note). A row whose interval and p disagree (the
   interval excludes 0 while p is 0.05 or more, or includes 0 while p is below
   0.05) has `interval_p_disagree` `true` and a note: they come from two

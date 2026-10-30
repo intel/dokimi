@@ -106,9 +106,15 @@ def test_task_refuses_an_id_no_cell_has(tmp_path, capsys):
 
 
 def test_min_detectable_effect_arithmetic():
-    # The recall row that read as "no gain": SD 0.222 of the per-task deltas over 26 tasks
-    assert min_detectable(0.222, 26) == pytest.approx(0.122, abs=5e-4)
-    assert min_detectable(0.222, 26) == pytest.approx(min_detectable(0.444, 104))  # half the spread or 4x the tasks
+    # The recall row that read as "no gain": SD 0.222 of the per-task deltas over 26 tasks, t quantiles at df 25
+    assert min_detectable(0.222, 26) == pytest.approx(0.126946, abs=1e-6)
+    # half the spread or 4x the tasks: about the same figure, the t quantiles shrink a little with the tasks
+    assert min_detectable(0.222, 26) == pytest.approx(min_detectable(0.444, 104), rel=0.05)
+
+
+def test_min_detectable_uses_the_t_quantiles_of_the_interval_at_small_n():
+    # four tasks: the interval is a t interval at df 3 (t(0.975, 3) = 3.182, t(0.80, 3) = 0.978), not normal ones
+    assert min_detectable(0.456435, 4) == pytest.approx(0.949594, abs=1e-6)
 
 
 def _score_tasks(b: Path, deltas: list[float], base: float) -> None:
@@ -121,10 +127,10 @@ def test_an_interval_across_zero_is_inconclusive_with_its_mde(tmp_path):
     _score_tasks(tmp_path / "b", [0.5, -0.5, 0.25, -0.25], 0.5)  # sample SD 0.456435
     s = compare([tmp_path / "b"], "guidance:none")
     score = _row(s, "score")
-    assert score["mde"] == pytest.approx(0.639371, abs=1e-6) and score["interval_p_disagree"] is False
+    assert score["mde"] == pytest.approx(0.949594, abs=1e-6) and score["interval_p_disagree"] is False
     text = format_compare(s)
     assert ("  score inconclusive: the interval includes 0; with this spread the smallest effect 80% power "
-            "detects is about ±0.639 (4 tasks)") in text.splitlines()
+            "detects is about ±0.950 (4 tasks)") in text.splitlines()
     assert "no effect" not in text
     _score_tasks(tmp_path / "one", [0.5], 0.5)
     one = compare([tmp_path / "one"], "guidance:none")

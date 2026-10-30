@@ -42,8 +42,8 @@ descriptive and keep their raw p.
 
 Three notes keep a row from being misread; none changes a number. A gate or score row of 2+ tasks whose
 interval includes 0 is inconclusive, not "no effect": the note gives ``mde``, the smallest mean delta a
-two-sided 5% test finds with 80% power at the row's spread, ``(z_0.975 + z_0.80) * sd / sqrt(n)`` over the
-per-task deltas (in every row; ``None`` for one task or no spread). A row whose interval and p disagree (the
+two-sided 5% test finds with 80% power at the row's spread, ``(t_0.975 + t_0.80) * sd / sqrt(n)`` over the
+per-task deltas, the t quantiles at ``n - 1`` degrees of freedom (in every row; ``None`` for one task or no spread). A row whose interval and p disagree (the
 interval excludes 0 while p is 0.05 or more, or includes it while p is below) has ``interval_p_disagree``:
 the two come from different methods, and for gate and score p is the one to read, since the percentile
 bootstrap runs narrow over few tasks (the inconclusive note then gives way to this one). A descriptive row
@@ -99,6 +99,8 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from scipy import stats as sp_stats
+
 from dokimi.context.consistency import Run, order_distance, pass_hat, run_from_events
 from dokimi.eval.stats import adjust_pvalues, bootstrap_ci, mean_ci
 
@@ -114,9 +116,9 @@ N_RESAMPLES = 20_000
 EPS = 1e-9
 #: Measures Holm's correction runs over.
 PRIMARY = ("gate", "score")
-#: The level the notes read p and the interval at, and the normal quantiles of ``mde`` (two-sided 5%, 80% power).
+#: The level the notes read p and the interval at (two-sided), and the power ``mde`` is sized for.
 ALPHA = 0.05
-Z_ALPHA, Z_POWER = 1.959964, 0.841621
+POWER = 0.80
 #: Descriptive measures compared only when both arms report them for some shared task (an older batch has none).
 REPORTED = ("process:", "counter:", "first_prompt_tokens")
 #: Batch stamp keys that must agree between the arms of a comparison; ``tree`` is shown but may differ (another
@@ -547,8 +549,10 @@ def paired_summary(pairs: list[dict[str, Any]], measure: str = "gate", seed: int
 
 
 def min_detectable(sd: float, n: int) -> float:
-    """The smallest mean delta a two-sided test at :data:`ALPHA` finds with 80% power over ``n`` tasks of spread ``sd``."""
-    return (Z_ALPHA + Z_POWER) * sd / math.sqrt(n)
+    """The smallest mean delta a two-sided test at :data:`ALPHA` finds with :data:`POWER` over ``n`` tasks of
+    spread ``sd``. The quantiles are t at ``n - 1`` degrees of freedom, as the interval of ``mean_ci`` is."""
+    df = n - 1
+    return (sp_stats.t.ppf(1 - ALPHA / 2, df) + sp_stats.t.ppf(POWER, df)) * sd / math.sqrt(n)
 
 
 def sign_flip_p(deltas: list[float], seed: int = 0, n_resamples: int = N_RESAMPLES) -> float | None:
