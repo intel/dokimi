@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 from dokimi.llm import ANSWER_PROVIDERS
-from dokimi.llm_cli import check_sampling
+from dokimi.llm_cli import SamplingError, check_sampling
 from dokimi.commands.evaluate import _warn_judge_independence
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
@@ -31,9 +31,9 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
         sys.exit(1)
     try:  # before any persona, question or answer is paid for; the judge would refuse later
         check_sampling(args.judge_provider, getattr(args, "judge_temperature", None), None)
-    except ValueError as exc:
+    except SamplingError as exc:  # the same exit as the other judge commands' sampling refusal
         print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(2)
 
     print(f"Starting full evaluation pipeline for {args.product}")
     if args.repo:

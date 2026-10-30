@@ -102,7 +102,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
                          f"pass --judge-model")
         args.judge_model = model
     provider, model = getattr(args, "provider", None), getattr(args, "model", None)
-    if provider in llm_cli.BACKENDS and model is not None and not llm_cli.accepts_model(provider, model):
+    # With --matrix-cells every cell sets its own provider and model (checked when applied), so the
+    # top-level model is not the one that runs.
+    if provider in llm_cli.BACKENDS and model is not None and not llm_cli.accepts_model(provider, model) \
+            and not getattr(args, "matrix_cells", None):
         # The default answer model is not a Claude model: left out, every call would fail.
         parser.error(f"--provider {provider} takes a Claude model (sonnet, haiku, opus or a claude-* id), "
                      f"not {model!r}: pass --model")

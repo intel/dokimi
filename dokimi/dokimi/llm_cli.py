@@ -45,6 +45,7 @@ import functools
 import json
 import os
 import re
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
@@ -122,7 +123,7 @@ class CliBackend:
 
     name: str
     binary: str
-    build_argv: Callable[[str, Optional[str]], list]  # (model, system) -> argv; prompt goes on stdin
+    build_argv: Callable[[str, str], list]  # (model, system-prompt file) -> argv; prompt goes on stdin
     parse: Callable[[process.Completed, str, str], CliResult]  # (completed, model, provider)
     auth_argv: Tuple[str, ...]
     parse_auth: Callable[[process.Completed], Tuple[Optional[bool], str]]  # -> (authenticated, method)
@@ -138,11 +139,15 @@ class CliBackend:
 # ── claude-cli ────────────────────────────────────────────────────────────────
 
 
-def _claude_argv(model: str, system: Optional[str]) -> list:
+#: The system prompt of a call that gives none: never the CLI's own agent prompt (~37k tokens with tools).
+DEFAULT_SYSTEM = "You are a helpful assistant."
+
+
+def _claude_argv(model: str, system_file: str) -> list:
     argv = ["claude", "-p", "--input-format", "text", "--output-format", "json",
             "--model", model, *CLAUDE_ISOLATION]
-    # Without --system-prompt the CLI sends its own agent prompt (~37k tokens with tools).
-    return argv + ["--system-prompt", system or "You are a helpful assistant."]
+    # A file, not an argument: one argument is limited to 128 KiB on Linux, and a system prompt may be longer.
+    return argv + ["--system-prompt-file", system_file]
 
 
 def _claude_error(payload: Dict[str, Any], done: process.Completed) -> CliCallError:
@@ -269,9 +274,15 @@ def accepts_model(provider: str, model: str) -> bool:
     return bare in cli.aliases or bare.startswith(cli.model_prefixes)
 
 
+def _full_id(model: str) -> str:
+    """A model ref as its bare name: lower case, no ``[1m]`` suffix, no routing prefix
+    (``anthropic/claude-…`` through a gateway, ``anthropic.claude-…`` in a Bedrock id)."""
+    return _without_context(model.lower().rsplit("/", 1)[-1].rsplit("anthropic.", 1)[-1])
+
+
 def _family(model: str) -> Optional[str]:
     """The alias a Claude model name belongs to: ``sonnet``, or of ``claude-sonnet-5-5``."""
-    name = _without_context(model.lower().rsplit("/", 1)[-1].rsplit("anthropic.", 1)[-1])
+    name = _full_id(model)
     if name in CLAUDE_CLI.aliases:
         return name
     if name.startswith("claude-"):
@@ -291,7 +302,9 @@ def same_model(provider_a: str, model_a: str, provider_b: str, model_b: str) -> 
     """
     if provider_a not in BACKENDS and provider_b not in BACKENDS:
         return False
-    a, b = _without_context(model_a.lower()), _without_context(model_b.lower())
+    if not isinstance(model_a, str) or not isinstance(model_b, str):
+        return False  # a null model in an artifact names no model: nothing to compare
+    a, b = _full_id(model_a), _full_id(model_b)
     if a == b:
         return True
     if a not in CLAUDE_CLI.aliases and b not in CLAUDE_CLI.aliases:
@@ -334,15 +347,21 @@ def _env(cli: CliBackend, extra: Optional[Dict[str, str]] = None) -> process.Env
     return process.Env.only([k for k in os.environ if _passed_on(k, cli)], set=extra)
 
 
+#: Git variables that name a repository outright: an inherited one would bypass the ceiling below.
+_GIT_REPO_OVERRIDES = frozenset({"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE"})
+
+
 def _call_env(cli: CliBackend, cwd: Path) -> process.Env:
     """The env of a call: the parent's, minus the drops, and git stopped at the work dir's parent.
 
     The CLI reads the git status of its working directory into the prompt. The work dir sits
     under the user's cache dir, which can lie inside a repository (a home directory under git),
-    so git must not search above that cache directory for a repository.
+    so git must not search above that cache directory for a repository. A repository named by
+    ``GIT_DIR`` or ``GIT_WORK_TREE`` is not searched for at all, so those are dropped too.
     """
     ceiling = [str(cwd.parent)] + [p for p in os.environ.get("GIT_CEILING_DIRECTORIES", "").split(os.pathsep) if p]
-    return _env(cli, {"GIT_CEILING_DIRECTORIES": os.pathsep.join(ceiling)})
+    passed = [k for k in os.environ if _passed_on(k, cli) and k not in _GIT_REPO_OVERRIDES]
+    return process.Env.only(passed, set={"GIT_CEILING_DIRECTORIES": os.pathsep.join(ceiling)})
 
 
 def cache_extra(provider: str) -> Dict[str, str]:
@@ -391,12 +410,16 @@ def call(provider: str, *, model: str, prompt: str, system: Optional[str] = None
     """
     cli = BACKENDS[provider]
     cwd = work_dir(cli.name)
-    try:
-        done = (runner or process.run)(cli.build_argv(model, system), timeout=timeout,
-                                       env=_call_env(cli, cwd), cwd=cwd, input=prompt, capture_limit=None)
-    except FileNotFoundError as exc:
-        raise CliCallError(f"{provider}: '{cli.binary}' is not installed or not on PATH ({exc})",
-                           retryable=False) from exc
+    # A private temp dir (mkdtemp, mode 0700) for the one call: the system prompt goes by file.
+    with tempfile.TemporaryDirectory(prefix="dokimi-cli-") as tmp:
+        system_file = Path(tmp) / "system-prompt.txt"
+        system_file.write_text(system or DEFAULT_SYSTEM, encoding="utf-8")
+        try:
+            done = (runner or process.run)(cli.build_argv(model, str(system_file)), timeout=timeout,
+                                           env=_call_env(cli, cwd), cwd=cwd, input=prompt, capture_limit=None)
+        except FileNotFoundError as exc:
+            raise CliCallError(f"{provider}: '{cli.binary}' is not installed or not on PATH ({exc})",
+                               retryable=False) from exc
     return cli.parse(done, model, provider)
 
 

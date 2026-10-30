@@ -745,7 +745,8 @@ class LLM:
         )
         hit = caching.load_response(key)
         if hit is not None and caching.keeps(cache_if, cast(str, hit[0])):
-            return self._metered(Reply(text=hit[0], usage=hit[1]))
+            # The resolved id is kept in the cached usage (a CLI's answer), so a replay carries it too.
+            return self._metered(Reply(text=hit[0], usage=hit[1], model_id=hit[1].resolved_model or None))
         if caching.replaying_only():
             raise caching.CacheMiss(key)
         reply = self._send(self._request(messages, api_key, max_tokens=max_tokens, stream=stream))

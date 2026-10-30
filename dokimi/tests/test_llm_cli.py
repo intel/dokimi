@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
 
 import pytest
 
@@ -45,8 +46,17 @@ NO_LOGIN = _err("Authentication error · This may be a temporary network issue, 
 def runner(monkeypatch, tmp_path):
     """Every CLI call answers from ``runner.answers`` (a list, consumed in order)."""
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
-    fake = FakeRunner(lambda call: fake.answers.pop(0))
+
+    def answer(call):
+        # The system prompt file is removed after the call: keep what the CLI was given.
+        if "--system-prompt-file" in call.argv:
+            path = call.argv[call.argv.index("--system-prompt-file") + 1]
+            fake.system_texts.append(Path(path).read_text(encoding="utf-8"))
+        return fake.answers.pop(0)
+
+    fake = FakeRunner(answer)
     fake.answers = []  # type: ignore[attr-defined]
+    fake.system_texts = []  # type: ignore[attr-defined]
     monkeypatch.setattr(llm_cli.process, "run", fake)
     # The version is part of the cache key; a test of the key sets its own.
     monkeypatch.setattr(llm_cli, "cli_version", lambda provider: "2.1.303 (Claude Code)")
@@ -67,6 +77,17 @@ def test_a_reply_reads_text_tokens_and_model_and_leaves_cost_unknown(runner):
     assert (u.model, u.provider) == ("sonnet", "claude-cli")
 
 
+@pytest.mark.parametrize("over, text, model_id, total", [
+    ({"modelUsage": {}}, "PONG", None, 1355),  # no model listed: the id is unknown, not an error
+    ({"usage": None}, "PONG", "claude-sonnet-5-5", 0),
+    ({"result": None}, "", "claude-sonnet-5-5", 1355),
+], ids=["empty-model-usage", "null-usage", "null-result"])
+def test_an_empty_model_usage_usage_or_result_still_parses(runner, over, text, model_id, total):
+    runner.answers.append(reply(_ok(**over)))
+    out = llm_cli.call("claude-cli", model="sonnet", prompt="ping")
+    assert (out.text, out.model_id, out.usage.total_tokens) == (text, model_id, total)
+
+
 def test_the_call_is_isolated_and_the_prompt_goes_on_stdin(runner, monkeypatch):
     monkeypatch.setenv("CLAUDECODE", "1")
     for name in llm_cli.CLAUDE_ENV_DROP:
@@ -83,7 +104,7 @@ def test_the_call_is_isolated_and_the_prompt_goes_on_stdin(runner, monkeypatch):
         assert flag in argv
     assert argv[argv.index("--output-format") + 1] == "json"
     assert argv[argv.index("--tools") + 1] == "" and argv[argv.index("--setting-sources") + 1] == ""
-    assert argv[argv.index("--system-prompt") + 1] == "Grade it."
+    assert runner.system_texts[0] == "Grade it."
     assert first.input == b"x" * 300_000 and "x" * 100 not in " ".join(argv)
     assert not llm_cli.CLAUDE_ENV_DROP & set(first.env)
     assert {"CLAUDE_CODE_ENTRYPOINT", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
@@ -92,7 +113,16 @@ def test_the_call_is_isolated_and_the_prompt_goes_on_stdin(runner, monkeypatch):
     # One fixed, empty directory: the cwd the CLI states is the same in every call.
     assert first.cwd == second.cwd and list(first.cwd.iterdir()) == []
     # No system prompt is still a system prompt: never the CLI's own agent prompt.
-    assert "--system-prompt" in second.argv
+    assert "--system-prompt-file" in second.argv and runner.system_texts[1] == llm_cli.DEFAULT_SYSTEM
+
+
+def test_a_long_system_prompt_goes_in_a_file_not_an_argument(runner):
+    # One argument is limited to 128 KiB on Linux; a system prompt of this size must not reach argv.
+    system = "s" * 150_000
+    runner.answers.append(reply(_ok()))
+    llm_cli.call("claude-cli", model="sonnet", prompt="ping", system=system)
+    assert runner.system_texts == [system]
+    assert max(len(a) for a in runner.calls[0].argv) < 1_000
 
 
 @pytest.mark.parametrize("answer, retryable, words", [
@@ -439,13 +469,17 @@ def test_git_does_not_read_a_repository_above_the_work_dir(runner, monkeypatch, 
     subprocess.run(["git", "init", "-q", str(home)], check=True)
     monkeypatch.setenv("XDG_CACHE_HOME", str(home / "cache"))
     monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path / "users-own"))
+    # An inherited repository override names that repository too: git would not search at all.
+    monkeypatch.setenv("GIT_DIR", str(home / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(home))
     runner.answers.append(reply(_ok()))
     llm_cli.call("claude-cli", model="sonnet", prompt="p")
     call = runner.calls[0]
     # The caller's own ceiling entry is kept next to the one for the work dir's parent.
     assert call.env["GIT_CEILING_DIRECTORIES"].split(os.pathsep) == [str(call.cwd.parent), str(tmp_path / "users-own")]
-    env = {k: v for k, v in call.env.items() if k not in ("GIT_DIR", "GIT_WORK_TREE")}
-    probe = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], cwd=call.cwd, env=env,
+    assert "GIT_DIR" not in call.env and "GIT_WORK_TREE" not in call.env
+    # Probed with the child's own env, overrides included: it must find no repository.
+    probe = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], cwd=call.cwd, env=call.env,
                            capture_output=True, text=True)
     assert probe.returncode != 0, probe.stdout
 
@@ -501,7 +535,7 @@ def test_the_prompt_is_the_user_turn_even_when_a_system_message_follows_it(runne
     llm._cli_reply(request)
     call = runner.calls[0]
     assert call.input.decode() == "the question"
-    assert call.argv[call.argv.index("--system-prompt") + 1] == "the rules"
+    assert runner.system_texts == ["the rules"]
 
 
 def test_an_alias_and_its_full_id_are_one_model_for_the_identity_checks():
@@ -511,6 +545,18 @@ def test_an_alias_and_its_full_id_are_one_model_for_the_identity_checks():
     assert not same("claude-cli", "sonnet", "claude-cli", "claude-opus-5-5")
     assert not same("claude-cli", "claude-sonnet-5-5", "claude-cli", "claude-sonnet-4-5")
     assert not same("openai", "gpt-6.1-sol", "claude-cli", "sonnet")
+
+
+def test_a_full_id_behind_a_routing_prefix_is_the_same_model_as_the_bare_id():
+    same = llm_cli.same_model
+    assert same("claude-cli", "claude-sonnet-5-5", "anthropic", "anthropic/claude-sonnet-5-5")
+    assert same("claude-cli", "claude-sonnet-5-5", "anthropic", "anthropic.claude-sonnet-5-5")
+    assert not same("claude-cli", "claude-sonnet-5-5", "anthropic", "anthropic/claude-sonnet-4-5")
+
+
+def test_a_missing_model_is_not_compared_and_does_not_raise():
+    assert not llm_cli.same_model("claude-cli", None, "anthropic", "claude-sonnet-5-5")
+    assert not llm_cli.same_model("claude-cli", "sonnet", "anthropic", None)
 
 
 def test_the_one_million_context_form_is_a_claude_model_on_the_cli():
@@ -715,6 +761,35 @@ def test_a_matrix_cell_pairing_a_cli_provider_with_a_non_claude_model_is_refused
         arms._apply_named_matrix_cell(named)
 
 
+def test_matrix_cells_that_name_a_cli_model_pass_the_parse_gate_whatever_the_top_level_model(tmp_path):
+    # The cells set provider and model per cell; the top-level --model default is not a cell's model.
+    from dokimi import cli
+
+    cells = tmp_path / "cells.json"
+    cells.write_text(json.dumps({"matrix": {"cells": [
+        {"id": "cli", "model": "sonnet", "provider": "claude-cli", "harness": "arms-runner"},
+    ]}}), encoding="utf-8")
+    questions = tmp_path / "q.json"
+    questions.write_text(json.dumps([{"id": "q1", "question": "Q?"}]), encoding="utf-8")
+    args = cli.parse_args(["arms", "matrix-run", "--product", "p", "--questions", str(questions),
+                           "--arms", "baseline", "--matrix-cells", str(cells), "--provider", "claude-cli",
+                           "--out-dir", str(tmp_path / "out")])
+    assert args.provider == "claude-cli"
+
+
+def test_evaluate_with_a_cli_judge_given_a_temperature_exits_2_like_the_other_judge_commands(
+        monkeypatch, capsys):
+    from dokimi import cli
+
+    monkeypatch.setattr("sys.argv", ["dokimi", "evaluate", "--product", "demo", "--description", "demo",
+                                     "--judge-provider", "claude-cli", "--judge-temperature", "0"])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    err = capsys.readouterr().err
+    assert exc.value.code == 2 and err.startswith("Error: claude-cli takes no temperature")
+    assert "Traceback" not in err
+
+
 def test_an_alias_and_a_bedrock_or_prefixed_full_id_are_one_model_for_the_identity_checks():
     assert llm_cli.same_model("claude-cli", "sonnet", "anthropic", "us.anthropic.claude-sonnet-5-5-v1:0")
     assert llm_cli.same_model("claude-cli", "sonnet", "litellm", "anthropic/claude-sonnet-5-5")
@@ -766,6 +841,15 @@ def test_a_cached_cli_reply_replays_the_resolved_model(runner, monkeypatch, tmp_
     second = llm.llm_call_with_usage("ping", model="sonnet", provider="claude-cli")[1]
     assert len(runner.calls) == 1  # the second reply came from the cache
     assert second.replayed and second.resolved_model == first.resolved_model == "claude-sonnet-5-5"
+
+
+def test_a_cached_cli_reply_keeps_the_model_id_on_complete(runner, monkeypatch, tmp_path):
+    monkeypatch.setenv("DOKIMI_RESPONSE_CACHE", str(tmp_path / "responses"))
+    runner.answers.append(reply(_ok()))
+    client = llm.LLM("sonnet", provider="claude-cli")
+    first, second = client.complete("ping"), client.complete("ping")
+    assert len(runner.calls) == 1  # the second reply came from the cache
+    assert first.model_id == second.model_id == "claude-sonnet-5-5"
 
 
 def test_a_new_cli_version_misses_the_response_cache(runner, monkeypatch, tmp_path):
