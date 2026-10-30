@@ -906,9 +906,17 @@ capped run measures the opening of the artifact. Its warning says how far that i
 describe the opening of the artifact, not the whole; pass --all-atoms for the full sweep`,
 `extraction.reached` records it, and the headline's `coverage:` line then says the words
 went into the input and the capped atoms come from the first 23% of its tokens (the warning
-under that line, when half or less of the words went in, says "went into the input" too). `novelty
-atoms` prints the same warning on stderr; `probe` and `shorten`, which read its
+under that line, when half or less of the words went in, says "went into the input" too).
+`novelty atoms` prints the same warning on stderr; `probe` and `shorten`, which read its
 `atoms.json`, do not repeat it.
+
+A cap met on the artifact's last span leaves no stretch of it out: what it cut is any atoms
+past the cap in that last reply. The warning then reads `atom extraction hit the cap of 30 at
+span s0010 (10 of 10 spans, 100% of the tokens): any atoms past the cap in its last reply were
+dropped; pass --all-atoms for the full sweep`, the `novelty.md` header says the atoms reach the
+artifact's last span and the cap dropped any atoms past it in the last reply, and the
+`coverage:` line ends `the capped atoms reach its last span, and the cap dropped any atoms past
+it`; none of them says "the opening".
 
 That is the point of naming tiers at all. The cheap run is useful; a cheap run quoted as a
 sweep is not.
