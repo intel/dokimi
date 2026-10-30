@@ -75,6 +75,15 @@
       extractVersionTemplate: "^v(?<version>.+)$",
     },
     {
+      // The renovate-config-validator version renovate-validation.yml pins
+      // (the action would otherwise install the latest from npm).
+      customType: "regex",
+      managerFilePatterns: ["/^\\.github/workflows/renovate-validation\\.yml$/"],
+      matchStrings: ["validator_version: '?(?<currentValue>\\d+\\.\\d+\\.\\d+)'?"],
+      depNameTemplate: "renovate",
+      datasourceTemplate: "npm",
+    },
+    {
       // The micromamba release conda-forge.yml installs. Its tags carry a
       // build number (2.9.0-0), which semver would read as a prerelease.
       customType: "regex",

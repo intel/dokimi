@@ -118,7 +118,7 @@ def _check_judge_temperature(judges: list[tuple[str, str]], temperature) -> None
     """Exit 2 before any judgement when a (model, provider) judge rejects ``temperature``."""
     if temperature is None:
         return
-    from dokimi.commands.arms import _probe_sampling
+    from dokimi.eval.arms_run import probe_sampling
     from dokimi.llm import unsupported_sampling_params
     from dokimi.utils import bedrock_litellm_model
 
@@ -128,7 +128,7 @@ def _check_judge_temperature(judges: list[tuple[str, str]], temperature) -> None
         try:
             if unsupported_sampling_params(resolved, provider, temperature=temperature):
                 raise ValueError(f"provider '{provider}' does not support temperature for model '{model}'")
-            _probe_sampling(resolved, provider, temperature, None)
+            probe_sampling(resolved, provider, temperature, None)
         except ValueError as exc:
             print(f"Error: --judge-temperature {temperature} is rejected by judge {provider}/{model}: {exc}",
                   file=sys.stderr)

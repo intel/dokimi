@@ -128,7 +128,8 @@ result = {"type": "result", "subtype": "success", "result": "done: src/calc.py",
           "usage": {"input_tokens": 5, "output_tokens": 2, "cache_read_input_tokens": 100,
                     "cache_creation_input_tokens": 40}}
 if os.environ.get("FAKE_USAGE"):  # a subagent (Agent tool) and the token counts of the whole tree
-    lines.append({"type": "assistant", "message": {"content": [
+    lines.append({"type": "assistant", "message": {"id": "msg_1", "usage": {
+        "input_tokens": 3, "cache_creation_input_tokens": 1200, "cache_read_input_tokens": 15000}, "content": [
         {"type": "tool_use", "id": "t2", "name": "Agent", "input": {"prompt": "look around"}}]}})
     result.update(usage={"input_tokens": 7, "output_tokens": 2},
                   modelUsage={"m-main": {"inputTokens": 7, "outputTokens": 2, "cacheReadInputTokens": 100},
