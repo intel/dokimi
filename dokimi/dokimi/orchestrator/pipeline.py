@@ -458,12 +458,15 @@ class EvaluationPipeline:
         return personas
     
     def _library_id(self, mcp_client) -> str:
-        """The doc-source library id: explicit id, then the registry's ``context7_id``, then the client.
+        """The doc-source library id: explicit id, then the ``;id=`` of an ``mcp:`` source, then the
+        registry's ``context7_id``, then the client.
 
-        The same order the arms stack uses (``commands/arms.py``, ``_resolve_doc_library_id``).
+        The caller's own choices (the explicit id, the source's descriptor) go before the registry, as
+        they did before the pipeline used the registry lookup; ``eval/arms_run.py`` resolves registry-first.
         """
+        descriptor_id = getattr(mcp_client, "default_library_id", None)
         return resolve_library_id_for_product(
-            self.product_key, mcp_client, explicit_id=self.context7_id, registry=self.registry,
+            self.product_key, mcp_client, explicit_id=self.context7_id or descriptor_id, registry=self.registry,
         )
 
     def _generate_questions(self, personas: Dict[str, Any]) -> List[Dict[str, Any]]:

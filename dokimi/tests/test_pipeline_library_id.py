@@ -53,6 +53,27 @@ def test_an_explicit_id_wins_over_the_registry_entry(tmp_path, registry):
     assert client.asked == []
 
 
+def test_an_mcp_descriptor_id_wins_over_the_registry_entry(tmp_path, registry):
+    """``mcp:...;id=X`` names the library for that source; the registry's id does not replace it."""
+    from dokimi.mcp.factory import create_doc_source_client
+
+    client = create_doc_source_client("mcp:http=https://example.com/mcp;id=org/custom")
+
+    library_id = _pipeline(tmp_path, registry)._library_id(client)
+
+    assert library_id == "org/custom"
+
+
+def test_an_explicit_id_wins_over_the_mcp_descriptor_id(tmp_path, registry):
+    from dokimi.mcp.factory import create_doc_source_client
+
+    client = create_doc_source_client("mcp:http=https://example.com/mcp;id=org/custom")
+
+    library_id = _pipeline(tmp_path, registry, context7_id="org/explicit")._library_id(client)
+
+    assert library_id == "org/explicit"
+
+
 def test_the_registry_key_not_the_display_name_finds_the_declared_id(tmp_path, registry):
     client = _RecordingClient()
 
