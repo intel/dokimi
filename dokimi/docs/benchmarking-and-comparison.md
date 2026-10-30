@@ -484,8 +484,9 @@ The report gives, per
 degradation, the pairs scored, the gate accuracy with its 95% CI and PASS or
 FAIL; `--sequential` adds a `mode` line and marks a degradation still undecided
 at the stop `continue`, with the reason under INCONCLUSIVE (cap reached, or the
-answer pool exhausted). An undecided result prints `RESULT: INCONCLUSIVE`,
-never PASS. Exit policy is unchanged: a below-threshold point estimate exits 1;
+answer pool exhausted). An undecided result prints `RESULT: INCONCLUSIVE`
+when it is above the gate and `RESULT: FAIL (INCONCLUSIVE, see above)` when it
+is below, never PASS. Exit policy is unchanged: a below-threshold point estimate exits 1;
 an above-threshold inconclusive result warns and exits 0 by default, or 1 with
 `--strict`. A settled PASS exits 0. JSON retains `passed` (the point-estimate
 check) and `conclusive`; promotion requires both to be true. A malformed input, such as a record that would be judged with no
