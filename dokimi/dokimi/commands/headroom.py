@@ -64,7 +64,8 @@ def cmd_eval_headroom(args: argparse.Namespace) -> None:
     if args.output and _names_a_directory(args.output):
         # A directory has no file name for save_artifact's sibling paths ("." has an empty name), and
         # Path() drops a trailing slash, so "newdir/" would otherwise write a plain file named newdir.
-        print(f"Error: -o {args.output} names a directory; it needs a file name", file=sys.stderr)
+        print(f"Error: -o {args.output} is not a file name (a directory, or a path ending in a separator)",
+              file=sys.stderr)
         sys.exit(2)
     if args.output and _clobbers_an_input(args.output, args.arms):
         print(f"Error: -o {args.output} would overwrite one of the input arms files (or its .rejected sibling); "

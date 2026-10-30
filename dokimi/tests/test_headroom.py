@@ -416,22 +416,26 @@ def test_command_exits_2_when_the_output_cannot_be_written(tmp_path, capsys):
     assert capsys.readouterr().err.startswith("Error: ")
 
 
-@pytest.mark.parametrize("spelling", ["dir", "dot", "dot-slash", "absent-with-slash", "absent-with-slash-dot"])
+@pytest.mark.parametrize("spelling", ["dir", "dot", "dot-slash", "absent-with-slash", "absent-with-slash-dot",
+                                       "file-with-slash"])
 def test_command_exits_2_when_the_output_is_a_directory(tmp_path, monkeypatch, capsys, spelling):
     # A directory has no file name to write: the save would raise ValueError (for "." and "./"), fail
     # on the directory itself, or (for a directory that does not exist yet, spelled with a slash or a
     # trailing "/.") write a plain file under the directory's name. Refuse all of them up front.
     path = _arms_file(tmp_path / "arms.json", {"1": {"baseline": 95, "skill": 95}})
     (tmp_path / "out").mkdir()
+    (tmp_path / "existing.json").write_text("keep", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     out = {"dir": str(tmp_path / "out"), "dot": ".", "dot-slash": "./",
            "absent-with-slash": str(tmp_path / "newdir") + "/",
-           "absent-with-slash-dot": str(tmp_path / "newdir") + "/."}[spelling]
+           "absent-with-slash-dot": str(tmp_path / "newdir") + "/.",
+           "file-with-slash": str(tmp_path / "existing.json") + "/"}[spelling]
     with pytest.raises(SystemExit) as exc:
         cmd_eval_headroom(_args([path], output=out))
     assert exc.value.code == 2
-    assert "names a directory" in capsys.readouterr().err
+    assert "is not a file name" in capsys.readouterr().err
     assert not (tmp_path / "newdir").exists()
+    assert (tmp_path / "existing.json").read_text(encoding="utf-8") == "keep"
 
 
 def test_an_output_whose_directory_check_cannot_stat_does_not_crash_the_guard(tmp_path, monkeypatch, capsys):
@@ -454,7 +458,7 @@ def test_an_output_whose_directory_check_cannot_stat_does_not_crash_the_guard(tm
         code = 0
     except SystemExit as exc:
         code = exc.code
-    assert code in (0, 2)
+    assert code == 0 and out.exists()  # the simulated stat error is not a refusal: the save writes
 
 
 def test_command_refuses_an_output_spelled_through_a_dotdot_to_an_input(tmp_path, capsys):
