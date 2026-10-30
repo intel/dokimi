@@ -13,6 +13,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
+import regex
 
 from dokimi.commands.redteam import cmd_eval_redteam
 from dokimi.eval import redteam
@@ -111,6 +112,35 @@ def test_a_judge_check_without_a_judge_under_a_threshold_is_not_a_pass():
                                             {"type": "match", "values": ["Paris"]}]}
     result = run([_q("1", grading)])
     assert result["status"] == "inconclusive"
+    assert result["summary"]["probed"] == 0
+
+
+SLOW = "slow pattern"  # the regex that runs past its timeout; any other pattern runs as written
+
+
+@pytest.fixture
+def regex_past_its_timeout(monkeypatch):
+    """Make the regex check with the SLOW pattern run past its timeout, as a catastrophic one does."""
+    real_search = regex.search
+
+    def search(pattern, string, *args, **kwargs):
+        if pattern == SLOW:
+            raise TimeoutError("regex ran past its limit")
+        return real_search(pattern, string, *args, **kwargs)
+
+    monkeypatch.setattr(regex, "search", search)
+
+
+@pytest.mark.parametrize("grading", [
+    # No threshold: the negated match passes wrong, empty and hedge by design, and the regex never ran.
+    {"checks": [{"type": "regex", "values": [SLOW]}, {"type": "match", "values": ["Lyon"], "negate": True}]},
+    # Threshold: the score over the counted match alone would pass the canary and reject the attacks.
+    {"threshold": 0.5, "checks": [{"type": "regex", "values": [SLOW]}, {"type": "match", "values": ["Paris"]}]},
+])
+def test_a_regex_past_its_timeout_leaves_the_probe_unscored_not_passed(regex_past_its_timeout, grading):
+    result = run([_q("1", grading)])
+    assert result["status"] == "inconclusive"
+    assert result["violations"] == []
     assert result["summary"]["probed"] == 0
 
 
