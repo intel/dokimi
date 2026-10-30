@@ -129,7 +129,7 @@ SKIP_REASONS = {
     "rejected": "*.rejected (payloads save_artifact refused)",
     "not_json": "not .json",
     "not_a_file": "not a regular file (a FIFO, socket or device)",
-    "linked_directory": "symlinked directories (not walked)",
+    "linked_directory": "symlinked directories and junctions (not walked)",
     "linked_outside": "symlinks to files outside the root (not read)",
 }
 
@@ -245,9 +245,16 @@ def _scan_file(result: ScanResult, path: Path, real_root: str) -> None:
             result.unreadable.append(Unreadable(rel, read_error_reason(exc), version))
 
 
+#: ``st_reparse_tag`` of a Windows directory junction (``stat.IO_REPARSE_TAG_MOUNT_POINT``).
+_JUNCTION_TAG = 0xA0000003
+
+
 def _is_link(path: Path) -> bool:
+    """A symlink, or a Windows junction (os.walk descends into junctions on Python 3.11-3.13)."""
     try:
-        return path.is_symlink()
+        if path.is_symlink():
+            return True
+        return getattr(os.lstat(path), "st_reparse_tag", 0) == _JUNCTION_TAG
     except OSError:  # a directory listed but not searchable: os.walk reports it when it enters
         return False
 
@@ -272,9 +279,10 @@ def scan(root: Path) -> ScanResult:
         result.unreadable.append(Unreadable(where, f"cannot list: {exc.strerror or exc}"))
 
     for directory, dirnames, filenames in os.walk(root, onerror=unlisted):
-        base = Path(directory)  # os.walk does not descend into a linked directory: count it
-        result.skipped["linked_directory"] += sum(_is_link(base / d) for d in dirnames)
-        dirnames.sort()
+        base = Path(directory)
+        linked = {d for d in dirnames if _is_link(base / d)}
+        result.skipped["linked_directory"] += len(linked)
+        dirnames[:] = sorted(d for d in dirnames if d not in linked)
         for name in sorted(filenames):
             _scan_file(result, base / name, real_root)
     result.artifacts = newest_first(result.artifacts)

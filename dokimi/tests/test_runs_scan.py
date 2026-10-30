@@ -319,3 +319,18 @@ def test_a_root_that_is_itself_a_symlink_is_read(tmp_path):
 
     assert sorted(a.path.as_posix() for a in result.artifacts) == ["e.json", "latest.json"]
     assert not result.skipped
+
+
+@pytest.mark.skipif(os.name != "nt", reason="junctions are a Windows directory link")
+def test_a_junction_is_counted_and_not_walked(tmp_path):
+    import _winapi
+
+    root = tmp_path / "results"
+    _save(root, "eval.v1", "in.json")
+    _save(tmp_path, "eval.v1", "outside/eval.json")
+    _winapi.CreateJunction(str(tmp_path / "outside"), str(root / "external"))
+
+    result = scan(root)
+
+    assert [a.path.as_posix() for a in result.artifacts] == ["in.json"]
+    assert result.skipped == {"linked_directory": 1}
