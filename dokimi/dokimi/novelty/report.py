@@ -240,21 +240,27 @@ def floored_percent(share: float) -> str:
 
 
 def describe_reach(reached: dict) -> str:
-    """Where a capped extraction stopped: ``span s0012 (12 of 61 spans, 23% of the tokens)``."""
-    return (f"span {reached['last_span']} ({reached['spans']} of {reached['of']} spans, "
-            f"{floored_percent(reached['tokens_share'])} of the tokens)")
+    """Where a capped extraction stopped, as ``span s0012 (12 of the input's 61 spans, 23% of
+    its tokens)``.
+
+    The spans are the input's, the text that was segmented: the entry point, plus on a bundle
+    run the files its roles and budgets selected. Not the artifact's, whose other files are
+    not in it.
+    """
+    return (f"span {reached['last_span']} ({reached['spans']} of the input's {reached['of']} "
+            f"spans, {floored_percent(reached['tokens_share'])} of its tokens)")
 
 
 def reach_is_end(reached: dict) -> bool:
-    """Whether a binding cap stopped on the artifact's last span: the atoms then reach its end, and what the
-    cap cut is the atoms past it in the last reply, not a stretch of the artifact."""
+    """Whether a binding cap stopped on the input's last span: the atoms then reach its end, and what the
+    cap cut is the atoms past it in the last reply, not a stretch of the input."""
     return reached["spans"] == reached["of"]
 
 
 def cap_warning(cap: int, reached: dict) -> str:
     """The warning for a binding cap: where extraction stopped, and what that leaves out."""
     left_out = ("any atoms past the cap in its last reply were dropped" if reach_is_end(reached)
-                else "rates describe the opening of the artifact, not the whole")
+                else "rates describe the opening of the input, not all of it")
     return (f"atom extraction hit the cap of {cap} at {describe_reach(reached)}: {left_out}; "
             "pass --all-atoms for the full sweep")
 
@@ -270,10 +276,10 @@ def coverage_reach(extraction: dict | None) -> tuple[str, str]:
     if not reached:
         return "were measured", ""
     if reach_is_end(reached):
-        return ("went into the input", "; the capped atoms reach its last span, and the cap "
-                "dropped any atoms past it")
+        return ("went into the input", "; the capped atoms reach the input's last span, and the "
+                "cap dropped any atoms past it")
     return ("went into the input", "; the capped atoms come from the first "
-            f"{floored_percent(reached['tokens_share'])} of its tokens")
+            f"{floored_percent(reached['tokens_share'])} of the input's tokens")
 
 
 def _capped_at(artifact: dict) -> str:
@@ -283,9 +289,9 @@ def _capped_at(artifact: dict) -> str:
         return ""
     if reach_is_end(reached):
         return (f" The atom cap stopped extraction at {describe_reach(reached)}: the atoms reach the "
-                "artifact's last span, and the cap dropped any atoms past it in the last reply.")
+                "input's last span, and the cap dropped any atoms past it in the last reply.")
     return (f" The atom cap stopped extraction at {describe_reach(reached)}: the atoms "
-            "come from the opening of the artifact, not the whole.")
+            "come from the opening of the input, not all of it.")
 
 
 def _render_bundle(artifact: dict) -> list[str]:

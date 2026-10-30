@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 
@@ -593,14 +594,14 @@ def test_a_capped_run_says_how_far_through_the_artifact_the_cap_reached(tmp_path
     # s0001 and s0002 are 15 of the body's 42 span tokens.
     reached = {"last_span": "s0002", "spans": 2, "of": 5, "tokens_share": 0.3571}
     assert artifact["extraction"]["reached"] == reached
-    warning = ("atom extraction hit the cap of 1 at span s0002 (2 of 5 spans, 35% of the "
-               "tokens): rates describe the opening of the artifact, not the whole; pass "
+    warning = ("atom extraction hit the cap of 1 at span s0002 (2 of the input's 5 spans, 35% "
+               "of its tokens): rates describe the opening of the input, not all of it; pass "
                "--all-atoms for the full sweep")
     assert warning in artifact["warnings"]
     assert not any("sampled atoms" in w for w in artifact["warnings"])
     assert ("1 atoms (cap-per-artifact:1), 1 probed. The atom cap stopped extraction at span "
-            "s0002 (2 of 5 spans, 35% of the tokens): the atoms come from the opening of the "
-            "artifact, not the whole.") in render_novelty_markdown(artifact)
+            "s0002 (2 of the input's 5 spans, 35% of its tokens): the atoms come from the "
+            "opening of the input, not all of it.") in render_novelty_markdown(artifact)
     validate_artifact("novelty", dict(artifact, schema_version="novelty.v1"))
     # The renderers read every key of the reach, so a partial one does not validate.
     partial = dict(artifact["extraction"], reached={"spans": 3})
@@ -618,6 +619,55 @@ def test_the_reach_is_null_only_when_the_cap_did_not_bind(tmp_path):
     assert not any("hit the cap" in w for w in uncapped["warnings"])
     assert "atom cap stopped" not in render_novelty_markdown(uncapped)
     validate_artifact("novelty", dict(uncapped, schema_version="novelty.v1"))
+
+
+@pytest.mark.parametrize("cap, header, tail", [
+    (2, "s0002 (2 of the input's 8 spans, 25% of its tokens): the atoms come from the opening "
+        "of the input, not all of it.", "come from the first 25% of the input's tokens"),
+    (8, "s0008 (8 of the input's 8 spans, 100% of its tokens): the atoms reach the input's last "
+        "span, and the cap dropped any atoms past it in the last reply.",
+     "reach the input's last span, and the cap dropped any atoms past it"),
+], ids=["mid-input", "last-span"])
+def test_a_capped_bundle_run_reaches_through_its_input_not_the_artifact(tmp_path, capsys, cap,
+                                                                        header, tail):
+    from dokimi.commands import novelty as novelty_cmd
+    from dokimi.novelty.bundle import load_bundle
+
+    root = tmp_path / "accel-tuning"
+    (root / "references").mkdir(parents=True)
+    (root / "SKILL.md").write_text(SKILL, encoding="utf-8")
+    (root / "references" / "tuning.md").write_text(
+        "# Tuning\n\nSet `--threads` to the core count.\n", encoding="utf-8")
+    # 500 words over the 100-word file budget: on disk, in no span the reach counts.
+    (root / "references" / "zlarge.md").write_text(
+        " ".join(f"word{i}" for i in range(500)), encoding="utf-8")
+    bundle = load_bundle(f"skill:{root}", include_resources=True, max_file_words=100)
+    assert [f.path for f in bundle.files] == ["SKILL.md", "references/tuning.md"]
+    scripted = _scripted("informed")
+
+    def per_span(prompt, system):
+        if "Extract the checkable knowledge" not in prompt:
+            return scripted(prompt, system)
+        return json.dumps([dict(_ATOMS[0], statement=f"{sid} holds.", question=f"What of {sid}?",
+                                span_ids=[sid])
+                           for sid in re.findall(r"^\[(s\d+)\]", prompt, flags=re.M)]), None
+
+    config = AnalyzeConfig(
+        artifact_ref=f"skill:{root}", artifact_kind=bundle.kind, name=bundle.name,
+        description=bundle.description, frontmatter=bundle.frontmatter, concurrency=1,
+        include_resources=True, max_atoms=cap,
+    )
+    _, answerer, judge = _clients()
+    extractor = LLMClient(model="extractor-m", role="extractor", transport=per_span)
+    artifact = analyze(bundle.text, config, extractor=extractor, answerer=answerer,
+                       judge=judge, artifact_bundle=bundle).artifact
+    assert artifact["extraction"]["reached"]["of"] == 8
+    assert f"The atom cap stopped extraction at span {header}" in render_novelty_markdown(artifact)
+    novelty_cmd._print_coverage(artifact["bundle"], artifact["extraction"])
+    # 6% of the artifact went into the input; the reach is a share of the input alone.
+    assert capsys.readouterr().out.startswith(
+        "coverage: 6% of the artifact's readable words went into the input; the capped atoms "
+        f"{tail}\n")
 
 
 def test_skipping_the_faithfulness_check_is_recorded_as_a_warning(tmp_path):

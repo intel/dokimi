@@ -246,8 +246,8 @@ CAPPED_ATOMS = {"atoms/max-atoms-1"}
 # atoms a sample. In the warnings and on stderr alike.
 CAP_WARNING_ON_MAIN = ("atom extraction hit the cap of 1; rates describe the sampled atoms, "
                        "not the whole artifact")
-CAP_WARNING = ("atom extraction hit the cap of 1 at span s0002 (2 of 5 spans, 35% of the "
-               "tokens): rates describe the opening of the artifact, not the whole; pass "
+CAP_WARNING = ("atom extraction hit the cap of 1 at span s0002 (2 of the input's 5 spans, 35% "
+               "of its tokens): rates describe the opening of the input, not all of it; pass "
                "--all-atoms for the full sweep")
 # Intended change: the cap's forfeit no longer calls `added` a sampled rate, in the tier
 # record, the warnings and the estimate's stderr.

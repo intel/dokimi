@@ -901,22 +901,25 @@ that `frac_carrying_nothing` is not interpretable on a capped atom set).
 > against the model matching the artifact's own wording
 
 The cap is not a sample: extraction walks the spans in document order and stops at it, so a
-capped run measures the opening of the artifact. Its warning says how far that is, as in
-`atom extraction hit the cap of 25 at span s0012 (12 of 61 spans, 23% of the tokens): rates
-describe the opening of the artifact, not the whole; pass --all-atoms for the full sweep`,
+capped run measures the opening of the input. The input is the text that was segmented: the
+entry point, plus on a bundle run the files its roles and budgets selected, so a bundled file
+left out is in none of the reach's spans or tokens (the `coverage:` line says how much of the
+artifact went into the input). The warning says how far the cap reached, as in `atom
+extraction hit the cap of 25 at span s0012 (12 of the input's 61 spans, 23% of its tokens):
+rates describe the opening of the input, not all of it; pass --all-atoms for the full sweep`,
 `extraction.reached` records it, and the headline's `coverage:` line then says the words
-went into the input and the capped atoms come from the first 23% of its tokens (the warning
-under that line, when half or less of the words went in, says "went into the input" too).
-`novelty atoms` prints the same warning on stderr; `probe` and `shorten`, which read its
+went into the input and the capped atoms come from the first 23% of the input's tokens (the
+warning under that line, when half or less of the words went in, says "went into the input"
+too). `novelty atoms` prints the same warning on stderr; `probe` and `shorten`, which read its
 `atoms.json`, do not repeat it.
 
-A cap met on the artifact's last span leaves no stretch of it out: what it cut is any atoms
+A cap met on the input's last span leaves no stretch of the input out: what it cut is any atoms
 past the cap in that last reply. The warning then reads `atom extraction hit the cap of 30 at
-span s0010 (10 of 10 spans, 100% of the tokens): any atoms past the cap in its last reply were
-dropped; pass --all-atoms for the full sweep`, the `novelty.md` header says the atoms reach the
-artifact's last span and the cap dropped any atoms past it in the last reply, and the
-`coverage:` line ends `the capped atoms reach its last span, and the cap dropped any atoms past
-it`; none of them says "the opening".
+span s0010 (10 of the input's 10 spans, 100% of its tokens): any atoms past the cap in its last
+reply were dropped; pass --all-atoms for the full sweep`, the `novelty.md` header says the
+atoms reach the input's last span and the cap dropped any atoms past it in the last reply, and
+the `coverage:` line ends `the capped atoms reach the input's last span, and the cap dropped
+any atoms past it`; none of them says "the opening".
 
 That is the point of naming tiers at all. The cheap run is useful; a cheap run quoted as a
 sweep is not.
@@ -984,7 +987,7 @@ lost to a failed call (with its error). The
 | `retried_batches` | batches whose reply did not parse, or had no usable atom, and were split and re-asked |
 | `calls`, `batches` | calls made, splits included, against the calls the run would make with no splitting |
 | `last_error` | the error behind the unread spans (a failed call first); errors a split recovered from are not recorded |
-| `reached` | on a capped run, how far the cap reached: `last_span`, the last span any kept atom cites among the spans some call was sent (a batch the cap cut mid-reply was sent whole, but its later spans gave no atom; a cited span no call was sent does not count); `spans`, the spans up to and including it, `of` all spans; `tokens_share`, those spans' share of the span tokens. `null` when the cap did not bind |
+| `reached` | on a capped run, how far through the input (the spans segmented, not the files the bundle left out) the cap reached: `last_span`, the last span any kept atom cites among the spans some call was sent (a batch the cap cut mid-reply was sent whole, but its later spans gave no atom; a cited span no call was sent does not count); `spans`, the spans up to and including it, `of` all the input's spans; `tokens_share`, those spans' share of the input's span tokens. `null` when the cap did not bind |
 
 `probe`, `shorten` and `view` read `atoms.json` and repeat the warning. Unread spans are left out
 of `frac_carrying_nothing` (numerator and denominator) and dead weight, reported as

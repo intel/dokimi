@@ -198,7 +198,7 @@ class ExtractionReport:
         call_error: The last failed call on a span that stayed unread. Errors that
             splitting recovered from are not recorded: they did not lose anything, and
             quoting one would blame the wrong cause.
-        reached: How far through the artifact a capped atom set reached (see
+        reached: How far through the input a capped atom set reached (see
             :func:`_cap_reach`); ``None`` when the cap did not bind.
     """
 
@@ -419,10 +419,11 @@ def extract_atoms(
 
 def _cap_reach(spans: list[Span], atoms: list[Atom], cap: int | None,
                sent: set[str]) -> dict | None:
-    """How far through the artifact a capped atom set reached; ``None`` under the cap.
+    """How far through the input (``spans``) a capped atom set reached; ``None`` under the cap.
 
     Extraction walks the spans in document order and stops at the cap, so a capped set
-    covers the opening of the artifact, not a sample of it. The reach is the last span any
+    covers the opening of the input, not a sample of it. The input is the text segmented,
+    not the artifact: a bundled file it left out counts in no span. The reach is the last span any
     kept atom cites, not the last batch sent: a batch the cap cut mid-reply was sent whole,
     but its later spans gave no atom. Only the ``sent`` spans count: an atom may cite a span
     of the document its call was never shown, and that made-up id must not move the reach

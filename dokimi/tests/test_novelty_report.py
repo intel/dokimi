@@ -74,20 +74,21 @@ def test_the_cost_line_names_replayed_calls_only_when_there_are_some(cost, line)
 def test_a_cap_that_stopped_on_the_last_span_does_not_say_the_atoms_come_from_the_opening():
     end = {"last_span": "s0010", "spans": 10, "of": 10, "tokens_share": 1.0}
     assert coverage_reach({"reached": end}) == (
-        "went into the input", "; the capped atoms reach its last span, and the cap dropped any atoms past it")
+        "went into the input", "; the capped atoms reach the input's last span, and the cap dropped any atoms "
+        "past it")
     assert "opening" not in _capped_at({"extraction": {"reached": end}})
     assert cap_warning(30, end) == (
-        "atom extraction hit the cap of 30 at span s0010 (10 of 10 spans, 100% of the tokens): any atoms past "
-        "the cap in its last reply were dropped; pass --all-atoms for the full sweep")
+        "atom extraction hit the cap of 30 at span s0010 (10 of the input's 10 spans, 100% of its tokens): "
+        "any atoms past the cap in its last reply were dropped; pass --all-atoms for the full sweep")
 
 
-def test_a_cap_that_stopped_inside_the_artifact_still_says_the_rates_describe_the_opening():
+def test_a_cap_that_stopped_inside_the_input_still_says_the_rates_describe_the_opening():
     inside = {"last_span": "s0002", "spans": 2, "of": 5, "tokens_share": 0.3571}
     assert coverage_reach({"reached": inside}) == (
-        "went into the input", "; the capped atoms come from the first 35% of its tokens")
+        "went into the input", "; the capped atoms come from the first 35% of the input's tokens")
     assert _capped_at({"extraction": {"reached": inside}}) == (
-        " The atom cap stopped extraction at span s0002 (2 of 5 spans, 35% of the tokens): the atoms "
-        "come from the opening of the artifact, not the whole.")
+        " The atom cap stopped extraction at span s0002 (2 of the input's 5 spans, 35% of its tokens): the "
+        "atoms come from the opening of the input, not all of it.")
     assert cap_warning(1, inside) == (
-        "atom extraction hit the cap of 1 at span s0002 (2 of 5 spans, 35% of the tokens): rates describe "
-        "the opening of the artifact, not the whole; pass --all-atoms for the full sweep")
+        "atom extraction hit the cap of 1 at span s0002 (2 of the input's 5 spans, 35% of its tokens): rates "
+        "describe the opening of the input, not all of it; pass --all-atoms for the full sweep")

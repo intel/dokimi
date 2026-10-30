@@ -848,13 +848,13 @@ def test_a_capped_run_s_headline_does_not_say_the_whole_artifact_was_measured(ca
                                      extraction={"reached": reached}))
     out = capsys.readouterr().out
     assert ("coverage: 100% of the artifact's readable words went into the input (entry point "
-            "only); the capped atoms come from the first 22% of its tokens\n") in out
+            "only); the capped atoms come from the first 22% of the input's tokens\n") in out
     assert "measured" not in out
     # The unknown share keeps the reach too; a run the cap did not stop keeps its wording.
     novelty_cmd._print_headline(dict(_minimal_artifact(), bundle=dict(record, unreadable_files=1),
                                      extraction={"reached": reached}))
-    assert "counted) (entry point only); the capped atoms come from the first 22% of its " \
-           "tokens\n" in capsys.readouterr().out
+    assert "counted) (entry point only); the capped atoms come from the first 22% of the " \
+           "input's tokens\n" in capsys.readouterr().out
     novelty_cmd._print_headline(dict(_minimal_artifact(), bundle=record,
                                      extraction={"reached": None}))
     assert "coverage: 100% of the artifact's readable words were measured (entry point only)\n" \
