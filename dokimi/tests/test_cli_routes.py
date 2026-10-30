@@ -138,7 +138,10 @@ def test_every_route_help_line_ends_in_its_cost_label():
     assert {leaf.path for leaf in cli_routes.LEAVES if leaf.summary is None} <= seen
 
 
-def test_run_and_compare_have_a_one_line_help_in_the_top_level_list():
+def test_run_and_compare_have_a_one_line_help_in_the_top_level_list(monkeypatch):
+    # argparse wraps help at COLUMNS (or the terminal width, else 80): a narrow host would
+    # wrap the cost label onto a continuation line, so pin the width the label is read at.
+    monkeypatch.setenv("COLUMNS", "200")
     text = build_parser().format_help()
     for name in ("run", "compare"):
         line = next(line for line in text.splitlines() if re.match(rf"^  {name}\s", line))
