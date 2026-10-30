@@ -345,6 +345,7 @@ def extract_atoms(
     for span in spans:
         span.unread = False
     seen: set[str] = set()
+    sent: set[str] = set()  # span ids some call was shown, which bound the reach
     atoms: list[Atom] = []
     lost: Exception | None = None
     # (spans, is a half): a half was counted in ``batches`` with the batch it came from.
@@ -356,6 +357,7 @@ def extract_atoms(
         if cap is not None and len(atoms) >= cap:
             break
         batch, is_half = pending.pop(0)
+        sent.update(span.id for span in batch)
         if not is_half:
             report.batches += 1
         prompt = _EXTRACT_PROMPT.format(
@@ -411,23 +413,28 @@ def extract_atoms(
         # Only when nothing was read: spans that were read and asserted nothing are a
         # result, and a recovered parse error is not a failure.
         raise ExtractionError(f"no atoms: every extraction call failed ({lost})") from lost
-    report.reached = _cap_reach(spans, atoms, cap)
+    report.reached = _cap_reach(spans, atoms, cap, sent)
     return atoms
 
 
-def _cap_reach(spans: list[Span], atoms: list[Atom], cap: int | None) -> dict | None:
+def _cap_reach(spans: list[Span], atoms: list[Atom], cap: int | None,
+               sent: set[str]) -> dict | None:
     """How far through the artifact a capped atom set reached; ``None`` under the cap.
 
     Extraction walks the spans in document order and stops at the cap, so a capped set
     covers the opening of the artifact, not a sample of it. The reach is the last span any
     kept atom cites, not the last batch sent: a batch the cap cut mid-reply was sent whole,
-    but its later spans gave no atom. ``spans`` counts the spans up to and including it,
-    ``of`` all of them, and ``tokens_share`` is their share of the span tokens.
+    but its later spans gave no atom. Only the ``sent`` spans count: an atom may cite a span
+    of the document its call was never shown, and that made-up id must not move the reach
+    (an atom set citing nothing sent reaches the last span sent). ``spans`` counts the spans
+    up to and including it, ``of`` all of them, and ``tokens_share`` is their share of the
+    span tokens.
     """
     if cap is None or not atoms or len(atoms) < cap:
         return None
-    order = {span.id: index for index, span in enumerate(spans)}
-    last = max(order[span_id] for atom in atoms for span_id in atom.span_ids if span_id in order)
+    order = {span.id: index for index, span in enumerate(spans) if span.id in sent}
+    last = max((order[span_id] for atom in atoms for span_id in atom.span_ids if span_id in order),
+               default=max(order.values()))
     reached = sum(span.tokens for span in spans[:last + 1])
     total = sum(span.tokens for span in spans)
     # Floored in integers, as floored_percent prints it: a cap one span short of the end must not round to 1.0

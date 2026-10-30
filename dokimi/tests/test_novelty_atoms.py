@@ -249,6 +249,27 @@ def test_a_capped_extraction_records_the_last_span_its_atoms_reached(tmp_path):
     assert json.loads(path.read_text())["extraction"]["reached"] == report.reached
 
 
+def test_a_span_id_no_call_was_shown_does_not_move_the_reach():
+    """The cap binds on the first batch's last span (s0010); one atom also cites s0055."""
+    def made_up(prompt, system):
+        # Two atoms for each of s0001-s0005 and three for s0006-s0010: 25 in all.
+        rows = [dict(row, statement=f"{row['statement']} ({k})", question=f"q{k} {row['span_ids'][0]}")
+                for row in _rows(prompt) for k in range(2 if row["span_ids"][0] <= "s0005" else 3)]
+        rows[4]["span_ids"] = ["s0003", "s0055"]
+        return json.dumps(rows), None
+
+    spans = segment("\n\n".join(f"Setting number {i} defaults to {i * 10}." for i in range(1, 61)))
+    report = ExtractionReport()
+    atoms = extract_atoms(spans, client=LLMClient(model="x", transport=made_up),
+                          batch_spans=10, cap=25, report=report)
+    assert "s0055" in atoms[4].span_ids and report.batches == 1
+    assert report.reached == {"last_span": "s0010", "spans": 10, "of": 60,
+                              "tokens_share": 0.1666}
+    # An atom set that cites nothing it was shown reaches the last span sent.
+    first_ten = {span.id for span in spans[:10]}
+    assert _cap_reach(spans, [SimpleNamespace(span_ids=["s0055"])], 1, first_ten)["spans"] == 10
+
+
 @pytest.mark.parametrize("cap, reached", [
     (None, None),
     (31, None),
@@ -552,6 +573,6 @@ def test_a_run_with_cut_off_and_unusable_splits_names_both_and_keeps_the_advice(
 ])
 def test_a_cap_reach_share_is_floored_not_rounded(first, share, shown):
     spans = [SimpleNamespace(id="s0001", tokens=first), SimpleNamespace(id="s0002", tokens=30_000 - first)]
-    reach = _cap_reach(spans, [SimpleNamespace(span_ids=["s0001"])], cap=1)
+    reach = _cap_reach(spans, [SimpleNamespace(span_ids=["s0001"])], cap=1, sent={"s0001", "s0002"})
     assert reach == {"last_span": "s0001", "spans": 1, "of": 2, "tokens_share": share}
     assert floored_percent(reach["tokens_share"]) == shown

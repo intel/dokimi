@@ -971,7 +971,7 @@ lost to a failed call (with its error). The
 | `retried_batches` | batches whose reply did not parse, or had no usable atom, and were split and re-asked |
 | `calls`, `batches` | calls made, splits included, against the calls the run would make with no splitting |
 | `last_error` | the error behind the unread spans (a failed call first); errors a split recovered from are not recorded |
-| `reached` | on a capped run, how far the cap reached: `last_span`, the last span any kept atom cites (a batch the cap cut mid-reply was sent whole, but its later spans gave no atom); `spans`, the spans up to and including it, `of` all spans; `tokens_share`, those spans' share of the span tokens. `null` when the cap did not bind |
+| `reached` | on a capped run, how far the cap reached: `last_span`, the last span any kept atom cites among the spans some call was sent (a batch the cap cut mid-reply was sent whole, but its later spans gave no atom; a cited span no call was sent does not count); `spans`, the spans up to and including it, `of` all spans; `tokens_share`, those spans' share of the span tokens. `null` when the cap did not bind |
 
 `probe`, `shorten` and `view` read `atoms.json` and repeat the warning. Unread spans are left out
 of `frac_carrying_nothing` (numerator and denominator) and dead weight, reported as
