@@ -669,6 +669,15 @@ def test_actions_used_by_a_yaml_workflow_a_job_and_a_composite_action_are_ok(tmp
     assert got[("AGENTS.md", "docker/login-action")][0] == "unresolved"  # no step uses it; the broken YAML is skipped
 
 
+def test_an_action_used_only_by_a_nested_workflow_is_not_used(tmp_path):
+    """GitHub runs only the workflows directly in `.github/workflows/`, not `.github/workflows/old/ci.yml`."""
+    got = _by_file(_scan(tmp_path, "Use `nested/only` and `actions/checkout`.\n",
+                         {".github/workflows/ci.yml": _CHECKOUT,
+                          ".github/workflows/old/ci.yml": "jobs:\n  x:\n    steps: [{uses: nested/only@v1}]\n"}))
+    assert got[("AGENTS.md", "nested/only")] == ("unresolved", "tried nested/only")
+    assert got[("AGENTS.md", "actions/checkout")] == ("ok", "used by .github/workflows/ci.yml")
+
+
 @pytest.mark.parametrize("bad", ["env: {DATE: 2026-02-30}\njobs: {}\n",  # ValueError: no such day
                                  "jobs: " + "[" * 5000 + "\n"], ids=["bad-date", "deep"])  # RecursionError
 def test_a_workflow_yaml_cannot_build_is_skipped(tmp_path, bad):

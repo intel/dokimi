@@ -1090,9 +1090,9 @@ directories and `**/` matches zero or more. A trailing slash on a file
 (`src/mod.py/`) is `fail`. A GitHub Action reference (`actions/checkout@v6`) is not a
 path claim. An Action named without its ref (`actions/checkout`, `owner/repo/path`)
 that the tree does not hold at the file's directory or an ancestor is `ok` when a
-job or step uses it as `uses: <name>@<ref>`, in a `.yml` or `.yaml` workflow under
-`.github/workflows/` or a local composite action under `.github/` (`action.yml`,
-`action.yaml`); the reason names the first such file, workflows first (`used by
+job or step uses it as `uses: <name>@<ref>`, in a `.yml` or `.yaml` workflow
+directly in `.github/workflows/` (not a nested one, which GitHub does not run) or
+a local composite action under `.github/` (`action.yml`, `action.yaml`); the reason names the first such file, workflows first (`used by
 .github/workflows/ci.yml`). A name into a submodule stays `unresolved` (below)
 even when a step uses it, as the snapshot does not hold what is there; after that
 check, and before the parent-directory `fail`, the used Action is `ok`, so a

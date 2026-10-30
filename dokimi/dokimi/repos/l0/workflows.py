@@ -30,14 +30,15 @@ def workflow_files(scan: Scan) -> list[str]:
 def action_users(scan: Scan) -> dict[str, str]:
     """Each Action a job or step names as ``uses: <owner/name>@<ref>`` -> the first file that does.
 
-    Read from the ``.yml``/``.yaml`` workflows and the local composite actions under ``.github/``
-    (``action.yml``, ``action.yaml``): only the ``uses:`` values, not a name in a ``run:`` script.
+    Read from the ``.yml``/``.yaml`` workflows directly in ``.github/workflows/`` (GitHub runs no nested
+    one) and the local composite actions under ``.github/`` (``action.yml``, ``action.yaml``): only the
+    ``uses:`` values, not a name in a ``run:`` script.
     """
     return scan.cached("action_users", lambda: _action_users(scan))
 
 
 def _action_users(scan: Scan) -> dict[str, str]:
-    flows = [f for f in workflow_files(scan) if f.endswith((".yml", ".yaml"))]
+    flows = [f for f in workflow_files(scan) if f.endswith((".yml", ".yaml")) and "/" not in f[len(WORKFLOWS):]]
     local = [f for f in scan.files if f.startswith(".github/") and posixpath.basename(f) in ("action.yml", "action.yaml")]
     paths = list(dict.fromkeys(flows + local))
     scan.preload(paths)
