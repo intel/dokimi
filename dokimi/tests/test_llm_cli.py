@@ -454,6 +454,17 @@ def test_an_alias_and_its_full_id_are_one_model_for_the_identity_checks():
     assert not same("openai", "gpt-6.1-sol", "claude-cli", "sonnet")
 
 
+def test_the_one_million_context_form_is_a_claude_model_on_the_cli():
+    # claude --model takes sonnet[1m]; it is the same model as the alias, with a larger window.
+    assert llm_cli.accepts_model("claude-cli", "sonnet[1m]")
+    assert llm_cli.accepts_model("claude-cli", "opus[1m]")
+    assert llm_cli.accepts_model("claude-cli", "claude-sonnet-5-5[1m]")
+    assert not llm_cli.accepts_model("claude-cli", "gpt-6.1-sol[1m]")
+    assert llm_cli._family("sonnet[1m]") == "sonnet"
+    assert llm_cli.same_model("claude-cli", "sonnet[1m]", "claude-cli", "claude-sonnet-5-5")
+    assert not llm_cli.same_model("claude-cli", "sonnet[1m]", "claude-cli", "claude-opus-5-5")
+
+
 def test_the_independence_warning_fires_for_an_alias_against_its_full_id(capsys):
     from dokimi.commands.evaluate import _warn_judge_independence
 

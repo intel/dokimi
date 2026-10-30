@@ -254,15 +254,26 @@ def backend(provider: str) -> Optional[CliBackend]:
     return BACKENDS.get(provider)
 
 
+#: The 1M-context suffix ``claude --model`` takes after an alias or a full id: ``sonnet[1m]``.
+_CONTEXT_SUFFIX = re.compile(r"\[[^\]]*\]$")
+
+
+def _without_context(model: str) -> str:
+    """*model* with a trailing ``[...]`` (the context-window form) removed, and blanks stripped."""
+    return _CONTEXT_SUFFIX.sub("", model.strip())
+
+
 def accepts_model(provider: str, model: str) -> bool:
-    """Whether *provider*'s CLI takes *model*: one of its aliases, or a full id it names."""
+    """Whether *provider*'s CLI takes *model*: one of its aliases, or a full id it names (either may
+    carry a ``[1m]``-style context suffix)."""
     cli = BACKENDS[provider]
-    return model in cli.aliases or model.startswith(cli.model_prefixes)
+    bare = _without_context(model)
+    return bare in cli.aliases or bare.startswith(cli.model_prefixes)
 
 
 def _family(model: str) -> Optional[str]:
     """The alias a Claude model name belongs to: ``sonnet``, or of ``claude-sonnet-5-5``."""
-    name = model.strip().lower().rsplit("/", 1)[-1].rsplit("anthropic.", 1)[-1]
+    name = _without_context(model.lower().rsplit("/", 1)[-1].rsplit("anthropic.", 1)[-1])
     if name in CLAUDE_CLI.aliases:
         return name
     if name.startswith("claude-"):
@@ -282,7 +293,7 @@ def same_model(provider_a: str, model_a: str, provider_b: str, model_b: str) -> 
     """
     if provider_a not in BACKENDS and provider_b not in BACKENDS:
         return False
-    a, b = model_a.strip().lower(), model_b.strip().lower()
+    a, b = _without_context(model_a.lower()), _without_context(model_b.lower())
     if a == b:
         return True
     if a not in CLAUDE_CLI.aliases and b not in CLAUDE_CLI.aliases:
