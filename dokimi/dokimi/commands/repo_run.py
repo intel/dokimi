@@ -393,9 +393,9 @@ def cmd_repo_report(args: argparse.Namespace) -> None:
         sys.exit(EXIT_USAGE)
     try:
         summary = summarize(batch_dir)
-    except CellFileError as exc:  # same exit as repo compare for a cell file it cannot read
+    except CellFileError as exc:  # a cell file that is not the JSON repo run wrote: an input refusal
         print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
     print(json.dumps(summary, indent=2) if args.json else format_report(summary))
 
 
@@ -413,9 +413,9 @@ def cmd_repo_compare(args: argparse.Namespace) -> None:
     try:
         summary = compare(dirs, args.baseline, arms, args.model, tuple(args.metric or ()),
                           pass_k=args.pass_k, path_stability=args.path_stability)
-    except (CompareError, CellFileError) as exc:
+    except (CompareError, CellFileError) as exc:  # an unusable baseline, arm, metric or cell file: exit 2
         print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
     print(json.dumps(summary, indent=2) if args.json else format_compare(summary))
 
 
