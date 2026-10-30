@@ -370,9 +370,16 @@ def run_arms(config: ArmsRunConfig, specs: list[str], questions: list[dict]) -> 
 def check_matrix(config: ArmsRunConfig, cells: list[MatrixCellDescriptor]) -> None:
     """Refuse a matrix with a cell the in-process runner cannot run, or whose provider would
     refuse the sampling on every answer. Raises ``ValueError`` naming the first such cell."""
-    validate_supported_matrix_harnesses(cells)
     for cell in cells:
-        check_sampling_support(cell_config(config, cell))
+        try:
+            validate_supported_matrix_harnesses([cell])
+        except ValueError as exc:
+            raise ValueError(f"matrix cell '{cell.name}': {exc}") from exc
+    for cell in cells:
+        try:
+            check_sampling_support(cell_config(config, cell))
+        except ValueError as exc:
+            raise ValueError(f"matrix cell '{cell.name}': {exc}") from exc
 
 
 def run_matrix(config: ArmsRunConfig, cells: list[MatrixCellDescriptor], specs: list[str],

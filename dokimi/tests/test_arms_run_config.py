@@ -126,3 +126,28 @@ def test_run_matrix_checks_every_cell_before_the_first_is_paid_for(monkeypatch, 
                    [{"id": "q1", "question": "How?"}], on_cell=lambda cell, out: finished.append(cell))
 
     assert finished == [] and provider_calls.calls == []
+
+
+def test_check_matrix_names_the_first_cell_whose_sampling_the_provider_refuses(monkeypatch):
+    from dokimi.eval.arms_run import check_matrix
+    from dokimi.eval.cells import MatrixCellDescriptor
+
+    monkeypatch.setattr("dokimi.llm.unsupported_sampling_params",
+                        lambda model, provider, **kw: ["seed"] if model == "m-bad" else [])
+    monkeypatch.setattr("dokimi.eval.arms_run.probe_sampling", lambda *a: None)
+    cells = [MatrixCellDescriptor("ok", "m-ok", "openai", "arms-runner"),
+             MatrixCellDescriptor("bad", "m-bad", "openai", "arms-runner")]
+
+    with pytest.raises(ValueError, match="^matrix cell 'bad': Provider 'openai' does not support"):
+        check_matrix(ArmsRunConfig(product="demo", seed=1), cells)
+
+
+def test_check_matrix_names_the_first_cell_with_an_unsupported_harness():
+    from dokimi.eval.arms_run import check_matrix
+    from dokimi.eval.cells import MatrixCellDescriptor
+
+    cells = [MatrixCellDescriptor("ok", "m", "openai", "arms-runner"),
+             MatrixCellDescriptor("odd", "m", "openai", "other-runner")]
+
+    with pytest.raises(ValueError, match="^matrix cell 'odd': matrix cells only support"):
+        check_matrix(ArmsRunConfig(product="demo"), cells)
