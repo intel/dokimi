@@ -16,7 +16,10 @@
   includes 0 says it is inconclusive and gives `mde`, the smallest effect 80% power detects at that
   spread (`mde` is in every `--json` row). With 5 or fewer changed tasks the sign-flip p cannot go
   below 0.05 (its floor is `2 / 2^k` for k changed tasks), so `mde` is `null` and the note says how
-  low p can go instead. A row whose interval and p disagree says so and why
+  low p can go instead. The same holds where Holm's correction keeps a gate or score row's
+  `p_holm_floor` (its `p_holm` with its p at that floor, the other rows of the family as observed) at
+  0.05 or above, as with two such rows of six changed tasks each (`p_holm` 0.0625 at best); the note
+  then says `with Holm over N rows, p_holm cannot go below ...`. A row whose interval and p disagree says so and why
   (`interval_p_disagree`); for gate and score it compares the interval with Holm's `p_holm`, quotes
   it and says it is the one to read, and a descriptive row uses its raw p; descriptive rows with
   p below 0.05 are named as uncorrected and outside Holm's family. No delta, interval or p changes.

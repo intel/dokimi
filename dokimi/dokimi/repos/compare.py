@@ -45,7 +45,9 @@ Three notes keep a row from being misread; none changes the delta, its interval 
 delta a two-sided 5% test finds with 80% power at the row's spread, ``(t_0.975 + t_0.80) * sd / sqrt(n)`` over
 the per-task deltas, the t quantiles at ``n - 1`` degrees of freedom (in every row; ``None`` for one task or no
 spread). The sign-flip p over k changed tasks cannot go below ``2 / 2**k``, so at 5 or fewer no effect of any
-size reaches p < 0.05: ``mde`` is ``None`` there too, and the note says how low p can go instead. A row whose
+size reaches p < 0.05: ``mde`` is ``None`` there too, and the note says how low p can go instead. ``mde`` is ``None``
+too where a gate or score row's ``p_holm_floor`` (its ``p_holm`` with its p at that floor and the family's other
+p as observed, :mod:`.compare_reach`) is not below 0.05, and the note names Holm. A row whose
 interval and p disagree (the interval excludes 0 while p is 0.05 or more, or includes it
 while p is below; for gate and score the p is ``p_holm``, the one that decides them) has ``interval_p_disagree``:
 the two come from different methods, and for gate and score ``p_holm`` is the one to read, since the percentile
@@ -96,18 +98,16 @@ from __future__ import annotations
 
 import itertools
 import json
-import math
 import random
 import statistics
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from scipy import stats as sp_stats
-
 from dokimi.context.consistency import Run, order_distance, pass_hat, run_from_events
 from dokimi.eval.stats import bootstrap_ci, correct_family, mean_ci
 
+from .compare_reach import ALPHA, holm_floor, min_detectable
 from .compare_tasks import CompareError, select_tasks
 from .process_counts import as_measure, process_order, process_values
 from .report import (load_cells, mismatch_warnings, model_matches, model_mismatch, reading_cells, resolved_models,
@@ -121,9 +121,6 @@ N_RESAMPLES = 20_000
 EPS = 1e-9
 #: Measures Holm's correction runs over.
 PRIMARY = ("gate", "score")
-#: The level the notes read p and the interval at (two-sided), and the power ``mde`` is sized for.
-ALPHA = 0.05
-POWER = 0.80
 #: Descriptive measures compared only when both arms report them for some shared task (an older batch has none).
 REPORTED = ("process:", "counter:", "first_prompt_tokens")
 #: Batch stamp keys that must agree between the arms of a comparison; ``tree`` is shown but may differ (another
@@ -346,12 +343,17 @@ def _check_models(models: list[str] | None, rows: list[dict[str, Any]], unpaired
 
 
 def _holm(rows: list[dict[str, Any]]) -> None:
-    """``p_holm`` on the gate and score rows, corrected as one family; their ``interval_p_disagree`` reads it."""
+    """``p_holm`` on the gate and score rows, corrected as one family; their ``interval_p_disagree`` reads it.
+    ``p_holm_floor`` is a row's ``p_holm`` at its p floor: where it cannot go below :data:`ALPHA`, ``mde`` is None."""
     primary = [r for r in rows if r["measure"] in PRIMARY]
-    for row, (p, below) in zip(primary, correct_family([r["p"] for r in primary]), strict=True):
+    ps = [r["p"] for r in primary]
+    for i, (row, (p, below)) in enumerate(zip(primary, correct_family(ps), strict=True)):
         d = row["delta"]
         row["p_holm"] = p
         row["interval_p_disagree"] = d["lo"] is not None and below is not None and (d["lo"] <= 0 <= d["hi"]) == below
+        if p is not None:
+            row["p_holm_floor"], reachable = holm_floor(ps, i, min_sign_flip_p(row["up"] + row["down"]))
+            row["mde"] = row["mde"] if reachable else None
 
 
 def _compare_model(treatment: str, model: str, base_vals: dict[tuple[str, str], dict[str, Any]],
@@ -521,8 +523,8 @@ def paired_summary(pairs: list[dict[str, Any]], measure: str = "gate", seed: int
     permutation test. The interval is a percentile bootstrap for the bounded gate and score shares and a t
     interval (:func:`~dokimi.eval.stats.mean_ci`) for the continuous measures, where the bootstrap
     under-covers at these task counts; one task has no interval (``lo``/``hi`` None), not a zero-width one.
-    ``mde`` and ``interval_p_disagree`` are the reading aids of the module docstring; the flag reads the raw p
-    here, and :func:`compare` sets it again on a gate or score row once Holm's p is known.
+    ``mde`` and ``interval_p_disagree`` are the reading aids of the module docstring; both read the raw p here,
+    and :func:`compare` revisits both on a gate or score row once Holm's p is known.
     """
     deltas = [p["delta"] for p in pairs]
     ci = (bootstrap_ci if measure in PRIMARY else mean_ci)(deltas, seed=seed)
@@ -537,6 +539,7 @@ def paired_summary(pairs: list[dict[str, Any]], measure: str = "gate", seed: int
         "delta": {"mean": ci["mean"], "lo": lo, "hi": hi},
         "p": p,
         "p_holm": None,
+        "p_holm_floor": None,
         "mde": _round(min_detectable(sd, len(deltas))) if sd > EPS and reachable else None,
         "interval_p_disagree": lo is not None and hi is not None and p is not None and (lo <= 0 <= hi) == (p < ALPHA),
         "up": sum(d > EPS for d in deltas),
@@ -545,13 +548,6 @@ def paired_summary(pairs: list[dict[str, Any]], measure: str = "gate", seed: int
         "tasks": [{**p, "baseline": _round(p["baseline"]), "treatment": _round(p["treatment"]),
                    "delta": _round(p["delta"])} for p in pairs],
     }
-
-
-def min_detectable(sd: float, n: int) -> float:
-    """The smallest mean delta a two-sided test at :data:`ALPHA` finds with :data:`POWER` over ``n`` tasks of
-    spread ``sd``. The quantiles are t at ``n - 1`` degrees of freedom, as the interval of ``mean_ci`` is."""
-    df = n - 1
-    return (sp_stats.t.ppf(1 - ALPHA / 2, df) + sp_stats.t.ppf(POWER, df)) * sd / math.sqrt(n)
 
 
 def min_sign_flip_p(changed: int) -> float:
@@ -584,6 +580,7 @@ def format_compare(summary: dict[str, Any]) -> str:
     for row in summary["comparisons"]:
         groups[(row["treatment"], row["model"])].append(row)
     width = max([len(r["measure"]) for r in summary["comparisons"]] + [7])
+    family = sum(r["p_holm"] is not None for r in summary["comparisons"])  # the rows Holm corrected together
     for (treatment, model), rows in groups.items():
         lines += ["", f"{treatment} vs {summary['baseline']}, model {model}",
                   f"  {'measure':<{width}}  {'tasks':>5}  {'baseline':>9}  {'treatment':>9}  "
@@ -602,7 +599,7 @@ def format_compare(summary: dict[str, Any]) -> str:
                         f"{t['task']} {t['delta']:+.2f}" for t in sorted(moved, key=lambda t: t["delta"])))
                 if r["headroom"]:
                     lines.append(f"  {r['measure']} {_headroom_note(r)}")
-        lines += _reading_notes(rows)
+        lines += _reading_notes(rows, family)
     if summary["unpaired"]:
         shown = summary["unpaired"][:10]
         lines.append("unpaired: " + ", ".join(
@@ -616,8 +613,8 @@ def format_compare(summary: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _reading_notes(rows: list[dict[str, Any]]) -> list[str]:
-    """One comparison's notes against a misreading (module docstring); no number changes."""
+def _reading_notes(rows: list[dict[str, Any]], family: int) -> list[str]:
+    """One comparison's notes against a misreading (module docstring), ``family`` Holm's rows; no number changes."""
     out = []
     for r in rows:
         d, primary = r["delta"], r["measure"] in PRIMARY
@@ -629,7 +626,7 @@ def _reading_notes(rows: list[dict[str, Any]]) -> list[str]:
                        f"{'includes' if inside else 'excludes'} 0 but {name} {r[name]:.4g} is {'<' if inside else '≥'} "
                        f"{ALPHA}; they come from two methods, {how} and a sign-flip test"
                        + ("; read p_holm" if primary else ""))
-        elif primary and (note := _inconclusive_note(r)):
+        elif primary and (note := _inconclusive_note(r, family)):
             out.append(note)
     low = [r["measure"] for r in rows if r["measure"] not in PRIMARY and r["p"] is not None and r["p"] < ALPHA]
     if low:
@@ -638,7 +635,7 @@ def _reading_notes(rows: list[dict[str, Any]]) -> list[str]:
     return out
 
 
-def _inconclusive_note(r: dict[str, Any]) -> str | None:
+def _inconclusive_note(r: dict[str, Any], family: int) -> str | None:
     """The note of a gate or score row of 2+ tasks whose interval includes 0: its ``mde``, or why it has none."""
     d = r["delta"]
     if d["lo"] is None or not d["lo"] <= 0 <= d["hi"]:
@@ -647,11 +644,14 @@ def _inconclusive_note(r: dict[str, Any]) -> str | None:
     if r["mde"] is not None:
         return head + (f"with this spread the smallest effect 80% power detects is about ±{r['mde']:.3f} "
                        f"({r['n_tasks']} tasks)")
-    changed = r["up"] + r["down"]
-    if r["p"] is None or (floor := min_sign_flip_p(changed)) < ALPHA:
+    changed, holm = r["up"] + r["down"], r["p_holm_floor"]
+    if r["p"] is None or (floor := min_sign_flip_p(changed)) < ALPHA and holm < ALPHA:
         return None  # every delta tied, or no spread
-    return head + (f"with {changed} changed task{'' if changed == 1 else 's'} the sign-flip p cannot go below "
-                   f"{floor:.4g}: no effect can reach p < {ALPHA} here")
+    if floor >= ALPHA:
+        return head + (f"with {changed} changed task{'' if changed == 1 else 's'} the sign-flip p cannot go below "
+                       f"{floor:.4g}: no effect can reach p < {ALPHA} here")
+    return head + (f"with Holm over {family} rows, p_holm cannot go below {holm:.4g} here: no effect can reach "
+                   f"p_holm < {ALPHA}")
 
 
 def _headroom_note(row: dict[str, Any]) -> str:

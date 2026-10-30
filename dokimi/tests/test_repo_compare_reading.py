@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import statistics
 from pathlib import Path
 
 import pytest
@@ -227,6 +228,45 @@ def test_no_mde_where_the_sign_flip_p_cannot_reach_005(tmp_path, deltas, changed
     assert (f"  score inconclusive: the interval includes 0; with {changed} changed tasks the sign-flip p cannot "
             f"go below {floor}: no effect can reach p < 0.05 here") in format_compare(s).splitlines()
     assert "80% power" not in format_compare(s)
+
+
+SIX_MIXED = [0.5, -0.5, 0.25, -0.25, 0.5, -0.5]  # six changed tasks: a sign-flip p floor of 2/64
+HOLM_NOTE = ("  score inconclusive: the interval includes 0; with Holm over 2 rows, p_holm cannot go below {} here: "
+             "no effect can reach p_holm < 0.05")
+
+
+def _two_score_arms(b: Path, raw: list[float], other: list[float]) -> None:
+    for i, (r, o) in enumerate(zip(raw, other, strict=True)):
+        _cell(b, f"review_{i}", "guidance:none", 1, score=0.5)
+        _cell(b, f"review_{i}", "guidance:raw", 1, score=0.5 + r)
+        _cell(b, f"review_{i}", "guidance:other", 1, score=0.5 + o)
+
+
+def test_no_mde_where_holm_over_the_family_keeps_p_holm_from_005(tmp_path):
+    # each row alone could reach p 2/64; Holm over two rows doubles the smaller, so p_holm cannot go below 0.0625
+    _two_score_arms(tmp_path / "b", SIX_MIXED, SIX_MIXED)
+    s = compare([tmp_path / "b"], "guidance:none")
+    for arm in ("guidance:raw", "guidance:other"):
+        score = _row(s, "score", treatment=arm)
+        assert score["mde"] is None and score["p_holm_floor"] == 0.0625
+        assert score["delta"]["lo"] < 0 < score["delta"]["hi"]
+    text = format_compare(s)
+    assert text.splitlines().count(HOLM_NOTE.format("0.0625")) == 2 and "80% power" not in text
+
+
+def test_a_row_holm_still_lets_reach_005_keeps_its_mde(tmp_path):
+    # eight changed tasks: a floor of 2/256, which Holm over two rows takes to 0.0156; six: 2/64 to 0.0625
+    eight = [0.5, -0.5, 0.25, -0.25, 0.5, -0.5, 0.25, -0.25]
+    _two_score_arms(tmp_path / "b", eight, [*SIX_MIXED, 0.0, 0.0])
+    s = compare([tmp_path / "b"], "guidance:none")
+    raw, other = _row(s, "score"), _row(s, "score", treatment="guidance:other")
+    assert raw["p_holm_floor"] == 0.0156 and raw["delta"]["lo"] < 0 < raw["delta"]["hi"]
+    assert raw["mde"] == pytest.approx(min_detectable(statistics.stdev(eight), 8), abs=1e-6)
+    assert other["p_holm_floor"] == 0.0625 and other["mde"] is None
+    lines = format_compare(s).splitlines()
+    assert (f"  score inconclusive: the interval includes 0; with this spread the smallest effect 80% power "
+            f"detects is about ±{raw['mde']:.3f} (8 tasks)") in lines
+    assert HOLM_NOTE.format("0.0625") in lines
 
 
 def test_a_gate_row_of_two_changed_tasks_has_no_mde(tmp_path):

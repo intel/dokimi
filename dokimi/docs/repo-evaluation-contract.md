@@ -1361,7 +1361,13 @@ python cli.py repo compare repo-runs/replay --baseline guidance:none --metric re
   tasks cannot go below `2 / 2^k`, so with 5 or fewer no effect of any size
   reaches p < 0.05: `mde` is `null` there too, and the note says how low p can
   go instead (`with 3 changed tasks the sign-flip p cannot go below 0.25: no
-  effect can reach p < 0.05 here`). A row whose interval and p disagree (the
+  effect can reach p < 0.05 here`). Holm's correction can lift that floor: a
+  gate or score row's `p_holm_floor` is its `p_holm` with its p put at that
+  floor and the other p of the family as observed (in every `--json` row;
+  `null` on a descriptive row or one with every task tied), and where it is not below
+  0.05, `mde` is `null` and the note names Holm instead (`with Holm over 2
+  rows, p_holm cannot go below 0.0625 here: no effect can reach p_holm <
+  0.05`); a family of one row is the raw rule. A row whose interval and p disagree (the
   interval excludes 0 while p is 0.05 or more, or includes 0 while p is below
   0.05; for gate and score that p is `p_holm`, the one that decides them, and the
   note quotes it) has `interval_p_disagree` `true` and a note: they come from two
