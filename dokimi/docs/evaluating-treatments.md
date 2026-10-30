@@ -743,8 +743,9 @@ python cli.py eval headroom run1/arms.json run2/arms.json run3/arms.json \
   reps are those runs). Default 3. One file gives every item one rep, so every item is
   provisional.
 
-A run is one file. A file repeated on the command line, or byte-identical to an earlier
-one, is skipped with a note, so it does not add a rep. A question id repeated within one
+A run is one file. A file repeated on the command line, or holding the same JSON content as
+an earlier one (whitespace and key order do not count), is skipped with a note, so it does
+not add a rep. A question id repeated within one
 file is an error (exit 2): it would count as two runs.
 
 The table always goes to stdout: the flagged and provisional items, with the no-skill arm
