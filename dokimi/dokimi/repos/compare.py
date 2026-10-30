@@ -12,6 +12,9 @@ cells are first reduced to one value per (task, arm, model):
 - **score**: the mean of ``score.metric`` for score-only tasks (a grader
   failure counts as 0);
 - **cost_usd**, **turns**: the per-cell means the harness reported;
+- **first_prompt_tokens**: the mean of ``result.json`` ``agent.first_prompt_tokens`` (what the first
+  main-thread call was sent: start-up plus the task) over the cells that have it. Like a process count, it is
+  compared only when both arms report it for some shared task: a batch run before it was recorded has none;
 - **metric:<name>**: the mean of ``grade.json`` ``metrics.<name>`` over the
   cells that report it (``true`` is 1), for ``--metric``;
 - **pass^k**: for ``--pass-k K``, the chance that K cells drawn from the
@@ -36,6 +39,25 @@ deltas, Monte Carlo above. At one cell per task and arm the deltas are -1, 0
 or +1 and the exact p equals McNemar's exact test. Holm's correction runs over
 the gate and score comparisons of one invocation; cost, turns and metrics are
 descriptive and keep their raw p.
+
+Three notes keep a row from being misread; none changes the delta, its interval or p. A gate or score row of 2+ tasks
+whose interval includes 0 is inconclusive, not "no effect": the note gives ``mde``, a planning figure: an
+approximate, uncorrected t-based estimate of the mean delta a two-sided 5% one-sample t test detects with 80% power
+at the row's spread, ``(t_0.975 + t_0.80) * sd / sqrt(n)`` over the per-task deltas, t at ``n - 1`` degrees of
+freedom (in every row; ``None`` for one task or no spread), not the power of the sign-flip test nor of the
+Holm-corrected decision. The sign-flip p over k changed tasks cannot go below ``2 / 2**k``, so at 5 or fewer no
+effect of any size reaches p < 0.05: ``mde`` is ``None`` there too, and the note says how low p can go instead.
+``mde`` is ``None`` too where a gate or score row's ``p_holm_floor`` (its ``p_holm`` with its p at that floor and the
+family's other p as observed, :mod:`.compare_reach`) is not below 0.05, and the note names Holm: that floor decides
+whether ``mde`` is given, not its size. A row whose interval and p disagree (the interval excludes 0 while p is 0.05
+or more, or includes it while p is below; for gate and score the p is ``p_holm``, the one that decides them) has
+``interval_p_disagree``: the two come from different methods, and for gate and score ``p_holm`` is the one to read,
+since the percentile bootstrap runs narrow over few tasks (the inconclusive note then gives way to this one). A
+descriptive row with p below 0.05 is named on a line saying its p is uncorrected and outside Holm's family.
+
+``--task`` limits a comparison to some task ids: the others are left out, not listed as unpaired, and the
+summary's ``task_filter`` records the selection; without ``--arm``, its ``dropped_arms`` names an arm with no
+finished cell among it, which drops out of the comparison.
 
 A gate or score comparison also says whether its tasks had room to move (``headroom``), since a zero delta
 on a task set nobody can fail, or nobody can pass, is not evidence of no effect. A task's top is 1.0 for
@@ -78,14 +100,17 @@ from __future__ import annotations
 import itertools
 import json
 import random
+import statistics
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
 from dokimi.context.consistency import Run, order_distance, pass_hat, run_from_events
-from dokimi.eval.stats import adjust_pvalues, bootstrap_ci, mean_ci
+from dokimi.eval.stats import bootstrap_ci, correct_family, mean_ci
 from dokimi.utils import same_model
 
+from .compare_reach import ALPHA, holm_floor, min_detectable
+from .compare_tasks import CompareError, select_tasks
 from .process_counts import as_measure, process_order, process_values
 from .report import (load_cells, mismatch_warnings, model_mismatch, reading_cells, resolved_models,
                      unmeasured_note, uptake_counts)
@@ -98,13 +123,11 @@ N_RESAMPLES = 20_000
 EPS = 1e-9
 #: Measures Holm's correction runs over.
 PRIMARY = ("gate", "score")
+#: Descriptive measures compared only when both arms report them for some shared task (an older batch has none).
+REPORTED = ("process:", "counter:", "first_prompt_tokens")
 #: Batch stamp keys that must agree between the arms of a comparison; ``tree`` is shown but may differ (another
 #: revision of the repository is a treatment of its own).
 STAMP_KEYS = ("eval_dir", "image", "graders")
-
-
-class CompareError(ValueError):
-    """The arms or batches named cannot be compared."""
 
 
 def parse_selector(text: str) -> tuple[str | None, str]:
@@ -151,18 +174,25 @@ def batch_stamp(batch_dir: Path) -> dict[str, str]:
 
 def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None = None,
             models: list[str] | None = None, metrics: tuple[str, ...] = (), seed: int = 0,
-            pass_k: int | None = None, path_stability: bool = False) -> dict[str, Any]:
+            pass_k: int | None = None, path_stability: bool = False, tasks: list[str] | None = None) -> dict[str, Any]:
     metrics = tuple(dict.fromkeys(metrics))
     if pass_k is not None and pass_k < 1:
         raise CompareError(f"--pass-k must be at least 1, got {pass_k}")
-    cells, missing = load_batches(batch_dirs, metrics, path_stability)
-    _check_metrics(metrics, cells)
+    found, missing = load_batches(batch_dirs, metrics, path_stability)
+    cells, missing, task_filter = select_tasks(found, missing, tasks, batch_dirs)
+    # the arms and metrics are checked among the selected cells, so a miss may be the selection's doing
+    scope = " among the --task selection" if task_filter else ""
+    _check_metrics(metrics, cells, scope)
     base_sel = parse_selector(baseline)
     if not any(selector_matches(base_sel, c) for c in cells):
-        raise CompareError(f"no finished cell matches the baseline {baseline!r}")
-    treatments = _treatments(cells, baseline, base_sel, treatments)
+        raise CompareError(f"no finished cell matches the baseline {baseline!r}{scope}")
+    if task_filter is not None:  # without --arm, an arm that ran none of the selected tasks would drop out unsaid
+        task_filter["dropped_arms"] = ([] if treatments is not None
+                                       else sorted(_other_arms(found, base_sel) - _other_arms(cells, base_sel)))
+    treatments = _treatments(cells, baseline, base_sel, treatments, scope)
     measures = ["gate", "score", *([f"pass^{pass_k}"] if pass_k else []),
-                *(["path_distance"] if path_stability else []), "cost_usd", "turns", *(f"metric:{m}" for m in metrics)]
+                *(["path_distance"] if path_stability else []), "cost_usd", "turns", "first_prompt_tokens",
+                *(f"metric:{m}" for m in metrics)]
     base_vals = _task_values([c for c in cells if selector_matches(base_sel, c)], metrics, pass_k, path_stability)
     rows: list[dict[str, Any]] = []
     unpaired: list[dict[str, Any]] = []
@@ -183,7 +213,7 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
     provenance = _provenance(batch_dirs, cells, baseline, treatments, models)
     provenance["warnings"] += one_arm
     return {"batches": [str(d) for d in batch_dirs], "baseline": baseline, "treatments": treatments,
-            "cells": len(cells), "missing": missing, **provenance,
+            "task_filter": task_filter, "cells": len(cells), "missing": missing, **provenance,
             "comparisons": rows, "unpaired": unpaired}
 
 
@@ -301,11 +331,11 @@ def _process_measures(cells: list[dict[str, Any]], selectors: list[str]) -> list
     return sorted(found, key=process_order)
 
 
-def _check_metrics(metrics: tuple[str, ...], cells: list[dict[str, Any]]) -> None:
+def _check_metrics(metrics: tuple[str, ...], cells: list[dict[str, Any]], scope: str = "") -> None:
     """A ``--metric`` that no finished cell reports is a typo or not a number: refuse it, not print nothing."""
     unknown = [m for m in metrics if not any(m in c["metrics"] for c in cells)]
     if unknown:
-        raise CompareError(f"no finished cell reports a numeric or boolean --metric {', '.join(unknown)}")
+        raise CompareError(f"no finished cell reports a numeric or boolean --metric {', '.join(unknown)}{scope}")
 
 
 def _check_models(models: list[str] | None, rows: list[dict[str, Any]], unpaired: list[dict[str, Any]]) -> None:
@@ -316,10 +346,17 @@ def _check_models(models: list[str] | None, rows: list[dict[str, Any]], unpaired
 
 
 def _holm(rows: list[dict[str, Any]]) -> None:
-    """``p_holm`` on the gate and score rows, corrected as one family."""
+    """``p_holm`` on the gate and score rows, corrected as one family; their ``interval_p_disagree`` reads it.
+    ``p_holm_floor`` is a row's ``p_holm`` at its p floor: where it cannot go below :data:`ALPHA`, ``mde`` is None."""
     primary = [r for r in rows if r["measure"] in PRIMARY]
-    for row, p in zip(primary, adjust_pvalues([r["p"] for r in primary]), strict=True):
+    ps = [r["p"] for r in primary]
+    for i, (row, (p, below)) in enumerate(zip(primary, correct_family(ps), strict=True)):
+        d = row["delta"]
         row["p_holm"] = p
+        row["interval_p_disagree"] = d["lo"] is not None and below is not None and (d["lo"] <= 0 <= d["hi"]) == below
+        if p is not None:
+            row["p_holm_floor"], reachable = holm_floor(ps, i, min_sign_flip_p(row["up"] + row["down"]))
+            row["mde"] = row["mde"] if reachable else None
 
 
 def _compare_model(treatment: str, model: str, base_vals: dict[tuple[str, str], dict[str, Any]],
@@ -327,7 +364,7 @@ def _compare_model(treatment: str, model: str, base_vals: dict[tuple[str, str], 
                    rows: list[dict[str, Any]], unpaired: list[dict[str, Any]]) -> list[str]:
     """Append one row per measure of one (treatment, model), and the tasks only one arm has.
 
-    Returns the process measures only one arm reports for any shared task: they are skipped, not unpaired.
+    Returns the :data:`REPORTED` measures only one arm reports for any shared task: they are skipped, not unpaired.
     """
     base_tasks = {t for m, t in base_vals if m == model}
     treat_tasks = {t for m, t in treat_vals if m == model}
@@ -341,10 +378,10 @@ def _compare_model(treatment: str, model: str, base_vals: dict[tuple[str, str], 
             unpaired.append(_unpaired(treatment, model, task, None, f"{b} task in baseline, {t} in treatment"))
     skipped = []
     for measure in measures:
-        if measure.startswith(("process:", "counter:")):
+        if measure.startswith(REPORTED):
             has = [any(vals[(model, t)]["values"].get(measure) is not None for t in shared)
                    for vals in (base_vals, treat_vals)]
-            if not all(has):  # an arm that reports no such count at all (an older batch) leaves no task out of a pair
+            if not all(has):  # an arm that reports none of it at all (an older batch) leaves no task out of a pair
                 if any(has):
                     skipped.append(measure)
                 continue
@@ -434,22 +471,26 @@ def _unpaired(treatment: str, model: str, task: str, measure: str | None, reason
     return {"treatment": treatment, "model": model, "task": task, "measure": measure, "reason": reason}
 
 
+def _other_arms(cells: list[dict[str, Any]], base_sel: tuple[str | None, str]) -> set[str]:
+    """Every other arm that has cells; the baseline's own arm from another batch is named by its batch."""
+    return {f"{c['batch']}/{c['arm']}" if c["arm"] == base_sel[1] else c["arm"]
+            for c in cells if not selector_matches(base_sel, c)}
+
+
 def _treatments(cells: list[dict[str, Any]], baseline: str, base_sel: tuple[str | None, str],
-                treatments: list[str] | None) -> list[str]:
+                treatments: list[str] | None, scope: str = "") -> list[str]:
     """The treatment selectors to compare, checked: each matches cells, and none of the baseline's."""
     if treatments is not None and not treatments:
         raise CompareError("no treatment arms named; leave --arm out to compare every other arm")
     if treatments is None:
-        # every other arm that has cells; the baseline's own arm from another batch is named by its batch
-        treatments = sorted({f"{c['batch']}/{c['arm']}" if c["arm"] == base_sel[1] else c["arm"]
-                             for c in cells if not selector_matches(base_sel, c)})
+        treatments = sorted(_other_arms(cells, base_sel))
     for text in treatments:
         sel = parse_selector(text)
         if sel == base_sel:
             raise CompareError(f"treatment {text!r} is the baseline")
         matched = [c for c in cells if selector_matches(sel, c)]
         if not matched:
-            raise CompareError(f"no finished cell matches the treatment {text!r}")
+            raise CompareError(f"no finished cell matches the treatment {text!r}{scope}")
         if any(selector_matches(base_sel, c) for c in matched):
             raise CompareError(f"treatment {text!r} also matches cells of the baseline {baseline!r}; "
                                "name its batch (BATCH/ARM)")
@@ -485,23 +526,37 @@ def paired_summary(pairs: list[dict[str, Any]], measure: str = "gate", seed: int
     permutation test. The interval is a percentile bootstrap for the bounded gate and score shares and a t
     interval (:func:`~dokimi.eval.stats.mean_ci`) for the continuous measures, where the bootstrap
     under-covers at these task counts; one task has no interval (``lo``/``hi`` None), not a zero-width one.
+    ``mde`` and ``interval_p_disagree`` are the reading aids of the module docstring; both read the raw p here,
+    and :func:`compare` revisits both on a gate or score row once Holm's p is known.
     """
     deltas = [p["delta"] for p in pairs]
     ci = (bootstrap_ci if measure in PRIMARY else mean_ci)(deltas, seed=seed)
     lo, hi = (float(ci["lo"]), float(ci["hi"])) if len(deltas) > 1 else (None, None)  # mean_ci gives numpy floats
+    p = sign_flip_p(deltas, seed=seed)
+    sd = statistics.stdev(deltas) if len(deltas) > 1 else 0.0
+    reachable = min_sign_flip_p(sum(abs(d) > EPS for d in deltas)) < ALPHA  # else no effect can be detected
     return {
         "n_tasks": len(pairs),
         "baseline_mean": _round(_mean([p["baseline"] for p in pairs])),
         "treatment_mean": _round(_mean([p["treatment"] for p in pairs])),
         "delta": {"mean": ci["mean"], "lo": lo, "hi": hi},
-        "p": sign_flip_p(deltas, seed=seed),
+        "p": p,
         "p_holm": None,
+        "p_holm_floor": None,
+        "mde": _round(min_detectable(sd, len(deltas))) if sd > EPS and reachable else None,
+        "interval_p_disagree": lo is not None and hi is not None and p is not None and (lo <= 0 <= hi) == (p < ALPHA),
         "up": sum(d > EPS for d in deltas),
         "down": sum(d < -EPS for d in deltas),
         "tied": sum(abs(d) <= EPS for d in deltas),
         "tasks": [{**p, "baseline": _round(p["baseline"]), "treatment": _round(p["treatment"]),
                    "delta": _round(p["delta"])} for p in pairs],
     }
+
+
+def min_sign_flip_p(changed: int) -> float:
+    """The smallest p :func:`sign_flip_p` can give over ``changed`` non-zero deltas, every sign the same: only that
+    pattern and its mirror reach the observed ``|sum|``, ``2 / 2**changed`` exact, ``1 / (N + 1)`` Monte Carlo."""
+    return min(1.0, 2 / 2 ** changed) if changed <= EXACT_MAX else 1 / (N_RESAMPLES + 1)
 
 
 def sign_flip_p(deltas: list[float], seed: int = 0, n_resamples: int = N_RESAMPLES) -> float | None:
@@ -528,6 +583,7 @@ def format_compare(summary: dict[str, Any]) -> str:
     for row in summary["comparisons"]:
         groups[(row["treatment"], row["model"])].append(row)
     width = max([len(r["measure"]) for r in summary["comparisons"]] + [7])
+    family = sum(r["p_holm"] is not None for r in summary["comparisons"])  # the rows Holm corrected together
     for (treatment, model), rows in groups.items():
         lines += ["", f"{treatment} vs {summary['baseline']}, model {model}",
                   f"  {'measure':<{width}}  {'tasks':>5}  {'baseline':>9}  {'treatment':>9}  "
@@ -546,6 +602,7 @@ def format_compare(summary: dict[str, Any]) -> str:
                         f"{t['task']} {t['delta']:+.2f}" for t in sorted(moved, key=lambda t: t["delta"])))
                 if r["headroom"]:
                     lines.append(f"  {r['measure']} {_headroom_note(r)}")
+        lines += _reading_notes(rows, family)
     if summary["unpaired"]:
         shown = summary["unpaired"][:10]
         lines.append("unpaired: " + ", ".join(
@@ -557,6 +614,47 @@ def format_compare(summary: dict[str, Any]) -> str:
               for text, u in summary.get("uptake", {}).items()]
     lines += [f"warning: {w}" for w in summary["warnings"]]
     return "\n".join(lines)
+
+
+def _reading_notes(rows: list[dict[str, Any]], family: int) -> list[str]:
+    """One comparison's notes against a misreading (module docstring), ``family`` Holm's rows; no number changes."""
+    out = []
+    for r in rows:
+        d, primary = r["delta"], r["measure"] in PRIMARY
+        if r["interval_p_disagree"]:
+            inside = d["lo"] <= 0 <= d["hi"]
+            how = "a percentile bootstrap, too narrow over few tasks," if primary else "a t interval"
+            name = "p_holm" if primary else "p"  # a gate or score row is decided by its Holm p (_holm)
+            out.append(f"  {r['measure']}: the interval [{d['lo']:+.3f}, {d['hi']:+.3f}] "
+                       f"{'includes' if inside else 'excludes'} 0 but {name} {r[name]:.4g} is {'<' if inside else '≥'} "
+                       f"{ALPHA}; they come from two methods, {how} and a sign-flip test"
+                       + ("; read p_holm" if primary else ""))
+        elif primary and (note := _inconclusive_note(r, family)):
+            out.append(note)
+    low = [r["measure"] for r in rows if r["measure"] not in PRIMARY and r["p"] is not None and r["p"] < ALPHA]
+    if low:
+        out.append(f"  p < {ALPHA} on {', '.join(low)}: descriptive rows, their p uncorrected and outside Holm's "
+                   "family, which covers gate and score only")
+    return out
+
+
+def _inconclusive_note(r: dict[str, Any], family: int) -> str | None:
+    """The note of a gate or score row of 2+ tasks whose interval includes 0: its ``mde``, or why it has none."""
+    d = r["delta"]
+    if d["lo"] is None or not d["lo"] <= 0 <= d["hi"]:
+        return None
+    head = f"  {r['measure']} inconclusive: the interval includes 0; "
+    if r["mde"] is not None:
+        return head + (f"an uncorrected t-test estimate puts the effect 80% power detects at this spread at about "
+                       f"±{r['mde']:.3f} ({r['n_tasks']} tasks), before Holm and not for the sign-flip test")
+    changed, holm = r["up"] + r["down"], r["p_holm_floor"]
+    if r["p"] is None or (floor := min_sign_flip_p(changed)) < ALPHA and holm < ALPHA:
+        return None  # every delta tied, or no spread
+    if floor >= ALPHA:
+        return head + (f"with {changed} changed task{'' if changed == 1 else 's'} the sign-flip p cannot go below "
+                       f"{floor:.4g}: no effect can reach p < {ALPHA} here")
+    return head + (f"with Holm over {family} rows, p_holm cannot go below {holm:.4g} here: no effect can reach "
+                   f"p_holm < {ALPHA}")
 
 
 def _headroom_note(row: dict[str, Any]) -> str:
@@ -573,6 +671,11 @@ def _headroom_note(row: dict[str, Any]) -> str:
 def _format_header(summary: dict[str, Any]) -> list[str]:
     lines = [f"baseline {summary['baseline']}: {summary['cells']} finished cells in "
              f"{len(summary['batches'])} batch(es), {len(summary['missing'])} missing"]
+    if summary.get("task_filter"):
+        lines.append(f"  tasks: {len(summary['task_filter']['tasks'])} of {summary['task_filter']['of']} (--task)")
+        if summary["task_filter"].get("dropped_arms"):
+            lines.append(f"  not compared, no finished cell among the --task selection: "
+                         f"{', '.join(summary['task_filter']['dropped_arms'])}")
     for text, batches in summary["sources"].items():
         lines.append(f"  {text}: {', '.join(batches)}")
     for name, stamp in summary["stamps"].items():
@@ -593,6 +696,7 @@ def _task_values(cells: list[dict[str, Any]], metrics: tuple[str, ...], pass_k: 
             score_task = any(r["score_task"] for r in recs)
             found = {"cost_usd": [r["agent"].get("cost_usd") for r in recs],
                      "turns": [r["agent"].get("num_turns") for r in recs],
+                     "first_prompt_tokens": [r["agent"].get("first_prompt_tokens") for r in recs],
                      **{f"metric:{name}": [r["metrics"].get(name) for r in recs] for name in metrics}}
             found.update(_process_lists(recs))
             if score_task:

@@ -5,7 +5,9 @@
 
 from __future__ import annotations
 
+import os
 import tempfile
+from pathlib import Path
 
 import pytest
 
@@ -207,6 +209,27 @@ def test_docker_backend_locks_the_container_down():
     assert argv[:3] == ("docker", "run", "--rm")
     assert argv[argv.index("--network") + 1] == "none" and "--read-only" in argv
     assert argv[argv.index("timeout") + 1] == "7" and call.timeout == 37
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits: Windows chmod sets only read-only")
+def test_docker_backend_mount_is_readable_by_a_root_without_capabilities():
+    # The container's root has no CAP_DAC_OVERRIDE, and the mount belongs to the host user:
+    # it can enter the directory and read the snippet only through the "other" permission bits.
+    seen = {}
+
+    def _modes(call):
+        work = Path(next(a for a in call.argv if a.endswith(":/work:ro")).removesuffix(":/work:ro"))
+        seen["dir"] = work.stat().st_mode & 0o777
+        seen["script"] = (work / "snippet.py").stat().st_mode & 0o777
+        return reply()
+
+    old = os.umask(0o077)
+    try:
+        res = run_example("python", "print(1)", ExecutionPolicy(backend="docker"), FakeRunner(_modes))
+    finally:
+        os.umask(old)
+    assert res.status == "passed"
+    assert seen == {"dir": 0o755, "script": 0o644}
 
 
 def test_docker_backend_reports_a_timeout():

@@ -88,11 +88,7 @@ def cmd_subjects_show(args: argparse.Namespace) -> None:
 def cmd_subjects_run(args: argparse.Namespace) -> None:
     """Run awareness matrix cells for one subject and write a scorecard."""
     from dokimi.artifacts import load_artifact, save_artifact
-    from dokimi.commands.arms import (
-        _safe_name,
-        cmd_arms_matrix_run,
-        forwarded_run_config,
-    )
+    from dokimi.commands.arms import _safe_name, run_config_from_args, run_matrix
     from dokimi.report.subject_report import render_subject_scorecard
     from dokimi.subjects import build_subject_scorecard, load_subject
     from dokimi.subjects.loader import awareness_arm_specs
@@ -137,19 +133,12 @@ def cmd_subjects_run(args: argparse.Namespace) -> None:
         run_dir = out_dir / _safe_name(product)
         rollup_json = run_dir / "matrix-rollup.json"
         rollup_md = run_dir / "matrix-rollup.md"
-        run_args = argparse.Namespace(
-            product=product,
-            questions=questions_path,
-            arms=",".join(awareness_arm_specs(descriptor)),
-            matrix_cells=str(matrix_path),
-            matrix_cell=None,
-            out_dir=str(run_dir),
-            out_json=str(rollup_json),
-            out_md=str(rollup_md),
+        run_matrix(
+            run_config_from_args(args, product=product, baseline_arm=baseline_arm),
+            arms=",".join(awareness_arm_specs(descriptor)), questions=questions_path,
+            matrix_cells=str(matrix_path), out_dir=run_dir, out_json=rollup_json, out_md=rollup_md,
             plugin_deltas=not args.no_plugin_deltas,
-            **forwarded_run_config(args, plugins="", baseline_arm=baseline_arm),
         )
-        cmd_arms_matrix_run(run_args)
         awareness_runs.append({
             "product": product,
             "questions": questions_path,

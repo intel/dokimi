@@ -122,5 +122,8 @@ on `main`; a daily run that finds a new advisory opens an issue rather than
 failing unrelated PRs. The `static` job in `.github/workflows/ci.yml` runs
 `bandit -ll` with no Medium or High finding allowed.
 The same IDs are ignored by osv-scanner through `dokimi/osv-scanner.toml`,
-which OpenSSF Scorecard runs. A removed advisory comes out of the first list
-above, the `pip-audit` step, and that file together.
+which OpenSSF Scorecard runs, and by `allow-ghsas` in
+`.github/workflows/dependency-review.yml`, which fails a PR that adds or moves a
+dependency to a version with any other High or Critical advisory. A removed
+advisory comes out of the first list above, the `pip-audit` step, that file and
+`allow-ghsas` together.

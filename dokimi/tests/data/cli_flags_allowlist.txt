@@ -1,0 +1,222 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+# Ratchet allowlist for the flag contract (tests/test_cli_flags.py, issue #94 F1a).
+#
+# One option string per row, as the CLI parsers spell it. A string here is not a
+# canonical spelling in dokimi/cli_flags.py: it predates the registry, and each
+# migration PR (F1b) deletes the rows of the concept it moves. Rows are never added
+# to make a test pass without a reason: a new row is `--flag  # why it must stay`.
+# A row that no parser uses, or that is now canonical, fails the test, so this list
+# keeps no stale row. Adding a row stays a review decision: the test does not check
+# that a new row has a reason.
+#
+# Rows with no reason are the spellings already on main when this file was written (b69b15f8).
+--agent-network
+--all
+--all-atoms
+--all-vs-all  # novelty routing (#172) adds it: no registry concept yet; a F1b migration names it
+--allow-self-judge
+--allow-unsafe
+--allow-unsupported
+--answers-out
+--arms
+--artifact
+--atoms
+--base
+--baseline-harness
+--baseline-json
+--bases
+--batch
+--both
+--budget
+--budgets
+--build-network
+--build-timeout
+--cache-root
+--calls
+--candidate
+--catalog
+--checklist
+--claude  # catalog trigger-probe (#217) adds it: backend choice has no registry concept yet
+--command-template
+--competitors
+--context
+--context7-id
+--contract  # context consistency (#155) adds it: no registry concept yet; a F1b migration names it
+--count
+--custom-questions
+--debug-retrieval
+--description
+--doc-source
+--docker
+--domain
+--embeddings
+--escalate-provider
+--escalate-ties
+--estimate-only
+--eval
+--eval-out
+--extract-provider
+--factors
+--fail-fast
+--fail-on-error
+--fail-on-fail
+--fail-on-warning
+--file
+--fill-gaps
+--fill-provider
+--force-regen
+--from-eval
+--github-token
+--golden-runs
+--grade-timeout
+--grader
+--grounded
+--grounded-from-topics
+--groups
+--harnesses
+--image
+--include-disabled  # novelty routing (#172) adds it: no registry concept yet; a F1b migration names it
+--include-resources
+--input
+--intents
+--items-out
+--jobs
+--judge-configs
+--judge-model
+--judge-panel
+--judge-provider
+--judge-temperature
+--judges
+--keep
+--kind
+--large-bytes
+--lexical-only
+--libraries
+--library
+--limit
+--listing-budget-fraction  # catalog trigger-probe (#217) adds it: no registry concept yet
+--manifest
+--manifest-file
+--matrix-cell
+--matrix-cells
+--max-atoms
+--max-bases
+--max-batch-usd
+--max-cost-usd
+--max-file-words
+--max-iterations
+--max-resource-words
+--max-tokens
+--max-turns
+--metric
+--min-accuracy
+--mode
+--multi-run
+--no-classify
+--no-confirm-carriers
+--no-json
+--no-judge
+--no-paraphrase
+--no-plugin-deltas
+--no-recursive
+--no-reversal
+--no-shorten
+--no-stored
+--no-validate
+--no-verify
+--novelty
+--novelty-artifact
+--only
+--out-json
+--out-md
+--outcomes  # context consistency (#155) adds it: no registry concept yet; a F1b migration names it
+--output
+--output-dir
+--pairwise
+--pass-k  # repo compare (#155) adds it: no registry concept yet; a F1b migration names it
+--path-stability  # repo compare (#155) adds it: no registry concept yet; a F1b migration names it
+--personas
+--personas-count
+--placebo-text
+--plugin-json
+--plugins
+--pool-replicates
+--probes
+--product
+--prompt-file  # repo tasks replay (#265) adds it: no registry concept yet; a F1b migration names it
+--provider
+--queries
+--queries-by-skill  # novelty routing (#172) adds it: no registry concept yet; a F1b migration names it
+--queries-from-headings
+--questions-from
+--questions-per-topic
+--questions-root
+--ragas
+--ragas-provider
+--rebuild-image
+--redraws
+--regular-runs
+--repeats
+--repo
+--repo-root
+--require-validated
+--resource-roles
+--results-dir
+--reviewers
+--rewrite
+--roles
+--root
+--run-id
+--run-ids
+--salt
+--save-analysis
+--scenarios
+--scorer
+--sealed  # catalog trigger-probe (#217) adds it: no registry concept yet
+--sequential
+--session-turns
+--shell  # context consistency (#155) adds it: no registry concept yet; a F1b migration names it
+--sim-threshold
+--skip-work
+--source-dir
+--spec
+--static
+--stats-correction
+--strict
+--subjects-root
+--swe-bench
+--target
+--target-advanced
+--target-beginner
+--target-intermediate
+--tasks-root
+--tasks-subdir
+--threads  # repo tasks replay (#265) adds it: no registry concept yet; a F1b migration names it
+--threshold
+--tier
+--tools
+--top-n
+--topics
+--treatment-arm
+--trials  # catalog trigger-probe (#217) adds it: a banned synonym of reps; renaming it changes the CLI, so it waits for F1b
+--trigger-set
+--turn-reminder
+--typed-max-len
+--typed-threads
+--validate
+--validity
+--variants
+--view-format
+--warm
+--window
+--wordings
+--work-baseline-harness
+--work-command-template
+--work-dry-run
+--work-harnesses
+--work-model
+--work-output-dir
+--work-repeats
+-o
