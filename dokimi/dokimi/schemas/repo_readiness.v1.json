@@ -67,6 +67,7 @@
     },
     "warnings": {"type": "array", "items": {"type": "string"}, "description": "Guidance the manifest names but the tree lacks: a glob with no match, a missing also_scan file, no guidance at all."},
     "incomplete": {"type": "boolean", "description": "True when an also_scan file is missing, a guidance file or Bazel build input cannot be read, or no guidance file was scanned; `repo scan --fail-on-fail` then exits 1."},
+    "incomplete_reasons": {"type": "array", "items": {"type": "string"}, "description": "The warnings that make the scan incomplete, as they appear in `warnings` and in its order; empty when the scan is complete. Absent from reports written before it was added."},
     "claims": {
       "type": "array",
       "items": {

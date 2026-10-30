@@ -745,7 +745,7 @@ def test_dangling_guidance_symlink_reported(tmp_path, link, why):
     for payload in _both(tmp_path, {"AGENTS.md": "x\n"}, {"CLAUDE.md": link}, also_scan=["CLAUDE.md"]):
         warning = next(w for w in payload["warnings"] if "CLAUDE.md" in w)
         assert warning.startswith("guidance file not scanned: CLAUDE.md") and why in warning, warning
-        assert payload["incomplete"]
+        assert payload["incomplete"] and payload["incomplete_reasons"] == [warning]
         assert payload["counts"]["total"] == 0
 
 
