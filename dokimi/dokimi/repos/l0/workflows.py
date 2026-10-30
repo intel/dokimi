@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from .core import Scan
 
 WORKFLOWS = ".github/workflows/"
-_ACTION = re.compile(r"^[\w.-]+/[\w.-]+(?:/[\w./-]+)?$")  # `owner/name` or `owner/repo/path`, before `@<ref>`
+ACTION = re.compile(r"^[\w.-]+/[\w.-]+(?:/[\w./-]+)?$")  # `owner/name` or `owner/repo/path`, before `@<ref>`
 
 
 def workflow_files(scan: Scan) -> list[str]:
@@ -34,14 +34,24 @@ def action_users(scan: Scan) -> dict[str, str]:
     one) and the local composite actions under ``.github/`` (``action.yml``, ``action.yaml``): only the
     ``uses:`` values, not a name in a ``run:`` script.
     """
+    return _read(scan)[0]
+
+
+def unread_action_files(scan: Scan) -> dict[str, str]:
+    """The files :func:`action_users` reads that the scan did not (too big, binary, a dangling link) -> why, in tree order."""
+    return _read(scan)[1]
+
+
+def _read(scan: Scan) -> tuple[dict[str, str], dict[str, str]]:
     return scan.cached("action_users", lambda: _action_users(scan))
 
 
-def _action_users(scan: Scan) -> dict[str, str]:
+def _action_users(scan: Scan) -> tuple[dict[str, str], dict[str, str]]:
     flows = [f for f in workflow_files(scan) if f.endswith((".yml", ".yaml")) and "/" not in f[len(WORKFLOWS):]]
     local = [f for f in scan.files if f.startswith(".github/") and posixpath.basename(f) in ("action.yml", "action.yaml")]
     paths = list(dict.fromkeys(flows + local))
-    scan.preload(paths)
+    skipped: dict[str, str] = {}
+    scan.preload(paths, skipped)
     out: dict[str, str] = {}
     for path in paths:
         try:
@@ -50,9 +60,9 @@ def _action_users(scan: Scan) -> dict[str, str]:
             continue
         for value in _uses(doc):
             name, at, ref = value.strip().partition("@")
-            if at and ref and _ACTION.match(name):
+            if at and ref and ACTION.match(name):
                 out.setdefault(name, path)
-    return out
+    return out, {f: skipped[f] for f in scan.files if f in skipped}
 
 
 def _uses(doc: Any) -> list[str]:

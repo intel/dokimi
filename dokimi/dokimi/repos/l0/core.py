@@ -315,11 +315,11 @@ class Scan:
         for c in cands:
             parent = posixpath.dirname(c)
             if parent and parent in self.dir_set:
-                return self._missing([c], rel.endswith("/"), f"{parent}/ exists but {c} does not")
+                return self._missing([c], rel.endswith("/"), f"{parent}/ exists but {c} does not" + self._unread_note(p, cands))
         hits = [x for x in self.by_name.get(posixpath.basename(target), []) if x.endswith("/" + target)]
         if hits:
             return "ok_suffix", f"below a directory the text does not name; {len(hits)} match(es), e.g. {hits[0]}"
-        return self._missing(cands, rel.endswith("/"), "tried " + ", ".join(cands), "unresolved")
+        return self._missing(cands, rel.endswith("/"), "tried " + ", ".join(cands) + self._unread_note(p, cands), "unresolved")
 
     def _submodule_or_action(self, name: str, cands: list[str]) -> tuple[str, str] | None:
         """``unresolved`` for a path into a submodule, else ``ok`` for a used Action no candidate holds, else ``None``.
@@ -331,9 +331,19 @@ class Scan:
         sub = self.submodule_of(cands)
         if sub:
             return "unresolved", f"inside the submodule {sub}, which this snapshot does not hold"
-        path = any(self.exists(c) for c in cands) or posixpath.dirname(name) in self.dir_set
-        used = None if path else workflows.action_users(self).get(name)
+        used = workflows.action_users(self).get(name) if self._reads_as_action(name, cands) else None
         return ("ok", f"used by {used}") if used else None
+
+    def _reads_as_action(self, name: str, cands: list[str]) -> bool:
+        """``name`` has an Action's shape, no candidate holds it and its directory is not one at the root."""
+        return (workflows.ACTION.match(name) is not None and not any(self.exists(c) for c in cands)
+                and posixpath.dirname(name) not in self.dir_set)
+
+    def _unread_note(self, name: str, cands: list[str]) -> str:
+        """``; <file> was not read (<why>)`` for each workflow or local action the Action reading of ``name`` skipped."""
+        if not self._reads_as_action(name, cands):
+            return ""
+        return "".join(f"; {f} was not read ({why})" for f, why in workflows.unread_action_files(self).items())
 
     def _glob(self, bases: list[str], rel: str) -> tuple[str, str]:
         """A glob is judged like the plain path it generalises (see :meth:`resolve_path`)."""

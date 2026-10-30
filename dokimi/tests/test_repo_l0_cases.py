@@ -18,7 +18,7 @@ import pytest
 from dokimi.cli import build_parser
 from dokimi.repos import parse_manifest
 from dokimi.repos.l0 import scan_repo
-from dokimi.repos.source import GitTree, WorkTree
+from dokimi.repos.source import READ_MANY_LIMIT, GitTree, WorkTree
 
 FENCE = "```"
 U = "https://github.com/acme/case"
@@ -676,6 +676,26 @@ def test_an_action_used_only_by_a_nested_workflow_is_not_used(tmp_path):
                           ".github/workflows/old/ci.yml": "jobs:\n  x:\n    steps: [{uses: nested/only@v1}]\n"}))
     assert got[("AGENTS.md", "nested/only")] == ("unresolved", "tried nested/only")
     assert got[("AGENTS.md", "actions/checkout")] == ("ok", "used by .github/workflows/ci.yml")
+
+
+def test_a_workflow_the_scan_does_not_read_is_named_in_the_reason_of_an_unused_action(tmp_path):
+    """`actions/only` is used in big.yml alone, which is over the read limit: its verdict stays, its reason says so."""
+    big = "jobs:\n  x:\n    steps: [{uses: actions/only@v1}]\n" + "#" * READ_MANY_LIMIT + "\n"
+    agents = "Use `actions/only`, `actions/checkout`, `build/out`, `build/out/`, `gen/x` and `tools/gone`.\n"
+    got = _by_file(_scan(tmp_path, agents, {
+        ".github/AGENTS.md": agents, ".github/workflows/big.yml": big, ".github/workflows/ci.yml": _CHECKOUT,
+        ".github/actions/bin/action.yml": "runs: {using: composite}\n\0", ".gitignore": "gen/\n", "tools/keep/a": ""}))
+    note = (f"; .github/actions/bin/action.yml was not read (binary (a NUL byte)); .github/workflows/big.yml was "
+            f"not read ({len(big)} bytes, over the 2 MB read limit)")  # in tree order
+    assert got[("AGENTS.md", "actions/only")] == ("unresolved", "tried actions/only" + note)
+    assert got[(".github/AGENTS.md", "actions/only")] == (
+        "fail", ".github/actions/ exists but .github/actions/only does not" + note)
+    assert got[("AGENTS.md", "actions/checkout")] == ("ok", "used by .github/workflows/ci.yml")
+    assert got[("AGENTS.md", "build/out")] == ("unresolved", "tried build/out" + note)
+    assert got[("AGENTS.md", "build/out/")] == ("unresolved", "tried build/out")  # no Action's shape
+    assert got[("AGENTS.md", "gen/x")] == ("unresolved", "tried gen/x" + note + "; .gitignore:1 (`gen/`) ignores it, "
+                                           "so it is likely generated rather than tracked")
+    assert got[("AGENTS.md", "tools/gone")] == ("fail", "tools/ exists but tools/gone does not")  # a path, not read as an Action
 
 
 @pytest.mark.parametrize("bad", ["env: {DATE: 2026-02-30}\njobs: {}\n",  # ValueError: no such day
