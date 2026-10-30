@@ -668,9 +668,10 @@ def test_empty_and_single_samples_have_exact_shapes():
 
 
 def test_zero_variance_tolerance_scales_with_the_mean():
-    """At a mean of 1e6, noise of 1e-10 is below the relative tolerance."""
+    """At a mean of 1e6, noise of 1e-4 is below the relative tolerance (1e-3) but
+    far above an absolute one (1e-9), so only the scaled tolerance calls it degenerate."""
     pytest.importorskip("scipy")
-    vals = [1e6 + (1e-10 if i % 2 else -1e-10) for i in range(8)]
+    vals = [1e6 + (1e-4 if i % 2 else -1e-4) for i in range(8)]
     res = stats.mean_ci(vals)
     assert res["method"] == "degenerate"
     assert res["n"] == 8
