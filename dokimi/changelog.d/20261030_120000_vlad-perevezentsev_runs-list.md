@@ -11,8 +11,8 @@ SPDX-License-Identifier: Apache-2.0
   `--kind` (repeatable) and `--subject` (an exact match) filter the rows, and
   `--json` prints them with the fields `schema_version`, `kind`, `run_id` (always
   `null` until artifacts carry one), `subject`, `model`, `generated_at`, `path`
-  and `size_bytes`. A file is an artifact when it opens with the
-  `schema_version` of a registered kind; every other file is counted by why it
+  and `size_bytes`. A file is an artifact when its first 256 bytes open with
+  the `schema_version` of a registered kind, as `save_artifact` writes it; every other file is counted by why it
   was skipped, and a file that cannot be read is listed with its reason. A
   missing `results/` prints "no runs" and exits 0; a `DOKIMI_RUNS_DIR` that does
   not exist or is not a directory exits 2. The command only reads.

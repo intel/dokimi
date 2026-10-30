@@ -33,9 +33,10 @@ novelty.v1       skill:skills/onetbb-tuning  claude-sonnet-5-5  2026-10-27 18:30
 skipped: 1 JSON with no leading schema_version, 1 JSON of an unknown schema_version (pairwise.v0: 1), 1 not .json
 ```
 
-- **Each row is one artifact file.** A file is an artifact when it opens with the
-  `schema_version` of a registered kind: `save_artifact` has written it as the
-  first key since [#27](https://github.com/intel/dokimi/pull/27). Superseded
+- **Each row is one artifact file.** A file is an artifact when its first 256
+  bytes open with the `schema_version` of a registered kind: `save_artifact`
+  has written it as the first key since
+  [#27](https://github.com/intel/dokimi/pull/27), well inside that. Superseded
   versions such as `questions.v1` count too. Files that open with anything
   else are skipped without being read in full, so a large file of another kind
   costs nothing.
