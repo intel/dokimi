@@ -24,6 +24,7 @@ import yaml
 WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/agent-quality.yml"
 SMOKE_JOB = "external-catalog-smoke"
 SMOKE_NAME = "External catalog smoke test (uxlfoundation/skills)"
+BULK_FILES = 2000
 
 # The stub `gh api`: serves runs.json and jobs-<run id>.json from $FAKE_GH_DIR, applies --jq
 # with jq -r as gh does, and fails for a missing fixture (the API being unreadable).
@@ -71,8 +72,17 @@ def _history(repo: Path, names: list[tuple[str, str]]) -> dict[str, str]:
     _git(repo, "commit", "-q", "-m", "base")
     shas["base"] = _git(repo, "rev-parse", "HEAD")
     for name, kind in names:
-        path = "src/app.py" if kind == "code" else "README.md"
-        (repo / path).write_text(f"{name}\n", encoding="utf-8")
+        if kind == "bulk":
+            # Enough changed paths to overflow a pipe buffer: the step must still read a
+            # code change as code (a `printf | grep -q` pipeline fails under pipefail here).
+            (repo / "src/generated").mkdir()
+            for i in range(BULK_FILES):
+                (repo / f"src/generated/module_{i:05d}_padding_to_make_the_path_long.py").write_text(
+                    "x\n", encoding="utf-8"
+                )
+        else:
+            path = "src/app.py" if kind == "code" else "README.md"
+            (repo / path).write_text(f"{name}\n", encoding="utf-8")
         _git(repo, "add", "-A")
         _git(repo, "commit", "-q", "-m", name)
         shas[name] = _git(repo, "rev-parse", "HEAD")
@@ -189,6 +199,14 @@ SCENARIOS = {
     ),
     "code_push_after_passed_code_run": (
         [("V", "code"), ("A", "code")],
+        [("V", "success")],
+        "V",
+        "A",
+        "true",
+    ),
+    # Many changed paths, the first one code: still code, not a docs-only push.
+    "code_push_with_many_paths_after_passed_run": (
+        [("V", "code"), ("A", "bulk")],
         [("V", "success")],
         "V",
         "A",
