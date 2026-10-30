@@ -30,7 +30,7 @@ def cmd_eval_headroom(args: argparse.Namespace) -> None:
         try:
             run = records.load(path)
             digest = hashlib.sha256(Path(path).read_bytes()).hexdigest()
-        except (records.RecordError, OSError) as e:
+        except (records.RecordError, OSError, RecursionError) as e:  # RecursionError: nesting too deep for json
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(2)
         if digest in first_seen:

@@ -443,3 +443,12 @@ def test_command_reads_a_file_nothing_was_judged_in(tmp_path, capsys):
     cmd_eval_headroom(_args([path]))
     printed = capsys.readouterr().out
     assert "yes" in printed and "no run scored these arms" in printed and "1 (baseline, skill)" in printed
+
+
+def test_command_exits_2_on_an_input_nested_too_deep_to_read(tmp_path, capsys):
+    path = tmp_path / "deep.json"
+    path.write_text("[" * 100000, encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_headroom(_args([path]))
+    assert exc.value.code == 2
+    assert "Error:" in capsys.readouterr().err
