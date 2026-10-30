@@ -9,3 +9,7 @@
   keys, the bootstrap tail index, the cache key's role and sampling parameters), which
   takes the pilot from 75.3% to 92.0% of mutants killed. Configuration:
   `[tool.mutmut]` in `pyproject.toml`; usage: CONTRIBUTING.md.
+
+### Changed
+
+- **`run --strict` reads the critical bands strictly** — a NaN metric now violates its band; it passed silently before. A band the gate cannot read (an unknown condition, or a `None` metric) exits 2 and names the spec, instead of ending in a traceback.
