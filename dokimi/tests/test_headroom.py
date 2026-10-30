@@ -416,6 +416,18 @@ def test_command_exits_2_when_the_output_cannot_be_written(tmp_path, capsys):
     assert capsys.readouterr().err.startswith("Error: ")
 
 
+def test_command_refuses_an_output_spelled_through_a_dotdot_to_an_input(tmp_path, capsys):
+    # The same file under another spelling: the input as given, the output as sub/../arms.json.
+    path = _arms_file(tmp_path / "arms.json", {"1": {"baseline": 99, "skill": 99}})
+    (tmp_path / "sub").mkdir()
+    before = path.read_bytes()
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_headroom(_args([str(path)], output=str(tmp_path / "sub" / ".." / "arms.json")))
+    assert exc.value.code == 2
+    assert path.read_bytes() == before
+    assert "overwrite" in capsys.readouterr().err
+
+
 def test_command_refuses_a_question_id_repeated_within_one_file(tmp_path, capsys):
     path = tmp_path / "dup.json"
     path.write_text(json.dumps({"baseline_arm": "baseline", "answers": [
