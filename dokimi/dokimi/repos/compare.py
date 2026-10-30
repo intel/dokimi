@@ -105,6 +105,7 @@ from scipy import stats as sp_stats
 from dokimi.context.consistency import Run, order_distance, pass_hat, run_from_events
 from dokimi.eval.stats import adjust_pvalues, bootstrap_ci, mean_ci
 
+from .compare_tasks import TaskSelectionError, select_tasks
 from .process_counts import as_measure, process_order, process_values
 from .report import (load_cells, mismatch_warnings, model_matches, model_mismatch, reading_cells, resolved_models,
                      unmeasured_note, uptake_counts)
@@ -180,7 +181,10 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
     if pass_k is not None and pass_k < 1:
         raise CompareError(f"--pass-k must be at least 1, got {pass_k}")
     cells, missing = load_batches(batch_dirs, metrics, path_stability)
-    cells, missing, task_filter = _select_tasks(cells, missing, tasks)
+    try:
+        cells, missing, task_filter = select_tasks(cells, missing, tasks)
+    except TaskSelectionError as exc:
+        raise CompareError(str(exc)) from None
     # the arms and metrics are checked among the selected cells, so a miss may be the selection's doing
     scope = " among the --task selection" if task_filter else ""
     _check_metrics(metrics, cells, scope)
@@ -213,31 +217,6 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
     return {"batches": [str(d) for d in batch_dirs], "baseline": baseline, "treatments": treatments,
             "task_filter": task_filter, "cells": len(cells), "missing": missing, **provenance,
             "comparisons": rows, "unpaired": unpaired}
-
-
-def _select_tasks(cells: list[dict[str, Any]], missing: list[str],
-                  tasks: list[str] | None) -> tuple[list[dict[str, Any]], list[str], dict[str, Any] | None]:
-    """The cells and missing cells of ``tasks`` (``--task``), and the selection as the summary records it.
-
-    No ``tasks`` keeps every cell and records ``None``. An id no finished cell of the batches has is refused."""
-    if not tasks:
-        return cells, missing, None
-    known = {c["task"] for c in cells}
-    unknown = [t for t in dict.fromkeys(tasks) if t not in known]
-    if unknown:
-        raise CompareError(f"no finished cell of the compared batches has --task {', '.join(unknown)}")
-    kept = [m for m in missing if _cell_task(m.partition("/")[2]) in tasks]  # BATCH/<cell>
-    return [c for c in cells if c["task"] in tasks], kept, {"tasks": sorted(set(tasks)), "of": len(known)}
-
-
-def _cell_task(cell: str) -> str | None:
-    """The task of a cell name ``<task>__<arm>__<model>__r<rep>`` (:func:`~dokimi.repos.runner.cell_name`).
-
-    A task id may itself contain ``__``, so the three parts after it are split off from the right; the arm and
-    model are slugs, which the split assumes carry no ``__``. ``None`` for a name of another shape.
-    """
-    parts = cell.rsplit("__", 3)
-    return parts[0] if len(parts) == 4 else None
 
 
 def _one_arm_models(treatment: str, base_vals: dict[tuple[str, str], dict[str, Any]],

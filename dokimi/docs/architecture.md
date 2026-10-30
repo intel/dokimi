@@ -337,7 +337,8 @@ next release.
   share, score, cost, turns, chosen `grade.json` metrics, `result.json`
   `process` counts), with an interval
   over tasks (bootstrap for gate and score, t for the rest), a sign-flip
-  permutation p and Holm's correction.
+  permutation p and Holm's correction. `dokimi/repos/compare_tasks.py` holds
+  what its `--task` selection keeps.
 - `dokimi/repos/selfcheck.py` — `repo tasks check`: on each task
   `grade` must fail the untouched workspace and pass it after `oracle`, and an
   isolation probe must not see the tasks or the source from the agent's
