@@ -736,9 +736,10 @@ python cli.py eval headroom run1/arms.json run2/arms.json run3/arms.json \
 
 - **ceiling**: the no-skill arm's mean over the runs is at least `--ceiling` (0-1; the
   0-100 aggregate divided by 100). Default 0.9.
-- **floor**: every arm that a run scored has a mean at most `--floor`, and at least one
-  non-baseline arm scored. Default 0. An arm no run scored is left out of this test and
-  listed in the item's `unscored_arms`; the baseline alone at zero is not a floor.
+- **floor**: the no-skill arm was scored, every arm that a run scored has a mean at most
+  `--floor`, and at least one non-baseline arm scored. Default 0. An arm no run scored is
+  left out of this test and listed in the item's `unscored_arms`; the baseline alone at zero
+  is not a floor.
 - **provisional**: fewer than `--min-reps` runs scored the item with its no-skill arm (the
   reps are those runs). Default 3. One file gives every item one rep, so every item is
   provisional.
