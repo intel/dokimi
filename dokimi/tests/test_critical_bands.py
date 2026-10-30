@@ -191,3 +191,23 @@ def test_no_bands_means_the_gate_is_disabled(spec):
     result = check_critical_bands({"score": 0.0}, spec)
 
     assert (result.enabled, result.violations, result.passed) == (False, [], True)
+
+
+@pytest.mark.parametrize(("condition", "key"), _CONDITION_KEYS)
+def test_a_nan_metric_is_a_violation(condition, key):
+    """NaN compares false with every threshold, so it used to pass the gate silently."""
+    spec = {"critical_bands": {"fail_on": [{"condition": condition, "value": 0.5}]}}
+
+    result = check_critical_bands({key: float("nan")}, spec)
+
+    assert [v.violated for v in result.violations] == [True]
+    assert not result.passed
+
+
+@pytest.mark.parametrize(("condition", "key"), _CONDITION_KEYS)
+def test_a_none_metric_raises_naming_the_metric(condition, key):
+    """None is not a number the gate can judge: fail loudly with the condition and key."""
+    spec = {"critical_bands": {"fail_on": [{"condition": condition, "value": 0.5}]}}
+
+    with pytest.raises(ValueError, match=f"{condition}.*{key}"):
+        check_critical_bands({key: None}, spec)
