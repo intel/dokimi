@@ -398,9 +398,20 @@ def test_a_not_measured_retrieval_check_never_warns():
 
 
 def test_a_legacy_artifact_serializes_measured_false():
+    import json
+
+    from dokimi.report.generator import ReportGenerator
+
     check = _check(evaluate_trust(_evals(10)), "retrieval_hit_rate")
     assert (check.threshold, check.severity) == (0.60, "warn")
     assert (check.passed, check.measured) == (True, False)
+
+    # The report JSON is what reads "measured", so check the key there.
+    report = json.loads(ReportGenerator().generate_report(
+        {"evaluations": _evals(10)}, {"questions": []}, output_format="json",
+    ))
+    (rate,) = [c for c in report["trust"]["checks"] if c["name"] == "retrieval_hit_rate"]
+    assert (rate["passed"], rate["measured"], rate["severity"]) == (True, False, "warn")
 
 
 class TestTheRenderedBlock:
