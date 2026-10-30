@@ -360,8 +360,8 @@ def load_hits(batch_dir: Path) -> dict[str, Any]:
         if not isinstance(matches, list):  # a parse error or a grader error credits no thread: nothing is missing
             without += "threads_hit" in details
             continue
-        hits += [{"task": rec["task"], "arm": rec["arm"], "model": rec["model"], "rep": rec["rep"],
-                  "cell": rec["cell"], **m} for m in matches if isinstance(m, dict)]
+        hits += [{**m, "task": rec["task"], "arm": rec["arm"], "model": rec["model"], "rep": rec["rep"],
+                  "cell": rec["cell"]} for m in matches if isinstance(m, dict)]  # result.json's key wins over a match's
     return {"batch": str(batch_dir), "replay_cells": replay, "without_matches": without, "hits": hits}
 
 

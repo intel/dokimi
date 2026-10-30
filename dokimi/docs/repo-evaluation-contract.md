@@ -1346,7 +1346,8 @@ python cli.py repo compare repo-runs/replay --baseline guidance:none --metric re
   model and rep: the thread and its comment, then the finding that hit it.
   `--hits --json` gives `{batch, replay_cells, without_matches, hits}`, one
   record in `hits` per pair (`task`, `arm`, `model`, `rep`, `cell` and the
-  match's fields). A cell graded before `matches` was recorded is counted
+  match's fields; the first five come from the cell's `result.json`, and a
+  match key of the same name does not replace them). A cell graded before `matches` was recorded is counted
   (`N cell(s) graded without hit details`), not listed.
 - `repo compare` reduces cells to one value per (task, arm, model) first:
   repetitions share a task's difficulty and are not paired across arms, so the

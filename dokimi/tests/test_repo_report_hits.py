@@ -103,6 +103,17 @@ def test_report_hits_flag_prints_the_pairs_and_the_default_report_stays_the_tabl
     assert table.startswith(f"{batch}: 5 finished cells") and "credited" not in table and "finding 0" not in table
 
 
+def test_a_match_key_named_like_the_cell_key_does_not_move_the_hit(tmp_path, capsys):
+    batch = tmp_path / "b1"
+    grade = _graded(tmp_path, fence([_f(5)]))
+    grade["details"]["matches"][0].update(task="other-task", arm="guidance:raw", model="m-9", rep=99, cell="elsewhere")
+    _put(batch, "a", "guidance:none", 1, grade)
+    records = json.loads(_cli(capsys, str(batch), "--hits", "--json"))
+    assert [(h["task"], h["arm"], h["model"], h["rep"], h["cell"], h["thread"]) for h in records["hits"]] == [
+        ("a", "guidance:none", "m-1", 1, "a__guidance-none__m-1__r1", "t_op")]
+    assert _cli(capsys, str(batch), "--hits").splitlines()[1:3] == ["a", "  guidance:none  m-1  r1"]
+
+
 def test_hits_on_a_batch_with_no_replay_cell_say_so(tmp_path):
     _cell(tmp_path, "a", "guidance:none", 1)
     found = load_hits(tmp_path)
