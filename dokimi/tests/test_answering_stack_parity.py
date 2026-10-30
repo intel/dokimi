@@ -258,7 +258,7 @@ def _where_4000_lands(obs: Observed) -> str:
 
 
 def _observe(tmp_path: Path, provider_calls) -> Dict[str, Tuple[Any, Any]]:
-    from dokimi.commands.arms import _resolve_doc_library_id
+    from dokimi.eval.arms_run import resolve_doc_library_id
     from dokimi.registry import ProductRegistry
     from dokimi.treatments.arms import DocTreatment
 
@@ -284,7 +284,7 @@ def _observe(tmp_path: Path, provider_calls) -> Dict[str, Tuple[Any, Any]]:
             registry=registry,
         )
 
-    a_lib = _resolve_doc_library_id(
+    a_lib = resolve_doc_library_id(
         [DocTreatment(a.client, name="docs", top_k=3, reranker=a.reranker)],
         PRODUCT,
         registry=ProductRegistry(registry_path),
