@@ -15,9 +15,13 @@ logger = logging.getLogger(__name__)
 
 from dokimi.utils import question_id
 from dokimi.artifacts import save_artifact
-from dokimi.defaults import ANSWERING_METHOD_VERSION
+from dokimi.defaults import (
+    ANSWERING_METHOD_VERSION,
+    DEFAULT_ANSWER_MODEL,
+    DEFAULT_ANSWER_PROVIDER,
+    DEFAULT_RETRIEVAL_TOP_K,
+)
 from dokimi.llm import llm_call_with_usage, LANGCHAIN_AVAILABLE
-from dokimi.defaults import DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER, DEFAULT_RETRIEVAL_TOP_K
 from dokimi.metrics.usage import UsageRecord, to_record
 
 from .reranker import SimpleReranker, SentenceTransformerReranker, SENTENCE_TRANSFORMERS_AVAILABLE
