@@ -66,23 +66,8 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      # Whether this run changes code (anything but documentation). Code-free runs skip
-      # the steps below (the Docker smoke test cannot be affected by a documentation
-      # edit); the benchmark job measures the docs, so it always runs. The job itself
-      # still takes a runner, as its steps are skipped, not the job, and it reports
-      # success.
-      # Scope: a new push to a PR (`synchronize`) decides from everything since the last
-      # commit whose smoke run passed its code steps (the newest one of this PR's runs,
-      # reachable from the push, with Verify pass rate successful), so a docs-only push
-      # skips only when all the code before it was verified. A cancelled or failed run
-      # does not count, so the code it carried runs again. No such run, or an unreadable
-      # run list, runs everything. Every other PR run decides from the whole PR,
-      # base...HEAD. A push that cannot be diffed (no before commit, or before is not an
-      # ancestor of after: a force push) runs everything, as does an empty diff.
-      # Documentation: the Markdown the repo keeps as docs. Root guides (AGENTS.md,
-      # README.md, ...), dokimi/*.md, dokimi/docs/, dokimi/changelog.d/ and .github/.
-      # Not dokimi/data/ (skill and profile Markdown the code reads at run time),
-      # dokimi/tests/ (fixtures) or .agent-eval/ (eval tasks): those count as code.
+      # Docs-only runs skip the code steps; the benchmark still runs. A push diffs from the last verified smoke run, else all.
+      # Docs are the repo's Markdown (DOCS below); dokimi/data/, tests and .agent-eval count as code. Force pushes run all.
       - id: changes
         working-directory: .
         env:
@@ -97,9 +82,8 @@ jobs:
           DOCS: '^([^/]+|dokimi/[^/]+|dokimi/docs/(.+/)?[^/]+|dokimi/changelog\.d/[^/]+|\.github/(.+/)?[^/]+)\.md$'
         run: |
           set_code() { echo "code=$1" >> "$GITHUB_OUTPUT"; echo "changes: code=$1 ($2)"; }
-          # The newest commit reachable from AFTER whose smoke run passed its code steps (its
-          # Verify pass rate step succeeded). Prints nothing when there is none or the run
-          # list cannot be read; the caller then runs everything.
+          # Newest commit reachable from AFTER whose smoke run passed (Verify pass rate succeeded); prints nothing if none.
+          # An unreadable run list also prints nothing; the caller then runs everything.
           last_verified() {
             runs=$(gh api "repos/$REPO/actions/workflows/agent-quality.yml/runs?branch=$HEAD_REF&event=pull_request&status=completed&per_page=20" \
               --jq '.workflow_runs[] | "\(.id) \(.head_sha)"') || return 0
