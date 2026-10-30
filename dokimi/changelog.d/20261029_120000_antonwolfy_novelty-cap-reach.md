@@ -15,6 +15,6 @@
   input's last span says instead that the atoms reach it and any atoms past
   the cap in the last reply were dropped, in the warning, the header and the
   `coverage:` line. The tier forfeit (`added` is a rate over the opening of
-  the artifact, up to the atom cap) and the `harmful_atoms` gate reason (0
-  conflicts among the atoms of the artifact's opening) no longer call the
+  the input, up to the atom cap) and the `harmful_atoms` gate reason (0
+  conflicts among the atoms of the input's opening) no longer call the
   capped atoms a sample either.

@@ -469,8 +469,8 @@ def test_a_capped_atom_set_does_not_clear_harmful_atoms():
     capped = _named(evaluate_novelty(_artifact(spans=spans, conflict_coverage=full)),
                     "harmful_atoms")
     assert capped.measured is False and "the atom set was capped (30 indexed)" in capped.message
-    # The cap keeps the artifact's opening, in document order: not a sample of it.
-    assert "0 conflicts among the atoms of the artifact's opening" in capped.message
+    # The cap keeps the input's opening, in document order: not a sample of it.
+    assert "0 conflicts among the atoms of the input's opening" in capped.message
 
     found = _named(evaluate_novelty(_artifact(
         spans=spans, conflict_coverage=full, categories={"harmful_conflicting": 2})),
