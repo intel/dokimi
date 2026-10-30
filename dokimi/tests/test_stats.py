@@ -666,22 +666,13 @@ def test_empty_and_single_samples_have_exact_shapes():
     assert stats.mean_ci([5.0]) == {"mean": 5.0, "lo": 5.0, "hi": 5.0, "n": 1}
 
 
-def test_zero_variance_tolerance_scales_with_the_mean():
-    """At a mean of 1e6, noise of 1e-4 is below the relative tolerance (1e-3) but
-    far above an absolute one (1e-9), so only the scaled tolerance calls it degenerate."""
-    pytest.importorskip("scipy")
-    vals = [1e6 + (1e-4 if i % 2 else -1e-4) for i in range(8)]
-    res = stats.mean_ci(vals)
-    assert res["method"] == "degenerate"
-    assert res["n"] == 8
-
-
 def test_zero_variance_tolerance_is_relative_not_absolute():
     """The same noise is degenerate at a mean of 1e6 (tolerance 1e-3) and not at a mean of 1."""
     pytest.importorskip("scipy")
     big = [1e6 + (1e-4 if i % 2 else -1e-4) for i in range(8)]
     small = [1.0 + (1e-4 if i % 2 else -1e-4) for i in range(8)]
     assert stats.mean_ci(big)["method"] == "degenerate"
+    assert stats.mean_ci(big)["n"] == 8
     assert stats.mean_ci(small)["method"] == "student_t"
 
 
