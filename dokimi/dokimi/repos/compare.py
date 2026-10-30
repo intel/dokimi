@@ -53,7 +53,8 @@ bootstrap runs narrow over few tasks (the inconclusive note then gives way to th
 with p below 0.05 is named on a line saying its p is uncorrected and outside Holm's family.
 
 ``--task`` limits a comparison to some task ids: the others are left out, not listed as unpaired, and the
-summary's ``task_filter`` records the selection.
+summary's ``task_filter`` records the selection; without ``--arm``, its ``dropped_arms`` names an arm with no
+finished cell among it, which drops out of the comparison.
 
 A gate or score comparison also says whether its tasks had room to move (``headroom``), since a zero delta
 on a task set nobody can fail, or nobody can pass, is not evidence of no effect. A task's top is 1.0 for
@@ -107,7 +108,7 @@ from scipy import stats as sp_stats
 from dokimi.context.consistency import Run, order_distance, pass_hat, run_from_events
 from dokimi.eval.stats import bootstrap_ci, correct_family, mean_ci
 
-from .compare_tasks import TaskSelectionError, select_tasks
+from .compare_tasks import CompareError, select_tasks
 from .process_counts import as_measure, process_order, process_values
 from .report import (load_cells, mismatch_warnings, model_matches, model_mismatch, reading_cells, resolved_models,
                      unmeasured_note, uptake_counts)
@@ -128,10 +129,6 @@ REPORTED = ("process:", "counter:", "first_prompt_tokens")
 #: Batch stamp keys that must agree between the arms of a comparison; ``tree`` is shown but may differ (another
 #: revision of the repository is a treatment of its own).
 STAMP_KEYS = ("eval_dir", "image", "graders")
-
-
-class CompareError(ValueError):
-    """The arms or batches named cannot be compared."""
 
 
 def parse_selector(text: str) -> tuple[str | None, str]:
@@ -182,17 +179,17 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
     metrics = tuple(dict.fromkeys(metrics))
     if pass_k is not None and pass_k < 1:
         raise CompareError(f"--pass-k must be at least 1, got {pass_k}")
-    cells, missing = load_batches(batch_dirs, metrics, path_stability)
-    try:
-        cells, missing, task_filter = select_tasks(cells, missing, tasks, batch_dirs)
-    except TaskSelectionError as exc:
-        raise CompareError(str(exc)) from None
+    found, missing = load_batches(batch_dirs, metrics, path_stability)
+    cells, missing, task_filter = select_tasks(found, missing, tasks, batch_dirs)
     # the arms and metrics are checked among the selected cells, so a miss may be the selection's doing
     scope = " among the --task selection" if task_filter else ""
     _check_metrics(metrics, cells, scope)
     base_sel = parse_selector(baseline)
     if not any(selector_matches(base_sel, c) for c in cells):
         raise CompareError(f"no finished cell matches the baseline {baseline!r}{scope}")
+    if task_filter is not None:  # without --arm, an arm that ran none of the selected tasks would drop out unsaid
+        task_filter["dropped_arms"] = ([] if treatments is not None
+                                       else sorted(_other_arms(found, base_sel) - _other_arms(cells, base_sel)))
     treatments = _treatments(cells, baseline, base_sel, treatments, scope)
     measures = ["gate", "score", *([f"pass^{pass_k}"] if pass_k else []),
                 *(["path_distance"] if path_stability else []), "cost_usd", "turns", "first_prompt_tokens",
@@ -469,15 +466,19 @@ def _unpaired(treatment: str, model: str, task: str, measure: str | None, reason
     return {"treatment": treatment, "model": model, "task": task, "measure": measure, "reason": reason}
 
 
+def _other_arms(cells: list[dict[str, Any]], base_sel: tuple[str | None, str]) -> set[str]:
+    """Every other arm that has cells; the baseline's own arm from another batch is named by its batch."""
+    return {f"{c['batch']}/{c['arm']}" if c["arm"] == base_sel[1] else c["arm"]
+            for c in cells if not selector_matches(base_sel, c)}
+
+
 def _treatments(cells: list[dict[str, Any]], baseline: str, base_sel: tuple[str | None, str],
                 treatments: list[str] | None, scope: str = "") -> list[str]:
     """The treatment selectors to compare, checked: each matches cells, and none of the baseline's."""
     if treatments is not None and not treatments:
         raise CompareError("no treatment arms named; leave --arm out to compare every other arm")
     if treatments is None:
-        # every other arm that has cells; the baseline's own arm from another batch is named by its batch
-        treatments = sorted({f"{c['batch']}/{c['arm']}" if c["arm"] == base_sel[1] else c["arm"]
-                             for c in cells if not selector_matches(base_sel, c)})
+        treatments = sorted(_other_arms(cells, base_sel))
     for text in treatments:
         sel = parse_selector(text)
         if sel == base_sel:
@@ -626,7 +627,8 @@ def _reading_notes(rows: list[dict[str, Any]]) -> list[str]:
             name = "p_holm" if primary else "p"  # a gate or score row is decided by its Holm p (_holm)
             out.append(f"  {r['measure']}: the interval [{d['lo']:+.3f}, {d['hi']:+.3f}] "
                        f"{'includes' if inside else 'excludes'} 0 but {name} {r[name]:.4g} is {'<' if inside else '≥'} "
-                       f"{ALPHA}; they come from two methods, {how} and a sign-flip test" + ("; read p_holm" if primary else ""))
+                       f"{ALPHA}; they come from two methods, {how} and a sign-flip test"
+                       + ("; read p_holm" if primary else ""))
         elif primary and (note := _inconclusive_note(r)):
             out.append(note)
     low = [r["measure"] for r in rows if r["measure"] not in PRIMARY and r["p"] is not None and r["p"] < ALPHA]
@@ -643,7 +645,8 @@ def _inconclusive_note(r: dict[str, Any]) -> str | None:
         return None
     head = f"  {r['measure']} inconclusive: the interval includes 0; "
     if r["mde"] is not None:
-        return head + f"with this spread the smallest effect 80% power detects is about ±{r['mde']:.3f} ({r['n_tasks']} tasks)"
+        return head + (f"with this spread the smallest effect 80% power detects is about ±{r['mde']:.3f} "
+                       f"({r['n_tasks']} tasks)")
     changed = r["up"] + r["down"]
     if r["p"] is None or (floor := min_sign_flip_p(changed)) < ALPHA:
         return None  # every delta tied, or no spread
@@ -667,6 +670,9 @@ def _format_header(summary: dict[str, Any]) -> list[str]:
              f"{len(summary['batches'])} batch(es), {len(summary['missing'])} missing"]
     if summary.get("task_filter"):
         lines.append(f"  tasks: {len(summary['task_filter']['tasks'])} of {summary['task_filter']['of']} (--task)")
+        if summary["task_filter"].get("dropped_arms"):
+            lines.append(f"  not compared, no finished cell among the --task selection: "
+                         f"{', '.join(summary['task_filter']['dropped_arms'])}")
     for text, batches in summary["sources"].items():
         lines.append(f"  {text}: {', '.join(batches)}")
     for name, stamp in summary["stamps"].items():

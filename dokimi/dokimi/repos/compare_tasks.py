@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import Any
 
 
-class TaskSelectionError(ValueError):
-    """A ``--task`` id that no finished cell of the batches has."""
+class CompareError(ValueError):
+    """The arms or batches named cannot be compared (here, a ``--task`` id; :mod:`.compare` raises the others)."""
 
 
 def select_tasks(cells: list[dict[str, Any]], missing: list[str], tasks: list[str] | None,
@@ -25,7 +25,7 @@ def select_tasks(cells: list[dict[str, Any]], missing: list[str], tasks: list[st
     known = {c["task"] for c in cells}
     unknown = [t for t in dict.fromkeys(tasks) if t not in known]
     if unknown:
-        raise TaskSelectionError(f"no finished cell of the compared batches has --task {', '.join(unknown)}")
+        raise CompareError(f"no finished cell of the compared batches has --task {', '.join(unknown)}")
     dirs = {d.resolve().name: d for d in batch_dirs}
     ids = {name: {c["task"] for c in cells if c["batch"] == name} for name in dirs}
     kept = []

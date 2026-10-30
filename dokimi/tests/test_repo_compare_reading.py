@@ -78,7 +78,7 @@ def test_task_compares_only_the_named_tasks_and_says_so(tmp_path):
     gate = _row(s, "gate")
     assert [t["task"] for t in gate["tasks"]] == ["t1", "t2"] and gate["up"] == 1
     assert s["unpaired"] == [] and s["missing"] == [] and s["cells"] == 4
-    assert s["task_filter"] == {"tasks": ["t1", "t2"], "of": 4}
+    assert s["task_filter"] == {"tasks": ["t1", "t2"], "of": 4, "dropped_arms": []}
     assert "  tasks: 2 of 4 (--task)" in format_compare(s).splitlines()
     assert "(--task)" not in format_compare(whole)
 
@@ -90,7 +90,7 @@ def test_cli_task_is_repeatable_and_lands_in_the_json(tmp_path, capsys):
                                       "--task", "t3", "--task", "t4", "--json"])
     args.func(args)
     out = json.loads(capsys.readouterr().out)
-    assert out["task_filter"] == {"tasks": ["t3", "t4"], "of": 4}
+    assert out["task_filter"] == {"tasks": ["t3", "t4"], "of": 4, "dropped_arms": []}
     assert [t["task"] for t in _row(out, "gate")["tasks"]] == ["t3"]
     assert [u["task"] for u in out["unpaired"]] == ["t4"] and len(out["missing"]) == 1
 
@@ -104,7 +104,7 @@ def test_task_matches_a_missing_cell_by_its_task_not_by_a_prefix(tmp_path):
     (b / "fix__a__guidance-raw__m-1__r2").mkdir()
     (b / "fix__a__guidance-raw__m-1__r2" / "meta.json").write_text("{}")  # started, never finished: missing
     s = compare([b], "guidance:none", tasks=["fix"])
-    assert s["missing"] == [] and s["task_filter"] == {"tasks": ["fix"], "of": 2}
+    assert s["missing"] == [] and s["task_filter"] == {"tasks": ["fix"], "of": 2, "dropped_arms": []}
     assert "  tasks: 1 of 2 (--task)" in format_compare(s).splitlines()
     assert "cells missing" not in format_compare(s)
     assert compare([b], "guidance:none", tasks=["fix__a"])["missing"] == ["b/fix__a__guidance-raw__m-1__r2"]
@@ -152,6 +152,22 @@ def test_an_arm_or_metric_error_under_task_says_the_selection_is_the_reason(tmp_
         compare([b], "guidance:none", metrics=("tok",), tasks=["t1"])
     with pytest.raises(CompareError, match=r"^no finished cell matches the treatment 'guidance:nope'$"):
         compare([b], "guidance:none", treatments=["guidance:nope"])  # without --task, no selection to name
+
+
+def test_task_names_an_arm_that_ran_none_of_the_selected_tasks(tmp_path):
+    b = tmp_path / "b"
+    for task in ("t1", "t2", "t3"):
+        _cell(b, task, "guidance:none", 1)
+        _cell(b, task, "guidance:other", 1)
+    for task in ("t1", "t2"):  # guidance:raw ran only t1 and t2
+        _cell(b, task, "guidance:raw", 1)
+    s = compare([b], "guidance:none", tasks=["t3"])
+    assert s["treatments"] == ["guidance:other"] and s["task_filter"]["dropped_arms"] == ["guidance:raw"]
+    assert ("  not compared, no finished cell among the --task selection: guidance:raw"
+            in format_compare(s).splitlines())
+    named = compare([b], "guidance:none", treatments=["guidance:other"], tasks=["t3"])  # --arm: nothing drops out
+    assert named["task_filter"]["dropped_arms"] == [] and "not compared" not in format_compare(named)
+    assert compare([b], "guidance:none", tasks=["t1"])["task_filter"]["dropped_arms"] == []
 
 
 def test_task_refuses_an_id_no_cell_has(tmp_path, capsys):

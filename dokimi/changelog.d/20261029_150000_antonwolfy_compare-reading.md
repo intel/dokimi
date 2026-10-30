@@ -8,7 +8,10 @@
 - **`repo compare --task ID`** — repeatable: compares only those task ids. An id no finished cell of the
   batches has exits 1 and names it; the tasks left out are not listed as unpaired, nor their unfinished
   cells as missing (a cell's task is the one its `meta.json` records), and the `--json`
-  summary (`task_filter`) and the text header (`tasks: N of M (--task)`) record the selection.
+  summary (`task_filter`) and the text header (`tasks: N of M (--task)`, M the tasks with a finished
+  cell) record the selection. Without `--arm`, an arm with no finished cell among the selection is
+  not compared, and both name it (`task_filter.dropped_arms`, `not compared, no finished cell among
+  the --task selection: <arms>`).
 - **Reading notes under a `repo compare` comparison** — a gate or score row of 2+ tasks whose interval
   includes 0 says it is inconclusive and gives `mde`, the smallest effect 80% power detects at that
   spread (`mde` is in every `--json` row). With 5 or fewer changed tasks the sign-flip p cannot go
