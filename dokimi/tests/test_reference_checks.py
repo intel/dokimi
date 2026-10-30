@@ -443,6 +443,25 @@ def test_a_judge_failure_is_an_error_not_a_pass_decided_by_the_other_checks(ask,
     assert (tally.n, tally.errors, tally.unscored) == (0, 1, 0)
 
 
+def test_judge_checks_after_a_failed_judge_check_make_no_paid_calls():
+    """The grade is an error once a judge call fails, so the judge checks after it are not asked."""
+    four = {"checks": [{"type": "judge", "criterion": f"names point {i}"} for i in range(4)]}
+    counted = {"one": [], "four": []}
+
+    def counting(key):
+        def ask(prompt, draw=0, cache_if=None):
+            counted[key].append(prompt)
+            raise TimeoutError()
+        return ask
+
+    grade({"checks": four["checks"][:1]}, "Q?", "Paris", counting("one"))
+    g = grade(four, "Q?", "Paris", counting("four"))
+    assert len(counted["four"]) == len(counted["one"]) > 0
+    assert g.error == "judge: TimeoutError"
+    assert [c.error for c in g.checks[1:]] == [None, None, None]
+    assert [c.detail for c in g.checks[1:]] == ["not judged: an earlier judge check failed"] * 3
+
+
 def test_eval_reference_counts_a_judge_failure_as_an_error_for_every_arm():
     data = {"baseline_arm": "baseline", "arms": ["baseline", "skill"], "answers": [
         {"question_id": "q1", "question_text": "Capital?",

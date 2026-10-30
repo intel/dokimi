@@ -440,13 +440,21 @@ def grade(grading: Mapping[str, Any], question: str, answer: Optional[str], ask:
     """
     threshold = grading.get("threshold")
     out = Grade(threshold=float(threshold) if threshold is not None else None, error=answer_error)
+    judge_failed = False
     for check in grading.get("checks", []):
+        kind = str(check.get("type"))
         if answer is None:
-            out.checks.append(CheckResult(str(check.get("type")), None, None,
+            out.checks.append(CheckResult(kind, None, None,
                                           float(check.get("weight", 1.0)), "no answer"))
+            continue
+        if judge_failed and kind in JUDGED:
+            # The grade is already an error, so a further judge call could not change it: skip the paid call.
+            out.checks.append(CheckResult(kind, None, None, float(check.get("weight", 1.0)),
+                                          "not judged: an earlier judge check failed"))
             continue
         result = grade_check(check, question, answer or "", ask)
         out.checks.append(result)
         if out.error is None and result.error is not None:
             out.error = result.error
+        judge_failed = judge_failed or (kind in JUDGED and result.error is not None)
     return out
