@@ -17,7 +17,7 @@ from dokimi.utils import question_id
 from dokimi.artifacts import save_artifact
 from dokimi.defaults import ANSWERING_METHOD_VERSION
 from dokimi.llm import llm_call_with_usage, LANGCHAIN_AVAILABLE
-from dokimi.defaults import DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER
+from dokimi.defaults import DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER, DEFAULT_RETRIEVAL_TOP_K
 from dokimi.metrics.usage import UsageRecord, to_record
 
 from .reranker import SimpleReranker, SentenceTransformerReranker, SENTENCE_TRANSFORMERS_AVAILABLE
@@ -70,7 +70,7 @@ class Answerer:
         model: str = DEFAULT_ANSWER_MODEL,
         provider: str = DEFAULT_ANSWER_PROVIDER,
         api_key: Optional[str] = None,
-        top_k: int = 5,
+        top_k: Optional[int] = None,
         rerank_threshold: float = 0.3,
         debug_retrieval: bool = False
     ):
@@ -80,7 +80,7 @@ class Answerer:
             model: LLM model name
             provider: "openai" or "anthropic"
             api_key: Optional API key
-            top_k: Number of docs to retrieve before reranking
+            top_k: Number of docs to retrieve before reranking (default DEFAULT_RETRIEVAL_TOP_K)
             rerank_threshold: Minimum relevance score (0-1) to keep docs
             debug_retrieval: If True, include detailed retrieval metadata in output
         """
@@ -102,7 +102,8 @@ class Answerer:
                 f"Unsupported provider: '{provider}'. "
                 "Use 'openai', 'anthropic', 'google', 'openrouter', or 'amazon-bedrock'."
             )
-        self.top_k = top_k
+        # None means the default: the doc source must never get max_results=None (it would return every chunk).
+        self.top_k = DEFAULT_RETRIEVAL_TOP_K if top_k is None else top_k
         self.debug_retrieval = debug_retrieval
         
         # Initialize reranker (prefer semantic, fallback to lexical)

@@ -18,6 +18,7 @@ for mod_name in ['langchain_openai', 'langchain_anthropic']:
         sys.modules[mod_name] = mock_mod
 
 from dokimi.eval.answerer import Answerer, ANSWER_PROMPT_WITH_DOCS, ANSWER_PROMPT_WITHOUT_DOCS
+from dokimi.defaults import DEFAULT_RETRIEVAL_TOP_K
 
 # Canonical return value for llm_call_with_usage mock
 _LLM_MOCK_RETURN = ("This is a test answer from LLM.", {
@@ -196,11 +197,22 @@ class TestRetrieveDocs:
 
             mock_mcp_client.get_library_docs.assert_called_once_with(
                 library_id="uxlfoundation/oneTBB", query="parallel_for",
-                max_results=5, max_tokens=4000,
+                max_results=DEFAULT_RETRIEVAL_TOP_K, max_tokens=4000,
             )
             assert [d["content"] for d in docs] == [
                 mock_mcp_client.get_library_docs.return_value[0]["content"]
             ]
+
+    def test_no_top_k_asks_the_doc_source_for_the_default(self, mock_mcp_client):
+        """`answers generate` without --top-k reaches here as top_k=None: the doc source gets the default, not None."""
+        with patch('dokimi.eval.answerer.LANGCHAIN_AVAILABLE', True):
+            answerer = Answerer(mcp_client=mock_mcp_client, top_k=None)
+            answerer._retrieve_docs("uxlfoundation/oneTBB", "parallel_for", 4000)
+
+            mock_mcp_client.get_library_docs.assert_called_once_with(
+                library_id="uxlfoundation/oneTBB", query="parallel_for",
+                max_results=3, max_tokens=4000,
+            )
 
     def test_error_handling(self, mock_mcp_client):
         mock_mcp_client.get_library_docs.side_effect = Exception("Network error")
