@@ -1083,8 +1083,9 @@ root. A bare name
 that names some file or directory is `ok_basename`. A glob is tried the same
 way: `ok` when something matches at the file's directory or an ancestor, `fail`
 when its literal parent directory exists there and nothing in it matches
-(`src/*.zzz`), `ok_suffix` when it ends a longer path in the tree, and
-`unresolved` otherwise (`build/*.o`, `out/<run>/grade.json`). A `<placeholder>`
+(`src/*.zzz`), `ok_suffix` when it ends a longer path in the tree,
+`ok_basename` when it has no `/` and matches the name of some file or
+directory (`type_dispatch*.hpp`), and `unresolved` otherwise (`build/*.o`, `out/<run>/grade.json`). A `<placeholder>`
 or a wildcard in the directory part is never `fail`. A `*` may span
 directories and `**/` matches zero or more. A trailing slash on a file
 (`src/mod.py/`) is `fail`. A GitHub Action reference (`actions/checkout@v6`) is not a
