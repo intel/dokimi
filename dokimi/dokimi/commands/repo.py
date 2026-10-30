@@ -119,9 +119,9 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
                       f"{str(claim.get('claim'))[:90]} -- {claim.get('why')}")
         if args.out:
             print(f"wrote {args.out}")
+    _scan_gate(payload, args.fail_on_fail)  # runs first: an invalid --static still gets the incomplete reason
     if static_errors:
         sys.exit(1)
-    _scan_gate(payload, args.fail_on_fail)
 
 
 def _scan_gate(payload: dict, fail_on_fail: bool) -> None:

@@ -310,6 +310,17 @@ def test_a_missing_also_scan_file_is_named_as_the_cause(tmp_path, capsys):
     assert capsys.readouterr().err == f"✗ scan incomplete: {reason}\n"
 
 
+def test_an_invalid_static_file_still_says_why_an_incomplete_scan_fails(tmp_path, capsys):
+    argv = _scan_argv(tmp_path, {"AGENTS.md": CLEAN})
+    static = tmp_path / "bad.json"
+    static.write_text(json.dumps({"schema": "nope"}), encoding="utf-8")
+    reason = "guidance/also_scan matches no file: CONTRIBUTING.md"
+    assert _exit_code(argv + ["--static", str(static), "--fail-on-fail"]) == 1
+    err = capsys.readouterr().err.splitlines()
+    assert any(line.startswith("✗ --static output not merged: ") for line in err)
+    assert f"✗ scan incomplete: {reason}" in err
+
+
 def test_a_glob_that_matches_nothing_alone_keeps_the_scan_complete(tmp_path, capsys):
     argv = _scan_argv(tmp_path, {"AGENTS.md": CLEAN, "CONTRIBUTING.md": "Read first.\n"})
     out = tmp_path / "readiness.json"
