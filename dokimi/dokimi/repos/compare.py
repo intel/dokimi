@@ -250,15 +250,13 @@ def _models_equivalent(base_models: set[str], treat_models: set[str]) -> bool:
     """Whether base and treatment model sets are equivalent under same_model() logic.
 
     Two resolved model sets are equivalent if each model in one matches a model in the other
-    under same_model(): provider prefixes, regional profiles, revision suffixes, case and
-    undated snapshot aliases do not count as different models. For each base model,
-    there must be a matching treatment model and the reverse; the set sizes may differ, since one arm can
-    hold several spellings of the same model across repetitions.
+    under same_model(). For each base model, there must be a matching treatment model and the
+    reverse; the set sizes may differ, since one arm can hold several spellings of the same model
+    across repetitions.
     """
     if base_models == treat_models:
         return True
-    # Check if each base model has an equivalent in treatment models
-    # (same_model is symmetric, so one call per pair suffices)
+    # Each base model needs an equivalent treatment model (same_model is symmetric: one call per pair)
     for base_model in base_models:
         if not any(same_model(base_model, treat_model) for treat_model in treat_models):
             return False
