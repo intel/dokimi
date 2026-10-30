@@ -7,6 +7,8 @@ batches graded by the real ``dokimi:review_replay`` grader."""
 from __future__ import annotations
 
 import json
+import os
+import threading
 from pathlib import Path
 
 import pytest
@@ -146,3 +148,50 @@ def test_hits_refuse_a_cell_with_no_rep_as_the_table_refuses_a_malformed_cell(tm
         _cli(capsys, str(batch), "--hits")
     assert stopped.value.code == 1
     assert capsys.readouterr().err.strip() == f"✗ {path} has no usable `rep`"
+
+
+def test_a_grade_nested_too_deep_or_linked_out_of_the_batch_is_no_grade(tmp_path):
+    batch = tmp_path / "b1"
+    outside = tmp_path / "outside.json"  # a link out of the batch is not followed
+    outside.write_text(json.dumps({"grader": REPLAY, "metrics": {"parse_error": True},
+                                   "details": {"matches": [{"thread": "outside", "finding": 0}]}}))
+    _put(batch, "a", "guidance:none", 1, _graded(tmp_path, fence([_f(5)])))
+    _cell(batch, "a", "guidance:none", 2, score=0.0)
+    _cell(batch, "a", "guidance:none", 3, score=0.0)
+    (batch / "a__guidance-none__m-1__r2" / "grade.json").write_text("[" * 200000)  # RecursionError to parse
+    link = batch / "a__guidance-none__m-1__r3" / "grade.json"
+    link.unlink()
+    link.symlink_to(outside)
+    assert summarize(batch)["rows"][0]["parse_errors"] == 0
+    found = load_hits(batch)
+    assert (found["replay_cells"], [h["rep"] for h in found["hits"]]) == (1, [1])
+
+
+def test_a_grade_that_is_a_fifo_is_no_grade_and_does_not_block_the_report(tmp_path):
+    batch = tmp_path / "b1"
+    _put(batch, "a", "guidance:none", 1, _graded(tmp_path, fence([_f(5)])))
+    _cell(batch, "a", "guidance:none", 2, score=0.0)
+    fifo = batch / "a__guidance-none__m-1__r2" / "grade.json"
+    fifo.unlink()
+    os.mkfifo(fifo)
+    out: dict = {}
+    reader = threading.Thread(target=lambda: out.update(summary=summarize(batch), hits=load_hits(batch)),
+                              daemon=True)  # a read of a FIFO waits for a writer: the thread is kept apart
+    reader.start()
+    reader.join(10)
+    if reader.is_alive():  # open the write end so the blocked read ends
+        os.close(os.open(fifo, os.O_WRONLY))
+        reader.join(10)
+    assert not reader.is_alive() and "summary" in out, "a grade.json that is a FIFO blocked the report"
+    assert out["summary"]["rows"][0]["parse_errors"] == 0
+    assert (out["hits"]["replay_cells"], [h["rep"] for h in out["hits"]["hits"]]) == (1, [1])
+
+
+def test_hits_credit_no_match_of_a_cell_the_table_scores_as_a_grader_failure(tmp_path):
+    batch = tmp_path / "b1"  # written, then the run failed: the table counts the cell as a grader failure
+    _cell(batch, "a", "guidance:none", 1, failure=True)
+    (batch / "a__guidance-none__m-1__r1" / "grade.json").write_text(json.dumps(_graded(tmp_path, fence([_f(5)]))))
+    _put(batch, "a", "guidance:none", 2, _graded(tmp_path, fence([_f(5)])))
+    assert [r["grader_failures"] for r in summarize(batch)["rows"]] == [1]
+    found = load_hits(batch)
+    assert (found["replay_cells"], [h["rep"] for h in found["hits"]]) == (2, [2])

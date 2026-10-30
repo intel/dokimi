@@ -54,7 +54,7 @@ from typing import Any
 
 import math
 
-from .grading import SCORE_BOUND
+from .grading import SCORE_BOUND, read_grade_json
 from .process_counts import process_line, process_means
 from .runner import UNSUPPORTED_FILE, slug
 
@@ -319,11 +319,9 @@ def _row_notes(r: dict[str, Any]) -> list[str]:
 
 
 def _grade_doc(cell_dir: Path) -> dict[str, Any]:
-    """The cell's ``grade.json``; empty when it is missing or not a JSON object (a grader failure says why)."""
-    try:
-        doc = json.loads((cell_dir / "grade.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
+    """The cell's ``grade.json``, read as the grader's host reads it; empty when it is missing, not a regular
+    file, too deep to parse or not a JSON object (a grader failure says why)."""
+    doc, _ = read_grade_json(cell_dir / "grade.json")
     return doc if isinstance(doc, dict) else {}
 
 
@@ -350,6 +348,8 @@ def load_hits(batch_dir: Path) -> dict[str, Any]:
         if grade.get("grader") != REPLAY:
             continue
         replay += 1
+        if rec["grade"]["status"] == "grader_failure":  # the table scores this cell 0: no hit is credited to it
+            continue
         details = grade.get("details")
         details = details if isinstance(details, dict) else {}
         matches = details.get("matches")
