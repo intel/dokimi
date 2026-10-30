@@ -1094,7 +1094,9 @@ job or step uses it as `uses: <name>@<ref>`, in a `.yml` or `.yaml` workflow
 directly in `.github/workflows/` (not a nested one, which GitHub does not run) or
 a local composite action under `.github/` (`action.yml`, `action.yaml`); the
 reason names the first such file, workflows first (`used by
-.github/workflows/ci.yml`). A name into a submodule stays `unresolved` (below)
+.github/workflows/ci.yml`). Only a workflow's `jobs` count (a job's own `uses:` and
+its steps'), and only an action's `runs.steps` when its `runs.using` is
+`composite`; a file that is both, `.github/workflows/action.yml`, is a workflow. A name into a submodule stays `unresolved` (below)
 even when a step uses it, as the snapshot does not hold what is there; after that
 check, and before the parent-directory `fail`, the used Action is `ok`, so a
 `.github/actions/` beside it does not fail it. A name whose directory the tree

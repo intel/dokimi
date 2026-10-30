@@ -669,6 +669,21 @@ def test_actions_used_by_a_yaml_workflow_a_job_and_a_composite_action_are_ok(tmp
     assert got[("AGENTS.md", "docker/login-action")][0] == "unresolved"  # no step uses it; the broken YAML is skipped
 
 
+def test_only_a_workflows_jobs_and_a_composite_actions_steps_use_an_action(tmp_path):
+    """A workflow's `runs`, a non-composite action's `runs.steps` and an action's `jobs` use no Action."""
+    names = ["acme/ghost", "acme/ghost-composite", "acme/node", "acme/jobs", "acme/both", "acme/both-runs"]
+    got = _by_file(_scan(tmp_path, "Use " + ", ".join(f"`{n}`" for n in names) + ".\n", {
+        ".github/workflows/ci.yml": "runs: {steps: [{uses: acme/ghost@v1}]}\n",
+        ".github/workflows/composite.yml": "runs: {using: composite, steps: [{uses: acme/ghost-composite@v1}]}\n",
+        ".github/actions/node/action.yml": "runs: {using: node20, main: x.js, steps: [{uses: acme/node@v1}]}\n",
+        ".github/actions/meta/action.yml": "jobs: {x: {steps: [{uses: acme/jobs@v1}]}}\n",
+        ".github/workflows/action.yml": "jobs: {x: {steps: [{uses: acme/both@v1}]}}\n"  # a workflow, as GitHub runs it
+                                        "runs: {using: composite, steps: [{uses: acme/both-runs@v1}]}\n"}))
+    assert got[("AGENTS.md", "acme/both")] == ("ok", "used by .github/workflows/action.yml")
+    for name in names[:4] + names[5:]:
+        assert got[("AGENTS.md", name)] == ("unresolved", f"tried {name}")
+
+
 def test_an_action_used_only_by_a_nested_workflow_is_not_used(tmp_path):
     """GitHub runs only the workflows directly in `.github/workflows/`, not `.github/workflows/old/ci.yml`."""
     got = _by_file(_scan(tmp_path, "Use `nested/only` and `actions/checkout`.\n",
