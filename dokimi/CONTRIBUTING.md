@@ -134,6 +134,11 @@ CI additionally holds a PR to:
   `changelog.d/` (`scriv create`) instead of editing `CHANGELOG.md`; see
   [changelog.d/README.md](changelog.d/README.md). A change with no user-visible
   effect gets the `skip-changelog` label instead; adding or removing the label re-runs the check.
+- **Comment blocks of at most two lines** — `python scripts/check_comment_blocks.py
+  --base <remote>/main --head HEAD`. A run of three or more `#` comment lines in a
+  Python, shell, YAML or TOML file, a Makefile or a Dockerfile fails once the PR adds
+  or edits a line in it, so shorten an old block when you edit it. Keep the reason,
+  and link an issue or PR for the backstory.
 
 **pre-commit.** `.pre-commit-config.yaml` at the repo root runs the fast
 offline checks on the files a commit stages: `ruff check` (the version and
