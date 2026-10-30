@@ -1,11 +1,15 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Refusals for the arms commands on a CLI provider, raised before any answer is paid for."""
+"""Refusals for the arms runs on a CLI provider, raised before any answer is paid for.
+
+Takes an ``argparse.Namespace`` or an :class:`~dokimi.eval.arms_run.ArmsRunConfig`: both carry
+the fields read here (``provider``, ``session_turns``, ``top_k``, ``rerank_threshold``).
+"""
 
 from __future__ import annotations
 
-import argparse
+from typing import Any
 
 
 def _is_agentic_arm(treatment) -> bool:
@@ -28,7 +32,7 @@ def _is_agentic_arm(treatment) -> bool:
     return isinstance(inner, (MCPAgentTreatment, SkillAgentTreatment, SkillCatalogTreatment))
 
 
-def refuse_cli_arms(args: argparse.Namespace, treatments: list) -> None:
+def refuse_cli_arms(args: Any, treatments: list) -> None:
     """Refused before any answer: a CLI provider runs one prompt, with no tools and no conversation."""
     from dokimi import llm_cli
 
@@ -53,7 +57,7 @@ def refuse_cli_cell_model(matrix_cell) -> None:
                          f"Claude model (sonnet, haiku, opus or a claude-* id), not {matrix_cell.model!r}")
 
 
-def refuse_cli_cell(args: argparse.Namespace, specs: list[str]) -> None:
+def refuse_cli_cell(args: Any, specs: list[str]) -> None:
     """A matrix cell on a CLI provider with an agentic arm is refused before the first cell is answered."""
     from dokimi import llm_cli
     from dokimi.treatments import create_treatments

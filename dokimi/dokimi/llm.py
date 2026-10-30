@@ -205,8 +205,7 @@ def unsupported_sampling_params(
     requested = list(_sampling_kwargs(temperature=temperature, seed=seed))
     if not requested:
         return []
-    cli = llm_cli.backend(_canonical(provider))
-    if cli is not None:
+    if (cli := llm_cli.backend(_canonical(provider))) is not None:
         return [n for n in requested if n not in cli.supports]
     try:
         from litellm import get_supported_openai_params
@@ -273,9 +272,8 @@ def is_retryable(exc: BaseException) -> bool:
     if its message happens to contain a transient-sounding word, so the
     non-retryable set is consulted first.
     """
-    flag = getattr(exc, "retryable", None)  # set by an error that knows (llm_cli.CliCallError)
-    if isinstance(flag, bool):
-        return flag
+    if isinstance(getattr(exc, "retryable", None), bool):  # set by an error that knows (llm_cli.CliCallError)
+        return exc.retryable
     name = type(exc).__name__.lower()
     if name in _NON_RETRYABLE_EXC_NAMES:
         return False

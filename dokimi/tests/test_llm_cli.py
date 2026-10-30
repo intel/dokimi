@@ -597,7 +597,7 @@ def test_a_novelty_judge_of_the_answerers_family_counts_as_the_answerer():
 
 
 def test_an_agentic_arm_or_a_session_is_refused_on_the_cli_before_any_answer():
-    from dokimi.commands import arms_refusals
+    from dokimi.eval import arms_refusals
     from dokimi.treatments import create_treatments
 
     plain = create_treatments(["baseline", "docs"], top_k=3, rerank_threshold=0.3)
@@ -649,7 +649,7 @@ def test_every_command_with_a_hidden_or_default_model_refuses_the_cli_without_a_
 def test_every_agentic_arm_kind_is_refused_on_the_cli_including_wrapped_and_combined(demo_skill):
     from dokimi.skills import load_skill
 
-    from dokimi.commands import arms_refusals
+    from dokimi.eval import arms_refusals
     from dokimi.plugins import PluginWrappedTreatment
     from dokimi.treatments.arms import (
         BaselineTreatment,
@@ -677,27 +677,24 @@ def test_every_agentic_arm_kind_is_refused_on_the_cli_including_wrapped_and_comb
 
 
 def test_the_arms_entry_point_refuses_a_cli_agentic_arm_before_any_answer(monkeypatch):
-    from dokimi.commands import arms
-    from dokimi.eval import arm_runner
+    from dokimi.eval import arm_runner, arms_run
 
     class RunnerMustNotStart:
         def __init__(self, *args, **kwargs):
             raise AssertionError("the arm runner started before the CLI refusal")
 
     monkeypatch.setattr(arm_runner, "ArmRunner", RunnerMustNotStart)
-    monkeypatch.setattr(arms, "_resolve_doc_library_id", lambda *a, **k: None)
-    monkeypatch.setattr(arms, "_validate_expected_skills", lambda *a, **k: None)
-    args = argparse.Namespace(provider="claude-cli", model="sonnet", judge=False, session_turns=None,
-                              top_k=3, rerank_threshold=0.3, product="p", context7_id=None,
-                              plugins="", harness="arms-runner", matrix_cell=None, judge_provider=None,
-                              judge_model=None, max_iterations=5)
+    monkeypatch.setattr(arms_run, "resolve_doc_library_id", lambda *a, **k: None)
+    monkeypatch.setattr(arms_run, "validate_expected_skills", lambda *a, **k: None)
+    config = arms_run.ArmsRunConfig(product="p", provider="claude-cli", model="sonnet", top_k=3)
     with pytest.raises(ValueError, match="agentic arm"):
-        arms._build_arms_output(args, ["baseline", "agent"], [])
+        arms_run.run_arms(config, ["baseline", "agent"], [])
 
 
 def test_a_matrix_with_a_cli_agentic_cell_is_refused_before_the_first_cell_is_answered(monkeypatch, tmp_path, capsys):
     from dokimi.commands import arms
     from dokimi.eval import arm_runner
+    from dokimi.eval import arms_run
     from dokimi.eval import cells as eval_cells
 
     class RunnerMustNotStart:
@@ -713,13 +710,14 @@ def test_a_matrix_with_a_cli_agentic_cell_is_refused_before_the_first_cell_is_an
     monkeypatch.setattr(arm_runner, "ArmRunner", RunnerMustNotStart)
     monkeypatch.setattr(eval_cells, "load_matrix_cells", lambda path: cells)
     monkeypatch.setattr(arms, "_load_questions", lambda path: [])
-    monkeypatch.setattr(arms, "_validate_supported_matrix_harnesses", lambda cells: None)
+    monkeypatch.setattr(arms_run, "validate_supported_matrix_harnesses", lambda cells: None)
     monkeypatch.setattr(arms, "_validate_unique_cell_filenames", lambda cells: None)
     args = argparse.Namespace(arms="baseline,agent", questions="q.json", matrix_cells="m.json",
                               product="p", out_dir=str(tmp_path), top_k=3, rerank_threshold=0.3,
                               temperature=None, seed=None, judge=False, session_turns=None,
                               plugins="", harness="arms-runner", matrix_cell=None, judge_provider=None,
-                              judge_model=None, max_iterations=5, context7_id=None)
+                              judge_model=None, max_iterations=5, context7_id=None,
+                              out_json=None, out_md=None, plugin_deltas=True)
     with pytest.raises(SystemExit):
         arms.cmd_arms_matrix_run(args)
     assert "agentic arm" in capsys.readouterr().err
@@ -729,7 +727,7 @@ def test_a_matrix_with_a_cli_agentic_cell_is_refused_before_the_first_cell_is_an
 def _matrix_run(monkeypatch, tmp_path, cli_model, arms_spec, capsys):
     """matrix-run on an API cell then a CLI cell, where no cell may run: the error it exits with."""
     from dokimi.cli import build_parser
-    from dokimi.commands import arms
+    from dokimi.eval import arms_run
 
     cells = tmp_path / "cells.json"
     cells.write_text(json.dumps({"matrix": {"cells": [
@@ -741,7 +739,7 @@ def _matrix_run(monkeypatch, tmp_path, cli_model, arms_spec, capsys):
     def cell_must_not_run(*a, **kw):
         raise AssertionError("a matrix cell ran before the CLI cell was refused")
 
-    monkeypatch.setattr(arms, "_build_arms_output", cell_must_not_run)
+    monkeypatch.setattr(arms_run, "run_arms", cell_must_not_run)
     args = build_parser().parse_args(
         ["arms", "matrix-run", "--product", "p", "--questions", str(questions), "--arms", arms_spec,
          "--matrix-cells", str(cells), "--out-dir", str(tmp_path / "out")])
@@ -753,12 +751,12 @@ def _matrix_run(monkeypatch, tmp_path, cli_model, arms_spec, capsys):
 def test_a_matrix_cell_pairing_a_cli_provider_with_a_non_claude_model_is_refused(
         monkeypatch, tmp_path, capsys):
     from dokimi.commands import arms
+    from dokimi.eval.arms_run import ArmsRunConfig
 
     assert "takes a Claude model" in _matrix_run(monkeypatch, tmp_path, "gpt-6.1-sol", "baseline", capsys)
     # arms run --matrix-cells/--matrix-cell applies the cell the same way
-    named = argparse.Namespace(matrix_cells=str(tmp_path / "cells.json"), matrix_cell="cli")
     with pytest.raises(ValueError, match="takes a Claude model"):
-        arms._apply_named_matrix_cell(named)
+        arms._with_named_cell(ArmsRunConfig(product="p"), str(tmp_path / "cells.json"), "cli")
 
 
 def test_matrix_cells_that_name_a_cli_model_pass_the_parse_gate_whatever_the_top_level_model(tmp_path):
