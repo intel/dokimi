@@ -415,6 +415,11 @@ def test_the_model_name_decides_the_prefix_breakpoint_on_a_shared_provider():
         {"type": "text", "text": LONG, "cache_control": _EPHEMERAL},
         {"type": "text", "text": "q"},
     ]
+    llama = {"model": "meta.llama3-70b-instruct-v1:0", "provider": "bedrock"}
+    assert caching.build_messages("q", cache_prefix=LONG, **llama) == (
+        [{"role": "user", "content": LONG + "q"}],
+        False,
+    )
 
 
 def test_the_model_name_decides_the_system_breakpoint_on_a_shared_provider():
