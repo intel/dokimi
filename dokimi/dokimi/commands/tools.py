@@ -186,14 +186,14 @@ def cmd_tools_preference(args: argparse.Namespace) -> None:
         first = next(r["error"] for r in results if r["error"])
         print(f"Error: all {len(results)} call(s) failed ({first}); see results[].error in {args.out_json}",
               file=sys.stderr)
-        raise SystemExit(EXIT_USAGE)
+        raise SystemExit(2)  # the documented "run incomplete" exit (docs/quickstart.md), not a usage refusal
     if data["summary"]["n_skipped"]:
         why = (f"--max-cost-usd {args.max_cost_usd:g} reached"
                if u["cost_known_calls"] == u["n_calls"]
                else "a call came back with no price, so --max-cost-usd cannot be enforced")
         print(f"Error: {why}; {data['summary']['n_skipped']} of {len(results)} call(s) not run, "
               f"the summary covers the rest. See {args.out_json}", file=sys.stderr)
-        raise SystemExit(EXIT_USAGE)
+        raise SystemExit(2)  # the documented "run incomplete" exit (docs/quickstart.md), not a usage refusal
 
 
 def register(sub: argparse._SubParsersAction, positive_int) -> None:
