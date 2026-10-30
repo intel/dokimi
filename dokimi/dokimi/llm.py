@@ -41,13 +41,13 @@ What a caller can rely on:
 - **Retry.** Transient errors (:func:`is_retryable`) are retried
   ``max_retries`` times with doubling backoff; anything else is raised on the
   first attempt.
-- **Response cache** (:mod:`dokimi.caching`, off unless
-  ``DOKIMI_RESPONSE_CACHE`` is set). ``complete`` is cached, ``chat`` never is:
-  replaying a completion would skip the tool calls an agent loop measures. The
-  key holds the litellm model, the messages, ``stream`` and ``max_tokens``, and
-  ``temperature``/``seed`` when set; ``draw=n`` is an independent sample with its
-  own entry (draw 0 adds nothing). ``cache_if(text)`` decides whether a reply may
-  be stored *or replayed*. A replay returns the stored usage record.
+- **Response cache** (:mod:`dokimi.caching`, off unless ``DOKIMI_RESPONSE_CACHE`` is set).
+  ``complete`` is cached, ``chat`` never is: replaying a completion would skip the tool calls an
+  agent loop measures. The key holds the litellm model (on openai the caller's name, as the route
+  there moves with litellm's price map), the messages, ``stream`` and ``max_tokens``, and
+  ``temperature``/``seed`` when set; ``draw=n`` is an independent sample with its own entry
+  (draw 0 adds nothing). ``cache_if(text)`` decides whether a reply may be stored *or
+  replayed*. A replay returns the stored usage record.
 - **Usage.** Every reply carries a :class:`UsageRecord`; ``cost_usd`` is ``None``
   when litellm has no price for the model, never a fake ``0.0``.
 - **Truncation.** A live ``complete``/``ask`` reply cut at the output ceiling
@@ -61,10 +61,6 @@ provider request with no retry, cache or metering. :class:`LiteLLMAdapter` is
 production; :class:`FakeAdapter` answers from a script and records every
 request, for tests (the ``fake_llm`` fixture). :func:`use_adapter` swaps the
 process default; ``LLM(..., adapter=...)`` overrides it for one object.
-
-``llm_call``, ``llm_call_with_usage``, ``chat_completion``, the
-``ChatOpenAI``/``ChatAnthropic`` shims and ``utils.get_llm`` are delegates to
-:class:`LLM` until their callers move.
 """
 
 from __future__ import annotations
@@ -141,17 +137,22 @@ def resolve_api_key(provider: str, api_key: Optional[str] = None) -> Optional[st
 def resolve_model(model: str, provider: str) -> str:
     """The litellm model string for *model* at *provider*.
 
-    A name that already carries a litellm route (contains ``/``) passes through,
-    except on OpenRouter and openai-codex, which add their own prefix.
+    A name with a ``/`` passes through, except on OpenRouter and openai-codex, which
+    add their own prefix, and on openai, where only a litellm provider prefix counts.
     """
     name = _canonical(provider)
     if name == "openrouter":
         return model if model.startswith("openrouter/") else f"openrouter/{model}"
     if name == "openai-codex":
         return f"openai/{model}"
-    if "/" in model:
-        return model
     if name == "openai":
+        # A name litellm does not take for OpenAI's (glm-5.3, meta-llama/x, claude-*) gets openai/.
+        import litellm
+        known = litellm.open_ai_chat_completion_models | litellm.open_ai_text_completion_models
+        ours = model in known or "ft:gpt-3.5-turbo" in model or "ft:gpt-4" in model  # as litellm
+        routed = (p := model.split("/", 1)[0]) in litellm.provider_list or litellm.JSONProviderRegistry.exists(p) if "/" in model else ours
+        return model if routed else f"openai/{model}"
+    if "/" in model:
         return model
     if name == "google-vertex":
         return f"vertex_ai/{model}"
@@ -738,8 +739,8 @@ class LLM:
             model=self.model, provider=self.provider,
         )
         key = caching.response_cache_key(
-            litellm_model=self.litellm_model, messages=messages,
-            extra=caching.draw_extra(self._cache_extra(stream, max_tokens), draw),
+            litellm_model=self.model if _canonical(self.provider) == "openai" else self.litellm_model,
+            messages=messages, extra=caching.draw_extra(self._cache_extra(stream, max_tokens), draw),
         )
         hit = caching.load_response(key)
         if hit is not None and caching.keeps(cache_if, cast(str, hit[0])):
@@ -913,7 +914,6 @@ def ask_parsed(ask: Ask, prompt: str, parse: Callable[[str], Optional[T]], *,
 # Delegates for the callers that have not moved to :class:`LLM` yet; each is the
 # module's behaviour under the old call shape. They go once nothing imports them.
 
-# Backward-compatibility shims for existing tests/modules.
 LANGCHAIN_AVAILABLE = True
 
 _build_litellm_model = resolve_model
