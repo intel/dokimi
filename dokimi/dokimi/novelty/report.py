@@ -253,7 +253,7 @@ def reach_is_end(reached: dict) -> bool:
 
 def cap_warning(cap: int, reached: dict) -> str:
     """The warning for a binding cap: where extraction stopped, and what that leaves out."""
-    left_out = ("atoms past the cap in its last reply were dropped" if reach_is_end(reached)
+    left_out = ("any atoms past the cap in its last reply were dropped" if reach_is_end(reached)
                 else "rates describe the opening of the artifact, not the whole")
     return (f"atom extraction hit the cap of {cap} at {describe_reach(reached)}: {left_out}; "
             "pass --all-atoms for the full sweep")
@@ -271,7 +271,7 @@ def coverage_reach(extraction: dict | None) -> tuple[str, str]:
         return "were measured", ""
     if reach_is_end(reached):
         return ("went into the input", "; the capped atoms reach its last span, and the cap "
-                "dropped the atoms past it")
+                "dropped any atoms past it")
     return ("went into the input", "; the capped atoms come from the first "
             f"{floored_percent(reached['tokens_share'])} of its tokens")
 
@@ -283,7 +283,7 @@ def _capped_at(artifact: dict) -> str:
         return ""
     if reach_is_end(reached):
         return (f" The atom cap stopped extraction at {describe_reach(reached)}: the atoms reach the "
-                "artifact's last span, and the cap dropped the atoms past it in the last reply.")
+                "artifact's last span, and the cap dropped any atoms past it in the last reply.")
     return (f" The atom cap stopped extraction at {describe_reach(reached)}: the atoms "
             "come from the opening of the artifact, not the whole.")
 
