@@ -207,16 +207,28 @@ def test_a_judge_that_is_the_answering_model_is_refused_with_exit_2(command, tmp
     assert "is the answering model" in capsys.readouterr().err
 
 
-def test_probe_refuses_an_unknown_arm_before_any_model_call(tmp_path, skill, stub_models, capsys):
+def test_probe_refuses_an_unknown_arm_before_any_model_call(tmp_path, skill, stub_models, monkeypatch, capsys):
     atoms_out = tmp_path / "atoms.json"
     _run("novelty", "atoms", "--artifact", f"skill:{skill}", "--extract-model", "extractor-m",
          "--out", str(atoms_out))
+    # Count the prompts the probe sends from here on: the atoms step above is not part of the refusal.
+    prompts = []
+    scripted = client_mod.LLMClient  # the factory stub_models installed
+
+    def recording_client(**kwargs):
+        def transport(prompt, system):
+            prompts.append(prompt)
+            return stub_models(prompt, system)
+        return scripted(**{**kwargs, "transport": transport})
+
+    monkeypatch.setattr(client_mod, "LLMClient", recording_client)
     with pytest.raises(SystemExit) as exc:
         _run("novelty", "probe", "--artifact", f"skill:{skill}", "--atoms", str(atoms_out),
              "--model", "model-a", "--judge-model", "judge-m", "--arms", "no_artifact,full,no-such-arm",
              "--out", str(tmp_path / "p.json"))
     assert exc.value.code == 2
     assert "unknown novelty arms" in capsys.readouterr().err
+    assert prompts == [], "a model was called before the arm check refused"
 
 
 @pytest.mark.outcome("cjm-novelty-remeasure")
