@@ -1186,5 +1186,5 @@ def _print_coverage(bundle: dict, extraction: dict | None = None) -> None:
     pct = floored_percent(share)
     print(f"coverage: {pct} of the artifact's readable words {went}{scope}{reach}")
     if share <= MEASURED_SHARE_WARN_AT:
-        print(f"WARNING: only {pct} of the artifact's readable words were measured, so every "
+        print(f"WARNING: only {pct} of the artifact's readable words {went}, so every "
               f"rate here describes that part, not the artifact{rerun}")

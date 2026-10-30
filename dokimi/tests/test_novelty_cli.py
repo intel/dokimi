@@ -861,6 +861,17 @@ def test_a_capped_run_s_headline_does_not_say_the_whole_artifact_was_measured(ca
            in capsys.readouterr().out
 
 
+def test_a_capped_run_under_the_floor_warns_in_the_coverage_line_s_words(capsys):
+    # 10 of the 40 readable words went into the input, and the atoms stopped short of them.
+    reached = {"last_span": "s0002", "spans": 2, "of": 5, "tokens_share": 0.3571}
+    novelty_cmd._print_headline(dict(_minimal_artifact(), bundle=_readable_record(),
+                                     extraction={"reached": reached}))
+    out = capsys.readouterr().out
+    assert ("WARNING: only 25% of the artifact's readable words went into the input, so every "
+            "rate here describes that part, not the artifact") in out
+    assert "measured" not in out
+
+
 def test_a_bundle_run_capped_by_the_budget_warns_without_advising_the_flag_it_passed(capsys):
     # --include-resources was passed; the budget left most of the reference unread. The
     # stderr warning list is silent about this, the stdout line is not, and it must not tell

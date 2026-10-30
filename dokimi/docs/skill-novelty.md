@@ -905,7 +905,8 @@ capped run measures the opening of the artifact. Its warning says how far that i
 `atom extraction hit the cap of 25 at span s0012 (12 of 61 spans, 23% of the tokens): rates
 describe the opening of the artifact, not the whole; pass --all-atoms for the full sweep`,
 `extraction.reached` records it, and the headline's `coverage:` line then says the words
-went into the input and the capped atoms come from the first 23% of its tokens. `novelty
+went into the input and the capped atoms come from the first 23% of its tokens (the warning
+under that line, when half or less of the words went in, says "went into the input" too). `novelty
 atoms` prints the same warning on stderr; `probe` and `shorten`, which read its
 `atoms.json`, do not repeat it.
 
