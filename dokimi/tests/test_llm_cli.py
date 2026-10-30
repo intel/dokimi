@@ -321,6 +321,10 @@ def test_detect_reports_install_login_and_method_without_a_model_call():
     assert out.authenticated is False and "setup-token" in out.hint
     gone = llm_cli.detect("claude-cli", runner=_auth_runner(None))
     assert gone.installed is False and gone.authenticated is None
+    bedrock = _auth_runner({"loggedIn": True, "authMethod": "third_party", "apiProvider": "bedrock"})
+    route = llm_cli.detect("claude-cli", runner=bedrock)
+    assert (route.authenticated, route.source, route.hint) == (True, "settings file", "")
+    assert got.source == ""  # an OAuth login is not a settings-file route
 
 
 def test_detect_with_an_empty_version_output_has_no_version_and_still_reads_the_login():
@@ -337,7 +341,7 @@ def test_backends_command_prints_one_row_per_backend(monkeypatch, capsys):
         {"loggedIn": True, "authMethod": "third_party", "apiProvider": "bedrock"}))
     cmd_backends(argparse.Namespace(json=False))
     text = capsys.readouterr().out
-    assert "| claude-cli | claude | 2.1.304 (Claude Code) | yes | third_party (bedrock) |" in text
+    assert "| claude-cli | claude | 2.1.304 (Claude Code) | signed in (settings file) | third_party (bedrock) |" in text
     cmd_backends(argparse.Namespace(json=True))
     (row,) = json.loads(capsys.readouterr().out)
     assert row["backend"] == "claude-cli" and row["authenticated"] is True
@@ -953,9 +957,12 @@ def test_an_unreadable_cli_version_is_not_kept_for_the_process(monkeypatch, unre
         ("claude-cli", {"loggedIn": False}, True, "is not signed in"),
         ("claude-cli", "no answer", False, "could not check the login"),
         ("claude-cli", {"loggedIn": True}, False, "Preflight OK"),
+        ("claude-cli", {"loggedIn": True, "authMethod": "third_party", "apiProvider": "bedrock"}, False,
+         "claude-cli: signed in (settings file)"),
         ("openai", {"loggedIn": False}, True, "is not signed in"),
     ],
-    ids=["signed-out-is-an-error", "no-answer-is-a-warning", "signed-in-passes", "judge-login-is-checked"],
+    ids=["signed-out-is-an-error", "no-answer-is-a-warning", "signed-in-passes",
+         "settings-file-login-is-signed-in", "judge-login-is-checked"],
 )
 def test_benchmark_preflight_exit_status_follows_the_cli_login(monkeypatch, tmp_path, capsys,
                                                                 answer, status, exits, printed):

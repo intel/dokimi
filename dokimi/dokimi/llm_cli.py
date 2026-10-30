@@ -120,6 +120,7 @@ class AuthStatus:
     version: str = ""
     authenticated: Optional[bool] = None
     method: str = ""
+    source: str = ""  # "settings file" for a route the Claude Code settings file sets (Bedrock, Vertex)
     hint: str = ""
 
 
@@ -462,5 +463,14 @@ def detect(provider: str, runner: Optional[process.Runner] = None) -> AuthStatus
     return AuthStatus(
         provider, cli.binary, installed=True, version=version.stdout.strip().splitlines()[0]
         if version.stdout.strip() else "", authenticated=authenticated, method=method,
-        hint="" if authenticated else cli.login_hint,
+        source=_login_source(method), hint="" if authenticated else cli.login_hint,
     )
+
+
+def _login_source(method: str) -> str:
+    """Where a login comes from, as far as its method says: a third-party route is set in the settings file.
+
+    The child's environment drops the ``CLAUDE_*`` and ``ANTHROPIC_*`` variables, so a route that
+    ``claude auth status`` reports as ``third_party`` can only come from ``settings.json``.
+    """
+    return "settings file" if method.startswith("third_party") else ""

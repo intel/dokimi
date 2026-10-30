@@ -22,7 +22,8 @@ python cli.py backends          # one row per backend: installed, version, signe
 python cli.py backends --json
 ```
 
-This calls no model. A backend that is not signed in prints how to fix it. On a
+This calls no model. A backend that is not signed in prints how to fix it. A Bedrock
+route that `~/.claude/settings.json` sets is reported as `signed in (settings file)`. On a
 machine without a browser, `claude setup-token` prints a token; export it as
 `CLAUDE_CODE_OAUTH_TOKEN`. `benchmark preflight` checks the login the same way,
 instead of looking for an API key.

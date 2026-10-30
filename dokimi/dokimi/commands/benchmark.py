@@ -101,11 +101,12 @@ def _credential_error(provider: str, status=None) -> str | None:
     return None
 
 
-def _provider_checks(providers: list[str]) -> tuple[list[str], list[str]]:
+def _provider_checks(providers: list[str], notes: list[str] | None = None) -> tuple[list[str], list[str]]:
     """The errors (a missing key, a CLI not installed or signed in) and warnings for *providers*.
 
     A CLI provider is probed once: ``detect`` runs ``--version`` and ``auth status``, and two
     probes of a flaky ``auth status`` could give an error-free pass and a warning in one preflight.
+    A signed-in login that comes from the settings file is appended to *notes*, when given.
     """
     from dokimi import llm_cli
 
@@ -113,6 +114,8 @@ def _provider_checks(providers: list[str]) -> tuple[list[str], list[str]]:
     statuses = {n: llm_cli.detect(n) for n in names if llm_cli.backend(n) is not None}
     errors = [e for e in (_credential_error(n, statuses.get(n)) for n in names) if e]
     warnings = [w for w in (_login_warning(n, statuses.get(n)) for n in names) if w]
+    if notes is not None:
+        notes.extend(f"{n}: signed in ({s.source})" for n, s in statuses.items() if s.authenticated and s.source)
     return errors, warnings
 
 
@@ -126,6 +129,12 @@ def _login_warning(provider: str, status=None) -> str | None:
     if status.installed and status.authenticated is None:
         return f"{provider}: could not check the login ('{status.binary} auth status' gave no answer)"
     return None
+
+
+def _print_notes(notes: list[str]) -> None:
+    """The login notes of a preflight: a signed-in login and where it comes from."""
+    for note in notes:
+        print(f"  {note}")
 
 
 def _resolved_benchmark_plan(entry, args: argparse.Namespace) -> dict:
@@ -184,7 +193,9 @@ def cmd_benchmark_preflight(args: argparse.Namespace) -> None:
     plan = _resolved_benchmark_plan(entry, args)
     _print_plan(plan)
 
-    errors, warnings = _provider_checks([args.provider, args.judge_provider])
+    notes: list[str] = []
+    errors, warnings = _provider_checks([args.provider, args.judge_provider], notes)
+    _print_notes(notes)
 
     try:
         Path(plan["output_dir"]).mkdir(parents=True, exist_ok=True)
