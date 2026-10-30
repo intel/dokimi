@@ -551,7 +551,7 @@ def register(repo_sub, positive_int, source_help: str, cache_help: str) -> None:
     report_p.add_argument("--json", action="store_true", help="Print the summary as JSON")
     report_p.add_argument("--hits", action="store_true",
                           help="Instead of the table: each (thread, finding) pair that credited a "
-                          "dokimi:review_replay thread, by task, arm and rep (grade.json details.matches)")
+                          "dokimi:review_replay thread, by task, arm, model and rep (grade.json details.matches)")
     report_p.set_defaults(func=cmd_repo_report)
 
     compare_p = repo_sub.add_parser(
