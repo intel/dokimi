@@ -31,7 +31,7 @@ def register(sub, positive_int):  # noqa: ARG001 - the registry passes it to eve
     data_p = sub.add_parser("data", help="Schemas: today the CLI route table")
     data_sub = data_p.add_subparsers(dest="data_cmd", required=True)
 
-    schema_p = data_sub.add_parser("schema", help="Print the CLI route table as JSON")
+    schema_p = data_sub.add_parser("schema", help="List and print schemas: today the CLI route table")
     schema_sub = schema_p.add_subparsers(dest="schema_cmd", required=True)
 
     list_p = schema_sub.add_parser("list", help="List the schema kinds")
