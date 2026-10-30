@@ -360,7 +360,7 @@ def test_repeated_input_files_count_as_one_run(tmp_path, capsys):
     assert saved["runs"] == 1 and saved["inputs"] == [str(one)]
     assert saved["items"][0]["reps"] == 1 and saved["items"][0]["provisional"] is True
     err = capsys.readouterr().err
-    assert err.count("counted once") == 3 and f"skipped {copy}: byte-identical to {one}, counted once" in err
+    assert err.count("counted once") == 3 and f"skipped {copy}: same content as {one}, counted once" in err
 
 
 def test_distinct_input_files_each_count_as_a_run(tmp_path):
@@ -469,3 +469,15 @@ def test_command_refuses_an_output_that_is_one_of_its_inputs(tmp_path, capsys):
     assert exc.value.code == 2
     assert path.read_bytes() == before
     assert "overwrite" in capsys.readouterr().err
+
+
+def test_a_reserialized_copy_of_a_run_counts_once(tmp_path, capsys):
+    arms = _arms_file(tmp_path / "run1.json", {"1": {"baseline": 95, "skill": 40}})
+    copy = tmp_path / "copy.json"
+    copy.write_text(json.dumps(json.loads(arms.read_text(encoding="utf-8")), indent=2, sort_keys=True),
+                    encoding="utf-8")
+    out = tmp_path / "headroom.json"
+    cmd_eval_headroom(_args([arms, copy], output=out))
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    assert saved["runs"] == 1 and saved["items"][0]["reps"] == 1
+    assert "counted once" in capsys.readouterr().err

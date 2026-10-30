@@ -5,7 +5,7 @@
 
 Reads one or more ``arms.v1`` files of the same question set (one per repetition) and writes a
 ``headroom.v1`` artifact with ``-o``, always printing the human table. A file repeated on the
-command line, or byte-identical to an earlier one, is one run: the repeats are skipped with a
+command line, or holding the same JSON content as an earlier one, is one run: the repeats are skipped with a
 note on stderr. See :mod:`dokimi.eval.headroom` for the rules.
 """
 
@@ -13,10 +13,17 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import sys
 from pathlib import Path
 
 from dokimi import records
+
+
+def _content_digest(path) -> str:
+    """Digest of the parsed JSON, so one run re-serialized (whitespace, key order) counts once."""
+    data = json.loads(Path(path).read_text(encoding="utf-8"))  # records.load has parsed it already
+    return hashlib.sha256(json.dumps(data, sort_keys=True).encode("utf-8")).hexdigest()
 
 
 def cmd_eval_headroom(args: argparse.Namespace) -> None:
@@ -32,12 +39,12 @@ def cmd_eval_headroom(args: argparse.Namespace) -> None:
     for path in args.arms:
         try:
             run = records.load(path)
-            digest = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+            digest = _content_digest(path)
         except (records.RecordError, OSError, RecursionError) as e:  # RecursionError: nesting too deep for json
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(2)
         if digest in first_seen:
-            print(f"note: skipped {path}: byte-identical to {first_seen[digest]}, counted once", file=sys.stderr)
+            print(f"note: skipped {path}: same content as {first_seen[digest]}, counted once", file=sys.stderr)
             continue
         dupes = repeated_ids(run)
         if dupes:
