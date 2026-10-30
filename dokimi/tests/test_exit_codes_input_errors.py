@@ -56,28 +56,30 @@ def _library_list_unknown_domain(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "argv_for",
+    ("argv_for", "needle"),
     [
-        _personas_approve,
-        _personas_discover_no_source,
-        _tools_preference_missing_groups,
-        _report_eval_missing,
-        _report_generate_missing_questions,
-        _baseline_save_missing,
-        _novelty_routing_flag_combination,
-        _library_list_unknown_domain,
+        pytest.param(_personas_approve, "missing.json", id="personas_approve"),
+        pytest.param(_personas_discover_no_source, "Either --repo or --description must be provided.",
+                     id="personas_discover_no_source"),
+        pytest.param(_tools_preference_missing_groups, "missing.json", id="tools_preference_missing_groups"),
+        pytest.param(_report_eval_missing, "missing.json", id="report_eval_missing"),
+        pytest.param(_report_generate_missing_questions, "missing.json", id="report_generate_missing_questions"),
+        pytest.param(_baseline_save_missing, "missing.json", id="baseline_save_missing"),
+        pytest.param(_novelty_routing_flag_combination, "--all-vs-all takes no --artifact",
+                     id="novelty_routing_flag_combination"),
+        pytest.param(_library_list_unknown_domain, "Intent domain 'no-such-domain' not found",
+                     id="library_list_unknown_domain"),
     ],
-    ids=lambda f: f.__name__.lstrip("_"),
 )
-def test_input_or_usage_refusal_exits_2_with_a_message(argv_for, tmp_path, monkeypatch, capsys):
+def test_input_or_usage_refusal_exits_2_with_a_message(argv_for, needle, tmp_path, monkeypatch, capsys):
     monkeypatch.setattr("sys.argv", ["dokimi", *argv_for(tmp_path)])
     with pytest.raises(SystemExit) as exc:
         cli.main()
     err = capsys.readouterr().err
     assert "usage:" not in err, "argparse refused the flags; the case does not reach the rule"
     assert "Traceback" not in err
-    # A refusal may print its message, or raise it as a string; both must say what is wrong.
-    assert err.strip(), "a refusal must say what is wrong"
+    # The message must name the input at fault, not just any exit 2.
+    assert needle in err
     assert exc.value.code == 2
 
 
