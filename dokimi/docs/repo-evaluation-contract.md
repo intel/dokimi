@@ -1096,7 +1096,10 @@ a local composite action under `.github/` (`action.yml`, `action.yaml`); the rea
 .github/workflows/ci.yml`). A name into a submodule stays `unresolved` (below)
 even when a step uses it, as the snapshot does not hold what is there; after that
 check, and before the parent-directory `fail`, the used Action is `ok`, so a
-`.github/actions/` beside it does not fail it. A name only in a `run:` script
+`.github/actions/` beside it does not fail it. A name whose directory the tree
+holds at the repository root (`tools/gone` beside `tools/`) is judged as a path
+even when a step uses it, so a stale path still fails; a directory found only
+beside the guidance file does not count. A name only in a `run:` script
 does not count, and an Action no step uses is judged as any other path. A link or path into a submodule is `unresolved`. A
 blob or tree link to `source.url` holds `<ref>/<path>` and the ref may contain
 slashes. A default branch, a commit or a version tag is one segment; any other

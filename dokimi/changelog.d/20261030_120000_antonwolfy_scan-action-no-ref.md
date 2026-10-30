@@ -8,5 +8,6 @@
   `ok` when a job or step of a `.yml`/`.yaml` workflow directly in `.github/workflows/` (not a
   nested one), or of a local composite action under `.github/`, uses it as
   `uses: <name>@<ref>`, and the reason names that file (`used by .github/workflows/ci.yml`). A
-  name only in a `run:` script does not count, and an Action no step uses gets the verdict it got
-  before.
+  name whose directory the tree holds at the repository root (`tools/gone` beside `tools/`) is
+  still judged as a path, so a stale path still fails. A name only in a `run:` script does not
+  count, and an Action no step uses gets the verdict it got before.

@@ -325,12 +325,14 @@ class Scan:
         """``unresolved`` for a path into a submodule, else ``ok`` for a used Action no candidate holds, else ``None``.
 
         The Action is one a workflow step uses as ``uses: <name>@<ref>``, named here without the ref; the
-        submodule verdict comes first, as the snapshot does not hold what the name may be there.
+        submodule verdict comes first, as the snapshot does not hold what the name may be there. A name
+        whose directory the tree holds at the root (``tools/gone`` beside ``tools/``) is a path, stale or not.
         """
         sub = self.submodule_of(cands)
         if sub:
             return "unresolved", f"inside the submodule {sub}, which this snapshot does not hold"
-        used = None if any(self.exists(c) for c in cands) else workflows.action_users(self).get(name)
+        path = any(self.exists(c) for c in cands) or posixpath.dirname(name) in self.dir_set
+        used = None if path else workflows.action_users(self).get(name)
         return ("ok", f"used by {used}") if used else None
 
     def _glob(self, bases: list[str], rel: str) -> tuple[str, str]:

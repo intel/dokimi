@@ -687,12 +687,13 @@ def test_a_workflow_yaml_cannot_build_is_skipped(tmp_path, bad):
     assert got[("AGENTS.md", "actions/checkout")] == ("ok", "used by .github/workflows/ci.yml")
 
 
-def test_a_path_the_tree_holds_stays_a_path_when_a_workflow_uses_the_same_name(tmp_path):
+def test_a_name_under_a_root_directory_stays_a_path_when_a_workflow_uses_the_same_name(tmp_path):
+    """A path the tree holds is `ok` as that path; one missing beside a root `tools/` is a stale path, `fail`."""
     got = _by_file(_scan(tmp_path, "Run `tools/lint` and `tools/gone`.\n",
                          {"tools/lint/run.sh": "", ".github/workflows/ci.yml": "jobs:\n  x:\n    steps:\n"
                           "      - uses: tools/lint@v1\n      - uses: tools/gone@v1\n"}))
     assert got[("AGENTS.md", "tools/lint")] == ("ok", "tools/lint")
-    assert got[("AGENTS.md", "tools/gone")] == ("ok", "used by .github/workflows/ci.yml")  # not `fail` under tools/
+    assert got[("AGENTS.md", "tools/gone")] == ("fail", "tools/ exists but tools/gone does not")
 
 
 def test_a_used_action_inside_a_submodule_keeps_the_submodule_verdict(tmp_path):
