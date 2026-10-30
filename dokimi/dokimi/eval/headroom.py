@@ -9,8 +9,9 @@ measures nothing about the skill. An item is a **floor** when every arm scores a
 ``floor`` (default 0): no arm answers it, which points at the question, its checks or the
 grader rather than at any skill.
 
-An item's floor test leaves out an arm no run scored (listed in ``unscored_arms``), and needs at
-least one non-baseline arm that did score: the baseline alone at zero shows nothing about a skill.
+An item's floor test leaves out an arm no run scored (listed in ``unscored_arms``). It needs the
+no-skill arm scored on the item and at least one non-baseline arm that did score: the baseline alone
+at zero shows nothing about a skill, and an unscored baseline shows nothing either.
 
 An item with fewer than ``min_reps`` runs behind it is ``provisional``: one run's flag may be
 noise. Its reps are the number of runs in which the no-skill arm scored it, so a single artifact
@@ -87,7 +88,8 @@ def _flag(
     if no_skill is not None and no_skill >= ceiling - _EPS:
         return CEILING
     scored = {arm: v for arm, v in arms.items() if v is not None}
-    if any(arm != control for arm in scored) and all(v <= floor + _EPS for v in scored.values()):
+    # An unscored no-skill arm cannot show the item is unanswerable: its judge may just have failed.
+    if no_skill is not None and any(arm != control for arm in scored) and all(v <= floor + _EPS for v in scored.values()):
         return FLOOR
     return None
 

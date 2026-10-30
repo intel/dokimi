@@ -488,3 +488,9 @@ def test_table_note_counts_the_unscored_items_per_arm_instead_of_listing_them():
     table = format_table(headroom([_run(items)], min_reps=1))
     note = next(line for line in table.splitlines() if line.startswith("note:"))
     assert note.endswith("skill in 500 items") and "(" not in note
+
+
+def test_floor_is_not_flagged_when_the_no_skill_arm_was_never_scored_on_the_item():
+    # Item 1's baseline judge failed; the skill at 0 alone is not a floor. Item 2 is one.
+    run = _run([("1", {"baseline": None, "skill": 0}), ("2", {"baseline": 0, "skill": 0})])
+    assert _flags(headroom([run], min_reps=1)) == {"1": None, "2": FLOOR}
