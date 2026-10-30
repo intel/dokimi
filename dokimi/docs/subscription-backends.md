@@ -82,12 +82,14 @@ carries about 37k tokens of agent prompt, tool schemas and `CLAUDE.md`.
 - `--bare` is never used: it reads only `ANTHROPIC_API_KEY`, so a subscription
   login fails with "Authentication error".
 - The child gets the caller's environment minus every variable starting with
-  `ANTHROPIC_`, `CLAUDE_` or `CLAUDECODE`, except `CLAUDE_CONFIG_DIR` and
-  `CLAUDE_CODE_OAUTH_TOKEN`. That drops the session variables, an API key or
+  `ANTHROPIC_`, `CLAUDE_` or `CLAUDECODE`, except `CLAUDE_CONFIG_DIR`,
+  `CLAUDE_CODE_OAUTH_TOKEN` and `CLAUDE_CODE_GIT_BASH_PATH` (Windows). That
+  drops the session variables, an API key or
   token that would win over the login, and a base URL, model alias or
   Bedrock/Vertex switch, so the CLI runs on its own login. If dokimi itself
   runs inside Claude Code and the session variables were passed on, the child
-  would join the parent's session.
+  would join the parent's session. Git is stopped at the work dir's parent
+  (`GIT_CEILING_DIRECTORIES`), so it finds no repository above it.
 - The CLI keeps its own config directory, because that is where the login is
   stored. User settings and `CLAUDE.md` stay out because of
   `--setting-sources ""`.
