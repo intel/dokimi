@@ -137,6 +137,10 @@ class EvaluationPipeline:
                 skipped; when it is absent a warning is logged and questions are
                 generated. Without this argument (and without
                 ``custom_questions_path``) the run has no golden set.
+            registry: ProductRegistry used to find the declared context7_id
+                (default: the bundled products.yaml)
+            judge_placeholder: Also judge a with-docs answer that is the
+                no-retrieval placeholder (default: recorded, not scored)
         """
         if not repo and not description:
             raise ValueError(
