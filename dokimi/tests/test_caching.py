@@ -413,9 +413,8 @@ def test_keeps_is_annotated_for_the_none_of_a_content_less_reply():
 
 
 def test_a_content_less_reply_is_never_stored_or_replayed():
-    # A reply with no content (None) stored as null would replay as "no answer" on every
-    # later run. complete() takes no tools, so a tool-call reply never reaches this test:
-    # chat() is the tool-calling path and is never response-cached.
+    # A None reply stored as null would replay as "no answer" on every later run. Tool-call
+    # replies never get here: complete() takes no tools, and chat() is never response-cached.
     assert caching.keeps(None, None) is False
     assert caching.keeps(lambda _text: True, None) is False
 
