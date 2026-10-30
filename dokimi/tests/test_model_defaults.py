@@ -202,3 +202,11 @@ def test_a_model_priced_under_any_of_its_names_stays_a_known_zero(monkeypatch, l
     assert _has_price_entry(litellm_model, model)
     monkeypatch.setattr(litellm, "model_cost", {})
     assert not _has_price_entry(litellm_model, model)
+
+
+def test_independence_warning_names_the_judge_route_as_well_as_the_answer_route(capsys):
+    from dokimi.commands.evaluate import _warn_judge_independence
+
+    assert _warn_judge_independence("anthropic", "claude-haiku-5-5", "openai", "claude-haiku-5-5")
+    err = capsys.readouterr().err
+    assert "[anthropic/claude-haiku-5-5]" in err and "[openai/claude-haiku-5-5]" in err

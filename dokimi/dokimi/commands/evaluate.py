@@ -36,7 +36,7 @@ def _warn_judge_independence(
         print(
             "⚠ Evaluator independence warning "
             f"({context}): answer model equals judge model "
-            f"[{answer_provider}/{answer_model}] — potential self-referential bias.",
+            f"[{answer_provider}/{answer_model}] and [{judge_provider}/{judge_model}] — potential self-referential bias.",
             file=sys.stderr,
         )
     return same
