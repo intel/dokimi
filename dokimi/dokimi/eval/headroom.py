@@ -230,10 +230,13 @@ def format_table(result: Dict[str, Any]) -> str:
     lines = [_line(head, widths)] + [_line(r, widths) for r in rows]
     if not rows:
         lines.append("(no item is flagged or provisional)")
-    unscored = [f"{item['question_id']} ({', '.join(item['unscored_arms'])})"
-                for item in result["items"] if item["unscored_arms"]]
+    unscored: Dict[str, int] = {}
+    for item in result["items"]:
+        for arm in item["unscored_arms"]:
+            unscored[arm] = unscored.get(arm, 0) + 1
     if unscored:
-        lines.append("note: no run scored these arms, so the floor test leaves them out: " + "; ".join(unscored))
+        counts = [f"{arm} in {n} item{'' if n == 1 else 's'}" for arm, n in sorted(unscored.items())]
+        lines.append("note: no run scored these arms, so the floor test leaves them out: " + "; ".join(counts))
     s = result["summary"]
     th = result["thresholds"]
     lines.append("")

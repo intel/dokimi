@@ -290,7 +290,7 @@ def test_runs_that_declare_different_baselines_need_an_explicit_arm():
 def test_table_notes_the_arms_no_run_scored():
     run = _run([("1", {"baseline": 40, "skill": 60, "other": None}), ("2", {"baseline": 40, "skill": 60})])
     table = format_table(headroom([run], min_reps=1))
-    assert "no run scored" in table and "1 (other)" in table and "2 (" not in table
+    assert "no run scored" in table and "other in 1 item" in table
 
 
 def test_table_names_each_flagged_item():
@@ -442,7 +442,7 @@ def test_command_reads_a_file_nothing_was_judged_in(tmp_path, capsys):
         encoding="utf-8")
     cmd_eval_headroom(_args([path]))
     printed = capsys.readouterr().out
-    assert "yes" in printed and "no run scored these arms" in printed and "1 (baseline, skill)" in printed
+    assert "yes" in printed and "no run scored these arms" in printed and "baseline in 1 item; skill in 1 item" in printed
 
 
 def test_command_exits_2_on_an_input_nested_too_deep_to_read(tmp_path, capsys):
@@ -481,3 +481,10 @@ def test_a_reserialized_copy_of_a_run_counts_once(tmp_path, capsys):
     saved = json.loads(out.read_text(encoding="utf-8"))
     assert saved["runs"] == 1 and saved["items"][0]["reps"] == 1
     assert "counted once" in capsys.readouterr().err
+
+
+def test_table_note_counts_the_unscored_items_per_arm_instead_of_listing_them():
+    items = [(str(q), {"baseline": 40, "skill": None}) for q in range(1, 501)]
+    table = format_table(headroom([_run(items)], min_reps=1))
+    note = next(line for line in table.splitlines() if line.startswith("note:"))
+    assert note.endswith("skill in 500 items") and "(" not in note
