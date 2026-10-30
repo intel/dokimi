@@ -58,33 +58,35 @@ def resolve(root: Path, address: str) -> tuple[Path, Path]:
     """
     candidates = [root / address, Path(address)]
     real_root = os.path.realpath(root)
+    label, shown_root = plain(address), plain(root.as_posix())  # for messages only
     try:  # Python 3.11-3.13 raise PermissionError here for a directory that cannot be searched
         path = next((p for p in candidates if p.exists()), candidates[0])
         if not inside(real_root, os.path.realpath(path)):
             where = "leads outside" if inside(root, path) else "is not under"  # via a symlink
-            raise InputError(f"{address} {where} the runs root {root.as_posix()}/")
+            raise InputError(f"{label} {where} the runs root {shown_root}/")
         if not path.exists():
-            raise InputError(f"no file {address} under the runs root {root.as_posix()}/")
+            raise InputError(f"no file {label} under the runs root {shown_root}/")
         if path.is_dir():
-            raise InputError(f"{address} is a directory; runs show takes one artifact file")
+            raise InputError(f"{label} is a directory; runs show takes one artifact file")
         if not path.is_file():
-            raise InputError(f"{address} is not a regular file")
+            raise InputError(f"{label} is not a regular file")
     except OSError as exc:
-        raise InputError(f"{address}: {read_error_reason(exc)}") from exc
+        raise InputError(f"{label}: {read_error_reason(exc)}") from exc
     if inside(root, path):  # as spelled: keep the name runs list prints
         return Path(os.path.abspath(path)), Path(os.path.abspath(root))
     return Path(os.path.realpath(path)), Path(real_root)
 
 
 def _version(path: Path, address: str) -> str:
+    label = plain(address)
     try:
         version = head_version(path)
     except OSError as exc:
-        raise InputError(f"{address}: {read_error_reason(exc)}") from exc
+        raise InputError(f"{label}: {read_error_reason(exc)}") from exc
     if version is None:
-        raise InputError(f"{address} is not an artifact: it does not open with a schema_version")
+        raise InputError(f"{label} is not an artifact: it does not open with a schema_version")
     if version not in VERSION_KINDS:
-        raise InputError(f"{address} is not an artifact of a registered kind: "
+        raise InputError(f"{label} is not an artifact of a registered kind: "
                          f"schema_version {plain(version)}")
     return version
 
@@ -124,7 +126,7 @@ def show(root: Path, address: str) -> Shown:
         data = load_document(path, version)
         artifact = read_artifact(base, path, version, data)
     except (OSError, ValueError, RecursionError) as exc:
-        raise InputError(f"{address}: {read_error_reason(exc)}") from exc
+        raise InputError(f"{plain(address)}: {read_error_reason(exc)}") from exc
     schema = schema_version_for(kind, data)
     shown = Shown(artifact=artifact, schema=schema, errors=schema_errors(schema, data),
                   contents=contents(kind, data))

@@ -224,3 +224,14 @@ def test_a_time_that_is_not_iso_8601_is_shown_as_written(monkeypatch, capsys, ro
     rows = _list(monkeypatch, capsys).out.splitlines()
 
     assert rows[1].split()[:4] == ["eval.v1", "-", "demo-judge", "yesterday"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows paths cannot hold control characters")
+def test_a_bad_root_is_named_escaped(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("DOKIMI_RUNS_DIR", str(tmp_path / "no\nwhere"))
+
+    with pytest.raises(SystemExit):
+        _list(monkeypatch, capsys)
+
+    err = capsys.readouterr().err
+    assert err == f"Error: runs root DOKIMI_RUNS_DIR={tmp_path}/no\\nwhere does not exist\n"

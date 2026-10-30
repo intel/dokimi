@@ -359,3 +359,10 @@ def test_an_artifact_that_cannot_be_opened_exits_2(monkeypatch, capsys, root):
         (root / "arms" / "onetbb.json").chmod(0o644)
 
     assert err == "Error: arms/onetbb.json: cannot read: Permission denied\n"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows paths cannot hold control characters")
+def test_a_rejected_address_is_named_escaped(monkeypatch, capsys, root):
+    err = _fails(monkeypatch, capsys, "missing\nforged\x1b[2J.json")
+
+    assert err == "Error: no file missing\\nforged\\x1b[2J.json under the runs root results/\n"

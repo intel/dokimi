@@ -142,7 +142,7 @@ def cmd_runs_show(args: argparse.Namespace) -> None:
     check is printed, and the exit code stays 0."""
     root = runs_root()
     if not root.exists():
-        raise InputError(f"no runs root: {root.path.as_posix()}/ does not exist "
+        raise InputError(f"no runs root: {plain(root.path.as_posix())}/ does not exist "
                          f"(DOKIMI_RUNS_DIR names another root)")
     shown = show(root.path, args.path)
     if args.json:
