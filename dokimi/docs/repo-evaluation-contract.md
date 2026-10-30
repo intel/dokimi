@@ -1161,6 +1161,11 @@ when any claim fails, an `also_scan` file is missing, a guidance file cannot be
 read, a Bazel build input (`BUILD`, `.bzl`, `.bazelrc`, ...) cannot be read, or no guidance file matched
 (`incomplete`). A glob that matches nothing
 does not fail the gate, so a file the gate must see belongs in `also_scan`.
+`incomplete_reasons` lists the warnings that make the scan `incomplete`, as
+they appear in `warnings` and in its order (`[]` for a complete scan). The text
+output prints them after the warnings, on one `incomplete: ...` line, and when
+`--fail-on-fail` exits 1 on an incomplete scan it prints them on stderr as
+`✗ scan incomplete: ...`.
 
 Statuses are those of §4.4. Only `fail` counts against the guidance;
 `unresolved` needs a human look. Not implemented yet: the pre-commit↔CI
