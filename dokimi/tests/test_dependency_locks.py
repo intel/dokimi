@@ -151,9 +151,11 @@ def test_mutation_tool_stays_out_of_the_shared_tools_lock() -> None:
     """CI, the release job, pip-audit's tools step and the eval image install the tools lock;
     only mutation.yml installs mutmut, from its own lock."""
     assert "mutmut" not in pins("requirements-ci.lock.txt")
-    assert pins("requirements-mutation.lock.txt")["mutmut"] == {"3.8.0"}
-    requested = (ROOT / "requirements-mutation.txt").read_text(encoding="utf-8")
-    assert "mutmut==3.8.0" in requested
+    locked = pins("requirements-mutation.lock.txt")
+    assert "mutmut" in locked, "requirements-mutation.lock.txt has no mutmut pin"
+    requested = pins("requirements-mutation.txt")
+    assert "mutmut" in requested, "requirements-mutation.txt must pin mutmut exactly"
+    assert requested["mutmut"] == locked["mutmut"]
 
 
 @pytest.mark.parametrize("name", HASHED_LOCKS)
