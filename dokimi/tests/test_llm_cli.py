@@ -793,6 +793,25 @@ def test_the_cli_version_is_its_first_line_and_is_read_once(monkeypatch):
 
 
 @pytest.mark.parametrize(
+    "unreadable",
+    [reply("", timed_out=True), reply("error: login broke", returncode=1), reply("")],
+    ids=["timeout", "non-zero-exit-with-text", "no-output"],
+)
+def test_an_unreadable_cli_version_is_not_kept_for_the_process(monkeypatch, unreadable):
+    # An empty or failed probe must not become the cache key for the rest of the process.
+    llm_cli._version_line.cache_clear()
+    answers = [unreadable, reply("2.1.303 (Claude Code)\nmore")]
+    fake = FakeRunner(lambda call: answers.pop(0))
+    monkeypatch.setattr(llm_cli.process, "run", fake)
+    try:
+        assert llm_cli.cli_version("claude-cli") == ""
+        assert llm_cli.cli_version("claude-cli") == "2.1.303 (Claude Code)"
+        assert len(fake.calls) == 2
+    finally:
+        llm_cli._version_line.cache_clear()
+
+
+@pytest.mark.parametrize(
     "answer, status, exits, printed",
     [
         ("claude-cli", {"loggedIn": False}, True, "is not signed in"),

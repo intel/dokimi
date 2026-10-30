@@ -356,9 +356,16 @@ def cache_extra(provider: str) -> Dict[str, str]:
     return {"cli_version": cli_version(provider)} if backend(provider) is not None else {}
 
 
+class _Unreadable(Exception):
+    """The version probe gave no version line. Raised, not returned, so ``lru_cache`` keeps nothing."""
+
+
 def cli_version(provider: str) -> str:
-    """The CLI's version line, or ``""`` when it cannot be read. Read once per process."""
-    return _version_line(provider)
+    """The CLI's version line, or ``""`` when it cannot be read. Read once per process, once it reads."""
+    try:
+        return _version_line(provider)
+    except _Unreadable:
+        return ""
 
 
 @functools.lru_cache(maxsize=None)
@@ -366,10 +373,12 @@ def _version_line(provider: str) -> str:
     cli = BACKENDS[provider]
     try:
         done = process.run([cli.binary, "--version"], timeout=30, env=_env(cli))
-    except OSError:
-        return ""
-    lines = done.stdout.strip().splitlines()
-    return lines[0] if lines else ""
+    except OSError as exc:
+        raise _Unreadable from exc
+    lines = done.stdout.strip().splitlines() if done.ok else []
+    if not lines:
+        raise _Unreadable
+    return lines[0]
 
 
 def call(provider: str, *, model: str, prompt: str, system: Optional[str] = None,
