@@ -119,8 +119,8 @@ jobs:
               || { set_code true "PR diff failed"; exit 0; }
           fi
           if [ -z "$files" ]; then set_code true "$scope diff is empty"; exit 0; fi
-          # A here-string, not a pipe: under pipefail, grep -q exiting early on a long list
-          # would fail the printf upstream and read a code change as documentation.
+          # A here-string, not a pipe: grep -q may exit early, and the pipe's printf would get SIGPIPE.
+          # This step runs without pipefail, so that is harmless; the here-string just avoids it.
           if grep -qvE "$DOCS" <<< "$files"; then set_code true "$scope changes code"; exit 0; fi
           set_code false "$scope changes only documentation"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
