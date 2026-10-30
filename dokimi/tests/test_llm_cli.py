@@ -411,6 +411,14 @@ def test_the_child_env_drops_billing_and_session_variables_by_prefix(runner, mon
     assert env["CLAUDE_CONFIG_DIR"] == "/accounts/work"
 
 
+def test_the_git_bash_path_a_windows_claude_needs_is_passed_on(runner, monkeypatch):
+    bash = r"C:\Program Files\Git\bin\bash.exe"
+    monkeypatch.setenv("CLAUDE_CODE_GIT_BASH_PATH", bash)
+    runner.answers.append(reply(_ok()))
+    llm_cli.call("claude-cli", model="sonnet", prompt="p")
+    assert runner.calls[0].env["CLAUDE_CODE_GIT_BASH_PATH"] == bash
+
+
 def test_the_work_dir_is_under_the_users_cache_not_the_shared_temp_dir(monkeypatch, tmp_path):
     import tempfile
 
