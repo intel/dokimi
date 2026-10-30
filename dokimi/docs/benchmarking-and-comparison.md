@@ -389,7 +389,9 @@ pinned, only measured: run the same configuration several times
   it as `judge_temperature` in their output. So do `eval pairwise` (and its
   escalation judge), `eval checklist`, `eval judge-wording`, `eval cross-judge`
   (every `--judges` entry) and `eval judge-validity --mode pairwise`; each
-  probes every judge model with the setting first and exits 2 if one rejects it.
+  probes every judge model with the setting first, before any judgement: a judge
+  the provider table refuses exits 2 with no call made, and a probe call that the
+  judge rejects exits 1, as `arms run` does.
 - `--judge-panel technical_expert,developer_advocate,doc_reviewer`: grade with
   several judge roles and record their spread and agreement. An unknown role is
   rejected when the command line is parsed.

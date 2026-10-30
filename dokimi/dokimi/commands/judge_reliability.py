@@ -19,6 +19,7 @@ from dokimi.defaults import (
 )
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY
+from dokimi.exit_codes import EXIT_FAILURE, EXIT_USAGE
 from dokimi.utils import write_text_or_exit
 
 if TYPE_CHECKING:
@@ -115,24 +116,30 @@ def _progress(label: str = ""):
 
 
 def _check_judge_temperature(judges: list[tuple[str, str]], temperature) -> None:
-    """Exit 2 before any judgement when a (model, provider) judge rejects ``temperature``."""
+    """Refuse before any judgement when a (model, provider) judge rejects ``temperature``.
+
+    The provider table naming the setting unsupported is an input refusal: exit 2, no call made.
+    A probe call the judge rejects is a failed model call: exit 1, the same code ``arms run`` gives.
+    """
     if temperature is None:
         return
-    from dokimi.eval.arms_run import probe_sampling
+    from dokimi.eval.arms_run import ProbeError, probe_sampling
     from dokimi.llm import unsupported_sampling_params
     from dokimi.utils import bedrock_litellm_model
 
     for model, provider in dict.fromkeys(judges):
         # A Bedrock judge goes through get_llm, which maps a bare name first.
         resolved = bedrock_litellm_model(model) if provider == "amazon-bedrock" else model
+        if unsupported_sampling_params(resolved, provider, temperature=temperature):
+            print(f"Error: --judge-temperature {temperature} is rejected by judge {provider}/{model}: "
+                  f"provider '{provider}' does not support temperature for model '{model}'", file=sys.stderr)
+            sys.exit(EXIT_USAGE)
         try:
-            if unsupported_sampling_params(resolved, provider, temperature=temperature):
-                raise ValueError(f"provider '{provider}' does not support temperature for model '{model}'")
             probe_sampling(resolved, provider, temperature, None)
-        except ValueError as exc:
+        except ProbeError as exc:
             print(f"Error: --judge-temperature {temperature} is rejected by judge {provider}/{model}: {exc}",
                   file=sys.stderr)
-            sys.exit(2)
+            sys.exit(EXIT_FAILURE)
 
 
 def pairwise_judge(args: argparse.Namespace):

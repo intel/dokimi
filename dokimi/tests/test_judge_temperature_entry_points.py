@@ -194,13 +194,42 @@ def test_judge_reliability_commands_send_no_sampling_without_the_flag(tmp_path, 
     ["--escalate-model", "us.anthropic.only-t1"],
     ["--judges", "amazon-bedrock/us.anthropic.x,amazon-bedrock/us.anthropic.only-t1"],
 ], ids=["pairwise-escalation", "cross-judge"])
-def test_a_judge_that_rejects_the_temperature_exits_2_before_any_judgement(tmp_path, routed, capsys, extra):
+def test_a_judge_whose_sampling_probe_fails_exits_1_before_any_judgement(tmp_path, routed, capsys, extra):
+    # The probe is one real call; its failure is a run failure (1), the same code arms run gives.
     command = "pairwise" if extra[0] == "--escalate-model" else "cross-judge"
     argv = _reliability_argv(command, tmp_path, tmp_path / "out.json")
     if command == "cross-judge":
         argv = argv[:argv.index("--judges")] + argv[argv.index("--judges") + 2:]
     with pytest.raises(SystemExit) as exc:
         _run([*argv, *extra, "--judge-temperature", "0"])
+    assert exc.value.code == 1
+    assert routed and all(_is_probe(r) for r in routed)
+    assert "only-t1" in capsys.readouterr().err
+
+
+def test_a_judge_the_provider_table_refuses_exits_2_with_no_call(tmp_path, routed, monkeypatch, capsys):
+    # A refusal from the static table is an input refusal: no request is sent, so exit 2.
+    monkeypatch.setattr("dokimi.llm.unsupported_sampling_params", lambda *a, **k: ["temperature"])
+    with pytest.raises(SystemExit) as exc:
+        _run([*_reliability_argv("cross-judge", tmp_path, tmp_path / "out.json"), "--judge-temperature", "0"])
     assert exc.value.code == 2
+    assert routed == []
+    assert "rejected by judge" in capsys.readouterr().err
+
+
+def test_arms_run_judge_whose_sampling_probe_fails_exits_1_before_any_answer(tmp_path, routed, monkeypatch, capsys):
+    # Parity with the eval commands above: the same real probe failure, through arms run, is 1.
+    from tests.test_exit_codes_boundaries import _questions
+
+    answered = []
+    monkeypatch.setattr("dokimi.eval.arm_runner.ArmRunner.run",
+                        lambda self, *a, **k: answered.append(1) or [])
+    with pytest.raises(SystemExit) as exc:
+        _run(["arms", "run", "--product", "onedal", "--questions", _questions(tmp_path),
+              "--arms", "baseline", "--out-json", str(tmp_path / "a.json"), "--out-md", str(tmp_path / "a.md"),
+              "--judge", "--judge-provider", "amazon-bedrock", "--judge-model", "us.anthropic.only-t1",
+              "--judge-temperature", "0"])
+    assert exc.value.code == 1
+    assert answered == []
     assert routed and all(_is_probe(r) for r in routed)
     assert "only-t1" in capsys.readouterr().err
