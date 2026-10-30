@@ -130,7 +130,17 @@ SKIP_REASONS = {
     "not_json": "not .json",
     "not_a_file": "not a regular file (a FIFO, socket or device)",
     "linked_directory": "symlinked directories (not walked)",
+    "linked_outside": "symlinks to files outside the root (not read)",
 }
+
+
+def inside(root: Path | str, path: Path | str) -> bool:
+    """True when ``path`` is ``root`` or under it, as spelled (resolve both first for the target)."""
+    base, target = (os.path.normcase(os.path.abspath(p)) for p in (root, path))
+    try:
+        return os.path.commonpath([base, target]) == base
+    except ValueError:  # another drive on Windows
+        return False
 
 
 @dataclass
@@ -206,13 +216,16 @@ def read_error_reason(exc: BaseException) -> str:
     return str(exc)
 
 
-def _scan_file(result: ScanResult, path: Path) -> None:
+def _scan_file(result: ScanResult, path: Path, real_root: str) -> None:
     rel = path.relative_to(result.root)
     skip = _skip_reason(path.name)
     if skip:
         result.skipped[skip] += 1
         return
     try:
+        if path.is_symlink() and not inside(real_root, os.path.realpath(path)):
+            result.skipped["linked_outside"] += 1
+            return
         regular = stat.S_ISREG(path.stat().st_mode)  # opening a FIFO would block
         version = head_version(path) if regular else None
     except OSError as exc:
@@ -249,8 +262,10 @@ def newest_first(artifacts: list[Artifact]) -> list[Artifact]:
 
 
 def scan(root: Path) -> ScanResult:
-    """Every artifact under ``root`` (a directory), newest first; symlinked dirs are not walked."""
+    """Every artifact under ``root`` (a directory), newest first. Symlinked directories are not
+    walked, and a file symlink is read only when it resolves inside the root."""
     result = ScanResult(root=root)
+    real_root = os.path.realpath(root)
 
     def unlisted(exc: OSError) -> None:
         where = Path(exc.filename).relative_to(root) if exc.filename else Path(".")
@@ -261,7 +276,7 @@ def scan(root: Path) -> ScanResult:
         result.skipped["linked_directory"] += sum(_is_link(base / d) for d in dirnames)
         dirnames.sort()
         for name in sorted(filenames):
-            _scan_file(result, base / name)
+            _scan_file(result, base / name, real_root)
     result.artifacts = newest_first(result.artifacts)
     result.skipped = +result.skipped  # drop the zero counts
     return result

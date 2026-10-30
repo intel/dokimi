@@ -293,3 +293,29 @@ def test_a_directory_that_cannot_be_walked_is_unreadable_not_a_crash(tmp_path, m
     (bad,) = result.unreadable
     expected = "locked" if mode == 0o000 else "locked/sub"
     assert (bad.path.as_posix(), bad.reason) == (expected, "cannot list: Permission denied")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlinks need privileges on Windows")
+def test_a_file_symlink_is_read_only_when_it_resolves_inside_the_root(tmp_path):
+    root = tmp_path / "results"
+    _save(root, "eval.v1", "arms/real.json")
+    _save(tmp_path, "eval.v1", "outside/eval.json")
+    (root / "latest.json").symlink_to(root / "arms" / "real.json")
+    (root / "external.json").symlink_to(tmp_path / "outside" / "eval.json")
+
+    result = scan(root)
+
+    assert sorted(a.path.as_posix() for a in result.artifacts) == ["arms/real.json", "latest.json"]
+    assert result.skipped == {"linked_outside": 1}
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlinks need privileges on Windows")
+def test_a_root_that_is_itself_a_symlink_is_read(tmp_path):
+    _save(tmp_path, "eval.v1", "store/e.json")
+    (tmp_path / "store" / "latest.json").symlink_to(tmp_path / "store" / "e.json")
+    (tmp_path / "results").symlink_to(tmp_path / "store", target_is_directory=True)
+
+    result = scan(tmp_path / "results")
+
+    assert sorted(a.path.as_posix() for a in result.artifacts) == ["e.json", "latest.json"]
+    assert not result.skipped

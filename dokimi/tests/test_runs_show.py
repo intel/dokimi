@@ -302,3 +302,48 @@ def test_an_address_in_a_directory_that_cannot_be_searched_exits_2(monkeypatch, 
     # Python 3.11-3.13 raise PermissionError on the lookup; 3.14 reports the file as missing.
     assert err in ("Error: arms/onetbb.json: cannot read: Permission denied\n",
                    "Error: no file arms/onetbb.json under the runs root results/\n")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlinks need privileges on Windows")
+@pytest.mark.parametrize("address", ["linked/eval.json", "external.json"])
+def test_a_symlink_that_leads_outside_the_root_is_not_read(monkeypatch, capsys, root, address):
+    save_artifact("eval", _fixture("eval.v1"), root.parent / "ext" / "eval.json")
+    (root / "linked").symlink_to(root.parent / "ext", target_is_directory=True)
+    (root / "external.json").symlink_to(root.parent / "ext" / "eval.json")
+
+    err = _fails(monkeypatch, capsys, address)
+
+    assert err == f"Error: {address} leads outside the runs root results/\n"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlinks need privileges on Windows")
+def test_a_symlink_inside_the_root_is_shown_by_its_own_name(monkeypatch, capsys, root):
+    (root / "latest.json").symlink_to(root / "arms" / "onetbb.json")
+
+    data = json.loads(_show(monkeypatch, capsys, "latest.json", "--json").out)
+
+    assert (data["path"], data["kind"]) == ("latest.json", "arms")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlinks need privileges on Windows")
+def test_the_real_path_of_a_symlinked_root_is_inside_it(monkeypatch, capsys, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("DOKIMI_RUNS_DIR", raising=False)
+    save_artifact("eval", _fixture("eval.v1"), tmp_path / "store" / "e.json")
+    (tmp_path / "results").symlink_to(tmp_path / "store", target_is_directory=True)
+
+    data = json.loads(_show(monkeypatch, capsys, str(tmp_path / "store" / "e.json"), "--json").out)
+
+    assert data["path"] == "e.json"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlinks need privileges on Windows")
+def test_a_neighbour_that_links_outside_the_root_is_named_not_read(monkeypatch, capsys, root):
+    save_artifact("eval", _fixture("eval.v1"), root.parent / "ext" / "eval.json")
+    (root / "arms" / "ext.json").symlink_to(root.parent / "ext" / "eval.json")
+    (root / "arms" / "in.json").symlink_to(root / "arms" / "plugin_delta.json")
+
+    data = json.loads(_show(monkeypatch, capsys, "arms/onetbb.json", "--json").out)
+
+    assert {"name": "ext.json", "schema_version": None} in data["siblings"]
+    assert {"name": "in.json", "schema_version": "plugin_delta.v1"} in data["siblings"]

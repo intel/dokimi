@@ -52,7 +52,8 @@ skipped: 1 JSON with no leading schema_version, 1 JSON of an unknown schema_vers
   artifacts saved before #27, which did not put it first), JSON of an unknown
   `schema_version` (named), `*.tmp` and `*.rejected` files left by
   `save_artifact`, other files, entries that are not regular files (a FIFO),
-  and symlinked directories, which are not walked. A file or directory that
+  symlinked directories, which are not walked, and symlinks to files outside
+  the root, which are not read. A file or directory that
   cannot be read, or a file that does not parse, is listed as unreadable, with
   the first one's reason.
 - `--kind KIND` (repeatable, for example `--kind arms --kind eval`) and
@@ -94,7 +95,8 @@ next to it: onetbb.md, plugin_delta.json (plugin_delta.v1)
 
 The path is the one `runs list` prints, relative to the root. An absolute
 path, or one from the working directory (`results/arms/onetbb.json`), works
-too if it lies inside the root. The artifact is checked against the schema of
+too if it lies inside the root once symlinks are resolved: neither command
+reads anything outside the root. The artifact is checked against the schema of
 the version it declares. An artifact that fails the check prints
 `schema: invalid, N errors` and each error, and the command still exits 0:
 `runs show` reads, it does not gate. `contents` gives the length of the lists
@@ -110,4 +112,4 @@ directory. `--json` prints the fields of a `runs list` row plus `root`,
 | Listed or shown, including an artifact that fails its schema | 0 |
 | `results/` does not exist (`runs list` prints "no runs") | 0 |
 | `DOKIMI_RUNS_DIR` does not exist, or the root is not a directory | 2 |
-| `runs show`: no root, a path outside the root, a missing file, a directory, or a file that is not a readable artifact of a registered kind | 2 |
+| `runs show`: no root, a path outside the root (or a symlink that leads out of it), a missing file, a directory, or a file that is not a readable artifact of a registered kind | 2 |
