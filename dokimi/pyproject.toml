@@ -305,4 +305,6 @@ pytest_add_cli_args_test_selection = [
   "tests/test_gate_call_sites.py",
   "tests/test_trust_gate.py",
   "tests/test_caching.py",
+  "tests/test_judge_response_cache.py",
+  "tests/test_arm_runner.py",
 ]
