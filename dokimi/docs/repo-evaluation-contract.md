@@ -1332,13 +1332,17 @@ python cli.py repo compare repo-runs/replay --baseline guidance:none --metric re
   reports it (a batch run before `repo run` recorded it), the row is absent.
   Holm's correction runs over the gate and score comparisons of one call; the
   rest are descriptive. Three notes under a comparison keep a row from being
-  misread, and change no number. A gate or score row of 2+ tasks whose
+  misread, and change no delta, interval or p. A gate or score row of 2+ tasks whose
   interval includes 0 is inconclusive, not evidence of no effect: the note
   gives `mde`, the smallest mean delta a two-sided 5% test finds with 80% power
   at that spread, `(t(0.975, n-1) + t(0.80, n-1)) * sd / sqrt(n)` over the
   per-task deltas, the t quantiles at `n-1` degrees of freedom (every row has
   `mde` in `--json`; `null` for one task or deltas with
-  no spread, and then no note). A row whose interval and p disagree (the
+  no spread, and then no note). The sign-flip p over k changed (non-tied)
+  tasks cannot go below `2 / 2^k`, so with 5 or fewer no effect of any size
+  reaches p < 0.05: `mde` is `null` there too, and the note says how low p can
+  go instead (`with 3 changed tasks the sign-flip p cannot go below 0.25: no
+  effect can reach p < 0.05 here`). A row whose interval and p disagree (the
   interval excludes 0 while p is 0.05 or more, or includes 0 while p is below
   0.05) has `interval_p_disagree` `true` and a note: they come from two
   methods, and for gate and score p is the one to read, since a percentile

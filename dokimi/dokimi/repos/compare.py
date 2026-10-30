@@ -40,11 +40,13 @@ or +1 and the exact p equals McNemar's exact test. Holm's correction runs over
 the gate and score comparisons of one invocation; cost, turns and metrics are
 descriptive and keep their raw p.
 
-Three notes keep a row from being misread; none changes a number. A gate or score row of 2+ tasks whose
-interval includes 0 is inconclusive, not "no effect": the note gives ``mde``, the smallest mean delta a
-two-sided 5% test finds with 80% power at the row's spread, ``(t_0.975 + t_0.80) * sd / sqrt(n)`` over the
-per-task deltas, the t quantiles at ``n - 1`` degrees of freedom (in every row; ``None`` for one task or no
-spread). A row whose interval and p disagree (the interval excludes 0 while p is 0.05 or more, or includes it
+Three notes keep a row from being misread; none changes the delta, its interval or p. A gate or score row of
+2+ tasks whose interval includes 0 is inconclusive, not "no effect": the note gives ``mde``, the smallest mean
+delta a two-sided 5% test finds with 80% power at the row's spread, ``(t_0.975 + t_0.80) * sd / sqrt(n)`` over
+the per-task deltas, the t quantiles at ``n - 1`` degrees of freedom (in every row; ``None`` for one task or no
+spread). The sign-flip p over k changed tasks cannot go below ``2 / 2**k``, so at 5 or fewer no effect of any
+size reaches p < 0.05: ``mde`` is ``None`` there too, and the note says how low p can go instead. A row whose
+interval and p disagree (the interval excludes 0 while p is 0.05 or more, or includes it
 while p is below) has ``interval_p_disagree``:
 the two come from different methods, and for gate and score p is the one to read, since the percentile
 bootstrap runs narrow over few tasks (the inconclusive note then gives way to this one). A descriptive row
@@ -523,6 +525,7 @@ def paired_summary(pairs: list[dict[str, Any]], measure: str = "gate", seed: int
     lo, hi = (float(ci["lo"]), float(ci["hi"])) if len(deltas) > 1 else (None, None)  # mean_ci gives numpy floats
     p = sign_flip_p(deltas, seed=seed)
     sd = statistics.stdev(deltas) if len(deltas) > 1 else 0.0
+    reachable = min_sign_flip_p(sum(abs(d) > EPS for d in deltas)) < ALPHA  # else no effect can be detected
     return {
         "n_tasks": len(pairs),
         "baseline_mean": _round(_mean([p["baseline"] for p in pairs])),
@@ -530,7 +533,7 @@ def paired_summary(pairs: list[dict[str, Any]], measure: str = "gate", seed: int
         "delta": {"mean": ci["mean"], "lo": lo, "hi": hi},
         "p": p,
         "p_holm": None,
-        "mde": _round(min_detectable(sd, len(deltas))) if sd > EPS else None,
+        "mde": _round(min_detectable(sd, len(deltas))) if sd > EPS and reachable else None,
         "interval_p_disagree": lo is not None and hi is not None and p is not None and (lo <= 0 <= hi) == (p < ALPHA),
         "up": sum(d > EPS for d in deltas),
         "down": sum(d < -EPS for d in deltas),
@@ -545,6 +548,12 @@ def min_detectable(sd: float, n: int) -> float:
     spread ``sd``. The quantiles are t at ``n - 1`` degrees of freedom, as the interval of ``mean_ci`` is."""
     df = n - 1
     return (sp_stats.t.ppf(1 - ALPHA / 2, df) + sp_stats.t.ppf(POWER, df)) * sd / math.sqrt(n)
+
+
+def min_sign_flip_p(changed: int) -> float:
+    """The smallest p :func:`sign_flip_p` can give over ``changed`` non-zero deltas, every sign the same: only that
+    pattern and its mirror reach the observed ``|sum|``, ``2 / 2**changed`` exact, ``1 / (N + 1)`` Monte Carlo."""
+    return min(1.0, 2 / 2 ** changed) if changed <= EXACT_MAX else 1 / (N_RESAMPLES + 1)
 
 
 def sign_flip_p(deltas: list[float], seed: int = 0, n_resamples: int = N_RESAMPLES) -> float | None:
@@ -614,14 +623,28 @@ def _reading_notes(rows: list[dict[str, Any]]) -> list[str]:
             out.append(f"  {r['measure']}: the interval [{d['lo']:+.3f}, {d['hi']:+.3f}] "
                        f"{'includes' if inside else 'excludes'} 0 but p {r['p']:.4g} is {'<' if inside else '≥'} "
                        f"{ALPHA}; they come from two methods, {how} and a sign-flip test" + ("; read p" if primary else ""))
-        elif primary and r["mde"] is not None and d["lo"] <= 0 <= d["hi"]:
-            out.append(f"  {r['measure']} inconclusive: the interval includes 0; with this spread the smallest effect "
-                       f"80% power detects is about ±{r['mde']:.3f} ({r['n_tasks']} tasks)")
+        elif primary and (note := _inconclusive_note(r)):
+            out.append(note)
     low = [r["measure"] for r in rows if r["measure"] not in PRIMARY and r["p"] is not None and r["p"] < ALPHA]
     if low:
         out.append(f"  p < {ALPHA} on {', '.join(low)}: descriptive rows, their p uncorrected and outside Holm's "
                    "family, which covers gate and score only")
     return out
+
+
+def _inconclusive_note(r: dict[str, Any]) -> str | None:
+    """The note of a gate or score row of 2+ tasks whose interval includes 0: its ``mde``, or why it has none."""
+    d = r["delta"]
+    if d["lo"] is None or not d["lo"] <= 0 <= d["hi"]:
+        return None
+    head = f"  {r['measure']} inconclusive: the interval includes 0; "
+    if r["mde"] is not None:
+        return head + f"with this spread the smallest effect 80% power detects is about ±{r['mde']:.3f} ({r['n_tasks']} tasks)"
+    changed = r["up"] + r["down"]
+    if r["p"] is None or (floor := min_sign_flip_p(changed)) < ALPHA:
+        return None  # every delta tied, or no spread
+    return head + (f"with {changed} changed task{'' if changed == 1 else 's'} the sign-flip p cannot go below "
+                   f"{floor:.4g}: no effect can reach p < {ALPHA} here")
 
 
 def _headroom_note(row: dict[str, Any]) -> str:

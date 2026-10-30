@@ -10,6 +10,8 @@
   summary (`task_filter`) and the text header (`tasks: N of M (--task)`) record the selection.
 - **Reading notes under a `repo compare` comparison** — a gate or score row of 2+ tasks whose interval
   includes 0 says it is inconclusive and gives `mde`, the smallest effect 80% power detects at that
-  spread (`mde` is in every `--json` row); a row whose interval and p disagree says so and why
+  spread (`mde` is in every `--json` row). With 5 or fewer changed tasks the sign-flip p cannot go
+  below 0.05 (its floor is `2 / 2^k` for k changed tasks), so `mde` is `null` and the note says how
+  low p can go instead. A row whose interval and p disagree says so and why
   (`interval_p_disagree`), and for gate and score that p is the one to read; descriptive rows with
-  p below 0.05 are named as uncorrected and outside Holm's family. No number changes.
+  p below 0.05 are named as uncorrected and outside Holm's family. No delta, interval or p changes.

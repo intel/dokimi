@@ -157,17 +157,45 @@ def _score_tasks(b: Path, deltas: list[float], base: float) -> None:
 
 
 def test_an_interval_across_zero_is_inconclusive_with_its_mde(tmp_path):
-    _score_tasks(tmp_path / "b", [0.5, -0.5, 0.25, -0.25], 0.5)  # sample SD 0.456435
+    # six changed tasks: the sign-flip p can go down to 2/64, so 80% power names an effect
+    _score_tasks(tmp_path / "b", [0.5, -0.5, 0.25, -0.25, 0.5, -0.5], 0.5)  # sample SD 0.474342
     s = compare([tmp_path / "b"], "guidance:none")
     score = _row(s, "score")
-    assert score["mde"] == pytest.approx(0.949594, abs=1e-6) and score["interval_p_disagree"] is False
+    assert score["mde"] == pytest.approx(min_detectable(0.474342, 6), abs=1e-6) and score["mde"] > 0.6
+    assert score["interval_p_disagree"] is False
     text = format_compare(s)
-    assert ("  score inconclusive: the interval includes 0; with this spread the smallest effect 80% power "
-            "detects is about ±0.950 (4 tasks)") in text.splitlines()
+    assert (f"  score inconclusive: the interval includes 0; with this spread the smallest effect 80% power "
+            f"detects is about ±{score['mde']:.3f} (6 tasks)") in text.splitlines()
     assert "no effect" not in text
     _score_tasks(tmp_path / "one", [0.5], 0.5)
     one = compare([tmp_path / "one"], "guidance:none")
     assert _row(one, "score")["mde"] is None and "inconclusive" not in format_compare(one)
+
+
+@pytest.mark.parametrize("deltas,changed,floor", [
+    ([0.5, -0.5, 0.25, -0.25], 4, "0.125"),  # four tasks, sample SD 0.456435: a t power figure would say ±0.950
+    ([0.5, -0.5, 0.25, -0.25, 0.5, 0.0], 5, "0.0625"),  # six tasks, one tied: five changed
+])
+def test_no_mde_where_the_sign_flip_p_cannot_reach_005(tmp_path, deltas, changed, floor):
+    _score_tasks(tmp_path / "b", deltas, 0.5)
+    s = compare([tmp_path / "b"], "guidance:none")
+    score = _row(s, "score")
+    assert score["mde"] is None and score["delta"]["lo"] < 0 < score["delta"]["hi"]
+    assert (f"  score inconclusive: the interval includes 0; with {changed} changed tasks the sign-flip p cannot "
+            f"go below {floor}: no effect can reach p < 0.05 here") in format_compare(s).splitlines()
+    assert "80% power" not in format_compare(s)
+
+
+def test_a_gate_row_of_two_changed_tasks_has_no_mde(tmp_path):
+    b = tmp_path / "b"
+    for task, base_ok in (("t1", False), ("t2", False), ("t3", True)):  # gate deltas [1, 1, 0]
+        _cell(b, task, "guidance:none", 1, success=base_ok)
+        _cell(b, task, "guidance:raw", 1)
+    s = compare([b], "guidance:none")
+    gate = _row(s, "gate")
+    assert gate["p"] == 0.5 and gate["delta"]["lo"] == 0.0 and gate["mde"] is None
+    assert ("  gate inconclusive: the interval includes 0; with 2 changed tasks the sign-flip p cannot go below "
+            "0.5: no effect can reach p < 0.05 here") in format_compare(s).splitlines()
 
 
 def test_a_bootstrap_interval_that_excludes_zero_against_p_025_is_flagged(tmp_path):
