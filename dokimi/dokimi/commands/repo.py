@@ -128,7 +128,7 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
     from dokimi.repos.l0 import scan_repo
 
     _, tree = _source_tree(args)
-    manifest = _manifest_or_exit(tree, args, guidance_default=True, also_usage=(OSError, json.JSONDecodeError))
+    manifest = _manifest_or_exit(tree, args, guidance_default=True, also_usage=(OSError,))
     static = _read_static(args.static) if args.static else None
     payload = scan_repo(tree, manifest, static)
     if args.out:
