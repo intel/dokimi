@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..source import RepoTree, SourceError
+from . import workflows
 from .gitignore import GitIgnore, Rule
 from .markdown import PYTHON_LANGS, SHELL_LANGS, STARLARK_LANGS, Fence, split
 
@@ -44,8 +45,8 @@ _ALLCAPS = re.compile(r"^[A-Z][A-Z0-9_]{3,}$")
 _ENV_ASSIGN = re.compile(r"^[A-Za-z_]\w*\+?=")
 _PROMPT = re.compile(r"^\s*(?:\$|>|#\s*\$)\s+")
 _PLACEHOLDER = re.compile(r"^(?:<[^>]+>|\{[^}]+\}|\$\w+|\$\{[^}]+\}|\.\.\.)$")
-# `actions/checkout@v6`, `owner/repo/sub@<sha>…`: a GitHub Action reference, not a path in the tree.
-# A ref ending in a file extension (`assets/icon@2x.png`) is a file name instead.
+# `actions/checkout@v6`, `owner/repo/sub@<sha>…`: a GitHub Action reference, not a path in the tree; without the ref,
+# an Action a workflow step uses is `ok`. A ref ending in a file extension (`assets/icon@2x.png`) is a file name.
 _ACTION_REF = re.compile(r"^[\w.-]+/[\w.-]+(?:/[\w./-]+)?@(?![\w.-]*\.[A-Za-z][A-Za-z0-9]{0,4}$)"
                          r"[\w.-]+?(?:\.\.\.|…)?$")
 _WRAPPED = re.compile(r"^`([^`]+)`(\s+#.*)?$")  # a whole command in backticks, maybe with a comment
@@ -289,8 +290,8 @@ class Scan:
             bases = self._cd
         rel = re.sub(r"(^|/)\.\.\.(?=/|$)", r"\1**", p.lstrip("/"))  # `a/.../b` elides directories
         cands = list(dict.fromkeys(posixpath.normpath(posixpath.join(b, rel)) for b in bases))
-        if _ACTION_REF.match(p) and not any(self.exists(c) for c in cands):
-            return None
+        if not any(self.exists(c) for c in cands) and (_ACTION_REF.match(p) or p in workflows.action_users(self)):
+            return self._action(p)
         if any(c.startswith("..") for c in cands) and all(c.startswith("..") for c in cands):
             return "fail", f"resolves to {cands[0]}, outside the repository"
         sub = self.submodule_of(cands)
@@ -319,6 +320,11 @@ class Scan:
         if hits:
             return "ok_suffix", f"below a directory the text does not name; {len(hits)} match(es), e.g. {hits[0]}"
         return self._missing(cands, rel.endswith("/"), "tried " + ", ".join(cands), "unresolved")
+
+    def _action(self, name: str) -> tuple[str, str] | None:
+        """``ok`` for an Action a workflow uses, named without its ``@ref``; ``None`` (no path claim) for a reference."""
+        used = workflows.action_users(self).get(name)
+        return ("ok", f"used by {used}") if used else None
 
     def _glob(self, bases: list[str], rel: str) -> tuple[str, str]:
         """A glob is judged like the plain path it generalises (see :meth:`resolve_path`)."""

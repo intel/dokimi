@@ -1088,7 +1088,14 @@ when its literal parent directory exists there and nothing in it matches
 or a wildcard in the directory part is never `fail`. A `*` may span
 directories and `**/` matches zero or more. A trailing slash on a file
 (`src/mod.py/`) is `fail`. A GitHub Action reference (`actions/checkout@v6`) is not a
-path claim. A link or path into a submodule is `unresolved`. A
+path claim. An Action named without its ref (`actions/checkout`, `owner/repo/path`)
+that the tree does not hold at the file's directory or an ancestor is `ok` when a
+job or step uses it as `uses: <name>@<ref>`, in a `.yml` or `.yaml` workflow under
+`.github/workflows/` or a local composite action under `.github/` (`action.yml`,
+`action.yaml`); the reason names the first such file, workflows first (`used by
+.github/workflows/ci.yml`). This comes before the parent-directory `fail`, so a
+`.github/actions/` beside it does not fail it. A name only in a `run:` script
+does not count, and an Action no step uses is judged as any other path. A link or path into a submodule is `unresolved`. A
 blob or tree link to `source.url` holds `<ref>/<path>` and the ref may contain
 slashes. A default branch, a commit or a version tag is one segment; any other
 ref is tried at each slash, shortest first, and the link is `ok` if some

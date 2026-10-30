@@ -41,11 +41,12 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
+from .workflows import WORKFLOWS, workflow_files
+
 if TYPE_CHECKING:
     from .core import Scan
     from .markdown import Pieces
 
-WORKFLOWS = ".github/workflows/"
 Version = tuple[int, bool]  # (minor, free-threaded) of a CPython 3 version
 
 _PY = r"(?:[Cc][Pp]ython ?|[Pp]ython ?|[Pp]y)"
@@ -111,7 +112,7 @@ def workflow(scan: Scan, name: str) -> str | None:
     if not s.endswith((".yml", ".yaml")) or " " in s:
         return None
     s = re.sub(r"^(?:\.{0,2}/)+", "", s)  # `/`, `./` and `../` in front
-    flows = scan.cached("workflows", lambda: [f for f in scan.files if f.startswith(WORKFLOWS)])
+    flows = workflow_files(scan)
     for exact in (s, WORKFLOWS + s):
         if exact in flows:
             return exact

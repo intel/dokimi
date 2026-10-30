@@ -632,6 +632,51 @@ def test_a_file_name_with_an_at_sign_is_still_a_path(tmp_path):
     assert got[("path", "tools/run@v2")] == "ok"               # ref-shaped, but it is in the tree
 
 
+def _by_file(payload) -> dict[tuple[str, str], tuple[str, str]]:
+    return {(c["file"], c["claim"]): (c["status"], c["why"]) for c in payload["claims"]}
+
+
+_CHECKOUT = ("jobs:\n  test:\n    steps:\n      - uses: actions/checkout@v6\n"
+             "        with: {persist-credentials: false}\n      - run: echo actions/cache@v4 cached\n")
+
+
+@pytest.mark.parametrize("local_action", [False, True])
+def test_a_bare_action_a_workflow_step_uses_is_ok(tmp_path, local_action):
+    """`actions/checkout` is no path, from the root or `.github/`, also beside a local `.github/actions/<x>/`."""
+    agents = "Every `actions/checkout` sets `persist-credentials: false`; `actions/cache` keeps pip.\n"
+    files = {".github/workflows/ci.yml": _CHECKOUT, ".github/AGENTS.md": agents}
+    if local_action:
+        files[".github/actions/setup/action.yml"] = "runs: {using: composite, steps: []}\n"
+    got = _by_file(_scan(tmp_path, agents, files))
+    for where in ("AGENTS.md", ".github/AGENTS.md"):
+        assert got[(where, "actions/checkout")] == ("ok", "used by .github/workflows/ci.yml")
+    # named only in a `run:` script, so no step uses it: today's verdict, `fail` under an existing .github/actions/
+    assert got[("AGENTS.md", "actions/cache")] == ("unresolved", "tried actions/cache")
+    assert got[(".github/AGENTS.md", "actions/cache")][0] == ("fail" if local_action else "unresolved")
+
+
+def test_actions_used_by_a_yaml_workflow_a_job_and_a_composite_action_are_ok(tmp_path):
+    flow = ("jobs:\n  build:\n    uses: acme/shared/.github/workflows/build.yml@main\n"
+            "  lint:\n    steps: [{uses: actions/setup-python@v6}, {uses: ./.github/actions/setup}]\n")
+    got = _by_file(_scan(tmp_path, "Use `actions/setup-python`.\n\nCall `acme/shared/.github/workflows/build.yml`.\n\n"
+                         "Cache with `actions/cache` and `docker/login-action`.\n",
+                         {".github/workflows/broken.yml": "jobs: [\n", ".github/workflows/build.yaml": flow,
+                          ".github/actions/setup/action.yml": "runs:\n  using: composite\n  steps:\n"
+                                                              "    - uses: actions/cache@v4\n"}))
+    assert got[("AGENTS.md", "actions/setup-python")] == ("ok", "used by .github/workflows/build.yaml")
+    assert got[("AGENTS.md", "acme/shared/.github/workflows/build.yml")] == ("ok", "used by .github/workflows/build.yaml")
+    assert got[("AGENTS.md", "actions/cache")] == ("ok", "used by .github/actions/setup/action.yml")
+    assert got[("AGENTS.md", "docker/login-action")][0] == "unresolved"  # no step uses it; the broken YAML is skipped
+
+
+def test_a_path_the_tree_holds_stays_a_path_when_a_workflow_uses_the_same_name(tmp_path):
+    got = _by_file(_scan(tmp_path, "Run `tools/lint` and `tools/gone`.\n",
+                         {"tools/lint/run.sh": "", ".github/workflows/ci.yml": "jobs:\n  x:\n    steps:\n"
+                          "      - uses: tools/lint@v1\n      - uses: tools/gone@v1\n"}))
+    assert got[("AGENTS.md", "tools/lint")] == ("ok", "tools/lint")
+    assert got[("AGENTS.md", "tools/gone")] == ("ok", "used by .github/workflows/ci.yml")  # not `fail` under tools/
+
+
 def test_links_inside_code_spans_are_not_links(tmp_path):
     got = _verdicts(_scan(tmp_path, "Write `[text](docs/guide.md)` in a page.\n"))
     assert not any(kind == "link" for kind, _ in got)
