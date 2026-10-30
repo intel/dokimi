@@ -42,9 +42,10 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from itertools import permutations
 from typing import Any, Mapping, Optional
 
-from dokimi.eval.reference_checks import Ask, check_values, grade, grade_check
+from dokimi.eval.reference_checks import Ask, _number, check_values, grade, grade_check
 from dokimi.eval.reference_run import grading_by_id
 
 ATTACKS = ("canary", "wrong", "empty", "hedge", "stuffed")
@@ -73,6 +74,10 @@ def canary_for(grading: Mapping[str, Any]) -> Optional[str]:
     if not values or (len(values) > 1 and mode == "all"):
         return None
     text = str(values[0])
+    if kind == "match" and check.get("numeric") and (number := _number(text)) is not None:
+        # The numeric matcher reads a number from the answer with a digit before the point, so "-.5"
+        # would be read as 5: the canary spells the number the grader parsed, in plain decimal.
+        text = f"{number:.12f}".rstrip("0").rstrip(".")
     if kind == "choice":
         return "ANSWER: " + ", ".join(sorted(str(v).strip().upper() for v in values))
     if kind == "json":
@@ -131,7 +136,9 @@ def stuffed_for(grading: Mapping[str, Any]) -> Optional[str]:
     if len(values) < 2 or mode == "all":
         return None
     if _whole_answer(check) and not _reads_first_json(check):
-        return " ".join(values)
+        bare = " ".join(values)
+        # The list is no attack where the grader's own rules accept it (``b a`` is ``b`` once the article goes).
+        return None if grade_check(check, "", bare, None).passed else bare
     candidates: tuple[str, ...]
     if _reads_first_json(check):
         candidates = JSON_DECOYS
@@ -140,7 +147,13 @@ def stuffed_for(grading: Mapping[str, Any]) -> Optional[str]:
     else:
         candidates = WRONG_CANDIDATES
     decoys = [w for w in candidates if not grade_check(check, "", w, None).passed]
-    return f"{decoys[0]} {' '.join(values)} {decoys[1]}" if len(decoys) >= 2 else None
+    # Each decoy is rejected alone, but the whole answer can still end (or begin) with a value: the first
+    # decoy pair whose complete answer the check rejects is used, and none is built when no pair is.
+    for before, after in permutations(decoys, 2):
+        stuffed = f"{before} {' '.join(values)} {after}"
+        if not grade_check(check, "", stuffed, None).passed:
+            return stuffed
+    return None
 
 
 def _positive_checks(grading: Mapping[str, Any]) -> list[Mapping[str, Any]]:
