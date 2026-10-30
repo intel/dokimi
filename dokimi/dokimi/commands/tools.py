@@ -105,7 +105,8 @@ def _write_items(path: str, items: list) -> None:
 
 
 def _save_result(data: dict, path: str) -> None:
-    """Save the tool_preference artifact to ``path``, or exit 2 naming it when it cannot be written."""
+    """Save the tool_preference artifact to ``path``. An unwritable path exits 2 naming it; a payload
+    the schema rejects exits 1."""
     from dokimi.artifacts import ArtifactValidationError, save_artifact
 
     try:
