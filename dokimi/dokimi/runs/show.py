@@ -93,6 +93,8 @@ def _version(path: Path, address: str) -> str:
 
 
 def _siblings(shown: Shown, path: Path, real_root: str) -> None:
+    if not inside(real_root, os.path.realpath(path.parent)):  # reached through a link out and back
+        path = Path(os.path.realpath(path))  # list the artifact's own directory, inside the root
     try:
         with os.scandir(path.parent) as listing:
             entries = sorted((e for e in listing if e.name != path.name), key=lambda e: e.name)

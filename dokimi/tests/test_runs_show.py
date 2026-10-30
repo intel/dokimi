@@ -378,3 +378,16 @@ def test_dot_dot_after_a_symlink_is_the_file_the_filesystem_opens(monkeypatch, c
     data = json.loads(_show(monkeypatch, capsys, "link/../eval.json", "--json").out)
 
     assert (data["kind"], data["path"]) == ("eval", "nested/eval.json")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlinks need privileges on Windows")
+def test_neighbours_are_never_listed_from_outside_the_root(monkeypatch, capsys, root):
+    save_artifact("eval", _fixture("eval.v1"), root.parent / "ext" / "secret.json")
+    (root / "linked").symlink_to(root.parent / "ext", target_is_directory=True)
+    (root.parent / "ext" / "return.json").symlink_to(root / "arms" / "onetbb.json")
+
+    data = json.loads(_show(monkeypatch, capsys, "linked/return.json", "--json").out)
+
+    assert data["kind"] == "arms"
+    assert [s["name"] for s in data["siblings"]] == ["onetbb-matrix/", "onetbb.md",
+                                                     "plugin_delta.json"]
