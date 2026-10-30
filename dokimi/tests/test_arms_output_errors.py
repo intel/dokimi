@@ -200,3 +200,19 @@ def test_matrix_run_exits_2_when_a_cell_cannot_read_its_inputs(tmp_path, monkeyp
         args.func(args)
     assert exc.value.code == 2
     assert capsys.readouterr().err.startswith("Error building matrix cell 'c1':")
+
+
+def test_matrix_run_refuses_an_uncreatable_out_dir_before_any_cell_is_answered(tmp_path, monkeypatch, capsys):
+    import dokimi.eval.arms_run as arms_run
+
+    monkeypatch.setattr(arms_run, "check_sampling_support", lambda config: None)
+    answered = []
+    monkeypatch.setattr(arms_run, "run_prepared", lambda *a, **k: answered.append(a) or {})
+    out_dir = _blocker(tmp_path) / "out"
+
+    args = _matrix_run(tmp_path, out_dir)
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2
+    assert answered == []
+    assert f"Error: cannot write {out_dir / 'cells'}" in capsys.readouterr().err
