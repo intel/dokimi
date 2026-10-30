@@ -223,6 +223,27 @@ def test_repo_source_os_or_value_error_keeps_exit_1_with_a_message(error, comman
     assert str(error) in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("error", [
+    OSError("[Errno 20] Not a directory: '/tmp/cache'"),  # the cache dir cannot be made
+    ValueError("'utf-8' codec can't decode byte 0xe9 in position 3"),  # git output is not UTF-8
+])
+@pytest.mark.parametrize("command", ["fetch", "reach"])
+def test_repo_fetch_and_reach_os_or_value_error_keeps_exit_1_with_a_message(command, error, tmp_path,
+                                                                            monkeypatch, capsys):
+    # fetch and reach print the failure and keep 1, as the other repo commands do; no traceback.
+    def open_failed(source, cache_dir=None):
+        raise error
+
+    monkeypatch.setattr("dokimi.repos.open_source", open_failed)
+    extra = ["--model", "m", "--out", str(tmp_path / "out")] if command == "reach" else []
+    _argv(monkeypatch, "repo", command, f"https://127.0.0.1:9/example.git@{PIN}",
+          "--cache-dir", str(tmp_path / "cache"), *extra)
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 1
+    assert str(error) in capsys.readouterr().err
+
+
 @pytest.mark.parametrize("command", REPO_SOURCE_COMMANDS)
 def test_repo_unpinned_remote_exits_2_for_every_source_command(command, tmp_path, monkeypatch, capsys):
     _argv(monkeypatch, "repo", command, "https://example.com/example.git",
