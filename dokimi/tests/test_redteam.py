@@ -196,6 +196,29 @@ def test_no_canary_when_the_block_is_not_one_literal_check(grading):
     assert canary_for(grading) is None
 
 
+def test_a_stuffed_answer_never_ends_in_a_decoy_the_check_accepts():
+    # QZX is a value, so a stuffed answer that ends in it is accepted by a correct grader; the decoy
+    # is dropped and the answer ends in one the check rejects.
+    grading = _match("Lyon", "QZX-BOGUS-REPLY-4096")
+    stuffed = redteam.attacks(grading)["stuffed"]
+    assert stuffed is not None and not stuffed.endswith("QZX-BOGUS-REPLY-4096")
+    result = run([_q("1", grading)])
+    assert result["violations"] == []
+    assert result["status"] != "blocked"
+
+
+def test_a_stuffed_answer_needs_two_decoys_the_check_rejects():
+    grading = _match("PLANTED-WRONG-ANSWER-7731", "QZX-BOGUS-REPLY-4096", "ZKV-MISMATCH-2508")
+    assert redteam.attacks(grading)["stuffed"] is None
+
+
+def test_a_question_with_one_scored_probe_is_measured_when_another_probe_is_not():
+    # Unmeasured means no probe scored; one unscored probe next to a scored one is not a reason
+    # to call the question unmeasured.
+    row = {"negated_only": False, "probes": {"canary": {"passed": None}, "wrong": {"passed": False}}}
+    assert redteam._unmeasured(row) == ""
+
+
 def test_canary_text_follows_the_check_kind():
     assert canary_for(_match("Paris")) == "The answer is Paris."
     assert canary_for({"checks": [{"type": "match", "values": ["Paris"], "location": "begin"}]}) == "Paris is the answer."
