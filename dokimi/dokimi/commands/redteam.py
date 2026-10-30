@@ -4,8 +4,8 @@
 """``eval redteam``: check that a question set's grading rejects the answers it should.
 
 Reads a questions set (with ``grading`` blocks), grades synthetic attacks against it and prints
-the pass rates. Exits 1 when any attack is accepted, a canary is rejected, or nothing was graded
-(``inconclusive``); exits 2 on an unreadable input or an unwritable ``-o``. Judge checks are not
+the pass rates. Exits 1 when any attack is accepted, a canary is rejected, a graded question was not
+measured, or nothing was graded (``inconclusive``); exits 2 on an unreadable input or an unwritable ``-o``. Judge checks are not
 scored unless ``--judge`` is given, so the default run makes no model call.
 """
 
