@@ -204,6 +204,25 @@ def test_repo_unreachable_source_keeps_exit_1(command, tmp_path, monkeypatch, ca
     assert "✗ git fetch failed" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("error", [
+    OSError("[Errno 17] File exists: '/tmp/cache'"),  # the cache dir cannot be made
+    ValueError("'utf-8' codec can't decode byte 0xe9 in position 3"),  # git output is not UTF-8
+])
+@pytest.mark.parametrize("command", REPO_SOURCE_COMMANDS)
+def test_repo_source_os_or_value_error_keeps_exit_1_with_a_message(error, command, tmp_path, monkeypatch, capsys):
+    # open_source can raise these outside SourceError; the command prints them and keeps 1, as on main.
+    def open_failed(source, cache_dir=None):
+        raise error
+
+    monkeypatch.setattr("dokimi.repos.open_source", open_failed)
+    _argv(monkeypatch, "repo", command, f"https://127.0.0.1:9/example.git@{PIN}",
+          "--cache-dir", str(tmp_path / "cache"))
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 1
+    assert str(error) in capsys.readouterr().err
+
+
 @pytest.mark.parametrize("command", REPO_SOURCE_COMMANDS)
 def test_repo_unpinned_remote_exits_2_for_every_source_command(command, tmp_path, monkeypatch, capsys):
     _argv(monkeypatch, "repo", command, "https://example.com/example.git",

@@ -52,6 +52,10 @@ def _source_tree(args: argparse.Namespace) -> tuple:
     except SourceError as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
+    except (OSError, ValueError) as exc:
+        # A cache dir that cannot be made, or git output that is not UTF-8: a failed read, not a usage error.
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(1)
 
 
 def _manifest_or_exit(tree, args: argparse.Namespace, *, guidance_default: bool = False,
