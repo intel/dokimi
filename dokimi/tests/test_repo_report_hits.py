@@ -6,6 +6,7 @@ batches graded by the real ``dokimi:review_replay`` grader."""
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import threading
@@ -176,6 +177,7 @@ def test_a_grade_nested_too_deep_or_linked_out_of_the_batch_is_no_grade(tmp_path
     assert (found["replay_cells"], [h["rep"] for h in found["hits"]]) == (1, [1])
 
 
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs os.mkfifo")
 def test_a_grade_that_is_a_fifo_is_no_grade_and_does_not_block_the_report(tmp_path):
     batch = tmp_path / "b1"
     _put(batch, "a", "guidance:none", 1, _graded(tmp_path, fence([_f(5)])))
@@ -188,10 +190,14 @@ def test_a_grade_that_is_a_fifo_is_no_grade_and_does_not_block_the_report(tmp_pa
                               daemon=True)  # a read of a FIFO waits for a writer: the thread is kept apart
     reader.start()
     reader.join(10)
-    if reader.is_alive():  # open the write end so the blocked read ends
-        os.close(os.open(fifo, os.O_WRONLY))
-        reader.join(10)
-    assert not reader.is_alive() and "summary" in out, "a grade.json that is a FIFO blocked the report"
+    blocked = reader.is_alive()
+    for _ in range(30):  # open the write end so each blocked read ends (the table's, then the one of --hits)
+        if not reader.is_alive():
+            break
+        with contextlib.suppress(OSError):  # ENXIO: no read of the FIFO is waiting right now
+            os.close(os.open(fifo, os.O_WRONLY | os.O_NONBLOCK))
+        reader.join(1)
+    assert not blocked, "a grade.json that is a FIFO blocked the report"
     assert out["summary"]["rows"][0]["parse_errors"] == 0
     assert (out["hits"]["replay_cells"], [h["rep"] for h in out["hits"]["hits"]]) == (1, [1])
 
