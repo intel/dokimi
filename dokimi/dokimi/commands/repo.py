@@ -220,7 +220,7 @@ def cmd_repo_fetch(args: argparse.Namespace) -> None:
     except SourceArgumentError as exc:  # a pinned local path that is not the repository root
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
-    except SourceError as exc:
+    except (SourceError, OSError, ValueError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
     assert isinstance(tree, GitTree)
@@ -281,7 +281,7 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
     except SourceArgumentError as exc:  # a pinned local path that is not the repository root
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
-    except SourceError as exc:
+    except (SourceError, OSError, ValueError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
     try:  # the manifest and the scenarios it selects: a usage error; a failed git read is a fetch failure (1)
