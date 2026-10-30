@@ -136,6 +136,16 @@ def test_only_a_recorded_miss_with_a_baseline_counts_as_unusable(extra):
     assert (check.value, check.message.split(" ")[0]) == (0.0, "0/10")
 
 
+def test_a_scored_miss_counts_once_in_the_zero_check():
+    # A miss the judge scored (--judge-placeholder) with a 0 context score is a zero already; it
+    # must not also count as an unjudged miss, or the numerator and the denominator both grow.
+    rows = [_row(f"q{i}", 70, 60, True) for i in range(10)] + [_row("scored-miss", 0, 60, False)]
+
+    check = _zero_check(evaluate_trust(rows))
+
+    assert (check.value, check.message.split(" ")[0]) == (round(1 / 11, 3), "1/11")
+
+
 def _judged_with_failures(n_hit, n_miss, failing):
     """Judge the answers through ``evaluate_answers``; each question id in ``failing`` raises in the judge."""
     judge = Judge(model="gpt-x", provider="openai")
