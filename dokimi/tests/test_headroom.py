@@ -232,6 +232,8 @@ def test_the_table_lists_the_control_arm_once():
     ({"floor": -0.1}, r"floor must be in \[0, ceiling\), not -0\.1"),
     ({"min_reps": 0}, r"min_reps must be at least 1, not 0"),
     ({"min_reps": -1}, r"min_reps must be at least 1, not -1"),
+    ({"ceiling": 0.005}, r"ceiling must be at least 0\.01, not 0\.005"),
+    ({"floor": 0.005}, r"floor must be 0 or at least 0\.01, not 0\.005"),
 ])
 def test_unusable_thresholds_are_refused(kwargs, message):
     run = _run([("1", {"baseline": 50, "skill": 50})])
@@ -246,6 +248,7 @@ def test_the_threshold_boundaries_are_accepted():
     assert _flags(result) == {"1": CEILING, "2": None}
     assert result["thresholds"] == {"ceiling": 1.0, "floor": 0.0, "min_reps": 1}
     assert headroom([run], ceiling=0.5, floor=0.49)["thresholds"]["floor"] == 0.49
+    assert headroom([run], ceiling=0.01, floor=0.0, min_reps=1)["thresholds"]["ceiling"] == 0.01
 
 
 def test_no_runs_are_refused():
@@ -347,6 +350,14 @@ def _arms_file(path, scores, baseline="baseline"):
                                for qid, arms in scores.items()]}
     path.write_text(json.dumps(payload), encoding="utf-8")
     return path
+
+
+def test_command_exits_2_on_a_positive_threshold_below_one_score_step(tmp_path, capsys):
+    path = _arms_file(tmp_path / "arms.json", {"1": {"baseline": 99, "skill": 99}})
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_headroom(_args([path], floor=0.005))
+    assert exc.value.code == 2
+    assert "floor must be 0 or at least 0.01, not 0.005" in capsys.readouterr().err
 
 
 def test_command_refuses_an_unknown_no_skill_arm_and_lists_the_arms(tmp_path, capsys):

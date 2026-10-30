@@ -38,6 +38,8 @@ DEFAULT_FLOOR = 0.0
 DEFAULT_MIN_REPS = 3
 
 _EPS = 1e-9  # float error bound for a threshold comparison on a mean of 0-1 scores
+# One score step (scores are read to 0.01): a positive threshold below it cannot tell two scores apart.
+_MIN_THRESHOLD = 0.01
 
 CEILING = "ceiling"
 FLOOR = "floor"
@@ -71,6 +73,10 @@ def check_thresholds(ceiling: float, floor: float, min_reps: int) -> None:
         raise ValueError(f"ceiling must be in (0, 1], not {ceiling!r}")
     if not 0.0 <= floor < ceiling:
         raise ValueError(f"floor must be in [0, ceiling), not {floor!r} (ceiling {ceiling!r})")
+    if ceiling < _MIN_THRESHOLD:
+        raise ValueError(f"ceiling must be at least {_MIN_THRESHOLD}, not {ceiling!r}")
+    if 0.0 < floor < _MIN_THRESHOLD:
+        raise ValueError(f"floor must be 0 or at least {_MIN_THRESHOLD}, not {floor!r}")
     if min_reps < 1:
         raise ValueError(f"min_reps must be at least 1, not {min_reps!r}")
 
