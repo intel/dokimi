@@ -163,8 +163,9 @@ def _claude_error(payload: Dict[str, Any], done: process.Completed) -> CliCallEr
                             retryable=False)
     if "usage limit" in lowered:  # a subscription cap: it resets in hours, a retry cannot help
         return CliCallError(f"claude-cli: {message}", retryable=False)
-    retryable = (status in _RETRYABLE_STATUS or any(w in lowered for w in _RETRYABLE_WORDS)
-                 or _RETRYABLE_STATUS_TEXT.search(lowered) is not None)
+    retryable = status in _RETRYABLE_STATUS or any(w in lowered for w in _RETRYABLE_WORDS)
+    if status is None:  # no structured status: a status the CLI printed as text is the only one there is
+        retryable = retryable or _RETRYABLE_STATUS_TEXT.search(lowered) is not None
     return CliCallError(f"claude-cli: {message}", retryable=retryable)
 
 

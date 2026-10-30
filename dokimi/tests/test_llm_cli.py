@@ -137,6 +137,8 @@ def test_a_long_system_prompt_goes_in_a_file_not_an_argument(runner):
     (reply("", stderr="API Error: 503 Service Unavailable", returncode=1), True, "no JSON reply"),
     (reply(_err("API Error: 503 Service Unavailable", None), returncode=1), True, "503"),
     (reply(_err("API Error: 400 Bad Request: invalid request", None), returncode=1), False, "400"),
+    # The structured status is authoritative: a quoted "error code 500" does not make a 400 retryable.
+    (reply(_err("API Error: 400 invalid request; error code 500 in field x", 400), returncode=1), False, "400"),
 ])
 def test_a_failed_call_says_whether_another_attempt_can_help(runner, answer, retryable, words):
     runner.answers.append(answer)
