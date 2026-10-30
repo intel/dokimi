@@ -24,12 +24,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-#: What a run gives up, keyed by the setting that is off ("sampled": an atom cap the
-#: artifact reached). The forfeits of a run are derived from its resolved settings and,
-#: once known, its atom count -- not fixed per tier -- so `--no-verify` adds the
-#: faithfulness forfeit, and `--all-atoms` or an atom set under the cap drops the
-#: cap's ones. The key's name is old: the cap is not a sample, extraction stops at it
-#: in document order.
+#: What a run gives up, keyed by the setting that is off. "sampled" is a reached atom cap; the
+#: name is old, the cap takes atoms in document order: https://github.com/intel/dokimi/pull/299
 FORFEITS: dict[str, list[str]] = {
     "sampled": [
         "`added` is a rate over the opening of the artifact, up to the atom cap: usable as "
