@@ -452,3 +452,10 @@ def test_command_exits_2_on_an_input_nested_too_deep_to_read(tmp_path, capsys):
         cmd_eval_headroom(_args([path]))
     assert exc.value.code == 2
     assert "Error:" in capsys.readouterr().err
+
+
+def test_min_reps_must_be_a_positive_integer_at_the_parser(tmp_path, capsys):
+    with pytest.raises(SystemExit) as exc:
+        build_parser().parse_args(["eval", "headroom", str(tmp_path / "a.json"), "--min-reps", "0"])
+    assert exc.value.code == 2
+    assert "--min-reps" in capsys.readouterr().err

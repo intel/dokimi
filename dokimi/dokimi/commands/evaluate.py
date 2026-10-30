@@ -567,7 +567,7 @@ def register(sub, positive_int) -> None:
 
     from dokimi.commands import headroom
 
-    headroom.register_eval(eval_sub)  # eval headroom
+    headroom.register_eval(eval_sub, positive_int)  # eval headroom
 
     # eval panel-score
     panel_p = eval_sub.add_parser("panel-score", help="Score answers using a multi-judge panel")

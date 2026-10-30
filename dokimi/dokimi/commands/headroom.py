@@ -61,7 +61,7 @@ def cmd_eval_headroom(args: argparse.Namespace) -> None:
         print(f"Wrote headroom artifact to {args.output}")
 
 
-def register_eval(eval_sub) -> None:
+def register_eval(eval_sub, positive_int) -> None:
     from dokimi.eval.headroom import DEFAULT_CEILING, DEFAULT_FLOOR, DEFAULT_MIN_REPS
 
     h = eval_sub.add_parser(
@@ -74,7 +74,7 @@ def register_eval(eval_sub) -> None:
                    help=f"Flag an item when the no-skill arm scores at least this, 0-1 (default {DEFAULT_CEILING})")
     h.add_argument("--floor", type=float, default=DEFAULT_FLOOR,
                    help=f"Flag an item when every arm scores at most this, 0-1 (default {DEFAULT_FLOOR})")
-    h.add_argument("--min-reps", type=int, default=DEFAULT_MIN_REPS, dest="min_reps",
+    h.add_argument("--min-reps", type=positive_int, default=DEFAULT_MIN_REPS, dest="min_reps",
                    help=f"Items with fewer runs than this are provisional (default {DEFAULT_MIN_REPS})")
     h.add_argument("-o", "--output", default=None, help="headroom.v1 JSON to write")
     h.set_defaults(func=cmd_eval_headroom)
