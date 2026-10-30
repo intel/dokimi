@@ -77,7 +77,7 @@ What this means for results:
 Each call is `claude -p --input-format text --output-format json --model <m>
 --tools "" --setting-sources "" --strict-mcp-config --no-session-persistence
 --system-prompt <s>`. The prompt goes on stdin, so its size is not bounded by
-the argument limit. Without these flags, a plain `claude -p` in a repository
+the argument limit; the system prompt is an argument and is. Without these flags, a plain `claude -p` in a repository
 carries about 37k tokens of agent prompt, tool schemas and `CLAUDE.md`.
 
 - `--bare` is never used: it reads only `ANTHROPIC_API_KEY`, so a subscription
