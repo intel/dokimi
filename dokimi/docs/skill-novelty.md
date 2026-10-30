@@ -134,7 +134,7 @@ marked. Read it as a review queue:
   extracted atom set (at most `max_atoms`, 120 by default) in one call, so every pair is compared
   unless a call fails or its reply has to be split. The artifact records the share as
   `conflict_coverage` (`pairs_compared`, `pairs_total`) and warns `the conflict check compared X of
-  Y atom pairs` when it is short. `pairs_total` is over the extracted atoms, which cover only the input's opening when
+  Y atom pairs` when it is short. `pairs_total` is over the extracted atoms, which are only the ones the cap kept when
   `spans.capped_atom_set` is true. The `harmful_atoms` gate check reads a count of 0 as cleared only
   when the share reaches `min_conflict_coverage` (1.0 by default) and the atom set was not capped;
   otherwise it is `measured: false`, as it is when `conflict_coverage` is present but malformed. A
@@ -893,15 +893,17 @@ Each tier carries the **claims it forfeits**, and those strings are written into
 `run_config.tier` *and* appended to the artifact's warnings. They follow the settings the
 run used and the atoms it extracted, not the tier's name: `--no-verify` adds the
 faithfulness forfeit, and `--all-atoms` or a skill with fewer atoms than the cap drops the
-cap's ones (that `added` is a rate over the opening of the input, up to the atom cap, and
-that `frac_carrying_nothing` is not interpretable on a capped atom set).
+cap's ones (that `added` is a rate over the atoms the cap kept, not the whole input, and
+that `frac_carrying_nothing` is not interpretable on a capped atom set). They do not depend on
+how far the cap reached (`--estimate-only` lists them before it is known), and neither does
+the `harmful_atoms` gate reason (`0 conflicts among the capped atoms`).
 `--estimate-only` cannot know the atom count yet, so it lists them:
 
 > tier `triage` forfeits: no paraphrase probe, so a `redundant` verdict is unprotected
 > against the model matching the artifact's own wording
 
 The cap is not a sample: extraction walks the spans in document order and stops at it, so a
-capped run measures the opening of the input. The input is the text that was segmented: the
+capped run measures the input up to the span it stopped at. The input is the text that was segmented: the
 entry point, plus on a bundle run the files its roles and budgets selected, so a bundled file
 left out is in none of the reach's spans or tokens (the `coverage:` line says how much of the
 artifact went into the input). The warning says how far the cap reached, as in `atom

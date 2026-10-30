@@ -252,7 +252,7 @@ CAP_WARNING = ("atom extraction hit the cap of 1 at span s0002 (2 of the input's
 # Intended change: the cap's forfeit no longer calls `added` a sampled rate, in the tier
 # record, the warnings and the estimate's stderr.
 CAP_FORFEIT_ON_MAIN = "`added` is a sampled rate over the atom cap: usable"
-CAP_FORFEIT = "`added` is a rate over the opening of the input, up to the atom cap: usable"
+CAP_FORFEIT = "`added` is a rate over the atoms the cap kept, not the whole input: usable"
 
 
 @pytest.mark.parametrize("name", list(CASES))

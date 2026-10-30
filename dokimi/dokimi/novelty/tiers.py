@@ -28,8 +28,8 @@ from typing import Any
 #: name is old, the cap takes atoms in document order: https://github.com/intel/dokimi/pull/299
 FORFEITS: dict[str, list[str]] = {
     "sampled": [
-        "`added` is a rate over the opening of the input, up to the atom cap: usable as "
-        "a sign, not as a figure, and not comparable with another artifact's; pass "
+        "`added` is a rate over the atoms the cap kept, not the whole input: usable as a "
+        "sign, not as a figure, and not comparable with another artifact's; pass "
         "--all-atoms for the full sweep",
         "`frac_carrying_nothing` is not interpretable on a capped atom set (0.064 read "
         "as 0.743 on the study's largest artifact)",

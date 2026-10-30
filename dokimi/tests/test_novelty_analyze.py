@@ -584,7 +584,7 @@ def test_a_tier_writes_its_forfeits_into_the_run_it_produced(tmp_path):
     assert len(forfeits) == len(TIERS["triage"]["forfeits"]) - len(FORFEITS["sampled"])
     assert sorted(artifact["run_config"]["tier"]["forfeits"]) == sorted(
         w.split("forfeits: ", 1)[1] for w in forfeits)
-    assert not any("rate over the opening" in w for w in forfeits)
+    assert not any("rate over the atoms the cap kept" in w for w in forfeits)
     validate_artifact("novelty", dict(artifact, schema_version="novelty.v1"))
 
 

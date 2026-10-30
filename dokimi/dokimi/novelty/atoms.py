@@ -422,7 +422,7 @@ def _cap_reach(spans: list[Span], atoms: list[Atom], cap: int | None,
     """How far through the input (``spans``) a capped atom set reached; ``None`` under the cap.
 
     Extraction walks the spans in document order and stops at the cap, so a capped set
-    covers the opening of the input, not a sample of it. The input is the text segmented,
+    covers the input up to the span it stopped at, not a sample of it. The input is the text segmented,
     not the artifact: a bundled file it left out counts in no span. The reach is the last span any
     kept atom cites, not the last batch sent: a batch the cap cut mid-reply was sent whole,
     but its later spans gave no atom. Only the ``sent`` spans count: an atom may cite a span

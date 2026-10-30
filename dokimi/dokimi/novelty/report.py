@@ -269,8 +269,8 @@ def coverage_reach(extraction: dict | None) -> tuple[str, str]:
     """The verb and tail of the headline's coverage line, from the ``extraction`` record.
 
     The coverage share counts the words that went into the input. Under a binding cap the
-    atoms come from the opening of those words only, so the line must not say they were
-    measured, and it says how far the atoms reach.
+    atoms come from those words up to the span the cap stopped at, so the line must not say
+    they were measured, and it says how far the atoms reach.
     """
     reached = (extraction or {}).get("reached")
     if not reached:

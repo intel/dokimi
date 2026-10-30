@@ -5,6 +5,7 @@
 
 import pytest
 
+from dokimi.gate.novelty_gate import uncleared_conflicts
 from dokimi.novelty.report import _capped_at, cap_warning, coverage_reach, render_novelty_markdown
 
 
@@ -92,3 +93,18 @@ def test_a_cap_that_stopped_inside_the_input_still_says_the_rates_describe_the_o
     assert cap_warning(1, inside) == (
         "atom extraction hit the cap of 1 at span s0002 (2 of the input's 5 spans, 35% of its tokens): rates "
         "describe the opening of the input, not all of it; pass --all-atoms for the full sweep")
+
+
+def test_a_cap_met_on_the_last_span_leaves_the_zero_uncleared_without_naming_an_opening():
+    # Every pair compared and no harmful atom: the cap alone leaves the 0 uncleared.
+    end = {"last_span": "s0010", "spans": 10, "of": 10, "tokens_share": 1.0}
+    artifact = _artifact(spans={"capped_atom_set": True, "n_atoms_indexed": 30},
+                         extraction={"reached": end})
+    assert uncleared_conflicts(artifact) == (
+        "the atom set was capped (30 indexed), so 0 conflicts among the capped atoms is not a "
+        "cleared check of the artifact")
+    markdown = render_novelty_markdown(artifact)
+    assert "the atoms reach the input's last span" in markdown
+    assert ("> **Conflicts not cleared.** The atom set was capped (30 indexed), so 0 conflicts "
+            "among the capped atoms") in markdown
+    assert "opening" not in markdown
