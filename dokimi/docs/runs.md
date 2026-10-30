@@ -53,9 +53,10 @@ skipped: 1 JSON with no leading schema_version, 1 JSON of an unknown schema_vers
   `schema_version` (named), `*.tmp` and `*.rejected` files left by
   `save_artifact`, other files, entries that are not regular files (a FIFO),
   symlinked directories, which are not walked, and symlinks to files outside
-  the root, which are not read. A file or directory that
-  cannot be read, or a file that does not parse, is listed as unreadable, with
-  the first one's reason.
+  the root, which are not read. A file or directory that cannot be read is
+  listed as unreadable, as is a file that opens with a registered
+  `schema_version` but does not parse (a file of no registered kind is never
+  parsed). The text summary names the first one's reason; `--json` lists all.
 - `--kind KIND` (repeatable, for example `--kind arms --kind eval`) and
   `--subject NAME` (an exact, case-sensitive match) filter the rows.
 - `--json` prints `root`, `artifacts`, `total` (before filtering), `skipped`,
