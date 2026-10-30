@@ -28,9 +28,17 @@ SMOKE_JOB = "external-catalog-smoke"
 SMOKE_NAME = "External catalog smoke test (uxlfoundation/skills)"
 BULK_FILES = 2000
 
-# The stub `gh api`: serves runs.json and jobs-<run id>.json from $FAKE_GH_DIR, applies --jq
+# The stub `gh`: `gh api` serves runs.json and jobs-<run id>.json from $FAKE_GH_DIR, applies --jq
 # with jq -r as gh does, and fails for a missing fixture (the API being unreadable).
+# `gh run download <id> -D <dir>` copies artifact-<run id>/ from $FAKE_GH_DIR into <dir>.
 GH_STUB = r"""#!/bin/sh
+if [ "$1" = run ] && [ "$2" = download ]; then
+  id=$3; shift 3
+  while [ $# -gt 0 ]; do case "$1" in -D) dir=$2; shift 2 ;; *) shift ;; esac; done
+  [ -d "$FAKE_GH_DIR/artifact-$id" ] || { echo "no artifact for run $id" >&2; exit 1; }
+  mkdir -p "$dir" && cp -R "$FAKE_GH_DIR/artifact-$id/." "$dir/"
+  exit $?
+fi
 [ "$1" = api ] || { echo "unexpected: $*" >&2; exit 2; }
 path=$2
 # The runs request's arguments, one per line, for the test to read back.
@@ -183,8 +191,12 @@ def _run_changes(
     after: str,
     head_ref: str = "feature",
     action: str = "synchronize",
+    tested_base: str | None = "base",
 ) -> str:
-    """Run the changes step's script for a push (or an opened PR); return the code= output."""
+    """Run the changes step's script for a push (or an opened PR); return the code= output.
+
+    tested_base names the commit that a passed run recorded as the base it tested (None: it recorded none).
+    """
     repo = tmp_path / "repo"
     repo.mkdir()
     shas = _history(repo, history)
@@ -200,6 +212,10 @@ def _run_changes(
         for run_id, (name, verify) in enumerate(runs, start=1):
             listing.append({"id": run_id, "head_sha": shas[name]})
             (fake / f"jobs-{run_id}.json").write_text(json.dumps(_job(verify)), encoding="utf-8")
+            if verify == "success" and tested_base is not None:
+                artifact = fake / f"artifact-{run_id}"
+                artifact.mkdir()
+                (artifact / "base.sha").write_text(shas[tested_base] + "\n", encoding="utf-8")
         (fake / "runs.json").write_text(json.dumps({"workflow_runs": listing}), encoding="utf-8")
     out = tmp_path / "github_output"
     step = _step()
@@ -362,10 +378,13 @@ def test_docs_only_push_skips_only_when_all_since_the_last_passed_run_is_docs(tm
 def _runs_request(fake: Path) -> tuple[str, dict[str, list[str]]]:
     """The method and the query of the runs request: the URL's own query, plus the -f fields."""
     args = (fake / "runs-request").read_text(encoding="utf-8").splitlines()
-    method = args[args.index("--method") + 1] if "--method" in args else "GET"
+    # gh api sends a request with fields as POST unless --method says otherwise.
+    field_flags = ("-f", "-F", "--raw-field", "--field")
+    default_method = "POST" if any(flag in field_flags for flag in args) else "GET"
+    method = args[args.index("--method") + 1] if "--method" in args else default_method
     query = parse_qs(urlsplit(args[1]).query, keep_blank_values=True)
     for i, flag in enumerate(args[:-1]):
-        if flag in ("-f", "-F", "--raw-field", "--field"):
+        if flag in field_flags:
             key, _, value = args[i + 1].partition("=")
             query.setdefault(key, []).append(value)
     return method, query
@@ -392,6 +411,27 @@ def test_an_opened_pr_with_only_a_non_ascii_doc_name_is_docs_only(tmp_path):
     assert _run_changes(tmp_path, history, None, "base", "B", action="opened") == "code=false"
 
 
+@pytest.mark.skipif(shutil.which("jq") is None, reason="needs jq for the gh stub's --jq")
+def test_docs_push_runs_the_code_again_when_the_base_moved_since_the_passed_run(tmp_path):
+    # The passed run tested its merge with another base ("V" stands for it): main has moved on
+    # since, so the docs-only push's merge holds base changes that no run tested.
+    history = [("V", "code"), ("B", "docs")]
+    code = _run_changes(tmp_path, history, [("V", "success")], "V", "B", tested_base="V")
+    assert code == "code=true"
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="needs jq for the gh stub's --jq")
+def test_docs_push_runs_the_code_again_when_the_passed_run_recorded_no_base(tmp_path):
+    history = [("V", "code"), ("B", "docs")]
+    code = _run_changes(tmp_path, history, [("V", "success")], "V", "B", tested_base=None)
+    assert code == "code=true"
+
+
 def test_the_smoke_job_may_read_the_runs_it_is_scoped_by():
     job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"][SMOKE_JOB]
     assert job["permissions"]["actions"] == "read"
+
+
+def test_the_changes_step_runs_under_the_shell_flags_the_harness_uses():
+    # shell: bash runs the step as `bash --noprofile --norc -eo pipefail {0}`, the flags _run_changes uses.
+    assert _step()["shell"] == "bash"

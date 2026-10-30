@@ -70,6 +70,8 @@ jobs:
       # Docs are the repo's Markdown (DOCS below); dokimi/data/, tests and .agent-eval count as code. Force pushes run all.
       - id: changes
         working-directory: .
+        # Explicit, so the step runs as `bash --noprofile --norc -eo pipefail`, the flags the test harness uses.
+        shell: bash
         env:
           EVENT: ${{ github.event_name }}
           ACTION: ${{ github.event.action }}
@@ -82,8 +84,8 @@ jobs:
           DOCS: '^([^/]+|dokimi/[^/]+|dokimi/docs/(.+/)?[^/]+|dokimi/changelog\.d/[^/]+|\.github/(.+/)?[^/]+)\.md$'
         run: |
           set_code() { echo "code=$1" >> "$GITHUB_OUTPUT"; echo "changes: code=$1 ($2)"; }
-          # Newest commit reachable from AFTER whose smoke run passed (Verify pass rate succeeded); prints nothing if none.
-          # An unreadable run list also prints nothing; the caller then runs everything.
+          # Newest commit reachable from AFTER whose smoke run passed (Verify pass rate succeeded): prints "<sha> <run id>",
+          # or nothing if none. An unreadable run list also prints nothing; the caller then runs everything.
           last_verified() {
             runs=$(gh api "repos/$REPO/actions/workflows/agent-quality.yml/runs" --method GET \
               -f branch="$HEAD_REF" -f event=pull_request -f status=completed -f per_page=20 \
@@ -93,7 +95,7 @@ jobs:
               git cat-file -e "$sha^{commit}" 2>/dev/null && git merge-base --is-ancestor "$sha" "$AFTER" 2>/dev/null || continue
               verdict=$(gh api "repos/$REPO/actions/runs/$id/jobs" \
                 --jq '.jobs[] | select(.name | startswith("External catalog smoke test")) | .steps[] | select(.name == "Verify pass rate") | .conclusion') || continue
-              if [ "$verdict" = success ]; then echo "$sha"; return 0; fi
+              if [ "$verdict" = success ]; then echo "$sha $id"; return 0; fi
             done <<< "$runs"
           }
           if [ "$EVENT" != pull_request ]; then set_code true "not a pull request"; exit 0; fi
@@ -106,8 +108,16 @@ jobs:
             fi
             # Diffed from the last passed run's commit, not from BEFORE: a run this push
             # cancelled or that failed verified nothing, so its code is diffed again.
-            from=$(last_verified)
+            read -r from verified_run <<< "$(last_verified)" || true
             if [ -z "$from" ]; then set_code true "push: no passed smoke run to diff from"; exit 0; fi
+            # The diff above does not show base changes: the run tested its merge with the base as it was then.
+            # Skip only if the base is still that one (the smoke job records it; no record means run everything).
+            dl=$(mktemp -d)
+            tested_base=$(gh run download "$verified_run" -R "$REPO" -n external-catalog-smoke-runs -D "$dl" >/dev/null 2>&1 && cat "$dl/base.sha") || tested_base=
+            base=$(git rev-parse --verify -q "origin/$BASE_REF") || base=
+            if [ -z "$tested_base" ] || [ "$tested_base" != "$base" ]; then
+              set_code true "push: the base moved since ${from:0:7}, or that run did not record it"; exit 0
+            fi
             scope="push since ${from:0:7}"
             files=$(git -c core.quotepath=false diff --no-renames --name-only "$from" "$AFTER") \
               || { set_code true "push diff failed"; exit 0; }
@@ -119,8 +129,7 @@ jobs:
               || { set_code true "PR diff failed"; exit 0; }
           fi
           if [ -z "$files" ]; then set_code true "$scope diff is empty"; exit 0; fi
-          # A here-string, not a pipe: grep -q may exit early, and the pipe's printf would get SIGPIPE.
-          # This step runs without pipefail, so that is harmless; the here-string just avoids it.
+          # A here-string, not a pipe: grep -q may exit early, and under pipefail the pipe's printf would get SIGPIPE.
           if grep -qvE "$DOCS" <<< "$files"; then set_code true "$scope changes code"; exit 0; fi
           set_code false "$scope changes only documentation"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
@@ -162,6 +171,13 @@ jobs:
             --tasks-root "${{ runner.temp }}/uxl-skills/evaluation/harbor/tasks" \
             --harnesses docker-oracle,docker-probe \
             --out-json "${{ github.workspace }}/logs/external-catalog-smoke/runs.json"
+      # The base-branch tip this run's checkout fetched, which its merge commit was built on. The
+      # changes step of a later docs-only push skips only while the base is still this one.
+      - name: Record the base this run tested
+        if: steps.changes.outputs.code == 'true' && github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: git rev-parse --verify "origin/$BASE_REF" > "${{ github.workspace }}/logs/external-catalog-smoke/base.sha"
       # Every cell passed and none errored (an errored cell leaves pass_rate's
       # denominator, so pass_rate alone would read 1.0), and the probe's fetch
       # was denied by the egress proxy; see scripts/check_smoke_runs.py.
