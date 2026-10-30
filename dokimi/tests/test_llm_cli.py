@@ -314,6 +314,13 @@ def test_detect_reports_install_login_and_method_without_a_model_call():
     assert gone.installed is False and gone.authenticated is None
 
 
+def test_detect_with_an_empty_version_output_has_no_version_and_still_reads_the_login():
+    fake = _auth_runner({"loggedIn": True, "authMethod": "oauth_token"}, version="")
+    got = llm_cli.detect("claude-cli", runner=fake)
+    assert (got.installed, got.version, got.authenticated, got.method, got.hint) == (
+        True, "", True, "oauth_token", "")
+
+
 def test_backends_command_prints_one_row_per_backend(monkeypatch, capsys):
     from dokimi.commands.backends import cmd_backends
 
