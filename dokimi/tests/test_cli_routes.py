@@ -132,9 +132,8 @@ def test_every_route_help_line_ends_in_its_cost_label():
         assert cost in ("free", "paid"), path
         assert action.help and action.help.endswith(f" [{cost}]"), (path, action.help)
         seen.add(path)
-    # A leaf whose parser has no help= is not in _choices_actions at all, so it must be named:
-    # a count would be made up by the root and group lines. `run` and `compare` take the
-    # table's summary in the top-level list instead (the test below).
+    # A leaf with no help= is not in _choices_actions, so it is named, not counted: a count
+    # would include the root and group lines. `run` and `compare`: see the test below.
     assert {leaf.path for leaf in cli_routes.LEAVES if leaf.summary is None} <= seen
 
 
