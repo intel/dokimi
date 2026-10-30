@@ -89,12 +89,42 @@ def _history(repo: Path, names: list[tuple[str, str]]) -> dict[str, str]:
             # and a quoted name does not match the DOCS pattern.
             (repo / "dokimi/docs").mkdir(parents=True, exist_ok=True)
             (repo / "dokimi/docs/é.md").write_text(f"{name}\n", encoding="utf-8")
+        elif kind == "docs_txt":
+            # Only Markdown is docs: a .txt under dokimi/docs/ is code.
+            (repo / "dokimi/docs").mkdir(parents=True, exist_ok=True)
+            (repo / "dokimi/docs/x.txt").write_text(f"{name}\n", encoding="utf-8")
+        elif kind == "markdown_outside_docs":
+            # Markdown under data/ and tests/ is not the docs set: the smoke test reads it.
+            for d in ("dokimi/data", "dokimi/tests"):
+                (repo / d).mkdir(parents=True, exist_ok=True)
+                (repo / d / "x.md").write_text(f"{name}\n", encoding="utf-8")
+        elif kind == "nested_docs":
+            # dokimi/docs/ is docs at any depth; changelog.d/ is docs one level deep.
+            (repo / "dokimi/docs/sub").mkdir(parents=True, exist_ok=True)
+            (repo / "dokimi/docs/sub/a.md").write_text(f"{name}\n", encoding="utf-8")
+            (repo / "dokimi/changelog.d").mkdir(parents=True, exist_ok=True)
+            (repo / "dokimi/changelog.d/1.md").write_text(f"{name}\n", encoding="utf-8")
+        elif kind == "nested_changelog":
+            (repo / "dokimi/changelog.d/sub").mkdir(parents=True, exist_ok=True)
+            (repo / "dokimi/changelog.d/sub/1.md").write_text(f"{name}\n", encoding="utf-8")
+        elif kind == "rename_code_to_md":
+            # A pure rename of code to a docs-set path: only the new name is listed unless
+            # renames are off.
+            (repo / "dokimi/docs").mkdir(parents=True, exist_ok=True)
+            _git(repo, "mv", "src/app.py", "dokimi/docs/app.md")
+        elif kind == "offbranch":
+            # A commit on a side branch from the last commit of main (only docs on top of it), so
+            # that it is not an ancestor of the push but the diff from it reads as docs.
+            _git(repo, "checkout", "-q", "-b", f"side-{name}", list(shas.values())[-1])
+            (repo / "README.md").write_text(f"{name}\n", encoding="utf-8")
         else:
             path = "src/app.py" if kind == "code" else "README.md"
             (repo / path).write_text(f"{name}\n", encoding="utf-8")
         _git(repo, "add", "-A")
         _git(repo, "commit", "-q", "-m", name)
         shas[name] = _git(repo, "rev-parse", "HEAD")
+        if kind == "offbranch":
+            _git(repo, "checkout", "-q", "main")
     return shas
 
 
@@ -229,6 +259,52 @@ SCENARIOS = {
         [("V", "success")],
         "V",
         "A",
+        "true",
+    ),
+    # Only the Markdown in the docs set is docs: a .txt under docs/, or Markdown under data/ and tests/, is code.
+    "non_markdown_under_docs_after_passed_run_is_code": (
+        [("V", "code"), ("A", "docs_txt")],
+        [("V", "success")],
+        "V",
+        "A",
+        "true",
+    ),
+    "markdown_under_data_and_tests_after_passed_run_is_code": (
+        [("V", "code"), ("A", "markdown_outside_docs")],
+        [("V", "success")],
+        "V",
+        "A",
+        "true",
+    ),
+    # docs/ is docs at any depth; changelog.d/ is docs only one level deep.
+    "nested_docs_and_flat_changelog_after_passed_run_are_docs": (
+        [("V", "code"), ("B", "nested_docs")],
+        [("V", "success")],
+        "V",
+        "B",
+        "false",
+    ),
+    "nested_changelog_entry_after_passed_run_is_code": (
+        [("V", "code"), ("A", "nested_changelog")],
+        [("V", "success")],
+        "V",
+        "A",
+        "true",
+    ),
+    # A rename from code to Markdown counts as the code it removes (--no-renames).
+    "rename_from_code_to_markdown_after_passed_run_is_code": (
+        [("V", "code"), ("A", "rename_code_to_md")],
+        [("V", "success")],
+        "V",
+        "A",
+        "true",
+    ),
+    # A passed run on a commit outside the push's history is not a diff base.
+    "passed_run_off_the_history_is_not_a_base": (
+        [("V", "code"), ("X", "offbranch"), ("B", "docs")],
+        [("X", "success")],
+        "V",
+        "B",
         "true",
     ),
     "docs_push_with_non_ascii_doc_name_after_passed_run": (
