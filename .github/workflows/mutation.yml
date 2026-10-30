@@ -33,6 +33,10 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: '3.13'
+          cache: pip
+          cache-dependency-path: |
+            dokimi/requirements.lock.txt
+            dokimi/requirements-mutation.lock.txt
       # The runtime lock for the tests, and mutmut's own lock (requirements-mutation.txt),
       # which no other workflow installs.
       - name: Install deps
