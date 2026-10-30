@@ -156,12 +156,11 @@ def _check_doc_source(plan: dict, entry: Any, refuse: Callable[[str], None], err
     from dokimi.mcp.factory import create_doc_source_client
 
     try:
-        client = create_doc_source_client(plan["doc_source"])
+        create_doc_source_client(plan["doc_source"])
         if plan["doc_source"] == "context7" and getattr(entry, "context7_id", None):
             print(f"  context7_id: {entry.context7_id}")
         elif plan["doc_source"] == "context7":
             warnings.append("context7 id not pinned; client will resolve by target name")
-        _ = client
     except ValueError as exc:
         refuse(f"doc source invalid: {plan['doc_source']} ({exc})")
     except Exception as exc:  # the source cannot be reached or built: a failed check
