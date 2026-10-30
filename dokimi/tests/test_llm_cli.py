@@ -455,6 +455,22 @@ def test_a_reply_names_the_main_model_the_cli_resolved(runner):
     assert out.model_id == "claude-sonnet-5-5"
 
 
+def test_an_empty_reply_gives_no_model_no_tokens_and_no_text(runner):
+    # The parser's empty branches: no modelUsage entries, a null usage and a null result.
+    runner.answers.append(reply(_ok(modelUsage={}, usage=None, result=None)))
+    out = llm_cli.call("claude-cli", model="sonnet", prompt="p")
+    assert out.model_id is None and out.text == ""
+    assert (out.usage.prompt_tokens, out.usage.completion_tokens, out.usage.resolved_model) == (0, 0, "")
+
+
+def test_a_reply_without_a_model_usage_key_names_no_model(runner):
+    payload = json.loads(_ok())
+    del payload["modelUsage"]
+    runner.answers.append(reply(json.dumps(payload)))
+    out = llm_cli.call("claude-cli", model="sonnet", prompt="p")
+    assert out.model_id is None and out.usage.resolved_model == ""
+
+
 def test_the_llm_reply_carries_the_resolved_model_id(runner):
     runner.answers.append(reply(_ok()))
     request = llm.Request(model="sonnet", provider="claude-cli", litellm_model="sonnet",
