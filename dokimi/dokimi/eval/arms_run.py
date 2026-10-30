@@ -348,8 +348,11 @@ def prepare_arms(config: ArmsRunConfig, specs: list[str], questions: list[dict])
     call, raises :class:`ProbeError` (a run failure, exit 1).
     """
     from dokimi.eval.arm_runner import ArmRunner
+    from dokimi.eval.session import check_session_questions
 
     _refuse_judged_session(config)
+    if config.session_turns is not None:
+        check_session_questions(questions, config.session_turns)
     treatments, library_id, plugin_set = _treatments(config, specs, questions)
     check_sampling_support(config)
     judge = None

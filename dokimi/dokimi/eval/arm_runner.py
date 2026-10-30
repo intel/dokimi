@@ -37,7 +37,7 @@ from dokimi.eval.judge_context import JudgeContextStore
 from dokimi.eval.judge_context import build as build_judge_context
 from dokimi.eval.judge_context import cite as cite_judge_materials
 from dokimi.eval.judge_context import join_injected
-from dokimi.eval.session import REMINDER_ARM_SUFFIX, run_session, session_turns_of
+from dokimi.eval.session import REMINDER_ARM_SUFFIX, check_session_questions, run_session, session_turns_of
 from dokimi.metrics.usage import to_record
 from dokimi.treatments.base import Treatment
 
@@ -232,10 +232,7 @@ class ArmRunner:
         n = len(questions)
         if self.session_turns is not None:
             # Before any answer is paid for: a question short of follow-ups fails the run.
-            for i, q in enumerate(questions):
-                qid = question_id(q)
-                session_turns_of(q, question_text_of(q), self.session_turns,
-                                 label=f"#{i}" if qid is None else str(qid))
+            check_session_questions(questions, self.session_turns)
         results: Dict[int, Dict[str, Any]] = {}
         lock = threading.Lock()
         done = [0]
