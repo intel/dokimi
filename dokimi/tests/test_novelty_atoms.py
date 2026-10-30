@@ -7,11 +7,13 @@ from __future__ import annotations
 
 import json
 import re
+from types import SimpleNamespace
 
 import pytest
 
-from dokimi.novelty.atoms import ExtractionError, ExtractionReport, extract_atoms
+from dokimi.novelty.atoms import ExtractionError, ExtractionReport, _cap_reach, extract_atoms
 from dokimi.novelty.client import LLMClient
+from dokimi.novelty.report import floored_percent
 from dokimi.novelty.spans import segment
 
 DOC = "\n\n".join(f"Setting number {i} defaults to {i * 10}." for i in range(1, 11))
@@ -542,3 +544,14 @@ def test_a_run_with_cut_off_and_unusable_splits_names_both_and_keeps_the_advice(
         "unparseable or unusable batches as halves" in w and w.endswith("avoids the extra calls")
         for w in report.warnings(len(spans))
     )
+
+
+@pytest.mark.parametrize("first, share, shown", [
+    (29_999, 0.9999, "99%"),  # one span short of the end: floored, never rounded up to 100%
+    (1, 0.0001, "<1%"),       # a reach above zero is never 0%
+])
+def test_a_cap_reach_share_is_floored_not_rounded(first, share, shown):
+    spans = [SimpleNamespace(id="s0001", tokens=first), SimpleNamespace(id="s0002", tokens=30_000 - first)]
+    reach = _cap_reach(spans, [SimpleNamespace(span_ids=["s0001"])], cap=1)
+    assert reach == {"last_span": "s0001", "spans": 1, "of": 2, "tokens_share": share}
+    assert floored_percent(reach["tokens_share"]) == shown

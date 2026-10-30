@@ -245,6 +245,20 @@ def describe_reach(reached: dict) -> str:
             f"{floored_percent(reached['tokens_share'])} of the tokens)")
 
 
+def reach_is_end(reached: dict) -> bool:
+    """Whether a binding cap stopped on the artifact's last span: the atoms then reach its end, and what the
+    cap cut is the atoms past it in the last reply, not a stretch of the artifact."""
+    return reached["spans"] == reached["of"]
+
+
+def cap_warning(cap: int, reached: dict) -> str:
+    """The warning for a binding cap: where extraction stopped, and what that leaves out."""
+    left_out = ("atoms past the cap in its last reply were dropped" if reach_is_end(reached)
+                else "rates describe the opening of the artifact, not the whole")
+    return (f"atom extraction hit the cap of {cap} at {describe_reach(reached)}: {left_out}; "
+            "pass --all-atoms for the full sweep")
+
+
 def coverage_reach(extraction: dict | None) -> tuple[str, str]:
     """The verb and tail of the headline's coverage line, from the ``extraction`` record.
 
@@ -255,6 +269,9 @@ def coverage_reach(extraction: dict | None) -> tuple[str, str]:
     reached = (extraction or {}).get("reached")
     if not reached:
         return "were measured", ""
+    if reach_is_end(reached):
+        return ("went into the input", "; the capped atoms reach its last span, and the cap "
+                "dropped the atoms past it")
     return ("went into the input", "; the capped atoms come from the first "
             f"{floored_percent(reached['tokens_share'])} of its tokens")
 
@@ -264,6 +281,9 @@ def _capped_at(artifact: dict) -> str:
     reached = (artifact.get("extraction") or {}).get("reached")
     if not reached:
         return ""
+    if reach_is_end(reached):
+        return (f" The atom cap stopped extraction at {describe_reach(reached)}: the atoms reach the "
+                "artifact's last span, and the cap dropped the atoms past it in the last reply.")
     return (f" The atom cap stopped extraction at {describe_reach(reached)}: the atoms "
             "come from the opening of the artifact, not the whole.")
 

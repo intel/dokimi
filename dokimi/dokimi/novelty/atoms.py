@@ -429,11 +429,14 @@ def _cap_reach(spans: list[Span], atoms: list[Atom], cap: int | None) -> dict | 
     order = {span.id: index for index, span in enumerate(spans)}
     last = max(order[span_id] for atom in atoms for span_id in atom.span_ids if span_id in order)
     reached = sum(span.tokens for span in spans[:last + 1])
+    total = sum(span.tokens for span in spans)
+    # Floored in integers, as floored_percent prints it: a cap one span short of the end must not round to 1.0
+    share = reached * 10000 // total
     return {
         "last_span": spans[last].id,
         "spans": last + 1,
         "of": len(spans),
-        "tokens_share": round(reached / sum(span.tokens for span in spans), 4),
+        "tokens_share": (max(share, 1) if reached else 0) / 10000,
     }
 
 
