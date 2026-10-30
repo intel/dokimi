@@ -305,6 +305,12 @@ def test_data_schema_list_names_the_kinds(capsys):
     assert capsys.readouterr().out.split() == ["cli_routes"]
 
 
+def test_data_schema_show_rejects_an_unknown_kind():
+    with pytest.raises(SystemExit) as exc:
+        build_parser().parse_args(["data", "schema", "show", "nope"])
+    assert exc.value.code == 2
+
+
 def test_the_route_document_validates_against_its_schema():
     assert schema_errors("cli_routes.v1", cli_routes.document()) == []
 
