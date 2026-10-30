@@ -25,9 +25,8 @@ ARMS_RUN = ["arms", "run", "--product", "demo", "--questions", "q.json", "--arms
 
 @pytest.mark.parametrize("judge_provider", [[], ["--judge-provider", "openai"]])
 def test_the_config_defaults_are_what_arms_run_runs_without_a_flag(judge_provider):
-    # A command without some flag (subjects run has no --temperature) and a caller building
-    # the config itself both run with these defaults, so they must not drift from the flags'.
-    # The judge model's default hangs on the judge provider, as --judge-model's does.
+    # A command without a flag (subjects run has no --temperature) and a caller building the
+    # config both run these defaults, so they must not drift from the flags'; see #270.
     args = parse_args([*ARMS_RUN, *judge_provider])
     config = ArmsRunConfig(product="demo", judge_provider=args.judge_provider)
 
