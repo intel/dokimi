@@ -28,7 +28,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from .atoms import Atom
-from .client import LLMClient
+from .client import LLMClient, same_client
 from .probes import Probe
 
 # Judge verdict scale. Deliberately finer than the collapses below so a rater
@@ -255,8 +255,6 @@ def run_measurement(
             irrelevant context actively harms them.
         seed: Seed for the ``shuffled`` control, so the control is reproducible.
     """
-    from dokimi.novelty.client import same_client
-
     if same_client(judge, answerer) and not allow_self_judge:
         raise SelfJudgeError(
             f"judge model {judge.model!r} is the answering model; grading a response with "
