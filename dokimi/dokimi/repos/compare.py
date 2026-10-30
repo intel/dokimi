@@ -223,8 +223,18 @@ def _select_tasks(cells: list[dict[str, Any]], missing: list[str],
     unknown = [t for t in dict.fromkeys(tasks) if t not in known]
     if unknown:
         raise CompareError(f"no finished cell of the compared batches has --task {', '.join(unknown)}")
-    kept = [m for m in missing if any(m.partition("/")[2].startswith(f"{t}__") for t in tasks)]  # BATCH/<task>__...
+    kept = [m for m in missing if _cell_task(m.partition("/")[2]) in tasks]  # BATCH/<cell>
     return [c for c in cells if c["task"] in tasks], kept, {"tasks": sorted(set(tasks)), "of": len(known)}
+
+
+def _cell_task(cell: str) -> str | None:
+    """The task of a cell name ``<task>__<arm>__<model>__r<rep>`` (:func:`~dokimi.repos.runner.cell_name`).
+
+    A task id may itself contain ``__``, so the three parts after it are split off from the right; the arm and
+    model are slugs, which the split assumes carry no ``__``. ``None`` for a name of another shape.
+    """
+    parts = cell.rsplit("__", 3)
+    return parts[0] if len(parts) == 4 else None
 
 
 def _one_arm_models(treatment: str, base_vals: dict[tuple[str, str], dict[str, Any]],

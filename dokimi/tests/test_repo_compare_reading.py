@@ -94,6 +94,21 @@ def test_cli_task_is_repeatable_and_lands_in_the_json(tmp_path, capsys):
     assert [u["task"] for u in out["unpaired"]] == ["t4"] and len(out["missing"]) == 1
 
 
+def test_task_matches_a_missing_cell_by_its_task_not_by_a_prefix(tmp_path):
+    # a task id may contain "__": the unfinished cell of fix__a is not a cell of fix
+    b = tmp_path / "b"
+    for task in ("fix", "fix__a"):
+        _cell(b, task, "guidance:none", 1)
+        _cell(b, task, "guidance:raw", 1)
+    (b / "fix__a__guidance-raw__m-1__r2").mkdir()
+    (b / "fix__a__guidance-raw__m-1__r2" / "meta.json").write_text("{}")  # started, never finished: missing
+    s = compare([b], "guidance:none", tasks=["fix"])
+    assert s["missing"] == [] and s["task_filter"] == {"tasks": ["fix"], "of": 2}
+    assert "  tasks: 1 of 2 (--task)" in format_compare(s).splitlines()
+    assert "cells missing" not in format_compare(s)
+    assert compare([b], "guidance:none", tasks=["fix__a"])["missing"] == ["b/fix__a__guidance-raw__m-1__r2"]
+
+
 def test_task_refuses_an_id_no_cell_has(tmp_path, capsys):
     b = tmp_path / "b"
     _three_tasks(b)
