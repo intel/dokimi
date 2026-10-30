@@ -13,8 +13,9 @@
   not compared, and both name it (`task_filter.dropped_arms`, `not compared, no finished cell among
   the --task selection: <arms>`).
 - **Reading notes under a `repo compare` comparison** — a gate or score row of 2+ tasks whose interval
-  includes 0 says it is inconclusive and gives `mde`, the smallest effect 80% power detects at that
-  spread (`mde` is in every `--json` row). With 5 or fewer changed tasks the sign-flip p cannot go
+  includes 0 says it is inconclusive and gives `mde`, an approximate, uncorrected t-based estimate of
+  the effect a 5% one-sample t test detects with 80% power at that spread, a planning figure and not
+  the power of the sign-flip test or of the Holm-corrected decision (`mde` is in every `--json` row). With 5 or fewer changed tasks the sign-flip p cannot go
   below 0.05 (its floor is `2 / 2^k` for k changed tasks), so `mde` is `null` and the note says how
   low p can go instead. The same holds where Holm's correction keeps a gate or score row's
   `p_holm_floor` (its `p_holm` with its p at that floor, the other rows of the family as observed) at

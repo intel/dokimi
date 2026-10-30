@@ -1353,11 +1353,15 @@ python cli.py repo compare repo-runs/replay --baseline guidance:none --metric re
   rest are descriptive. Three notes under a comparison keep a row from being
   misread, and change no delta, interval or p. A gate or score row of 2+ tasks whose
   interval includes 0 is inconclusive, not evidence of no effect: the note
-  gives `mde`, the smallest mean delta a two-sided 5% test finds with 80% power
-  at that spread, `(t(0.975, n-1) + t(0.80, n-1)) * sd / sqrt(n)` over the
-  per-task deltas, the t quantiles at `n-1` degrees of freedom (every row has
-  `mde` in `--json`; `null` for one task or deltas with
-  no spread, and then no note). The sign-flip p over k changed (non-tied)
+  gives `mde`, a planning figure: an approximate, uncorrected t-based estimate,
+  `(t(0.975, n-1) + t(0.80, n-1)) * sd / sqrt(n)` over the per-task deltas, of
+  the mean delta a one-sample t test at the uncorrected two-sided 5% level
+  detects with 80% power at that spread, the t quantiles at `n-1` degrees of
+  freedom (every row has `mde` in `--json`; `null` for one task or deltas with
+  no spread, and then no note). It is not the power of the sign-flip test nor
+  of the Holm-corrected decision; a Holm-calibrated figure would depend on the
+  other rows' observed p, which a figure for planning the next run's task count
+  cannot know. The sign-flip p over k changed (non-tied)
   tasks cannot go below `2 / 2^k`, so with 5 or fewer no effect of any size
   reaches p < 0.05: `mde` is `null` there too, and the note says how low p can
   go instead (`with 3 changed tasks the sign-flip p cannot go below 0.25: no
@@ -1367,7 +1371,8 @@ python cli.py repo compare repo-runs/replay --baseline guidance:none --metric re
   `null` on a descriptive row or one with every task tied), and where it is not below
   0.05, `mde` is `null` and the note names Holm instead (`with Holm over 2
   rows, p_holm cannot go below 0.0625 here: no effect can reach p_holm <
-  0.05`); a family of one row is the raw rule. A row whose interval and p disagree (the
+  0.05`); a family of one row is the raw rule. `p_holm_floor` decides only
+  whether `mde` is given, not its size. A row whose interval and p disagree (the
   interval excludes 0 while p is 0.05 or more, or includes 0 while p is below
   0.05; for gate and score that p is `p_holm`, the one that decides them, and the
   note quotes it) has `interval_p_disagree` `true` and a note: they come from two

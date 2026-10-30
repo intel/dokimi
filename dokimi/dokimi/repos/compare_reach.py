@@ -1,8 +1,8 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""How small an effect a ``repo compare`` row can find: ``mde``, and the lowest ``p_holm`` Holm's family leaves a
-gate or score row (:mod:`.compare`)."""
+"""How small an effect a ``repo compare`` row can find: ``mde``, an uncorrected t-based planning estimate, and the
+lowest ``p_holm`` Holm's family leaves a gate or score row (:mod:`.compare`)."""
 
 from __future__ import annotations
 
@@ -18,8 +18,10 @@ POWER = 0.80
 
 
 def min_detectable(sd: float, n: int) -> float:
-    """The smallest mean delta a two-sided test at :data:`ALPHA` finds with :data:`POWER` over ``n`` tasks of
-    spread ``sd``. The quantiles are t at ``n - 1`` degrees of freedom, as the interval of ``mean_ci`` is."""
+    """An approximate, uncorrected t-based estimate of the mean delta a two-sided one-sample t test at :data:`ALPHA`
+    detects with :data:`POWER` over ``n`` tasks of spread ``sd``, a planning figure: not the power of the sign-flip
+    test nor of the Holm-corrected decision. The quantiles are t at ``n - 1`` degrees of freedom, as the interval
+    of ``mean_ci`` is."""
     df = n - 1
     return (sp_stats.t.ppf(1 - ALPHA / 2, df) + sp_stats.t.ppf(POWER, df)) * sd / math.sqrt(n)
 

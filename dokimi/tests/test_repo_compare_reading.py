@@ -200,6 +200,10 @@ def _score_tasks(b: Path, deltas: list[float], base: float) -> None:
         _cell(b, f"review_{i}", "guidance:raw", 1, score=base + d)
 
 
+MDE_NOTE = ("  score inconclusive: the interval includes 0; an uncorrected t-test estimate puts the effect 80% power "
+            "detects at this spread at about ±{:.3f} ({} tasks), before Holm and not for the sign-flip test")
+
+
 def test_an_interval_across_zero_is_inconclusive_with_its_mde(tmp_path):
     # six changed tasks: the sign-flip p can go down to 2/64, so 80% power names an effect
     _score_tasks(tmp_path / "b", [0.5, -0.5, 0.25, -0.25, 0.5, -0.5], 0.5)  # sample SD 0.474342
@@ -208,8 +212,7 @@ def test_an_interval_across_zero_is_inconclusive_with_its_mde(tmp_path):
     assert score["mde"] == pytest.approx(min_detectable(0.474342, 6), abs=1e-6) and score["mde"] > 0.6
     assert score["interval_p_disagree"] is False
     text = format_compare(s)
-    assert (f"  score inconclusive: the interval includes 0; with this spread the smallest effect 80% power "
-            f"detects is about ±{score['mde']:.3f} (6 tasks)") in text.splitlines()
+    assert MDE_NOTE.format(score["mde"], 6) in text.splitlines()
     assert "no effect" not in text
     _score_tasks(tmp_path / "one", [0.5], 0.5)
     one = compare([tmp_path / "one"], "guidance:none")
@@ -264,8 +267,8 @@ def test_a_row_holm_still_lets_reach_005_keeps_its_mde(tmp_path):
     assert raw["mde"] == pytest.approx(min_detectable(statistics.stdev(eight), 8), abs=1e-6)
     assert other["p_holm_floor"] == 0.0625 and other["mde"] is None
     lines = format_compare(s).splitlines()
-    assert (f"  score inconclusive: the interval includes 0; with this spread the smallest effect 80% power "
-            f"detects is about ±{raw['mde']:.3f} (8 tasks)") in lines
+    # the figure is the one-row t estimate: Holm (raw p < 0.025 here) only decides that it is given
+    assert MDE_NOTE.format(raw["mde"], 8) in lines
     assert HOLM_NOTE.format("0.0625") in lines
 
 
