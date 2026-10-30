@@ -128,6 +128,13 @@ _ROUTES = frozenset({
 })
 
 
+# Vendors whose Bedrock ids start with ``vendor.`` (``anthropic.claude-...``, ``openai.gpt-oss-...``).
+_VENDORS = frozenset({
+    "ai21", "amazon", "anthropic", "cohere", "deepseek", "google", "luma", "meta", "minimax", "mistral",
+    "moonshotai", "nvidia", "openai", "qwen", "stability", "twelvelabs", "writer",
+})
+
+
 def _model_core(model: str) -> tuple[str, str | None]:
     """A model name reduced to ``(id, snapshot date or None)``. A snapshot is ``-YYYYMMDD`` or OpenAI's ``-YYYY-MM-DD``.
 
@@ -141,8 +148,11 @@ def _model_core(model: str) -> tuple[str, str | None]:
         if marker in name:
             name = name.rsplit(marker, 1)[-1]
     parts = name.split("/")
-    while len(parts) > 1 and parts[0] in _ROUTES:
+    if parts[0] == "huggingface" and len(parts) > 1:  # a Hub id: the route goes, its organization stays
         parts.pop(0)
+    else:
+        while len(parts) > 1 and parts[0] in _ROUTES:
+            parts.pop(0)
     name = "/".join(parts)
     name = re.sub(r"-v?\d+:\d+$", "", name)
     for prefix in _REGION_PROFILES:
@@ -160,9 +170,10 @@ def model_identity(model: str) -> tuple[str | None, str | None]:
     base, date = _model_core(model)
     if not base:
         return None, date
-    # a lowercase word before the first dot is taken as a vendor prefix (``anthropic.``, ``amazon.``) and
-    # dropped; a dot after a digit or a dash (``gpt-4.1``, ``qwen2.5``) is part of the name
-    ident = re.sub(r"^[a-z]+\.", "", base)
+    # a known vendor before the first dot (``anthropic.``, ``openai.``, as in Bedrock ids) is dropped; any other
+    # dotted name is part of the id (``alice.model``), and so is a dot after a digit or a dash (``gpt-4.1``)
+    head, dot, rest = base.partition(".")
+    ident = rest if dot and head in _VENDORS else base
     return (ident if re.search(r"[a-z0-9]", ident) else None), date  # separators alone name no model
 
 

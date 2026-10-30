@@ -191,6 +191,17 @@ def test_a_panel_is_matched_by_its_judges_multiset_not_their_set():
                    ("panel", "anthropic/m,openai/n,openai/n")) == "mismatch"
 
 
+def test_custom_dotted_names_and_a_huggingface_organization_are_different_models():
+    """A custom deployment name is not its first dotted word, and a Hugging Face organization is part of the id:
+    `--strict` refuses both changes."""
+    verdict = baseline_mod._recorded_verdict
+    assert verdict(("azure", "alice.model"), ("azure", "bob.model")) == "mismatch"
+    assert verdict(("huggingface", "huggingface/google/gemma-2-9b-it"), ("huggingface", "gemma-2-9b-it")) == "mismatch"
+    lines, _ = baseline_mod._model_mismatches(
+        _eval(judge=("azure", "alice.model")), _eval(judge=("azure", "bob.model")))
+    assert lines == ["judge model: baseline azure/alice.model, current azure/bob.model"]
+
+
 def test_two_snapshots_of_one_judge_model_are_a_mismatch():
     lines, _ = baseline_mod._model_mismatches(
         _eval(judge=("anthropic", "claude-sonnet-4-5-20240620")),

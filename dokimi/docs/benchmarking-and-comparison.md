@@ -791,6 +791,7 @@ mix the model change with the content change. With `--strict` it exits 1
 instead. Two records name one model when they have the same id and snapshot: a Bedrock alias and its
 inference profile, a regional profile, a `-vN:M` revision or the same model behind another route count
 as the same model; two different dated snapshots, or the same name under another organization, are two models.
+A custom dotted name (`alice.model`) is not a vendor prefix, and a `huggingface/` route keeps its organization.
 A dated snapshot and its undated alias are neither: the alias does not record which snapshot answered, so the
 role is named on stderr as not verified, and `--strict` exits 1 on it. A baseline saved before a default-model
 change is such a baseline. A panel

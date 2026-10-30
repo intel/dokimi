@@ -14,5 +14,7 @@
   `dokimi run` stores `run_metadata.evaluator_independence_warning` by this rule too, as `dokimi eval` does (it
   was an exact provider-and-model match, so the printed warning and the stored flag disagreed).
   A route is a provider or gateway prefix; the organization of an `org/name` id is part of the id, so
-  `meta-llama/X` and `myorg/X` are two models. So a bare requested name answered by an org-prefixed id (`X` answered by `myorg/X`)
+  `meta-llama/X` and `myorg/X` are two models. Only a known vendor before the first dot is dropped (`anthropic.`,
+  `openai.`, as in Bedrock ids), so a custom name such as `alice.model` stays its own model, and an explicit
+  `huggingface/` route keeps the organization after it (`huggingface/google/X` is not `X`). So a bare requested name answered by an org-prefixed id (`X` answered by `myorg/X`)
   now gets the `repo compare` and `repo report` model-mismatch warning, which it did not before.

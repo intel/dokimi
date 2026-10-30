@@ -63,6 +63,17 @@ CASES = [
     ("models/gemini-2.0-flash", "gemini-2.0-flash", True),
     ("arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0",
      "claude-sonnet-4-5-20250929", True),
+    # a custom deployment name with a dot is not a vendor prefix: only the vendors of Bedrock ids are dropped
+    ("alice.model", "bob.model", False),
+    ("alice.model", "model", False),
+    ("alice.model", "alice.model", True),
+    ("azure/alice.model", "azure/bob.model", False),
+    # an explicit Hugging Face route is dropped, and the organization after it stays part of the id
+    ("huggingface/google/gemma-2-9b-it", "gemma-2-9b-it", False),
+    ("huggingface/google/gemma-2-9b-it", "huggingface/google/gemma-2-9b-it", True),
+    ("huggingface/meta-llama/Llama-3.1-8B-Instruct", "meta-llama/llama-3.1-8b-instruct", True),
+    ("huggingface/openai/gpt-oss-120b", "huggingface/myorg/gpt-oss-120b", False),
+    ("huggingface/gemma-2-9b-it", "gemma-2-9b-it", True),
 ]
 
 
