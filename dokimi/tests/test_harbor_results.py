@@ -311,8 +311,17 @@ def test_a_command_template_keeps_its_exit_code_fallback(tmp_path):
     result = create_harness("command:my-wrapper {task_path}", runner=FakeRunner()).run(
         task, output_dir=tmp_path / "cell")
 
-    assert (result.passed, result.reward) == (True, None)
+    assert (result.passed, result.reward) == (True, 1.0)
     assert "error" not in result.metrics
+
+
+@pytest.mark.parametrize("returncode, expected", [(0, (True, 1.0)), (3, (False, 0.0))])
+def test_a_command_template_scores_its_exit_code_when_it_prints_no_reward(tmp_path, returncode, expected):
+    task = load_task(_fixture_task(tmp_path / "tasks"))
+    result = create_harness("command:my-wrapper {task_path}", runner=FakeRunner(lambda call: reply("", "", returncode))).run(
+        task, output_dir=tmp_path / "cell")
+
+    assert (result.passed, result.reward) == expected
 
 
 @pytest.mark.parametrize("reward_val, expect_pass, expect_reward", [

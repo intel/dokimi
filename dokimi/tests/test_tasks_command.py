@@ -243,6 +243,24 @@ def test_task_completion_refuses_missing_planned_cells(rows, capsys):
     assert "missing" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("script, expected", [("pass", 0), ("raise SystemExit(1)", 0)])
+def test_command_harness_exit_code_verdict_is_a_complete_run(tmp_path, capsys, script, expected):
+    import sys
+
+    _fixture_task(tmp_path)
+    harness = f'command:{Path(sys.executable).as_posix()} -c "{script}"'
+    args = build_parser().parse_args([
+        "tasks", "run", "--tasks", "toy-task", "--tasks-root", str(tmp_path),
+        "--harnesses", harness, "--out-json", str(tmp_path / "runs.json"),
+    ])
+    try:
+        args.func(args)
+        code = 0
+    except SystemExit as exc:
+        code = exc.code
+    assert code == expected, capsys.readouterr().err
+
+
 @pytest.mark.outcome("cjm-tasks-completion")
 def test_task_completion_refuses_an_empty_plan(capsys):
     from dokimi.commands.tasks import _check_completion
@@ -300,7 +318,6 @@ def test_partial_suite_writes_remaining_results_before_refusing(tmp_path, monkey
     data = json.loads((tmp_path / "runs.json").read_text())
     assert len(data["results"]) == 1 and data["results"][0]["harness"] == "claude-code"
     assert (tmp_path / "runs.md").is_file()
-
 
 
 def test_tasks_run_with_a_missing_task_exits_with_a_message(tmp_path):

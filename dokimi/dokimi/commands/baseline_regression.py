@@ -32,7 +32,7 @@ def _scored(rows: list[Record]) -> dict[str, tuple[Decimal, Decimal]]:
     values = {}
     for row in rows:
         context, baseline = row.score(CONTEXT), row.score(BASELINE)
-        if row.error or any(s.error for s in row.scores.values()):
+        if row.error or any(s.error or s.incomplete for s in row.scores.values()):
             continue
         if context is not None and baseline is not None and math.isfinite(context) and math.isfinite(baseline):
             context_value = Decimal(str(context))

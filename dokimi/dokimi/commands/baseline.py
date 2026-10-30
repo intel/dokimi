@@ -282,8 +282,6 @@ def cmd_baseline_compare(args: argparse.Namespace) -> None:
 
     _report_model_checks(args, entry, baseline_data, eval_data)
 
-    baseline_regression.check(args, baseline_records, current_evals)
-
     print(f"Comparing against baseline: {entry['name']} (saved {entry.get('saved_at', '?')})\n")
 
     deltas_changed = []
@@ -318,6 +316,8 @@ def cmd_baseline_compare(args: argparse.Namespace) -> None:
               f"the current eval ({len(current_evals)} current, {len(baseline_evals)} baseline evaluations).")
     else:
         print(f"\n✅ No notable changes vs baseline ({n_compared} of {len(current_evals)} questions compared).")
+
+    baseline_regression.check(args, baseline_records, current_evals)
 
 
 def register(sub, positive_int) -> None:

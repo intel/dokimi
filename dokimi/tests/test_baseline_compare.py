@@ -246,7 +246,8 @@ def test_regression_gate_uses_unrounded_scores_not_stored_delta(compare, capsys,
     with pytest.raises(SystemExit) as exc:
         compare(base, cur, flag, "0")
     assert exc.value.code == 1
-    assert "REGRESSION" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "REGRESSION" in out and "Comparing against baseline" in out
 
 
 @pytest.mark.parametrize("flag", ["--max-context-drop", "--max-lift-drop"])
@@ -275,6 +276,21 @@ def test_regression_gate_refuses_incomplete_evidence(compare, capsys, kind):
         cur.pop("run_metadata")
     else:
         cur["judge_model"] = "other"
+    with pytest.raises(SystemExit) as exc:
+        compare(base, cur, "--max-context-drop", "0")
+    assert exc.value.code == 1
+    assert "Regression gate: PASS" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("where", ["votes", "panel"])
+def test_regression_gate_refuses_a_panel_score_with_a_failed_vote(compare, capsys, where):
+    base, cur = _eval(), _eval()
+    votes = [{"aggregate": 7.0, "error": None}, {"aggregate": None, "error": "judge failed"}]
+    block = cur["evaluations"][0]["with_docs"]
+    if where == "votes":
+        block["votes"] = votes
+    else:
+        block["panel"] = {"votes": votes}
     with pytest.raises(SystemExit) as exc:
         compare(base, cur, "--max-context-drop", "0")
     assert exc.value.code == 1

@@ -159,6 +159,7 @@ class CommandHarness:
             passed = reward is not None and reward >= 1.0
             if reward is None:
                 passed = returncode == 0
+                reward = 1.0 if passed else 0.0
 
         metrics: dict[str, Any] = {
             "dry_run": False,
