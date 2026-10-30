@@ -207,10 +207,8 @@ def _collect(runs: Sequence[Run]) -> Tuple[Dict[str, Dict[str, List[float]]], Di
 
 
 def _sort_key(qid: str):
-    if qid.isdigit() and not qid.isascii():
-        # isdigit() accepts superscripts and other digits int() refuses: name the id, do not crash.
-        raise ValueError(f"question id {qid!r} uses non-ASCII digits; use ASCII digits or a non-numeric id")
-    return (0, int(qid), qid) if qid.isdigit() else (1, 0, qid)
+    # isdigit() also accepts superscripts and other digits int() refuses: those sort as text, not numbers.
+    return (0, int(qid), qid) if qid.isascii() and qid.isdigit() else (1, 0, qid)
 
 
 def format_table(result: Dict[str, Any]) -> str:

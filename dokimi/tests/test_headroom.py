@@ -200,11 +200,11 @@ def test_repeated_question_id_in_one_run_is_refused():
         headroom([run], no_skill_arm="baseline")
 
 
-def test_a_non_ascii_digit_question_id_is_refused_by_name():
-    # '²'.isdigit() is true and int('²') raises: the id must be named, not crash.
-    run = _run([("²", {"baseline": 50, "skill": 50})])
-    with pytest.raises(ValueError, match="question id '²'"):
-        headroom([run])
+def test_a_non_ascii_digit_question_id_is_kept_and_sorted_as_text():
+    # '²'.isdigit() is true and int('²') raises: the id is an ordinary id, sorted after the numeric ones.
+    run = _run([("²", {"baseline": 50, "skill": 50}), ("10", {"baseline": 50, "skill": 50}),
+                ("2", {"baseline": 50, "skill": 50})])
+    assert [i["question_id"] for i in headroom([run])["items"]] == ["2", "10", "²"]
 
 
 def test_the_table_and_json_do_not_round_0_89996_up_to_the_ceiling():
