@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 from dokimi import cli
-from dokimi.commands import arms, benchmark, evaluate
+from dokimi.commands import benchmark, evaluate
 from dokimi.eval import arms_run
 from dokimi.records import RecordError
 from dokimi.repos import SourceError
