@@ -392,8 +392,8 @@ def call(provider: str, *, model: str, prompt: str, system: Optional[str] = None
     cli = BACKENDS[provider]
     cwd = work_dir(cli.name)
     try:
-        done = (runner or process.run)(cli.build_argv(model, system), timeout=timeout, env=_call_env(cli, cwd),
-                      cwd=cwd, input=prompt, capture_limit=None)
+        done = (runner or process.run)(cli.build_argv(model, system), timeout=timeout,
+                                       env=_call_env(cli, cwd), cwd=cwd, input=prompt, capture_limit=None)
     except FileNotFoundError as exc:
         raise CliCallError(f"{provider}: '{cli.binary}' is not installed or not on PATH ({exc})",
                            retryable=False) from exc
