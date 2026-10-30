@@ -186,8 +186,11 @@ def _claude_parse(done: process.Completed, model: str, provider: str) -> CliResu
     except ValueError:
         payload = None
     if not isinstance(payload, dict):
-        raise CliCallError(f"claude-cli: exit {done.returncode}, no JSON reply: "
-                           f"{(done.stderr or done.stdout).strip()[:300]}", retryable=False)
+        text = (done.stderr or done.stdout).strip()
+        # No JSON, so no status: the same transient words as a JSON result are checked on the text.
+        retryable = any(w in text.lower() for w in _RETRYABLE_WORDS)
+        raise CliCallError(f"claude-cli: exit {done.returncode}, no JSON reply: {text[:300]}",
+                           retryable=retryable)
     if payload.get("is_error") or done.returncode != 0:
         raise _claude_error(payload, done)
     u = payload.get("usage") or {}

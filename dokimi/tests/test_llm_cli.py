@@ -102,6 +102,7 @@ def test_the_call_is_isolated_and_the_prompt_goes_on_stdin(runner, monkeypatch):
     (reply(_err("Overloaded", 529), returncode=1), True, "Overloaded"),
     (reply("", timed_out=True), True, "no reply"),
     (reply("segfault", stderr="boom", returncode=139), False, "no JSON reply"),
+    (reply("", stderr="API Error: 503 Service Unavailable, overloaded", returncode=1), True, "no JSON reply"),
 ])
 def test_a_failed_call_says_whether_another_attempt_can_help(runner, answer, retryable, words):
     runner.answers.append(answer)
