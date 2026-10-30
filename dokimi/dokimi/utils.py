@@ -128,10 +128,10 @@ _ROUTES = frozenset({
 })
 
 
-# Vendors whose Bedrock ids start with ``vendor.`` (``anthropic.claude-...``, ``openai.gpt-oss-...``).
+# Vendors whose Bedrock ids start with ``vendor.`` (``anthropic.claude-...``, ``zai.glm-4.7``, ``xai.grok-4.6``).
 _VENDORS = frozenset({
     "ai21", "amazon", "anthropic", "cohere", "deepseek", "google", "luma", "meta", "minimax", "mistral",
-    "moonshotai", "nvidia", "openai", "qwen", "stability", "twelvelabs", "writer",
+    "moonshotai", "nvidia", "openai", "qwen", "stability", "twelvelabs", "writer", "xai", "zai",
 })
 
 

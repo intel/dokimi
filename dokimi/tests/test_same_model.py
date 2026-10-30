@@ -74,6 +74,7 @@ CASES = [
     ("huggingface/meta-llama/Llama-3.1-8B-Instruct", "meta-llama/llama-3.1-8b-instruct", True),
     ("huggingface/openai/gpt-oss-120b", "huggingface/myorg/gpt-oss-120b", False),
     ("huggingface/gemma-2-9b-it", "gemma-2-9b-it", True),
+    ("zai.glm-4.7", "glm-4.7", True),  # a Bedrock vendor prefix is dropped whatever the vendor
 ]
 
 
@@ -85,6 +86,19 @@ def test_same_model_table(a, b, same):
 @pytest.mark.parametrize("a, b, same", CASES)
 def test_same_model_is_symmetric(a, b, same):
     assert same_model(b, a) is same
+
+
+# The vendor prefixes of Bedrock model ids (the AWS model cards: zai.glm-4.7, xai.grok-4.6, moonshotai.kimi-k2.5, ...)
+BEDROCK_VENDORS = [
+    "ai21", "amazon", "anthropic", "cohere", "deepseek", "google", "luma", "meta", "minimax", "mistral",
+    "moonshotai", "nvidia", "openai", "qwen", "stability", "twelvelabs", "writer", "xai", "zai",
+]
+
+
+@pytest.mark.parametrize("vendor", BEDROCK_VENDORS)
+def test_a_bedrock_vendor_prefix_is_not_part_of_the_id(vendor):
+    assert same_model(f"{vendor}.model-4.7", "model-4.7")
+    assert same_model(f"{vendor}.model-4.7-v1:0", "model-4.7")
 
 
 @pytest.mark.parametrize("bare, profile", sorted(BEDROCK_MODEL_IDS.items()))
