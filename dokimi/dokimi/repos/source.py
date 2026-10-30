@@ -245,7 +245,7 @@ class GitTree:
                     return path
                 if path in self._dir_set():
                     raise SourceArgumentError(f"{start} links to a directory: {path}" if path != start
-                                      else f"{path} is a directory")
+                                              else f"{path} is a directory")
                 if path != start and path not in self.files():
                     raise SourceArgumentError(f"{start} links to nothing: {path}")
                 return path
