@@ -43,8 +43,9 @@ descriptive and keep their raw p.
 Three notes keep a row from being misread; none changes a number. A gate or score row of 2+ tasks whose
 interval includes 0 is inconclusive, not "no effect": the note gives ``mde``, the smallest mean delta a
 two-sided 5% test finds with 80% power at the row's spread, ``(t_0.975 + t_0.80) * sd / sqrt(n)`` over the
-per-task deltas, the t quantiles at ``n - 1`` degrees of freedom (in every row; ``None`` for one task or no spread). A row whose interval and p disagree (the
-interval excludes 0 while p is 0.05 or more, or includes it while p is below) has ``interval_p_disagree``:
+per-task deltas, the t quantiles at ``n - 1`` degrees of freedom (in every row; ``None`` for one task or no
+spread). A row whose interval and p disagree (the interval excludes 0 while p is 0.05 or more, or includes it
+while p is below) has ``interval_p_disagree``:
 the two come from different methods, and for gate and score p is the one to read, since the percentile
 bootstrap runs narrow over few tasks (the inconclusive note then gives way to this one). A descriptive row
 with p below 0.05 is named on a line saying its p is uncorrected and outside Holm's family.
