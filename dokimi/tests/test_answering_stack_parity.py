@@ -141,9 +141,8 @@ PINNED: Tuple[Tuple[str, str, Any, Any], ...] = (
     # what the judge is handed as ground truth: the q-gt chunk on both stacks, None on the rest
     ("shared", "judge.ground_truth.q-gt", (GROUND_TRUTH_CHUNK,), (GROUND_TRUTH_CHUNK,)),
     ("shared", "judge.ground_truth.others", (None,), (None,)),
-    # the per-question deltas that feed D9's statistics (P: stored "delta"; A: "docs" vs "baseline").
-    # q-empty and q-rerank have no P delta (no with-docs judgement, D2/D3); A's q-empty is 0 and
-    # its q-rerank falls back to the raw docs (20).
+    # Per-question deltas feeding D9's statistics. q-empty and q-rerank have no P delta (no with-docs judgement, D2/D3);
+    # A's q-empty is 0 and its q-rerank falls back to the raw docs (20).
     (
         "D9",
         "delta.per_question",

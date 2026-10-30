@@ -196,10 +196,7 @@ def evaluate_trust(
         return TrustVerdict(checks=checks)  # can't compute anything else
 
     # ── 2. Zero-score fraction ─────────────────────────────────────────────
-    # A retrieval miss is not judged by default (the no-document placeholder is not a
-    # with-docs answer). It still counts here as unusable: the zero-score check
-    # has always counted those questions, judged at zero. Leaving them out would
-    # let a run with many misses pass this fail-severity check.
+    # Misses count here as unusable (judged at zero, as this check always did), or a run with many misses would pass.
     unjudged_misses = [
         r for r in every
         if r.score(CONTEXT) is None and r.score(BASELINE) is not None
