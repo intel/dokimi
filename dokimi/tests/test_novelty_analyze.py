@@ -577,13 +577,13 @@ def test_a_tier_writes_its_forfeits_into_the_run_it_produced(tmp_path):
                        judge=judge).artifact
     assert artifact["run_config"]["tier"]["name"] == "triage"
     forfeits = [w for w in artifact["warnings"] if w.startswith("tier `triage` forfeits:")]
-    # Two atoms under a cap of 25: the run is not sampled, so the sampled-rate forfeits
-    # the tier states up front are dropped from what it records.
+    # Two atoms under a cap of 25: the cap did not bind, so the cap's forfeits the tier
+    # states up front are dropped from what it records.
     assert artifact["atoms"]["n"] < 25
     assert len(forfeits) == len(TIERS["triage"]["forfeits"]) - len(FORFEITS["sampled"])
     assert sorted(artifact["run_config"]["tier"]["forfeits"]) == sorted(
         w.split("forfeits: ", 1)[1] for w in forfeits)
-    assert not any("sampled rate" in w for w in forfeits)
+    assert not any("rate over the opening" in w for w in forfeits)
     validate_artifact("novelty", dict(artifact, schema_version="novelty.v1"))
 
 

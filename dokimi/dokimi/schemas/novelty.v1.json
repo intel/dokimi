@@ -71,7 +71,7 @@
         },
         "sampling": {
           "type": "string",
-          "description": "How the probed subset was chosen (e.g. cap-per-artifact:120). Present so a sampled run is never read as a full sweep."
+          "description": "How the probed subset was chosen (e.g. cap-per-artifact:120). Present so a capped run is never read as a full sweep."
         },
         "faithfulness": {
           "type": ["object", "null"],

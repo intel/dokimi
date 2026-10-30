@@ -8,4 +8,7 @@
   `atoms.json` (`null` when the cap did not bind); the `novelty.md` header
   states it; and on a capped run the headline's `coverage:` line says the
   readable words went into the input and the capped atoms come from the first
-  N% of its tokens, instead of saying they were measured.
+  N% of its tokens, instead of saying they were measured. The tier forfeit
+  (`added` is a rate over the opening of the artifact, up to the atom cap) and
+  the `harmful_atoms` gate reason (0 conflicts among the atoms of the
+  artifact's opening) no longer call the capped atoms a sample either.

@@ -28,11 +28,13 @@ from typing import Any
 #: artifact reached). The forfeits of a run are derived from its resolved settings and,
 #: once known, its atom count -- not fixed per tier -- so `--no-verify` adds the
 #: faithfulness forfeit, and `--all-atoms` or an atom set under the cap drops the
-#: sampled-rate ones.
+#: cap's ones. The key's name is old: the cap is not a sample, extraction stops at it
+#: in document order.
 FORFEITS: dict[str, list[str]] = {
     "sampled": [
-        "`added` is a sampled rate over the atom cap: usable as a sign, not as a figure, "
-        "and not comparable with another artifact's; pass --all-atoms for the full sweep",
+        "`added` is a rate over the opening of the artifact, up to the atom cap: usable as "
+        "a sign, not as a figure, and not comparable with another artifact's; pass "
+        "--all-atoms for the full sweep",
         "`frac_carrying_nothing` is not interpretable on a capped atom set (0.064 read "
         "as 0.743 on the study's largest artifact)",
     ],
@@ -217,7 +219,7 @@ class RunSettings:
         rows, yield an atom each), capped at ``max_atoms``. Without ``n_tokens`` only the
         span rule applies. The forfeits assume the cap is reached, since the atom count is
         a guess until extraction runs: an artifact with fewer atoms than the cap drops the
-        sampled-rate forfeits.
+        cap's forfeits.
         """
         cap = self.values["max_atoms"]
         expected = max(1, n_spans // 2)

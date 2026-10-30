@@ -247,11 +247,16 @@ CAP_WARNING_ON_MAIN = ("atom extraction hit the cap of 1; rates describe the sam
 CAP_WARNING = ("atom extraction hit the cap of 1 at span s0002 (2 of 5 spans, 35% of the "
                "tokens): rates describe the opening of the artifact, not the whole; pass "
                "--all-atoms for the full sweep")
+# Intended change: the cap's forfeit no longer calls `added` a sampled rate, in the tier
+# record, the warnings and the estimate's stderr.
+CAP_FORFEIT_ON_MAIN = "`added` is a sampled rate over the atom cap: usable"
+CAP_FORFEIT = "`added` is a rate over the opening of the artifact, up to the atom cap: usable"
 
 
 @pytest.mark.parametrize("name", list(CASES))
 def test_no_setting_bill_or_tier_record_differs_from_main(name, tmp_path):
-    golden = json.loads(GOLDEN.read_text(encoding="utf-8"))
+    golden = json.loads(json.dumps(json.loads(GOLDEN.read_text(encoding="utf-8")))
+                        .replace(CAP_FORFEIT_ON_MAIN, CAP_FORFEIT))
     steps = _capture(name, tmp_path)
     coverage = [step.pop("coverage") for step in steps]
     for step_coverage in coverage:
