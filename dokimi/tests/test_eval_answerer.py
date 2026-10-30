@@ -182,12 +182,12 @@ class TestGenerateAnswers:
 class TestRetrieveDocs:
     def test_asks_the_doc_source_for_top_k_docs(self, mock_mcp_client):
         with patch('dokimi.eval.answerer.LANGCHAIN_AVAILABLE', True):
-            answerer = Answerer(mcp_client=mock_mcp_client, top_k=3)
+            answerer = Answerer(mcp_client=mock_mcp_client, top_k=7)
             answerer._retrieve_docs("uxlfoundation/oneTBB", "parallel_for", 4000)
 
             mock_mcp_client.get_library_docs.assert_called_once_with(
                 library_id="uxlfoundation/oneTBB", query="parallel_for",
-                max_results=3, max_tokens=4000,
+                max_results=7, max_tokens=4000,
             )
 
     def test_calls_mcp_client(self, mock_mcp_client):
