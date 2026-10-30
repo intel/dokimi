@@ -8,7 +8,7 @@ Each count is a number per cell: ``process:<key>`` for the framework's counts
 each manifest ``process_metrics`` counter. A cell whose ``process`` is absent
 (written before it existed) or ``null`` (its trace could not be read) has none
 and is left out of a mean, not counted as zero; so is a value that is not a
-finite number.
+finite number within ``SCORE_BOUND``.
 """
 
 from __future__ import annotations
@@ -16,6 +16,8 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 from typing import Any
+
+from .grading import SCORE_BOUND
 
 
 #: ``result.json`` ``process`` keys that are counts (``guidance_read`` is a list of paths, counted).
@@ -31,11 +33,11 @@ def process_values(rec: dict[str, Any]) -> dict[str, float]:
     for key in PROCESS_KEYS:
         value = found.get(key)
         count = len(value) if key == "guidance_read" and isinstance(value, list) else value
-        if (num := _count(count)) is not None:
+        if (num := as_measure(count)) is not None:
             out[f"process:{key}"] = num
     counters = found.get("counters")
     for name, value in (counters.items() if isinstance(counters, dict) else ()):
-        if (num := _count(value)) is not None:
+        if (num := as_measure(value)) is not None:
             out[f"counter:{name}"] = num
     return out
 
@@ -55,10 +57,15 @@ def process_order(key: str) -> tuple[int, str]:
     return (PROCESS_KEYS.index(name), "") if name in PROCESS_KEYS else (len(PROCESS_KEYS), key)
 
 
-def _count(value: Any) -> float | None:
-    """A finite number as a float; ``None`` for anything else (a bool, a string, NaN)."""
-    ok = isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
-    return float(value) if ok else None
+def as_measure(value: Any) -> float | None:
+    """A finite number within ``SCORE_BOUND`` as a float; ``None`` for anything else (a bool, a string, NaN, 1e200)."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        num = float(value)
+    except OverflowError:  # an int too large for a float
+        return None
+    return num if math.isfinite(num) and abs(num) <= SCORE_BOUND else None
 
 
 def process_line(means: dict[str, float] | None, width: int) -> list[str]:
