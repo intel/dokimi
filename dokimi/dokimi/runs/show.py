@@ -16,6 +16,7 @@ from dokimi.runs.scan import (
     Artifact,
     head_version,
     load_document,
+    plain,
     read_artifact,
     read_error_reason,
 )
@@ -80,7 +81,7 @@ def _version(path: Path, address: str) -> str:
         raise InputError(f"{address} is not an artifact: it does not open with a schema_version")
     if version not in VERSION_KINDS:
         raise InputError(f"{address} is not an artifact of a registered kind: "
-                         f"schema_version {version}")
+                         f"schema_version {plain(version)}")
     return version
 
 

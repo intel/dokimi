@@ -173,3 +173,26 @@ def test_control_characters_in_names_and_fields_are_escaped(monkeypatch, capsys,
 
     assert len(rows) == 2
     assert rows[1].split()[1] == "evil\\x1b[2J" and rows[1].endswith("two\\nlines.json")
+
+
+def test_an_unknown_version_with_a_line_separator_is_printed_escaped(monkeypatch, capsys, root):
+    (root / "x.json").write_text(json.dumps({"schema_version": "v\u2028forged"}, ensure_ascii=False),
+                                 encoding="utf-8")
+
+    out = _list(monkeypatch, capsys).out
+
+    assert "\u2028" not in out
+    assert "JSON of an unknown schema_version (v\\u2028forged: 1)" in out
+
+
+def test_an_mtime_past_the_year_9999_is_shown_as_seconds(monkeypatch, capsys, root):
+    from dokimi.commands import runs as runs_cmd
+    from dokimi.runs.scan import Artifact, ScanResult
+
+    far = Artifact(path=Path("p.json"), schema_version="plugin_delta.v1", subjects=(), models=(),
+                   generated_at=None, size_bytes=1, mtime=253402300800.0)  # tmpfs keeps such mtimes
+    monkeypatch.setattr(runs_cmd, "scan", lambda path: ScanResult(root=path, artifacts=[far]))
+
+    rows = _list(monkeypatch, capsys).out.splitlines()
+
+    assert rows[1].split()[:4] == ["plugin_delta.v1", "-", "-", "@253402300800*"]

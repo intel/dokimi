@@ -6,6 +6,7 @@ schema check exits 0, an address that is not an artifact under the root exits 2.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 from datetime import datetime, timezone
@@ -16,7 +17,7 @@ import pytest
 from dokimi import cli
 from dokimi.artifacts import SCHEMA_DIR, SCHEMA_VERSIONS, save_artifact
 from dokimi.runs import kinds
-from dokimi.runs.show import MAX_SIBLINGS, show
+from dokimi.runs.show import MAX_SIBLINGS, Shown, show
 
 #: What ``contents`` counts in each kind's fixture (the length of its top-level lists).
 CONTENTS = {
@@ -264,3 +265,26 @@ def test_control_characters_in_fields_are_escaped(monkeypatch, capsys, root):
     lines = _show(monkeypatch, capsys, "evil.json").out.splitlines()
 
     assert "subject:    evil\\x1b[2J\\nnext" in lines and len(lines) == 10
+
+
+def test_an_unknown_version_is_named_escaped_in_the_error(monkeypatch, capsys, root):
+    (root / "x.json").write_text(json.dumps({"schema_version": "v\u2028forged"}, ensure_ascii=False),
+                                 encoding="utf-8")
+
+    err = _fails(monkeypatch, capsys, "x.json")
+
+    assert err == ("Error: x.json is not an artifact of a registered kind: "
+                   "schema_version v\\u2028forged\n")
+
+
+def test_an_mtime_past_the_year_9999_is_shown_as_seconds(monkeypatch, capsys, root):
+    from dokimi.commands import runs as runs_cmd
+
+    real = show(root, "arms/plugin_delta.json")
+    far = Shown(artifact=dataclasses.replace(real.artifact, mtime=253402300800.0),
+                schema=real.schema, errors=[], contents=real.contents)
+    monkeypatch.setattr(runs_cmd, "show", lambda root, address: far)
+
+    out = _show(monkeypatch, capsys, "arms/plugin_delta.json").out
+
+    assert "time:       - (@253402300800 UTC, the file's mtime)" in out.splitlines()

@@ -140,6 +140,13 @@ class ScanResult:
     unreadable: list[Unreadable] = field(default_factory=list)
 
 
+def plain(text: str) -> str:
+    """``text`` with control and separator characters escaped (``\\n``, ``\\x1b``, ``\\u2028``),
+    so a file name or a field cannot split a printed line or reach the terminal as an escape."""
+    return "".join(c if c.isprintable() else c.encode("unicode_escape").decode("ascii")
+                   for c in text)
+
+
 def head_version(path: Path) -> str | None:
     """The ``schema_version`` a file opens with, read from its first bytes; ``None`` if none."""
     with open(path, "rb") as fh:

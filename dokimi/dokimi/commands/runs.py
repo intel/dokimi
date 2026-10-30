@@ -10,16 +10,17 @@ import json
 from datetime import datetime, timezone
 
 from dokimi.artifacts import SCHEMA_VERSIONS
-from dokimi.runs.scan import SKIP_REASONS, Artifact, ScanResult, runs_root, scan, select
+from dokimi.runs.scan import (
+    SKIP_REASONS,
+    Artifact,
+    ScanResult,
+    plain,
+    runs_root,
+    scan,
+    select,
+)
 from dokimi.runs.show import Shown, show
 from dokimi.utils import InputError
-
-
-def _plain(text: str) -> str:
-    """``text`` with control characters escaped: a file name or field cannot split a row or
-    reach the terminal as an escape sequence."""
-    return "".join(c if c.isprintable() else c.encode("unicode_escape").decode("ascii")
-                   for c in text)
 
 
 def _untimed(artifact: Artifact) -> bool:
@@ -33,7 +34,15 @@ def _when(artifact: Artifact) -> str:
         return stamp.strftime("%Y-%m-%d %H:%M")
     if artifact.generated_at:  # not ISO 8601, or out of range: shown as written
         return artifact.generated_at
-    return datetime.fromtimestamp(artifact.mtime, tz=timezone.utc).strftime("%Y-%m-%d %H:%M") + "*"
+    return _mtime(artifact) + "*"
+
+
+def _mtime(artifact: Artifact) -> str:
+    """The file's mtime in UTC to the minute; ``@<seconds>`` when it is past what a date holds."""
+    try:
+        return datetime.fromtimestamp(artifact.mtime, tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
+    except (ValueError, OverflowError, OSError):  # tmpfs keeps mtimes past the year 9999
+        return f"@{artifact.mtime:.0f}"
 
 
 def _count(n: int, noun: str) -> str:
@@ -42,7 +51,7 @@ def _count(n: int, noun: str) -> str:
 
 def _table(artifacts: list[Artifact]) -> list[str]:
     rows: list[tuple[str, ...]] = [("SCHEMA", "SUBJECT", "MODEL", "TIME (UTC)", "PATH")]
-    rows += [tuple(_plain(cell) for cell in (a.schema_version, a.subject or "-", a.model or "-",
+    rows += [tuple(plain(cell) for cell in (a.schema_version, a.subject or "-", a.model or "-",
                                              _when(a), a.path.as_posix()))
              for a in artifacts]
     widths = [max(len(row[i]) for row in rows) for i in range(4)]
@@ -57,7 +66,7 @@ def _summary(result: ScanResult, shown: list[Artifact], root: str) -> list[str]:
     if any(_untimed(a) for a in shown):
         lines[0] += " (* the file's mtime: the artifact records no time)"
     labels = {**SKIP_REASONS, "unknown_schema_version": SKIP_REASONS["unknown_schema_version"]
-              + " (" + ", ".join(f"{v}: {n}" for v, n in sorted(result.unknown_versions.items()))
+              + " (" + ", ".join(f"{plain(v)}: {n}" for v, n in sorted(result.unknown_versions.items()))
               + ")"}
     skipped = [f"{result.skipped[reason]} {label}" for reason, label in labels.items()
                if result.skipped[reason]]
@@ -66,7 +75,7 @@ def _summary(result: ScanResult, shown: list[Artifact], root: str) -> list[str]:
     if result.unreadable:
         first = result.unreadable[0]
         lines.append(f"unreadable: {len(result.unreadable)} "
-                     f"(first: {_plain(first.path.as_posix())}: {_plain(first.reason)})")
+                     f"(first: {plain(first.path.as_posix())}: {plain(first.reason)})")
     return lines
 
 
@@ -84,7 +93,7 @@ def cmd_runs_list(args: argparse.Namespace) -> None:
             "unreadable": [u.to_json() for u in result.unreadable],
         }, indent=2))
         return
-    shown_root = _plain(root.path.as_posix().rstrip("/") + "/")
+    shown_root = plain(root.path.as_posix().rstrip("/") + "/")
     if not exists:
         print(f"no runs under {shown_root} (it does not exist; DOKIMI_RUNS_DIR names another root)")
         return
@@ -106,7 +115,7 @@ def _show_json(shown: Shown, root: str) -> dict:
 def _show_text(shown: Shown) -> list[str]:
     a = shown.artifact
     errors = _count(len(shown.errors), "error")
-    when = a.generated_at or "- (" + _when(a).rstrip("*") + " UTC, the file's mtime)"
+    when = a.generated_at or f"- ({_mtime(a)} UTC, the file's mtime)"
     beside = [s.name + (f" ({s.schema_version})" if s.schema_version else "")
               for s in shown.siblings]
     if shown.siblings_total > len(shown.siblings):
@@ -123,8 +132,8 @@ def _show_text(shown: Shown) -> list[str]:
         ("contents", ", ".join(f"{key}: {n}" for key, n in shown.contents.items()) or "-"),
         ("next to it", shown.siblings_error or ", ".join(beside) or "-"),
     ]
-    lines = [f"{label + ':':<12}{_plain(value)}" for label, value in rows]
-    lines[3:3] = [f"  - {_plain(e)}" for e in shown.errors]
+    lines = [f"{label + ':':<12}{plain(value)}" for label, value in rows]
+    lines[3:3] = [f"  - {plain(e)}" for e in shown.errors]
     return lines
 
 
