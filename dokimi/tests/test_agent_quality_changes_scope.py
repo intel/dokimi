@@ -17,6 +17,7 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 import yaml
@@ -30,13 +31,16 @@ BULK_FILES = 2000
 # with jq -r as gh does, and fails for a missing fixture (the API being unreadable).
 GH_STUB = r"""#!/bin/sh
 [ "$1" = api ] || { echo "unexpected: $*" >&2; exit 2; }
-path=$2; shift 2
+path=$2
+# The runs request's arguments, one per line, for the test to read back.
+case "$path" in repos/*/actions/workflows/agent-quality.yml/runs*) printf '%s\n' "$@" > "$FAKE_GH_DIR/runs-request" ;; esac
+shift 2
 filter=""
 while [ $# -gt 0 ]; do
   case "$1" in --jq) filter=$2; shift 2 ;; *) shift ;; esac
 done
 case "$path" in
-  repos/*/actions/workflows/agent-quality.yml/runs\?*) file="$FAKE_GH_DIR/runs.json" ;;
+  repos/*/actions/workflows/agent-quality.yml/runs*) file="$FAKE_GH_DIR/runs.json" ;;
   repos/*/actions/runs/*/jobs)
     id=${path#*/actions/runs/}; id=${id%/jobs}; file="$FAKE_GH_DIR/jobs-$id.json" ;;
   *) echo "no fixture for $path" >&2; exit 1 ;;
@@ -101,7 +105,7 @@ def _job(verify: str) -> dict:
     }
 
 
-def _run_changes(tmp_path: Path, history, runs, before: str, after: str) -> str:
+def _run_changes(tmp_path: Path, history, runs, before: str, after: str, head_ref: str = "feature") -> str:
     """Run the changes step's script for a synchronize push; return the code= output."""
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -125,7 +129,7 @@ def _run_changes(tmp_path: Path, history, runs, before: str, after: str) -> str:
         "EVENT": "pull_request",
         "ACTION": "synchronize",
         "BASE_REF": "main",
-        "HEAD_REF": "feature",
+        "HEAD_REF": head_ref,
         "REPO": "intel/dokimi",
         "GH_TOKEN": "test-token",
         "BEFORE": shas[before],
@@ -220,6 +224,33 @@ SCENARIOS = {
 def test_docs_only_push_skips_only_when_all_since_the_last_passed_run_is_docs(tmp_path, name):
     history, runs, before, after, expect = SCENARIOS[name]
     assert _run_changes(tmp_path, history, runs, before, after) == f"code={expect}"
+
+
+def _runs_request(fake: Path) -> tuple[str, dict[str, list[str]]]:
+    """The method and the query of the runs request: the URL's own query, plus the -f fields."""
+    args = (fake / "runs-request").read_text(encoding="utf-8").splitlines()
+    method = args[args.index("--method") + 1] if "--method" in args else "GET"
+    query = parse_qs(urlsplit(args[1]).query, keep_blank_values=True)
+    for flag, field in zip(args, args[1:]):
+        if flag in ("-f", "-F", "--raw-field", "--field"):
+            key, _, value = field.partition("=")
+            query.setdefault(key, []).append(value)
+    return method, query
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="needs jq for the gh stub's --jq")
+def test_a_branch_name_with_query_characters_reaches_the_runs_query_whole(tmp_path):
+    # & # and + are legal in a branch name. In the URL they would end the branch value; as
+    # GET fields gh encodes them. gh sends fields as POST unless --method GET is given.
+    branch = "a&per_page=1#b+c"
+    code = _run_changes(
+        tmp_path, [("V", "code"), ("B", "docs")], [("V", "success")], "V", "B", head_ref=branch
+    )
+    assert code == "code=false"
+    method, query = _runs_request(tmp_path / "fake")
+    assert method == "GET"
+    assert query["branch"] == [branch]
+    assert query["event"] == ["pull_request"]
 
 
 def test_the_smoke_job_may_read_the_runs_it_is_scoped_by():

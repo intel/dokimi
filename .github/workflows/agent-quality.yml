@@ -85,7 +85,8 @@ jobs:
           # Newest commit reachable from AFTER whose smoke run passed (Verify pass rate succeeded); prints nothing if none.
           # An unreadable run list also prints nothing; the caller then runs everything.
           last_verified() {
-            runs=$(gh api "repos/$REPO/actions/workflows/agent-quality.yml/runs?branch=$HEAD_REF&event=pull_request&status=completed&per_page=20" \
+            runs=$(gh api "repos/$REPO/actions/workflows/agent-quality.yml/runs" --method GET \
+              -f branch="$HEAD_REF" -f event=pull_request -f status=completed -f per_page=20 \
               --jq '.workflow_runs[] | "\(.id) \(.head_sha)"') || return 0
             while read -r id sha; do
               [ -n "$id" ] || continue
