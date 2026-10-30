@@ -272,8 +272,7 @@ def is_retryable(exc: BaseException) -> bool:
     if its message happens to contain a transient-sounding word, so the
     non-retryable set is consulted first.
     """
-    retryable = getattr(exc, "retryable", None)
-    if isinstance(retryable, bool):  # set by an error that knows (llm_cli.CliCallError)
+    if isinstance(retryable := getattr(exc, "retryable", None), bool):  # set by an error that knows (llm_cli.CliCallError)
         return retryable
     name = type(exc).__name__.lower()
     if name in _NON_RETRYABLE_EXC_NAMES:
