@@ -72,12 +72,8 @@ future:
     enabled: false
     min_score: 0.85
 
-# Bounds on the document set the static track scores. They are a sanity check
-# on the include/exclude globs, not a target: min_docs catches a glob that
-# matched almost nothing, max_docs catches one that escaped into the tree (8
-# markdown files live outside docs/). Measured selection at the time of
-# writing: 36 files. Adding a doc past the ceiling is meant to be a deliberate
-# edit here, so raise max_docs in the same commit that adds the doc.
+# Sanity bounds on the static track's doc set, not targets: min_docs catches a glob
+# that matched almost nothing, max_docs one that escaped; raise it with each new doc.
 golden_manifest:
   min_docs: 10
   max_docs: 36

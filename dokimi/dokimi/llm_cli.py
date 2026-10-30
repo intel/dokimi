@@ -62,13 +62,11 @@ CLAUDE_ENV_DROP = frozenset({
     # Set, they win over the CLI's login: the run would bill the key or token, not the subscription.
     "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
 })
-#: Dropped by prefix, so a variable not yet listed (an endpoint, a model alias override, a
-#: provider switch such as CLAUDE_CODE_USE_BEDROCK) cannot change who is billed or which
-#: session the child joins.
+#: Dropped by prefix, so a variable not yet listed (an endpoint, a model alias, a provider switch
+#: such as CLAUDE_CODE_USE_BEDROCK) cannot change who is billed or which session the child joins.
 CLAUDE_ENV_DROP_PREFIXES = ("ANTHROPIC_", "CLAUDE_", "CLAUDECODE")
-#: Kept despite a prefix: where the account's login lives, the token ``claude setup-token``
-#: makes for a headless login, and where Claude Code on Windows finds Git Bash (without it
-#: ``claude -p`` cannot start there).
+#: Kept despite a prefix: the login's location, the ``claude setup-token`` token, and Git Bash
+#: for Claude Code on Windows (without it ``claude -p`` cannot start there).
 CLAUDE_ENV_KEEP = frozenset({"CLAUDE_CONFIG_DIR", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_GIT_BASH_PATH"})
 
 #: The flags that strip the CLI to a bare completion; see the module docstring.
