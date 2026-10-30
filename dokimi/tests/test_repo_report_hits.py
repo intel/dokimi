@@ -117,8 +117,17 @@ def test_report_counts_answers_that_did_not_parse_per_row(tmp_path):
     assert [r["parse_errors"] for k, r in rows.items() if k[0] != "pr3014-t1"] == [0, 0, 0]
     lines = format_report(summarize(batch)).splitlines()
     at = next(i for i, line in enumerate(lines) if line.startswith("pr3014-t1"))
-    assert lines[at + 1].strip() == "1 agent answer(s) whose findings JSON did not parse (counted as failed)"
+    assert lines[at + 1].strip() == "1 agent answer(s) whose findings JSON did not parse (scored 0)"  # in the mean
     assert sum("did not parse" in line for line in lines) == 1
+
+
+def test_the_parse_error_note_of_a_gate_row_says_counted_as_failed(tmp_path):
+    _cell(tmp_path, "gate", "guidance:none", 1, success=False, metrics={"parse_error": True})
+    _cell(tmp_path, "gate", "guidance:none", 2)
+    lines = format_report(summarize(tmp_path)).splitlines()
+    at = next(i for i, line in enumerate(lines) if line.startswith("gate"))
+    assert "1/2 pass" in lines[at]
+    assert lines[at + 1].strip() == "1 agent answer(s) whose findings JSON did not parse (counted as failed)"
 
 
 def test_hits_and_report_skip_unreadable_grades_and_list_a_match_without_text(tmp_path):
@@ -195,3 +204,14 @@ def test_hits_credit_no_match_of_a_cell_the_table_scores_as_a_grader_failure(tmp
     assert [r["grader_failures"] for r in summarize(batch)["rows"]] == [1]
     found = load_hits(batch)
     assert (found["replay_cells"], [h["rep"] for h in found["hits"]]) == (2, [2])
+
+
+def test_parse_errors_leave_out_a_cell_the_table_counts_as_a_grader_failure(tmp_path):
+    batch = tmp_path / "b1"
+    unparsed = _graded(tmp_path, "no findings JSON here")
+    assert unparsed["metrics"]["parse_error"] is True
+    _cell(batch, "a", "guidance:none", 1, failure=True, score=0.0)  # the grade was written, then the run failed
+    (batch / "a__guidance-none__m-1__r1" / "grade.json").write_text(json.dumps(unparsed))
+    _put(batch, "a", "guidance:none", 2, unparsed)
+    row = summarize(batch)["rows"][0]
+    assert (row["grader_failures"], row["parse_errors"]) == (1, 1)

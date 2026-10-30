@@ -34,8 +34,10 @@ cells (:mod:`.process_counts`), printed on a line of its own under the row.
 
 A row's ``parse_errors`` counts its cells whose ``grade.json`` has
 ``metrics.parse_error`` true: the grader ran, and the agent's answer held no
-findings JSON that parsed, so the run counts as failed (contract §4.5). The
-table notes it only when it is not 0.
+findings JSON that parsed, so the run counts as failed (contract §4.5). A
+cell whose ``result.json`` says ``grader_failure`` is counted there, not
+here. The table notes it only when it is not 0: ``scored 0`` on a score row,
+``counted as failed`` on a gate row.
 
 ``--hits`` (:func:`load_hits`) lists instead each credited (thread, finding)
 pair of the ``dokimi:review_replay`` cells, from ``grade.json``
@@ -260,7 +262,8 @@ def summarize(batch_dir: Path) -> dict[str, Any]:
                 if expecting:
                     row["skill_expected"] = len(expecting)
                     row["skill_selected_correct"] = sum(bool(u["skill_selected_correct"]) for u in expecting)
-            row["parse_errors"] = sum(_metrics(batch_dir / r["cell"]).get("parse_error") is True for r in recs)
+            row["parse_errors"] = sum(r["grade"]["status"] != "grader_failure"  # counted in grader_failures
+                                      and _metrics(batch_dir / r["cell"]).get("parse_error") is True for r in recs)
             rows.append(row)
     return {"batch": str(batch_dir), "cells": len(cells), "missing": missing, "rows": rows,
             "unsupported": load_unsupported(batch_dir),
@@ -308,7 +311,8 @@ def _row_notes(r: dict[str, Any]) -> list[str]:
     noted = ("agent_timeouts", "agent_errors", "over_budget", "cost_unknown")
     notes = [f"{r[k]} {k.replace('_', ' ')}" for k in noted if r[k]]
     if r.get("parse_errors"):  # the grader ran; the agent's findings JSON is what failed
-        notes.append(f"{r['parse_errors']} agent answer(s) whose findings JSON did not parse (counted as failed)")
+        counted = "scored 0" if r["kind"] == "score" else "counted as failed"
+        notes.append(f"{r['parse_errors']} agent answer(s) whose findings JSON did not parse ({counted})")
     notes += [f"{r[k]}/{r[d]} {k.replace('_', ' ')}"
               for k, d in (("skill_invoked", "skill_measured"), ("skill_selected_correct", "skill_expected"))
               if k in r]

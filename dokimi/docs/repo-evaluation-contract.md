@@ -1319,8 +1319,10 @@ python cli.py repo compare repo-runs/replay --baseline guidance:none --metric re
   as paths; `counter:<name>` for `process_metrics`); a `null` or absent
   `process` is left out, not counted as zero. A row whose cells include
   agent answers with no findings JSON that parsed (`grade.json`
-  `parse_error`, §4.5) notes how many; `--json` gives `parse_errors` on every
-  row. `repo report --hits` prints, instead of the table, each credited pair of
+  `parse_error`, §4.5) notes how many, `(scored 0)` on a score-only row and
+  `(counted as failed)` on a gate row; a cell whose `result.json` says
+  `grader_failure` is counted under `grader_fail` instead. `--json` gives
+  `parse_errors` on every row. `repo report --hits` prints, instead of the table, each credited pair of
   the `dokimi:review_replay` cells (`details.matches`, §4.5) by task, arm,
   model and rep: the thread and its comment, then the finding that hit it.
   `--hits --json` gives `{batch, replay_cells, without_matches, hits}`, one
