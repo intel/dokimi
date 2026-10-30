@@ -167,7 +167,7 @@ def test_a_panel_pairs_its_judges_by_augmenting_paths_not_first_match():
 
 def test_a_panel_of_names_with_no_id_is_a_mismatch_and_digit_ids_still_match():
     """A judge name with no id (separators only) is no model, so two such panels are not the same panel;
-    a digit-only id is an id, as it was before."""
+    a digit-only id is an id, as it was on this branch before the round's first fix."""
     verdict = baseline_mod._recorded_verdict
     assert verdict(("panel", "/,/"), ("panel", "-,-")) == "mismatch"
     assert verdict(("panel", "/,/"), ("panel", "/,/")) == "mismatch"
