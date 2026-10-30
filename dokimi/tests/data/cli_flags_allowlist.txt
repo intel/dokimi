@@ -220,3 +220,7 @@
 --work-output-dir
 --work-repeats
 -o
+--ceiling  # eval headroom (#279) adds it: no registry concept yet; a F1b migration names it
+--floor  # eval headroom (#279) adds it: no registry concept yet; a F1b migration names it
+--min-reps  # eval headroom (#279) adds it: no registry concept yet; a F1b migration names it
+--no-skill-arm  # eval headroom (#279) adds it: no registry concept yet; a F1b migration names it
