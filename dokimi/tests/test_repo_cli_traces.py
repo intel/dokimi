@@ -41,10 +41,10 @@ from dokimi.repos.events import convert
     ("cat a & cat b", ["a", "b"]),                        # a single & separates commands
     ("cat a >> b", []),
     ("cat a < b", []),
-    ("cat a 2>&1", ["a"]),                                # a fd dup or a /dev/null redirect is not a write
+    ("cat a 2>&1", ["a"]),                                # a stderr dup or a stderr discard leaves stdout as printed
     ("cat a 2>/dev/null", ["a"]),
     ("sed -n '1,5p' a 2>/dev/null", ["a"]),
-    ("cat a &>/dev/null", ["a"]),
+    ("cat a &>/dev/null", []),                            # stdout is discarded too: no content reaches the agent
     ("cat a 2> /dev/null", ["a"]),
     ("cat a\\\n b", ["a", "b"]),                          # a line continuation joins the command
     ("cat <<'EOF'\ncat secret\nEOF", []),                 # a heredoc body is input, not commands
@@ -130,10 +130,52 @@ from dokimi.repos.events import convert
     ('FOO=1 cd "$D"; cat AGENTS.md', []),
     ('then cd "$D"; cat AGENTS.md', []),
     ('env cd "$D"; cat AGENTS.md', ["AGENTS.md"]),        # env runs no builtin: the shell stays put
-    ('cat AGENTS.md2>/dev/null', ["AGENTS.md2"]),        # the 2 is part of the file name, not a descriptor
+    ('cat AGENTS.md2 2>/dev/null', ["AGENTS.md2"]),      # a stderr discard after a space: AGENTS.md2 is still read
+    ('cat AGENTS.md2>/dev/null', []),                     # the 2 is part of the file name; stdout is discarded
+    ('cat a12>/dev/null', []),
     ('cat a2>&1 b', ["a2", "b"]),
     ('cd $(dirname sub/file); cat AGENTS.md', []),        # a computed cd: the directory is unknown after it
     ('(cd x; cat f); cat g', ["g"]),                      # a subshell's cd does not reach the outer shell
+    # a group whose output feeds a pipe: its reads are not the agent's (left side, and a group on the right)
+    ("{ cat AGENTS.md; } | head -n 0", []),
+    ("{ cat /abs; } | head -n 0", []),
+    ("cat a | { cat /abs; }", []),
+    ("cat a | { cat b; cat /abs; }", []),
+    ("{ cat /abs; } & cat g", ["/abs", "g"]),              # a backgrounded group still prints to the agent
+    # glob and brace expansions: the files are not the words written
+    ("cd sub*; cat AGENTS.md", []),                       # the glob may match another directory
+    ("cat AGENTS.*", []),
+    ("cat a?b", []),
+    ("cat {a,b}", []),
+    ("cat 'AGENTS.*'", ["AGENTS.*"]),                     # quoted: a literal file name
+    ("cat AGENTS\\*", ["AGENTS*"]),                       # escaped: a literal file name
+    # a directory change after && or || may not run
+    ("false && cd sub; cat AGENTS.md", []),
+    ("false || cd sub; cat AGENTS.md", []),
+    ("cat a && cd sub; cat b", ["a"]),                    # b is read at an unknown directory
+    # --help and --version print and open no file
+    ("cat --help AGENTS.md", []),
+    ("head --version AGENTS.md", []),
+    ("tail -n 5 --help a", []),
+    ("nl --help a", []),
+    ("cat -- --help", ["--help"]),                        # after --, it is a file name
+    # sed prints only for a print-only script; w, d, s and a script file are not reads
+    ("sed -n 'd' AGENTS.md", []),
+    ("sed -n 'w out' AGENTS.md", []),
+    ("sed -n '1p;d' f", []),
+    ("sed -n -e 1p -e 'w x' f", []),
+    ("sed -n -f script.sed f", []),
+    ("sed -n --file=script.sed f", []),
+    ("sed -n '/x/p' f", []),                              # a regex address: not in the print-only forms
+    ("sed -n -e 1p -e 2p f", ["f"]),
+    ("sed -n --expression=1p f", ["f"]),
+    ("sed -n 'p' f", ["f"]),
+    ("sed -n '1p;' f", ["f"]),
+    # a builtin or a system wrapper is recognised by its bare name, not by a repo-local program of that name
+    ("./command cd sub; cat AGENTS.md", ["AGENTS.md"]),
+    ("./builtin cd sub; cat AGENTS.md", ["AGENTS.md"]),
+    ("./env cat AGENTS.md", []),
+    ("/usr/bin/env cat a", ["a"]),
 ])
 def test_shell_reads(command, reads):
     assert shell_reads(command) == reads

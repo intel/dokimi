@@ -36,8 +36,11 @@ _COPILOT_EDIT = {"edit", "create", "str_replace_editor", "write"}
 _PATCH_FILE = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$", re.M)
 _CONTINUATION = re.compile(r"\\\n")
 _HEREDOC = re.compile(r"<<-?[ \t]*(['\"]?)(\w+)\1([^\n]*)\n.*?^[ \t]*\2[ \t]*$", re.S | re.M)
-# a redirect that writes nowhere a read could be confused with: 2>&1, 2>/dev/null, &>/dev/null
-_HARMLESS_REDIRECT = re.compile(r"(?:(?<![^\s;&|(])\d+)?(?:>&\d+|>>?\s*/dev/null)(?=\s|$|[;&|])|&>>?\s*/dev/null(?=\s|$|[;&|])")
+# a redirect that leaves what a printing command shows on stdout: 2>&1, >&2, 2>/dev/null. A stdout discard
+# (>/dev/null, 1>/dev/null, &>/dev/null) is not one of them: no content reaches the agent, so no read.
+_HARMLESS_REDIRECT = re.compile(r"(?:(?<![^\s;&|(])\d+)?>&\d+(?=\s|$|[;&|])|(?<![^\s;&|(])(?!1(?![0-9]))\d+>>?\s*/dev/null(?=\s|$|[;&|])")
+_GLOB = re.compile(r"[*?\[]|\{[^\s{}]*(?:,|\.\.)[^\s{}]*\}")  # a pathname or brace expansion, unquoted
+_PRINT_ONLY = re.compile(r"\s*(?:(?:\d+|\$)(?:\s*,\s*(?:\d+|\$))?)?\s*p\s*")  # ``p``, ``5p``, ``1,80p``, ``$p``: prints, writes nothing
 # stderr sent to a file: stdout, what a printing command shows, is unchanged
 # (matched on the part with quoted text masked, so a quote glued to ``2`` or to the target is seen)
 _STDERR_FILE = re.compile(r"(?<![^\s;&|(])2>>?[ \t]*[^\s;&|<>()]+")
@@ -80,10 +83,12 @@ def shell_reads(script: str, cwd: str = "") -> list[str]:
     relative path is joined to it and normalised (no ``.`` or ``..``). The directory is unknown (a
     relative read is not recorded) after ``cd -``, a bare ``cd``, a ``cd`` to a computed path, a
     ``pushd`` / ``popd``, ``env -C`` / ``--chdir`` (the command's reads, but absolute ones), a ``cd``
-    after ``if`` / ``then`` / ``do`` / ``else`` (it may not run), or a
-    ``||`` that follows a ``cd``. A subshell ``( ... )`` records no reads: its directory is not kept. A brace group that is
-    backgrounded or piped runs in a subshell, so the directory is restored after it. Absolute paths
-    are kept.
+    after ``if`` / ``then`` / ``do`` / ``else`` (it may not run), a ``cd`` after ``&&`` / ``||`` once the chain
+    holding it ends with ``;``, ``&`` or a newline (it may have been skipped), or a glob or brace expansion (the
+    files are not known). A subshell ``( ... )`` records no reads: its directory is not kept. A brace
+    group that is backgrounded or piped runs in a subshell, so the directory is restored after it; the reads of a
+    group that is piped (in or out) are dropped, as its output does not reach the agent. ``--help`` and
+    ``--version`` print and open no file. Absolute paths are kept.
     """
     out: list[str] = []
     walk = _Walk(posixpath.normpath(cwd) if cwd else "")
@@ -91,16 +96,20 @@ def shell_reads(script: str, cwd: str = "") -> list[str]:
     script = _HEREDOC.sub(lambda m: m.group(3), _CONTINUATION.sub(" ", script))  # a heredoc body is input, not commands
     for part, after, in_subshell in _split_script(script):
         op, previous = previous, after
+        chained = op in ("&&", "||")
+        if not chained and walk.gated:  # a cd after && or || may not have run: the next chain starts in no known directory
+            walk.lose()
+            walk.gated = False
         if op == "||" and walk.moved:
             walk.here = None
         if in_subshell:  # a subshell: its reads are not tracked
             if _runs_dir_before_parens(part):  # ``cd $(dirname f)``: the cd is outside the parentheses
                 walk.lose()
             continue
-        walk.track_groups(_bare(part), after)
+        walk.track_groups(_bare(part), after, out)
         words = walk.words(part)
         if words:
-            out.extend(walk.command(words, after))
+            out.extend(walk.command(words, after, chained))
     return out
 
 
@@ -111,23 +120,29 @@ class _Walk:
     def __init__(self, here: str | None) -> None:
         self.here = here
         self.moved = False  # a cd was seen: after ||, the directory is not known
-        self.groups: list[tuple[str | None, bool]] = []
+        self.gated = False  # a cd after && or || was seen in this chain: it may not have run for the next chain
+        # the open brace groups: (directory before it, in a pipeline, index in the reads where it began)
+        self.groups: list[tuple[str | None, bool, int]] = []
 
     def lose(self) -> None:
         self.here, self.moved = None, True
 
-    def track_groups(self, bare: str, after: str) -> None:
-        """A brace group opening or closing in ``bare``; one that ran in a subshell restores the directory."""
+    def track_groups(self, bare: str, after: str, out: list[str]) -> None:
+        """A brace group opening or closing in ``bare``; one that ran in a subshell restores the directory. The
+        reads of a group in a pipeline (before or after it) are dropped from ``out``: its output is not the agent's."""
         opened = _GROUP_OPEN.search(bare)
         if opened:
             piped = bool(_PIPE.search(bare[:opened.start()]))
-            self.groups.append((self.here, piped))
+            self.groups.append((self.here, piped, len(out)))
             if piped:  # the group runs in a pipeline's subshell: where it ends up is not tracked
                 self.here = None
         closed = _GROUP_CLOSE.search(bare)
         if closed and self.groups:
-            before, piped = self.groups.pop()
-            if piped or after == "&" or _PIPE.search(bare[closed.start():]):  # the group ran in a subshell
+            before, piped, mark = self.groups.pop()
+            if piped or _PIPE.search(bare[closed.start():]):  # the group's output feeds a pipe
+                del out[mark:]
+                self.here = before
+            elif after == "&":  # the group ran in a subshell
                 self.here = before
 
     def words(self, part: str) -> list[str]:
@@ -148,8 +163,9 @@ class _Walk:
             return []
         return words[1:] if words[:1] == ["{"] else words  # a brace group runs in this shell: its cd and reads count
 
-    def command(self, words: list[str], after: str) -> list[str]:
-        """Move the directory for a ``cd``; the files a printing command reads."""
+    def command(self, words: list[str], after: str, chained: bool = False) -> list[str]:
+        """Move the directory for a ``cd``; the files a printing command reads. ``chained``: the command follows
+        ``&&`` or ``||``, so a ``cd`` in it runs only if the command before it succeeded."""
         conditional = False
         while words and words[0] in _KEYWORDS:  # ``then cd x``: the cd may not run
             words, conditional = words[1:], True
@@ -167,9 +183,12 @@ class _Walk:
             self.lose()
         elif name == "cd":
             self.moved = True
+            self.gated |= chained
             if after != "&":  # a backgrounded cd runs in a subshell: this shell stays where it was
                 self.here = _cd(self.here, words[1:])
         elif name in _PRINTERS:
+            if _asks_for_help(words[1:]):  # ``cat --help AGENTS.md`` prints the help and opens no file
+                return []
             files = _sed_files(words[1:]) if name == "sed" else _print_files(name, words[1:])
             # ``env -C dir cat f`` reads dir/f, which is not known: only an absolute path is the same
             return [self.resolve(f) for f in files if f.startswith("/") or (self.here is not None and not chdir)]
@@ -205,11 +224,25 @@ def _runs_dir_before_parens(part: str) -> bool:
 
 
 def _computed(part: str) -> bool:
-    """A shell expansion outside single quotes (``$x``, backticks) or a pipe or redirect outside any quote."""
+    """A shell expansion outside single quotes (``$x``, backticks), a pipe or redirect outside any quote, or a
+    glob or brace expansion (``sub*``, ``AGENTS.*``, ``{a,b}``) outside quotes, whose files are not known here."""
     bare = re.sub(r"'[^']*'", "''", part)
     if re.search(r"[$`]", bare):
         return True
-    return bool(re.search(r"[|<>]", re.sub(r'"[^"]*"', '""', bare)))
+    unquoted = re.sub(r'"[^"]*"', '""', bare)
+    if re.search(r"[|<>]", unquoted):
+        return True
+    return bool(_GLOB.search(re.sub(r"\\.", "", unquoted)))  # an escaped ``\*`` is a literal
+
+
+def _asks_for_help(args: list[str]) -> bool:
+    """Whether ``--help`` or ``--version`` is an option of the command (before ``--``): it prints and opens no file."""
+    for a in args:
+        if a == "--":
+            return False
+        if a in ("--help", "--version"):
+            return True
+    return False
 
 
 def _print_files(cmd: str, args: list[str]) -> list[str]:
@@ -234,45 +267,56 @@ def _print_files(cmd: str, args: list[str]) -> list[str]:
 
 
 class _SedScan:
-    """What the options of a ``sed`` command line say: ``-n`` (quiet), a script given by ``-e`` / ``-f``, an
-    in-place edit, and whether the next word is an option's value."""
+    """What the options of a ``sed`` command line say: ``-n`` (quiet), the scripts given by ``-e`` / ``--expression``,
+    a script file (``-f`` / ``--file``, not read here), an in-place edit, and which option takes the next word."""
 
     def __init__(self) -> None:
-        self.quiet = self.scripted = self.skip = self.in_place = False
+        self.quiet = self.in_place = self.script_file = False
+        self.scripts: list[str] = []
+        self.takes = ""  # the option whose value is the next word: "e", "f", "l" (line length), or "" for none
+
+    def add(self, kind: str, value: str) -> None:
+        if kind == "e":
+            self.scripts.append(value)
+        elif kind == "f":
+            self.script_file = True
 
     def long(self, a: str) -> None:
-        name = a.split("=", 1)[0]
+        name, eq, value = a.partition("=")
         if name == "--in-place":
             self.in_place = True
         self.quiet |= name in ("--quiet", "--silent")
-        if name in ("--expression", "--file"):
-            self.scripted = True
-            self.skip = "=" not in a
-        elif name == "--line-length":  # -l N: the value is not the script
-            self.skip = "=" not in a
+        kind = {"--expression": "e", "--file": "f", "--line-length": "l"}.get(name, "")
+        if kind and eq:
+            self.add(kind, value)
+        elif kind:
+            self.takes = kind  # the value is the next word
 
     def short(self, a: str) -> None:
-        """A cluster of short options: -n, -ne, -nE, -i.bak."""
+        """A cluster of short options: -n, -ne, -nE, -i.bak, -e1p."""
         for i, c in enumerate(a[1:], 1):
             if c == "i":
                 self.in_place = True
                 return
             self.quiet |= c == "n"
-            if c in "ef":
-                self.scripted = True
             if c in "efl":
-                self.skip = i == len(a) - 1  # the value is the next word unless it is attached
+                if i < len(a) - 1:  # attached: -e1p
+                    self.add(c, a[i + 1:])
+                else:
+                    self.takes = c  # the value is the next word
                 return
 
 
 def _sed_files(args: list[str]) -> list[str]:
-    """Files of ``sed -n <script> files``; nothing for an in-place edit or a run without ``-n``."""
+    """Files of ``sed -n <script> files``, for a script that only prints (``p`` with line addresses). Nothing for an
+    in-place edit, a run without ``-n``, a script file (not read), or any other script (``d``, ``w``, ``s``...)."""
     scan = _SedScan()
     ended = False
     positional: list[str] = []
     for a in args:
-        if scan.skip:
-            scan.skip = False
+        if scan.takes:
+            scan.add(scan.takes, a)
+            scan.takes = ""
         elif ended or not a.startswith("-") or a == "-":
             positional.append(a)
         elif a == "--":
@@ -283,9 +327,17 @@ def _sed_files(args: list[str]) -> list[str]:
             scan.short(a)
         if scan.in_place:
             return []
-    if not scan.quiet:
+    if not scan.quiet or scan.script_file:
         return []
-    files = positional if scan.scripted else positional[1:]
+    if scan.scripts:
+        scripts, files = scan.scripts, positional
+    elif positional:
+        scripts, files = positional[:1], positional[1:]
+    else:
+        return []
+    for script in scripts:
+        if not all(not piece.strip() or _PRINT_ONLY.fullmatch(piece) for piece in re.split(r"[;\n]", script)):
+            return []  # not a print-only script: its files are not read as printed
     return [f for f in files if f != "-"]  # `-` is stdin: the script still counts it as a position
 
 
@@ -307,6 +359,12 @@ def _outside_quotes(part: str, rx: re.Pattern[str]) -> str:
     return "".join(out) + part[last:]
 
 
+def _program(word: str) -> str:
+    """The program a word names when it is a bare name or a system path (``env``, ``/usr/bin/env``); ``""`` for a
+    path elsewhere (``./env``), which is some program of the repository, not the one the system has."""
+    return posixpath.basename(word) if posixpath.dirname(word) in ("", *_SYSTEM_BIN) else ""
+
+
 def _command_words(words: list[str]) -> tuple[list[str], bool, bool]:
     """The words from the command's name on; whether ``env`` runs it; and whether that ``env`` changes
     directory (``-C`` / ``--chdir``). ``NAME=value`` words, ``builtin`` or ``command`` before a directory
@@ -315,9 +373,9 @@ def _command_words(words: list[str]) -> tuple[list[str], bool, bool]:
     while words:
         if _ASSIGN.match(words[0]):
             words = words[1:]
-        elif posixpath.basename(words[0]) in ("builtin", "command") and len(words) > 1 and words[1] in _DIRS:
+        elif words[0] in ("builtin", "command") and len(words) > 1 and words[1] in _DIRS:  # ``./command`` is a program
             words = words[1:]
-        elif posixpath.basename(words[0]) == "env":
+        elif _program(words[0]) == "env":
             words, via_env = words[1:], True
             while words and (words[0].startswith("-") or _ASSIGN.match(words[0])):
                 opt = words[0]
