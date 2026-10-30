@@ -41,6 +41,10 @@ also holds a PR to:
   (`tests/test_docs_code_refs.py`): rename in code, rename in docs.
 - Tests run offline: a connection off loopback fails the test, so mock LLM and
   network calls.
+- Comments of at most two lines (`scripts/check_comment_blocks.py`): say the
+  constraint or the reason, and end with an issue or PR URL when a reader needs
+  the backstory. A block of three or more `#` lines fails once the PR adds or
+  edits a line in it, so shorten an old block when you touch it.
 - User outcomes (`tests/outcomes/*.json`, checked by `pytest --outcomes`): a
   test marked `@pytest.mark.outcome(...)` is evidence for a promise in the docs;
   weaken or drop it only together with the doc and the contract. The same
