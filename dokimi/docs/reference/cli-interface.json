@@ -10263,6 +10263,22 @@
               "position": null,
               "required": false,
               "type": null
+            },
+            {
+              "action": "_AppendAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--task",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": null
             }
           ],
           "path": "dokimi repo compare",
