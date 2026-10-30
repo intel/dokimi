@@ -416,6 +416,20 @@ def test_command_exits_2_when_the_output_cannot_be_written(tmp_path, capsys):
     assert capsys.readouterr().err.startswith("Error: ")
 
 
+@pytest.mark.parametrize("spelling", ["dir", "dot", "dot-slash"])
+def test_command_exits_2_when_the_output_is_a_directory(tmp_path, monkeypatch, capsys, spelling):
+    # A directory has no file name to write: the save would raise ValueError (for "." and "./") or
+    # fail on the directory itself. Refuse it up front, as the -o contract says for an unwritable -o.
+    path = _arms_file(tmp_path / "arms.json", {"1": {"baseline": 95, "skill": 95}})
+    (tmp_path / "out").mkdir()
+    monkeypatch.chdir(tmp_path)
+    out = {"dir": str(tmp_path / "out"), "dot": ".", "dot-slash": "./"}[spelling]
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_headroom(_args([path], output=out))
+    assert exc.value.code == 2
+    assert capsys.readouterr().err.startswith("Error: ")
+
+
 def test_command_refuses_an_output_spelled_through_a_dotdot_to_an_input(tmp_path, capsys):
     # The same file under another spelling: the input as given, the output as sub/../arms.json.
     path = _arms_file(tmp_path / "arms.json", {"1": {"baseline": 99, "skill": 99}})

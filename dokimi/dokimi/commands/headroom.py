@@ -47,6 +47,10 @@ def cmd_eval_headroom(args: argparse.Namespace) -> None:
     from dokimi.artifacts import ArtifactValidationError, save_artifact
     from dokimi.eval.headroom import format_table, headroom, repeated_ids
 
+    if args.output and Path(args.output).is_dir():
+        # A directory has no file name for save_artifact's sibling paths ("." has an empty name).
+        print(f"Error: -o {args.output} is a directory; it needs a file name", file=sys.stderr)
+        sys.exit(2)
     if args.output and _clobbers_an_input(args.output, args.arms):
         print(f"Error: -o {args.output} would overwrite one of the input arms files (or its .rejected sibling); "
               "the run would be lost", file=sys.stderr)
