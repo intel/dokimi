@@ -82,9 +82,8 @@ def _mean(values: List[float]) -> Optional[float]:
 def _flag(
     no_skill: Optional[float], arms: Dict[str, Optional[float]], control: str, ceiling: float, floor: float,
 ) -> Optional[str]:
-    # The mean of 0-1 scores is float division: a mean that is exactly the threshold can land a
-    # few ulps off it. The tolerance is far below one score step (0.01 at the finest), so it only
-    # absorbs that error.
+    # A mean exactly at the threshold can land a few ulps off it; the tolerance is far below one
+    # score step (0.01 at the finest), so it absorbs only that float error.
     if no_skill is not None and no_skill >= ceiling - _EPS:
         return CEILING
     scored = {arm: v for arm, v in arms.items() if v is not None}
