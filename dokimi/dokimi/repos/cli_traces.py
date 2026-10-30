@@ -177,13 +177,9 @@ class _Walk:
         words, via_env, chdir = _command_words(words)
         if not words:
             return []
-        name = words[0]
-        if via_env and (name == "cd" or name in _DIR_STACK):  # ``env cd x`` runs no builtin: nothing moves
+        name = _run_name(words[0], via_env)
+        if name is None:
             return []
-        if "/" in name:  # ``/bin/cat`` is cat; ``./cat`` or ``/bin/cd`` is some other program
-            name = posixpath.basename(name) if posixpath.dirname(name) in _SYSTEM_BIN else ""
-            if name == "cd" or name in _DIR_STACK:
-                return []
         if name in _DIR_STACK or (conditional and name == "cd"):
             self.lose()
         elif name == "cd":
@@ -201,6 +197,17 @@ class _Walk:
 
     def resolve(self, f: str) -> str:
         return posixpath.normpath(f if f.startswith("/") else posixpath.join(self.here or "", f))
+
+
+def _run_name(name: str, via_env: bool) -> str | None:
+    """The name a command runs as, or None when it is a ``cd`` or directory-stack builtin that does not run."""
+    if via_env and (name == "cd" or name in _DIR_STACK):  # ``env cd x`` runs no builtin: nothing moves
+        return None
+    if "/" in name:  # ``/bin/cat`` is cat; ``./cat`` or ``/bin/cd`` is some other program
+        name = posixpath.basename(name) if posixpath.dirname(name) in _SYSTEM_BIN else ""
+        if name == "cd" or name in _DIR_STACK:
+            return None
+    return name
 
 
 def _cd(here: str | None, args: list[str]) -> str | None:
@@ -316,6 +323,22 @@ def _sed_files(args: list[str]) -> list[str]:
     """Files of ``sed -n <script> files``, for a script that only prints (``p`` with line addresses). Nothing for an
     in-place edit, a run without ``-n``, a script file (not read), or any other script (``d``, ``w``, ``s``...)."""
     scan = _SedScan()
+    positional = _sed_positional(scan, args)
+    if positional is None or not scan.quiet or scan.script_file:
+        return []
+    if scan.scripts:
+        scripts, files = scan.scripts, positional
+    elif positional:
+        scripts, files = positional[:1], positional[1:]
+    else:
+        return []
+    if not all(_print_only(script) for script in scripts):
+        return []  # not a print-only script: its files are not read as printed
+    return [f for f in files if f != "-"]  # `-` is stdin: the script still counts it as a position
+
+
+def _sed_positional(scan: _SedScan, args: list[str]) -> list[str] | None:
+    """The operands of a sed command line, its options read into ``scan``; None for an in-place edit."""
     ended = False
     positional: list[str] = []
     for a in args:
@@ -331,19 +354,12 @@ def _sed_files(args: list[str]) -> list[str]:
         else:
             scan.short(a)
         if scan.in_place:
-            return []
-    if not scan.quiet or scan.script_file:
-        return []
-    if scan.scripts:
-        scripts, files = scan.scripts, positional
-    elif positional:
-        scripts, files = positional[:1], positional[1:]
-    else:
-        return []
-    for script in scripts:
-        if not all(not piece.strip() or _PRINT_ONLY.fullmatch(piece) for piece in re.split(r"[;\n]", script)):
-            return []  # not a print-only script: its files are not read as printed
-    return [f for f in files if f != "-"]  # `-` is stdin: the script still counts it as a position
+            return None
+    return positional
+
+
+def _print_only(script: str) -> bool:
+    return all(not piece.strip() or _PRINT_ONLY.fullmatch(piece) for piece in re.split(r"[;\n]", script))
 
 
 def _bare(part: str) -> str:
