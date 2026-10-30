@@ -18,6 +18,7 @@ REPO = PROJECT.parent
 OSV_CONFIG = PROJECT / "osv-scanner.toml"
 CI_WORKFLOW = REPO / ".github" / "workflows" / "pip-audit.yml"
 SECURITY = PROJECT / "SECURITY.md"
+ADVISORY_ID = r"PYSEC-\d{4}-\d+|GHSA(?:-[0-9a-z]{4}){3}"
 
 
 def _osv_ids() -> set[str]:
@@ -28,7 +29,7 @@ def _osv_ids() -> set[str]:
 def _pip_audit_ids() -> set[str]:
     return set(
         re.findall(
-            r"--ignore-vuln\s+(PYSEC-\d{4}-\d+|GHSA(?:-[0-9a-z]{4}){3})",
+            rf"--ignore-vuln\s+({ADVISORY_ID})",
             CI_WORKFLOW.read_text(encoding="utf-8"),
         )
     )
@@ -61,6 +62,22 @@ def test_security_documents_every_ignored_id():
     assert not undocumented, (
         f"SECURITY.md does not explain these ignored advisories: {undocumented}"
     )
+
+
+def _lock_advisory_list() -> str:
+    """The list after "pip-audit against the locks ... reports these advisories": the locks' ones."""
+    _, found, after = SECURITY.read_text(encoding="utf-8").partition(
+        "fix the locks can take:\n\n"
+    )
+    assert found, "SECURITY.md no longer introduces the list of advisories in the locks"
+    return after.split("\n\n", 1)[0]
+
+
+def test_security_lists_no_advisory_the_lists_stopped_ignoring():
+    """SECURITY.md says a removed advisory leaves that list with the other two."""
+    listed = set(re.findall(ADVISORY_ID, _lock_advisory_list()))
+    stale = sorted(listed - _osv_ids())
+    assert not stale, f"SECURITY.md lists advisories no list ignores: {stale}"
 
 
 def test_hypothesis_example_database_is_git_ignored():

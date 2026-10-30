@@ -1057,7 +1057,26 @@ A path in a code span is tried at the file's directory and each of its
 ancestors. If none has it, the path is `fail` when its parent directory exists
 at one of those bases (a rename or a deleted file), `ok_suffix` when it ends a
 longer path in the tree (a root file naming paths inside a subproject), and
-`unresolved` otherwise (a build output, a path inside a submodule). `ok_suffix`
+`unresolved` otherwise (a build output, a path inside a submodule). A missing
+path that a tracked `.gitignore` ignores is `unresolved` rather than `fail`,
+with the `.gitignore` line in the reason (also for a path that was `unresolved`
+already): guidance that warns about generated files names paths no snapshot
+holds. A directory counts as ignored when git ignores it, or, when no `!` line
+names the directory itself (`!*/` names every directory, so it does not count),
+would ignore every file probed directly inside it: a plain name and each name a
+`!` line re-includes. So `include/*` ignores `include/`, and so does `out/*` with
+`!*/`, while a whitelist of `*`, `!*/`, `!*.py` does not ignore a missing
+`olddir/`, nor `!/setup.py` a missing `setup.py`. A path without a trailing slash counts when it
+would be as a file or as a directory: under that whitelist `*` ignores a missing
+`olddir` read as a file, so a directory needs its trailing slash to be checked
+as a rename. A glob counts when one of the files it is
+probed with would be: its wildcards filled in, and each name an ignoring line
+matches that the glob matches too (`gen.h` for `pkg/g*.h`), when a literal
+starts or ends the glob's last segment: `maintenance/*` or `pkg/*_*` would match
+the name of any rule (`_skbuild`), which says nothing about the glob. The probe
+tries a few names, not every name the glob matches. `.git/info/exclude` and
+`core.excludesFile` belong to a clone, not the tree,
+and are not read. `ok_suffix`
 and `ok_basename` resolve a path but cannot see it renamed, which then reads as
 `unresolved`; guidance the gate must protect names its paths from the repository
 root. A bare name

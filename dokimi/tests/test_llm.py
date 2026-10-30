@@ -56,7 +56,18 @@ def _no_ambient_bedrock_env(monkeypatch):
 
 
 @pytest.mark.parametrize("provider, model, expected", [
-    ("openai", "gpt-6.1-sol", "gpt-6.1-sol"),
+    ("openai", "gpt-6.1-sol", "gpt-6.1-sol"),  # on litellm's lists: bare, so its cache key holds
+    ("openai", "gpt-3.5-turbo-instruct", "gpt-3.5-turbo-instruct"),  # litellm's text-completion route
+    ("openai", "ft:gpt-4o-mini:org::id", "ft:gpt-4o-mini:org::id"),  # a fine-tune litellm takes as OpenAI's
+    ("openai", "ft:gpt-3.5-turbo:org::id", "ft:gpt-3.5-turbo:org::id"),  # the other fine-tune family litellm takes as OpenAI's
+    ("openai", "glm-5.3", "openai/glm-5.3"),  # off the lists: an OPENAI_API_BASE server's model
+    ("openai", "claude-sonnet-5-5", "openai/claude-sonnet-5-5"),  # bare, litellm would pick anthropic
+    ("openai", "amazon.nova-pro-v1:0", "openai/amazon.nova-pro-v1:0"),  # bare, litellm would pick bedrock
+    ("openai", "meta-llama/Llama-3.1-8B", "openai/meta-llama/Llama-3.1-8B"),  # an org, not a route
+    ("openai", "openai/glm-5.3", "openai/glm-5.3"),
+    ("openai", "azure/gpt-4o", "azure/gpt-4o"),  # an explicit litellm route passes through
+    ("openai", "ollama/llama3", "ollama/llama3"),  # any litellm provider prefix passes through
+    ("openai", "crusoe/x", "crusoe/x"),  # a provider litellm registers in JSON, not provider_list
     ("openai-codex", "gpt-5", "openai/gpt-5"),
     ("anthropic", "claude-sonnet-5-5", "anthropic/claude-sonnet-5-5"),
     ("openrouter", "openai/gpt-oss-120b", "openrouter/openai/gpt-oss-120b"),
@@ -259,12 +270,15 @@ MAIN_WRITTEN = [
     ("22510fd74bf01210757177f302f9b6728b81e9e3b31572bd6245f0c88af78dfd",
      lambda: get_llm("openrouter", "openai/gpt-oss-120b", "k", temperature=0.0).invoke(
          "ask", draw=1)),
+    # Off the installed price map, so routed as openai/gpt-6.1-terra here; main sent it bare.
+    ("c6dc142638019230bb9f5876e709302f8eafd63ea9a22a5990bc086fd7d07e3e",
+     lambda: LLM("gpt-6.1-terra", "openai", api_key="k").complete("ask")),
 ]
 
 
 @pytest.mark.parametrize("key, call", MAIN_WRITTEN,
                          ids=["plain", "system+prefix", "pinned+max_tokens+draw", "stream",
-                              "get_llm-bedrock", "get_llm-openrouter"])
+                              "get_llm-bedrock", "get_llm-openrouter", "openai-rerouted"])
 def test_an_entry_main_wrote_is_hit(key, call, cache_dir, fake_llm):
     usage = UsageRecord(total_tokens=7, cost_usd=0.002, cost_known_calls=1)
     (cache_dir / f"{key}.json").write_text(
