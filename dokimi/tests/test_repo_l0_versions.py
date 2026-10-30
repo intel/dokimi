@@ -10,7 +10,9 @@ import sys
 
 import pytest
 
-from dokimi.repos.l0.versions import _RUN, matrix_versions, parse, setup_versions
+from dokimi.repos.l0.core import Scan
+from dokimi.repos.l0.versions import _RUN, judge, matrix_versions, parse, setup_versions
+from dokimi.repos.source import WorkTree
 
 
 def _runs(text: str) -> list[tuple[str, object]]:
@@ -173,3 +175,14 @@ def test_a_computed_matrix_is_unknown():
                        "a matrix of ci.yml gives a computed Python version (${{ inputs.python }})",
                        "a matrix of ci.yml computes its exclude (${{ fromJSON(b) }})",
                        "a matrix of ci.yml computes its include (${{ fromJSON(a) }})"]
+
+
+@pytest.mark.parametrize("bad", ["env: {DATE: 2026-02-30}\njobs: {}\n",  # ValueError: no such day
+                                 "jobs: " + "[" * 5000 + "\n"], ids=["bad-date", "deep"])  # RecursionError
+def test_a_workflow_yaml_cannot_build_is_unresolved(tmp_path, bad):
+    """A line `py3.12-3.13 (bad.yml)` naming a workflow PyYAML cannot build is unresolved, not a crash."""
+    (tmp_path / ".github/workflows").mkdir(parents=True)
+    (tmp_path / ".github/workflows/bad.yml").write_text(bad, encoding="utf-8")
+    scan = Scan(WorkTree(tmp_path), frozenset())
+    assert judge(scan, parse("py3.12-3.13"), [".github/workflows/bad.yml"]) == (
+        "unresolved", ".github/workflows/bad.yml is not valid YAML")

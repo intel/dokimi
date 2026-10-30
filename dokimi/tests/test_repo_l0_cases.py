@@ -669,6 +669,15 @@ def test_actions_used_by_a_yaml_workflow_a_job_and_a_composite_action_are_ok(tmp
     assert got[("AGENTS.md", "docker/login-action")][0] == "unresolved"  # no step uses it; the broken YAML is skipped
 
 
+@pytest.mark.parametrize("bad", ["env: {DATE: 2026-02-30}\njobs: {}\n",  # ValueError: no such day
+                                 "jobs: " + "[" * 5000 + "\n"], ids=["bad-date", "deep"])  # RecursionError
+def test_a_workflow_yaml_cannot_build_is_skipped(tmp_path, bad):
+    got = _by_file(_scan(tmp_path, "Write `build/out`; `actions/checkout` fetches.\n",
+                         {".github/workflows/bad.yml": bad, ".github/workflows/ci.yml": _CHECKOUT}))
+    assert got[("AGENTS.md", "build/out")] == ("unresolved", "tried build/out")
+    assert got[("AGENTS.md", "actions/checkout")] == ("ok", "used by .github/workflows/ci.yml")
+
+
 def test_a_path_the_tree_holds_stays_a_path_when_a_workflow_uses_the_same_name(tmp_path):
     got = _by_file(_scan(tmp_path, "Run `tools/lint` and `tools/gone`.\n",
                          {"tools/lint/run.sh": "", ".github/workflows/ci.yml": "jobs:\n  x:\n    steps:\n"

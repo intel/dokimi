@@ -45,7 +45,7 @@ def _action_users(scan: Scan) -> dict[str, str]:
     for path in paths:
         try:
             doc = yaml.safe_load(scan.text(path))
-        except yaml.YAMLError:
+        except (yaml.YAMLError, ValueError, RecursionError):  # also a date that does not exist, deep nesting
             continue
         for value in _uses(doc):
             name, at, ref = value.strip().partition("@")

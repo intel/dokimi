@@ -212,7 +212,7 @@ def workflow_versions(scan: Scan, path: str, unknown: list[str], seen: dict[str,
     seen[path] = reads
     try:
         doc = yaml.safe_load(scan.text(path))
-    except yaml.YAMLError:
+    except (yaml.YAMLError, ValueError, RecursionError):  # also a date that does not exist, deep nesting
         unknown.append(f"{path} is not valid YAML")
         return set()
     jobs = doc.get("jobs") if isinstance(doc, dict) else None
