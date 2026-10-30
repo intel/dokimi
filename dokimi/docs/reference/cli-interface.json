@@ -212,6 +212,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -543,6 +544,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google'",
                 "'google-vertex'",
                 "'openai'",
@@ -742,6 +744,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -1120,6 +1123,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google'",
                 "'google-vertex'",
                 "'openai'",
@@ -1303,6 +1307,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -1458,6 +1463,46 @@
           "subcommands": {}
         }
       }
+    },
+    "backends": {
+      "allow_abbrev": true,
+      "params": [
+        {
+          "action": "_HelpAction",
+          "choices": null,
+          "const": null,
+          "default": "==SUPPRESS==",
+          "group_key": null,
+          "group_required": null,
+          "hidden": false,
+          "is_flag": true,
+          "key": "--help/-h",
+          "kind": "option",
+          "nargs": 0,
+          "position": null,
+          "required": false,
+          "type": null
+        },
+        {
+          "action": "_StoreTrueAction",
+          "choices": null,
+          "const": true,
+          "default": false,
+          "group_key": null,
+          "group_required": null,
+          "hidden": false,
+          "is_flag": true,
+          "key": "--json",
+          "kind": "option",
+          "nargs": 0,
+          "position": null,
+          "required": false,
+          "type": null
+        }
+      ],
+      "path": "dokimi backends",
+      "subcommand_required": null,
+      "subcommands": {}
     },
     "baseline": {
       "allow_abbrev": true,
@@ -1795,6 +1840,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google'",
                 "'google-vertex'",
                 "'openai'",
@@ -1882,6 +1928,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -2009,6 +2056,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google'",
                 "'google-vertex'",
                 "'openai'",
@@ -2096,6 +2144,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -2255,6 +2304,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google'",
                 "'google-vertex'",
                 "'openai'",
@@ -2358,6 +2408,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -3778,6 +3829,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google'",
                 "'google-vertex'",
                 "'openai'",
@@ -4292,6 +4344,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google'",
                 "'google-vertex'",
                 "'openai'",
@@ -4363,6 +4416,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google'",
                 "'google-vertex'",
                 "'openai'",
@@ -4685,6 +4739,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google'",
                 "'google-vertex'",
                 "'openai'",
@@ -5012,6 +5067,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google'",
                 "'google-vertex'",
                 "'openai'",
@@ -5083,6 +5139,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google'",
                 "'google-vertex'",
                 "'openai'",
@@ -5306,6 +5363,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -5492,6 +5550,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google'",
                 "'google-vertex'",
                 "'openai'",
@@ -5635,6 +5694,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google'",
                 "'google-vertex'",
                 "'openai'",
@@ -5844,6 +5904,7 @@
           "choices": [
             "'amazon-bedrock'",
             "'anthropic'",
+            "'claude-cli'",
             "'google'",
             "'google-vertex'",
             "'openai'",
@@ -5947,6 +6008,7 @@
           "choices": [
             "'amazon-bedrock'",
             "'anthropic'",
+            "'claude-cli'",
             "'google-vertex'",
             "'openai'",
             "'openai-codex'",
@@ -6799,6 +6861,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -6870,6 +6933,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -7133,6 +7197,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -7488,6 +7553,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -7780,6 +7846,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -7835,6 +7902,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -7986,6 +8054,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -8193,6 +8262,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -8531,6 +8601,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -8846,6 +8917,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -9223,6 +9295,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -9418,6 +9491,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -9713,6 +9787,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -12812,6 +12887,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google'",
                 "'google-vertex'",
                 "'openai'",
@@ -12963,6 +13039,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
