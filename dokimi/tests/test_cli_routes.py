@@ -71,7 +71,30 @@ def test_help_lists_each_root_under_its_section():
         elif section and re.match(r"^  \S", line):
             listed[line.split()[0]] = section
     assert order == list(cli_routes.SECTIONS)
-    assert listed == {root.name: root.section for root in cli_routes.ROOTS}
+    loop = "The loop"
+    subjects = "Subjects"
+    evals = "Evals"
+    data = "Analysis and data"
+    assert listed == {
+        **dict.fromkeys(
+            (
+                "evaluate",
+                "baseline",
+                "report",
+                "answers",
+                "benchmark",
+                "dashboard",
+                "arms",
+                "subjects",
+                "tasks",
+                "explore",
+            ),
+            loop,
+        ),
+        **dict.fromkeys(("run", "compare", "library", "catalog", "novelty", "repo"), subjects),
+        **dict.fromkeys(("personas", "questions", "eval"), evals),
+        **dict.fromkeys(("dataset", "ingest", "tools", "context", "data"), data),
+    }
 
 
 # The commands that can make a model call. Written out here, not read from cli_routes, so a
