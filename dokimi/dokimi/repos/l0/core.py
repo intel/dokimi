@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..source import RepoTree, SourceError
+from .gitignore import GitIgnore, Rule
 from .markdown import PYTHON_LANGS, SHELL_LANGS, STARLARK_LANGS, Fence, split
 
 # Files whose words are prose, not code: an identifier found only there is not in the code.
@@ -83,6 +84,14 @@ def glob_regex(pat: str) -> re.Pattern[str]:
             out.append(re.escape(pat[i]))
             i += 1
     return re.compile("".join(out) + r"\Z")
+
+
+_FILLS = ("x", "dokimi-probe")  # what a `*` becomes in a probe of the files a glob names
+
+
+def _fill(pat: str, fill: str) -> str:
+    """``pat`` with its wildcards filled in: ``**/`` as nothing, ``*`` as ``fill``, ``?`` as its first letter."""
+    return re.sub(r"\?", fill[0], re.sub(r"\*+", fill, pat.replace("**/", "")))
 
 
 def is_doc(path: str) -> bool:
@@ -305,11 +314,11 @@ class Scan:
         for c in cands:
             parent = posixpath.dirname(c)
             if parent and parent in self.dir_set:
-                return "fail", f"{parent}/ exists but {c} does not"
+                return self._missing([c], rel.endswith("/"), f"{parent}/ exists but {c} does not")
         hits = [x for x in self.by_name.get(posixpath.basename(target), []) if x.endswith("/" + target)]
         if hits:
             return "ok_suffix", f"below a directory the text does not name; {len(hits)} match(es), e.g. {hits[0]}"
-        return "unresolved", "tried " + ", ".join(cands)
+        return self._missing(cands, rel.endswith("/"), "tried " + ", ".join(cands), "unresolved")
 
     def _glob(self, bases: list[str], rel: str) -> tuple[str, str]:
         """A glob is judged like the plain path it generalises (see :meth:`resolve_path`)."""
@@ -327,13 +336,69 @@ class Scan:
             for b in bases:
                 d = posixpath.normpath(posixpath.join(b, parent))
                 if d in self.dir_set:
-                    return "fail", f"{d}/ exists but nothing in it matches {posixpath.basename(pat)}"
+                    probes = self._probes(posixpath.normpath(posixpath.join(b, pat)))
+                    return self._missing(probes, rel.endswith("/"),
+                                         f"{d}/ exists but nothing in it matches {posixpath.basename(pat)}")
         if parent:
             rx = glob_regex("*/" + pat)
             hit = next((x for x in every if rx.match(x)), None)
             if hit:
                 return "ok_suffix", f"below a directory the text does not name; e.g. {hit}"
-        return "unresolved", f"glob {pat} matches nothing in the tree; a build may create it"
+        probes = [p for b in bases for p in self._probes(posixpath.normpath(posixpath.join(b, pat)))]
+        return self._missing(probes, rel.endswith("/"),
+                             f"glob {pat} matches nothing in the tree; a build may create it", "unresolved")
+
+    def _probes(self, full: str) -> list[str]:
+        """Files the glob ``full`` names, to ask the ``.gitignore`` about: a probe of a few names, not every one.
+
+        Its wildcards filled in, and each name an ignoring rule matches that the glob matches too
+        (``gen.h`` for ``g*.h``); two fillings, so one re-included (``!x.cxx``) leaves the other.
+        Rule names count only for a last segment a literal starts or ends: ``*`` or ``*_*`` matches
+        the name of an unrelated rule (``_skbuild``), which is no evidence the glob is ignored.
+        """
+        folder, name = posixpath.split(full)
+        rx = glob_regex(full)
+        named = name[:1] not in "*?[" or name[-1:] not in "*?]"
+        paths = [posixpath.join(_fill(folder, fill), n) for fill in _FILLS
+                 for n in (_fill(name, fill), *(self.gitignore().names(fill) if named else ()))]
+        return [p for p in dict.fromkeys(paths) if rx.match(p)]
+
+    def _missing(self, paths: list[str], is_dir: bool, why: str, status: str = "fail") -> tuple[str, str]:
+        """``status`` for a path the tree lacks, unless a ``.gitignore`` ignores it: a build output.
+
+        ``paths`` are the files a glob names, or the path at each base it is tried from; any of them
+        being ignored is enough.
+        """
+        rule = next(filter(None, (self._ignored_by(p, is_dir) for p in paths)), None)
+        if rule is None:
+            return status, why
+        return "unresolved", (f"{why}; {rule.source}:{rule.line} (`{rule.pattern}`) ignores it, "
+                              "so it is likely generated rather than tracked")
+
+    def _ignored_by(self, path: str, is_dir: bool) -> Rule | None:
+        """The rule that ignores ``path``, read as a directory too: without a trailing slash it may
+        still name one (``dist`` under ``dist/``).
+
+        A path no ``!`` line names (``!/setup.py``, ``!*.py``; ``!*/`` names every directory, not this
+        one) also counts when every file probed directly inside it would be (``include/*``, or ``out/*``
+        with ``!*/``): a plain name and each name a ``!`` line re-includes, so a whitelist (``*``,
+        ``!*/``, ``!*.py``) does not hide a renamed directory.
+        """
+        ig = self.gitignore()
+        readings = (True,) if is_dir else (False, True)
+        rule = next(filter(None, (ig.ignored_by(path, d) for d in readings)), None)
+        if rule is not None:
+            return rule
+        if any(r and r.name.strip("*") for r in (ig.reincluded_by(path, d) for d in readings)):
+            return None
+        inside = [ig.ignored_by(posixpath.join(path, n)) for n in ("file", *ig.names("x", negated=True))]
+        return inside[0] if all(inside) else None
+
+    def gitignore(self) -> GitIgnore:
+        def load() -> GitIgnore:
+            self.preload([f for f in self.files if posixpath.basename(f) == ".gitignore"])
+            return GitIgnore(self.files, self.text)
+        return self.cached("gitignore", load)
 
     def _every(self) -> list[str]:
         return self.cached("every", lambda: sorted(self.file_set | self.dir_set))
