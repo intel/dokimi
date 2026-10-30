@@ -492,6 +492,18 @@ def test_the_llm_reply_carries_the_resolved_model_id(runner):
     assert llm._cli_reply(request).model_id == "claude-sonnet-5-5"
 
 
+def test_the_prompt_is_the_user_turn_even_when_a_system_message_follows_it(runner):
+    # The guard counts the non-system turns; the prompt must come from that turn, not the last message.
+    runner.answers.append(reply(_ok()))
+    request = llm.Request(model="sonnet", provider="claude-cli", litellm_model="sonnet",
+                          messages=[{"role": "user", "content": "the question"},
+                                    {"role": "system", "content": "the rules"}], max_tokens=50)
+    llm._cli_reply(request)
+    call = runner.calls[0]
+    assert call.input.decode() == "the question"
+    assert call.argv[call.argv.index("--system-prompt") + 1] == "the rules"
+
+
 def test_an_alias_and_its_full_id_are_one_model_for_the_identity_checks():
     same = llm_cli.same_model
     assert same("claude-cli", "sonnet", "claude-cli", "claude-sonnet-5-5")

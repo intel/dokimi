@@ -538,7 +538,8 @@ def _cli_reply(request: Request) -> Reply:
                                    "no temperature or seed", retryable=False)
     system = [prompt_text(replace(request, messages=[m]))
               for m in request.messages if m.get("role") == "system"]
-    out = llm_cli.call(request.provider, model=request.model, prompt=prompt_text(request),
+    out = llm_cli.call(request.provider, model=request.model,
+                       prompt=prompt_text(replace(request, messages=turns)),
                        system="\n\n".join(system) or None)
     return Reply(text=out.text, usage=out.usage, finish_reason=out.finish_reason, model_id=out.model_id)
 
