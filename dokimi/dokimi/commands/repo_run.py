@@ -412,7 +412,7 @@ def cmd_repo_compare(args: argparse.Namespace) -> None:
     arms = [a for spec in args.arm for a in spec.split(",") if a] if args.arm else None
     try:
         summary = compare(dirs, args.baseline, arms, args.model, tuple(args.metric or ()),
-                          pass_k=args.pass_k, path_stability=args.path_stability)
+                          pass_k=args.pass_k, path_stability=args.path_stability, tasks=args.task)
     except (CompareError, CellFileError) as exc:  # an unusable baseline, arm, metric or cell file: exit 2
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
@@ -557,6 +557,8 @@ def register(repo_sub, positive_int, source_help: str, cache_help: str) -> None:
                            help="Treatment arm (ARM or BATCH/ARM); repeatable or comma-separated "
                            "(default: every other arm)")
     compare_p.add_argument("--model", action="append", default=None, help="Only this model; repeatable")
+    compare_p.add_argument("--task", action="append", default=None,
+                           help="Only this task id; repeatable (default: every task of the batches)")
     compare_p.add_argument("--metric", action="append", default=None,
                            help="Also compare this numeric or boolean grade.json metric; repeatable")
     compare_p.add_argument("--pass-k", type=positive_int, default=None, dest="pass_k", metavar="K",

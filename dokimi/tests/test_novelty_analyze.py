@@ -131,6 +131,32 @@ def _analyze(tmp_path, **overrides):
     return analyze(body, config, extractor=extractor, answerer=answerer, judge=judge)
 
 
+def test_a_self_judged_run_is_refused_before_any_extraction_call(tmp_path):
+    """The judge check runs before the first paid call, not after the extraction."""
+    from dokimi.novelty.measure import SelfJudgeError
+
+    calls = []
+
+    def counting(prompt, system):
+        calls.append(prompt)
+        return ("x", None)
+
+    path = tmp_path / "accel-tuning" / "SKILL.md"
+    path.parent.mkdir(parents=True)
+    path.write_text(SKILL, encoding="utf-8")
+    kind, name, description, frontmatter, body = load_artifact_text(f"skill:{path}")
+    config = AnalyzeConfig(
+        artifact_ref=f"skill:{path}", artifact_kind=kind, name=name,
+        description=description, frontmatter=frontmatter, concurrency=1,
+    )
+    extractor = LLMClient(model="same-m", role="extractor", transport=counting)
+    answerer = LLMClient(model="same-m", role="answerer", transport=counting)
+    judge = LLMClient(model="same-m", role="judge", transport=counting)
+    with pytest.raises(SelfJudgeError):
+        analyze(body, config, extractor=extractor, answerer=answerer, judge=judge)
+    assert calls == []
+
+
 def test_skill_reference_splits_frontmatter_from_body(tmp_path):
     path = tmp_path / "accel-tuning" / "SKILL.md"
     path.parent.mkdir(parents=True)

@@ -419,6 +419,12 @@ reads the upstream base (`base_sha`) and the workspace start commit
 Code's `modelUsage`), `main` when the harness reported the parent's only, and
 `null` when it reported none. `subagent_calls` counts the parent's and
 subagents' `Agent`/`Task` calls; `null` when the harness wrote no result record.
+`first_prompt_tokens` is what the first main-thread model call was sent
+(`input + cache_creation + cache_read` tokens of that call, counted once per
+message id, as `context trace` reads it): everything start-up loaded plus the
+task, so two arms that differ only in guidance differ there by what start-up
+loaded of it. It is `null` when the trace has no main-thread call with
+`usage`, and for a trace format that carries none (`text`).
 
 `result.json` `process` holds what the framework counts in the events, the
 parent's and subagents' together, so a grader need not:
@@ -1335,15 +1341,58 @@ python cli.py repo compare repo-runs/replay --baseline guidance:none --metric re
 - `repo compare` reduces cells to one value per (task, arm, model) first:
   repetitions share a task's difficulty and are not paired across arms, so the
   task is the unit. Per treatment arm, model and measure (gate share, score,
-  cost, turns, each `--metric` from `grade.json`, and each `process` count a
+  cost, turns, `first_prompt_tokens`, each `--metric` from `grade.json`, and each `process` count a
   compared cell reports as `process:<key>` or `counter:<name>`) it gives the mean per-task
   delta against the baseline with a 95% interval over tasks (a bootstrap for
-  gate and score, a t interval for cost, turns, metrics and process counts, `-` for a single
+  gate and score, a t interval for the descriptive measures, `-` for a single
   task), the tasks up, down and tied, and a two-sided sign-flip permutation p (exact up to 16
   changed tasks; at one cell per task and arm it equals McNemar's exact test).
-  A `process` count only one arm reports for the shared tasks of a
-  (treatment, model) is not compared; a warning names it. Holm's correction runs over the gate and score comparisons of one call; the
-  rest are descriptive. A gate or score comparison carries `headroom`:
+  A `process` count or `first_prompt_tokens` only one arm reports for the shared tasks of a
+  (treatment, model) is not compared; a warning names it. When neither arm
+  reports it (a batch run before `repo run` recorded it), the row is absent.
+  Holm's correction runs over the gate and score comparisons of one call; the
+  rest are descriptive. Three notes under a comparison keep a row from being
+  misread, and change no delta, interval or p. A gate or score row of 2+ tasks whose
+  interval includes 0 is inconclusive, not evidence of no effect: the note
+  gives `mde`, a planning figure: an approximate, uncorrected t-based estimate,
+  `(t(0.975, n-1) + t(0.80, n-1)) * sd / sqrt(n)` over the per-task deltas, of
+  the mean delta a one-sample t test at the uncorrected two-sided 5% level
+  detects with 80% power at that spread, the t quantiles at `n-1` degrees of
+  freedom (every row has `mde` in `--json`; `null` for one task or deltas with
+  no spread, and then no note). It is not the power of the sign-flip test nor
+  of the Holm-corrected decision; a Holm-calibrated figure would depend on the
+  other rows' observed p, which a figure for planning the next run's task count
+  cannot know. The sign-flip p over k changed (non-tied)
+  tasks cannot go below `2 / 2^k`, so with 5 or fewer no effect of any size
+  reaches p < 0.05: `mde` is `null` there too, and the note says how low p can
+  go instead (`with 3 changed tasks the sign-flip p cannot go below 0.25: no
+  effect can reach p < 0.05 here`). Holm's correction can lift that floor: a
+  gate or score row's `p_holm_floor` is its `p_holm` with its p put at that
+  floor and the other p of the family as observed (in every `--json` row;
+  `null` on a descriptive row or one with every task tied), and where it is not below
+  0.05, `mde` is `null` and the note names Holm instead (`with Holm over 2
+  rows, p_holm cannot go below 0.0625 here: no effect can reach p_holm <
+  0.05`); a family of one row is the raw rule. `p_holm_floor` decides only
+  whether `mde` is given, not its size. A row whose interval and p disagree (the
+  interval excludes 0 while p is 0.05 or more, or includes 0 while p is below
+  0.05; for gate and score that p is `p_holm`, the one that decides them, and the
+  note quotes it) has `interval_p_disagree` `true` and a note: they come from two
+  methods, and for gate and score `p_holm` is the one to read, since a percentile
+  bootstrap runs narrow over few tasks; the inconclusive note gives way to
+  it. Descriptive rows with p below 0.05 are named on one line: their p is
+  uncorrected and outside Holm's family. `--task ID` (repeatable) compares only
+  those tasks: an id no finished cell of the batches has is refused, the tasks
+  left out are not listed as unpaired nor their cells as missing (a missing
+  cell's task is the one its `meta.json` records, else, for a cell only
+  `plan.json` names, the longest task id of the batch's finished cells that its
+  name starts with followed by `__`; a cell of neither is missing only without
+  `--task`), the `--json` summary records the
+  selection as `task_filter` (`tasks`, and `of`, the number of tasks of the
+  batches that have a finished cell, the ids `--task` can name, and
+  `dropped_arms`: without `--arm`, the arms with no finished cell among the
+  selection, which drop out of the comparison, `[]` with `--arm`; `null`
+  without `--task`), and the text header says `tasks: N of M (--task)` and,
+  under it, `not compared, no finished cell among the --task selection: <arms>`. A gate or score comparison carries `headroom`:
   `ceiling` (both arms at 1.0 or the task's `score.max` on every paired
   task), `floor` (both at 0 on every one), `near_ceiling` (the baseline at
   the top on all but at most one of 2+ tasks and the treatment nowhere below

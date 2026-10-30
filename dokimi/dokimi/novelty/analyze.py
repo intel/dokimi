@@ -165,6 +165,7 @@ def analyze(
             file it came from, which is the cut an author needs to decide what belongs in
             the body. Without it the run is entry-point-only and says so.
     """
+    measure.check_self_judge(judge.model, answerer.model, config.allow_self_judge)
     warnings: list[str] = []
     span_list = spans.segment(text)
     extraction = atoms_mod.ExtractionReport()

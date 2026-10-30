@@ -7,14 +7,12 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
-from dataclasses import dataclass
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from dokimi.commands.arms_matrix import prepare_matrix_cells
-from dokimi.commands.arms_sampling import _check_sampling_support, _probe_sampling
-from dokimi.utils import question_id, write_text_or_exit
+from dokimi.exit_codes import EXIT_FAILURE, EXIT_USAGE
+from dokimi.utils import question_id
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
@@ -23,54 +21,25 @@ from dokimi.defaults import (
     JUDGE_MODEL_FOR_PROVIDER,
     JUDGE_MODEL_HELP,
 )
+from dokimi.eval.question_text import EmptyQuestionError
 
 if TYPE_CHECKING:
-    from dokimi.eval import Judge, JudgePanel
-    from dokimi.eval.arm_runner import ArmRunner
-
-# Run-config fields the arms commands read off parsed args, shared with any command that builds its own Namespace:
-# one list, so a new flag reaches every caller; getattr defaults can't tell an omitted field from a chosen one.
-FORWARDED_RUN_CONFIG_FIELDS = (
-    "model",
-    "provider",
-    "harness",
-    "context7_id",
-    "judge",
-    "judge_model",
-    "judge_provider",
-    "top_k",
-    "rerank_threshold",
-    "max_iterations",
-    "max_tokens",
-    "grounded_from_topics",
-    "temperature",
-    "seed",
-    "judge_temperature",
-    "judge_panel",
-    "concurrency",
-    "stats_correction",
-    "session_turns",
-    "turn_reminder",
-)
+    from dokimi.eval.arms_run import ArmsRunConfig
 
 
-from dokimi.eval.question_text import EmptyQuestionError
-from dokimi.exit_codes import EXIT_FAILURE, EXIT_USAGE
+def run_config_from_args(args: argparse.Namespace, **overrides) -> ArmsRunConfig:
+    """The run configuration in parsed *args*: the one place flags become an ``ArmsRunConfig``.
 
-def forwarded_run_config(args: argparse.Namespace, **overrides) -> dict:
-    """Copy the shared run-configuration fields off *args*.
-
-    Fields absent from *args* are omitted rather than defaulted, so
-    the arms helpers apply their own default instead of this helper
-    inventing one. Pass *overrides* for values the caller sets itself.
+    A config field the command has no flag for takes the config's default, the value
+    ``arms run`` runs with when that flag is left out. Pass *overrides* for fields the
+    command sets itself.
     """
-    forwarded = {
-        field: getattr(args, field)
-        for field in FORWARDED_RUN_CONFIG_FIELDS
-        if hasattr(args, field)
-    }
-    forwarded.update(overrides)
-    return forwarded
+    from dataclasses import fields
+
+    from dokimi.eval.arms_run import ArmsRunConfig
+
+    values = {f.name: getattr(args, f.name) for f in fields(ArmsRunConfig) if hasattr(args, f.name)}
+    return ArmsRunConfig(**{**values, **overrides})
 
 
 def judge_panel_roles(value: str) -> str:
@@ -85,22 +54,30 @@ def judge_panel_roles(value: str) -> str:
 
 def cmd_arms_run(args: argparse.Namespace) -> None:
     """Run an N-arm treatment comparison and optionally judge it."""
+    from dokimi.eval.arms_run import LibraryIdError, ProbeError, prepare_arms, run_prepared
+
+    # Setup (inputs, arms, plugins, sampling, judge) exits 2; a failed sampling probe is a run failure (1).
     try:
         specs = _parse_arm_specs(args.arms)
         questions = _load_questions(args.questions)
-        _apply_named_matrix_cell(args)
-        setup = _prepare_arms(args, specs, questions)
+        config = _with_named_cell(run_config_from_args(args), args.matrix_cells, args.matrix_cell)
+        prepared = prepare_arms(config, specs, questions)
     except EmptyQuestionError:
         raise  # a bad input record, not an arm setup error: cli.main reports it (exit 2)
+    except ProbeError as exc:
+        print(f"Error running arms: {exc}", file=sys.stderr)
+        sys.exit(EXIT_FAILURE)
+    except LibraryIdError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
     except (ValueError, OSError, RecursionError) as exc:
         print(f"Error building arms/plugins: {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
     try:
-        output = _run_arms(args, setup, questions)
+        output = run_prepared(prepared, config, questions)
     except EmptyQuestionError:
-        raise
+        raise  # a bad input record, not a run error: cli.main reports it (exit 2)
     except (ValueError, OSError, RecursionError) as exc:
-        # The run itself failed (a record, a model call, a judge): a runtime failure, exit 1.
         print(f"Error running arms: {exc}", file=sys.stderr)
         sys.exit(EXIT_FAILURE)
 
@@ -120,52 +97,87 @@ def cmd_arms_run(args: argparse.Namespace) -> None:
 
 def cmd_arms_matrix_run(args: argparse.Namespace) -> None:
     """Run every cell in a matrix.cells descriptor and write a rollup."""
+    out_dir = Path(args.out_dir) if args.out_dir else Path(f"results/arms/{args.product}-matrix")
+    run_matrix(
+        run_config_from_args(args), arms=args.arms, questions=args.questions,
+        matrix_cells=args.matrix_cells, out_dir=out_dir,
+        out_json=Path(args.out_json) if args.out_json else None,
+        out_md=Path(args.out_md) if args.out_md else None,
+        plugin_deltas=args.plugin_deltas,
+    )
+
+
+def _load_matrix_inputs(config: ArmsRunConfig, arms: str, questions: str, matrix_cells: str):
+    """The arms, questions and cells of a matrix run, checked before any cell is set up. A refused
+    input exits 2; a failed sampling probe, a real call, exits 1."""
+    from dokimi.eval import arms_run
     from dokimi.eval.cells import load_matrix_cells
+
+    try:
+        specs = _parse_arm_specs(arms)
+        loaded_questions = _load_questions(questions)
+        cells = load_matrix_cells(matrix_cells)
+        _validate_unique_cell_filenames(cells)
+        arms_run.check_matrix(config, cells)
+    except EmptyQuestionError:
+        raise  # a bad input record, not a cell error: cli.main reports it (exit 2)
+    except arms_run.ProbeError as exc:
+        print(f"Error loading matrix run inputs: {exc}", file=sys.stderr)
+        sys.exit(EXIT_FAILURE)
+    except (ValueError, OSError, RecursionError) as exc:
+        print(f"Error loading matrix run inputs: {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+    return specs, loaded_questions, cells
+
+
+def run_matrix(config: ArmsRunConfig, *, arms: str, questions: str, matrix_cells: str,
+               out_dir: Path, out_json: Path | None = None, out_md: Path | None = None,
+               plugin_deltas: bool = True) -> None:
+    """``arms matrix-run`` from a config: run every cell of *matrix_cells* and write the cells,
+    the plugin deltas and the rollup.
+
+    *out_json* defaults to ``matrix-rollup.json`` in *out_dir*, *out_md* to *out_json* with a
+    ``.md`` suffix.
+    """
+    from dokimi.eval import arms_run
     from dokimi.eval.matrix_rollup import build_matrix_rollup, strip_internal_payloads
     from dokimi.report.matrix_rollup_report import render_matrix_rollup_report
     from dokimi.report.plugin_delta_report import render_plugin_delta_report
 
-    try:
-        specs = _parse_arm_specs(args.arms)
-        questions = _load_questions(args.questions)
-        cells = load_matrix_cells(args.matrix_cells)
-        _validate_supported_matrix_harnesses(cells)
-        _validate_unique_cell_filenames(cells)
-    except (ValueError, OSError, RecursionError) as exc:
-        print(f"Error loading matrix run inputs: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
-    # Every cell is set up and probed before a directory is written or an answer is paid for:
-    # a refused cell costs no answer call and writes no cell artifact.
-    prepared = prepare_matrix_cells(args, cells, specs, questions, apply_cell=_apply_matrix_cell,
-                                    prepare=_prepare_arms, probe=_probe_setup)
+    specs, loaded_questions, cells = _load_matrix_inputs(config, arms, questions, matrix_cells)
 
-    out_dir = Path(args.out_dir) if args.out_dir else Path(f"results/arms/{args.product}-matrix")
+    # The cells dir is made only when a cell finishes: a cell refused in setup writes nothing.
     cells_dir = out_dir / "cells"
-    try:
-        cells_dir.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        print(f"Error: cannot write {cells_dir}: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
     cell_artifacts = []
-    for cell, cell_args, setup in prepared:
+
+    def save_cell(cell, output: dict) -> None:
         safe_name = _safe_name(cell.name)
-        out_json = cells_dir / f"{safe_name}.json"
-        out_md = cells_dir / f"{safe_name}.md"
+        cell_json = cells_dir / f"{safe_name}.json"
         try:
-            output = _run_arms(cell_args, setup, questions)
-        except EmptyQuestionError:
-            raise  # a bad input record, not a cell error: cli.main reports it (exit 2)
-        except (ValueError, OSError, RecursionError) as exc:
-            print(f"Error running matrix cell {cell.name!r}: {exc}", file=sys.stderr)
-            sys.exit(EXIT_FAILURE)
-        _save_arms_output(output, out_json, out_md)
-        cell_artifacts.append((cell.name, out_json, output))
+            cells_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            print(f"Error: cannot write {cells_dir}: {exc}", file=sys.stderr)
+            sys.exit(EXIT_USAGE)
+        _save_arms_output(output, cell_json, cells_dir / f"{safe_name}.md")
+        cell_artifacts.append((cell.name, cell_json, output))
+
+    try:
+        arms_run.run_matrix(config, cells, specs, loaded_questions, on_cell=save_cell)
+    except EmptyQuestionError:
+        raise  # a bad input record, not a cell error: cli.main reports it (exit 2)
+    except arms_run.LibraryIdError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+    except arms_run.MatrixCellError as exc:
+        verb = "building" if exc.usage else "running"
+        print(f"Error {verb} matrix cell {exc.cell!r}: {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE if exc.usage else EXIT_FAILURE)
 
     rollup = build_matrix_rollup(
-        library_name=args.product,
+        library_name=config.product,
         cell_artifacts=cell_artifacts,
         out_dir=out_dir,
-        compute_plugin_deltas=args.plugin_deltas,
+        compute_plugin_deltas=plugin_deltas,
     )
     for row in rollup.get("plugin_deltas", []):
         payload = row.get("_artifact_payload")
@@ -173,14 +185,14 @@ def cmd_arms_matrix_run(args: argparse.Namespace) -> None:
             continue
         delta_json = Path(row["artifact"])
         _save_artifact_or_exit("plugin_delta", payload, delta_json)
-        write_text_or_exit(delta_json.with_suffix(".md"), render_plugin_delta_report(payload))
+        _write_report(delta_json.with_suffix(".md"), render_plugin_delta_report(payload))
         print(f"OK Saved plugin delta:    {delta_json}")
 
     persisted = strip_internal_payloads(rollup)
-    out_json = Path(args.out_json) if args.out_json else out_dir / "matrix-rollup.json"
-    out_md = Path(args.out_md) if args.out_md else out_json.with_suffix(".md")
+    out_json = out_json or out_dir / "matrix-rollup.json"
+    out_md = out_md or out_json.with_suffix(".md")
     _save_artifact_or_exit("matrix_rollup", persisted, out_json)
-    write_text_or_exit(out_md, render_matrix_rollup_report(persisted))
+    _write_report(out_md, render_matrix_rollup_report(persisted))
     print(f"OK Saved matrix rollup:   {out_json}")
     print(f"OK Saved matrix report:   {out_md}")
 
@@ -208,7 +220,7 @@ def cmd_arms_plugin_delta(args: argparse.Namespace) -> None:
     print(f"OK Saved plugin delta: {out_json}")
 
     out_md = Path(args.out_md) if args.out_md else out_json.with_suffix(".md")
-    write_text_or_exit(out_md, render_plugin_delta_report(output))
+    _write_report(out_md, render_plugin_delta_report(output))
     print(f"OK Saved plugin delta report: {out_md}")
 
     print(
@@ -347,37 +359,6 @@ def register(sub, positive_int) -> None:
     plugin_delta_p.set_defaults(func=cmd_arms_plugin_delta)
 
 
-def _resolve_doc_library_id(treatments, product: str, explicit_id=None, registry=None):
-    """Resolve a library id for the first doc arm, before plugin wrapping.
-
-    Same three-step order as the ``answers``/``questions`` commands: explicit
-    flag, then the product's ``context7_id`` in ``products.yaml``, then the
-    client's own resolution. When no id can be named the ``ValueError`` is
-    raised to the caller, which stops the run: substituting the product name
-    would query an id that does not exist and record an empty-retrieval doc
-    arm as a measurement. Other failures (an unreachable MCP server, say) still
-    fall back to the product name and are reported by the arm itself.
-    """
-    if explicit_id is not None:
-        return explicit_id
-
-    from dokimi.mcp.factory import resolve_library_id_for_product
-    from dokimi.treatments.arms import DocTreatment
-
-    for treatment in treatments:
-        unwrapped = getattr(treatment, "inner", treatment)
-        if isinstance(unwrapped, DocTreatment):
-            try:
-                return resolve_library_id_for_product(
-                    product, unwrapped.mcp_client, registry=registry
-                )
-            except ValueError:
-                raise
-            except Exception:
-                return product
-    return None
-
-
 def _add_common_run_args(parser, positive_int, *, matrix_required: bool = False) -> None:
     parser.add_argument("--product", required=True, help="Product name (e.g., oneTBB)")
     parser.add_argument("--questions", required=True, help="Path to questions JSON file")
@@ -513,231 +494,33 @@ def _refuse_duplicate_ids(ids: list, path: str) -> None:
         raise ValueError(f"duplicate question ids in {path}: {', '.join(map(repr, dupes[:5]))}")
 
 
-def _validate_expected_skills(questions: list[dict], treatments) -> None:
-    """Refuse ``expected_skill`` labels the selection summary cannot score.
-
-    Checked before any call is spent: a label of the wrong type crashes the
-    summary after the run, and a name no skill arm offers silently scores as a
-    miss. Names are checked only when some arm offers skills.
-    """
-    from dokimi.treatments import SkillAgentTreatment, SkillCatalogTreatment
-
-    def leaves(t):
-        t = getattr(t, "inner", t)
-        for sub in getattr(t, "treatments", None) or [t]:
-            yield sub
-
-    known: set = set()
-    for t in treatments:
-        for sub in leaves(t):
-            if isinstance(sub, SkillCatalogTreatment):
-                known.update(s.name for s in sub.skills)
-            elif isinstance(sub, SkillAgentTreatment):
-                known.add(sub.skill.name)
-    for i, q in enumerate(questions):
-        if "expected_skill" not in q:
-            continue
-        label = q["expected_skill"]
-        qid = question_id(q)
-        qid = f"#{i}" if qid is None else qid
-        names = label if isinstance(label, list) else [label] if label is not None else []
-        if not all(isinstance(n, str) and n for n in names):
-            raise ValueError(f"question {qid}: expected_skill must be a skill name, a list of "
-                             f"names, or null; got {label!r}")
-        unknown = [n for n in names if known and n not in known]
-        if unknown:
-            raise ValueError(f"question {qid}: expected_skill names no offered skill: "
-                             f"{', '.join(unknown)}")
-
-
-def _apply_named_matrix_cell(args: argparse.Namespace) -> None:
+def _with_named_cell(config: ArmsRunConfig, matrix_cells: str | None,
+                     matrix_cell: str | None) -> ArmsRunConfig:
+    """*config* as the cell named by ``--matrix-cell`` in ``--matrix-cells`` runs it, if one is."""
+    from dokimi.eval.arms_run import cell_config, validate_supported_matrix_harnesses
     from dokimi.eval.cells import load_matrix_cells, select_matrix_cell
 
-    if args.matrix_cells or args.matrix_cell:
-        if not args.matrix_cells or not args.matrix_cell:
-            raise ValueError("--matrix-cells and --matrix-cell must be passed together")
-        matrix_cell = select_matrix_cell(load_matrix_cells(args.matrix_cells), args.matrix_cell)
-        _validate_supported_matrix_harnesses([matrix_cell])
-        _apply_matrix_cell(args, matrix_cell)
+    if not (matrix_cells or matrix_cell):
+        return config
+    if not matrix_cells or not matrix_cell:
+        raise ValueError("--matrix-cells and --matrix-cell must be passed together")
+    cell = select_matrix_cell(load_matrix_cells(matrix_cells), matrix_cell)
+    validate_supported_matrix_harnesses([cell])
+    return cell_config(config, cell)
 
 
-def _apply_matrix_cell(args: argparse.Namespace, matrix_cell) -> None:
-    args.matrix_cell = matrix_cell.name
-    args.model = matrix_cell.model
-    args.provider = matrix_cell.provider
-    args.harness = matrix_cell.harness
-    args.plugins = ",".join(matrix_cell.plugin_specs)
-
-
-def _refuse_judged_session(args: argparse.Namespace) -> None:
-    """Refused before any answer is paid for: a session is measured, not judged."""
-    if getattr(args, "session_turns", None) is not None and args.judge:
-        raise ValueError("--session-turns is measurement-only; drop --judge")
-
-
-@dataclass
-class _ArmsSetup:
-    """What a run needs, built and checked before any answer is paid for."""
-
-    runner: ArmRunner
-    judge: Judge | JudgePanel | None
-    # (model, provider, temperature, seed) of each real call that checks the sampling flags, answer side first
-    probes: list[tuple[str, str, float | None, int | None]]
-    library_id: str | None
-
-
-def _check_judge_inputs(args: argparse.Namespace, questions: list[dict]) -> tuple[str, str, float | None, None]:
-    """The judge's refusals, before any answer is paid for. Returns the judge's probe call."""
-    from dokimi.eval.question_text import require_question_text
-    from dokimi.llm import unsupported_sampling_params
-    from dokimi.utils import bedrock_litellm_model
-
-    # The judge refuses a blank question; here, that is before any answer is paid for.
-    # Every question is answered and then judged, so every one is checked.
-    for i, q in enumerate(questions):
-        require_question_text(q, i)
-    judge_model = args.judge_model
-    if args.judge_provider == "amazon-bedrock" and not getattr(args, "judge_panel", None):
-        # A single Bedrock judge goes through get_llm, which maps a bare name first.
-        judge_model = bedrock_litellm_model(args.judge_model)
-    bad_judge = unsupported_sampling_params(
-        judge_model, args.judge_provider,
-        temperature=getattr(args, "judge_temperature", None),
-    )
-    if bad_judge:
-        raise ValueError(
-            f"Judge provider '{args.judge_provider}' does not support "
-            f"{', '.join(bad_judge)} for model '{args.judge_model}'. Drop the "
-            "flag; every score would otherwise be null."
-        )
-    return (judge_model, args.judge_provider, getattr(args, "judge_temperature", None), None)
-
-
-def _build_judge(args: argparse.Namespace) -> Judge | JudgePanel | None:
-    """A judge, a panel, or None. An unknown panel role raises here, before any answer."""
-    from dokimi.eval import Judge, JudgePanel
-    from dokimi.eval.panel import JUDGE_ROLES, JudgeConfig
-
-    if not args.judge:
-        return None
-    panel_roles = [r.strip() for r in (getattr(args, "judge_panel", "") or "").split(",") if r.strip()]
-    if not panel_roles:
-        return Judge(model=args.judge_model, provider=args.judge_provider,
-                     temperature=getattr(args, "judge_temperature", None))
-    unknown = [r for r in panel_roles if r not in JUDGE_ROLES]
-    if unknown:
-        raise ValueError(
-            f"Unknown --judge-panel role(s): {', '.join(unknown)}. "
-            f"Available: {', '.join(JUDGE_ROLES)}"
-        )
-    # A panel reports grader spread and agreement per answer, which a
-    # single judge structurally cannot — judge choice alone moves scores.
-    return JudgePanel(
-        judges=[
-            JudgeConfig(role=r, model=args.judge_model, provider=args.judge_provider,
-                        temperature=getattr(args, "judge_temperature", None))
-            for r in panel_roles
-        ],
-    )
-
-
-def _prepare_arms(args: argparse.Namespace, specs: list[str], questions: list[dict]) -> _ArmsSetup:
-    """Setup and validation: a value that cannot be used is a ValueError, raised before any call."""
-    from dokimi.eval.arm_runner import ArmRunner
-    from dokimi.plugins import (
-        create_plugins,
-        plugin_set_metadata,
-        validate_plugins_for_harness,
-        wrap_treatments,
-    )
-    from dokimi.treatments import create_treatments
-
-    _refuse_judged_session(args)
-    treatments = create_treatments(specs, top_k=args.top_k, rerank_threshold=args.rerank_threshold)
-    _validate_expected_skills(questions, treatments)
+def _write_report(path: Path, text: str) -> None:
+    """Write a Markdown report, or exit 1 naming ``path`` when it cannot be written."""
     try:
-        library_id = _resolve_doc_library_id(treatments, args.product, args.context7_id)
-    except ValueError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        raise SystemExit(EXIT_USAGE) from exc
-    plugins = create_plugins([s.strip() for s in args.plugins.split(",") if s.strip()])
-    validate_plugins_for_harness(plugins, args.harness)
-    treatments = wrap_treatments(treatments, plugins)
-    plugin_set = plugin_set_metadata(plugins)
-    print(f"Arms: {', '.join(t.name for t in treatments)}")
-    if args.matrix_cell:
-        print(f"Matrix cell: {args.matrix_cell}")
-    if plugin_set["plugins"]:
-        print(f"Plugins: {plugin_set['plugin_set']} ({plugin_set['plugin_set_id']})")
-
-    _check_sampling_support(args)
-    probes = [(args.model, args.provider, getattr(args, "temperature", None), getattr(args, "seed", None))]
-    if args.judge:
-        probes.append(_check_judge_inputs(args, questions))
-    # Built before any answer is paid for: an unsupported judge provider raises here.
-    judge = _build_judge(args)
-
-    runner = ArmRunner(
-        treatments,
-        model=args.model,
-        provider=args.provider,
-        max_iterations=args.max_iterations,
-        harness=args.harness,
-        plugin_set=plugin_set,
-        matrix_cell=args.matrix_cell,
-        max_tokens=getattr(args, "max_tokens", None),
-        grounded_from_topics=getattr(args, "grounded_from_topics", False),
-        stats_correction=getattr(args, "stats_correction", "holm"),
-        temperature=getattr(args, "temperature", None),
-        seed=getattr(args, "seed", None),
-        session_turns=getattr(args, "session_turns", None),
-        turn_reminder=getattr(args, "turn_reminder", None),
-    )
-    return _ArmsSetup(runner=runner, judge=judge, probes=probes, library_id=library_id)
-
-
-def _probe_setup(setup: _ArmsSetup) -> None:
-    """The sampling probes of a set-up run: one real model call per distinct key, before the first answer."""
-    for model, provider, temperature, seed in setup.probes:
-        _probe_sampling(model, provider, temperature, seed)
-
-
-def _build_arms_output(args: argparse.Namespace, specs: list[str], questions: list[dict]) -> dict:
-    """Setup, probe and run in one call, for the tests; the CLI calls the halves itself."""
-    return _run_arms(args, _prepare_arms(args, specs, questions), questions)
-
-
-def _run_arms(args: argparse.Namespace, setup: _ArmsSetup, questions: list[dict]) -> dict:
-    from dokimi.eval import JudgePanel
-
-    runner, judge = setup.runner, setup.judge
-    _probe_setup(setup)  # a cache hit when the matrix already probed these keys
-    records = runner.run(
-        library_name=args.product,
-        questions=questions,
-        library_id=setup.library_id,
-        concurrency=args.concurrency,
-    )
-
-    evaluations = None
-    if judge is not None:
-        if isinstance(judge, JudgePanel):
-            roles = [j.role for j in judge.judges]
-            print(f"Judging arms with a {len(roles)}-judge panel: {', '.join(roles)}")
-        else:
-            print("Judging arms...")
-        evaluations = runner.judge(
-            judge, args.product, records,
-            baseline_arm=args.baseline_arm, concurrency=args.concurrency,
-        )
-    return runner.build_output(
-        args.product, records, evaluations=evaluations, baseline_arm=args.baseline_arm,
-        judge=judge,
-    )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    except OSError as exc:
+        print(f"Error: cannot write {path}: {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
 
 
 def _save_artifact_or_exit(kind: str, payload: dict, path: Path) -> None:
-    """``save_artifact``, or exit 2 naming ``path`` when it cannot be written."""
+    """``save_artifact``, or exit 1 naming ``path`` when it cannot be written."""
     from dokimi.artifacts import save_artifact
 
     try:
@@ -757,7 +540,7 @@ def _save_arms_output(output: dict, out_json: Path, out_md: Path) -> None:
         print(f"Error: cannot write {out_json}: {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
     print(f"OK Saved arms comparison: {out_json}")
-    write_text_or_exit(out_md, render_arms_report(output))
+    _write_report(out_md, render_arms_report(output))
     print(f"OK Saved arms report:     {out_md}")
 
 
@@ -772,23 +555,6 @@ def _validate_unique_cell_filenames(cells) -> None:
                 f"{seen[safe_name]!r} and {cell.name!r} both map to {safe_name!r}"
             )
         seen[safe_name] = cell.name
-
-
-def _validate_supported_matrix_harnesses(cells) -> None:
-    """Reject matrix harness labels that the in-process runner cannot execute."""
-    from dokimi.eval.cells import HARNESS_ARMS_RUNNER
-
-    unsupported = [
-        cell.harness
-        for cell in cells
-        if cell.harness != HARNESS_ARMS_RUNNER
-    ]
-    if unsupported:
-        raise ValueError(
-            "matrix cells only support harness='arms-runner' until other runners are wired; "
-            "unsupported harnesses: "
-            + ", ".join(sorted(set(unsupported)))
-        )
 
 
 def _safe_name(name: str) -> str:

@@ -189,7 +189,9 @@ def build_trigger_set(
     :func:`resolve_label` rule that labels it. *rewrite* maps question text to a
     new query text and is given nothing but that text. When *specs* (one name per
     source) is given, an ``@field`` rule that labels none of its source's questions
-    is refused, naming the source; without it such questions stay unlabelled.
+    is refused, naming the source; without it such questions stay unlabelled. A ``None``
+    entry in *specs* exempts its source: a ``--trigger-set`` file is passed with the
+    ``@expected_skill`` rule, and a file with no labels is valid there.
     """
     out: List[TriggerQuery] = []
     seen: set = set()
@@ -215,7 +217,8 @@ def build_trigger_set(
             tq.reach = dict(extra) if isinstance(extra, dict) else {}
             out.append(tq)
         chunk = out[first:]
-        if specs is not None and rule.startswith("@") and chunk and not any(tq.labelled for tq in chunk):
+        if (specs is not None and specs[index] is not None and rule.startswith("@") and chunk
+                and not any(tq.labelled for tq in chunk)):
             # A typo in the path, not a set of negatives.
             raise TriggerSetInputError(f"{specs[index]}: {rule} resolves for none of {len(chunk)} questions "
                                        "(none has that field, so the file has no labels)")

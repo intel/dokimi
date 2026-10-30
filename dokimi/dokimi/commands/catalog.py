@@ -189,7 +189,9 @@ def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
     sources += _trigger_set_sources(args.trigger_set or [], catalog)
     if not sources:
         usage_exit("give --questions PATH=LABEL or --trigger-set PATH[=TARGET]")
-    specs = list(args.questions or []) + list(args.trigger_set or [])
+    # A --trigger-set source is labelled by @expected_skill whether or not its file has labels,
+    # so only --questions sources (named here) get the no-labels refusal.
+    specs = list(args.questions or []) + [None] * len(args.trigger_set or [])
 
     rewrite = None
     if args.rewrite:

@@ -177,7 +177,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
     """Run the paired probes against a saved atom set and print the 2×2."""
     from dokimi.novelty.atoms import load_atoms_or_exit
     from dokimi.novelty.bundle import check_answer_key
-    from dokimi.novelty.measure import SelfJudgeError, run_measurement
+    from dokimi.novelty.measure import SelfJudgeError, check_self_judge, run_measurement
     from dokimi.novelty.probes import build_probe_set
     from dokimi.novelty.report import build_probe_record
 
@@ -195,6 +195,10 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
         print(f"WARNING: {answerer.model} extracted these atoms, so the model under measurement "
               "wrote its own answer key; extract with a different --extract-model",
               file=sys.stderr)
+    try:  # before the paraphrase calls below, which are paid
+        check_self_judge(judge.model, answerer.model, args.allow_self_judge)
+    except SelfJudgeError as exc:
+        usage_exit(str(exc))
     paraphrases, reversals = settings.values["paraphrases"], settings.values["reversals"]
     probe_set = build_probe_set(
         atoms, client=extractor if paraphrases or reversals else None,
@@ -213,8 +217,6 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
             allow_self_judge=args.allow_self_judge, seed=args.seed,
             placebo_text=placebo_text,
         )
-    except SelfJudgeError as exc:
-        usage_exit(str(exc))
     except ValueError as exc:  # a model failure under way
         raise SystemExit(str(exc)) from None
 

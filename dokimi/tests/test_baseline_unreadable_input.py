@@ -226,3 +226,13 @@ def test_compare_exits_2_when_the_saved_baseline_file_is_corrupt(run, tmp_path, 
         run("compare", "--baseline", "b", "--eval", str(good))
     assert exc.value.code == 2
     assert str(saved) in capsys.readouterr().err
+
+
+def test_compare_with_no_saved_baseline_exits_2_and_says_to_save_one(run, tmp_path, capsys):
+    # Nothing saved is a missing input, the same class as a named baseline that is not there (exit 2).
+    eval_file = tmp_path / "eval.json"
+    eval_file.write_text(json.dumps(_EVAL), encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        run("compare", "--eval", str(eval_file))
+    assert exc.value.code == 2
+    assert "No baselines found. Save one first" in capsys.readouterr().out

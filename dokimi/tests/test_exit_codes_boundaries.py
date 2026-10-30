@@ -20,7 +20,8 @@ from pathlib import Path
 import pytest
 
 from dokimi import cli
-from dokimi.commands import arms, arms_sampling, benchmark, evaluate
+from dokimi.commands import arms, benchmark, evaluate
+from dokimi.eval import arms_run
 from dokimi.records import RecordError
 from dokimi.repos import SourceError
 from dokimi.repos.reach import ReachError
@@ -67,10 +68,10 @@ def test_arm_run_failure_keeps_exit_1(error, tmp_path, monkeypatch, capsys):
 def test_arm_run_sampling_probe_failure_keeps_exit_1_before_any_answer(tmp_path, monkeypatch, capsys):
     # The probe is one real model call: its failure is a model failure, not a usage error.
     def refused(*args, **kwargs):
-        raise ValueError("Probe call to 'openai/m' failed, so every call in the run would too")
+        raise arms_run.ProbeError("Probe call to 'openai/m' failed, so every call in the run would too")
 
     answered = []
-    monkeypatch.setattr("dokimi.commands.arms._probe_sampling", refused)
+    monkeypatch.setattr("dokimi.eval.arms_run.probe_sampling", refused)
     monkeypatch.setattr("dokimi.eval.arm_runner.ArmRunner.run",
                         lambda self, *a, **k: answered.append(1) or [])
     _argv(monkeypatch, *_arms_argv(tmp_path, "--judge", "--judge-temperature", "0.5"))
@@ -93,10 +94,10 @@ def test_arm_run_unknown_arm_spec_exits_2(tmp_path, monkeypatch, capsys):
 
 @pytest.fixture
 def fresh_probe_cache():
-    # _probe_sampling is cached per process; each test starts with no cached probe.
-    arms_sampling._probe_sampling.cache_clear()
+    # probe_sampling is cached per process; each test starts with no cached probe.
+    arms_run.probe_sampling.cache_clear()
     yield
-    arms_sampling._probe_sampling.cache_clear()
+    arms_run.probe_sampling.cache_clear()
 
 
 def test_matrix_cell_refused_at_probe_stops_before_any_answer(tmp_path, monkeypatch, capsys, fresh_probe_cache):
@@ -136,17 +137,17 @@ def test_matrix_cell_refused_at_probe_stops_before_any_answer(tmp_path, monkeypa
 def test_matrix_cell_that_cannot_be_set_up_exits_2_before_any_answer(tmp_path, monkeypatch, capsys):
     # Cell 2 cannot be set up (a refused input, not a model failure): usage error, and cell 1,
     # which was set up, has not been answered or written either.
-    real_prepare = arms._prepare_arms
+    real_prepare = arms_run.prepare_arms
     calls = []
 
-    def prepare(cell_args, specs, questions):
-        calls.append(cell_args.model)
-        if cell_args.model == "bad-cell-model":
+    def prepare(config, specs, questions):
+        calls.append(config.model)
+        if config.model == "bad-cell-model":
             raise ValueError("this cell names a harness that cannot run its plugins")
-        return real_prepare(cell_args, specs, questions)
+        return real_prepare(config, specs, questions)
 
     answered = []
-    monkeypatch.setattr(arms, "_prepare_arms", prepare)
+    monkeypatch.setattr("dokimi.eval.arms_run.prepare_arms", prepare)
     monkeypatch.setattr("dokimi.eval.arm_runner.ArmRunner.run",
                         lambda self, *a, **k: answered.append(1) or [])
     cells = tmp_path / "cells.json"
@@ -520,13 +521,24 @@ def test_trigger_set_no_text_refused_before_any_rewrite_call(tmp_path, monkeypat
     assert not (tmp_path / "o.json").exists()
 
 
-def test_trigger_set_file_without_labels_is_refused_and_says_so(tmp_path, monkeypatch, capsys):
-    # A questions file read as a trigger set whose questions carry no expected_skill: the rule is
-    # @expected_skill, and the message must say the file has no labels, not blame a path typo.
+def test_trigger_set_file_without_labels_is_valid_and_its_questions_stay_unlabelled(tmp_path, monkeypatch, capsys):
+    # A --trigger-set file whose questions carry no expected_skill is valid: they are read unlabelled.
     path = tmp_path / "unlabelled.json"
     path.write_text(json.dumps({"questions": [{"id": "u1", "question": "How do I cook rice?"}]}), encoding="utf-8")
     _argv(monkeypatch, "catalog", "trigger-set", "--catalog", str(_skill_root(tmp_path)),
           "--format", "questions", "--trigger-set", str(path), "--out", str(tmp_path / "o.json"))
+    cli.main()
+    assert (tmp_path / "o.json").exists()
+    assert "Traceback" not in capsys.readouterr().err
+
+
+def test_questions_file_with_a_field_label_and_no_labels_is_refused_and_says_so(tmp_path, monkeypatch, capsys):
+    # A --questions source whose rule is a field no question has is a mistyped path, not a set of
+    # negatives: exit 2, and the message says the file has no labels.
+    path = tmp_path / "unlabelled.json"
+    path.write_text(json.dumps({"questions": [{"id": "u1", "question": "How do I cook rice?"}]}), encoding="utf-8")
+    _argv(monkeypatch, "catalog", "trigger-set", "--catalog", str(_skill_root(tmp_path)),
+          "--format", "questions", "--questions", f"{path}=@expected_skill", "--out", str(tmp_path / "o.json"))
     with pytest.raises(SystemExit) as exc:
         cli.main()
     assert exc.value.code == 2

@@ -98,7 +98,7 @@ def test_an_unwritable_scorecard_exits_2_naming_it(tmp_path, monkeypatch, capsys
     import dokimi.commands.arms
     import dokimi.subjects
 
-    monkeypatch.setattr(dokimi.commands.arms, "cmd_arms_matrix_run", lambda args: None)
+    monkeypatch.setattr(dokimi.commands.arms, "run_matrix", lambda config, **kw: None)
     monkeypatch.setattr(dokimi.artifacts, "load_artifact", lambda kind, path: {})
     monkeypatch.setattr(dokimi.subjects, "build_subject_scorecard", lambda *a, **k: {})
     monkeypatch.setattr("dokimi.commands.subjects._run_subject_work", lambda *a, **k: {})
@@ -118,7 +118,7 @@ def _stub_run(monkeypatch, saved):
     import dokimi.report.subject_report
     import dokimi.subjects
 
-    monkeypatch.setattr(dokimi.commands.arms, "cmd_arms_matrix_run", lambda args: None)
+    monkeypatch.setattr(dokimi.commands.arms, "run_matrix", lambda config, **kw: None)
     monkeypatch.setattr(dokimi.artifacts, "load_artifact", lambda kind, path: {})
     monkeypatch.setattr(dokimi.artifacts, "save_artifact", lambda kind, data, path: saved.append(path))
     monkeypatch.setattr(dokimi.subjects, "build_subject_scorecard", lambda *a, **k: {})

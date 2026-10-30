@@ -119,9 +119,8 @@ def _matrix_run(tmp_path: Path, out_dir: Path, *extra: str):
 def _stub_matrix(monkeypatch, tmp_path):
     from dokimi.commands import arms
 
-    monkeypatch.setattr(arms, "_prepare_arms", lambda *a, **k: None)
-    monkeypatch.setattr(arms, "_probe_setup", lambda *a, **k: None)
-    monkeypatch.setattr(arms, "_run_arms", lambda *a, **k: {})
+    monkeypatch.setattr("dokimi.eval.arms_run.prepare_arms", lambda *a, **k: None)
+    monkeypatch.setattr("dokimi.eval.arms_run.run_prepared", lambda *a, **k: {})
     monkeypatch.setattr(arms, "_save_arms_output", lambda *a, **k: None)
     delta = tmp_path / "out" / "delta.json"
     rollup = {"plugin_deltas": [{"artifact": str(delta), "_artifact_payload": {"d": 1}}]}
@@ -192,12 +191,10 @@ def test_matrix_run_exits_2_on_an_unreadable_questions_file(tmp_path, capsys, ki
 
 @pytest.mark.parametrize("error", [PermissionError("denied"), RecursionError("deep")], ids=lambda e: type(e).__name__)
 def test_matrix_run_exits_2_when_a_cell_cannot_read_its_inputs(tmp_path, monkeypatch, capsys, error):
-    from dokimi.commands import arms
-
     def build(*a, **k):
         raise error
 
-    monkeypatch.setattr(arms, "_prepare_arms", build)
+    monkeypatch.setattr("dokimi.eval.arms_run.prepare_arms", build)
     args = _matrix_run(tmp_path, tmp_path / "out")
     with pytest.raises(SystemExit) as exc:
         args.func(args)

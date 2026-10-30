@@ -261,7 +261,7 @@ def cmd_baseline_compare(args: argparse.Namespace) -> None:
     if not baselines:
         print("No baselines found. Save one first:")
         print("  dokimi baseline save --from-eval eval/oneTBB.json --product oneTBB")
-        raise SystemExit(1)
+        raise SystemExit(EXIT_USAGE)
 
     entry = _pick_entry(args, baselines, eval_data)
     baseline_data = _read_json_object(Path(entry["path"]), 2)
