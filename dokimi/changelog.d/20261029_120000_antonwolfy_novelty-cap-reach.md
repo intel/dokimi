@@ -11,9 +11,9 @@
   states it; and on a capped run the headline's `coverage:` line says the
   readable words went into the input and the capped atoms come from the first
   N% of the input's tokens, instead of saying they were measured (as does the
-  warning printed under it when that share is half or less). A cap met on the
-  input's last span says instead that the atoms reach it and any atoms past
-  the cap in the last reply were dropped, in the warning, the header and the
+  warning printed under it when half or less of the artifact's readable words
+  went into the input). A cap met on the input's last span says instead that
+  the atoms reach it and any atoms past the cap in the last reply were dropped, in the warning, the header and the
   `coverage:` line. The tier forfeit (`added` is a rate over the atoms the
   cap kept, not the whole input) and the `harmful_atoms` gate reason (0
   conflicts among the capped atoms) no longer call the capped atoms a sample
