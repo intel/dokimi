@@ -286,6 +286,19 @@ def test_backends_command_prints_one_row_per_backend(monkeypatch, capsys):
     assert row["backend"] == "claude-cli" and row["authenticated"] is True
 
 
+def test_an_installed_cli_that_prints_no_version_is_unknown_not_not_installed(monkeypatch, capsys):
+    from dokimi.commands.backends import cmd_backends
+
+    monkeypatch.setattr(process, "run", _auth_runner({"loggedIn": True}, version=""))
+    cmd_backends(argparse.Namespace(json=False))
+    (row,) = [line for line in capsys.readouterr().out.splitlines() if line.startswith("| claude-cli |")]
+    assert row.split("|")[3:5] == [" unknown ", " yes "]
+    monkeypatch.setattr(process, "run", _auth_runner(None))
+    cmd_backends(argparse.Namespace(json=False))
+    (gone,) = [line for line in capsys.readouterr().out.splitlines() if line.startswith("| claude-cli |")]
+    assert gone.split("|")[3] == " not installed "
+
+
 def test_benchmark_preflight_checks_the_login_not_a_key(monkeypatch):
     from dokimi.commands.benchmark import _provider_checks
 

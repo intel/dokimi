@@ -22,8 +22,9 @@ def cmd_backends(args: argparse.Namespace) -> None:
     print("|---|---|---|---|---|---|")
     for r in rows:
         signed = {True: "yes", False: "no", None: "unknown"}[r.authenticated] if r.installed else "-"
+        version = r.version or ("unknown" if r.installed else "not installed")
         models = ", ".join(llm_cli.BACKENDS[r.backend].aliases)
-        print(f"| {r.backend} | {r.binary} | {r.version or 'not installed'} | {signed} "
+        print(f"| {r.backend} | {r.binary} | {version} | {signed} "
               f"| {r.method or '-'} | {models} |")
     for r in rows:
         if r.hint:
