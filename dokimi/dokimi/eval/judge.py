@@ -198,7 +198,9 @@ class Judge:
 
     #: Class default, so a Judge built without __init__ (tests build one with __new__) keeps the default.
     judge_placeholder: bool = False
-    
+    #: Same for the stamp: the eval artifact carries the method version of the answers it judged.
+    answers_method_version: int = ANSWERING_METHOD_VERSION
+
     def __init__(
         self,
         model: str = DEFAULT_JUDGE_MODEL,
@@ -209,6 +211,7 @@ class Judge:
         seed: Optional[int] = None,
         prompt_template: Optional[str] = None,
         judge_placeholder: bool = False,
+        answers_method_version: int = ANSWERING_METHOD_VERSION,
     ):
         """
         Args:
@@ -225,6 +228,9 @@ class Judge:
             judge_placeholder: Judge a context answer that is the no-retrieval
                 placeholder ("[FALLBACK: ...]") too. Off by default: a question
                 with no document reaching the prompt is not scored as an answer.
+            answers_method_version: The method version of the answers being judged,
+                stamped into the eval artifact. Answers read from an artifact with no
+                stamp are version 1; answers generated in this process are the current version.
         """
         if not LANGCHAIN_AVAILABLE:
             raise ImportError(
@@ -241,6 +247,7 @@ class Judge:
         self.run_metadata = dict(run_metadata) if run_metadata else {}
         self.prompt_template = prompt_template
         self.judge_placeholder = judge_placeholder
+        self.answers_method_version = answers_method_version
         # Accumulate judge-side token/cost telemetry across all judge calls
         # (Phase-C.0 covered answering; the judge path was untracked).
         self._usage_lock = threading.Lock()
@@ -651,7 +658,7 @@ class Judge:
         """Build the serialisable output structure for a set of evaluations."""
         output: Dict[str, Any] = {
             "evaluated_at": self._get_timestamp(),
-            "method_version": ANSWERING_METHOD_VERSION,
+            "method_version": self.answers_method_version,
             "judge_placeholder": self.judge_placeholder,
             "judge_model": self.model,
             "judge_provider": self.provider,

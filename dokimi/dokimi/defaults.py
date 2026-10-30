@@ -94,6 +94,8 @@ DEFAULT_RETRIEVAL_TOP_K = 3
 # Answering/judging method version, stamped into answers and eval artifacts; bump it when a change moves scores.
 # A later compare is meant to refuse mixed versions; an unstamped artifact predates it (#228 step 2) and is v1.
 ANSWERING_METHOD_VERSION = 2
+#: The version of an artifact that carries no stamp (written before ANSWERING_METHOD_VERSION existed).
+LEGACY_ANSWERING_METHOD_VERSION = 1
 DEFAULT_MAX_TOKENS_PER_QUESTION = 4000
 DEFAULT_CONCURRENCY = 5
 DEFAULT_RESULTS_SUFFIX = "_final"

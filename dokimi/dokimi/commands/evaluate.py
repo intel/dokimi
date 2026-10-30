@@ -17,6 +17,7 @@ from dokimi.defaults import (
     DEFAULT_JUDGE_PROVIDER,
     JUDGE_MODEL_FOR_PROVIDER,
     JUDGE_MODEL_HELP,
+    LEGACY_ANSWERING_METHOD_VERSION,
 )
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY, NoUsablePairs
@@ -204,6 +205,8 @@ def cmd_eval_score(args: argparse.Namespace) -> None:
         provider=args.judge_provider,
         temperature=args.judge_temperature,
         judge_placeholder=getattr(args, "judge_placeholder", False),
+        # The eval says which answering method made the answers it judges; an unstamped file is legacy.
+        answers_method_version=run.meta.get("method_version") or LEGACY_ANSWERING_METHOD_VERSION,
         run_metadata={
             "question_model": run.meta.get("question_model", "unknown"),
             "question_provider": run.meta.get("question_provider", "unknown"),
