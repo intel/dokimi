@@ -88,8 +88,8 @@ def shell_reads(script: str, cwd: str = "") -> list[str]:
     holding it ends with ``;``, ``&`` or a newline (it may have been skipped), or a glob or brace expansion (the
     files are not known). A subshell ``( ... )`` records no reads: its directory is not kept. A brace
     group that is backgrounded or piped runs in a subshell, so the directory is restored after it; the reads of a
-    group whose output feeds a pipe after it, or whose stdout is redirected to a file or /dev/null, are dropped, as
-    its output does not reach the agent. A group at the end of a pipeline still prints to the agent. ``--help`` and
+    group whose output feeds a pipe after it is dropped, as a pipeline is not a read here; a group whose stdout is
+    redirected to a file or /dev/null is dropped, as that output is not shown to the agent. ``--help`` and
     ``--version`` print and open no file. Absolute paths are kept.
     """
     out: list[str] = []
