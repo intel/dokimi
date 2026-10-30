@@ -348,6 +348,20 @@ def test_an_empty_entry_stored_before_the_rule_is_not_replayed(stale, cache_dir,
     assert len(fake_llm.requests) == 2
 
 
+@pytest.mark.parametrize("stale", [None, "", "  \n"])
+def test_an_empty_entry_is_a_miss_in_replay_only(stale, cache_dir, fake_llm):
+    """Replay-only serves no empty entry either: it is a miss, not an answer."""
+    fake_llm.push("seed", "live answer")
+    llm = LLM("m", "openai")
+    assert llm.ask("p") == "seed"
+    [entry] = cache_dir.glob("*.json")
+    stored = json.loads(entry.read_text(encoding="utf-8"))
+    entry.write_text(json.dumps({**stored, "text": stale}), encoding="utf-8")
+    with caching.replay_only(), pytest.raises(caching.CacheMiss):
+        llm.complete("p")
+    assert len(fake_llm.requests) == 1
+
+
 def test_chat_is_never_response_cached(cache_dir, fake_llm):
     fake_llm.push("a", "b")
     llm = LLM("m", "openai")

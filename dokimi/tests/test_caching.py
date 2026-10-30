@@ -297,7 +297,7 @@ def test_usage_values_of_every_field_type_replay(monkeypatch, tmp_path):
     assert hit == ("a", UsageRecord(**usage, replayed=True))
 
 
-def test_null_text_is_replayed_not_a_miss(monkeypatch, tmp_path):
+def test_a_null_entry_still_loads(monkeypatch, tmp_path):
     """A well-formed null entry loads (load_response); complete() still refuses to replay it (keeps)."""
     monkeypatch.setenv(caching.RESPONSE_CACHE_ENV, str(tmp_path))
     (tmp_path / "empty.json").write_text(
