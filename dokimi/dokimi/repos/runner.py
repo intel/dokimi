@@ -277,7 +277,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         # A killed harness reports no cost; the batch budget counts the cell's cap instead of $0.
         "charged_usd": caps["budget_usd"], "num_turns": None, "is_error": None, "result_subtype": None,
         "input_tokens": None, "output_tokens": None, "cache_read_tokens": None,
-        "cache_write_tokens": None, "usage_scope": None, "subagent_calls": None,
+        "cache_write_tokens": None, "usage_scope": None, "first_prompt_tokens": None, "subagent_calls": None,
         "plugins": [], "over_budget": False, "caps": caps, "network": network, "trace_errors": []}
     process: dict[str, Any] | None = None  # null when the trace could not be read
     added = meta.get("arm_patch") or {}
@@ -302,6 +302,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
             result_subtype=transcript.result_subtype, input_tokens=transcript.input_tokens,
             output_tokens=transcript.output_tokens, cache_read_tokens=transcript.cache_read_tokens,
             cache_write_tokens=transcript.cache_write_tokens, usage_scope=transcript.usage_scope,
+            first_prompt_tokens=transcript.first_prompt_tokens,
             subagent_calls=transcript.subagent_calls, plugins=transcript.plugins,
             over_budget=cost is not None and cost > caps["budget_usd"], trace_errors=transcript.errors[:5])
         if events is not None:  # after the cost is recorded: a metric that fails must not cost the cell its record

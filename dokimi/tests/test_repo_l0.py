@@ -240,28 +240,98 @@ def test_scan_command_writes_a_valid_artifact(toy, tmp_path, capsys):
     with pytest.raises(SystemExit) as exc:
         args.func(args)
     assert exc.value.code == 1
+    assert capsys.readouterr().err == ""  # the scan is complete: the FAIL lines say why
 
 
 @pytest.mark.outcome("cjm-repo-scan")
-@pytest.mark.parametrize("files, exits", [
+@pytest.mark.parametrize("files, err", [
     # every claim passes and the guidance is there: the gate passes
-    ({"AGENTS.md": "# Clean\n\nNothing here to check.\n", "CONTRIBUTING.md": "Read first.\n"}, False),
-    # no guidance file: nothing is checked, so the gate fails with zero failed claims
-    ({"README.md": "Read first.\n"}, True),
+    ({"AGENTS.md": "# Clean\n\nNothing here to check.\n", "CONTRIBUTING.md": "Read first.\n"}, None),
+    # no guidance file: nothing is checked, so the gate fails with zero failed claims, and says why
+    ({"README.md": "Read first.\n"},
+     "✗ scan incomplete: guidance/also_scan matches no file: CONTRIBUTING.md; no guidance file to scan\n"),
 ])
-def test_fail_on_fail_follows_the_result_not_the_flag(tmp_path, files, exits):
+def test_fail_on_fail_follows_the_result_not_the_flag(tmp_path, capsys, files, err):
     root = tmp_path / "clean"
     sha = _repo(root, files)
     manifest_file = tmp_path / "m.json"
     manifest_file.write_text(json.dumps(MANIFEST), encoding="utf-8")
     args = build_parser().parse_args(["repo", "scan", f"{root}@{sha}", "--manifest-file", str(manifest_file),
                                       "--fail-on-fail"])
-    if exits:
+    if err:
         with pytest.raises(SystemExit) as exc:
             args.func(args)
         assert exc.value.code == 1
+        assert capsys.readouterr().err == err
     else:
         args.func(args)
+        assert capsys.readouterr().err == ""
+
+
+def _scan_argv(tmp_path: Path, files: dict[str, str]) -> list[str]:
+    """`repo scan` of a new repository holding ``files``, with guidance globs for AGENTS.md and
+    CLAUDE.md and CONTRIBUTING.md in ``also_scan``."""
+    root = tmp_path / "r"
+    sha = _repo(root, files)
+    manifest_file = tmp_path / "m.json"
+    guidance = {"globs": ["**/AGENTS.md", "**/CLAUDE.md"], "also_scan": ["CONTRIBUTING.md"]}
+    manifest_file.write_text(json.dumps(dict(MANIFEST, guidance=guidance)), encoding="utf-8")
+    return ["repo", "scan", f"{root}@{sha}", "--manifest-file", str(manifest_file)]
+
+
+def _exit_code(argv: list[str]) -> int | str | None:
+    args = build_parser().parse_args(argv)
+    try:
+        args.func(args)
+    except SystemExit as exc:
+        return exc.code
+    return None
+
+
+CLEAN = "# Clean\n\nNothing here to check.\n"
+NO_CLAUDE = "guidance glob matches no file: **/CLAUDE.md"
+
+
+def test_a_missing_also_scan_file_is_named_as_the_cause(tmp_path, capsys):
+    argv = _scan_argv(tmp_path, {"AGENTS.md": CLEAN})
+    reason = "guidance/also_scan matches no file: CONTRIBUTING.md"
+    out = tmp_path / "readiness.json"
+    assert _exit_code(argv + ["--out", str(out)]) is None
+    captured = capsys.readouterr()
+    assert captured.err == ""  # without --fail-on-fail the reason is only in the summary
+    lines = captured.out.splitlines()
+    assert lines[1:5] == ["  claims: 0 (ok 0, unresolved 0, fail 0)", f"  warning: {NO_CLAUDE}",
+                          f"  warning: {reason}", f"  incomplete: {reason} (repo scan --fail-on-fail exits 1)"]
+    data = load_artifact("repo_readiness", out)
+    assert data["warnings"] == [NO_CLAUDE, reason]
+    assert data["incomplete"] is True and data["incomplete_reasons"] == [reason]
+
+    assert _exit_code(argv + ["--fail-on-fail"]) == 1
+    assert capsys.readouterr().err == f"✗ scan incomplete: {reason}\n"
+
+
+def test_an_invalid_static_file_still_says_why_an_incomplete_scan_fails(tmp_path, capsys):
+    argv = _scan_argv(tmp_path, {"AGENTS.md": CLEAN})
+    static = tmp_path / "bad.json"
+    static.write_text(json.dumps({"schema": "nope"}), encoding="utf-8")
+    reason = "guidance/also_scan matches no file: CONTRIBUTING.md"
+    assert _exit_code(argv + ["--static", str(static), "--fail-on-fail"]) == 1
+    err = capsys.readouterr().err.splitlines()
+    assert any(line.startswith("✗ --static output not merged: ") for line in err)
+    assert f"✗ scan incomplete: {reason}" in err
+
+
+def test_a_glob_that_matches_nothing_alone_keeps_the_scan_complete(tmp_path, capsys):
+    argv = _scan_argv(tmp_path, {"AGENTS.md": CLEAN, "CONTRIBUTING.md": "Read first.\n"})
+    out = tmp_path / "readiness.json"
+    assert _exit_code(argv + ["--out", str(out), "--fail-on-fail"]) is None
+    captured = capsys.readouterr()
+    lines = captured.out.splitlines()
+    assert f"  warning: {NO_CLAUDE}" in lines
+    assert not [line for line in lines if line.startswith("  incomplete:")] and captured.err == ""
+    data = load_artifact("repo_readiness", out)
+    assert data["warnings"] == [NO_CLAUDE]
+    assert data["incomplete"] is False and data["incomplete_reasons"] == []
 
 
 def test_read_many_fetches_missing_blobs_of_a_partial_clone(toy, tmp_path):

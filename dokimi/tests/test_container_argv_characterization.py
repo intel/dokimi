@@ -120,6 +120,7 @@ def test_example_docker_argv_default_policy_pins_every_flag_in_order():
     argv, timeout = _docker_cmd(ExecutionPolicy(backend="docker", timeout=7))
     assert argv == [
         "docker", "run", "--rm",
+        "--security-opt", "no-new-privileges", "--cap-drop", "ALL",
         "--network", "none",
         "--cpus", "1.0",
         "--memory", "512m",
@@ -138,6 +139,7 @@ def test_example_docker_argv_resource_values_come_from_the_policy():
     argv, _ = _docker_cmd(policy, lang="bash")
     assert argv == [
         "docker", "run", "--rm",
+        "--security-opt", "no-new-privileges", "--cap-drop", "ALL",
         "--network", "none",
         "--cpus", "2.5",
         "--memory", "1024m",
@@ -156,9 +158,10 @@ def test_example_docker_argv_never_sets_network_from_the_policy():
     assert argv[argv.index("--network") + 1] == "none"
 
 
-def test_example_docker_argv_has_no_init_no_cap_drop_no_new_privileges():
-    # Recorded gap: this site carries none of the repos/container.py hardening today.
-    # Adding it is an argv change and is a separate follow-up, so this test pins the absence.
-    argv, _ = _docker_cmd(ExecutionPolicy(backend="docker", timeout=5))
-    for flag in ("--init", "--cap-drop", "no-new-privileges"):
-        assert flag not in argv
+@pytest.mark.parametrize("lang", sorted(EXECUTORS))
+def test_example_docker_argv_drops_every_capability_and_new_privileges(lang):
+    # The snippet runs as the image's user, root in the default image: it keeps no capability
+    # and a setuid binary gives it none, as in repos/container.py.
+    argv, _ = _docker_cmd(ExecutionPolicy(backend="docker", timeout=5), lang=lang)
+    assert argv[argv.index("--cap-drop") + 1] == "ALL"
+    assert argv[argv.index("--security-opt") + 1] == "no-new-privileges"
