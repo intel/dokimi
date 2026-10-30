@@ -245,3 +245,9 @@ def scan(root: Path) -> ScanResult:
     result.skipped = +result.skipped  # drop the zero counts
     return result
 
+
+def select(artifacts: list[Artifact], kinds: list[str] | None = None,
+           subject: str | None = None) -> list[Artifact]:
+    """The artifacts of one of ``kinds`` (all when none) that name exactly ``subject`` (if given)."""
+    return [a for a in artifacts
+            if (not kinds or a.kind in kinds) and (subject is None or subject in a.subjects)]
