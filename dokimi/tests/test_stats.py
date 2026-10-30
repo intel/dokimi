@@ -645,9 +645,10 @@ def test_bootstrap_ci_defaults_are_pinned():
 
 
 def test_bootstrap_with_one_resample_collapses_to_it():
+    # Seed 0 draws index 1 twice: the one resample's mean is 1.0, and both
+    # clamped indices read it. A seed or resampling change moves that literal.
     res = stats.bootstrap_ci([0, 1], n_resamples=1)
-    assert res["lo"] == res["hi"]
-    assert res["lo"] in (0.0, 0.5, 1.0)
+    assert (res["lo"], res["hi"]) == (1.0, 1.0)
     assert res["n"] == 2
 
 
