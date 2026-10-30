@@ -12,9 +12,8 @@ from dokimi.harnesses.agent_sandbox import AgentWorkspace, run_probe
 
 
 def test_probe_reports_a_writable_docker_socket(tmp_path, monkeypatch):
-    # AF_UNIX paths on macOS are limited to 104 bytes; pytest's normal TMPDIR
-    # can exceed that before the socket filename is added.
-    # mkdtemp creates a private unpredictable directory; only its parent is fixed.
+    # AF_UNIX paths on macOS are limited to 104 bytes, which pytest's TMPDIR can exceed;
+    # a private unpredictable directory under /tmp keeps the socket path short.
     with tempfile.TemporaryDirectory(prefix="dk-", dir="/tmp") as short_tmp:  # nosec B108
         sock_path = Path(short_tmp) / "docker.sock"
         with socket.socket(socket.AF_UNIX) as server:
