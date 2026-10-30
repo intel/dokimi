@@ -347,3 +347,15 @@ def test_a_neighbour_that_links_outside_the_root_is_named_not_read(monkeypatch, 
 
     assert {"name": "ext.json", "schema_version": None} in data["siblings"]
     assert {"name": "in.json", "schema_version": "plugin_delta.v1"} in data["siblings"]
+
+
+@pytest.mark.skipif(os.name == "nt" or os.geteuid() == 0,
+                    reason="POSIX permissions; root reads every file")
+def test_an_artifact_that_cannot_be_opened_exits_2(monkeypatch, capsys, root):
+    (root / "arms" / "onetbb.json").chmod(0o000)
+    try:
+        err = _fails(monkeypatch, capsys, "arms/onetbb.json")
+    finally:
+        (root / "arms" / "onetbb.json").chmod(0o644)
+
+    assert err == "Error: arms/onetbb.json: cannot read: Permission denied\n"

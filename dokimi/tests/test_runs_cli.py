@@ -216,3 +216,11 @@ def test_a_root_under_a_directory_that_cannot_be_searched_exits_2(tmp_path, monk
     assert capsys.readouterr().err in (
         f"Error: runs root DOKIMI_RUNS_DIR={named}: cannot read: Permission denied\n",
         f"Error: runs root DOKIMI_RUNS_DIR={named} does not exist\n")
+
+
+def test_a_time_that_is_not_iso_8601_is_shown_as_written(monkeypatch, capsys, root):
+    save_artifact("eval", {**_fixture("eval.v1"), "evaluated_at": "yesterday"}, root / "e.json")
+
+    rows = _list(monkeypatch, capsys).out.splitlines()
+
+    assert rows[1].split()[:4] == ["eval.v1", "-", "demo-judge", "yesterday"]

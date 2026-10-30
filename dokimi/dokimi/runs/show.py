@@ -80,7 +80,7 @@ def _version(path: Path, address: str) -> str:
     try:
         version = head_version(path)
     except OSError as exc:
-        raise InputError(f"{address}: cannot read: {exc.strerror or exc}") from exc
+        raise InputError(f"{address}: {read_error_reason(exc)}") from exc
     if version is None:
         raise InputError(f"{address} is not an artifact: it does not open with a schema_version")
     if version not in VERSION_KINDS:
