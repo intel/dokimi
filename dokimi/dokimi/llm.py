@@ -710,7 +710,7 @@ class LLM:
             extra=caching.draw_extra(self._cache_extra(stream, max_tokens), draw),
         )
         hit = caching.load_response(key)
-        if hit is not None and caching.keeps(cache_if, cast(str, hit[0])):
+        if hit is not None and caching.keeps(cache_if, hit[0]):
             return self._metered(Reply(text=hit[0], usage=hit[1]))
         if caching.replaying_only():
             raise caching.CacheMiss(key)
@@ -719,8 +719,8 @@ class LLM:
             raise IndexError("reply has no choices")  # as llm_call always did; not cached
         _warn_if_truncated(reply, self.model, max_tokens)
         # A content-less reply (None) is not stored: keeps() refuses it, so it is never replayed.
-        text = cast(str, reply.text)
-        if caching.keeps(cache_if, text):
+        text = reply.text
+        if text is not None and caching.keeps(cache_if, text):
             caching.store_response(key, text, reply.usage)
         return reply
 

@@ -405,6 +405,13 @@ def test_an_empty_reply_is_not_kept_even_when_the_judge_test_accepts_it():
     assert caching.keeps(lambda _text: True, "") is False
 
 
+def test_keeps_is_annotated_for_the_none_of_a_content_less_reply():
+    """Typed Optional[str], so a caller passes Reply.text as it is: no cast before the check."""
+    import typing
+
+    assert typing.get_type_hints(caching.keeps)["text"] == typing.Optional[str]
+
+
 def test_a_content_less_reply_is_never_stored_or_replayed():
     # A reply with no content (None) stored as null would replay as "no answer" on every
     # later run. complete() takes no tools, so a tool-call reply never reaches this test:
