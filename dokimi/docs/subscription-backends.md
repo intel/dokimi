@@ -79,10 +79,9 @@ What this means for results:
 
 Each call is `claude -p --input-format text --output-format json --model <m>
 --tools "" --setting-sources "" --strict-mcp-config --no-session-persistence
---system-prompt <s>`. The user prompt goes on stdin, so its size is not bounded by
-the argument limit. The system prompt is an argument (`--system-prompt`), and
-Linux refuses one argument over 128 KiB, so a longer system prompt fails with an
-OS error; dokimi does not check its size. Without these flags, a plain `claude -p`
+--system-prompt-file <f>`. The user prompt goes on stdin and the system prompt in
+that file (a private temp file, removed after the call), so neither is bound by
+the argument limit, which Linux sets at 128 KiB per argument. Without these flags, a plain `claude -p`
 in a repository carries about 37k tokens of agent prompt, tool schemas and `CLAUDE.md`.
 
 - `--bare` is never used: it reads only `ANTHROPIC_API_KEY`, so a subscription
@@ -94,7 +93,8 @@ in a repository carries about 37k tokens of agent prompt, tool schemas and `CLAU
   Bedrock/Vertex switch, so the CLI runs on its own login. If dokimi itself
   runs inside Claude Code and the session variables were passed on, the child
   would join the parent's session. Git is stopped at the work dir's parent
-  (`GIT_CEILING_DIRECTORIES`), so it finds no repository above it.
+  (`GIT_CEILING_DIRECTORIES`), so it finds no repository above it; a `GIT_DIR` or
+  `GIT_WORK_TREE` the caller sets is dropped, since it would name one.
 - The CLI keeps its own config directory, because that is where the login is
   stored. User settings and `CLAUDE.md` stay out because of
   `--setting-sources ""`.
