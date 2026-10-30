@@ -52,7 +52,7 @@ _DIRS = {"cd"} | _DIR_STACK  # the builtins that change the directory
 _PIPE = re.compile(r"(?<!\|)\|(?!\|)")  # a pipe, not ||
 _GROUP_OPEN = re.compile(r"(?:^|[\s;&|(])\{(?=\s|$)")  # a brace group opens: ``{`` as a word
 _GROUP_CLOSE = re.compile(r"(?:^|\s)\}(?=\s|$|[;&|])")
-_STDOUT_FILE = re.compile(r"(?:&>>?|(?<![\w&])1?>>?)(?!&)")  # a group's stdout to a file or /dev/null: not the agent's
+_STDOUT_FILE = re.compile(r"&>>?|(?<![\w&>])1?>>?(?!&)|(?<![\w&>])1?>&(?!\d)")  # a group's stdout to a file: not the agent's
 # the values of long options that take a separate word (``head --lines 5``), by command
 _LONG_VALUE = {
     "head": {"--lines", "--bytes"},

@@ -143,7 +143,12 @@ from dokimi.repos.events import convert
     ("{ cat a; } >/dev/null", []),
     ("{ cat a; } > f", []),
     ("{ cat a; } &>/dev/null", []),
+    ("{ cat a; } >>log", []),
+    ("{ cat a; } >&f", []),                                # stdout and stderr to a file
     ("{ cat a; } 2>/dev/null", ["a"]),                     # a stderr discard leaves stdout as printed
+    ("{ cat a; } 2>>err.log", ["a"]),
+    ("{ cat a; } 3>>x", ["a"]),
+    ("{ cat a; } 1>&2", ["a"]),
     ("{ cat a; } >&2", ["a"]),
     ("{ cat /abs; } & cat g", ["/abs", "g"]),              # a backgrounded group still prints to the agent
     # glob and brace expansions: the files are not the words written
