@@ -23,6 +23,9 @@ def cmd_eval_headroom(args: argparse.Namespace) -> None:
     from dokimi.artifacts import ArtifactValidationError, save_artifact
     from dokimi.eval.headroom import format_table, headroom, repeated_ids
 
+    if args.output and Path(args.output).resolve() in {Path(p).resolve() for p in args.arms}:
+        print(f"Error: -o {args.output} is one of the input arms files; it would overwrite that run", file=sys.stderr)
+        sys.exit(2)
     runs: list[records.Run] = []
     inputs: list[str] = []
     first_seen: dict[str, str] = {}

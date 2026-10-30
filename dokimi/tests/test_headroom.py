@@ -459,3 +459,13 @@ def test_min_reps_must_be_a_positive_integer_at_the_parser(tmp_path, capsys):
         build_parser().parse_args(["eval", "headroom", str(tmp_path / "a.json"), "--min-reps", "0"])
     assert exc.value.code == 2
     assert "--min-reps" in capsys.readouterr().err
+
+
+def test_command_refuses_an_output_that_is_one_of_its_inputs(tmp_path, capsys):
+    path = _arms_file(tmp_path / "arms.json", {"1": {"baseline": 99, "skill": 99}})
+    before = path.read_bytes()
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_headroom(_args([path], output=path))
+    assert exc.value.code == 2
+    assert path.read_bytes() == before
+    assert "overwrite" in capsys.readouterr().err
