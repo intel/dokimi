@@ -193,10 +193,8 @@ def _run_docker(lang: str, code: str, policy: ExecutionPolicy,
     with tempfile.TemporaryDirectory() as tmp:
         script = Path(tmp) / f"snippet{suffix}"
         script.write_text(code, encoding="utf-8")
-        # The image's user is often root (it is in the default image). With every capability
-        # dropped and no-new-privileges it gains none back, through a setuid binary or otherwise.
-        # Without CAP_DAC_OVERRIDE that root cannot enter a 0700 directory it does not own, so
-        # the mount is world-readable: the snippet is the document's own text.
+        # Root without CAP_DAC_OVERRIDE cannot enter a 0700 dir it does not own (#229),
+        # so the :ro mount is world-readable; it holds only the document's own snippet.
         os.chmod(tmp, 0o755)  # nosec B103 - read and entered as "other", not writable
         script.chmod(0o644)
         flags = ContainerPolicy(network="none", no_new_privileges=True, cap_drop_all=True, cpus=policy.cpus,
