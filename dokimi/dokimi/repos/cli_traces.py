@@ -52,6 +52,7 @@ _DIRS = {"cd"} | _DIR_STACK  # the builtins that change the directory
 _PIPE = re.compile(r"(?<!\|)\|(?!\|)")  # a pipe, not ||
 _GROUP_OPEN = re.compile(r"(?:^|[\s;&|(])\{(?=\s|$)")  # a brace group opens: ``{`` as a word
 _GROUP_CLOSE = re.compile(r"(?:^|\s)\}(?=\s|$|[;&|])")
+_STDOUT_FILE = re.compile(r"(?:&>>?|(?<![\w&])1?>>?)(?!&)")  # a group's stdout to a file or /dev/null: not the agent's
 # the values of long options that take a separate word (``head --lines 5``), by command
 _LONG_VALUE = {
     "head": {"--lines", "--bytes"},
@@ -87,7 +88,8 @@ def shell_reads(script: str, cwd: str = "") -> list[str]:
     holding it ends with ``;``, ``&`` or a newline (it may have been skipped), or a glob or brace expansion (the
     files are not known). A subshell ``( ... )`` records no reads: its directory is not kept. A brace
     group that is backgrounded or piped runs in a subshell, so the directory is restored after it; the reads of a
-    group that is piped (in or out) are dropped, as its output does not reach the agent. ``--help`` and
+    group whose output feeds a pipe after it, or whose stdout is redirected to a file or /dev/null, are dropped, as
+    its output does not reach the agent. A group at the end of a pipeline still prints to the agent. ``--help`` and
     ``--version`` print and open no file. Absolute paths are kept.
     """
     out: list[str] = []
@@ -129,7 +131,8 @@ class _Walk:
 
     def track_groups(self, bare: str, after: str, out: list[str]) -> None:
         """A brace group opening or closing in ``bare``; one that ran in a subshell restores the directory. The
-        reads of a group in a pipeline (before or after it) are dropped from ``out``: its output is not the agent's."""
+        reads of a group whose output feeds a pipe after it, or a file, are dropped from ``out``: its output is not
+        the agent's."""
         opened = _GROUP_OPEN.search(bare)
         if opened:
             piped = bool(_PIPE.search(bare[:opened.start()]))
@@ -139,8 +142,10 @@ class _Walk:
         closed = _GROUP_CLOSE.search(bare)
         if closed and self.groups:
             before, piped, mark = self.groups.pop()
-            if piped or _PIPE.search(bare[closed.start():]):  # the group's output feeds a pipe
+            after_close = bare[closed.start():]
+            if _PIPE.search(after_close) or _STDOUT_FILE.search(bare[closed.end():]):  # the output feeds a pipe or a file
                 del out[mark:]
+            if piped or _PIPE.search(after_close):  # the group ran in a pipeline's subshell
                 self.here = before
             elif after == "&":  # the group ran in a subshell
                 self.here = before

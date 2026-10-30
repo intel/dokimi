@@ -136,11 +136,15 @@ from dokimi.repos.events import convert
     ('cat a2>&1 b', ["a2", "b"]),
     ('cd $(dirname sub/file); cat AGENTS.md', []),        # a computed cd: the directory is unknown after it
     ('(cd x; cat f); cat g', ["g"]),                      # a subshell's cd does not reach the outer shell
-    # a group whose output feeds a pipe: its reads are not the agent's (left side, and a group on the right)
+    # a group whose output feeds a pipe: its reads are not the agent's (the left side of a pipe)
     ("{ cat AGENTS.md; } | head -n 0", []),
     ("{ cat /abs; } | head -n 0", []),
-    ("cat a | { cat /abs; }", []),
-    ("cat a | { cat b; cat /abs; }", []),
+    # a group whose stdout is redirected or discarded: its reads are not the agent's
+    ("{ cat a; } >/dev/null", []),
+    ("{ cat a; } > f", []),
+    ("{ cat a; } &>/dev/null", []),
+    ("{ cat a; } 2>/dev/null", ["a"]),                     # a stderr discard leaves stdout as printed
+    ("{ cat a; } >&2", ["a"]),
     ("{ cat /abs; } & cat g", ["/abs", "g"]),              # a backgrounded group still prints to the agent
     # glob and brace expansions: the files are not the words written
     ("cd sub*; cat AGENTS.md", []),                       # the glob may match another directory
