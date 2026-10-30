@@ -76,6 +76,17 @@ def test_the_stuffed_answer_buries_the_aliases_between_decoys_for_an_end_or_begi
     assert redteam.attacks({"checks": [{"type": "match", "values": ["a", "b"], "location": "any"}]})["stuffed"] is None
 
 
+def test_a_json_contains_check_with_list_values_is_stuffed_after_a_decoy_the_grader_rejects():
+    # contains reads the first JSON in the text: the bare list "[1, 2] [3, 4]" starts with the value [1, 2],
+    # which a correct grader accepts, so the list goes after a JSON decoy that is not one of the values.
+    grading = {"checks": [{"type": "json", "values": [[1, 2], [3, 4]], "contains": True}]}
+    stuffed = redteam.attacks(grading)["stuffed"]
+    assert stuffed is not None and stuffed.startswith('{"planted"')
+    assert redteam.grade(grading, "", stuffed).checks[0].passed is False
+    result = run([_q("1", grading)])
+    assert result["status"] == "pass" and result["violations"] == []
+
+
 def test_a_grader_that_accepts_anything_is_blocked_on_every_attack():
     grading = {"checks": [{"type": "regex", "values": [".*"]}]}
     result = run([_q("1", grading)])

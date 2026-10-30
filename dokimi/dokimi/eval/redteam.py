@@ -13,7 +13,7 @@ Each question with a ``grading`` block is graded against five synthetic answers:
 - ``stuffed``: every literal check value listed with no sentence around it; it must fail. Built for
   a positive check of two or more values (mode ``any``) that does not read the list where it stands:
   bare for ``exact``, ``json`` and location-``exact`` checks, between two decoys for a ``match`` at
-  ``begin`` or ``end``. It is not built for ``fuzzy``, numeric or location-``any`` checks, a block that
+  ``begin`` or ``end``, after a JSON decoy for a ``json`` check with ``contains``. It is not built for ``fuzzy``, numeric or location-``any`` checks, a block that
   needs every value, or several checks that each accept one value: the grader is right to accept the
   stuffed answer there. Also built
   for a negated check of one or more values, whose stuffed answer carries the forbidden value; not
@@ -51,6 +51,8 @@ ATTACKS = ("canary", "wrong", "empty", "hedge", "stuffed")
 EXPECTED = {"canary": True, "wrong": False, "empty": False, "hedge": False, "stuffed": False}
 # Planted wrong answers, tried in order; the first that no positive literal check accepts is used.
 WRONG_CANDIDATES = ("PLANTED-WRONG-ANSWER-7731", "QZX-BOGUS-REPLY-4096", "ZKV-MISMATCH-2508", "XJQ-NONSENSE-6349")
+# JSON decoys for a json check with contains, which reads the first JSON object or array in the text.
+JSON_DECOYS = ('{"planted": "wrong"}', '{"planted": "other"}')
 HEDGE = ("I am not certain. It could be several things, depending on the setup, "
          "and I cannot say which one applies here.")
 BLOCKED, PASS, INCONCLUSIVE = "blocked", "pass", "inconclusive"
@@ -90,6 +92,11 @@ def _whole_answer(check: Mapping[str, Any]) -> bool:
     return kind in ("exact", "json") or (kind == "match" and str(check.get("location", "end")) == "exact")
 
 
+def _reads_first_json(check: Mapping[str, Any]) -> bool:
+    """Whether a json check with ``contains`` reads the first JSON in the answer, not the whole answer."""
+    return check.get("type") == "json" and bool(check.get("contains"))
+
+
 def stuffed_for(grading: Mapping[str, Any]) -> Optional[str]:
     """The block's one literal check's values, listed with no sentence around them; None when not built.
 
@@ -98,9 +105,11 @@ def stuffed_for(grading: Mapping[str, Any]) -> Optional[str]:
     accepting it is not a violation. A single positive value listed alone is the right answer itself,
     not stuffing. The list is an attack only where the check does not read it:
 
-    - a check on the whole answer (``exact``, ``json``, ``match`` at ``exact``): the bare list;
+    - a check on the whole answer (``exact``, ``json`` without ``contains``, ``match`` at ``exact``): the bare list;
     - a ``match`` at ``begin`` or ``end``: the list between two decoys the check rejects, so no accepted
       value is at the place the check reads;
+    - a ``json`` check with ``contains`` reads the first JSON in the text, so the list goes after two JSON
+      decoys the check rejects: a bare list would start with a listed value and be accepted;
     - ``match`` at ``any``, a numeric ``match`` and ``fuzzy`` find a listed value wherever it is, so the
       grader is right to accept it and no probe is built.
 
@@ -121,11 +130,15 @@ def stuffed_for(grading: Mapping[str, Any]) -> Optional[str]:
         return " ".join(values) if built else None
     if len(values) < 2 or mode == "all":
         return None
-    if _whole_answer(check):
+    if _whole_answer(check) and not _reads_first_json(check):
         return " ".join(values)
-    if check.get("type") != "match" or check.get("numeric") or str(check.get("location", "end")) == "any":
+    if _reads_first_json(check):
+        candidates = JSON_DECOYS
+    elif check.get("type") != "match" or check.get("numeric") or str(check.get("location", "end")) == "any":
         return None
-    decoys = [w for w in WRONG_CANDIDATES if not grade_check(check, "", w, None).passed]
+    else:
+        candidates = WRONG_CANDIDATES
+    decoys = [w for w in candidates if not grade_check(check, "", w, None).passed]
     return f"{decoys[0]} {' '.join(values)} {decoys[1]}" if len(decoys) >= 2 else None
 
 
