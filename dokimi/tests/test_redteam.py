@@ -696,3 +696,33 @@ def test_aliases_of_a_whole_answer_check_are_stuffed_bare_and_the_grader_rejects
     assert redteam.attacks({"checks": [check]})["stuffed"] == "Paris Lyon"
     result = run([_q("1", {"checks": [check]})])
     assert result["status"] == "pass" and result["questions"][0]["probes"]["stuffed"]["passed"] is False
+
+
+@pytest.mark.parametrize("value", ["-.5", "+.5"])
+@pytest.mark.parametrize("location", ["end", "begin", "any", "exact"])
+def test_a_numeric_target_with_no_digit_before_the_point_gets_a_canary_the_numeric_matcher_reads(value, location):
+    # The number regex reads "-.5" as 5 (the sign has no digit after it), so the raw spelling is no canary.
+    from dokimi.eval.reference_checks import grade
+
+    grading = {"checks": [{"type": "match", "value": value, "numeric": True, "location": location}]}
+    assert grade(grading, "Q?", canary_for(grading)).passed is True
+    assert run([_q("1", grading)])["status"] == "pass"
+
+
+@pytest.mark.parametrize("check", [
+    {"type": "exact", "values": ["b", "a"]},  # "b a" is "b" once the article is dropped
+    {"type": "fuzzy", "values": ["Paris", "Lyon"]},
+])
+def test_a_list_the_grader_accepts_as_a_value_is_no_stuffing_attack(check):
+    assert redteam.attacks({"checks": [check]})["stuffed"] is None
+    result = run([_q("1", {"checks": [check]})])
+    assert result["status"] == "pass" and result["violations"] == []
+
+
+@pytest.mark.parametrize("strip", [True, False])
+def test_a_stuffed_list_at_the_end_picks_decoys_that_do_not_complete_a_value(strip):
+    # Each decoy alone is rejected, but "Paris QZX-BOGUS-REPLY-4096" ends the answer and is a value.
+    check = {"type": "match", "values": ["Paris QZX-BOGUS-REPLY-4096", "Paris"], "strip": strip}
+    result = run([_q("1", {"checks": [check]})])
+    assert result["status"] == "pass" and result["violations"] == []
+    assert result["questions"][0]["probes"]["stuffed"]["passed"] is False
