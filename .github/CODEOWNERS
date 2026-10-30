@@ -3,17 +3,17 @@
 # GitHub handles or teams as ownership is assigned.
 
 # Default
-*                                   @napetrov @xaleryb @jharlow-intel @antonwolfy @vchamarthi @ndgrigorian @vlad-perevezentsev
+*                                   @intel/dokimi-write
 
 # Static benchmark subsystem
-/dokimi/dokimi/runner/      @napetrov @xaleryb @jharlow-intel @antonwolfy @vchamarthi @ndgrigorian @vlad-perevezentsev
-/dokimi/dokimi/metrics/     @napetrov @xaleryb @jharlow-intel @antonwolfy @vchamarthi @ndgrigorian @vlad-perevezentsev
-/dokimi/dokimi/ingest/      @napetrov @xaleryb @jharlow-intel @antonwolfy @vchamarthi @ndgrigorian @vlad-perevezentsev
-/dokimi/dokimi/gate/        @napetrov @xaleryb @jharlow-intel @antonwolfy @vchamarthi @ndgrigorian @vlad-perevezentsev
-/dokimi/benchmarks/                   @napetrov @xaleryb @jharlow-intel @antonwolfy @vchamarthi @ndgrigorian @vlad-perevezentsev
+/dokimi/dokimi/runner/      @intel/dokimi-write
+/dokimi/dokimi/metrics/     @intel/dokimi-write
+/dokimi/dokimi/ingest/      @intel/dokimi-write
+/dokimi/dokimi/gate/        @intel/dokimi-write
+/dokimi/benchmarks/                   @intel/dokimi-write
 
 # LLM evaluation subsystem
-/dokimi/dokimi/eval/        @napetrov @xaleryb @jharlow-intel @antonwolfy @vchamarthi @ndgrigorian @vlad-perevezentsev
-/dokimi/dokimi/questions/   @napetrov @xaleryb @jharlow-intel @antonwolfy @vchamarthi @ndgrigorian @vlad-perevezentsev
-/dokimi/dokimi/personas/    @napetrov @xaleryb @jharlow-intel @antonwolfy @vchamarthi @ndgrigorian @vlad-perevezentsev
-/dokimi/dokimi/treatments/  @napetrov @xaleryb @jharlow-intel @antonwolfy @vchamarthi @ndgrigorian @vlad-perevezentsev
+/dokimi/dokimi/eval/        @intel/dokimi-write
+/dokimi/dokimi/questions/   @intel/dokimi-write
+/dokimi/dokimi/personas/    @intel/dokimi-write
+/dokimi/dokimi/treatments/  @intel/dokimi-write
