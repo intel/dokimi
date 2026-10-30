@@ -147,16 +147,25 @@ def head_version(path: Path) -> str | None:
     return match.group(1).decode("utf-8", errors="replace") if match else None
 
 
-def read_artifact(root: Path, path: Path, version: str) -> Artifact:
-    """Parse the artifact at ``path`` whose first bytes declared ``version`` (a known one).
+def load_document(path: Path, version: str) -> dict:
+    """The JSON object at ``path``, whose first bytes declared ``version``.
 
     Raises ``OSError`` when it cannot be read and ``ValueError`` when it is not the JSON object
     its first bytes promised.
     """
-    stat = path.stat()
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict) or data.get("schema_version") != version:
         raise ValueError(f"the document does not hold the schema_version {version} it opens with")
+    return data
+
+
+def read_artifact(root: Path, path: Path, version: str, data: dict | None = None) -> Artifact:
+    """The artifact at ``path`` (under ``root``) of a known ``version``; ``data`` if already loaded.
+
+    Raises as :func:`load_document` does.
+    """
+    stat = path.stat()
+    data = load_document(path, version) if data is None else data
     fields = FIELDS[VERSION_KINDS[version]]
     times = read_field(data, fields.time)
     return Artifact(path=path.relative_to(root), schema_version=version,
@@ -175,7 +184,8 @@ def _skip_reason(name: str) -> str | None:
     return None if lower.endswith(".json") else "not_json"
 
 
-def _reason(exc: BaseException) -> str:
+def read_error_reason(exc: BaseException) -> str:
+    """Why a file could not be read, in one line."""
     if isinstance(exc, OSError) and exc.strerror:
         return f"cannot read: {exc.strerror}"
     if isinstance(exc, UnicodeDecodeError):
@@ -195,7 +205,7 @@ def _scan_file(result: ScanResult, path: Path) -> None:
         regular = stat.S_ISREG(path.stat().st_mode)  # opening a FIFO would block
         version = head_version(path) if regular else None
     except OSError as exc:
-        result.unreadable.append(Unreadable(rel, _reason(exc)))
+        result.unreadable.append(Unreadable(rel, read_error_reason(exc)))
         return
     if not regular:
         result.skipped["not_a_file"] += 1
@@ -208,7 +218,7 @@ def _scan_file(result: ScanResult, path: Path) -> None:
         try:
             result.artifacts.append(read_artifact(result.root, path, version))
         except (OSError, ValueError, RecursionError) as exc:
-            result.unreadable.append(Unreadable(rel, _reason(exc), version))
+            result.unreadable.append(Unreadable(rel, read_error_reason(exc), version))
 
 
 def _is_link(path: Path) -> bool:

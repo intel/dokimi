@@ -16,3 +16,13 @@ SPDX-License-Identifier: Apache-2.0
   was skipped, and a file that cannot be read is listed with its reason. A
   missing `results/` prints "no runs" and exits 0; a `DOKIMI_RUNS_DIR` that does
   not exist or is not a directory exits 2. The command only reads.
+- **`dokimi runs show PATH` shows one artifact** — `PATH` as `runs list` prints
+  it (relative to the root), or an absolute or working-directory path inside the
+  root. It prints the artifact's kind, its fields, the length of the lists it
+  holds (answers, evaluations, cells, ...) and the files next to it, and checks
+  it against its schema: an artifact that fails the check is shown with
+  "schema: invalid, N errors" and every error, and the command still exits 0.
+  A path outside the root, a missing file, a directory, or a file that is not a
+  readable artifact of a registered kind exits 2. `--json` prints the same
+  fields as a `runs list` row plus `schema`, `schema_valid`, `schema_errors`,
+  `contents` and the neighbours.

@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 
 from dokimi.artifacts import SCHEMA_VERSIONS
 from dokimi.runs.scan import SKIP_REASONS, Artifact, ScanResult, runs_root, scan, select
+from dokimi.runs.show import Shown, show
+from dokimi.utils import InputError
 
 
 def _plain(text: str) -> str:
@@ -92,6 +94,54 @@ def cmd_runs_list(args: argparse.Namespace) -> None:
     print("\n".join(_summary(result, shown, shown_root)))
 
 
+def _show_json(shown: Shown, root: str) -> dict:
+    return {**shown.artifact.to_json(), "root": root, "schema": shown.schema,
+            "schema_valid": not shown.errors, "schema_errors": shown.errors,
+            "contents": shown.contents,
+            "siblings": [{"name": s.name, "schema_version": s.schema_version}
+                         for s in shown.siblings],
+            "siblings_total": shown.siblings_total, "siblings_error": shown.siblings_error}
+
+
+def _show_text(shown: Shown) -> list[str]:
+    a = shown.artifact
+    errors = _count(len(shown.errors), "error")
+    when = a.generated_at or "- (" + _when(a).rstrip("*") + " UTC, the file's mtime)"
+    beside = [s.name + (f" ({s.schema_version})" if s.schema_version else "")
+              for s in shown.siblings]
+    if shown.siblings_total > len(shown.siblings):
+        beside.append(f"and {shown.siblings_total - len(shown.siblings)} more")
+    rows = [
+        ("path", a.path.as_posix()),
+        ("kind", f"{a.kind} ({a.schema_version})"),
+        ("schema", f"invalid, {errors}" if shown.errors else "valid"),
+        ("subject", a.subject or "-"),
+        ("model", a.model or "-"),
+        ("time", when),
+        ("run_id", "- (no artifact records one yet)"),
+        ("size", f"{a.size_bytes:,} bytes"),
+        ("contents", ", ".join(f"{key}: {n}" for key, n in shown.contents.items()) or "-"),
+        ("next to it", shown.siblings_error or ", ".join(beside) or "-"),
+    ]
+    lines = [f"{label + ':':<12}{_plain(value)}" for label, value in rows]
+    lines[3:3] = [f"  - {_plain(e)}" for e in shown.errors]
+    return lines
+
+
+def cmd_runs_show(args: argparse.Namespace) -> None:
+    """One artifact: its kind, schema check, fields, contents and neighbours. A failed schema
+    check is printed, and the exit code stays 0."""
+    root = runs_root()
+    if not root.exists():
+        raise InputError(f"no runs root: {root.path.as_posix()}/ does not exist "
+                         f"(DOKIMI_RUNS_DIR names another root)")
+    shown = show(root.path, args.path)
+    if args.json:
+        print(json.dumps(_show_json(shown, root.path.as_posix()), indent=2))
+    else:
+        print("\n".join(_show_text(shown)))
+
+
 def register(sub: argparse._SubParsersAction, positive_int) -> None:
     runs_p = sub.add_parser(
         "runs", help="The artifacts under the runs root: results/, or DOKIMI_RUNS_DIR")
@@ -110,3 +160,14 @@ def register(sub: argparse._SubParsersAction, positive_int) -> None:
     list_p.add_argument("--json", action="store_true",
                         help="Print the artifacts and the skip counts as JSON")
     list_p.set_defaults(func=cmd_runs_list)
+
+    show_p = runs_sub.add_parser(
+        "show",
+        help="One artifact: its kind, whether it meets its schema (a failed check is printed and "
+             "exits 0), subject, model, time, what it counts and the files next to it. Reads only.",
+    )
+    show_p.add_argument("path", help="The artifact: its path as runs list prints it (relative to "
+                                     "the root), or an absolute path inside the root")
+    show_p.add_argument("--json", action="store_true",
+                        help="Print the artifact's fields, schema errors and neighbours as JSON")
+    show_p.set_defaults(func=cmd_runs_show)
