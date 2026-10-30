@@ -332,8 +332,19 @@ def _passed_on(name: str, cli: CliBackend) -> bool:
     return name not in cli.env_drop and not name.startswith(cli.env_drop_prefixes)
 
 
-def _env(cli: CliBackend) -> process.Env:
-    return process.Env.only([k for k in os.environ if _passed_on(k, cli)])
+def _env(cli: CliBackend, extra: Optional[Dict[str, str]] = None) -> process.Env:
+    return process.Env.only([k for k in os.environ if _passed_on(k, cli)], set=extra)
+
+
+def _call_env(cli: CliBackend, cwd: Path) -> process.Env:
+    """The env of a call: the parent's, minus the drops, and git stopped at the work dir's parent.
+
+    The CLI reads the git status of its working directory into the prompt. The work dir sits
+    under the user's cache dir, which can lie inside a repository (a home directory under git),
+    so git must not search above that cache directory for a repository.
+    """
+    ceiling = [str(cwd.parent)] + [p for p in os.environ.get("GIT_CEILING_DIRECTORIES", "").split(os.pathsep) if p]
+    return _env(cli, {"GIT_CEILING_DIRECTORIES": os.pathsep.join(ceiling)})
 
 
 def cache_extra(provider: str) -> Dict[str, str]:
@@ -372,9 +383,10 @@ def call(provider: str, *, model: str, prompt: str, system: Optional[str] = None
         KeyError: *provider* is not a CLI backend.
     """
     cli = BACKENDS[provider]
+    cwd = work_dir(cli.name)
     try:
-        done = (runner or process.run)(cli.build_argv(model, system), timeout=timeout, env=_env(cli),
-                      cwd=work_dir(cli.name), input=prompt, capture_limit=None)
+        done = (runner or process.run)(cli.build_argv(model, system), timeout=timeout, env=_call_env(cli, cwd),
+                      cwd=cwd, input=prompt, capture_limit=None)
     except FileNotFoundError as exc:
         raise CliCallError(f"{provider}: '{cli.binary}' is not installed or not on PATH ({exc})",
                            retryable=False) from exc
