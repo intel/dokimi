@@ -366,3 +366,15 @@ def test_a_rejected_address_is_named_escaped(monkeypatch, capsys, root):
     err = _fails(monkeypatch, capsys, "missing\nforged\x1b[2J.json")
 
     assert err == "Error: no file missing\\nforged\\x1b[2J.json under the runs root results/\n"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlinks need privileges on Windows")
+def test_dot_dot_after_a_symlink_is_the_file_the_filesystem_opens(monkeypatch, capsys, root):
+    save_artifact("eval", _fixture("eval.v1"), root / "nested" / "eval.json")
+    save_artifact("plugin_delta", _fixture("plugin_delta.v1"), root / "eval.json")
+    (root / "nested" / "deep").mkdir()
+    (root / "link").symlink_to(root / "nested" / "deep", target_is_directory=True)
+
+    data = json.loads(_show(monkeypatch, capsys, "link/../eval.json", "--json").out)
+
+    assert (data["kind"], data["path"]) == ("eval", "nested/eval.json")
