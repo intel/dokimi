@@ -183,6 +183,14 @@ def test_a_panel_that_gained_a_judge_is_a_mismatch():
     assert verdict(("panel", "m,m-20240101,m"), ("panel", "m,m-20240101")) == "mismatch"
 
 
+def test_a_panel_is_matched_by_its_judges_multiset_not_their_set():
+    """The same distinct judges in the same number, one of them twice in the baseline and not in the current:
+    comparing sets would call the two panels the same, comparing multisets does not."""
+    verdict = baseline_mod._recorded_verdict
+    assert verdict(("panel", "anthropic/m,anthropic/m,openai/n"),
+                   ("panel", "anthropic/m,openai/n,openai/n")) == "mismatch"
+
+
 def test_two_snapshots_of_one_judge_model_are_a_mismatch():
     lines, _ = baseline_mod._model_mismatches(
         _eval(judge=("anthropic", "claude-sonnet-4-5-20240620")),
