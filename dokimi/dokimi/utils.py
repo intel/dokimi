@@ -156,6 +156,17 @@ def _model_core(model: str) -> tuple[str, str | None]:
     return (name[:snapshot.start()], snapshot.group(1).replace("-", "")) if snapshot else (name, None)
 
 
+def model_identity(model: str) -> tuple[str | None, str | None]:
+    """``(id, snapshot date or None)`` of a model name with its route, region profile and vendor prefix dropped;
+    the id is ``None`` for a name with no id. Two names with equal identities are one model and one snapshot."""
+    base, date = _model_core(model)
+    if not base:
+        return None, date
+    # a lowercase word before the first dot is taken as a vendor prefix (``anthropic.``, ``amazon.``) and
+    # dropped; a dot after a digit or a dash (``gpt-4.1``, ``qwen2.5``) is part of the name
+    return re.sub(r"^[a-z]+\.", "", base), date
+
+
 def same_model(a: str, b: str) -> bool:
     """Whether two model names are one model.
 
@@ -166,12 +177,10 @@ def same_model(a: str, b: str) -> bool:
     The provider is not part of the identity: the same weights on Bedrock and on the direct
     API are still one model for the self-judge warning and for a baseline's model check.
     """
-    (base_a, date_a), (base_b, date_b) = _model_core(a), _model_core(b)
-    if not (base_a and base_b) or (date_a and date_b and date_a != date_b):
+    (base_a, date_a), (base_b, date_b) = model_identity(a), model_identity(b)
+    if base_a is None or base_b is None or (date_a and date_b and date_a != date_b):
         return False
-    # a lowercase word before the first dot is taken as a vendor prefix (``anthropic.``, ``amazon.``) and
-    # dropped; a dot after a digit or a dash (``gpt-4.1``, ``qwen2.5``) is part of the name
-    return re.sub(r"^[a-z]+\.", "", base_a) == re.sub(r"^[a-z]+\.", "", base_b)
+    return base_a == base_b
 
 
 def _read_key(value: str) -> str:

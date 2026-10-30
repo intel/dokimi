@@ -6,9 +6,11 @@
   (`anthropic/`, `openrouter/anthropic/`, `bedrock/`, `vertex_ai/`) or a `-v1:0` revision are now one model
   everywhere; two different dated snapshots are still two models, and case no longer matters. Effects: the
   self-judge warning fires when the answer and the judge are the same model on another provider too; `baseline
-  compare` no longer reports or refuses (`--strict`) a judge or answer that only changed its route, region or
-  snapshot alias; `repo compare` pairs arms by the same rule. Scores are not recomputed, but a comparison that
-  used to refuse or warn about such a pair may now pass.
+  compare` no longer reports or refuses (`--strict`) a judge or answer that only changed its route or region;
+  `repo compare` pairs arms by the same rule. A dated snapshot against its undated alias is the exception in
+  `baseline compare`: the alias does not record which snapshot answered, so it is named on stderr as not
+  verified and `--strict` refuses it, as before. Scores are not recomputed, but a comparison
+  that used to refuse or warn about such a pair may now pass.
   `dokimi run` stores `run_metadata.evaluator_independence_warning` by this rule too, as `dokimi eval` does (it
   was an exact provider-and-model match, so the printed warning and the stored flag disagreed).
   A route is a provider or gateway prefix; the organization of an `org/name` id is part of the id, so

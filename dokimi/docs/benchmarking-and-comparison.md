@@ -786,14 +786,17 @@ python cli.py baseline compare \
 ```
 
 When the answer or judge model recorded in the baseline differs from the
-current eval's (one model under `utils.same_model`: a Bedrock alias and its inference profile, a
-dated snapshot and its undated alias, a regional profile, a `-vN:M` revision or another route count
-as the same model; two different dated snapshots, or the same name under another organization, do not),
-`compare` prints a warning naming both before the table: the score changes then
+current eval's, `compare` prints a warning naming both before the table: the score changes then
 mix the model change with the content change. With `--strict` it exits 1
-instead. A baseline saved before a default-model change is such a baseline. A panel
-artifact (`eval panel-score`) is compared by its judge models: the panels must have the same
-number of judges, and each judge must pair with a different judge of the other panel. A role either
+instead. Two records name one model when they have the same id and snapshot: a Bedrock alias and its
+inference profile, a regional profile, a `-vN:M` revision or the same model behind another route count
+as the same model; two different dated snapshots, or the same name under another organization, are two models.
+A dated snapshot and its undated alias are neither: the alias does not record which snapshot answered, so the
+role is named on stderr as not verified, and `--strict` exits 1 on it. A baseline saved before a default-model
+change is such a baseline. A panel
+artifact (`eval panel-score`) is compared by its judge models: the panels must have the same number of judges
+and the same models, and a judge that matches the other panel's only through such an alias makes the role
+not verified. A role either
 side does not record (an older artifact, or answers with no model) is named on
 stderr as not compared, and `--strict` exits 1 on it as well, since it cannot
 vouch for that role. A malformed record in either file (no `question_id`) exits 2,
