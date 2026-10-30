@@ -18,17 +18,8 @@ on:
 permissions:
   contents: read
 
-# Runners: three labels. dokimi-ec2 is a set of persistent self-hosted runners
-# (org group dokimi-runners) that take a job as soon as one is free. The short Linux
-# PR checks run there: static, typecheck and package-smoke here, the two
-# agent-quality.yml jobs and the docs build. Only pull_request runs use them, fork
-# PRs included (repository_owner is the base repository's); pushes to main, the
-# schedule and manual runs stay on ubuntu-latest, so what main builds and publishes
-# never runs on a host a PR used. intel-ubuntu-latest, Intel's ephemeral pool, boots
-# a fresh runner per job (about 4 min) and runs the test matrix (`test` and
-# `test-latest`). ubuntu-latest, shared by every intel/ repository, runs the rest.
-# An outside contributor's runs need a maintainer's approval first; a fork's own
-# pushes use ubuntu-latest. windows-smoke runs on windows-latest.
+# Runners: pull_request runs, fork PRs too, take the short Linux checks to dokimi-ec2 (persistent
+# hosts); main stays on ubuntu-latest, the test matrix on intel-ubuntu-latest. https://github.com/intel/dokimi/pull/272
 
 # A new push to a PR supersedes the run in flight. Every other run gets a group of its
 # own (run_id): in a shared group a third queued run cancels the pending second one
@@ -265,11 +256,8 @@ jobs:
         if: ${{ !cancelled() }}
         run: deptry .
 
-  # The test matrix waits for `static`: a PR that fails lint
-  # stops there instead of booting the matrix on the pool. That includes the PR-only
-  # checks in `static` (the secret scan, the changelog fragment, schema compatibility).
-  # A green run waits in both queues in turn. typecheck, one job, still runs alongside `static`;
-  # windows-smoke, on windows-latest, does not wait.
+  # Waits for `static`, PR-only checks included, so a PR that fails one never boots the matrix on
+  # the pool; typecheck and windows-smoke do not wait.
   test:
     name: Tests (py${{ matrix.python-version }})
     needs: static
