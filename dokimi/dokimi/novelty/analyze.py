@@ -182,7 +182,7 @@ def analyze(
     sampling = (
         f"cap-per-artifact:{config.max_atoms}" if config.max_atoms is not None else "full"
     )
-    if extraction.reached:
+    if extraction.reached and config.max_atoms is not None:  # reached is set only under a cap
         warnings.append(report.cap_warning(config.max_atoms, extraction.reached))
     if not atom_list:
         warnings.append("no atoms with span provenance were extracted; nothing to measure")
