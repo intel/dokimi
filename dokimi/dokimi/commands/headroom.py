@@ -26,11 +26,20 @@ def _content_digest(path) -> str:
     return hashlib.sha256(json.dumps(data, sort_keys=True).encode("utf-8")).hexdigest()
 
 
+def _same_file(a, b) -> bool:
+    """Whether two paths name one file. A path that cannot be resolved (a symlink loop on some Pythons)
+    is not taken as an input: its own open reports the error."""
+    try:
+        return Path(a).resolve() == Path(b).resolve()
+    except (OSError, RuntimeError):
+        return False
+
+
 def cmd_eval_headroom(args: argparse.Namespace) -> None:
     from dokimi.artifacts import ArtifactValidationError, save_artifact
     from dokimi.eval.headroom import format_table, headroom, repeated_ids
 
-    if args.output and Path(args.output).resolve() in {Path(p).resolve() for p in args.arms}:
+    if args.output and any(_same_file(args.output, p) for p in args.arms):
         print(f"Error: -o {args.output} is one of the input arms files; it would overwrite that run", file=sys.stderr)
         sys.exit(2)
     runs: list[records.Run] = []

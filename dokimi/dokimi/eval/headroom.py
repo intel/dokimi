@@ -10,8 +10,9 @@ measures nothing about the skill. An item is a **floor** when every arm scores a
 grader rather than at any skill.
 
 An item's floor test leaves out an arm no run scored (listed in ``unscored_arms``). It needs the
-no-skill arm scored on the item and at least one non-baseline arm that did score: the baseline alone
-at zero shows nothing about a skill, and an unscored baseline shows nothing either.
+no-skill arm scored on the item and at least one arm other than the no-skill arm that did score:
+the no-skill arm alone at zero shows nothing about a skill, and an unscored no-skill arm shows
+nothing either.
 
 An item with fewer than ``min_reps`` runs behind it is ``provisional``: one run's flag may be
 noise. Its reps are the number of runs in which the no-skill arm scored it, so a single artifact

@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import sys
 
 import pytest
 
@@ -482,6 +484,38 @@ def test_command_refuses_an_output_that_is_one_of_its_inputs(tmp_path, capsys):
     before = path.read_bytes()
     with pytest.raises(SystemExit) as exc:
         cmd_eval_headroom(_args([path], output=path))
+    assert exc.value.code == 2
+    assert path.read_bytes() == before
+    assert "overwrite" in capsys.readouterr().err
+
+
+def test_an_output_whose_path_cannot_be_resolved_does_not_crash_the_guard(tmp_path, monkeypatch):
+    # Python 3.12 and older raise RuntimeError from resolve() on a symlink loop; 3.13+ do not.
+    # The guard must not turn that into a traceback: an unresolvable path is not an input.
+    import pathlib
+
+    arms = _arms_file(tmp_path / "arms.json", {"1": {"baseline": 99, "skill": 99}})
+    out = tmp_path / "loop.json"
+    real_resolve = pathlib.Path.resolve
+
+    def resolve(self, *a, **k):
+        if self.name == out.name:
+            raise RuntimeError(f"Symlink loop from {self}")
+        return real_resolve(self, *a, **k)
+
+    monkeypatch.setattr(pathlib.Path, "resolve", resolve)
+    cmd_eval_headroom(_args([arms], output=out))
+    assert out.exists()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="symlinks need privileges on Windows")
+def test_an_output_that_is_a_symlink_to_an_input_is_refused(tmp_path, capsys):
+    path = _arms_file(tmp_path / "arms.json", {"1": {"baseline": 99, "skill": 99}})
+    alias = tmp_path / "alias.json"
+    os.symlink(path.name, alias)
+    before = path.read_bytes()
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_headroom(_args([path], output=alias))
     assert exc.value.code == 2
     assert path.read_bytes() == before
     assert "overwrite" in capsys.readouterr().err
