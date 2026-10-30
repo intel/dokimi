@@ -165,6 +165,21 @@ def test_an_agentic_empty_reply_stays_an_error_cell_when_an_output_shaper_adds_t
     assert judge.score_answer.call_count == 0
 
 
+def test_delta_vs_baseline_is_built_on_the_stats_pairing(monkeypatch):
+    """One pairing rule for the delta and the significance test: paired_delta reads stats.paired_vectors."""
+    import dokimi.eval.arm_summary as arm_summary_mod
+
+    calls = []
+
+    def stub(evaluations, arm_a, arm_b):
+        calls.append((arm_a, arm_b))
+        return [5.0, 1.0], [2.0, 0.0]
+
+    monkeypatch.setattr(arm_summary_mod, "paired_vectors", stub)
+    assert arm_summary_mod.paired_delta([], "baseline", "skill") == 2.0
+    assert calls == [("skill", "baseline")]
+
+
 def test_delta_vs_baseline_is_present_as_null_when_the_baseline_has_no_scored_question():
     runner = ArmRunner.__new__(ArmRunner)
     runner.treatments = [SimpleNamespace(name="baseline"), SimpleNamespace(name="skill")]
