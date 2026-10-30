@@ -20,6 +20,8 @@
 - A CLI provider refuses an agentic arm (`mcp_agent`, `skill_agent`, `skill_catalog`) and
   `--session-turns` in `arms run` and `arms matrix-run`, before any answer is paid for: the CLI
   runs one prompt with no tools and no conversation.
+- A subscription usage limit fails the call at once, not as a retryable rate limit: it resets
+  in hours, so a retry does not help.
 - A CLI reply records the model the CLI resolved its alias to: `resolved_model` on each usage
   row (answers, judge calls), `judge_resolved_models` in the judge record. The response-cache
   key takes the CLI version, so a new release that moves `sonnet` does not replay the old
