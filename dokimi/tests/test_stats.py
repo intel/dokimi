@@ -599,8 +599,7 @@ def test_bootstrap_interval_uses_the_two_sided_alpha():
 
 
 def test_bootstrap_interval_pins_the_tail_indices_and_the_seed():
-    # A sample whose resampled means spread out, so a one-index shift in either tail, a
-    # one-sided alpha, or another seed each moves the bounds (for [0, 1] they would not).
+    # Spread-out resampled means: a one-index shift in either tail, a one-sided alpha, or another seed moves the bounds.
     # 100 resamples at 0.8: alpha * 99 = 9.9, so the low index rounds to 10, not 9.
     ci = stats.bootstrap_ci([0, 1, 2, 3, 10, 4.5, 7.5], confidence=0.8, n_resamples=100, seed=7)
     assert (ci["lo"], ci["hi"]) == (2.0714, 5.7857)

@@ -3,13 +3,8 @@
 
 name: mutation
 
-# Mutation pilot: mutmut over the measurement core (the statistics, the gate
-# decisions and the response-cache key; [tool.mutmut] in dokimi/pyproject.toml
-# lists the modules and the tests run against them). A surviving mutant is a
-# change to that code no test notices, so a wrong number would ship silently.
-# Informational: the job reports the score per module and the survivors in the
-# step summary and never fails on them. Weekly and on demand, not per PR: a full
-# run takes tens of minutes. Diff-only runs on PRs are a follow-up.
+# Mutation pilot: mutmut over the measurement core (statistics, gate decisions, cache key), where a surviving mutant
+# is a wrong number that ships silently. Weekly and informational: the score goes to the step summary, never a failure.
 on:
   workflow_dispatch:
   schedule:
@@ -43,10 +38,8 @@ jobs:
       - name: Install deps
         run: pip install --require-hashes -r requirements.lock.txt -r requirements-mutation.lock.txt
       - name: Run mutmut
-        # A crash of the run is reported below, not failed on. The step's own timeout
-        # sits inside the job's 90 minutes: a run that outlives the step is cancelled
-        # as a failed step, which continue-on-error absorbs, and the summary step
-        # still gets its time. A job-level timeout would fail the whole job instead.
+        # Crashes are reported below, not failed on. The step timeout sits inside the job's 90 minutes, so the summary
+        # step still runs; a job-level timeout would fail the whole job instead.
         timeout-minutes: 75
         continue-on-error: true
         run: mutmut run --max-children "$(nproc)"

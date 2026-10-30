@@ -48,16 +48,8 @@ jobs:
       # pip-audit comes from the hash-locked tools lock (requirements-ci.txt pins it).
       - name: Install tools
         run: pip install --require-hashes -r requirements-ci.lock.txt
-      # The locks are the full closure (requirements-docs.lock.txt for the
-      # documentation site, requirements-ci.lock.txt for the tools,
-      # requirements-mutation.lock.txt for the weekly mutation run), so --no-deps --disable-pip audits them as written
-      # without resolving or installing anything. Each --ignore-vuln is
-      # an advisory SECURITY.md documents and dokimi/osv-scanner.toml ignores;
-      # add or drop them together, in all three.
-      # pip-audit skips a pin whose marker is false on this 3.13 runner (the
-      # pins for older interpreters, for one), so markers are stripped, a pin
-      # the locks share is kept once, a name pinned twice goes to a second file,
-      # and the trailing `\` of a hashed pin is dropped (its --hash lines are skipped).
+      # Full-closure locks, so --no-deps --disable-pip audits them as written; markers are stripped (3.13 skips false ones).
+      # Each --ignore-vuln is in SECURITY.md and osv-scanner.toml: add or drop it in all three, together.
       - name: pip-audit
         run: |
           sed -e 's/ *\\$//' -e 's/ *;.*//' \
