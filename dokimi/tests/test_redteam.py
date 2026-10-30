@@ -93,6 +93,27 @@ def test_a_rejected_canary_is_a_violation(monkeypatch):
     assert result["status"] == "blocked"
 
 
+def test_a_judge_check_without_a_judge_with_a_negated_check_is_unscored_not_blocked():
+    # The negated check passes wrong, empty and hedge by design; the judge check was never run, so
+    # those passes say nothing about the block and must not count as violations.
+    grading = {"checks": [{"type": "judge", "criterion": "names the capital"},
+                          {"type": "match", "values": ["Lyon"], "negate": True}]}
+    result = run([_q("1", grading)])
+    assert result["status"] == "inconclusive"
+    assert result["violations"] == []
+    assert result["summary"]["probed"] == 0
+
+
+def test_a_judge_check_without_a_judge_under_a_threshold_is_not_a_pass():
+    # With a threshold the score is taken over the counted checks alone, so a missing judge can
+    # turn a block that rejects nothing into one that passes the canary and rejects the attacks.
+    grading = {"threshold": 0.5, "checks": [{"type": "judge", "criterion": "names Paris"},
+                                            {"type": "match", "values": ["Paris"]}]}
+    result = run([_q("1", grading)])
+    assert result["status"] == "inconclusive"
+    assert result["summary"]["probed"] == 0
+
+
 def test_a_judge_check_without_a_judge_is_unscored_and_does_not_block():
     grading = {"checks": [{"type": "judge", "criterion": "names the capital"}]}
     result = run([_q("1", grading)])

@@ -195,7 +195,12 @@ def probe(grading: Mapping[str, Any], question: str, ask: Optional[Ask] = None) 
         if answer is None:
             continue
         g = grade(grading, question, answer, ask)
-        out[name] = Probe(name, g.passed, _detail(g))
+        # A judge check with no judge, or a regex past its timeout, leaves part of the block unrun. A
+        # pass on the rest is not a measurement, and with a threshold neither is a result: the score
+        # is taken over the counted checks alone.
+        partial = bool(g.unjudged or g.unrun)
+        passed = None if partial and (g.passed or g.threshold is not None) else g.passed
+        out[name] = Probe(name, passed, _detail(g))
     return out
 
 
