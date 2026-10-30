@@ -137,8 +137,9 @@ def test_reps_follow_the_baseline_even_when_a_skill_arm_was_scored_in_more_runs(
 
 
 def test_an_item_the_baseline_never_scored_has_no_reps_and_no_flag():
-    runs = [_run([("1", {"baseline": None, "skill": 95})]) for _ in range(3)]
-    item = headroom(runs)["items"][0]
+    # Item 2 keeps the baseline scored somewhere, so the run is not refused as unjudged.
+    runs = [_run([("1", {"baseline": None, "skill": 95}), ("2", {"baseline": 40, "skill": 95})]) for _ in range(3)]
+    item = {i["question_id"]: i for i in headroom(runs)["items"]}["1"]
     assert (item["reps"], item["no_skill"], item["flag"]) == (0, None, None)
 
 
@@ -257,13 +258,18 @@ def test_a_run_with_no_questions_has_no_items():
                                  "flagged_provisional": 0, "no_flag": 0}
 
 
-def test_a_run_with_no_evaluations_flags_nothing_and_has_no_reps():
-    # The answers are there but nothing was judged: every score is None.
+def test_a_run_nothing_was_judged_in_is_refused():
+    # The answers are there but nothing was judged: no item could be read as a ceiling or a floor.
     run = records.read({"baseline_arm": "baseline", "answers": [
         {"question_id": "1", "question_text": "q", "arms": {"baseline": {"answer": "a"}, "skill": {"answer": "b"}}}]})
-    item = headroom([run])["items"][0]
-    assert (item["reps"], item["provisional"], item["flag"], item["no_skill"]) == (0, True, None, None)
-    assert item["unscored_arms"] == ["baseline", "skill"]
+    with pytest.raises(ValueError, match="no run scored the no-skill arm 'baseline'"):
+        headroom([run])
+
+
+def test_a_baseline_named_differently_from_the_scores_is_refused():
+    run = _run([("1", {"no_skill": 100, "skill": 50})], baseline="control")
+    with pytest.raises(ValueError, match="no run scored the no-skill arm 'control'"):
+        headroom([run])
 
 
 def test_binary_answers_are_refused():
@@ -435,14 +441,24 @@ def test_command_reads_a_file_with_no_questions(tmp_path, capsys):
     assert saved["items"] == [] and saved["summary"]["items"] == 0 and saved["runs"] == 1
 
 
-def test_command_reads_a_file_nothing_was_judged_in(tmp_path, capsys):
+def test_command_refuses_a_file_nothing_was_judged_in(tmp_path, capsys):
     path = tmp_path / "unjudged.json"
     path.write_text(json.dumps({"baseline_arm": "baseline", "answers": [
         {"question_id": "1", "question_text": "q", "arms": {"baseline": {"answer": "a"}, "skill": {"answer": "b"}}}]}),
         encoding="utf-8")
-    cmd_eval_headroom(_args([path]))
-    printed = capsys.readouterr().out
-    assert "yes" in printed and "no run scored these arms" in printed and "baseline in 1 item; skill in 1 item" in printed
+    out = tmp_path / "headroom.json"
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_headroom(_args([path], output=out))
+    assert exc.value.code == 2 and not out.exists()
+    assert "no run scored the no-skill arm 'baseline'" in capsys.readouterr().err
+
+
+def test_command_refuses_a_wrong_baseline_name_with_exit_2(tmp_path, capsys):
+    path = _arms_file(tmp_path / "arms.json", {"1": {"no_skill": 100, "skill": 50}}, baseline="control")
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_headroom(_args([path]))
+    assert exc.value.code == 2
+    assert "pass --no-skill-arm" in capsys.readouterr().err
 
 
 def test_command_exits_2_on_an_input_nested_too_deep_to_read(tmp_path, capsys):

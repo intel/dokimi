@@ -106,12 +106,17 @@ def headroom(
 
     ``no_skill_arm`` defaults to the baseline the runs declare, and must otherwise be an arm
     the runs list. Raises ValueError for thresholds that cannot be used, a run that is not an
-    arms run, a question id repeated within a run, an unknown no-skill arm, or runs that
-    disagree on the baseline when none is given.
+    arms run, a question id repeated within a run, an unknown no-skill arm, no score at all for
+    the no-skill arm (when there are items), or runs that disagree on the baseline when none is given.
     """
     check_thresholds(ceiling, floor, min_reps)
     control = _no_skill_arm(runs, no_skill_arm)
     scores, arms_of = _collect(runs)
+    if scores and not any(control in per_arm for per_arm in scores.values()):
+        # Every item would read as "no ceiling, not a floor": unmeasured, not headroom. Refuse it instead.
+        raise ValueError(
+            f"no run scored the no-skill arm {control!r}, so no item can be read for headroom; "
+            "the runs were not judged, or the baseline is named differently (pass --no-skill-arm)")
 
     items: List[ItemHeadroom] = []
     for qid in sorted(scores, key=_sort_key):
