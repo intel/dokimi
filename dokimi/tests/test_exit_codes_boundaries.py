@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shutil
 import subprocess
 
 import pytest
@@ -219,6 +220,7 @@ def test_repo_reach_fetch_failure_keeps_exit_1(tmp_path, monkeypatch, capsys):
     assert "git fetch failed" in capsys.readouterr().err
 
 
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
 @pytest.mark.parametrize("command", [*REPO_SOURCE_COMMANDS, "fetch", "reach"])
 def test_repo_pinned_local_source_inside_a_repository_exits_2(command, tmp_path, monkeypatch, capsys):
     # A pinned local path that is a subdirectory, not the root, is a mistyped argument; no git operation
@@ -226,8 +228,10 @@ def test_repo_pinned_local_source_inside_a_repository_exits_2(command, tmp_path,
     repo = tmp_path / "repo"
     (repo / "sub").mkdir(parents=True)
     (repo / "sub" / "f.txt").write_text("x", encoding="utf-8")
+    # gpgsign is off here: a host with a global commit.gpgsign=true would refuse the commit.
     for args in (["init", "-q"], ["add", "-A"],
-                 ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init"]):
+                 ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false",
+                  "commit", "-q", "-m", "init"]):
         subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
     extra = ["--model", "m"] if command == "reach" else []
     err = _expect_exit(monkeypatch, capsys, 2, "repo", command, f"{repo / 'sub'}@HEAD", *extra)
