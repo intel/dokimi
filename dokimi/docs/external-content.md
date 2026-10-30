@@ -213,7 +213,7 @@ Resolved benchmark plan
   golden questions: C:\Users\Public\content-repo\questions\demo_golden.json (2 items)
 ```
 
-(It exited 1 here because no API keys were set: `✗ missing OPENAI_API_KEY for
+(It exited 2 here because no API keys were set: `✗ missing OPENAI_API_KEY for
 provider openai`. Key checks are part of the pre-flight.)
 
 For a direct N-arm comparison, hand `arms run` the question file itself:

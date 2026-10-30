@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -392,6 +394,21 @@ def test_preflight_unknown_doc_source_format_exits_2(tmp_path, monkeypatch, caps
         cli.main()
     assert exc.value.code == 2
     assert "Unknown --doc-source format" in capsys.readouterr().err
+
+
+def test_external_content_walkthrough_states_the_exit_of_a_preflight_without_keys(tmp_path, monkeypatch, capsys):
+    # The walkthrough shows a preflight run with no API keys and says what it exited with; that number
+    # must be the real refusal, so the page cannot drift from the code.
+    doc = Path(__file__).resolve().parents[1] / "docs" / "external-content.md"
+    stated = int(re.search(r"It exited (\d+) here because no API keys were set", doc.read_text(encoding="utf-8")).group(1))
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(benchmark, "_load_registry", lambda args: _OneLibrary())
+    _argv(monkeypatch, "benchmark", "preflight", "--library", "onetbb", "--output-dir", str(tmp_path / "out"),
+          "--provider", "openai", "--judge-provider", "openai")
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == stated
+    assert "missing OPENAI_API_KEY for provider openai" in capsys.readouterr().err
 
 
 # ── catalog trigger-set: input refusals are 2; a rewrite that returns nothing is 1 ─────────
