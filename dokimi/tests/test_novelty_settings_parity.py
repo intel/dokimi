@@ -240,6 +240,8 @@ def _kept_estimate(step: dict) -> dict:
 
 # Runs main refuses only after the extraction calls it had already made.
 REFUSED_BEFORE_ANY_CALL = {"run/arms-without-full"}
+# `novelty atoms` runs whose cap binds.
+CAPPED_ATOMS = {"atoms/max-atoms-1"}
 # Intended change: the cap warning says how far the cap reached instead of calling the
 # atoms a sample. In the warnings and on stderr alike.
 CAP_WARNING_ON_MAIN = ("atom extraction hit the cap of 1; rates describe the sampled atoms, "
@@ -271,6 +273,10 @@ def test_no_setting_bill_or_tier_record_differs_from_main(name, tmp_path):
             # Intended change: the arm and placebo checks now run before the clients are
             # built, so the refusal makes no model call. Same status and output as on main.
             expected = [dict(step, calls=[]) for step in expected]
+        if name in CAPPED_ATOMS:
+            # Intended change: `novelty atoms` prints the cap warning `analyze` records.
+            expected = [dict(step, stderr=f"{step['stderr']}WARNING {CAP_WARNING}\n")
+                        for step in expected]
         assert steps == expected
 
 

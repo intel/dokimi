@@ -140,13 +140,9 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
 
 def cmd_novelty_atoms(args: argparse.Namespace) -> None:
     """Extract atoms and spans only — the expensive stage, cached for reuse."""
-    from dokimi.novelty.atoms import (
-        ExtractionError,
-        ExtractionReport,
-        extract_atoms,
-        save_atoms,
-        verify_atoms,
-    )
+    from dokimi.novelty.atoms import (ExtractionError, ExtractionReport, extract_atoms, save_atoms,
+                                      verify_atoms)
+    from dokimi.novelty.report import cap_warning
     from dokimi.novelty.spans import segment, span_summary
 
     artifact_bundle = _bundle_from_args(args)
@@ -159,7 +155,9 @@ def cmd_novelty_atoms(args: argparse.Namespace) -> None:
         atoms = extract_atoms(spans, client=extractor, cap=cap, report=extraction)
     except ExtractionError as exc:
         raise SystemExit(str(exc)) from None
-    for warning in extraction.warnings(len(spans)):
+    # The cap warning analyze records; probe and shorten, which read atoms.json, do not repeat it.
+    reach = [cap_warning(cap, extraction.reached)] if extraction.reached else []
+    for warning in extraction.warnings(len(spans)) + reach:
         print(f"WARNING {warning}", file=sys.stderr)
     if settings.values["verify_faithfulness"]:
         verify_atoms(atoms, spans, client=extractor)
