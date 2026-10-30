@@ -622,7 +622,7 @@ failed the task, and on a task with `score` that is a failed run with score
 | `grader` | data next to `task.json` (key that renames it) | `pass` | `metrics` | `details` |
 |---|---|---|---|---|
 | `dokimi:review_seeds` | `manifest.json` (`manifest`); oracle answer `oracle.json` (`oracle_answer`), a list of findings | `null`; for a manifest with no seeds (a clean-diff control), `true` when no finding is `blocker` or `major` | `n_findings`, `n_severe`, `n_decoys`, `unmatched`, `recall` (`null` with no seeds) | `seeds_hit`, `decoys_flagged`, `recall_by_class` (`"hit/total"`) |
-| `dokimi:review_replay` | `gold.json` (`gold`); `task.json` `window`, default 5 | `null` (score-only) | `n_findings`, `n_severe`, `n_threads`, `recall` (= `recall_all`), `recall_addressed`, `precision_proxy` | `threads_hit`, `recall_by_kind`, `decoys_flagged` (always `[]`) |
+| `dokimi:review_replay` | `gold.json` (`gold`); `task.json` `window`, default 5 | `null` (score-only) | `n_findings`, `n_severe`, `n_threads`, `recall` (= `recall_all`), `recall_addressed`, `precision_proxy` | `threads_hit`, `matches`, `recall_by_kind`, `decoys_flagged` (always `[]`) |
 
 `manifest.json` is `{"seeds": [{id, class, file, lines, kw}], "decoys":
 [{id, file, lines, kw}]}`; `file` `"*"` matches any file, and `kw` is a
@@ -643,6 +643,12 @@ review thread of a merged PR, anchored on a line of the reviewed revision.
 - A finding on a thread's file within `window` lines of its anchor can hit
   it. Matching is one-to-one and nearest first: one finding credits at most
   one thread, and one thread at most one finding.
+- `matches` holds one object per credited pair, in `threads_hit` order: the
+  thread's `thread` (id), `thread_file`, `thread_line` and `comment`, the
+  finding's `finding` (its index among the answer's objects), `file`
+  (repository-relative), `line` (as read for matching), `severity` and
+  `message`, and their `distance` in lines; `comment`, `severity` and
+  `message` are cut to 200 characters. `repo report --hits` lists them (§9).
 - `recall_addressed` counts only threads with `addressed: true` (the code
   changed in response), `recall_by_kind` groups by `kind`, and
   `precision_proxy` is the share of findings within the window of any
@@ -1161,6 +1167,11 @@ when any claim fails, an `also_scan` file is missing, a guidance file cannot be
 read, a Bazel build input (`BUILD`, `.bzl`, `.bazelrc`, ...) cannot be read, or no guidance file matched
 (`incomplete`). A glob that matches nothing
 does not fail the gate, so a file the gate must see belongs in `also_scan`.
+`incomplete_reasons` lists the warnings that make the scan `incomplete`, as
+they appear in `warnings` and in its order (`[]` for a complete scan). The text
+output prints them after the warnings, on one `incomplete: ...` line, and when
+`--fail-on-fail` exits 1 on an incomplete scan it prints them on stderr as
+`✗ scan incomplete: ...`.
 
 Statuses are those of §4.4. Only `fail` counts against the guidance;
 `unresolved` needs a human look. Not implemented yet: the pre-commit↔CI
@@ -1336,7 +1347,19 @@ python cli.py repo compare repo-runs/replay --baseline guidance:none --metric re
   When cells carry `result.json` `process` (§4.1), a line under the row gives
   the mean of each count over the cells that have it (`guidance_read` counted
   as paths; `counter:<name>` for `process_metrics`); a `null` or absent
-  `process` is left out, not counted as zero.
+  `process` is left out, not counted as zero. A row whose cells include
+  agent answers with no findings JSON that parsed (`grade.json`
+  `parse_error`, §4.5) notes how many, `(scored 0)` on a score-only row and
+  `(counted as failed)` on a gate row; a cell whose `result.json` says
+  `grader_failure` is counted under `grader_fail` instead. `--json` gives
+  `parse_errors` on every row. `repo report --hits` prints, instead of the table, each credited pair of
+  the `dokimi:review_replay` cells (`details.matches`, §4.5) by task, arm,
+  model and rep: the thread and its comment, then the finding that hit it.
+  `--hits --json` gives `{batch, replay_cells, without_matches, hits}`, one
+  record in `hits` per pair (`task`, `arm`, `model`, `rep`, `cell` and the
+  match's fields; the first five come from the cell's `result.json`, and a
+  match key of the same name does not replace them). A cell graded before `matches` was recorded is counted
+  (`N cell(s) graded without hit details`), not listed.
 - `repo compare` reduces cells to one value per (task, arm, model) first:
   repetitions share a task's difficulty and are not paired across arms, so the
   task is the unit. Per treatment arm, model and measure (gate share, score,

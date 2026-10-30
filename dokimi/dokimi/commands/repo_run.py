@@ -383,14 +383,18 @@ def _harness_bin(name: str) -> Path:
 
 
 def cmd_repo_report(args: argparse.Namespace) -> None:
-    """Per (task, arm, model): gated success, grader failures, missing cells, cost, turns."""
-    from dokimi.repos.report import CellFileError, format_report, summarize
+    """Per (task, arm, model): gated success, grader failures, missing cells, cost, turns; or the replay hits."""
+    from dokimi.repos.report import CellFileError, format_hits, format_report, load_hits, summarize
 
     batch_dir = Path(args.batch_dir)
     if not batch_dir.is_dir():
         print(f"✗ not a directory: {batch_dir}", file=sys.stderr)
         sys.exit(1)
     try:
+        if args.hits:
+            found = load_hits(batch_dir)
+            print(json.dumps(found, indent=2) if args.json else format_hits(found))
+            return
         summary = summarize(batch_dir)
     except CellFileError as exc:
         print(f"✗ {exc}", file=sys.stderr)
@@ -545,6 +549,9 @@ def register(repo_sub, positive_int, source_help: str, cache_help: str) -> None:
     report_p = repo_sub.add_parser("report", help="Per (task, arm, model) table over a batch directory")
     report_p.add_argument("batch_dir", help="<out>/<batch> of `repo run`")
     report_p.add_argument("--json", action="store_true", help="Print the summary as JSON")
+    report_p.add_argument("--hits", action="store_true",
+                          help="Instead of the table: each (thread, finding) pair that credited a "
+                          "dokimi:review_replay thread, by task, arm, model and rep (grade.json details.matches)")
     report_p.set_defaults(func=cmd_repo_report)
 
     compare_p = repo_sub.add_parser(

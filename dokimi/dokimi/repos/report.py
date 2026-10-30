@@ -31,6 +31,17 @@ answered a cell (``model_resolved``): a harness alias can pin an older model.
 
 A row's ``process`` holds the mean ``result.json`` ``process`` counts of its
 cells (:mod:`.process_counts`), printed on a line of its own under the row.
+
+A row's ``parse_errors`` counts its cells whose ``grade.json`` has
+``metrics.parse_error`` true: the grader ran, and the agent's answer held no
+findings JSON that parsed, so the run counts as failed (contract §4.5). A
+cell whose ``result.json`` says ``grader_failure`` is counted there, not
+here. The table notes it only when it is not 0: ``scored 0`` on a score row,
+``counted as failed`` on a gate row.
+
+``--hits`` (:func:`load_hits`) lists instead each credited (thread, finding)
+pair of the ``dokimi:review_replay`` cells, from ``grade.json``
+``details.matches``.
 """
 
 from __future__ import annotations
@@ -46,7 +57,7 @@ import math
 
 from dokimi.utils import same_model
 
-from .grading import SCORE_BOUND
+from .grading import SCORE_BOUND, read_grade_json
 from .process_counts import process_line, process_means
 from .runner import UNSUPPORTED_FILE, slug
 
@@ -252,6 +263,8 @@ def summarize(batch_dir: Path) -> dict[str, Any]:
                 if expecting:
                     row["skill_expected"] = len(expecting)
                     row["skill_selected_correct"] = sum(bool(u["skill_selected_correct"]) for u in expecting)
+            row["parse_errors"] = sum(r["grade"]["status"] != "grader_failure"  # counted in grader_failures
+                                      and _metrics(batch_dir / r["cell"]).get("parse_error") is True for r in recs)
             rows.append(row)
     return {"batch": str(batch_dir), "cells": len(cells), "missing": missing, "rows": rows,
             "unsupported": load_unsupported(batch_dir),
@@ -279,14 +292,7 @@ def format_report(summary: dict[str, Any]) -> str:
         turns = "-" if r["turns"] is None else f"{r['turns']:.1f}"
         lines.append(f"{r['task']:<{width}}  {r['arm']:<{arm_w}}  {r['model']:<{model_w}}  {r['n']:>3}  "
                      f"{result:<22}  {r['grader_failures']:>11}  {r['missing']:>7}  {cost:>8}  {turns:>6}")
-        noted = ("agent_timeouts", "agent_errors", "over_budget", "cost_unknown")
-        notes = [f"{r[k]} {k.replace('_', ' ')}" for k in noted if r[k]]
-        notes += [f"{r[k]}/{r[d]} {k.replace('_', ' ')}"
-                  for k, d in (("skill_invoked", "skill_measured"), ("skill_selected_correct", "skill_expected"))
-                  if k in r]
-        if "uptake" in r:
-            notes.append(f"arm's additions used in {r['uptake']['used']}/{r['uptake']['cells']} cell(s)"
-                         + unmeasured_note(r["uptake"]))
+        notes = _row_notes(r)
         if notes:
             lines.append(" " * (width + 2) + "  " + ", ".join(notes))
         lines += process_line(r.get("process"), width)
@@ -300,6 +306,91 @@ def format_report(summary: dict[str, Any]) -> str:
                      + " instead of the egress proxy (not implemented); their commands could reach any host")
     lines += [f"warning: {w}" for w in mismatch_warnings(summary["model_mismatch"])]
     return "\n".join(lines)
+
+
+def _row_notes(r: dict[str, Any]) -> list[str]:
+    noted = ("agent_timeouts", "agent_errors", "over_budget", "cost_unknown")
+    notes = [f"{r[k]} {k.replace('_', ' ')}" for k in noted if r[k]]
+    if r.get("parse_errors"):  # the grader ran; the agent's findings JSON is what failed
+        counted = "scored 0" if r["kind"] == "score" else "counted as failed"
+        notes.append(f"{r['parse_errors']} agent answer(s) whose findings JSON did not parse ({counted})")
+    notes += [f"{r[k]}/{r[d]} {k.replace('_', ' ')}"
+              for k, d in (("skill_invoked", "skill_measured"), ("skill_selected_correct", "skill_expected"))
+              if k in r]
+    if "uptake" in r:
+        notes.append(f"arm's additions used in {r['uptake']['used']}/{r['uptake']['cells']} cell(s)"
+                     + unmeasured_note(r["uptake"]))
+    return notes
+
+
+def _grade_doc(cell_dir: Path) -> dict[str, Any]:
+    """The cell's ``grade.json``, read as the grader's host reads it; empty when it is missing, not a regular
+    file, too deep to parse or not a JSON object (a grader failure says why)."""
+    doc, _ = read_grade_json(cell_dir / "grade.json")
+    return doc if isinstance(doc, dict) else {}
+
+
+def _metrics(cell_dir: Path) -> dict[str, Any]:
+    found = _grade_doc(cell_dir).get("metrics")
+    return found if isinstance(found, dict) else {}
+
+
+REPLAY = "dokimi:review_replay"
+
+
+def load_hits(batch_dir: Path) -> dict[str, Any]:
+    """``repo report --hits``: each credited pair of the batch's ``dokimi:review_replay`` cells, from their
+    ``grade.json`` ``details.matches``, by task, arm, model and rep. ``replay_cells`` counts the cells whose
+    ``grade.json`` names that grader; ``without_matches`` those graded before ``matches`` was recorded."""
+    cells, _ = load_cells(batch_dir)
+    bad = next((r for r in cells if not isinstance(r.get("rep"), int)), None)  # load_cells checks the rest of the key
+    if bad is not None:
+        raise CellFileError(f"{batch_dir / bad['cell'] / 'result.json'} has no usable `rep`")
+    hits: list[dict[str, Any]] = []
+    replay = without = 0
+    for rec in sorted(cells, key=lambda r: (r["task"], r["arm"], r["model"], r["rep"])):
+        grade = _grade_doc(batch_dir / rec["cell"])
+        if grade.get("grader") != REPLAY:
+            continue
+        replay += 1
+        if rec["grade"]["status"] == "grader_failure":  # the table scores this cell 0: no hit is credited to it
+            continue
+        details = grade.get("details")
+        details = details if isinstance(details, dict) else {}
+        matches = details.get("matches")
+        if not isinstance(matches, list):  # a parse error or a grader error credits no thread: nothing is missing
+            without += "threads_hit" in details
+            continue
+        hits += [{**m, "task": rec["task"], "arm": rec["arm"], "model": rec["model"], "rep": rec["rep"],
+                  "cell": rec["cell"]} for m in matches if isinstance(m, dict)]  # result.json's key wins over a match's
+    return {"batch": str(batch_dir), "replay_cells": replay, "without_matches": without, "hits": hits}
+
+
+def format_hits(found: dict[str, Any], width: int = 100) -> str:
+    """Two lines per credited pair: the thread and its comment, then the finding that hit it."""
+    if not found["replay_cells"]:
+        return f"{found['batch']}: no {REPLAY} cell"
+    lines = [f"{found['batch']}: {len(found['hits'])} credited hit(s) in {found['replay_cells']} {REPLAY} cell(s)"]
+    task = cell = None
+    for h in found["hits"]:
+        if h["task"] != task:
+            task = h["task"]
+            lines.append(str(task))
+        if h["cell"] != cell:
+            cell = h["cell"]
+            lines.append(f"  {h['arm']}  {h['model']}  r{h['rep']}")
+        lines.append(f"    {h.get('thread')} {h.get('thread_file')}:{h.get('thread_line')}  "
+                     + _one_line(h.get("comment"), width))
+        lines.append(f"      finding {h.get('finding')} {h.get('file')}:{h.get('line')} {h.get('severity')}, "
+                     f"{h.get('distance')} line(s) away: " + _one_line(h.get("message"), width))
+    if found["without_matches"]:
+        lines.append(f"{found['without_matches']} cell(s) graded without hit details")
+    return "\n".join(lines)
+
+
+def _one_line(text: Any, width: int) -> str:
+    flat = " ".join(str(text or "").split())
+    return flat if len(flat) <= width else flat[:width - 3] + "..."
 
 
 def _unsupported_lines(cells: list[dict[str, Any]]) -> list[str]:
