@@ -5,7 +5,7 @@
     "dokimi/harnesses/docker_solver.py": {"lines": 899, "rationale": "pre-existing when the gate was introduced"},
     "dokimi/llm.py": {"lines": 1118, "rationale": "grew on main in #180 (replay a stored retry) after #93 seeded this baseline; split it in its own PR"},
     "dokimi/report/model_compare.py": {"lines": 1207, "rationale": "grew on main in #73 (judge-validity --context stored) before the ratchet landed; split it in its own PR"},
-    "tests/test_arm_runner.py": {"lines": 1176, "rationale": "pre-existing when the gate was introduced"},
+    "tests/test_arm_runner.py": {"lines": 1175, "rationale": "pre-existing when the gate was introduced"},
     "tests/test_benchflow_harness.py": {"lines": 1716, "rationale": "pre-existing when the gate was introduced"},
     "tests/test_container_agent.py": {"lines": 1251, "rationale": "pre-existing when the gate was introduced"},
     "tests/test_judge_reliability.py": {"lines": 1695, "rationale": "grew on main in #73 (judge-validity --context stored), 1505 -> 1695, before the ratchet landed; split it in its own PR"},
