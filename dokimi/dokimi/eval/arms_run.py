@@ -399,7 +399,7 @@ def run_matrix(config: ArmsRunConfig, cells: list[MatrixCellDescriptor], specs: 
     that fails raises :class:`MatrixCellError` naming it; a bad question record
     (``EmptyQuestionError``) and :class:`LibraryIdError` are not a cell's and pass through.
     """
-    check_matrix(config, cells)
+    check_matrix(config, cells, specs)
     for cell in cells:
         try:
             output = run_arms(cell_config(config, cell), specs, questions)

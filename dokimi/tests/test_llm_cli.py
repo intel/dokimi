@@ -133,6 +133,10 @@ def test_a_long_system_prompt_goes_in_a_file_not_an_argument(runner):
     (reply("", timed_out=True), True, "no reply"),
     (reply("segfault", stderr="boom", returncode=139), False, "no JSON reply"),
     (reply("", stderr="API Error: 503 Service Unavailable, overloaded", returncode=1), True, "no JSON reply"),
+    # An HTTP status the CLI prints is transient on its own, with no retry word beside it.
+    (reply("", stderr="API Error: 503 Service Unavailable", returncode=1), True, "no JSON reply"),
+    (reply(_err("API Error: 503 Service Unavailable", None), returncode=1), True, "503"),
+    (reply(_err("API Error: 400 Bad Request: invalid request", None), returncode=1), False, "400"),
 ])
 def test_a_failed_call_says_whether_another_attempt_can_help(runner, answer, retryable, words):
     runner.answers.append(answer)
@@ -766,6 +770,25 @@ def test_a_matrix_cell_pairing_a_cli_provider_with_a_non_claude_model_is_refused
         arms._with_named_cell(ArmsRunConfig(product="p"), str(tmp_path / "cells.json"), "cli")
 
 
+def test_the_direct_matrix_runner_refuses_a_later_cli_cell_before_the_first_cell_runs(monkeypatch):
+    # run_matrix is the typed runner: its own preflight must check the cells against the arms
+    # too, not only the command wrapper, or the first cell is paid for before the refusal.
+    from dokimi.eval import arms_run
+    from dokimi.eval.cells import MatrixCellDescriptor
+
+    ran = []
+    monkeypatch.setattr(arms_run, "run_arms", lambda *a, **kw: ran.append("answered") or {})
+    cells = [
+        MatrixCellDescriptor(name="api", model="gpt-6.1-sol", provider="openai", harness="arms-runner"),
+        MatrixCellDescriptor(name="cli", model="sonnet", provider="claude-cli", harness="arms-runner"),
+    ]
+    config = arms_run.ArmsRunConfig(product="p", session_turns=2)
+    with pytest.raises(ValueError, match="matrix cell 'cli'"):
+        arms_run.run_matrix(config, cells, ["baseline"], [{"id": "q1", "question": "Q?"}],
+                            on_cell=lambda cell, out: ran.append(cell.name))
+    assert ran == []
+
+
 def test_matrix_cells_that_name_a_cli_model_pass_the_parse_gate_whatever_the_top_level_model(tmp_path):
     # The cells set provider and model per cell; the top-level --model default is not a cell's model.
     from dokimi import cli
@@ -799,6 +822,23 @@ def test_an_alias_and_a_bedrock_or_prefixed_full_id_are_one_model_for_the_identi
     assert llm_cli.same_model("claude-cli", "sonnet", "anthropic", "us.anthropic.claude-sonnet-5-5-v1:0")
     assert llm_cli.same_model("claude-cli", "sonnet", "litellm", "anthropic/claude-sonnet-5-5")
     assert not llm_cli.same_model("claude-cli", "sonnet", "anthropic", "us.anthropic.claude-opus-5-1-v1:0")
+
+
+def test_a_pinned_bedrock_full_id_is_the_same_model_as_its_bare_full_id():
+    # The Bedrock revision suffix (-v1:0) is not part of the model's name; a different model is.
+    same = llm_cli.same_model
+    assert same("claude-cli", "claude-sonnet-5-5", "amazon-bedrock", "us.anthropic.claude-sonnet-5-5-v1:0")
+    assert same("amazon-bedrock", "us.anthropic.claude-sonnet-5-5-v2:0", "claude-cli", "claude-sonnet-5-5")
+    assert not same("claude-cli", "claude-sonnet-5-5", "amazon-bedrock", "us.anthropic.claude-sonnet-5-6-v1:0")
+    assert not same("claude-cli", "claude-sonnet-5-5", "amazon-bedrock", "us.anthropic.claude-opus-5-5-v1:0")
+
+
+def test_the_independence_warning_fires_for_a_pinned_bedrock_id_of_the_cli_model(capsys):
+    from dokimi.commands.evaluate import _warn_judge_independence
+
+    assert _warn_judge_independence("claude-cli", "claude-sonnet-5-5", "amazon-bedrock",
+                                    "us.anthropic.claude-sonnet-5-5-v1:0")
+    assert "independence warning" in capsys.readouterr().err
 
 
 def test_the_main_model_falls_back_to_most_output_when_the_requested_family_is_unknown():

@@ -77,6 +77,10 @@ CLAUDE_ISOLATION = ("--tools", "", "--setting-sources", "", "--strict-mcp-config
 #: ``api_error_status`` values worth another attempt.
 _RETRYABLE_STATUS = frozenset({408, 429, 500, 502, 503, 504, 529})
 _RETRYABLE_WORDS = ("rate limit", "rate_limit", "overloaded", "timed out")
+#: A retryable status the CLI prints as text, with no ``api_error_status``: ``API Error: 503 ...``.
+#: A status word has to sit before it, so a 500 inside a message about tokens does not count.
+_RETRYABLE_STATUS_TEXT = re.compile(
+    r"\b(?:status|code|http|error)\W{0,3}(?:%s)\b" % "|".join(str(s) for s in sorted(_RETRYABLE_STATUS)))
 
 DEFAULT_TIMEOUT_SEC = 600.0
 
@@ -159,7 +163,8 @@ def _claude_error(payload: Dict[str, Any], done: process.Completed) -> CliCallEr
                             retryable=False)
     if "usage limit" in lowered:  # a subscription cap: it resets in hours, a retry cannot help
         return CliCallError(f"claude-cli: {message}", retryable=False)
-    retryable = status in _RETRYABLE_STATUS or any(w in lowered for w in _RETRYABLE_WORDS)
+    retryable = (status in _RETRYABLE_STATUS or any(w in lowered for w in _RETRYABLE_WORDS)
+                 or _RETRYABLE_STATUS_TEXT.search(lowered) is not None)
     return CliCallError(f"claude-cli: {message}", retryable=retryable)
 
 
@@ -191,8 +196,10 @@ def _claude_parse(done: process.Completed, model: str, provider: str) -> CliResu
         payload = None
     if not isinstance(payload, dict):
         text = (done.stderr or done.stdout).strip()
-        # No JSON, so no status: the same transient words as a JSON result are checked on the text.
-        retryable = any(w in text.lower() for w in _RETRYABLE_WORDS)
+        # No JSON, so no status field: the transient words and the status printed as text are checked.
+        lowered = text.lower()
+        retryable = (any(w in lowered for w in _RETRYABLE_WORDS)
+                     or _RETRYABLE_STATUS_TEXT.search(lowered) is not None)
         raise CliCallError(f"claude-cli: exit {done.returncode}, no JSON reply: {text[:300]}",
                            retryable=retryable)
     if payload.get("is_error") or done.returncode != 0:
@@ -274,10 +281,17 @@ def accepts_model(provider: str, model: str) -> bool:
     return bare in cli.aliases or bare.startswith(cli.model_prefixes)
 
 
+#: The Bedrock revision a pinned id ends with: ``-v1:0`` in ``us.anthropic.claude-sonnet-5-5-v1:0``.
+#: Only that form: a version inside the name (``claude-3-5-sonnet-20240620``) is part of the model.
+_BEDROCK_REVISION = re.compile(r"-v\d+:\d+$")
+
+
 def _full_id(model: str) -> str:
     """A model ref as its bare name: lower case, no ``[1m]`` suffix, no routing prefix
-    (``anthropic/claude-…`` through a gateway, ``anthropic.claude-…`` in a Bedrock id)."""
-    return _without_context(model.lower().rsplit("/", 1)[-1].rsplit("anthropic.", 1)[-1])
+    (``anthropic/claude-…`` through a gateway, ``anthropic.claude-…`` in a Bedrock id), no
+    Bedrock revision suffix (``-v1:0``)."""
+    name = _without_context(model.lower().rsplit("/", 1)[-1].rsplit("anthropic.", 1)[-1])
+    return _BEDROCK_REVISION.sub("", name)
 
 
 def _family(model: str) -> Optional[str]:
