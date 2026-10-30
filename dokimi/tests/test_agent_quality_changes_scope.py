@@ -16,6 +16,7 @@ import json
 import os
 import shutil
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -65,64 +66,98 @@ def _git(repo: Path, *args: str) -> str:
     ).stdout.strip()
 
 
+def _commit(repo: Path, message: str) -> str:
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", message)
+    return _git(repo, "rev-parse", "HEAD")
+
+
+def _write_bulk(repo: Path, name: str) -> None:
+    # Enough changed paths to overflow a pipe buffer: the step must still read a
+    # code change as code (a `printf | grep -q` pipeline fails under pipefail here).
+    (repo / "src/generated").mkdir()
+    for i in range(BULK_FILES):
+        (repo / f"src/generated/module_{i:05d}_padding_to_make_the_path_long.py").write_text(
+            "x\n", encoding="utf-8"
+        )
+
+
+def _write_docs_non_ascii(repo: Path, name: str) -> None:
+    # git quotes a non-ASCII path in --name-only output unless core.quotepath is off,
+    # and a quoted name does not match the DOCS pattern.
+    (repo / "dokimi/docs").mkdir(parents=True, exist_ok=True)
+    (repo / "dokimi/docs/é.md").write_text(f"{name}\n", encoding="utf-8")
+
+
+def _write_docs_txt(repo: Path, name: str) -> None:
+    # Only Markdown is docs: a .txt under dokimi/docs/ is code.
+    (repo / "dokimi/docs").mkdir(parents=True, exist_ok=True)
+    (repo / "dokimi/docs/x.txt").write_text(f"{name}\n", encoding="utf-8")
+
+
+def _write_markdown_outside_docs(repo: Path, name: str) -> None:
+    # Markdown under data/ and tests/ is not the docs set: the smoke test reads it.
+    for d in ("dokimi/data", "dokimi/tests"):
+        (repo / d).mkdir(parents=True, exist_ok=True)
+        (repo / d / "x.md").write_text(f"{name}\n", encoding="utf-8")
+
+
+def _write_nested_docs(repo: Path, name: str) -> None:
+    # dokimi/docs/ is docs at any depth; changelog.d/ is docs one level deep.
+    (repo / "dokimi/docs/sub").mkdir(parents=True, exist_ok=True)
+    (repo / "dokimi/docs/sub/a.md").write_text(f"{name}\n", encoding="utf-8")
+    (repo / "dokimi/changelog.d").mkdir(parents=True, exist_ok=True)
+    (repo / "dokimi/changelog.d/1.md").write_text(f"{name}\n", encoding="utf-8")
+
+
+def _write_nested_changelog(repo: Path, name: str) -> None:
+    (repo / "dokimi/changelog.d/sub").mkdir(parents=True, exist_ok=True)
+    (repo / "dokimi/changelog.d/sub/1.md").write_text(f"{name}\n", encoding="utf-8")
+
+
+def _write_rename_code_to_md(repo: Path, name: str) -> None:
+    # A pure rename of code to a docs-set path: only the new name is listed unless
+    # renames are off.
+    (repo / "dokimi/docs").mkdir(parents=True, exist_ok=True)
+    _git(repo, "mv", "src/app.py", "dokimi/docs/app.md")
+
+
+# The kinds that write something other than the plain edit in _write_change.
+_WRITERS: dict[str, Callable[[Path, str], None]] = {
+    "bulk": _write_bulk,
+    "docs_non_ascii": _write_docs_non_ascii,
+    "docs_txt": _write_docs_txt,
+    "markdown_outside_docs": _write_markdown_outside_docs,
+    "nested_docs": _write_nested_docs,
+    "nested_changelog": _write_nested_changelog,
+    "rename_code_to_md": _write_rename_code_to_md,
+}
+
+
+def _write_change(repo: Path, name: str, kind: str) -> None:
+    writer = _WRITERS.get(kind)
+    if writer is not None:
+        writer(repo, name)
+        return
+    # "code" edits src/app.py; "docs" and "offbranch" edit README.md.
+    path = "src/app.py" if kind == "code" else "README.md"
+    (repo / path).write_text(f"{name}\n", encoding="utf-8")
+
+
 def _history(repo: Path, names: list[tuple[str, str]]) -> dict[str, str]:
     """A linear history on main: `base` (code and docs), then each (name, "code" | "docs")."""
     _git(repo, "init", "-q", "-b", "main")
-    shas: dict[str, str] = {}
     (repo / "src").mkdir()
     (repo / "src/app.py").write_text("base\n", encoding="utf-8")
     (repo / "README.md").write_text("base\n", encoding="utf-8")
-    _git(repo, "add", "-A")
-    _git(repo, "commit", "-q", "-m", "base")
-    shas["base"] = _git(repo, "rev-parse", "HEAD")
+    shas: dict[str, str] = {"base": _commit(repo, "base")}
     for name, kind in names:
-        if kind == "bulk":
-            # Enough changed paths to overflow a pipe buffer: the step must still read a
-            # code change as code (a `printf | grep -q` pipeline fails under pipefail here).
-            (repo / "src/generated").mkdir()
-            for i in range(BULK_FILES):
-                (repo / f"src/generated/module_{i:05d}_padding_to_make_the_path_long.py").write_text(
-                    "x\n", encoding="utf-8"
-                )
-        elif kind == "docs_non_ascii":
-            # git quotes a non-ASCII path in --name-only output unless core.quotepath is off,
-            # and a quoted name does not match the DOCS pattern.
-            (repo / "dokimi/docs").mkdir(parents=True, exist_ok=True)
-            (repo / "dokimi/docs/é.md").write_text(f"{name}\n", encoding="utf-8")
-        elif kind == "docs_txt":
-            # Only Markdown is docs: a .txt under dokimi/docs/ is code.
-            (repo / "dokimi/docs").mkdir(parents=True, exist_ok=True)
-            (repo / "dokimi/docs/x.txt").write_text(f"{name}\n", encoding="utf-8")
-        elif kind == "markdown_outside_docs":
-            # Markdown under data/ and tests/ is not the docs set: the smoke test reads it.
-            for d in ("dokimi/data", "dokimi/tests"):
-                (repo / d).mkdir(parents=True, exist_ok=True)
-                (repo / d / "x.md").write_text(f"{name}\n", encoding="utf-8")
-        elif kind == "nested_docs":
-            # dokimi/docs/ is docs at any depth; changelog.d/ is docs one level deep.
-            (repo / "dokimi/docs/sub").mkdir(parents=True, exist_ok=True)
-            (repo / "dokimi/docs/sub/a.md").write_text(f"{name}\n", encoding="utf-8")
-            (repo / "dokimi/changelog.d").mkdir(parents=True, exist_ok=True)
-            (repo / "dokimi/changelog.d/1.md").write_text(f"{name}\n", encoding="utf-8")
-        elif kind == "nested_changelog":
-            (repo / "dokimi/changelog.d/sub").mkdir(parents=True, exist_ok=True)
-            (repo / "dokimi/changelog.d/sub/1.md").write_text(f"{name}\n", encoding="utf-8")
-        elif kind == "rename_code_to_md":
-            # A pure rename of code to a docs-set path: only the new name is listed unless
-            # renames are off.
-            (repo / "dokimi/docs").mkdir(parents=True, exist_ok=True)
-            _git(repo, "mv", "src/app.py", "dokimi/docs/app.md")
-        elif kind == "offbranch":
+        if kind == "offbranch":
             # A commit on a side branch from the last commit of main (only docs on top of it), so
             # that it is not an ancestor of the push but the diff from it reads as docs.
             _git(repo, "checkout", "-q", "-b", f"side-{name}", list(shas.values())[-1])
-            (repo / "README.md").write_text(f"{name}\n", encoding="utf-8")
-        else:
-            path = "src/app.py" if kind == "code" else "README.md"
-            (repo / path).write_text(f"{name}\n", encoding="utf-8")
-        _git(repo, "add", "-A")
-        _git(repo, "commit", "-q", "-m", name)
-        shas[name] = _git(repo, "rev-parse", "HEAD")
+        _write_change(repo, name, kind)
+        shas[name] = _commit(repo, name)
         if kind == "offbranch":
             _git(repo, "checkout", "-q", "main")
     return shas
