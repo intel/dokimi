@@ -759,7 +759,7 @@ declare the same baseline; the default is that baseline. With `--no-skill-arm`, 
 be one the runs list (exit 2 otherwise, naming the arms that exist), and the declared
 baselines are not checked. A threshold out of range exits 2: `--ceiling` in [0.01, 1],
 `--floor` 0 or in [0.01, ceiling), `--min-reps` at least 1. It also exits 2 when no run scored the
-no-skill arm, or when `-o` is one of the input files. Scores are read as the 0-100
+no-skill arm, or when `-o` is one of the input files (or its `.rejected` sibling) or names a directory. Scores are read as the 0-100
 aggregate divided by 100 and are not range-checked. Only arms runs are read. The flags are descriptive: they do not
 change any score or any gate.
 

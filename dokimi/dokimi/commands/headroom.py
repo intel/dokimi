@@ -37,10 +37,16 @@ def _same_file(a, b) -> bool:
 
 
 def _names_a_directory(output) -> bool:
-    """Whether ``-o`` spells a directory: an existing one, a trailing slash, or ``.``/``..``/empty
-    (which have no file name to write beside)."""
+    """Whether ``-o`` spells a directory: its last component is empty, ``.`` or ``..`` (a trailing
+    separator, with or without ``/.``), or it is an existing directory. A path that cannot be
+    stat-ed is not one: the save reports it, as before."""
     text = str(output)
-    return text.endswith(("/", os.sep)) or Path(text).name in ("", ".", "..") or Path(text).is_dir()
+    if text.replace(os.sep, "/").rsplit("/", 1)[-1] in ("", ".", ".."):
+        return True
+    try:
+        return Path(text).is_dir()
+    except (OSError, ValueError):
+        return False
 
 
 def _clobbers_an_input(output, inputs) -> bool:
@@ -58,7 +64,7 @@ def cmd_eval_headroom(args: argparse.Namespace) -> None:
     if args.output and _names_a_directory(args.output):
         # A directory has no file name for save_artifact's sibling paths ("." has an empty name), and
         # Path() drops a trailing slash, so "newdir/" would otherwise write a plain file named newdir.
-        print(f"Error: -o {args.output} is a directory; it needs a file name", file=sys.stderr)
+        print(f"Error: -o {args.output} names a directory; it needs a file name", file=sys.stderr)
         sys.exit(2)
     if args.output and _clobbers_an_input(args.output, args.arms):
         print(f"Error: -o {args.output} would overwrite one of the input arms files (or its .rejected sibling); "

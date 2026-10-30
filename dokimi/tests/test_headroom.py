@@ -416,21 +416,45 @@ def test_command_exits_2_when_the_output_cannot_be_written(tmp_path, capsys):
     assert capsys.readouterr().err.startswith("Error: ")
 
 
-@pytest.mark.parametrize("spelling", ["dir", "dot", "dot-slash", "absent-with-slash"])
+@pytest.mark.parametrize("spelling", ["dir", "dot", "dot-slash", "absent-with-slash", "absent-with-slash-dot"])
 def test_command_exits_2_when_the_output_is_a_directory(tmp_path, monkeypatch, capsys, spelling):
     # A directory has no file name to write: the save would raise ValueError (for "." and "./"), fail
-    # on the directory itself, or (for a directory that does not exist yet, spelled with a slash) write
-    # a plain file under the directory's name. Refuse all of them up front, as the -o contract says.
+    # on the directory itself, or (for a directory that does not exist yet, spelled with a slash or a
+    # trailing "/.") write a plain file under the directory's name. Refuse all of them up front.
     path = _arms_file(tmp_path / "arms.json", {"1": {"baseline": 95, "skill": 95}})
     (tmp_path / "out").mkdir()
     monkeypatch.chdir(tmp_path)
     out = {"dir": str(tmp_path / "out"), "dot": ".", "dot-slash": "./",
-           "absent-with-slash": str(tmp_path / "newdir") + "/"}[spelling]
+           "absent-with-slash": str(tmp_path / "newdir") + "/",
+           "absent-with-slash-dot": str(tmp_path / "newdir") + "/."}[spelling]
     with pytest.raises(SystemExit) as exc:
         cmd_eval_headroom(_args([path], output=out))
     assert exc.value.code == 2
-    assert capsys.readouterr().err.startswith("Error: ")
+    assert "names a directory" in capsys.readouterr().err
     assert not (tmp_path / "newdir").exists()
+
+
+def test_an_output_whose_directory_check_cannot_stat_does_not_crash_the_guard(tmp_path, monkeypatch, capsys):
+    # A parent without search permission makes is_dir() raise PermissionError on Python 3.12 and 3.13.
+    # The check must treat that path as not a directory and let the save report it, as before.
+    import pathlib
+
+    arms = _arms_file(tmp_path / "arms.json", {"1": {"baseline": 99, "skill": 99}})
+    out = tmp_path / "locked.json"
+    real_is_dir = pathlib.Path.is_dir
+
+    def is_dir(self):
+        if self.name == out.name:
+            raise PermissionError(13, "Permission denied", str(self))
+        return real_is_dir(self)
+
+    monkeypatch.setattr(pathlib.Path, "is_dir", is_dir)
+    try:
+        cmd_eval_headroom(_args([arms], output=out))
+        code = 0
+    except SystemExit as exc:
+        code = exc.code
+    assert code in (0, 2)
 
 
 def test_command_refuses_an_output_spelled_through_a_dotdot_to_an_input(tmp_path, capsys):
