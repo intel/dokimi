@@ -1302,7 +1302,10 @@ python cli.py repo compare repo-runs/replay --baseline guidance:none --metric re
   same goes for the finished cells of a task this host cannot run, which
   `--force` keeps; that refusal comes after the host probe, before any agent starts. A result from before `execution` was
   recorded is refused as `unrecorded`, not counted as native; `--force` or
-  another `--batch` runs it. A batch stays on the eval tree it
+  another `--batch` runs it. A `result.json` that is not UTF-8, not JSON or
+  not a JSON object is that cell's error, naming the file, and the other cells
+  still run; the file is left in place, and removing it or `--force` runs the
+  cell again. A batch stays on the eval tree it
   started with: its revision, or for a working tree the digests of its `eval_dir`
   and of the image build context. A batch with a task that
   names a `dokimi:` grader (or a task directory that cannot be read) also stays on the built-in graders' sources.

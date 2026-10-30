@@ -122,6 +122,26 @@ class ExecutionMismatch(PrepError):
     """A finished cell of the batch ran with another execution than the one asked for."""
 
 
+class UnreadableResult(PrepError):
+    """A finished cell's ``result.json`` is not a JSON object: it is reported, not overwritten or rerun."""
+
+
+def _finished_result(path: Path) -> dict[str, Any]:
+    """The parsed ``result.json`` of a finished cell, or :class:`UnreadableResult` naming the file."""
+    try:
+        done = json.loads(path.read_text(encoding="utf-8"))
+    except UnicodeDecodeError:
+        problem = NOT_UTF8
+    except ValueError as exc:
+        problem = f"not valid JSON ({exc})"
+    else:
+        if isinstance(done, dict):
+            return done
+        problem = "not a JSON object"
+    raise UnreadableResult(f"{path}: {problem}; remove it to run the cell again, or rerun with --force, "
+                           "which replaces every cell of this run's plan")
+
+
 def check_batch_executions(batch_dir: Path, options: list[AgentOptions], replacing: set[str] | None = None) -> None:
     """Refuse, before anything runs, a batch dir whose finished cells ran with another execution.
 
@@ -133,8 +153,8 @@ def check_batch_executions(batch_dir: Path, options: list[AgentOptions], replaci
         if replacing is not None and path.parent.name in replacing:
             continue
         try:
-            ran = recorded_execution(json.loads(path.read_text(encoding="utf-8")))
-        except (OSError, ValueError):
+            ran = recorded_execution(_finished_result(path))
+        except (OSError, UnreadableResult):  # no execution to compare; a cell of this run reports it in run_cell
             continue
         found.add(ran["id"] if isinstance(ran.get("id"), str) else "unrecorded")
     other = found - wanted
@@ -230,7 +250,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     rd = batch_dir / cell_name(task.id, arm, opts.model, rep)
     execution = execution_record(opts)
     if (rd / "result.json").is_file() and not force:
-        done = json.loads((rd / "result.json").read_text(encoding="utf-8"))
+        done = _finished_result(rd / "result.json")
         ran = recorded_execution(done)
         # A result from before execution ids carries none: nothing says how it ran, so it is not reused.
         if ran.get("id") != execution["id"]:
