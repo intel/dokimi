@@ -743,7 +743,8 @@ python cli.py eval headroom run1/arms.json run2/arms.json run3/arms.json \
   is not a floor.
 - **provisional**: fewer than `--min-reps` runs scored the item with its no-skill arm (the
   reps are those runs). Default 3. A file gives each item zero or one rep (zero when its
-  no-skill arm was not scored in that file), so with the default of 3 every item is provisional.
+  no-skill arm was not scored in that file), so one file alone makes every item provisional at the
+  default of 3; the reps of several files add up.
 
 A run is one file. A file repeated on the command line, or holding the same JSON content as
 an earlier one (whitespace and key order do not count), is skipped with a note, so it does
@@ -759,7 +760,7 @@ declare the same baseline; the default is that baseline. With `--no-skill-arm`, 
 be one the runs list (exit 2 otherwise, naming the arms that exist), and the declared
 baselines are not checked. A threshold out of range exits 2: `--ceiling` in [0.01, 1],
 `--floor` 0 or in [0.01, ceiling), `--min-reps` at least 1. It also exits 2 when no run scored the
-no-skill arm, or when `-o` is one of the input files (or its `.rejected` sibling) or names a directory. Scores are read as the 0-100
+no-skill arm, or when `-o` is one of the input files (or its `.rejected` sibling), or names a directory or a path ending in a separator. Scores are read as the 0-100
 aggregate divided by 100 and are not range-checked. Only arms runs are read. The flags are descriptive: they do not
 change any score or any gate.
 
