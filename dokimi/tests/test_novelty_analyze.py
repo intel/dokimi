@@ -602,6 +602,10 @@ def test_a_capped_run_says_how_far_through_the_artifact_the_cap_reached(tmp_path
             "s0002 (2 of 5 spans, 35% of the tokens): the atoms come from the opening of the "
             "artifact, not the whole.") in render_novelty_markdown(artifact)
     validate_artifact("novelty", dict(artifact, schema_version="novelty.v1"))
+    # The renderers read every key of the reach, so a partial one does not validate.
+    partial = dict(artifact["extraction"], reached={"spans": 3})
+    with pytest.raises(ArtifactValidationError, match="extraction/reached: 'last_span' is a required"):
+        validate_artifact("novelty", dict(artifact, schema_version="novelty.v1", extraction=partial))
 
 
 def test_the_reach_is_null_only_when_the_cap_did_not_bind(tmp_path):

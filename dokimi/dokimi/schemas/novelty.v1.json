@@ -344,7 +344,8 @@
             "spans": {"type": "integer", "minimum": 1},
             "of": {"type": "integer", "minimum": 1},
             "tokens_share": {"type": "number", "minimum": 0, "maximum": 1}
-          }
+          },
+          "required": ["last_span", "spans", "of", "tokens_share"]
         }
       }
     },
