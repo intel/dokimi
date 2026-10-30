@@ -205,9 +205,45 @@ def test_a_bootstrap_interval_that_excludes_zero_against_p_025_is_flagged(tmp_pa
     assert score["delta"]["lo"] > 0 and score["p"] == 0.25  # three non-zero deltas, all positive: p cannot go lower
     assert score["interval_p_disagree"] is True
     notes = [line for line in format_compare(s).splitlines() if line.startswith("  score")]
-    assert notes[-1].startswith(f"  score: the interval [{score['delta']['lo']:+.3f}, +0.250] excludes 0 but p 0.25 "
-                                "is ≥ 0.05; they come from two methods, a percentile bootstrap")
-    assert notes[-1].endswith("; read p") and not any("inconclusive" in line for line in notes)
+    assert notes[-1].startswith(f"  score: the interval [{score['delta']['lo']:+.3f}, +0.250] excludes 0 but "
+                                "p_holm 0.25 is ≥ 0.05; they come from two methods, a percentile bootstrap")
+    assert notes[-1].endswith("; read p_holm") and not any("inconclusive" in line for line in notes)
+
+
+def _six_of_seven_up(b: Path, treatments: tuple[str, ...]) -> None:
+    """Gate deltas six +1 and one tie for each treatment: sign-flip p 2/64 for each."""
+    for i in range(7):
+        _cell(b, f"t{i}", "guidance:none", 1, success=i == 6)
+        for arm in treatments:
+            _cell(b, f"t{i}", arm, 1)
+
+
+def test_a_gate_interval_against_p_holm_is_flagged(tmp_path):
+    # two treatments: p 0.031 each, Holm 0.0625; the interval excludes 0, so the two disagree
+    _six_of_seven_up(tmp_path / "b", ("guidance:raw", "guidance:other"))
+    s = compare([tmp_path / "b"], "guidance:none")
+    for arm in ("guidance:raw", "guidance:other"):
+        gate = _row(s, "gate", treatment=arm)
+        assert gate["delta"]["lo"] > 0 and gate["p"] == pytest.approx(2 / 64) and gate["p_holm"] == 0.0625
+        assert gate["interval_p_disagree"] is True
+    notes = [line for line in format_compare(s).splitlines() if line.startswith("  gate: the interval")]
+    assert len(notes) == 2 and all("excludes 0 but p_holm 0.0625 is ≥ 0.05" in n and n.endswith("; read p_holm")
+                                   for n in notes)
+
+
+def test_an_interval_across_zero_against_a_raw_p_below_005_is_not_flagged_when_p_holm_is_not(tmp_path, monkeypatch):
+    # the mirror: an interval that includes 0 against p 0.031, which Holm takes to 0.0625: the two agree
+    monkeypatch.setattr("dokimi.repos.compare.bootstrap_ci",
+                        lambda deltas, seed=0: {"mean": round(sum(deltas) / len(deltas), 4), "lo": -0.1, "hi": 1.0})
+    _six_of_seven_up(tmp_path / "two", ("guidance:raw", "guidance:other"))
+    two = compare([tmp_path / "two"], "guidance:none")
+    gate = _row(two, "gate")
+    assert gate["p"] == pytest.approx(2 / 64) and gate["p_holm"] == 0.0625 and gate["interval_p_disagree"] is False
+    assert "gate: the interval" not in format_compare(two)
+    _six_of_seven_up(tmp_path / "one", ("guidance:raw",))  # a family of one: p_holm is p, below 0.05
+    one = compare([tmp_path / "one"], "guidance:none")
+    assert _row(one, "gate")["interval_p_disagree"] is True
+    assert "includes 0 but p_holm 0.0312 is < 0.05" in format_compare(one)
 
 
 def test_a_descriptive_p_below_005_is_named_as_uncorrected(tmp_path):

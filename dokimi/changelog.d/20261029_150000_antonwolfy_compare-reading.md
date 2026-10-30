@@ -13,5 +13,6 @@
   spread (`mde` is in every `--json` row). With 5 or fewer changed tasks the sign-flip p cannot go
   below 0.05 (its floor is `2 / 2^k` for k changed tasks), so `mde` is `null` and the note says how
   low p can go instead. A row whose interval and p disagree says so and why
-  (`interval_p_disagree`), and for gate and score that p is the one to read; descriptive rows with
+  (`interval_p_disagree`); for gate and score it compares the interval with Holm's `p_holm`, quotes
+  it and says it is the one to read, and a descriptive row uses its raw p; descriptive rows with
   p below 0.05 are named as uncorrected and outside Holm's family. No delta, interval or p changes.

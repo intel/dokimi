@@ -47,8 +47,8 @@ the per-task deltas, the t quantiles at ``n - 1`` degrees of freedom (in every r
 spread). The sign-flip p over k changed tasks cannot go below ``2 / 2**k``, so at 5 or fewer no effect of any
 size reaches p < 0.05: ``mde`` is ``None`` there too, and the note says how low p can go instead. A row whose
 interval and p disagree (the interval excludes 0 while p is 0.05 or more, or includes it
-while p is below) has ``interval_p_disagree``:
-the two come from different methods, and for gate and score p is the one to read, since the percentile
+while p is below; for gate and score the p is ``p_holm``, the one that decides them) has ``interval_p_disagree``:
+the two come from different methods, and for gate and score ``p_holm`` is the one to read, since the percentile
 bootstrap runs narrow over few tasks (the inconclusive note then gives way to this one). A descriptive row
 with p below 0.05 is named on a line saying its p is uncorrected and outside Holm's family.
 
@@ -105,7 +105,7 @@ from typing import Any
 from scipy import stats as sp_stats
 
 from dokimi.context.consistency import Run, order_distance, pass_hat, run_from_events
-from dokimi.eval.stats import adjust_pvalues, bootstrap_ci, mean_ci
+from dokimi.eval.stats import bootstrap_ci, correct_family, mean_ci
 
 from .compare_tasks import TaskSelectionError, select_tasks
 from .process_counts import as_measure, process_order, process_values
@@ -349,10 +349,12 @@ def _check_models(models: list[str] | None, rows: list[dict[str, Any]], unpaired
 
 
 def _holm(rows: list[dict[str, Any]]) -> None:
-    """``p_holm`` on the gate and score rows, corrected as one family."""
+    """``p_holm`` on the gate and score rows, corrected as one family; their ``interval_p_disagree`` reads it."""
     primary = [r for r in rows if r["measure"] in PRIMARY]
-    for row, p in zip(primary, adjust_pvalues([r["p"] for r in primary]), strict=True):
+    for row, (p, below) in zip(primary, correct_family([r["p"] for r in primary]), strict=True):
+        d = row["delta"]
         row["p_holm"] = p
+        row["interval_p_disagree"] = d["lo"] is not None and below is not None and (d["lo"] <= 0 <= d["hi"]) == below
 
 
 def _compare_model(treatment: str, model: str, base_vals: dict[tuple[str, str], dict[str, Any]],
@@ -518,7 +520,8 @@ def paired_summary(pairs: list[dict[str, Any]], measure: str = "gate", seed: int
     permutation test. The interval is a percentile bootstrap for the bounded gate and score shares and a t
     interval (:func:`~dokimi.eval.stats.mean_ci`) for the continuous measures, where the bootstrap
     under-covers at these task counts; one task has no interval (``lo``/``hi`` None), not a zero-width one.
-    ``mde`` and ``interval_p_disagree`` are the reading aids of the module docstring.
+    ``mde`` and ``interval_p_disagree`` are the reading aids of the module docstring; the flag reads the raw p
+    here, and :func:`compare` sets it again on a gate or score row once Holm's p is known.
     """
     deltas = [p["delta"] for p in pairs]
     ci = (bootstrap_ci if measure in PRIMARY else mean_ci)(deltas, seed=seed)
@@ -620,9 +623,10 @@ def _reading_notes(rows: list[dict[str, Any]]) -> list[str]:
         if r["interval_p_disagree"]:
             inside = d["lo"] <= 0 <= d["hi"]
             how = "a percentile bootstrap, too narrow over few tasks," if primary else "a t interval"
+            name = "p_holm" if primary else "p"  # a gate or score row is decided by its Holm p (_holm)
             out.append(f"  {r['measure']}: the interval [{d['lo']:+.3f}, {d['hi']:+.3f}] "
-                       f"{'includes' if inside else 'excludes'} 0 but p {r['p']:.4g} is {'<' if inside else '≥'} "
-                       f"{ALPHA}; they come from two methods, {how} and a sign-flip test" + ("; read p" if primary else ""))
+                       f"{'includes' if inside else 'excludes'} 0 but {name} {r[name]:.4g} is {'<' if inside else '≥'} "
+                       f"{ALPHA}; they come from two methods, {how} and a sign-flip test" + ("; read p_holm" if primary else ""))
         elif primary and (note := _inconclusive_note(r)):
             out.append(note)
     low = [r["measure"] for r in rows if r["measure"] not in PRIMARY and r["p"] is not None and r["p"] < ALPHA]

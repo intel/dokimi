@@ -1344,8 +1344,9 @@ python cli.py repo compare repo-runs/replay --baseline guidance:none --metric re
   go instead (`with 3 changed tasks the sign-flip p cannot go below 0.25: no
   effect can reach p < 0.05 here`). A row whose interval and p disagree (the
   interval excludes 0 while p is 0.05 or more, or includes 0 while p is below
-  0.05) has `interval_p_disagree` `true` and a note: they come from two
-  methods, and for gate and score p is the one to read, since a percentile
+  0.05; for gate and score that p is `p_holm`, the one that decides them, and the
+  note quotes it) has `interval_p_disagree` `true` and a note: they come from two
+  methods, and for gate and score `p_holm` is the one to read, since a percentile
   bootstrap runs narrow over few tasks; the inconclusive note gives way to
   it. Descriptive rows with p below 0.05 are named on one line: their p is
   uncorrected and outside Holm's family. `--task ID` (repeatable) compares only
