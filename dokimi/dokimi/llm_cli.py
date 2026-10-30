@@ -289,9 +289,8 @@ def accepts_model(provider: str, model: str) -> bool:
     return bare in cli.aliases or bare.startswith(cli.model_prefixes)
 
 
-#: The Bedrock revision a pinned id ends with: ``-v1:0`` in ``us.anthropic.claude-sonnet-5-5-v1:0``.
-#: Only that form: a version inside the name (``claude-3-5-sonnet-20240620``) is part of the model, and
-#: the revision follows a version digit (``claude-v2:1`` is Claude 2 itself, not a revision of ``claude``).
+#: The Bedrock revision ending a pinned id (``-v1:0``), only after a version digit: a version inside
+#: the name (``claude-3-5-sonnet-20240620``) is the model, and ``claude-v2:1`` is Claude 2 itself.
 _BEDROCK_REVISION = re.compile(r"(?<=\d)-v\d+:\d+$")
 
 
