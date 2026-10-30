@@ -15,8 +15,9 @@
   its `[FALLBACK: ...]` placeholder by default, so it drops out of the paired statistics; the
   record and its `retrieval_hit` stay, its diagnosis stays `empty_retrieval`, and the run
   summary says how many questions it left out. Pass `--judge-placeholder` to judge the
-  placeholder again, which restores the old numbers. `evaluate` and `eval score` take the same
-  flag. Scores from before this change are not comparable with new ones.
+  placeholder again (this restores only that part of the old method). `benchmark run`,
+  `evaluate` and `eval score` take the same flag; `benchmark batch` has none and never judges
+  the placeholder. Scores from before this change are not comparable with new ones.
 - **Trust gate** — `retrieval_hit_rate` counts every evaluation's recorded retrieval outcome,
   not only the ones scored in both arms, so unjudged misses still count against the rate, and a
   judge-error row keeps the outcome of its answer. The rate is shown even when no question is
