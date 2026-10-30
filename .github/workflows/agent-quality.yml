@@ -23,7 +23,7 @@ defaults:
   run:
     working-directory: dokimi
 
-# Every job on ubuntu-latest: see ci.yml.
+# Runners: see the header of ci.yml.
 jobs:
   # THE executable-track proof for this repo. It is now the only job that
   # builds and verifies a Docker task, because the task definitions no longer
@@ -48,7 +48,7 @@ jobs:
   # blip.
   external-catalog-smoke:
     name: External catalog smoke test (uxlfoundation/skills)
-    runs-on: ${{ github.repository_owner == 'intel' && 'dokimi-ec2' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository_owner == 'intel' && github.event_name == 'pull_request' && 'dokimi-ec2' || 'ubuntu-latest' }}
     permissions:
       contents: read
     timeout-minutes: 15
@@ -139,7 +139,8 @@ jobs:
   # gate or band failure in benchmarks/spec.v1.yaml fails the job. (It used to
   # be non-strict with continue-on-error, so it could not fail at all.)
   benchmark:
-    runs-on: ${{ github.repository_owner == 'intel' && 'dokimi-ec2' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository_owner == 'intel' && github.event_name == 'pull_request' && 'dokimi-ec2' || 'ubuntu-latest' }}
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
