@@ -51,6 +51,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      # The changes step reads this workflow's earlier runs (gh api).
+      actions: read
     timeout-minutes: 15
     env:
       # Pinned, not `main` -- an upstream rename/restructure of
@@ -69,11 +71,14 @@ jobs:
       # edit); the benchmark job measures the docs, so it always runs. The job itself
       # still takes a runner, as its steps are skipped, not the job, and it reports
       # success.
-      # Scope: a new push to a PR (`synchronize`) decides from what that push changed
-      # (before..after), so a docs-only push after a code push skips. Every other PR
-      # run decides from the whole PR, base...HEAD. A push that cannot be diffed
-      # (no before commit, or before is not an ancestor of after: a force push) runs
-      # everything, as does an empty diff.
+      # Scope: a new push to a PR (`synchronize`) decides from everything since the last
+      # commit whose smoke run passed its code steps (the newest one of this PR's runs,
+      # reachable from the push, with Verify pass rate successful), so a docs-only push
+      # skips only when all the code before it was verified. A cancelled or failed run
+      # does not count, so the code it carried runs again. No such run, or an unreadable
+      # run list, runs everything. Every other PR run decides from the whole PR,
+      # base...HEAD. A push that cannot be diffed (no before commit, or before is not an
+      # ancestor of after: a force push) runs everything, as does an empty diff.
       # Documentation: the Markdown the repo keeps as docs. Root guides (AGENTS.md,
       # README.md, ...), dokimi/*.md, dokimi/docs/, dokimi/changelog.d/ and .github/.
       # Not dokimi/data/ (skill and profile Markdown the code reads at run time),
@@ -84,11 +89,28 @@ jobs:
           EVENT: ${{ github.event_name }}
           ACTION: ${{ github.event.action }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_REF: ${{ github.head_ref }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.event.after }}
           DOCS: '^([^/]+|dokimi/[^/]+|dokimi/docs/(.+/)?[^/]+|dokimi/changelog\.d/[^/]+|\.github/(.+/)?[^/]+)\.md$'
         run: |
           set_code() { echo "code=$1" >> "$GITHUB_OUTPUT"; echo "changes: code=$1 ($2)"; }
+          # The newest commit reachable from AFTER whose smoke run passed its code steps (its
+          # Verify pass rate step succeeded). Prints nothing when there is none or the run
+          # list cannot be read; the caller then runs everything.
+          last_verified() {
+            runs=$(gh api "repos/$REPO/actions/workflows/agent-quality.yml/runs?branch=$HEAD_REF&event=pull_request&status=completed&per_page=20" \
+              --jq '.workflow_runs[] | "\(.id) \(.head_sha)"') || return 0
+            while read -r id sha; do
+              [ -n "$id" ] || continue
+              git cat-file -e "$sha^{commit}" 2>/dev/null && git merge-base --is-ancestor "$sha" "$AFTER" 2>/dev/null || continue
+              verdict=$(gh api "repos/$REPO/actions/runs/$id/jobs" \
+                --jq '.jobs[] | select(.name | startswith("External catalog smoke test")) | .steps[] | select(.name == "Verify pass rate") | .conclusion') || continue
+              if [ "$verdict" = success ]; then echo "$sha"; return 0; fi
+            done <<< "$runs"
+          }
           if [ "$EVENT" != pull_request ]; then set_code true "not a pull request"; exit 0; fi
           # --no-renames: a rename from code to Markdown must count as the code it removes.
           if [ "$ACTION" = synchronize ]; then
@@ -97,8 +119,12 @@ jobs:
                 && git merge-base --is-ancestor "$BEFORE" "$AFTER"; } 2>/dev/null; then
               set_code true "force push, or the commits are not fetched"; exit 0
             fi
-            scope=push
-            files=$(git diff --no-renames --name-only "$BEFORE" "$AFTER") \
+            # Diffed from the last passed run's commit, not from BEFORE: a run this push
+            # cancelled or that failed verified nothing, so its code is diffed again.
+            from=$(last_verified)
+            if [ -z "$from" ]; then set_code true "push: no passed smoke run to diff from"; exit 0; fi
+            scope="push since ${from:0:7}"
+            files=$(git diff --no-renames --name-only "$from" "$AFTER") \
               || { set_code true "push diff failed"; exit 0; }
           else
             # The base branch's current tip (fetched by the checkout), not base.sha
