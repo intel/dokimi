@@ -245,6 +245,16 @@ def test_get_llm_imports_llm_cli_from_its_own_module():
     assert borrowed == []  # it works only while llm.py happens to import the module
 
 
+def test_the_backend_doc_names_tools_as_the_command_that_refuses_a_cli_provider():
+    from pathlib import Path
+
+    from dokimi.commands import tools
+
+    text = (Path(__file__).resolve().parents[1] / "docs" / "subscription-backends.md").read_text(encoding="utf-8")
+    assert "claude-cli" not in tools.PROVIDERS
+    assert "`--provider` or `--judge-provider`, except `tools`" in text
+
+
 def test_the_reviewing_guide_lists_every_answer_provider():
     from pathlib import Path
 

@@ -13,7 +13,7 @@ SPDX-License-Identifier: Apache-2.0
 The Q&A track (answers, judging, question generation, personas, novelty) can call
 a model through a coding-agent CLI the machine is already signed in to, instead
 of an API key. Today one backend exists, `claude-cli` (Claude Code's `claude -p`).
-Pass it wherever a command takes `--provider` or `--judge-provider`.
+Pass it wherever a command takes `--provider` or `--judge-provider`, except `tools`, which needs tool calling.
 
 ## Check what this machine can use
 
