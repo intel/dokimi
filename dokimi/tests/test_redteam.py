@@ -200,6 +200,15 @@ def test_command_exits_2_when_the_artifact_cannot_be_written(tmp_path, monkeypat
     assert capsys.readouterr().err.startswith("Error:")
 
 
+def test_command_exits_2_on_a_question_set_nested_too_deep_to_read(tmp_path, capsys):
+    path = tmp_path / "deep.json"
+    path.write_text("[" * 100_000 + "]" * 100_000, encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_redteam(_args(path))
+    assert exc.value.code == 2  # not a traceback and exit 1: CI reads exit 1 as a blocked run
+    assert capsys.readouterr().err.startswith("Error:")
+
+
 def test_command_exits_2_on_an_unreadable_question_set(tmp_path, capsys):
     with pytest.raises(SystemExit) as exc:
         cmd_eval_redteam(_args(tmp_path / "missing.json"))

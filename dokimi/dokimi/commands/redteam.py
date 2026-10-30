@@ -31,7 +31,7 @@ def cmd_eval_redteam(args: argparse.Namespace) -> None:
     try:
         questions = load_questions(args.questions).artifact.get("questions") or []
         result = run(questions, ask=_ask(args))
-    except (OSError, ValueError) as e:
+    except (OSError, ValueError, RecursionError) as e:  # RecursionError: nested too deep
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(2)
     result["questions_path"] = str(args.questions)
