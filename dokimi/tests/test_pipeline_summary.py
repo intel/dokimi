@@ -85,3 +85,13 @@ def test_summary_says_how_many_questions_it_left_out(tmp_path, monkeypatch, caps
     printed = capsys.readouterr().out
     assert "Evaluated 10 answers: context=80.0, baseline=60.0, delta=+20.0" in printed
     assert "over the 7 scored in both arms; 3 left out" in printed
+
+
+def test_summary_does_not_say_left_out_when_every_question_is_paired(tmp_path, monkeypatch, capsys):
+    result = _run(tmp_path, monkeypatch, [_evaluation("q1", 80, 60), _evaluation("q2", 70, 50)])
+
+    step = result["steps"]["evaluation"]
+    assert (step["paired"], step["unpaired"]) == (2, 0)
+    printed = capsys.readouterr().out
+    assert "Evaluated 2 answers: context=75.0, baseline=55.0, delta=+20.0" in printed
+    assert "left out" not in printed

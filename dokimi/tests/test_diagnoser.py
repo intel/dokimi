@@ -18,13 +18,15 @@ from dokimi.eval.diagnoser import (
 )
 
 
-def _make_answer(doc_source="context7", retrieved_docs=None):
+def _make_answer(doc_source="context7", retrieved_docs=None, error=None):
     """The context-arm answer of an answers.v1 record, as the judge hands it to diagnose()."""
+    with_docs = {"answer": "an answer", "doc_source": doc_source, "retrieved_docs": retrieved_docs or []}
+    if error:
+        with_docs["error"] = error
     data = artifact_fixture("answers", {"answers": [{
         "question_id": "q1",
         "question_text": "How?",
-        "with_docs": {"answer": "an answer", "doc_source": doc_source,
-                      "retrieved_docs": retrieved_docs or []},
+        "with_docs": with_docs,
         "without_docs": {"answer": "some answer"},
     }]})
     return records.read(data).records[0].answer(CONTEXT)
@@ -59,6 +61,20 @@ def test_unjudged_retrieval_miss_is_an_empty_retrieval_not_insufficient_data():
     result = diagnose(answer, None)
     assert result["label"] == EMPTY_RETRIEVAL
     assert result["evidence"]["doc_source"] == "fallback_none"
+
+
+def test_unjudged_none_source_is_an_empty_retrieval():
+    answer = _make_answer(doc_source="none", retrieved_docs=[])
+    result = diagnose(answer, None)
+    assert result["label"] == EMPTY_RETRIEVAL
+    assert result["evidence"]["doc_source"] == "none"
+
+
+def test_errored_placeholder_answer_stays_insufficient_data():
+    """An errored answer is missing, not a retrieval miss, whatever its doc source."""
+    answer = _make_answer(doc_source="fallback_none", retrieved_docs=[], error="timeout")
+    result = diagnose(answer, None)
+    assert result["label"] == INSUFFICIENT_DATA
 
 
 def test_empty_retrieval_no_mcp_client():
