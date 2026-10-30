@@ -253,6 +253,17 @@ jobs:
       - run: pip install --require-hashes -r requirements.lock.txt -r requirements-ci.lock.txt
       - name: mypy
         run: mypy
+      # The CLI snapshot, on the pinned Python: its content check (tests/test_cli_flags.py)
+      # runs only on 3.13, and a PR runs no 3.13 test leg. Regenerate with `make cli-snapshot`.
+      - name: CLI snapshot is current
+        # Still runs when mypy fails, so a stale snapshot shows on the same push.
+        if: ${{ !cancelled() }}
+        run: |
+          PYTHONPATH=. python scripts/cli_surface.py dump "$RUNNER_TEMP/cli-interface.json"
+          diff -u docs/reference/cli-interface.json "$RUNNER_TEMP/cli-interface.json" || {
+            echo "docs/reference/cli-interface.json is stale: run 'make cli-snapshot' in dokimi/ and commit the result"
+            exit 1
+          }
       # Dependency hygiene, config in [tool.deptry] of pyproject.toml: an import
       # not declared (DEP001), a runtime dependency never imported (DEP002), an
       # import that only resolves through another package's dependencies (DEP003),
