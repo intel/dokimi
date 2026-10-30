@@ -6,6 +6,7 @@ of every file skipped."""
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import time
@@ -20,6 +21,8 @@ from dokimi.runs.scan import HEAD_BYTES, RunsRoot
 from dokimi.utils import InputError
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "artifacts"
+# The module, not the scan() that dokimi.runs re-exports under the same name.
+scan_module = importlib.import_module("dokimi.runs.scan")
 
 #: version -> (keys added to its fixture, expected subject, model, time).
 EXPECTED: dict[str, tuple[dict, str | None, str | None, str | None]] = {
@@ -238,13 +241,19 @@ def test_a_schema_version_past_the_first_bytes_is_not_a_leading_one(tmp_path):
     assert scan(tmp_path).skipped == {"no_leading_schema_version": 1}
 
 
-def test_a_document_nested_too_deep_to_parse_is_unreadable(tmp_path):
-    deep = '{"schema_version": "eval.v1", "x": ' + "[" * 100_000 + "]" * 100_000 + "}"
-    (tmp_path / "deep.json").write_text(deep, encoding="utf-8")
+def test_a_document_nested_too_deep_to_parse_is_unreadable(tmp_path, monkeypatch):
+    # How deep json can go depends on the interpreter (3.14 bounds it by C stack), so the
+    # RecursionError is raised for the parse instead of found by nesting.
+    def too_deep(path, version):
+        raise RecursionError("maximum recursion depth exceeded while decoding a JSON array")
+
+    _save(tmp_path, "eval.v1", "deep.json")
+    monkeypatch.setattr(scan_module, "load_document", too_deep)
 
     (bad,) = scan(tmp_path).unreadable
 
-    assert bad.schema_version == "eval.v1" and "recursion" in bad.reason
+    assert (bad.path.as_posix(), bad.schema_version) == ("deep.json", "eval.v1")
+    assert bad.reason == "maximum recursion depth exceeded while decoding a JSON array"
 
 
 def test_a_time_out_of_range_falls_back_to_the_mtime(tmp_path):
