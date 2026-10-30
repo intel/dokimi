@@ -179,3 +179,15 @@ def test_a_band_without_a_value_has_a_zero_floor():
     result = check_critical_bands({"score": 0.0}, spec)
 
     assert result.violations == [BandViolation("score_below", 0.0, 0.0, False)]
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [{}, {"critical_bands": {}}, {"critical_bands": {"fail_on": []}}],
+    ids=["no-key", "no-fail_on", "empty-fail_on"],
+)
+def test_no_bands_means_the_gate_is_disabled(spec):
+    """A spec with no band, or an empty list, is disabled and reports nothing."""
+    result = check_critical_bands({"score": 0.0}, spec)
+
+    assert (result.enabled, result.violations, result.passed) == (False, [], True)
