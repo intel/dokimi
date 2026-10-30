@@ -29,8 +29,8 @@ def guidance_files(tree: RepoTree, manifest: RepoManifest) -> list[str]:
     return [f for f in tree.files() if any(match_glob(p, f) for p in patterns)]
 
 
-def _coverage_warnings(tree: RepoTree, manifest: RepoManifest, files: list[str]) -> tuple[list[str], bool]:
-    """Warnings about guidance the manifest names but the tree lacks, and whether a gate should fail.
+def _coverage_warnings(tree: RepoTree, manifest: RepoManifest, files: list[str]) -> tuple[list[str], list[str]]:
+    """Warnings about guidance the manifest names but the tree lacks, and those of them that fail a gate.
 
     A glob that matches nothing is only a warning (it may name a file a later base adds); a
     missing ``also_scan`` file, or no guidance at all, means the scan checked less than it says.
@@ -38,11 +38,11 @@ def _coverage_warnings(tree: RepoTree, manifest: RepoManifest, files: list[str])
     tree_files = tree.files()
     warnings = [f"guidance glob matches no file: {p}" for p in manifest.guidance_globs
                 if not any(match_glob(p, f) for f in tree_files)]
-    missing = [p for p in manifest.also_scan if not any(match_glob(p, f) for f in tree_files)]
-    warnings += [f"guidance/also_scan matches no file: {p}" for p in missing]
+    reasons = [f"guidance/also_scan matches no file: {p}" for p in manifest.also_scan
+               if not any(match_glob(p, f) for f in tree_files)]
     if not files:
-        warnings.append("no guidance file to scan")
-    return warnings, bool(missing) or not files
+        reasons.append("no guidance file to scan")
+    return warnings + reasons, reasons
 
 
 def _is_build_input(path: str) -> bool:
@@ -88,13 +88,14 @@ def scan_repo(tree: RepoTree, manifest: RepoManifest, static: dict[str, Any] | N
         static_info["superseded"] = len(framework) - len(kept)
     claims = sorted(repository + kept, key=lambda c: (c["file"], c["line"], c["source"]))
 
-    warnings, incomplete = _coverage_warnings(tree, manifest, files)
-    warnings += [f"guidance file not scanned: {f}: {why}" for f, why in skipped.items()]
+    warnings, reasons = _coverage_warnings(tree, manifest, files)
     rc_files = scan.cached("bazel", dict).get("unread", {})  # `.bazelrc` imports, whatever their names
     unread = {f: why for f, why in sorted(scan.unread.items())
               if "bazel" in scan.adapters and f not in skipped and (_is_build_input(f) or f in rc_files)}
-    warnings += [f"build file not scanned: {f}: {why}" for f, why in unread.items()]
-    incomplete = incomplete or bool(skipped) or bool(unread)
+    unscanned = [f"guidance file not scanned: {f}: {why}" for f, why in skipped.items()]
+    unscanned += [f"build file not scanned: {f}: {why}" for f, why in unread.items()]
+    warnings += unscanned
+    reasons += unscanned  # every warning that makes the scan incomplete, in the order of `warnings`
     sha = getattr(tree, "sha", None)
     return {
         "repo": {"id": manifest.id, "tree": tree.label, "sha": sha, "manifest": manifest.path},
@@ -108,7 +109,8 @@ def scan_repo(tree: RepoTree, manifest: RepoManifest, static: dict[str, Any] | N
         "by_file": _grouped(claims, "file"),
         "static": static_info,
         "warnings": warnings,
-        "incomplete": incomplete,
+        "incomplete": bool(reasons),
+        "incomplete_reasons": reasons,
         "claims": claims,
     }
 

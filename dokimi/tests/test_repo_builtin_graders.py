@@ -204,6 +204,34 @@ def test_replay_is_one_to_one_nearest_first_within_the_window(tmp_path):
                                                   "recall_addressed": 0.0}
 
 
+def test_replay_matches_record_each_credited_pair_nearest_first(tmp_path):
+    d = _task_dir(tmp_path, "replay_mul")
+    # object 1 (line 4) is near both threads: t_doc at 0 takes it, so t_op goes to object 2 at 1, not object 0 at 4
+    findings = ["not an object", _f(9, message="far"), _f(4, severity="major", message="near both"),
+                _f("6", file="/eval/run/workspace/src/calc.py", message="m" * 300)]
+    g = review.grade_replay({}, d, fence(findings))
+    assert g["threads_hit"] == ["t_doc", "t_op"] and g["recall"] == 1.0 and g["precision_proxy"] == 1.0
+    assert g["matches"] == [
+        {"thread": "t_doc", "thread_file": "src/calc.py", "thread_line": 4, "comment": "docstring?",
+         "finding": 1, "file": "src/calc.py", "line": 4, "severity": "major", "message": "near both", "distance": 0},
+        {"thread": "t_op", "thread_file": "src/calc.py", "thread_line": 5,
+         "comment": "mul adds instead of multiplying\nsecond line", "finding": 2, "file": "src/calc.py", "line": 6,
+         "severity": "minor", "message": "m" * 200, "distance": 1}]
+    # the entry script keeps them under details, so grade.json alone is enough to check a hit
+    doc = json.loads((_script(tmp_path, "grade", "review_replay", "replay_mul", fence(findings)) / "grade.json")
+                     .read_text())
+    assert doc["details"]["matches"] == g["matches"] and "matches" not in doc["metrics"] and check_grade(doc) == []
+    assert review.grade_replay({}, d, fence([_f(30)]))["matches"] == []
+    # a thread with no comment and a finding with no severity or message keep "", not "None"
+    write(tmp_path, "bare/gold.json", json.dumps([{"id": "t", "file": "src/calc.py", "line": 5, "kind": "docs"}]))
+    assert review.grade_replay({}, tmp_path / "bare", fence([{"file": "src/calc.py", "line": 5}]))["matches"] == [
+        {"thread": "t", "thread_file": "src/calc.py", "thread_line": 5, "comment": "",
+         "finding": 0, "file": "src/calc.py", "line": 5, "severity": "", "message": "", "distance": 0}]
+    # t_op is credited first (distance 0), but matches follow threads_hit
+    later = review.grade_replay({}, d, fence([_f(5), _f(3)]))["matches"]
+    assert [(m["thread"], m["finding"], m["distance"]) for m in later] == [("t_doc", 1, 1), ("t_op", 0, 0)]
+
+
 @pytest.mark.outcome("cjm-builtin-review-graders")
 def test_matching_rules_as_the_contract_states_them(tmp_path):
     """§4.5: same file only, kw case-insensitive, replay within ``window`` (default 5) inclusive."""
