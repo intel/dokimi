@@ -288,7 +288,7 @@ def default_judge(model: str, provider: str | None = None,
     if provider is None and answerer_provider is not None and backend(answerer_provider) is not None:
         provider = answerer_provider
     # Hard-coded for claude-cli; a second CLI backend (codex-cli) needs its own alias list here.
-    if provider is not None and provider == "claude-cli":
+    if provider == "claude-cli":
         # The CLI's aliases: the first one not of the answerer's family, so the judge is never the answerer.
         for alias in ("opus", "sonnet", "haiku"):
             if not same_model("claude-cli", alias, "claude-cli", bare):
