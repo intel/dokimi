@@ -198,6 +198,12 @@ jobs:
           skip=()
           if [ "$SKIP" = true ]; then skip=(--skip-label); fi
           python scripts/check_changelog_fragment.py --base "origin/$BASE_REF" --head HEAD "${skip[@]}"
+      # Fails a comment block over two lines that the PR adds or edits; AGENTS.md has the rule.
+      - name: Comment blocks
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: python scripts/check_comment_blocks.py --base "origin/$BASE_REF" --head HEAD
       # Lists the docs pages whose `depends_on` front matter matches a file this PR
       # changes while the PR leaves the page alone, in the job summary and as a
       # warning on each page (scripts/check_docs_review_triggers.py). A prompt to
