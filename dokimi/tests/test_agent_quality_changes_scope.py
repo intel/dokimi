@@ -84,6 +84,11 @@ def _history(repo: Path, names: list[tuple[str, str]]) -> dict[str, str]:
                 (repo / f"src/generated/module_{i:05d}_padding_to_make_the_path_long.py").write_text(
                     "x\n", encoding="utf-8"
                 )
+        elif kind == "docs_non_ascii":
+            # git quotes a non-ASCII path in --name-only output unless core.quotepath is off,
+            # and a quoted name does not match the DOCS pattern.
+            (repo / "dokimi/docs").mkdir(parents=True, exist_ok=True)
+            (repo / "dokimi/docs/é.md").write_text(f"{name}\n", encoding="utf-8")
         else:
             path = "src/app.py" if kind == "code" else "README.md"
             (repo / path).write_text(f"{name}\n", encoding="utf-8")
@@ -105,11 +110,21 @@ def _job(verify: str) -> dict:
     }
 
 
-def _run_changes(tmp_path: Path, history, runs, before: str, after: str, head_ref: str = "feature") -> str:
-    """Run the changes step's script for a synchronize push; return the code= output."""
+def _run_changes(
+    tmp_path: Path,
+    history,
+    runs,
+    before: str,
+    after: str,
+    head_ref: str = "feature",
+    action: str = "synchronize",
+) -> str:
+    """Run the changes step's script for a push (or an opened PR); return the code= output."""
     repo = tmp_path / "repo"
     repo.mkdir()
     shas = _history(repo, history)
+    # The base branch's tip, as the checkout fetches it: the diff base of an opened PR.
+    _git(repo, "update-ref", "refs/remotes/origin/main", shas["base"])
     fake = tmp_path / "fake"
     fake.mkdir()
     gh = fake / "gh"
@@ -127,7 +142,7 @@ def _run_changes(tmp_path: Path, history, runs, before: str, after: str, head_re
         **os.environ,
         **{k: str(v) for k, v in step["env"].items()},
         "EVENT": "pull_request",
-        "ACTION": "synchronize",
+        "ACTION": action,
         "BASE_REF": "main",
         "HEAD_REF": head_ref,
         "REPO": "intel/dokimi",
@@ -216,6 +231,13 @@ SCENARIOS = {
         "A",
         "true",
     ),
+    "docs_push_with_non_ascii_doc_name_after_passed_run": (
+        [("V", "code"), ("B", "docs_non_ascii")],
+        [("V", "success")],
+        "V",
+        "B",
+        "false",
+    ),
 }
 
 
@@ -231,9 +253,9 @@ def _runs_request(fake: Path) -> tuple[str, dict[str, list[str]]]:
     args = (fake / "runs-request").read_text(encoding="utf-8").splitlines()
     method = args[args.index("--method") + 1] if "--method" in args else "GET"
     query = parse_qs(urlsplit(args[1]).query, keep_blank_values=True)
-    for flag, field in zip(args, args[1:]):
+    for i, flag in enumerate(args[:-1]):
         if flag in ("-f", "-F", "--raw-field", "--field"):
-            key, _, value = field.partition("=")
+            key, _, value = args[i + 1].partition("=")
             query.setdefault(key, []).append(value)
     return method, query
 
@@ -251,6 +273,12 @@ def test_a_branch_name_with_query_characters_reaches_the_runs_query_whole(tmp_pa
     assert method == "GET"
     assert query["branch"] == [branch]
     assert query["event"] == ["pull_request"]
+
+
+def test_an_opened_pr_with_only_a_non_ascii_doc_name_is_docs_only(tmp_path):
+    # The PR diff (origin/main...HEAD) takes the same quoting path as the push diff.
+    history = [("B", "docs_non_ascii")]
+    assert _run_changes(tmp_path, history, None, "base", "B", action="opened") == "code=false"
 
 
 def test_the_smoke_job_may_read_the_runs_it_is_scoped_by():

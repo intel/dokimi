@@ -109,13 +109,13 @@ jobs:
             from=$(last_verified)
             if [ -z "$from" ]; then set_code true "push: no passed smoke run to diff from"; exit 0; fi
             scope="push since ${from:0:7}"
-            files=$(git diff --no-renames --name-only "$from" "$AFTER") \
+            files=$(git -c core.quotepath=false diff --no-renames --name-only "$from" "$AFTER") \
               || { set_code true "push diff failed"; exit 0; }
           else
             # The base branch's current tip (fetched by the checkout), not base.sha
             # (the base when the PR was opened).
             scope=pr
-            files=$(git diff --no-renames --name-only "origin/$BASE_REF"...HEAD) \
+            files=$(git -c core.quotepath=false diff --no-renames --name-only "origin/$BASE_REF"...HEAD) \
               || { set_code true "PR diff failed"; exit 0; }
           fi
           if [ -z "$files" ]; then set_code true "$scope diff is empty"; exit 0; fi
