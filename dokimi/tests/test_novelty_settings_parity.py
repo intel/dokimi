@@ -242,9 +242,8 @@ def _kept_estimate(step: dict) -> dict:
 # Runs main refuses only after the model calls it had already made (the extraction of `analyze`,
 # the probe wordings of `probe`).
 REFUSED_BEFORE_ANY_CALL = {"run/arms-without-full", "probe/arms-without-baseline"}
-# Input refusals from the arm-set checks. Main raised the message as the exit status (a
-# string), which reaches stderr only when the interpreter exits. The exit-code table
-# (docs/quickstart.md) makes these exit 2, and usage_exit prints the message before raising.
+# Input refusals from the arm-set checks: main raised the message as the exit status, visible only at interpreter exit.
+# The exit-code table (docs/quickstart.md) makes these exit 2, and usage_exit prints the message before raising.
 ARMS_REFUSALS = {"estimate/arms-without-full", "estimate/arms-without-baseline",
                  "probe/arms-without-baseline", "run/arms-without-full"}
 

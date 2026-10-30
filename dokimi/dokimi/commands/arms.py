@@ -28,12 +28,8 @@ if TYPE_CHECKING:
     from dokimi.eval import Judge, JudgePanel
     from dokimi.eval.arm_runner import ArmRunner
 
-# Run-configuration fields the arms commands read off parsed args, shared with
-# any other command that drives an arms run by constructing its own Namespace.
-# Kept in one place so a new flag reaches every caller: enumerating these at each
-# call site is what lets a flag silently fall back to its default, since
-# _prepare_arms and its helpers read them with getattr defaults and cannot tell a caller
-# that omitted a field from a user who chose the default.
+# Run-config fields the arms commands read off parsed args, shared with any command that builds its own Namespace:
+# one list, so a new flag reaches every caller; getattr defaults can't tell an omitted field from a chosen one.
 FORWARDED_RUN_CONFIG_FIELDS = (
     "model",
     "provider",
