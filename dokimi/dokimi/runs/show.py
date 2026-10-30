@@ -72,9 +72,9 @@ def resolve(root: Path, address: str) -> tuple[Path, Path]:
             raise InputError(f"{label} is not a regular file")
     except OSError as exc:
         raise InputError(f"{label}: {read_error_reason(exc)}") from exc
-    spelled = path.absolute()  # not abspath: `link/..` must stay what the filesystem opens
-    if ".." not in spelled.parts and inside(root, spelled):  # keep the name runs list prints
-        return spelled, root.absolute()
+    spelled, base = path.absolute(), root.absolute()  # not abspath: `link/..` must stay as opened
+    if ".." not in spelled.parts + base.parts and inside(root, spelled):  # the name list prints
+        return spelled, base
     return Path(os.path.realpath(path)), Path(real_root)
 
 

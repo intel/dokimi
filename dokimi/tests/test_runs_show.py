@@ -391,3 +391,17 @@ def test_neighbours_are_never_listed_from_outside_the_root(monkeypatch, capsys, 
     assert data["kind"] == "arms"
     assert [s["name"] for s in data["siblings"]] == ["onetbb-matrix/", "onetbb.md",
                                                      "plugin_delta.json"]
+
+
+def test_an_absolute_address_under_a_root_named_with_dot_dot(tmp_path, monkeypatch, capsys):
+    save_artifact("eval", _fixture("eval.v1"), tmp_path / "results" / "e.json")
+    (tmp_path / "work").mkdir()
+    monkeypatch.chdir(tmp_path / "work")
+    monkeypatch.setenv("DOKIMI_RUNS_DIR", os.path.join("..", "results"))
+
+    by_path = json.loads(_show(monkeypatch, capsys, str(tmp_path / "results" / "e.json"),
+                               "--json").out)
+    by_name = json.loads(_show(monkeypatch, capsys, "e.json", "--json").out)
+
+    assert (by_path["path"], by_path["kind"]) == (by_name["path"], by_name["kind"]) == ("e.json",
+                                                                                       "eval")
