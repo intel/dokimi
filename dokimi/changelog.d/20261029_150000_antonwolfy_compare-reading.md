@@ -6,7 +6,8 @@
   the task. It is `null` for a trace without that call and for the `text` format. `repo compare` adds a
   descriptive `first_prompt_tokens` row; a batch written before the field has no such row.
 - **`repo compare --task ID`** — repeatable: compares only those task ids. An id no finished cell of the
-  batches has exits 1 and names it; the tasks left out are not listed as unpaired, and the `--json`
+  batches has exits 1 and names it; the tasks left out are not listed as unpaired, nor their unfinished
+  cells as missing (a cell's task is the one its `meta.json` records), and the `--json`
   summary (`task_filter`) and the text header (`tasks: N of M (--task)`) record the selection.
 - **Reading notes under a `repo compare` comparison** — a gate or score row of 2+ tasks whose interval
   includes 0 says it is inconclusive and gives `mde`, the smallest effect 80% power detects at that

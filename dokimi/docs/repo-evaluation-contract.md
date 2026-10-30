@@ -1351,7 +1351,11 @@ python cli.py repo compare repo-runs/replay --baseline guidance:none --metric re
   it. Descriptive rows with p below 0.05 are named on one line: their p is
   uncorrected and outside Holm's family. `--task ID` (repeatable) compares only
   those tasks: an id no finished cell of the batches has is refused, the tasks
-  left out are not listed as unpaired nor their cells as missing, the `--json` summary records the
+  left out are not listed as unpaired nor their cells as missing (a missing
+  cell's task is the one its `meta.json` records, else, for a cell only
+  `plan.json` names, the longest task id of the batch's finished cells that its
+  name starts with followed by `__`; a cell of neither is missing only without
+  `--task`), the `--json` summary records the
   selection as `task_filter` (`tasks`, and `of`, the number of tasks of the
   batches that have a finished cell, the ids `--task` can name; `null` without `--task`), and the text header says `tasks: N of M
   (--task)`. A gate or score comparison carries `headroom`:

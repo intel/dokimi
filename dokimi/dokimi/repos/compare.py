@@ -184,7 +184,7 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
         raise CompareError(f"--pass-k must be at least 1, got {pass_k}")
     cells, missing = load_batches(batch_dirs, metrics, path_stability)
     try:
-        cells, missing, task_filter = select_tasks(cells, missing, tasks)
+        cells, missing, task_filter = select_tasks(cells, missing, tasks, batch_dirs)
     except TaskSelectionError as exc:
         raise CompareError(str(exc)) from None
     # the arms and metrics are checked among the selected cells, so a miss may be the selection's doing

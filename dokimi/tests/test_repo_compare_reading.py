@@ -12,6 +12,7 @@ import pytest
 
 from dokimi.cli import build_parser
 from dokimi.repos.compare import CompareError, compare, format_compare, min_detectable
+from dokimi.repos.runner import cell_name
 
 from test_repo_compare import _cell, _row
 
@@ -107,6 +108,32 @@ def test_task_matches_a_missing_cell_by_its_task_not_by_a_prefix(tmp_path):
     assert "  tasks: 1 of 2 (--task)" in format_compare(s).splitlines()
     assert "cells missing" not in format_compare(s)
     assert compare([b], "guidance:none", tasks=["fix__a"])["missing"] == ["b/fix__a__guidance-raw__m-1__r2"]
+
+
+def test_task_reads_a_missing_cell_s_task_from_its_meta_or_the_known_ids(tmp_path):
+    # cell names keep a "__" of the task, the arm and the model: fix__guidance-raw__m__v1__r2 is a cell of fix,
+    # though a task fix__guidance-raw exists too
+    b, model = tmp_path / "b", "m__v1"
+    for task in ("fix", "fix__a", "fix__guidance-raw"):
+        _cell(b, task, "guidance:none", 1, model=model)
+        _cell(b, task, "skill:lint__v2", 1, model=model)
+    started = {cell_name("fix", "guidance:raw", model, 2): "fix",
+               cell_name("fix__a", "skill:lint__v2", model, 2): "fix__a"}
+    for cell, task in started.items():
+        (b / cell).mkdir()
+        (b / cell / "meta.json").write_text(json.dumps({"task": task}))  # what repo run writes at the start
+    planned = [cell_name("fix", "skill:lint__v2", model, 3), cell_name("fix__a", "guidance:none", model, 3),
+               cell_name("gone", "guidance:none", model, 1)]
+    (b / "_eval").mkdir()
+    (b / "_eval" / "plan.json").write_text(json.dumps({"cells": [p.parent.name for p in b.glob("*/result.json")]
+                                                       + [*started, *planned]}))
+    fix = compare([b], "guidance:none", tasks=["fix"])
+    assert fix["missing"] == ["b/fix__guidance-raw__m__v1__r2", "b/fix__skill-lint__v2__m__v1__r3"]
+    assert compare([b], "guidance:none", tasks=["fix__a"])["missing"] == ["b/fix__a__guidance-none__m__v1__r3",
+                                                                         "b/fix__a__skill-lint__v2__m__v1__r2"]
+    assert compare([b], "guidance:none", tasks=["fix__guidance-raw"])["missing"] == []
+    # a planned cell of a task no finished cell has belongs to no selection, but is missing without one
+    assert "b/gone__guidance-none__m__v1__r1" in compare([b], "guidance:none")["missing"]
 
 
 def test_an_arm_or_metric_error_under_task_says_the_selection_is_the_reason(tmp_path):
