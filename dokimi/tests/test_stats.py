@@ -693,8 +693,7 @@ def test_adjusted_pvalues_are_rounded_to_four_places_by_default():
 def test_paired_test_rounds_the_wilcoxon_p():
     pytest.importorskip("scipy")
     res = stats.paired_test([3, 5, 4, 6, 2, 7, 5], [1, 2, 2, 1, 2, 3, 1])
-    assert res["p_wilcoxon"] == round(res["p_wilcoxon"], 4)
-    assert 0 < res["p_wilcoxon"] < 1
+    assert res["p_wilcoxon"] == 0.0312
 
 
 @pytest.mark.parametrize(
