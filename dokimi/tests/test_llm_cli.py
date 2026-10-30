@@ -432,14 +432,18 @@ def test_the_git_bash_path_a_windows_claude_needs_is_passed_on(runner, monkeypat
 def test_git_does_not_read_a_repository_above_the_work_dir(runner, monkeypatch, tmp_path):
     # The cache dir sits inside a git repository (a home directory under git): the CLI must not
     # read that repository's branch and status into its prompt. Probed with the call's own env.
+    import os
     import subprocess
 
     home = tmp_path / "home"
     subprocess.run(["git", "init", "-q", str(home)], check=True)
     monkeypatch.setenv("XDG_CACHE_HOME", str(home / "cache"))
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path / "users-own"))
     runner.answers.append(reply(_ok()))
     llm_cli.call("claude-cli", model="sonnet", prompt="p")
     call = runner.calls[0]
+    # The caller's own ceiling entry is kept next to the one for the work dir's parent.
+    assert call.env["GIT_CEILING_DIRECTORIES"].split(os.pathsep) == [str(call.cwd.parent), str(tmp_path / "users-own")]
     env = {k: v for k, v in call.env.items() if k not in ("GIT_DIR", "GIT_WORK_TREE")}
     probe = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], cwd=call.cwd, env=env,
                            capture_output=True, text=True)
