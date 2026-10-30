@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import NoReturn
 
 _TASKS_ROOT_HELP = (
     "Directory of exploration task YAML files (default: data/explore_tasks of a "
@@ -20,6 +21,17 @@ _REPO_ROOT_HELP = (
 )
 
 
+def _exit_usage(message: str) -> NoReturn:
+    """Print an input or usage refusal to stderr and exit 2 (1 is a run that failed)."""
+    print(message, file=sys.stderr)
+    raise SystemExit(2)
+
+
+def _no_tasks(root: Path | None) -> NoReturn:
+    where = f"under {root}" if root is not None else "in the bundled data/explore_tasks"
+    _exit_usage(f"No explore tasks {where}. Pass --tasks-root <dir> of task YAML files.")
+
+
 def cmd_explore_list(args: argparse.Namespace) -> None:
     from dokimi.explore import discover_explore_tasks
 
@@ -28,7 +40,9 @@ def cmd_explore_list(args: argparse.Namespace) -> None:
     try:
         tasks = discover_explore_tasks(root, default_repo_root=default_repo_root)
     except (FileNotFoundError, ValueError) as exc:  # a task file that cannot be read or parsed
-        raise SystemExit(str(exc)) from exc
+        _exit_usage(str(exc))
+    if not tasks:
+        _no_tasks(root)
     for task in tasks:
         n_refs = len(task.references)
         print(f"{task.id}\t{task.product}\t{n_refs} ref(s)\t{task.query[:60]}")
@@ -92,9 +106,11 @@ def cmd_explore_run(args: argparse.Namespace) -> None:
                 load_explore_task(t, root=root, default_repo_root=default_repo_root) for t in ids
             ]
     except (FileNotFoundError, ValueError) as exc:  # a task file that cannot be read or parsed
-        raise SystemExit(str(exc)) from exc
+        _exit_usage(str(exc))
     if not tasks:
-        raise SystemExit("No tasks selected. Pass --tasks <id[,id]> or --all.")
+        if args.all:
+            _no_tasks(root)
+        _exit_usage("No tasks selected. Pass --tasks <id[,id]> or --all.")
 
     specs = [s.strip() for s in args.arms.split(",") if s.strip()]
     if not specs:
