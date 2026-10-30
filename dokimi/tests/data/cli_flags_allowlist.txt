@@ -86,6 +86,7 @@
 --judge-configs
 --judge-model
 --judge-panel
+--judge-placeholder  # placeholder judge (#274) adds it: no registry concept yet; a F1b migration names it
 --judge-provider
 --judge-temperature
 --judges
