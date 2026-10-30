@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -35,6 +36,13 @@ def _same_file(a, b) -> bool:
         return False
 
 
+def _names_a_directory(output) -> bool:
+    """Whether ``-o`` spells a directory: an existing one, a trailing slash, or ``.``/``..``/empty
+    (which have no file name to write beside)."""
+    text = str(output)
+    return text.endswith(("/", os.sep)) or Path(text).name in ("", ".", "..") or Path(text).is_dir()
+
+
 def _clobbers_an_input(output, inputs) -> bool:
     """Whether a save to ``output`` would overwrite an input: the file itself, or the ``.rejected``
     sibling save_artifact writes on a schema failure and deletes after a good save."""
@@ -47,8 +55,9 @@ def cmd_eval_headroom(args: argparse.Namespace) -> None:
     from dokimi.artifacts import ArtifactValidationError, save_artifact
     from dokimi.eval.headroom import format_table, headroom, repeated_ids
 
-    if args.output and Path(args.output).is_dir():
-        # A directory has no file name for save_artifact's sibling paths ("." has an empty name).
+    if args.output and _names_a_directory(args.output):
+        # A directory has no file name for save_artifact's sibling paths ("." has an empty name), and
+        # Path() drops a trailing slash, so "newdir/" would otherwise write a plain file named newdir.
         print(f"Error: -o {args.output} is a directory; it needs a file name", file=sys.stderr)
         sys.exit(2)
     if args.output and _clobbers_an_input(args.output, args.arms):

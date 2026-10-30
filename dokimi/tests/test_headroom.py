@@ -416,18 +416,21 @@ def test_command_exits_2_when_the_output_cannot_be_written(tmp_path, capsys):
     assert capsys.readouterr().err.startswith("Error: ")
 
 
-@pytest.mark.parametrize("spelling", ["dir", "dot", "dot-slash"])
+@pytest.mark.parametrize("spelling", ["dir", "dot", "dot-slash", "absent-with-slash"])
 def test_command_exits_2_when_the_output_is_a_directory(tmp_path, monkeypatch, capsys, spelling):
-    # A directory has no file name to write: the save would raise ValueError (for "." and "./") or
-    # fail on the directory itself. Refuse it up front, as the -o contract says for an unwritable -o.
+    # A directory has no file name to write: the save would raise ValueError (for "." and "./"), fail
+    # on the directory itself, or (for a directory that does not exist yet, spelled with a slash) write
+    # a plain file under the directory's name. Refuse all of them up front, as the -o contract says.
     path = _arms_file(tmp_path / "arms.json", {"1": {"baseline": 95, "skill": 95}})
     (tmp_path / "out").mkdir()
     monkeypatch.chdir(tmp_path)
-    out = {"dir": str(tmp_path / "out"), "dot": ".", "dot-slash": "./"}[spelling]
+    out = {"dir": str(tmp_path / "out"), "dot": ".", "dot-slash": "./",
+           "absent-with-slash": str(tmp_path / "newdir") + "/"}[spelling]
     with pytest.raises(SystemExit) as exc:
         cmd_eval_headroom(_args([path], output=out))
     assert exc.value.code == 2
     assert capsys.readouterr().err.startswith("Error: ")
+    assert not (tmp_path / "newdir").exists()
 
 
 def test_command_refuses_an_output_spelled_through_a_dotdot_to_an_input(tmp_path, capsys):
