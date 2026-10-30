@@ -112,9 +112,9 @@ def routed(monkeypatch):
     """Records every request; replies so each command's parser accepts the reply."""
     import litellm
 
-    from dokimi.commands.arms import _probe_sampling
+    from dokimi.eval.arms_run import probe_sampling
 
-    _probe_sampling.cache_clear()
+    probe_sampling.cache_clear()
     sent = []
 
     def completion(**kw):
@@ -128,7 +128,7 @@ def routed(monkeypatch):
 
     monkeypatch.setattr(litellm, "completion", completion)
     yield sent
-    _probe_sampling.cache_clear()
+    probe_sampling.cache_clear()
 
 
 def _is_probe(request):

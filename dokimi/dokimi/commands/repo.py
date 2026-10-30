@@ -116,6 +116,8 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
         print(f"  claims: {c['total']} (ok {c['ok']}, unresolved {c['unresolved']}, fail {c['fail']})")
         for warning in payload["warnings"]:
             print(f"  warning: {warning}")
+        if payload["incomplete"]:
+            print(f"  incomplete: {'; '.join(payload['incomplete_reasons'])} (repo scan --fail-on-fail exits 1)")
         if static_info is not None and not static_errors:
             r = payload["by_source"]["repository"]
             print(f"  repository static: {r['total']} claims, {r['fail']} fail; "
@@ -126,10 +128,18 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
                       f"{str(claim.get('claim'))[:90]} -- {claim.get('why')}")
         if args.out:
             print(f"wrote {args.out}")
+    _scan_gate(payload, args.fail_on_fail)  # runs first: an invalid --static still gets the incomplete reason
     if static_errors:
         sys.exit(1)
-    if args.fail_on_fail and (payload["counts"]["fail"] or payload["incomplete"]):
-        sys.exit(1)
+
+
+def _scan_gate(payload: dict, fail_on_fail: bool) -> None:
+    """--fail-on-fail: exit 1 on a failed claim or an incomplete scan, saying on stderr what the scan missed."""
+    if not fail_on_fail or not (payload["counts"]["fail"] or payload["incomplete"]):
+        return
+    if payload["incomplete"]:
+        print(f"✗ scan incomplete: {'; '.join(payload['incomplete_reasons'])}", file=sys.stderr)
+    sys.exit(1)
 
 
 def cmd_repo_inspect(args: argparse.Namespace) -> None:
