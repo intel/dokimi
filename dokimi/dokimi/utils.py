@@ -165,7 +165,7 @@ def model_identity(model: str) -> tuple[str | None, str | None]:
     # a lowercase word before the first dot is taken as a vendor prefix (``anthropic.``, ``amazon.``) and
     # dropped; a dot after a digit or a dash (``gpt-4.1``, ``qwen2.5``) is part of the name
     ident = re.sub(r"^[a-z]+\.", "", base)
-    return (ident if re.search(r"[a-z]", ident) else None), date  # separators or digits alone name no model
+    return (ident if re.search(r"[a-z0-9]", ident) else None), date  # separators alone name no model
 
 
 def same_model(a: str, b: str) -> bool:

@@ -91,7 +91,6 @@ def test_a_bedrock_alias_and_its_profile_are_one_model(bare, profile):
     (".", "."),
     ("eu./", "/"),  # a region profile with no id after it
     ("-", "-"),
-    ("1:0", "1:0"),  # a revision with no name before it
 ])
 def test_a_name_with_no_id_is_no_model(a, b):
     assert same_model(a, b) is False

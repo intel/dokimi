@@ -183,6 +183,8 @@ def _recorded_verdict(b: Tuple[str, str], c: Tuple[str, str]) -> str:
     xs, ys = b[1].split(","), c[1].split(",")
     if len(xs) != len(ys):
         return "mismatch"
+    if not all(model_identity(x)[0] for x in xs + ys):  # a judge with no id is no model: no pair of them is the same
+        return "mismatch"
     if Counter(model_identity(x) for x in xs) == Counter(model_identity(y) for y in ys):
         return "match"
     return "unverified" if _pairs_up(xs, ys) else "mismatch"

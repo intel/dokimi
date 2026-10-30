@@ -165,6 +165,16 @@ def test_a_panel_pairs_its_judges_by_augmenting_paths_not_first_match():
     assert verdict(("panel", "m,m-20240101"), ("panel", "m-20240101,m")) == "match"  # the same judges, reordered
 
 
+def test_a_panel_of_names_with_no_id_is_a_mismatch_and_digit_ids_still_match():
+    """A judge name with no id (separators only) is no model, so two such panels are not the same panel;
+    a digit-only id is an id, as it was before."""
+    verdict = baseline_mod._recorded_verdict
+    assert verdict(("panel", "/,/"), ("panel", "-,-")) == "mismatch"
+    assert verdict(("panel", "/,/"), ("panel", "/,/")) == "mismatch"
+    assert verdict(("anthropic", "8"), ("anthropic", "8")) == "match"
+    assert verdict(("panel", "anthropic/8,anthropic/9"), ("panel", "openai/9,openai/8")) == "match"
+
+
 def test_a_panel_that_gained_a_judge_is_a_mismatch():
     """Every judge of the baseline panel can pair with one of the current, and a third one is added:
     pairing alone would pass it, so the sizes are compared first."""
