@@ -80,7 +80,7 @@ future:
 # edit here, so raise max_docs in the same commit that adds the doc.
 golden_manifest:
   min_docs: 10
-  max_docs: 35
+  max_docs: 36
   include:
     - docs/**/*.md
   exclude:
