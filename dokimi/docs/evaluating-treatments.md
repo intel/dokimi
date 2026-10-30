@@ -2,6 +2,7 @@
 depends_on:
   - dokimi/dokimi/treatments/**
   - dokimi/dokimi/commands/arms.py
+  - dokimi/dokimi/eval/arms_run.py
   - dokimi/dokimi/schemas/arms.v1.json
   - dokimi/dokimi/skills/loader.py
   - dokimi/dokimi/agent_profiles/loader.py

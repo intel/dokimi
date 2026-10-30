@@ -152,7 +152,9 @@ where the model decides to call a doc-search or skill tool (`agent:`,
 The spec grammar — what an `--arms` entry means, where `+` splits a combined
 spec, and what each arm is *named* — is `treatments/specs.py`.
 `eval/arm_runner.py` generates and judges answers for every arm and reports
-per-arm deltas vs a baseline. `dokimi/plugins.py` adds runtime plugins that
+per-arm deltas vs a baseline. `eval/arms_run.py` runs it from an `ArmsRunConfig`,
+the one typed run configuration `arms run`, `arms matrix-run` (one per cell) and
+`subjects run` build from their flags. `dokimi/plugins.py` adds runtime plugins that
 modify every arm inside one run (`plugin:caveman`): a plugin changes the system
 prompt before the model runs or reshapes the answer after it. Entry point:
 `python cli.py arms run`. Details in
@@ -337,7 +339,10 @@ next release.
   share, score, cost, turns, chosen `grade.json` metrics, `result.json`
   `process` counts), with an interval
   over tasks (bootstrap for gate and score, t for the rest), a sign-flip
-  permutation p and Holm's correction.
+  permutation p and Holm's correction. `dokimi/repos/compare_tasks.py` holds
+  what its `--task` selection keeps; `dokimi/repos/compare_reach.py` how small
+  an effect a row can find (`mde`, an uncorrected t-based estimate, and the
+  lowest `p_holm` Holm's family leaves it).
 - `dokimi/repos/selfcheck.py` — `repo tasks check`: on each task
   `grade` must fail the untouched workspace and pass it after `oracle`, and an
   isolation probe must not see the tasks or the source from the agent's
