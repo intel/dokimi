@@ -196,3 +196,23 @@ def test_an_mtime_past_the_year_9999_is_shown_as_seconds(monkeypatch, capsys, ro
     rows = _list(monkeypatch, capsys).out.splitlines()
 
     assert rows[1].split()[:4] == ["plugin_delta.v1", "-", "-", "@253402300800*"]
+
+
+@pytest.mark.skipif(os.name == "nt" or os.geteuid() == 0,
+                    reason="POSIX permissions; root searches every directory")
+def test_a_root_under_a_directory_that_cannot_be_searched_exits_2(tmp_path, monkeypatch, capsys):
+    named = tmp_path / "locked" / "root"
+    named.mkdir(parents=True)
+    (tmp_path / "locked").chmod(0o600)
+    monkeypatch.setenv("DOKIMI_RUNS_DIR", str(named))
+    try:
+        with pytest.raises(SystemExit) as exc:
+            _list(monkeypatch, capsys)
+    finally:
+        (tmp_path / "locked").chmod(0o755)
+
+    assert exc.value.code == 2
+    # Python 3.11-3.13 raise PermissionError on the lookup; 3.14 reports the path as missing.
+    assert capsys.readouterr().err in (
+        f"Error: runs root DOKIMI_RUNS_DIR={named}: cannot read: Permission denied\n",
+        f"Error: runs root DOKIMI_RUNS_DIR={named} does not exist\n")

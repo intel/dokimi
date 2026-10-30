@@ -60,15 +60,18 @@ def resolve(root: Path, address: str) -> Path:
     """The file ``address`` names: a path relative to the root (as ``runs list`` prints it), or
     an absolute or working-directory path inside the root. Raises ``InputError`` otherwise."""
     candidates = [root / address, Path(address)]
-    path = next((p for p in candidates if p.exists()), candidates[0])
-    if not _inside(root, path):
-        raise InputError(f"{address} is not under the runs root {root.as_posix()}/")
-    if not path.exists():
-        raise InputError(f"no file {address} under the runs root {root.as_posix()}/")
-    if path.is_dir():
-        raise InputError(f"{address} is a directory; runs show takes one artifact file")
-    if not path.is_file():
-        raise InputError(f"{address} is not a regular file")
+    try:  # Python 3.11-3.13 raise PermissionError here for a directory that cannot be searched
+        path = next((p for p in candidates if p.exists()), candidates[0])
+        if not _inside(root, path):
+            raise InputError(f"{address} is not under the runs root {root.as_posix()}/")
+        if not path.exists():
+            raise InputError(f"no file {address} under the runs root {root.as_posix()}/")
+        if path.is_dir():
+            raise InputError(f"{address} is a directory; runs show takes one artifact file")
+        if not path.is_file():
+            raise InputError(f"{address} is not a regular file")
+    except OSError as exc:
+        raise InputError(f"{address}: {read_error_reason(exc)}") from exc
     return Path(os.path.abspath(path))
 
 

@@ -288,3 +288,17 @@ def test_an_mtime_past_the_year_9999_is_shown_as_seconds(monkeypatch, capsys, ro
     out = _show(monkeypatch, capsys, "arms/plugin_delta.json").out
 
     assert "time:       - (@253402300800 UTC, the file's mtime)" in out.splitlines()
+
+
+@pytest.mark.skipif(os.name == "nt" or os.geteuid() == 0,
+                    reason="POSIX permissions; root searches every directory")
+def test_an_address_in_a_directory_that_cannot_be_searched_exits_2(monkeypatch, capsys, root):
+    (root / "arms").chmod(0o600)
+    try:
+        err = _fails(monkeypatch, capsys, "arms/onetbb.json")
+    finally:
+        (root / "arms").chmod(0o755)
+
+    # Python 3.11-3.13 raise PermissionError on the lookup; 3.14 reports the file as missing.
+    assert err in ("Error: arms/onetbb.json: cannot read: Permission denied\n",
+                   "Error: no file arms/onetbb.json under the runs root results/\n")

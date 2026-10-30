@@ -44,12 +44,16 @@ class RunsRoot:
         """True when the root is a directory; False when the default root is not there yet.
 
         Raises :class:`~dokimi.utils.InputError` when ``DOKIMI_RUNS_DIR`` names a missing path,
-        or when the root is something other than a directory.
+        when the root is something other than a directory, or when it cannot be looked up.
         """
-        if self.path.is_dir():
-            return True
         named = f"{ENV_VAR}={self.path}" if self.from_env else str(self.path)
-        if self.path.exists():
+        try:  # Python 3.11-3.13 raise PermissionError here for a parent that cannot be searched
+            if self.path.is_dir():
+                return True
+            found = self.path.exists()
+        except OSError as exc:
+            raise InputError(f"runs root {named}: {read_error_reason(exc)}") from exc
+        if found:
             raise InputError(f"runs root {named} is not a directory")
         if self.from_env:
             raise InputError(f"runs root {named} does not exist")
