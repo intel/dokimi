@@ -419,9 +419,8 @@ def test_command_exits_2_when_the_output_cannot_be_written(tmp_path, capsys):
 @pytest.mark.parametrize("spelling", ["dir", "dot", "dot-slash", "absent-with-slash", "absent-with-slash-dot",
                                        "file-with-slash"])
 def test_command_exits_2_when_the_output_is_a_directory(tmp_path, monkeypatch, capsys, spelling):
-    # A directory has no file name to write: the save would raise ValueError (for "." and "./"), fail
-    # on the directory itself, or (for a directory that does not exist yet, spelled with a slash or a
-    # trailing "/.") write a plain file under the directory's name. Refuse all of them up front.
+    # A directory output would raise ValueError ("."), fail on the directory, or (spelled with a
+    # slash, not existing yet) write a plain file under the directory's name: refuse all up front.
     path = _arms_file(tmp_path / "arms.json", {"1": {"baseline": 95, "skill": 95}})
     (tmp_path / "out").mkdir()
     (tmp_path / "existing.json").write_text("keep", encoding="utf-8")
