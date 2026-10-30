@@ -5,7 +5,7 @@
 
 import pytest
 
-from dokimi.novelty.report import _capped_at, coverage_reach, render_novelty_markdown
+from dokimi.novelty.report import _capped_at, cap_warning, coverage_reach, render_novelty_markdown
 
 
 def _artifact(**overrides):
@@ -76,8 +76,6 @@ def test_a_cap_that_stopped_on_the_last_span_does_not_say_the_atoms_come_from_th
     assert coverage_reach({"reached": end}) == (
         "went into the input", "; the capped atoms reach its last span, and the cap dropped any atoms past it")
     assert "opening" not in _capped_at({"extraction": {"reached": end}})
-    from dokimi.novelty.report import cap_warning
-
     assert cap_warning(30, end) == (
         "atom extraction hit the cap of 30 at span s0010 (10 of 10 spans, 100% of the tokens): any atoms past "
         "the cap in its last reply were dropped; pass --all-atoms for the full sweep")
@@ -87,8 +85,9 @@ def test_a_cap_that_stopped_inside_the_artifact_still_says_the_rates_describe_th
     inside = {"last_span": "s0002", "spans": 2, "of": 5, "tokens_share": 0.3571}
     assert coverage_reach({"reached": inside}) == (
         "went into the input", "; the capped atoms come from the first 35% of its tokens")
-    from dokimi.novelty.report import cap_warning
-
+    assert _capped_at({"extraction": {"reached": inside}}) == (
+        " The atom cap stopped extraction at span s0002 (2 of 5 spans, 35% of the tokens): the atoms "
+        "come from the opening of the artifact, not the whole.")
     assert cap_warning(1, inside) == (
         "atom extraction hit the cap of 1 at span s0002 (2 of 5 spans, 35% of the tokens): rates describe "
         "the opening of the artifact, not the whole; pass --all-atoms for the full sweep")
