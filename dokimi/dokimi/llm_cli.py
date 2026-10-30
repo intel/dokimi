@@ -292,7 +292,7 @@ def _family(model: str) -> Optional[str]:
     return None
 
 
-def same_model(provider_a: str, model_a: str, provider_b: str, model_b: str) -> bool:
+def same_model(provider_a: str, model_a: Optional[str], provider_b: str, model_b: Optional[str]) -> bool:
     """Whether two model refs name one model, for the independence and self-judge checks.
 
     An alias the CLI resolves (``sonnet``) is the same model as a full id of its family
