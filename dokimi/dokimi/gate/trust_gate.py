@@ -196,11 +196,11 @@ def evaluate_trust(
         return TrustVerdict(checks=checks)  # can't compute anything else
 
     # ── 2. Zero-score fraction ─────────────────────────────────────────────
-    # Misses count here as unusable (judged at zero, as this check always did), or a run with many misses would pass.
+    # Misses count as unusable, judge-error misses too (by their error field): else many misses would pass.
     unjudged_misses = [
         r for r in every
-        if r.score(CONTEXT) is None and r.score(BASELINE) is not None
-        and r.retrieval_hit is False
+        if r.score(CONTEXT) is None and r.retrieval_hit is False
+        and (r.score(BASELINE) is not None or r.error is not None)
     ]
     zero_with = sum(1 for v in with_scores if v == 0) + len(unjudged_misses)
     unusable_n = n + len(unjudged_misses)

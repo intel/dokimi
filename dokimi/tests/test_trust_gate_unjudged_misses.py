@@ -134,3 +134,53 @@ def test_only_a_recorded_miss_with_a_baseline_counts_as_unusable(extra):
     check = _zero_check(evaluate_trust(rows + [extra]))
 
     assert (check.value, check.message.split(" ")[0]) == (0.0, "0/10")
+
+
+def _judged_with_failures(n_hit, n_miss, failing):
+    """Judge the answers through ``evaluate_answers``; each question id in ``failing`` raises in the judge."""
+    judge = Judge(model="gpt-x", provider="openai")
+    judge.llm = MagicMock()
+    judge.llm.invoke.side_effect = lambda msgs, *a, **k: GOOD
+    real = judge._evaluate_answer_pair
+
+    def flaky(library_name, item):
+        if item.question_id in failing:
+            raise RuntimeError("judge down")
+        return real(library_name, item)
+
+    judge._evaluate_answer_pair = flaky
+    answers = [
+        {"question_id": f"h{i}", "question_text": "q?",
+         "with_docs": dict(HIT), "without_docs": {"answer": "baseline"}}
+        for i in range(n_hit)
+    ] + [
+        {"question_id": f"m{i}", "question_text": "q?",
+         "with_docs": dict(MISS), "without_docs": {"answer": "baseline"}}
+        for i in range(n_miss)
+    ]
+    return judge.evaluate_answers("L", answers)
+
+
+def test_a_judge_error_on_a_retrieval_miss_counts_as_unusable(monkeypatch):
+    """The judge raises on a miss: its error row has no scores, but it is still an unusable question."""
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key-not-used")
+    rows = _judged_with_failures(3, 1, failing={"m0"})
+    error_row = next(r for r in rows if r["question_id"] == "m0")
+    assert "error" in error_row and error_row["retrieval_hit"] is False
+
+    check = _zero_check(evaluate_trust(rows))
+
+    assert (check.value, check.passed) == (0.25, False)
+    assert check.message.split(" ")[0] == "1/4"
+
+
+def test_a_judge_error_on_a_retrieval_hit_stays_out_of_the_zero_check(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key-not-used")
+    rows = _judged_with_failures(3, 0, failing={"h0"})
+    error_row = next(r for r in rows if r["question_id"] == "h0")
+    assert "error" in error_row and error_row["retrieval_hit"] is True
+
+    check = _zero_check(evaluate_trust(rows))
+
+    assert (check.value, check.passed) == (0.0, True)
+    assert check.message.split(" ")[0] == "0/2"
