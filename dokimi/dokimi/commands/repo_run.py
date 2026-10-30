@@ -383,14 +383,18 @@ def _harness_bin(name: str) -> Path:
 
 
 def cmd_repo_report(args: argparse.Namespace) -> None:
-    """Per (task, arm, model): gated success, grader failures, missing cells, cost, turns."""
-    from dokimi.repos.report import CellFileError, format_report, summarize
+    """Per (task, arm, model): gated success, grader failures, missing cells, cost, turns; or the replay hits."""
+    from dokimi.repos.report import CellFileError, format_hits, format_report, load_hits, summarize
 
     batch_dir = Path(args.batch_dir)
     if not batch_dir.is_dir():
         print(f"✗ not a directory: {batch_dir}", file=sys.stderr)
         sys.exit(1)
     try:
+        if args.hits:
+            found = load_hits(batch_dir)
+            print(json.dumps(found, indent=2) if args.json else format_hits(found))
+            return
         summary = summarize(batch_dir)
     except CellFileError as exc:
         print(f"✗ {exc}", file=sys.stderr)
@@ -411,7 +415,7 @@ def cmd_repo_compare(args: argparse.Namespace) -> None:
     arms = [a for spec in args.arm for a in spec.split(",") if a] if args.arm else None
     try:
         summary = compare(dirs, args.baseline, arms, args.model, tuple(args.metric or ()),
-                          pass_k=args.pass_k, path_stability=args.path_stability)
+                          pass_k=args.pass_k, path_stability=args.path_stability, tasks=args.task)
     except (CompareError, CellFileError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
@@ -545,6 +549,9 @@ def register(repo_sub, positive_int, source_help: str, cache_help: str) -> None:
     report_p = repo_sub.add_parser("report", help="Per (task, arm, model) table over a batch directory")
     report_p.add_argument("batch_dir", help="<out>/<batch> of `repo run`")
     report_p.add_argument("--json", action="store_true", help="Print the summary as JSON")
+    report_p.add_argument("--hits", action="store_true",
+                          help="Instead of the table: each (thread, finding) pair that credited a "
+                          "dokimi:review_replay thread, by task, arm, model and rep (grade.json details.matches)")
     report_p.set_defaults(func=cmd_repo_report)
 
     compare_p = repo_sub.add_parser(
@@ -556,6 +563,8 @@ def register(repo_sub, positive_int, source_help: str, cache_help: str) -> None:
                            help="Treatment arm (ARM or BATCH/ARM); repeatable or comma-separated "
                            "(default: every other arm)")
     compare_p.add_argument("--model", action="append", default=None, help="Only this model; repeatable")
+    compare_p.add_argument("--task", action="append", default=None,
+                           help="Only this task id; repeatable (default: every task of the batches)")
     compare_p.add_argument("--metric", action="append", default=None,
                            help="Also compare this numeric or boolean grade.json metric; repeatable")
     compare_p.add_argument("--pass-k", type=positive_int, default=None, dest="pass_k", metavar="K",

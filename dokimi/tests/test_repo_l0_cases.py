@@ -577,6 +577,31 @@ def test_a_glob_an_unrelated_rule_spells_names_no_rule(tmp_path):
                                                "a build may create it")
 
 
+_DISPATCH = {"inc/utils/type_dispatch.hpp": "", "inc/utils/type_dispatch_building.hpp": "",
+             "ext/type_dispatch_building.hpp": ""}
+_NONE = "matches nothing in the tree; a build may create it"
+
+
+@pytest.mark.parametrize("agents, files, status, why", [
+    ("`type_dispatch*.hpp`", {"inc/utils/type_dispatch.hpp": "", "inc/utils/type_dispatch_building.hpp": ""},
+     "ok_basename", "bare glob; 2 match(es) in 1 directory, e.g. inc/utils/type_dispatch.hpp"),
+    # dpnp/tensor/AGENTS.md at IntelPython/dpnp 0cf6730
+    ("x", {"pkg/AGENTS.md": "`type_dispatch*.hpp`\n", **_DISPATCH},
+     "ok_basename", "bare glob; 3 match(es) in 2 directories, e.g. inc/utils/type_dispatch.hpp"),
+    # a template with no `/` is a path claim only in a command
+    (_shell("python run_{name}.py"), {"s/run_a.py": ""}, "ok_basename",
+     "bare glob; 1 match(es) in 1 directory, e.g. s/run_a.py"),
+    ("`nomatch*.hpp`", _DISPATCH, "unresolved", f"glob nomatch*.hpp {_NONE}"),
+    ("`nope/type_dispatch*.hpp`", _DISPATCH, "unresolved", f"glob nope/type_dispatch*.hpp {_NONE}"),
+    ("`*.hpp`", _DISPATCH, "ok", "glob *.hpp -> e.g. ext/type_dispatch_building.hpp"),
+    ("`gen*.h`", {".gitignore": "gen*.h\n", "src/a.c": ""}, "unresolved",
+     f"glob gen*.h {_NONE}; .gitignore:1 (`gen*.h`) ignores it, so it is likely generated rather than tracked"),
+])
+def test_a_bare_glob_is_resolved_by_file_name_like_a_bare_name(tmp_path, agents, files, status, why):
+    claim = next(c for c in _scan(tmp_path, agents + "\n", files)["claims"] if c["kind"] in ("path", "script_path"))
+    assert (claim["status"], claim["why"]) == (status, why)
+
+
 @pytest.mark.parametrize("agents, files, line", [
     ("`pkg/include/`", {"pkg/.gitignore": "*.o\ninclude/*\n", "pkg/a.c": ""}, "pkg/.gitignore:2 (`include/*`)"),
     # the parent directory is missing too
@@ -745,7 +770,7 @@ def test_dangling_guidance_symlink_reported(tmp_path, link, why):
     for payload in _both(tmp_path, {"AGENTS.md": "x\n"}, {"CLAUDE.md": link}, also_scan=["CLAUDE.md"]):
         warning = next(w for w in payload["warnings"] if "CLAUDE.md" in w)
         assert warning.startswith("guidance file not scanned: CLAUDE.md") and why in warning, warning
-        assert payload["incomplete"]
+        assert payload["incomplete"] and payload["incomplete_reasons"] == [warning]
         assert payload["counts"]["total"] == 0
 
 

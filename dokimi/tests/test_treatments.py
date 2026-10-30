@@ -25,7 +25,7 @@ from dokimi.plugins import (
     validate_plugins_for_harness,
     wrap_treatments,
 )
-from dokimi.commands.arms import _resolve_doc_library_id
+from dokimi.eval.arms_run import resolve_doc_library_id
 
 
 # ── frontmatter ─────────────────────────────────────────────────────────
@@ -206,19 +206,19 @@ def test_doc_library_id_resolves_before_or_after_plugin_wrapping(tmp_path):
     wrapped = wrap_treatments([t], [create_plugin("plugin:caveman")])
 
     # Unregistered product: the doc client resolves it, wrapped or not.
-    assert _resolve_doc_library_id([t], "notaproduct", registry=registry) == "fake/notaproduct"
-    assert _resolve_doc_library_id(wrapped, "notaproduct", registry=registry) == "fake/notaproduct"
+    assert resolve_doc_library_id([t], "notaproduct", registry=registry) == "fake/notaproduct"
+    assert resolve_doc_library_id(wrapped, "notaproduct", registry=registry) == "fake/notaproduct"
     # Explicit flag wins over everything.
     assert (
-        _resolve_doc_library_id(
+        resolve_doc_library_id(
             wrapped, "notaproduct", explicit_id="manual/id", registry=registry
         )
         == "manual/id"
     )
     # A registered product's declared context7_id wins over client resolution.
-    assert _resolve_doc_library_id(wrapped, "demo", registry=registry) == "declared/id"
+    assert resolve_doc_library_id(wrapped, "demo", registry=registry) == "declared/id"
     # Default registry (the committed products.yaml) is used when none is given.
-    assert _resolve_doc_library_id([t], "notaproduct") == "fake/notaproduct"
+    assert resolve_doc_library_id([t], "notaproduct") == "fake/notaproduct"
 
 
 # ── factory ─────────────────────────────────────────────────────────────

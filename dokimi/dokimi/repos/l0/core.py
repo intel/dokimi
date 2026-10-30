@@ -5,7 +5,7 @@
 
 Every check reads one snapshot through :class:`~dokimi.repos.source.RepoTree`,
 so a scan needs no checkout. Status per claim: ``ok`` (``ok_basename`` when only
-a bare file name matched), ``unresolved`` (needs a human look, not a failure)
+a bare file name or a glob of one matched), ``unresolved`` (needs a human look, not a failure)
 or ``fail``.
 """
 
@@ -344,9 +344,21 @@ class Scan:
             hit = next((x for x in every if rx.match(x)), None)
             if hit:
                 return "ok_suffix", f"below a directory the text does not name; e.g. {hit}"
+        elif bare := self._bare_glob(pat):
+            return bare
         probes = [p for b in bases for p in self._probes(posixpath.normpath(posixpath.join(b, pat)))]
         return self._missing(probes, rel.endswith("/"),
                              f"glob {pat} matches nothing in the tree; a build may create it", "unresolved")
+
+    def _bare_glob(self, pat: str) -> tuple[str, str] | None:
+        """``ok_basename`` for a glob of a name alone (``type_dispatch*.hpp``) that names some file or directory."""
+        rx = glob_regex(pat)
+        hits = [x for n in sorted(n for n in self.by_name if rx.match(n)) for x in self.by_name[n]]
+        if not hits:
+            return None
+        dirs = len({posixpath.dirname(x) for x in hits})
+        return "ok_basename", (f"bare glob; {len(hits)} match(es) in {dirs} "
+                               f"director{'y' if dirs == 1 else 'ies'}, e.g. {hits[0]}")
 
     def _probes(self, full: str) -> list[str]:
         """Files the glob ``full`` names, to ask the ``.gitignore`` about: a probe of a few names, not every one.
