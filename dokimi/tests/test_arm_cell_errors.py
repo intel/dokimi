@@ -165,6 +165,33 @@ def test_an_agentic_empty_reply_stays_an_error_cell_when_an_output_shaper_adds_t
     assert judge.score_answer.call_count == 0
 
 
+def test_an_agentic_empty_reply_keeps_the_tool_usage_the_selection_summary_scores(monkeypatch, demo_skill):
+    """The loop loaded the skill before its final reply came back empty: the cell keeps that load."""
+    import dokimi.eval.agent_runner as agent_runner_mod
+    import dokimi.plugins as plugins
+    from dokimi.eval.arm_summary import summarize_skill_selection
+    from dokimi.skills import load_skill
+    from dokimi.treatments import SkillAgentTreatment
+
+    usage = {"prompt_tokens": 4, "completion_tokens": 0, "total_tokens": 4}
+    tool_usage = {"skill": {"offered": ["demo-skill"], "selected": "demo-skill", "first_turn_loaded": ["demo-skill"]}}
+    loop_result = {"answer": "", "transcript": [], "tool_call_count": 1, "tool_usage": tool_usage,
+                   "iterations": 2, "stopped_reason": "answered", "usage": usage, "token_usage": usage,
+                   "per_turn": []}
+    monkeypatch.setattr(agent_runner_mod, "run_agent_loop", lambda **kw: dict(loop_result))
+    monkeypatch.setattr(plugins, "take_output_shapers", lambda cfg: (["footer"], {}))
+    monkeypatch.setattr(plugins, "apply_output_shapers", lambda shapers, text: (text or "") + "\n\n-- Source: docs")
+    runner = ArmRunner([SkillAgentTreatment(load_skill(demo_skill))])
+    [rec] = runner.run("lib", [{"id": "q1", "question": "How?"}], concurrency=1)
+    arm = "skill_agent:demo-skill"
+    cell = rec["arms"][arm]
+    assert cell["error"] == "empty_reply"
+    assert cell["tool_usage"] == tool_usage
+    rec["expected_skill"] = "demo-skill"
+    s = summarize_skill_selection([rec])[arm]
+    assert (s["n"], s["n_failed"], s["selection_accuracy"]) == (1, 1, 1.0)
+
+
 def test_delta_vs_baseline_is_built_on_the_stats_pairing(monkeypatch):
     """One pairing rule for the delta and the significance test: paired_delta reads stats.paired_vectors."""
     import dokimi.eval.arm_summary as arm_summary_mod
