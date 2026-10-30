@@ -1,12 +1,17 @@
+### Added
+
+- **`benchmark run --judge-temperature`** — a new flag: it sets the judge's sampling
+  temperature and is recorded as `judge_temperature` in the eval output. Before this change the
+  flag did not exist, and `benchmark run` rejected it as an unknown argument.
+
 ### Changed
 
 - **Stack P scores move (#228 step 2)** — the context arm now asks the doc source for the
   `top_k` docs the command was given: `benchmark run` asks for 3 (`DEFAULT_RETRIEVAL_TOP_K`; it
   has no `--top-k`), `dokimi evaluate` and `answers generate` for their `--top-k` (default 3).
-  Before, they left `max_results` at the client default of 5. `benchmark run --judge-temperature`
-  now reaches the judge (it used to be dropped), and the doc library id resolves through the
-  registry's `context7_id` before the client's own resolver, in the `--registry` that was
-  loaded. A question with no document (no hit, or the reranker raised) is no longer judged on
+  Before, they left `max_results` at the client default of 5. The doc library id resolves
+  through the registry's `context7_id` before the client's own resolver, in the `--registry`
+  that was loaded. A question with no document (no hit, or the reranker raised) is no longer judged on
   its `[FALLBACK: ...]` placeholder by default, so it drops out of the paired statistics; the
   record and its `retrieval_hit` stay, its diagnosis stays `empty_retrieval`, and the run
   summary says how many questions it left out. Pass `--judge-placeholder` to judge the
@@ -24,7 +29,6 @@
 
 - **Stack P no longer ignores `top_k`** — `Answerer` passes `max_results=top_k` to the doc
   source; the context arm's retrieval request is now the one the arms stack makes.
-- **`benchmark run --judge-temperature`** reaches the judge pipeline.
 - **Library id from the registry** — `EvaluationPipeline` resolves the library id through
   `resolve_library_id_for_product` (explicit id, then `context7_id`, then the client), in the
   registry that `benchmark run` and `benchmark batch` loaded from `--registry`. A registered
