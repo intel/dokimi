@@ -132,6 +132,7 @@ def stuffed_for(grading: Mapping[str, Any]) -> Optional[str]:
         return None
     if _whole_answer(check) and not _reads_first_json(check):
         return " ".join(values)
+    candidates: tuple[str, ...]
     if _reads_first_json(check):
         candidates = JSON_DECOYS
     elif check.get("type") != "match" or check.get("numeric") or str(check.get("location", "end")) == "any":
