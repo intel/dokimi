@@ -98,8 +98,8 @@ carries about 37k tokens of agent prompt, tool schemas and `CLAUDE.md`.
 ## Errors and retries
 
 Rate limits, overload, 5xx and a timeout are retried with the same backoff as
-an API provider. An unknown model, a missing login or a missing binary fail on
-the first attempt.
+an API provider. An unknown model, a missing login, a missing binary, an
+unusable work directory and a subscription usage limit fail on the first attempt.
 
 ## Terms of use
 
