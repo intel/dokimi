@@ -10,7 +10,7 @@ import sys
 from typing import Callable
 
 from dokimi.eval.question_text import EmptyQuestionError
-from dokimi.exit_codes import EXIT_USAGE
+from dokimi.exit_codes import EXIT_FAILURE, EXIT_USAGE
 
 
 def prepare_matrix_cells(args: argparse.Namespace, cells: list, specs: list[str], questions: list[dict], *,
@@ -39,6 +39,6 @@ def prepare_matrix_cells(args: argparse.Namespace, cells: list, specs: list[str]
         except ValueError as exc:
             # A model call refused: a runtime failure, so the matrix stops with 1 and no answer was paid for.
             print(f"Error probing matrix cell {cell.name!r}: {exc}", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(EXIT_FAILURE)
         prepared.append((cell, cell_args, setup))
     return prepared

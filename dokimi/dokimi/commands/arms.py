@@ -59,7 +59,7 @@ FORWARDED_RUN_CONFIG_FIELDS = (
 
 
 from dokimi.eval.question_text import EmptyQuestionError
-from dokimi.exit_codes import EXIT_USAGE
+from dokimi.exit_codes import EXIT_FAILURE, EXIT_USAGE
 
 def forwarded_run_config(args: argparse.Namespace, **overrides) -> dict:
     """Copy the shared run-configuration fields off *args*.
@@ -106,7 +106,7 @@ def cmd_arms_run(args: argparse.Namespace) -> None:
     except (ValueError, OSError, RecursionError) as exc:
         # The run itself failed (a record, a model call, a judge): a runtime failure, exit 1.
         print(f"Error running arms: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_FAILURE)
 
     out_json = Path(args.out_json) if args.out_json else Path(f"results/arms/{args.product}.json")
     out_md = Path(args.out_md) if args.out_md else Path(f"results/arms/{args.product}.md")
@@ -161,7 +161,7 @@ def cmd_arms_matrix_run(args: argparse.Namespace) -> None:
             raise  # a bad input record, not a cell error: cli.main reports it (exit 2)
         except (ValueError, OSError, RecursionError) as exc:
             print(f"Error running matrix cell {cell.name!r}: {exc}", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(EXIT_FAILURE)
         _save_arms_output(output, out_json, out_md)
         cell_artifacts.append((cell.name, out_json, output))
 

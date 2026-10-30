@@ -13,6 +13,8 @@ import sys
 from typing import NoReturn
 
 EXIT_USAGE = 2
+#: Exit code of a run that ran and failed: a model call refused, a judge or a gate that failed.
+EXIT_FAILURE = 1
 
 
 def usage_exit(message: str) -> NoReturn:

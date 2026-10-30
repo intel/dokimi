@@ -122,9 +122,11 @@ def test_matrix_cell_refused_at_probe_stops_before_any_answer(tmp_path, monkeypa
     _argv(monkeypatch, "arms", "matrix-run", "--product", "onedal", "--questions", _questions(tmp_path),
           "--arms", "baseline", "--matrix-cells", str(cells), "--temperature", "0.5",
           "--out-dir", str(tmp_path / "matrix"))
+    from dokimi.exit_codes import EXIT_FAILURE
+
     with pytest.raises(SystemExit) as exc:
         cli.main()
-    assert exc.value.code == 1
+    assert exc.value.code == EXIT_FAILURE
     assert probed == ["gpt-4o-mini", "reject-temp-model"]  # each cell probed once, in order
     assert answered == []
     assert not (tmp_path / "matrix" / "cells").exists()
