@@ -131,9 +131,9 @@ def test_answerer_keeps_question_zero():
 
 
 def test_expected_skill_error_names_question_zero():
-    from dokimi.commands.arms import _validate_expected_skills
+    from dokimi.eval.arms_run import validate_expected_skills
 
     with pytest.raises(ValueError, match="question 0: expected_skill"):
-        _validate_expected_skills([{"id": 0, "question": "q?", "expected_skill": 5}], [])
+        validate_expected_skills([{"id": 0, "question": "q?", "expected_skill": 5}], [])
     with pytest.raises(ValueError, match="question #0: expected_skill"):
-        _validate_expected_skills([{"question": "q?", "expected_skill": 5}], [])
+        validate_expected_skills([{"question": "q?", "expected_skill": 5}], [])
