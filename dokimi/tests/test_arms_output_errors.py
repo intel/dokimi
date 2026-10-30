@@ -216,3 +216,23 @@ def test_matrix_run_refuses_an_uncreatable_out_dir_before_any_cell_is_answered(t
     assert exc.value.code == 2
     assert answered == []
     assert f"Error: cannot write {out_dir / 'cells'}" in capsys.readouterr().err
+
+
+def test_matrix_run_refuses_a_dangling_cells_symlink_before_any_cell_is_answered(tmp_path, monkeypatch, capsys):
+    # A dangling link at cells/ does not exist, so the walk used to reach the writable out dir and
+    # pass; the first cell was then answered and its save failed on the link.
+    import dokimi.eval.arms_run as arms_run
+
+    monkeypatch.setattr(arms_run, "check_sampling_support", lambda config: None)
+    answered = []
+    monkeypatch.setattr(arms_run, "run_prepared", lambda *a, **k: answered.append(a) or {})
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    (out_dir / "cells").symlink_to(tmp_path / "missing")
+
+    args = _matrix_run(tmp_path, out_dir)
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2
+    assert answered == []
+    assert f"Error: cannot write {out_dir / 'cells'}" in capsys.readouterr().err
