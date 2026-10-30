@@ -562,3 +562,20 @@ def test_missing_ragas_extra_keeps_its_base_exit(monkeypatch):
     with pytest.raises(SystemExit) as exc:
         evaluate._require_ragas()
     assert exc.value.code == message
+
+
+# ── questions refine: only the artifact refusal is a usage error; a run-time ValueError is not ──
+
+def test_refine_runtime_value_error_is_not_a_usage_refusal(tmp_path, monkeypatch):
+    # A ValueError from the refiner's own steps (here the similarity pass) is a run failure. It must
+    # reach the top level (exit 1, a traceback), not be turned into the input refusal (exit 2).
+    from dokimi.questions.refiner import QuestionRefiner
+
+    def similarity_failed(self, questions):
+        raise ValueError("similarity backend returned NaN")
+
+    monkeypatch.setattr(QuestionRefiner, "_deduplicate", similarity_failed)
+    _argv(monkeypatch, "questions", "refine", "--questions", _questions(tmp_path),
+          "--product", "numba", "--dry-run")
+    with pytest.raises(ValueError, match="similarity backend returned NaN"):
+        cli.main()

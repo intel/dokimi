@@ -179,9 +179,11 @@ def cmd_questions_refine(args: argparse.Namespace) -> None:
             "questions": cleaned,
         }))
 
+    from dokimi.artifacts import ArtifactValidationError
+
     try:
         report = refiner.refine(raw, before_fill=_validate_before_fill if gap_filler else None)
-    except ValueError as exc:  # ArtifactValidationError: the input set cannot be gap-filled
+    except ArtifactValidationError as exc:  # the input set cannot be gap-filled (refused by before_fill)
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
     print(report.summary())
