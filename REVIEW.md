@@ -18,8 +18,8 @@ checks.
 - A command gives a wrong number, verdict or exit code, or crashes where it
   should print a message.
 - A test passes when the behaviour it names is broken.
-- A doc, docstring, PR title or changelog fragment says something the code
-  does not do.
+- A doc, docstring, comment, PR title or changelog fragment says something the
+  code does not do.
 - A stored record is written or read with keys or a shape other than the
   schema's.
 - Behaviour differs on Windows or with a `None`, empty or missing input.
@@ -39,6 +39,9 @@ checks.
 - A nit is one the author can take: no style point the configured ruff rules
   leave out (line length, quotes, import order), and no suggestion that fails
   CI, such as one that adds a line to a file at its growth baseline.
+- CI fails a comment block over two lines. A shorter comment that tells the
+  backstory (run IDs, measurements, alternatives tried) instead of the reason
+  is a nit: suggest the short form with an issue or PR link.
 - A bug in code the PR did not change: mention it once as pre-existing. It
   does not block the PR unless the change makes it worse.
 - Do not repeat a finding already raised on the PR, unless its fix did not
