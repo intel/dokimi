@@ -31,7 +31,7 @@ import math
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
-from dokimi.records import Run, arm_names
+from dokimi.records import Record, Run
 
 DEFAULT_CEILING = 0.9
 DEFAULT_FLOOR = 0.0
@@ -183,8 +183,16 @@ def _known_arms(runs: Sequence[Run]) -> Set[str]:
     for run in runs:
         known.update(run.conditions)
         for rec in run:
-            known.update(arm_names(rec))
+            known.update(_listed_arms(rec))
     return known
+
+
+def _listed_arms(rec: Record) -> Set[str]:
+    """The arms an arms record lists, ``null`` ones included. Unlike ``arm_names()``, keeps
+    ``with_docs`` and ``without_docs``, which arms.v1 allows as arm names; a binary record lists none."""
+    if rec.raw.get("arms") is None and rec.raw.get("scores") is None:
+        return set()
+    return set(rec.conditions)
 
 
 def repeated_ids(run: Run) -> List[str]:
@@ -209,7 +217,7 @@ def _collect(runs: Sequence[Run]) -> Tuple[Dict[str, Dict[str, List[float]]], Di
                 f"run {index} lists question_id {dupes[0]!r} more than once; "
                 "a run holds each question once (a repeat would count as a second run)")
         for rec in run:
-            names = set(arm_names(rec)) | set(rec.scores)
+            names = _listed_arms(rec) | set(rec.scores)
             arms_of.setdefault(rec.key, set()).update(names)
             per_arm = scores.setdefault(rec.key, {})
             for arm in names:
@@ -220,8 +228,12 @@ def _collect(runs: Sequence[Run]) -> Tuple[Dict[str, Dict[str, List[float]]], Di
 
 
 def _sort_key(qid: str):
-    # isdigit() also accepts superscripts and other digits int() refuses: those sort as text, not numbers.
-    return (0, int(qid), qid) if qid.isascii() and qid.isdigit() else (1, 0, qid)
+    # ASCII digits sort by value without int(), which refuses over 4300 digits: no leading zeros,
+    # then length, then digits. Any other id (isdigit() also takes superscripts) sorts after them, as text.
+    if qid.isascii() and qid.isdigit():
+        digits = qid.lstrip("0") or "0"
+        return (0, len(digits), digits, qid)
+    return (1, 0, "", qid)
 
 
 def format_table(result: Dict[str, Any]) -> str:

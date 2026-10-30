@@ -210,6 +210,21 @@ def test_a_non_ascii_digit_question_id_is_kept_and_sorted_as_text():
     assert [i["question_id"] for i in headroom([run])["items"]] == ["2", "10", "²"]
 
 
+def test_a_digit_question_id_past_the_int_limit_is_sorted_not_refused():
+    # int() refuses more than 4300 digits (Python's str-to-int limit): a long numeric id still sorts by value.
+    long_id = "1" * 5000
+    run = _run([(long_id, {"baseline": 50, "skill": 50}), ("10", {"baseline": 50, "skill": 50}),
+                ("0002", {"baseline": 50, "skill": 50})])
+    assert [i["question_id"] for i in headroom([run])["items"]] == ["0002", "10", long_id]
+
+
+def test_an_arm_named_with_docs_that_no_run_scored_is_listed_as_unscored():
+    # arms.v1 allows with_docs as an arm name; arm_names() drops it, so an unscored one went unlisted.
+    run = _run([("1", {"baseline": 40, "skill": 60, "with_docs": None})])
+    item = headroom([run], min_reps=1)["items"][0]
+    assert item["unscored_arms"] == ["with_docs"] and item["arms"]["with_docs"] is None
+
+
 def test_the_table_and_json_do_not_round_0_89996_up_to_the_ceiling():
     run = _run([("1", {"baseline": 89.996, "skill": 99})])
     result = headroom([run], min_reps=2)
@@ -497,6 +512,19 @@ def test_command_refuses_an_output_that_is_one_of_its_inputs(tmp_path, capsys):
         cmd_eval_headroom(_args([path], output=path))
     assert exc.value.code == 2
     assert path.read_bytes() == before
+    assert "overwrite" in capsys.readouterr().err
+
+
+def test_command_refuses_an_output_whose_rejected_sibling_is_an_input(tmp_path, capsys):
+    # save_artifact deletes <output>.rejected after a good save: an input under that name would be lost.
+    run = _arms_file(tmp_path / "run.json", {"1": {"baseline": 99, "skill": 99}})
+    stale = tmp_path / "headroom.json.rejected"
+    stale.write_bytes(run.read_bytes())
+    before = stale.read_bytes()
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_headroom(_args([stale], output=tmp_path / "headroom.json"))
+    assert exc.value.code == 2
+    assert stale.read_bytes() == before
     assert "overwrite" in capsys.readouterr().err
 
 

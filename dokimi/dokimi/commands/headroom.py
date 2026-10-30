@@ -35,12 +35,21 @@ def _same_file(a, b) -> bool:
         return False
 
 
+def _clobbers_an_input(output, inputs) -> bool:
+    """Whether a save to ``output`` would overwrite an input: the file itself, or the ``.rejected``
+    sibling save_artifact writes on a schema failure and deletes after a good save."""
+    out = Path(output)
+    rejected = out.with_name(out.name + ".rejected")
+    return any(_same_file(out, p) or _same_file(rejected, p) for p in inputs)
+
+
 def cmd_eval_headroom(args: argparse.Namespace) -> None:
     from dokimi.artifacts import ArtifactValidationError, save_artifact
     from dokimi.eval.headroom import format_table, headroom, repeated_ids
 
-    if args.output and any(_same_file(args.output, p) for p in args.arms):
-        print(f"Error: -o {args.output} is one of the input arms files; it would overwrite that run", file=sys.stderr)
+    if args.output and _clobbers_an_input(args.output, args.arms):
+        print(f"Error: -o {args.output} would overwrite one of the input arms files (or its .rejected sibling); "
+              "the run would be lost", file=sys.stderr)
         sys.exit(2)
     runs: list[records.Run] = []
     inputs: list[str] = []
