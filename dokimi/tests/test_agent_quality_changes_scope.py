@@ -4,10 +4,12 @@
 """agent-quality's `changes` step decides whether a push runs the smoke test.
 
 A docs-only push may skip the code steps only when everything since the last commit
-whose smoke run passed its code steps is documentation. A cancelled or failed run does
-not count as passed, so the code it carried is diffed again. The step is run here as
-the workflow runs it (its script, read from the YAML), with `gh` replaced by a stub
-that serves run and job fixtures.
+whose smoke run passed its code steps is documentation, and the base branch is still the
+one that run's merge was built on (the smoke job records it). A cancelled or failed run
+does not count as passed, so the code it carried is diffed again. The changes step and
+the record step are run here as the workflow runs them (their scripts, read from the
+YAML); the record step runs on a merge the test builds. `gh` is replaced by a stub that
+serves run and job fixtures.
 """
 
 from __future__ import annotations
@@ -28,8 +30,7 @@ SMOKE_JOB = "external-catalog-smoke"
 SMOKE_NAME = "External catalog smoke test (uxlfoundation/skills)"
 BULK_FILES = 2000
 
-# The stub `gh`: `gh api` serves runs.json and jobs-<run id>.json from $FAKE_GH_DIR, applies --jq
-# with jq -r as gh does, and fails for a missing fixture (the API being unreadable).
+# The stub `gh`: `gh api` serves runs.json and jobs-<run id>.json from $FAKE_GH_DIR (--jq as jq -r; a missing fixture fails).
 # `gh run download <id> -D <dir>` copies artifact-<run id>/ from $FAKE_GH_DIR into <dir>.
 GH_STUB = r"""#!/bin/sh
 if [ "$1" = run ] && [ "$2" = download ]; then
@@ -425,6 +426,95 @@ def test_docs_push_runs_the_code_again_when_the_passed_run_recorded_no_base(tmp_
     history = [("V", "code"), ("B", "docs")]
     code = _run_changes(tmp_path, history, [("V", "success")], "V", "B", tested_base=None)
     assert code == "code=true"
+
+
+def _record_step() -> dict:
+    wf = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    steps = wf["jobs"][SMOKE_JOB]["steps"]
+    return next(s for s in steps if s.get("name") == "Record the base this run tested")
+
+
+def _record_base(tmp_path: Path, shape: str, main_moved: bool, stale: str | None = None) -> str:
+    """Run the record step on a checkout as the smoke job makes it; return the recorded sha ("" for none).
+
+    The checkout is one of: "merge", the PR's merge commit of its head on base0; "head", the PR
+    head (one parent); "pr_merge", a PR head that is itself a merge, whose first parent is a PR
+    commit that is not on main. Once the checkout exists, main moves on to base1 when `main_moved`.
+    `stale` is a record file that the PR's own steps left behind.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    (repo / "app.txt").write_text("base0\n", encoding="utf-8")
+    base0 = _commit(repo, "base0")
+    _git(repo, "checkout", "-q", "-b", "feature", base0)
+    (repo / "feature.txt").write_text("feature\n", encoding="utf-8")
+    head = _commit(repo, "feature")
+    if shape == "merge":
+        _git(repo, "checkout", "-q", "-b", "merge", base0)
+        _git(repo, "merge", "-q", "--no-ff", "-m", "merge", "feature")
+        checkout = _git(repo, "rev-parse", "HEAD")
+    elif shape == "pr_merge":
+        _git(repo, "checkout", "-q", "-b", "other", base0)
+        (repo / "other.txt").write_text("other\n", encoding="utf-8")
+        other = _commit(repo, "other")
+        _git(repo, "checkout", "-q", "-b", "pr", "feature")
+        _git(repo, "merge", "-q", "--no-ff", "-m", "merge", other)
+        checkout = _git(repo, "rev-parse", "HEAD")
+    else:
+        checkout = head
+    _git(repo, "checkout", "-q", "-b", "tip", base0)
+    (repo / "main.txt").write_text("base1\n", encoding="utf-8")
+    base1 = _commit(repo, "base1") if main_moved else base0
+    _git(repo, "update-ref", "refs/remotes/origin/main", base1)
+    _git(repo, "checkout", "-q", "--detach", checkout)
+    out = tmp_path / "logs" / "base.sha"
+    out.parent.mkdir()
+    if stale is not None:
+        out.write_text(stale, encoding="utf-8")
+    step = _record_step()
+    env = {
+        **os.environ,
+        **{k: str(v) for k, v in step.get("env", {}).items()},
+        "BASE_REF": "main",
+        "RECORD": str(out),
+    }
+    proc = subprocess.run(
+        ["bash", "--noprofile", "--norc", "-e", "-c", step["run"]],
+        cwd=repo,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    return out.read_text(encoding="utf-8").strip() if out.exists() else ""
+
+
+def test_the_recorded_base_is_the_one_the_merge_was_built_on_after_main_moved(tmp_path):
+    # The merge commit was built on base0; main reached base1 before the checkout. The record must
+    # say base0, or a later docs-only push compares base1 with base1 and skips the merge's base changes.
+    recorded = _record_base(tmp_path, "merge", main_moved=True)
+    assert recorded == _git(tmp_path / "repo", "rev-parse", "HEAD^1")
+
+
+def test_a_checkout_of_the_pr_head_records_no_base_even_with_a_stale_record(tmp_path):
+    # A PR that does not merge is checked out as its head: nothing is recorded, so a later docs-only
+    # push runs the code again. A record the PR's own steps left behind must not survive either.
+    assert _record_base(tmp_path, "head", main_moved=False, stale="planted") == ""
+
+
+def test_a_merge_of_a_pr_commit_that_is_not_on_main_records_no_base(tmp_path):
+    # A PR head that is itself a merge has two parents, but its first parent is a PR commit, not a
+    # base tip: recording it would make the next docs-only push compare a PR commit with origin/main.
+    assert _record_base(tmp_path, "pr_merge", main_moved=False) == ""
+
+
+def test_the_record_step_runs_only_for_a_code_run_of_a_pull_request():
+    # Its artifact is read by a later push only for a passed run; the guard keeps it to runs that did code.
+    assert (
+        _record_step()["if"]
+        == "steps.changes.outputs.code == 'true' && github.event_name == 'pull_request'"
+    )
 
 
 def test_the_smoke_job_may_read_the_runs_it_is_scoped_by():

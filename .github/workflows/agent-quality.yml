@@ -66,8 +66,8 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      # Docs-only runs skip the code steps; the benchmark still runs. A push diffs from the last verified smoke run, else all.
-      # Docs are the repo's Markdown (DOCS below); dokimi/data/, tests and .agent-eval count as code. Force pushes run all.
+      # Docs-only runs skip the code steps (the benchmark still runs). A push diffs from the last verified smoke run, else all; docs are the Markdown in DOCS below.
+      # dokimi/data/, tests and .agent-eval count as code, and a base that moved since that run's merge also runs everything. Force pushes run all.
       - id: changes
         working-directory: .
         # Explicit, so the step runs as `bash --noprofile --norc -eo pipefail`, the flags the test harness uses.
@@ -110,8 +110,8 @@ jobs:
             # cancelled or that failed verified nothing, so its code is diffed again.
             read -r from verified_run <<< "$(last_verified)" || true
             if [ -z "$from" ]; then set_code true "push: no passed smoke run to diff from"; exit 0; fi
-            # The diff above does not show base changes: the run tested its merge with the base as it was then.
-            # Skip only if the base is still that one (the smoke job records it; no record means run everything).
+            # The diff above does not show base changes: the run tested its merge with the base it was built on.
+            # Skip only if origin/$BASE_REF is still that base (the smoke job records it; no record means run everything).
             dl=$(mktemp -d)
             tested_base=$(gh run download "$verified_run" -R "$REPO" -n external-catalog-smoke-runs -D "$dl" >/dev/null 2>&1 && cat "$dl/base.sha") || tested_base=
             base=$(git rev-parse --verify -q "origin/$BASE_REF") || base=
@@ -122,7 +122,7 @@ jobs:
             files=$(git -c core.quotepath=false diff --no-renames --name-only "$from" "$AFTER") \
               || { set_code true "push diff failed"; exit 0; }
           else
-            # The base branch's current tip (fetched by the checkout), not base.sha
+            # The base branch's current tip (fetched by the checkout), not the event's pull_request.base.sha
             # (the base when the PR was opened).
             scope=pr
             files=$(git -c core.quotepath=false diff --no-renames --name-only "origin/$BASE_REF"...HEAD) \
@@ -171,13 +171,22 @@ jobs:
             --tasks-root "${{ runner.temp }}/uxl-skills/evaluation/harbor/tasks" \
             --harnesses docker-oracle,docker-probe \
             --out-json "${{ github.workspace }}/logs/external-catalog-smoke/runs.json"
-      # The base-branch tip this run's checkout fetched, which its merge commit was built on. The
-      # changes step of a later docs-only push skips only while the base is still this one.
+      # The base the merge commit (refs/pull/N/merge) was built on, its first parent; not origin/$BASE_REF, which may have moved since.
+      # A PR that does not merge records nothing. A later docs-only push skips only while origin/$BASE_REF is still this one.
       - name: Record the base this run tested
         if: steps.changes.outputs.code == 'true' && github.event_name == 'pull_request'
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
-        run: git rev-parse --verify "origin/$BASE_REF" > "${{ github.workspace }}/logs/external-catalog-smoke/base.sha"
+          RECORD: ${{ github.workspace }}/logs/external-catalog-smoke/base.sha
+        run: |
+          # The checkout is the PR's merge commit; its first parent is the base tip the merge was built on.
+          # Recorded only if that parent is on origin/<base>; else nothing, so the next push runs everything.
+          rm -f "$RECORD"
+          if git rev-parse --verify -q HEAD^2 > /dev/null \
+              && parent=$(git rev-parse --verify HEAD^1) \
+              && git merge-base --is-ancestor "$parent" "origin/$BASE_REF"; then
+            echo "$parent" > "$RECORD"
+          fi
       # Every cell passed and none errored (an errored cell leaves pass_rate's
       # denominator, so pass_rate alone would read 1.0), and the probe's fetch
       # was denied by the egress proxy; see scripts/check_smoke_runs.py.
