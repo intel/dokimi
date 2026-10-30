@@ -155,7 +155,10 @@ def summarize_skill_selection(records: Iterable[RecordLike]) -> Dict[str, Any]:
             })
             if failed:
                 s["failed"] += 1
-                continue
+                # An empty final reply fails the answer, not the choice: the skills were
+                # loaded before it came back empty, so the choice is still scored.
+                if arm.get("error") != "empty_reply":
+                    continue
             first = skill.get("selected")
             # Skills loaded together in the first turn are one choice. It is a hit
             # only if every one of them is acceptable: crediting "the right one is
