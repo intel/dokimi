@@ -1347,8 +1347,8 @@ python cli.py repo compare repo-runs/replay --baseline guidance:none --metric re
   uncorrected and outside Holm's family. `--task ID` (repeatable) compares only
   those tasks: an id no finished cell of the batches has is refused, the tasks
   left out are not listed as unpaired nor their cells as missing, the `--json` summary records the
-  selection as `task_filter` (`tasks`, and `of`, the task count of the
-  batches; `null` without `--task`), and the text header says `tasks: N of M
+  selection as `task_filter` (`tasks`, and `of`, the number of tasks of the
+  batches that have a finished cell, the ids `--task` can name; `null` without `--task`), and the text header says `tasks: N of M
   (--task)`. A gate or score comparison carries `headroom`:
   `ceiling` (both arms at 1.0 or the task's `score.max` on every paired
   task), `floor` (both at 0 on every one), `near_ceiling` (the baseline at
