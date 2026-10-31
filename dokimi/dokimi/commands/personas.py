@@ -15,6 +15,7 @@ from dokimi.commands._output import exit_on_unwritable
 from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
 from dokimi.personas.analyzer import PersonaAnalyzer
 from dokimi.personas.generator import PersonaGenerator
+from dokimi.exit_codes import EXIT_USAGE
 
 
 def cmd_personas_discover(args: argparse.Namespace) -> None:
@@ -26,7 +27,7 @@ def cmd_personas_discover(args: argparse.Namespace) -> None:
             "✗ Either --repo or --description must be provided.",
             file=sys.stderr,
         )
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
 
     generator = PersonaGenerator(model=args.model, provider=args.provider)
 
@@ -80,40 +81,40 @@ def cmd_personas_approve(args: argparse.Namespace) -> None:
 
     if not persona_file.exists():
         print(f"✗ File not found: {persona_file}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
 
     # Validate JSON structure
     try:
         personas = json.loads(persona_file.read_text(encoding="utf-8"))
     except OSError as e:
         print(f"✗ Cannot read {persona_file}: {e}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
     except ValueError as e:  # JSONDecodeError and bad UTF-8
         print(f"✗ Cannot parse {persona_file}: {e}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
 
     required_keys = {"product", "personas"}
     if not isinstance(personas, dict):
         print("✗ Invalid persona file. Expected a JSON object with keys: "
               f"{sorted(required_keys)}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
     if not required_keys.issubset(personas.keys()):
         print(f"✗ Invalid persona file. Missing keys: {required_keys - personas.keys()}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
     if not isinstance(personas["personas"], list):
         print("✗ Invalid persona file. `personas` must be a list", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
 
     # Check each persona
     for p in personas["personas"]:
         if not isinstance(p, dict):
             print(f"✗ Invalid persona file. Each persona must be an object, got: {p!r}", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(EXIT_USAGE)
         required_fields = {"id", "name", "skill_level"}
         missing = required_fields - set(p.keys())
         if missing:
             print(f"✗ Persona '{p.get('id', '?')}' missing fields: {missing}", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(EXIT_USAGE)
 
     print(f"✓ Validated {len(personas['personas'])} personas")
     print(f"✓ File approved: {persona_file}")

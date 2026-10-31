@@ -464,7 +464,7 @@ def test_repo_validate_out_writes_the_report(tmp_path, capsys):
 
     with pytest.raises(SystemExit) as exc:
         _run_cli([*argv[:-1], str(tmp_path / "no" / "dir" / "v.json")])
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert "cannot write" in capsys.readouterr().err
 
 
@@ -646,7 +646,7 @@ def test_a_mistyped_manifest_path_is_an_error_not_a_default_scan(tmp_path, capsy
     args = build_parser().parse_args(["repo", "scan", str(root), "--manifest", ".agent-eval/repo-evel.yaml"])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert "manifest not found" in capsys.readouterr().err
 
 

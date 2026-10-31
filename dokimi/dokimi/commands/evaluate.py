@@ -22,6 +22,7 @@ from dokimi.defaults import (
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY, NoUsablePairs
 from dokimi.utils import normalize_model_ref, write_text_or_exit
+from dokimi.exit_codes import EXIT_USAGE
 
 
 def _warn_judge_independence(
@@ -57,7 +58,7 @@ def _load_answers(path: str):
         sys.exit(2)
 
 
-def _write_json_or_exit(path: Path, payload: dict, code: int = 1) -> None:
+def _write_json_or_exit(path: Path, payload: dict, code: int = EXIT_USAGE) -> None:
     """Write ``payload`` as JSON to ``path``, or exit ``code`` naming ``path`` when it cannot be written."""
     write_text_or_exit(path, json.dumps(payload, indent=2), code)
 
@@ -114,11 +115,11 @@ def cmd_eval_panel_score(args: argparse.Namespace) -> None:
                     f"Error: --judge-configs entry '{entry}' must be 'role:model:provider'.",
                     file=sys.stderr,
                 )
-                sys.exit(1)
+                sys.exit(EXIT_USAGE)
             role, model, provider = parts
             if role not in JUDGE_ROLES:
                 print(f"Error: unknown role '{role}'. Valid: {list(JUDGE_ROLES)}", file=sys.stderr)
-                sys.exit(1)
+                sys.exit(EXIT_USAGE)
             judges.append(JudgeConfig(role=role.strip(), model=model.strip(), provider=provider.strip(),
                                       temperature=args.judge_temperature))
         roles = [j.role for j in judges]
@@ -127,7 +128,7 @@ def cmd_eval_panel_score(args: argparse.Namespace) -> None:
         unknown = [r for r in roles if r not in JUDGE_ROLES]
         if unknown:
             print(f"Error: unknown roles: {unknown}. Valid: {list(JUDGE_ROLES)}", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(EXIT_USAGE)
         judges = [JudgeConfig(role=r, model=args.model, provider=args.provider,
                               temperature=args.judge_temperature) for r in roles]
 

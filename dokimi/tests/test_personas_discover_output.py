@@ -54,31 +54,31 @@ def fakes(monkeypatch):
 
 
 @pytest.mark.parametrize("kind", ["under-a-file", "is-a-directory"])
-def test_discover_exits_1_when_the_personas_output_cannot_be_written(tmp_path, capsys, fakes, kind):
+def test_discover_exits_2_when_the_personas_output_cannot_be_written(tmp_path, capsys, fakes, kind):
     out = _outputs(tmp_path)[kind]
     args = SimpleNamespace(repo=None, description="d", product="p", output=str(out), count=1,
                            model="m", provider="x", save_analysis=False, github_token=None)
     with pytest.raises(SystemExit) as exc:
         personas_cmd.cmd_personas_discover(args)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: cannot write ") and str(out) in err
 
 
-def test_discover_exits_1_when_the_analysis_cannot_be_written(tmp_path, capsys, fakes):
+def test_discover_exits_2_when_the_analysis_cannot_be_written(tmp_path, capsys, fakes):
     blocker = tmp_path / "file"
     blocker.write_text("x", encoding="utf-8")
     args = SimpleNamespace(repo="o/r", description=None, product="p", output=str(blocker / "out.json"),
                            count=1, model="m", provider="x", save_analysis=True, github_token="t")
     with pytest.raises(SystemExit) as exc:
         personas_cmd.cmd_personas_discover(args)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: cannot write ") and "p_analysis.json" in err
 
 
 @pytest.mark.parametrize("kind", ["under-a-file", "is-a-directory"])
-def test_analyze_exits_1_when_the_report_cannot_be_written(tmp_path, monkeypatch, capsys, kind):
+def test_analyze_exits_2_when_the_report_cannot_be_written(tmp_path, monkeypatch, capsys, kind):
     from dokimi.questions import quality_analyzer
 
     class _Report:
@@ -109,6 +109,6 @@ def test_analyze_exits_1_when_the_report_cannot_be_written(tmp_path, monkeypatch
                                      "--product", "p", "--output", str(out)])
     with pytest.raises(SystemExit) as exc:
         cli.main()
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: cannot write ") and str(out) in err

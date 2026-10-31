@@ -20,6 +20,7 @@ from dokimi.defaults import (
     JUDGE_MODEL_FOR_PROVIDER,
     JUDGE_MODEL_HELP,
 )
+from dokimi.exit_codes import EXIT_USAGE
 
 
 def cmd_evaluate(args: argparse.Namespace) -> None:
@@ -28,12 +29,12 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
 
     if not getattr(args, "repo", None) and not getattr(args, "description", None):
         print("Error: either --repo or --description must be provided.", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
     try:  # before any persona, question or answer is paid for; the judge would refuse later
         check_sampling(args.judge_provider, getattr(args, "judge_temperature", None), None)
     except SamplingError as exc:  # the same exit as the other judge commands' sampling refusal
         print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(2)
+        sys.exit(EXIT_USAGE)
 
     print(f"Starting full evaluation pipeline for {args.product}")
     if args.repo:
@@ -78,7 +79,7 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
         )
     except OSError as exc:  # a missing --custom-questions file, an unusable --output-dir
         print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
 
     # Run pipeline
     try:

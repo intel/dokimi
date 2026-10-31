@@ -186,7 +186,7 @@ WARNING questions root C:\Users\Public\content-repo\questions has no golden set 
 ```
 
 `benchmark run` logs a warning and continues with generated questions only.
-`benchmark preflight` treats a missing golden set as an error and exits 1.
+`benchmark preflight` refuses a missing golden set and exits 2.
 If you are comparing arms, that is usually not what you want; check the coverage matrix first.
 
 `benchmark preflight` resolves the whole plan without calling a model, and
@@ -213,7 +213,7 @@ Resolved benchmark plan
   golden questions: C:\Users\Public\content-repo\questions\demo_golden.json (2 items)
 ```
 
-(It exited 1 here because no API keys were set: `✗ missing OPENAI_API_KEY for
+(It exited 2 here because no API keys were set: `✗ missing OPENAI_API_KEY for
 provider openai`. Key checks are part of the pre-flight.)
 
 For a direct N-arm comparison, hand `arms run` the question file itself:
@@ -394,13 +394,13 @@ Worth knowing before you read a suspiciously clean result:
 | `catalog scan --root <missing>` | `--root is not a directory: <path>` | 1 |
 | `tasks run --tasks-root <missing>` | `FileNotFoundError: Task directory not found: demo-widget` | 1 |
 | `tasks list --tasks-root <missing>` | prints nothing | 0 |
-| `explore list --tasks-root <missing>` | prints nothing | 0 |
+| `explore list --tasks-root <missing>` | `--tasks-root is not a directory: <path>` | 2 |
 | `coverage` with no roots | every product reads `no`/`0`, plus an explicit note | 0 |
 | `evaluate`/`benchmark run` with a root lacking the golden set | `WARNING ... has no golden set for <product>` and continues | — |
 
-The two `list` commands are the trap: an empty listing and a correct listing
-both exit 0, so a typo in a path looks like an empty checkout. The `coverage`
-matrix is explicit about it instead:
+`tasks list` is the trap: an empty listing and a correct listing both exit 0,
+so a typo in a path looks like an empty checkout. `explore list` refuses an
+empty root with exit 2. The `coverage` matrix is explicit about it instead:
 
 ```console
 $ python -m dokimi.coverage
