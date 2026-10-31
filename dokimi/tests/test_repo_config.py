@@ -495,25 +495,47 @@ def test_a_nested_skill_is_not_part_of_the_outer_skill_sha(tmp_path):
     ("suite", "claimed"),
     [
         ("'{skill}/*'", "skills/a/SKILL.md"),
+        ("'{skill}/SKILL.md'", "skills/a/SKILL.md"),
         ("'{skill}/scripts/*'", "skills/a/scripts/run.py"),
+        ("'{skill}/references/*.md'", "skills/a/references/r.md"),
+        ("'{skill}/evals/*.json'", "skills/a/evals/q.json"),
     ],
 )
-def test_a_suite_that_claims_a_file_of_its_skill_outside_its_evals_is_refused(tmp_path, suite, claimed):
+def test_a_suite_that_picks_an_individual_file_of_its_skill_is_refused(tmp_path, suite, claimed):
     body = HEADER + f"subjects:\n  - id: skill/a\n    path: skills/a\n    suite: {suite}\n"
     files = {
         ".github/dokimi/config.yaml": body,
         "skills/a/SKILL.md": "a\n",
         "skills/a/evals/q.json": "[]\n",
         "skills/a/scripts/run.py": "print(1)\n",
+        "skills/a/references/r.md": "r\n",
     }
     root = _tree(tmp_path / "repo", files)
     with pytest.raises(ConfigError, match="skill/a") as err:
         load_repo_config(root).subjects(hashes=False)
-    assert claimed in str(err.value) and "outside its evals dir skills/a/evals" in str(err.value)
+    assert claimed in str(err.value) and "not a whole directory" in str(err.value)
+
+
+def test_a_suite_that_claims_a_whole_directory_of_its_skill_is_accepted_and_leaves_skill_sha(tmp_path):
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: '{skill}/tests/**'\n"
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": body,
+        "skills/a/SKILL.md": "a\n",
+        "skills/a/tests/q.json": "[]\n",
+        "skills/a/tests/sub/r.json": "[]\n",
+    })
+    before = _subjects(root)["skill/a"]
+    (root / "skills/a/tests/sub/r.json").write_text("[2]\n", encoding="utf-8")
+    after = _subjects(root)["skill/a"]
+    assert after.skill_sha == before.skill_sha and after.suite_hash != before.suite_hash
+    (root / "skills/a/SKILL.md").write_text("b\n", encoding="utf-8")
+    assert _subjects(root)["skill/a"].skill_sha != after.skill_sha
+    impact = load_repo_config(root).subjects_for_changed(["skills/a/tests/sub/r.json"])
+    assert impact.suites == {"skill/a": ["skills/a/tests/sub/r.json"]} and impact.skills == {}
 
 
 def test_a_suite_inside_the_evals_dir_is_accepted(tmp_path):
-    body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: '{skill}/evals/*'\n"
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: '{skill}/evals/**'\n"
     root = _tree(tmp_path / "repo", {".github/dokimi/config.yaml": body, "skills/a/SKILL.md": "a\n", "skills/a/evals/q.json": "[]\n"})
     assert _subjects(root)["skill/a"].suite_hash.startswith("sha256:")
 

@@ -370,24 +370,29 @@ def _within(rel: str, base: str) -> bool:
 
 
 def _check_suite(subject: Subject, root: Path) -> None:
-    """A skill's suite holds only its evals: not the skill directory, not an ancestor, no other file of the skill."""
+    """A skill's suite claims whole directories of its skill, never single files of it (SKILL.md, scripts, references)."""
     if subject.kind != "skill":
         return
-    evals = f"{subject.path}/evals"
-    if (root / subject.path).resolve().is_relative_to((root / evals).resolve()):
-        raise ConfigError(
-            f"subject {subject.id}: its evals dir {evals} links to its skill or an ancestor of it, "
-            "so the suite would hold the skill's own files"
-        )
-    for rel in _suite_files(root, subject.suite_globs):
+    matches = _suite_files(root, subject.suite_globs)
+    real_skill = (root / subject.path).resolve()
+    for rel, path in matches.items():
         if rel == subject.path:
             raise ConfigError(f"subject {subject.id}: its suite matches the whole skill directory {subject.path}")
         if subject.path.startswith(rel + "/"):
             raise ConfigError(f"subject {subject.id}: its suite {rel} contains the skill directory {subject.path}")
-        if _within(rel, subject.path) and not _within(rel, evals):
+        if path.is_dir() and real_skill.is_relative_to(path.resolve()):
             raise ConfigError(
-                f"subject {subject.id}: its suite claims {rel}, a file of its skill outside its evals dir {evals}"
+                f"subject {subject.id}: its directory {rel} links to its skill or an ancestor of it, "
+                "so the suite would hold the skill's own files"
             )
+    dirs = [rel for rel, path in matches.items() if path.is_dir() and _within(rel, subject.path)]
+    for rel, path in matches.items():
+        if path.is_dir() or not _within(rel, subject.path) or any(_within(rel, d) for d in dirs):
+            continue
+        raise ConfigError(
+            f"subject {subject.id}: its suite claims the file {rel} of its skill, not a whole directory; "
+            f"claim the directory instead, for example {subject.path}/evals/**"
+        )
 
 
 def _hashed(subject: Subject, root: Path, all_subjects: list[Subject]) -> Subject:
