@@ -284,7 +284,7 @@ _needs_bash_and_timeout = pytest.mark.skipif(
 def test_probe_gateway_unknown_is_untested(tmp_path):
     """A failed gateway lookup never tried the daemon ports: not a pass."""
     result = _probe_script_run(tmp_path, PROBE_GATEWAY="", PROBE_DNS_NAME="no-such-host.invalid")
-    assert result["network"] == ("closed" if _RAW_TOOLS else "untested")  # the script ran to the end
+    assert result["network"] == "closed"  # the script ran to the end
     assert result["docker_api"] == "untested"
     assert probe_reward(result) == 0.0
 
@@ -872,6 +872,8 @@ def test_missing_raw_socket_tools_cannot_certify_network_closed(tmp_path):
     for name in ("sh", "bash", "dirname", "curl", "id", "sed", "tr", "head", "cksum", "ls"):
         if path := shutil.which(name, path="/usr/bin:/bin"):
             (bindir / name).symlink_to(path)
+    if not (bindir / "curl").exists() or (bindir / "timeout").exists():
+        pytest.skip("needs curl and no timeout in /usr/bin:/bin")
     result = _probe_script_run(tmp_path, PATH=str(bindir), PROBE_DNS_NAME="127.0.0.1")
     assert result["network"] == "untested"
     assert result["docker_api"] == "untested"

@@ -409,7 +409,11 @@ Guide: [run-consistency.md](run-consistency.md).
   read as UTF-8, a captured stream keeps at most 1 MiB in memory (its first and
   last half, `truncated` set; `stdout_to`/`stderr_to` write a whole stream to a
   file; git output is kept whole), and every call states its environment policy (`Env.inherit` or
-  an `Env.only` allow-list). `FakeRunner` is its test adapter: code that spawns
+  an `Env.only` allow-list). `Limits` it cannot apply are refused with `ValueError` before the
+  child starts (any limit on Windows, a memory limit on macOS), and a hard limit the
+  process inherited that is lower than the request stays in force. `dokimi/process_io.py`
+  decides who owns each pipe, so an interrupted launch closes its streams exactly once
+  and Windows reader threads close theirs at EOF. `FakeRunner` is its test adapter: code that spawns
   takes a `runner` argument.
 - `dokimi/llm.py` — the entry point for LLM calls. `LLM` (one model at one provider:
   `complete`/`ask`/`chat`, retry, the response cache, usage) sits on one
@@ -498,6 +502,3 @@ runs `pip check` and the installed-package smoke test,
    that does not resolve, a link to a source file that does not exist, or a
    list that nests differently on the site than on GitHub fails it. On a push
    to `main`, **deploy** publishes the build to GitHub Pages.
-
-Pipe ownership during interrupted reader startup is synchronized by `dokimi.process_io`;
-only `dokimi.process` starts external processes.
