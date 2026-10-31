@@ -473,3 +473,27 @@ def test_no_known_positive_skips_the_guard(tmp_path, monkeypatch):
     assert "known" not in seen and sorted(seen["queries"]) == ["a", "b", "c"]
     out = json.loads((tmp_path / "probe.json").read_text(encoding="utf-8"))
     assert out["status"] == "unchecked" and out["known_positive"] is None
+
+
+def test_cli_refuses_an_empty_catalog_before_the_guard_picks_a_skill(tmp_path, monkeypatch):
+    # A negative-only set has no label naming a skill, so only the guard's default target could
+    # name one; with no skill in the catalog that was an IndexError, not an input error.
+    from dokimi.utils import InputError
+
+    (tmp_path / "cat").mkdir()
+    with pytest.raises(InputError, match="--catalog holds no skills"):
+        _cli(tmp_path, monkeypatch, "--out", "probe.json", expected=None)
+    assert not (tmp_path / "probe.json.partial").exists() and not (tmp_path / "probe.json").exists()
+
+
+def test_no_known_positive_still_runs_a_negative_only_set_on_an_empty_catalog(tmp_path, monkeypatch):
+    # The guard is what needs a skill; with it skipped the run is what it was before the refusal.
+    (tmp_path / "cat").mkdir()
+    seen = _cli(tmp_path, monkeypatch, "--no-known-positive", "--out", "probe.json", expected=None)
+    assert "known" not in seen and sorted(seen["queries"]) == ["a", "b", "c"]
+
+
+def test_negative_only_set_on_a_catalog_with_skills_still_runs_the_guard(tmp_path, monkeypatch):
+    # names come from the catalog's skills, not the labels: a negative-only set on a non-empty
+    # catalog is not refused, and the guard probes the first catalog skill as before.
+    assert _cli(tmp_path, monkeypatch, "--out", "probe.json", expected=None)["known"] == ["io-read"]

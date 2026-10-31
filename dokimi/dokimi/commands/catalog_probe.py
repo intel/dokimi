@@ -119,7 +119,10 @@ def _known_positive_guard(args: argparse.Namespace, names: set, catalog: Path, c
     if args.no_known_positive:
         return None
     from dokimi.harnesses import trigger_probe as tp
+    from dokimi.utils import InputError
 
+    if not names:  # the guard's default target is the first catalog skill: with none, nothing to probe
+        raise InputError(f"--catalog holds no skills: {catalog}")
     known = tp.known_positive(args.target or sorted(names)[0], catalog, cfg)
     if known["passed"]:
         return known
