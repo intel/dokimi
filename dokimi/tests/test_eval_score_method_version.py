@@ -97,3 +97,27 @@ def test_pipeline_judges_fresh_in_memory_answers_as_the_current_version(monkeypa
     from dokimi.defaults import ANSWERING_METHOD_VERSION
 
     assert _pipeline_judge_version(monkeypatch, tmp_path, ANSWERS) == ANSWERING_METHOD_VERSION
+
+
+@pytest.mark.parametrize("bad", ["2", True, 3.5, [1], 0, -7])
+def test_a_malformed_stamp_exits_2_before_any_judge_call(tmp_path, judge_calls, capsys, bad):
+    """main ignored the field; writing it unchecked failed eval validation after paid calls."""
+    with pytest.raises(SystemExit) as exc:
+        _eval_score(tmp_path, {"method_version": bad, "answers": ANSWERS})
+
+    assert exc.value.code == 2
+    assert judge_calls == []
+    assert not (tmp_path / "eval.json").exists()
+    assert "method_version must be a positive integer" in capsys.readouterr().err
+
+
+def test_a_null_stamp_is_legacy(tmp_path, judge_calls):
+    assert _eval_score(tmp_path, {"method_version": None, "answers": ANSWERS})["method_version"] == 1
+
+
+def test_pipeline_refuses_an_answers_file_with_a_malformed_stamp(monkeypatch, tmp_path):
+    answers_file = tmp_path / "answers.json"
+    answers_file.write_text(json.dumps({"method_version": "2", "answers": ANSWERS}), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="method_version must be a positive integer"):
+        _pipeline_judge_version(monkeypatch, tmp_path, [], answers_file)

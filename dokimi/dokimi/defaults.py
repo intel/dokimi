@@ -20,6 +20,7 @@ default flags before that are not comparable with ones taken after; re-baseline
 """
 
 import os
+from typing import Any, Mapping
 
 DEFAULT_ANSWER_PROVIDER = "openai"
 DEFAULT_ANSWER_MODEL = "gpt-6.1-sol"
@@ -97,6 +98,18 @@ DEFAULT_RETRIEVAL_TOP_K = 3
 ANSWERING_METHOD_VERSION = 2
 #: The version of an artifact that carries no stamp (written before ANSWERING_METHOD_VERSION existed).
 LEGACY_ANSWERING_METHOD_VERSION = 1
+
+
+def answers_method_version(meta: Mapping[str, Any]) -> int:
+    """The method_version an answers artifact carries; absent or null is legacy, else a positive int."""
+    value = meta.get("method_version")
+    if value is None:
+        return LEGACY_ANSWERING_METHOD_VERSION
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError(f"method_version must be a positive integer, got {value!r}")
+    return value
+
+
 DEFAULT_MAX_TOKENS_PER_QUESTION = 4000
 DEFAULT_CONCURRENCY = 5
 DEFAULT_RESULTS_SUFFIX = "_final"

@@ -9,7 +9,8 @@ import json
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 
-from dokimi.defaults import (ANSWERING_METHOD_VERSION, LEGACY_ANSWERING_METHOD_VERSION, DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER, DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER, DEFAULT_RETRIEVAL_TOP_K)
+from dokimi.defaults import (ANSWERING_METHOD_VERSION, DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER, DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER, DEFAULT_RETRIEVAL_TOP_K,
+                             answers_method_version as answers_method_version_of)
 from dokimi.eval.stats import paired_summary
 from dokimi.mcp.factory import create_doc_source_client, resolve_library_id_for_product
 
@@ -688,7 +689,7 @@ class EvaluationPipeline:
         if answers and isinstance(answers, list):
             answers_method_version = ANSWERING_METHOD_VERSION
         else:
-            answers_method_version = run.meta.get("method_version") or LEGACY_ANSWERING_METHOD_VERSION
+            answers_method_version = answers_method_version_of(run.meta)
         
         # Evaluate
         judge = Judge(
