@@ -189,9 +189,10 @@ def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
     sources += _trigger_set_sources(args.trigger_set or [], catalog)
     if not sources:
         usage_exit("give --questions PATH=LABEL or --trigger-set PATH[=TARGET]")
-    # A --trigger-set source is labelled by @expected_skill whether or not its file has labels,
-    # so only --questions sources (named here) get the no-labels refusal.
-    specs = list(args.questions or []) + [None] * len(args.trigger_set or [])
+    # A --trigger-set file with no labels is valid only for --format questions; reach and
+    # skill-creator drop unlabelled queries, so there it would write an empty set.
+    specs = list(args.questions or []) + [
+        None if args.format == "questions" else spec for spec in (args.trigger_set or [])]
 
     rewrite = None
     if args.rewrite:

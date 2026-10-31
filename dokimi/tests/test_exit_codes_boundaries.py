@@ -610,6 +610,34 @@ def test_trigger_set_file_without_labels_is_valid_and_its_questions_stay_unlabel
     assert "Traceback" not in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("fmt", [[], ["--format", "skill-creator", "--target", "linux-perf"]],
+                         ids=["reach", "skill-creator"])
+def test_trigger_set_file_without_labels_is_refused_where_it_would_write_an_empty_set(
+        tmp_path, monkeypatch, capsys, fmt):
+    # reach and skill-creator drop unlabelled queries: a plain question file passed as --trigger-set
+    # would be written out as an empty set with exit 0.
+    path = tmp_path / "unlabelled.json"
+    path.write_text(json.dumps({"questions": [{"id": "u1", "question": "How do I cook rice?"}]}), encoding="utf-8")
+    _argv(monkeypatch, "catalog", "trigger-set", "--catalog", str(_skill_root(tmp_path)),
+          "--trigger-set", str(path), *fmt, "--out", str(tmp_path / "o.json"))
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    assert "resolves for none of 1 questions" in capsys.readouterr().err
+    assert not (tmp_path / "o.json").exists()
+
+
+def test_trigger_set_of_negatives_only_is_still_written_as_reach(tmp_path, monkeypatch):
+    # A negative (expected_skill null) is a label, so an all-negative set is not a file without labels.
+    path = tmp_path / "negatives.json"
+    path.write_text(json.dumps({"queries": [{"id": "n1", "text": "What is the weather?", "expected_skill": None}]}),
+                    encoding="utf-8")
+    _argv(monkeypatch, "catalog", "trigger-set", "--catalog", str(_skill_root(tmp_path)),
+          "--trigger-set", str(path), "--out", str(tmp_path / "o.json"))
+    cli.main()
+    assert [q["id"] for q in json.loads((tmp_path / "o.json").read_text(encoding="utf-8"))["queries"]] == ["n1"]
+
+
 def test_questions_file_with_a_field_label_and_no_labels_is_refused_and_says_so(tmp_path, monkeypatch, capsys):
     # A --questions source whose rule is a field no question has is a mistyped path, not a set of
     # negatives: exit 2, and the message says the file has no labels.
