@@ -61,13 +61,13 @@ def cmd_eval_headroom(args: argparse.Namespace) -> None:
     from dokimi.artifacts import ArtifactValidationError, save_artifact
     from dokimi.eval.headroom import format_table, headroom, repeated_ids
 
-    if args.output and _names_a_directory(args.output):
+    if args.output is not None and _names_a_directory(args.output):
         # A directory has no file name for save_artifact's sibling paths ("." has an empty name), and
         # Path() drops a trailing slash, so "newdir/" would otherwise write a plain file named newdir.
         print(f"Error: --out {args.output} is not a file name (a directory, or a path ending in a separator)",
               file=sys.stderr)
         sys.exit(2)
-    if args.output and _clobbers_an_input(args.output, args.arms):
+    if args.output is not None and _clobbers_an_input(args.output, args.arms):
         print(f"Error: --out {args.output} would overwrite one of the input arms files (or its .rejected sibling); "
               "the run would be lost", file=sys.stderr)
         sys.exit(2)
@@ -100,7 +100,7 @@ def cmd_eval_headroom(args: argparse.Namespace) -> None:
         sys.exit(2)
     result["inputs"] = inputs
     print(format_table(result))
-    if args.output:
+    if args.output is not None:
         try:
             save_artifact("headroom", result, args.output)
         except (OSError, ArtifactValidationError) as e:

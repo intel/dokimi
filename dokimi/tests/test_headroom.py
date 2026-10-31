@@ -639,3 +639,12 @@ def test_floor_is_not_flagged_when_the_no_skill_arm_was_never_scored_on_the_item
     # Item 1's baseline judge failed; the skill at 0 alone is not a floor. Item 2 is one.
     run = _run([("1", {"baseline": None, "skill": 0}), ("2", {"baseline": 0, "skill": 0})])
     assert _flags(headroom([run], min_reps=1)) == {"1": None, "2": FLOOR}
+
+
+def test_an_empty_out_is_refused_with_exit_2_through_the_real_parser(tmp_path, capsys):
+    path = _arms_file(tmp_path / "arms.json", {"1": {"baseline": 95, "skill": 95}})
+    args = build_parser().parse_args(["eval", "headroom", str(path), "--out", ""])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2
+    assert "not a file name" in capsys.readouterr().err
