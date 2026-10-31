@@ -87,7 +87,8 @@ def shell_reads(script: str, cwd: str = "") -> list[str]:
     after ``if`` / ``then`` / ``do`` / ``else`` (it may not run), a ``cd`` after ``&&`` / ``||`` once the chain
     holding it ends with ``;``, ``&`` or a newline (it may have been skipped), or a glob or brace expansion (the
     files are not known). A subshell ``( ... )`` or `` `...` `` records no reads: its directory is not kept. A brace
-    group that is backgrounded or piped runs in a subshell, so the directory is restored after it; the reads of a
+    group or an ``&&`` / ``||`` list that is backgrounded, or a piped group, runs in a subshell, so the directory is
+    restored after it; the reads of a
     group whose output feeds a pipe after it is dropped, as a pipeline is not a read here; a group whose stdout is
     redirected to a file or /dev/null is dropped, as that output is not shown to the agent. ``--help`` and
     ``--version`` print and open no file. Absolute paths are kept.
@@ -104,6 +105,7 @@ def shell_reads(script: str, cwd: str = "") -> list[str]:
         if not chained and walk.gated:  # a cd after && or || may not have run: the next chain starts in no known directory
             walk.lose()
             walk.gated = False
+        walk.chain(op, chained)
         if op == "||" and walk.moved:
             walk.here = None
         if in_subshell:  # a subshell: its reads are not tracked
@@ -127,6 +129,18 @@ class _Walk:
         self.gated = False  # a cd after && or || was seen in this chain: it may not have run for the next chain
         # the open brace groups: (directory before it, in a pipeline, index in the reads where it began)
         self.groups: list[tuple[str | None, bool, int]] = []
+        self.list_start: str | None = here  # the directory where the current && / || list began
+        self.listed = False  # that list has more than one command
+
+    def chain(self, op: str, chained: bool) -> None:
+        """A list of more than one command ended by ``&`` ran in a subshell, so this shell did not move: ``cd sub &&
+        cat f & cat g`` reads sub/f and g (a lone ``cd x &`` and a ``{ ...; } &`` group are handled where they end)."""
+        if op == "&" and self.listed:
+            self.here = self.list_start
+        if chained:
+            self.listed = True
+        else:
+            self.list_start, self.listed = self.here, False
 
     def lose(self) -> None:
         self.here, self.moved = None, True
