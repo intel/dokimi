@@ -236,3 +236,22 @@ def test_matrix_run_refuses_a_dangling_cells_symlink_before_any_cell_is_answered
     assert exc.value.code == 2
     assert answered == []
     assert f"Error: cannot write {out_dir / 'cells'}" in capsys.readouterr().err
+
+
+def test_matrix_run_refuses_an_out_dir_through_dotdot_before_any_cell_is_answered(tmp_path, monkeypatch, capsys):
+    # nx/.. does not exist until mkdir makes nx, so the lexical walk reaches tmp_path and passes;
+    # the dir is made before the first answer, so the blocker is still found before any is paid for.
+    import dokimi.eval.arms_run as arms_run
+
+    monkeypatch.setattr(arms_run, "check_sampling_support", lambda config: None)
+    answered = []
+    monkeypatch.setattr(arms_run, "run_prepared", lambda *a, **k: answered.append(a) or {})
+    _blocker(tmp_path)
+    out_dir = tmp_path / "nx" / ".." / "blocker" / "out"
+
+    args = _matrix_run(tmp_path, out_dir)
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2
+    assert answered == []
+    assert f"Error: cannot write {out_dir / 'cells'}" in capsys.readouterr().err

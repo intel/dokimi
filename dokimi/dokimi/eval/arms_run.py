@@ -428,9 +428,11 @@ def check_matrix(config: ArmsRunConfig, cells: list[MatrixCellDescriptor]) -> No
 
 def run_matrix(config: ArmsRunConfig, cells: list[MatrixCellDescriptor], specs: list[str],
                questions: list[dict],
-               on_cell: Callable[[MatrixCellDescriptor, dict], None]) -> None:
+               on_cell: Callable[[MatrixCellDescriptor, dict], None],
+               before_run: Callable[[], None] | None = None) -> None:
     """Run *config* in every cell in turn, handing each cell and its ``arms.v1`` output to
     *on_cell* as soon as the cell finishes, so a later cell's failure keeps the earlier ones.
+    *before_run* is called once every cell is set up, before the first answer.
 
     Every cell is checked (:func:`check_matrix`) before the first one is paid for. A cell
     that fails raises :class:`MatrixCellError` naming it, with ``usage`` set when the cell was
@@ -447,6 +449,8 @@ def run_matrix(config: ArmsRunConfig, cells: list[MatrixCellDescriptor], specs: 
             raise
         except (ValueError, OSError, RecursionError) as exc:
             raise MatrixCellError(cell.name, exc, usage=not isinstance(exc, ProbeError)) from exc
+    if before_run is not None:
+        before_run()
     for cell, cell_cfg, prepared in prepared_cells:
         try:
             output = run_prepared(prepared, cell_cfg, questions)

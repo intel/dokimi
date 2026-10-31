@@ -145,6 +145,16 @@ def _check_cells_dir(cells_dir: Path) -> None:
         sys.exit(EXIT_USAGE)
 
 
+def _make_cells_dir(cells_dir: Path) -> None:
+    """Make *cells_dir*, or exit 2. The walk above predicts mkdir lexically, so a '..' after a
+    missing component passes it; making the dir before the first answer is exact."""
+    try:
+        cells_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        print(f"Error: cannot write {cells_dir}: {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+
+
 def run_matrix(config: ArmsRunConfig, *, arms: str, questions: str, matrix_cells: str,
                out_dir: Path, out_json: Path | None = None, out_md: Path | None = None,
                plugin_deltas: bool = True) -> None:
@@ -161,8 +171,8 @@ def run_matrix(config: ArmsRunConfig, *, arms: str, questions: str, matrix_cells
 
     specs, loaded_questions, cells = _load_matrix_inputs(config, arms, questions, matrix_cells)
 
-    # The cells dir is made only when a cell finishes, so a cell refused in setup writes nothing.
-    # An uncreatable one is refused here, before any answer is paid for and then lost on exit.
+    # The cells dir is made once every cell is set up, so a cell refused in setup writes nothing.
+    # An uncreatable one is refused here and again by the mkdir, before any answer is paid for.
     cells_dir = out_dir / "cells"
     _check_cells_dir(cells_dir)
     cell_artifacts = []
@@ -170,16 +180,12 @@ def run_matrix(config: ArmsRunConfig, *, arms: str, questions: str, matrix_cells
     def save_cell(cell, output: dict) -> None:
         safe_name = _safe_name(cell.name)
         cell_json = cells_dir / f"{safe_name}.json"
-        try:
-            cells_dir.mkdir(parents=True, exist_ok=True)
-        except OSError as exc:
-            print(f"Error: cannot write {cells_dir}: {exc}", file=sys.stderr)
-            sys.exit(EXIT_USAGE)
         _save_arms_output(output, cell_json, cells_dir / f"{safe_name}.md")
         cell_artifacts.append((cell.name, cell_json, output))
 
     try:
-        arms_run.run_matrix(config, cells, specs, loaded_questions, on_cell=save_cell)
+        arms_run.run_matrix(config, cells, specs, loaded_questions, on_cell=save_cell,
+                            before_run=lambda: _make_cells_dir(cells_dir))
     except EmptyQuestionError:
         raise  # a bad input record, not a cell error: cli.main reports it (exit 2)
     except arms_run.LibraryIdError as exc:
