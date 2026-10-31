@@ -12964,6 +12964,7 @@
                 "'plan'",
                 "'plugin_delta'",
                 "'questions'",
+                "'redteam'",
                 "'repo_budget'",
                 "'repo_environment'",
                 "'repo_readiness'",
