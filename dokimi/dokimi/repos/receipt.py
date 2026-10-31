@@ -1,0 +1,229 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""The effective-instructions receipt (``effective-instructions/v0``, agentsmd/agents.md#213) of one reach probe.
+
+Built from a ``guidance_reach.v1`` payload and the start-up chain of ``repo_budget.v1``. Per run (one reach
+scenario) and per guidance source it gives the expected state (budget's start-up rules), the observed state (the
+probe's marker tokens) and the states ``accessed``, ``selected``, ``loaded`` and ``followed``. What the probe
+cannot establish is ``unknown``; ``followed`` always is. docs/repo-evaluation-contract.md §7.1 holds the mapping
+and its limits.
+"""
+
+from __future__ import annotations
+
+import hashlib
+from dataclasses import dataclass
+from pathlib import PurePosixPath
+from typing import Any
+
+from .reach import PROSE_LIMIT
+from .source import RepoTree
+
+SCHEMA = "effective-instructions/v0"
+SCHEMA_VERSION = "effective_instructions.v1"
+UNKNOWN = "unknown"
+# The probe's method: the model reports the marker tokens it can see; the request itself is not captured.
+METHOD = "prompt_capture"
+# Root-level files that turn AGENTS.md off in Claude Code (budget.py): the displacing set.
+CLAUDE_ROOT = ("CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md")
+ROOT_NESTED = (".claude/CLAUDE.md", ".claude/AGENTS.md")  # project memory in .claude/ applies repo-wide
+SUBTREE_NAMES = ("AGENTS.md", "CLAUDE.md", "CLAUDE.local.md")
+_STATE = {"loaded": "loaded", "fetched": "fetched", "not_loaded": "not_loaded"}
+_LOADED: dict[str | None, bool] = {"loaded": True, "not_loaded": False}
+DETAIL = ("the model is asked to report the marker tokens it can see; the request sent to the provider is not "
+          "captured, so a reported token is evidence of loading, not a copy of the bytes it received")
+NOT_PROBED = "start-up imports and skills from repo_budget are not probed by reach; their observed state is unknown"
+
+
+@dataclass(frozen=True)
+class _Run:
+    row: dict[str, Any]  # the reach scenario row
+    records: dict[tuple[str, str], dict[str, Any]]  # (file, scenario id) -> record
+    when_of: dict[str, str]  # canonical path -> budget's when
+    digests: dict[str, str | None]
+    workdir: str  # the directory the run works in
+    rules: bool  # budget's rules apply (Claude Code)
+
+
+def build_receipt(reach: dict[str, Any], budget: dict[str, Any], tree: RepoTree) -> dict[str, Any]:
+    """The ``effective_instructions.v1`` artifact: one ``effective-instructions/v0`` receipt per reach scenario."""
+    harness = reach["harness"]
+    rules = harness["name"] == "claude-code"  # budget's start-up rules are Claude Code's
+    when_of = _budget_when(reach, budget) if rules else {}
+    start_up = [p for p, when in when_of.items() if when in ("start", "off") and p not in _known(reach)]
+    digests = source_digests(tree, [p for p, _ in _probed(reach)] + start_up)
+    records = {(r["file"], r["scenario"]): r for r in reach["records"]}
+    runtime = {"name": harness["name"], "version": harness["version"]}
+    receipts = []
+    for row in reach["scenarios"]:
+        run = _Run(row, records, when_of, digests, _workdir(row), rules)
+        receipts.append(_receipt(reach, run, runtime, start_up))
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "generated_at": reach["generated_at"],
+        "repo": reach["repo"],
+        "runtime": runtime,
+        "model": reach["model"],
+        "observation": {"method": METHOD, "detail": DETAIL},
+        "unknowns": _global_unknowns(harness["name"], rules),
+        "receipts": receipts,
+    }
+
+
+def source_digests(tree: RepoTree, paths: list[str]) -> dict[str, str | None]:
+    """sha256 of the text dokimi reads for each path (LF line endings: the text the probe seeds); None if unreadable."""
+    out: dict[str, str | None] = {}
+    for path in dict.fromkeys(paths):
+        try:
+            out[path] = hashlib.sha256(tree.read_text(path).encode("utf-8")).hexdigest()
+        except (OSError, ValueError, RuntimeError):  # SourceError and UnicodeDecodeError are ValueErrors
+            out[path] = None
+    return out
+
+
+def _probed(reach: dict[str, Any]) -> list[tuple[str, str | None]]:
+    """(path, alias_of) for every probed path: each guidance file, then the links to it."""
+    out: list[tuple[str, str | None]] = []
+    for item in reach["files"]:
+        out.append((item["path"], None))
+        out.extend((alias, item["path"]) for alias in item.get("aliases", []))
+    return out
+
+
+def _known(reach: dict[str, Any]) -> set[str]:
+    return {path for path, _ in _probed(reach)}
+
+
+def _budget_when(reach: dict[str, Any], budget: dict[str, Any]) -> dict[str, str]:
+    """budget's ``when`` of each guidance file and import, keyed by the file the path resolves to."""
+    target_of = {alias: item["path"] for item in reach["files"] for alias in item.get("aliases", [])}
+    return {target_of.get(e["path"], e["path"]): e["when"]
+            for e in budget["entries"] if e["kind"] in ("guidance", "import")}
+
+
+def _dir(path: str) -> str:
+    parent = str(PurePosixPath(path).parent)
+    return "" if parent == "." else parent
+
+
+def _workdir(row: dict[str, Any]) -> str:
+    """The directory a run works in: the one holding the file it is told to read, else where it starts."""
+    return _dir(row["read"]) if row.get("read") else row["cwd"]
+
+
+def _receipt(reach: dict[str, Any], run: _Run, runtime: dict[str, str], start_up: list[str]) -> dict[str, Any]:
+    sources = [_source(path, alias_of, run) for path, alias_of in _probed(reach)]
+    sources += [_budget_only(path, run) for path in start_up]
+    off = {p for p, when in run.when_of.items() if when == "off"}
+    row = run.row
+    return {
+        "schema": SCHEMA,
+        "run_id": f"{reach['salt']}:{row['id']}",
+        "runtime": runtime,
+        "cwd": row["cwd"] or ".",
+        "target": row.get("read"),
+        "sources": sources,
+        "precedence_observed": _precedence(sources, off),
+        "unknowns": _run_unknowns(row, sources),
+    }
+
+
+def _source(path: str, alias_of: str | None, run: _Run) -> dict[str, Any]:
+    target = alias_of or path
+    rec = run.records.get((target, run.row["id"]))
+    cls = rec["class"] if rec else None
+    observed, method = _observation(cls)
+    return {
+        "path": path,
+        **({"alias_of": alias_of} if alias_of else {}),
+        "sha256": run.digests.get(path),
+        "scope": _scope(path, alias_of is not None),
+        "expected": _expected(target, run.when_of.get(target), run),
+        "observed": observed,
+        "observation_method": method,
+        "states": _states(cls, run.row["tools"] == "none", bool(rec and rec["read_by_tool"])),
+    }
+
+
+def _budget_only(path: str, run: _Run) -> dict[str, Any]:
+    """A start-up import or guidance file budget found and reach did not probe: expected, never observed."""
+    return {"path": path, "sha256": run.digests.get(path), "scope": _scope(path, False),
+            "expected": _expected(path, run.when_of[path], run), "observed": UNKNOWN,
+            "observation_method": UNKNOWN, "states": _states(None, False, False)}
+
+
+def _observation(cls: str | None) -> tuple[str, str]:
+    """(observed state, observation_method) of one reach class. A truncated cell saw one token: an observation,
+    no verdict."""
+    if cls in _STATE:
+        return _STATE[cls], METHOD
+    if cls == "truncated":
+        return UNKNOWN, METHOD
+    return UNKNOWN, UNKNOWN  # error, or no record (not probed in this run)
+
+
+def _states(cls: str | None, tools_off: bool, read_by_tool: bool) -> dict[str, Any]:
+    """accessed: a Read-tool read was seen (false with no tools at all); selected: the probe saw the source enter the
+    request, by the harness or by the agent's own read; loaded: at the harness's own load step, not through a read."""
+    accessed: bool | str = True if read_by_tool else (False if tools_off else UNKNOWN)
+    selected: bool | str = True if cls in ("loaded", "fetched") else UNKNOWN
+    return {"accessed": accessed, "selected": selected, "loaded": _LOADED.get(cls, UNKNOWN), "followed": UNKNOWN}
+
+
+def _expected(target: str, when: str | None, run: _Run) -> bool | str:
+    """Start-up files are expected in every run; off ones in none; a nested lazy file in a run whose directory is its
+    subtree (or inside it), since the harness loads it when the work reaches that directory."""
+    if not run.rules or when is None:
+        return UNKNOWN
+    if when in ("start", "off"):
+        return when == "start"
+    if when == "lazy":
+        d = _dir(target)
+        return run.workdir == d or run.workdir.startswith(d + "/")
+    return UNKNOWN
+
+
+def _scope(path: str, alias: bool) -> str:
+    if alias:
+        return "adapter"  # a link to another guidance file: its tokens are the target's
+    if "/" not in path or path in ROOT_NESTED:
+        return "repo"
+    return "subtree" if path.rsplit("/", 1)[-1] in SUBTREE_NAMES else UNKNOWN
+
+
+def _precedence(sources: list[dict[str, Any]], off: set[str]) -> list[dict[str, str]]:
+    """A file budget says a root CLAUDE* file displaces, seen not loaded while that file was seen loaded in the run."""
+    winners = sorted(s["path"] for s in sources if s["path"] in CLAUDE_ROOT and s["observed"] == "loaded")
+    if not winners:
+        return []
+    return [{"winner": w, "displaced": s["path"]}
+            for s in sources if (s.get("alias_of") or s["path"]) in off and s["observed"] == "not_loaded"
+            for w in winners]
+
+
+def _run_unknowns(row: dict[str, Any], sources: list[dict[str, Any]]) -> list[str]:
+    out = []
+    if row.get("error"):
+        out.append("no usable answer from this run: every observed state is unknown")
+    out += [f"{s['path']}: one of its two marker tokens was reported; loaded is not established"
+            for s in sources if s["observed"] == UNKNOWN and s["observation_method"] == METHOD]
+    if (row.get("prose") or 0) > PROSE_LIMIT:
+        out.append(f"answered with {row['prose']} words besides tokens; its not_loaded states may be under-reports")
+    if row.get("unknown"):
+        out.append("reported tokens that were never seeded: " + ", ".join(row["unknown"]))
+    return out
+
+
+def _global_unknowns(name: str, rules: bool) -> list[str]:
+    out = [
+        "followed is not observed: no marker shows what the model did with a loaded source",
+        "accessed is observed only for the Read tool; a read through a shell (cat, rg, grep) is not seen",
+        "sha256 is over the LF-normalised UTF-8 text dokimi reads, which the probe seeds; a CRLF file's bytes differ",
+        "no load timestamps: the probe does not record when a source entered the request",
+        "the order in which sources entered the request is not observed; precedence_observed lists displacements only",
+        NOT_PROBED,
+    ]
+    if not rules:
+        out.append(f"budget's start-up rules are Claude Code's: no source has an expected state for {name}")
+    return out

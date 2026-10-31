@@ -269,7 +269,6 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
     from dokimi.repos.source import SourceArgumentError
     from dokimi.repos.reach import (
         ReachError,
-        format_matrix,
         planned,
         probe_files,
         run_reach,
@@ -325,10 +324,32 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
     path = save_reach(payload, out_dir)
-    print(format_matrix(payload))
-    print(f"wrote {path}")
+    _print_reach_output(tree, profile, payload, out_dir, path, receipt=args.format == "receipt")
     if any(s["error"] for s in payload["scenarios"]):
         sys.exit(1)
+
+
+def _print_reach_output(tree, profile, payload: dict, out_dir: Path, path: Path, receipt: bool) -> None:
+    """The matrix on stdout; with ``receipt``, the effective-instructions receipt on stdout and the note on stderr."""
+    from dokimi.repos.reach import format_matrix
+
+    if receipt:
+        _print_receipt(tree, profile, payload, out_dir)
+        print(f"wrote {path}", file=sys.stderr)
+    else:
+        print(format_matrix(payload))
+        print(f"wrote {path}")
+
+
+def _print_receipt(tree, profile, payload: dict, out_dir: Path) -> None:
+    """The effective-instructions receipt of a probe: budget's start-up chain, reach's observed states."""
+    from dokimi.artifacts import save_artifact
+    from dokimi.repos.budget import budget
+    from dokimi.repos.receipt import build_receipt
+
+    receipt = build_receipt(payload, budget(tree, profile.guidance_names, profile.import_max_depth), tree)
+    written = save_artifact("effective_instructions", receipt, out_dir / "effective_instructions.json")
+    print(json.dumps(written, indent=2))
 
 
 def cmd_repo_budget(args: argparse.Namespace) -> None:
@@ -535,6 +556,9 @@ def register(sub, positive_int) -> None:
     reach_p.add_argument("--budget", type=float, default=0.10, help="Per-scenario USD cap (default: 0.10)")
     reach_p.add_argument("--timeout", type=positive_int, default=300, help="Per-scenario seconds")
     reach_p.add_argument("--keep", action="store_true", help="Keep the temporary workspace")
+    reach_p.add_argument("--format", choices=["matrix", "receipt"], default="matrix",
+                         help="matrix: the table (default). receipt: print the effective-instructions/v0 receipt as JSON and "
+                         "write it to effective_instructions.json in --out (docs/repo-evaluation-contract.md §7.1)")
     reach_p.add_argument("--dry-run", action="store_true", dest="dry_run",
                          help="Print the files and the exact argv of every scenario; run nothing")
     reach_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)

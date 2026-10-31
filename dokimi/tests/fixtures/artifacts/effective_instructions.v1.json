@@ -1,0 +1,104 @@
+{
+  "schema_version": "effective_instructions.v1",
+  "generated_at": "2026-10-31T00:00:00+00:00",
+  "repo": {
+    "id": "toy",
+    "tree": "toy",
+    "sha": null,
+    "manifest": "evals/repo-eval.yaml"
+  },
+  "runtime": {
+    "name": "claude-code",
+    "version": "2.1.0"
+  },
+  "model": "m",
+  "observation": {
+    "method": "prompt_capture",
+    "detail": "the model is asked to report the marker tokens it can see; the request sent to the provider is not captured, so a reported token is evidence of loading, not a copy of the bytes it received"
+  },
+  "unknowns": [
+    "followed is not observed: no marker shows what the model did with a loaded source",
+    "accessed is observed only for the Read tool; a read through a shell (cat, rg, grep) is not seen",
+    "sha256 is over the LF-normalised UTF-8 text dokimi reads, which the probe seeds; a CRLF file's bytes differ",
+    "no load timestamps: the probe does not record when a source entered the request",
+    "the order in which sources entered the request is not observed; precedence_observed lists displacements only",
+    "start-up imports and skills from repo_budget are not probed by reach; their observed state is unknown"
+  ],
+  "receipts": [
+    {
+      "schema": "effective-instructions/v0",
+      "run_id": "salt:cwd=.",
+      "runtime": {
+        "name": "claude-code",
+        "version": "2.1.0"
+      },
+      "cwd": ".",
+      "target": null,
+      "sources": [
+        {
+          "path": "AGENTS.md",
+          "sha256": "87428fc522803d31065e7bce3cf03fe475096631e5e07bbd7a0fde60c4cf25c7",
+          "scope": "repo",
+          "expected": false,
+          "observed": "not_loaded",
+          "observation_method": "prompt_capture",
+          "states": {
+            "accessed": false,
+            "selected": "unknown",
+            "loaded": false,
+            "followed": "unknown"
+          }
+        },
+        {
+          "path": "CLAUDE.md",
+          "sha256": "a3a5e715f0cc574a73c3f9bebb6bc24f32ffd5b67b387244c2c909da779a1478",
+          "scope": "repo",
+          "expected": true,
+          "observed": "loaded",
+          "observation_method": "prompt_capture",
+          "states": {
+            "accessed": false,
+            "selected": true,
+            "loaded": true,
+            "followed": "unknown"
+          }
+        },
+        {
+          "path": "sub/AGENTS.md",
+          "sha256": "cbc80bb5c0c0f8944bf73b3a429505ac5cde16644978bc9a1e74c5755f8ca556",
+          "scope": "subtree",
+          "expected": false,
+          "observed": "not_loaded",
+          "observation_method": "prompt_capture",
+          "states": {
+            "accessed": false,
+            "selected": "unknown",
+            "loaded": false,
+            "followed": "unknown"
+          }
+        },
+        {
+          "path": "docs/style.md",
+          "sha256": "8d74beec1be996322ad76813bafb92d40839895d6dd7ee808b17ca201eac98be",
+          "scope": "unknown",
+          "expected": true,
+          "observed": "unknown",
+          "observation_method": "unknown",
+          "states": {
+            "accessed": "unknown",
+            "selected": "unknown",
+            "loaded": "unknown",
+            "followed": "unknown"
+          }
+        }
+      ],
+      "precedence_observed": [
+        {
+          "winner": "CLAUDE.md",
+          "displaced": "AGENTS.md"
+        }
+      ],
+      "unknowns": []
+    }
+  ]
+}
