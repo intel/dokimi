@@ -86,7 +86,7 @@ def shell_reads(script: str, cwd: str = "") -> list[str]:
     ``pushd`` / ``popd``, ``env -C`` / ``--chdir`` (the command's reads, but absolute ones), a ``cd``
     after ``if`` / ``then`` / ``do`` / ``else`` (it may not run), a ``cd`` after ``&&`` / ``||`` once the chain
     holding it ends with ``;``, ``&`` or a newline (it may have been skipped), or a glob or brace expansion (the
-    files are not known). A subshell ``( ... )`` records no reads: its directory is not kept. A brace
+    files are not known). A subshell ``( ... )`` or `` `...` `` records no reads: its directory is not kept. A brace
     group that is backgrounded or piped runs in a subshell, so the directory is restored after it; the reads of a
     group whose output feeds a pipe after it is dropped, as a pipeline is not a read here; a group whose stdout is
     redirected to a file or /dev/null is dropped, as that output is not shown to the agent. ``--help`` and
@@ -230,7 +230,7 @@ def _cd(here: str | None, args: list[str]) -> str | None:
 def _runs_dir_before_parens(part: str) -> bool:
     """Whether the command text before its first parenthesis runs a directory builtin, as ``cd $(...)`` does
     (a subshell ``(cd x; ...)`` has no such text, so it changes nothing outside itself)."""
-    words = re.split(r"[()]", part, maxsplit=1)[0].split()
+    words = re.split(r"[()`]", part, maxsplit=1)[0].split()
     while words and (words[0] in _KEYWORDS or words[0] == "{"):
         words = words[1:]
     words, via_env, _ = _command_words(words)
@@ -432,14 +432,15 @@ class _Splitter:
         self.quote = ""
         self.depth = 0  # open parentheses
         self.paren = False  # the part being built holds a parenthesis
+        self.tick = False  # inside a backtick substitution, a subshell as ``$( )`` is
 
     def flush(self, op: str) -> None:
         """End the part being built at ``op``."""
         text = "".join(self.cur).strip()
         if text:
-            self.parts.append((text, op if op != "\n" else ";", self.paren or self.depth > 0))
+            self.parts.append((text, op if op != "\n" else ";", self.paren or self.depth > 0 or self.tick))
         self.cur = []
-        self.paren = self.depth > 0
+        self.paren = self.depth > 0 or self.tick
 
     def step(self, i: int) -> int:
         """Take the text at ``i``; the index to continue at."""
@@ -455,6 +456,9 @@ class _Splitter:
         elif c == "#" and (i == 0 or script[i - 1] in " \t\n;&|()"):
             end = script.find("\n", i)  # the comment ends at the newline, which still splits
             return len(script) if end < 0 else end
+        elif c == "`":
+            self.paren, self.tick = True, not self.tick
+            self.cur.append(c)
         elif c in "()":
             self.paren = True
             self.depth = max(0, self.depth + (1 if c == "(" else -1))

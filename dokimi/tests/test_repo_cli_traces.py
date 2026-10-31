@@ -219,6 +219,14 @@ def test_shell_reads_joins_a_line_continuation_without_a_space(command, reads):
     assert shell_reads(command) == reads
 
 
+@pytest.mark.parametrize(("command", "reads"), [
+    ("echo `true; cd sub; pwd`; cat AGENTS.md", []),  # as with $( ): a cd inside it is not this shell's
+    ("echo `pwd`; cat AGENTS.md", ["AGENTS.md"]), ("cd `dirname a/b`; cat AGENTS.md", []),
+    ("echo \\`; cd sub; cat AGENTS.md", ["sub/AGENTS.md"])])  # an escaped backtick opens nothing
+def test_shell_reads_a_backtick_substitution_is_a_subshell(command, reads):
+    assert shell_reads(command) == reads
+
+
 def test_shell_reads_of_an_empty_script_reads_nothing():
     assert shell_reads("") == [] and shell_reads("  \n") == []
     assert unwrap_shell("") == ""  # an empty command is its own script, not a wrapper
