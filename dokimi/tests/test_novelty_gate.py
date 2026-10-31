@@ -235,8 +235,9 @@ def test_an_attached_artifact_must_validate(tmp_path):
 
     bad = tmp_path / "novelty.json"
     bad.write_text(json.dumps({"schema_version": "novelty.v1"}), encoding="utf-8")
-    with pytest.raises(InputError, match=str(bad)):
+    with pytest.raises(InputError) as exc:
         load_novelty_artifacts([bad])
+    assert str(bad) in str(exc.value)
 
 
 def test_an_entry_point_only_run_of_a_bundle_artifact_is_flagged():
