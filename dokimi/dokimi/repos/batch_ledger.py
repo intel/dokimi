@@ -4,7 +4,7 @@
 """The batch ledger of ``repo run``: what identifies a cell, and what a batch directory already holds.
 
 A batch directory holds the cells of one or more invocations of ``repo run``. The rules that decide which
-cells belong together live here, and nowhere else:
+cells belong together live here:
 
 - the **execution id** of a cell (:func:`execution_id`): how its agent is started, which is the harness
   profile's command line, environment, config and prompt suffix, plus the executable's digest and version.
@@ -12,9 +12,11 @@ cells belong together live here, and nowhere else:
   of one execution only (:func:`check_batch_executions`);
 - the **cell name** (:func:`cell_name`) and the ``execution`` record that ``meta.json`` and ``result.json``
   carry (:func:`execution_record`);
-- the **pins** a batch keeps in ``_eval/``: each arm under its resolved name (:func:`pin_arms`) and the
-  trees of the skills a skill arm installs (:func:`pin_skills`), so a resume cannot change what an arm means;
-- the **replace rule**: ``--force`` rewrites the cells of its plan and no other cell.
+- the **pins** a batch keeps in ``_eval/``: the trees of the skills a skill arm installs
+  (:func:`pin_skills`), so a resume cannot change what an arm means; :func:`pin_arms` resolves each arm
+  once per run and records nothing;
+- the **replace check** (:func:`check_batch_executions`): ``--force`` rewrites the cells of its plan and no
+  other cell; the plan itself is chosen by the runner.
 
 Changing any of these changes an existing batch's identity: a batch written before the change is refused
 or re-run. The golden tests in ``tests/test_batch_ledger_golden.py`` pin the current values.
@@ -148,6 +150,8 @@ def check_batch_executions(batch_dir: Path, wanted: set[str], replacing: set[str
         try:
             ran = recorded_execution(finished_result(path))
         except (OSError, UnreadableResult):
+            # No execution to compare. A cell of this run's plan reports it when it runs; one outside the plan
+            # is not read again.
             continue
         found.add(ran["id"] if isinstance(ran.get("id"), str) else "unrecorded")
     other = found - wanted
