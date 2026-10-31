@@ -10,7 +10,8 @@
   a missing login is not. See `docs/subscription-backends.md`.
 - **`backends`**: lists the CLI backends with install, version and login status;
   calls no model. `benchmark preflight` checks a CLI backend's login instead
-  of an API key.
+  of an API key. The login is read with no settings files, as a call runs, so a
+  Bedrock route set only in `~/.claude/settings.json` is not signed in.
 
 ### Changed
 

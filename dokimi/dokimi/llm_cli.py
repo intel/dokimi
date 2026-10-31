@@ -262,7 +262,8 @@ CLAUDE_CLI = CliBackend(
     binary="claude",
     build_argv=_claude_argv,
     parse=_claude_parse,
-    auth_argv=("claude", "auth", "status"),
+    # The settings policy of a call: a route set only in settings.json is not a login the call can use.
+    auth_argv=("claude", "--setting-sources", "", "auth", "status"),
     parse_auth=_claude_auth,
     env_drop=CLAUDE_ENV_DROP,
     env_drop_prefixes=CLAUDE_ENV_DROP_PREFIXES,

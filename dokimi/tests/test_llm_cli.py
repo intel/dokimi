@@ -333,7 +333,8 @@ def test_detect_reports_install_login_and_method_without_a_model_call():
     got = llm_cli.detect("claude-cli", runner=fake)
     assert (got.installed, got.authenticated, got.method, got.version) == (
         True, True, "oauth_token", "2.1.304 (Claude Code)")
-    assert got.hint == "" and [c.argv[1:] for c in fake.calls] == [("--version",), ("auth", "status")]
+    assert got.hint == "" and [c.argv[1:] for c in fake.calls] == [
+        ("--version",), ("--setting-sources", "", "auth", "status")]
     out = llm_cli.detect("claude-cli", runner=_auth_runner({"loggedIn": False}))
     assert out.authenticated is False and "setup-token" in out.hint
     gone = llm_cli.detect("claude-cli", runner=_auth_runner(None))
@@ -349,6 +350,30 @@ def test_detect_with_an_empty_version_output_has_no_version_and_still_reads_the_
     got = llm_cli.detect("claude-cli", runner=fake)
     assert (got.installed, got.version, got.authenticated, got.method, got.hint) == (
         True, "", True, "oauth_token", "")
+
+
+def _settings_route_runner(login: dict):
+    """``claude`` 2.1.300 with only a Bedrock route in settings.json: ``auth status`` reports the route,
+    ``--setting-sources ""`` (how a call runs) the login."""
+    def handle(call):
+        if call.argv[-1] == "--version":
+            return reply("2.1.300 (Claude Code)\n")
+        if tuple(call.argv[1:3]) == ("--setting-sources", ""):
+            return reply(json.dumps(login), returncode=0 if login["loggedIn"] else 1)
+        return reply(json.dumps({"loggedIn": True, "authMethod": "third_party", "apiProvider": "bedrock"}))
+    return FakeRunner(handle)
+
+
+def test_detect_reads_the_login_a_call_can_use_not_a_settings_file_route(monkeypatch):
+    from dokimi.commands.benchmark import _provider_checks
+
+    alone = llm_cli.detect("claude-cli", runner=_settings_route_runner({"loggedIn": False, "authMethod": "none"}))
+    assert (alone.authenticated, alone.method) == (False, "none") and "setup-token" in alone.hint
+    both = llm_cli.detect("claude-cli", runner=_settings_route_runner({"loggedIn": True, "authMethod": "oauth_token"}))
+    assert (both.authenticated, both.method, both.source) == (True, "oauth_token", "")
+    monkeypatch.setattr(process, "run", _settings_route_runner({"loggedIn": False, "authMethod": "none"}))
+    errors, _ = _provider_checks(["claude-cli"])
+    assert errors and "is not signed in" in errors[0]
 
 
 def test_backends_command_prints_one_row_per_backend(monkeypatch, capsys):
