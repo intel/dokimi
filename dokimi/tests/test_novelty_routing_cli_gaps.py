@@ -158,3 +158,19 @@ def test_estimate_prices_each_call_so_a_long_context_tier_is_not_reached_by_the_
     assert estimate["input_tokens"] > 200_000 and estimate["n_calls"] == 6
     assert estimate["expected_usd"] == pytest.approx(
         estimate["input_tokens"] * 1e-6 + estimate["output_tokens"] * 2e-6, rel=1e-6)
+
+
+def test_estimate_only_gives_a_null_dollar_figure_for_a_routing_model_with_no_price(
+        tmp_path, capsys):
+    queries = tmp_path / "q.json"
+    queries.write_text(json.dumps(["profile a binary"]), encoding="utf-8")
+    args = _parse("novelty", "routing",
+                  "--artifact", _skill(tmp_path, "perf", "profile a binary with perf record"),
+                  "--competitors", _skill(tmp_path, "tbb", "parallelize loops"),
+                  "--queries", str(queries), "--model", "foo-bar-9", "--provider", "openai",
+                  "--estimate-only")
+    args.func(args)
+    captured = capsys.readouterr()
+    estimate = json.loads(captured.out)
+    assert estimate["n_calls"] == 1 and estimate["expected_usd"] is None
+    assert "expected_usd is null" in captured.err
