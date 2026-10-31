@@ -83,7 +83,9 @@ self-judge; `arms run` does not check, so name
   the same skill was 1,900 calls, about $14.50.
 - **At triage** with `--include-resources`, the 25-atom cap takes atoms in
   document order, and the entry point comes first: the flag reaches
-  `references/` only if `SKILL.md` has fewer than 25 atoms. For such skills,
+  `references/` only if `SKILL.md` has fewer than 25 atoms, and the run's cap
+  warning prints how far it reached through the input, the entry point and the files the budgets selected (span,
+  spans and token share). For such skills,
   use `--tier standard` (60 atoms), or add `--all-atoms` to the tier command for
   a full sweep; run `--estimate-only` first, it costs more.
 - Step 5 needs evaluation content: a golden question set for 5a, executable

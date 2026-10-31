@@ -198,6 +198,8 @@ class ExtractionReport:
         call_error: The last failed call on a span that stayed unread. Errors that
             splitting recovered from are not recorded: they did not lose anything, and
             quoting one would blame the wrong cause.
+        reached: How far through the input a capped atom set reached (see
+            :func:`_cap_reach`); ``None`` when the cap did not bind.
     """
 
     unread_span_ids: list[str] = field(default_factory=list)
@@ -212,6 +214,7 @@ class ExtractionReport:
     parse_error: str = ""
     call_error: str = ""
     unusable_error: str = ""
+    reached: dict | None = None
 
     @property
     def last_error(self) -> str:
@@ -287,6 +290,7 @@ class ExtractionReport:
             "calls": self.calls,
             "batches": self.batches,
             "last_error": self.last_error,
+            "reached": self.reached,
         }
 
 
@@ -318,8 +322,9 @@ def extract_atoms(
             affordable; too large and the model starts skipping spans.
         cap: Stop after this many atoms. Recorded in the artifact as the sampling
             rule, so a capped run is never quoted as a full sweep.
-        report: Filled in place with what could not be read and what re-asking cost.
-            Spans no call could read are also marked ``unread`` in place.
+        report: Filled in place with what could not be read and what re-asking cost,
+            and how far a binding cap reached (``reached``). Spans no call could read
+            are also marked ``unread`` in place.
 
     Returns:
         Atoms in extraction order, de-duplicated by id.
@@ -340,6 +345,7 @@ def extract_atoms(
     for span in spans:
         span.unread = False
     seen: set[str] = set()
+    sent: set[str] = set()  # span ids some call was shown, which bound the reach
     atoms: list[Atom] = []
     lost: Exception | None = None
     # (spans, is a half): a half was counted in ``batches`` with the batch it came from.
@@ -351,6 +357,7 @@ def extract_atoms(
         if cap is not None and len(atoms) >= cap:
             break
         batch, is_half = pending.pop(0)
+        sent.update(span.id for span in batch)
         if not is_half:
             report.batches += 1
         prompt = _EXTRACT_PROMPT.format(
@@ -406,7 +413,39 @@ def extract_atoms(
         # Only when nothing was read: spans that were read and asserted nothing are a
         # result, and a recovered parse error is not a failure.
         raise ExtractionError(f"no atoms: every extraction call failed ({lost})") from lost
+    report.reached = _cap_reach(spans, atoms, cap, sent)
     return atoms
+
+
+def _cap_reach(spans: list[Span], atoms: list[Atom], cap: int | None,
+               sent: set[str]) -> dict | None:
+    """How far through the input (``spans``) a capped atom set reached; ``None`` under the cap.
+
+    Extraction walks the spans in document order and stops at the cap, so a capped set
+    covers the input up to the span it stopped at, not a sample of it. The input is the text segmented,
+    not the artifact: a bundled file it left out counts in no span. The reach is the last span any
+    kept atom cites, not the last batch sent: a batch the cap cut mid-reply was sent whole,
+    but its later spans gave no atom. Only the ``sent`` spans count: an atom may cite a span
+    of the document its call was never shown, and that made-up id must not move the reach
+    (an atom set citing nothing sent reaches the last span sent). ``spans`` counts the spans
+    up to and including it, ``of`` all of them, and ``tokens_share`` is their share of the
+    span tokens.
+    """
+    if cap is None or not atoms or len(atoms) < cap:
+        return None
+    order = {span.id: index for index, span in enumerate(spans) if span.id in sent}
+    last = max((order[span_id] for atom in atoms for span_id in atom.span_ids if span_id in order),
+               default=max(order.values()))
+    reached = sum(span.tokens for span in spans[:last + 1])
+    total = sum(span.tokens for span in spans)
+    # Floored in integers, as floored_percent prints it: a cap one span short of the end must not round to 1.0
+    share = reached * 10000 // total
+    return {
+        "last_span": spans[last].id,
+        "spans": last + 1,
+        "of": len(spans),
+        "tokens_share": (max(share, 1) if reached else 0) / 10000,
+    }
 
 
 def _mark_unread(batch: list[Span], report: ExtractionReport) -> None:

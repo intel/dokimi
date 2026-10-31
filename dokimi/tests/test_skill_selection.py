@@ -113,6 +113,14 @@ def test_selection_summary_skips_arms_without_skills():
     assert summarize_skill_selection([rec]) == {}
 
 
+def test_an_empty_final_reply_keeps_the_skill_choice_it_made():
+    """The loop loaded the skill before its final reply came back empty: the choice is still scored."""
+    cell = _rec("linux-perf", "linux-perf")
+    cell["arms"]["cat"].update(error="empty_reply", answer=None)
+    s = summarize_skill_selection([cell])["cat"]
+    assert (s["n"], s["n_failed"], s["selection_accuracy"], s["recall"]) == (1, 1, 1.0, 1.0)
+
+
 def test_report_renders_selection_table():
     md = render_arms_report({
         "arms": ["cat"], "answers": [],
