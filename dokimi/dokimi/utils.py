@@ -121,11 +121,11 @@ _REGION_PROFILES = ("us-gov.", "global.", "apac.", "us.", "eu.", "jp.", "au.", "
 
 
 # Leading segments that name a route (provider or gateway: ``anthropic/``, ``openrouter/``), not a model; any other
-# segment (an HF org such as ``meta-llama/``) is part of the id. Holds ``llm.PROVIDERS`` (test-pinned) + litellm routes.
+# segment (an HF org such as ``meta-llama/``) is part of the id. Holds ``llm.ANSWER_PROVIDERS`` (test-pinned) + litellm routes.
 _ROUTES = frozenset({
     "openai", "openai-codex", "anthropic", "google", "gemini", "google-vertex", "openrouter", "amazon-bedrock",
     "bedrock", "converse", "vertex_ai", "azure", "azure_ai", "models", "groq", "ollama", "mistral", "deepseek",
-    "together_ai", "fireworks_ai", "xai", "cohere", "huggingface",
+    "together_ai", "fireworks_ai", "xai", "cohere", "huggingface", "claude-cli",
 })
 
 

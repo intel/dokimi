@@ -293,6 +293,12 @@ def test_compare_strict_refuses_a_panel_whose_judges_changed(compare, capsys):
     assert "current panel/openai/gpt-4o-mini" in err
 
 
+def test_a_panel_judge_that_only_left_the_claude_cli_route_is_one_judge(compare, capsys):
+    # the single-judge path ignores the provider; a panel stores "provider/model", so the route must go there too
+    compare(_panel("claude-cli/claude-sonnet-5-5"), _panel("anthropic/claude-sonnet-5-5"), "--strict")
+    assert capsys.readouterr().err == ""
+
+
 def test_a_panel_with_the_same_judges_in_another_order_is_one_judge(compare, capsys):
     compare(_panel("anthropic/claude-sonnet-5-5", "amazon-bedrock/claude-opus-5-5"),
             _panel("amazon-bedrock/us.anthropic.claude-opus-5-5", "Anthropic/claude-sonnet-5-5"),

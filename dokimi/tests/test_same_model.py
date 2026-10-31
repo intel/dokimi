@@ -134,7 +134,7 @@ def test_a_name_with_no_id_is_no_model(a, b):
 
 
 def test_every_provider_dokimi_accepts_is_a_route_not_an_organization():
-    from dokimi.llm import PROVIDER_ALIASES, PROVIDERS
+    from dokimi.llm import ANSWER_PROVIDERS, PROVIDER_ALIASES
 
-    for provider in [*PROVIDERS, *PROVIDER_ALIASES]:
+    for provider in [*ANSWER_PROVIDERS, *PROVIDER_ALIASES]:  # a CLI backend too: a panel stores "claude-cli/<model>"
         assert same_model(f"{provider}/gpt-4o", "gpt-4o"), provider
