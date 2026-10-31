@@ -436,7 +436,7 @@ def exit_sites(tree: ast.Module) -> list[int]:
     """
     guarded = {id(n) for stmt in tree.body
                if isinstance(stmt, ast.If) and ast.unparse(stmt.test) == "__name__ == '__main__'"
-               for n in ast.walk(stmt)}
+               for body_stmt in stmt.body for n in ast.walk(body_stmt)}
     module_aliases, name_aliases = _exit_imports(tree)
     lines: list[int] = []
     for node in ast.walk(tree):
@@ -614,9 +614,10 @@ def test_a_process_exit_outside_the_frontend_fails(tmp_path):
         "dokimi/b.py": "def g():\n    raise SystemExit('bad')\n",
         "dokimi/c.py": "import os\nos._exit(0)\nexit(1)\n",
         "dokimi/d.py": "import sys\n\nif __name__ == '__main__':\n    sys.exit(0)\n",
+        "dokimi/e.py": "import sys\n\nif __name__ == '__main__':\n    pass\nelse:\n    sys.exit(1)\n",
     })
     problems = exit_problems(imports, {"dokimi.c": (1, "one exit once")})
-    assert [p.split()[0] for p in problems] == ["dokimi.b", "dokimi.c", "dokimi.core"]
+    assert [p.split()[0] for p in problems] == ["dokimi.b", "dokimi.c", "dokimi.core", "dokimi.e"]
     assert "lower EXIT_BASELINE" not in "".join(problems)
 
 
