@@ -366,6 +366,15 @@ class TestWhatTheChecksCount:
         assert not _check(v, "retrieval_hit_rate").measured
         assert v.not_measured == ["retrieval_hit_rate"]
 
+    def test_legacy_judge_error_rows_leave_a_stored_rate_measured(self):
+        # A judge-error row as eval score wrote it before error rows carried retrieval_hit.
+        legacy_error = {"question_id": "q", "error": "judge failed", "with_docs": None,
+                        "without_docs": None, "delta": None}
+        evals = ([_row(70, 50, hit=True)] * 5 + [_row(70, 50, hit=False)] * 10
+                 + [legacy_error] * 5)
+        check = _check(evaluate_trust(evals), "retrieval_hit_rate")
+        assert (check.measured, check.value, check.passed) == (True, 0.333, False)
+
     def test_a_zero_baseline_counts_as_zero(self):
         check = _check(evaluate_trust(_evals(10, with_score=40, without_score=0)), "min_delta")
         assert check.value == 40.0

@@ -21,7 +21,8 @@
 - **Trust gate** — `retrieval_hit_rate` counts every evaluation's recorded retrieval outcome,
   not only the ones scored in both arms, so unjudged misses still count against the rate, and a
   judge-error row keeps the outcome of its answer. The rate is shown even when no question is
-  scored in both arms. The thresholds are unchanged.
+  scored in both arms. A judge-error row of an older eval file, which has no `retrieval_hit`,
+  is left out of that count as before. The thresholds are unchanged.
 - **Zero-score check** — a judge-error row on a retrieval miss now counts as unusable in
   `zero_score_fraction` (a judge error on a retrieval hit is still left out), so a run can fail
   that fail-severity check where intel/main passed it.

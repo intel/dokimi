@@ -107,7 +107,8 @@ def _retrieval_check(every: List[Record], cfg: Dict[str, Any]) -> TrustCheck:
     document is not judged by default, and it still records that it missed.
     """
     measured = [h for r in every if (h := r.retrieval_hit) is not None]
-    n_all = len(every)
+    # A legacy judge-error row has no retrieval_hit: left out of the count, as before.
+    n_all = sum(1 for r in every if not (r.error is not None and r.retrieval_hit is None))
     if measured and len(measured) / n_all < cfg["min_retrieval_coverage"]:
         return TrustCheck(
             name="retrieval_hit_rate",
