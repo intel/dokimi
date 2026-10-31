@@ -300,12 +300,14 @@ next release.
   after stop-word removal when both have 3+ words left), on AGENTS.md files turned off, on
   unreadable files (non-UTF-8, dangling or out-of-tree link), and on imports past the harness's
   hop limit, each of which also trips
-  `--fail-on-warning`. For a profile with `guidance.rules` (Claude Code), `.claude/rules/**/*.md`
-  files are `rule` entries: `start` in the root `.claude/rules/` without `paths` frontmatter, `lazy`
-  with it or in a subdirectory's, the frontmatter not counted. `start` is not an upper bound: it is too low by what it does not count
+  `--fail-on-warning`. For a profile with `guidance.claude_rules` (Claude Code),
+  `.claude/rules/**/*.md` files are `rule` entries: `start` in the root `.claude/rules/` when
+  `paths` names no pattern, `lazy` when it does or in a subdirectory's `.claude/rules/`, the
+  frontmatter not counted. `start` is not an upper bound: it is too low by what it does not count
   (only `@path.md` imports are followed, so `@notes.txt` adds nothing;
   skills are read only from real `.claude/skills/*/SKILL.md` directories at the root, so a skill
-  behind a linked directory is not seen, and a nested `<subdir>/.claude/skills/` skill, which Claude
+  behind a linked directory is not seen, nor are the rules behind one (a warning names it), and a
+  nested `<subdir>/.claude/skills/` skill, which Claude
   Code loads on the first read in that subdirectory, is not counted; and imports past the profile's `guidance.import_max_depth`,
   four hops for Claude Code, which warn naming what was skipped). It is too high by whatever the
   harness cuts from the skill listing: the listing is charged in full, and the harness cuts it past

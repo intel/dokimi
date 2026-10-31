@@ -89,3 +89,40 @@ def test_rules_are_counted_only_for_a_harness_that_reads_them(tmp_path):
         got = budget(tree, profile.guidance_names, profile.import_max_depth, profile.reads_claude_rules)
         assert not [e for e in got["entries"] if e["kind"] == "rule"], name
     assert load_profile("claude-code").reads_claude_rules
+
+
+@pytest.mark.parametrize(("front", "when"), [
+    ('paths:\n  - "src/**"\n', "lazy"),
+    ("paths: src/**, lib/**\n", "lazy"),
+    ('paths: "src/**"\nfoo: [unclosed\n', "lazy"),  # measured: the key is read line by line
+    ("foo: [unclosed\n", "start"),  # measured: no paths, so it loads at start
+    ("paths: []\n", "start"),  # measured: an empty list scopes nothing
+    ('paths: ""\n', "start"),
+    ("paths:\n", "start"),
+])
+def test_only_a_paths_value_that_names_a_pattern_scopes_a_rule(tmp_path, front, when):
+    payload = budget(_tree(tmp_path, {".claude/rules/r.md": f"---\n{front}---\nbody\n"}), NAMES, rules=True)
+    assert _by_path(payload)[(".claude/rules/r.md", "rule")] == {
+        "path": ".claude/rules/r.md", "kind": "rule", "when": when, "chars": len("body\n")}
+
+
+def test_a_cut_import_of_a_counted_rule_does_not_warn(tmp_path):
+    files = {"CLAUDE.md": "@c1.md\n", "c1.md": "@c2.md\n", "c2.md": "@c3.md\n", "c3.md": "@c4.md\n",
+             "c4.md": "@.claude/rules/r.md\n", ".claude/rules/r.md": "rule\n"}
+    payload = budget(_tree(tmp_path, files), NAMES, import_max_depth=4, rules=True)
+    assert _by_path(payload)[(".claude/rules/r.md", "rule")]["when"] == "start"
+    assert payload["warnings"] == []
+
+
+def test_a_linked_rules_directory_is_named_not_silently_skipped(tmp_path):
+    (tmp_path / "shared").mkdir()
+    (tmp_path / "shared/style.md").write_text("style\n", encoding="utf-8")
+    (tmp_path / ".claude/rules").mkdir(parents=True)
+    (tmp_path / ".claude/rules/own.md").write_text("own\n", encoding="utf-8")
+    try:
+        (tmp_path / ".claude/rules/shared").symlink_to(tmp_path / "shared", target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    payload = budget(WorkTree(tmp_path), NAMES, rules=True)
+    assert [e["path"] for e in payload["entries"] if e["kind"] == "rule"] == [".claude/rules/own.md"]
+    assert payload["warnings"] == [".claude/rules/shared: a link to a directory; the rules behind it are not counted"]

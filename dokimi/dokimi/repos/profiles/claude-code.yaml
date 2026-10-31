@@ -85,7 +85,7 @@ guidance:
   # Memory docs (code.claude.com/docs/en/memory): imports recurse "with a maximum depth of four hops".
   import_max_depth: 4
   # .claude/rules/**/*.md: measured on CLI 2.1.304, a root rule with no `paths` loads at start.
-  rules: true
+  claude_rules: true
   notes: >-
     Measured on CLI 2.1.286: it reads AGENTS.md only
     when no CLAUDE.md is in the directory chain it starts in, and one CLAUDE.md

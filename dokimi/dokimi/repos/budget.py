@@ -42,8 +42,10 @@ from dokimi.repos.source import RepoTree
 SKILL_GLOB = re.compile(r"^\.claude/skills/[^/]+/SKILL\.md$")
 # Rules are discovered recursively, in the root .claude/rules/ and in a subdirectory's (docs: Memory).
 RULE_GLOB = re.compile(r"^(?:.+/)?\.claude/rules/(?:.+/)?[^/]+\.md$")
+_RULES_ENTRY = re.compile(r"^(?:.+/)?\.claude/rules(?:/.+)?$")
 _FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n(.*?)^---[ \t]*(?:\r?\n|\Z)", re.S | re.M)
-_PATHS_KEY = re.compile(r"^paths[ \t]*:", re.M)
+# `paths:` and what follows it: an inline value, or the `- item` lines under it.
+_PATHS_KEY = re.compile(r"^paths[ \t]*:(?P<inline>[^\n]*)(?P<items>(?:\n[ \t]*-[^\n]*)*)", re.M)
 MCP_FILE = ".mcp.json"
 # Claude Code truncates description + when_to_use at 1,536 characters in the listing (docs: Skills).
 LISTING_TEXT_CAP = 1536
@@ -142,9 +144,9 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
 
     totals = {w: sum(e["chars"] for e in entries if e["when"] == w) for w in ("start", "lazy", "on demand", "off")}
     warnings = unreadable_warnings[:]
-    # A guidance file is an entry of its own, so a cut import of it is already loaded (not an import).
+    # A guidance file or a rule is an entry of its own, so a cut import of it is already loaded (not an import).
     loaded = {_target(tree, p) for p in at_start | lazy_all} | {
-        _target(tree, e["path"]) for e in entries if e["kind"] == "guidance" and e["when"] != "off"}
+        _target(tree, e["path"]) for e in entries if e["kind"] in ("guidance", "rule") and e["when"] != "off"}
     for f, target in sorted(set(cut_start + cut_lazy)):
         if _target(tree, target) in loaded:
             continue  # another chain did load it, possibly through a link
@@ -230,9 +232,16 @@ def _rules(tree: RepoTree, files: list[str], counted: set[str], start_t: set[str
            warnings: list[str]) -> list[dict[str, Any]]:
     """The ``rule`` entries of ``files``, skipping files already ``counted`` (and adding theirs).
 
-    ``budget`` passes no files for a harness that does not read ``.claude/rules`` (``guidance.rules``).
+    ``budget`` passes no files for a harness that does not read ``.claude/rules`` (``guidance.claude_rules``).
     """
     out = []
+    for f in sorted(f for f in files if _RULES_ENTRY.match(f) and not RULE_GLOB.match(f)):
+        try:
+            linked_dir = tree.is_dir(tree.resolve(f, dirs=True))
+        except (OSError, ValueError):  # dangling, looping or out of the tree
+            linked_dir = False
+        if linked_dir:  # a tree lists a link to a directory as one entry, not the files behind it
+            warnings.append(f"{f}: a link to a directory; the rules behind it are not counted")
     for f in sorted(f for f in files if RULE_GLOB.match(f)):
         if _target(tree, f) in counted:
             continue  # a link to a file already counted, or a rule that is also a guidance file
@@ -250,9 +259,10 @@ def _rule(tree: RepoTree, path: str) -> tuple[int, bool, str | None]:
     """Return (chars in context, has ``paths``, warning) for a ``.claude/rules`` file.
 
     Claude Code removes the frontmatter before loading a rule, so it is not counted. A rule with
-    ``paths`` in its frontmatter loads only when the agent reads a matching file; measured on
-    Claude Code 2.1.304, that holds even when the YAML does not parse, which the docs say
-    loads the rule unconditionally.
+    a non-empty ``paths`` loads only when the agent reads a matching file. Measured on Claude Code
+    2.1.304, the key is read line by line: it holds even when the rest of the YAML does not parse
+    (the docs say such a rule loads unconditionally), while ``paths: []`` loads at start. A rule
+    whose only pattern is invalid (``[unclosed``) never loads; it is counted lazy.
     """
     try:
         text = tree.read_text(path)
@@ -261,7 +271,16 @@ def _rule(tree: RepoTree, path: str) -> tuple[int, bool, str | None]:
     m = _FRONTMATTER.match(text)
     if not m:
         return len(text), False, None
-    return len(text) - m.end(), bool(_PATHS_KEY.search(m.group(1))), None
+    return len(text) - m.end(), _has_paths(m.group(1)), None
+
+
+def _has_paths(frontmatter: str) -> bool:
+    """True if ``paths`` names at least one pattern: a list item or an inline value not ``[]`` or ``""``."""
+    m = _PATHS_KEY.search(frontmatter)
+    if not m:
+        return False
+    values = [m["inline"]] + [line.split("-", 1)[1] for line in m["items"].splitlines() if line.strip()]
+    return any(v.strip().strip("[]").strip(" \t\"'") for v in values)
 
 
 def _imports(tree: RepoTree, roots: list[str], max_depth: int | None = None) -> tuple[set[str], list[tuple[str, str]]]:

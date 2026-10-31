@@ -46,11 +46,12 @@ SPDX-License-Identifier: Apache-2.0
 > no LLM call): root CLAUDE.md files and their `@` imports plus the skill listing at
 > start (AGENTS.md files and their imports too, unless a root CLAUDE*, `.claude/CLAUDE.md` or
 > `CLAUDE.local.md` turns them off), nested guidance lazily, skill bodies on demand, and AGENTS.md
-> files a root CLAUDE* turns off. For a profile with `guidance.rules` (`claude-code`), `.claude/rules/**/*.md` files are `rule` entries: at start in the root
-> `.claude/rules/` unless their frontmatter has `paths`, lazily otherwise and in a subdirectory's
-> `.claude/rules/`; an `@` path in a rule is not followed. The `start` total is not an upper bound: it is too low by what it does
-> not count (non-`.md` imports, skills behind a linked directory, nested
-> `.claude/skills/` skills, and
+> files a root CLAUDE* turns off. For a profile with `guidance.claude_rules` (`claude-code`),
+> `.claude/rules/**/*.md` files are `rule` entries: at start in the root `.claude/rules/` unless
+> their frontmatter's `paths` names a pattern, lazily then and in a subdirectory's `.claude/rules/`;
+> an `@` path in a rule is not followed. The `start` total is not an upper bound: it is too low by
+> what it does not count (non-`.md` imports, skills behind a linked directory, rules behind one,
+> which warns, nested `.claude/skills/` skills, and
 > imports past the profile's `guidance.import_max_depth`, four hops for Claude Code, which warns
 > naming what was skipped), and too high by whatever the harness cuts from the skill listing.
 > Usage:
