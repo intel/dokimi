@@ -75,6 +75,16 @@ def routing_field(args: argparse.Namespace, exclude: set[str],
     return competitors
 
 
+def load_all_vs_all_field(args: argparse.Namespace, left_out: list[str]) -> list[Candidate]:
+    """The all-vs-all field, or InputError naming the cause."""
+    try:
+        return routing_field(args, set(), left_out)
+    except InputError:
+        raise
+    except (OSError, ValueError, RecursionError) as exc:
+        raise InputError(f"cannot load the field: {exc}") from exc
+
+
 def load_routing_field(
     args: argparse.Namespace,
 ) -> tuple[Candidate, str, list[Candidate], list[str]]:

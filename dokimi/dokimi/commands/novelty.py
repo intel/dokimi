@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
 from dokimi.commands.inputs import placebo_text_for_arms_or_exit, read_text_or_exit
-from dokimi.commands.novelty_routing_inputs import load_routing_field, routing_field
+from dokimi.commands.novelty_routing_inputs import load_all_vs_all_field, load_routing_field
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
     DEFAULT_ANSWER_PROVIDER,
@@ -288,10 +288,7 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
 
     _check_all_vs_all_args(args)
     left_out: list[str] = []
-    try:
-        field = routing_field(args, set(), left_out)
-    except (OSError, ValueError, RecursionError) as exc:
-        raise InputError(f"cannot load the field: {exc}") from exc
+    field = load_all_vs_all_field(args, left_out)
     try:
         queries_by_skill = load_queries_by_skill(args.queries_by_skill)
     except (OSError, UnicodeDecodeError) as exc:

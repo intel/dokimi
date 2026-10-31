@@ -60,3 +60,12 @@ def test_a_bad_input_file_is_an_input_error_naming_it(tmp_path, loader, mode):
     with pytest.raises(InputError) as exc:
         LOADERS[loader](path)
     assert str(path) in str(exc.value)
+
+
+def test_a_path_with_a_nul_byte_is_an_input_error_naming_it():
+    # Path.read_text raises a bare ValueError here; it must not escape as a traceback.
+    from dokimi.utils import read_json_input
+
+    with pytest.raises(InputError) as exc:
+        read_json_input("bad\x00name.json")
+    assert str(exc.value).startswith("cannot read bad")

@@ -228,5 +228,7 @@ def read_json_input(path: str | os.PathLike[str], *, flag: str | None = None) ->
         raise InputError(f"{flag} {path}: {exc}" if flag else f"{path} is not UTF-8 text: {exc}") from exc
     except (json.JSONDecodeError, RecursionError) as exc:  # deep nesting is named as bad JSON, as on main
         raise InputError(f"{flag} {path}: {exc}" if flag else f"{path} is not valid JSON: {exc}") from exc
+    except ValueError as exc:  # e.g. "embedded null byte" in the path: pathlib raises a bare ValueError
+        raise InputError(f"{flag} {path}: {exc}" if flag else f"cannot read {path}: {exc}") from exc
 
 

@@ -45,11 +45,18 @@ def test_a_directory_as_novelty_is_reported_as_unreadable(tmp_path, capsys):
     assert f"cannot read {tmp_path}" in _err(tmp_path, tmp_path, tmp_path / "a.json", capsys)
 
 
-@pytest.mark.parametrize("payload", [b"", b"{not json", bytes([0xFF, 0xFE]), b"[1, 2]", b"{}", pytest.param(b"[" * 100000 + b"]" * 100000, id="nested_deeply")])
-def test_a_novelty_file_that_is_not_a_novelty_artifact_is_reported_as_invalid(tmp_path, capsys, payload):
+@pytest.mark.parametrize("payload, reason", [
+    (b"", "is not valid JSON"),
+    (b"{not json", "is not valid JSON"),
+    (bytes([0xFF, 0xFE]), "is not UTF-8 text"),
+    (b"[1, 2]", "is not a novelty artifact: expected a JSON object"),
+    (b"{}", "is not a valid novelty artifact: "),
+    pytest.param(b"[" * 100000 + b"]" * 100000, "is not valid JSON", id="nested_deeply"),
+])
+def test_a_novelty_file_that_is_not_a_novelty_artifact_is_reported_as_invalid(tmp_path, capsys, payload, reason):
     bad = tmp_path / "bad.json"
     bad.write_bytes(payload)
-    assert f"{bad} is not " in _err(tmp_path, bad, tmp_path / "a.json", capsys)
+    assert f"{bad} {reason}" in _err(tmp_path, bad, tmp_path / "a.json", capsys)
 
 
 def test_a_missing_atoms_file_is_reported_as_unreadable(tmp_path, capsys):
@@ -62,11 +69,17 @@ def test_a_missing_atoms_file_is_reported_as_unreadable(tmp_path, capsys):
     assert f"cannot read {missing}" in _err(tmp_path, novelty, missing, capsys)
 
 
-@pytest.mark.parametrize("payload", [
-    b"", b"{not json", bytes([0xFF, 0xFE]), b"[1, 2]", pytest.param(b"[" * 100000 + b"]" * 100000, id="nested_deeply"),
-    b'{"atoms": [{"unexpected": 1}]}', b'{"atoms": "x"}', b'{"spans": [1]}',
+@pytest.mark.parametrize("payload, reason", [
+    (b"", "is not valid JSON"),
+    (b"{not json", "is not valid JSON"),
+    (bytes([0xFF, 0xFE]), "is not UTF-8 text"),
+    (b"[1, 2]", "is not a valid atoms file: "),
+    pytest.param(b"[" * 100000 + b"]" * 100000, "is not valid JSON", id="nested_deeply"),
+    (b'{"atoms": [{"unexpected": 1}]}', "is not a valid atoms file: "),
+    (b'{"atoms": "x"}', "is not a valid atoms file: "),
+    (b'{"spans": [1]}', "is not a valid atoms file: "),
 ])
-def test_an_atoms_file_that_is_not_an_atoms_record_is_reported_as_invalid(tmp_path, capsys, payload):
+def test_an_atoms_file_that_is_not_an_atoms_record_is_reported_as_invalid(tmp_path, capsys, payload, reason):
     from dokimi.artifacts import save_artifact
     from tests.test_novelty_cli import _minimal_artifact
 
@@ -74,7 +87,7 @@ def test_an_atoms_file_that_is_not_an_atoms_record_is_reported_as_invalid(tmp_pa
     save_artifact("novelty", _minimal_artifact(), novelty)
     bad = tmp_path / "atoms.json"
     bad.write_bytes(payload)
-    assert f"{bad} is not " in _err(tmp_path, novelty, bad, capsys)
+    assert f"{bad} {reason}" in _err(tmp_path, novelty, bad, capsys)
 
 
 def test_an_atoms_error_names_the_exception_without_its_repr_quotes(tmp_path, capsys):
@@ -85,7 +98,7 @@ def test_an_atoms_error_names_the_exception_without_its_repr_quotes(tmp_path, ca
     save_artifact("novelty", _minimal_artifact(), novelty)
     bad = tmp_path / "atoms.json"
     bad.write_text('{"atoms": [{"unexpected": 1}]}', encoding="utf-8")
-    assert f"{bad} is not " in _err(tmp_path, novelty, bad, capsys)
+    assert f"{bad} is not a valid atoms file: " in _err(tmp_path, novelty, bad, capsys)
 
 
 @pytest.mark.parametrize("kind", [k for k in _WRONG_SHAPES if not k.startswith("bundle")])
@@ -97,4 +110,5 @@ def test_an_atoms_file_of_a_wrong_shape_is_reported_as_invalid_by_view(tmp_path,
     save_artifact("novelty", _minimal_artifact(), novelty)
     bad = tmp_path / "atoms.json"
     bad.write_text(_WRONG_SHAPES[kind], encoding="utf-8")
-    assert f"{bad} is not " in _err(tmp_path, novelty, bad, capsys)
+    reason = "is not valid JSON" if "nested" in kind else "is not a valid atoms file: "
+    assert f"{bad} {reason}" in _err(tmp_path, novelty, bad, capsys)

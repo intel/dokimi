@@ -413,8 +413,24 @@ EXIT_BASELINE: dict[str, tuple[int, str]] = {}
 _EXIT_CALLS = {("sys", "exit"), ("os", "_exit")}
 
 
+def _exit_imports(tree: ast.Module) -> tuple[dict[str, str], dict[str, tuple[str, str]]]:
+    """Local names bound to ``sys``/``os`` (``import sys as s``) and to their exit callables (``from sys import exit as bye``)."""
+    module_aliases = {"sys": "sys", "os": "os"}
+    name_aliases: dict[str, tuple[str, str]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for a in node.names:
+                if a.name in ("sys", "os"):
+                    module_aliases[a.asname or a.name] = a.name
+        elif isinstance(node, ast.ImportFrom) and node.module in ("sys", "os") and not node.level:
+            for a in node.names:
+                if (node.module, a.name) in _EXIT_CALLS:
+                    name_aliases[a.asname or a.name] = (node.module, a.name)
+    return module_aliases, name_aliases
+
+
 def exit_sites(tree: ast.Module) -> list[int]:
-    """Lines that end the process: an exit call (by module attribute or builtin name) or a raise of SystemExit.
+    """Lines that end the process: an exit call (by module attribute, through an alias, or builtin name) or a raise of SystemExit.
 
     The ``if __name__ == '__main__':`` block of a script is the process boundary of ``python -m``, so it is
     not counted.
@@ -422,6 +438,7 @@ def exit_sites(tree: ast.Module) -> list[int]:
     guarded = {id(n) for stmt in tree.body
                if isinstance(stmt, ast.If) and ast.unparse(stmt.test) == "__name__ == '__main__'"
                for n in ast.walk(stmt)}
+    module_aliases, name_aliases = _exit_imports(tree)
     lines: list[int] = []
     for node in ast.walk(tree):
         if id(node) in guarded:
@@ -432,10 +449,10 @@ def exit_sites(tree: ast.Module) -> list[int]:
                 lines.append(node.lineno)
         elif isinstance(node, ast.Call):
             func = node.func
-            if isinstance(func, ast.Name) and func.id in ("exit", "quit"):
+            if isinstance(func, ast.Name) and (func.id in ("exit", "quit") or func.id in name_aliases):
                 lines.append(node.lineno)
             elif (isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name)
-                    and (func.value.id, func.attr) in _EXIT_CALLS):
+                    and (module_aliases.get(func.value.id), func.attr) in _EXIT_CALLS):
                 lines.append(node.lineno)
     return sorted(lines)
 
@@ -602,6 +619,17 @@ def test_a_process_exit_outside_the_frontend_fails(tmp_path):
     problems = exit_problems(imports, {"dokimi.c": (1, "one exit once")})
     assert [p.split()[0] for p in problems] == ["dokimi.b", "dokimi.c", "dokimi.core"]
     assert "lower EXIT_BASELINE" not in "".join(problems)
+
+
+def test_an_aliased_process_exit_outside_the_frontend_is_counted(tmp_path):
+    imports = _package(tmp_path, {
+        "dokimi/a.py": "import sys as s\ns.exit(1)\n",
+        "dokimi/b.py": "from sys import exit as bye\nbye(1)\n",
+        "dokimi/c.py": "import os as o\no._exit(0)\n",
+    })
+    assert exit_sites(imports.trees["dokimi.a"]) == [2]
+    assert exit_sites(imports.trees["dokimi.b"]) == [2]
+    assert exit_sites(imports.trees["dokimi.c"]) == [2]
 
 
 def test_imported_callable_aliases_count_each_launch_once(tmp_path):
