@@ -517,6 +517,28 @@ def test_preflight_unknown_doc_source_format_exits_2(tmp_path, monkeypatch, caps
     assert "Unknown --doc-source format" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("prefix", ["local:", "okf:"])
+@pytest.mark.parametrize("exists", [True, False])
+def test_preflight_refuses_a_local_doc_source_path_that_does_not_exist(tmp_path, monkeypatch, capsys,
+                                                                      prefix, exists):
+    # The factory reads no file, so without this a missing docs dir passed preflight with exit 0.
+    docs = tmp_path / "docs"
+    if exists:
+        docs.mkdir()
+    monkeypatch.setenv("OPENAI_API_KEY", "test")
+    monkeypatch.setattr(benchmark, "_load_registry", lambda args: _OneLibrary())
+    _argv(monkeypatch, "benchmark", "preflight", "--library", "onetbb", "--doc-source", f"{prefix}{docs}",
+          "--output-dir", str(tmp_path / "out"), "--provider", "openai", "--judge-provider", "openai")
+    if exists:
+        cli.main()
+        assert "Preflight OK" in capsys.readouterr().out
+        return
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    assert f"doc source path does not exist: {prefix}{docs}" in capsys.readouterr().err
+
+
 def test_external_content_walkthrough_states_the_exit_of_a_preflight_without_keys(tmp_path, monkeypatch, capsys):
     # The walkthrough shows a preflight run with no API keys and says what it exited with; that number
     # must be the real refusal, so the page cannot drift from the code.

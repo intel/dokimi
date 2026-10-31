@@ -155,6 +155,12 @@ def _check_doc_source(plan: dict, entry: Any, refuse: Callable[[str], None], err
     a source that cannot be built is a failed check (exit 1)."""
     from dokimi.mcp.factory import create_doc_source_client
 
+    source = plan["doc_source"]
+    for prefix in ("local:", "okf:"):  # the factory reads no file; a remote source is not probed
+        if isinstance(source, str) and source.startswith(prefix) and source[len(prefix):] \
+                and not Path(source[len(prefix):]).exists():
+            refuse(f"doc source path does not exist: {source}")
+            return
     try:
         create_doc_source_client(plan["doc_source"])
         if plan["doc_source"] == "context7" and getattr(entry, "context7_id", None):
