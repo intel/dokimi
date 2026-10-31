@@ -44,6 +44,8 @@ _PRINT_ONLY = re.compile(r"\s*(?:(?:\d+|\$)(?:\s*,\s*(?:\d+|\$))?)?\s*p\s*")  # 
 # stderr sent to a file: stdout, what a printing command shows, is unchanged
 # (matched on the part with quoted text masked, so a quote glued to ``2`` or to the target is seen)
 _STDERR_FILE = re.compile(r"(?<![^\s;&|(])2>>?[ \t]*[^\s;&|<>()]+")
+# redirects apply in order: after ``2>/dev/null`` or ``2>file``, a ``1>&2`` sends stdout there too, away from the agent
+_STDOUT_AFTER_STDERR = re.compile(r"(?<![^\s;&|(])2>>?(?!&)[ \t]*[^\s;&|<>()]+.*?(?<![^\s;&|(])1?>&2(?!\d)")
 _SYSTEM_BIN = {"/bin", "/usr/bin", "/usr/local/bin"}
 _ASSIGN = re.compile(r"[A-Za-z_]\w*=")  # a NAME=value word: a variable set for the command that follows
 _KEYWORDS = {"if", "then", "else", "elif", "do", "while", "until", "!"}
@@ -171,7 +173,8 @@ class _Walk:
         if closed and self.groups:
             before, piped, mark = self.groups.pop()
             after_close = bare[closed.start():]
-            if _PIPE.search(after_close) or _STDOUT_FILE.search(bare[closed.end():]):  # the output feeds a pipe or a file
+            redirects = bare[closed.end():]
+            if _PIPE.search(after_close) or _STDOUT_FILE.search(redirects) or _STDOUT_AFTER_STDERR.search(redirects):
                 del out[mark:]
             if piped or _PIPE.search(after_close):  # the group ran in a pipeline's subshell
                 self.here = before
@@ -180,7 +183,8 @@ class _Walk:
 
     def words(self, part: str) -> list[str]:
         """The words of ``part``; none when it cannot be split or is computed (a computed ``cd`` loses the directory)."""
-        part = _outside_quotes(part, _HARMLESS_REDIRECT)
+        if not _STDOUT_AFTER_STDERR.search(_bare(part)):  # else ``>&2`` stays: a redirect, so no read
+            part = _outside_quotes(part, _HARMLESS_REDIRECT)
         part = _outside_quotes(part, _STDERR_FILE)
         try:
             words = shlex.split(part) if not _computed(part) else None

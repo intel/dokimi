@@ -242,6 +242,16 @@ def test_shell_reads_skips_a_function_definition(command, reads):
     assert shell_reads(command) == reads
 
 
+@pytest.mark.parametrize(("command", "reads"), [
+    ("cat AGENTS.md 2>/dev/null 1>&2", []), ("cat AGENTS.md 2>err >&2", []),
+    ("cat AGENTS.md 1>&2 2>/dev/null", ["AGENTS.md"]), ("cat AGENTS.md 2>/dev/null", ["AGENTS.md"]),
+    ("cat AGENTS.md 2>&1 >&2", ["AGENTS.md"]), ("cat AGENTS.md 2>/dev/null 12>&2", ["AGENTS.md"]),
+    ("{ cat AGENTS.md; } 2>/dev/null 1>&2", []), ("{ cat AGENTS.md; } 1>&2 2>/dev/null", ["AGENTS.md"])])
+def test_shell_reads_follows_redirects_in_order(command, reads):
+    # stdout copied onto a stderr already sent to /dev/null or a file never reaches the agent
+    assert shell_reads(command) == reads
+
+
 def test_shell_reads_of_an_empty_script_reads_nothing():
     assert shell_reads("") == [] and shell_reads("  \n") == []
     assert unwrap_shell("") == ""  # an empty command is its own script, not a wrapper
