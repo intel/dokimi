@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from dokimi.utils import normalize_model_ref
 from dokimi.commands import baseline_regression
-from dokimi.exit_codes import EXIT_USAGE, usage_exit
+from dokimi.exit_codes import EXIT_USAGE
 
 BASELINES_DIR = Path("baselines/eval")
 
@@ -256,8 +256,7 @@ def _print_metric_table(cur_summary: dict, base_summary: dict) -> None:
 
 def cmd_baseline_compare(args: argparse.Namespace) -> None:
     """Compare an eval result against a saved baseline."""
-    if args.min_matched is not None and not baseline_regression.enabled(args):
-        usage_exit("--min-matched needs --max-context-drop or --max-lift-drop")
+    baseline_regression.require_gate_for_min_matched(args)
     eval_path = Path(args.eval)
     eval_data = _read_json_object(eval_path, 2)  # 1 is the --strict verdict
     manifest = _baseline_manifest(2)

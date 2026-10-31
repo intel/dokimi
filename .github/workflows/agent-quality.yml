@@ -25,27 +25,8 @@ defaults:
 
 # Runners: see the header of ci.yml.
 jobs:
-  # THE executable-track proof for this repo. It is now the only job that
-  # builds and verifies a Docker task, because the task definitions no longer
-  # live here: they are supplied from an external content checkout via
-  # --tasks-root (see dokimi/docs/contributing-terminal-bench-task.md
-  # for the format). That makes this the right shape of test anyway -- it
-  # exercises the framework against content it did not author.
-  #
-  # Real end-to-end proof that this repo's own harnesses can pick up and run a
-  # skill/task from an external catalog. Clones a real, public
-  # uxlfoundation/skills checkout, scans it with `catalog scan`, then runs one
-  # of its real tasks through our own `docker-oracle` harness (build + solve +
-  # verify: the build and verifier steps `docker-claude`/`docker-claude-skill`
-  # share) and `docker-probe` (the in-container agent launch those arms use,
-  # without the LLM). It asserts the actual
-  # pass rate in "Verify pass rate" below -- `tasks run` exits 1 for an errored,
-  # unscored or missing cell but 0 for a task that failed verification, so
-  # without that explicit check this job would stay green
-  # even if the external task failed verification. Pinned to a fixed commit
-  # (UXL_SKILLS_COMMIT below) and retried 3x on clone so this job's result
-  # reflects our own code, not an upstream repo edit or a transient network
-  # blip.
+  # Runs a real task from a pinned external catalog through docker-oracle and docker-probe.
+  # `tasks run` exits 0 for a failed verification, so "Verify pass rate" below asserts the pass rate.
   external-catalog-smoke:
     name: External catalog smoke test (uxlfoundation/skills)
     runs-on: ${{ github.repository_owner == 'intel' && github.event_name == 'pull_request' && 'dokimi-ec2' || 'ubuntu-latest' }}

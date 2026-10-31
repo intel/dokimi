@@ -159,8 +159,7 @@ class CommandHarness:
             passed = reward is not None and reward >= 1.0
             if reward is None:
                 passed = returncode == 0
-                if _exit_is_verdict(returncode) and not _has_reward_file(output_dir):
-                    reward = 1.0 if passed else 0.0
+                reward = _exit_code_reward(returncode, output_dir)
 
         metrics: dict[str, Any] = {
             "dry_run": False,
@@ -392,9 +391,12 @@ def _task_prompt(task: TaskSpec) -> str:
     )
 
 
-def _exit_is_verdict(returncode: int) -> bool:
-    """False for a command that never ran (126, 127) or was killed by a signal."""
-    return not (returncode < 0 or returncode in (126, 127) or 128 < returncode <= 192)
+def _exit_code_reward(returncode: int, output_dir: Path | None) -> float | None:
+    """1.0 or 0.0 from an exit code; None when the command never ran (126, 127), was killed by a
+    signal, or left a reward file that could not be read."""
+    if returncode < 0 or returncode in (126, 127) or 128 < returncode <= 192 or _has_reward_file(output_dir):
+        return None
+    return 1.0 if returncode == 0 else 0.0
 
 
 def _has_reward_file(output_dir: Path | None) -> bool:

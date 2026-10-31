@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import argparse
 import math
-import sys
 from decimal import Decimal
 
 from dokimi.exit_codes import usage_exit
@@ -27,6 +26,11 @@ def threshold(value: str) -> float:
 
 def enabled(args: argparse.Namespace) -> bool:
     return any(getattr(args, name, None) is not None for name in ("max_context_drop", "max_lift_drop"))
+
+
+def require_gate_for_min_matched(args: argparse.Namespace) -> None:
+    if getattr(args, "min_matched", None) is not None and not enabled(args):
+        usage_exit("--min-matched needs --max-context-drop or --max-lift-drop")
 
 
 def _scored(rows: list[Record]) -> dict[str, tuple[Decimal, Decimal]]:
