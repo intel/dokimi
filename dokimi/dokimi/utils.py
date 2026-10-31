@@ -135,6 +135,7 @@ _VENDORS = frozenset({
     "moonshotai", "nvidia", "openai", "qwen", "stability", "twelvelabs", "writer", "xai", "zai",
 })
 _VENDOR_SLUGS = {"z-ai": "zai", "x-ai": "xai", "mistralai": "mistral"}  # OpenRouter's spelling of a vendor
+_BEDROCK_ARN = re.compile(r"(?:^|/)arn:aws[a-z-]*:bedrock:[a-z0-9-]*:\d*:(?:inference-profile|foundation-model)/")
 
 
 def _model_core(model: str) -> tuple[str, str | None]:
@@ -147,9 +148,9 @@ def _model_core(model: str) -> tuple[str, str | None]:
     (``qwen/``, ``z-ai/``) goes, as its Bedrock ``vendor.`` prefix does, unless a ``huggingface/`` route precedes it.
     """
     name = (model or "").strip().lower()
-    for marker in ("inference-profile/", "foundation-model/"):  # the tail of a Bedrock ARN
-        if marker in name:
-            name = name.rsplit(marker, 1)[-1]
+    arn = _BEDROCK_ARN.search(name)  # only a Bedrock ARN's tail: ``foundation-model/X`` alone is an org/name id
+    if arn:
+        name = name[arn.end():]
     parts = name.split("/")
     hub = False
     while len(parts) > 1 and parts[0] in _ROUTES:

@@ -63,6 +63,12 @@ CASES = [
     ("models/gemini-2.0-flash", "gemini-2.0-flash", True),
     ("arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0",
      "claude-sonnet-4-5-20250929", True),
+    # only a Bedrock ARN loses its path: the same words in an org/name id are an organization
+    ("bedrock/arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.claude-x-v1:0", "claude-x", True),
+    ("arn:aws-us-gov:bedrock:us-gov-west-1::foundation-model/anthropic.claude-x", "claude-x", True),
+    ("huggingface/foundation-model/X", "X", False),
+    ("huggingface/inference-profile/X", "X", False),
+    ("foundation-model/X", "X", False),
     # a custom deployment name with a dot is not a vendor prefix: only the vendors of Bedrock ids are dropped
     ("alice.model", "bob.model", False),
     ("alice.model", "model", False),

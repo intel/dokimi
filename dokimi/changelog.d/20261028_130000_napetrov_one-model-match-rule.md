@@ -18,4 +18,5 @@
   (`qwen/X`, `z-ai/X`), is the vendor of Bedrock's `qwen.X`, `zai.X` and is dropped like it. Only a known vendor before the first dot is dropped (`anthropic.`,
   `openai.`, as in Bedrock ids), so a custom name such as `alice.model` stays its own model, and an explicit
   `huggingface/` route keeps the organization after it (`huggingface/google/X` is not `X`). So a bare requested name answered by an org-prefixed id (`X` answered by `myorg/X`)
-  now gets the `repo compare` and `repo report` model-mismatch warning, which it did not before.
+  now gets the `repo compare` and `repo report` model-mismatch warning, which it did not before. Only a
+  Bedrock ARN (`arn:aws:bedrock:…:inference-profile/`) loses its path, so `huggingface/foundation-model/X` is not `X`.
