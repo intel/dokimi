@@ -405,9 +405,8 @@ def spawn_problems(imports: Imports, baseline: Mapping[str, tuple[int, str]],
     return problems
 
 
-#: Modules that end the process: ``sys.exit``, ``os._exit``, ``exit``/``quit`` and ``raise
-#: SystemExit``. Only the frontend layer may. A library raises InputError (dokimi.utils), and
-#: cli.main prints it and exits 2. Empty: nothing outside the frontend ends the process.
+#: Modules that end the process (sys.exit, os._exit, exit, quit, raise SystemExit): only the frontend may.
+#: A library raises InputError and cli.main exits 2. Empty: nothing outside the frontend exits.
 EXIT_BASELINE: dict[str, tuple[int, str]] = {}
 
 _EXIT_CALLS = {("sys", "exit"), ("os", "_exit")}
