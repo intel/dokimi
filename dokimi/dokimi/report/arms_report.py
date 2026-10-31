@@ -152,8 +152,8 @@ def render_arms_report(data: Dict[str, Any]) -> str:
     if summary and summary.get("per_arm"):
         lines.append("## Summary (avg aggregate score, 0–100)")
         lines.append("")
-        lines.append("| Arm | Avg | Δ vs baseline | n |")
-        lines.append("| --- | ---: | ---: | ---: |")
+        lines.append("| Arm | Avg | Δ vs baseline | n | Errors |")
+        lines.append("| --- | ---: | ---: | ---: | ---: |")
         for arm in arms:
             stats = summary["per_arm"].get(arm, {})
             avg = stats.get("avg_aggregate")
@@ -165,7 +165,7 @@ def render_arms_report(data: Dict[str, Any]) -> str:
                 delta_s = "—"
             else:
                 delta_s = f"{delta:+.1f}"
-            lines.append(f"| `{arm}` | {avg_s} | {delta_s} | {stats.get('n', 0)} |")
+            lines.append(f"| `{arm}` | {avg_s} | {delta_s} | {stats.get('n', 0)} | {stats.get('errors', '—')} |")
         lines.append("")
         lines.extend(_significance_lines(summary, arms, baseline))
         lines.extend(_interaction_lines(summary))

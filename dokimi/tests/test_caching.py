@@ -306,8 +306,8 @@ def test_usage_values_of_every_field_type_replay(monkeypatch, tmp_path):
     assert hit == ("a", UsageRecord(**usage, replayed=True))
 
 
-def test_null_text_is_replayed_not_a_miss(monkeypatch, tmp_path):
-    """A reply without content is stored as null text and must still replay."""
+def test_a_null_entry_still_loads(monkeypatch, tmp_path):
+    """A well-formed null entry loads (load_response); complete() still refuses to replay it (keeps)."""
     monkeypatch.setenv(caching.RESPONSE_CACHE_ENV, str(tmp_path))
     (tmp_path / "empty.json").write_text(
         json.dumps({"text": None, "usage": {}}), encoding="utf-8"
@@ -398,6 +398,32 @@ def test_no_temp_files_are_left_behind(monkeypatch, tmp_path):
     monkeypatch.setenv(caching.RESPONSE_CACHE_ENV, str(tmp_path))
     caching.store_response("k", "answer", _usage())
     assert [p.name for p in tmp_path.iterdir()] == ["k.json"]
+
+
+# ---------------------------------------------------------------------------
+# keeps: empty replies are never stored or replayed
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("text", ["", "   ", "\n\t"])
+def test_an_empty_reply_is_not_kept_even_without_a_judge_test(text):
+    assert caching.keeps(None, text) is False
+
+
+def test_an_empty_reply_is_not_kept_even_when_the_judge_test_accepts_it():
+    assert caching.keeps(lambda _text: True, "") is False
+
+
+def test_a_content_less_reply_is_never_stored_or_replayed():
+    # A None reply stored as null would replay as "no answer" on every later run. Tool-call
+    # replies never get here: complete() takes no tools, and chat() is never response-cached.
+    assert caching.keeps(None, None) is False
+    assert caching.keeps(lambda _text: True, None) is False
+
+
+def test_a_reply_with_text_is_kept_only_when_the_judge_test_accepts_it():
+    assert caching.keeps(None, "Paris") is True
+    assert caching.keeps(lambda text: text.startswith("{"), "Paris") is False
 
 
 # ---------------------------------------------------------------------------
