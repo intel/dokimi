@@ -13,9 +13,10 @@ finite number within ``SCORE_BOUND``.
 
 from __future__ import annotations
 
-import math
 from collections import defaultdict
 from typing import Any
+
+from dokimi.measure import as_float
 
 from .grading import SCORE_BOUND
 
@@ -59,13 +60,7 @@ def process_order(key: str) -> tuple[int, str]:
 
 def as_measure(value: Any) -> float | None:
     """A finite number within ``SCORE_BOUND`` as a float; ``None`` for anything else (a bool, a string, NaN, 1e200)."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    try:
-        num = float(value)
-    except OverflowError:  # an int too large for a float
-        return None
-    return num if math.isfinite(num) and abs(num) <= SCORE_BOUND else None
+    return as_float(value, SCORE_BOUND)
 
 
 def process_line(means: dict[str, float] | None, width: int) -> list[str]:

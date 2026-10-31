@@ -56,6 +56,8 @@ from typing import Any
 
 import math
 
+from dokimi.measure import as_float, is_number
+
 from .grading import SCORE_BOUND, read_grade_json
 from .process_counts import process_line, process_means
 from .runner import UNSUPPORTED_FILE, slug
@@ -98,14 +100,7 @@ _SAFE_MAGNITUDE = SCORE_BOUND
 
 def _optional_number(value: object) -> bool:
     """True for None or a finite, non-bool number small enough that its squared deltas and sums stay finite."""
-    if value is None:
-        return True
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return False
-    try:
-        return math.isfinite(float(value)) and abs(float(value)) <= _SAFE_MAGNITUDE
-    except OverflowError:
-        return False
+    return value is None or as_float(value, _SAFE_MAGNITUDE) is not None
 
 
 def _skills_usable(skills: object) -> bool:
@@ -132,14 +127,10 @@ def _grade_usable(rec: dict[str, Any]) -> bool:
     return "score" in grade or not grade["score_only"]
 
 
-def _is_number(value: object) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
-
-
 def _fail_unmeasurable_score(rec: dict[str, Any]) -> None:
     """Read a stored NaN, infinite or out-of-bound ``grade.score`` as the grader failure grading now records."""
     grade = rec.get("grade")
-    if isinstance(grade, dict) and _is_number(grade.get("score")) and not _optional_number(grade["score"]):
+    if isinstance(grade, dict) and is_number(grade.get("score")) and not _optional_number(grade["score"]):
         reasons = grade.get("reasons")
         if not isinstance(reasons, list):
             reasons = []
