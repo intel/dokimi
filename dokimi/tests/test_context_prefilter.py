@@ -112,6 +112,13 @@ def test_a_bad_line_is_reported_and_the_rest_still_reads():
     assert session.errors == ["line 1: not JSON"]
 
 
+def test_a_line_nested_too_deep_to_parse_is_reported_and_skipped():
+    raw = "[" * 100_000 + "\n" + json.dumps(_prompt("still here")) + "\n"
+    session = parse_session(raw, "x")
+    assert [e.text for e in session.events] == ["still here"]
+    assert session.errors == ["line 1: not JSON"]
+
+
 def test_read_session_refuses_a_file_it_cannot_read_or_that_holds_no_event(tmp_path):
     with pytest.raises(SessionError, match="cannot read"):
         read_session(tmp_path / "missing.jsonl")

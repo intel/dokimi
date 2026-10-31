@@ -71,7 +71,7 @@ def parse_session(raw: str, name: str = "") -> Session:
             continue
         try:
             rec = json.loads(line)
-        except ValueError:
+        except (ValueError, RecursionError):  # JSONDecodeError, an over-long integer, deep nesting
             _error(session, f"line {n}: not JSON")
             continue
         if isinstance(rec, dict):

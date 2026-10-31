@@ -20,6 +20,7 @@ few triggers is listed but not ranked, since a rare safety rule looks like waste
 
 from __future__ import annotations
 
+import functools
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -86,6 +87,7 @@ def _stem(word: str) -> str:
     return word
 
 
+@functools.lru_cache(maxsize=8192)  # every claim is matched against the same event texts
 def _stems(text: str) -> frozenset[str]:
     return frozenset(_stem(w) for w in _WORD.findall(text.lower()) if w not in _STOP)
 

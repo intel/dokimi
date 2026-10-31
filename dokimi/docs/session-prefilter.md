@@ -62,6 +62,10 @@ The table prints the same counts; the JSON has every claim with its status,
 keys (commands, paths, keywords), counts, rates and flags. Defaults: window 10
 events, at least 5 sessions, rare at most 3 sessions, in use at 20% of sessions.
 
+The JSON is printed, not stored: dokimi writes no file in this format, so it
+has no schema under `dokimi/schemas/`. `format_version` marks its shape. A
+change that stores it must first add a versioned schema there.
+
 ## Session logs read
 
 This slice reads **Claude Code** session logs: JSON lines under
