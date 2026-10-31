@@ -344,7 +344,7 @@
               "nargs": null,
               "position": null,
               "required": false,
-              "type": "int"
+              "type": "dokimi.cli.build_parser.<locals>.positive_int#faf57db5ff9f"
             }
           ],
           "path": "dokimi answers generate",

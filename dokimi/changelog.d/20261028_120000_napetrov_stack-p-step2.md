@@ -37,6 +37,8 @@
 
 - **Stack P no longer ignores `top_k`** — `Answerer` passes `max_results=top_k` to the doc
   source; the context arm's retrieval request is now the one the arms stack makes.
+  `answers generate --top-k` takes a positive integer, as `dokimi evaluate` does, and a config
+  `retrieval.top_k` that is not one exits 2.
 - **Library id from the registry** — `EvaluationPipeline` resolves the library id through
   `resolve_library_id_for_product` (explicit id, then an `mcp:` source's `;id=`, then `context7_id`,
   then the client), in the
