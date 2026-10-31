@@ -552,6 +552,17 @@ def test_convert_answer_counts_a_finding_repeated_in_two_messages_once():
     assert len(_block(convert_answer("codex-review", _GOOD, "/w", messages=[_GOOD, _GOOD]))) == 1
 
 
+@pytest.mark.parametrize(("draft", "final", "want"), [
+    ("- [P2] Leak — /w/a.py:3\n  body\n", "- [P1] Leak — /w/a.py:3-5\n  body\n", ("major", 5, "body")),
+    ("- [P1] Leak — /w/a.py:3\n  draft\n", "- [P1] Leak — /w/a.py:3\n  final\n", ("major", 3, "final")),
+    ("- [P1] Leak — /w/a.py:3\n  body\n", "- [P3] Leak — /w/a.py:3\n  body\n", ("minor", 3, "body")),
+], ids=["priority-and-range", "body", "downgrade"])
+def test_convert_answer_keeps_the_last_version_of_a_revised_finding(draft, final, want):
+    # the grader counts blocker/major findings: an earlier draft's priority must not stand for the final one's
+    out = _block(convert_answer("codex-review", final, "/w", messages=[draft, final]))
+    assert [(f["severity"], f["end_line"], f["message"]) for f in out] == [want]
+
+
 @pytest.mark.parametrize(("messages", "files"), [([_GOOD + _GOOD], ["a.py"]), (["intro", _GOOD + _GOOD], ["a.py"]),
                                                  ([_OTHER, _GOOD + _GOOD], ["b.py", "a.py"])])
 def test_convert_answer_keeps_the_block_of_a_finding_repeated_in_one_message(messages, files):

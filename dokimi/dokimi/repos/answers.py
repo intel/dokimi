@@ -111,8 +111,7 @@ def convert_answer(fmt: str | None, answer: str, workdir: str | None = None, *, 
         return answer
     if fmt not in _CONVERTERS:
         raise ValueError(f"unknown answer format {fmt!r} (known: {', '.join(ANSWER_FORMATS)})")
-    findings: list[dict[str, Any]] = []
-    seen: set[tuple[Any, ...]] = set()
+    found: dict[tuple[Any, ...], dict[str, Any]] = {}
     unparsed = 0
     for i, t in enumerate(texts):
         parsed = _CONVERTERS[fmt](t, workdir)
@@ -121,10 +120,10 @@ def convert_answer(fmt: str | None, answer: str, workdir: str | None = None, *, 
         full = parsed or i == len(texts) - 1
         unparsed += _unparsed_marks(t, _FINDING_MARK if full else _BULLET_MARK)
         for f in parsed:
-            key = (f["file"], f["line"], f["rule"], f["message"])
-            if key not in seen:  # a finding repeated, in one message or in a later one, counts once
-                seen.add(key)
-                findings.append(f)
+            # a finding repeated (same file, line and title) counts once, as its last version: a later
+            # message may revise its priority, range or body, and the grader counts severe findings
+            found[(f["file"], f["line"], f["rule"])] = f
+    findings = list(found.values())
     if unparsed:  # format drift must not read as a clean review
         log.warning("%s: %d finding marker(s) in the answer but %d parsed; no findings block", fmt,
                     len(findings) + unparsed, len(findings))
