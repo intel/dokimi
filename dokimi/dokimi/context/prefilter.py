@@ -126,18 +126,25 @@ def _triggers(claim: Claim, event: Event) -> bool:
     return len(claim.keywords & _stems(event.text)) >= (len(claim.keywords) + 1) // 2
 
 
+def _at_path(key: str, text: str) -> bool:
+    """Whether ``key`` occurs in ``text`` from a path-segment start, so ``a.md`` does not match ``data.md``."""
+    name = key.removeprefix("./")
+    return bool(name) and re.search(rf"(?<![\w.-]){re.escape(name)}", text) is not None
+
+
 def _acts(claim: Claim, event: Event) -> bool:
     if event.kind != "tool":
         return False
     return (any(_names(k, event.command) for k in claim.commands)
-            or any(k in p for k in claim.paths for p in event.paths))
+            or any(_at_path(k, p) for k in claim.paths for p in event.paths))
 
 
 def _corrects(claim: Claim, event: Event) -> bool:
     if event.kind != "prompt" or not _CUE.search(event.text):
         return False
-    return bool(claim.keywords & _stems(event.text)) or any(
-        _names(k, event.text) or k in event.text for k in (*claim.commands, *claim.paths))
+    return (bool(claim.keywords & _stems(event.text))
+            or any(_names(k, event.text) for k in claim.commands)
+            or any(_at_path(k, event.text) for k in claim.paths))
 
 
 def _scan(claim: Claim, events: list[Event], window: int) -> tuple[int, int, int]:

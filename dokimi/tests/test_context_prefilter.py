@@ -112,6 +112,12 @@ def test_a_bad_line_is_reported_and_the_rest_still_reads():
     assert session.errors == ["line 1: not JSON"]
 
 
+def test_a_line_separator_inside_a_prompt_does_not_split_the_record():
+    raw = json.dumps(_prompt("keep the changelog fragment"), ensure_ascii=False) + "\n"
+    session = parse_session(raw, "x")
+    assert session.errors == [] and [e.text for e in session.events] == ["keep the changelog fragment"]
+
+
 def test_a_line_nested_too_deep_to_parse_is_reported_and_skipped():
     raw = "[" * 100_000 + "\n" + json.dumps(_prompt("still here")) + "\n"
     session = parse_session(raw, "x")
@@ -178,6 +184,13 @@ def test_a_user_pushback_after_the_trigger_is_a_correction():
     agreed = _session(_prompt("push the branch"), _prompt("push the branch again, thanks"))
     row = _row(_report([corrected, agreed]), CI)
     assert row["corrected"] == 1 and row["correction_rate"] == 0.5
+
+
+def test_a_path_matches_from_a_segment_start_not_inside_a_longer_name():
+    rule = "- Update `a.md` before the release.\n"
+    inside = _session(_prompt("update the release"), _tool("Edit", file_path="/w/data.md"))
+    named = _session(_prompt("update the release"), _tool("Edit", file_path="/w/docs/a.md"))
+    assert _row(_report([inside, named], rule), "Update")["acted"] == 1
 
 
 def test_a_claim_without_a_named_command_is_not_measured_as_acted():

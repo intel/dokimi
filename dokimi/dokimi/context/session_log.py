@@ -66,7 +66,7 @@ def read_session(path: Path) -> Session:
 
 def parse_session(raw: str, name: str = "") -> Session:
     session = Session(name=name)
-    for n, line in enumerate(raw.splitlines(), 1):
+    for n, line in enumerate(raw.split("\n"), 1):  # not splitlines(): it breaks at a raw U+2028
         if not line.strip():
             continue
         try:
