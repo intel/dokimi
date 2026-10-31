@@ -9,7 +9,7 @@ import argparse
 import os
 import sys
 from pathlib import Path
-from typing import Any, List, cast
+from typing import Any, Callable, List, cast
 
 from dokimi.commands.evaluate import _warn_judge_independence
 from dokimi.eval.judge import JUDGE_PROVIDERS
@@ -25,6 +25,7 @@ from dokimi.defaults import (
     JUDGE_MODEL_HELP,
 )
 from dokimi.commands.library import _load_registry
+from dokimi.exit_codes import EXIT_USAGE
 
 
 def _run_single_library(entry, output_dir: str, model: str, provider: str, judge_model: str, judge_provider: str = DEFAULT_JUDGE_PROVIDER, doc_source_override=None, max_tokens_per_question: int = DEFAULT_MAX_TOKENS_PER_QUESTION, force_regen: bool = False, concurrency: int = DEFAULT_CONCURRENCY, questions_from=None, questions_root=None) -> dict:
@@ -123,71 +124,99 @@ def _check_questions_from(questions_from: str, key: str) -> tuple[Path, list, st
         return qf, [], f"questions source invalid: {qf} ({exc})"
 
 
-def cmd_benchmark_preflight(args: argparse.Namespace) -> None:
-    """Validate the resolved benchmark plan without running LLM calls."""
+def _check_golden_set(questions_root: str, key: str, refuse: Callable[[str], None]) -> None:
+    """Preflight the golden set under a questions root; each problem is an input refusal."""
     from dokimi.orchestrator.pipeline import load_questions_payload
+
+    root = Path(questions_root)
+    golden = root / f"{key.lower()}_golden.json"
+    if not root.is_dir():
+        refuse(f"questions root not found: {root}")
+        return
+    if not golden.is_file():
+        refuse(f"questions root has no golden set: {golden}")
+        return
+    try:
+        golden_questions = load_questions_payload(golden)
+        print(f"  golden questions: {golden} ({len(golden_questions)} items)")
+        if not golden_questions:
+            refuse(f"golden set is empty: {golden}")
+            return
+        bad = next((i for i, q in enumerate(cast(List[Any], golden_questions)) if not isinstance(q, dict)), None)
+        if bad is not None:
+            refuse(f"golden set item {bad} is not a dict: {golden}")
+    except Exception as exc:
+        refuse(f"golden set invalid: {golden} ({exc})")
+
+
+def _check_doc_source(plan: dict, entry: Any, refuse: Callable[[str], None], errors: list[str],
+                      warnings: list[str]) -> None:
+    """The doc source must build. A --doc-source value the factory rejects is a refusal (exit 2);
+    a source that cannot be built is a failed check (exit 1)."""
     from dokimi.mcp.factory import create_doc_source_client
 
+    source = plan["doc_source"]
+    for prefix in ("local:", "okf:"):  # the factory reads no file; a remote source is not probed
+        if isinstance(source, str) and source.startswith(prefix) and source[len(prefix):] \
+                and not Path(source[len(prefix):]).exists():
+            refuse(f"doc source path does not exist: {source}")
+            return
+    try:
+        create_doc_source_client(plan["doc_source"])
+        if plan["doc_source"] == "context7" and getattr(entry, "context7_id", None):
+            print(f"  context7_id: {entry.context7_id}")
+        elif plan["doc_source"] == "context7":
+            warnings.append("context7 id not pinned; client will resolve by target name")
+    except ValueError as exc:
+        refuse(f"doc source invalid: {plan['doc_source']} ({exc})")
+    except Exception as exc:  # the source cannot be reached or built: a failed check
+        errors.append(f"doc source check failed: {plan['doc_source']} ({exc})")
+
+
+def cmd_benchmark_preflight(args: argparse.Namespace) -> None:
+    """Validate the resolved benchmark plan without running LLM calls."""
     registry = _load_registry(args)
     try:
         entry = registry.get(args.library)
     except KeyError as exc:
         print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
 
     plan = _resolved_benchmark_plan(entry, args)
     _print_plan(plan)
 
     errors: list[str] = []
     warnings: list[str] = []
+    # Refusals are missing or invalid inputs and credentials (exit 2, as `benchmark run` refuses
+    # them). The other errors are failed checks (exit 1).
+    refusals: list[str] = []
+
+    def refuse(message: str) -> None:
+        refusals.append(message)
+        errors.append(message)
 
     for provider in {args.provider, args.judge_provider}:
         key = _credential_env_var(provider)
         if not os.environ.get(key):
-            errors.append(f"missing {key} for provider {provider}")
+            refuse(f"missing {key} for provider {provider}")
 
     try:
         Path(plan["output_dir"]).mkdir(parents=True, exist_ok=True)
     except OSError as exc:
-        errors.append(f"output dir not writable: {plan['output_dir']} ({exc})")
+        refuse(f"output dir not writable: {plan['output_dir']} ({exc})")
 
-    try:
-        client = create_doc_source_client(plan["doc_source"])
-        if plan["doc_source"] == "context7" and getattr(entry, "context7_id", None):
-            print(f"  context7_id: {entry.context7_id}")
-        elif plan["doc_source"] == "context7":
-            warnings.append("context7 id not pinned; client will resolve by target name")
-        _ = client
-    except Exception as exc:  # pragma: no cover - defensive for plugin clients
-        errors.append(f"doc source invalid: {plan['doc_source']} ({exc})")
+    _check_doc_source(plan, entry, refuse, errors, warnings)
 
     if plan["questions_from"]:
         qf, questions, problem = _check_questions_from(plan["questions_from"], entry.key)
         if problem:
-            errors.append(problem)
+            refuse(problem)
         else:
             print(f"  questions: {qf} ({len(questions)} items)")
 
     # Check golden set only if no external questions source (--questions-from takes precedence)
     if plan["questions_root"] and not plan["questions_from"]:
-        root = Path(plan["questions_root"])
-        golden = root / f"{entry.key.lower()}_golden.json"
-        if not root.is_dir():
-            errors.append(f"questions root not found: {root}")
-        elif not golden.is_file():
-            errors.append(f"questions root has no golden set: {golden}")
-        else:
-            try:
-                golden_questions = load_questions_payload(golden)
-                print(f"  golden questions: {golden} ({len(golden_questions)} items)")
-                if not golden_questions:
-                    errors.append(f"golden set is empty: {golden}")
-                else:
-                    bad = next((i for i, q in enumerate(cast(List[Any], golden_questions)) if not isinstance(q, dict)), None)
-                    if bad is not None:
-                        errors.append(f"golden set item {bad} is not a dict: {golden}")
-            except Exception as exc:
-                errors.append(f"golden set invalid: {golden} ({exc})")
+        _check_golden_set(plan["questions_root"], entry.key, refuse)
 
     same = _warn_judge_independence(
         answer_provider=args.provider,
@@ -207,7 +236,9 @@ def cmd_benchmark_preflight(args: argparse.Namespace) -> None:
         print("Errors:", file=sys.stderr)
         for item in errors:
             print(f"  ✗ {item}", file=sys.stderr)
-        sys.exit(1)
+        # A missing credential or input is a usage refusal (2), even with a failed check beside it;
+        # a failed check alone is a failed gate (1).
+        sys.exit(EXIT_USAGE if refusals else 1)
     print("✅ Preflight OK")
 
 
@@ -219,7 +250,7 @@ def cmd_benchmark_run(args: argparse.Namespace) -> None:
         entry = registry.get(args.library)
     except KeyError as exc:
         print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
 
     output_dir = args.output_dir or f"results/{entry.key}{DEFAULT_RESULTS_SUFFIX}"
     n_runs = getattr(args, "multi_run", 1)
@@ -231,7 +262,7 @@ def cmd_benchmark_run(args: argparse.Namespace) -> None:
         _, _, problem = _check_questions_from(questions_from, entry.key)
         if problem:
             print(f"Error: {problem}", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(EXIT_USAGE)
 
     if n_runs == 1:
         _run_single_library(
@@ -303,7 +334,7 @@ def cmd_benchmark_batch(args: argparse.Namespace) -> None:
 
     if not entries:
         print("No libraries to run.", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
 
     print(f"Batch run: {len(entries)} libraries → {args.output_dir}")
     results = []

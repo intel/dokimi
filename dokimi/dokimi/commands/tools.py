@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 
 from dokimi.defaults import DEFAULT_ANSWER_PROVIDER
+from dokimi.exit_codes import EXIT_USAGE, usage_exit
 
 PROVIDERS = ["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"]
 
@@ -95,16 +96,17 @@ def _print_skipped(skipped: dict, n_groups: int) -> None:
 
 
 def _write_items(path: str, items: list) -> None:
-    """Write the probe items to ``path``, or exit 1 naming it when it cannot be written."""
+    """Write the probe items to ``path``, or exit 2 naming it when it cannot be written."""
     try:
         Path(path).write_text(json.dumps(items, indent=1), encoding="utf-8")
     except OSError as exc:
         print(f"Error: cannot write --items-out {path}: {exc}", file=sys.stderr)
-        raise SystemExit(1) from None
+        raise SystemExit(EXIT_USAGE) from None
 
 
 def _save_result(data: dict, path: str) -> None:
-    """Save the tool_preference artifact to ``path``, or exit 1 naming it when it cannot be written."""
+    """Save the tool_preference artifact to ``path``. An unwritable path exits 2 naming it; a payload
+    the schema rejects exits 1."""
     from dokimi.artifacts import ArtifactValidationError, save_artifact
 
     try:
@@ -114,7 +116,7 @@ def _save_result(data: dict, path: str) -> None:
         raise SystemExit(1) from None
     except (OSError, ValueError) as exc:  # unwritable path, including an empty one (pathlib ValueError)
         print(f"Error: cannot write {path}: {exc}", file=sys.stderr)
-        raise SystemExit(1) from None
+        raise SystemExit(EXIT_USAGE) from None
 
 
 def _check_out_json_writable(path: str) -> None:
@@ -133,7 +135,7 @@ def _check_out_json_writable(path: str) -> None:
         tmp.unlink()
     except (OSError, ValueError) as exc:
         print(f"Error: cannot write {path}: {exc}", file=sys.stderr)
-        raise SystemExit(2) from None
+        raise SystemExit(EXIT_USAGE) from None
 
 
 def cmd_tools_preference(args: argparse.Namespace) -> None:
@@ -142,11 +144,11 @@ def cmd_tools_preference(args: argparse.Namespace) -> None:
     try:
         doc = tp.load_groups(json.loads(Path(args.groups).read_text(encoding="utf-8")))
     except (OSError, RecursionError, ValueError, tp.GroupsError) as exc:
-        raise SystemExit(f"--groups {args.groups}: {exc}") from exc
+        usage_exit(f"--groups {args.groups}: {exc}")
     factors = list(dict.fromkeys(f for f in args.factors.split(",") if f)) if args.factors else list(tp.FACTORS)
     unknown = sorted(set(factors) - set(tp.FACTORS))
     if unknown:
-        raise SystemExit(f"--factors: unknown {unknown} (known: {', '.join(tp.FACTORS)})")
+        usage_exit(f"--factors: unknown {unknown} (known: {', '.join(tp.FACTORS)})")
     items = tp.build_items(doc, factors)
     n_pair = sum(i["kind"] == "pair" for i in items)
     print(f"{len(doc['groups'])} groups -> {len(items)} items ({n_pair} pair, {len(items) - n_pair} control)"
@@ -159,7 +161,7 @@ def cmd_tools_preference(args: argparse.Namespace) -> None:
     if args.dry_run:
         return
     if not args.model:
-        raise SystemExit("--model is required unless --dry-run")
+        usage_exit("--model is required unless --dry-run")
     _check_out_json_writable(args.out_json)
 
     def progress(done: int, total: int) -> None:
@@ -184,14 +186,14 @@ def cmd_tools_preference(args: argparse.Namespace) -> None:
         first = next(r["error"] for r in results if r["error"])
         print(f"Error: all {len(results)} call(s) failed ({first}); see results[].error in {args.out_json}",
               file=sys.stderr)
-        raise SystemExit(2)
+        raise SystemExit(2)  # the documented "run incomplete" exit (docs/quickstart.md), not a usage refusal
     if data["summary"]["n_skipped"]:
         why = (f"--max-cost-usd {args.max_cost_usd:g} reached"
                if u["cost_known_calls"] == u["n_calls"]
                else "a call came back with no price, so --max-cost-usd cannot be enforced")
         print(f"Error: {why}; {data['summary']['n_skipped']} of {len(results)} call(s) not run, "
               f"the summary covers the rest. See {args.out_json}", file=sys.stderr)
-        raise SystemExit(2)
+        raise SystemExit(2)  # the documented "run incomplete" exit (docs/quickstart.md), not a usage refusal
 
 
 def register(sub: argparse._SubParsersAction, positive_int) -> None:

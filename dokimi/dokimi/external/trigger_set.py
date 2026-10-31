@@ -44,6 +44,14 @@ from dokimi.skills import Skill
 ExpectedSkill = Union[str, List[str], None]
 
 
+class TriggerSetInputError(ValueError):
+    """The question sources cannot form a trigger set: a duplicate id, a question with no text, or an
+    ``@field`` rule that labels none of its source's questions.
+
+    A usage error (exit 2). A rewrite that fails is a runtime error and stays a plain ValueError.
+    """
+
+
 class LabelUnresolved(LookupError):
     """An ``@field.path`` label rule found no such field on the question.
 
@@ -173,25 +181,31 @@ def build_trigger_set(
     sources: Sequence[tuple],
     catalog: Sequence[Skill],
     rewrite: Optional[Callable[[str], str]] = None,
+    specs: Optional[Sequence[str]] = None,
 ) -> List[TriggerQuery]:
     """Label, optionally rewrite, and lint questions.
 
     *sources* is ``[(questions, rule), ...]`` — a question list and the
     :func:`resolve_label` rule that labels it. *rewrite* maps question text to a
-    new query text and is given nothing but that text.
+    new query text and is given nothing but that text. When *specs* (one name per
+    source) is given, an ``@field`` rule that labels none of its source's questions
+    is refused, naming the source; without it such questions stay unlabelled. A ``None``
+    entry in *specs* exempts its source: a ``--trigger-set`` file is passed with the
+    ``@expected_skill`` rule, and a file with no labels is valid there.
     """
     out: List[TriggerQuery] = []
     seen: set = set()
-    for questions, rule in sources:
+    for index, (questions, rule) in enumerate(sources):
+        first = len(out)
         for q in questions:
             raw = question_id(q)
             qid = str(f"q{len(out) + 1}" if raw is None else raw)
             if qid in seen:
-                raise ValueError(f"duplicate question id across sources: {qid}")
+                raise TriggerSetInputError(f"duplicate question id across sources: {qid}")
             seen.add(qid)
             text = q.get("text") or q.get("question") or q.get("prompt") or q.get("question_text") or ""
             if not isinstance(text, str) or not text.strip():
-                raise ValueError(
+                raise TriggerSetInputError(
                     f"question {qid} has no text (looked in text, question, prompt, question_text)")
             try:
                 tq = TriggerQuery(id=qid, text=text, expected_skill=resolve_label(q, rule))
@@ -201,13 +215,22 @@ def build_trigger_set(
             tq.source_text = prior if isinstance(prior, str) else None
             extra = q.get(REACH_FIELDS)
             tq.reach = dict(extra) if isinstance(extra, dict) else {}
-            if rewrite is not None:
-                tq.source_text, tq.text = tq.source_text or text, rewrite(text).strip()
-                if not tq.text:
-                    raise ValueError(f"rewrite returned empty text for question {qid}")
-            tq.lint = lint_query(tq, catalog)
-            tq.lint["label_unresolved"] = not tq.labelled
             out.append(tq)
+        chunk = out[first:]
+        if (specs is not None and specs[index] is not None and rule.startswith("@") and chunk
+                and not any(tq.labelled for tq in chunk)):
+            # A typo in the path, not a set of negatives.
+            raise TriggerSetInputError(f"{specs[index]}: {rule} resolves for none of {len(chunk)} questions "
+                                       "(none has that field, so the file has no labels)")
+    # Every question has passed validation before the first rewrite call, so a refused set costs no model call.
+    for tq in out:
+        if rewrite is not None:
+            original = tq.text
+            tq.source_text, tq.text = tq.source_text or original, rewrite(original).strip()
+            if not tq.text:
+                raise ValueError(f"rewrite returned empty text for question {tq.id}")
+        tq.lint = lint_query(tq, catalog)
+        tq.lint["label_unresolved"] = not tq.labelled
     return out
 
 

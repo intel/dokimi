@@ -16,6 +16,7 @@ from __future__ import annotations
 import functools
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING
 
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
@@ -27,6 +28,10 @@ from dokimi.defaults import (
 from dokimi.eval.cells import HARNESS_ARMS_RUNNER, MatrixCellDescriptor
 from dokimi.eval.question_text import EmptyQuestionError
 from dokimi.utils import question_id
+
+if TYPE_CHECKING:
+    from dokimi.eval import Judge, JudgePanel
+    from dokimi.eval.arm_runner import ArmRunner
 
 
 @dataclass(frozen=True)
@@ -79,12 +84,18 @@ class LibraryIdError(ValueError):
     """No library id can be named for a doc arm, so the run stops before any answer."""
 
 
-class MatrixCellError(ValueError):
-    """A matrix cell refused or failed its run: the reason's message, and the cell's name."""
+class ProbeError(ValueError):
+    """A sampling probe, a real call before the run, failed: a run failure (exit 1), not a refused input."""
 
-    def __init__(self, cell: str, reason: Exception) -> None:
+
+class MatrixCellError(ValueError):
+    """A matrix cell refused or failed its run: the reason's message, the cell's name, and whether
+    the cell was refused in setup (``usage``, exit 2) or failed while it ran (exit 1)."""
+
+    def __init__(self, cell: str, reason: Exception, *, usage: bool) -> None:
         super().__init__(str(reason))
         self.cell = cell
+        self.usage = usage
 
 
 def cell_config(config: ArmsRunConfig, cell: MatrixCellDescriptor) -> ArmsRunConfig:
@@ -212,7 +223,14 @@ def probe_sampling(model: str, provider: str, temperature, seed) -> None:
         llm_call_with_usage("Reply with OK.", model=model, provider=provider,
                             max_tokens=16, temperature=temperature, seed=seed)
     except Exception as exc:
-        raise ValueError(
+        # litellm's own table refused the value while building the request, so nothing was sent.
+        # Matched by class name, as dokimi.llm.is_retryable does.
+        if type(exc).__name__ == "UnsupportedParamsError":
+            raise ValueError(
+                f"Provider '{provider}' refuses temperature={temperature}, seed={seed} for "
+                f"model '{model}' before any call: {exc}"
+            ) from exc
+        raise ProbeError(
             f"Probe call to '{provider}/{model}' with temperature={temperature}, "
             f"seed={seed} failed, so every call in the run would too: {exc}"
         ) from exc
@@ -320,17 +338,28 @@ def _judge_records(runner, judge, config: ArmsRunConfig, records: list[dict]):
     )
 
 
-def run_arms(config: ArmsRunConfig, specs: list[str], questions: list[dict]) -> dict:
-    """Answer *questions* in every arm of *specs*, judge them when ``config.judge``, and
-    return the ``arms.v1`` output.
+@dataclass
+class PreparedArms:
+    """What a run needs, built and checked before any answer is paid for."""
 
-    Everything that can be refused (the config, the arms, the plugins, the sampling, the
-    judge) is refused before the first answer is paid for. A doc arm with no library id
-    raises :class:`LibraryIdError`; anything else refused raises ``ValueError``.
+    runner: ArmRunner
+    judge: Judge | JudgePanel | None
+    library_id: str | None
+
+
+def prepare_arms(config: ArmsRunConfig, specs: list[str], questions: list[dict]) -> PreparedArms:
+    """Setup and every refusal: the config, the arms, the plugins, the sampling, the judge.
+
+    Nothing here answers a question. A refused input raises ``ValueError`` (a usage error, exit 2),
+    a doc arm with no library id raises :class:`LibraryIdError`, and a failed sampling probe, a real
+    call, raises :class:`ProbeError` (a run failure, exit 1).
     """
     from dokimi.eval.arm_runner import ArmRunner
+    from dokimi.eval.session import check_session_questions
 
     _refuse_judged_session(config)
+    if config.session_turns is not None:
+        check_session_questions(questions, config.session_turns)
     treatments, library_id, plugin_set = _treatments(config, specs, questions)
     check_sampling_support(config)
     judge = None
@@ -354,22 +383,35 @@ def run_arms(config: ArmsRunConfig, specs: list[str], questions: list[dict]) -> 
         session_turns=config.session_turns,
         turn_reminder=config.turn_reminder,
     )
-    records = runner.run(
+    return PreparedArms(runner=runner, judge=judge, library_id=library_id)
+
+
+def run_prepared(prepared: PreparedArms, config: ArmsRunConfig, questions: list[dict]) -> dict:
+    """Answer *questions* with a prepared run, judge them when it has a judge, and return the
+    ``arms.v1`` output. A failure here is a run failure (exit 1), not a refused input."""
+    records = prepared.runner.run(
         library_name=config.product,
         questions=questions,
-        library_id=library_id,
+        library_id=prepared.library_id,
         concurrency=config.concurrency,
     )
-    evaluations = None if judge is None else _judge_records(runner, judge, config, records)
-    return runner.build_output(
+    evaluations = None if prepared.judge is None else _judge_records(prepared.runner, prepared.judge, config, records)
+    return prepared.runner.build_output(
         config.product, records, evaluations=evaluations, baseline_arm=config.baseline_arm,
-        judge=judge,
+        judge=prepared.judge,
     )
+
+
+def run_arms(config: ArmsRunConfig, specs: list[str], questions: list[dict]) -> dict:
+    """Answer *questions* in every arm of *specs*, judge them when ``config.judge``, and
+    return the ``arms.v1`` output. Everything that can be refused is refused before the first answer."""
+    return run_prepared(prepare_arms(config, specs, questions), config, questions)
 
 
 def check_matrix(config: ArmsRunConfig, cells: list[MatrixCellDescriptor]) -> None:
     """Refuse a matrix with a cell the in-process runner cannot run, or whose provider would
-    refuse the sampling on every answer. Raises ``ValueError`` naming the first such cell."""
+    refuse the sampling on every answer. Raises ``ValueError`` naming the first such cell, or
+    :class:`ProbeError` when the cell's sampling probe fails."""
     for cell in cells:
         try:
             validate_supported_matrix_harnesses([cell])
@@ -378,26 +420,40 @@ def check_matrix(config: ArmsRunConfig, cells: list[MatrixCellDescriptor]) -> No
     for cell in cells:
         try:
             check_sampling_support(cell_config(config, cell))
+        except ProbeError as exc:
+            raise ProbeError(f"matrix cell '{cell.name}': {exc}") from exc
         except ValueError as exc:
             raise ValueError(f"matrix cell '{cell.name}': {exc}") from exc
 
 
 def run_matrix(config: ArmsRunConfig, cells: list[MatrixCellDescriptor], specs: list[str],
                questions: list[dict],
-               on_cell: Callable[[MatrixCellDescriptor, dict], None]) -> None:
+               on_cell: Callable[[MatrixCellDescriptor, dict], None],
+               before_run: Callable[[], None] | None = None) -> None:
     """Run *config* in every cell in turn, handing each cell and its ``arms.v1`` output to
     *on_cell* as soon as the cell finishes, so a later cell's failure keeps the earlier ones.
+    *before_run* is called once every cell is set up, before the first answer.
 
     Every cell is checked (:func:`check_matrix`) before the first one is paid for. A cell
-    that fails raises :class:`MatrixCellError` naming it; a bad question record
-    (``EmptyQuestionError``) and :class:`LibraryIdError` are not a cell's and pass through.
+    that fails raises :class:`MatrixCellError` naming it, with ``usage`` set when the cell was
+    refused in setup; a bad question record (``EmptyQuestionError``) and :class:`LibraryIdError`
+    are not a cell's and pass through.
     """
     check_matrix(config, cells)
-    for cell in cells:
+    prepared_cells = []
+    for cell in cells:  # every cell is set up and probed before the first answer
+        cell_cfg = cell_config(config, cell)
         try:
-            output = run_arms(cell_config(config, cell), specs, questions)
+            prepared_cells.append((cell, cell_cfg, prepare_arms(cell_cfg, specs, questions)))
         except (EmptyQuestionError, LibraryIdError):
             raise
         except (ValueError, OSError, RecursionError) as exc:
-            raise MatrixCellError(cell.name, exc) from exc
+            raise MatrixCellError(cell.name, exc, usage=not isinstance(exc, ProbeError)) from exc
+    if before_run is not None:
+        before_run()
+    for cell, cell_cfg, prepared in prepared_cells:
+        try:
+            output = run_prepared(prepared, cell_cfg, questions)
+        except (ValueError, OSError, RecursionError) as exc:
+            raise MatrixCellError(cell.name, exc, usage=False) from exc
         on_cell(cell, output)

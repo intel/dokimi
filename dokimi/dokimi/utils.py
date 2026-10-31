@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Tuple, Dict, Any
 
 from dokimi.defaults import BEDROCK_MODEL_IDS, bedrock_profile
+from dokimi.exit_codes import EXIT_USAGE
 
 
 def parse_frontmatter(text: str) -> "Tuple[Dict[str, Any], str]":
@@ -215,7 +216,7 @@ def read_json_input(path: str | os.PathLike[str], *, flag: str) -> Any:
         raise InputError(f"{flag} {path}: {reason}") from exc
 
 
-def write_text_or_exit(path: Path, text: str, code: int = 1) -> None:
+def write_text_or_exit(path: Path, text: str, code: int = EXIT_USAGE) -> None:
     """Write ``text`` to ``path`` (creating parents), or exit ``code`` naming ``path`` when it cannot be written."""
     import sys
     try:

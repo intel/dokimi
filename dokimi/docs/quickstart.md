@@ -241,6 +241,22 @@ so results from before are not comparable with older baselines; re-baseline — 
 Costs scale roughly linearly with question count. Token counts are recorded
 per answer in `answers/<product>.json`.
 
+## Exit codes
+
+`dokimi` commands use three codes, so a script can tell a bad invocation from a
+failed check.
+
+| Code | Meaning | Examples |
+|------|---------|----------|
+| 0 | The command ran and, if it checks something, the check passed. | |
+| 1 | A verdict or a gate that ran and failed, or a runtime failure (a model call, a run, a clone or fetch). | `baseline compare --strict` over a changed model, `repo reach` with a harness binary that cannot run, `catalog trigger-set --strict` over a lint finding |
+| 2 | A bad invocation: a missing, unreadable or malformed input file, a flag combination the command refuses, an output file that cannot be written, a missing provider credential, a source string that is malformed, unpinned or not a repository root. | `baseline save` on a bad eval file, `benchmark preflight` with no golden set, `repo scan --manifest ../x.yaml` |
+
+A command that validates its input and then runs exits 2 for the first and 1
+for the second. Not every command follows this yet: `repo run` and
+`repo tasks check` still exit 1 for their input refusals, and `tools preference`
+exits 2 when every call failed or `--max-cost-usd` skipped calls.
+
 ## Troubleshooting
 
 | Symptom | Fix |

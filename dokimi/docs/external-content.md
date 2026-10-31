@@ -186,7 +186,7 @@ WARNING questions root C:\Users\Public\content-repo\questions has no golden set 
 ```
 
 `benchmark run` logs a warning and continues with generated questions only.
-`benchmark preflight` treats a missing golden set as an error and exits 1.
+`benchmark preflight` refuses a missing golden set and exits 2.
 If you are comparing arms, that is usually not what you want; check the coverage matrix first.
 
 `benchmark preflight` resolves the whole plan without calling a model, and
@@ -213,7 +213,7 @@ Resolved benchmark plan
   golden questions: C:\Users\Public\content-repo\questions\demo_golden.json (2 items)
 ```
 
-(It exited 1 here because no API keys were set: `✗ missing OPENAI_API_KEY for
+(It exited 2 here because no API keys were set: `✗ missing OPENAI_API_KEY for
 provider openai`. Key checks are part of the pre-flight.)
 
 For a direct N-arm comparison, hand `arms run` the question file itself:

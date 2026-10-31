@@ -514,7 +514,7 @@ def test_matrix_run_checks_every_cell_before_running_the_first(monkeypatch, tmp_
                         lambda model, provider, **kw: ["seed"] if model == "m-bad" else [])
     monkeypatch.setattr(arms_run, "probe_sampling", lambda *a: None)
     ran = []
-    monkeypatch.setattr(arms_run, "run_arms", lambda *a, **kw: ran.append(1))
+    monkeypatch.setattr(arms_run, "run_prepared", lambda *a, **kw: ran.append(1))
     args = build_parser().parse_args(
         ["arms", "matrix-run", "--product", "oneTBB", "--questions", str(questions),
          "--arms", "baseline", "--matrix-cells", str(cells), "--seed", "1",

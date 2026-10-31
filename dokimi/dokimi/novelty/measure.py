@@ -100,6 +100,19 @@ class SelfJudgeError(ValueError):
     """Raised when the judge model is also the answering model."""
 
 
+def check_self_judge(judge_model: str, answerer_model: str, allow_self_judge: bool) -> None:
+    """Refuse a judge that is the answering model, before any paid call.
+
+    Callers run this before extraction or paraphrase calls, so a refused run costs nothing.
+    """
+    if judge_model == answerer_model and not allow_self_judge:
+        raise SelfJudgeError(
+            f"judge model {judge_model!r} is the answering model; grading a response with "
+            "the model that produced it inflates the score. Pass a different --judge-model, "
+            "or --allow-self-judge to do it deliberately."
+        )
+
+
 @dataclass
 class ProbeRun:
     """One (probe, arm) result."""
@@ -255,12 +268,7 @@ def run_measurement(
             irrelevant context actively harms them.
         seed: Seed for the ``shuffled`` control, so the control is reproducible.
     """
-    if judge.model == answerer.model and not allow_self_judge:
-        raise SelfJudgeError(
-            f"judge model {judge.model!r} is the answering model; grading a response with "
-            "the model that produced it inflates the score. Pass a different --judge-model, "
-            "or --allow-self-judge to do it deliberately."
-        )
+    check_self_judge(judge.model, answerer.model, allow_self_judge)
     check_arms(arms, placebo_text)
 
     contexts = {

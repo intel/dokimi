@@ -133,7 +133,7 @@ def test_a_found_doc_that_did_not_load_is_a_clean_error(tmp_path):
             run_benchmark(tmp_path, _spec(tmp_path))
 
 
-def test_run_command_exits_1_without_a_traceback_when_a_doc_does_not_load(tmp_path, capsys):
+def test_run_command_exits_2_without_a_traceback_when_a_doc_does_not_load(tmp_path, capsys):
     from dokimi.cli import build_parser
 
     found = [tmp_path / "docs/a.md"]
@@ -143,6 +143,6 @@ def test_run_command_exits_1_without_a_traceback_when_a_doc_does_not_load(tmp_pa
          patch("dokimi.runner.run.load_docs", return_value={}):
         with pytest.raises(SystemExit) as exc:
             args.func(args)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert "1 of 1 selected document(s) did not load" in capsys.readouterr().err
     assert not (tmp_path / "o.json").exists()  # no snapshot over the docs that did load
