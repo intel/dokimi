@@ -12,11 +12,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from dokimi.utils import normalize_model_ref
-<<<<<<< ours
 from dokimi.commands import baseline_regression
-=======
-from dokimi.exit_codes import EXIT_USAGE
->>>>>>> theirs
+from dokimi.exit_codes import EXIT_USAGE, usage_exit
 
 BASELINES_DIR = Path("baselines/eval")
 
@@ -113,7 +110,7 @@ def _recorded_models(eval_data: Dict[str, Any]) -> Dict[str, Optional[Tuple[str,
                                                 and pair(*m.split("/", 1)) is not None for m in models)):
             models = []
         judge = ("panel", ",".join(sorted(
-            normalize_model_ref(*m.split("/", 1)) if "/" in m else m for m in models))) if models else None
+            normalize_model_ref(*m.split("/", 1)) for m in models))) if models else None
     else:
         judge = pair(eval_data.get("judge_provider") or meta.get("judge_provider"), judge_model)
     return {
@@ -259,6 +256,8 @@ def _print_metric_table(cur_summary: dict, base_summary: dict) -> None:
 
 def cmd_baseline_compare(args: argparse.Namespace) -> None:
     """Compare an eval result against a saved baseline."""
+    if args.min_matched is not None and not baseline_regression.enabled(args):
+        usage_exit("--min-matched needs --max-context-drop or --max-lift-drop")
     eval_path = Path(args.eval)
     eval_data = _read_json_object(eval_path, 2)  # 1 is the --strict verdict
     manifest = _baseline_manifest(2)
@@ -353,7 +352,8 @@ def register(sub, positive_int) -> None:
                         help="Gate on the mean matched context-score drop in score points (equality passes)")
     bl_cmp.add_argument("--max-lift-drop", type=baseline_regression.threshold, default=None,
                         help="Gate on the mean matched (context minus baseline) lift drop in score points")
-    bl_cmp.add_argument("--min-matched", type=positive_int, default=1,
+    bl_cmp.add_argument("--min-matched", type=positive_int, default=None,
                         help="Minimum matched scored questions under a regression gate (default: 1); "
-                             "complete coverage and matching known models are always required")
+                             "needs --max-context-drop or --max-lift-drop; complete coverage and "
+                             "matching known models are always required")
     bl_cmp.set_defaults(func=cmd_baseline_compare)

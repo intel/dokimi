@@ -10,6 +10,7 @@ import math
 import sys
 from decimal import Decimal
 
+from dokimi.exit_codes import usage_exit
 from dokimi.records import BASELINE, CONTEXT, Record
 
 
@@ -46,12 +47,11 @@ def check(args: argparse.Namespace, baseline: list[Record], current: list[Record
         return
     base, cur = _scored(baseline), _scored(current)
     matched = base.keys() & cur.keys()
-    minimum = getattr(args, "min_matched", 1)
+    minimum = getattr(args, "min_matched", None) or 1
     if len(matched) < minimum or len(matched) != len(baseline) or len(matched) != len(current):
-        print(f"Regression gate: insufficient or partial evidence ({len(matched)} matched scored, "
-              f"{len(baseline)} baseline, {len(current)} current; minimum {minimum}; "
-              "complete unique coverage required)", file=sys.stderr)
-        raise SystemExit(1)
+        usage_exit(f"Regression gate: insufficient or partial evidence ({len(matched)} matched scored, "
+                   f"{len(baseline)} baseline, {len(current)} current; minimum {minimum}; "
+                   "complete unique coverage required)")
     failed = False
     for index, name in enumerate(("max_context_drop", "max_lift_drop")):
         limit = getattr(args, name, None)

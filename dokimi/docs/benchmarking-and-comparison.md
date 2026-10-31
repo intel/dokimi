@@ -822,11 +822,13 @@ is context score minus the no-context score for the same question. Both use
 unrounded per-question aggregates, not stored rounded deltas or manifest means.
 Thresholds are finite, non-negative score points; equality passes. Either flag
 enables the gate; when both are supplied both must pass. `--min-matched` defaults
-to 1 and only applies with a threshold. The gate exits 1 on a regression,
-unknown or mismatched answer/judge identity, or insufficient evidence: every
-question in both artifacts must match uniquely and have finite scores in both
-conditions. Unmatched questions, duplicates, errors and partial scoring cannot
-promote a candidate. Invalid thresholds and malformed records exit 2.
+to 1 and needs a threshold flag (alone it exits 2). The gate exits 1 on a
+regression or an unknown or mismatched answer/judge identity. Insufficient
+evidence exits 2, since the input can be fixed: every question in both artifacts
+must match uniquely and have finite scores in both conditions, and at least
+`--min-matched` must match. Unmatched questions, duplicates, errors and partial
+scoring cannot promote a candidate. Invalid thresholds and malformed records
+exit 2. Issue #94 moves these thresholds to `gate`.
 
 Use baselines for release-to-release tracking. Use `--questions-from` for
 model-to-model fairness.

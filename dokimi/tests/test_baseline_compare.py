@@ -258,8 +258,9 @@ def test_regression_gate_allows_equality(compare, capsys, flag):
     assert "Regression gate: PASS" in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("kind", ["empty", "unmatched", "unscored", "nan", "duplicate", "unknown", "mismatch"])
-def test_regression_gate_refuses_incomplete_evidence(compare, capsys, kind):
+@pytest.mark.parametrize("kind, code", [
+    ("empty", 2), ("unmatched", 2), ("unscored", 2), ("nan", 2), ("duplicate", 2), ("unknown", 1), ("mismatch", 1)])
+def test_regression_gate_refuses_incomplete_evidence(compare, capsys, kind, code):
     base, cur = _eval(), _eval()
     row = cur["evaluations"][0]
     if kind == "empty":
@@ -278,7 +279,7 @@ def test_regression_gate_refuses_incomplete_evidence(compare, capsys, kind):
         cur["judge_model"] = "other"
     with pytest.raises(SystemExit) as exc:
         compare(base, cur, "--max-context-drop", "0")
-    assert exc.value.code == 1
+    assert exc.value.code == code
     assert "Regression gate: PASS" not in capsys.readouterr().out
 
 
@@ -293,7 +294,7 @@ def test_regression_gate_refuses_a_panel_score_with_a_failed_vote(compare, capsy
         block["panel"] = {"votes": votes}
     with pytest.raises(SystemExit) as exc:
         compare(base, cur, "--max-context-drop", "0")
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert "Regression gate: PASS" not in capsys.readouterr().out
 
 
@@ -308,8 +309,33 @@ def test_regression_threshold_requires_finite_nonnegative_number(value, capsys):
 def test_regression_minimum_matched_count(compare, capsys):
     with pytest.raises(SystemExit) as exc:
         compare(_eval(), _eval(), "--max-context-drop", "0", "--min-matched", "2")
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert "insufficient" in capsys.readouterr().err
+
+
+def test_min_matched_without_a_drop_gate_is_a_usage_error(compare, capsys):
+    with pytest.raises(SystemExit) as exc:
+        compare(_eval(), _eval(), "--min-matched", "20")
+    assert exc.value.code == 2
+    assert "--min-matched needs --max-context-drop or --max-lift-drop" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("fails, flags", [
+    ("context", ("--max-context-drop", "0", "--max-lift-drop", "10")),
+    ("lift", ("--max-context-drop", "10", "--max-lift-drop", "0")),
+])
+def test_either_gate_failing_is_a_regression(compare, capsys, fails, flags):
+    base, cur = _eval(), _eval()
+    block = cur["evaluations"][0]
+    if fails == "context":
+        block["with_docs"]["aggregate"] = 5.0
+        block["without_docs"]["aggregate"] = 0.0
+    else:
+        block["without_docs"]["aggregate"] = 6.0
+    with pytest.raises(SystemExit) as exc:
+        compare(base, cur, *flags)
+    assert exc.value.code == 1
+    assert "Regression gate: REGRESSION" in capsys.readouterr().out
 
 
 def test_strict_remains_identity_only_even_for_large_regression(compare, capsys):
@@ -349,7 +375,7 @@ def test_gate_refuses_partial_question_coverage(compare, capsys, side):
     data["evaluations"].append({**data["evaluations"][0], "question_id": "extra"})
     with pytest.raises(SystemExit) as exc:
         compare(base, cur, "--max-lift-drop", "100")
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert "complete unique coverage required" in capsys.readouterr().err
 
 
