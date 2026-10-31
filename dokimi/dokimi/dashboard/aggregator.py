@@ -160,6 +160,9 @@ class ResultsAggregator:
 
             with_score = _as_float(ev.score(CONTEXT))
             without_score = _as_float(ev.score(BASELINE))
+            if (with_score is None and ev.retrieval_hit is False and without_score is not None
+                    and ev.error is None and (with_s is None or with_s.error is None)):
+                with_score = 0.0  # a retrieval miss the context arm never answered: the docs did not help
             delta = _as_float(ev.delta)
 
             q_source = ev.raw.get("question_source", "persona")

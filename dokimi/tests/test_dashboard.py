@@ -241,3 +241,22 @@ def test_aggregator_ignores_the_judge_cap_marker(tmp_path):
     _make_eval_file(tmp_path, "oneTBB", [ev])
     q = ResultsAggregator(tmp_path).aggregate().products[0].questions[0]
     assert q.with_docs_dimensions == {"correctness": 40, "completeness": 40}
+
+
+def _miss(q_id, without_score):
+    """A question the context arm never answered from the docs: no retrieval hit, no context score."""
+    return {"question_id": q_id, "question": "Q?", "retrieval_hit": False, "with_docs": None,
+            "without_docs": {"aggregate": without_score, "correctness": without_score}, "delta": None}
+
+
+def test_a_retrieval_miss_with_a_baseline_score_counts_as_context_zero(tmp_path):
+    _make_eval_file(tmp_path, "oneTBB", [_ev("q1", "Q?", 80, 60), _miss("q2", 60)])
+    p = ResultsAggregator(tmp_path).aggregate().products[0]
+    assert (p.avg_with_docs, p.avg_without_docs, p.doc_score) == (40.0, 60.0, 40.0)
+    assert p.status == "poor"
+
+
+def test_a_run_with_no_retrieval_hits_scores_its_misses_as_zero(tmp_path):
+    _make_eval_file(tmp_path, "oneTBB", [_miss("q1", 60), _miss("q2", 60)])
+    p = ResultsAggregator(tmp_path).aggregate().products[0]
+    assert (p.avg_with_docs, p.doc_score, p.status) == (0.0, 0.0, "poor")
