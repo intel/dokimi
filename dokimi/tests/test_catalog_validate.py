@@ -81,8 +81,9 @@ def test_name_missing_from_frontmatter_is_a_warning(tmp_path):
 
 
 def test_description_length_limit_is_1024_characters(tmp_path):
-    _skill(tmp_path / "skills", "at-limit", name="at-limit", description="d" * 1024)
-    _skill(tmp_path / "skills", "over-limit", name="over-limit", description="d" * 1025)
+    # "Use for " keeps a when-clause in the description, so only the length is in question.
+    _skill(tmp_path / "skills", "at-limit", name="at-limit", description="Use for " + "d" * 1016)
+    _skill(tmp_path / "skills", "over-limit", name="over-limit", description="Use for " + "d" * 1017)
 
     reviews = _reviews_by_name(tmp_path)
     assert reviews["at-limit"].state == "ok"
@@ -114,7 +115,8 @@ def test_different_skill_md_with_the_same_name_is_not_a_duplicate(tmp_path):
 
     reviews = review_skills(read_skill_manifest(tmp_path))
     assert all(r.duplicate_of is None for r in reviews)
-    assert all(r.state == "ok" for r in reviews)
+    # Not a duplicate, but a mirror that has drifted: both copies say so.
+    assert [[f.code for f in r.findings] for r in reviews] == [["mirror-drift"], ["mirror-drift"]]
 
 
 def test_disable_model_invocation_is_reported_as_a_flag_not_a_finding(tmp_path):
@@ -491,3 +493,211 @@ def test_an_unreadable_skill_is_an_error_row_and_the_rest_are_listed(
     assert states["a"] == ("ok", None)
     assert states["b"][0] == "error" and "Permission denied" in states["b"][1]
     assert code == 1
+
+
+
+def _codes(review) -> list[str]:
+    return [f.code for f in review.findings]
+
+
+def test_relative_link_to_a_file_that_is_not_there_is_a_warning(tmp_path):
+    _skill(tmp_path / "skills", "guided", name="guided", description="Use for guided work.",
+           body="See [the guide](references/guide.md).\n")
+    bundled = _skill(
+        tmp_path / "skills",
+        "bundled",
+        name="bundled",
+        description="Use for bundled work.",
+        body="Details in [the guide](references/guide.md).\n",
+    )
+    (bundled / "references").mkdir()
+    (bundled / "references" / "guide.md").write_text("# G\n", encoding="utf-8")
+
+    reviews = _reviews_by_name(tmp_path)
+    assert reviews["guided"].state == "warn"
+    assert _codes(reviews["guided"]) == ["link-missing"]
+    assert reviews["bundled"].state == "ok"
+
+
+def test_link_that_exists_from_the_catalog_root_says_the_base_is_wrong(tmp_path):
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "run.py").write_text("print(1)\n", encoding="utf-8")
+    _skill(tmp_path / "skills", "runner", name="runner", body="Run [it](scripts/run.py).\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.state == "warn"
+    [finding] = review.findings
+    assert finding.code == "link-missing"
+    assert "the base is wrong" in finding.message
+
+
+def test_links_in_code_fences_urls_and_anchors_are_not_checked(tmp_path):
+    body = (
+        "Read [the site](https://example.com/docs) or [below](#usage).\n"
+        "```markdown\n"
+        "See [an example](references/missing.md).\n"
+        "```\n"
+        "~~~\n"
+        "[also](scripts/missing.sh)\n"
+        "~~~\n"
+    )
+    _skill(tmp_path / "skills", "clean", name="clean", body=body)
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.state == "ok"
+    assert review.findings == []
+
+
+def test_skill_dir_variable_resolves_inside_the_skill(tmp_path):
+    skill = _skill(tmp_path / "skills", "vars", name="vars",
+                   body="[a](${CLAUDE_SKILL_DIR}/references/a.md) [b](${CLAUDE_SKILL_DIR}/b.md)\n")
+    (skill / "references").mkdir()
+    (skill / "references" / "a.md").write_text("# A\n", encoding="utf-8")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == ["link-missing"]
+    assert "'${CLAUDE_SKILL_DIR}/b.md'" in review.findings[0].message
+
+
+def test_link_out_of_the_skill_dir_to_an_existing_file_is_a_warning(tmp_path):
+    (tmp_path / "shared").mkdir()
+    (tmp_path / "shared" / "notes.md").write_text("# Notes\n", encoding="utf-8")
+    _skill(tmp_path / "skills", "reach", name="reach", body="See [notes](../../shared/notes.md).\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.state == "warn"
+    assert _codes(review) == ["link-escapes-skill"]
+
+
+def test_link_out_of_the_skill_dir_to_a_missing_file_is_a_warning(tmp_path):
+    _skill(tmp_path / "skills", "reach", name="reach", body="See [notes](../../nowhere.md).\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.state == "warn"
+    assert _codes(review) == ["link-missing"]
+
+
+def test_dotdot_code_span_to_an_existing_file_outside_the_skill_is_a_warning(tmp_path):
+    (tmp_path / "shared").mkdir()
+    (tmp_path / "shared" / "notes.md").write_text("# Notes\n", encoding="utf-8")
+    _skill(
+        tmp_path / "skills",
+        "reach",
+        name="reach",
+        body="Keep `../../shared/notes.md` next to it. Edit `docs/missing.md` in your project.\n",
+    )
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    # The code span naming a missing project path is not checked: only the escape is reported.
+    assert review.state == "warn"
+    assert _codes(review) == ["path-escapes-skill"]
+
+
+def test_description_without_a_when_clause_is_a_warning(tmp_path):
+    _skill(
+        tmp_path / "skills", "plain", name="plain", description="Builds release reports from logs."
+    )
+    _skill(tmp_path / "skills", "said", name="said",
+           description="Summarises deploy outcomes. Use when a release is cut.")
+
+    reviews = _reviews_by_name(tmp_path)
+    assert reviews["plain"].state == "warn"
+    assert _codes(reviews["plain"]) == ["description-no-when"]
+    assert reviews["said"].state == "ok"
+
+
+def test_hidden_skill_is_exempt_from_the_description_checks(tmp_path):
+    _skill(tmp_path / "skills", "hidden", name="hidden", description="Builds release reports.",
+           extra="disable-model-invocation: true\n")
+    _skill(tmp_path / "skills", "twin", name="twin", description="Builds release reports.",
+           extra="disable-model-invocation: true\n")
+
+    reviews = _reviews_by_name(tmp_path)
+    assert reviews["hidden"].state == "ok"
+    assert reviews["twin"].state == "ok"
+
+
+def test_near_duplicate_descriptions_warn_on_both_skills(tmp_path):
+    _skill(tmp_path / "skills", "style-check", name="style-check",
+           description="Use when reviewing Python pull requests for style and bugs.")
+    _skill(tmp_path / "skills", "style-lint", name="style-lint",
+           description="Use when reviewing Python pull requests for style and typing.")
+
+    reviews = _reviews_by_name(tmp_path)
+    assert _codes(reviews["style-check"]) == ["description-near-duplicate"]
+    assert _codes(reviews["style-lint"]) == ["description-near-duplicate"]
+    assert "skills/style-lint" in reviews["style-check"].findings[0].message
+
+
+def test_unrelated_descriptions_are_not_near_duplicates(tmp_path):
+    _skill(tmp_path / "skills", "deploy", name="deploy",
+           description="Use when deploying containers to Kubernetes clusters.")
+    _skill(tmp_path / "skills", "notes", name="notes",
+           description="Use when writing release notes for a changelog.")
+
+    reviews = review_skills(read_skill_manifest(tmp_path))
+    assert all(r.state == "ok" for r in reviews)
+
+
+def test_drifted_copies_of_one_skill_warn_on_both_and_name_each_other(tmp_path):
+    _skill(tmp_path / "plugins", "x", name="x", description="Use for x.", body="# Old\n")
+    _skill(tmp_path / "skills", "x", name="x", description="Use for x.", body="# New\n")
+
+    reviews = review_skills(read_skill_manifest(tmp_path))
+    assert all(r.duplicate_of is None for r in reviews)
+    assert [_codes(r) for r in reviews] == [["mirror-drift"], ["mirror-drift"]]
+    assert "differs from plugins/x" in reviews[1].findings[0].message
+    assert "differs from skills/x" in reviews[0].findings[0].message
+
+
+def test_identical_copies_are_a_duplicate_and_not_drift(tmp_path):
+    _skill(tmp_path / "plugins", "x", name="x", description="Use for x.")
+    _skill(tmp_path / "skills", "x", name="x", description="Use for x.")
+
+    reviews = review_skills(read_skill_manifest(tmp_path))
+    assert [_codes(r) for r in reviews if r.duplicate_of is not None] == [["duplicate"]]
+    assert all("mirror-drift" not in _codes(r) for r in reviews)
+
+
+def test_new_warnings_do_not_fail_the_scan_even_under_strict(tmp_path, capsys):
+    (tmp_path / "shared").mkdir()
+    (tmp_path / "shared" / "notes.md").write_text("# Notes\n", encoding="utf-8")
+    _skill(tmp_path / "skills", "reach", name="reach", description="Builds reports.",
+           body="See [notes](../../shared/notes.md).\n")
+    report, code = _scan_json(tmp_path, capsys, strict=True)
+    assert code == 0
+    assert report["skills"][0]["state"] == "warn"
+    assert {f["code"] for f in report["skills"][0]["findings"]} == {
+        "description-no-when", "link-escapes-skill"}
+
+    _skill(tmp_path / "skills", "example", name="example", description="Builds reports.",
+           body="Format: [Title](URL)\n")
+    report, code = _scan_json(tmp_path, capsys, strict=True)
+    assert code == 0
+    states = {row["name"]: row["state"] for row in report["skills"]}
+    assert states == {"reach": "warn", "example": "warn"}
+
+
+def test_the_scan_sees_a_mirror_that_discover_skills_leaves_out(tmp_path):
+    # discover_skills counts a byte-identical mirror once; the catalog review must still see both.
+    _skill(tmp_path / "plugins", "x", name="x", description="Use for x.")
+    _skill(tmp_path / "skills", "x", name="x", description="Use for x.")
+    assert [s.path.parent.relative_to(tmp_path).as_posix() for s in discover_skills(tmp_path)] == [
+        "plugins/x"
+    ]
+
+    reviews = review_skills(read_skill_manifest(tmp_path))
+    assert [r.duplicate_of for r in reviews] == [None, "plugins/x"]
+
+
+def test_a_link_target_the_os_refuses_is_a_missing_link_not_a_crash(tmp_path):
+    # A name over 255 bytes in one path part: Path.exists() raises on Python 3.11 to 3.13.
+    too_long = "a" * 300
+    _skill(tmp_path / "skills", "healthy", name="healthy", description="Use for healthy.",
+           body="Run [it](references/a.md).\n")
+    _skill(tmp_path / "skills", "longname", name="longname", description="Use for longname.",
+           body=f"See [g]({too_long}.md).\n")
+
+    reviews = _reviews_by_name(tmp_path)
+    assert reviews["healthy"].state == "warn"
+    assert _codes(reviews["longname"]) == ["link-missing"]
