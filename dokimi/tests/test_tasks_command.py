@@ -282,9 +282,15 @@ def test_task_completion_accepts_every_repeat_of_a_complete_grid():
 @pytest.mark.parametrize("flag, value, repeated", [
     ("--harnesses", "command:true,command:true", "command:true"),
     ("--tasks", "toy-task,toy-task", "toy-task"),
+    ("--tasks", "toy-task,{root}/toy-task", "toy-task"),
+    ("--tasks", "toy-task,toy-task/", "toy-task"),
+    ("--tasks", "{root}/toy-task,{root}/other/toy-task", "toy-task"),
 ])
 def test_tasks_run_refuses_a_repeated_task_or_harness_before_running(tmp_path, capsys, flag, value, repeated):
     _fixture_task(tmp_path)
+    (tmp_path / "other").mkdir()
+    _fixture_task(tmp_path / "other")
+    value = value.format(root=tmp_path)
     argv = ["tasks", "run", "--tasks", "toy-task", "--tasks-root", str(tmp_path),
             "--harnesses", "command:true", "--out-json", str(tmp_path / "runs.json")]
     argv[argv.index(flag) + 1] = value

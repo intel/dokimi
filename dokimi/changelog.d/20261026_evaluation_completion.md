@@ -11,7 +11,7 @@ SPDX-License-Identifier: Apache-2.0
 
 - `baseline compare` now treats a blank or case-variant "Unknown" provider or model, and a panel member without a `provider/` prefix, as not recorded, for every run: the "not compared" warning appears and `--strict` exits 1 where it used to pass.
 - A command harness with no reward file records its exit code as reward 1.0 or 0.0, so `tasks run` counts it as scored; exit 126, 127 and signal exits are no verdict, and an unreadable reward file stays unscored. `avg_reward` of command harnesses now includes these exit-code cells, so it does not compare with older `task_runs` artifacts.
-- `tasks run` exits 2 before running when a task or harness is listed twice.
+- `tasks run` exits 2 before running when a task or harness is listed twice, including one task under two spellings and two tasks with the same directory name.
 - Undecided judge-validity checks visibly report INCONCLUSIVE, with the existing default and strict exit policies.
 
 ### Added

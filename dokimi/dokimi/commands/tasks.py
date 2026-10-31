@@ -166,6 +166,8 @@ def _select_tasks(args: argparse.Namespace) -> list:
             task_names = [t.strip() for t in args.tasks.split(",") if t.strip()]
             _refuse_repeats("task", task_names)
             tasks = [load_task(t, root=root) for t in task_names]
+            # cells and output dirs are keyed by the loaded name, not the spelling
+            _refuse_repeats("task", [t.name for t in tasks])
     except (ValueError, OSError, RecursionError) as exc:  # a missing or unreadable task, deeply nested YAML
         usage_exit(f"Error: {exc}")
     if not tasks:
