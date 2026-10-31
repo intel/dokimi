@@ -724,6 +724,48 @@ Two gates are deliberately statistical rather than absolute:
   those questions. It pools questions; a mean of per-cell means differs slightly
   when the sets have different sizes — say which one a report uses.
 
+## Headroom: items a comparison cannot learn from
+
+A skill cannot raise an item the no-skill arm already answers, and an item no arm
+answers points at the question or its grader, not at the skill. `eval headroom` flags
+both, from one or more arms files of the same question set (one file per repetition):
+
+```bash
+python cli.py eval headroom run1/arms.json run2/arms.json run3/arms.json \
+    --baseline-arm baseline --ceiling 0.9 --floor 0 --min-reps 3 --out headroom.json
+```
+
+- **ceiling**: the no-skill arm's mean over the runs is at least `--ceiling` (0-1; the
+  0-100 aggregate divided by 100). Default 0.9.
+- **floor**: the no-skill arm was scored, every arm that a run scored has a mean at most
+  `--floor`, and at least one arm other than the no-skill arm scored. Default 0. An arm no run scored is
+  left out of this test and listed in the item's `unscored_arms`; the no-skill arm alone at zero
+  is not a floor.
+- **provisional**: fewer than `--min-reps` runs scored the item with its no-skill arm (the
+  reps are those runs). Default 3. A file gives each item zero or one rep (zero when its
+  no-skill arm was not scored in that file), so one file alone makes every item provisional at the
+  default of 3; the reps of several files add up.
+
+A run is one file. A file repeated on the command line, or holding the same JSON content as
+an earlier one (whitespace and key order do not count), is skipped with a note, so it does
+not add a rep. A question id repeated within one
+file is an error (exit 2): it would count as two runs.
+
+The table always goes to stdout: the flagged and provisional items, with the no-skill arm
+in its own column, a note naming any arm no run scored, and the counts. The JSON goes to
+`--out` only, as a `headroom.v1` artifact with every item; if that file cannot be written the
+command prints `Error: cannot write ...` on stderr and exits 2, after the table. Scores are compared unrounded
+and shown rounded down, so 0.89996 prints as 0.89. Without `--baseline-arm`, the runs must
+declare the same baseline; the default is that baseline. The runs must also be repetitions of one
+configuration: a file whose model, judge, run config (the seed aside), harness, arms or library
+differs from the first file's exits 2. With `--baseline-arm`, the arm must
+be one the runs list (exit 2 otherwise, naming the arms that exist), and the declared
+baselines are not checked. A threshold out of range exits 2: `--ceiling` in [0.01, 1],
+`--floor` 0 or in [0.01, ceiling), `--min-reps` at least 1. It also exits 2 when no run scored the
+no-skill arm, or when `--out` is one of the input files (or its `.rejected` sibling), or names a directory or a path ending in a separator. Scores are read as the 0-100
+aggregate divided by 100 and are not range-checked. Only arms runs are read. The flags are descriptive: they do not
+change any score or any gate.
+
 ## Scope and caveats
 
 - **Three levels of fidelity for skills/MCP.** (1) `skill:` / `mcp:` inject

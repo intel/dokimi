@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/headroom.v1.json",
+  "title": "Arms headroom v1",
+  "description": "Which items of an arms comparison have no headroom: the no-skill arm already at the ceiling (or every arm at the floor), and items with too few repetitions to trust a flag. Written by `eval headroom`; reads arms.v1 files only.",
+  "type": "object",
+  "required": ["schema_version", "no_skill_arm", "thresholds", "runs", "items", "summary", "inputs"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "headroom.v1"},
+    "no_skill_arm": {"type": "string", "description": "The control arm read as no-skill."},
+    "thresholds": {
+      "type": "object",
+      "required": ["ceiling", "floor", "min_reps"],
+      "additionalProperties": false,
+      "properties": {
+        "ceiling": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "floor": {"type": "number", "minimum": 0},
+        "min_reps": {"type": "integer", "minimum": 1}
+      }
+    },
+    "runs": {"type": "integer", "minimum": 1, "description": "Number of distinct arms.v1 runs; a repeated input file counts once."},
+    "inputs": {"type": "array", "items": {"type": "string"}, "description": "The arms.v1 files read, repeats dropped."},
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["question_id", "reps", "provisional", "no_skill", "arms", "unscored_arms", "flag"],
+        "additionalProperties": false,
+        "properties": {
+          "question_id": {"type": "string"},
+          "reps": {"type": "integer", "minimum": 0, "description": "Number of runs in which the no-skill arm scored the item."},
+          "provisional": {"type": "boolean", "description": "True when reps is below thresholds.min_reps."},
+          "no_skill": {"type": ["number", "null"], "description": "Unrounded mean over runs of the no-skill arm, 0-1."},
+          "arms": {"type": "object", "additionalProperties": {"type": ["number", "null"]}, "description": "Mean over runs of each arm, 0-1; null when no run scored it."},
+          "unscored_arms": {"type": "array", "items": {"type": "string"}, "uniqueItems": true, "description": "The arms no run scored (null in arms), sorted; the floor test leaves them out."},
+          "flag": {"enum": ["ceiling", "floor", null]}
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["items", "ceiling", "floor", "provisional", "flagged_provisional", "no_flag"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {"type": "integer", "minimum": 0},
+        "ceiling": {"type": "integer", "minimum": 0},
+        "floor": {"type": "integer", "minimum": 0},
+        "provisional": {"type": "integer", "minimum": 0},
+        "flagged_provisional": {"type": "integer", "minimum": 0},
+        "no_flag": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}

@@ -57,6 +57,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "result": "result.v1",
     "repo_budget": "repo_budget.v1",
     "task_inspect": "task_inspect.v1",
+    "headroom": "headroom.v1",
     "cli_routes": "cli_routes.v1",
 }
 
