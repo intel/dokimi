@@ -29,11 +29,10 @@ from dokimi.defaults import (
     DEFAULT_JUDGE_PROVIDER,
 )
 from dokimi.exit_codes import usage_exit
+from dokimi.llm import ANSWER_PROVIDERS as PROVIDERS
 
 if TYPE_CHECKING:
     from dokimi.novelty.tiers import RunSettings
-
-PROVIDERS = ["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"]
 
 
 def cmd_novelty_analyze(args: argparse.Namespace) -> None:
@@ -194,7 +193,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
               "wrote its own answer key; extract with a different --extract-model",
               file=sys.stderr)
     try:  # before the paraphrase calls below, which are paid
-        check_self_judge(judge.model, answerer.model, args.allow_self_judge)
+        check_self_judge(judge, answerer, args.allow_self_judge)
     except SelfJudgeError as exc:
         usage_exit(str(exc))
     paraphrases, reversals = settings.values["paraphrases"], settings.values["reversals"]
@@ -1004,7 +1003,8 @@ def _role_models(args: argparse.Namespace) -> dict[str, tuple[str, str]]:
     if args.judge_model:
         judge_model, judge_provider = args.judge_model, args.judge_provider or args.provider
     else:
-        judge_model, judge_provider = default_judge(args.model, args.judge_provider)
+        # a CLI answerer with no judge provider judges on the same CLI, another family
+        judge_model, judge_provider = default_judge(args.model, args.judge_provider, args.provider)
     extract_model = args.extract_model or judge_model
     extract_provider = args.extract_provider or judge_provider
     return {

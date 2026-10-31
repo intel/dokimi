@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict
 
+from dokimi.llm import ANSWER_PROVIDERS
 from dokimi.commands._output import exit_on_unwritable
 from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
 from dokimi.exit_codes import EXIT_USAGE
@@ -392,7 +393,7 @@ def register(sub, positive_int) -> None:
                               "(sentence-transformers, no API key), or auto "
                               "(openai when a key is set, else local)")
     gen_q_p.add_argument("--model", default=DEFAULT_GENERATOR_MODEL, help="LLM model for generation")
-    gen_q_p.add_argument("--provider", default=DEFAULT_GENERATOR_PROVIDER, choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
+    gen_q_p.add_argument("--provider", default=DEFAULT_GENERATOR_PROVIDER, choices=ANSWER_PROVIDERS)
     gen_q_p.add_argument("--doc-source", default="context7",
                          help="Documentation source for topic extraction: 'context7', 'local:<path>', 'url:<url>'")
     gen_q_p.add_argument("--context7-id", default=None, dest="context7_id",
@@ -405,7 +406,7 @@ def register(sub, positive_int) -> None:
     analyze_q_p.add_argument("--product", required=True, help="Product name (e.g., oneTBB)")
     analyze_q_p.add_argument("--output", default=None, help="Output report JSON (default: reports/{product}_question_quality.json)")
     analyze_q_p.add_argument("--model", default=DEFAULT_GENERATOR_MODEL, help="LLM model for classification")
-    analyze_q_p.add_argument("--provider", default=DEFAULT_GENERATOR_PROVIDER, choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
+    analyze_q_p.add_argument("--provider", default=DEFAULT_GENERATOR_PROVIDER, choices=ANSWER_PROVIDERS)
     analyze_q_p.add_argument("--concurrency", type=int, default=5, help="Parallel classification requests")
     analyze_q_p.set_defaults(func=cmd_questions_analyze)
 
@@ -436,7 +437,7 @@ def register(sub, positive_int) -> None:
     panel_q_p.add_argument("--output", default=None,
                             help="Output report JSON (default: reports/{product}_question_panel.json)")
     panel_q_p.add_argument("--model", default=DEFAULT_GENERATOR_MODEL)
-    panel_q_p.add_argument("--provider", default=DEFAULT_GENERATOR_PROVIDER, choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
+    panel_q_p.add_argument("--provider", default=DEFAULT_GENERATOR_PROVIDER, choices=ANSWER_PROVIDERS)
     panel_q_p.add_argument("--reviewers", default=None,
                             help="Comma-separated reviewers (default: domain_expert,user_advocate,qa_engineer)")
     panel_q_p.add_argument("--concurrency", type=positive_int, default=6)

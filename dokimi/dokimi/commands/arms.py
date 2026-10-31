@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from dokimi.exit_codes import EXIT_FAILURE, EXIT_USAGE
+from dokimi.llm import ANSWER_PROVIDERS
 from dokimi.utils import question_id
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
@@ -111,7 +112,8 @@ def cmd_arms_matrix_run(args: argparse.Namespace) -> None:
 
 def _load_matrix_inputs(config: ArmsRunConfig, arms: str, questions: str, matrix_cells: str):
     """The arms, questions and cells of a matrix run, checked before any cell is set up. A refused
-    input exits 2; a failed sampling probe, a real call, exits 1."""
+    input exits 2 (a CLI cell refusal is an ``InputError``, reported by cli.main); a failed
+    sampling probe, a real call, exits 1."""
     from dokimi.eval import arms_run
     from dokimi.eval.cells import load_matrix_cells
 
@@ -120,7 +122,7 @@ def _load_matrix_inputs(config: ArmsRunConfig, arms: str, questions: str, matrix
         loaded_questions = _load_questions(questions)
         cells = load_matrix_cells(matrix_cells)
         _validate_unique_cell_filenames(cells)
-        arms_run.check_matrix(config, cells)
+        arms_run.check_matrix(config, cells, specs)
     except EmptyQuestionError:
         raise  # a bad input record, not a cell error: cli.main reports it (exit 2)
     except arms_run.ProbeError as exc:
@@ -278,7 +280,7 @@ def register(sub, positive_int) -> None:
     )
     arms_run_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL, help="LLM for answering")
     arms_run_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER,
-                            choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
+                            choices=ANSWER_PROVIDERS)
     arms_run_p.add_argument("--harness", default="arms-runner",
                             help="Execution harness label stamped into output (default: arms-runner)")
     arms_run_p.add_argument("--plugins", default="",
@@ -393,7 +395,7 @@ def _add_common_run_args(parser, positive_int, *, matrix_required: bool = False)
     )
     parser.add_argument("--model", default=DEFAULT_ANSWER_MODEL, help="LLM for answering")
     parser.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER,
-                        choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
+                        choices=ANSWER_PROVIDERS)
     parser.add_argument("--harness", default="arms-runner",
                         help="Execution harness label stamped into output (default: arms-runner)")
     parser.add_argument("--plugins", default="",
@@ -527,7 +529,10 @@ def _with_named_cell(config: ArmsRunConfig, matrix_cells: str | None,
         return config
     if not matrix_cells or not matrix_cell:
         raise ValueError("--matrix-cells and --matrix-cell must be passed together")
+    from dokimi.eval.arms_refusals import refuse_cli_cell_model
+
     cell = select_matrix_cell(load_matrix_cells(matrix_cells), matrix_cell)
+    refuse_cli_cell_model(cell)  # the parse-time model gate read only --model, not the cell's
     validate_supported_matrix_harnesses([cell])
     return cell_config(config, cell)
 

@@ -11,6 +11,7 @@ import json
 import sys
 from pathlib import Path
 
+from dokimi.llm import ANSWER_PROVIDERS
 from dokimi.defaults import (
     DEFAULT_CONCURRENCY,
     DEFAULT_JUDGE_MODEL,
@@ -32,7 +33,10 @@ def _warn_judge_independence(
     context: str = "run",
 ) -> bool:
     """Emit a non-fatal warning when answer and judge use the same model/provider."""
-    same = normalize_model_ref(answer_provider, answer_model) == normalize_model_ref(judge_provider, judge_model)
+    from dokimi.llm_cli import same_model
+
+    same = (normalize_model_ref(answer_provider, answer_model) == normalize_model_ref(judge_provider, judge_model)
+            or same_model(answer_provider, answer_model, judge_provider, judge_model))
     if same:
         print(
             "⚠ Evaluator independence warning "
@@ -572,7 +576,7 @@ def register(sub, positive_int) -> None:
     panel_p.add_argument("--product", required=True, help="Product name (e.g., oneTBB)")
     panel_p.add_argument("--output", default=None, help="Output file (default: eval/{product}_panel.json)")
     panel_p.add_argument("--model", default=DEFAULT_JUDGE_MODEL, help="Default LLM model for all judges")
-    panel_p.add_argument("--provider", default=DEFAULT_JUDGE_PROVIDER, choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
+    panel_p.add_argument("--provider", default=DEFAULT_JUDGE_PROVIDER, choices=ANSWER_PROVIDERS)
     panel_p.add_argument("--roles", default=None,
                          help="Comma-separated judge roles (default: technical_expert,developer_advocate,doc_reviewer)")
     panel_p.add_argument(

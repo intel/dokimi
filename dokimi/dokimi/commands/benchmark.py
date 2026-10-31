@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 from typing import Any, Callable, List, cast
 
+from dokimi.llm import ANSWER_PROVIDERS
 from dokimi.commands.evaluate import _warn_judge_independence
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
@@ -81,6 +82,65 @@ def _credential_env_var(provider: str) -> str:
         "google-vertex": "GEMINI_API_KEY",
         "openai-codex": "OPENAI_API_KEY",
     }.get(provider, "OPENAI_API_KEY")
+
+
+def _credential_error(provider: str, status=None) -> str | None:
+    """Why *provider* cannot run here, or ``None``: a missing key, or a CLI not signed in.
+
+    *status* is the provider's ``llm_cli.detect`` result when the caller already has it.
+    """
+    from dokimi import llm_cli
+
+    if llm_cli.backend(provider) is None:
+        key = _credential_env_var(provider)
+        return None if os.environ.get(key) else f"missing {key} for provider {provider}"
+    status = status or llm_cli.detect(provider)
+    if not status.installed:
+        return f"{provider}: '{status.binary}' is not installed"
+    if status.authenticated is False:
+        return f"{provider}: '{status.binary}' is not signed in ({status.hint})"
+    return None
+
+
+def _provider_checks(providers: list[str], notes: list[str] | None = None,
+                     refusals: list[str] | None = None) -> tuple[list[str], list[str]]:
+    """The errors (a missing key, a CLI not installed or signed in) and warnings for *providers*.
+
+    A CLI provider is probed once: ``detect`` runs ``--version`` and ``auth status``, and two
+    probes of a flaky ``auth status`` could give an error-free pass and a warning in one preflight.
+    A signed-in login that comes from the settings file is appended to *notes*, when given, and
+    every error to *refusals*: a missing key and a CLI not installed or not signed in are both a
+    missing provider credential, an input refusal (exit 2).
+    """
+    from dokimi import llm_cli
+
+    names = sorted(set(providers))
+    statuses = {n: llm_cli.detect(n) for n in names if llm_cli.backend(n) is not None}
+    errors = [e for e in (_credential_error(n, statuses.get(n)) for n in names) if e]
+    if refusals is not None:
+        refusals.extend(errors)
+    warnings = [w for w in (_login_warning(n, statuses.get(n)) for n in names) if w]
+    if notes is not None:
+        notes.extend(f"{n}: signed in ({s.source})" for n, s in statuses.items() if s.authenticated and s.source)
+    return errors, warnings
+
+
+def _login_warning(provider: str, status=None) -> str | None:
+    """A warning when a CLI provider's login could not be checked (no answer from ``auth status``)."""
+    from dokimi import llm_cli
+
+    if llm_cli.backend(provider) is None:
+        return None
+    status = status or llm_cli.detect(provider)
+    if status.installed and status.authenticated is None:
+        return f"{provider}: could not check the login ('{status.binary} auth status' gave no answer)"
+    return None
+
+
+def _print_notes(notes: list[str]) -> None:
+    """The login notes of a preflight: a signed-in login and where it comes from."""
+    for note in notes:
+        print(f"  {note}")
 
 
 def _resolved_benchmark_plan(entry, args: argparse.Namespace) -> dict:
@@ -185,20 +245,16 @@ def cmd_benchmark_preflight(args: argparse.Namespace) -> None:
     plan = _resolved_benchmark_plan(entry, args)
     _print_plan(plan)
 
-    errors: list[str] = []
-    warnings: list[str] = []
     # Refusals are missing or invalid inputs and credentials (exit 2, as `benchmark run` refuses
-    # them). The other errors are failed checks (exit 1).
+    # them). The other errors are failed checks (exit 1): a CLI provider not installed or signed in.
     refusals: list[str] = []
+    notes: list[str] = []
+    errors, warnings = _provider_checks([args.provider, args.judge_provider], notes, refusals)
+    _print_notes(notes)
 
     def refuse(message: str) -> None:
         refusals.append(message)
         errors.append(message)
-
-    for provider in {args.provider, args.judge_provider}:
-        key = _credential_env_var(provider)
-        if not os.environ.get(key):
-            refuse(f"missing {key} for provider {provider}")
 
     try:
         Path(plan["output_dir"]).mkdir(parents=True, exist_ok=True)
@@ -395,7 +451,7 @@ def register(sub, positive_int) -> None:
     bench_run_p.add_argument("--output-dir", default=None, dest="output_dir",
                              help="Output directory (default: results/{target}_final)")
     bench_run_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL)
-    bench_run_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
+    bench_run_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=ANSWER_PROVIDERS)
     bench_run_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",
                              help=JUDGE_MODEL_HELP)
     bench_run_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider",
@@ -431,7 +487,7 @@ def register(sub, positive_int) -> None:
     bench_pre_p.add_argument("--doc-source", default=None, dest="doc_source", help="Override doc/context source")
     bench_pre_p.add_argument("--output-dir", default=None, dest="output_dir", help="Output directory (default: results/{target}_final)")
     bench_pre_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL)
-    bench_pre_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
+    bench_pre_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=ANSWER_PROVIDERS)
     bench_pre_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",
                              help=JUDGE_MODEL_HELP)
     bench_pre_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider", choices=JUDGE_PROVIDERS)
@@ -453,7 +509,7 @@ def register(sub, positive_int) -> None:
                                help="Run for all libraries in registry")
     bench_batch_p.add_argument("--output-dir", default="results", dest="output_dir")
     bench_batch_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL)
-    bench_batch_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
+    bench_batch_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=ANSWER_PROVIDERS)
     bench_batch_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",
                                help=JUDGE_MODEL_HELP)
     bench_batch_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider",

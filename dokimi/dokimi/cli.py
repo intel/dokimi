@@ -14,6 +14,7 @@ from collections.abc import Sequence
 from dokimi.commands import (
     answers,
     arms,
+    backends,
     baseline,
     benchmark,
     catalog,
@@ -36,7 +37,7 @@ from dokimi.commands import (
     tasks,
     tools,
 )
-from dokimi import __version__, cli_routes, process
+from dokimi import __version__, cli_routes, llm_cli, process
 from dokimi.console import tolerate_console_encoding
 from dokimi.defaults import JUDGE_MODEL_FOR_PROVIDER, default_judge_model
 
@@ -142,6 +143,7 @@ def build_parser() -> argparse.ArgumentParser:
     repo.register(sub, positive_int)            # repo (repositories as subjects)
     tools.register(sub, positive_int)           # tools (tool-choice probes)
     context.register(sub, positive_int)         # context (context window of a run)
+    backends.register(sub, positive_int)        # backends (CLI providers)
     data.register(sub, positive_int)            # data (schema; M2 adds export, import and models)
 
     _label_routes(p)
@@ -166,6 +168,20 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             parser.error(f"--judge-provider {args.judge_provider} has no default judge model; "
                          f"pass --judge-model")
         args.judge_model = model
+    judge_provider, judge_model = getattr(args, "judge_provider", None), getattr(args, "judge_model", None)
+    if judge_provider in llm_cli.BACKENDS and judge_model is not None \
+            and not llm_cli.accepts_model(judge_provider, judge_model):
+        # Checked here, before any persona or answer is generated for the run.
+        parser.error(f"--judge-provider {judge_provider} takes a Claude model (sonnet, haiku, opus or a "
+                     f"claude-* id), not {judge_model!r}: pass --judge-model")
+    provider, model = getattr(args, "provider", None), getattr(args, "model", None)
+    # With --matrix-cells every cell sets its own provider and model (checked when applied), so the
+    # top-level model is not the one that runs.
+    if provider in llm_cli.BACKENDS and model is not None and not llm_cli.accepts_model(provider, model) \
+            and not getattr(args, "matrix_cells", None):
+        # The default answer model is not a Claude model: left out, every call would fail.
+        parser.error(f"--provider {provider} takes a Claude model (sonnet, haiku, opus or a claude-* id), "
+                     f"not {model!r}: pass --model")
     return args
 
 
@@ -180,7 +196,7 @@ def main() -> None:
 
     try:
         args.func(args)
-    except (EmptyQuestionError, InputError) as exc:  # a bad input record, not a bug: no traceback
+    except (EmptyQuestionError, InputError, llm_cli.SamplingError) as exc:  # bad input, not a bug: no traceback
         print(f"Error: {exc}", file=sys.stderr)
         # 2, as the commands' other input errors: 1 is the verdict of `eval judge-validity`
         # and of the --strict gates, and a malformed file must not read as a failed gate.

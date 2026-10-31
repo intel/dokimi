@@ -25,9 +25,10 @@ from dokimi.defaults import (
     JUDGE_MODEL_FOR_PROVIDER,
     default_judge_model,
 )
+from dokimi.eval.arms_refusals import refuse_cli_arms, refuse_cli_cell, refuse_cli_cell_model
 from dokimi.eval.cells import HARNESS_ARMS_RUNNER, MatrixCellDescriptor
 from dokimi.eval.question_text import EmptyQuestionError
-from dokimi.utils import question_id
+from dokimi.utils import InputError, question_id
 
 if TYPE_CHECKING:
     from dokimi.eval import Judge, JudgePanel
@@ -361,6 +362,7 @@ def prepare_arms(config: ArmsRunConfig, specs: list[str], questions: list[dict])
     if config.session_turns is not None:
         check_session_questions(questions, config.session_turns)
     treatments, library_id, plugin_set = _treatments(config, specs, questions)
+    refuse_cli_arms(config, treatments)
     check_sampling_support(config)
     judge = None
     if config.judge:
@@ -408,22 +410,26 @@ def run_arms(config: ArmsRunConfig, specs: list[str], questions: list[dict]) -> 
     return run_prepared(prepare_arms(config, specs, questions), config, questions)
 
 
-def check_matrix(config: ArmsRunConfig, cells: list[MatrixCellDescriptor]) -> None:
+def check_matrix(config: ArmsRunConfig, cells: list[MatrixCellDescriptor],
+                 specs: list[str] | None = None) -> None:
     """Refuse a matrix with a cell the in-process runner cannot run, or whose provider would
-    refuse the sampling on every answer. Raises ``ValueError`` naming the first such cell, or
-    :class:`ProbeError` when the cell's sampling probe fails."""
+    refuse the sampling on every answer, or (with *specs*) a CLI cell given an agentic arm.
+    Raises ``ValueError`` or ``InputError`` naming the first such cell, or :class:`ProbeError`
+    when the cell's sampling probe fails."""
     for cell in cells:
         try:
             validate_supported_matrix_harnesses([cell])
         except ValueError as exc:
             raise ValueError(f"matrix cell '{cell.name}': {exc}") from exc
     for cell in cells:
+        refuse_cli_cell_model(cell)
         try:
-            check_sampling_support(cell_config(config, cell))
-        except ProbeError as exc:
-            raise ProbeError(f"matrix cell '{cell.name}': {exc}") from exc
-        except ValueError as exc:
-            raise ValueError(f"matrix cell '{cell.name}': {exc}") from exc
+            cell_cfg = cell_config(config, cell)
+            check_sampling_support(cell_cfg)
+            if specs is not None:
+                refuse_cli_cell(cell_cfg, specs)
+        except (ValueError, InputError) as exc:  # keep the type: InputError (exit 2), ProbeError (exit 1)
+            raise type(exc)(f"matrix cell '{cell.name}': {exc}") from exc
 
 
 def run_matrix(config: ArmsRunConfig, cells: list[MatrixCellDescriptor], specs: list[str],
@@ -439,7 +445,7 @@ def run_matrix(config: ArmsRunConfig, cells: list[MatrixCellDescriptor], specs: 
     refused in setup; a bad question record (``EmptyQuestionError``) and :class:`LibraryIdError`
     are not a cell's and pass through.
     """
-    check_matrix(config, cells)
+    check_matrix(config, cells, specs)
     prepared_cells = []
     for cell in cells:  # every cell is set up and probed before the first answer
         cell_cfg = cell_config(config, cell)

@@ -26,7 +26,7 @@ from . import attribute, bundle as bundle_mod
 from . import classify, items as items_mod
 from . import measure, needs, probes, report, retention, shorten, spans
 from .artifact import load_artifact_text  # noqa: F401  (public path: novelty.analyze)
-from .client import LLMClient, roll_up_cost
+from .client import LLMClient, roll_up_cost, same_client
 from .retention import RetentionOracle
 from .tiers import DEFAULT_SETTINGS, RunSettings
 
@@ -165,7 +165,7 @@ def analyze(
             file it came from, which is the cut an author needs to decide what belongs in
             the body. Without it the run is entry-point-only and says so.
     """
-    measure.check_self_judge(judge.model, answerer.model, config.allow_self_judge)
+    measure.check_self_judge(judge, answerer, config.allow_self_judge)
     warnings: list[str] = []
     span_list = spans.segment(text)
     extraction = atoms_mod.ExtractionReport()
@@ -237,7 +237,7 @@ def analyze(
         concurrency=config.concurrency, allow_self_judge=config.allow_self_judge,
         placebo_text=config.placebo_text, seed=config.seed,
     )
-    if config.allow_self_judge and judge.model == answerer.model:
+    if config.allow_self_judge and same_client(judge, answerer):
         warnings.append(
             "judge and answerer are the same model (--allow-self-judge): scores are inflated"
         )

@@ -10,6 +10,7 @@ import json
 import sys
 from pathlib import Path
 
+from dokimi.llm import ANSWER_PROVIDERS
 from dokimi.commands._output import exit_on_unwritable
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
@@ -197,7 +198,7 @@ def register(sub, positive_int) -> None:
     run_p.add_argument("--out-md", default=None, dest="out_md")
     run_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL, help=argparse.SUPPRESS)
     run_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER,
-                       choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
+                       choices=ANSWER_PROVIDERS)
     run_p.add_argument("--harness", default="arms-runner", help=argparse.SUPPRESS)
     run_p.add_argument("--context7-id", default=None, dest="context7_id")
     run_p.add_argument("--judge", action="store_true")
