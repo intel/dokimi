@@ -16,6 +16,7 @@ repository. A changed file maps to a suite, to a skill, to the ``shared`` list, 
 from __future__ import annotations
 
 import fnmatch
+import glob
 import hashlib
 from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
@@ -87,7 +88,7 @@ class RepoConfig:
     def subjects_for_changed(self, paths: Iterable[str]) -> Impact:
         """Map repository-relative changed paths onto subjects, suites and ``shared``; the rest is unclaimed."""
         subjects = self.subjects(hashes=False)
-        shared = [*_as_list(self.data.get("shared")), *_own_path(self)]
+        shared = [*(_pattern(g, "shared") for g in _as_list(self.data.get("shared"))), *_own_path(self)]
         impact = Impact()
         for raw in paths:
             rel = _norm(str(raw))
@@ -276,14 +277,14 @@ def _suite_globs(spec: Any, *, where: str, skill: str | None) -> tuple[str, ...]
         for text in _as_list(value):
             if skill is None and SKILL_PLACEHOLDER in text:
                 raise ConfigError(f"{where}: {SKILL_PLACEHOLDER} needs a skill subject, not a repository")
-            globs.append(_pattern((text.replace(SKILL_PLACEHOLDER, skill) if skill else text), where))
+            globs.append(_pattern((text.replace(SKILL_PLACEHOLDER, glob.escape(skill)) if skill else text), where))
     return tuple(dict.fromkeys(globs))
 
 
 def _suite_files(root: Path, globs: tuple[str, ...]) -> dict[str, Path]:
     found: dict[str, Path] = {}
-    for glob in globs:
-        for match in sorted(root.glob(glob)):
+    for pattern in globs:
+        for match in sorted(root.glob(pattern)):
             found.setdefault(match.relative_to(root).as_posix(), match)
     return found
 
@@ -296,8 +297,14 @@ def _digest_files(files: dict[str, Path]) -> str:
 
 
 def _check_suite(subject: Subject, root: Path) -> None:
-    if subject.kind == "skill" and subject.path in _suite_files(root, subject.suite_globs):
-        raise ConfigError(f"subject {subject.id}: its suite matches the whole skill directory {subject.path}")
+    """A skill's suite must not hold the skill directory: not the directory itself, nor one of its ancestors."""
+    if subject.kind != "skill":
+        return
+    for rel in _suite_files(root, subject.suite_globs):
+        if rel == subject.path:
+            raise ConfigError(f"subject {subject.id}: its suite matches the whole skill directory {subject.path}")
+        if subject.path.startswith(rel + "/"):
+            raise ConfigError(f"subject {subject.id}: its suite {rel} contains the skill directory {subject.path}")
 
 
 def _hashed(subject: Subject, root: Path) -> Subject:

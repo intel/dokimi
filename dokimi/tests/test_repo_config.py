@@ -184,6 +184,8 @@ def test_a_repository_subject_takes_its_manifest_and_no_skill(tmp_path):
          {"m.yaml": "m"}, "needs a skill subject"),
         (HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: '{skill}'\n",
          {"skills/a/SKILL.md": "a"}, "whole skill directory"),
+        (HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: skills\n",
+         {"skills/a/SKILL.md": "a"}, "contains the skill directory"),
     ],
 )
 def test_a_subject_that_does_not_resolve_is_refused(tmp_path, body, files, needle):
@@ -335,3 +337,30 @@ def test_load_reads_a_file_and_roots_it_where_told(tmp_path):
     root = _tree(tmp_path / "repo", BESIDE)
     config = load(root / ".github/dokimi/config.yaml", root=root)
     assert config.root == root and config.path == root / ".github/dokimi/config.yaml"
+
+
+def test_shared_globs_are_normalised_like_changed_paths(tmp_path):
+    body = CENTRAL_CONFIG + "shared: ['./scripts/harness/**', 'scripts//lib/*.sh']\n"
+    root = _tree(tmp_path / "repo", {**CENTRAL, ".github/dokimi/config.yaml": body})
+    impact = load_repo_config(root).subjects_for_changed(["scripts/harness/run.sh", "scripts/lib/a.sh"])
+    assert impact.shared == ["scripts/harness/run.sh", "scripts/lib/a.sh"]
+    assert impact.unclaimed == []
+
+
+def test_a_shared_glob_that_climbs_out_is_refused(tmp_path):
+    body = CENTRAL_CONFIG + "shared: ['../x/**']\n"
+    root = _tree(tmp_path / "repo", {**CENTRAL, ".github/dokimi/config.yaml": body})
+    with pytest.raises(ConfigError, match="inside the repository"):
+        load_repo_config(root).subjects_for_changed(["x/a"])
+
+
+def test_a_skill_directory_with_brackets_in_its_name_keeps_its_evals(tmp_path):
+    files = {
+        ".github/dokimi/config.yaml": BESIDE_CONFIG,
+        "skills/foo[1]/SKILL.md": "# foo\n",
+        "skills/foo[1]/evals/a.yaml": "a: 1\n",
+    }
+    root = _tree(tmp_path / "repo", files)
+    impact = load_repo_config(root).subjects_for_changed(["skills/foo[1]/evals/a.yaml", "skills/foo[1]/SKILL.md"])
+    assert impact.suites == {"skill/foo[1]": ["skills/foo[1]/evals/a.yaml"]}
+    assert impact.skills == {"skill/foo[1]": ["skills/foo[1]/SKILL.md"]}
