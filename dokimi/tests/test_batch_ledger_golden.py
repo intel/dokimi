@@ -100,6 +100,7 @@ GOLDEN_RESULT_KEYS = [
     "base_date",
     "execution",
     "family",
+    "first_useful",
     "grade",
     "harness",
     "harness_version",
@@ -110,7 +111,6 @@ GOLDEN_RESULT_KEYS = [
     "score_max",
     "score_task",
     "task",
-    "useful",
 ]
 
 

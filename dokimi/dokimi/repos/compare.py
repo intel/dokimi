@@ -15,7 +15,7 @@ cells are first reduced to one value per (task, arm, model):
 - **first_prompt_tokens**: the mean of ``result.json`` ``agent.first_prompt_tokens`` (what the first
   main-thread call was sent: start-up plus the task) over the cells that have it. Like a process count, it is
   compared only when both arms report it for some shared task: a batch run before it was recorded has none;
-- **first_useful_s**, **first_useful_steps**: the median seconds and steps to the first useful result (``useful``
+- **first_useful_s**, **first_useful_steps**: the median seconds and steps to the first useful result (``first_useful``
   in ``result.json``, :mod:`.useful`) over the cells that observed it; compared like ``first_prompt_tokens``;
 - **metric:<name>**: the mean of ``grade.json`` ``metrics.<name>`` over the
   cells that report it (``true`` is 1), for ``--metric``;

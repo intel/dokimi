@@ -289,7 +289,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
                               "harness": opts.profile.name, "harness_version": meta["harness_version"],
                               "base_date": meta["base_date"], "execution": execution, "score_task": bool(task.score),
                               "score_max": task.score["max"] if task.score else None, "agent": agent,
-                              "process": process, "useful": first_useful(task.useful, events), "grade": grade}
+                              "process": process, "first_useful": first_useful(task.useful, events), "grade": grade}
     _add_arm_use(record, meta, task, skills, uptake_of, events)
     try:
         _own_dir(rd)  # the grader had the run dir read-write, and may have taken write access away

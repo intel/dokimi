@@ -5,7 +5,7 @@
 
 The first event of the run that hits the task's definition (:mod:`.useful_spec`): a ``command`` event whose text
 matches and whose ``rc`` is 0, or an ``edit`` event whose path matches a glob. A refused event (``denied``) never
-hits. ``steps`` counts every event up to and including the hit, as ``process.tool_calls`` does. ``seconds`` is the
+hits. ``steps`` counts every event up to and including the hit, as ``process.tool_calls`` does. ``issued_s`` is the
 hit's ``t``: the time the call was issued, since its result is not timed, so a test run's pass is not timed.
 """
 
@@ -47,21 +47,21 @@ def first_useful(
         if hits(useful, event):
             t = event.get("t")
             if isinstance(t, (int, float)) and not isinstance(t, bool):
-                return _record(useful.kind, None, seconds=float(t), steps=steps)
+                return _record(useful.kind, None, issued_s=float(t), steps=steps)
             return _record(useful.kind, "untimed", steps=steps)  # a trace without timestamps
     return _record(useful.kind, "never")
 
 
 def _record(
-    kind: str | None, reason: str | None, seconds: float | None = None, steps: int | None = None
+    kind: str | None, reason: str | None, issued_s: float | None = None, steps: int | None = None
 ) -> dict[str, Any]:
-    """``reason`` says why ``seconds`` or ``steps`` is null; it is null when the hit was found and timed."""
-    return {"kind": kind, "reason": reason, "seconds": seconds, "steps": steps}
+    """``reason`` says why ``issued_s`` or ``steps`` is null; it is null when the hit was found and timed."""
+    return {"kind": kind, "reason": reason, "issued_s": issued_s, "steps": steps}
 
 
 def _declared(recs: Iterable[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
     """The ``useful`` objects of the cells that record a definition: an older batch has none."""
-    return [u for r in recs if isinstance(u := r.get("useful"), dict) and u.get("kind")]
+    return [u for r in recs if isinstance(u := r.get("first_useful"), dict) and u.get("kind")]
 
 
 def _nums(values: Iterable[Any]) -> list[float]:
@@ -79,13 +79,13 @@ def useful_summary(recs: Sequence[Mapping[str, Any]]) -> dict[str, Any] | None:
     have = _declared(recs)
     if not have:
         return None
-    seconds = _nums(u.get("seconds") for u in have)
+    seconds = _nums(u.get("issued_s") for u in have)
     steps = _nums(u.get("steps") for u in have)
     return {
         "kind": have[0]["kind"],
         "n": len(have),
         "observed": len(steps),
-        "median_seconds": _median(seconds),
+        "median_s": _median(seconds),
         "median_steps": _median(steps),
         "reasons": dict(Counter(u["reason"] for u in have if u.get("reason"))),
     }
@@ -95,7 +95,7 @@ def useful_task_values(recs: Sequence[Mapping[str, Any]]) -> dict[str, list[floa
     """``repo compare``'s per-task values: the median over the cells that observed it, one value (None if none)."""
     have = _declared(recs)
     return {
-        "first_useful_s": [_median(_nums(u.get("seconds") for u in have))],
+        "first_useful_s": [_median(_nums(u.get("issued_s") for u in have))],
         "first_useful_steps": [_median(_nums(u.get("steps") for u in have))],
     }
 
@@ -105,8 +105,8 @@ def useful_line(summary: Mapping[str, Any] | None, width: int) -> list[str]:
     if not summary:
         return []
     parts = [f"{summary['observed']} of {summary['n']} observed"]
-    if summary["median_seconds"] is not None:
-        parts.append(f"median {summary['median_seconds']:.1f} s")
+    if summary["median_s"] is not None:
+        parts.append(f"median {summary['median_s']:.1f} s")
     if summary["median_steps"] is not None:
         parts.append(f"{summary['median_steps']:g} steps")
     parts += [f"{reason} {count}" for reason, count in sorted(summary["reasons"].items())]

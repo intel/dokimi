@@ -85,7 +85,7 @@ def test_a_passing_matching_command_is_the_first_useful_result_counted_in_steps_
     assert first_useful(parse_useful({"command": TEST_CMD}), events) == {
         "kind": "command",
         "reason": None,
-        "seconds": 6.0,
+        "issued_s": 6.0,
         "steps": 6,
     }
 
@@ -101,7 +101,7 @@ def test_the_first_edit_of_a_target_file_counts_steps_across_every_event_kind():
     assert first_useful(parse_useful({"edit": ["src/**/*.cpp", "src/x.py"]}), events) == {
         "kind": "edit",
         "reason": None,
-        "seconds": 2.0,
+        "issued_s": 2.0,
         "steps": 4,
     }
 
@@ -111,7 +111,7 @@ def test_a_run_with_no_hit_is_never_and_names_no_steps():
     assert first_useful(parse_useful({"command": TEST_CMD}), events) == {
         "kind": "command",
         "reason": "never",
-        "seconds": None,
+        "issued_s": None,
         "steps": None,
     }
 
@@ -120,7 +120,7 @@ def test_a_run_whose_trace_was_not_read_is_unobserved_not_never():
     assert first_useful(parse_useful({"edit": "src/x.py"}), None) == {
         "kind": "edit",
         "reason": "unobserved",
-        "seconds": None,
+        "issued_s": None,
         "steps": None,
     }
 
@@ -129,7 +129,7 @@ def test_a_task_without_a_definition_is_not_declared():
     assert first_useful(None, [_edit("src/x.py", t=1.0)]) == {
         "kind": None,
         "reason": "not_declared",
-        "seconds": None,
+        "issued_s": None,
         "steps": None,
     }
 
@@ -139,7 +139,7 @@ def test_a_trace_without_timestamps_keeps_the_steps_and_says_untimed():
     assert first_useful(parse_useful({"edit": "src/x.py"}), events) == {
         "kind": "edit",
         "reason": "untimed",
-        "seconds": None,
+        "issued_s": None,
         "steps": 2,
     }
 
@@ -217,13 +217,13 @@ def test_the_hit_is_timed_from_the_claude_stream_it_came_from():
     assert first_useful(parse_useful({"command": TEST_CMD}), events) == {
         "kind": "command",
         "reason": None,
-        "seconds": 42.0,
+        "issued_s": 42.0,
         "steps": 3,
     }
     assert first_useful(parse_useful({"edit": "src/*.py"}), events) == {
         "kind": "edit",
         "reason": None,
-        "seconds": 10.0,
+        "issued_s": 10.0,
         "steps": 2,
     }
 
@@ -237,29 +237,29 @@ def _timed(batch: Path, task: str, arm: str, rep: int, useful: dict | None) -> N
     path = batch / f"{task}__{arm.replace(':', '-')}__m-1__r{rep}" / "result.json"
     rec = json.loads(path.read_text())
     if useful is not None:
-        rec["useful"] = useful
+        rec["first_useful"] = useful
     path.write_text(json.dumps(rec))
 
 
 def _hit(seconds: float, steps: int) -> dict:
-    return {"kind": "command", "reason": None, "seconds": seconds, "steps": steps}
+    return {"kind": "command", "reason": None, "issued_s": seconds, "steps": steps}
 
 
 def test_useful_summary_is_the_observed_cells_medians_and_why_the_rest_are_not():
     recs = [
-        {"useful": _hit(10.0, 4)},
-        {"useful": _hit(20.0, 6)},
-        {"useful": {"kind": "command", "reason": "never", "seconds": None, "steps": None}},
+        {"first_useful": _hit(10.0, 4)},
+        {"first_useful": _hit(20.0, 6)},
+        {"first_useful": {"kind": "command", "reason": "never", "issued_s": None, "steps": None}},
     ]
     assert useful_summary(recs) == {
         "kind": "command",
         "n": 3,
         "observed": 2,
-        "median_seconds": 15.0,
+        "median_s": 15.0,
         "median_steps": 5.0,
         "reasons": {"never": 1},
     }
-    assert useful_summary([{}, {"useful": None}]) is None  # an older batch declares nothing
+    assert useful_summary([{}, {"first_useful": None}]) is None  # an older batch declares nothing
     assert useful_line(useful_summary(recs), 4) == [
         " " * 8 + "first useful (command): 2 of 3 observed, median 15.0 s, 5 steps, never 1"
     ]
@@ -268,10 +268,10 @@ def test_useful_summary_is_the_observed_cells_medians_and_why_the_rest_are_not()
 
 def test_a_task_value_is_the_median_of_the_cells_that_observed_it():
     recs = [
-        {"useful": _hit(10.0, 4)},
-        {"useful": _hit(30.0, 8)},
-        {"useful": _hit(50.0, 6)},
-        {"useful": {"kind": "command", "reason": "never", "seconds": None, "steps": None}},
+        {"first_useful": _hit(10.0, 4)},
+        {"first_useful": _hit(30.0, 8)},
+        {"first_useful": _hit(50.0, 6)},
+        {"first_useful": {"kind": "command", "reason": "never", "issued_s": None, "steps": None}},
     ]
     assert useful_task_values(recs) == {"first_useful_s": [30.0], "first_useful_steps": [6.0]}
     assert useful_task_values([{}]) == {"first_useful_s": [None], "first_useful_steps": [None]}
@@ -286,7 +286,7 @@ def test_repo_report_shows_the_first_useful_line_under_its_row_only_for_a_declar
         "t1",
         "guidance:raw",
         3,
-        {"kind": "command", "reason": "never", "seconds": None, "steps": None},
+        {"kind": "command", "reason": "never", "issued_s": None, "steps": None},
     )
     _timed(batch, "t2", "guidance:raw", 1, None)
     summary = summarize(batch)
@@ -295,7 +295,7 @@ def test_repo_report_shows_the_first_useful_line_under_its_row_only_for_a_declar
         "kind": "command",
         "n": 3,
         "observed": 2,
-        "median_seconds": 15.0,
+        "median_s": 15.0,
         "median_steps": 5.0,
         "reasons": {"never": 1},
     }
@@ -348,10 +348,10 @@ def test_result_json_records_the_first_edit_of_a_declared_target(setup):  # noqa
     task_json.write_text(json.dumps(task))
     _run(setup, "--arm", "guidance:raw", "--task", "fix_add", source=str(setup["root"]))
     # the fake agent's one Edit, with no timestamps: a hit that is untimed, at step 1
-    assert _only_cell(setup)["useful"] == {
+    assert _only_cell(setup)["first_useful"] == {
         "kind": "edit",
         "reason": "untimed",
-        "seconds": None,
+        "issued_s": None,
         "steps": 1,
     }
 
@@ -363,19 +363,31 @@ def test_result_json_says_a_definition_that_no_command_hits_is_never(setup, monk
     task["useful"] = {"command": "bazel build"}
     task_json.write_text(json.dumps(task))
     _run(setup, "--arm", "guidance:raw", "--task", "fix_add", source=str(setup["root"]))
-    assert _only_cell(setup)["useful"] == {
+    assert _only_cell(setup)["first_useful"] == {
         "kind": "command",
         "reason": "never",
-        "seconds": None,
+        "issued_s": None,
         "steps": None,
     }
 
 
 def test_result_json_says_a_task_with_no_definition_is_not_declared(setup):  # noqa: F811
     _run(setup, "--arm", "guidance:raw", "--task", "fix_add", source=str(setup["root"]))
-    assert _only_cell(setup)["useful"] == {
+    assert _only_cell(setup)["first_useful"] == {
         "kind": None,
         "reason": "not_declared",
-        "seconds": None,
+        "issued_s": None,
         "steps": None,
     }
+
+
+def test_repo_run_refuses_a_malformed_definition_before_any_cell_runs(setup):  # noqa: F811
+    task_json = setup["root"] / ".agent-eval/tasks/fix_add/task.json"
+    task = json.loads(task_json.read_text())
+    task["useful"] = {"edit": 3}
+    task_json.write_text(json.dumps(task))
+    with pytest.raises(SystemExit):
+        _run(setup, "--arm", "guidance:raw", "--task", "fix_add", source=str(setup["root"]))
+    assert not list(
+        (setup["out"] / "b1").glob("fix_add__*")
+    )  # refused by validate_tasks: no cell was made

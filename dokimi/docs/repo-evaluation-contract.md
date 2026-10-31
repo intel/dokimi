@@ -279,7 +279,7 @@ belongs to the repository's grader and is passed through unread, except `grader`
 | `host` | no | framework | `{"min_cpus": <int>, "cpu_vendors": [<str>], "cpu_flags": [<str>]}`, every key optional: what the hidden test needs to show the bug (a thread race that needs 3+ CPUs, an ISA path). Vendor and flag names are `/proc/cpuinfo`'s (`GenuineIntel`, `avx512f`); both match in any case, and a vendor other than `GenuineIntel`, `AuthenticAMD`, `HygonGenuine`, `CentaurHauls`, `Shanghai` is refused (`repo validate` too). A probe that read neither vendor nor flags from `/proc/cpuinfo` is a probe failure, not a miss They are checked against a probe container started like the grading one: CPUs are its affinity mask capped by its cgroup CPU quota (`docker --cpus`). On a host that misses them the task is unsupported (§4.3), and the probed facts go to `meta.json` `host` of a cell that runs, or to its `unsupported.json` `host` when it does not |
 | `egress` | no | framework | extra hosts (DNS names, optional `:port`; `*` stands for one whole label and the last two labels are literal, so `*.pythonhosted.org` passes and `*` or `*.org` does not) this task's agent and entry points reach through the proxy (§2), for example `["pypi.org", "files.pythonhosted.org"]` |
 | `expected_skill` | no | framework | the name (directory name) of the skill the agent should use; a `skill-catalog:` arm must install it, or the arm is refused before anything runs. `result.json` `skills` records whether the agent used it and whether it used it first |
-| `useful` | no | framework | the definition of the run's first useful result, reported as `useful` in `result.json` (§4.1): `{"command": "<regex>"}` for a task whose grade runs the target tests, or `{"edit": "<glob>"}` (or a list of globs) for one that grades an edit to a target file. Omit it when no event is the useful result. A malformed value is refused by `repo validate`, `tasks check` and `repo run` |
+| `useful` | no | framework | the definition of the run's first useful result, reported as `first_useful` in `result.json` (§4.1): `{"command": "<regex>"}` for a task whose grade runs the target tests, or `{"edit": "<glob>"}` (or a list of globs) for one that grades an edit to a target file. Omit it when no event is the useful result. A malformed value is refused by `repo validate`, `tasks check` and `repo run` |
 | anything else | — | repository | for example `hidden_files`, `targets`, `regression_targets`, `manifest` |
 
 `setup_patch` (a single string) is accepted as a synonym for a one-element
@@ -444,26 +444,30 @@ parent's and subagents' together, so a grader need not:
 
 `process` is `null` when the trace could not be read, the agent left none (no event and no result record), or computing the metrics failed (the error is in `agent.trace_errors`).
 
-`result.json` `useful` is the run's first useful result: the first event that
+`result.json` `first_useful` is the run's first useful result: the first event that
 hits the task's `useful` key (§3). The definition depends on the grader:
 
 | Grader | Declare | Hit |
 |---|---|---|
 | test: the grade runs the target tests | `{"command": "<regex>"}` | the first `command` event whose text matches the regex (`re.search`) and whose `rc` is `0`. `rc` 0 says that command passed, not that every target test did, so the regex should name the target tests |
 | edit or diff: the grade reads a target file | `{"edit": "<glob>"}` or a list | the first `edit` event whose path matches a glob (`match_glob`, as the guidance globs) |
-| review (`dokimi:review_*`) | none | none: the answer is the product, so no event is the useful result, and the reason is `not_declared` |
+| review (`dokimi:review_*`) | none | none, so `not_declared`: the answer is the product, so no event is the useful result. A declared key is measured all the same |
 | any other repository grader | either form, or none | none declared, `not_declared` |
 
 A refused event (`denied`) never hits. `steps` counts every event up to and
 including the hit, the parent's and subagents' (as `process.tool_calls` does).
-`seconds` is the hit's `t`: the time the call was issued, since a call's result
-is not timed. `useful` is `{"kind": "command"|"edit"|null, "reason": ...,
-"seconds": number|null, "steps": int|null}`. `reason` is `null` when the hit was
-found and timed; otherwise it says why `seconds` (and `steps`, with no hit) is
+`issued_s` is the hit's `t`: the time the call was issued, since a call's result
+is not timed. `first_useful` is `{"kind": "command"|"edit"|null, "reason": ...,
+"issued_s": number|null, "steps": int|null}`. `reason` is `null` when the hit was
+found and timed; otherwise it says why `issued_s` (and `steps`, with no hit) is
 null: `not_declared` (no definition), `unobserved` (the trace was not read: the
 harness never started or it did not parse), `never` (no event hit) or `untimed`
-(the trace format has no timestamps, so `steps` is set and `seconds` is null).
-A cell of an older batch has no `useful`.
+(the trace format has no timestamps, so `steps` is set and `issued_s` is null).
+A cell of an older batch has no `first_useful`. Each cell that declares a definition
+is counted in `repo report`: the row says how many observed a hit, and the medians
+cover only those; `repo compare` has no rate, so read its `first_useful_*` with the
+row's observed count. A compared task has one kind, but the mean delta pools the
+tasks of both kinds: a per-task row shows which.
 
 A cell of an arm that installs skills also has a `skills` object in
 `result.json`: `measured`, `skills_installed` (the installed skill names),

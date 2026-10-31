@@ -20,7 +20,7 @@
   agent used it (``result.json`` ``uptake``, see :mod:`.uptake`) over the
   cells with a trace to count from.
 - **first useful**: for a task that declares a ``useful`` definition, the cells that observed the first useful
-  result (``result.json`` ``useful``, see :mod:`.useful`): how many, their median seconds and steps, and why the
+  result (``result.json`` ``first_useful``, see :mod:`.useful`): how many, their median seconds and steps, and why the
   others did not (``never``, ``unobserved``, ``untimed``).
 - skill arms add ``skill_invoked`` (cells whose agent used the expected skill,
   or any installed one when the task names none) and, when the task has an
