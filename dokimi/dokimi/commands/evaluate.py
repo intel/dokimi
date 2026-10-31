@@ -570,6 +570,10 @@ def register(sub, positive_int) -> None:
 
     answer_formats.register_eval(eval_sub, positive_int)  # eval reference, eval native-import
 
+    from dokimi.commands import redteam
+
+    redteam.register_eval(eval_sub)  # eval redteam
+
     # eval panel-score
     panel_p = eval_sub.add_parser("panel-score", help="Score answers using a multi-judge panel")
     panel_p.add_argument("--answers", required=True, help="Path to answers JSON file")

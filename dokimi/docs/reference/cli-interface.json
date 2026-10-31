@@ -5594,6 +5594,78 @@
           "subcommand_required": null,
           "subcommands": {}
         },
+        "redteam": {
+          "allow_abbrev": true,
+          "params": [
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "questions",
+              "kind": "argument",
+              "nargs": null,
+              "position": 0,
+              "required": true,
+              "type": null
+            },
+            {
+              "action": "_HelpAction",
+              "choices": null,
+              "const": null,
+              "default": "==SUPPRESS==",
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": true,
+              "key": "--help/-h",
+              "kind": "option",
+              "nargs": 0,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--judge",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": "dokimi.commands.redteam._judge_ref#a59ddb60ae31"
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--out",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": null
+            }
+          ],
+          "path": "dokimi eval redteam",
+          "subcommand_required": null,
+          "subcommands": {}
+        },
         "reference": {
           "allow_abbrev": true,
           "params": [
@@ -12892,6 +12964,7 @@
                 "'plan'",
                 "'plugin_delta'",
                 "'questions'",
+                "'redteam'",
                 "'repo_budget'",
                 "'repo_environment'",
                 "'repo_readiness'",

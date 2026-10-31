@@ -688,3 +688,9 @@ class Judge:
     def _get_timestamp() -> str:
         from datetime import datetime, timezone
         return datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z"
+
+
+def judge_ask(model: str, provider: str) -> Callable[..., str]:
+    """The ``Ask`` of the reference checks (one prompt in, the reply text out) backed by a ``Judge``'s model."""
+    llm = Judge(model=model, provider=provider).llm
+    return lambda prompt, draw=0, cache_if=None: llm.invoke(prompt, draw=draw, cache_if=cache_if).content
