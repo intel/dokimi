@@ -584,15 +584,18 @@ def test_command_exits_2_on_an_input_nested_too_deep_to_read(tmp_path, capsys):
     assert "Error:" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("run_config", ["bad", 5, ["max_tokens"]])
-def test_command_exits_2_when_run_config_is_not_an_object(tmp_path, capsys, run_config):
+@pytest.mark.parametrize(("field", "value", "kind"), [
+    ("run_config", "bad", "object"), ("run_config", 5, "object"), ("run_config", ["max_tokens"], "object"),
+    ("arms", 5, "array"), ("arms", "baseline", "array"), ("arms", {"baseline": 1}, "array"),
+])
+def test_command_exits_2_when_top_level_metadata_has_the_wrong_shape(tmp_path, capsys, field, value, kind):
     path = _arms_file(tmp_path / "run.json", {"1": {"baseline": 95}})
     data = json.loads(path.read_text(encoding="utf-8"))
-    path.write_text(json.dumps({**data, "run_config": run_config}), encoding="utf-8")
+    path.write_text(json.dumps({**data, field: value}), encoding="utf-8")
     with pytest.raises(SystemExit) as exc:
         cmd_eval_headroom(_args([path]))
     assert exc.value.code == 2
-    assert f"Error: {path}: run_config must be a JSON object" in capsys.readouterr().err
+    assert f"Error: {path}: {field} must be a JSON {kind}" in capsys.readouterr().err
 
 
 def test_min_reps_must_be_a_positive_integer_at_the_parser(tmp_path, capsys):
