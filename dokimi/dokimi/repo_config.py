@@ -18,6 +18,7 @@ from __future__ import annotations
 import fnmatch
 import glob
 import hashlib
+import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
@@ -31,6 +32,7 @@ KIND = "dokimi_config"
 CONFIG_CANDIDATES = (".github/dokimi/config.yaml", ".dokimi/config.yaml")
 DEFAULT_SUITE = "{skill}/evals"
 SKILL_PLACEHOLDER = "{skill}"
+DRIVE = re.compile(r"[A-Za-z]:")
 
 
 class ConfigError(ValueError):
@@ -51,8 +53,8 @@ class Subject:
 
     @property
     def eval_globs(self) -> tuple[str, ...]:
-        """Every glob whose matches are this subject's evals: its suite, and a repository's manifest."""
-        return self.suite_globs + ((self.manifest,) if self.manifest else ())
+        """Every glob whose matches are this subject's evals: its suite, and the manifest, escaped to a literal."""
+        return self.suite_globs + ((glob.escape(self.manifest),) if self.manifest else ())
 
 
 @dataclass(frozen=True)
@@ -151,7 +153,8 @@ def load_repo_config(start: Path | None = None, *, explicit: Path | None = None)
 def _norm(value: str) -> str | None:
     """A repository-relative POSIX path or glob, or None when it is empty, absolute or climbs out."""
     norm = PurePosixPath(value.replace("\\", "/")).as_posix()
-    if norm in ("", ".") or norm.startswith("/") or ".." in norm.split("/"):
+    # A drive (C:, C:skill) makes Path join discard the root on Windows, so it is refused like an absolute path.
+    if norm in ("", ".") or norm.startswith("/") or DRIVE.match(norm) or ".." in norm.split("/"):
         return None
     return norm
 
@@ -160,6 +163,14 @@ def _pattern(value: Any, where: str) -> str:
     norm = _norm(str(value))
     if norm is None:
         raise ConfigError(f"{where}: {value!r} must be a path or glob inside the repository")
+    return norm
+
+
+def _glob(value: Any, where: str) -> str:
+    """A glob from a glob field: ``**`` must be a whole path component (the glob module raises otherwise, on 3.11/3.12)."""
+    norm = _pattern(value, where)
+    if any("**" in seg and seg != "**" for seg in norm.split("/")):
+        raise ConfigError(f"{where}: {value!r} is not a valid glob, '**' must be a whole path component")
     return norm
 
 
@@ -235,7 +246,7 @@ def _skill_dirs(data: dict[str, Any], root: Path) -> list[str]:
     """Repository-relative directories matched by ``defaults.skills``; files do not count."""
     rels: set[str] = set()
     for pattern in _as_list((data.get("defaults") or {}).get("skills")):
-        for match in root.glob(_pattern(pattern, "defaults.skills")):
+        for match in root.glob(_glob(pattern, "defaults.skills")):
             if match.is_dir():
                 rels.add(match.relative_to(root).as_posix())
     return sorted(rels)
@@ -279,7 +290,7 @@ def _suite_globs(spec: Any, *, where: str, skill: str | None) -> tuple[str, ...]
         for text in _as_list(value):
             if skill is None and SKILL_PLACEHOLDER in text:
                 raise ConfigError(f"{where}: {SKILL_PLACEHOLDER} needs a skill subject, not a repository")
-            globs.append(_pattern((text.replace(SKILL_PLACEHOLDER, glob.escape(skill)) if skill else text), where))
+            globs.append(_glob((text.replace(SKILL_PLACEHOLDER, glob.escape(skill)) if skill else text), where))
     return tuple(dict.fromkeys(globs))
 
 

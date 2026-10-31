@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -386,3 +387,73 @@ def test_a_skill_directory_with_brackets_in_its_name_keeps_its_evals(tmp_path):
     impact = load_repo_config(root).subjects_for_changed(["skills/foo[1]/evals/a.yaml", "skills/foo[1]/SKILL.md"])
     assert impact.suites == {"skill/foo[1]": ["skills/foo[1]/evals/a.yaml"]}
     assert impact.skills == {"skill/foo[1]": ["skills/foo[1]/SKILL.md"]}
+
+
+def test_a_manifest_with_brackets_in_its_name_is_claimed_as_written(tmp_path):
+    body = HEADER + "subjects:\n  - id: repo\n    kind: repo\n    manifest: manifests/repo[1].yaml\n"
+    files = {".github/dokimi/config.yaml": body, "manifests/repo[1].yaml": "x: 1\n", "manifests/repo1.yaml": "x: 2\n"}
+    root = _tree(tmp_path / "repo", files)
+    impact = load_repo_config(root).subjects_for_changed(["manifests/repo[1].yaml", "manifests/repo1.yaml"])
+    assert impact.suites == {"repo": ["manifests/repo[1].yaml"]}
+    assert impact.unclaimed == ["manifests/repo1.yaml"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_retargeting_a_matched_dangling_symlink_moves_suite_hash(tmp_path):
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: evaluation/*\n"
+    files = {".github/dokimi/config.yaml": body, "skills/a/SKILL.md": "# a\n", "evaluation/keep.txt": "k\n"}
+    root = _tree(tmp_path / "repo", files)
+    link = root / "evaluation" / "task"
+    os.symlink("missing-a", link)
+    before = _subjects(root)["skill/a"].suite_hash
+    link.unlink()
+    os.symlink("missing-b", link)
+    assert _subjects(root)["skill/a"].suite_hash != before
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_retargeting_a_matched_directory_symlink_moves_suite_hash(tmp_path):
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: evaluation/*\n"
+    files = {
+        ".github/dokimi/config.yaml": body,
+        "skills/a/SKILL.md": "# a\n",
+        "one/q.json": "[]\n",
+        "two/q.json": "[]\n",
+    }
+    root = _tree(tmp_path / "repo", files)
+    (root / "evaluation").mkdir()
+    os.symlink(root / "one", root / "evaluation" / "linked", target_is_directory=True)
+    before = _subjects(root)["skill/a"].suite_hash
+    (root / "evaluation" / "linked").unlink()
+    os.symlink(root / "two", root / "evaluation" / "linked", target_is_directory=True)
+    assert _subjects(root)["skill/a"].suite_hash != before
+
+
+@pytest.mark.parametrize(
+    ("body", "where"),
+    [
+        (HEADER + "subjects:\n  - id: skill/a\n    path: '{bad}'\n", "path"),
+        (HEADER + "subjects:\n  - id: repo\n    kind: repo\n    manifest: '{bad}'\n", "manifest"),
+        (HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: '{bad}'\n", "suite"),
+        (HEADER + "defaults:\n  skills: '{bad}'\n", "defaults.skills"),
+    ],
+)
+@pytest.mark.parametrize("bad", [r"C:\outside\skill", "C:skill", "C:/outside/skill", "c:skills/a"])
+def test_a_drive_qualified_path_is_refused_in_every_field(tmp_path, body, where, bad):
+    root = _tree(tmp_path / "repo", {".github/dokimi/config.yaml": body.replace("{bad}", bad), "skills/a/SKILL.md": "a"})
+    with pytest.raises(ConfigError, match="inside the repository"):
+        load_repo_config(root).subjects(hashes=False)
+
+
+@pytest.mark.parametrize(
+    ("body", "needle"),
+    [
+        (HEADER + "defaults:\n  skills: 'skills/a**b'\n", "defaults.skills"),
+        (HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: 'evaluation/a**b'\n", "suite"),
+    ],
+)
+def test_a_malformed_glob_is_a_config_error_that_names_the_field_and_the_pattern(tmp_path, body, needle):
+    root = _tree(tmp_path / "repo", {".github/dokimi/config.yaml": body, "skills/a/SKILL.md": "a"})
+    with pytest.raises(ConfigError, match=needle) as err:
+        load_repo_config(root).subjects(hashes=False)
+    assert "a**b" in str(err.value)
