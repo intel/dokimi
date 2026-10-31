@@ -22,7 +22,7 @@ from dokimi.defaults import (
 )
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY, NoUsablePairs
-from dokimi.utils import normalize_model_ref, write_text_or_exit
+from dokimi.utils import same_evaluator, write_text_or_exit
 from dokimi.exit_codes import EXIT_USAGE
 
 
@@ -33,16 +33,13 @@ def _warn_judge_independence(
     judge_model: str,
     context: str = "run",
 ) -> bool:
-    """Emit a non-fatal warning when answer and judge use the same model/provider."""
-    from dokimi.llm_cli import same_model
-
-    same = (normalize_model_ref(answer_provider, answer_model) == normalize_model_ref(judge_provider, judge_model)
-            or same_model(answer_provider, answer_model, judge_provider, judge_model))
+    """Emit a non-fatal warning when answer and judge are the same model (on any provider route)."""
+    same = same_evaluator(answer_provider, answer_model, judge_provider, judge_model)
     if same:
         print(
             "⚠ Evaluator independence warning "
             f"({context}): answer model equals judge model "
-            f"[{answer_provider}/{answer_model}] — potential self-referential bias.",
+            f"[{answer_provider}/{answer_model}] and [{judge_provider}/{judge_model}] — potential self-referential bias.",
             file=sys.stderr,
         )
     return same

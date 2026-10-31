@@ -41,11 +41,12 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
+from .workflows import WORKFLOWS, workflow_files
+
 if TYPE_CHECKING:
     from .core import Scan
     from .markdown import Pieces
 
-WORKFLOWS = ".github/workflows/"
 Version = tuple[int, bool]  # (minor, free-threaded) of a CPython 3 version
 
 _PY = r"(?:[Cc][Pp]ython ?|[Pp]ython ?|[Pp]y)"
@@ -111,7 +112,7 @@ def workflow(scan: Scan, name: str) -> str | None:
     if not s.endswith((".yml", ".yaml")) or " " in s:
         return None
     s = re.sub(r"^(?:\.{0,2}/)+", "", s)  # `/`, `./` and `../` in front
-    flows = scan.cached("workflows", lambda: [f for f in scan.files if f.startswith(WORKFLOWS)])
+    flows = workflow_files(scan)
     for exact in (s, WORKFLOWS + s):
         if exact in flows:
             return exact
@@ -209,9 +210,10 @@ def workflow_versions(scan: Scan, path: str, unknown: list[str], seen: dict[str,
         return set()
     reads: set[str] = set()
     seen[path] = reads
+    text = scan.text(path)  # outside the try: a failed git read (SourceError is a ValueError) is no YAML error
     try:
-        doc = yaml.safe_load(scan.text(path))
-    except yaml.YAMLError:
+        doc = yaml.safe_load(text)
+    except Exception:  # PyYAML's constructors raise more than YAMLError: a bad date, tag value, depth
         unknown.append(f"{path} is not valid YAML")
         return set()
     jobs = doc.get("jobs") if isinstance(doc, dict) else None
