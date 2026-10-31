@@ -24,6 +24,7 @@ import posixpath
 import re
 import shlex
 from datetime import datetime
+from pathlib import PureWindowsPath
 from typing import Any
 
 from .transcript import Transcript, _parse_time, clip_output, relative_path
@@ -740,11 +741,20 @@ def _copilot_tool(data: dict[str, Any], t: float | None, workdir: str | None, cw
         path = str(args.get("path") or args.get("file_path") or "")
         if not path:  # a call without a path names no file
             return []
-        return [{"t": t, "kind": "read" if name in _COPILOT_READ else "edit", "path": relative_path(path, workdir)}]
+        kind = "read" if name in _COPILOT_READ else "edit"
+        return [{"t": t, "kind": kind, "path": relative_path(_from_cwd(path, cwd), workdir)}]
     if name == "apply_patch":
         text = args if isinstance(args, str) else str((args or {}).get("input", ""))
-        return [{"t": t, "kind": "edit", "path": relative_path(p.strip(), workdir)} for p in _PATCH_FILE.findall(text)]
+        return [{"t": t, "kind": "edit", "path": relative_path(_from_cwd(p.strip(), cwd), workdir)}
+                for p in _PATCH_FILE.findall(text)]
     return [{"t": t, "kind": "tool", "name": name}]
+
+
+def _from_cwd(path: str, cwd: str) -> str:
+    """A tool's relative ``path`` joined to ``cwd``, the workspace-relative directory the CLI started in."""
+    if not cwd or path.startswith("/") or PureWindowsPath(path).is_absolute():
+        return path
+    return posixpath.normpath(posixpath.join(cwd, path))
 
 
 def _copilot_result(out: Transcript, events: list[dict[str, Any]], data: dict[str, Any]) -> None:
