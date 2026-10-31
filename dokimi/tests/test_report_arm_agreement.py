@@ -258,4 +258,5 @@ def test_report_eval_with_no_complete_pair_says_so_instead_of_a_zero_delta(tmp_p
     all_row = next(line for line in text.splitlines() if line.startswith("| **All** |"))
     assert all_row.split("|")[3:6] == [" — ", " — ", " — "]
     assert "Overall delta: +0.0" not in text
+    assert "over the 0 complete pairs" not in text
     assert "no complete pairs" in text

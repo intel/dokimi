@@ -115,6 +115,8 @@ def _unpaired_note(s: dict) -> list[str]:
     """A line saying what the Summary means leave out; nothing when every question is paired."""
     if not s["unpaired"]:
         return []
+    if not s["valid"]:
+        return [f'_No complete pairs: {s["unpaired"]} unpaired questions, so no arm mean or delta is given._', ""]
     return [
         f'_Arm means and delta are over the {s["valid"]} complete pairs; '
         f'{s["unpaired"]} unpaired (scored in one arm only) left out._',
