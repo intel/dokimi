@@ -149,6 +149,15 @@ def test_codex_review_findings():
     assert codex_review_findings("No issues found.") == []
 
 
+@pytest.mark.parametrize("name", ["codex", "copilot", "claude-code"])
+def test_execution_id_pinned_by_trace(name):
+    # another converter gives another answer and other read events: a stored cell must not be reused
+    import dataclasses
+
+    profile = load_profile(name)
+    assert dataclasses.replace(profile, trace="text").execution_id("all") != profile.execution_id("all")
+
+
 def test_builtin_codex_profiles_do_not_forward_openai_api_key():
     # codex exec never reads it, and in `all` mode the agent's shell would see it
     for name in ("codex", "codex-review"):

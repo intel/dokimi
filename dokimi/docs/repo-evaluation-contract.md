@@ -1370,10 +1370,10 @@ python cli.py repo compare repo-runs/replay --baseline guidance:none --metric re
   under `none`) and an
   `id` hashing the profile's name, `invoke`, tool arguments, `env_set`,
   `env_allow`, `config_dir_env`, `config_files`, `prompt_suffix`, `egress`,
-  `bridge`, `answer_format`, the SHA-256 of the harness executable (`--bin`),
+  `bridge`, `trace` (unless `claude-stream-json`), `answer_format`, the SHA-256 of the harness executable (`--bin`),
   the SHA-256 of each `bin_companions` file and harness version.
   A rerun whose `id` differs (another `--tools`, a `--delegation` that changes the tool arguments, profile,
-  harness binary or harness version, or an edited `invoke`, `env_set`, `env_allow`, `config_dir_env`, `config_files`, `prompt_suffix`, `egress`, `bridge` or `answer_format`) is refused before any agent starts, and
+  harness binary or harness version, or an edited `invoke`, `env_set`, `env_allow`, `config_dir_env`, `config_files`, `prompt_suffix`, `egress`, `bridge`, `trace` or `answer_format`) is refused before any agent starts, and
   `--force` or another `--batch` runs it. `--force` replaces the cells of the
   run's plan only: if the batch dir holds finished cells outside that plan
   whose `id` differs from this run's (e.g. `--reps 2`, then `--reps 1

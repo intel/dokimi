@@ -142,7 +142,7 @@ class HarnessProfile:
     def execution_id(self, tools: str, delegation: str = "native", harness_sha256: str | None = None,
                      harness_version: str | None = None, companion_sha256: dict[str, str | None] | None = None) -> str:
         """Short hash of how the agent is started: the profile's ``invoke`` template with its tool arguments,
-        environment, config, prompt suffix, egress, bridge, answer format and companions.
+        environment, config, prompt suffix, egress, bridge, trace, answer format and companions.
 
         Two runs with the same id ran the same command line up to the per-cell values (prompt, model,
         caps); ``repo run`` reuses a finished cell only when its id matches. Includes the harness
@@ -156,8 +156,10 @@ class HarnessProfile:
                "egress": list(self.egress), "bridge": self.bridge,
                "prompt_suffix": self.prompt_suffix, "harness_sha256": harness_sha256,
                "harness_version": harness_version}
-        # a cell graded with another answer format, or run with other companions, is another run; unset adds
-        # no key, so the ids of profiles that set neither stay as they were
+        # a cell graded with another answer format or trace converter, or run with other companions, is another
+        # run; unset (or claude-stream-json) adds no key, so the ids of profiles that set none stay as they were
+        if self.trace != "claude-stream-json":
+            key["trace"] = self.trace
         if self.answer_format:
             key["answer_format"] = self.answer_format
         if self.bin_companions:
