@@ -587,6 +587,7 @@ def test_command_exits_2_on_an_input_nested_too_deep_to_read(tmp_path, capsys):
 @pytest.mark.parametrize(("field", "value", "kind"), [
     ("run_config", "bad", "object"), ("run_config", 5, "object"), ("run_config", ["max_tokens"], "object"),
     ("arms", 5, "array"), ("arms", "baseline", "array"), ("arms", {"baseline": 1}, "array"),
+    ("arms", [1, "baseline"], "array of strings"),
 ])
 def test_command_exits_2_when_top_level_metadata_has_the_wrong_shape(tmp_path, capsys, field, value, kind):
     path = _arms_file(tmp_path / "run.json", {"1": {"baseline": 95}})
@@ -596,6 +597,29 @@ def test_command_exits_2_when_top_level_metadata_has_the_wrong_shape(tmp_path, c
         cmd_eval_headroom(_args([path]))
     assert exc.value.code == 2
     assert f"Error: {path}: {field} must be a JSON {kind}" in capsys.readouterr().err
+
+
+def test_command_exits_2_when_runs_were_judged_under_different_contexts(tmp_path, capsys):
+    base = _arms_file(tmp_path / "a.json", {"1": {"baseline": 95}})
+    other = tmp_path / "b.json"
+    data = json.loads(base.read_text(encoding="utf-8"))
+    other.write_text(json.dumps({**data, "judge_context": "treatment_material.v1"}), encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_headroom(_args([base, other]))
+    assert exc.value.code == 2
+    assert f"Error: {other} is not a repetition of {base}" in capsys.readouterr().err
+
+
+def test_command_exits_2_on_a_mixed_judge_context(tmp_path, capsys):
+    from dokimi.eval.judge_context import PROTOCOL_MIXED
+
+    path = _arms_file(tmp_path / "run.json", {"1": {"baseline": 95}})
+    data = json.loads(path.read_text(encoding="utf-8"))
+    path.write_text(json.dumps({**data, "judge_context": PROTOCOL_MIXED}), encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_headroom(_args([path]))
+    assert exc.value.code == 2
+    assert f"Error: {path}: judged some answers on the stored treatment material" in capsys.readouterr().err
 
 
 def test_min_reps_must_be_a_positive_integer_at_the_parser(tmp_path, capsys):

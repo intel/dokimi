@@ -20,6 +20,7 @@ from pathlib import Path
 
 from dokimi import records
 from dokimi.commands._output import exit_on_unwritable
+from dokimi.eval.judge_context import PROTOCOL_MIXED
 
 
 def _content_digest(path) -> str:
@@ -64,11 +65,12 @@ def _exit_unless_replicates(runs, inputs) -> None:
     or library: averaging such runs per question id would mix different measurements."""
     from dokimi.report.model_compare import replicate_key
 
-    keys = [(replicate_key(dict(run.meta)), run.meta.get("library_name")) for run in runs]
+    keys = [(replicate_key(dict(run.meta)), run.meta.get("library_name"), run.meta.get("judge_context"))
+            for run in runs]
     odd = next((path for key, path in zip(keys[1:], inputs[1:], strict=True) if key != keys[0]), None)
     if odd is not None:
-        print(f"Error: {odd} is not a repetition of {inputs[0]}: the model, judge, run config, harness, "
-              "arms or library differ, and runs of different configurations are not pooled", file=sys.stderr)
+        print(f"Error: {odd} is not a repetition of {inputs[0]}: the model, judge, judge context, run config, "
+              "harness, arms or library differ, and runs of different configurations are not pooled", file=sys.stderr)
         sys.exit(2)
 
 
@@ -79,13 +81,20 @@ _METADATA_SHAPES = (("run_config", dict, "object"), ("arms", list, "array"))
 
 def _exit_unless_metadata_shaped(run, path) -> None:
     """Exit 2 when a top-level field replicate_key reads is not the JSON shape it needs (absent or null
-    is fine), naming the file and the field."""
+    is fine), or the run mixed judge protocols, naming the file and the field."""
     for field, shape, label in _METADATA_SHAPES:
         value = run.meta.get(field)
         if value is not None and not isinstance(value, shape):
             print(f"Error: {path}: {field} must be a JSON {label}, not {type(value).__name__}",
                   file=sys.stderr)
             sys.exit(2)
+    if run.meta.get("arms") is not None and not all(isinstance(arm, str) for arm in run.meta["arms"]):
+        print(f"Error: {path}: arms must be a JSON array of strings", file=sys.stderr)
+        sys.exit(2)
+    if run.meta.get("judge_context") == PROTOCOL_MIXED:
+        print(f"Error: {path}: judged some answers on the stored treatment material and some on report "
+              f"snippets (judge_context {PROTOCOL_MIXED!r}); such a run pools with nothing", file=sys.stderr)
+        sys.exit(2)
 
 
 def cmd_eval_headroom(args: argparse.Namespace) -> None:
