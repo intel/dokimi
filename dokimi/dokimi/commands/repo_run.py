@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from dokimi.repos.workspace import Arm
 
 from dokimi.repos.harness_profile import DELEGATION_MODES
+from dokimi.exit_codes import EXIT_USAGE
 
 
 def _context(args: argparse.Namespace, out: Path, pin: bool = False):
@@ -389,16 +390,16 @@ def cmd_repo_report(args: argparse.Namespace) -> None:
     batch_dir = Path(args.batch_dir)
     if not batch_dir.is_dir():
         print(f"✗ not a directory: {batch_dir}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
     try:
         if args.hits:
             found = load_hits(batch_dir)
             print(json.dumps(found, indent=2) if args.json else format_hits(found))
             return
         summary = summarize(batch_dir)
-    except CellFileError as exc:
+    except CellFileError as exc:  # a cell file that is not the JSON repo run wrote: an input refusal
         print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
     print(json.dumps(summary, indent=2) if args.json else format_report(summary))
 
 
@@ -411,14 +412,14 @@ def cmd_repo_compare(args: argparse.Namespace) -> None:
     for d in dirs:
         if not d.is_dir():
             print(f"✗ not a directory: {d}", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(EXIT_USAGE)
     arms = [a for spec in args.arm for a in spec.split(",") if a] if args.arm else None
     try:
         summary = compare(dirs, args.baseline, arms, args.model, tuple(args.metric or ()),
                           pass_k=args.pass_k, path_stability=args.path_stability, tasks=args.task)
-    except (CompareError, CellFileError) as exc:
+    except (CompareError, CellFileError) as exc:  # an unusable baseline, arm, metric or cell file: exit 2
         print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
     print(json.dumps(summary, indent=2) if args.json else format_compare(summary))
 
 

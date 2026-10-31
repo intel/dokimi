@@ -59,7 +59,7 @@ def test_invalid_yaml_config_exits(tmp_path, monkeypatch, capsys):
     _point_config(monkeypatch, path)
     with pytest.raises(SystemExit) as exc:
         answers._load_runtime_config()
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert "invalid YAML" in capsys.readouterr().err
 
 
@@ -69,7 +69,7 @@ def test_non_utf8_config_exits_with_message(tmp_path, monkeypatch, capsys):
     _point_config(monkeypatch, path)
     with pytest.raises(SystemExit) as exc:
         answers._load_runtime_config()
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert f"cannot read {path}" in capsys.readouterr().err
 
 
@@ -79,7 +79,7 @@ def test_unreadable_config_exits_with_message(tmp_path, monkeypatch, capsys):
     _point_config(monkeypatch, path)
     with pytest.raises(SystemExit) as exc:
         answers._load_runtime_config()
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert f"cannot read {path}" in capsys.readouterr().err
 
 
@@ -89,7 +89,7 @@ def test_non_mapping_config_exits(tmp_path, monkeypatch, capsys):
     _point_config(monkeypatch, path)
     with pytest.raises(SystemExit) as exc:
         answers._load_runtime_config()
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert "expected a mapping" in capsys.readouterr().err
 
 
@@ -99,7 +99,7 @@ def test_non_utf8_config_exits(tmp_path, monkeypatch, capsys):
     _point_config(monkeypatch, path)
     with pytest.raises(SystemExit) as exc:
         answers._load_runtime_config()
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert f"cannot read {path}" in capsys.readouterr().err
 
 
@@ -107,7 +107,7 @@ def test_unreadable_config_path_exits(tmp_path, monkeypatch, capsys):
     _point_config(monkeypatch, tmp_path)
     with pytest.raises(SystemExit) as exc:
         answers._load_runtime_config()
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert f"cannot read {tmp_path}" in capsys.readouterr().err
 
 
@@ -121,7 +121,7 @@ def test_config_section_of_the_wrong_shape_exits(tmp_path, monkeypatch, capsys, 
     _point_config(monkeypatch, path)
     with pytest.raises(SystemExit) as exc:
         answers._load_runtime_config()
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert f"'{key}' in {path} must be a mapping" in capsys.readouterr().err
 
 
@@ -132,7 +132,7 @@ def test_questions_load_error_exits(monkeypatch, capsys):
     monkeypatch.setattr(dokimi.questions.artifact, "load_questions", fail)
     with pytest.raises(SystemExit) as exc:
         answers._load_questions("q.json")
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert "record 3 has no question text" in capsys.readouterr().err
 
 
@@ -299,12 +299,12 @@ def test_generate_output_that_is_a_directory_exits_2_naming_the_path(tmp_path, m
 
 
 @pytest.mark.parametrize("kind", ["missing", "directory"])
-def test_generate_unreadable_questions_exits_1_naming_the_path(tmp_path, monkeypatch, capsys, kind):
+def test_generate_unreadable_questions_exits_2_naming_the_path(tmp_path, monkeypatch, capsys, kind):
     _point_config(monkeypatch, tmp_path / "absent.yaml")
     path = tmp_path / "q.json"
     if kind == "directory":
         path.mkdir()
     with pytest.raises(SystemExit) as exc:
         answers.cmd_answers_generate(_args(questions=str(path)))
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert f"Error: cannot read {path}" in capsys.readouterr().err

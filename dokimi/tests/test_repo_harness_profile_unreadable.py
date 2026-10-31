@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""`repo budget` and `repo reach` exit 1 with a message on a --harness file that cannot be read."""
+"""`repo budget` and `repo reach` exit 2 with a message on a --harness file that cannot be read."""
 
 from __future__ import annotations
 
@@ -49,18 +49,18 @@ def test_load_profile_names_a_file_whose_read_raises_oserror(tmp_path, monkeypat
 
 
 @pytest.mark.parametrize("kind", ["non-utf8", "unreadable"])
-def test_repo_budget_exits_1_on_a_harness_file_it_cannot_read(tmp_path, capsys, kind):
+def test_repo_budget_exits_2_on_a_harness_file_it_cannot_read(tmp_path, capsys, kind):
     path = _bad_profile(tmp_path, kind)
     with pytest.raises(SystemExit) as exc:
         _run("budget", str(tmp_path), "--harness", str(path))
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert str(path) in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("kind", ["non-utf8", "unreadable"])
-def test_repo_reach_exits_1_on_a_harness_file_it_cannot_read(tmp_path, capsys, kind):
+def test_repo_reach_exits_2_on_a_harness_file_it_cannot_read(tmp_path, capsys, kind):
     path = _bad_profile(tmp_path, kind)
     with pytest.raises(SystemExit) as exc:
         _run("reach", str(tmp_path), "--model", "m", "--harness", str(path), "--dry-run")
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert str(path) in capsys.readouterr().err

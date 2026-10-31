@@ -7,7 +7,7 @@ Public API
 ----------
 check_run_consistency(runs, group_name, treatment_arm=None)
     Validate a list of (run_id, run_data) pairs before comparison.
-    Raises SystemExit on hard errors; returns a list of warning strings.
+    Hard errors exit 2 (a usage refusal: the runs cannot be compared); returns a list of warning strings.
 
 non_baseline_arms(run_data)
     The arm names in one artifact other than its baseline.
@@ -41,6 +41,7 @@ from typing import Any
 from dokimi.records import Record, RecordError, arm_answers, arm_names, arm_scores, records
 from dokimi.eval.judge_context import PROTOCOL_MIXED as JUDGE_CONTEXT_MIXED
 from dokimi.eval import stats as arm_stats
+from dokimi.exit_codes import usage_exit
 
 #: Mirrors :data:`dokimi.eval.stats.HAS_SCIPY` — the hypothesis tests
 #: now live there, so probing for SciPy twice could only ever disagree. Still a
@@ -64,18 +65,18 @@ def load_run(path: str) -> dict[str, Any]:
     """Load a judged arms JSON file.  Raises SystemExit with a clear message on failure."""
     try:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
-    except FileNotFoundError as exc:
-        raise SystemExit(f"Error: File not found: {path}") from exc
+    except FileNotFoundError:
+        usage_exit(f"Error: File not found: {path}")
     except OSError as exc:  # permission denied, a directory, an I/O error
-        raise SystemExit(f"Error: cannot read {path}: {exc.strerror or exc}") from exc
+        usage_exit(f"Error: cannot read {path}: {exc.strerror or exc}")
     except ValueError as exc:  # JSONDecodeError, or bytes that are not UTF-8
-        raise SystemExit(f"Error: Invalid JSON in {path}: {exc}") from exc
+        usage_exit(f"Error: Invalid JSON in {path}: {exc}")
     if isinstance(data, dict):
         for section in ("answers", "evaluations"):
             try:
                 records(data.get(section) or [], source=f"{path} {section}", kind=section)
             except RecordError as exc:
-                raise SystemExit(f"Error: {exc}") from exc
+                usage_exit(f"Error: {exc}")
     return data
 
 
@@ -106,7 +107,7 @@ def _section(run_data: dict, section: str) -> list[Record]:
     try:
         return records(run_data.get(section) or [], source=section, kind=section)
     except RecordError as exc:
-        raise SystemExit(f"Error: {exc}") from exc
+        usage_exit(f"Error: {exc}")
 
 
 def non_baseline_arms(run_data: dict) -> set[str]:
@@ -294,7 +295,7 @@ def _check_judge_context(runs: list[tuple[str, dict]], group_name: str) -> None:
     stamps = {rid: data.get("judge_context") for rid, data in runs if "evaluations" in data}
     mixed = sorted(rid for rid, s in stamps.items() if s == JUDGE_CONTEXT_MIXED)
     if mixed:
-        raise SystemExit(
+        usage_exit(
             f"Error [{group_name}]: {', '.join(mixed)} judged some answers on the stored "
             "treatment material and some on report snippets (judge_context "
             f"{JUDGE_CONTEXT_MIXED!r}); such a run pools with nothing, not even another "
@@ -302,7 +303,7 @@ def _check_judge_context(runs: list[tuple[str, dict]], group_name: str) -> None:
         )
     if len(set(stamps.values())) > 1:
         detail = ", ".join(f"{rid}={s or '<unstamped>'}" for rid, s in stamps.items())
-        raise SystemExit(
+        usage_exit(
             f"Error [{group_name}]: runs were judged under different judge_context "
             f"protocols ({detail}). The judge saw different evidence for the same "
             "answers, so the scores cannot be pooled. Re-run answering and judging "
@@ -321,7 +322,7 @@ def check_run_consistency(
     """Check runs for consistency problems; return warning strings.
 
     Hard errors (different ``baseline_arm``, different treatment arms, or
-    duplicate configurations without ``pool_replicates``) raise ``SystemExit``
+    duplicate configurations without ``pool_replicates``) exit 2 through ``usage_exit``
     immediately. Soft warnings (hash mismatch) are collected and returned.
     """
     if len(runs) < 2:
@@ -334,7 +335,7 @@ def check_run_consistency(
     unique_baselines = set(baseline_arms.values())
     if len(unique_baselines) > 1:
         detail = ", ".join(f"{rid}={arm}" for rid, arm in baseline_arms.items())
-        raise SystemExit(
+        usage_exit(
             f"Error [{group_name}]: runs have different baseline_arm values ({detail}). "
             "Comparing runs with different baselines produces meaningless deltas."
         )
@@ -368,7 +369,7 @@ def check_run_consistency(
                 f"{rid}={'/'.join(sorted(arms)) if arms else '<none scored>'}"
                 for rid, arms in per_run.items()
             )
-            raise SystemExit(
+            usage_exit(
                 f"Error [{group_name}]: runs are scored on {len(distinct)} different "
                 f"treatment arms ({detail}). Each run's delta would measure a different "
                 "treatment, so the comparison is confounded. Compare runs that share one "
@@ -394,7 +395,7 @@ def check_run_consistency(
             detail = ", ".join(
                 f"{rid}={'/'.join(sorted(d)[:1])[:19]}…" for rid, d in by_run.items() if d
             )
-            raise SystemExit(
+            usage_exit(
                 f"Error [{group_name}]: arm '{shared_arm}' carries "
                 f"{len(all_digests)} different prompt digests across runs ({detail}). "
                 "The arm name comes from the profile's frontmatter id, so an edited "
@@ -435,7 +436,7 @@ def check_run_consistency(
                 f"{key[0]} ({key[1]}) judged by {key[2] or 'n/a'} -> runs {', '.join(ids)}"
                 for key, ids in dupes.items()
             )
-            raise SystemExit(
+            usage_exit(
                 f"Error [{group_name}]: {len(dupes)} configuration(s) appear more than "
                 f"once ({detail}). These are replicates of one measurement, not rival "
                 "models; ranking them against each other reports sampling noise as a "
@@ -487,17 +488,13 @@ def extract_scores(
 
             if force_treatment_arm is not None:
                 if force_treatment_arm not in evaluation.conditions:
-                    raise SystemExit(
-                        f"Error: --treatment-arm '{force_treatment_arm}' not found in "
-                        f"question '{qid}'. Available arms: {list(evaluation.conditions)}"
-                    )
+                    usage_exit(f"Error: --treatment-arm '{force_treatment_arm}' not found in "
+                               f"question '{qid}'. Available arms: {list(evaluation.conditions)}")
                 target_arm: str | None = force_treatment_arm
             else:
                 if len(treatment_arms) > 1:
-                    raise SystemExit(
-                        f"Error: run has multiple non-baseline arms {treatment_arms} in "
-                        f"question '{qid}'. Use --treatment-arm to select one explicitly."
-                    )
+                    usage_exit(f"Error: run has multiple non-baseline arms {treatment_arms} in "
+                               f"question '{qid}'. Use --treatment-arm to select one explicitly.")
                 target_arm = treatment_arms[0] if treatment_arms else None
 
             if target_arm is not None and target_arm in evaluation.scores:
@@ -537,17 +534,13 @@ def extract_scores(
 
             if force_treatment_arm is not None:
                 if force_treatment_arm not in arms:
-                    raise SystemExit(
-                        f"Error: --treatment-arm '{force_treatment_arm}' not found in "
-                        f"question '{qid}'. Available arms: {list(arms)}"
-                    )
+                    usage_exit(f"Error: --treatment-arm '{force_treatment_arm}' not found in "
+                               f"question '{qid}'. Available arms: {list(arms)}")
                 treatment_arm = force_treatment_arm
             else:
                 if len(treatment_arms) > 1:
-                    raise SystemExit(
-                        f"Error: run has multiple non-baseline arms {treatment_arms} in "
-                        f"question '{qid}'. Use --treatment-arm to select one explicitly."
-                    )
+                    usage_exit(f"Error: run has multiple non-baseline arms {treatment_arms} in "
+                               f"question '{qid}'. Use --treatment-arm to select one explicitly.")
                 treatment_arm = treatment_arms[0] if treatment_arms else None
 
             # The inline ``evaluation.aggregate_score`` of each arm (records.py).

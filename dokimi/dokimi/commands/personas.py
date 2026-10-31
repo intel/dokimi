@@ -10,10 +10,12 @@ import json
 import sys
 from pathlib import Path
 
+from dokimi.llm import ANSWER_PROVIDERS
 from dokimi.commands._output import exit_on_unwritable
 from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
 from dokimi.personas.analyzer import PersonaAnalyzer
 from dokimi.personas.generator import PersonaGenerator
+from dokimi.exit_codes import EXIT_USAGE
 
 
 def cmd_personas_discover(args: argparse.Namespace) -> None:
@@ -25,7 +27,7 @@ def cmd_personas_discover(args: argparse.Namespace) -> None:
             "✗ Either --repo or --description must be provided.",
             file=sys.stderr,
         )
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
 
     generator = PersonaGenerator(model=args.model, provider=args.provider)
 
@@ -79,40 +81,40 @@ def cmd_personas_approve(args: argparse.Namespace) -> None:
 
     if not persona_file.exists():
         print(f"✗ File not found: {persona_file}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
 
     # Validate JSON structure
     try:
         personas = json.loads(persona_file.read_text(encoding="utf-8"))
     except OSError as e:
         print(f"✗ Cannot read {persona_file}: {e}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
     except ValueError as e:  # JSONDecodeError and bad UTF-8
         print(f"✗ Cannot parse {persona_file}: {e}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
 
     required_keys = {"product", "personas"}
     if not isinstance(personas, dict):
         print("✗ Invalid persona file. Expected a JSON object with keys: "
               f"{sorted(required_keys)}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
     if not required_keys.issubset(personas.keys()):
         print(f"✗ Invalid persona file. Missing keys: {required_keys - personas.keys()}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
     if not isinstance(personas["personas"], list):
         print("✗ Invalid persona file. `personas` must be a list", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
 
     # Check each persona
     for p in personas["personas"]:
         if not isinstance(p, dict):
             print(f"✗ Invalid persona file. Each persona must be an object, got: {p!r}", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(EXIT_USAGE)
         required_fields = {"id", "name", "skill_level"}
         missing = required_fields - set(p.keys())
         if missing:
             print(f"✗ Persona '{p.get('id', '?')}' missing fields: {missing}", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(EXIT_USAGE)
 
     print(f"✓ Validated {len(personas['personas'])} personas")
     print(f"✓ File approved: {persona_file}")
@@ -133,7 +135,7 @@ def register(sub, positive_int) -> None:
     discover_p.add_argument("--output", default=None, help="Output file (default: personas/{product}.json)")
     discover_p.add_argument("--count", type=int, default=5, help="Target number of personas (5-8)")
     discover_p.add_argument("--model", default=DEFAULT_GENERATOR_MODEL, help="LLM model for generation")
-    discover_p.add_argument("--provider", default=DEFAULT_GENERATOR_PROVIDER, choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
+    discover_p.add_argument("--provider", default=DEFAULT_GENERATOR_PROVIDER, choices=ANSWER_PROVIDERS)
     discover_p.add_argument("--github-token", default=None, help="GitHub token (or set GITHUB_TOKEN env)")
     discover_p.add_argument("--save-analysis", action="store_true", help="Save intermediate analysis JSON")
     discover_p.set_defaults(func=cmd_personas_discover)

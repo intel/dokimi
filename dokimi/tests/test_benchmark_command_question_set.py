@@ -320,10 +320,76 @@ def test_preflight_fails_before_any_call(monkeypatch, tmp_path, capsys, prefligh
     with pytest.raises(SystemExit) as exc:
         _preflight(monkeypatch, tmp_path, *preflight_args(tmp_path), env=env)
 
-    assert exc.value.code == 1
+    # A missing credential or a missing/invalid question set or output dir is an input refusal
+    # (2), the same as `benchmark run`. Only a failed check that is not an input stays 1.
+    assert exc.value.code == 2
     captured = capsys.readouterr()
     assert message in captured.err
     assert "Preflight OK" not in captured.out
+
+
+def _preflight_with_doc_source(monkeypatch, tmp_path, *extra, error=None, credential=True):
+    for key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
+        monkeypatch.delenv(key, raising=False)
+    if credential:
+        monkeypatch.setenv("OPENAI_API_KEY", "test")
+    monkeypatch.setattr(benchmark, "_load_registry", lambda args: _Registry())
+    # By default a failure of the check itself (the source cannot be reached), not a bad --doc-source value.
+    failure = error or RuntimeError("doc source unreachable")
+
+    def broken_client(doc_source):
+        raise failure
+
+    monkeypatch.setattr("dokimi.mcp.factory.create_doc_source_client", broken_client)
+    args = build_parser().parse_args([
+        "benchmark", "preflight", "--library", "onetbb",
+        "--doc-source", "local:docs",
+        "--provider", "openai", "--judge-provider", "openai",
+        "--output-dir", str(tmp_path / "out"), *extra,
+    ])
+    args.func(args)
+
+
+@pytest.mark.outcome("pinned-questions-preflight")
+def test_preflight_check_failure_alone_stays_1(monkeypatch, tmp_path, capsys):
+    # Guard: a doc source that does not resolve is a failed check, not an input refusal.
+    with pytest.raises(SystemExit) as exc:
+        _preflight_with_doc_source(monkeypatch, tmp_path)
+    assert exc.value.code == 1
+    assert "doc source check failed" in capsys.readouterr().err
+
+
+@pytest.mark.outcome("pinned-questions-preflight")
+def test_preflight_doc_source_value_rejected_by_the_factory_is_a_refusal(monkeypatch, tmp_path, capsys):
+    # The factory's ValueError says the --doc-source value is bad: exit 2, not a failed check.
+    with pytest.raises(SystemExit) as exc:
+        _preflight_with_doc_source(monkeypatch, tmp_path, error=ValueError("no such format"))
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "doc source invalid: local:docs (no such format)" in err
+    assert "doc source check failed" not in err
+
+
+@pytest.mark.outcome("pinned-questions-preflight")
+def test_preflight_missing_credential_wins_over_a_check_failure(monkeypatch, tmp_path, capsys):
+    with pytest.raises(SystemExit) as exc:
+        _preflight_with_doc_source(monkeypatch, tmp_path, credential=False)
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "missing OPENAI_API_KEY" in err and "doc source check failed" in err
+
+
+@pytest.mark.outcome("pinned-questions-preflight")
+def test_preflight_input_error_wins_over_a_check_failure(monkeypatch, tmp_path, capsys):
+    # An input the run would refuse (here an unwritable output dir) makes the refusal a usage
+    # error (2), even when a check also failed.
+    blocker = tmp_path / "file"
+    blocker.write_text("not a directory", encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        _preflight_with_doc_source(monkeypatch, tmp_path, "--output-dir", str(blocker / "out"))
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "output dir not writable" in err and "doc source check failed" in err
 
 
 @pytest.mark.outcome("pinned-questions-preflight")
@@ -365,7 +431,7 @@ def test_preflight_rejects_an_unwritable_output_dir(monkeypatch, tmp_path, capsy
     with pytest.raises(SystemExit) as exc:
         _preflight(monkeypatch, tmp_path, "--output-dir", str(blocker / "out"))
 
-    assert exc.value.code == 1
+    assert exc.value.code == 2  # unwritable output is an input refusal (docs/quickstart.md)
     assert "output dir not writable" in capsys.readouterr().err
 
 
@@ -397,7 +463,7 @@ def test_run_rejects_an_unusable_questions_from_before_any_call(
     with pytest.raises(SystemExit) as exc:
         benchmark.cmd_benchmark_run(args)
 
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert message in capsys.readouterr().err
     assert calls == []
 
