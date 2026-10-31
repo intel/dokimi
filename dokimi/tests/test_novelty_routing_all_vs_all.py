@@ -932,3 +932,33 @@ def test_console_counts_unscored_model_calls_when_repeats_are_set(tmp_path, caps
                   "--model", "m", "--repeats", "3")
     args.func(args)
     assert "model: 0 tied and 3 unscored calls are not counted as picks" in capsys.readouterr().out
+
+
+def test_a_partial_failure_still_prints_the_cost_of_the_calls_that_ran(tmp_path, capsys,
+                                                                      monkeypatch):
+    import dokimi.commands.novelty as novelty_cmd
+    from dokimi.metrics.usage import UsageRecord
+
+    replies = iter([('{"pick": 1}', UsageRecord(cost_usd=0.01))])
+
+    def transport(prompt: str, system: str | None = None):
+        try:
+            return next(replies)
+        except StopIteration:
+            raise RuntimeError("boom") from None
+
+    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+        model=model, provider=provider, role=role, transport=transport))
+    root = tmp_path / "catalog"
+    _catalog_skill(root, "perf", "profile a slow binary with perf record and report")
+    _catalog_skill(root, "db", "tune a slow database query with an index")
+    queries = _write_queries(tmp_path, {"perf": ["profile a slow program"],
+                                        "db": ["add an index"]})
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"),
+                  "--model", "m")
+    with pytest.raises(SystemExit, match="1 of 2 model call.s. failed"):
+        args.func(args)
+    out = capsys.readouterr().out
+    assert "OK Saved" not in out
+    assert any(line.startswith("cost") for line in out.splitlines()), out
