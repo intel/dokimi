@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 
 from dokimi import records
+from dokimi.commands._output import exit_on_unwritable
 
 
 def _content_digest(path) -> str:
@@ -102,8 +103,9 @@ def cmd_eval_headroom(args: argparse.Namespace) -> None:
     print(format_table(result))
     if args.output is not None:
         try:
-            save_artifact("headroom", result, args.output)
-        except (OSError, ArtifactValidationError) as e:  # a failed write is runtime, not input: exit 1
+            with exit_on_unwritable(args.output):  # an unwritable output exits 2, as docs/quickstart.md says
+                save_artifact("headroom", result, args.output)
+        except ArtifactValidationError as e:  # a payload the schema refuses is an internal failure: exit 1
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(1)
         print(f"Wrote headroom artifact to {args.output}")

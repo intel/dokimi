@@ -754,7 +754,7 @@ file is an error (exit 2): it would count as two runs.
 The table always goes to stdout: the flagged and provisional items, with the no-skill arm
 in its own column, a note naming any arm no run scored, and the counts. The JSON goes to
 `--out` only, as a `headroom.v1` artifact with every item; if that file cannot be written the
-command prints `Error: ...` on stderr and exits 1 (a runtime failure), after the table. Scores are compared unrounded
+command prints `Error: cannot write ...` on stderr and exits 2, after the table. Scores are compared unrounded
 and shown rounded down, so 0.89996 prints as 0.89. Without `--baseline-arm`, the runs must
 declare the same baseline; the default is that baseline. With `--baseline-arm`, the arm must
 be one the runs list (exit 2 otherwise, naming the arms that exist), and the declared
