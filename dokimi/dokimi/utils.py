@@ -193,6 +193,17 @@ def same_model(a: str, b: str) -> bool:
     return base_a == base_b
 
 
+def same_evaluator(answer_provider: str, answer_model: str, judge_provider: str, judge_model: str) -> bool:
+    """Whether the answer and judge are one model, for the independence warning and its stored flag.
+
+    The model-name rule, or the CLI alias rule when a logged-in CLI route is involved.
+    """
+    from dokimi import llm_cli
+
+    return (same_model(answer_model, judge_model)
+            or llm_cli.same_model(answer_provider, answer_model, judge_provider, judge_model))
+
+
 def _read_key(value: str) -> str:
     """Resolve API key value: supports 'file:~/path' references."""
     if not value:

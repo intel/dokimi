@@ -21,7 +21,7 @@ from dokimi.defaults import (
 )
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY, NoUsablePairs
-from dokimi.utils import same_model, write_text_or_exit
+from dokimi.utils import same_evaluator, write_text_or_exit
 from dokimi.exit_codes import EXIT_USAGE
 
 
@@ -33,10 +33,7 @@ def _warn_judge_independence(
     context: str = "run",
 ) -> bool:
     """Emit a non-fatal warning when answer and judge are the same model (on any provider route)."""
-    from dokimi.llm_cli import same_model as cli_same_model
-
-    same = (same_model(answer_model, judge_model)
-            or cli_same_model(answer_provider, answer_model, judge_provider, judge_model))
+    same = same_evaluator(answer_provider, answer_model, judge_provider, judge_model)
     if same:
         print(
             "⚠ Evaluator independence warning "

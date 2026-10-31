@@ -17,6 +17,7 @@ from dokimi.orchestrator.pipeline import EvaluationPipeline
     ("anthropic", "claude-sonnet-5-5", "anthropic", "claude-sonnet-5-5", True),
     ("amazon-bedrock", "us.anthropic.claude-sonnet-5-5-v1:0", "amazon-bedrock", "claude-sonnet-5-5", True),
     ("anthropic", "claude-sonnet-5-5", "anthropic", "claude-haiku-5-5", False),
+    ("claude-cli", "sonnet", "amazon-bedrock", "claude-sonnet-5-5", True),  # a CLI alias is its family's full id
 ])
 def test_the_stored_flag_follows_the_same_model_rule(tmp_path, monkeypatch, provider, model, judge_provider,
                                                      judge_model, expected):
