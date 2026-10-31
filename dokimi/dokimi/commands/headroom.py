@@ -72,6 +72,16 @@ def _exit_unless_replicates(runs, inputs) -> None:
         sys.exit(2)
 
 
+def _exit_unless_run_config_object(run, path) -> None:
+    """Exit 2 when a non-null run_config is not a JSON object: replicate_key reads it as a mapping, so a
+    scalar or list there would be a traceback instead of a diagnostic."""
+    run_config = run.meta.get("run_config")
+    if run_config is not None and not isinstance(run_config, dict):
+        print(f"Error: {path}: run_config must be a JSON object, not {type(run_config).__name__}",
+              file=sys.stderr)
+        sys.exit(2)
+
+
 def cmd_eval_headroom(args: argparse.Namespace) -> None:
     from dokimi.artifacts import ArtifactValidationError, save_artifact
     from dokimi.eval.headroom import format_table, headroom, repeated_ids
@@ -96,6 +106,7 @@ def cmd_eval_headroom(args: argparse.Namespace) -> None:
         except (records.RecordError, OSError, RecursionError) as e:  # RecursionError: nesting too deep for json
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(2)
+        _exit_unless_run_config_object(run, path)
         if digest in first_seen:
             print(f"note: skipped {path}: same content as {first_seen[digest]}, counted once", file=sys.stderr)
             continue

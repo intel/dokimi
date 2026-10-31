@@ -584,6 +584,17 @@ def test_command_exits_2_on_an_input_nested_too_deep_to_read(tmp_path, capsys):
     assert "Error:" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("run_config", ["bad", 5, ["max_tokens"]])
+def test_command_exits_2_when_run_config_is_not_an_object(tmp_path, capsys, run_config):
+    path = _arms_file(tmp_path / "run.json", {"1": {"baseline": 95}})
+    data = json.loads(path.read_text(encoding="utf-8"))
+    path.write_text(json.dumps({**data, "run_config": run_config}), encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_headroom(_args([path]))
+    assert exc.value.code == 2
+    assert f"Error: {path}: run_config must be a JSON object" in capsys.readouterr().err
+
+
 def test_min_reps_must_be_a_positive_integer_at_the_parser(tmp_path, capsys):
     with pytest.raises(SystemExit) as exc:
         build_parser().parse_args(["eval", "headroom", str(tmp_path / "a.json"), "--min-reps", "0"])
