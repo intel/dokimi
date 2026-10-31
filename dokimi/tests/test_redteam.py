@@ -725,6 +725,19 @@ def test_a_stuffed_list_at_the_end_picks_decoys_that_do_not_complete_a_value(str
     assert result["questions"][0]["probes"]["stuffed"]["passed"] is False
 
 
+@pytest.mark.parametrize("value, location", [("-.5", "end"), ("+.5", "begin")])
+def test_a_negated_numeric_value_the_matcher_reads_as_another_number_is_not_stuffed(value, location):
+    # The numeric matcher reads "5" out of "-.5", so the negated check accepts the stuffed answer as the
+    # grader should: no probe is built, and a correct grader is not blocked.
+    grading = {"checks": [{"type": "match", "value": value, "numeric": True, "negate": True,
+                           "location": location}]}
+    assert redteam.stuffed_for(grading) is None
+    assert run([{"id": "1", "question": "Q?", "grading": grading}])["status"] != "blocked"
+
+
+def test_a_negated_numeric_value_the_matcher_reads_is_still_stuffed():
+    grading = {"checks": [{"type": "match", "value": "7731", "numeric": True, "negate": True}]}
+    assert redteam.stuffed_for(grading) == "7731"
 
 
 def test_judge_takes_a_provider_model_reference_and_a_bad_one_is_a_usage_error(capsys):

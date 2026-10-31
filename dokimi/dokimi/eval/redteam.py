@@ -121,7 +121,9 @@ def stuffed_for(grading: Mapping[str, Any]) -> Optional[str]:
     A negated check is stuffed with its one or more values: the stuffed answer carries the forbidden
     value, so it must fail, unless the check compares the whole answer (see ``_whole_answer``), which the
     listed values never equal, or is ``mode: all``, which the stuffed answer can pass by its location
-    (the skip is kept for every such check, for simplicity). A choice check is left out: its answer is a bare letter.
+    (the skip is kept for every such check, for simplicity), and the list is built only where the same
+    check without ``negate`` accepts it, so a value the grader reads as another one is no attack.
+    A choice check is left out: its answer is a bare letter.
     """
     checks = grading.get("checks", [])
     if len(checks) != 1 or checks[0].get("type") not in _LITERAL - {"choice"}:
@@ -130,8 +132,11 @@ def stuffed_for(grading: Mapping[str, Any]) -> Optional[str]:
     values = [str(v) for v in check_values(check)]
     mode = str(check.get("mode", "any"))
     if check.get("negate"):
+        bare = " ".join(values)
         built = bool(values) and not _whole_answer(check) and mode != "all"
-        return " ".join(values) if built else None
+        # Built only when the grader reads the value out of the list, as the positive check does.
+        carries = grade_check({**check, "negate": False}, "", bare, None).passed
+        return bare if built and carries else None
     if len(values) < 2 or mode == "all":
         return None
     if _whole_answer(check) and not _reads_first_json(check):
