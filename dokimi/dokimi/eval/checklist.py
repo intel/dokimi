@@ -122,10 +122,8 @@ def check_answer(ask: Ask, question: str, answer: str, points: Sequence[str], *,
     def one(point: str, q: str) -> Optional[bool]:
         verdict: Optional[bool] = None
         try:
-            # Retried under new draws, and an unparseable reply is never cached. The ask
-            # does not say whether its sampling is pinned, so a redraw is the plain prompt;
-            # at a pinned temperature the CLI's checklist repeats the reply (not pinned here,
-            # a follow-up with the pairwise judge's `pinned`).
+            # The ask does not know its sampling, so a redraw is the plain prompt.
+            # A pinned checklist repeats its reply: a follow-up, as for pairwise.
             verdict, _ = judged_reply(ask, _TEMPLATE.format(question=question, answer=answer, point=point, ask=q),
                                       parse_yes_no, pinned=False)
         except Unparseable:

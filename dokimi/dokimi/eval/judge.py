@@ -511,14 +511,8 @@ class Judge:
         required = self._GROUNDED_DIMS if grounded else self._STANDARD_DIMS
         weights = self._GROUNDED_WEIGHTS if grounded else self._STANDARD_WEIGHTS
 
-        # A malformed or truncated reply is a formatting failure, not a verdict:
-        # without a retry the question loses its score for good and the report
-        # still renders a clean-looking delta over the survivors.
-        #
-        # judged_reply re-draws a malformed reply, replays a stored attempt on a
-        # rerun, and at pinned sampling reprompts each redraw with the JSON
-        # reminder. Transport faults are retried by the transport layer, not here,
-        # so a failed call raises at once.
+        # A malformed reply is a formatting failure, not a verdict: retry it, or the
+        # question loses its score. judged_reply redraws, replays and reprompts when pinned.
         def parse(raw: str) -> "tuple[Dict[str, Any], float]":
             scores = extract_json_object(raw)
             missing = required - scores.keys()

@@ -289,10 +289,8 @@ class JudgePanel:
                             draw=draw, cache_if=cache_if)
 
         try:
-            # Retry an unparseable reply rather than losing this role's vote to a
-            # formatting failure, as ``Judge.score_answer`` does. judged_reply draws
-            # each attempt separately, replays a stored attempt on a rerun, and at
-            # pinned sampling reprompts each redraw with the JSON reminder.
+            # Retry an unparseable reply, as ``Judge.score_answer`` does, rather than
+            # losing this role's vote. judged_reply does the redraw and the replay.
             (data, scores), _ = judged_reply(
                 send, prompt, parse, pinned=config.temperature is not None or config.seed is not None,
                 label=f"Judge '{config.role}' reply", reminder=FORMAT_REMINDER)

@@ -171,9 +171,8 @@ class PairwiseJudge:
     escalate: Optional[Ask] = None
     #: Also escalate pairs the cheap judge called TIE in both orders.
     escalate_ties: bool = False
-    #: The judges' sampling is pinned, so a redraw of the same prompt repeats its reply
-    #: and is reprompted (see :func:`dokimi.judged.judged_reply`). Unpinned, a redraw is a
-    #: new sample of the plain prompt.
+    #: Pinned sampling repeats a redraw's reply, so it is reprompted; unpinned it is a new sample.
+    #: See :func:`dokimi.judged.judged_reply`.
     pinned: bool = False
 
     def compare(self, library: str, question: str, x: str, y: str) -> PairVerdict:
