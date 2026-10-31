@@ -74,7 +74,11 @@ def cmd_run(args: argparse.Namespace) -> None:
         from dokimi.gate.critical_bands import check_critical_bands
 
         hard_gate = check_gate(result["summary"], spec, "hard")
-        bands = check_critical_bands(result["summary"], spec)
+        try:
+            bands = check_critical_bands(result["summary"], spec)
+        except ValueError as exc:  # a band the gate cannot read: a bad spec, named, not a traceback
+            print(f"Error: {spec_path}: {exc}", file=sys.stderr)
+            sys.exit(2)
 
         # Exit 1 if hard gate fails
         if hard_gate.enabled and not hard_gate.passed:

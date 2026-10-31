@@ -13,10 +13,12 @@ tests keep working.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, Mapping
+import time
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
-from dokimi.records import RecordLike
+from dokimi.records import Answer, RecordLike
 from dokimi.records import records as as_records
+from dokimi.eval.stats import paired_vectors
 
 #: Stamp on an agentic answer's ``tool_usage["counts"]``: its tool counts skip
 #: calls that failed (``error`` in the transcript). Unstamped answers counted
@@ -154,7 +156,10 @@ def summarize_skill_selection(records: Iterable[RecordLike]) -> Dict[str, Any]:
             })
             if failed:
                 s["failed"] += 1
-                continue
+                # An empty final reply fails the answer, not the choice: the skills were
+                # loaded before it came back empty, so the choice is still scored.
+                if arm.get("error") != "empty_reply":
+                    continue
             first = skill.get("selected")
             # Skills loaded together in the first turn are one choice. It is a hit
             # only if every one of them is acceptable: crediting "the right one is
@@ -264,3 +269,49 @@ def cost_summary(records: Iterable[RecordLike]) -> Dict[str, Any]:
                                 if prompt else None),
         }
     return out
+
+
+def unjudged_cell(answer: Optional[Answer]) -> Optional[Dict[str, str]]:
+    """The cell of an answer that is not judged: an error for an errored or empty one, ``None`` for none."""
+    if answer is None:
+        return None
+    return {"error": answer.error or "empty_reply"}
+
+
+def empty_reply_cell(rec: Any, metadata: Any, started: float, **extra: Any) -> Dict[str, Any]:
+    """The answer cell of a call that returned no text: an error, never an answer.
+
+    The call was paid for, so its usage (*rec*) is still recorded. *started* is the ``time.time()``
+    at the start of the arm; *extra* carries what the agent loop adds to a cell.
+    """
+    return {"error": "empty_reply", "answer": None, "token_usage": rec.as_token_usage_dict(),
+            "metrics": rec.as_metrics_dict(), "metadata": metadata,
+            "elapsed_sec": round(time.time() - started, 2), **extra}
+
+
+def paired_delta(evaluations: Iterable[Any], baseline_arm: str, arm_name: str) -> Optional[float]:
+    """The mean of ``arm - baseline`` over the questions that both arms scored; ``None`` if none.
+
+    A question one arm errored on (or left unscored) is not in the delta at all: the
+    difference of two unpaired means would compare different questions.
+    """
+    arm_vals, base_vals = paired_vectors(evaluations, arm_name, baseline_arm)
+    diffs = [a - b for a, b in zip(arm_vals, base_vals, strict=True)]
+    return round(sum(diffs) / len(diffs), 1) if diffs else None
+
+
+def cell_values(evaluations: Iterable[Any], arm_names: Sequence[str]) -> Tuple[Dict[str, List[float]], Dict[str, int]]:
+    """Per arm, the aggregates that count, and how many cells errored instead.
+
+    An errored cell (the answer call failed, or the judge raised) has no aggregate, so it
+    is left out of the mean and its ``n``; the errors are counted apart, not as scores.
+    """
+    values: Dict[str, List[float]] = {name: [] for name in arm_names}
+    errors: Dict[str, int] = {name: 0 for name in arm_names}
+    for ev in as_records(evaluations, source="evaluations", kind="evaluations"):
+        for arm_name, cell in ev.scores.items():
+            if (v := ev.score(arm_name)) is not None:
+                values.setdefault(arm_name, []).append(float(v))
+            elif cell is not None and cell.error:
+                errors[arm_name] = errors.get(arm_name, 0) + 1
+    return values, errors

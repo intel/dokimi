@@ -213,3 +213,34 @@ def test_run_exits_2_when_an_output_cannot_be_written(tmp_path, monkeypatch, cap
     assert code == 2
     err = capsys.readouterr().err
     assert f"Error: cannot write {blocked}" in err and "Traceback" not in err
+
+
+_STRICT_BANDS = (
+    "weights:\n  coverage: 0.4\n  freshness_lite: 0.3\n  readability: 0.3\n"
+    "metrics:\n  freshness_lite:\n    max_age_days: 365\n  readability:\n    grade_max: 12\n"
+    "critical_bands:\n  fail_on:\n    - condition: {condition}\n      value: 0.5\n"
+)
+
+
+def test_strict_run_exits_2_on_a_band_the_gate_cannot_read(tmp_path, monkeypatch, capsys):
+    spec = tmp_path / "spec.yaml"
+    spec.write_text(_STRICT_BANDS.format(condition="coverage_belw"), encoding="utf-8")
+    code = _main(monkeypatch, "run", "--strict", "--root", str(tmp_path), "--spec", str(spec),
+                 "--out-json", str(tmp_path / "o.json"), "--out-md", str(tmp_path / "o.md"))
+    assert code == 2
+    err = capsys.readouterr().err
+    assert err.startswith("Error: ") and str(spec) in err and "coverage_belw" in err and "Traceback" not in err
+
+
+def test_strict_run_exits_2_when_a_band_metric_is_none(tmp_path, monkeypatch, capsys):
+    spec = tmp_path / "spec.yaml"
+    spec.write_text(_STRICT_BANDS.format(condition="coverage_below"), encoding="utf-8")
+    summary = {"docs": 1, "score": 0.5, "coverage": None, "freshness_lite": 0.5, "readability": 0.5}
+    monkeypatch.setattr("dokimi.commands.run.run_benchmark", lambda root, spec_path: {"summary": summary, "docs": []})
+    monkeypatch.setattr("dokimi.commands.run.save_snapshot", lambda data, path: None)
+    monkeypatch.setattr("dokimi.commands.run.write_run_report", lambda data, path: None)
+    code = _main(monkeypatch, "run", "--strict", "--root", str(tmp_path), "--spec", str(spec),
+                 "--out-json", str(tmp_path / "o.json"), "--out-md", str(tmp_path / "o.md"))
+    assert code == 2
+    err = capsys.readouterr().err
+    assert err.startswith("Error: ") and "coverage" in err and "Traceback" not in err

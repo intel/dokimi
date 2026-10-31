@@ -301,6 +301,15 @@ def test_a_cached_reply_is_replayed_with_its_stored_usage(cache_dir):
     assert second.usage.cost_usd == 0.001  # what the real call cost, not $0
 
 
+def test_a_content_less_reply_is_not_cached_so_the_next_call_asks_again(cache_dir):
+    usage = UsageRecord(prompt_tokens=1, completion_tokens=0, total_tokens=1)
+    fake = FakeAdapter(Reply(text=None, usage=usage), Reply(text="answer", usage=usage))
+    llm = LLM("m", "openai", adapter=fake)
+    assert llm.complete("ask").text is None
+    assert llm.complete("ask").text == "answer"
+    assert len(fake.requests) == 2
+
+
 def test_sampling_and_max_tokens_key_their_own_entries(cache_dir, fake_llm):
     fake_llm.push("free", "pinned", "seeded", "capped")
     assert LLM("m", "openai").ask("p") == "free"
@@ -330,12 +339,40 @@ def test_cache_if_guards_both_storing_and_replaying(cache_dir, fake_llm):
     assert len(fake_llm.requests) == 2
 
 
-def test_a_reply_without_content_is_stored_and_replayed_as_before(cache_dir, fake_llm):
-    fake_llm.push(Reply(text=None, usage=UsageRecord()))
+def test_a_reply_without_content_is_asked_again_not_replayed(cache_dir, fake_llm):
+    fake_llm.push(*(Reply(text=None, usage=UsageRecord()) for _ in range(3)))
     llm = LLM("m", "openai")
     assert llm.complete("p").text is None
     assert llm.complete("p").text is None
     assert llm.ask("p") == ""
+    assert len(fake_llm.requests) == 3
+    assert not list(cache_dir.glob("*.json"))
+
+
+@pytest.mark.parametrize("stale", [None, "", "  \n"])
+def test_an_empty_entry_stored_before_the_rule_is_not_replayed(stale, cache_dir, fake_llm):
+    """A leftover empty entry must not replay as the answer with no live call."""
+    fake_llm.push("seed", "live answer")
+    llm = LLM("m", "openai")
+    assert llm.ask("p") == "seed"
+    [entry] = cache_dir.glob("*.json")
+    stored = json.loads(entry.read_text(encoding="utf-8"))
+    entry.write_text(json.dumps({**stored, "text": stale}), encoding="utf-8")
+    assert llm.complete("p").text == "live answer"
+    assert len(fake_llm.requests) == 2
+
+
+@pytest.mark.parametrize("stale", [None, "", "  \n"])
+def test_an_empty_entry_is_a_miss_in_replay_only(stale, cache_dir, fake_llm):
+    """Replay-only serves no empty entry either: it is a miss, not an answer."""
+    fake_llm.push("seed", "live answer")
+    llm = LLM("m", "openai")
+    assert llm.ask("p") == "seed"
+    [entry] = cache_dir.glob("*.json")
+    stored = json.loads(entry.read_text(encoding="utf-8"))
+    entry.write_text(json.dumps({**stored, "text": stale}), encoding="utf-8")
+    with caching.replay_only(), pytest.raises(caching.CacheMiss):
+        llm.complete("p")
     assert len(fake_llm.requests) == 1
 
 

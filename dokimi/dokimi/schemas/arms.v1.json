@@ -104,6 +104,10 @@
               "n": {
                 "type": "integer"
               },
+              "errors": {
+                "type": "integer",
+                "description": "Cells that errored (the answer call failed or the judge raised). Left out of n and avg_aggregate."
+              },
               "delta_vs_baseline": {
                 "type": [
                   "number",
