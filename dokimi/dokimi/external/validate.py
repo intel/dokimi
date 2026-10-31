@@ -251,6 +251,22 @@ def _file_ref(raw: str) -> Optional[str]:
     return text
 
 
+def _resolved(path: Path) -> Optional[Path]:
+    """``path`` resolved, or None when the OS refuses the name (a NUL byte, a symlink loop)."""
+    try:
+        return path.resolve()
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+
+def _exists(path: Path) -> bool:
+    """``path.exists()``, where a name the OS refuses (over 255 bytes in one part, say) is absent."""
+    try:
+        return path.exists()
+    except (OSError, ValueError):
+        return False
+
+
 def _bundle_findings(skill: Skill, source_root: Path) -> list[Finding]:
     """Link and path checks on the body of ``skill``: missing targets, or targets outside it."""
     skill_dir = skill.path.parent
@@ -268,8 +284,8 @@ def _bundle_findings(skill: Skill, source_root: Path) -> list[Finding]:
         text = _file_ref(raw)
         if text is None:
             continue
-        target = (skill_dir / text).resolve()
-        if target.exists():
+        target = _resolved(skill_dir / text)
+        if target is not None and _exists(target):
             if not target.is_relative_to(real_dir):
                 findings.append(
                     Finding(
@@ -281,7 +297,7 @@ def _bundle_findings(skill: Skill, source_root: Path) -> list[Finding]:
                 )
             continue
         from_root = ""
-        if (source_root / text).exists():
+        if _exists(source_root / text):
             from_root = " (it exists from the catalog root: the base is wrong)"
         findings.append(
             Finding(
@@ -294,8 +310,8 @@ def _bundle_findings(skill: Skill, source_root: Path) -> list[Finding]:
         text = _file_ref(raw)
         if text is None:
             continue
-        target = (skill_dir / text).resolve()
-        if target.exists() and not target.is_relative_to(real_dir):
+        target = _resolved(skill_dir / text)
+        if target is not None and _exists(target) and not target.is_relative_to(real_dir):
             findings.append(
                 Finding(
                     "warn",
