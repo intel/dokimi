@@ -257,9 +257,10 @@ def test_trigger_set_cli_rejects_a_label_path_that_never_resolves(tmp_path, cata
     qfile.write_text(json.dumps({"questions": [
         {"id": "1", "text": "perf shows low IPC", "metadata": {"skill_under_test": "linux-perf"}},
     ]}), encoding="utf-8")
-    with pytest.raises(SystemExit, match="resolves for none of 1 questions"):
+    with pytest.raises(SystemExit, match="resolves for none of 1 questions") as exc:
         _run_cli(["catalog", "trigger-set", "--catalog", str(catalog),
                   "--questions", f"{qfile}=@metadata.skil_under_test", "--out", str(tmp_path / "o.json")])
+    assert exc.value.code == 2  # a path typo is an input refusal (docs/quickstart.md)
 
 
 @pytest.mark.parametrize(
@@ -467,7 +468,7 @@ def test_trigger_set_cli_checks_each_source_and_inputs(tmp_path, catalog, capsys
     named = _qfile(tmp_path, "named.json", [{"id": "3", "text": "use linux-perf here"}])
     with pytest.raises(SystemExit) as exc:
         _run_cli(base + ["--strict", "--questions", f"{named}=linux-perf"])
-    assert exc.value.code == 1 and not out.exists()
+    assert exc.value.code == 1 and not out.exists()  # --strict is a lint gate: 1, as on main
 
 
 def test_trigger_set_cli_writes_each_format(tmp_path, catalog, capsys):
@@ -493,7 +494,7 @@ def test_trigger_set_cli_exits_with_a_message_when_out_cannot_be_written(tmp_pat
     with pytest.raises(SystemExit, match=rf"Error: cannot write --out {re.escape(str(out))}: ") as exc:
         _run_cli(["catalog", "trigger-set", "--catalog", str(catalog), "--out", str(out),
                   "--questions", f"{q}=@skills", "--format", fmt, "--target", "linux-perf"])
-    assert exc.value.code != 0 and isinstance(exc.value.code, str)
+    assert exc.value.code == 2
     assert list(out.iterdir()) == []
 
 
@@ -509,7 +510,7 @@ def test_trigger_set_cli_reports_a_schema_rejection_not_a_write_failure(tmp_path
     with pytest.raises(SystemExit, match=r"Error: questions set rejected: record 1: bad shape") as exc:
         _run_cli(["catalog", "trigger-set", "--catalog", str(catalog), "--out", str(tmp_path / "o.json"),
                   "--questions", f"{q}=@skills", "--format", "questions"])
-    assert "cannot write" not in exc.value.code
+    assert "cannot write" not in str(exc.value)
 
 
 @pytest.mark.parametrize("fmt", ["reach", "skill-creator", "questions"])
@@ -518,7 +519,7 @@ def test_trigger_set_cli_exits_with_a_message_when_out_is_empty(tmp_path, catalo
     with pytest.raises(SystemExit, match=r"Error: cannot write --out : ") as exc:
         _run_cli(["catalog", "trigger-set", "--catalog", str(catalog), "--out", "",
                   "--questions", f"{q}=@skills", "--format", fmt, "--target", "linux-perf"])
-    assert isinstance(exc.value.code, str)
+    assert exc.value.code == 2
 
 
 # ── review round 3 ───────────────────────────────────────────────────────
@@ -689,7 +690,7 @@ def test_trigger_set_cli_strict_rejects_unresolved_labels(tmp_path, catalog, cap
     out.unlink()
     with pytest.raises(SystemExit) as exc:
         _run_cli(_ts(catalog, out, "--strict", "--questions", f"{q}=@metadata.s"))
-    assert exc.value.code == 1 and not out.exists()
+    assert exc.value.code == 1 and not out.exists()  # --strict is a lint gate: 1, as on main
 
 
 def test_trigger_set_cli_rejects_questions_without_text(tmp_path, catalog):

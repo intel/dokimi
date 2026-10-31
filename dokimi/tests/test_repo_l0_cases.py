@@ -713,12 +713,12 @@ def test_cli_exit_codes(tmp_path, capsys):
     assert _cli(tmp_path, empty, "--fail-on-fail") == 1
 
 
-def test_scan_exits_1_with_a_message_on_a_file_that_is_not_utf8(tmp_path, capsys):
+def test_scan_exits_2_with_a_message_on_a_file_that_is_not_utf8(tmp_path, capsys):
     root = tmp_path / "r"
     _git_repo(root, {"AGENTS.md": "`src/a.h`\n", "src/a.h": "", "ev/tasks/t/task.json": "{}"})
     binary = tmp_path / "static.json"
     binary.write_bytes(b'{"schema": "\xff\xfe"}')
-    assert _cli(tmp_path, root, "--static", str(binary)) == 1
+    assert _cli(tmp_path, root, "--static", str(binary)) == 2
     err = capsys.readouterr().err
     assert err.startswith("✗ ") and "utf-8" in err
 
@@ -727,7 +727,7 @@ def test_scan_exits_1_with_a_message_on_a_file_that_is_not_utf8(tmp_path, capsys
     args = build_parser().parse_args(["repo", "scan", str(root), "--manifest-file", str(manifest)])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     err = capsys.readouterr().err
     assert err.startswith("✗ ") and str(manifest) in err
 

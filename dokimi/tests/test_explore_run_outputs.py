@@ -34,7 +34,7 @@ def test_an_unwritable_output_is_reported_not_a_traceback(tmp_path, capsys, flag
     target = _blocker(tmp_path) / "report"
     with pytest.raises(SystemExit) as exc:
         _run(tmp_path, flag, str(target))
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert f"Error: cannot write {target}" in capsys.readouterr().err
 
 

@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""`arms plugin-delta`: an unwritable output exits 1 with a message."""
+"""`arms plugin-delta`, `arms run` and `arms matrix-run`: an unwritable output exits 2 with a message."""
 
 from __future__ import annotations
 
@@ -26,24 +26,24 @@ def _plugin_delta(tmp_path: Path, *out: str) -> None:
     args.func(args)
 
 
-def test_unwritable_out_json_exits_1_naming_the_path(tmp_path, capsys):
+def test_unwritable_out_json_exits_2_naming_the_path(tmp_path, capsys):
     blocker = tmp_path / "blocker"
     blocker.write_text("x", encoding="utf-8")  # a regular file: nothing can be created below it
     target = blocker / "delta.json"
     with pytest.raises(SystemExit) as exc:
         _plugin_delta(tmp_path, "--out-json", str(target))
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     err = capsys.readouterr().err
     assert f"Error: cannot write {target}" in err
     assert "Traceback" not in err
 
 
-def test_unwritable_out_md_exits_1_naming_the_path(tmp_path, capsys):
+def test_unwritable_out_md_exits_2_naming_the_path(tmp_path, capsys):
     out_md = tmp_path / "is-a-dir"
     out_md.mkdir()
     with pytest.raises(SystemExit) as exc:
         _plugin_delta(tmp_path, "--out-json", str(tmp_path / "delta.json"), "--out-md", str(out_md))
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert f"Error: cannot write {out_md}" in capsys.readouterr().err
 
 
@@ -57,17 +57,17 @@ def _blocker(tmp_path: Path) -> Path:
     return blocker
 
 
-def test_save_arms_output_exits_1_naming_an_unwritable_json(tmp_path, capsys):
+def test_save_arms_output_exits_2_naming_an_unwritable_json(tmp_path, capsys):
     from dokimi.commands.arms import _save_arms_output
 
     target = _blocker(tmp_path) / "arms.json"
     with pytest.raises(SystemExit) as exc:
         _save_arms_output({}, target, tmp_path / "arms.md")
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert f"Error: cannot write {target}" in capsys.readouterr().err
 
 
-def test_save_arms_output_exits_1_naming_an_unwritable_report(tmp_path, capsys):
+def test_save_arms_output_exits_2_naming_an_unwritable_report(tmp_path, capsys):
     from dokimi.commands.arms import _save_arms_output
 
     out_md = tmp_path / "is-a-dir"
@@ -75,11 +75,11 @@ def test_save_arms_output_exits_1_naming_an_unwritable_report(tmp_path, capsys):
     output = _arms_artifact()
     with pytest.raises(SystemExit) as exc:
         _save_arms_output(output, tmp_path / "arms.json", out_md)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert f"Error: cannot write {out_md}" in capsys.readouterr().err
 
 
-def test_matrix_run_exits_1_naming_an_uncreatable_out_dir(tmp_path, capsys):
+def test_matrix_run_exits_2_naming_an_uncreatable_out_dir(tmp_path, capsys):
     cells = tmp_path / "cells.json"
     cells.write_text(json.dumps({"cells": [{"name": "c1", "model": "m", "provider": "anthropic", "harness": "arms-runner"}]}), encoding="utf-8")
     questions = tmp_path / "questions.json"
@@ -89,12 +89,12 @@ def test_matrix_run_exits_1_naming_an_uncreatable_out_dir(tmp_path, capsys):
                  "--matrix-cells", str(cells), "--out-dir", str(out_dir))
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     err = capsys.readouterr().err
     assert f"Error: cannot write {out_dir / 'cells'}" in err and "Traceback" not in err
 
 
-def test_plugin_delta_exits_1_on_a_deeply_nested_artifact(tmp_path, capsys):
+def test_plugin_delta_exits_2_on_a_deeply_nested_artifact(tmp_path, capsys):
     deep = tmp_path / "deep.json"
     deep.write_text("[" * 100000, encoding="utf-8")
     plugin = tmp_path / "plugin.json"
@@ -102,7 +102,7 @@ def test_plugin_delta_exits_1_on_a_deeply_nested_artifact(tmp_path, capsys):
     args = _args("plugin-delta", "--baseline-json", str(deep), "--plugin-json", str(plugin))
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     err = capsys.readouterr().err
     assert "Error computing plugin delta" in err and "Traceback" not in err
 
@@ -119,7 +119,8 @@ def _matrix_run(tmp_path: Path, out_dir: Path, *extra: str):
 def _stub_matrix(monkeypatch, tmp_path):
     from dokimi.commands import arms
 
-    monkeypatch.setattr("dokimi.eval.arms_run.run_arms", lambda *a, **k: {})
+    monkeypatch.setattr("dokimi.eval.arms_run.prepare_arms", lambda *a, **k: None)
+    monkeypatch.setattr("dokimi.eval.arms_run.run_prepared", lambda *a, **k: {})
     monkeypatch.setattr(arms, "_save_arms_output", lambda *a, **k: None)
     delta = tmp_path / "out" / "delta.json"
     rollup = {"plugin_deltas": [{"artifact": str(delta), "_artifact_payload": {"d": 1}}]}
@@ -141,7 +142,7 @@ def _fake_save_artifact(monkeypatch, bad: Path):
 
 
 @pytest.mark.parametrize("which", ["delta_json", "delta_md", "rollup_json", "rollup_md"])
-def test_matrix_run_exits_1_naming_an_unwritable_delta_or_rollup(tmp_path, monkeypatch, capsys, which):
+def test_matrix_run_exits_2_naming_an_unwritable_delta_or_rollup(tmp_path, monkeypatch, capsys, which):
     delta = _stub_matrix(monkeypatch, tmp_path)
     out_dir = tmp_path / "out"
     rollup_json = out_dir / "matrix-rollup.json"
@@ -153,13 +154,13 @@ def test_matrix_run_exits_1_naming_an_unwritable_delta_or_rollup(tmp_path, monke
     args = _matrix_run(tmp_path, out_dir)
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     err = capsys.readouterr().err
     assert f"Error: cannot write {bad}" in err and "Traceback" not in err
 
 
 @pytest.mark.parametrize("kind", ["directory", "deep"])
-def test_arms_run_exits_1_on_an_unreadable_questions_file(tmp_path, capsys, kind):
+def test_arms_run_exits_2_on_an_unreadable_questions_file(tmp_path, capsys, kind):
     questions = tmp_path / "q.json"
     if kind == "directory":
         questions.mkdir()
@@ -169,12 +170,12 @@ def test_arms_run_exits_1_on_an_unreadable_questions_file(tmp_path, capsys, kind
                                       "--questions", str(questions)])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert capsys.readouterr().err.startswith("Error building arms/plugins:")
 
 
 @pytest.mark.parametrize("kind", ["directory", "deep"])
-def test_matrix_run_exits_1_on_an_unreadable_questions_file(tmp_path, capsys, kind):
+def test_matrix_run_exits_2_on_an_unreadable_questions_file(tmp_path, capsys, kind):
     args = _matrix_run(tmp_path, tmp_path / "out")
     questions = Path(args.questions)
     questions.unlink()
@@ -184,18 +185,73 @@ def test_matrix_run_exits_1_on_an_unreadable_questions_file(tmp_path, capsys, ki
         questions.write_text("[" * 100000, encoding="utf-8")
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert capsys.readouterr().err.startswith("Error loading matrix run inputs:")
 
 
 @pytest.mark.parametrize("error", [PermissionError("denied"), RecursionError("deep")], ids=lambda e: type(e).__name__)
-def test_matrix_run_exits_1_when_a_cell_cannot_read_its_inputs(tmp_path, monkeypatch, capsys, error):
+def test_matrix_run_exits_2_when_a_cell_cannot_read_its_inputs(tmp_path, monkeypatch, capsys, error):
     def build(*a, **k):
         raise error
 
-    monkeypatch.setattr("dokimi.eval.arms_run.run_arms", build)
+    monkeypatch.setattr("dokimi.eval.arms_run.prepare_arms", build)
     args = _matrix_run(tmp_path, tmp_path / "out")
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1
-    assert capsys.readouterr().err.startswith("Error running matrix cell 'c1':")
+    assert exc.value.code == 2
+    assert capsys.readouterr().err.startswith("Error building matrix cell 'c1':")
+
+
+def test_matrix_run_refuses_an_uncreatable_out_dir_before_any_cell_is_answered(tmp_path, monkeypatch, capsys):
+    import dokimi.eval.arms_run as arms_run
+
+    monkeypatch.setattr(arms_run, "check_sampling_support", lambda config: None)
+    answered = []
+    monkeypatch.setattr(arms_run, "run_prepared", lambda *a, **k: answered.append(a) or {})
+    out_dir = _blocker(tmp_path) / "out"
+
+    args = _matrix_run(tmp_path, out_dir)
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2
+    assert answered == []
+    assert f"Error: cannot write {out_dir / 'cells'}" in capsys.readouterr().err
+
+
+def test_matrix_run_refuses_a_dangling_cells_symlink_before_any_cell_is_answered(tmp_path, monkeypatch, capsys):
+    # A dangling link at cells/ does not exist, so the walk used to reach the writable out dir and
+    # pass; the first cell was then answered and its save failed on the link.
+    import dokimi.eval.arms_run as arms_run
+
+    monkeypatch.setattr(arms_run, "check_sampling_support", lambda config: None)
+    answered = []
+    monkeypatch.setattr(arms_run, "run_prepared", lambda *a, **k: answered.append(a) or {})
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    (out_dir / "cells").symlink_to(tmp_path / "missing")
+
+    args = _matrix_run(tmp_path, out_dir)
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2
+    assert answered == []
+    assert f"Error: cannot write {out_dir / 'cells'}" in capsys.readouterr().err
+
+
+def test_matrix_run_refuses_an_out_dir_through_dotdot_before_any_cell_is_answered(tmp_path, monkeypatch, capsys):
+    # nx/.. does not exist until mkdir makes nx, so the lexical walk reaches tmp_path and passes;
+    # the dir is made before the first answer, so the blocker is still found before any is paid for.
+    import dokimi.eval.arms_run as arms_run
+
+    monkeypatch.setattr(arms_run, "check_sampling_support", lambda config: None)
+    answered = []
+    monkeypatch.setattr(arms_run, "run_prepared", lambda *a, **k: answered.append(a) or {})
+    _blocker(tmp_path)
+    out_dir = tmp_path / "nx" / ".." / "blocker" / "out"
+
+    args = _matrix_run(tmp_path, out_dir)
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2
+    assert answered == []
+    assert f"Error: cannot write {out_dir / 'cells'}" in capsys.readouterr().err
