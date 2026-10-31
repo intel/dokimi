@@ -6,8 +6,10 @@
   `report model-compare` refuses (a missing, unreadable, non-JSON or non-object file;
   runs that disagree on the treatment, prompt or judge), and the skill fields that
   `novelty routing` refuses (a missing competitor, a skill listed twice, a skill compared
-  with itself), now exit 2 instead of 1, with `Error: <message>` on stderr, where the
-  message names the file and the reason. Exit 1 stays the verdict of the gates
+  with itself, an all-vs-all catalog that holds one skill twice with different content),
+  now exit 2 instead of 1, with `Error: <message>` on stderr. For a bad file the message
+  names the file and the reason; for a refused field it names the skill or option at fault.
+  Exit 1 stays the verdict of the gates
   (`--strict`, `eval judge-validity`), so a script that branches on the code must
   treat 2 as "fix the input". The same exit and `Error:` line now come from any input
   file the loaders reject. Two `report model-compare` messages changed wording:
