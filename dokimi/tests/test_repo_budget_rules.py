@@ -103,6 +103,7 @@ def test_rules_are_counted_only_for_a_harness_that_reads_them(tmp_path):
     ("paths: # none yet\n", "start"),
     ('paths: [\n  "src/**"]\n', "lazy"),
     ('paths:\n  # the api\n  - "src/**"\n', "lazy"),
+    pytest.param("paths: " + "[" * 3000 + "]" * 3000 + "\n", "start", id="too-deep-for-yaml"),
 ])
 def test_only_a_paths_value_that_names_a_pattern_scopes_a_rule(tmp_path, front, when):
     payload = budget(_tree(tmp_path, {".claude/rules/r.md": f"---\n{front}---\nbody\n"}), NAMES, rules=True)

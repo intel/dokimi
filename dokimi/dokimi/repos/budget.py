@@ -280,7 +280,7 @@ def _has_paths(frontmatter: str) -> bool:
     """True if ``paths`` names at least one pattern: a list item or an inline value not ``[]`` or ``""``."""
     try:
         meta = yaml.safe_load(frontmatter)
-    except yaml.YAMLError:
+    except (yaml.YAMLError, RecursionError):  # RecursionError: nesting too deep for the parser
         meta = None  # Claude Code still reads a `paths:` line of YAML that does not parse
     if isinstance(meta, dict):
         value = meta.get("paths")
