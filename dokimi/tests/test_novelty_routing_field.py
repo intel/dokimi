@@ -255,6 +255,47 @@ def test_two_catalog_skills_with_one_name_and_different_content_are_skipped_with
     assert left_out == notes
 
 
+def test_a_name_with_a_spec_error_copy_leaves_the_field_as_the_scan_warns(tmp_path):
+    # catalog scan warns on both copies of a name with different content, the spec-error one
+    # included. Routing must agree: the name leaves the field, not only when both copies pass.
+    root = tmp_path / "catalog"
+    _catalog_skill(root, "perf", "profile a slow binary with perf")
+    _catalog_skill(root, "db", "x" * 1100)
+    fork = root / "plugins" / "x" / "skills" / "db"
+    fork.mkdir(parents=True)
+    (fork / "SKILL.md").write_text(
+        "---\nname: db\ndescription: a valid card\n---\n\n# B\n", encoding="utf-8"
+    )
+    notes: list[str] = []
+    names = [c.name for c in catalog_competitors(str(root), {"perf"}, notes)]
+    assert "db" not in names
+    assert len(notes) == 1 and "different content" in notes[0]
+    assert str(root / "skills" / "db" / "SKILL.md") in notes[0]
+    assert str(fork / "SKILL.md") in notes[0]
+
+
+def test_the_conflict_note_names_a_disabled_copy_of_the_name_too(tmp_path):
+    catalog = tmp_path / "catalog"
+    catalog.mkdir()
+    _catalog_skill(catalog, "db", "tune a slow database query")
+    other = catalog / "plugins" / "b" / "skills"
+    other.mkdir(parents=True)
+    (other / "db").mkdir()
+    (other / "db" / "SKILL.md").write_text(
+        "---\nname: db\ndescription: a different card\n---\n\n# B\n", encoding="utf-8")
+    hidden = catalog / "plugins" / "c" / "skills" / "db"
+    hidden.mkdir(parents=True)
+    (hidden / "SKILL.md").write_text(
+        "---\nname: db\ndescription: a hidden card\ndisable-model-invocation: true\n---\n\n# B\n",
+        encoding="utf-8")
+    notes: list[str] = []
+    assert catalog_competitors(str(catalog), set(), notes) == []
+    conflict = [note for note in notes if "different content" in note]
+    assert len(conflict) == 1
+    for path in (catalog / "skills" / "db", other / "db", hidden):
+        assert str(path / "SKILL.md") in conflict[0]
+
+
 def test_two_differently_named_skills_with_identical_text_both_stay_in_the_field(tmp_path):
     # Without a frontmatter name the name is the directory's, so identical text under skills/a
     # and skills/b is two skills, not a mirror: both are siblings the field must show.
@@ -303,7 +344,8 @@ def _long_description_catalog(tmp_path):
 
 def test_a_catalog_skill_over_the_spec_limit_is_left_out_with_a_note(tmp_path):
     notes: list[str] = []
-    names = [c.name for c in catalog_competitors(str(_long_description_catalog(tmp_path)), set(), notes)]
+    root = _long_description_catalog(tmp_path)
+    names = [c.name for c in catalog_competitors(str(root), set(), notes)]
     assert names == ["perf"]
     assert len(notes) == 1 and "long" in notes[0] and "description" in notes[0]
 

@@ -606,10 +606,11 @@ without one, every `SKILL.md` under it counts, except a `template/` copy and ven
 directories such as `.git` and `node_modules`, which are not walked. A byte-identical copy under
 another path counts once. A declared skill that cannot be loaded is skipped with a warning. Two
 catalog skills with the same name and different content are both skipped, with a warning that
-names every path of that name: the rest of the field stays. Rename one, or delete the copy you do
+names every path of that name (a disabled or spec-error copy counts too, so the field and
+`catalog scan` agree): the rest of the field stays. Rename one, or delete the copy you do
 not mean to route against, to route the name. `dokimi catalog scan` lists the same names as
-`name-conflict` warnings. A skill with a spec error (a description over 1024 characters, a name
-that is not its directory name) is also left out, with a warning naming the error; pass
+`name-conflict` warnings. A skill with a spec error (for example a description over 1024 characters, or a
+name that is not kebab-case or not its directory name) is also left out, with a warning naming the error; pass
 `--include-invalid` to keep it, as a harness that refuses to list such a skill would not.
 A `skill:` competitor that is not a `SKILL.md`, or a directory without one, is skipped with a
 warning. A shell glob must be expanded first, with the prefix on each path
