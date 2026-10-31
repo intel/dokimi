@@ -3512,6 +3512,122 @@
         }
       }
     },
+    "data": {
+      "allow_abbrev": true,
+      "params": [
+        {
+          "action": "_HelpAction",
+          "choices": null,
+          "const": null,
+          "default": "==SUPPRESS==",
+          "group_key": null,
+          "group_required": null,
+          "hidden": false,
+          "is_flag": true,
+          "key": "--help/-h",
+          "kind": "option",
+          "nargs": 0,
+          "position": null,
+          "required": false,
+          "type": null
+        }
+      ],
+      "path": "dokimi data",
+      "subcommand_required": true,
+      "subcommands": {
+        "schema": {
+          "allow_abbrev": true,
+          "params": [
+            {
+              "action": "_HelpAction",
+              "choices": null,
+              "const": null,
+              "default": "==SUPPRESS==",
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": true,
+              "key": "--help/-h",
+              "kind": "option",
+              "nargs": 0,
+              "position": null,
+              "required": false,
+              "type": null
+            }
+          ],
+          "path": "dokimi data schema",
+          "subcommand_required": true,
+          "subcommands": {
+            "list": {
+              "allow_abbrev": true,
+              "params": [
+                {
+                  "action": "_HelpAction",
+                  "choices": null,
+                  "const": null,
+                  "default": "==SUPPRESS==",
+                  "group_key": null,
+                  "group_required": null,
+                  "hidden": false,
+                  "is_flag": true,
+                  "key": "--help/-h",
+                  "kind": "option",
+                  "nargs": 0,
+                  "position": null,
+                  "required": false,
+                  "type": null
+                }
+              ],
+              "path": "dokimi data schema list",
+              "subcommand_required": null,
+              "subcommands": {}
+            },
+            "show": {
+              "allow_abbrev": true,
+              "params": [
+                {
+                  "action": "_StoreAction",
+                  "choices": [
+                    "'cli_routes'"
+                  ],
+                  "const": null,
+                  "default": null,
+                  "group_key": null,
+                  "group_required": null,
+                  "hidden": false,
+                  "is_flag": false,
+                  "key": "kind",
+                  "kind": "argument",
+                  "nargs": null,
+                  "position": 0,
+                  "required": true,
+                  "type": null
+                },
+                {
+                  "action": "_HelpAction",
+                  "choices": null,
+                  "const": null,
+                  "default": "==SUPPRESS==",
+                  "group_key": null,
+                  "group_required": null,
+                  "hidden": false,
+                  "is_flag": true,
+                  "key": "--help/-h",
+                  "kind": "option",
+                  "nargs": 0,
+                  "position": null,
+                  "required": false,
+                  "type": null
+                }
+              ],
+              "path": "dokimi data schema show",
+              "subcommand_required": null,
+              "subcommands": {}
+            }
+          }
+        }
+      }
+    },
     "dataset": {
       "allow_abbrev": true,
       "params": [
@@ -10922,6 +11038,22 @@
               "hidden": false,
               "is_flag": true,
               "key": "--help/-h",
+              "kind": "option",
+              "nargs": 0,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
+              "action": "_StoreTrueAction",
+              "choices": null,
+              "const": true,
+              "default": false,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": true,
+              "key": "--hits",
               "kind": "option",
               "nargs": 0,
               "position": null,

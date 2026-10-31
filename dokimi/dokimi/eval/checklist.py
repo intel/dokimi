@@ -105,16 +105,30 @@ class PointVerdict:
         return self.covered != self.absent
 
 
-def check_answer(ask: Ask, question: str, answer: str, points: Sequence[str]) -> List[PointVerdict]:
-    """Both polarities for every point."""
+class JudgeFailed(RuntimeError):
+    """A judge call raised, or its reply had no YES or NO after every draw (``strict`` checks only)."""
+
+
+def check_answer(ask: Ask, question: str, answer: str, points: Sequence[str], *,
+                 strict: bool = False) -> List[PointVerdict]:
+    """Both polarities for every point.
+
+    By default a failed call or an unparseable reply leaves its point unscored. With ``strict``
+    it raises :class:`JudgeFailed` instead, for a caller that must not grade an answer on the
+    points that did parse.
+    """
     def one(point: str, q: str) -> Optional[bool]:
         try:
             # Retried under new draws, and an unparseable reply is never cached.
             verdict, _ = ask_parsed(ask, _TEMPLATE.format(question=question, answer=answer, point=point, ask=q),
                                     parse_yes_no)
         except Exception as exc:  # one failed call is an unparsed point, not a lost run
+            if strict:
+                raise JudgeFailed(str(exc) or type(exc).__name__) from exc
             logger.warning("Checklist call failed, point left unscored: %s", exc)
             return None
+        if verdict is None and strict:
+            raise JudgeFailed("no YES or NO in the reply")
         return verdict
 
     return [

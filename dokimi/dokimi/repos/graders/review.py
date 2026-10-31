@@ -41,7 +41,12 @@ gold.line| <= window`` (``task.json`` ``window``, default 5). Matching is one
 to one and nearest first, so one finding credits at most one thread and one
 thread at most one finding. Location is the only criterion (no judge,
 deterministic), so ``pass`` is null: humans miss problems and raise
-non-defects, and neither recall nor precision is a verdict.
+non-defects, and neither recall nor precision is a verdict. ``matches`` lists
+each credited pair in ``threads_hit`` order, so a grade can be checked without
+the task: the thread (``thread``, ``thread_file``, ``thread_line``,
+``comment``), the finding (``finding``, its index among the answer's objects;
+``file`` repository-relative and ``line`` as matched; ``severity``,
+``message``) and their ``distance``; strings are cut to 200 characters.
 ``precision_proxy`` is the share of findings within the window of any thread,
 a lower bound on precision. ``recall`` equals ``recall_all`` and
 ``decoys_flagged`` is ``[]``, so a seeds-style report applies unchanged.
@@ -58,7 +63,9 @@ from __future__ import annotations
 import json
 import re
 
-VERSION = "1"  # bump when a result for the same inputs changes; grade.json records it
+# Bump when a result for the same inputs changes (a metric or ``pass``); grade.json records it. A field added
+# to ``details`` that leaves the result as it was (``matches``) does not: a reader tells it by its presence.
+VERSION = "1"
 SEVERE = ("blocker", "major")
 
 
@@ -216,16 +223,31 @@ def _ratio(a, b):
 
 
 def _replay_pairs(gold, findings, window):
-    """``(pairs, near)``: every (distance, finding index, thread id) within ``window``, and how many
-    findings are near any thread."""
+    """``(pairs, near)``: every (distance, finding index, thread id, thread) within ``window``, and how
+    many findings are near any thread."""
     pairs, near = [], 0
     for i, f in enumerate(findings):
         path, _, line = finding_fields(f)
-        close = [(abs(line - g["line"]), i, g["id"]) for g in gold
+        close = [(abs(line - g["line"]), i, g["id"], g) for g in gold
                  if same_file(g, path) and abs(line - g["line"]) <= window]
         pairs += close
         near += bool(close)
     return pairs, near
+
+
+CUT = 200  # characters of a comment or message a match keeps
+
+
+def _cut(value):
+    return "" if value is None else str(value)[:CUT]
+
+
+def _match(g, i, f, distance):
+    """One credited (thread, finding) pair of ``details.matches``: enough to check it without the task."""
+    path, _, line = finding_fields(f)
+    return {"thread": g["id"], "thread_file": g["file"], "thread_line": g["line"], "comment": _cut(g.get("comment")),
+            "finding": i, "file": path, "line": line, "severity": _cut(f.get("severity")),
+            "message": _cut(f.get("message")), "distance": distance}
 
 
 def grade_replay(task, task_dir, answer):
@@ -237,16 +259,17 @@ def grade_replay(task, task_dir, answer):
         return {"pass": False, "parse_error": True, "recall": zero, "recall_all": zero,
                 "recall_addressed": _ratio(0, sum(bool(g.get("addressed")) for g in gold))}
     pairs, near = _replay_pairs(gold, findings, task.get("window", 5))
-    hit, used = set(), set()
+    hit, used, credited = set(), set(), {}
     # nearest first: one finding per thread, one thread per finding; ids in _id_key order, as oneDAL's min()
-    for _, i, gid in sorted(pairs, key=lambda p: (p[0], p[1], _id_key(p[2]))):
+    for dist, i, gid, g in sorted(pairs, key=lambda p: (p[0], p[1], _id_key(p[2]))):
         if i not in used and gid not in hit:
             used.add(i)
             hit.add(gid)
+            credited[gid] = _match(g, i, findings[i], dist)
     addressed = [g for g in gold if g.get("addressed")]
     recall_all = _ratio(len(hit), len(gold))
     return {"pass": None, "n_findings": len(findings), "n_severe": n_severe(findings),
-            "threads_hit": _ids(hit), "n_threads": len(gold),
+            "threads_hit": _ids(hit), "matches": [credited[gid] for gid in _ids(hit)], "n_threads": len(gold),
             "recall_all": recall_all, "recall": recall_all,
             "recall_addressed": _ratio(sum(g["id"] in hit for g in addressed), len(addressed)),
             "recall_by_kind": _per_group(gold, "kind", hit),

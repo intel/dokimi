@@ -58,6 +58,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "repo_budget": "repo_budget.v1",
     "task_inspect": "task_inspect.v1",
     "headroom": "headroom.v1",
+    "cli_routes": "cli_routes.v1",
 }
 
 # kind -> superseded versions still accepted on *load*, newest first. An artifact written under an
