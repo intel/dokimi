@@ -172,6 +172,18 @@ def _failed_fetch(source, cache_dir=None):
     raise SourceError("git fetch failed: could not connect to 127.0.0.1:9")
 
 
+def test_matrix_out_dir_with_no_existing_ancestor_exits_2(tmp_path, monkeypatch, capsys):
+    # No ancestor of the out dir exists (an unmounted drive): a refused path, not a StopIteration.
+    from dokimi.commands import arms
+
+    monkeypatch.setattr("pathlib.Path.exists", lambda self: False)
+    monkeypatch.setattr("pathlib.Path.is_symlink", lambda self: False)
+    with pytest.raises(SystemExit) as exc:
+        arms._check_cells_dir(tmp_path / "z" / "out")
+    assert exc.value.code == 2
+    assert "cannot write" in capsys.readouterr().err
+
+
 def test_repo_fetch_git_failure_keeps_exit_1(monkeypatch, capsys):
     monkeypatch.setattr("dokimi.repos.open_source", _failed_fetch)
     _argv(monkeypatch, "repo", "fetch", f"https://127.0.0.1:9/example.git@{PIN}")
