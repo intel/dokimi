@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import pytest
 
+from dokimi.utils import InputError
 from dokimi.cli import build_parser
 from dokimi.novelty.atoms import save_atoms
 from dokimi.novelty.spans import segment
@@ -23,7 +24,7 @@ def _shorten(tmp_path, artifact):
 
 def test_a_missing_text_artifact_exits_naming_it(tmp_path):
     missing = tmp_path / "missing.md"
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(InputError) as exc:
         _shorten(tmp_path, f"text:{missing}")
     assert str(exc.value) == f"cannot load --artifact text:{missing}: artifact not found: {missing}"
 
@@ -31,7 +32,7 @@ def test_a_missing_text_artifact_exits_naming_it(tmp_path):
 def test_a_non_utf8_text_artifact_exits_naming_it(tmp_path):
     binary = tmp_path / "bin.md"
     binary.write_bytes(bytes([0xFF, 0xFE, 0x00]))
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(InputError) as exc:
         _shorten(tmp_path, f"text:{binary}")
     assert str(exc.value).startswith(f"cannot load --artifact text:{binary}: ")
 
@@ -43,7 +44,7 @@ def test_a_skill_file_without_a_closing_frontmatter_fence_exits_naming_it(tmp_pa
     entry.write_text("---\nname: s\ndescription: d\n\n# H\n", encoding="utf-8")
     monkeypatch.setattr("dokimi.skills.loader.load_skill", lambda _p: SimpleNamespace(
         path=entry, name="s", description="d", body="# H\n"))
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(InputError) as exc:
         _shorten(tmp_path, f"skill:{tmp_path}")
     assert str(exc.value) == (f"cannot load --artifact skill:{tmp_path}: "
                               f"{entry} has no closing '---' after its frontmatter")
@@ -67,6 +68,6 @@ def test_an_unreadable_artifact_exits_without_a_traceback(tmp_path, command, kin
     if command == "routing":
         argv += ["--queries-from-headings"]
     args = build_parser().parse_args(argv)
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(InputError) as exc:
         args.func(args)
     assert str(exc.value).startswith("cannot load ")

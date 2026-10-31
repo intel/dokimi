@@ -232,11 +232,11 @@ def test_malformed_input_is_a_record_error_naming_the_record(data, message):
 
 
 def test_load_names_the_file_on_every_failure(tmp_path):
-    with pytest.raises(RecordError, match="file not found"):
+    with pytest.raises(RecordError, match="cannot read .*missing.json"):
         records.load(tmp_path / "missing.json")
     bad = tmp_path / "bad.json"
     bad.write_text("{not json", encoding="utf-8")
-    with pytest.raises(RecordError, match=r"invalid JSON in .*bad\.json"):
+    with pytest.raises(RecordError, match=r"bad\.json is not valid JSON"):
         records.load(bad)
     good = tmp_path / "answers.json"
     good.write_text(json.dumps(_answers(_answer("q1"))), encoding="utf-8")

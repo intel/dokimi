@@ -33,6 +33,8 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from dokimi.utils import InputError, read_json_input
+
 logger = logging.getLogger(__name__)
 
 SCHEMA_DIR = Path(__file__).resolve().parent / "schemas"
@@ -204,11 +206,18 @@ def _write_target(path: Path) -> Path:
     return target
 
 
-def load_artifact(kind: str, path: Path, *, validate: bool = True) -> dict:
-    """Read and (optionally) validate an artifact from ``path``."""
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
+def load_artifact(kind: str, path: Path | str, *, validate: bool = True) -> dict:
+    """Read and (optionally) validate an artifact of ``kind`` from ``path``.
+
+    Every failure is an :class:`~dokimi.utils.InputError` naming ``path``: a file that is
+    missing, unreadable, not UTF-8 or JSON, not a JSON object, or that fails the schema.
+    """
+    data = read_json_input(path)
     if not isinstance(data, dict):
-        raise ValueError(f"Artifact must be a JSON object, got {type(data).__name__}")
+        raise InputError(f"{path} is not a {kind} artifact: expected a JSON object, got {type(data).__name__}")
     if validate:
-        validate_artifact(kind, data)
+        try:
+            validate_artifact(kind, data)
+        except ArtifactValidationError as exc:
+            raise InputError(f"{path} is not a valid {kind} artifact: {exc}") from exc
     return data

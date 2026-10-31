@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from dokimi.utils import InputError
 from dokimi.cli import build_parser
 from dokimi.novelty.client import LLMClient
 from dokimi.novelty.routing import (
@@ -219,7 +220,7 @@ def test_routing_against_a_single_candidate_is_refused(tmp_path):
     # Selecting from one candidate measures tool use rather than this artifact winning.
     args = _parse("novelty", "routing", "--artifact", _skill(tmp_path, "a", "d"),
                   "--queries", "x")
-    with pytest.raises(SystemExit, match="needs competitors"):
+    with pytest.raises(InputError, match="needs competitors"):
         args.func(args)
 
 
@@ -267,7 +268,7 @@ def test_an_unreadable_queries_file_exits_with_a_message(tmp_path, content):
         queries.write_bytes(content)
     args = _parse("novelty", "routing", "--artifact", _skill(tmp_path, "a", "d"),
                   "--competitors", _skill(tmp_path, "b", "e"), "--queries", str(queries))
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(InputError) as exc:
         args.func(args)
     assert str(exc.value).startswith(f"cannot read --queries {queries}: ")
 
@@ -275,7 +276,7 @@ def test_an_unreadable_queries_file_exits_with_a_message(tmp_path, content):
 def test_a_catalog_that_is_not_a_directory_is_refused(tmp_path):
     args = _parse("novelty", "routing", "--artifact", _skill(tmp_path, "a", "d"),
                   "--catalog", str(tmp_path / "nope"), "--queries-from-headings")
-    with pytest.raises(SystemExit, match="--catalog is not a directory"):
+    with pytest.raises(InputError, match="--catalog is not a directory"):
         args.func(args)
 
 
@@ -330,7 +331,7 @@ def test_queries_value_must_be_a_list_of_strings(tmp_path, content):
                   "--artifact", _skill(tmp_path, "a", "profile a binary"),
                   "--competitors", _skill(tmp_path, "b", "tune a database"),
                   "--queries", str(queries))
-    with pytest.raises(SystemExit, match="list of strings"):
+    with pytest.raises(InputError, match="list of strings"):
         args.func(args)
 
 
@@ -341,7 +342,7 @@ def test_duplicate_competitors_are_refused_or_deduped(tmp_path):
     args = _parse("novelty", "routing",
                   "--artifact", _skill(tmp_path, "a", "profile a binary"),
                   "--competitors", competitor, competitor, "--queries", str(queries))
-    with pytest.raises(SystemExit, match="more than once"):
+    with pytest.raises(InputError, match="more than once"):
         args.func(args)
 
 
@@ -385,7 +386,7 @@ def test_the_artifact_cannot_compete_with_itself(tmp_path):
     ref = _skill(tmp_path, "perf", "Profile a binary")
     args = _parse("novelty", "routing", "--artifact", ref, "--competitors", ref,
                   "--queries", "x")
-    with pytest.raises(SystemExit, match="against itself"):
+    with pytest.raises(InputError, match="against itself"):
         args.func(args)
 
 

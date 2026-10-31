@@ -13,6 +13,7 @@ import re
 import pytest
 
 from dokimi.cli import build_parser
+from dokimi.utils import InputError
 from dokimi.commands import novelty as novelty_cmd
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
@@ -124,7 +125,7 @@ def test_dropping_the_baseline_arm_is_refused(tmp_path):
 
 def test_a_missing_artifact_exits_with_a_message(capsys):
     args = _parse("novelty", "analyze", "--artifact", "text:/nonexistent/skill.md")
-    with pytest.raises(SystemExit, match="cannot load"):
+    with pytest.raises(InputError, match="cannot load"):
         args.func(args)
     capsys.readouterr()
 
@@ -895,11 +896,11 @@ def _deep_skill(tmp_path, name="deep"):
     return f"skill:{root}"
 
 
-def test_load_artifact_or_exit_names_a_frontmatter_nested_too_deeply(tmp_path):
-    from dokimi.novelty.artifact import load_artifact_or_exit
+def test_load_artifact_ref_names_a_frontmatter_nested_too_deeply(tmp_path):
+    from dokimi.novelty.artifact import load_artifact_ref
 
-    with pytest.raises(SystemExit, match="^cannot load --artifact skill:.*maximum recursion"):
-        load_artifact_or_exit(_deep_skill(tmp_path))
+    with pytest.raises(InputError, match="^cannot load --artifact skill:.*maximum recursion"):
+        load_artifact_ref(_deep_skill(tmp_path))
 
 
 @pytest.mark.parametrize("sub", ["analyze", "atoms", "probe", "shorten", "routing"])
@@ -912,7 +913,7 @@ def test_a_command_given_a_frontmatter_nested_too_deeply_exits_with_a_message(tm
         "routing": ["--competitors", _deep_skill(tmp_path, "other")],
     }.get(sub, [])
     args = _parse("novelty", sub, "--artifact", _deep_skill(tmp_path), *extra)
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(InputError) as exc:
         args.func(args)
     assert "maximum recursion" in str(exc.value)
     assert "RecursionError" not in str(exc.value)
@@ -923,7 +924,7 @@ def test_all_vs_all_names_a_competitor_nested_too_deeply_and_exits_with_a_messag
     queries.write_text('{"deep": ["a request"]}', encoding="utf-8")
     args = _parse("novelty", "routing", "--all-vs-all", "--competitors", _deep_skill(tmp_path),
                   "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
-    with pytest.raises(SystemExit, match="maximum recursion") as exc:
+    with pytest.raises(InputError, match="maximum recursion") as exc:
         args.func(args)
     assert "RecursionError" not in str(exc.value)
 
@@ -940,7 +941,7 @@ def test_all_vs_all_names_an_unreadable_competitor_and_exits_with_a_message(tmp_
     args = _parse("novelty", "routing", "--all-vs-all", "--competitors", f"skill:{root}",
                   "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
     try:
-        with pytest.raises(SystemExit, match="cannot load the field"):
+        with pytest.raises(InputError, match="cannot load the field"):
             args.func(args)
     finally:
         skill.chmod(0o644)
