@@ -234,6 +234,13 @@ def test_a_resumed_batch_skips_the_finished_cells_and_refuses_another_execution(
     assert not [s for s in setup["runner"].specs if "-p" in s.argv]
 
 
+def test_a_resumed_batch_keeps_the_cells_every_invocation_planned(setup):
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    _run(setup, "--arm", "guidance:none", "--task", "fix_add")
+    plan = json.loads((setup["out"] / "b1" / "_eval" / "plan.json").read_text(encoding="utf-8"))
+    assert plan == {"cells": ["fix_add__guidance-none__m-1__r1", "fix_add__guidance-raw__m-1__r1"]}
+
+
 GOLDEN_SKILL_PIN = {
     "guidance:raw+skill:lint": [
         ["lint", "546383eb95a51d2f5175abd9cd5837664f23eea75c74b4fd2c85054df0aab85d"]
