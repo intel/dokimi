@@ -107,7 +107,7 @@ jobs:
     permissions:
       contents: read
     outputs:
-      dokimi-sha: ${{ steps.ref.outputs.sha }}
+      dokimi-sha: ${{ steps.dokimi.outputs.sha }}
       id: ${{ steps.select.outputs.id }}
       tasks: ${{ steps.select.outputs.tasks }}
     steps:
@@ -117,42 +117,30 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      # The setup action comes from this workflow's own commit (job.workflow_sha),
+      # the one the caller's uses: line pins, and installs dokimi-ref. Sparse: its action/ only.
+      - name: Check out the setup action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
+          repository: ${{ inputs.dokimi-repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .dokimi-action
+          sparse-checkout: /action/
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      # Resolves dokimi-ref to a commit (the validate outputs pass it on) and installs dokimi.
+      - name: Set up dokimi
+        id: dokimi
+        uses: ./.dokimi-action/action/setup
+        with:
+          dokimi-ref: ${{ inputs.dokimi-ref }}
+          dokimi-repository: ${{ inputs.dokimi-repository }}
           python-version: '3.13'
-      # A SHA is taken as it is; a tag is resolved to the commit it names, so the
-      # later jobs install the same commit even if the tag moves meanwhile.
-      - name: Resolve dokimi-ref
-        id: ref
-        env:
-          REF: ${{ inputs.dokimi-ref }}
-          DOKIMI_REPO: ${{ inputs.dokimi-repository }}
-        run: |
-          if ! [[ "$DOKIMI_REPO" =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ ]]; then
-            echo "::error title=dokimi-repository::dokimi-repository is not owner/name"
-            exit 1
-          fi
-          if [[ "$REF" =~ ^[0-9a-f]{40}$ ]]; then
-            sha=$REF
-          elif [[ "$REF" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
-            # An annotated tag's commit is its peeled (^{}) line.
-            sha=$(git ls-remote --tags "https://github.com/$DOKIMI_REPO" \
-                  | awk -v t="refs/tags/$REF" '$2 == t "^{}" { p = $1 } $2 == t { l = $1 } END { print (p != "" ? p : l) }')
-          fi
-          if ! [[ "${sha:-}" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "::error title=dokimi-ref::dokimi-ref is neither a 40-digit commit SHA nor a tag of $DOKIMI_REPO"
-            exit 1
-          fi
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "dokimi $DOKIMI_REPO@$REF -> $sha"
-      - name: Install dokimi
-        env:
-          SHA: ${{ steps.ref.outputs.sha }}
-          DOKIMI_REPO: ${{ inputs.dokimi-repository }}
-        run: |
-          # The lock is hashed, and pip cannot hash a git URL: install the lock, then dokimi without deps.
-          pip install --require-hashes -r "https://raw.githubusercontent.com/$DOKIMI_REPO/$SHA/dokimi/requirements.lock.txt"
-          pip install --no-deps "dokimi @ git+https://github.com/$DOKIMI_REPO@$SHA#subdirectory=dokimi"
+      # The checkout is only needed to run the setup action: remove it, so the
+      # caller's tree and its image build context are what they were.
+      - name: Remove the setup action checkout
+        shell: bash
+        run: rm -rf .dokimi-action
       - name: repo validate
         env:
           MANIFEST: ${{ inputs.manifest }}
@@ -294,17 +282,24 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - name: Check out the setup action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
+          repository: ${{ inputs.dokimi-repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .dokimi-action
+          sparse-checkout: /action/
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Set up dokimi
+        uses: ./.dokimi-action/action/setup
+        with:
+          dokimi-ref: ${{ needs.validate.outputs.dokimi-sha }}
+          dokimi-repository: ${{ inputs.dokimi-repository }}
           python-version: '3.13'
-      - name: Install dokimi
-        env:
-          SHA: ${{ needs.validate.outputs.dokimi-sha }}
-          DOKIMI_REPO: ${{ inputs.dokimi-repository }}
-        run: |
-          # The lock is hashed, and pip cannot hash a git URL: install the lock, then dokimi without deps.
-          pip install --require-hashes -r "https://raw.githubusercontent.com/$DOKIMI_REPO/$SHA/dokimi/requirements.lock.txt"
-          pip install --no-deps "dokimi @ git+https://github.com/$DOKIMI_REPO@$SHA#subdirectory=dokimi"
+      - name: Remove the setup action checkout
+        shell: bash
+        run: rm -rf .dokimi-action
       # Report only: a failing claim does not fail the job (an unreadable
       # manifest still does). The table lists the failing claims.
       - name: repo scan
@@ -362,17 +357,24 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - name: Check out the setup action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
+          repository: ${{ inputs.dokimi-repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .dokimi-action
+          sparse-checkout: /action/
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Set up dokimi
+        uses: ./.dokimi-action/action/setup
+        with:
+          dokimi-ref: ${{ needs.validate.outputs.dokimi-sha }}
+          dokimi-repository: ${{ inputs.dokimi-repository }}
           python-version: '3.13'
-      - name: Install dokimi
-        env:
-          SHA: ${{ needs.validate.outputs.dokimi-sha }}
-          DOKIMI_REPO: ${{ inputs.dokimi-repository }}
-        run: |
-          # The lock is hashed, and pip cannot hash a git URL: install the lock, then dokimi without deps.
-          pip install --require-hashes -r "https://raw.githubusercontent.com/$DOKIMI_REPO/$SHA/dokimi/requirements.lock.txt"
-          pip install --no-deps "dokimi @ git+https://github.com/$DOKIMI_REPO@$SHA#subdirectory=dokimi"
+      - name: Remove the setup action checkout
+        shell: bash
+        run: rm -rf .dokimi-action
       # Builds the image from the manifest's Dockerfile (the tree without its
       # tasks), then grades the null and the oracle workspace in it.
       - name: repo tasks check

@@ -45,10 +45,10 @@ repos:
   - repo: https://github.com/zizmorcore/zizmor-pre-commit
     rev: c92afdf2c6ca336aaa8f39e2bd8d48f62dbd8e1f  # frozen: v1.31.1
     hooks:
-      # The static job's zizmor step: the same command and scope.
+      # The static job's zizmor step: the same command and scope (workflows and the composite actions).
       - id: zizmor
         args: [--no-progress, --offline, --min-severity, medium]
-        files: ^\.github/workflows/[^/]+\.ya?ml$
+        files: ^(\.github/workflows/[^/]+|action/[^/]+/action)\.ya?ml$
 
   - repo: https://github.com/gitleaks/gitleaks
     rev: 83d9cd684c87d95d656c1458ef04895a7f1cbd8e  # frozen: v8.30.1
