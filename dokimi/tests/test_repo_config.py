@@ -533,3 +533,17 @@ def test_a_budget_number_written_as_text_gets_a_hint_with_the_plain_decimal(tmp_
 def test_a_budget_number_with_a_dot_and_signed_exponent_loads(tmp_path):
     root = _tree(tmp_path / "repo", {".github/dokimi/config.yaml": HEADER + "budget:\n  pr_max_usd: 1.0e+3\n"})
     assert load_repo_config(root).data["budget"]["pr_max_usd"] == 1000.0
+
+
+@pytest.mark.parametrize(("value", "plain"), [("1e-7", "0.0000001"), ("1.5e-7", "0.00000015"), ("1e+3", "1000")])
+def test_the_plain_decimal_hint_keeps_the_value_it_was_written_with(tmp_path, value, plain):
+    root = _tree(tmp_path / "repo", {".github/dokimi/config.yaml": HEADER + f"budget:\n  pr_max_usd: '{value}'\n"})
+    with pytest.raises(ConfigError, match=rf"Write {plain} \(the plain decimal\)"):
+        load_repo_config(root)
+
+
+@pytest.mark.parametrize("value", ["1.2.3e4", ".e5"])
+def test_a_budget_text_that_is_no_number_is_a_config_error_not_a_crash(tmp_path, value):
+    root = _tree(tmp_path / "repo", {".github/dokimi/config.yaml": HEADER + f"budget:\n  pr_max_usd: '{value}'\n"})
+    with pytest.raises(ConfigError, match=r"pr_max_usd.*not of type 'number'"):
+        load_repo_config(root)

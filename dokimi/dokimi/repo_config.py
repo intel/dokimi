@@ -19,6 +19,7 @@ import fnmatch
 import glob
 import hashlib
 import re
+from decimal import Decimal, InvalidOperation
 from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
@@ -155,8 +156,12 @@ def _check_budget_numbers(data: dict[str, Any], path: Path) -> None:
         return
     for key in ("pr_max_usd", "record_max_usd"):
         value = budget.get(key)
-        if isinstance(value, str) and _NUMBER_AS_TEXT.fullmatch(value.strip()):
-            plain = ("%f" % float(value)).rstrip("0").rstrip(".")
+        text = value.strip() if isinstance(value, str) else ""
+        if _NUMBER_AS_TEXT.fullmatch(text):
+            try:
+                plain = format(Decimal(text), "f")  # exact: 1e-7 is 0.0000001, not 0
+            except InvalidOperation:
+                continue  # text that is no number at all: the schema refuses it as a type error
             raise ConfigError(
                 f"{path}: budget.{key} is the text {value!r}, not a number: YAML reads it as text. "
                 f"Write {plain} (the plain decimal) or 1.0e+3 style (a dot and a signed exponent)"
