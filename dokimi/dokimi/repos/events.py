@@ -63,7 +63,7 @@ def _claude_stream_json(raw: str, workdir: str | None) -> Transcript:
     out = Transcript()
     start: datetime | None = None
     by_id: dict[str, dict[str, Any]] = {}  # tool_use id -> its event
-    for n, line in enumerate(raw.splitlines(), 1):
+    for n, line in enumerate(raw.split("\n"), 1):  # not splitlines: a JSON string may hold U+2028 or U+0085
         if not line.strip():
             continue
         try:

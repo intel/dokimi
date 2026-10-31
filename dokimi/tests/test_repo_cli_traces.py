@@ -305,6 +305,19 @@ def test_codex_json_to_events():
     assert t.errors == ["line 11: not JSON"] and not t.is_error  # a reconnect is not an error
 
 
+@pytest.mark.parametrize(("fmt", "record"), [
+    ("codex-json", lambda s: {"type": "item.completed", "item": {"type": "agent_message", "text": s}}),
+    ("copilot-json", lambda s: {"type": "assistant.message", "data": {"content": s, "phase": "final_answer"}}),
+    ("claude-stream-json", lambda s: {"type": "result", "result": s}),
+])
+@pytest.mark.parametrize("sep", ["\u2028", "\u2029", "\x85"])
+def test_a_jsonl_record_with_a_unicode_line_separator_is_one_record(fmt, record, sep):
+    # JSON may hold these unescaped (serde_json and JSON.stringify do not escape them); only \n ends a record
+    raw = json.dumps(record(f"first{sep}second"), ensure_ascii=False) + "\n"
+    t = convert(fmt, raw, None)
+    assert t.answer == f"first{sep}second" and t.errors == []
+
+
 def test_codex_json_keeps_every_agent_message_and_the_last_is_the_answer():
     raw = _jsonl(
         {"type": "item.completed", "item": {"type": "agent_message", "text": "first"}},

@@ -489,7 +489,7 @@ def codex_json(raw: str, workdir: str | None, cwd: str = "") -> Transcript:
     messages: list[str] = []
     by_id: dict[str, dict[str, Any]] = {}  # Track started items by ID to update on completion
     event_reads: dict[int, list[dict[str, Any]]] = {}  # command event -> the read events derived from it
-    for n, line in enumerate(raw.splitlines(), 1):
+    for n, line in enumerate(raw.split("\n"), 1):  # a JSON string may hold U+2028: splitlines would cut it
         if not line.strip():
             continue
         try:
@@ -670,7 +670,7 @@ class _CopilotRun:
 def copilot_json(raw: str, workdir: str | None, cwd: str = "") -> Transcript:
     out = Transcript()
     run = _CopilotRun()
-    for n, line in enumerate(raw.splitlines(), 1):
+    for n, line in enumerate(raw.split("\n"), 1):
         if not line.strip():
             continue
         try:
