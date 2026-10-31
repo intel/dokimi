@@ -368,6 +368,10 @@ code.
 - [preparing-a-repository-evidence.md](preparing-a-repository-evidence.md) —
   the runs behind each figure on that page: task set, arms, model, cell count
   and raw count.
+- [rule-ledger.md](rule-ledger.md) — one row per guidance rule: its
+  hypothesis, the replay or executable cases of the failures it prevents, and
+  the review date; `repo compare --ledger` gives each rule a keep, review or
+  insufficient-evidence verdict. The cut decision stays with a person.
 
 ## Extending Dokimi
 

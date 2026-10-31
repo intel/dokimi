@@ -242,6 +242,7 @@ CONCEPTS: tuple[Concept, ...] = (
             Flag("--answers", "FILE", "path"),
             Flag("--registry", "FILE", "path"),
             Flag("--from", "RUN", "text"),
+            Flag("--ledger", "FILE", "path"),
         ),
         banned=("--product", "--library", "--libraries", "--target", "--root", "--repo-root",
                 "--tasks-root", "--subjects-root", "--questions-root", "--questions-from",

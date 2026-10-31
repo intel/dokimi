@@ -347,6 +347,10 @@ next release.
   what its `--task` selection keeps; `dokimi/repos/compare_reach.py` how small
   an effect a row can find (`mde`, an uncorrected t-based estimate, and the
   lowest `p_holm` Holm's family leaves it).
+- `dokimi/repos/ledger.py` — `repo compare --ledger`: loads a `repo_ledger.v1`
+  file (rules with their hypothesis, arm, linked cases and review date) and gives
+  each rule a verdict from `repo compare` over its own cases, Holm-corrected
+  across the rules. [rule-ledger.md](rule-ledger.md).
 - `dokimi/repos/selfcheck.py` — `repo tasks check`: on each task
   `grade` must fail the untouched workspace and pass it after `oracle`, and an
   isolation probe must not see the tasks or the source from the agent's
