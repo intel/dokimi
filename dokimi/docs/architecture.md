@@ -397,6 +397,11 @@ separate profiles: result (`pass@k`, `pass^k`), path (tool-mix JSD, edit
 distance of tool and action sequences, resource spread, strategy groups) and
 conformance to a YAML process contract; `python cli.py context consistency`.
 Guide: [run-consistency.md](run-consistency.md).
+`dokimi/context/session_log.py` reads a Claude Code session log into prompt and
+tool events; `dokimi/context/prefilter.py` matches a guidance file's rules
+against them (trigger, acted, corrected) and ranks candidates for ablation.
+Both are deterministic; `python cli.py context prefilter`. Guide:
+[session-prefilter.md](session-prefilter.md).
 
 ## Shared building blocks
 

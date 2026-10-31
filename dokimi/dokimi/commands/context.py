@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import os
 import sys
@@ -148,6 +149,46 @@ def cmd_context_consistency(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def cmd_context_prefilter(args: argparse.Namespace) -> None:
+    """Which guidance claims the sessions triggered, acted on, or were corrected on: candidates for ablation."""
+    from dokimi.context.prefilter import build_report, render_table
+
+    guidance = Path(args.guidance)
+    try:
+        text = guidance.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        sys.exit(f"✗ cannot read {guidance}: {exc}")
+
+    sessions, failed = _read_sessions(args.sessions)
+    if not sessions:
+        sys.exit("✗ no session could be read")
+    report = build_report(guidance.name, text, sessions, window=args.window, min_sessions=args.min_sessions,
+                          rare_max=args.rare_max, in_use_rate=args.in_use_rate)
+    print(json.dumps(report, indent=2) if args.json else render_table(report))
+    if failed:
+        sys.exit(1)
+
+
+def _read_sessions(names: list[str]) -> tuple[list, bool]:
+    """Every readable session log of ``names`` (a quoted glob expands here), and whether one failed."""
+    from dokimi.context.session_log import SessionError, read_session
+
+    loaded, failed = [], False
+    for name in names:
+        matches = [name] if os.path.exists(name) else sorted(glob.glob(os.path.expanduser(name), recursive=True))
+        for path in matches or [name]:
+            try:
+                session = read_session(Path(path))
+            except SessionError as exc:  # report it, and still read the sessions that do
+                print(f"✗ {exc}", file=sys.stderr)
+                failed = True
+                continue
+            for problem in session.errors:
+                print(f"warning: {path}: {problem}", file=sys.stderr)
+            loaded.append(session)
+    return loaded, failed
+
+
 def _unique_traces(label: str, names: list[str]) -> list[str]:
     """Each trace once: a repeated ``--arm`` or overlapping globs must not count one run twice."""
     seen: dict[str, str] = {}
@@ -237,3 +278,24 @@ def register(sub, positive_int) -> None:
                         "count as edits; call: one step per tool call")
     cons_p.add_argument("--json", action="store_true", help="Print the profiles as JSON")
     cons_p.set_defaults(func=cmd_context_consistency)
+
+    pre_p = context_sub.add_parser(
+        "prefilter",
+        help="Which rules of an AGENTS.md or CLAUDE.md the sessions triggered, acted on and were "
+        "corrected on, read from Claude Code session logs: a ranked list of candidates for "
+        "ablation, not verdicts. No LLM call.",
+    )
+    pre_p.add_argument("guidance", help="The guidance file whose rules are measured (AGENTS.md, CLAUDE.md)")
+    pre_p.add_argument("sessions", nargs="+",
+                       help="Claude Code session logs (`~/.claude/projects/<project>/*.jsonl`); a quoted glob expands")
+    pre_p.add_argument("--window", type=positive_int, default=10,
+                       help="Events either side of a trigger that count as acting on it, and after it for a "
+                       "correction (default 10)")
+    pre_p.add_argument("--min-sessions", type=positive_int, default=5,
+                       help="Fewer sessions than this: no candidates are ranked (default 5)")
+    pre_p.add_argument("--rare-max", type=int, default=3,
+                       help="A rule triggered in at most this many sessions is rare: listed, not ranked (default 3)")
+    pre_p.add_argument("--in-use-rate", type=float, default=0.2,
+                       help="A rule triggered in at least this share of sessions is in use, not a candidate (default 0.2)")
+    pre_p.add_argument("--json", action="store_true", help="Print the full report as JSON")
+    pre_p.set_defaults(func=cmd_context_prefilter)
