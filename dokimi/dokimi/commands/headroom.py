@@ -103,9 +103,9 @@ def cmd_eval_headroom(args: argparse.Namespace) -> None:
     if args.output is not None:
         try:
             save_artifact("headroom", result, args.output)
-        except (OSError, ArtifactValidationError) as e:
+        except (OSError, ArtifactValidationError) as e:  # a failed write is runtime, not input: exit 1
             print(f"Error: {e}", file=sys.stderr)
-            sys.exit(2)
+            sys.exit(1)
         print(f"Wrote headroom artifact to {args.output}")
 
 

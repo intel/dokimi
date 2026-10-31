@@ -406,13 +406,13 @@ def test_distinct_input_files_each_count_as_a_run(tmp_path):
     assert (saved["runs"], item["reps"], item["provisional"], item["flag"]) == (3, 3, False, CEILING)
 
 
-def test_command_exits_2_when_the_output_cannot_be_written(tmp_path, capsys):
+def test_command_exits_1_when_the_output_cannot_be_written(tmp_path, capsys):
     path = _arms_file(tmp_path / "arms.json", {"1": {"baseline": 95, "skill": 95}})
     blocker = tmp_path / "a-file"
-    blocker.write_text("not a directory, so -o cannot be written beneath it", encoding="utf-8")
+    blocker.write_text("not a directory, so --out cannot be written beneath it", encoding="utf-8")
     with pytest.raises(SystemExit) as exc:
         cmd_eval_headroom(_args([path], output=blocker / "headroom.json"))
-    assert exc.value.code == 2
+    assert exc.value.code == 1  # a failed write is a runtime failure, not an input error
     assert capsys.readouterr().err.startswith("Error: ")
 
 
