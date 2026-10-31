@@ -78,8 +78,8 @@ context artifact improve answers?"
 ### Default models
 
 Every command takes its models from `dokimi/defaults.py`, and every surface
-(`benchmark`, `answers`, `eval`, `arms`, `subjects`, `evaluate`, `questions`,
-`personas`, `novelty`) uses the same three:
+(`benchmark`, `answers`, `eval`, `arms`, `subjects`, `evaluate`, `eval questions`,
+`eval personas`, `novelty`) uses the same three:
 
 | Role | Default | List price, input/output per MTok |
 | --- | --- | --- |
@@ -89,7 +89,7 @@ Every command takes its models from `dokimi/defaults.py`, and every surface
 
 The judge is a different family from the answerer, so the judge-independence
 warning stays quiet on default flags; answering with `claude-sonnet-5-5` moves the
-novelty judge to `openai/gpt-6.1-sol` and makes `benchmark`, `eval score`,
+novelty judge to `openai/gpt-6.1-sol` and makes `benchmark`, `eval score pointwise`,
 `eval score panel` and `evaluate` warn (`arms` and `subjects` do not check). Escalation
 judges (`--escalate-model`) have no default; `claude-opus-5-5` ($4 / $20) is the
 natural tie-break above the Sonnet judge. On `--provider amazon-bedrock` the bare
@@ -112,7 +112,7 @@ checked), and on any other provider they exit before the first call and ask for
 **Defaults changed on 2026-10-13: results are not comparable with older baselines;
 re-baseline.** Before, `benchmark`/`answers`/`eval` answered with `gpt-5.5` and
 judged with `claude-sonnet-4-5-20250929`, while `arms`, `subjects`, `evaluate`,
-`questions`, `personas` and `novelty` answered, judged and generated with an
+`eval questions`, `eval personas` and `novelty` answered, judged and generated with an
 obsolete small OpenAI model. A score, delta or cost produced with default flags before that date
 is not comparable with one produced after: re-run the baseline (the same question
 set via `--questions-from`, the same arms) under the new defaults, or pin the old

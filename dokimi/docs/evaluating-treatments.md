@@ -550,7 +550,7 @@ python cli.py eval triggers generate --catalog <skills-checkout>/skills \
   rest as `acceptable_skills`, which skill-reach treats as neutral helpers rather than
   hits, so on those queries it is stricter than the `skill-catalog:` arm; `skill-creator --target <skill>` (a catalog skill) writes an
   [anthropics/skills skill-creator](https://github.com/anthropics/skills/tree/main/skills/skill-creator)
-  eval set; `questions` writes `questions.v2` with `expected_skill` for the arm below.
+  eval set; `eval questions` writes `questions.v2` with `expected_skill` for the arm below.
 
 **Proxy: the `skill-catalog:` arm.** Runs in the normal arms loop on any model, and the
 report gains a *Skill selection* table (accuracy, recall, recall (any), multi-load,

@@ -85,7 +85,7 @@ The benchmark separates model responsibilities because self-judging can inflate 
 
 The defaults live in `dokimi/defaults.py` and changed on 2026-10-13; scores from earlier default-flag runs are not comparable with later ones — re-baseline ([Default models](benchmarking-and-comparison.md#default-models)).
 
-`benchmark`, `eval score`, `eval score panel` and `evaluate` warn when the normalized answer model and judge model match (`arms` and `subjects` do not check). Evaluation artifacts also store model/provider metadata and `question_set_hash` so later comparisons can prove they used the same question set.
+`benchmark`, `eval score pointwise`, `eval score panel` and `evaluate` warn when the normalized answer model and judge model match (`arms` and `subjects` do not check). Evaluation artifacts also store model/provider metadata and `question_set_hash` so later comparisons can prove they used the same question set.
 
 Supported providers in the main pipeline include OpenAI, Anthropic, Google Vertex, OpenRouter, Amazon Bedrock, and OpenAI Codex where wired by the CLI.
 
