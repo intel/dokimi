@@ -119,8 +119,10 @@ python cli.py repo compare repo-runs/replay --baseline guidance:none --ledger re
 ```
 
 The text output keeps the ordinary comparison and adds a `rule ledger` section.
-A ledger that does not validate, or a baseline the batches do not have, exits 2
-with a `✗` line naming the file (and the rule, where the error is the rule's). The
+A ledger that does not validate, or a default `--baseline` the batches do not have,
+exits 2 with a `✗` line naming the file (and the rule, where the error is the rule's).
+A rule whose own `baseline` or `arm` has no cell among its cases is `not measured` for
+that rule, and the command still exits 0. The
 ordinary comparison's flags (`--arm`, `--task`, `--metric`, ...) do not change the
 ledger, which uses the rules' own cases and arms.
 

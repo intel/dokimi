@@ -282,3 +282,33 @@ def test_a_bad_ledger_exits_with_usage_error(tmp_path, capsys):
         args.func(args)
     assert exc.value.code == 2
     assert "R1" in capsys.readouterr().err
+
+
+def test_a_model_with_no_cell_on_the_rule_does_not_hide_the_others(tmp_path):
+    tasks = _ids("t", 8)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in tasks})
+    _cell(batch, "elsewhere", BASE, success=True, model="m-2")  # m-2 ran a task this rule does not link
+    result = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", tasks)])), [batch], BASE,
+                      models=["m-1", "m-2"], today=TODAY)
+    assert _verdicts(result) == {("R1", "m-1"): KEEP, ("R1", "m-2"): INSUFFICIENT}
+    (other,) = [e for e in result["rules"] if e["model"] == "m-2"]
+    assert "no compared cells for --model m-2" in other["reason"]
+
+
+def test_a_linked_case_that_does_not_pair_is_named_on_the_rule(tmp_path):
+    tasks = _ids("t", 8)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in tasks})
+    _cell(batch, "t_8", BASE, success=False)  # the baseline's kind is gate, the rule's arm's is score
+    _cell(batch, "t_8", ARM, score=0.9)
+    entry = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", tasks + ["t_8"])])), [batch], BASE,
+                     today=TODAY)["rules"][0]
+    assert (entry["paired"], entry["linked"]) == (8, 9)
+    assert any("1 linked case(s) not paired" in w for w in entry["warnings"])
+
+
+def test_an_empty_ledger_path_is_refused_not_ignored(tmp_path, capsys):
+    batch = _gate_batch(tmp_path, {"t1": (False, True)})
+    args = build_parser().parse_args(["repo", "compare", str(batch), "--baseline", BASE, "--ledger", ""])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2

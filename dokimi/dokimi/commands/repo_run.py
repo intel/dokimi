@@ -367,7 +367,7 @@ def cmd_repo_compare(args: argparse.Namespace) -> None:
     try:
         summary = compare(dirs, args.baseline, arms, args.model, tuple(args.metric or ()),
                           pass_k=args.pass_k, path_stability=args.path_stability, tasks=args.task)
-        if args.ledger:
+        if args.ledger is not None:
             summary["ledger"] = evaluate(load_ledger(Path(args.ledger)), dirs, args.baseline, args.model,
                                          ledger_name=args.ledger)
     except (CompareError, CellFileError, LedgerError) as exc:  # an unusable baseline, arm, metric, cell or ledger

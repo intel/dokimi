@@ -133,25 +133,44 @@ def _rule_entries(rule: Rule, batch_dirs: list[Path], default_baseline: str, mod
     head = _head(rule, base, len(rule.cases), missing)
     if not present:
         return [{**head, "error": "no linked case has a finished cell"}]
+    entries: list[dict[str, Any]] = []
+    # One comparison per --model: a model with no cell among this rule's cases fails only its own comparison.
+    for model in models or [None]:
+        entries += _compared(rule, head, batch_dirs, base, [model] if model else None, present, seed, warnings)
+    per_model = Counter(e["model"] for e in entries if not e["error"] and e["measure"] in PRIMARY)
+    for entry in entries:
+        entry["mixed"] = not entry["error"] and per_model[entry["model"]] > 1
+    return entries
+
+
+def _compared(rule: Rule, head: dict[str, Any], batch_dirs: list[Path], base: str, models: list[str] | None,
+              present: list[str], seed: int, warnings: list[str]) -> list[dict[str, Any]]:
+    """The rule's results of one compare() call, with its linked cases that did not pair, as warnings."""
     try:
         summary = compare(batch_dirs, base, [rule.arm], models, (), seed=seed, tasks=present)
     except CompareError as exc:  # the arm or the baseline has no cell among this rule's cases
-        return [{**head, "error": str(exc)}]
+        return [{**head, "model": models[0] if models else None, "error": str(exc)}]
     warnings.extend(summary["warnings"])
+    linked = [u for u in summary["unpaired"] if u["task"] in present]
     rows = [r for r in summary["comparisons"] if r["measure"] in PRIMARY]
     if not rows:
-        reasons = sorted({u["reason"] for u in summary["unpaired"] if u["task"] in present})
+        reasons = sorted({u["reason"] for u in linked})
         return [{**head, "error": "; ".join(reasons) or "no linked case has cells in both arms"}]
-    per_model = Counter(r["model"] for r in rows)
-    return [_entry(head, r, per_model[r["model"]] > 1) for r in rows]
+    out = [_entry(head, r) for r in rows]
+    for entry in out:
+        own = [u for u in linked if u["model"] == entry["model"]]
+        if own:
+            entry["warnings"].append(f"{len({u['task'] for u in own})} linked case(s) not paired: "
+                                     + "; ".join(sorted({u["reason"] for u in own})))
+    return out
 
 
-def _entry(head: dict[str, Any], row: dict[str, Any], mixed: bool) -> dict[str, Any]:
+def _entry(head: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
     d = row["delta"]
     out = {**head, "model": row["model"], "measure": row["measure"], "paired": row["n_tasks"],
            "baseline_mean": row["baseline_mean"], "treatment_mean": row["treatment_mean"],
            "delta": {"mean": d["mean"], "lo": d["lo"], "hi": d["hi"]}, "up": row["up"], "down": row["down"],
-           "tied": row["tied"], "p": row["p"], "headroom": row["headroom"], "mixed": mixed,
+           "tied": row["tied"], "p": row["p"], "headroom": row["headroom"], "mixed": False,
            "changed": row["up"] + row["down"], "warnings": []}
     if row["headroom"]:
         out["warnings"].append(f"{row['measure']} headroom: {row['headroom']} (the cases cannot show an effect)")
