@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""repo tasks check / repo tasks replay / repo run / repo report / repo compare: the repository-mode runner
+"""eval check / repo tasks replay / repo run / repo report / repo compare: the repository-mode runner
 (contract §3, §4, §4.3, §4.5)."""
 
 from __future__ import annotations
@@ -460,10 +460,11 @@ def _common(p: argparse.ArgumentParser, source_help: str, cache_help: str, posit
     p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
 
 
-def register(repo_sub, positive_int, source_help: str, cache_help: str) -> None:
-    tasks_p = repo_sub.add_parser("tasks", help="Task self-checks, and review tasks built from past reviews (no LLM)")
+def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str) -> None:
+    tasks_p = repo_sub.add_parser("tasks", help="Review tasks built from past reviews (no LLM)")
     tasks_sub = tasks_p.add_subparsers(dest="repo_tasks_cmd", required=True)
-    check_p = tasks_sub.add_parser(
+    # eval check (#94 M1): the self-check of `eval check`, moved under eval
+    check_p = eval_sub.add_parser(
         "check", help="Per task: grade on the untouched workspace must fail the gate, oracle then grade must "
         "pass it (score-only: reach score.max), and the agent's container must not see tasks or source")
     _common(check_p, source_help, cache_help, positive_int)

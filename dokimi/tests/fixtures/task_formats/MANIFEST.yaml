@@ -1,4 +1,4 @@
-# What `dokimi tasks inspect` must report for each file of this corpus, and where
+# What `dokimi eval inspect` must report for each file of this corpus, and where
 # each file came from. tests/test_task_format_corpus.py inspects the whole tree
 # (a mixed tree) once and checks every entry; `format: null` means the path must
 # not appear in the report.
@@ -30,7 +30,7 @@ items:
   - path: catalog/skills/dpnp-io/evals/evals.json
     format: skill-creator-evals
     kind: answer-only
-    consumers: [questions import]
+    consumers: [eval import]
     items: 3
     source: intel-skills
     upstream: skills/dpnp-io/evals/evals.json
@@ -71,14 +71,14 @@ items:
   - path: inspect/examples/hello_world.py
     format: inspect-task
     kind: answer-only
-    consumers: [questions import]
+    consumers: [eval import]
     items: 1
     source: inspect_ai
     upstream: examples/hello_world.py
   - path: inspect/examples/biology_qa.py
     format: inspect-task
     kind: answer-only
-    consumers: [questions import]
+    consumers: [eval import]
     items: 1
     source: inspect_ai
     upstream: examples/biology_qa.py
@@ -86,7 +86,7 @@ items:
   - path: inspect/_examples/biology_qa.jsonl
     format: inspect-samples
     kind: answer-only
-    consumers: [questions import]
+    consumers: [eval import]
     items: 20
     source: inspect_ai
     upstream: src/inspect_ai/dataset/_examples/biology_qa.jsonl
@@ -95,7 +95,7 @@ items:
   - path: inspect/_examples/security_guide.jsonl
     format: inspect-samples
     kind: answer-only
-    consumers: [questions import]
+    consumers: [eval import]
     items: 5
     source: inspect_ai
     upstream: src/inspect_ai/dataset/_examples/security_guide.jsonl
@@ -103,14 +103,14 @@ items:
   - path: inspect/test_dataset/samples.csv
     format: inspect-samples
     kind: answer-only
-    consumers: [questions import]
+    consumers: [eval import]
     items: 1
     source: inspect_ai
     upstream: tests/dataset/test_dataset/samples.csv
   - path: inspect/test_dataset/samples-mcq.csv
     format: inspect-samples
     kind: answer-only
-    consumers: [questions import]
+    consumers: [eval import]
     items: 1
     source: inspect_ai
     upstream: tests/dataset/test_dataset/samples-mcq.csv
@@ -157,7 +157,7 @@ items:
   - path: openai-evals/registry/data/allergen-information/samples.jsonl
     format: openai-evals
     kind: answer-only
-    consumers: [questions import]
+    consumers: [eval import]
     items: 4
     source: openai-evals
     upstream: evals/registry/data/allergen-information/samples.jsonl
@@ -173,7 +173,7 @@ items:
   - path: openai-evals/registry/data/test_modelgraded/joke_fruits.jsonl
     format: openai-evals
     kind: answer-only
-    consumers: [questions import]
+    consumers: [eval import]
     items: 10
     source: openai-evals
     upstream: evals/registry/data/test_modelgraded/joke_fruits.jsonl
@@ -184,7 +184,7 @@ items:
   - path: promptfoo/eval-custom-grader-csv/promptfooconfig.yaml
     format: promptfoo
     kind: answer-only
-    consumers: [questions import]
+    consumers: [eval import]
     items: null
     source: promptfoo
     upstream: examples/eval-custom-grader-csv/promptfooconfig.yaml
@@ -202,7 +202,7 @@ items:
   - path: promptfoo/redteam-auth/promptfooconfig.file.yaml
     format: promptfoo
     kind: answer-only
-    consumers: [questions import]
+    consumers: [eval import]
     items: null
     source: promptfoo
     upstream: examples/redteam-auth/promptfooconfig.file.yaml
@@ -212,28 +212,28 @@ items:
   - path: skill-creator/pdf-forms/evals/evals.json
     format: skill-creator-evals
     kind: answer-only
-    consumers: [questions import]
+    consumers: [eval import]
     items: 2
     source: generated
     note: evals.json as anthropics/skills skills/skill-creator/references/schemas.md defines it
   - path: skill-reach/queries.json
     format: skill-reach
     kind: trigger
-    consumers: [catalog trigger-set]
+    consumers: [eval triggers generate]
     items: 3
     source: generated
     note: QuerySet fields of google/skill-reach src/reach/queries.py and models.py (query_id, kind, acceptable_skills)
   - path: writers/pdf-forms.trigger.json
     format: skill-creator-trigger
     kind: trigger
-    consumers: [catalog trigger-set]
+    consumers: [eval triggers generate]
     items: 3
     source: generated
     note: dokimi.external.trigger_set.to_skill_creator (tests/test_task_format_corpus.py rewrites it)
   - path: writers/reach-queries.json
     format: skill-reach
     kind: trigger
-    consumers: [catalog trigger-set]
+    consumers: [eval triggers generate]
     items: 3
     source: generated
     note: dokimi.external.trigger_set.to_reach (legacy `id` spelling)

@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for the reference-check grader (``dokimi.eval.reference_checks``), ``eval reference``
+"""Tests for the reference-check grader (``dokimi.eval.reference_checks``), ``eval score reference``
 (``dokimi.eval.reference_run``) and native-log import (``task_formats.imports.native_logs``).
 
 Native semantics are the upstream ones the importers cite: Inspect ``match_str`` / ``exact`` /
@@ -269,12 +269,12 @@ def test_validate_grading_names_the_problem():
     ({"checks": [{"type": "match", "values": ["x"], "weight": -1}]}, "weight must not be negative"),
 ])
 def test_validate_grading_catches_what_grading_would_raise_on(block, problem):
-    # Each of these used to pass validation and then abort `eval reference` mid-run.
+    # Each of these used to pass validation and then abort `eval score reference` mid-run.
     found = validate_grading(block)
     assert len(found) == 1 and problem in found[0]
 
 
-# --- eval reference ------------------------------------------------------------------------------
+# --- eval score reference ------------------------------------------------------------------------------
 
 _QUESTIONS = [
     {"id": "1", "question": "Capital of France?", "grading": {"checks": [

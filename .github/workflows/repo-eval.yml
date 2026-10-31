@@ -74,14 +74,14 @@ on:
         default: 4
       warm:
         description: >-
-          Pass --warm to `repo tasks check`: null and oracle run with network so a
+          Pass --warm to `eval check`: null and oracle run with network so a
           cold cache fills (an ephemeral runner starts with empty caches)
         required: false
         type: boolean
         default: false
       allow-unsupported:
         description: >-
-          Pass --allow-unsupported to `repo tasks check`: a task this runner misses the task.json
+          Pass --allow-unsupported to `eval check`: a task this runner misses the task.json
           `host` requirements of passes its job (the reason is still in the log and summary)
         required: false
         type: boolean
@@ -375,7 +375,7 @@ jobs:
           pip install --no-deps "dokimi @ git+https://github.com/$DOKIMI_REPO@$SHA#subdirectory=dokimi"
       # Builds the image from the manifest's Dockerfile (the tree without its
       # tasks), then grades the null and the oracle workspace in it.
-      - name: repo tasks check
+      - name: eval check
         env:
           MANIFEST: ${{ inputs.manifest }}
           TASK: ${{ matrix.task }}
@@ -387,7 +387,7 @@ jobs:
           flags=()
           if [ "$WARM" = true ]; then flags+=(--warm); fi
           if [ "$ALLOW_UNSUPPORTED" = true ]; then flags+=(--allow-unsupported); fi
-          dokimi repo tasks check . --manifest "$MANIFEST" --task "$TASK" --out "$RUNNER_TEMP/repo-check" "${flags[@]}"
+          dokimi eval check . --manifest "$MANIFEST" --task "$TASK" --out "$RUNNER_TEMP/repo-check" "${flags[@]}"
       # always(): a hung oracle ends in the job timeout, which cancels the job; a
       # cancelled job still runs these steps, so the run leaves a verdict.
       - name: Summary

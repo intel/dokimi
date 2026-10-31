@@ -260,12 +260,12 @@ criteria:
     delivery: available
     enforce: true
     capability: task-self-check
-    surfaces: ["repo tasks check --warm"]
-    refs: [docs/repo-evaluation-contract.md#43-self-check-tasks-check-no-llm, dokimi/commands/repo_run.py]
+    surfaces: ["eval check --warm"]
+    refs: [docs/repo-evaluation-contract.md#43-self-check-eval-check-no-llm, dokimi/commands/repo_run.py]
     evidence:
       - id: cjm-tasks-check-graders
         kind: cli_scenario
-        invokes: ["repo tasks check --manifest --out", "repo tasks check --warm"]
+        invokes: ["eval check --manifest --out", "eval check --warm"]
         stubs: [Docker (FakeRunner runs the task scripts on the host)]
     scope: verifier sanity on null and oracle; says nothing about task relevance or coverage (AC-J07-004)
   AC-J07-002:
@@ -275,7 +275,7 @@ criteria:
     evidence:
       - id: cjm-tasks-check-graders
         kind: cli_scenario
-        invokes: ["repo tasks check --manifest --out"]
+        invokes: ["eval check --manifest --out"]
         stubs: [Docker (FakeRunner runs the task scripts on the host)]
   AC-J07-003:
     delivery: available
@@ -284,11 +284,11 @@ criteria:
     evidence:
       - id: cjm-tasks-check-isolation
         kind: cli_scenario
-        invokes: ["repo tasks check --task"]
+        invokes: ["eval check --task"]
         stubs: [Docker (FakeRunner, with a simulated leaky image)]
       - id: cjm-tasks-check-host
         kind: cli_scenario
-        invokes: ["repo tasks check --warm", "repo tasks check --allow-unsupported"]
+        invokes: ["eval check --warm", "eval check --allow-unsupported"]
         stubs: [Docker (host probe fake)]
     gaps: ["isolation is checked by name and mount, against a simulated image, not a real container escape",
            "the probe's find root (/), its /proc /sys /dev prune and the source mount are not exercised: the shim searches a small tree"]
@@ -299,13 +299,13 @@ criteria:
     evidence:
       - id: cjm-builtin-review-graders
         kind: cli_scenario
-        invokes: ["repo tasks check --task", "repo validate --json"]
+        invokes: ["eval check --task", "repo validate --json"]
         stubs: [Docker (FakeRunner)]
   AC-J07-005:
     delivery: partial
     enforce: false
     capability: judge-validity
-    surfaces: ["eval judge-validity --sequential"]
+    surfaces: ["eval judge validate --sequential"]
     # The test pins what happens today, which is not what the criterion asks for.
     evidence:
       - {id: cjm-judge-cap-inconclusive, kind: unit, stubs: [judge scores (fixed function)]}
@@ -515,7 +515,7 @@ criteria:
     evidence:
       - id: cjm-tasks-check-host
         kind: cli_scenario
-        invokes: ["repo tasks check --allow-unsupported"]
+        invokes: ["eval check --allow-unsupported"]
         stubs: [Docker (host probe fake)]
       - {id: cjm-repo-eval-workflow, kind: unit, stubs: [dokimi (stub executable)]}
     gaps:

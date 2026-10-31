@@ -17,7 +17,7 @@ def _generate(tmp_path, monkeypatch, config_text):
     personas = tmp_path / "personas.json"
     personas.write_text('{"personas": []}', encoding="utf-8")
     args = build_parser().parse_args([
-        "questions", "generate", "--product", "p", "--personas", str(personas),
+        "eval", "questions", "generate", "--product", "p", "--personas", str(personas),
         "--output", str(tmp_path / "q.json"),
     ])
     args.func(args)

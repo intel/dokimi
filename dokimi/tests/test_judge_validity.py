@@ -7,7 +7,7 @@ These run offline. What is covered here is the harness — that degradations
 really damage an answer, that they are reproducible, and that the accuracy and
 gate arithmetic is right for judges whose behaviour is known (a perfect judge, a
 saturated judge, an inverted judge). Measuring a real LLM judge needs API
-credentials and is the job of `cli.py eval judge-validity`.
+credentials and is the job of `cli.py eval judge validate`.
 """
 
 import random
@@ -523,7 +523,7 @@ class TestRunValidity:
 def test_judge_validity_accepts_every_judge_provider(provider):
     from dokimi.cli import build_parser
 
-    args = build_parser().parse_args(["eval", "judge-validity", "--answers", "a.json", "--judge-provider", provider])
+    args = build_parser().parse_args(["eval", "judge", "validate", "--answers", "a.json", "--judge-provider", provider])
     assert args.judge_provider == provider
 
 
@@ -532,7 +532,7 @@ def test_judge_validity_rejects_providers_judge_rejects(provider):
     from dokimi.cli import build_parser
 
     with pytest.raises(SystemExit):
-        build_parser().parse_args(["eval", "judge-validity", "--answers", "a.json", "--judge-provider", provider])
+        build_parser().parse_args(["eval", "judge", "validate", "--answers", "a.json", "--judge-provider", provider])
 
 
 def test_noop_degradation_is_dropped_and_counted():
@@ -962,7 +962,7 @@ class TestStrictCli:
         ]))
         monkeypatch.setattr(judge_mod, "Judge", lambda **kw: None)
         monkeypatch.setattr(jv, "judge_scorer", lambda judge: lambda lib, q, a: sign * len(a))
-        args = build_parser().parse_args(["eval", "judge-validity", "--answers", str(answers),
+        args = build_parser().parse_args(["eval", "judge", "validate", "--answers", str(answers),
                                           "--bases", str(bases), "--variants", "truncate_20", *extra])
         try:
             args.func(args)
@@ -1046,7 +1046,7 @@ def test_report_is_written_before_a_console_that_cannot_print_it(tmp_path, monke
     monkeypatch.setattr(judge_mod, "Judge", lambda **kw: None)
     monkeypatch.setattr(jv, "judge_scorer", lambda judge: lambda lib, q, a: float(len(a)))
     monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(io.BytesIO(), encoding="cp1252"))
-    args = build_parser().parse_args(["eval", "judge-validity", "--answers", str(answers),
+    args = build_parser().parse_args(["eval", "judge", "validate", "--answers", str(answers),
                                       "--variants", "truncate_20", "--output", str(out)])
     with pytest.raises(UnicodeEncodeError):
         args.func(args)
@@ -1159,7 +1159,7 @@ def test_cli_warns_on_an_unmeasured_variant(tmp_path, monkeypatch, capsys, stric
                                     "arms": {"a": {"answer": f"Plain prose, answer {i}. " * 100}}} for i in range(20)]))
     monkeypatch.setattr(judge_mod, "Judge", lambda **kw: None)
     monkeypatch.setattr(jv, "judge_scorer", lambda judge: lambda lib, q, a: float(len(a)))
-    args = build_parser().parse_args(["eval", "judge-validity", "--answers", str(answers),
+    args = build_parser().parse_args(["eval", "judge", "validate", "--answers", str(answers),
                                       "--variants", "strip_code,truncate_20", *strict])
     try:
         args.func(args)
@@ -1183,7 +1183,7 @@ def test_judge_temperature_reaches_the_judge_and_the_report(tmp_path, monkeypatc
     built = {}
     monkeypatch.setattr(judge_mod, "Judge", lambda **kw: built.update(kw))
     monkeypatch.setattr(jv, "judge_scorer", lambda judge: lambda lib, q, a: float(len(a)))
-    args = build_parser().parse_args(["eval", "judge-validity", "--answers", str(answers),
+    args = build_parser().parse_args(["eval", "judge", "validate", "--answers", str(answers),
                                       "--variants", "truncate_20", "--judge-temperature", "0",
                                       "--output", str(out)])
     try:
@@ -1589,7 +1589,7 @@ def test_cli_refuses_stored_context_it_cannot_honour(tmp_path, capsys, extra, me
 
     answers = tmp_path / "a.json"
     answers.write_text(json.dumps({"answers": _answers()}))
-    args = build_parser().parse_args(["eval", "judge-validity", "--answers", str(answers),
+    args = build_parser().parse_args(["eval", "judge", "validate", "--answers", str(answers),
                                       "--context", "stored", *extra])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
@@ -1616,7 +1616,7 @@ def test_cli_judges_each_answer_with_its_arms_stored_material(tmp_path, monkeypa
     answers = tmp_path / "arms.json"
     answers.write_text(json.dumps(_with_materials()))
     out = tmp_path / "v.json"
-    args = build_parser().parse_args(["eval", "judge-validity", "--answers", str(answers),
+    args = build_parser().parse_args(["eval", "judge", "validate", "--answers", str(answers),
                                       "--context", "stored", "--bases", "3",
                                       "--variants", "truncate_20", "--output", str(out)])
     code = None
@@ -1677,7 +1677,7 @@ def _stored_cli(tmp_path, monkeypatch, *argv, data=None, score=lambda a: float(l
     answers = tmp_path / "arms.json"
     answers.write_text(json.dumps(data if data is not None else _with_materials()))
     out = tmp_path / "v.json"
-    args = build_parser().parse_args(["eval", "judge-validity", "--answers", str(answers),
+    args = build_parser().parse_args(["eval", "judge", "validate", "--answers", str(answers),
                                       "--judge-provider", "amazon-bedrock", "--judge-model", "m",
                                       "--variants", "truncate_20", "--output", str(out), *argv])
     code = None
@@ -1706,7 +1706,7 @@ def test_cli_judge_validity_exits_2_when_no_answer_is_long_enough(tmp_path, monk
     answers = tmp_path / "a.json"
     answers.write_text(json.dumps({"answers": [{"question_id": "Q1", "question_text": "q",
                                                 "arms": {"baseline": {"answer": "short"}}}]}))
-    args = build_parser().parse_args(["eval", "judge-validity", "--answers", str(answers),
+    args = build_parser().parse_args(["eval", "judge", "validate", "--answers", str(answers),
                                       "--judge-provider", "amazon-bedrock"])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
@@ -1768,7 +1768,7 @@ def test_a_stored_validity_report_gates_the_rescored_judge_in_cross_judge(tmp_pa
         run_path = tmp_path / "run.json"
         run_path.write_text(json.dumps(run))
         out = tmp_path / "cj.json"
-        args = build_parser().parse_args(["eval", "cross-judge", "--answers", str(run_path), "--no-stored",
+        args = build_parser().parse_args(["eval", "judge", "agreement", "--answers", str(run_path), "--no-stored",
                                           "--judges", "amazon-bedrock/m", "--validity", str(report_path),
                                           "--output", str(out)])
         args.func(args)
@@ -1961,7 +1961,7 @@ def test_cli_stored_context_refusal_names_the_real_cause(tmp_path, capsys, extra
 
     answers = tmp_path / "a.json"
     answers.write_text(json.dumps(_with_materials()))
-    args = build_parser().parse_args(["eval", "judge-validity", "--answers", str(answers),
+    args = build_parser().parse_args(["eval", "judge", "validate", "--answers", str(answers),
                                       "--context", "stored", *extra])
     with pytest.raises(SystemExit) as exc:
         args.func(args)

@@ -180,7 +180,7 @@ def resolve(root: argparse.ArgumentParser, tokens: list[str]) -> tuple[argparse.
 
 
 def surface_problem(root: argparse.ArgumentParser, surface: str) -> str | None:
-    """Why ``surface`` (``"repo tasks check --warm"``) is not in the parser, or None."""
+    """Why ``surface`` (``"eval check --warm"``) is not in the parser, or None."""
     tokens = shlex.split(surface)
     if "--" in tokens:
         return f"a surface names options, not '--': {surface}"

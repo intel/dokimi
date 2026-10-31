@@ -55,7 +55,7 @@ def _exit_code(argv):
 @pytest.mark.parametrize("flag, expected", [(["--judge-temperature", "0"], 0.0), ([], None)])
 def test_eval_score_forwards_and_records_judge_temperature(tmp_path, requests, flag, expected):
     out = tmp_path / "eval.json"
-    _run(["eval", "score", "--product", "L", "--answers", _answers(tmp_path), "--output", str(out),
+    _run(["eval", "score", "pointwise", "--product", "L", "--answers", _answers(tmp_path), "--output", str(out),
           "--judge-provider", "amazon-bedrock", "--judge-model", "us.anthropic.x",
           "--concurrency", "1", *flag])
     assert len(requests) == 2
@@ -66,7 +66,7 @@ def test_eval_score_forwards_and_records_judge_temperature(tmp_path, requests, f
 
 def test_eval_panel_score_forwards_judge_temperature_to_every_judge(tmp_path, requests):
     out = tmp_path / "panel.json"
-    _run(["eval", "panel-score", "--product", "L", "--answers", _answers(tmp_path),
+    _run(["eval", "score", "panel", "--product", "L", "--answers", _answers(tmp_path),
           "--output", str(out), "--provider", "amazon-bedrock", "--model", "us.anthropic.x",
           "--roles", "technical_expert,doc_reviewer", "--concurrency", "1",
           "--judge-temperature", "0"])
@@ -77,7 +77,7 @@ def test_eval_panel_score_forwards_judge_temperature_to_every_judge(tmp_path, re
 
 def test_eval_panel_score_judge_configs_also_take_judge_temperature(tmp_path, requests):
     out = tmp_path / "panel.json"
-    _run(["eval", "panel-score", "--product", "L", "--answers", _answers(tmp_path),
+    _run(["eval", "score", "panel", "--product", "L", "--answers", _answers(tmp_path),
           "--output", str(out), "--judge-configs",
           "technical_expert:us.anthropic.x:amazon-bedrock", "--concurrency", "1",
           "--judge-temperature", "0"])
@@ -144,27 +144,27 @@ def _reliability_argv(command, tmp_path, out):
     arms.write_text(json.dumps(ARMS), encoding="utf-8")
     judge = ["--judge-provider", "amazon-bedrock", "--judge-model", "us.anthropic.x"]
     if command == "pairwise":
-        return ["eval", "pairwise", "--answers", str(arms), *judge, "--concurrency", "1",
+        return ["eval", "score", "pairwise", "--answers", str(arms), *judge, "--concurrency", "1",
                 "--output", str(out)]
     if command == "checklist":
         questions = tmp_path / "q.json"
         questions.write_text(json.dumps({"questions": [{"id": f"Q{i}", "expected_topics": ["p"]}
                                                        for i in range(3)]}), encoding="utf-8")
-        return ["eval", "checklist", "--answers", str(arms), "--questions", str(questions), *judge,
+        return ["eval", "score", "checklist", "--answers", str(arms), "--questions", str(questions), *judge,
                 "--concurrency", "1", "--output", str(out)]
     if command == "judge-wording":
         answers = tmp_path / "answers.json"
         answers.write_text(json.dumps(validity_answers()), encoding="utf-8")
-        return ["eval", "judge-wording", "--answers", str(answers), "--bases", "2",
+        return ["eval", "judge", "wording", "--answers", str(answers), "--bases", "2",
                 "--variants", "truncate_20", "--wordings", next(iter(WORDINGS)), "--redraws", "0",
                 *judge, "--concurrency", "1", "--output", str(out)]
     if command == "judge-validity-pairwise":
         answers = tmp_path / "answers.json"
         answers.write_text(json.dumps(validity_answers()), encoding="utf-8")
-        return ["eval", "judge-validity", "--answers", str(answers), "--bases", "2",
+        return ["eval", "judge", "validate", "--answers", str(answers), "--bases", "2",
                 "--variants", "truncate_20", "--mode", "pairwise", *judge, "--concurrency", "1",
                 "--output", str(out)]
-    return ["eval", "cross-judge", "--answers", str(arms), "--no-stored",
+    return ["eval", "judge", "agreement", "--answers", str(arms), "--no-stored",
             "--judges", "amazon-bedrock/us.anthropic.x", "--concurrency", "1", "--output", str(out)]
 
 

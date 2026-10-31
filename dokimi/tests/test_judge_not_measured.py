@@ -55,7 +55,7 @@ def test_cross_judge_strict_fails_when_no_arm_was_measured(tmp_path, monkeypatch
          2, "Error: amazon-bedrock/m (aggregate) scored none of its 16 answers"),
         (["--answers", str(empty)], {}, 1, "✗ incomplete"),
     ):
-        code = _strict_exit(["eval", "cross-judge", *argv, "--output", str(tmp_path / "cj.json"), "--strict"])
+        code = _strict_exit(["eval", "judge", "agreement", *argv, "--output", str(tmp_path / "cj.json"), "--strict"])
         assert code == exit_code
         assert why in capsys.readouterr().err
         summary = json.loads((tmp_path / "cj.json").read_text())["summary"]
@@ -83,7 +83,7 @@ def test_cross_judge_strict_exits_1_when_only_one_of_several_arms_was_measured(t
                                  "metadata": {"arm_kind": "skill"}}
     path = tmp_path / "answers.json"
     path.write_text(json.dumps(data), encoding="utf-8")
-    code = _strict_exit(["eval", "cross-judge", "--answers", str(path), "--no-stored", "--judges",
+    code = _strict_exit(["eval", "judge", "agreement", "--answers", str(path), "--no-stored", "--judges",
                          "amazon-bedrock/m", "--output", str(tmp_path / "cj.json"), "--strict"])
     summary = json.loads((tmp_path / "cj.json").read_text())["summary"]
     assert summary["arms"]["skill"]["label"] != "NOT MEASURED"
@@ -110,7 +110,7 @@ def test_judge_wording_strict_exits_1_when_one_condition_scored_and_another_did_
     answers = tmp_path / "answers.json"
     answers.write_text(json.dumps(validity_answers()), encoding="utf-8")
     monkeypatch.setattr(judge_wording, "run_wording", lambda *a, **k: report)
-    code = _strict_exit(["eval", "judge-wording", "--answers", str(answers), "--bases", "2",
+    code = _strict_exit(["eval", "judge", "wording", "--answers", str(answers), "--bases", "2",
                          "--judge-provider", "amazon-bedrock", "--judge-model", "m", "--strict"])
     out = capsys.readouterr()
     assert report.summary()["unmeasured_conditions"] == ["persona"]
@@ -121,7 +121,7 @@ def test_judge_wording_strict_exits_1_when_one_condition_scored_and_another_did_
     assert report.summary()["fragile_variants"] == []
     assert all(not r["fragile"] for r in report.summary()["per_variant"].values())
     # Report-only without --strict: the same run prints NOT MEASURED and exits 0.
-    code = _strict_exit(["eval", "judge-wording", "--answers", str(answers), "--bases", "2",
+    code = _strict_exit(["eval", "judge", "wording", "--answers", str(answers), "--bases", "2",
                          "--judge-provider", "amazon-bedrock", "--judge-model", "m"])
     assert code == 0
     assert "NOT MEASURED" in capsys.readouterr().out
@@ -146,7 +146,7 @@ def test_judge_wording_strict_exits_1_when_a_condition_scored_no_pair(tmp_path, 
     for n in (0, 4):  # no pair built; every call errored
         report = WordingReport(judge="fake", reports={c: errored(n) for c in ("original", "persona")})
         monkeypatch.setattr(judge_wording, "run_wording", lambda *a, _r=report, **k: _r)
-        code = _strict_exit(["eval", "judge-wording", "--answers", str(answers), "--bases", "2",
+        code = _strict_exit(["eval", "judge", "wording", "--answers", str(answers), "--bases", "2",
                              "--judge-provider", "amazon-bedrock", "--judge-model", "m", "--strict"])
         assert code == 1
         out = capsys.readouterr()
@@ -166,7 +166,7 @@ def test_cross_judge_strict_exits_1_when_require_validated_leaves_no_voter(tmp_p
 
     path = tmp_path / "run.json"
     path.write_text(json.dumps(_stamped_run()), encoding="utf-8")
-    code = _strict_exit(["eval", "cross-judge", "--answers", str(path), "--require-validated",
+    code = _strict_exit(["eval", "judge", "agreement", "--answers", str(path), "--require-validated",
                          "--output", str(tmp_path / "cj.json"), "--strict"])
     assert code == 1
     assert "1 of 1 arm(s) NOT MEASURED: skill" in capsys.readouterr().err
@@ -188,7 +188,7 @@ def test_cross_judge_judge_dependent_exits_1_only_with_strict(tmp_path, monkeypa
     monkeypatch.setattr(judge_mod, "Judge", OppositeJudge)
     path = tmp_path / "run.json"
     path.write_text(json.dumps(_material_run()), encoding="utf-8")
-    argv = ["eval", "cross-judge", "--answers", str(path), "--judges", "amazon-bedrock/m",
+    argv = ["eval", "judge", "agreement", "--answers", str(path), "--judges", "amazon-bedrock/m",
             "--output", str(tmp_path / "cj.json")]
     assert _strict_exit(argv) == 0
     capsys.readouterr()
@@ -216,7 +216,7 @@ def test_cross_judge_strict_exits_1_when_one_of_several_arms_is_judge_dependent(
         ev["scores"]["skill2"] = dict(ev["scores"]["skill"])
     path = tmp_path / "run.json"
     path.write_text(json.dumps(data), encoding="utf-8")
-    argv = ["eval", "cross-judge", "--answers", str(path), "--judges", "amazon-bedrock/m",
+    argv = ["eval", "judge", "agreement", "--answers", str(path), "--judges", "amazon-bedrock/m",
             "--output", str(tmp_path / "cj.json")]
     assert _strict_exit(argv) == 0
     capsys.readouterr()
@@ -241,7 +241,7 @@ def test_cross_judge_strict_exits_0_when_every_arm_is_measured_and_none_is_judge
     monkeypatch.setattr(judge_mod, "Judge", AgreeingJudge)
     path = tmp_path / "run.json"
     path.write_text(json.dumps(_material_run()), encoding="utf-8")
-    argv = ["eval", "cross-judge", "--answers", str(path), "--judges", "amazon-bedrock/m",
+    argv = ["eval", "judge", "agreement", "--answers", str(path), "--judges", "amazon-bedrock/m",
             "--output", str(tmp_path / "cj.json")]
     assert _strict_exit([*argv, "--strict"]) == 0
     assert "incomplete" not in capsys.readouterr().err
@@ -268,7 +268,7 @@ def test_judge_wording_fragile_variant_exits_1_only_with_strict(tmp_path, monkey
     answers = tmp_path / "answers.json"
     answers.write_text(json.dumps(validity_answers()), encoding="utf-8")
     monkeypatch.setattr(judge_wording, "run_wording", lambda *a, **k: report)
-    argv = ["eval", "judge-wording", "--answers", str(answers), "--bases", "2",
+    argv = ["eval", "judge", "wording", "--answers", str(answers), "--bases", "2",
             "--judge-provider", "amazon-bedrock", "--judge-model", "m"]
     assert _strict_exit(argv) == 0
     assert "FRAGILE" in capsys.readouterr().out

@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""`personas approve` rejects a persona file it cannot validate with a message, not a traceback."""
+"""`eval personas validate` rejects a persona file it cannot validate with a message, not a traceback."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ _PERSONA = {"id": "p1", "name": "Ana", "skill_level": "novice"}
 
 
 def _approve(path, monkeypatch):
-    monkeypatch.setattr("sys.argv", ["dokimi", "personas", "approve", "--file", str(path)])
+    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "personas", "validate", "--file", str(path)])
     with pytest.raises(SystemExit) as exc:
         cli.main()
     return exc.value.code
@@ -24,7 +24,7 @@ def _approve(path, monkeypatch):
 def test_approve_accepts_a_valid_persona_file(tmp_path, monkeypatch, capsys):
     f = tmp_path / "personas.json"
     f.write_text(json.dumps({"product": "oneTBB", "personas": [_PERSONA]}), encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["dokimi", "personas", "approve", "--file", str(f)])
+    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "personas", "validate", "--file", str(f)])
     cli.main()
     assert "Validated 1 personas" in capsys.readouterr().out
 

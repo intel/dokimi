@@ -371,8 +371,8 @@ def test_the_check_results_artifact_keeps_the_stderr_files():
 
 
 def _tasks_check_argv(tmp_path: Path, inputs: dict[str, bool]) -> list[str]:
-    """Run the ``repo tasks check`` step with a stub ``dokimi`` and return its argv."""
-    step = next(s for s in _steps() if s.get("name") == "repo tasks check")
+    """Run the ``eval check`` step with a stub ``dokimi`` and return its argv."""
+    step = next(s for s in _steps() if s.get("name") == "eval check")
     values = {f"inputs.{k}": str(v).lower() for k, v in inputs.items()}
     values |= {"inputs.manifest": "m.yml", "matrix.task": "t1"}
     env = {**os.environ, "RUNNER_TEMP": str(tmp_path)}
@@ -402,6 +402,6 @@ def test_allow_unsupported_is_a_boolean_input_that_is_off_by_default():
 @pytest.mark.parametrize("allow", [False, True])
 def test_the_tasks_check_step_forwards_warm_and_allow_unsupported(tmp_path, warm, allow):
     argv = _tasks_check_argv(tmp_path, {"warm": warm, "allow-unsupported": allow})
-    assert argv[:6] == ["repo", "tasks", "check", ".", "--manifest", "m.yml"]
+    assert argv[:5] == ["eval", "check", ".", "--manifest", "m.yml"]
     assert ("--warm" in argv) is warm
     assert ("--allow-unsupported" in argv) is allow

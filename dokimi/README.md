@@ -67,7 +67,7 @@ The project is pre-1.0; interfaces and artifact schemas may still change.
   `AWS_REGION` + `AWS_BEARER_TOKEN_BEDROCK` for Bedrock). `GITHUB_TOKEN` is
   optional and raises the persona-discovery rate limit.
 - Docker, only for the executable-task, harness and repository tracks.
-- Optional extras: `ragas` (`eval ragas`, `answers generate --ragas`), `ocr`
+- Optional extras: `ragas` (`eval score ragas`, `answers generate --ragas`), `ocr`
   (Docling ingestion) and `mcp` (real MCP servers).
 
 ```bash
@@ -124,7 +124,7 @@ Context benchmark
   benchmark           Preflight and run the benchmark for registered targets
   evaluate            Run the full pipeline in one command
   personas            Discover and approve target user personas
-  questions           Generate, analyze, refine, and panel-review questions
+  questions           Generate, analyze, refine, and review questions
   answers             Generate context-arm and baseline answers
   eval                Score answers, run RAGAS, or use a multi-judge panel
   arms                Compare treatment arms (docs / MCP / skills / profiles)
@@ -156,7 +156,7 @@ That is the curated set; `python cli.py --help` lists every group.
 Use `--help` on any command for detailed options, for example:
 
 ```bash
-python cli.py questions --help
+python cli.py eval questions --help
 python cli.py eval --help
 python cli.py dashboard generate --help
 ```

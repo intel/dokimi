@@ -270,7 +270,7 @@ def test_the_tasks_pass_the_self_check_and_apply_under_guidance_none(hist, tmp_p
     _commit(root, "replay tasks")
     monkeypatch.setattr("dokimi.repos.container.DockerRunner", lambda *a, **k: FakeRunner())
     out = tmp_path / "chk"
-    args = build_parser().parse_args(["repo", "tasks", "check", f"{root}@HEAD", "--out", str(out),
+    args = build_parser().parse_args(["eval", "check", f"{root}@HEAD", "--out", str(out),
                                       "--cache-root", str(out / "caches"), "--task", "review_replay_pr7"])
     args.func(args)
     res = json.loads((out / "check/check.json").read_text())["tasks"][0]

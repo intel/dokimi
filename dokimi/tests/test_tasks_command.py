@@ -73,14 +73,14 @@ def test_tasks_run_out_md_creates_missing_parent_dir(tmp_path):
 def test_tasks_list_reads_the_given_root(tmp_path, capsys):
     _fixture_task(tmp_path)
     parser = build_parser()
-    args = parser.parse_args(["tasks", "list", "--tasks-root", str(tmp_path)])
+    args = parser.parse_args(["eval", "tasks", "list", "--tasks-root", str(tmp_path)])
     args.func(args)
     assert capsys.readouterr().out.splitlines() == ["toy-task\t?\ttoy"]
 
 
 def test_tasks_list_without_root_exits_with_a_readable_message():
     parser = build_parser()
-    args = parser.parse_args(["tasks", "list"])
+    args = parser.parse_args(["eval", "tasks", "list"])
     with pytest.raises(SystemExit) as excinfo:
         args.func(args)
     assert "--tasks-root" in str(excinfo.value)
@@ -156,7 +156,7 @@ def test_tasks_run_with_an_unwritable_out_md_keeps_the_artifact_and_exits_with_a
 def test_tasks_list_rejects_a_root_that_is_not_a_directory(tmp_path):
     """A mistyped --tasks-root must not read as a suite with zero tasks."""
     parser = build_parser()
-    args = parser.parse_args(["tasks", "list", "--tasks-root", str(tmp_path / "typo")])
+    args = parser.parse_args(["eval", "tasks", "list", "--tasks-root", str(tmp_path / "typo")])
     with pytest.raises(SystemExit) as excinfo:
         args.func(args)
     assert "--tasks-root is not a directory" in str(excinfo.value)
@@ -165,7 +165,7 @@ def test_tasks_list_rejects_a_root_that_is_not_a_directory(tmp_path):
 def test_tasks_list_prints_tasks_from_a_named_root(tmp_path, capsys):
     _fixture_task(tmp_path)
     parser = build_parser()
-    args = parser.parse_args(["tasks", "list", "--tasks-root", str(tmp_path)])
+    args = parser.parse_args(["eval", "tasks", "list", "--tasks-root", str(tmp_path)])
     args.func(args)
     out = capsys.readouterr().out
     assert "toy-task" in out
@@ -257,7 +257,7 @@ def test_tasks_run_with_an_unusable_harness_exits_with_an_error_prefix(tmp_path,
 
 
 def test_tasks_inspect_of_a_missing_path_exits_with_an_error_prefix(tmp_path):
-    args = build_parser().parse_args(["tasks", "inspect", str(tmp_path / "nope")])
+    args = build_parser().parse_args(["eval", "inspect", str(tmp_path / "nope")])
     with pytest.raises(SystemExit) as excinfo:
         args.func(args)
     assert str(excinfo.value).startswith("Error:")

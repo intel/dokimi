@@ -145,14 +145,14 @@ def test_non_numeric_dimension_is_retried(raw):
 
 
 def test_cli_panel_score_end_to_end(tmp_path, monkeypatch, capsys, cache_dir):
-    """`dokimi eval panel-score` reads answers.v1 data and writes the panel file."""
+    """`dokimi eval score panel` reads answers.v1 data and writes the panel file."""
     from dokimi.cli import main
     answers = tmp_path / "a.json"
     answers.write_text(json.dumps({"answers": [_record("snippet", "question_text")]}))
     out = tmp_path / "out.json"
     comp, calls = _litellm([_reply()])
     monkeypatch.setattr("litellm.completion", comp)
-    monkeypatch.setattr(sys, "argv", ["dokimi", "eval", "panel-score", "--answers", str(answers),
+    monkeypatch.setattr(sys, "argv", ["dokimi", "eval", "score", "panel", "--answers", str(answers),
                                       "--product", "lib", "--output", str(out)])
     main()
     data = json.loads(out.read_text())
