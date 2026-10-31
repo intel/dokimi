@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from pathlib import PurePosixPath
+from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any
 
 from .reach import PROSE_LIMIT
@@ -62,13 +62,23 @@ def build_receipt(reach: dict[str, Any], budget: dict[str, Any], tree: RepoTree)
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at": reach["generated_at"],
-        "repo": reach["repo"],
+        "repo": {**reach["repo"], "tree": _shareable_tree(reach["repo"]["tree"])},
         "runtime": runtime,
         "model": reach["model"],
         "observation": {"method": METHOD, "detail": DETAIL},
         "unknowns": _global_unknowns(harness["name"], rules),
         "receipts": receipts,
     }
+
+
+def _shareable_tree(label: str) -> str:
+    """The tree label with a local directory cut to its last component, so no home path reaches a shared receipt."""
+    name, at, sha = label.rpartition("@")
+    if not at:
+        name, sha = label, ""
+    if not (PureWindowsPath(name).drive or PurePosixPath(name).is_absolute() or name.startswith("~")):
+        return label
+    return (PurePosixPath(name.replace("\\", "/")).name or "tree") + at + sha
 
 
 def source_digests(tree: RepoTree, paths: list[str]) -> dict[str, str | None]:

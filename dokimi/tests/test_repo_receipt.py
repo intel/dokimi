@@ -153,6 +153,22 @@ def test_digests_are_of_the_text_read_and_none_when_unreadable(tmp_path):
     assert digests["blob.md"] is None and digests["missing.md"] is None
 
 
+@pytest.mark.parametrize("label, shared", [
+    ("/home/alice/src/toy@4ff761e2d943", "toy@4ff761e2d943"),
+    ("C:\\Users\\alice\\toy", "toy"),
+    ("~alice/toy", "toy"),
+    ("https://example.com/org/toy.git@4ff761e2d943", "https://example.com/org/toy.git@4ff761e2d943"),
+    ("toy@4ff761e2d943", "toy@4ff761e2d943"),
+])
+def test_the_tree_label_keeps_no_local_directory(tmp_path, label, shared):
+    tree = _tree(tmp_path, {"AGENTS.md": "a\n"})
+    reach = _reach([_record("AGENTS.md", "cwd=.", "loaded")], [ROOT_ROW])
+    reach["repo"]["tree"] = label
+    receipt = build_receipt(reach, {"entries": []}, tree)
+    assert receipt["repo"]["tree"] == shared
+    assert "alice" not in json.dumps(receipt)
+
+
 def test_the_receipt_is_a_valid_artifact_and_a_schema_rejects_a_followed_claim(tmp_path):
     tree = _tree(tmp_path, {"AGENTS.md": "a\n", "CLAUDE.md": "c\n"})
     receipt = build_receipt(_reach([_record("AGENTS.md", "cwd=.", "loaded")], [ROOT_ROW]), BUDGET, tree)
