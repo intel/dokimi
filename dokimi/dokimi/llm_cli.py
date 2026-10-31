@@ -161,6 +161,13 @@ def _claude_argv(model: str, system_file: str) -> list:
     return argv + ["--system-prompt-file", system_file]
 
 
+def refuse_chat_completion(provider: str) -> None:
+    """The compatibility entry point returns a response object a CLI reply does not have."""
+    if provider in BACKENDS:
+        raise CliCallError(f"chat_completion does not take {provider}: use LLM.chat or LLM.complete",
+                           retryable=False)
+
+
 def _claude_error(payload: Dict[str, Any], done: process.Completed) -> CliCallError:
     message = str(payload.get("result") or done.stderr.strip() or f"exit {done.returncode}")[:500]
     status = payload.get("api_error_status")
@@ -170,9 +177,10 @@ def _claude_error(payload: Dict[str, Any], done: process.Completed) -> CliCallEr
                             retryable=False)
     if "usage limit" in lowered:  # a subscription cap: it resets in hours, a retry cannot help
         return CliCallError(f"claude-cli: {message}", retryable=False)
-    retryable = status in _RETRYABLE_STATUS or any(w in lowered for w in _RETRYABLE_WORDS)
-    if status is None:  # no structured status: a status the CLI printed as text is the only one there is
-        retryable = retryable or _text_status_retryable(lowered)
+    if status is None:  # no structured status: the words, and a status the CLI printed as text
+        retryable = any(w in lowered for w in _RETRYABLE_WORDS) or _text_status_retryable(lowered)
+    else:  # a structured status decides: a 400 that quotes "rate_limit" is still a 400
+        retryable = status in _RETRYABLE_STATUS
     return CliCallError(f"claude-cli: {message}", retryable=retryable)
 
 

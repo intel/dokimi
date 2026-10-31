@@ -44,7 +44,7 @@ PACKAGE = "dokimi"
 #: its own layer and any layer below it.
 LAYERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     # The argparse front end: parses flags, calls into the tracks, prints.
-    ("frontend", ("dokimi.__main__", "dokimi.cli", "dokimi.commands")),
+    ("frontend", ("dokimi.__main__", "dokimi.cli", "dokimi.cli_routes", "dokimi.commands")),
     # Whole tracks and the tools beside them: static run, novelty, executable tasks,
     # repositories, subjects, reports, dashboards, the one-command pipeline.
     ("tracks", (

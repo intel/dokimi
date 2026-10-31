@@ -23,9 +23,11 @@ python cli.py backends --json
 ```
 
 This calls no model. A backend that is not signed in prints how to fix it. A Bedrock
-route that `~/.claude/settings.json` sets is reported as `signed in (settings file)`. On a
-machine without a browser, `claude setup-token` prints a token; export it as
-`CLAUDE_CODE_OAUTH_TOKEN`. `benchmark preflight` checks the login the same way,
+route that `~/.claude/settings.json` sets is reported as `signed in (settings file)`: a
+label for where the route comes from, not a successful credential check. Calls ignore
+settings files, so that route alone fails with "Not logged in" until a separate login or
+token is set. On a machine without a browser, `claude setup-token` prints a token; export
+it as `CLAUDE_CODE_OAUTH_TOKEN`. `benchmark preflight` checks the login the same way,
 instead of looking for an API key.
 
 ## Run

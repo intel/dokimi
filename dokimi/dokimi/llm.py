@@ -742,8 +742,7 @@ class LLM:
             messages=messages, extra=caching.draw_extra(self._cache_extra(stream, max_tokens), draw),
         )
         hit = caching.load_response(key)
-        if hit is not None and caching.keeps(cache_if, cast(str, hit[0])):
-            # The resolved id is kept in the cached usage (a CLI's answer), so a replay carries it too.
+        if hit is not None and caching.keeps(cache_if, hit[0]):
             return self._metered(Reply(text=hit[0], usage=hit[1], model_id=hit[1].resolved_model or None))
         if caching.replaying_only():
             raise caching.CacheMiss(key)
@@ -751,9 +750,9 @@ class LLM:
         if reply.response is not None and not getattr(reply.response, "choices", None):
             raise IndexError("reply has no choices")  # as llm_call always did; not cached
         _warn_if_truncated(reply, self.model, max_tokens)
-        # A content-less reply is stored as null, as it always was.
-        text = cast(str, reply.text)
-        if caching.keeps(cache_if, text):
+        # A content-less reply (None) is not stored: keeps() refuses it, so it is never replayed.
+        text = reply.text
+        if text is not None and caching.keeps(cache_if, text):
             caching.store_response(key, text, reply.usage)
         return reply
 
@@ -1088,6 +1087,7 @@ def chat_completion(
         tools: Optional list of tool schemas (OpenAI/litellm format).
         tool_choice: Optional tool-choice directive (e.g. ``"auto"``).
     """
+    llm_cli.refuse_chat_completion(provider)  # a CLI reply has no response object: refused before the call
     llm = LLM(model, provider, api_key, max_tokens=max_tokens, temperature=temperature,
               seed=seed, max_retries=max_retries, retry_delay=retry_delay)
     return llm.chat(messages, tools=tools, tool_choice=tool_choice).response

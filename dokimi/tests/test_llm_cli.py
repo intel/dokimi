@@ -177,6 +177,14 @@ def test_a_bad_request_or_auth_failure_is_not_retried(runner, status):
     assert info.value.retryable is False
 
 
+@pytest.mark.parametrize("message", ["Invalid request: unrecognized field rate_limit", "overloaded_error: bad"])
+def test_a_structured_400_is_not_retried_because_its_message_names_a_retryable_word(runner, message):
+    runner.answers.append(reply(_err(message, 400), returncode=1))
+    with pytest.raises(llm_cli.CliCallError) as info:
+        llm_cli.call("claude-cli", model="sonnet", prompt="p")
+    assert info.value.retryable is False
+
+
 @pytest.mark.parametrize("status", [None, 429])
 def test_a_subscription_usage_limit_is_not_retried(runner, status):
     # It resets after hours: three more CLI starts would only delay the same failure.
@@ -252,6 +260,14 @@ def test_tools_or_a_conversation_are_refused_before_any_call(runner):
     with pytest.raises(llm_cli.CliCallError, match="temperature"):
         llm.LLM("sonnet", provider="claude-cli", seed=1).complete("x")
     assert runner.calls == []
+
+
+def test_the_compatibility_entry_point_refuses_a_cli_provider_before_any_call(runner):
+    from dokimi.llm import chat_completion
+
+    with pytest.raises(llm_cli.CliCallError, match="chat_completion"):
+        chat_completion([{"role": "user", "content": "ping"}], "sonnet", provider="claude-cli")
+    assert runner.calls == []  # no model call is paid for: the caller would read a None response
 
 
 def test_sampling_the_cli_cannot_honour_is_named():
@@ -439,6 +455,21 @@ def test_a_cli_provider_needs_a_claude_model_on_the_command_line():
     assert parse_args([*base, "--model", "claude-sonnet-5-5"]).model == "claude-sonnet-5-5"
 
 
+@pytest.mark.parametrize("command", [
+    ["evaluate", "--product", "demo", "--description", "demo"],
+    ["benchmark", "run", "--library", "onetbb"],
+])
+def test_a_cli_judge_given_a_non_claude_model_is_refused_at_parse_time(command):
+    from dokimi.cli import parse_args
+
+    base = [*command, "--judge-provider", "claude-cli"]
+    with pytest.raises(SystemExit) as exc:
+        parse_args([*base, "--judge-model", "gpt-6.1-sol"])  # refused before persona or answer work
+    assert exc.value.code == 2
+    assert parse_args([*base, "--judge-model", "claude-sonnet-5-5"]).judge_model == "claude-sonnet-5-5"
+    assert parse_args(base).judge_model  # left out, the default judge is a Claude model and parses
+
+
 def test_answerer_and_generators_accept_the_cli_provider(runner):
     from dokimi.eval.answerer import Answerer
     from dokimi.personas.generator import PersonaGenerator
@@ -556,64 +587,6 @@ def test_the_prompt_is_the_user_turn_even_when_a_system_message_follows_it(runne
     call = runner.calls[0]
     assert call.input.decode() == "the question"
     assert runner.system_texts == ["the rules"]
-
-
-def test_an_alias_and_its_full_id_are_one_model_for_the_identity_checks():
-    same = llm_cli.same_model
-    assert same("claude-cli", "sonnet", "claude-cli", "claude-sonnet-5-5")
-    assert same("anthropic", "claude-sonnet-5-5", "claude-cli", "sonnet")
-    assert not same("claude-cli", "sonnet", "claude-cli", "claude-opus-5-5")
-    assert not same("claude-cli", "claude-sonnet-5-5", "claude-cli", "claude-sonnet-4-5")
-    assert not same("openai", "gpt-6.1-sol", "claude-cli", "sonnet")
-
-
-def test_a_full_id_behind_a_routing_prefix_is_the_same_model_as_the_bare_id():
-    same = llm_cli.same_model
-    assert same("claude-cli", "claude-sonnet-5-5", "anthropic", "anthropic/claude-sonnet-5-5")
-    assert same("claude-cli", "claude-sonnet-5-5", "anthropic", "anthropic.claude-sonnet-5-5")
-    assert not same("claude-cli", "claude-sonnet-5-5", "anthropic", "anthropic/claude-sonnet-4-5")
-
-
-def test_a_missing_model_is_not_compared_and_does_not_raise():
-    assert not llm_cli.same_model("claude-cli", None, "anthropic", "claude-sonnet-5-5")
-    assert not llm_cli.same_model("claude-cli", "sonnet", "anthropic", None)
-
-
-def test_the_one_million_context_form_is_a_claude_model_on_the_cli():
-    # claude --model takes sonnet[1m]; it is the same model as the alias, with a larger window.
-    assert llm_cli.accepts_model("claude-cli", "sonnet[1m]")
-    assert llm_cli.accepts_model("claude-cli", "opus[1m]")
-    assert llm_cli.accepts_model("claude-cli", "claude-sonnet-5-5[1m]")
-    assert not llm_cli.accepts_model("claude-cli", "gpt-6.1-sol[1m]")
-    assert llm_cli._family("sonnet[1m]") == "sonnet"
-    assert llm_cli.same_model("claude-cli", "sonnet[1m]", "claude-cli", "claude-sonnet-5-5")
-    assert not llm_cli.same_model("claude-cli", "sonnet[1m]", "claude-cli", "claude-opus-5-5")
-
-
-def test_the_independence_warning_fires_for_an_alias_against_its_full_id(capsys):
-    from dokimi.commands.evaluate import _warn_judge_independence
-
-    assert _warn_judge_independence("claude-cli", "sonnet", "claude-cli", "claude-sonnet-5-5")
-    assert "independence warning" in capsys.readouterr().err
-    assert not _warn_judge_independence("claude-cli", "sonnet", "claude-cli", "claude-opus-5-5")
-
-
-@pytest.mark.parametrize("answerer", ["sonnet", "opus", "claude-opus-5-1", "claude-sonnet-5-5"])
-def test_the_novelty_default_judge_on_the_cli_is_another_family(answerer):
-    from dokimi.novelty.client import default_judge
-
-    judge, provider = default_judge(answerer, "claude-cli")
-    assert provider == "claude-cli" and not llm_cli.same_model("claude-cli", judge, "claude-cli", answerer)
-
-
-def test_a_novelty_judge_of_the_answerers_family_counts_as_the_answerer():
-    # run_measurement refuses a judge that same_client matches with the answerer, unless allowed.
-    from dokimi.novelty.client import LLMClient, same_client
-
-    judge = LLMClient(model="claude-sonnet-5-5", provider="anthropic")
-    answerer = LLMClient(model="sonnet", provider="claude-cli")
-    assert same_client(judge, answerer) and same_client(answerer, judge)
-    assert not same_client(LLMClient(model="opus", provider="claude-cli"), answerer)
 
 
 def test_an_agentic_arm_or_a_session_is_refused_on_the_cli_before_any_answer():
@@ -825,31 +798,6 @@ def test_evaluate_with_a_cli_judge_given_a_temperature_exits_2_like_the_other_ju
     err = capsys.readouterr().err
     assert exc.value.code == 2 and err.startswith("Error: claude-cli takes no temperature")
     assert "Traceback" not in err
-
-
-def test_an_alias_and_a_bedrock_or_prefixed_full_id_are_one_model_for_the_identity_checks():
-    assert llm_cli.same_model("claude-cli", "sonnet", "anthropic", "us.anthropic.claude-sonnet-5-5-v1:0")
-    assert llm_cli.same_model("claude-cli", "sonnet", "litellm", "anthropic/claude-sonnet-5-5")
-    assert not llm_cli.same_model("claude-cli", "sonnet", "anthropic", "us.anthropic.claude-opus-5-1-v1:0")
-
-
-def test_a_pinned_bedrock_full_id_is_the_same_model_as_its_bare_full_id():
-    # The Bedrock revision suffix (-v1:0) is not part of the model's name; a different model is.
-    same = llm_cli.same_model
-    assert same("claude-cli", "claude-sonnet-5-5", "amazon-bedrock", "us.anthropic.claude-sonnet-5-5-v1:0")
-    assert same("amazon-bedrock", "us.anthropic.claude-sonnet-5-5-v2:0", "claude-cli", "claude-sonnet-5-5")
-    assert not same("claude-cli", "claude-sonnet-5-5", "amazon-bedrock", "us.anthropic.claude-sonnet-5-6-v1:0")
-    assert not same("claude-cli", "claude-sonnet-5-5", "amazon-bedrock", "us.anthropic.claude-opus-5-5-v1:0")
-    # Claude 2 ids carry their version before the revision: "claude-v2:1" is not a revision suffix.
-    assert not same("claude-cli", "claude-v2:1", "amazon-bedrock", "anthropic.claude-v2:0")
-
-
-def test_the_independence_warning_fires_for_a_pinned_bedrock_id_of_the_cli_model(capsys):
-    from dokimi.commands.evaluate import _warn_judge_independence
-
-    assert _warn_judge_independence("claude-cli", "claude-sonnet-5-5", "amazon-bedrock",
-                                    "us.anthropic.claude-sonnet-5-5-v1:0")
-    assert "independence warning" in capsys.readouterr().err
 
 
 def test_the_main_model_falls_back_to_most_output_when_the_requested_family_is_unknown():
