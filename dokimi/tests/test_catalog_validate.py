@@ -688,3 +688,16 @@ def test_the_scan_sees_a_mirror_that_discover_skills_leaves_out(tmp_path):
 
     reviews = review_skills(read_skill_manifest(tmp_path))
     assert [r.duplicate_of for r in reviews] == [None, "plugins/x"]
+
+
+def test_a_link_target_the_os_refuses_is_a_missing_link_not_a_crash(tmp_path):
+    # A name over 255 bytes in one path part: Path.exists() raises on Python 3.11 to 3.13.
+    too_long = "a" * 300
+    _skill(tmp_path / "skills", "healthy", name="healthy", description="Use for healthy.",
+           body="Run [it](references/a.md).\n")
+    _skill(tmp_path / "skills", "longname", name="longname", description="Use for longname.",
+           body=f"See [g]({too_long}.md).\n")
+
+    reviews = _reviews_by_name(tmp_path)
+    assert reviews["healthy"].state == "warn"
+    assert _codes(reviews["longname"]) == ["link-missing"]
