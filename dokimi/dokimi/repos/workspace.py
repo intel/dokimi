@@ -55,6 +55,7 @@ from .harness_profile import HarnessProfile
 from .manifest import RepoManifest, _is_within, match_glob
 from .source import GitTree, RepoSource, RepoTree, SourceError, cache_path, default_cache_dir, resolve_rev
 from .uptake import MCP_CONFIG, base_servers, mcp_servers
+from .useful_spec import Useful, parse_useful
 
 ARMS = ("guidance:none", "guidance:raw", "guidance:bridge")  # the guidance parts
 REV_ARM, PATCH_ARM = "guidance:rev:", "patch:"
@@ -234,6 +235,11 @@ class Task:
     @property
     def score(self) -> dict[str, Any] | None:
         return self.raw.get("score")
+
+    @property
+    def useful(self) -> Useful | None:
+        """The ``useful`` definition (contract §3); :class:`UsefulSpecError` on a bad shape."""
+        return parse_useful(self.raw.get("useful"))
 
 
 def load_tasks(content_dir: Path, manifest: RepoManifest, ids: list[str] | None = None) -> list[Task]:

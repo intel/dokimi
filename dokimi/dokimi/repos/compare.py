@@ -15,6 +15,8 @@ cells are first reduced to one value per (task, arm, model):
 - **first_prompt_tokens**: the mean of ``result.json`` ``agent.first_prompt_tokens`` (what the first
   main-thread call was sent: start-up plus the task) over the cells that have it. Like a process count, it is
   compared only when both arms report it for some shared task: a batch run before it was recorded has none;
+- **first_useful_s**, **first_useful_steps**: the median seconds and steps to the first useful result (``useful``
+  in ``result.json``, :mod:`.useful`) over the cells that observed it; compared like ``first_prompt_tokens``;
 - **metric:<name>**: the mean of ``grade.json`` ``metrics.<name>`` over the
   cells that report it (``true`` is 1), for ``--metric``;
 - **pass^k**: for ``--pass-k K``, the chance that K cells drawn from the
@@ -111,7 +113,8 @@ from dokimi.utils import same_model
 
 from .compare_reach import ALPHA, holm_floor, min_detectable
 from .compare_tasks import CompareError, select_tasks
-from .process_counts import as_measure, process_order, process_values
+from .process_counts import as_measure, process_lists, process_order, process_values
+from .useful import USEFUL_MEASURES, useful_task_values
 from .report import (load_cells, mismatch_warnings, model_mismatch, reading_cells, resolved_models,
                      unmeasured_note, uptake_counts)
 
@@ -124,7 +127,7 @@ EPS = 1e-9
 #: Measures Holm's correction runs over.
 PRIMARY = ("gate", "score")
 #: Descriptive measures compared only when both arms report them for some shared task (an older batch has none).
-REPORTED = ("process:", "counter:", "first_prompt_tokens")
+REPORTED = ("process:", "counter:", "first_prompt_tokens", "first_useful")
 #: Batch stamp keys that must agree between the arms of a comparison; ``tree`` is shown but may differ (another
 #: revision of the repository is a treatment of its own).
 STAMP_KEYS = ("eval_dir", "image", "graders")
@@ -192,7 +195,7 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
     treatments = _treatments(cells, baseline, base_sel, treatments, scope)
     measures = ["gate", "score", *([f"pass^{pass_k}"] if pass_k else []),
                 *(["path_distance"] if path_stability else []), "cost_usd", "turns", "first_prompt_tokens",
-                *(f"metric:{m}" for m in metrics)]
+                *USEFUL_MEASURES, *(f"metric:{m}" for m in metrics)]
     base_vals = _task_values([c for c in cells if selector_matches(base_sel, c)], metrics, pass_k, path_stability)
     rows: list[dict[str, Any]] = []
     unpaired: list[dict[str, Any]] = []
@@ -696,7 +699,7 @@ def _task_values(cells: list[dict[str, Any]], metrics: tuple[str, ...], pass_k: 
                      "turns": [r["agent"].get("num_turns") for r in recs],
                      "first_prompt_tokens": [r["agent"].get("first_prompt_tokens") for r in recs],
                      **{f"metric:{name}": [r["metrics"].get(name) for r in recs] for name in metrics}}
-            found.update(_process_lists(recs))
+            found.update({**process_lists(recs), **useful_task_values(recs)})
             if score_task:
                 found["score"] = [0.0 if r["grade"]["status"] == "grader_failure" else (r["grade"]["score"] or 0.0)
                                   for r in recs]
@@ -775,12 +778,6 @@ def _grade_metrics(path: Path, names: tuple[str, ...]) -> dict[str, float]:
 
 def _finite(values: list[Any]) -> list[float]:
     return [num for v in values if (num := as_measure(v)) is not None]
-
-
-def _process_lists(recs: list[dict[str, Any]]) -> dict[str, list[float | None]]:
-    """Each process measure any of ``recs`` reports, with every cell's value (``None`` where it has none)."""
-    values = [process_values(r) for r in recs]
-    return {name: [v.get(name) for v in values] for name in {k for v in values for k in v}}
 
 
 def _mean(values: list[Any]) -> float | None:

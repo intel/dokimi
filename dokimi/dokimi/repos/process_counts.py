@@ -25,6 +25,12 @@ from .grading import SCORE_BOUND
 PROCESS_KEYS = ("tool_calls", "commands", "failed_commands", "denied_commands", "guidance_read")
 
 
+def process_lists(recs: list[dict[str, Any]]) -> dict[str, list[float | None]]:
+    """Each process measure any of ``recs`` reports, with every cell's value (``None`` where it has none)."""
+    values = [process_values(r) for r in recs]
+    return {name: [v.get(name) for v in values] for name in {k for v in values for k in v}}
+
+
 def process_values(rec: dict[str, Any]) -> dict[str, float]:
     """A cell's ``process`` counters as numbers: ``process:<key>`` and ``counter:<name>``; ``{}`` without one."""
     found = rec.get("process")

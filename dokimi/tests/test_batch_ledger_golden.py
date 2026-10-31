@@ -110,6 +110,7 @@ GOLDEN_RESULT_KEYS = [
     "score_max",
     "score_task",
     "task",
+    "useful",
 ]
 
 

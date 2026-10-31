@@ -347,7 +347,7 @@ def test_each_cell_shape_error_exits_2_naming_the_cell(tmp_path, capsys, monkeyp
         raise exc
 
     monkeypatch.setattr(report, "process_means", boom)
-    monkeypatch.setattr(compare, "_process_lists", boom)
+    monkeypatch.setattr(compare, "process_lists", boom)
     batch = _two_arm_batch(tmp_path, _GOOD)
     with pytest.raises(SystemExit) as raised:
         _run(cmd[0], str(batch), *cmd[1:])
