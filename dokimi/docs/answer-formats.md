@@ -122,7 +122,7 @@ is marked `negated_only` in the artifact (the table prints a line "N questions w
 still runs, but the grader would accept any answer without that value, so
 nothing was verified about it. The table names every question that was not
 measured and counts it as `unprobed`; only a run that measured every graded
-question and found no violation is `pass`. An unwritable `-o` exits 2.
+question and found no violation is `pass`. An unwritable `--out` exits 2.
 A block with a positive check
 is graded as written, `threshold` included, so a negated check's share of the score
 counts: a block it lifts over the line is blocked.
