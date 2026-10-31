@@ -324,6 +324,28 @@ def test_a_command_template_scores_its_exit_code_when_it_prints_no_reward(tmp_pa
     assert (result.passed, result.reward) == expected
 
 
+@pytest.mark.parametrize("returncode", [126, 127, 137, -9])
+def test_a_command_that_never_ran_or_was_killed_has_no_verdict(tmp_path, returncode):
+    task = load_task(_fixture_task(tmp_path / "tasks"))
+    result = create_harness("command:my-wrapper {task_path}", runner=FakeRunner(lambda call: reply("", "", returncode))).run(
+        task, output_dir=tmp_path / "cell")
+
+    assert (result.passed, result.reward) == (False, None)
+
+
+def test_a_command_with_an_unreadable_reward_file_is_not_scored_from_its_exit_code(tmp_path):
+    task = load_task(_fixture_task(tmp_path / "tasks"))
+
+    def handler(call):
+        (Path(call.env["DOKIMI_OUTPUT_DIR"]) / "reward.txt").write_text("2.0", encoding="utf-8")
+        return reply("")
+
+    result = create_harness("command:my-wrapper {task_path}", runner=FakeRunner(handler)).run(
+        task, output_dir=tmp_path / "cell")
+
+    assert result.reward is None
+
+
 @pytest.mark.parametrize("reward_val, expect_pass, expect_reward", [
     (float("inf"), False, None),  # Non-finite: error
     (float("nan"), False, None),  # Non-finite: error
