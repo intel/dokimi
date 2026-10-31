@@ -248,7 +248,7 @@ def test_command_harness_exit_code_verdict_is_a_complete_run(tmp_path, capsys, s
     import sys
 
     _fixture_task(tmp_path)
-    harness = f'command:{Path(sys.executable).as_posix()} -c "{script}"'
+    harness = f'command:"{Path(sys.executable).as_posix()}" -c "{script}"'
     args = build_parser().parse_args([
         "tasks", "run", "--tasks", "toy-task", "--tasks-root", str(tmp_path),
         "--harnesses", harness, "--out-json", str(tmp_path / "runs.json"),
@@ -259,6 +259,41 @@ def test_command_harness_exit_code_verdict_is_a_complete_run(tmp_path, capsys, s
     except SystemExit as exc:
         code = exc.code
     assert code == expected, capsys.readouterr().err
+
+
+@pytest.mark.parametrize("reward", [float("nan"), float("inf"), True])
+def test_task_completion_refuses_a_reward_that_is_not_a_number(reward, capsys):
+    from dokimi.commands.tasks import _check_completion
+
+    row = {"task": "t", "harness": "h", "reward": reward}
+    with pytest.raises(SystemExit) as exc:
+        _check_completion({"tasks": [{"name": "t"}], "harnesses": ["h"], "results": [row]})
+    assert exc.value.code == 1
+    assert "1 unscored" in capsys.readouterr().err
+
+
+def test_task_completion_accepts_every_repeat_of_a_complete_grid():
+    from dokimi.commands.tasks import _check_completion
+
+    rows = [{"task": "t", "harness": "h", "repeat": n, "reward": 1.0} for n in (1, 2)]
+    _check_completion({"tasks": [{"name": "t"}], "harnesses": ["h"], "repeats": 2, "results": rows})
+
+
+@pytest.mark.parametrize("flag, value, repeated", [
+    ("--harnesses", "command:true,command:true", "command:true"),
+    ("--tasks", "toy-task,toy-task", "toy-task"),
+])
+def test_tasks_run_refuses_a_repeated_task_or_harness_before_running(tmp_path, capsys, flag, value, repeated):
+    _fixture_task(tmp_path)
+    argv = ["tasks", "run", "--tasks", "toy-task", "--tasks-root", str(tmp_path),
+            "--harnesses", "command:true", "--out-json", str(tmp_path / "runs.json")]
+    argv[argv.index(flag) + 1] = value
+    args = build_parser().parse_args(argv)
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2
+    assert repeated in capsys.readouterr().err
+    assert not (tmp_path / "runs.json").exists()
 
 
 @pytest.mark.outcome("cjm-tasks-completion")

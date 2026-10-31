@@ -131,6 +131,7 @@ def _select_swebench(args: argparse.Namespace) -> list:
     ids = None if args.all else [t.strip() for t in (args.tasks or "").split(",") if t.strip()]
     if ids == []:
         usage_exit("No tasks selected. Pass --tasks <instance_id[,...]> or --all.")
+    _refuse_repeats("task", ids or [])
     try:
         if ids is None:
             skipped = sorted(KNOWN_BAD.keys() & {str(r.get("instance_id")) for r in read_instances(Path(args.swe_bench))})
@@ -146,6 +147,12 @@ def _select_swebench(args: argparse.Namespace) -> list:
     return tasks
 
 
+def _refuse_repeats(kind: str, names: list[str]) -> None:
+    repeated = sorted({n for n in names if names.count(n) > 1})
+    if repeated:
+        usage_exit(f"Repeated {kind}: {', '.join(repeated)}. List each once; use --repeats to run it again.")
+
+
 def _select_tasks(args: argparse.Namespace) -> list:
     from dokimi.harnesses import discover_tasks, load_task
 
@@ -157,6 +164,7 @@ def _select_tasks(args: argparse.Namespace) -> list:
             tasks = discover_tasks(root)
         else:
             task_names = [t.strip() for t in args.tasks.split(",") if t.strip()]
+            _refuse_repeats("task", task_names)
             tasks = [load_task(t, root=root) for t in task_names]
     except (ValueError, OSError, RecursionError) as exc:  # a missing or unreadable task, deeply nested YAML
         usage_exit(f"Error: {exc}")
@@ -186,17 +194,13 @@ def _print_summary(output: dict) -> None:
 
 
 def _cell_state(row: dict, dry_run: bool) -> str:
-    from math import isfinite
-    from dokimi.harnesses.runner import is_errored
+    from dokimi.harnesses.runner import _num, is_errored
 
     if is_errored(row):
         return "errored"
     if dry_run and row.get("metrics", {}).get("dry_run"):
         return "planned"
-    reward = row.get("reward")
-    if isinstance(reward, bool) or not isinstance(reward, (int, float)):
-        return "unscored"
-    return "scored" if isfinite(reward) else "unscored"
+    return "unscored" if _num(row.get("reward")) is None else "scored"
 
 
 def _check_completion(output: dict, *, dry_run: bool = False) -> None:
@@ -233,6 +237,7 @@ def cmd_tasks_run(args: argparse.Namespace) -> None:
     harnesses = [h.strip() for h in args.harnesses.split(",") if h.strip()]
     if not harnesses:
         usage_exit("No harnesses selected. Pass --harnesses codex,claude-code.")
+    _refuse_repeats("harness", harnesses)
     if args.baseline_harness and args.baseline_harness not in harnesses:
         print(f"Also running baseline harness: {args.baseline_harness}")
         harnesses.insert(0, args.baseline_harness)

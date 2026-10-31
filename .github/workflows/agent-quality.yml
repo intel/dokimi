@@ -39,9 +39,9 @@ jobs:
   # verify: the build and verifier steps `docker-claude`/`docker-claude-skill`
   # share) and `docker-probe` (the in-container agent launch those arms use,
   # without the LLM). It asserts the actual
-  # pass rate in "Verify pass rate" below -- `tasks run`'s own exit code does
-  # not reflect pass/fail (it is a reporting command, used by callers that want
-  # partial results), so without that explicit check this job would stay green
+  # pass rate in "Verify pass rate" below -- `tasks run` exits 1 for an errored,
+  # unscored or missing cell but 0 for a task that failed verification, so
+  # without that explicit check this job would stay green
   # even if the external task failed verification. Pinned to a fixed commit
   # (UXL_SKILLS_COMMIT below) and retried 3x on clone so this job's result
   # reflects our own code, not an upstream repo edit or a transient network
