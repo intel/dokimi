@@ -178,7 +178,10 @@ def test_a_computed_matrix_is_unknown():
 
 
 @pytest.mark.parametrize("bad", ["env: {DATE: 2026-02-30}\njobs: {}\n",  # ValueError: no such day
-                                 "jobs: " + "[" * 5000 + "\n"], ids=["bad-date", "deep"])  # RecursionError
+                                 "jobs: " + "[" * 5000 + "\n",  # RecursionError
+                                 "env: {X: !!bool maybe}\njobs: {}\n",  # KeyError
+                                 "env: {X: !!timestamp foo}\njobs: {}\n"],  # AttributeError
+                         ids=["bad-date", "deep", "bad-bool", "bad-timestamp"])
 def test_a_workflow_yaml_cannot_build_is_unresolved(tmp_path, bad):
     """A line `py3.12-3.13 (bad.yml)` naming a workflow PyYAML cannot build is unresolved, not a crash."""
     (tmp_path / ".github/workflows").mkdir(parents=True)

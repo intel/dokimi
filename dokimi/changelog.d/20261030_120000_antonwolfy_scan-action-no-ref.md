@@ -10,4 +10,6 @@
   `uses: <name>@<ref>`, and the reason names that file (`used by .github/workflows/ci.yml`). A
   name whose directory the tree holds at the repository root (`tools/gone` beside `tools/`) is
   still judged as a path, so a stale path still fails. A name only in a `run:` script does not
-  count, and an Action no step uses gets the verdict it got before.
+  count, and an Action no step uses gets the verdict it got before. A workflow PyYAML cannot
+  build (a date that does not exist, `!!bool maybe`, `!!timestamp foo`, deep nesting) is skipped
+  here and leaves a Python range naming it `unresolved`, instead of aborting the scan.

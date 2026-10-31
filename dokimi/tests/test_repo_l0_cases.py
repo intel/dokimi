@@ -714,7 +714,10 @@ def test_a_workflow_the_scan_does_not_read_is_named_in_the_reason_of_an_unused_a
 
 
 @pytest.mark.parametrize("bad", ["env: {DATE: 2026-02-30}\njobs: {}\n",  # ValueError: no such day
-                                 "jobs: " + "[" * 5000 + "\n"], ids=["bad-date", "deep"])  # RecursionError
+                                 "jobs: " + "[" * 5000 + "\n",  # RecursionError
+                                 "env: {X: !!bool maybe}\njobs: {}\n",  # KeyError
+                                 "env: {X: !!timestamp foo}\njobs: {}\n"],  # AttributeError
+                         ids=["bad-date", "deep", "bad-bool", "bad-timestamp"])
 def test_a_workflow_yaml_cannot_build_is_skipped(tmp_path, bad):
     got = _by_file(_scan(tmp_path, "Write `build/out`; `actions/checkout` fetches.\n",
                          {".github/workflows/bad.yml": bad, ".github/workflows/ci.yml": _CHECKOUT}))

@@ -57,7 +57,7 @@ def _action_users(scan: Scan) -> tuple[dict[str, str], dict[str, str]]:
     for path in paths:
         try:
             doc = yaml.safe_load(scan.text(path))
-        except (yaml.YAMLError, ValueError, RecursionError):  # also a date that does not exist, deep nesting
+        except Exception:  # PyYAML's constructors raise more than YAMLError: a bad date, tag value, depth
             continue
         for value in _uses(doc, path in flows):  # `.github/workflows/action.yml` is a workflow
             name, at, ref = value.strip().partition("@")
