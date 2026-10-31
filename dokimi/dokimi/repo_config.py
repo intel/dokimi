@@ -18,6 +18,7 @@ from __future__ import annotations
 import fnmatch
 import glob
 import hashlib
+import os
 import math
 import re
 from decimal import Decimal, InvalidOperation
@@ -333,32 +334,38 @@ def _suite_files(root: Path, globs: tuple[str, ...]) -> dict[str, Path]:
 
 
 def _digest_files(files: dict[str, Path]) -> str:
-    """One digest over the suite's files. A directory is walked file by file, and a symlink is hashed by what it points to."""
+    """One digest over the suite's files. A directory is walked file by file; a symlink counts by its target text
+    (as tree_digest does) and by what it points to, so retargeting a link moves the hash even between identical trees."""
     h = hashlib.sha256()
     for rel in sorted(files):
         for name, path in _walk(files[rel], rel):
+            if path.is_symlink():
+                h.update(f"{name}\0-> {os.readlink(path)}\n".encode())
+            if path.is_dir():
+                continue  # a linked directory: its files are walked and hashed one by one
             target = path.resolve() if path.exists() else path
             h.update(f"{name}\0{tree_digest(target)}\n".encode())
     return "sha256:" + h.hexdigest()
 
 
 def _walk(path: Path, rel: str) -> list[tuple[str, Path]]:
-    """The regular files under ``path`` (or ``path`` itself), following symlinks; a directory is visited once, so a cycle ends."""
-    if not path.is_dir():
-        return [(rel, path)]
+    """Entries under ``path`` (or ``path`` itself): regular files and symlinks. Symlinks are followed into their
+    directories; a directory is visited once by its resolved path, so a cycle ends."""
     found: list[tuple[str, Path]] = []
     seen: set[Path] = set()
 
-    def visit(directory: Path, prefix: str) -> None:
-        real = directory.resolve()
-        if real in seen:
-            return
-        seen.add(real)
-        for child in sorted(directory.iterdir()):
-            if child.is_dir():
-                visit(child, f"{prefix}/{child.name}")
-            elif child.is_file():
-                found.append((f"{prefix}/{child.name}", child))
+    def visit(entry: Path, name: str) -> None:
+        if entry.is_symlink():
+            found.append((name, entry))
+        if entry.is_dir():
+            real = entry.resolve()
+            if real in seen:
+                return
+            seen.add(real)
+            for child in sorted(entry.iterdir()):
+                visit(child, f"{name}/{child.name}")
+        elif entry.is_file() and not entry.is_symlink():
+            found.append((name, entry))
 
     visit(path, rel)
     return sorted(found)

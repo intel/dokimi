@@ -18,5 +18,5 @@ SPDX-License-Identifier: Apache-2.0
   (`SKILL.md`, a script, a reference, one eval file) is refused at load, naming the subject and the file. `baseline.store: false`
   reads as `off`, and a budget number that YAML reads as text (`1e3`) is refused with the plain
   decimal or the `1.0e+3` spelling, and a `.nan` or `.inf` budget is refused. A suite directory is
-  hashed file by file, following symlinks, so an edit to a shared eval moves `suite_hash`. Nothing reads the file yet: the commands that use it come later,
+  hashed file by file, following symlinks; a link also counts by its target text, so an edit to a shared eval, or a retarget of its link, moves `suite_hash`. Nothing reads the file yet: the commands that use it come later,
   and existing `.agent-eval/` lookups are unchanged.
