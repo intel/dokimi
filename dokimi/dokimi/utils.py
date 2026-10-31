@@ -1,10 +1,11 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
+import hashlib
 import json
 import os
 from pathlib import Path
-from typing import Tuple, Dict, Any
+from typing import Iterable, Tuple, Dict, Any
 
 from dokimi.defaults import BEDROCK_MODEL_IDS, bedrock_profile
 from dokimi.exit_codes import EXIT_USAGE
@@ -90,6 +91,30 @@ def digest_text(text: str) -> str:
     import hashlib
 
     return "sha256:" + hashlib.sha256((text or "").encode("utf-8", errors="surrogatepass")).hexdigest()
+
+
+def tree_digest(root: Path, *, exclude: Iterable[str] = ()) -> str:
+    """sha256 (bare hex) over every path, mode bit and byte under ``root``; a link by its target.
+
+    A file ``root`` digests as itself (its path is ``.``). Entries whose path, relative to
+    ``root``, equals one of ``exclude`` or sits under it are left out, so a skill's digest can
+    leave its eval directory out. Output is deterministic: sorted walk, no timestamps.
+    """
+    skip = tuple(e.strip("/") for e in exclude)
+    entries = [root] if root.is_file() else sorted(root.rglob("*"))
+    h = hashlib.sha256()
+    for path in entries:
+        rel = "." if path == root else path.relative_to(root).as_posix()
+        if any(rel == e or rel.startswith(e + "/") for e in skip):
+            continue
+        if path.is_symlink():
+            h.update(f"L {rel}\0{os.readlink(path)}\0".encode())
+        elif path.is_file():
+            h.update(f"F {rel}\0{int(os.access(path, os.X_OK))}\0".encode())
+            h.update(hashlib.sha256(path.read_bytes()).digest())
+        elif path.is_dir():
+            h.update(f"D {rel}\0".encode())
+    return h.hexdigest()
 
 
 def retry_writable(func: Any, path: str, _exc: Any) -> None:
