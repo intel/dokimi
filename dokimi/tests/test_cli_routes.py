@@ -93,7 +93,7 @@ def test_help_lists_each_root_under_its_section():
         ),
         **dict.fromkeys(("run", "compare", "library", "catalog", "novelty", "repo"), subjects),
         **dict.fromkeys(("personas", "questions", "eval"), evals),
-        **dict.fromkeys(("dataset", "ingest", "tools", "context", "backends", "data"), data),
+        **dict.fromkeys(("dataset", "ingest", "tools", "context", "runs", "backends", "data"), data),
     }
 
 

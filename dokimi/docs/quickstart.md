@@ -218,7 +218,8 @@ at such a checkout.
 Everything the pipeline produces — answers,
 eval scores, benchmark snapshots, reports — stays under the git-ignored
 `answers/`, `eval/`, `baselines/`, `reports/` and `results/` directories. See
-[`data/README.md`](../data/README.md).
+[`data/README.md`](../data/README.md). `python cli.py runs list` lists the
+artifacts under `results/` ([runs.md](runs.md)).
 
 ## Cost estimate
 
