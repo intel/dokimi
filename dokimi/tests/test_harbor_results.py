@@ -331,6 +331,14 @@ def test_a_command_that_never_ran_or_was_killed_has_no_verdict(tmp_path, returnc
         task, output_dir=tmp_path / "cell")
 
     assert (result.passed, result.reward) == (False, None)
+    _assert_errored_not_scored(result)
+
+
+def _assert_errored_not_scored(result):
+    from dokimi.harnesses.runner import summarize_task_results
+
+    stats = summarize_task_results([result.as_dict()])["per_harness"][result.harness]
+    assert (stats["scored"], stats["errored"], stats["pass_rate"]) == (0, 1, None)
 
 
 def test_a_command_with_an_unreadable_reward_file_is_not_scored_from_its_exit_code(tmp_path):
@@ -343,7 +351,9 @@ def test_a_command_with_an_unreadable_reward_file_is_not_scored_from_its_exit_co
     result = create_harness("command:my-wrapper {task_path}", runner=FakeRunner(handler)).run(
         task, output_dir=tmp_path / "cell")
 
-    assert result.reward is None
+    assert (result.passed, result.reward) == (False, None)
+    assert "reward file unreadable" in result.metrics["solver_error"]
+    _assert_errored_not_scored(result)
 
 
 @pytest.mark.parametrize("reward_val, expect_pass, expect_reward", [

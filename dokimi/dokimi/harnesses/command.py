@@ -156,10 +156,10 @@ class CommandHarness:
             passed = reward is not None and reward >= 1.0
         else:
             reward = _find_reward(output_dir, stdout, stderr)
-            passed = reward is not None and reward >= 1.0
             if reward is None:
-                passed = returncode == 0
                 reward = _exit_code_reward(returncode, output_dir)
+                harbor_metrics = _no_verdict(reward, returncode, output_dir)
+            passed = reward is not None and reward >= 1.0
 
         metrics: dict[str, Any] = {
             "dry_run": False,
@@ -397,6 +397,14 @@ def _exit_code_reward(returncode: int, output_dir: Path | None) -> float | None:
     if returncode < 0 or returncode in (126, 127) or 128 < returncode <= 192 or _has_reward_file(output_dir):
         return None
     return 1.0 if returncode == 0 else 0.0
+
+
+def _no_verdict(reward: float | None, returncode: int, output_dir: Path | None) -> dict[str, Any]:
+    """An errored cell when the exit code gave no verdict, so the summary leaves it out of pass_rate."""
+    if reward is not None:
+        return {}
+    unreadable = ", reward file unreadable" if _has_reward_file(output_dir) else ""
+    return {"solver_error": f"no verdict: exit {returncode}{unreadable}"}
 
 
 def _has_reward_file(output_dir: Path | None) -> bool:
