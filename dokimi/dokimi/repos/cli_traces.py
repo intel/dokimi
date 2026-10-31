@@ -754,7 +754,8 @@ def _from_cwd(path: str, cwd: str) -> str:
     """A tool's relative ``path`` joined to ``cwd``, the workspace-relative directory the CLI started in."""
     if not cwd or path.startswith("/") or PureWindowsPath(path).is_absolute():
         return path
-    return posixpath.normpath(posixpath.join(cwd, path))
+    # a Windows CLI separates with backslashes, which posixpath keeps as part of a name
+    return posixpath.normpath(posixpath.join(cwd, PureWindowsPath(path).as_posix()))
 
 
 def _copilot_result(out: Transcript, events: list[dict[str, Any]], data: dict[str, Any]) -> None:

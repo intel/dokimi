@@ -367,6 +367,10 @@ def test_copilot_native_tool_paths_start_in_the_given_directory():
     assert [(e["kind"], e["path"]) for e in events] == [
         ("read", "sub/AGENTS.md"), ("edit", "b.py"), ("edit", "sub/c.py"), ("read", "x.md")]
     assert convert("copilot-json", raw, "/ws").events[0]["path"] == "AGENTS.md"
+    # a Windows CLI names a relative path with backslashes
+    win = _jsonl({"type": "tool.execution_start",
+                  "data": {"toolCallId": "w", "toolName": "view", "arguments": {"path": "..\\AGENTS.md"}}})
+    assert convert("copilot-json", win, "/ws", "sub").events[0]["path"] == "AGENTS.md"
 
 
 def test_codex_json_keeps_every_agent_message_and_the_last_is_the_answer():
