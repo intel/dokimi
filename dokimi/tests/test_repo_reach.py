@@ -27,7 +27,8 @@ from dokimi.artifacts import validate_artifact
 from dokimi.cli import build_parser
 from dokimi.repos import RepoSource, SourceError, WorkTree, load_manifest, open_source
 from dokimi.repos.batch_ledger import execution_id
-from dokimi.repos.events import OUTPUT_KEEP, OUTPUT_LIMIT, clip_output, convert
+from dokimi.repos.events import convert
+from dokimi.repos.transcript import OUTPUT_KEEP, OUTPUT_LIMIT, clip_output
 from dokimi.repos.harness_profile import ProfileError, load_profile, parse_profile
 from dokimi.repos.reach import (
     ReachError,
@@ -57,6 +58,9 @@ prompt = args[args.index("-p") + 1]
 tools = args[args.index("--tools") + 1] if "--tools" in args else "default"
 if mode == "crash":
     print("boom", file=sys.stderr); sys.exit(3)
+if mode == "config":  # the profile's config file must be in the per-run config dir, filled in
+    cfg = Path(os.environ["FAKE_CONFIG_DIR"])
+    assert (cfg / "provider.toml").read_text() == f"dir={cfg.as_posix()} support={os.environ['FAKE_SUPPORT']}", "no config"
 if mode == "line_then_hang":  # some trace, then nothing until it is killed
     import time
     print(json.dumps({"type": "system", "subtype": "init", "claude_code_version": "9.8.7"}), flush=True)
@@ -245,6 +249,11 @@ def _ids_differ_only_by(tmp_path, first: dict, second: dict) -> bool:
 
 def test_execution_id_pinned_by_env_set(tmp_path):
     assert _ids_differ_only_by(tmp_path, {"env_set": {"VAR": "value1"}}, {"env_set": {"VAR": "value2"}})
+
+
+def test_execution_id_pinned_by_answer_format_and_bin_companions(tmp_path):
+    assert _ids_differ_only_by(tmp_path, {}, {"answer_format": "codex-review"})
+    assert _ids_differ_only_by(tmp_path, {}, {"bin_companions": ["lib.so"]})
 
 
 def test_execution_id_pinned_by_config_files(tmp_path):
@@ -703,7 +712,7 @@ def test_repo_reach_cli_manifest_file_and_a_failed_scenario(tmp_path, monkeypatc
     args = build_parser().parse_args([*base, "--manifest-file", str(tmp_path / "nope.yaml"), "--dry-run"])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1 and "nope.yaml" in capsys.readouterr().err
+    assert exc.value.code == 2 and "nope.yaml" in capsys.readouterr().err
 
     monkeypatch.setenv("FAKE_MODE", "crash")
     (tmp_path / "work").mkdir()
@@ -760,7 +769,7 @@ def test_repo_reach_rejects_selections_that_would_drop_scenarios(tmp_path, capsy
                                       "--model", "m", "--dry-run", *extra])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert message in capsys.readouterr().err
 
 

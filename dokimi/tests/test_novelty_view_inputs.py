@@ -23,7 +23,7 @@ def _err(tmp_path, novelty, atoms, capsys):
     out = tmp_path / "annotated.md"
     with pytest.raises(SystemExit) as exc:
         _view(novelty, atoms, out)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert not out.exists()
     return capsys.readouterr().err
 

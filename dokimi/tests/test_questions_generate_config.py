@@ -27,8 +27,8 @@ def _generate(tmp_path, monkeypatch, config_text):
     ("products: [unclosed\n", "invalid YAML"),
     ("- a\n- b\n", "expected a mapping"),
 ])
-def test_an_invalid_runtime_config_exits_1_with_a_message(tmp_path, monkeypatch, capsys, text, message):
+def test_an_invalid_runtime_config_exits_2_with_a_message(tmp_path, monkeypatch, capsys, text, message):
     with pytest.raises(SystemExit) as exc:
         _generate(tmp_path, monkeypatch, text)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert message in capsys.readouterr().err

@@ -39,10 +39,10 @@ def test_approve_accepts_a_valid_persona_file(tmp_path, monkeypatch, capsys):
     ],
     ids=["not-an-object", "personas-not-a-list", "persona-not-an-object", "not-utf8"],
 )
-def test_approve_exits_1_with_a_message_on_an_invalid_file(tmp_path, monkeypatch, capsys, content):
+def test_approve_exits_2_with_a_message_on_an_invalid_file(tmp_path, monkeypatch, capsys, content):
     f = tmp_path / "personas.json"
     f.write_bytes(content)
-    assert _approve(f, monkeypatch) == 1
+    assert _approve(f, monkeypatch) == 2
     err = capsys.readouterr().err
     assert err.startswith("✗ ") and "Traceback" not in err
     if content.startswith(b"\xff"):
@@ -51,6 +51,6 @@ def test_approve_exits_1_with_a_message_on_an_invalid_file(tmp_path, monkeypatch
         assert "'not-an-object'" in err
 
 
-def test_approve_exits_1_when_the_path_is_a_directory(tmp_path, monkeypatch, capsys):
-    assert _approve(tmp_path, monkeypatch) == 1
+def test_approve_exits_2_when_the_path_is_a_directory(tmp_path, monkeypatch, capsys):
+    assert _approve(tmp_path, monkeypatch) == 2
     assert f"Cannot read {tmp_path}" in capsys.readouterr().err

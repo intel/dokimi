@@ -7,7 +7,8 @@ A batch directory holds the cells of one or more invocations of ``repo run``. Th
 cells belong together live here:
 
 - the **execution id** of a cell (:func:`execution_id`): how its agent is started, which is the harness
-  profile's command line, environment, config and prompt suffix, plus the executable's digest and version.
+  profile's command line, environment, config, prompt suffix, trace and answer format, plus the digests of the
+  executable and its companions and its version.
   A finished cell is reused only by the same execution (:func:`reused_result`), and a batch holds the cells
   of one execution only (:func:`check_batch_executions`);
 - the **cell name** (:func:`cell_name`) and the ``execution`` record that ``meta.json`` and ``result.json``
@@ -69,28 +70,39 @@ def harness_sha256(path: Path) -> str:
 
 
 def execution_id(profile: HarnessProfile, tools: str, delegation: str = "native", harness_sha256: str | None = None,
-                 harness_version: str | None = None) -> str:
+                 harness_version: str | None = None, companion_sha256: dict[str, str | None] | None = None) -> str:
     """Short hash of how the agent is started: the profile's ``invoke`` template with its tool arguments,
-    environment, config, prompt suffix, egress and bridge.
+    environment, config, prompt suffix, egress, bridge, trace, answer format and companions.
 
     Two runs with the same id ran the same command line up to the per-cell values (prompt, model,
     caps); ``repo run`` reuses a finished cell only when its id matches. Includes the harness
-    executable's digest and version to detect changes to the effective harness, wherever it lives.
+    executable's digest and version to detect changes to the effective harness, wherever it lives,
+    and with ``companion_sha256`` the digest of each companion by name.
     """
-    key = {"profile": profile.name, "invoke": list(profile.invoke), "tools": list(profile.tool_args(tools, delegation)),
+    key: dict[str, Any] = {"profile": profile.name, "invoke": list(profile.invoke), "tools": list(profile.tool_args(tools, delegation)),
            "args_if_present": {n: list(a) for n, a in sorted(profile.args_if_present.items())},
            "env_set": dict(sorted(profile.env_set.items())), "env_allow": list(profile.env_allow),
            "config_dir_env": profile.config_dir_env, "config_files": dict(sorted(profile.config_files.items())),
            "egress": list(profile.egress), "bridge": profile.bridge,
            "prompt_suffix": profile.prompt_suffix, "harness_sha256": harness_sha256,
            "harness_version": harness_version}
+    # a cell graded with another answer format or trace converter, or run with other companions, is another
+    # run; unset (or claude-stream-json) adds no key, so the ids of profiles that set none stay as they were
+    if profile.trace != "claude-stream-json":
+        key["trace"] = profile.trace
+    if profile.answer_format:
+        key["answer_format"] = profile.answer_format
+    if profile.bin_companions:
+        key["bin_companions"] = (list(profile.bin_companions) if companion_sha256 is None
+                                 else {n: companion_sha256.get(n) for n in profile.bin_companions})
     return hashlib.sha256(json.dumps(key, sort_keys=True).encode("utf-8")).hexdigest()[:12]
 
 
 def execution_record(profile: HarnessProfile, tools: str, delegation: str, harness_sha256: str,
-                     harness_version: str | None) -> dict[str, str]:
+                     harness_version: str | None,
+                     companion_sha256: dict[str, str | None] | None = None) -> dict[str, str]:
     """How a cell's agent was started, as ``meta.json`` and ``result.json`` record it."""
-    return {"id": execution_id(profile, tools, delegation, harness_sha256, harness_version),
+    return {"id": execution_id(profile, tools, delegation, harness_sha256, harness_version, companion_sha256),
             "tools": tools, "delegation": profile.effective_delegation(tools, delegation)}
 
 

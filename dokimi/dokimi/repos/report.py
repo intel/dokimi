@@ -47,7 +47,6 @@ pair of the ``dokimi:review_replay`` cells, from ``grade.json``
 from __future__ import annotations
 
 import json
-import re
 from collections import defaultdict
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -55,6 +54,8 @@ from pathlib import Path
 from typing import Any
 
 import math
+
+from dokimi.utils import same_model
 
 from .grading import SCORE_BOUND, read_grade_json
 from .process_counts import process_line, process_means
@@ -422,47 +423,11 @@ def resolved_models(rec: dict[str, Any]) -> list[str]:
     return [found] if isinstance(found, str) else [str(m) for m in found] if isinstance(found, list) else []
 
 
-def _normalize_model_id(model_id: str) -> str:
-    """Strip Bedrock's revision suffix: any ``-vN:M`` (``-v1:0``, ``-v2:0``) counts as the same model.
-    A bare ``-v2`` is part of the id: deepseek-v2 is not v3."""
-    return re.sub(r"-v\d+:\d+$", "", model_id)
-
-
-# Bedrock cross-region inference profile prefixes: the same model served from another region.
-_REGION_PREFIXES = ("us-gov.", "global.", "apac.", "us.", "eu.", "jp.", "au.", "ca.")
-
-
-def _strip_region(model_id: str) -> str:
-    for prefix in _REGION_PREFIXES:
-        if model_id.startswith(prefix):
-            return model_id[len(prefix):]
-    return model_id
-
-
-def _model_prefix_matches(base: str, candidate: str) -> bool:
-    """Check if candidate is base optionally preceded by provider prefix (., /)."""
-    # base could be the suffix of candidate, with optional prefix
-    if base == candidate:
-        return True
-    # Check if candidate ends with . + base or / + base
-    return candidate.endswith(("." + base, "/" + base))
-
-
-def model_matches(requested: str, resolved: str) -> bool:
-    """Whether ``resolved`` is the ``requested`` model: the same id, that id pinned to a snapshot
-    date, or either behind a provider prefix (Bedrock's ``us.anthropic.claude-x`` answers as
-    ``claude-x``, with any ``-vN:M`` revision too)."""
-    # Vertex's @20250929 is the same snapshot as -20250929; an undated side matches any snapshot of it
-    req, res = (re.sub(r"@(?=\d{8}$)", "-", _strip_region(_normalize_model_id(m))) for m in (requested, resolved))
-    pairs = [(req, res), (re.sub(r"-\d{8}$", "", req), res), (req, re.sub(r"-\d{8}$", "", res))]
-    return any(_model_prefix_matches(a, b) or _model_prefix_matches(b, a) for a, b in pairs)
-
-
 def model_mismatch(cells: list[dict[str, Any]]) -> dict[str, list[str]]:
     """Requested model -> the other models that answered its cells."""
     out: dict[str, set[str]] = defaultdict(set)
     for rec in cells:
-        out[rec["model"]] |= {m for m in resolved_models(rec) if not model_matches(rec["model"], m)}
+        out[rec["model"]] |= {m for m in resolved_models(rec) if not same_model(rec["model"], m)}
     return {k: sorted(v) for k, v in sorted(out.items()) if v}
 
 
