@@ -5,7 +5,8 @@
   `eval` leaves are grouped into `eval score`, `eval judge`, `eval questions`, `eval personas`
   and `eval triggers`. Every old path still answers, but it prints `moved: dokimi <new argv>`
   to stderr and exits 2 without running anything, so a script fails loudly and names the new
-  command. Move the scripts to the new paths before the next release. The arguments are
+  command. `eval score` stays a live group: bare `eval score` exits 2 with a usage error, and
+  `eval score --help` lists its leaves. Move the scripts to the new paths before the next release. The arguments are
   unchanged. `dokimi repo tasks replay`, `repo run`, `repo report` and `repo compare` stay where
   they are.
 
