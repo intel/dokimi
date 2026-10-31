@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import Tuple, Dict, Any
 
-from dokimi.defaults import BEDROCK_MODEL_IDS, bedrock_profile
+from dokimi.defaults import bedrock_profile
 from dokimi.exit_codes import EXIT_USAGE
 
 
