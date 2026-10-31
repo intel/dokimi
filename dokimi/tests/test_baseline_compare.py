@@ -156,6 +156,16 @@ def test_an_unknown_answer_model_is_not_a_model_change(compare, capsys):
     assert "unknown/unknown" not in err and "Baseline model warning" not in err
 
 
+@pytest.mark.parametrize("role", ["answer", "judge"])
+def test_a_non_string_identity_is_not_recorded_so_the_gate_cannot_pass(compare, capsys, role):
+    # The eval schema allows a string or null; str(123) == str(123) used to verify the model.
+    data = _eval(**{role: (123, 456)})
+    with pytest.raises(SystemExit) as exc:
+        compare(data, data, "--max-context-drop", "0")
+    assert exc.value.code == 1
+    assert f"regression gate cannot verify the {role} model" in capsys.readouterr().err
+
+
 def test_a_judge_recorded_only_in_run_metadata_is_compared(compare, capsys):
     old = _eval(judge=("openai", "gpt-4o-mini"))
     old["run_metadata"].update(judge_provider=old.pop("judge_provider"),

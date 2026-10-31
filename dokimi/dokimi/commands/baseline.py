@@ -98,7 +98,8 @@ def _recorded_models(eval_data: Dict[str, Any]) -> Dict[str, Optional[Tuple[str,
         meta = {}
 
     def pair(provider: Any, model: Any) -> Optional[Tuple[str, str]]:
-        if any(not str(v or "").strip() or str(v).strip().lower() == "unknown" for v in (provider, model)):
+        if any(not isinstance(v, str) or not v.strip() or v.strip().lower() == "unknown"
+               for v in (provider, model)):
             return None
         return str(provider), str(model)
 
