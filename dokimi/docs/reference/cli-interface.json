@@ -10753,6 +10753,25 @@
             },
             {
               "action": "_StoreAction",
+              "choices": [
+                "'matrix'",
+                "'receipt'"
+              ],
+              "const": null,
+              "default": "matrix",
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--format",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
+              "action": "_StoreAction",
               "choices": null,
               "const": null,
               "default": "claude-code",
@@ -12884,6 +12903,7 @@
                 "'answers'",
                 "'arms'",
                 "'cli_routes'",
+                "'effective_instructions'",
                 "'eval'",
                 "'explore_runs'",
                 "'guidance_reach'",

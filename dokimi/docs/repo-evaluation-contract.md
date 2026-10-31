@@ -1049,6 +1049,70 @@ per scenario).
   token was in the request bytes. This settles cells where the model
   under-reports, which is how a small model produces false `truncated` cells.
 
+### 7.1 Effective-instructions receipt (`effective_instructions.v1`)
+
+`repo reach --format receipt` prints, and writes to `effective_instructions.json`
+in `--out`, a receipt in the shape of `effective-instructions/v0`
+(agentsmd/agents.md#213). It is built from the reach payload and from the
+start-up chain of `repo budget` (`repos/budget.py`). It makes no
+LLM call. The schema is `schemas/effective_instructions.v1.json`; the code is
+`repos/receipt.py`.
+
+One receipt is written per reach scenario, with `run_id` `<salt>:<scenario id>`.
+Each source carries:
+
+| Receipt field | From | Meaning |
+|---|---|---|
+| `path`, `alias_of` | reach `files`, `aliases` | a link is `adapter` scope and takes its target's tokens |
+| `sha256` | the text dokimi reads (LF-normalised UTF-8) | null when the file is not readable as text |
+| `scope` | path | `repo` at the root or in `.claude/`; `subtree` for a nested AGENTS.md, CLAUDE.md or CLAUDE.local.md; else `unknown` |
+| `expected` | budget `when` | see the table below |
+| `observed` | reach class | `loaded` → loaded, `fetched` → fetched, `not_loaded` → not_loaded, `truncated` and `error` → unknown |
+| `observation_method` | | `prompt_capture` for every observed source; `unknown` for an error |
+| `states.accessed` | the Read tool | `true` if a Read-tool read was seen, `false` with tools off, else `unknown` |
+| `states.selected` | the class | `true` for loaded or fetched (the source entered the request, by the harness or a read), else `unknown` |
+| `states.loaded` | the class | `true` for loaded, `false` for not_loaded, else `unknown`; a fetched file is not loaded |
+| `states.followed` | | always `unknown` (the schema's `const`) |
+
+`runtime` and `model` are the harness's own name and version, as reach records
+them. `observation.method` is `prompt_capture`: the model reports the tokens it
+can see, and the request sent to the provider is not captured. A reported token
+is evidence of loading, not a copy of the bytes received.
+
+**Expected state.** budget's start-up rules are Claude Code's, so they apply
+only to `claude-code` runs; for other harnesses every `expected` is `unknown`
+and the receipt says so.
+
+| budget `when` | `expected` | Reason |
+|---|---|---|
+| `start` | `true` | loaded at start-up in every run |
+| `off` | `false` | a root CLAUDE\*.md turns AGENTS.md off |
+| `lazy`, run directory is the file's directory or inside it | `true` | loaded when the work reaches that directory |
+| `lazy`, run directory outside it | `false` | not reached by this run |
+| `on demand` or absent | `unknown` | budget does not say |
+
+**Precedence.** `precedence_observed` lists a displacement only: a root
+CLAUDE\*.md (`CLAUDE.md`, `CLAUDE.local.md`, `.claude/CLAUDE.md`) observed
+loaded in a run, with an `off` AGENTS.md observed not_loaded in that run. It
+does not give an order of entry; budget's displacement rule is applied as
+written, so nested AGENTS.md files that budget marks `off` appear too.
+
+**What the marker method can and cannot show.** It shows which tokens were
+reported in a run, so it can support `loaded`, `fetched` and `not_loaded` as
+observations of that run. It cannot show:
+
+- that an instruction was followed (`followed` is always `unknown`);
+- a read through a shell (`cat`, `rg`, `grep`), which the `Read` tool check
+  does not see;
+- when a source entered the request, or in what order (no timestamps);
+- start-up imports and skills from budget, which reach does not probe: they
+  appear with `observed: unknown` and a run-level unknown saying so;
+- anything a model under-reports; a prose-heavy answer is flagged.
+
+Each run lists its own `unknowns` (no usable answer, a source with one token
+reported, prose above the limit, unseeded tokens). The receipt-level `unknowns`
+repeat the limits above.
+
 ## 8. L0 scan (`repo_readiness.v1`)
 
 `repo scan <source>` checks every mechanically checkable claim in the guidance
