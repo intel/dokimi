@@ -349,6 +349,23 @@ def test_repo_manifest_yaml_timestamp_out_of_range_exits_2(command, tmp_path, mo
     assert err.startswith("✗ ") and "Traceback" not in err
 
 
+def test_manifest_read_that_fails_in_git_stays_a_source_error():
+    # SourceError is a ValueError: a failed `git show` must not be relabelled a YAML error (exit 2).
+    from dokimi.repos.manifest import load_manifest
+
+    class FailingTree:
+        label = "repo"
+
+        def is_file(self, path):
+            return True
+
+        def read_text(self, path):
+            raise SourceError("git show failed for the manifest blob")
+
+    with pytest.raises(SourceError, match="git show failed"):
+        load_manifest(FailingTree(), ".agent-eval/repo-eval.yaml")
+
+
 def test_repo_budget_unknown_harness_exits_2(tmp_path, monkeypatch, capsys):
     err = _expect_exit(monkeypatch, capsys, 2, "repo", "budget", str(tmp_path), "--harness", "no-such-harness")
     assert "no harness profile" in err
