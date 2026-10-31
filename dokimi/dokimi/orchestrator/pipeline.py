@@ -478,7 +478,10 @@ class EvaluationPipeline:
         mcp_client = create_doc_source_client(self.doc_source)
         library_id = self._library_id(mcp_client)
 
-        extractor = RagasSeedExtractor(mcp_client=mcp_client, cache_dir=Path(".cache/topics"))
+        # The id is the registry's for every source, so the topics cache is also keyed on the source.
+        source_key = hashlib.sha256(self.doc_source.encode("utf-8")).hexdigest()[:16]
+        extractor = RagasSeedExtractor(mcp_client=mcp_client,
+                                       cache_dir=Path(".cache/topics") / source_key)
         topics = extractor.extract_topics(
             library_id=library_id,
             library_name=self.product,

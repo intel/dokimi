@@ -122,3 +122,30 @@ def test_question_generation_extracts_topics_for_the_declared_library(tmp_path, 
         _pipeline(tmp_path, registry)._generate_questions({})
 
     assert seen["library_id"] == "org/declared"
+
+
+def test_two_local_doc_sets_of_one_product_get_their_own_topics(tmp_path, registry, monkeypatch):
+    """Both runs resolve the registry's id, so a topics cache keyed on the id alone gave the
+    second doc set the first one's topics."""
+    import dokimi.questions as questions
+
+    seen = []
+
+    class _Generator:
+        def __init__(self, **kwargs):
+            pass
+
+        def generate_questions(self, topics, **kwargs):
+            seen.append(sorted(topics))
+            return []
+
+    monkeypatch.setattr(questions, "QuestionGenerator", _Generator)
+    monkeypatch.chdir(tmp_path)
+    docs = {"docsA": "`parallel_for` `task_arena`", "docsB": "`flow_graph` `concurrent_queue`"}
+    for name, words in docs.items():
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "api.md").write_text(f"My Lib API overview {words}\n", encoding="utf-8")
+        pipeline = _pipeline(tmp_path, registry, doc_source=f"local:{tmp_path / name}")
+        pipeline._generate_questions({"personas": []})
+
+    assert seen == [["parallel_for", "task_arena"], ["concurrent_queue", "flow_graph"]]

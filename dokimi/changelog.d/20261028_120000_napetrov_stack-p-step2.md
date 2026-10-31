@@ -45,6 +45,8 @@
   then the client), in the
   registry that `benchmark run` and `benchmark batch` loaded from `--registry`. A registered
   product without `context7_id` now fails for a client that needs a declared id.
+  The question step's topics cache (`.cache/topics`) is keyed on the doc source as well, so
+  two doc sets of one product (two `local:` dirs, say) no longer share their topics.
 
 ### Removed
 
