@@ -12,6 +12,7 @@ import json
 import pytest
 
 from dokimi.cli import build_parser
+from dokimi.repos.batch_ledger import execution_id
 from dokimi.repos.harness_profile import ProfileError, load_profile
 from repo_eval_fixture import FakeRunner, fake_harness, git, make_repo
 
@@ -132,8 +133,8 @@ def test_execution_ids_of_the_builtin_profile_are_pinned():
     for tools in sorted(profile.tools):
         for delegation in ("native", "none"):
             try:
-                ids[(tools, delegation)] = profile.execution_id(
-                    tools, delegation, FIXED_SHA, FIXED_VERSION
+                ids[(tools, delegation)] = execution_id(
+                    profile, tools, delegation, FIXED_SHA, FIXED_VERSION
                 )
             except ProfileError:
                 continue

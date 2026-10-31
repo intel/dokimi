@@ -31,8 +31,6 @@ recorded in ``meta.json`` and flagged by the report.
 from __future__ import annotations
 
 import contextlib
-import hashlib
-import json
 import math
 import os
 import re
@@ -40,7 +38,6 @@ import shutil
 import stat
 import subprocess
 import sys
-import tempfile
 import threading
 import uuid
 from collections.abc import Iterator
@@ -60,7 +57,16 @@ from .container import (
     Mount,
     docker_network,
 )
+from . import batch_ledger
 from .arms import skill_unmeasured, skill_usage, slug
+from .batch_ledger import (  # re-exported: the names callers and tests take from the runner
+    ExecutionMismatch,  # noqa: F401
+    UnreadableResult,
+    cell_name,
+    finished_result,
+    harness_sha256,
+    write_json as _write_json,
+)
 from .bases import MCP_CONFIG, NOT_UTF8, mcp_config_error
 from .events import convert
 from .uptake import arm_uptake
@@ -92,81 +98,19 @@ class AgentOptions:
     budget_usd: float = 2.0
 
 
-def cell_name(task: str, arm: str, model: str, rep: int) -> str:
-    return f"{task}__{slug(arm.replace(':', '-'))}__{slug(model)}__r{rep}"
-
-
-def harness_sha256(path: Path) -> str:
-    """Digest of the harness executable's bytes: the same file gives the same id wherever it lives."""
-    digest = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def execution_record(opts: AgentOptions) -> dict[str, str]:
-    """How the cell's agent was started, as ``meta.json`` and ``result.json`` record it."""
-    return {"id": opts.profile.execution_id(opts.tools, opts.delegation, harness_sha256(opts.harness_bin),
-                                             opts.harness_version),
-            "tools": opts.tools, "delegation": opts.profile.effective_delegation(opts.tools, opts.delegation)}
+    """How the cell's agent was started, as ``meta.json`` and ``result.json`` record it.
 
-
-def recorded_execution(result: Any) -> dict[str, Any]:
-    """The ``execution`` record of a parsed ``result.json``; empty when there is none or it is not an object."""
-    ran = result.get("execution") if isinstance(result, dict) else None
-    return ran if isinstance(ran, dict) else {}
-
-
-class ExecutionMismatch(PrepError):
-    """A finished cell of the batch ran with another execution than the one asked for."""
-
-
-class UnreadableResult(PrepError):
-    """A finished cell's ``result.json`` is not a JSON object: it is reported, not overwritten or rerun."""
-
-
-RERUN_HINT = "remove it to run the cell again, or rerun with --force, which replaces every cell of this run's plan"
-
-
-def _finished_result(path: Path, recover: str = RERUN_HINT) -> dict[str, Any]:
-    """The parsed ``result.json`` of a finished cell, or :class:`UnreadableResult` naming the file and ``recover``."""
-    try:
-        done = json.loads(path.read_text(encoding="utf-8"))
-    except UnicodeDecodeError:
-        problem = NOT_UTF8
-    except ValueError as exc:
-        problem = f"not valid JSON ({exc})"
-    else:
-        if isinstance(done, dict):
-            return done
-        problem = "not a JSON object"
-    raise UnreadableResult(f"{path}: {problem}; {recover}")
+    The executable is digested for each cell, not once per batch: a cell records the bytes it actually ran, so a
+    binary replaced mid-batch shows up as cells of two executions, which the next run refuses."""
+    return batch_ledger.execution_record(opts.profile, opts.tools, opts.delegation, harness_sha256(opts.harness_bin),
+                                         opts.harness_version)
 
 
 def check_batch_executions(batch_dir: Path, options: list[AgentOptions], replacing: set[str] | None = None) -> None:
-    """Refuse, before anything runs, a batch dir whose finished cells ran with another execution.
-
-    ``replacing`` (the cells of a ``--force`` run) are skipped: ``--force`` rewrites those, but not the others,
-    which would stay in the report next to the new ones."""
-    wanted = {execution_record(o)["id"] for o in options}
-    found: set[str] = set()
-    for path in sorted(batch_dir.glob("*/result.json")):
-        if replacing is not None and path.parent.name in replacing:
-            continue
-        try:
-            ran = recorded_execution(_finished_result(path))
-        except (OSError, UnreadableResult):
-            # No execution to compare. A cell of this run's plan reports it: in run_cell, or for a task this
-            # host cannot run in _unsupported_cell; one outside the plan is not read again.
-            continue
-        found.add(ran["id"] if isinstance(ran.get("id"), str) else "unrecorded")
-    other = found - wanted
-    if other:
-        raise ExecutionMismatch(
-            f"{batch_dir} holds cells of another execution ({', '.join(sorted(other))}) than this run "
-            f"({', '.join(sorted(wanted))}); use another --batch, or --force to replace them"
-            + (" (--force replaces only the cells of this run's plan)" if replacing is not None else ""))
+    """Refuse, before anything runs, a batch dir whose finished cells ran with another execution than ``options``
+    (see :func:`batch_ledger.check_batch_executions`)."""
+    batch_ledger.check_batch_executions(batch_dir, {execution_record(o)["id"] for o in options}, replacing)
 
 
 def agent_network(opts: AgentOptions, ctx: EvalContext, task: Task) -> str:
@@ -253,15 +197,8 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     ``host`` (the probed facts of :func:`.host.probe_host`) is recorded in ``meta.json``."""
     rd = batch_dir / cell_name(task.id, arm, opts.model, rep)
     execution = execution_record(opts)
-    if (rd / "result.json").is_file() and not force:
-        done = _finished_result(rd / "result.json")
-        ran = recorded_execution(done)
-        # A result from before execution ids carries none: nothing says how it ran, so it is not reused.
-        if ran.get("id") != execution["id"]:
-            raise ExecutionMismatch(
-                f"the cell finished with another execution ({ran.get('id', 'unrecorded')}, delegation "
-                f"{ran.get('delegation', 'native')}) than this run ({execution['id']}, delegation "
-                f"{execution['delegation']}); use another --batch, or --force to replace it")
+    done = batch_ledger.reused_result(rd, execution, force)
+    if done is not None:
         return {**done, "skipped": True}
     network = agent_network(opts, ctx, task)
     grade_network = docker_network(ctx.manifest.image.network if ctx.manifest.image else "none", task.egress)
@@ -396,7 +333,7 @@ def _log_cell(log, name: str, rec: dict[str, Any]) -> None:
 def _probe_failed(batch_dir: Path, cells: list, verdicts: dict) -> list[str]:
     """Tasks whose host probe failed and that still have an unrun cell: a finished cell keeps its result."""
     return [task_id for task_id, (_, by) in verdicts.items() if by == "host-probe"
-            and any(not _done(batch_dir / cell_name(t.id, a, o.model, r))
+            and any(not batch_ledger.is_done(batch_dir / cell_name(t.id, a, o.model, r))
                     for t, a, o, r in cells if t.id == task_id)]
 
 
@@ -426,7 +363,7 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
     if force and unsupported:  # --force keeps their finished cells, so those must match this run too
         check_batch_executions(batch_dir, options, {cell_name(t.id, a, o.model, r) for t, a, o, r in cells
                                                     if t.id not in unsupported})
-    _record_plan(batch_dir, [cell_name(t.id, a, o.model, r) for t, a, o, r in cells])
+    batch_ledger.record_plan(batch_dir, [cell_name(t.id, a, o.model, r) for t, a, o, r in cells])
     probe_failed = _probe_failed(batch_dir, cells, verdicts)
     for task_id, why in unsupported.items():
         log(f"{task_id}: UNSUPPORTED, its cells are not run: {why}")
@@ -450,7 +387,7 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
                 state[counted] += 1
             return
         with lock:
-            if max_batch_usd is not None and state["spent"] >= max_batch_usd and not _done(batch_dir / name):
+            if max_batch_usd is not None and state["spent"] >= max_batch_usd and not batch_ledger.is_done(batch_dir / name):
                 state["budget_stopped"] += 1
                 return
         try:
@@ -491,8 +428,8 @@ def _unsupported_cell(rd: Path, cell: tuple[Task, str, AgentOptions, int], why: 
                       host: dict[str, Any]) -> str:
     """The count of a cell of a task this host cannot run: ``skipped`` when it keeps a finished result, else
     ``unsupported``. A kept ``result.json`` that cannot be read raises, the file left as it is."""
-    if _done(rd):
-        _finished_result(rd / "result.json", KEPT_HINT)
+    if batch_ledger.is_done(rd):
+        finished_result(rd / "result.json", KEPT_HINT)
         return "skipped"
     if by != "host-probe":  # a failed probe is no verdict on the cell
         _mark_unsupported(rd, cell, why, host)
@@ -539,18 +476,6 @@ def _lock_file(f: Any) -> None:
         fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
 
 
-def _done(rd: Path) -> bool:
-    return (rd / "result.json").is_file()
-
-
-def _record_plan(batch_dir: Path, names: list[str]) -> None:
-    """Union of every cell any invocation planned, so the report can count cells that never started."""
-    path = batch_dir / "_eval" / "plan.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    old = json.loads(path.read_text(encoding="utf-8")).get("cells", []) if path.is_file() else []
-    _write_json(path, {"cells": sorted(set(old) | set(names))})
-
-
 def harness_version(ctx: EvalContext, opts: AgentOptions, work: Path) -> str:
     """Run the profile's ``version_cmd`` in the image with the mounted harness: it must start there."""
     work.mkdir(parents=True, exist_ok=True)
@@ -583,18 +508,3 @@ def _rmtree(path: Path) -> None:
             here.chmod(0o700)
             pending.extend(p for p in here.iterdir() if p.is_dir() and not p.is_symlink())
     shutil.rmtree(path)
-
-
-def _write_json(path: Path, data: Any) -> None:
-    """Through a new file and a rename: a link a grader left at ``path`` is replaced, never followed."""
-    if path.is_dir() and not path.is_symlink():
-        shutil.rmtree(path)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(json.dumps(data, indent=1, sort_keys=True) + "\n")
-        os.replace(tmp, path)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp)
-        raise

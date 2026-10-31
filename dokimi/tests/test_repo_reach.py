@@ -26,6 +26,7 @@ import yaml
 from dokimi.artifacts import validate_artifact
 from dokimi.cli import build_parser
 from dokimi.repos import RepoSource, SourceError, WorkTree, load_manifest, open_source
+from dokimi.repos.batch_ledger import execution_id
 from dokimi.repos.events import OUTPUT_KEEP, OUTPUT_LIMIT, clip_output, convert
 from dokimi.repos.harness_profile import ProfileError, load_profile, parse_profile
 from dokimi.repos.reach import (
@@ -201,8 +202,8 @@ def test_delegation_none_drops_the_subagent_tools_and_changes_the_execution_id()
     assert solo[-6:] == ["--disallowedTools", "WebFetch", "WebSearch", "Agent", "Task", "Workflow"]
     # Claude Code 2.1.304's Workflow tool starts subagents without going through Agent/Task.
     assert profile.argv(prompt="p", model="m", tools="read", delegation="none")[-2:] == ["--tools", "Read"]
-    ids = {profile.execution_id("all"), profile.execution_id("all", "none"), profile.execution_id("read")}
-    assert len(ids) == 3 and profile.execution_id("all") == load_profile("claude-code").execution_id("all")
+    ids = {execution_id(profile, "all"), execution_id(profile, "all", "none"), execution_id(profile, "read")}
+    assert len(ids) == 3 and execution_id(profile, "all") == execution_id(load_profile("claude-code"), "all")
     with pytest.raises(ProfileError, match="unknown delegation"):
         profile.tool_args("all", "fork")
 
@@ -210,15 +211,15 @@ def test_delegation_none_drops_the_subagent_tools_and_changes_the_execution_id()
 def test_harness_binary_and_version_change_the_execution_id():
     profile = load_profile("claude-code")
     # Same settings without harness info: same id
-    id1 = profile.execution_id("all")
-    id2 = profile.execution_id("all")
+    id1 = execution_id(profile, "all")
+    id2 = execution_id(profile, "all")
     assert id1 == id2
     # Different harness executable: different id
-    id3 = profile.execution_id("all", harness_sha256="a" * 64)
+    id3 = execution_id(profile, "all", harness_sha256="a" * 64)
     assert id3 != id1
     # Different harness version: different id
-    id4 = profile.execution_id("all", harness_sha256="a" * 64, harness_version="2.0.0")
-    id5 = profile.execution_id("all", harness_sha256="a" * 64, harness_version="2.1.0")
+    id4 = execution_id(profile, "all", harness_sha256="a" * 64, harness_version="2.0.0")
+    id5 = execution_id(profile, "all", harness_sha256="a" * 64, harness_version="2.1.0")
     assert id4 != id5 and id4 != id1
 
 
@@ -237,8 +238,8 @@ def test_execution_id_pinned_by_env_allow_and_config_dir_env(tmp_path):
 
 def _ids_differ_only_by(tmp_path, first: dict, second: dict) -> bool:
     """Load two profiles from the same directory, changing only the fields given, and compare their ids."""
-    before = load_profile(_profile(tmp_path, **first)).execution_id("read")
-    after = load_profile(_profile(tmp_path, **second)).execution_id("read")
+    before = execution_id(load_profile(_profile(tmp_path, **first)), "read")
+    after = execution_id(load_profile(_profile(tmp_path, **second)), "read")
     return before != after
 
 

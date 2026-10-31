@@ -17,8 +17,6 @@ so the user's own settings and memory cannot leak into a run.
 
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -135,24 +133,6 @@ class HarnessProfile:
         if delegation != "native" and self.tool_args(tools, delegation) == self.tools[tools]:
             return "native"
         return delegation
-
-    def execution_id(self, tools: str, delegation: str = "native", harness_sha256: str | None = None,
-                     harness_version: str | None = None) -> str:
-        """Short hash of how the agent is started: the profile's ``invoke`` template with its tool arguments,
-        environment, config, prompt suffix, egress and bridge.
-
-        Two runs with the same id ran the same command line up to the per-cell values (prompt, model,
-        caps); ``repo run`` reuses a finished cell only when its id matches. Includes the harness
-        executable's digest and version to detect changes to the effective harness, wherever it lives.
-        """
-        key = {"profile": self.name, "invoke": list(self.invoke), "tools": list(self.tool_args(tools, delegation)),
-               "args_if_present": {n: list(a) for n, a in sorted(self.args_if_present.items())},
-               "env_set": dict(sorted(self.env_set.items())), "env_allow": list(self.env_allow),
-               "config_dir_env": self.config_dir_env, "config_files": dict(sorted(self.config_files.items())),
-               "egress": list(self.egress), "bridge": self.bridge,
-               "prompt_suffix": self.prompt_suffix, "harness_sha256": harness_sha256,
-               "harness_version": harness_version}
-        return hashlib.sha256(json.dumps(key, sort_keys=True).encode("utf-8")).hexdigest()[:12]
 
     def prompt(self, task_prompt: str) -> str:
         """The task prompt as the agent gets it: with ``prompt_suffix`` after a blank line."""
