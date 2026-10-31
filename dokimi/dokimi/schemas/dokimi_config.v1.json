@@ -77,7 +77,7 @@
       "required": ["store"],
       "additionalProperties": false,
       "properties": {
-        "store": {"type": "string", "pattern": "^(off|branch:.+)$", "description": "off, or branch:<name> for the baseline branch."}
+        "store": {"anyOf": [{"type": "string", "pattern": "^(off|branch:.+)$"}, {"const": false}], "description": "off (false is read as off too: an unquoted off is a boolean in YAML 1.1), or branch:<name> for the baseline branch."}
       }
     }
   }

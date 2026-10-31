@@ -467,3 +467,69 @@ def test_a_skill_directory_that_is_a_symlink_hashes_the_content_it_points_to(tmp
     before = _subjects(root)["skill/a"].skill_sha
     (root / "vendor/a/SKILL.md").write_text("# a, edited\n", encoding="utf-8")
     assert _subjects(root)["skill/a"].skill_sha != before
+
+
+def test_a_nested_skill_is_not_part_of_the_outer_skill_sha(tmp_path):
+    body = (
+        HEADER
+        + "subjects:\n"
+        + "  - id: skill/outer\n    path: skills/outer\n"
+        + "  - id: skill/inner\n    path: skills/outer/inner\n"
+    )
+    files = {
+        ".github/dokimi/config.yaml": body,
+        "skills/outer/SKILL.md": "outer\n",
+        "skills/outer/inner/SKILL.md": "inner\n",
+    }
+    root = _tree(tmp_path / "repo", files)
+    before = _subjects(root)
+    (root / "skills/outer/inner/SKILL.md").write_text("changed\n", encoding="utf-8")
+    after = _subjects(root)
+    assert after["skill/outer"].skill_sha == before["skill/outer"].skill_sha
+    assert after["skill/inner"].skill_sha != before["skill/inner"].skill_sha
+    (root / "skills/outer/notes.md").write_text("n\n", encoding="utf-8")
+    assert _subjects(root)["skill/outer"].skill_sha != after["skill/outer"].skill_sha
+
+
+@pytest.mark.parametrize(
+    ("suite", "claimed"),
+    [
+        ("'{skill}/*'", "skills/a/SKILL.md"),
+        ("'{skill}/scripts/*'", "skills/a/scripts/run.py"),
+    ],
+)
+def test_a_suite_that_claims_a_file_of_its_skill_outside_its_evals_is_refused(tmp_path, suite, claimed):
+    body = HEADER + f"subjects:\n  - id: skill/a\n    path: skills/a\n    suite: {suite}\n"
+    files = {
+        ".github/dokimi/config.yaml": body,
+        "skills/a/SKILL.md": "a\n",
+        "skills/a/evals/q.json": "[]\n",
+        "skills/a/scripts/run.py": "print(1)\n",
+    }
+    root = _tree(tmp_path / "repo", files)
+    with pytest.raises(ConfigError, match="skill/a") as err:
+        load_repo_config(root).subjects(hashes=False)
+    assert claimed in str(err.value) and "outside its evals dir skills/a/evals" in str(err.value)
+
+
+def test_a_suite_inside_the_evals_dir_is_accepted(tmp_path):
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: '{skill}/evals/*'\n"
+    root = _tree(tmp_path / "repo", {".github/dokimi/config.yaml": body, "skills/a/SKILL.md": "a\n", "skills/a/evals/q.json": "[]\n"})
+    assert _subjects(root)["skill/a"].suite_hash.startswith("sha256:")
+
+
+@pytest.mark.parametrize("store_line", ["store: false", "store: 'off'", "store: off"])
+def test_an_off_store_loads_as_off_whether_quoted_or_read_as_false(tmp_path, store_line):
+    root = _tree(tmp_path / "repo", {".github/dokimi/config.yaml": HEADER + f"baseline:\n  {store_line}\n"})
+    assert load_repo_config(root).data["baseline"]["store"] == "off"
+
+
+def test_a_budget_number_written_as_text_gets_a_hint_with_the_plain_decimal(tmp_path):
+    root = _tree(tmp_path / "repo", {".github/dokimi/config.yaml": HEADER + "budget:\n  pr_max_usd: 1e3\n"})
+    with pytest.raises(ConfigError, match=r"budget\.pr_max_usd is the text '1e3'.*Write 1000 .*1\.0e\+3"):
+        load_repo_config(root)
+
+
+def test_a_budget_number_with_a_dot_and_signed_exponent_loads(tmp_path):
+    root = _tree(tmp_path / "repo", {".github/dokimi/config.yaml": HEADER + "budget:\n  pr_max_usd: 1.0e+3\n"})
+    assert load_repo_config(root).data["budget"]["pr_max_usd"] == 1000.0

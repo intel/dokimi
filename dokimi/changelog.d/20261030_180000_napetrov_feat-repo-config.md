@@ -12,5 +12,9 @@ SPDX-License-Identifier: Apache-2.0
   the smoke set, and the budget and baseline store. The loader `dokimi.repo_config` finds the file in
   the order explicit path, `.github/dokimi/config.yaml`, `.dokimi/config.yaml` under the repository root,
   validates it against the schema, and reports each subject's `skill_sha` (the tree digest of the skill
-  directory without its evals) and `suite_hash`. Nothing reads the file yet: the commands that use it
-  come later, and existing `.agent-eval/` lookups are unchanged.
+  directory without its evals and without any nested skill directory, which is its own subject) and
+  `suite_hash`. A skill's suite may hold only its evals: a suite that claims its skill's `SKILL.md`,
+  scripts or references is refused at load, naming the subject and the file. `baseline.store: false`
+  reads as `off`, and a budget number that YAML reads as text (`1e3`) is refused with the plain
+  decimal or the `1.0e+3` spelling. Nothing reads the file yet: the commands that use it come later,
+  and existing `.agent-eval/` lookups are unchanged.

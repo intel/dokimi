@@ -85,7 +85,7 @@ class RepoConfig:
         resolved = _resolve(self.data, self.root)
         for subject in resolved:
             _check_suite(subject, self.root)
-        return [_hashed(s, self.root) for s in resolved] if hashes else resolved
+        return [_hashed(s, self.root, resolved) for s in resolved] if hashes else resolved
 
     def subjects_for_changed(self, paths: Iterable[str]) -> Impact:
         """Map repository-relative changed paths onto subjects, suites and ``shared``; the rest is unclaimed."""
@@ -134,11 +134,33 @@ def load(path: Path, *, root: Path) -> RepoConfig:
         raise ConfigError(f"{path}: cannot read the config: {exc}") from exc
     if not isinstance(data, dict):
         raise ConfigError(f"{path}: the config must be a mapping")
+    _check_budget_numbers(data, path)
     try:
         validate_artifact(KIND, data)
     except ArtifactValidationError as exc:
         raise ConfigError(f"{path}: {exc}") from exc
+    baseline = data.get("baseline")
+    if isinstance(baseline, dict) and baseline.get("store") is False:
+        baseline["store"] = "off"  # PyYAML reads an unquoted off as false
     return RepoConfig(path=path, root=Path(root), data=data)
+
+
+_NUMBER_AS_TEXT = re.compile(r"[-+]?[0-9.]+[eE][-+]?[0-9]+")
+
+
+def _check_budget_numbers(data: dict[str, Any], path: Path) -> None:
+    """PyYAML reads ``1e3`` (no dot, no signed exponent) as text; say so, with the two spellings that parse."""
+    budget = data.get("budget")
+    if not isinstance(budget, dict):
+        return
+    for key in ("pr_max_usd", "record_max_usd"):
+        value = budget.get(key)
+        if isinstance(value, str) and _NUMBER_AS_TEXT.fullmatch(value.strip()):
+            plain = ("%f" % float(value)).rstrip("0").rstrip(".")
+            raise ConfigError(
+                f"{path}: budget.{key} is the text {value!r}, not a number: YAML reads it as text. "
+                f"Write {plain} (the plain decimal) or 1.0e+3 style (a dot and a signed exponent)"
+            )
 
 
 def load_repo_config(start: Path | None = None, *, explicit: Path | None = None) -> RepoConfig:
@@ -309,24 +331,40 @@ def _digest_files(files: dict[str, Path]) -> str:
     return "sha256:" + h.hexdigest()
 
 
+def _within(rel: str, base: str) -> bool:
+    """True when ``rel`` is ``base`` or sits under it (repository-relative paths)."""
+    return rel == base or rel.startswith(base + "/")
+
+
 def _check_suite(subject: Subject, root: Path) -> None:
-    """A skill's suite must not hold the skill directory: not the directory itself, nor one of its ancestors."""
+    """A skill's suite holds only its evals: not the skill directory, not an ancestor, no other file of the skill."""
     if subject.kind != "skill":
         return
+    evals = f"{subject.path}/evals"
     for rel in _suite_files(root, subject.suite_globs):
         if rel == subject.path:
             raise ConfigError(f"subject {subject.id}: its suite matches the whole skill directory {subject.path}")
         if subject.path.startswith(rel + "/"):
             raise ConfigError(f"subject {subject.id}: its suite {rel} contains the skill directory {subject.path}")
+        if _within(rel, subject.path) and not _within(rel, evals):
+            raise ConfigError(
+                f"subject {subject.id}: its suite claims {rel}, a file of its skill outside its evals dir {evals}"
+            )
 
 
-def _hashed(subject: Subject, root: Path) -> Subject:
+def _hashed(subject: Subject, root: Path, all_subjects: list[Subject]) -> Subject:
     files = _suite_files(root, subject.suite_globs)
     if subject.kind == "repo":
         assert subject.manifest is not None  # set by _subject for kind repo
         files.setdefault(subject.manifest, root / subject.manifest)
         return replace(subject, suite_hash=_digest_files(files))
-    inside = [rel[len(subject.path) + 1:] for rel in files if rel.startswith(subject.path + "/")]
+    inside = [rel[len(subject.path) + 1:] for rel in files if _within(rel, subject.path) and rel != subject.path]
+    # a nested skill is its own subject: its files belong to its own skill_sha, not to the outer one
+    nested = [
+        s.path[len(subject.path) + 1:]
+        for s in all_subjects
+        if s.kind == "skill" and s.path != subject.path and _within(s.path, subject.path)
+    ]
     # A skill directory that is a symlink is its target's content (a suite match is hashed by its link instead).
-    skill_sha = "sha256:" + tree_digest((root / subject.path).resolve(), exclude=inside)
+    skill_sha = "sha256:" + tree_digest((root / subject.path).resolve(), exclude=[*inside, *nested])
     return replace(subject, skill_sha=skill_sha, suite_hash=_digest_files(files))
