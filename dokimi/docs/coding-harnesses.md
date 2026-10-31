@@ -1318,3 +1318,13 @@ python cli.py tasks run --tasks parallel-tfidf-search \
   --baseline-harness benchflow:claude-agent-acp \
   --model aws-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
 ```
+
+### Native host probe boundaries
+
+Container probes run against Linux tools and Linux process metadata. A native
+host probe uses only tools visible in the agent's environment: raw proxy and
+TCP checks require Bash and `timeout`, and inspection of ancestor environments
+requires Linux procfs. On macOS these checks can report `untested`; that result
+fails the isolation check and must not be interpreted as `closed`. An observed
+network leak still reports `open` even when another check lacks tools. Windows
+host shell probes are not qualified by the Linux-container tests.

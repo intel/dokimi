@@ -58,6 +58,9 @@ class HarnessProfile:
     bridge: dict[str, str] | None = None
     prompt_suffix: str = ""
     config_files: dict[str, str] = field(default_factory=dict)
+    bin_companions: tuple[str, ...] = ()  # files beside the executable that it needs; mounted next to it
+    native_prompt: bool = False  # the harness's own prompt (a native review mode); the task prompt is not passed
+    answer_format: str | None = None  # answers.convert_answer applies it before grading
     delegation: dict[str, dict[str, tuple[str, ...]]] = field(default_factory=dict)
     args_if_present: dict[str, tuple[str, ...]] = field(default_factory=dict)
     path: str = "<profile>"
@@ -137,21 +140,31 @@ class HarnessProfile:
         return delegation
 
     def execution_id(self, tools: str, delegation: str = "native", harness_sha256: str | None = None,
-                     harness_version: str | None = None) -> str:
+                     harness_version: str | None = None, companion_sha256: dict[str, str | None] | None = None) -> str:
         """Short hash of how the agent is started: the profile's ``invoke`` template with its tool arguments,
-        environment, config, prompt suffix, egress and bridge.
+        environment, config, prompt suffix, egress, bridge, trace, answer format and companions.
 
         Two runs with the same id ran the same command line up to the per-cell values (prompt, model,
         caps); ``repo run`` reuses a finished cell only when its id matches. Includes the harness
-        executable's digest and version to detect changes to the effective harness, wherever it lives.
+        executable's digest and version to detect changes to the effective harness, wherever it lives,
+        and with ``companion_sha256`` the digest of each companion by name.
         """
-        key = {"profile": self.name, "invoke": list(self.invoke), "tools": list(self.tool_args(tools, delegation)),
+        key: dict[str, Any] = {"profile": self.name, "invoke": list(self.invoke), "tools": list(self.tool_args(tools, delegation)),
                "args_if_present": {n: list(a) for n, a in sorted(self.args_if_present.items())},
                "env_set": dict(sorted(self.env_set.items())), "env_allow": list(self.env_allow),
                "config_dir_env": self.config_dir_env, "config_files": dict(sorted(self.config_files.items())),
                "egress": list(self.egress), "bridge": self.bridge,
                "prompt_suffix": self.prompt_suffix, "harness_sha256": harness_sha256,
                "harness_version": harness_version}
+        # a cell graded with another answer format or trace converter, or run with other companions, is another
+        # run; unset (or claude-stream-json) adds no key, so the ids of profiles that set none stay as they were
+        if self.trace != "claude-stream-json":
+            key["trace"] = self.trace
+        if self.answer_format:
+            key["answer_format"] = self.answer_format
+        if self.bin_companions:
+            key["bin_companions"] = (list(self.bin_companions) if companion_sha256 is None
+                                     else {n: companion_sha256.get(n) for n in self.bin_companions})
         return hashlib.sha256(json.dumps(key, sort_keys=True).encode("utf-8")).hexdigest()[:12]
 
     def prompt(self, task_prompt: str) -> str:
@@ -215,6 +228,21 @@ def load_profile(name_or_path: str | Path) -> HarnessProfile:
     return parse_profile(raw, str(path))
 
 
+def _check_config_placeholders(raw: dict[str, Any], path: str) -> None:
+    """A config file of the profile is a plain file name and uses only the placeholders a config file may."""
+    for name, content in (raw.get("config_files") or {}).items():
+        if name in (".", ".."):  # the schema's name pattern allows them; v1 is not tightened in place
+            raise ProfileError(f"{path}: config_files/{name} is not a plain file name")
+        unknown = set(_PLACEHOLDER_RE.findall(content)) - CONFIG_PLACEHOLDERS
+        if unknown:
+            raise ProfileError(f"{path}: config_files/{name} uses unknown placeholder(s) {sorted(unknown)}")
+
+
+def _check_tools_element(raw: dict[str, Any], path: str) -> None:
+    if raw["invoke"].count(TOOLS_ELEMENT) != 1:
+        raise ProfileError(f"{path}: invoke must have exactly one {TOOLS_ELEMENT} element")
+
+
 def parse_profile(raw: Any, path: str = "<profile>") -> HarnessProfile:
     errors = schema_errors("harness_profile.v1", raw)
     if errors:
@@ -228,14 +256,17 @@ def parse_profile(raw: Any, path: str = "<profile>") -> HarnessProfile:
             unknown = set(_PLACEHOLDER_RE.findall(element)) - (PLACEHOLDERS if key == "invoke" else {"bin"})
             if unknown:
                 raise ProfileError(f"{path}: {key} uses unknown placeholder(s) {sorted(unknown)}")
-    for name, content in (raw.get("config_files") or {}).items():
-        unknown = set(_PLACEHOLDER_RE.findall(content)) - CONFIG_PLACEHOLDERS
-        if unknown:
-            raise ProfileError(f"{path}: config_files/{name} uses unknown placeholder(s) {sorted(unknown)}")
-    if not any("{prompt}" in element for element in raw["invoke"]):
-        raise ProfileError(f"{path}: invoke never passes {{prompt}}")
-    if raw["invoke"].count(TOOLS_ELEMENT) != 1:
-        raise ProfileError(f"{path}: invoke must have exactly one {TOOLS_ELEMENT} element")
+    _check_config_placeholders(raw, path)
+    passes_prompt = any("{prompt}" in element for element in raw["invoke"])
+    if raw.get("native_prompt"):
+        if passes_prompt:
+            raise ProfileError(f"{path}: native_prompt runs the harness's own prompt; invoke cannot pass {{prompt}}")
+        if raw.get("prompt_suffix"):
+            raise ProfileError(f"{path}: native_prompt runs the harness's own prompt; prompt_suffix cannot be added")
+    elif not passes_prompt:
+        raise ProfileError(f"{path}: invoke never passes {{prompt}} (set native_prompt for a harness that "
+                           "uses its own)")
+    _check_tools_element(raw, path)
     return HarnessProfile(
         name=raw["name"],
         bin=raw["bin"],
@@ -252,6 +283,9 @@ def parse_profile(raw: Any, path: str = "<profile>") -> HarnessProfile:
         bridge=raw.get("bridge"),
         prompt_suffix=raw.get("prompt_suffix") or "",
         config_files=dict(raw.get("config_files") or {}),
+        bin_companions=tuple(raw.get("bin_companions") or ()),
+        native_prompt=bool(raw.get("native_prompt")),
+        answer_format=raw.get("answer_format"),
         delegation={mode: {t: tuple(args) for t, args in by_tools.items()}
                     for mode, by_tools in (raw.get("delegation") or {}).items()},
         args_if_present={name: tuple(args) for name, args in (raw.get("args_if_present") or {}).items()},
