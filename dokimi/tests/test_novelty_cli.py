@@ -840,6 +840,38 @@ def test_a_tiny_non_zero_share_prints_as_under_one_percent(capsys):
     assert "WARNING: only <1% of the artifact's readable words" in out
 
 
+def test_a_capped_run_s_headline_does_not_say_the_whole_artifact_was_measured(capsys):
+    # The entry point is every readable word, but the atoms stopped at 22.97% of its tokens.
+    reached = {"last_span": "s0012", "spans": 12, "of": 61, "tokens_share": 0.2297}
+    record = _readable_record(resource_words_on_disk=0)
+    novelty_cmd._print_headline(dict(_minimal_artifact(), bundle=record,
+                                     extraction={"reached": reached}))
+    out = capsys.readouterr().out
+    assert ("coverage: 100% of the artifact's readable words went into the input (entry point "
+            "only); the capped atoms come from the first 22% of the input's tokens\n") in out
+    assert "measured" not in out
+    # The unknown share keeps the reach too; a run the cap did not stop keeps its wording.
+    novelty_cmd._print_headline(dict(_minimal_artifact(), bundle=dict(record, unreadable_files=1),
+                                     extraction={"reached": reached}))
+    assert "counted) (entry point only); the capped atoms come from the first 22% of the " \
+           "input's tokens\n" in capsys.readouterr().out
+    novelty_cmd._print_headline(dict(_minimal_artifact(), bundle=record,
+                                     extraction={"reached": None}))
+    assert "coverage: 100% of the artifact's readable words were measured (entry point only)\n" \
+           in capsys.readouterr().out
+
+
+def test_a_capped_run_under_the_floor_warns_in_the_coverage_line_s_words(capsys):
+    # 10 of the 40 readable words went into the input, and the atoms stopped short of them.
+    reached = {"last_span": "s0002", "spans": 2, "of": 5, "tokens_share": 0.3571}
+    novelty_cmd._print_headline(dict(_minimal_artifact(), bundle=_readable_record(),
+                                     extraction={"reached": reached}))
+    out = capsys.readouterr().out
+    assert ("WARNING: only 25% of the artifact's readable words went into the input, so every "
+            "rate here describes that part, not the artifact") in out
+    assert "measured" not in out
+
+
 def test_a_bundle_run_capped_by_the_budget_warns_without_advising_the_flag_it_passed(capsys):
     # --include-resources was passed; the budget left most of the reference unread. The
     # stderr warning list is silent about this, the stdout line is not, and it must not tell

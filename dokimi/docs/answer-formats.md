@@ -76,14 +76,22 @@ value is blank or missing.
 Every check accepts `mode` (`any`/`all` over its `values`), `negate` and
 `weight`. A question's score is the weighted mean of the checks that were
 counted. It passes when it reaches `threshold`; without a threshold, it passes
-when every counted check passes. A failed answer call leaves its checks
-unscored rather than failed. `--no-judge` leaves the `judge` checks unscored
+when every counted check passes. A failed answer call is an error, not a failed
+check: the answer gets no score and no pass. `--no-judge` leaves the `judge` checks unscored
 and makes no model calls; an arms artifact written that way has `judge_model`
 and `judge_provider` set to `reference`. The summary's `judge_unscored` counts the
 counted answers whose pass leaves out a judge check that had no verdict. The
 summary's `check_unscored` does the same for a deterministic check that did not
 run to a result (a `regex` past its limit): the pass is decided on the checks
-that ran, and the count shows how many passes left one out.
+that ran, and the count shows how many passes left one out. An answer whose
+call failed is counted as `errors`, not `unscored`, and leaves the pass rate and
+the mean out just as an unscored answer does. A judge call that raises, or whose
+reply has no YES or NO after its retries, is an error too: the answer gets no score
+and no pass, even when its other checks passed. The block's `error` names it (for
+example `judge: TimeoutError`), as an arm cell's `error` does. An arms summary has the same
+count per arm as `errors`. An empty or content-less reply is an error, never graded:
+it leaves the pass rate and the mean out, and is never cached (on store or replay),
+so a rerun asks the model again.
 
 `eval reference` writes eval.v1 for an `answers generate` file and an arms
 artifact for an `arms run` file. Each block carries `scorer: reference`, and
@@ -119,7 +127,7 @@ because the native run had no dokimi doc context. The tool's own verdicts
 become an eval.v1 file with `scorer: native:<tool>`. Running `eval reference`
 on that answers file re-grades the same completions with dokimi's checks,
 which shows where the two graders disagree. An Inspect sample that errored
-keeps its error on the answer, so `eval reference` leaves it unscored, as
-Inspect does. A promptfoo output must come from
+keeps its error on the answer, so `eval reference` counts it as an error, not a
+score, as Inspect does. A promptfoo output must come from
 a single provider. Supported log formats are Inspect `json` logs (inspect-ai
 0.3.283) and promptfoo `-o *.json` (0.125.0).
