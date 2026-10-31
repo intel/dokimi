@@ -618,6 +618,10 @@ A catalog that holds the same `SKILL.md` under two paths (a plugin copy of its `
 tree) counts it once: the copy nearest the catalog root stands for the card, and the
 others are named on stderr.
 
+`--estimate-only` prints, as JSON, the calls, input and output tokens and the list-price `usd` the
+`--model` arm would make, and makes no model call. Without `--model` the run is lexical and the bill
+is zero. Input is the selection prompt sized at chars / 4, so it is a projection, not a count.
+
 Two numbers, reported side by side and never merged:
 
 - **Lexical** — BM25 over each candidate's `name + description`, which is exactly the text
@@ -626,7 +630,9 @@ Two numbers, reported side by side and never merged:
   a **seeded random permutation per query** (`--seed`), so a model that always picks the
   first option tends to `1/N` rather than to a figure set by how the query count lines up
   with the candidate count. It *tends* to it: at five queries the realised rate is a fixed
-  offset from `1/N`, so read small query sets as such. Each permutation and the position
+  offset from `1/N`, so read small query sets as such. `--seed` fixes that card order and
+  nothing else: the model's answers are still sampled and can differ between runs, so measure
+  that spread with `--repeats`. Each permutation and the position
   the gold card was shown at are recorded per query. **An abstention counts against
   `selection_rate`** — not picking anything is the routing failure — with
   `selection_rate_among_answered` beside it; a failed call is excluded from both and
@@ -651,7 +657,7 @@ the provider they may or may not be counted inside `input_tokens`. A run without
 no calls and has no `cost` block. `usd` is also `null` when a call returned no usage, and a
 call that raised is not counted. A call replayed from the response cache is counted in
 `replayed_calls` and left out of the token and `usd` totals, since this run did not pay for it;
-`llm_calls` still counts it. `--all-vs-all` writes no `cost` block.
+`llm_calls` still counts it. `--all-vs-all` writes the same `cost` block over its model arm.
 
 `recall_at_3` comes back `null` with three or fewer candidates, where every rank is `<= 3`
 and the figure would be a structural 1.0. The lexical arm also reports `n_queries_given`
@@ -674,10 +680,14 @@ is no attractor, and a tied skill's own rate is lower by the picks inside its gr
 model call is unscored, and a skill with none scored has an own rate of `null`, not 0.0. A run
 with any failed model call writes the result and exits non-zero. The saved file records the
 field rule under `field` (`include_disabled`, the `competitors` and what was `left_out`); a
-single-artifact run records it too. It takes no `--artifact`, `--queries`,
-`--queries-from-headings` or `--repeats` (one model call per query). The model arm also records the selector `model`, so two runs with
+single-artifact run records it too. It takes no `--artifact`, `--queries` or `--queries-from-headings`. `--repeats` needs `--model`
+and asks each query that many times, as a single-artifact run does: the model arm then carries a
+`noise` block (agreement per query, the rate of each repeat, `half_range`), and its counts are
+calls, one per query per repeat. The model arm also records the selector `model`, so two runs with
 different models can be told apart. It is refused with fewer than two skills, a name repeated
-in the field, a query file that names a skill outside the field, or no queries at all.
+in the field, or no queries at all. A query file that names a skill outside the field is refused;
+when that skill is one the field leaves out for `disable-model-invocation`, the message names it and
+points to `--include-disabled`.
 
 **Cost of `--model` in all-vs-all.** The model arm makes one selector call per query, across
 every skill in the field: the call count is the number of queries in `queries.json` that have a
@@ -698,7 +708,10 @@ Three properties worth knowing before quoting either:
   and its own relevance. `--queries-from-headings` exists for triage, warns, and stamps
   `queries_self_derived: true` into the result; corpus-wide those self-derived queries gave
   recall@1 0.225, and a skill's own bundled `evals/` questions gave 0.667. Headings inside
-  fenced code blocks are not offered as queries. A run with no usable query exits non-zero,
+  fenced code blocks are not offered as queries. Only `##` and `###` headings of two or more
+  content words count; a skill whose headings give none falls back to the sentences of its
+  description with two or more content words, and `queries_source` (`headings`, `description` or
+  `none`) says which was used. A run with no usable query exits non-zero,
   says why, and still writes the result with `"status": "no_queries"`. Every rate line
   prints its `n_queries` (and `triage: self-derived` when it is self-derived), and fewer
   than five scored queries draw a warning.

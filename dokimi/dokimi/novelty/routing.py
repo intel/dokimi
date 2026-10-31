@@ -425,6 +425,61 @@ def headings_as_queries(body: str, *, limit: int = 40) -> list[str]:
     return [h for h in headings if len(tokenize(h)) >= 2][:limit]
 
 
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+
+
+def description_as_queries(description: str, *, limit: int = 40) -> list[str]:
+    """Sentences of a description, for triage when the artifact has no usable heading.
+
+    A skill whose body is a ``#`` title and no ``##`` heading of two or more words still says
+    what it is for in its description. Each sentence with two or more content words is
+    offered, as :func:`headings_as_queries` offers headings. The same self-derived stamp applies.
+    """
+    sentences = _SENTENCE_END.split(" ".join(description.split()))
+    return [s for s in sentences if len(tokenize(s)) >= 2][:limit]
+
+
+def self_derived_queries(body: str, description: str) -> tuple[list[str], str]:
+    """The triage queries of an artifact and where they came from.
+
+    Headings are preferred; the description's sentences are the fallback. Returns
+    ``(queries, source)`` with ``source`` ``"headings"``, ``"description"``, or ``"none"`` when
+    neither gives a query of two or more content words.
+    """
+    headings = headings_as_queries(body)
+    if headings:
+        return headings, "headings"
+    sentences = description_as_queries(description)
+    return sentences, "description" if sentences else "none"
+
+
+# A selection reply is one JSON object, ``{"pick": N}``: a few tokens.
+PICK_REPLY_TOKENS = 10
+
+
+def selection_estimate(candidates: list[Candidate], queries: list[str], *,
+                       repeats: int = 1) -> dict:
+    """The calls and tokens :func:`model_routing` would make, counted without making them.
+
+    A query with no content word is not sent. Each call carries the whole field's cards in the
+    selection prompt, sized at chars / 4 as the artifact spans are; every repeat sends the same
+    prompt. The reply is one JSON pick, :data:`PICK_REPLY_TOKENS`.
+    """
+    cards = "\n".join(f"{position}. {candidate.card}"
+                       for position, candidate in enumerate(candidates, 1))
+    sent = [query for query in queries if tokenize(query)]
+    prompt_tokens = sum(len(_SELECT_PROMPT.format(query=query, cards=cards)) // 4
+                        for query in sent)
+    calls = len(sent) * repeats
+    return {
+        "n_queries": len(queries),
+        "n_queries_sent": len(sent),
+        "n_calls": calls,
+        "input_tokens": prompt_tokens * repeats,
+        "output_tokens": calls * PICK_REPLY_TOKENS,
+    }
+
+
 def non_skill_reason(ref: str) -> str | None:
     """Why a ``skill:`` reference names something other than a skill, or ``None``.
 

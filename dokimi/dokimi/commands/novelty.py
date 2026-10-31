@@ -20,6 +20,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
 from dokimi.commands.inputs import placebo_text_for_arms_or_exit
+from dokimi.commands.novelty_routing_report import (
+    print_all_vs_all_model,
+    print_routing_estimate,
+    print_routing_summary,
+    routing_queries,
+)
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
     DEFAULT_ANSWER_PROVIDER,
@@ -349,6 +355,7 @@ def _routing_field(args: argparse.Namespace, exclude: set[str],
 def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     """Every skill in the field is the gold in turn: confusion matrix and attractors."""
     from dokimi.novelty.all_vs_all import all_vs_all, load_queries_by_skill
+    from dokimi.novelty.client import roll_up_cost
     from dokimi.novelty.routing import RoutingInputError, tokenize
 
     _check_all_vs_all_args(args)
@@ -364,6 +371,7 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
             queries_by_skill = load_queries_by_skill(args.queries_by_skill)
         except (OSError, UnicodeDecodeError) as exc:
             usage_exit(f"cannot read the queries: {exc}")
+        _refuse_queries_naming_disabled(args, field, queries_by_skill)
         selector = _client(args.model, args.provider, "selector", args) if args.model else None
         if selector is not None:
             # One call per query with a content word, each sending every card in the field.
@@ -373,7 +381,8 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
                 f"{len(field)} cards each",
                 file=sys.stderr,
             )
-        result = all_vs_all(field, queries_by_skill, client=selector, seed=args.seed)
+        result = all_vs_all(field, queries_by_skill, client=selector, seed=args.seed,
+                            repeats=args.repeats)
     except RoutingInputError as exc:
         usage_exit(str(exc))
     without = [c.name for c in field if c.name not in queries_by_skill]
@@ -395,6 +404,8 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     payload = {"mode": "all_vs_all", "queries_by_skill": args.queries_by_skill,
                "n_candidates": len(field), "result": result}
     payload["field"] = _field_record(args, field, left_out)
+    if selector is not None:
+        payload["cost"] = roll_up_cost([selector])
     out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     if failed:
         raise SystemExit(f"{failed} of {sent} model call(s) failed "
@@ -404,6 +415,31 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     print(f"all-vs-all: {len(field)} skills in the field, {result['n_queries']} queries over "
           f"{len(queries_by_skill)} skills with queries")
     _print_attractors(result)
+    print_all_vs_all_model(model_arm, payload.get("cost"))
+
+
+def _refuse_queries_naming_disabled(args: argparse.Namespace, field: list,
+                                    queries_by_skill: dict[str, list[str]]) -> None:
+    """Refuse queries for a skill the field leaves out only because it sets disable-model-invocation.
+
+    The generic "not in the field" refusal does not say why, so this names the disabled skills
+    and the flag that keeps them. Other unknown names fall through to that refusal.
+    """
+    if args.include_disabled:
+        return
+    held = {c.name for c in field}
+    unknown = sorted(set(queries_by_skill) - held)
+    if not unknown:
+        return
+    everyone = _routing_field(argparse.Namespace(**{**vars(args), "include_disabled": True}),
+                              set())
+    disabled = [name for name in unknown if name in {c.name for c in everyone}]
+    if disabled:
+        usage_exit("the queries name skills that are not in the field: "
+                   + ", ".join(f"`{n}`" for n in unknown) + ". "
+                   + "; ".join(f"`{n}` sets disable-model-invocation, so the field leaves it out"
+                               for n in disabled)
+                   + "; pass --include-disabled to keep those skills in the field")
 
 
 def _field_record(args: argparse.Namespace, competitors: list, left_out: list[str]) -> dict:
@@ -418,8 +454,6 @@ def _check_all_vs_all_args(args: argparse.Namespace) -> None:
         usage_exit("--all-vs-all takes no --artifact: every skill in the field is the gold in turn")
     if args.queries or args.queries_from_headings:
         usage_exit("--all-vs-all takes --queries-by-skill, not --queries or --queries-from-headings")
-    if args.repeats > 1:
-        usage_exit("--all-vs-all takes no --repeats: it makes one call per query")
     if not args.queries_by_skill:
         usage_exit("--all-vs-all needs --queries-by-skill <file>: a JSON object of skill "
                    "name to the requests that should select it")
@@ -475,9 +509,7 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
         RoutingInputError,
         check_field,
         disables_model_invocation,
-        headings_as_queries,
         lexical_routing,
-        load_queries,
         model_routing,
         skill_file,
     )
@@ -505,34 +537,24 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
     except RoutingInputError as exc:
         usage_exit(str(exc))
 
-    self_derived = False
-    if args.queries:
-        try:
-            queries = load_queries(args.queries)
-        except RoutingInputError as exc:
-            usage_exit(str(exc))
-    elif args.queries_from_headings:
-        queries = headings_as_queries(body)
-        self_derived = True
-        print("WARNING: queries derived from the artifact's own headings. The artifact then "
-              "defines both the problem scope and its own relevance, so this is triage, not "
-              "a routing rate", file=sys.stderr)
-    else:
-        usage_exit("pass --queries <file> with requests written independently of the artifact, or "
-                   "--queries-from-headings for a self-derived triage run")
+    queries, self_derived, queries_source = routing_queries(args, body, gold)
     candidates = [gold, *competitors]
+    if args.estimate_only:
+        print_routing_estimate(args, candidates, queries)
+        return
     lexical = dict(lexical_routing(candidates, queries, gold=0),
                    queries_self_derived=self_derived)
     out = Path(args.out) if args.out else _default_dir(args.artifact) / "routing.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     if not lexical["n_queries_scored"]:
-        _refuse_no_queries(args, queries, self_derived, out, len(candidates))
+        _refuse_no_queries(args, queries, self_derived, out, len(candidates), queries_source)
 
     payload = {
         "artifact": args.artifact,
         "status": "ok",
         "n_candidates": len(candidates),
         "queries_self_derived": self_derived,
+        "queries_source": queries_source,
         "field": _field_record(args, competitors, left_out),
         "lexical": lexical,
     }
@@ -550,67 +572,18 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
     out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     print(f"OK Saved routing measurement: {out}")
 
-    _print_routing_summary(payload, len(competitors), self_derived)
-
-
-def _print_routing_summary(payload: dict, n_competitors: int, self_derived: bool) -> None:
-    """The lexical line, the model line and their caveats, printed after a routing run."""
-    # Every rate is printed with the number of queries behind it, and a self-derived one
-    # carries the triage tag on the same line, so a copied figure cannot lose either.
-    tag = "  triage: self-derived" if self_derived else ""
-    lexical = payload["lexical"]
-    print(f"lexical  R@1 {lexical['recall_at_1']}  R@3 {lexical['recall_at_3']}  "
-          f"MRR {lexical['mrr']}  n_queries {lexical['n_queries_scored']} of "
-          f"{lexical['n_queries_given']} given, vs {n_competitors} competitors{tag}"
-          + ("  (R@3 needs more than 3 candidates to mean anything)"
-             if lexical["recall_at_3"] is None else ""))
-    if lexical["n_queries_scored"] < 5:
-        n_scored = lexical["n_queries_scored"]
-        noun = "query" if n_scored == 1 else "queries"
-        print(f"WARNING: only {n_scored} {noun} scored; one query moves "
-              "a rate by 20 points or more, so do not quote it as a routing rate")
-    if "model" in payload:
-        row = payload["model"]
-        print(f"model    selection {row['selection_rate']}  "
-              f"({row['selection_rate_among_answered']} among answered; "
-              f"{row['n_abstained']} abstained, {row['n_failed']} failed)  "
-              f"[{row['model']}]  n_queries {row['n_queries']} given{tag}")
-        if row["n_abstained"]:
-            of_calls = f" of {row['n_calls']} calls" if row["repeats"] > 1 else ""
-            print(f"{row['n_abstained']}{of_calls} abstained or unparseable: the raw reply "
-                  "is under per_query[].raw_reply in the output")
-        if row["noise"]:
-            noise = row["noise"]
-            print(f"noise    {row['repeats']} repeats per query: mean agreement "
-                  f"{noise['mean_agreement']}, {noise['unstable_queries']} queries picked "
-                  f"differently across repeats; selection by repeat "
-                  f"{noise['selection_rate_by_repeat']}, half range "
-                  f"{noise['half_range']} (a crude sampling floor)")
-        print("The model figure is an upper bound on harness behaviour: a harness that "
-              "truncates descriptions in its own listing selects on less text.")
-        cost = payload["cost"]
-        if not cost["llm_calls"]:
-            print("cost     0 calls")
-        else:
-            spent = ("USD not known: a call had no price or no usage" if cost["usd"] is None
-                     else "<$0.0001" if 0 < cost["usd"] < 0.00005 else f"${cost['usd']:.4f}")
-            replayed = (f", {cost['replayed_calls']} replayed from the cache and not counted"
-                        if cost["replayed_calls"] else "")
-            print(f"cost     {cost['llm_calls']} calls, {cost['input_tokens']} input / "
-                  f"{cost['output_tokens']} output tokens, cache read "
-                  f"{cost['cache_read_tokens']} / write {cost['cache_write_tokens']}, "
-                  f"{spent}{replayed}")
-    if self_derived:
-        print("Self-derived queries: read as triage only.")
+    print_routing_summary(payload, len(competitors), self_derived)
 
 
 def _refuse_no_queries(args: argparse.Namespace, queries: list[str], self_derived: bool,
-                       out: Path, n_candidates: int) -> NoReturn:
+                       out: Path, n_candidates: int,
+                       queries_source: str | None = None) -> NoReturn:
     """Write the ``no_queries`` record, then exit saying why no query was scored."""
     # Written too, so a batch run leaves a record of why it has no rate.
     if not queries and self_derived:
-        reason = (f"no section heading of two or more words outside code fences in "
-                  f"{args.artifact}; headings inside fenced code are not requests")
+        reason = (f"no section heading or description sentence of two or more words in "
+                  f"{args.artifact} outside code fences; headings inside fenced code are not "
+                  "requests")
     elif not queries:
         reason = f"--queries {args.queries} holds no non-blank query"
     else:
@@ -618,6 +591,7 @@ def _refuse_no_queries(args: argparse.Namespace, queries: list[str], self_derive
                   "like a, the, how do not count")
     out.write_text(json.dumps({"artifact": args.artifact, "status": "no_queries",
                                "reason": reason, "queries_self_derived": self_derived,
+                               "queries_source": queries_source or ("none" if self_derived else None),
                                "n_candidates": n_candidates}, indent=2),
                    encoding="utf-8")
     usage_exit(f"no usable queries: {reason}. Pass --queries <file> with requests written independently "
@@ -870,21 +844,29 @@ def register(sub, positive_int) -> None:
                                 "should select this artifact, written independently of it")
     routing_p.add_argument("--queries-from-headings", action="store_true",
                            dest="queries_from_headings",
-                           help="Derive queries from the artifact's own headings. Triage "
-                                "only: the artifact then defines both the problem scope and "
-                                "its own relevance, and the result is stamped as such")
+                           help="Derive queries from the artifact's own ## and ### headings of "
+                                "two or more words, or, when it has none, from the sentences of "
+                                "its description. Triage only: the artifact then defines both "
+                                "the problem scope and its own relevance, and the result is "
+                                "stamped as such")
     routing_p.add_argument("--model", default=None,
                            help="Also ask this model to pick from the same cards. Optional: "
                                 "without it only the free lexical floor is computed")
     routing_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=PROVIDERS)
     routing_p.add_argument("--max-tokens", type=positive_int, default=None, dest="max_tokens")
     routing_p.add_argument("--seed", type=int, default=0,
-                           help="Seeds the per-query card permutation, so a position-biased "
-                                "model scores ~1/N and the run is reproducible")
+                           help="Seeds only the card order: each query's cards are listed in "
+                                "a seeded random permutation, so a position-biased model scores "
+                                "about 1/N. It does not make the model's answers repeatable; "
+                                "measure that with --repeats")
     routing_p.add_argument("--repeats", type=positive_int, default=1,
                            help="Ask the model this many times per query, with the same card "
                                 "order each time, and report per-query agreement and the "
                                 "run-to-run noise floor. Needs --model; costs N times the calls")
+    routing_p.add_argument("--estimate-only", action="store_true", dest="estimate_only",
+                           help="Print the calls, input and output tokens and the list-price "
+                                "USD that --model would make, as JSON, and make no model call. "
+                                "Without --model the run is lexical and the bill is zero")
     routing_p.add_argument("--out", default=None)
     _add_spend_cap(routing_p)
     routing_p.set_defaults(func=_stops_at_cap(cmd_novelty_routing))

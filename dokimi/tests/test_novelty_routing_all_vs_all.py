@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import functools
 import json
+import re
 
 import pytest
 
@@ -566,8 +567,10 @@ def test_all_vs_all_refuses_the_single_artifact_query_flags(tmp_path, flag):
         args.func(args)
 
 
-def test_all_vs_all_refuses_repeats_it_would_not_make(tmp_path, monkeypatch):
-    # all_vs_all makes one call per query, so --repeats 3 would be dropped without a word.
+def test_all_vs_all_takes_repeats_and_prints_the_noise_and_the_cost(tmp_path, capsys,
+                                                                    monkeypatch):
+    # Three repeats of one query: three calls, the same card order each time, so the
+    # selector agrees with itself and the noise block says so.
     import dokimi.commands.novelty as novelty_cmd
 
     calls = []
@@ -577,12 +580,78 @@ def test_all_vs_all_refuses_repeats_it_would_not_make(tmp_path, monkeypatch):
     root = tmp_path / "catalog"
     _cat(root, {"perf": "profile a slow binary", "db": "tune a slow database query"})
     queries = _write_queries(tmp_path, {"perf": ["profile my slow binary"]})
+    out = tmp_path / "o.json"
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(out), "--model", "m",
+                  "--repeats", "3")
+    args.func(args)
+    assert len(calls) == 3
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    noise = payload["result"]["model"]["noise"]
+    assert payload["result"]["model"]["repeats"] == 3
+    assert (noise["mean_agreement"], noise["unstable_queries"]) == (1.0, 0)
+    assert payload["cost"]["llm_calls"] == 3
+    stdout = capsys.readouterr().out
+    assert "noise    3 repeats per query" in stdout
+    assert "cost     3 calls" in stdout
+
+
+def test_all_vs_all_repeats_still_need_a_model(tmp_path):
+    root = tmp_path / "catalog"
+    _cat(root, {"perf": "profile a slow binary", "db": "tune a slow database query"})
+    queries = _write_queries(tmp_path, {"perf": ["profile my slow binary"]})
     args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
                   "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"),
-                  "--model", "m", "--repeats", "3")
-    with pytest.raises(SystemExit, match="takes no --repeats"):
+                  "--repeats", "3")
+    with pytest.raises(SystemExit, match="--repeats needs --model"):
         args.func(args)
-    assert calls == [] and not (tmp_path / "o.json").exists()
+    assert not (tmp_path / "o.json").exists()
+
+
+def test_all_vs_all_without_model_writes_no_cost_block(tmp_path):
+    root = tmp_path / "catalog"
+    _cat(root, {"perf": "profile a slow binary", "db": "tune a slow database query"})
+    queries = _write_queries(tmp_path, {"perf": ["profile my slow binary"]})
+    out = tmp_path / "o.json"
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(out))
+    args.func(args)
+    assert "cost" not in json.loads(out.read_text(encoding="utf-8"))
+
+
+def test_queries_naming_a_disabled_skill_say_so_and_suggest_the_flag(tmp_path):
+    root = tmp_path / "catalog"
+    _cat(root, {"perf": "profile a slow binary"})
+    (root / "skills" / "grill").mkdir(parents=True)
+    (root / "skills" / "grill" / "SKILL.md").write_text(
+        "---\nname: grill\ndescription: relentless interview about a plan\n"
+        "disable-model-invocation: true\n---\n\n# B\n", encoding="utf-8")
+    queries = _write_queries(tmp_path, {"perf": ["profile a slow binary"],
+                                        "grill": ["interview me about my plan"]})
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    message = str(exc.value)
+    assert "not in the field: `grill`" in message
+    assert re.search(r"`grill` sets disable-model-invocation.*--include-disabled", message)
+    assert not (tmp_path / "o.json").exists()
+
+
+def test_the_disabled_skill_routes_once_include_disabled_is_passed(tmp_path, capsys):
+    root = tmp_path / "catalog"
+    _cat(root, {"perf": "profile a slow binary"})
+    (root / "skills" / "grill").mkdir(parents=True)
+    (root / "skills" / "grill" / "SKILL.md").write_text(
+        "---\nname: grill\ndescription: relentless interview about a plan\n"
+        "disable-model-invocation: true\n---\n\n# B\n", encoding="utf-8")
+    queries = _write_queries(tmp_path, {"perf": ["profile a slow binary"],
+                                        "grill": ["interview me about my plan"]})
+    out = tmp_path / "o.json"
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(out), "--include-disabled")
+    args.func(args)
+    assert json.loads(out.read_text(encoding="utf-8"))["result"]["n_skills"] == 2
 
 
 def test_a_single_artifact_routing_run_records_the_field_rule_too(tmp_path):
