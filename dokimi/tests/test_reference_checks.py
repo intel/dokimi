@@ -156,7 +156,7 @@ def test_scored_grade_with_an_unjudged_check_is_counted_in_the_summary():
     tally = ConditionTally()
     tally.add(grade({"checks": [{"type": "match", "values": ["1996"], "location": "any"},
                                 {"type": "judge", "reference": "1996"}]}, "Q?", "In 1996."))
-    assert tally.as_dict() == {"n": 1, "unscored": 0, "judge_unscored": 1, "check_unscored": 0,
+    assert tally.as_dict() == {"n": 1, "unscored": 0, "errors": 0, "judge_unscored": 1, "check_unscored": 0,
                                "pass_rate": 1.0, "mean_score": 1.0}
 
 
@@ -165,7 +165,7 @@ def test_a_timed_out_check_next_to_a_pass_is_counted_in_the_summary():
     tally = ConditionTally()
     tally.add(grade({"checks": [{"type": "regex", "values": ["(a|aa)+$"]},
                                 {"type": "match", "values": ["!"], "location": "any"}]}, "Q?", "a" * 40 + "!"))
-    assert tally.as_dict() == {"n": 1, "unscored": 0, "judge_unscored": 0, "check_unscored": 1,
+    assert tally.as_dict() == {"n": 1, "unscored": 0, "errors": 0, "judge_unscored": 0, "check_unscored": 1,
                                "pass_rate": 1.0, "mean_score": 1.0}
 
 
@@ -293,8 +293,9 @@ def test_score_binary_answers_gives_eval_v1(tmp_path):
     ]}
     result = score(data, _QUESTIONS)
     assert result.missing == ["3"]
-    assert result.tally["without_docs"].as_dict() == {"n": 2, "unscored": 0, "judge_unscored": 0,
-                                                      "check_unscored": 0, "pass_rate": 0.5, "mean_score": 0.5}
+    assert result.tally["without_docs"].as_dict() == {"n": 2, "unscored": 0, "errors": 0,
+                                                      "judge_unscored": 0, "check_unscored": 0,
+                                                      "pass_rate": 0.5, "mean_score": 0.5}
     kind, payload = artifact(result, data, judge_model=None, judge_provider=None, questions_path="q.json")
     assert kind == "eval"
     first = payload["evaluations"][0]
@@ -365,7 +366,7 @@ def test_read_inspect_json_log(tmp_path):
     save_artifact("eval", run.eval_artifact(), tmp_path / "e.json")
 
 
-def test_errored_inspect_sample_stays_unscored_in_eval_reference(tmp_path):
+def test_errored_inspect_sample_is_an_error_not_a_score_in_eval_reference(tmp_path):
     log = {"eval": {"model": "m"}, "samples": [
         {"id": "q1", "input": "Q1", "output": {"completion": "Paris"}, "scores": {"match": {"value": "C"}}},
         {"id": "q2", "input": "Q2", "output": {"completion": ""}, "scores": {},
@@ -378,7 +379,8 @@ def test_errored_inspect_sample_stays_unscored_in_eval_reference(tmp_path):
     checks = {"checks": [{"type": "match", "values": ["paris"], "location": "any"}]}
     questions = [{"id": q, "question": q, "grading": checks} for q in ("q1", "q2")]
     tally = score(run.answers_artifact(), questions).tally["without_docs"].as_dict()
-    assert (tally["n"], tally["unscored"], tally["pass_rate"]) == (1, 1, 1.0)
+    # The errored sample is counted as an error, apart from the unscored ones, and not in n or the rate.
+    assert (tally["n"], tally["unscored"], tally["errors"], tally["pass_rate"]) == (1, 0, 1, 1.0)
 
 
 def test_read_promptfoo_output_keys_by_test_and_prompt(tmp_path):
@@ -398,3 +400,89 @@ def test_read_promptfoo_refuses_several_providers(tmp_path):
     path.write_text(json.dumps({"results": {"results": rows}}), encoding="utf-8")
     with pytest.raises(ValueError, match="2 providers"):
         read_log(path)
+
+
+@pytest.mark.parametrize("reply", ["", "   \n\t", None])
+def test_an_empty_reply_is_an_error_not_a_score_in_eval_reference(reply):
+    """An empty reply is no answer: never graded (a negated check would pass "" as a 1.0)."""
+    negated = {"checks": [{"type": "match", "values": ["i don't know"], "location": "any", "negate": True}]}
+    plain = {"checks": [{"type": "match", "values": ["paris"], "location": "any"}]}
+    for grading in (negated, plain):
+        data = {"baseline_arm": "baseline", "arms": ["baseline", "skill"], "answers": [
+            {"question_id": "q1", "question_text": "Capital?",
+             "arms": {"baseline": {"answer": "Paris"}, "skill": {"answer": reply}}}]}
+        result = score(data, [{"id": "q1", "question": "Capital?", "grading": grading}])
+        tally = result.tally["skill"].as_dict()
+        assert (tally["n"], tally["errors"], tally["pass_rate"], tally["mean_score"]) == (0, 1, None, None)
+
+
+# --- a judge that fails makes the answer an error, not a pass on the other checks -----------------
+
+def _judge_raises(prompt, draw=0, cache_if=None):
+    raise TimeoutError()
+
+
+def _judge_unparsed(prompt, draw=0, cache_if=None):
+    return "I cannot tell"
+
+
+_MIXED = {"checks": [{"type": "match", "values": ["paris"], "location": "any"},
+                     {"type": "judge", "criterion": "names the capital"}], "threshold": 0.5}
+
+
+@pytest.mark.parametrize("ask,error", [
+    (_judge_raises, "judge: TimeoutError"),
+    (_judge_unparsed, "judge: no YES or NO in the reply"),
+])
+def test_a_judge_failure_is_an_error_not_a_pass_decided_by_the_other_checks(ask, error):
+    g = grade(_MIXED, "Q?", "Paris", ask)
+    assert (g.score, g.passed, g.error) == (None, None, error)
+    assert g.as_dict()["error"] == error
+    tally = ConditionTally()
+    tally.add(g)
+    assert (tally.n, tally.errors, tally.unscored) == (0, 1, 0)
+
+
+def test_judge_checks_after_a_failed_judge_check_make_no_paid_calls():
+    """The grade is an error once a judge call fails, so the judge checks after it are not asked."""
+    four = {"checks": [{"type": "judge", "criterion": f"names point {i}"} for i in range(4)]}
+    counted = {"one": [], "four": []}
+
+    def counting(key):
+        def ask(prompt, draw=0, cache_if=None):
+            counted[key].append(prompt)
+            raise TimeoutError()
+        return ask
+
+    grade({"checks": four["checks"][:1]}, "Q?", "Paris", counting("one"))
+    g = grade(four, "Q?", "Paris", counting("four"))
+    assert len(counted["four"]) == len(counted["one"]) > 0
+    assert g.error == "judge: TimeoutError"
+    assert [c.error for c in g.checks[1:]] == [None, None, None]
+    assert [c.detail for c in g.checks[1:]] == ["not judged: an earlier judge check failed"] * 3
+
+
+def test_eval_reference_counts_a_judge_failure_as_an_error_for_every_arm():
+    data = {"baseline_arm": "baseline", "arms": ["baseline", "skill"], "answers": [
+        {"question_id": "q1", "question_text": "Capital?",
+         "arms": {"baseline": {"answer": "Paris"}, "skill": {"answer": "Paris"}}}]}
+    result = score(data, [{"id": "q1", "question": "Capital?", "grading": _MIXED}], ask=_judge_raises)
+    for arm in ("baseline", "skill"):
+        tally = result.tally[arm].as_dict()
+        assert (tally["n"], tally["errors"], tally["pass_rate"]) == (0, 1, None)
+        cell = result.evaluations[0]["scores"][arm]
+        assert (cell["passed"], cell["aggregate"], cell["error"]) == (None, None, "judge: TimeoutError")
+
+
+def test_a_reference_cell_carries_its_answer_error_as_an_arm_cell_does(tmp_path):
+    data = {"baseline_arm": "baseline", "arms": ["baseline", "skill"], "answers": [
+        {"question_id": "q1", "question_text": "Capital?",
+         "arms": {"baseline": {"answer": "Paris"},
+                  "skill": {"answer": None, "error": "generation_failed: HTTP 500"}}}]}
+    grading = {"checks": [{"type": "match", "values": ["paris"], "location": "any"}]}
+    result = score(data, [{"id": "q1", "question": "Capital?", "grading": grading}])
+    kind, payload = artifact(result, data, judge_model=None, judge_provider=None, questions_path="q.json")
+    scores = payload["evaluations"][0]["scores"]
+    assert scores["skill"]["error"] == "generation_failed: HTTP 500"
+    assert "error" not in scores["baseline"]
+    save_artifact(kind, payload, tmp_path / "arms.json")  # validates arms.v1 with the error on the cell

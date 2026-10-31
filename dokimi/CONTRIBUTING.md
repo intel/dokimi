@@ -154,19 +154,36 @@ pre-commit run --all-files                     # the whole tree, as CI's pre-com
 mypy and pytest are not hooks: they need the full environment and pytest takes
 minutes. `make ci-local` runs both; `make hooks` runs mypy before a push.
 
+**Mutation pilot.** mutmut (pinned in `requirements-mutation.txt`, locked apart from the tools lock) mutates the
+measurement core: the statistics in `dokimi/eval/stats.py` and
+`binary_stats.py`, the score, regression, critical-band and trust gates in
+`dokimi/gate/` (not `novelty_gate.py`) and the response-cache key in
+`dokimi/caching.py` (the list is `only_mutate` under `[tool.mutmut]` in
+`pyproject.toml`). A mutant that survives is a change to that code, such as
+a flipped comparison, an off-by-one or a dropped term, that no test notices.
+The `mutation` workflow runs it weekly and on demand and writes the score per
+module and the survivors to the job summary; it never fails a build. From
+`dokimi/`: `mutmut run --max-children 8`, then `mutmut results` and
+`mutmut show <name>` for a survivor's diff. A test that kills a survivor
+asserts the value the mutant changes. Some survivors are equivalent (the mutant
+computes the same result, e.g. a `<` that differs only at a value no input
+reaches); leave those alone. `mutants/` is scratch and git-ignored.
+
 Dependencies install from `requirements.lock.txt`; the docs build's from
 `requirements-docs.lock.txt` on top of it, and the tools CI, `make dev`, the
 release job and the eval image use (`requirements-ci.txt`) from
 `requirements-ci.lock.txt`. That lock also pins the build backend, setuptools:
 package-smoke and the release job build with `python -m build --no-isolation`,
 so the published sdist and wheel are not built by a backend resolved fresh from
-PyPI. When you change a range in
+PyPI. The mutation workflow adds mutmut's closure
+(`requirements-mutation.txt`) from `requirements-mutation.lock.txt`, which
+nothing else installs, and pip-audit audits with the others. When you change a range in
 `requirements*.txt`, regenerate the lock with the command in its header: run it
 from `dokimi/`, and add `--upgrade` to pick up new versions (without it, uv
 keeps the current pins). The command's `--exclude-newer=P7D` skips releases
 less than 7 days old; if a security fix is newer than that, its vulnerability PR
 fails to resolve, so regenerate the lock by hand without the flag. The docs lock
-and the tools lock (`requirements-ci.lock.txt`) are constrained to the main one,
+and the tools locks (`requirements-ci.lock.txt`, `requirements-mutation.lock.txt`) are constrained to the main one,
 so regenerate them (command in each header) after the main lock changes too;
 `tests/test_dependency_locks.py` fails while a pin they share differs.
 
