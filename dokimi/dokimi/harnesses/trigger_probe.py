@@ -202,6 +202,23 @@ def run_query(query: str, catalog: Path, cfg: ProbeConfig, *, runner: process.Ru
         ws.cleanup()
 
 
+def known_positive(skill: str, catalog: Path, cfg: ProbeConfig, *, runner: process.Runner = process.run,
+                   source_env: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    """One run of an explicit request for *skill*, through the same harness; ``passed`` if it loaded it.
+
+    A harness that never shows the skill scores every labelled query 0%, which reads as a
+    finding. This run is the check that the skill can be loaded at all, before those queries.
+    """
+    query = f"Use the {skill} skill."
+    try:
+        r = run_query(query, catalog, cfg, runner=runner, source_env=source_env)
+    except (OSError, RuntimeError) as exc:
+        return {"skill": skill, "query": query, "passed": False, "loaded": [], "cost_usd": None,
+                "error": f"{type(exc).__name__}: {exc}"}
+    return {"skill": skill, "query": query, "passed": skill in r["skill"]["loaded"],
+            "loaded": r["skill"]["loaded"], "cost_usd": r["cost_usd"], "error": r["error"]}
+
+
 def kill_strays(root: Path) -> List[int]:
     """SIGKILL every process whose cwd is under *root*; return their pids (Linux only).
 
