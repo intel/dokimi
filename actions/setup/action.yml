@@ -106,21 +106,22 @@ runs:
         echo "sha=$sha" >> "$GITHUB_OUTPUT"
         echo "dokimi $DOKIMI_REPO@$REF -> $sha"
 
-    # The pip cache key is a file that names the commit: setup-python hashes it.
+    # The pip cache key is a file that names the commit: setup-python hashes it. It sits in
+    # the workspace, since setup-python's hashFiles only sees files under GITHUB_WORKSPACE.
     - name: Key for the pip cache
       shell: bash
       env:
         SHA: ${{ steps.ref.outputs.sha }}
       run: |
-        mkdir -p "$RUNNER_TEMP/dokimi-setup"
-        echo "dokimi $SHA" > "$RUNNER_TEMP/dokimi-setup/pip-key.txt"
+        mkdir -p "$GITHUB_WORKSPACE/.dokimi-setup"
+        echo "dokimi $SHA" > "$GITHUB_WORKSPACE/.dokimi-setup/pip-key.txt"
 
     - name: Set up Python
       uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
       with:
         python-version: ${{ inputs.python-version }}
         cache: ${{ inputs.cache == 'true' && 'pip' || '' }}
-        cache-dependency-path: ${{ runner.temp }}/dokimi-setup/pip-key.txt
+        cache-dependency-path: ${{ github.workspace }}/.dokimi-setup/pip-key.txt
 
     - name: Install dokimi
       shell: bash
