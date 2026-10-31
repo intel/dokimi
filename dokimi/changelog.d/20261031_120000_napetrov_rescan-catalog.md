@@ -1,12 +1,14 @@
 ### Added
 
-- **`novelty routing --include-invalid`** keeps a catalog skill with a spec error (for example a
-  description over 1024 characters, or a name that is not kebab-case or not its directory name) in
-  the `--catalog` field. Off by default: such a skill is left out, with a warning on stderr naming
-  the error.
+- **`novelty routing --include-invalid`** keeps a catalog skill with a spec error in the `--catalog`
+  field, and the saved result records the flag under `field`.
 
 ### Changed
 
+- **`novelty routing --catalog` leaves out a skill with a spec error by default** (for example a
+  description over 1024 characters, or a name that is not kebab-case or not its directory name), with
+  a warning on stderr naming the error. Before, such a skill was in the field. `--include-invalid`
+  keeps it.
 - **`catalog scan` reports a same-name skill with different content as a `name-conflict` warning**
   naming the other path. Before, each of the two skills was reported `ok`. It is a warning, not an
   error, so `--strict` does not fail on it.

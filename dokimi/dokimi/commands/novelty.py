@@ -408,7 +408,7 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
 
 def _field_record(args: argparse.Namespace, competitors: list, left_out: list[str]) -> dict:
     """The field rule a routing result was measured under, saved next to the result."""
-    return {"include_disabled": bool(args.include_disabled),
+    return {**{name: bool(getattr(args, name)) for name in ("include_disabled", "include_invalid")},
             "competitors": [c.name for c in competitors], "left_out": left_out}
 
 

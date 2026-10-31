@@ -356,6 +356,23 @@ def test_include_invalid_keeps_a_catalog_skill_over_the_spec_limit(tmp_path):
     assert sorted(names) == ["long", "perf"]
 
 
+def test_the_saved_field_rule_records_include_invalid(tmp_path):
+    # The saved result states the field rule; a run that kept spec-error skills must say so.
+    root = _long_description_catalog(tmp_path)
+    _catalog_skill(root, "db", "tune a slow database query")
+    queries = tmp_path / "q.json"
+    queries.write_text(json.dumps(["profile my binary"]), encoding="utf-8")
+    out = tmp_path / "r.json"
+    argv = ["novelty", "routing", "--artifact", f"skill:{root / 'skills' / 'perf'}",
+            "--catalog", str(root), "--queries", str(queries), "--out", str(out)]
+    args = _parse(*argv)
+    args.func(args)
+    assert json.loads(out.read_text(encoding="utf-8"))["field"]["include_invalid"] is False
+    args = _parse(*argv, "--include-invalid")
+    args.func(args)
+    assert json.loads(out.read_text(encoding="utf-8"))["field"]["include_invalid"] is True
+
+
 def test_the_include_invalid_flag_reaches_the_routing_field(tmp_path, capsys):
     root = _long_description_catalog(tmp_path)
     queries = tmp_path / "q.json"

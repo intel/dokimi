@@ -678,7 +678,7 @@ is no attractor, and a tied skill's own rate is lower by the picks inside its gr
 `n_scored` and `n_unscored` per skill say how many, a query with no content word or a failed
 model call is unscored, and a skill with none scored has an own rate of `null`, not 0.0. A run
 with any failed model call writes the result and exits non-zero. The saved file records the
-field rule under `field` (`include_disabled`, the `competitors` and what was `left_out`, which
+field rule under `field` (`include_disabled`, `include_invalid`, the `competitors` and what was `left_out`, which
 also names each skill left out for a conflicting name or a spec error); a
 single-artifact run records it too. It takes no `--artifact`, `--queries`,
 `--queries-from-headings` or `--repeats` (one model call per query). The model arm also records the selector `model`, so two runs with
