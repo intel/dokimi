@@ -71,6 +71,34 @@ def test_a_rule_a_root_claude_md_imports_is_one_start_entry(tmp_path):
     assert (".claude/rules/api.md", "import") not in got
 
 
+def test_a_root_rule_linked_to_an_off_agents_md_loads_it_at_start(tmp_path):
+    # a root CLAUDE.md turns AGENTS.md off, but the rule links to the same bytes and loads them at start
+    _tree(tmp_path, {"CLAUDE.md": "claude\n", "AGENTS.md": "agents\n"})
+    (tmp_path / ".claude/rules").mkdir(parents=True)
+    try:
+        (tmp_path / ".claude/rules/agents.md").symlink_to(tmp_path / "AGENTS.md")
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    payload = budget(WorkTree(tmp_path), NAMES, rules=True)
+    assert _by_path(payload)[("AGENTS.md", "guidance")]["when"] == "start"
+    assert not [e for e in payload["entries"] if e["when"] == "off"]
+    assert payload["warnings"] == []
+    assert payload["totals"]["start"] == len("claude\n") + len("agents\n")
+
+
+def test_a_root_rule_linked_to_a_nested_guidance_file_loads_it_at_start(tmp_path):
+    _tree(tmp_path, {"CLAUDE.md": "root\n", "sub/CLAUDE.md": "nested\n"})
+    (tmp_path / ".claude/rules").mkdir(parents=True)
+    try:
+        (tmp_path / ".claude/rules/nested.md").symlink_to(tmp_path / "sub/CLAUDE.md")
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    payload = budget(WorkTree(tmp_path), NAMES, rules=True)
+    assert _by_path(payload)[("sub/CLAUDE.md", "guidance")]["when"] == "start"
+    assert payload["totals"]["start"] == len("root\n") + len("nested\n")
+    assert payload["totals"]["lazy"] == 0
+
+
 def test_an_unreadable_rule_is_counted_as_zero_and_named(tmp_path):
     (tmp_path / ".claude/rules").mkdir(parents=True)
     (tmp_path / ".claude/rules/bin.md").write_bytes(b"\xff\xfe\x00")
@@ -104,6 +132,14 @@ def test_rules_are_counted_only_for_a_harness_that_reads_them(tmp_path):
     ('paths: [\n  "src/**"]\n', "lazy"),
     ('paths:\n  # the api\n  - "src/**"\n', "lazy"),
     pytest.param("paths: " + "[" * 3000 + "]" * 3000 + "\n", "start", id="too-deep-for-yaml"),
+    pytest.param("unused: " + "9" * 5000 + "\n", "start", id="oversized-integer-unrelated-to-paths"),
+    # the same for YAML that does not parse: the fallback reads the key line by line
+    pytest.param("paths: # none yet\nfoo: [unclosed\n", "start", id="unparsed-comment-only-value"),
+    pytest.param("paths: [] # none\nfoo: [unclosed\n", "start", id="unparsed-empty-list-and-comment"),
+    pytest.param('paths:\n  # the api\n  - "src/**"\nfoo: [unclosed\n', "lazy",
+                 id="unparsed-comment-line-before-item"),
+    pytest.param('paths:\n\n  - "src/**"\nfoo: [unclosed\n', "lazy", id="unparsed-blank-line-before-item"),
+    pytest.param('paths: "src/#x" # the api\nfoo: [unclosed\n', "lazy", id="unparsed-quoted-hash-kept"),
 ])
 def test_only_a_paths_value_that_names_a_pattern_scopes_a_rule(tmp_path, front, when):
     payload = budget(_tree(tmp_path, {".claude/rules/r.md": f"---\n{front}---\nbody\n"}), NAMES, rules=True)

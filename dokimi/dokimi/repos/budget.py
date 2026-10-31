@@ -47,8 +47,8 @@ SKILL_GLOB = re.compile(r"^\.claude/skills/[^/]+/SKILL\.md$")
 RULE_GLOB = re.compile(r"^(?:.+/)?\.claude/rules/(?:.+/)?[^/]+\.md$")
 _RULES_ENTRY = re.compile(r"^(?:.+/)?\.claude/rules(?:/.+)?$")
 _FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n(.*?)^---[ \t]*(?:\r?\n|\Z)", re.S | re.M)
-# `paths:` and what follows it: an inline value, or the `- item` lines under it.
-_PATHS_KEY = re.compile(r"^paths[ \t]*:(?P<inline>[^\n]*)(?P<items>(?:\n[ \t]*-[^\n]*)*)", re.M)
+# The `paths:` key of frontmatter that does not parse: its line, read on its own (see _fallback_paths).
+_PATHS_LINE = re.compile(r"^paths[ \t]*:(.*)$")
 MCP_FILE = ".mcp.json"
 # Claude Code truncates description + when_to_use at 1,536 characters in the listing (docs: Skills).
 LISTING_TEXT_CAP = 1536
@@ -129,7 +129,7 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
             unreadable_warnings.append(warning)
         entries.append({"path": f, "kind": "guidance", "when": when, "chars": chars})
     counted = {_target(tree, f) for f in guidance}
-    entries += _rules(tree, files if rules else [], counted, start_t, unreadable_warnings)
+    entries += _rules(tree, files if rules else [], counted, start_t, unreadable_warnings, entries)
     for f in sorted((at_start | lazily) - set(guidance), key=lambda p: (p not in at_start, p)):
         if _is_resolvable(tree, f) and _target(tree, f) not in counted:
             counted.add(_target(tree, f))
@@ -232,11 +232,17 @@ def _chars(tree: RepoTree, path: str) -> tuple[int, str | None]:
 
 
 def _rules(tree: RepoTree, files: list[str], counted: set[str], start_t: set[str],
-           warnings: list[str]) -> list[dict[str, Any]]:
+           warnings: list[str], guidance: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """The ``rule`` entries of ``files``, skipping files already ``counted`` (and adding theirs).
+
+    A rule that is the same file as a guidance entry (in ``guidance``) is not counted twice: that entry
+    takes the earlier of the two loading conditions, so a root rule linked to an AGENTS.md that a root
+    CLAUDE.md turns off loads it at start.
 
     ``budget`` passes no files for a harness that does not read ``.claude/rules`` (``guidance.claude_rules``).
     """
+    rank = {"off": 0, "lazy": 1, "start": 2}
+    by_target = {_target(tree, e["path"]): e for e in guidance}
     out = []
     for f in sorted(f for f in files if _RULES_ENTRY.match(f) and not RULE_GLOB.match(f)):
         try:
@@ -245,14 +251,18 @@ def _rules(tree: RepoTree, files: list[str], counted: set[str], start_t: set[str
         except (OSError, ValueError, RuntimeError):  # out of the tree (a shared rules dir), dangling or a loop
             warnings.append(f"{f}: a link that does not resolve in the tree; any rules behind it are not counted")
     for f in sorted(f for f in files if RULE_GLOB.match(f)):
-        if _target(tree, f) in counted:
-            continue  # a link to a file already counted, or a rule that is also a guidance file
-        counted.add(_target(tree, f))
+        target = _target(tree, f)
         chars, scoped, warning = _rule(tree, f)
+        # a CLAUDE.md that imports a rule at start loads it then, whatever its frontmatter says
+        when = "start" if (f.startswith(".claude/rules/") and not scoped) or target in start_t else "lazy"
+        if target in counted:
+            # a link to a file already counted (a guidance file, or a rule): the same bytes, loaded once
+            if target in by_target and rank[when] > rank[by_target[target]["when"]]:
+                by_target[target]["when"] = when
+            continue
+        counted.add(target)
         if warning:
             warnings.append(warning)
-        # a CLAUDE.md that imports a rule at start loads it then, whatever its frontmatter says
-        when = "start" if (f.startswith(".claude/rules/") and not scoped) or _target(tree, f) in start_t else "lazy"
         out.append({"path": f, "kind": "rule", "when": when, "chars": chars})
     return out
 
@@ -280,17 +290,55 @@ def _has_paths(frontmatter: str) -> bool:
     """True if ``paths`` names at least one pattern: a list item or an inline value not ``[]`` or ``""``."""
     try:
         meta = yaml.safe_load(frontmatter)
-    except (yaml.YAMLError, RecursionError):  # RecursionError: nesting too deep for the parser
+    except (yaml.YAMLError, RecursionError, ValueError):  # RecursionError: nesting too deep; ValueError: an integer over the digit limit
         meta = None  # Claude Code still reads a `paths:` line of YAML that does not parse
     if isinstance(meta, dict):
         value = meta.get("paths")
         items = value if isinstance(value, list) else str(value or "").split(",")
         return any(str(v).strip() for v in items if v is not None)
-    m = _PATHS_KEY.search(frontmatter)
-    if not m:
+    values = _fallback_paths(frontmatter)
+    if values is None:
         return False
-    values = [m["inline"]] + [line.split("-", 1)[1] for line in m["items"].splitlines() if line.strip()]
     return any(v.strip().strip("[]").strip(" \t\"'") for v in values)
+
+
+def _fallback_paths(frontmatter: str) -> list[str] | None:
+    """The values of the ``paths`` key in frontmatter that does not parse: its inline value and its ``- item`` lines.
+
+    Comment lines and blank lines between the items are skipped, and a YAML comment is cut from each value
+    (``_without_comment``). None when there is no ``paths`` key.
+    """
+    lines = frontmatter.splitlines()
+    for i, line in enumerate(lines):
+        m = _PATHS_LINE.match(line)
+        if not m:
+            continue
+        values = [_without_comment(m.group(1))]
+        for item in lines[i + 1:]:
+            s = item.strip()
+            if not s or s.startswith("#"):
+                continue
+            if not s.startswith("-"):
+                break
+            values.append(_without_comment(s[1:]))
+        return values
+    return None
+
+
+def _without_comment(text: str) -> str:
+    """``text`` up to a YAML comment: a `#` that starts a word, outside a quoted scalar (``"src/#x"`` keeps it)."""
+    quote = None
+    prev = " "
+    for i, ch in enumerate(text):
+        if quote:
+            if ch == quote:
+                quote = None
+        elif ch in "\"'" and prev in " \t[,":
+            quote = ch
+        elif ch == "#" and prev in " \t":
+            return text[:i]
+        prev = ch
+    return text
 
 
 def _imports(tree: RepoTree, roots: list[str], max_depth: int | None = None) -> tuple[set[str], list[tuple[str, str]]]:
