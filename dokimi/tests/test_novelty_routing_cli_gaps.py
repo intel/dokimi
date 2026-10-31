@@ -42,6 +42,19 @@ def test_a_skill_with_no_usable_heading_is_queried_by_its_description_sentences(
     assert "description" in capsys.readouterr().err
 
 
+def test_no_derived_queries_refuses_without_claiming_a_derivation(tmp_path, capsys):
+    out = tmp_path / "routing.json"
+    args = _parse("novelty", "routing",
+                  "--artifact", _skill(tmp_path, "grill", "Stop.", body="# Grill\n\n## Steps\n"),
+                  "--competitors", _skill(tmp_path, "b", "tune a database"),
+                  "--queries-from-headings", "--out", str(out))
+    with pytest.raises(SystemExit):
+        args.func(args)
+    err = capsys.readouterr().err
+    assert "derived from the artifact" not in err
+    assert json.loads(out.read_text(encoding="utf-8"))["status"] == "no_queries"
+
+
 def test_description_sentences_are_queries_only_with_two_content_words():
     from dokimi.novelty.routing import description_as_queries
 

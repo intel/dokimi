@@ -38,6 +38,9 @@ def routing_queries(args: argparse.Namespace, body: str,
         usage_exit("pass --queries <file> with requests written independently of the artifact, or "
                    "--queries-from-headings for a self-derived triage run")
     queries, source = self_derived_queries(body, gold.description)
+    if source == "none":
+        # Nothing was derived, so there is nothing to label; the refusal that follows says why.
+        return queries, True, source
     print(f"WARNING: queries derived from the artifact's own "
           f"{'headings' if source == 'headings' else 'description'}. The artifact "
           "then defines both the problem scope and its own relevance, so this is triage, "
