@@ -158,11 +158,8 @@ class ResultsAggregator:
             with_eval: Mapping[str, Any] = with_s.raw if with_s is not None else {}
             without_eval: Mapping[str, Any] = without_s.raw if without_s is not None else {}
 
-            with_score = _as_float(ev.score(CONTEXT))
             without_score = _as_float(ev.score(BASELINE))
-            if (with_score is None and ev.retrieval_hit is False and without_score is not None
-                    and ev.error is None and (with_s is None or with_s.error is None)):
-                with_score = 0.0  # a retrieval miss the context arm never answered: the docs did not help
+            with_score = _context_score(ev, with_s, _as_float(ev.score(CONTEXT)), without_score)
             delta = _as_float(ev.delta)
 
             q_source = ev.raw.get("question_source", "persona")
@@ -198,6 +195,14 @@ class ResultsAggregator:
             source_file=str(path),
             by_source=by_source,
         )
+
+
+def _context_score(ev: Any, with_s: Any, with_score: Optional[float], without_score: Optional[float]) -> Optional[float]:
+    """The context arm's score; 0.0 for a no-error retrieval miss it never answered, with a baseline score."""
+    if (with_score is None and ev.retrieval_hit is False and without_score is not None
+            and ev.error is None and (with_s is None or with_s.error is None)):
+        return 0.0  # the docs did not help
+    return with_score
 
 
 def _compute_by_source(questions: "List[QuestionResult]") -> "Dict[str, Dict]":

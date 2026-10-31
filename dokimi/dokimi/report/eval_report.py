@@ -131,6 +131,20 @@ def _summary_cells(st: dict) -> tuple[str, str, str]:
     return str(st["with_avg"]), str(st["without_avg"]), f'**{st["delta_avg"]:+}**'
 
 
+def _overall_line(st: dict) -> str:
+    """The Overall delta bullet, or a note that no question is paired."""
+    if not st["valid"]:
+        return "- **Overall delta:** none — no complete pairs (a question scored in both arms), so there is no delta."
+    verdict = "context arm is helping." if st["delta_avg"] > 2 else "context arm is neutral or slightly harmful."
+    return f'- **Overall delta: {st["delta_avg"]:+}** — {verdict}'
+
+
+def _delta_summary(st: dict) -> str:
+    if not st["valid"]:
+        return "   Delta: none (no complete pairs)"
+    return f"   Delta: {st['delta_avg']:+} (with={st['with_avg']}, without={st['without_avg']})"
+
+
 def fmt_delta(d):
     if d is None:
         return "N/A"
@@ -470,17 +484,10 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
     lines.append("")
 
     # Recommendations
-    overall_line = (
-        f'- **Overall delta: {all_stats["delta_avg"]:+}** — '
-        + ("context arm is helping." if all_stats["delta_avg"] > 2 else
-           "context arm is neutral or slightly harmful.")
-        if all_stats["valid"] else
-        "- **Overall delta:** none — no complete pairs (a question scored in both arms), so there is no delta."
-    )
     lines += [
         "## Key Observations & Recommendations",
         "",
-        overall_line,
+        _overall_line(all_stats),
         f'- **Dynamic vs Static agreement:** {dyn_stats["delta_avg"]:+} vs {static_stats["delta_avg"]:+} — '
         + ("good consistency, benchmark is stable." if abs(dyn_stats["delta_avg"] - static_stats["delta_avg"]) < 3
            else "notable gap — investigate question quality."),
@@ -536,10 +543,7 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
     print(f"✅ Report written to: {out_path}")
     print(f"✅ Q&A JSON written to: {qa_json_out}")
     print(f"   Questions: {all_stats['count']} ({dyn_stats['count']} dynamic + {static_stats['count']} static)")
-    if all_stats["valid"]:
-        print(f"   Delta: {all_stats['delta_avg']:+} (with={all_stats['with_avg']}, without={all_stats['without_avg']})")
-    else:
-        print("   Delta: none (no complete pairs)")
+    print(_delta_summary(all_stats))
     return out_path
 
 
