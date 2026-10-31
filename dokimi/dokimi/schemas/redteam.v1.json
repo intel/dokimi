@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/intel/dokimi/schemas/redteam.v1.json",
   "title": "Verifier red team v1",
-  "description": "Whether a question set's grading blocks reject the synthetic wrong, empty, hedged and stuffed answers they should, and accept a canary right answer. Written by `eval redteam`; status is blocked when any attack is accepted or a canary is rejected, and inconclusive when nothing was graded or a graded question was not measured (judge checks without a judge, or only negated checks).",
+  "description": "Whether a question set's grading blocks reject the synthetic wrong, empty and hedged answers they should, and accept a canary right answer. Written by `eval redteam`; status is blocked when any attack is accepted or a canary is rejected, and inconclusive when nothing was graded or a graded question was not measured (judge checks without a judge, or only negated checks).",
   "type": "object",
   "required": ["schema_version", "status", "questions_path", "judge_model", "judge_provider", "attacks", "violations", "questions", "summary"],
   "additionalProperties": false,
@@ -34,7 +34,7 @@
         "additionalProperties": false,
         "properties": {
           "question_id": {"type": "string"},
-          "attack": {"enum": ["canary", "wrong", "empty", "hedge", "stuffed"]},
+          "attack": {"enum": ["canary", "wrong", "empty", "hedge"]},
           "passed": {"type": "boolean"}
         }
       }

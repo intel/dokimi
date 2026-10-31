@@ -3,21 +3,13 @@
 
 """Verifier red team: do a question's grading checks reject the answers they should?
 
-Each question with a ``grading`` block is graded against five synthetic answers:
+Each question with a ``grading`` block is graded against four synthetic answers:
 
 - ``canary``: the right answer, built from the one literal check; it must pass.
 - ``wrong``: a planted wrong answer; it must fail. Its text is picked so that no positive literal
   check accepts it; the probe is skipped only when no candidate is clean.
 - ``empty``: the empty answer; it must fail.
 - ``hedge``: a non-committal answer that carries no check value; it must fail.
-- ``stuffed``: every literal check value listed with no sentence around it; it must fail. Probed only
-  for a negated check of one or more values, whose stuffed answer carries the forbidden value; not
-  built for a negated ``exact``, ``json`` or location-``exact`` match, which the listed values never
-  equal, nor for a negated ``mode: all`` match, whose stuffed answer can pass the negation by its
-  location (``Paris Lyon`` ends with one value only). The skip covers every negated ``mode: all``
-  match, which is wider than that case and never a false block. A positive check's stuffed answer is
-  built (for ``grade_check``'s self-test) but not probed: its one check grades it, so no violation is
-  possible.
 
 An answer the grader accepts when it should reject it (or rejects a canary) is a violation, and
 any violation blocks the run. A run with a question whose correctness no probe measured (a judge check without a judge, a block of
@@ -28,8 +20,8 @@ reported as unscored. The canary is only built for a question whose grading is o
 other questions get the other attacks alone.
 
 A ``negate`` check passes a wrong, empty or hedged answer by design, so a block of only negated
-checks gets none of those three attacks and is reported as ``negated_only``; its stuffed answer still
-runs. A block with a positive check is graded as written, ``threshold`` included: a negated check's
+checks gets none of those three attacks and is reported as ``negated_only``; it has no probe at all.
+A block with a positive check is graded as written, ``threshold`` included: a negated check's
 share of the score counts, so a block whose negated checks lift a wrong answer over the line is blocked.
 
 Nothing here calls a model unless the caller passes ``ask`` (the judge of judge checks).
@@ -45,8 +37,8 @@ from typing import Any, Mapping, Optional
 from dokimi.eval.reference_checks import Ask, _number, check_values, grade, grade_check
 from dokimi.eval.reference_run import grading_by_id
 
-ATTACKS = ("canary", "wrong", "empty", "hedge", "stuffed")
-EXPECTED = {"canary": True, "wrong": False, "empty": False, "hedge": False, "stuffed": False}
+ATTACKS = ("canary", "wrong", "empty", "hedge")
+EXPECTED = {"canary": True, "wrong": False, "empty": False, "hedge": False}
 # Planted wrong answers, tried in order; the first that no positive literal check accepts is used.
 WRONG_CANDIDATES = ("PLANTED-WRONG-ANSWER-7731", "QZX-BOGUS-REPLY-4096", "ZKV-MISMATCH-2508", "XJQ-NONSENSE-6349")
 # JSON decoys for a json check with contains, which reads the first JSON object or array in the text.
@@ -101,6 +93,8 @@ def _reads_first_json(check: Mapping[str, Any]) -> bool:
 
 def stuffed_for(grading: Mapping[str, Any]) -> Optional[str]:
     """The block's one literal check's values, listed with no sentence around them; None when not built.
+
+    Not an attack: no probe uses it. It is a self-check of ``grade_check`` that the unit tests assert.
 
     A positive check needs two or more values and must accept any one of them (mode ``any``): a block
     that needs every value, or several checks, is satisfied by the stuffed answer by design, so
@@ -181,20 +175,18 @@ def attacks(grading: Mapping[str, Any]) -> dict[str, Optional[str]]:
     """The synthetic answer for each attack; None where the attack does not apply to the block.
 
     The wrong, empty and hedge answers apply when the block has a non-negated check, and are graded
-    against the whole block as written. A block of only negated checks gets none of the three.
-    ``stuffed`` still runs, since it carries the negated value and must fail. The planted wrong answer
-    is chosen per block so that no positive check accepts it, and the hedge is fixed text, so it is
-    skipped when a positive check accepts it (each is asked with the grader's own rules, so a numeric
-    match that reads a number out of the planted answer, or a short value the check does not find in the
-    hedge, are judged as the grader judges them).
+    against the whole block as written. A block of only negated checks gets none of the three, so it
+    has no attack at all. The planted wrong answer is chosen per block so that no positive check
+    accepts it, and the hedge is fixed text, so it is skipped when a positive check accepts it (each is
+    asked with the grader's own rules, so a numeric match that reads a number out of the planted answer,
+    or a short value the check does not find in the hedge, are judged as the grader judges them).
     """
     applies = bool(_positive_checks(grading))
     clashes = _accepts(grading, HEDGE)
     return {"canary": canary_for(grading),
             "wrong": wrong_for(grading) if applies else None,
             "empty": "" if applies else None,
-            "hedge": None if not applies or clashes else HEDGE,
-            "stuffed": stuffed_for(grading)}
+            "hedge": None if not applies or clashes else HEDGE}
 
 
 @dataclass(frozen=True)
@@ -220,9 +212,7 @@ def probe(grading: Mapping[str, Any], question: str, ask: Optional[Ask] = None) 
     """Grade every applicable attack against one grading block."""
     out: dict[str, Probe] = {}
     for name, answer in attacks(grading).items():
-        # A positive block's stuffed answer is graded by the one check it was built to reject, so it can
-        # never be a violation: it stays a unit-test self-check of grade_check, not a probe or a rate.
-        if answer is None or (name == "stuffed" and not negated_only(grading)):
+        if answer is None:
             continue
         g = grade(grading, question, answer, ask)
         # A check left unrun (no judge, or a regex past its timeout) makes a pass on the rest no measurement;
@@ -281,7 +271,7 @@ def _unmeasured(row: Mapping[str, Any]) -> str:
     """Why a question's correctness was not measured, or "" when a probe scored it.
 
     A block of only negated checks gets no wrong, empty or hedge probe: the real grader accepts any
-    answer without the forbidden value, so nothing was verified about it, whatever its stuffed probe said.
+    answer without the forbidden value, so nothing was verified about it.
     """
     if row["negated_only"]:
         return "only negated checks"

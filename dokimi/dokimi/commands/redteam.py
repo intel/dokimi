@@ -64,7 +64,7 @@ def cmd_eval_redteam(args: argparse.Namespace) -> None:
 def register_eval(eval_sub) -> None:
     r = eval_sub.add_parser(
         "redteam",
-        help="Check grading blocks reject wrong, empty, hedged and stuffed answers and accept a canary")
+        help="Check grading blocks reject wrong, empty and hedged answers and accept a canary")
     r.add_argument("questions", help="questions JSON with grading blocks (from `questions import`)")
     r.add_argument("--judge", metavar="PROVIDER/MODEL", type=_judge_ref, default=None,
                    help="Grade judge checks with this judge model (model calls); default leaves them unscored")
