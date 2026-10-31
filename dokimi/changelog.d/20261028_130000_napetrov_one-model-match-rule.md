@@ -1,0 +1,22 @@
+### Fixed
+
+- **"Same model" means one thing in `baseline compare`, the self-judge warning and `repo compare`** — they
+  used two rules that disagreed. A dated id (`claude-sonnet-4-5-20250929`) and its undated alias, a Bedrock
+  regional profile (`eu.anthropic.…`) and its bare id, and the same model behind a route
+  (`anthropic/`, `openrouter/anthropic/`, `bedrock/`, `vertex_ai/`) or a `-v1:0` revision are now one model
+  everywhere; two different dated snapshots are still two models, and case no longer matters. Effects: the
+  self-judge warning fires when the answer and the judge are the same model on another provider too; `baseline
+  compare` no longer reports or refuses (`--strict`) a judge or answer that only changed its route or region;
+  `repo compare` pairs arms by the same rule. A dated snapshot against its undated alias is the exception in
+  `baseline compare`: the alias does not record which snapshot answered, so it is named on stderr as not
+  verified and `--strict` refuses it, as before. Scores are not recomputed, but a comparison
+  that used to refuse or warn about such a pair may now pass.
+  `dokimi run` stores `run_metadata.evaluator_independence_warning` by this rule too, as `dokimi eval` does (it
+  was an exact provider-and-model match, so the printed warning and the stored flag disagreed).
+  A route is a provider or gateway prefix; the organization of an `org/name` id is part of the id, so
+  `meta-llama/X` and `myorg/X` are two models, but a known vendor written as a path segment, as OpenRouter does
+  (`qwen/X`, `z-ai/X`), is the vendor of Bedrock's `qwen.X`, `zai.X` and is dropped like it. Only a known vendor before the first dot is dropped (`anthropic.`,
+  `openai.`, as in Bedrock ids), so a custom name such as `alice.model` stays its own model, and an explicit
+  `huggingface/` route keeps the organization after it (`huggingface/google/X` is not `X`). So a bare requested name answered by an org-prefixed id (`X` answered by `myorg/X`)
+  now gets the `repo compare` and `repo report` model-mismatch warning, which it did not before. Only a
+  Bedrock ARN (`arn:aws:bedrock:…:inference-profile/`) loses its path, so `huggingface/foundation-model/X` is not `X`.
