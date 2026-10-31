@@ -54,7 +54,7 @@ model that is not a Claude alias or id is refused at parse time.
 | `max_tokens` | output ceiling | ignored: the CLI has no flag for it |
 | Hidden prompt | none | fixed CLI preamble (≈0.5k–1.3k tokens, by CLI version), plus working directory, git status, platform and date |
 | Tools | `chat(tools=...)` | refused: one prompt, one reply |
-| Arms that offer tools (`mcp_agent`, `skill_agent`, `skill_catalog`, a `combined` arm containing one, a tool plugin), and `--session-turns`, in `arms run` and `arms matrix-run` | a tool loop or a conversation | refused before the first answer is paid for |
+| Arms that offer tools (`mcp_agent`, `skill_agent`, `skill_catalog`, a `combined` arm containing one, a plugin wrapping one), and `--session-turns`, in `arms run` and `arms matrix-run` | a tool loop or a conversation | refused before the first answer is paid for |
 | `cost_usd` | litellm price | `None`: the CLI's `total_cost_usd` is list price, not what a subscription is charged |
 | Latency | model only | plus ≈2–3 s CLI start-up per call |
 
