@@ -619,3 +619,29 @@ def test_an_evals_dir_that_links_to_its_own_skill_is_refused(tmp_path):
     os.symlink(".", root / "skills/a/evals")
     with pytest.raises(ConfigError, match=r"skill/a.*evals.*link"):
         load_repo_config(root).subjects(hashes=False)
+
+
+def test_an_explicit_subject_that_takes_the_id_of_another_default_is_refused(tmp_path):
+    body = HEADER + "defaults:\n  skills: skills/*/*\nsubjects:\n  - {id: skill/foo, path: skills/a/foo}\n"
+    files = {".github/dokimi/config.yaml": body, "skills/a/foo/SKILL.md": "a\n", "skills/b/foo/SKILL.md": "b\n"}
+    root = _tree(tmp_path / "repo", files)
+    with pytest.raises(ConfigError, match=r"skill/foo.*skills/b/foo.*distinct id"):
+        load_repo_config(root).subjects(hashes=False)
+
+
+def test_a_budget_with_a_huge_exponent_is_refused_with_a_short_message(tmp_path):
+    root = _tree(tmp_path / "repo", {".github/dokimi/config.yaml": HEADER + "budget:\n  pr_max_usd: 1e99999999\n"})
+    with pytest.raises(ConfigError, match=r"pr_max_usd") as err:
+        load_repo_config(root)
+    assert len(str(err.value)) < 500
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+@pytest.mark.parametrize(("link", "target"), [("evals/skill_link.md", "../SKILL.md"), ("evals/up", "..")])
+def test_a_suite_link_into_its_skill_is_refused(tmp_path, link, target):
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n"
+    files = {".github/dokimi/config.yaml": body, "skills/a/SKILL.md": "a\n", "skills/a/evals/e.json": "{}\n"}
+    root = _tree(tmp_path / "repo", files)
+    os.symlink(target, root / "skills/a" / link)
+    with pytest.raises(ConfigError, match=r"skill/a.*link"):
+        load_repo_config(root).subjects(hashes=False)

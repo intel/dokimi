@@ -163,13 +163,13 @@ def _check_budget_numbers(data: dict[str, Any], path: Path) -> None:
         text = value.strip() if isinstance(value, str) else ""
         if _NUMBER_AS_TEXT.fullmatch(text):
             try:
-                plain = format(Decimal(text), "f")  # exact: 1e-7 is 0.0000001, not 0
+                number = Decimal(text)
             except InvalidOperation:
                 continue  # text that is no number at all: the schema refuses it as a type error
-            raise ConfigError(
-                f"{path}: budget.{key} is the text {value!r}, not a number: YAML reads it as text. "
-                f"Write {plain} (the plain decimal) or 1.0e+3 style (a dot and a signed exponent)"
-            )
+            spelled = "Write the number with a dot and a signed exponent, 1.0e+3 style"
+            if abs(number.adjusted()) <= 30:  # exact: 1e-7 is 0.0000001, not 0; a huge exponent is not expanded
+                spelled = f"Write {format(number, 'f')} (the plain decimal) or 1.0e+3 style (a dot and a signed exponent)"
+            raise ConfigError(f"{path}: budget.{key} is the text {value!r}, not a number: YAML reads it as text. {spelled}")
 
 
 def load_repo_config(start: Path | None = None, *, explicit: Path | None = None) -> RepoConfig:
@@ -264,11 +264,20 @@ def _resolve(data: dict[str, Any], root: Path) -> list[Subject]:
     """Defaults plus explicit subjects; an explicit subject replaces a default with its id or its directory."""
     template = (data.get("defaults") or {}).get("suite", DEFAULT_SUITE)
     explicit = [_subject(entry, root, template) for entry in data.get("subjects") or []]
-    taken_ids = {s.id for s in explicit}
     taken_paths = {s.path for s in explicit}
-    found = [_subject({"id": f"skill/{PurePosixPath(rel).name}", "path": rel}, root, template)
-             for rel in _skill_dirs(data, root) if rel not in taken_paths]
-    subjects = [*explicit, *(s for s in found if s.id not in taken_ids)]
+    found: list[Subject] = []
+    for rel in _skill_dirs(data, root):
+        if rel in taken_paths:
+            continue
+        default = _subject({"id": f"skill/{PurePosixPath(rel).name}", "path": rel}, root, template)
+        clash = next((s for s in explicit if s.id == default.id), None)
+        if clash is not None:
+            raise ConfigError(
+                f"subject id {default.id!r} is the explicit subject at {clash.path}, and the default skill at {rel} "
+                "has the same id: give one of them a distinct id"
+            )
+        found.append(default)
+    subjects = [*explicit, *found]
     _check_unique(subjects)
     return sorted(subjects, key=lambda s: s.id)
 
@@ -392,6 +401,12 @@ def _check_suite(subject: Subject, root: Path) -> None:
                 f"subject {subject.id}: its directory {rel} links to its skill or an ancestor of it, "
                 "so the suite would hold the skill's own files"
             )
+        for name, entry in _walk(path, rel):
+            if entry.is_symlink() and entry.resolve().is_relative_to(real_skill):
+                raise ConfigError(
+                    f"subject {subject.id}: its suite holds {name}, a link into its skill {subject.path}; "
+                    "a suite holds its own files, not links into the skill"
+                )
     dirs = [rel for rel, path in matches.items() if path.is_dir() and _within(rel, subject.path)]
     for rel, path in matches.items():
         if path.is_dir() or not _within(rel, subject.path) or any(_within(rel, d) for d in dirs):
