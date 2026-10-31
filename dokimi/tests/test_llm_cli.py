@@ -966,7 +966,7 @@ def test_benchmark_preflight_exit_status_follows_the_cli_login(monkeypatch, tmp_
     if exits:
         with pytest.raises(SystemExit) as exc:
             args.func(args)
-        assert exc.value.code == 1
+        assert exc.value.code == 2
     else:
         args.func(args)
     captured = capsys.readouterr()

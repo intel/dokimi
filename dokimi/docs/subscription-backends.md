@@ -27,7 +27,8 @@ probed with `--setting-sources ""`, as a call runs: calls ignore settings files,
 Bedrock route that only `~/.claude/settings.json` sets is reported as not signed in, and a
 login or token next to it is reported as that login. On a machine without a browser,
 `claude setup-token` prints a token; export it as `CLAUDE_CODE_OAUTH_TOKEN`.
-`benchmark preflight` checks the login the same way, instead of looking for an API key.
+`benchmark preflight` checks the login the same way, instead of looking for an API key, and
+exits 2 for a backend that is not installed or not signed in, as for a missing key.
 
 ## Run
 

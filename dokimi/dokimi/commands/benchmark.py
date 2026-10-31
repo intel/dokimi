@@ -109,15 +109,16 @@ def _provider_checks(providers: list[str], notes: list[str] | None = None,
     A CLI provider is probed once: ``detect`` runs ``--version`` and ``auth status``, and two
     probes of a flaky ``auth status`` could give an error-free pass and a warning in one preflight.
     A signed-in login that comes from the settings file is appended to *notes*, when given, and
-    a missing API key, an input refusal (exit 2), to *refusals* as well as to the errors.
+    every error to *refusals*: a missing key and a CLI not installed or not signed in are both a
+    missing provider credential, an input refusal (exit 2).
     """
     from dokimi import llm_cli
 
     names = sorted(set(providers))
     statuses = {n: llm_cli.detect(n) for n in names if llm_cli.backend(n) is not None}
     errors = [e for e in (_credential_error(n, statuses.get(n)) for n in names) if e]
-    if refusals is not None:  # a provider with no CLI status fails only on a missing key
-        refusals.extend(e for n in names if n not in statuses and (e := _credential_error(n)))
+    if refusals is not None:
+        refusals.extend(errors)
     warnings = [w for w in (_login_warning(n, statuses.get(n)) for n in names) if w]
     if notes is not None:
         notes.extend(f"{n}: signed in ({s.source})" for n, s in statuses.items() if s.authenticated and s.source)
