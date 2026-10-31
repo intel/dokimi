@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for eval-task format detection (``dokimi.task_formats``, ``tasks inspect``).
+"""Tests for eval-task format detection (``dokimi.task_formats``, ``eval inspect``).
 
 Each fixture is hand-written from the upstream shape it imitates:
 
@@ -391,16 +391,16 @@ def _run(argv: list[str]) -> None:
 def test_cli_inspect_prints_a_table_line_per_item(tmp_path, capsys):
     _harbor(tmp_path)
     _jsonl(tmp_path / "m.jsonl", [{"input": _CHAT, "ideal": "4"}])
-    _run(["tasks", "inspect", str(tmp_path)])
+    _run(["eval", "inspect", str(tmp_path)])
     out = capsys.readouterr().out.splitlines()
     assert out[0] == f"{tmp_path / 'hb'}\tharbor\texecutable\t-> harbor, docker-*"
-    assert f"{tmp_path / 'm.jsonl'}\topenai-evals\tanswer-only\t1 item\t-> questions import" in out
+    assert f"{tmp_path / 'm.jsonl'}\topenai-evals\tanswer-only\t1 item\t-> eval import" in out
     assert out[-1] == "2 items: harbor 1, openai-evals 1"
 
 
 def test_cli_inspect_json(tmp_path, capsys):
     _tb1(tmp_path)
-    _run(["tasks", "inspect", str(tmp_path), "--json"])
+    _run(["eval", "inspect", str(tmp_path), "--json"])
     payload = json.loads(capsys.readouterr().out)
     assert [i["format"] for i in payload["items"]] == ["terminal-bench-v1"]
     assert payload["items"][0]["consumers"] == ["docker-*", "harbor", "benchflow"]
@@ -408,7 +408,7 @@ def test_cli_inspect_json(tmp_path, capsys):
 
 def test_cli_inspect_shows_ambiguity_and_problems(tmp_path, capsys):
     _write(tmp_path / "x.jsonl", '{"input": "a", "target": "b", "ideal": "b"}\n{bad\n')
-    _run(["tasks", "inspect", str(tmp_path / "x.jsonl")])
+    _run(["eval", "inspect", str(tmp_path / "x.jsonl")])
     out = capsys.readouterr().out
     assert "  ambiguous: also openai-evals" in out
     assert "  problem: line 2: not valid JSON" in out
@@ -416,7 +416,7 @@ def test_cli_inspect_shows_ambiguity_and_problems(tmp_path, capsys):
 
 def test_cli_inspect_missing_path_exits_with_a_message(tmp_path):
     with pytest.raises(SystemExit) as excinfo:
-        _run(["tasks", "inspect", str(tmp_path / "nope")])
+        _run(["eval", "inspect", str(tmp_path / "nope")])
     assert "no such file or directory" in str(excinfo.value)
 
 
@@ -425,7 +425,7 @@ def test_cli_inspect_json_is_a_stamped_artifact_and_out_writes_the_same(tmp_path
 
     _tb1(tmp_path)
     out = tmp_path / "report.json"
-    _run(["tasks", "inspect", str(tmp_path), "--json", "--out", str(out)])
+    _run(["eval", "inspect", str(tmp_path), "--json", "--out", str(out)])
     printed = json.loads(capsys.readouterr().out)
     assert printed["schema_version"] == "task_inspect.v1"
     validate_artifact("task_inspect", printed)
@@ -436,7 +436,7 @@ def test_cli_inspect_out_to_an_unwritable_path_exits_with_a_message(tmp_path):
     _tb1(tmp_path)
     (tmp_path / "f").write_text("")
     with pytest.raises(SystemExit) as excinfo:
-        _run(["tasks", "inspect", str(tmp_path), "--out", str(tmp_path / "f" / "r.json")])
+        _run(["eval", "inspect", str(tmp_path), "--out", str(tmp_path / "f" / "r.json")])
     assert "cannot write" in str(excinfo.value)
 
 
@@ -600,7 +600,7 @@ def test_cli_inspect_out_writes_yaml_dates_sets_and_nan_as_plain_json(tmp_path, 
     _write(task / "task.yaml", "instruction: do it\ndifficulty: 2024-01-01\n"
                                "tags: !!set {b: null, a: null}\ncategory: .nan\n")
     out = tmp_path / "report.json"
-    _run(["tasks", "inspect", str(tmp_path), "--json", "--out", str(out)])
+    _run(["eval", "inspect", str(tmp_path), "--json", "--out", str(out)])
     printed = json.loads(capsys.readouterr().out)
 
     def refuse(name):

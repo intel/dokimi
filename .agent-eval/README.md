@@ -42,11 +42,11 @@ Process metrics are reported and never gated. They come from `events.jsonl` and 
 
 ## Running
 
-`repo tasks check` and `repo run` need Docker. Run them from `dokimi/`:
+`eval check` and `repo run` need Docker. Run them from `dokimi/`:
 
 ```bash
 # self-check, no LLM: the untouched workspace fails each gate, the reference solution passes it
-python cli.py repo tasks check .. --manifest .agent-eval/repo-eval.yaml -j 4
+python cli.py eval check .. --manifest .agent-eval/repo-eval.yaml -j 4
 
 # agents: one cell per (task, arm, model, rep)
 python cli.py repo run .. --manifest .agent-eval/repo-eval.yaml \
@@ -79,4 +79,4 @@ A task is a directory under `tasks/` with these files:
 Write the prompt the way a maintainer would ask, and leave out the repository's
 conventions: those are what the guidance is measured on.
 
-A task is ready when `repo tasks check` reports it `OK`.
+A task is ready when `eval check` reports it `OK`.

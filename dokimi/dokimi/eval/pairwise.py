@@ -45,7 +45,7 @@ not what the neutral variant measures. ``escalate_ties=True`` restores it.
 
 Not every model is good at this. Pairwise Haiku 4.5 preferred the
 self-contradicting copy outright on 27 of 40 pairs and tied 13 (0.16 on
-``contradiction``), so a pairwise judge must pass ``eval judge-validity --mode
+``contradiction``), so a pairwise judge must pass ``eval judge validate --mode
 pairwise`` like any other.
 """
 

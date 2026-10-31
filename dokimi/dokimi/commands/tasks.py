@@ -249,8 +249,8 @@ def cmd_tasks_run(args: argparse.Namespace) -> None:
     _print_summary(output)
 
 
-def register(sub, positive_int) -> None:
-    """Add the `tasks` subcommand group."""
+def register(sub, positive_int, eval_sub) -> None:
+    """Add the `tasks` subcommand group (run, harnesses) and, under `eval`, `tasks list` and `inspect`."""
 
     tasks_p = sub.add_parser(
         "tasks",
@@ -258,11 +258,15 @@ def register(sub, positive_int) -> None:
     )
     tasks_sub = tasks_p.add_subparsers(dest="tasks_cmd", required=True)
 
-    list_p = tasks_sub.add_parser("list", help="List terminal-bench task metadata")
+    # eval tasks list (#94 M1)
+    eval_tasks_sub = eval_sub.add_parser("tasks", help="Eval tasks: list them").add_subparsers(
+        dest="eval_tasks_cmd", required=True)
+    list_p = eval_tasks_sub.add_parser("list", help="List terminal-bench task metadata")
     list_p.add_argument("--tasks-root", default=None, help=_TASKS_ROOT_HELP)
     list_p.set_defaults(func=cmd_tasks_list)
 
-    inspect_p = tasks_sub.add_parser(
+    # eval inspect (#94 M1)
+    inspect_p = eval_sub.add_parser(
         "inspect",
         help="Detect the eval-task format of a file or directory tree and report its structure (no run)",
     )

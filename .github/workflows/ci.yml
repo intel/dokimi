@@ -399,9 +399,8 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: '3.13'
-      # The `[ragas]` extra is not in requirements.txt or the lock; this job is
-      # where `eval ragas` runs on real packages, and DOKIMI_REQUIRE_RAGAS=1 makes
-      # tests/test_ragas_runtime.py fail rather than skip if ragas is missing.
+      # The `[ragas]` extra is not in requirements.txt or the lock; this job is where
+      # `eval score ragas` runs on real packages (DOKIMI_REQUIRE_RAGAS=1 fails, not skips).
       - name: Install newest allowed deps
         run: pip install --upgrade -r requirements.txt -r requirements-test.txt -e '.[ragas]'
       - name: Run tests

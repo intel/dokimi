@@ -11,7 +11,7 @@ Repository tasks (`repo-eval.yaml` + `task.json`):
 python cli.py repo validate <source> --manifest <path/to/repo-eval.yaml> --fail-on-warning
 ```
 
-Harbor tasks: there is no validate command. `tasks list` only shows that the
+Harbor tasks: there is no validate command. `eval tasks list` only shows that the
 task was discovered (it reads `task.toml` and `instruction.md`); it never prints
 an error row, and it lists a task that has no `tests/test.sh`, `solution/` or
 `environment/`. A task without `instruction.md` aborts the listing with a
@@ -25,7 +25,7 @@ out as `verifier/` + `oracle/`, but the Harbor-backed arms (`codex`,
 the task will run in the paid arms.
 
 ```bash
-python cli.py tasks list --tasks-root <tasks-root>
+python cli.py eval tasks list --tasks-root <tasks-root>
 ```
 
 ## 2. Oracle passes, untouched workspace fails, isolation
@@ -35,7 +35,7 @@ read tasks or source; `docs/repo-evaluation-contract.md` §4.3). It exits 1 on
 any broken or unsupported task.
 
 ```bash
-python cli.py repo tasks check <source> --manifest <path/to/repo-eval.yaml> --task <id>
+python cli.py eval check <source> --manifest <path/to/repo-eval.yaml> --task <id>
 ```
 
 Harbor tasks: oracle and isolation have harnesses; expect `pass_rate: 1.0`
@@ -69,7 +69,7 @@ changing only the reference solution so it produces the mutated end state:
   `pass_rate: 0.0`.
 - Repository: write a scratch copy of `repo-eval.yaml` whose `oracle` command
   runs the real oracle and then the mutation, and pass it with
-  `--manifest-file` to `repo tasks check`. Expect the oracle check to fail.
+  `--manifest-file` to `eval check`. Expect the oracle check to fail.
   The oracle command is split into argv and run **without a shell**, so `&&`,
   pipes and redirects are passed to the program as arguments and the mutation
   never runs (the check then passes, which looks like a verifier that survived).
@@ -94,7 +94,7 @@ a correct answer (a negative task, an out-of-scope request), set
 `valid_inaction: true`: the null workspace is then expected to **pass**, and
 the "untouched fails" check does not apply. Use a mutation that does act
 wrongly instead (an unrequested edit). Do not reword the task so that
-inaction fails just to satisfy the template. Note that `repo tasks check`
+inaction fails just to satisfy the template. Note that `eval check`
 always requires the null to fail; a valid-inaction task needs a grader that
 fails on the unwanted action and its own manual null check.
 
@@ -103,14 +103,14 @@ fails on the unwanted action and its own manual null check.
 A rubric judge must tell good answers from degraded ones before its scores
 count. It costs model calls; the sequential mode stops early.
 
-`eval judge-validity` calibrates only dokimi's own answer judge: its answers
+`eval judge validate` calibrates only dokimi's own answer judge: its answers
 file needs a `question_id` and the question text per row. It stops with
 `missing question_id` (exit 2) on a task-rubric answers file, so a task's own
 rubric judge is not covered by this command. Check that judge by hand: run it on
 a known-good and a degraded answer you wrote, and have a person read the scores.
 
 ```bash
-python cli.py eval judge-validity --answers <answers.json> --sequential --strict
+python cli.py eval judge validate --answers <answers.json> --sequential --strict
 ```
 
 Then have a person review a sample of judged cells against the rubric and

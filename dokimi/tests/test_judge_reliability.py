@@ -419,7 +419,7 @@ def test_cross_judge_rescoring_shows_the_judge_each_arms_context(tmp_path, monke
             "skill": {"answer": "skill answer",
                       "context_chunks": [{"snippet": "first"}, {"snippet": "second"}]},
         }}]}), encoding="utf-8")
-    args = build_parser().parse_args(["eval", "cross-judge", "--answers", str(answers), "--no-stored",
+    args = build_parser().parse_args(["eval", "judge", "agreement", "--answers", str(answers), "--no-stored",
                                       "--judges", "amazon-bedrock/m", "--output", str(tmp_path / "cj.json")])
     args.func(args)
     assert seen == {"skill answer": "first\nsecond", "base answer": "(No documentation retrieved)"}
@@ -460,7 +460,7 @@ def _material_run(body=BODY, n=8):
 
 
 def _cross_judge(tmp_path, monkeypatch, data, *extra, judges=True):
-    """Run ``eval cross-judge`` on ``data`` with a recording fake Judge.
+    """Run ``eval judge agreement`` on ``data`` with a recording fake Judge.
 
     Returns ``(exit_code, contexts_seen, args)``; the code is 0 when it did not exit.
     """
@@ -482,7 +482,7 @@ def _cross_judge(tmp_path, monkeypatch, data, *extra, judges=True):
     monkeypatch.setattr(judge_mod, "Judge", FakeJudge)
     path = tmp_path / "run.json"
     path.write_text(json.dumps(data), encoding="utf-8")
-    argv = ["eval", "cross-judge", "--answers", str(path), "--output", str(tmp_path / "cj.json")]
+    argv = ["eval", "judge", "agreement", "--answers", str(path), "--output", str(tmp_path / "cj.json")]
     if judges:
         argv += ["--judges", "amazon-bedrock/m"]
     args = build_parser().parse_args(argv + list(extra))
@@ -604,7 +604,7 @@ def test_cross_judge_refuses_to_rescore_against_unreproducible_stored_scores(tmp
     monkeypatch.setattr(judge_mod, "Judge", FakeJudge)
     answers = tmp_path / "run.json"
     answers.write_text(json.dumps(_stamped_run()), encoding="utf-8")
-    argv = ["eval", "cross-judge", "--answers", str(answers), "--judges", "amazon-bedrock/m",
+    argv = ["eval", "judge", "agreement", "--answers", str(answers), "--judges", "amazon-bedrock/m",
             "--output", str(tmp_path / "cj.json")]
     args = build_parser().parse_args(argv)
     with pytest.raises(SystemExit) as exc:
@@ -646,7 +646,7 @@ def test_cross_judge_judges_with_intact_materials_runs_end_to_end(tmp_path, monk
     data["judge_materials"] = {digest: skill_body}
     answers = tmp_path / "run.json"
     answers.write_text(json.dumps(data), encoding="utf-8")
-    argv = ["eval", "cross-judge", "--answers", str(answers), "--judges", "amazon-bedrock/m",
+    argv = ["eval", "judge", "agreement", "--answers", str(answers), "--judges", "amazon-bedrock/m",
             "--output", str(tmp_path / "cj.json")]
     args = build_parser().parse_args(argv)
     # Should not raise SystemExit; gate should pass because materials are intact.
@@ -683,7 +683,7 @@ def test_cross_judge_judges_refuses_file_without_materials(tmp_path, monkeypatch
     # No judge_materials, but scores claim to be stored (no file before judge_context exists).
     answers = tmp_path / "run.json"
     answers.write_text(json.dumps(data), encoding="utf-8")
-    argv = ["eval", "cross-judge", "--answers", str(answers), "--judges", "amazon-bedrock/m",
+    argv = ["eval", "judge", "agreement", "--answers", str(answers), "--judges", "amazon-bedrock/m",
             "--output", str(tmp_path / "cj.json")]
     args = build_parser().parse_args(argv)
     with pytest.raises(SystemExit) as exc:
@@ -723,7 +723,7 @@ def test_cross_judge_judges_with_int_question_ids(tmp_path, monkeypatch, capsys)
     data["judge_materials"] = {digest: skill_body}
     answers = tmp_path / "run.json"
     answers.write_text(json.dumps(data), encoding="utf-8")
-    argv = ["eval", "cross-judge", "--answers", str(answers), "--judges", "amazon-bedrock/m",
+    argv = ["eval", "judge", "agreement", "--answers", str(answers), "--judges", "amazon-bedrock/m",
             "--output", str(tmp_path / "cj.json")]
     args = build_parser().parse_args(argv)
     args.func(args)
@@ -762,7 +762,7 @@ def test_cross_judge_judges_and_pairwise_refuse_together(tmp_path, monkeypatch, 
     pairwise.write_text(json.dumps({"verdicts": {"baseline": {}, "skill": {}}, "summary": {"judge": "p/m"}}), encoding="utf-8")
     answers = tmp_path / "run.json"
     answers.write_text(json.dumps(data), encoding="utf-8")
-    argv = ["eval", "cross-judge", "--answers", str(answers), "--judges", "amazon-bedrock/m",
+    argv = ["eval", "judge", "agreement", "--answers", str(answers), "--judges", "amazon-bedrock/m",
             "--pairwise", str(pairwise), "--output", str(tmp_path / "cj.json")]
     args = build_parser().parse_args(argv)
     with pytest.raises(SystemExit) as exc:
@@ -797,7 +797,7 @@ def test_cross_judge_judges_refuses_altered_material_text(tmp_path, monkeypatch,
     data["judge_materials"] = {digest: "ALTERED TEXT"}
     answers = tmp_path / "run.json"
     answers.write_text(json.dumps(data), encoding="utf-8")
-    argv = ["eval", "cross-judge", "--answers", str(answers), "--judges", "amazon-bedrock/m",
+    argv = ["eval", "judge", "agreement", "--answers", str(answers), "--judges", "amazon-bedrock/m",
             "--output", str(tmp_path / "cj.json")]
     args = build_parser().parse_args(argv)
     with pytest.raises(SystemExit) as exc:
@@ -835,7 +835,7 @@ def test_cross_judge_judges_refuses_records_without_digest(tmp_path, monkeypatch
             del ans["arms"]["skill"]["judge_context_sha256"]
     answers = tmp_path / "run.json"
     answers.write_text(json.dumps(data), encoding="utf-8")
-    argv = ["eval", "cross-judge", "--answers", str(answers), "--judges", "amazon-bedrock/m",
+    argv = ["eval", "judge", "agreement", "--answers", str(answers), "--judges", "amazon-bedrock/m",
             "--output", str(tmp_path / "cj.json")]
     args = build_parser().parse_args(argv)
     with pytest.raises(SystemExit) as exc:
@@ -871,7 +871,7 @@ def test_cross_judge_judges_refuses_mismatched_digest_between_arms_and_scores(tm
     data["judge_materials"] = {digest1: skill_body}
     answers = tmp_path / "run.json"
     answers.write_text(json.dumps(data), encoding="utf-8")
-    argv = ["eval", "cross-judge", "--answers", str(answers), "--judges", "amazon-bedrock/m",
+    argv = ["eval", "judge", "agreement", "--answers", str(answers), "--judges", "amazon-bedrock/m",
             "--output", str(tmp_path / "cj.json")]
     args = build_parser().parse_args(argv)
     with pytest.raises(SystemExit) as exc:
@@ -900,7 +900,7 @@ def test_cross_judge_pairwise_with_materials_refuses_comparison(tmp_path, monkey
     pairwise.write_text(json.dumps({"verdicts": {"baseline": {}, "skill": {}}, "summary": {"judge": "p/m"}}), encoding="utf-8")
     answers = tmp_path / "run.json"
     answers.write_text(json.dumps(data), encoding="utf-8")
-    argv = ["eval", "cross-judge", "--answers", str(answers), "--pairwise", str(pairwise),
+    argv = ["eval", "judge", "agreement", "--answers", str(answers), "--pairwise", str(pairwise),
             "--output", str(tmp_path / "cj.json")]
     args = build_parser().parse_args(argv)
     with pytest.raises(SystemExit) as exc:
@@ -929,7 +929,7 @@ def test_cross_judge_checklist_with_materials_refuses_comparison(tmp_path, monke
     checklist.write_text(json.dumps({"questions": [], "summary": {"judge": "p/m"}}), encoding="utf-8")
     answers = tmp_path / "run.json"
     answers.write_text(json.dumps(data), encoding="utf-8")
-    argv = ["eval", "cross-judge", "--answers", str(answers), "--checklist", str(checklist),
+    argv = ["eval", "judge", "agreement", "--answers", str(answers), "--checklist", str(checklist),
             "--output", str(tmp_path / "cj.json")]
     args = build_parser().parse_args(argv)
     with pytest.raises(SystemExit) as exc:
@@ -973,7 +973,7 @@ def test_cross_judge_refuses_stored_scores_against_pairwise_and_checklist_too(tm
         other.write_text(json.dumps({"summary": {"judge": "p/j"}, "questions": [
             {"question_id": q, "arms": {"baseline": {"coverage": 0.8}, "skill": {"coverage": 0.2}}}
             for q in qids]}), encoding="utf-8")
-    argv = ["eval", "cross-judge", "--answers", str(answers), measure_flag, str(other),
+    argv = ["eval", "judge", "agreement", "--answers", str(answers), measure_flag, str(other),
             "--output", str(tmp_path / "cj.json")]
     with pytest.raises(SystemExit) as exc:
         args = build_parser().parse_args(argv)
@@ -1371,7 +1371,7 @@ def test_eval_pairwise_writes_the_errors_when_every_comparison_fails(tmp_path, m
     answers.write_text(json.dumps({"answers": [{"question_id": "Q1", "question_text": "q", "arms": {
         "baseline": {"answer": "b"}, "skill": {"answer": "s"}}}]}), encoding="utf-8")
     out = tmp_path / "pw.json"
-    args = build_parser().parse_args(["eval", "pairwise", "--answers", str(answers), "--output", str(out)])
+    args = build_parser().parse_args(["eval", "score", "pairwise", "--answers", str(answers), "--output", str(out)])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
     assert exc.value.code == 2
@@ -1443,7 +1443,7 @@ def test_a_judge_that_failed_its_gate_does_not_vote():
 def test_escalation_without_pairwise_mode_is_refused(tmp_path):
     from dokimi.cli import build_parser
 
-    args = build_parser().parse_args(["eval", "judge-validity", "--answers", str(tmp_path / "a.json"),
+    args = build_parser().parse_args(["eval", "judge", "validate", "--answers", str(tmp_path / "a.json"),
                                       "--escalate-model", "m"])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
@@ -1542,7 +1542,7 @@ def test_eval_checklist_writes_the_json_before_rendering(tmp_path, monkeypatch):
     answers.write_text(json.dumps({"answers": [{"question_id": "Q1", "question_text": "q", "arms": {
         "baseline": {"answer": "b"}, "skill": {"answer": "s"}}}]}), encoding="utf-8")
     questions.write_text(json.dumps({"questions": [{"id": "Q1", "expected_topics": ["p"]}]}), encoding="utf-8")
-    args = build_parser().parse_args(["eval", "checklist", "--answers", str(answers),
+    args = build_parser().parse_args(["eval", "score", "checklist", "--answers", str(answers),
                                       "--questions", str(questions), "--output", str(out)])
     with pytest.raises(RuntimeError, match="render failed"):
         args.func(args)
@@ -1618,7 +1618,7 @@ def _cross_judge_args(tmp_path, data, *extra):
 
     answers = tmp_path / "run.json"
     answers.write_text(json.dumps(data), encoding="utf-8")
-    return build_parser().parse_args(["eval", "cross-judge", "--answers", str(answers),
+    return build_parser().parse_args(["eval", "judge", "agreement", "--answers", str(answers),
                                       "--output", str(tmp_path / "cj.json"), *extra])
 
 

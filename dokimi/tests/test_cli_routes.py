@@ -92,7 +92,7 @@ def test_help_lists_each_root_under_its_section():
             loop,
         ),
         **dict.fromkeys(("run", "compare", "library", "catalog", "novelty", "repo"), subjects),
-        **dict.fromkeys(("personas", "questions", "eval"), evals),
+        **dict.fromkeys(("eval",), evals),
         **dict.fromkeys(("dataset", "ingest", "tools", "context", "runs", "backends", "data"), data),
     }
 
@@ -109,7 +109,6 @@ PAID_PATHS = {
     ("subjects", "run"),
     ("tasks", "run"),
     ("explore", "run"),
-    ("catalog", "trigger-set"),
     ("catalog", "trigger-probe"),
     ("novelty", "analyze"),
     ("novelty", "atoms"),
@@ -118,20 +117,21 @@ PAID_PATHS = {
     ("novelty", "routing"),
     ("repo", "reach"),
     ("repo", "run"),
-    ("personas", "discover"),
-    ("questions", "generate"),
-    ("questions", "analyze"),
-    ("questions", "refine"),
-    ("questions", "panel-review"),
-    ("eval", "score"),
-    ("eval", "ragas"),
-    ("eval", "judge-validity"),
-    ("eval", "checklist"),
-    ("eval", "judge-wording"),
-    ("eval", "cross-judge"),
-    ("eval", "pairwise"),
-    ("eval", "reference"),
-    ("eval", "panel-score"),
+    ("eval", "personas", "discover"),
+    ("eval", "questions", "generate"),
+    ("eval", "questions", "analyze"),
+    ("eval", "questions", "refine"),
+    ("eval", "questions", "review"),
+    ("eval", "triggers", "generate"),
+    ("eval", "score", "pointwise"),
+    ("eval", "score", "pairwise"),
+    ("eval", "score", "panel"),
+    ("eval", "score", "checklist"),
+    ("eval", "score", "ragas"),
+    ("eval", "score", "reference"),
+    ("eval", "judge", "validate"),
+    ("eval", "judge", "wording"),
+    ("eval", "judge", "agreement"),
     ("tools", "preference"),
 }
 
@@ -189,12 +189,12 @@ def test_a_root_costs_paid_when_any_of_its_leaves_is_paid():
     assert cli_routes.cost_of(("repo",)) == "paid"
     assert cli_routes.cost_of(("library",)) == "free"
     assert cli_routes.cost_of(("data",)) == "free"
-    assert cli_routes.cost_of(("eval", "judge-validity")) == "paid"
+    assert cli_routes.cost_of(("eval", "judge")) == "paid"
     assert cli_routes.cost_of(("no", "such", "route")) is None
 
 
-def test_the_tombstone_table_is_empty_and_its_check_finds_a_live_route():
-    assert cli_routes.TOMBSTONES == ()
+def test_the_tombstone_table_is_clean_and_its_check_finds_a_live_route():
+    assert cli_routes.TOMBSTONES
     assert cli_routes.tombstone_problems() == []
     bad = (cli_routes.Tombstone(("eval", "score"), ("eval", "inspect")),)
     assert cli_routes.tombstone_problems(bad)  # the old path is still a live route
@@ -287,7 +287,7 @@ def test_data_schema_show_prints_the_route_table_as_json(capsys):
     doc = json.loads(capsys.readouterr().out)
     assert doc == cli_routes.document()
     assert doc["schema_version"] == "cli_routes.v1"
-    assert {"path": ["eval", "score"], "cost": "paid"} in doc["leaves"]
+    assert {"path": ["eval", "score", "pointwise"], "cost": "paid"} in doc["leaves"]
 
 
 def test_the_route_document_reports_each_roots_section_aliases_and_cost():

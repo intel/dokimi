@@ -94,7 +94,7 @@ def cmd_answers_generate(args: argparse.Namespace) -> None:
     print(f"Documentation source: {doc_source}")
     context7_id = getattr(args, "context7_id", None)
     if doc_source == "none":
-        # Baseline only: imported evals (`questions import`) are asked without doc context.
+        # Baseline only: imported evals (`eval import`) are asked without doc context.
         mcp_client, library_id = None, args.product
     else:
         mcp_client = create_doc_source_client(doc_source)

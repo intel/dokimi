@@ -189,7 +189,7 @@ class SkillCatalogTreatment(Treatment):
     This is a tool-calling proxy, not a coding harness: a real harness renders the
     catalog as one listing it may truncate, and lets the model explore before it
     decides. Real-harness selection is measured with an external tool against the
-    trigger set ``catalog trigger-set`` writes (docs/evaluating-treatments.md).
+    trigger set ``eval triggers generate`` writes (docs/evaluating-treatments.md).
     """
 
     arm_kind = "skill_catalog"

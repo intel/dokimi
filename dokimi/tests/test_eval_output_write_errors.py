@@ -82,10 +82,10 @@ def _stub_judge_commands(monkeypatch):
 
 
 _JUDGE_COMMANDS = {
-    "pairwise": ["eval", "pairwise"],
-    "checklist": ["eval", "checklist", "--questions", "q.json"],
-    "judge-wording": ["eval", "judge-wording"],
-    "cross-judge": ["eval", "cross-judge", "--judges", "openai/m", "--no-stored"],
+    "pairwise": ["eval", "score", "pairwise"],
+    "checklist": ["eval", "score", "checklist", "--questions", "q.json"],
+    "judge-wording": ["eval", "judge", "wording"],
+    "cross-judge": ["eval", "judge", "agreement", "--judges", "openai/m", "--no-stored"],
 }
 _WRITES_MD = ["pairwise", "checklist", "cross-judge"]
 
@@ -164,7 +164,7 @@ def test_panel_score_output_that_cannot_be_written_exits_2_naming_the_path(
         evaluate, "_load_answers", lambda path: types.SimpleNamespace(records=[], meta={})
     )
     args = build_parser().parse_args(
-        ["eval", "panel-score", "--product", "P", "--answers", "a.json", "--output", str(target)]
+        ["eval", "score", "panel", "--product", "P", "--answers", "a.json", "--output", str(target)]
     )
     with pytest.raises(SystemExit) as exc:
         args.func(args)
@@ -187,7 +187,7 @@ def test_score_output_that_cannot_be_written_exits_2_naming_the_path(tmp_path, m
     monkeypatch.setattr(eval_mod, "Judge", lambda **kw: Judge())
     target = tmp_path / "e.json"
     args = build_parser().parse_args(
-        ["eval", "score", "--product", "P", "--answers", str(answers), "--output", str(target)]
+        ["eval", "score", "pointwise", "--product", "P", "--answers", str(answers), "--output", str(target)]
     )
     with pytest.raises(SystemExit) as exc:
         args.func(args)

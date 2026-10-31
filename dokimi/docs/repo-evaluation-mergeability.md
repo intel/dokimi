@@ -225,7 +225,7 @@ tests:
 
 ## 5. Admitting a task
 
-`tasks check` (contract §4.3) stays free of LLM calls. The paid step is a
+`eval check` (contract §4.3) stays free of LLM calls. The paid step is a
 separate subcommand, `repo rubric check`, which runs once per rubric
 revision, not once per sweep. A task is admitted only if:
 

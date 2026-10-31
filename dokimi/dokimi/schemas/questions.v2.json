@@ -12,7 +12,7 @@
       "const": "questions.v2"
     },
     "library": {
-      "description": "Product the set is for (curated sets, `questions refine`).",
+      "description": "Product the set is for (curated sets, `eval questions refine`).",
       "type": "string"
     },
     "library_id": {
@@ -32,29 +32,29 @@
       "type": "string"
     },
     "generated_at": {
-      "description": "UTC timestamp the generator wrote the set (`questions generate`).",
+      "description": "UTC timestamp the generator wrote the set (`eval questions generate`).",
       "type": "string"
     },
     "model": {
-      "description": "Generator model (`questions generate`).",
+      "description": "Generator model (`eval questions generate`).",
       "type": "string"
     },
     "provider": {
-      "description": "Generator provider (`questions generate`).",
+      "description": "Generator provider (`eval questions generate`).",
       "type": "string"
     },
     "total_questions": {
-      "description": "Number of questions in the set (`questions generate`, pipeline).",
+      "description": "Number of questions in the set (`eval questions generate`, pipeline).",
       "type": "integer",
       "minimum": 0
     },
     "total": {
-      "description": "Number of questions in the set (`questions refine`).",
+      "description": "Number of questions in the set (`eval questions refine`).",
       "type": "integer",
       "minimum": 0
     },
     "difficulty_distribution": {
-      "description": "Question count per normalized difficulty label after refinement (`questions refine`).",
+      "description": "Question count per normalized difficulty label after refinement (`eval questions refine`).",
       "type": "object",
       "additionalProperties": {
         "type": "integer",
@@ -174,7 +174,7 @@
           }
         },
         "expected_skill": {
-          "description": "Skill (or list of skills) the question is meant to exercise; null when none should apply (curated sets, `catalog trigger-set`).",
+          "description": "Skill (or list of skills) the question is meant to exercise; null when none should apply (curated sets, `eval triggers generate`).",
           "type": [
             "string",
             "array",
@@ -189,11 +189,11 @@
           "type": "object"
         },
         "prompt_style": {
-          "description": "`verbatim`: the answerer sends `question` as written, without its expert-answer wrapper (set by `questions import`, whose graders score the reply to the original prompt).",
+          "description": "`verbatim`: the answerer sends `question` as written, without its expert-answer wrapper (set by `eval import`, whose graders score the reply to the original prompt).",
           "type": "string"
         },
         "grading": {
-          "description": "Format-neutral reference checks from an imported eval (`questions import`): `checks` (match, exact, fuzzy, regex, choice, json, judge, unsupported), optional `threshold`, `source_format`, `native_scorer`. Scored by `eval reference`; see dokimi.eval.reference_checks.",
+          "description": "Format-neutral reference checks from an imported eval (`eval import`): `checks` (match, exact, fuzzy, regex, choice, json, judge, unsupported), optional `threshold`, `source_format`, `native_scorer`. Scored by `eval score reference`; see dokimi.eval.reference_checks.",
           "type": "object",
           "required": ["checks"],
           "properties": {
@@ -230,11 +230,11 @@
           "type": "object"
         },
         "trigger_lint": {
-          "description": "`catalog trigger-set` lint of the query against the catalog (`names_skill`, `echo_terms`, `exam_framing`, `lexical_rank`, `unknown_expected`, `label_unresolved`, ...).",
+          "description": "`eval triggers generate` lint of the query against the catalog (`names_skill`, `echo_terms`, `exam_framing`, `lexical_rank`, `unknown_expected`, `label_unresolved`, ...).",
           "type": "object"
         },
         "source_text": {
-          "description": "The question text before `catalog trigger-set --rewrite` turned it into the user-voice `question`; absent when it was not rewritten.",
+          "description": "The question text before `eval triggers generate --rewrite` turned it into the user-voice `question`; absent when it was not rewritten.",
           "type": "string"
         }
       }
