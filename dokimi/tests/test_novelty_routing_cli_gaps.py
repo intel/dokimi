@@ -90,7 +90,9 @@ def test_estimate_only_counts_the_calls_prices_them_and_sends_nothing(tmp_path, 
     args.func(args)
     estimate = json.loads(capsys.readouterr().out)
     assert estimate["estimate_only"] is True
-    assert estimate["n_queries"] == 3 and estimate["n_calls"] == 4  # 2 scorable x 2 repeats
+    # Every query is sent, contentless "the a of" included, as routing sends it: 3 x 2 repeats.
+    assert estimate["n_queries"] == 3 and estimate["n_queries_sent"] == 3
+    assert estimate["n_calls"] == 6
     assert estimate["input_tokens"] > 4 * 50 and estimate["output_tokens"] > 0
     assert estimate["expected_usd"] == round(
         estimate["input_tokens"] * 1e-6 + estimate["output_tokens"] * 2e-6, 6)

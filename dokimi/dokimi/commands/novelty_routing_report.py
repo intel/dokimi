@@ -133,6 +133,37 @@ def print_cost(cost: dict) -> None:
           f"{spent}{replayed}")
 
 
+def print_attractors(result: dict) -> None:
+    """The top five attractors of each arm, one line each, and what the arm left out.
+
+    A tie and an unscored query name no pick, so a "no skill was picked" line beside them
+    would read as a clean result; the line after the attractors says how many there were.
+    Skills with the same description words are one tied group, named once, not each other's
+    attractor.
+    """
+    from dokimi.novelty.all_vs_all import TIE
+
+    for group in result["tied_groups"]:
+        print(f"tied: {', '.join(group)} have the same description; one group, not attractors "
+              "of each other")
+    for arm in ("lexical", "model"):
+        if arm not in result:
+            continue
+        section = result[arm]
+        rows = section["attractors"][:5]
+        if not rows:
+            print(f"{arm}: no skill was picked for another skill's query")
+        for row in rows:
+            print(f"{arm}: {row['skill']} picked for {row['wrongly_picked']} of "
+                  f"{row['sibling_queries']} sibling queries (from {', '.join(row['from'])})")
+        tied = sum(picks.get(TIE, 0) for picks in section["confusion"].values())
+        unscored = sum(section["n_unscored"].values())
+        # The model arm counts calls, one per query and repeat; the lexical arm counts queries.
+        unit = "calls" if section.get("repeats", 1) > 1 else "queries"
+        if tied or unscored:
+            print(f"{arm}: {tied} tied and {unscored} unscored {unit} are not counted as picks")
+
+
 def print_all_vs_all_model(model_arm: dict, cost: dict | None) -> None:
     """The noise and cost lines of an all-vs-all run; silent without ``--model``."""
     if model_arm.get("noise"):

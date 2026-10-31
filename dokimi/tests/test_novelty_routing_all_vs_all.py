@@ -212,7 +212,7 @@ def test_all_vs_all_with_model_names_its_model_calls_on_stderr(tmp_path, capsys,
     )
     args.func(args)
     assert (
-        "all-vs-all: --model makes 4 model calls, one per query, over 3 cards each"
+        "all-vs-all: --model makes 4 model calls, one per query and repeat, over 3 cards each"
         in capsys.readouterr().err
     )
 
@@ -883,3 +883,52 @@ def test_attractors_tied_on_count_and_golds_tied_in_from_are_in_name_order():
          "from": ["mu"]},
         {"skill": "zeta", "wrongly_picked": 2, "sibling_queries": 4, "rate": 0.5,
          "from": ["beta", "mu"]}]
+
+
+def _model_client_for_repeats(monkeypatch):
+    import dokimi.commands.novelty as novelty_cmd
+
+    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+        model=model, provider=provider, role=role,
+        transport=lambda prompt, system: (json.dumps({"pick": 1}), None)))
+
+
+def test_all_vs_all_refuses_estimate_only_before_it_calls_the_model(tmp_path, monkeypatch):
+    import dokimi.commands.novelty as novelty_cmd
+
+    monkeypatch.setattr(novelty_cmd, "_client",
+                        lambda *a, **k: pytest.fail("--estimate-only run made a model call"))
+    root = tmp_path / "catalog"
+    _cat(root, {"perf": "profile a slow binary", "db": "tune a slow database query"})
+    queries = _write_queries(tmp_path, {"perf": ["profile my slow binary"]})
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"),
+                  "--model", "m", "--estimate-only")
+    with pytest.raises(SystemExit, match="takes no --estimate-only"):
+        args.func(args)
+    assert not (tmp_path / "o.json").exists()
+
+
+def test_all_vs_all_announces_every_call_it_makes_with_repeats(tmp_path, capsys, monkeypatch):
+    _model_client_for_repeats(monkeypatch)
+    root = tmp_path / "catalog"
+    _cat(root, {"perf": "profile a slow binary", "db": "tune a slow database query"})
+    queries = _write_queries(tmp_path, {"perf": ["profile my slow binary"]})
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"),
+                  "--model", "m", "--repeats", "3")
+    args.func(args)
+    assert "--model makes 3 model calls, one per query and repeat" in capsys.readouterr().err
+
+
+def test_console_counts_unscored_model_calls_when_repeats_are_set(tmp_path, capsys, monkeypatch):
+    # One contentless query, three repeats: three calls not made, so the model line says calls.
+    _model_client_for_repeats(monkeypatch)
+    root = tmp_path / "catalog"
+    _cat(root, {"perf": "profile a slow binary", "db": "tune a slow database query"})
+    queries = _write_queries(tmp_path, {"perf": ["the a of"]})
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"),
+                  "--model", "m", "--repeats", "3")
+    args.func(args)
+    assert "model: 0 tied and 3 unscored calls are not counted as picks" in capsys.readouterr().out

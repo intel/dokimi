@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, NoReturn
 from dokimi.commands.inputs import placebo_text_for_arms_or_exit
 from dokimi.commands.novelty_routing_report import (
     print_all_vs_all_model,
+    print_attractors,
     print_routing_estimate,
     print_routing_summary,
     routing_queries,
@@ -374,10 +375,11 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
         _refuse_queries_naming_disabled(args, field, queries_by_skill)
         selector = _client(args.model, args.provider, "selector", args) if args.model else None
         if selector is not None:
-            # One call per query with a content word, each sending every card in the field.
+            # One call per query with a content word and per repeat, each sending every card.
             calls = sum(bool(tokenize(q)) for qs in queries_by_skill.values() for q in qs)
+            calls *= args.repeats
             print(
-                f"all-vs-all: --model makes {calls} model calls, one per query, over "
+                f"all-vs-all: --model makes {calls} model calls, one per query and repeat, over "
                 f"{len(field)} cards each",
                 file=sys.stderr,
             )
@@ -414,7 +416,7 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     print(f"OK Saved all-vs-all routing: {out}")
     print(f"all-vs-all: {len(field)} skills in the field, {result['n_queries']} queries over "
           f"{len(queries_by_skill)} skills with queries")
-    _print_attractors(result)
+    print_attractors(result)
     print_all_vs_all_model(model_arm, payload.get("cost"))
 
 
@@ -454,6 +456,9 @@ def _check_all_vs_all_args(args: argparse.Namespace) -> None:
         usage_exit("--all-vs-all takes no --artifact: every skill in the field is the gold in turn")
     if args.queries or args.queries_from_headings:
         usage_exit("--all-vs-all takes --queries-by-skill, not --queries or --queries-from-headings")
+    if args.estimate_only:
+        usage_exit("--all-vs-all takes no --estimate-only: it would make the calls it was asked "
+                   "to price; drop the flag, or estimate one artifact with routing --artifact")
     if not args.queries_by_skill:
         usage_exit("--all-vs-all needs --queries-by-skill <file>: a JSON object of skill "
                    "name to the requests that should select it")
@@ -470,35 +475,6 @@ def _warn_blind_skills(result: dict, queries_by_skill: dict[str, list[str]]) -> 
     if blind:
         print(f"WARNING: the lexical arm cannot score any query of {', '.join(blind)} "
               "(no content word in them), so their lexical own_rate is None", file=sys.stderr)
-
-
-def _print_attractors(result: dict) -> None:
-    """The top five attractors of each arm, one line each, and what the arm left out.
-
-    A tie and an unscored query name no pick, so a "no skill was picked" line beside them
-    would read as a clean result; the line after the attractors says how many there were.
-    Skills with the same description words are one tied group, named once, not each other's
-    attractor.
-    """
-    from dokimi.novelty.all_vs_all import TIE
-
-    for group in result["tied_groups"]:
-        print(f"tied: {', '.join(group)} have the same description; one group, not attractors "
-              "of each other")
-    for arm in ("lexical", "model"):
-        if arm not in result:
-            continue
-        section = result[arm]
-        rows = section["attractors"][:5]
-        if not rows:
-            print(f"{arm}: no skill was picked for another skill's query")
-        for row in rows:
-            print(f"{arm}: {row['skill']} picked for {row['wrongly_picked']} of "
-                  f"{row['sibling_queries']} sibling queries (from {', '.join(row['from'])})")
-        tied = sum(picks.get(TIE, 0) for picks in section["confusion"].values())
-        unscored = sum(section["n_unscored"].values())
-        if tied or unscored:
-            print(f"{arm}: {tied} tied and {unscored} unscored queries are not counted as picks")
 
 
 def cmd_novelty_routing(args: argparse.Namespace) -> None:

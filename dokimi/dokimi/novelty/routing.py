@@ -461,13 +461,14 @@ def selection_estimate(candidates: list[Candidate], queries: list[str], *,
                        repeats: int = 1) -> dict:
     """The calls and tokens :func:`model_routing` would make, counted without making them.
 
-    A query with no content word is not sent. Each call carries the whole field's cards in the
-    selection prompt, sized at chars / 4 as the artifact spans are; every repeat sends the same
-    prompt. The reply is one JSON pick, :data:`PICK_REPLY_TOKENS`.
+    :func:`model_routing` sends every query, contentless ones too, unless none has a content
+    word: then the run refuses before any call, and so does the count. Each call carries the
+    whole field's cards in the selection prompt, sized at chars / 4 as the artifact spans are;
+    every repeat sends the same prompt. The reply is one JSON pick, :data:`PICK_REPLY_TOKENS`.
     """
     cards = "\n".join(f"{position}. {candidate.card}"
                        for position, candidate in enumerate(candidates, 1))
-    sent = [query for query in queries if tokenize(query)]
+    sent = list(queries) if any(tokenize(query) for query in queries) else []
     prompt_tokens = sum(len(_SELECT_PROMPT.format(query=query, cards=cards)) // 4
                         for query in sent)
     calls = len(sent) * repeats
