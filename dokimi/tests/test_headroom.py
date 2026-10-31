@@ -406,6 +406,36 @@ def test_distinct_input_files_each_count_as_a_run(tmp_path):
     assert (saved["runs"], item["reps"], item["provisional"], item["flag"]) == (3, 3, False, CEILING)
 
 
+@pytest.mark.parametrize("field, value", [("model", "other-model"), ("judge_model", "other-judge"),
+                                          ("library_name", "other-library"), ("run_config", {"max_tokens": 9})])
+def test_command_refuses_runs_of_different_configurations(tmp_path, capsys, field, value):
+    one = _arms_file(tmp_path / "run1.json", {"1": {"baseline": 95, "skill": 95}})
+    two = _arms_file(tmp_path / "run2.json", {"1": {"baseline": 94, "skill": 95}})
+    for path, extra in ((one, {}), (two, {field: value})):
+        data = json.loads(path.read_text(encoding="utf-8"))
+        path.write_text(json.dumps({**data, "model": "m", "judge_model": "j", "library_name": "lib",
+                                    "run_config": {"max_tokens": 5, "seed": 1}, **extra}), encoding="utf-8")
+    out = tmp_path / "headroom.json"
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_headroom(_args([one, two], output=out))
+    assert exc.value.code == 2 and not out.exists()
+    assert f"Error: {two} is not a repetition of {one}" in capsys.readouterr().err
+
+
+def test_runs_that_differ_only_in_the_seed_are_repetitions(tmp_path):
+    paths = []
+    for seed in (1, 2):
+        path = _arms_file(tmp_path / f"run{seed}.json", {"1": {"baseline": 95, "skill": 95 - seed}})
+        data = json.loads(path.read_text(encoding="utf-8"))
+        path.write_text(json.dumps({**data, "model": "m", "run_config": {"max_tokens": 5, "seed": seed}}),
+                        encoding="utf-8")
+        paths.append(path)
+    out = tmp_path / "headroom.json"
+    cmd_eval_headroom(_args(paths, output=out))
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    assert (saved["runs"], saved["items"][0]["reps"]) == (2, 2)
+
+
 def test_command_exits_2_when_the_output_cannot_be_written(tmp_path, capsys):
     path = _arms_file(tmp_path / "arms.json", {"1": {"baseline": 95, "skill": 95}})
     blocker = tmp_path / "a-file"

@@ -58,6 +58,20 @@ def _clobbers_an_input(output, inputs) -> bool:
     return any(_same_file(out, p) or _same_file(rejected, p) for p in inputs)
 
 
+def _exit_unless_replicates(runs, inputs) -> None:
+    """Exit 2 on the first input that is not a repetition of the first one's configuration (models,
+    judge, run_config but the seed, harness, plugins, cell, arms: report.model_compare.replicate_key)
+    or library: averaging such runs per question id would mix different measurements."""
+    from dokimi.report.model_compare import replicate_key
+
+    keys = [(replicate_key(dict(run.meta)), run.meta.get("library_name")) for run in runs]
+    odd = next((path for key, path in zip(keys[1:], inputs[1:], strict=True) if key != keys[0]), None)
+    if odd is not None:
+        print(f"Error: {odd} is not a repetition of {inputs[0]}: the model, judge, run config, harness, "
+              "arms or library differ, and runs of different configurations are not pooled", file=sys.stderr)
+        sys.exit(2)
+
+
 def cmd_eval_headroom(args: argparse.Namespace) -> None:
     from dokimi.artifacts import ArtifactValidationError, save_artifact
     from dokimi.eval.headroom import format_table, headroom, repeated_ids
@@ -93,6 +107,7 @@ def cmd_eval_headroom(args: argparse.Namespace) -> None:
         first_seen[digest] = str(path)
         runs.append(run)
         inputs.append(str(path))
+    _exit_unless_replicates(runs, inputs)
     try:
         result = headroom(runs, no_skill_arm=args.no_skill_arm, ceiling=args.ceiling,
                           floor=args.floor, min_reps=args.min_reps)

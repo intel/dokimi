@@ -756,7 +756,9 @@ in its own column, a note naming any arm no run scored, and the counts. The JSON
 `--out` only, as a `headroom.v1` artifact with every item; if that file cannot be written the
 command prints `Error: cannot write ...` on stderr and exits 2, after the table. Scores are compared unrounded
 and shown rounded down, so 0.89996 prints as 0.89. Without `--baseline-arm`, the runs must
-declare the same baseline; the default is that baseline. With `--baseline-arm`, the arm must
+declare the same baseline; the default is that baseline. The runs must also be repetitions of one
+configuration: a file whose model, judge, run config (the seed aside), harness, arms or library
+differs from the first file's exits 2. With `--baseline-arm`, the arm must
 be one the runs list (exit 2 otherwise, naming the arms that exist), and the declared
 baselines are not checked. A threshold out of range exits 2: `--ceiling` in [0.01, 1],
 `--floor` 0 or in [0.01, ceiling), `--min-reps` at least 1. It also exits 2 when no run scored the
