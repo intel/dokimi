@@ -771,3 +771,46 @@ def test_angle_bracket_destination_out_of_the_skill_dir_is_a_warning(tmp_path):
     [review] = review_skills(read_skill_manifest(tmp_path))
     assert review.state == "warn"
     assert _codes(review) == ["link-escapes-skill"]
+
+
+def test_angle_bracket_destination_with_an_anchor_out_of_the_skill_dir_is_a_warning(tmp_path):
+    (tmp_path / "shared").mkdir()
+    (tmp_path / "shared" / "notes.md").write_text("# Notes\n", encoding="utf-8")
+    _skill(tmp_path / "skills", "reach", name="reach", description="Use for reach.",
+           body="See [setup](<../../shared/notes.md#setup>).\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.state == "warn"
+    assert _codes(review) == ["link-escapes-skill"]
+
+
+def test_reference_definition_with_spaces_in_angle_brackets_to_a_missing_file_is_a_warning(tmp_path):
+    _skill(tmp_path / "skills", "spaced", name="spaced", description="Use for spaced.",
+           body="See [notes][n].\n\n[n]: <my notes.md>\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.state == "warn"
+    assert _codes(review) == ["link-missing"]
+
+
+@pytest.mark.parametrize(
+    "line",
+    ["[Note]: read this first", "[Step 1]: Run the tests", "[--verbose]: print more"],
+)
+def test_prose_line_that_starts_with_a_bracketed_label_is_not_a_definition(tmp_path, line):
+    _skill(tmp_path / "skills", "prose", name="prose", description="Use for prose.",
+           body=f"Start here.\n\n{line}\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.state == "ok"
+    assert review.findings == []
+
+
+def test_a_file_line_link_to_a_missing_file_is_still_a_warning(tmp_path):
+    # "run.py:42" is read as a path, not a URI, so it is checked and the missing file is flagged.
+    _skill(tmp_path / "skills", "fileline", name="fileline", description="Use for fileline.",
+           body="See [the entry point](run.py:42).\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.state == "warn"
+    assert _codes(review) == ["link-missing"]

@@ -90,8 +90,12 @@ STOP_WORDS = frozenset(
 )
 LINK_RE = re.compile(r"\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 # A reference-style link definition, ``[label]: destination`` (footnotes ``[^n]:`` excluded).
-REF_DEF_RE = re.compile(r"^ {0,3}\[(?!\^)[^\]]+\]:[ \t]*(\S+)")
-URI_SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.\-]*:")
+REF_DEF_RE = re.compile(
+    r"""^ {0,3}\[(?!\^)[^\]]+\]:[ \t]*(<[^>\n]*>|\S+)"""
+    r"""(?:[ \t]+(?:"[^"]*"|'[^']*'|\([^)]*\)))?[ \t]*$"""
+)
+# A scheme has no dot, so ``README.md:42`` and ``run.py:main`` stay paths to check.
+URI_SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+\-]*:")
 CODE_SPAN_RE = re.compile(r"`([^`\n]+)`")
 SKILL_DIR_VAR = "${CLAUDE_SKILL_DIR}/"
 
@@ -247,9 +251,10 @@ def _file_ref(raw: str) -> Optional[str]:
     absolute path, or a template with a variable other than ``${CLAUDE_SKILL_DIR}``. A
     ``<...>`` destination (CommonMark) is read as the path inside the brackets.
     """
-    text = raw.split("#", 1)[0].strip()
+    text = raw.strip()
     if text.startswith("<") and text.endswith(">"):
         text = text[1:-1].strip()
+    text = text.split("#", 1)[0].strip()
     if not text or "://" in text or URI_SCHEME_RE.match(text) or text.startswith("/"):
         return None
     if text.startswith(SKILL_DIR_VAR):
