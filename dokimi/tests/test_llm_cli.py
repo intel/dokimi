@@ -143,6 +143,9 @@ def test_a_long_system_prompt_goes_in_a_file_not_an_argument(runner):
     # Without the JSON: the first status the text names decides, and a subscription cap is not retried.
     (reply("", stderr="API Error: 400 Bad Request: invalid request; error code 500 in field x", returncode=1), False, "400"),
     (reply("", stderr="Claude AI usage limit reached. Error 429", returncode=1), False, "usage limit"),
+    # A status printed as text decides alone, as a structured one does: a 400 naming rate_limit is a 400.
+    (reply("", stderr="API Error: 400 Bad Request: invalid field rate_limit", returncode=1), False, "no JSON reply"),
+    (reply(_err("API Error: 400 Bad Request: invalid field rate_limit", None), returncode=1), False, "400"),
 ])
 def test_a_failed_call_says_whether_another_attempt_can_help(runner, answer, retryable, words):
     runner.answers.append(answer)

@@ -82,11 +82,13 @@ _RETRYABLE_WORDS = ("rate limit", "rate_limit", "overloaded", "timed out")
 _STATUS_TEXT = re.compile(r"\b(?:status|code|http|error)\W{0,3}(\d{3})\b")
 
 
-def _text_status_retryable(lowered: str) -> bool:
-    """True when the first status the text names is one worth another attempt: ``API Error: 400 ...;
-    error code 500`` is a 400, so the 500 quoted inside it does not count."""
+def _text_retryable(lowered: str) -> bool:
+    """Whether a failure with no structured status is worth another attempt. The first status the text
+    names decides alone: ``API Error: 400 ...; error code 500`` and a 400 naming ``rate_limit`` are 400s."""
     found = _STATUS_TEXT.search(lowered)
-    return found is not None and int(found.group(1)) in _RETRYABLE_STATUS
+    if found is None:
+        return any(w in lowered for w in _RETRYABLE_WORDS)
+    return int(found.group(1)) in _RETRYABLE_STATUS
 
 DEFAULT_TIMEOUT_SEC = 600.0
 
@@ -178,7 +180,7 @@ def _claude_error(payload: Dict[str, Any], done: process.Completed) -> CliCallEr
     if "usage limit" in lowered:  # a subscription cap: it resets in hours, a retry cannot help
         return CliCallError(f"claude-cli: {message}", retryable=False)
     if status is None:  # no structured status: the words, and a status the CLI printed as text
-        retryable = any(w in lowered for w in _RETRYABLE_WORDS) or _text_status_retryable(lowered)
+        retryable = _text_retryable(lowered)
     else:  # a structured status decides: a 400 that quotes "rate_limit" is still a 400
         retryable = status in _RETRYABLE_STATUS
     return CliCallError(f"claude-cli: {message}", retryable=retryable)
@@ -215,8 +217,7 @@ def _claude_parse(done: process.Completed, model: str, provider: str) -> CliResu
         # No JSON, so no status field: the transient words and the status printed as text are checked.
         # A subscription cap is not transient, as on the JSON path, whatever status it prints.
         lowered = text.lower()
-        retryable = "usage limit" not in lowered and (any(w in lowered for w in _RETRYABLE_WORDS)
-                                                      or _text_status_retryable(lowered))
+        retryable = "usage limit" not in lowered and _text_retryable(lowered)
         raise CliCallError(f"claude-cli: exit {done.returncode}, no JSON reply: {text[:300]}",
                            retryable=retryable)
     if payload.get("is_error") or done.returncode != 0:
