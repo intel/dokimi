@@ -12,7 +12,7 @@ import pytest
 
 from dokimi.repos.l0.core import Scan
 from dokimi.repos.l0.versions import _RUN, judge, matrix_versions, parse, setup_versions
-from dokimi.repos.source import WorkTree
+from dokimi.repos.source import SourceError, WorkTree
 
 
 def _runs(text: str) -> list[tuple[str, object]]:
@@ -189,3 +189,16 @@ def test_a_workflow_yaml_cannot_build_is_unresolved(tmp_path, bad):
     scan = Scan(WorkTree(tmp_path), frozenset())
     assert judge(scan, parse("py3.12-3.13"), [".github/workflows/bad.yml"]) == (
         "unresolved", ".github/workflows/bad.yml is not valid YAML")
+
+
+def test_a_git_failure_reading_a_named_workflow_stops_the_scan(tmp_path, monkeypatch):
+    """A `git cat-file` that fails (a SourceError, which is a ValueError) is an error exit, not invalid YAML."""
+    (tmp_path / ".github/workflows").mkdir(parents=True)
+    (tmp_path / ".github/workflows/ci.yml").write_text("jobs: {}\n", encoding="utf-8")
+    scan = Scan(WorkTree(tmp_path), frozenset())
+
+    def fail(*args, **kwargs):
+        raise SourceError("git cat-file failed: timed out after 60 seconds")
+    monkeypatch.setattr(scan.tree, "read_many", fail)
+    with pytest.raises(SourceError, match="timed out"):
+        judge(scan, parse("py3.12-3.13"), [".github/workflows/ci.yml"])

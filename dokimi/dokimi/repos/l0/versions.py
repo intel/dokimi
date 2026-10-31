@@ -210,8 +210,9 @@ def workflow_versions(scan: Scan, path: str, unknown: list[str], seen: dict[str,
         return set()
     reads: set[str] = set()
     seen[path] = reads
+    text = scan.text(path)  # outside the try: a failed git read (SourceError is a ValueError) is no YAML error
     try:
-        doc = yaml.safe_load(scan.text(path))
+        doc = yaml.safe_load(text)
     except Exception:  # PyYAML's constructors raise more than YAMLError: a bad date, tag value, depth
         unknown.append(f"{path} is not valid YAML")
         return set()
