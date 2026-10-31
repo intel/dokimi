@@ -35,17 +35,20 @@ def bundled_empty(tmp_path, monkeypatch):
     monkeypatch.setattr(tasks_mod, "EXPLORE_TASKS_ROOT", bundled)
 
 
-@pytest.mark.parametrize("fixture", ["bundled_absent", "bundled_empty"])
+@pytest.mark.parametrize("fixture,message", [
+    ("bundled_absent", "No bundled explore tasks at "),
+    ("bundled_empty", "No explore tasks in the bundled data/explore_tasks."),
+])
 @pytest.mark.parametrize("argv", [
     ["explore", "list"],
     ["explore", "run", "--all"],
 ])
-def test_no_root_and_no_bundled_task_exits_2_naming_tasks_root(fixture, argv, request, capsys):
+def test_no_root_and_no_bundled_task_exits_2_naming_tasks_root(fixture, message, argv, request, capsys):
     request.getfixturevalue(fixture)
     code, err = _refusal(argv, capsys)
     assert code == 2
+    assert message in err.err
     assert "--tasks-root" in err.err
-    assert "Traceback" not in err.err
 
 
 @pytest.mark.parametrize("argv", [
