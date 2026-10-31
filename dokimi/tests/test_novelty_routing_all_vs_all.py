@@ -10,6 +10,7 @@ import json
 
 import pytest
 
+from dokimi.utils import InputError
 from dokimi.cli import build_parser
 from dokimi.novelty.client import LLMClient
 from dokimi.novelty.all_vs_all import all_vs_all, load_queries_by_skill
@@ -144,7 +145,7 @@ def test_a_queries_file_nested_too_deeply_exits_with_a_message(tmp_path, monkeyp
     _catalog_skill(root, "perf", "profile a slow binary with perf record and report")
     args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
                   "--queries-by-skill", str(path), "--out", str(tmp_path / "o.json"))
-    with pytest.raises(SystemExit, match="nested too deeply") as exc:
+    with pytest.raises(InputError, match="nested too deeply") as exc:
         args.func(args)
     assert "RecursionError" not in str(exc.value)
 
@@ -466,7 +467,7 @@ def test_an_unreadable_queries_file_is_a_message_not_a_traceback(tmp_path, make)
         queries.write_bytes(b"\xff\xfe\x00bad")
     args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
                   "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
-    with pytest.raises(SystemExit, match="cannot read the queries"):
+    with pytest.raises(InputError, match="cannot read the queries"):
         args.func(args)
 
 

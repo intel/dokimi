@@ -18,6 +18,7 @@ import pytest
 
 from dokimi.eval.panel import JudgePanel, PanelVerdict
 from dokimi.records import RecordError
+from dokimi.utils import InputError
 from tests.artifact_fixtures import artifact_fixture
 
 
@@ -164,14 +165,13 @@ def test_the_degradation_pool_refuses_a_record_without_question_id():
         build_pairs([{"question_text": "Q?", "arms": {"baseline": {"answer": "x" * 2000}}}])
 
 
-def test_eval_score_names_the_malformed_record(tmp_path, capsys):
+def test_eval_score_names_the_malformed_record(tmp_path):
     from dokimi.commands.evaluate import _load_answers
 
     path = tmp_path / "answers.json"
     path.write_text(json.dumps({"answers": [{"question_text": "Q?"}]}), encoding="utf-8")
-    with pytest.raises(SystemExit):
+    with pytest.raises(InputError, match=r"answers\.json answers\[0\]: missing question_id"):
         _load_answers(str(path))
-    assert "answers.json answers[0]: missing question_id" in capsys.readouterr().err
 
 
 def test_the_dashboard_leaves_out_a_file_with_a_malformed_record(tmp_path, caplog):
@@ -306,7 +306,7 @@ def test_model_compare_names_the_file_with_the_malformed_record(tmp_path):
 
     path = tmp_path / "run.json"
     path.write_text(json.dumps({"answers": [{"arms": {"baseline": {"answer": "a"}}}]}), encoding="utf-8")
-    with pytest.raises(SystemExit, match=r"run\.json answers\[0\]: missing question_id"):
+    with pytest.raises(InputError, match=r"run\.json answers\[0\]: missing question_id"):
         load_run(str(path))
 
 
@@ -464,10 +464,8 @@ def test_the_arm_judges_refuse_a_binary_answers_file_before_any_call(tmp_path, m
     extra = ["--questions", str(questions)] if command[0] == "checklist" else []
     args = build_parser().parse_args(["eval", *command, "--answers", str(answers), *extra,
                                       "--output", str(tmp_path / "out.json")])
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(InputError, match="has no arms answers"):
         args.func(args)
-    assert exc.value.code == 2
-    assert "has no arms answers" in capsys.readouterr().err
     assert judge.mock_calls == []
     assert not (tmp_path / "out.json").exists()
 
@@ -590,9 +588,9 @@ def test_cross_judge_refuses_a_missing_result_file_before_any_judge_call(tmp_pat
     missing = tmp_path / "missing.json"
     args = _cross_judge_args(tmp_path, _material_arms_run(), "--no-stored", "--judges", "amazon-bedrock/m",
                              flag, str(missing))
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(InputError) as exc:
         args.func(args)
-    assert exc.value.code == 2 and str(missing) in capsys.readouterr().err
+    assert str(missing) in str(exc.value)
     assert seen == {}  # no paid judge call was made
 
 
@@ -722,7 +720,7 @@ def _checklist(question):
                  "questions[0]", id="coverage-past-float-range"),
 ])
 def test_cross_judge_names_a_result_entry_of_the_wrong_shape_before_any_judge_call(
-        tmp_path, capsys, monkeypatch, flag, content, where):
+        tmp_path, monkeypatch, flag, content, where):
     from tests.test_judge_reliability import _cross_judge_args, _material_arms_run, _recording_judge
 
     seen: dict = {}
@@ -731,10 +729,9 @@ def test_cross_judge_names_a_result_entry_of_the_wrong_shape_before_any_judge_ca
     wrong.write_text(json.dumps(content), encoding="utf-8")
     args = _cross_judge_args(tmp_path, _material_arms_run(), "--no-stored", "--judges", "amazon-bedrock/m",
                              flag, str(wrong))
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(InputError) as exc:
         args.func(args)
-    assert exc.value.code == 2
-    assert capsys.readouterr().err.startswith(f"Error: {wrong}: {where} ")
+    assert str(exc.value).startswith(f"{wrong}: {where} ")
     assert seen == {}  # no paid judge call was made
 
 

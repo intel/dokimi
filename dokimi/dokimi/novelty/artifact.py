@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from dokimi.utils import InputError
+
 
 def load_artifact_text(ref: str) -> tuple[str, str, str, str, str]:
     """Resolve an artifact reference to ``(kind, name, description, frontmatter, body)``.
@@ -39,9 +41,10 @@ def load_artifact_text(ref: str) -> tuple[str, str, str, str, str]:
     return "text", path.stem, "", "", path.read_text(encoding="utf-8")
 
 
-def load_artifact_or_exit(ref: str) -> tuple[str, str, str, str, str]:
-    """:func:`load_artifact_text`, or exit naming ``ref`` when it is missing, unreadable or not UTF-8."""
+def load_artifact_ref(ref: str) -> tuple[str, str, str, str, str]:
+    """:func:`load_artifact_text` for a command's ``--artifact``: an :class:`~dokimi.utils.InputError`
+    naming ``ref`` when it is missing, unreadable, not UTF-8 or has no frontmatter to read."""
     try:
         return load_artifact_text(ref)
     except (OSError, ValueError, RecursionError) as exc:
-        raise SystemExit(f"cannot load --artifact {ref}: {exc}") from None
+        raise InputError(f"cannot load --artifact {ref}: {exc}") from exc

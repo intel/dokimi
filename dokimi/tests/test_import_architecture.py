@@ -405,6 +405,56 @@ def spawn_problems(imports: Imports, baseline: Mapping[str, tuple[int, str]],
     return problems
 
 
+#: Modules that end the process: ``sys.exit``, ``os._exit``, ``exit``/``quit`` and ``raise
+#: SystemExit``. Only the frontend layer may. A library raises InputError (dokimi.utils), and
+#: cli.main prints it and exits 2. Empty: nothing outside the frontend ends the process.
+EXIT_BASELINE: dict[str, tuple[int, str]] = {}
+
+_EXIT_CALLS = {("sys", "exit"), ("os", "_exit")}
+
+
+def exit_sites(tree: ast.Module) -> list[int]:
+    """Lines that end the process: an exit call (by module attribute or builtin name) or a raise of SystemExit.
+
+    The ``if __name__ == '__main__':`` block of a script is the process boundary of ``python -m``, so it is
+    not counted.
+    """
+    guarded = {id(n) for stmt in tree.body
+               if isinstance(stmt, ast.If) and ast.unparse(stmt.test) == "__name__ == '__main__'"
+               for n in ast.walk(stmt)}
+    lines: list[int] = []
+    for node in ast.walk(tree):
+        if id(node) in guarded:
+            continue
+        if isinstance(node, ast.Raise) and node.exc is not None:
+            exc = node.exc.func if isinstance(node.exc, ast.Call) else node.exc
+            if isinstance(exc, ast.Name) and exc.id == "SystemExit":
+                lines.append(node.lineno)
+        elif isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Name) and func.id in ("exit", "quit"):
+                lines.append(node.lineno)
+            elif (isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name)
+                    and (func.value.id, func.attr) in _EXIT_CALLS):
+                lines.append(node.lineno)
+    return sorted(lines)
+
+
+def exit_problems(imports: Imports, baseline: Mapping[str, tuple[int, str]]) -> list[str]:
+    counts = {m: exit_sites(t) for m, t in imports.trees.items() if layer_of(m) != "frontend"}
+    problems = []
+    for mod, lines in sorted(counts.items()):
+        allowed = baseline.get(mod, (0, ""))[0]
+        if len(lines) > allowed:
+            problems.append(f"{mod} ends the process at lines {lines}; raise InputError (dokimi.utils) "
+                            "and let cli.main exit 2")
+    for mod, (allowed, _) in sorted(baseline.items()):
+        now = len(counts.get(mod, []))
+        if now < allowed:
+            problems.append(f"{mod} has {now} exit site(s), baseline {allowed}: lower EXIT_BASELINE")
+    return problems
+
+
 # --- the package ------------------------------------------------------------------
 
 
@@ -445,6 +495,11 @@ def test_llm_provider_sdks_go_through_dokimi_llm(imports):
     assert not stale, f"{stale} no longer import the banned module; delete them from BANNED_BASELINE"
 
 
+def test_only_the_frontend_ends_the_process(imports):
+    problems = exit_problems(imports, EXIT_BASELINE)
+    assert not problems, "\n".join(problems)
+
+
 def test_child_processes_start_through_dokimi_process(imports):
     problems = spawn_problems(imports, SPAWN_BASELINE)
     assert not problems, "\n".join(problems)
@@ -452,10 +507,11 @@ def test_child_processes_start_through_dokimi_process(imports):
 
 def test_baselines_are_explained_and_name_real_modules(imports):
     reasons = [*LAYER_BASELINE.values(), *CYCLE_BASELINE.values(), *BANNED_BASELINE.values(),
-               *(reason for _, reason in SPAWN_BASELINE.values())]
+               *(reason for _, reason in SPAWN_BASELINE.values()),
+               *(reason for _, reason in EXIT_BASELINE.values())]
     assert all(r.strip() for r in reasons), "every baseline entry carries its reason"
     named = {*(m for edge in LAYER_BASELINE for m in edge), *(m for c in CYCLE_BASELINE for m in c),
-             *(m for m, _ in BANNED_BASELINE), *SPAWN_BASELINE}
+             *(m for m, _ in BANNED_BASELINE), *SPAWN_BASELINE, *EXIT_BASELINE}
     assert named <= imports.modules, f"{sorted(named - imports.modules)} name no module"
 
 
@@ -532,6 +588,20 @@ def test_a_direct_spawn_outside_the_wrapper_fails(tmp_path):
     problems = spawn_problems(imports, {"dokimi.c": (2, "two sites once")})
     assert [p.split()[0] for p in problems] == ["dokimi.a", "dokimi.b", "dokimi.c"]
     assert "lower SPAWN_BASELINE" in problems[-1]
+
+
+def test_a_process_exit_outside_the_frontend_fails(tmp_path):
+    imports = _package(tmp_path, {
+        "dokimi/cli.py": "import sys\nsys.exit(2)\n",
+        "dokimi/commands/x.py": "import sys\nsys.exit(1)\n",
+        "dokimi/core.py": "import sys\n\ndef f():\n    sys.exit(3)\n",
+        "dokimi/b.py": "def g():\n    raise SystemExit('bad')\n",
+        "dokimi/c.py": "import os\nos._exit(0)\nexit(1)\n",
+        "dokimi/d.py": "import sys\n\nif __name__ == '__main__':\n    sys.exit(0)\n",
+    })
+    problems = exit_problems(imports, {"dokimi.c": (1, "one exit once")})
+    assert [p.split()[0] for p in problems] == ["dokimi.b", "dokimi.c", "dokimi.core"]
+    assert "lower EXIT_BASELINE" not in "".join(problems)
 
 
 def test_imported_callable_aliases_count_each_launch_once(tmp_path):

@@ -43,7 +43,7 @@ Values are read, not normalised: a question id stays the ``str`` or ``int`` it w
 written as and an aggregate stays the ``int`` or ``float`` it was written as, so a
 report that prints them prints what the file says.
 
-Errors: :class:`RecordError` (a ``ValueError``) for a missing or unparseable file, an
+Errors: :class:`RecordError` (an :class:`~dokimi.utils.InputError`, so the CLI exits 2 with its message) for a missing or unparseable file, an
 artifact with no record list, a record that is not an object, has no
 ``question_id`` or has one that is neither a string nor an integer, a condition payload that is neither an object nor ``null``, an
 ``arms``/``scores`` field that is not an object, an ``expected_skill`` that is not a
@@ -54,12 +54,13 @@ condition, and :meth:`Record.score` returns ``None``.
 
 from __future__ import annotations
 
-import json
 import math
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional, Union
+
+from dokimi.utils import InputError, read_json_input
 
 #: The binary context arm, under its persisted key.
 CONTEXT = "with_docs"
@@ -74,8 +75,8 @@ NO_RETRIEVAL_SOURCES = frozenset({"fallback_none", "none"})
 QuestionId = Union[str, int]
 
 
-class RecordError(ValueError):
-    """An artifact or record that is not one of the shapes this module reads."""
+class RecordError(InputError):
+    """An artifact or record that is not one of the shapes this module reads (an :class:`InputError`)."""
 
 
 @dataclass(frozen=True)
@@ -219,13 +220,9 @@ RecordLike = Union[Record, Mapping[str, Any]]
 def load(path: Union[str, Path], *, section: Optional[str] = None) -> Run:
     """Read an artifact file; every failure is a :class:`RecordError` naming ``path``."""
     try:
-        data = json.loads(Path(path).read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        raise RecordError(f"file not found: {path}") from None
-    except (OSError, UnicodeDecodeError) as exc:
-        raise RecordError(f"cannot read {path}: {exc}") from None
-    except json.JSONDecodeError as exc:
-        raise RecordError(f"invalid JSON in {path}: {exc}") from None
+        data = read_json_input(path)
+    except InputError as exc:
+        raise RecordError(str(exc)) from exc
     return read(data, source=str(path), section=section)
 
 
