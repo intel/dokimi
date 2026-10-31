@@ -47,9 +47,11 @@ from typing import Any
 from dokimi import process
 from dokimi.utils import retry_writable
 
-from .events import Transcript, convert
+from .events import convert
+from .transcript import Transcript
 from .harness_profile import HarnessProfile
 from .manifest import RepoManifest, check_repo
+from .runner import SUPPORT_HOST
 from .source import RepoTree, SourceError
 
 TOKEN_RE = re.compile(r"\bRC[0-9A-F]{6}\b")
@@ -105,6 +107,9 @@ def token(salt: str, path: str, position: str) -> str:
 
 def probe_files(tree: RepoTree, manifest: RepoManifest, profile: HarnessProfile) -> list[str]:
     """Guidance by the manifest's globs, plus files named like the harness's own guidance."""
+    if profile.native_prompt:
+        raise ReachError(f"{profile.name} runs its own prompt (native_prompt), so it cannot be asked to report "
+                         "what it loaded; probe the same CLI's exec profile instead")
     declared = set(check_repo(tree, manifest).guidance_files)
     names = set(profile.guidance_names)
     native = {p for p in tree.files() if PurePosixPath(p).name in names}
@@ -364,6 +369,8 @@ def _run_one(profile: HarnessProfile, scenario: Scenario, model: str, workspace:
              config_dir: Path, bin_path: str | None, max_turns: int, budget_usd: float,
              timeout_s: int) -> tuple[Transcript | None, dict[str, Any]]:
     config_dir.mkdir()
+    # As repo run does: a profile's config files (a Codex provider, a Claude Code hook) apply to the probe too.
+    profile.write_config(config_dir, {"config_dir": config_dir.as_posix(), "support_dir": SUPPORT_HOST.as_posix()})
     argv = profile.argv(prompt=scenario.prompt, model=model, tools=scenario.tools,
                         max_turns=max_turns, budget_usd=budget_usd, bin_path=bin_path)
     row: dict[str, Any] = {"id": scenario.id, "cwd": scenario.cwd, "tools": scenario.tools,
@@ -379,7 +386,7 @@ def _run_one(profile: HarnessProfile, scenario: Scenario, model: str, workspace:
         row.update(error=f"TimeoutExpired: {argv[0]} timed out after {timeout_s} seconds",
                    _stdout=proc.stdout)
         return None, row
-    transcript = convert(profile.trace, proc.stdout, str(workspace))
+    transcript = convert(profile.trace, proc.stdout, str(workspace), scenario.cwd)
     row.update(returncode=proc.returncode, cost_usd=transcript.cost_usd,
                num_turns=transcript.num_turns, _stdout=proc.stdout)
     if proc.returncode != 0 or transcript.is_error or not transcript.answer:

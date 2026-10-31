@@ -1,0 +1,59 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+schema: harness_profile.v1
+name: codex-review
+bin: codex  # the native binary, as for the codex profile
+version_cmd: ["{bin}", "--version"]
+# Codex 0.160 runs every tool call through codex-code-mode-host, which it starts from
+# beside its own binary; without it in the container no command can run.
+bin_companions: [codex-code-mode-host]
+# Codex's review mode on the commit under review, for review tasks only: `--commit` refuses a custom prompt.
+# The tool mode goes before `review`: --sandbox is an `exec` option that review rejects.
+invoke:
+  - "{bin}"
+  - "exec"
+  - "{tools}"
+  - "review"
+  - "--commit"
+  - "HEAD"
+  - "--model"
+  - "{model}"
+  - "--ephemeral"
+  - "--skip-git-repo-check"
+  - "--json"
+native_prompt: true
+answer_format: codex-review
+tools:
+  none: ["--sandbox", "read-only"]
+  read: ["--sandbox", "read-only"]
+  all: ["--dangerously-bypass-approvals-and-sandbox"]
+config_dir_env: CODEX_HOME
+env_allow:
+  - PATH
+  - HOME
+  - LANG
+  - SYSTEMROOT
+  - CODEX_API_KEY
+# OPENAI_API_KEY is not forwarded: `all` mode's shell reads every forwarded variable, and `codex exec` reads neither key.
+# Another endpoint needs a config_files provider with `env_key = "CODEX_API_KEY"`, else no bearer (401 Missing bearer).
+  - OPENAI_BASE_URL
+  - http_proxy
+  - https_proxy
+  - no_proxy
+  - HTTP_PROXY
+  - HTTPS_PROXY
+  - NO_PROXY
+egress:
+  - api.openai.com
+endpoint_env: OPENAI_BASE_URL
+trace: codex-json
+guidance:
+  names: [AGENTS.md, AGENTS.override.md]
+  resolution: codex-home + git-root-to-cwd + lazy-by-shell-read
+  imports: null
+  notes: >-
+    Loads guidance as the codex profile does. Measured on 0.160 with gpt-6-luna:
+    it opened AGENTS.md but reported only defects its P0-P3 rubric keeps;
+    convention rules moved it only when the guidance called a violation
+    merge-blocking (P1). It reports zero token usage in this mode.
