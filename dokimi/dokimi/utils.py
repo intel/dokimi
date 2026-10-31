@@ -134,6 +134,7 @@ _VENDORS = frozenset({
     "ai21", "amazon", "anthropic", "cohere", "deepseek", "google", "luma", "meta", "minimax", "mistral",
     "moonshotai", "nvidia", "openai", "qwen", "stability", "twelvelabs", "writer", "xai", "zai",
 })
+_VENDOR_SLUGS = {"z-ai": "zai", "x-ai": "xai", "mistralai": "mistral"}  # OpenRouter's spelling of a vendor
 
 
 def _model_core(model: str) -> tuple[str, str | None]:
@@ -142,17 +143,21 @@ def _model_core(model: str) -> tuple[str, str | None]:
     The route goes (``openrouter/anthropic/``, ``bedrock/``, ``vertex_ai/``, an ARN's
     ``inference-profile/``), and so do the case, the region profile (``eu.``) and a Bedrock
     revision (``-v1:0`` or ``-1:0``). Vertex's ``@20250929`` is the snapshot ``-20250929``. The organization of an
-    ``org/name`` id stays, so a re-upload under another organization is another model.
+    ``org/name`` id stays, so a re-upload under another organization is another model; a known vendor
+    (``qwen/``, ``z-ai/``) goes, as its Bedrock ``vendor.`` prefix does, unless a ``huggingface/`` route precedes it.
     """
     name = (model or "").strip().lower()
     for marker in ("inference-profile/", "foundation-model/"):  # the tail of a Bedrock ARN
         if marker in name:
             name = name.rsplit(marker, 1)[-1]
     parts = name.split("/")
+    hub = False
     while len(parts) > 1 and parts[0] in _ROUTES:
         hub = parts.pop(0) == "huggingface"
         if hub:  # a Hub id: the route goes, its organization stays, even behind another route
             break
+    if not hub and len(parts) > 1 and _VENDOR_SLUGS.get(parts[0], parts[0]) in _VENDORS:
+        parts.pop(0)  # OpenRouter's ``qwen/X`` is Bedrock's ``qwen.X``: the vendor, not an organization
     name = "/".join(parts)
     name = re.sub(r"-v?\d+:\d+$", "", name)
     for prefix in _REGION_PROFILES:

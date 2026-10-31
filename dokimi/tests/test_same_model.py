@@ -78,6 +78,14 @@ CASES = [
     ("openrouter/huggingface/google/gemma-2-9b-it", "gemma-2-9b-it", False),
     ("openrouter/huggingface/google/gemma-2-9b-it", "huggingface/google/gemma-2-9b-it", True),
     ("zai.glm-4.7", "glm-4.7", True),  # a Bedrock vendor prefix is dropped whatever the vendor
+    # OpenRouter writes the vendor as a path segment: one model on Bedrock and on OpenRouter
+    ("qwen.qwen3-235b-a22b-2507-v1:0", "openrouter/qwen/qwen3-235b-a22b-2507", True),
+    ("moonshotai.kimi-k2-thinking", "openrouter/moonshotai/kimi-k2-thinking", True),
+    ("zai.glm-4.7", "openrouter/z-ai/glm-4.7", True),
+    ("minimax.minimax-m2", "openrouter/minimax/minimax-m2", True),
+    ("mistral.mistral-large", "openrouter/mistralai/mistral-large", True),
+    ("openrouter/qwen/qwen3-8b", "openrouter/myorg/qwen3-8b", False),
+    ("huggingface/qwen/qwen3-8b", "qwen3-8b", False),
 ]
 
 
