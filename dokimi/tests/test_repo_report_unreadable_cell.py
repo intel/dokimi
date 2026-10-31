@@ -185,7 +185,8 @@ def test_a_valid_skills_block_is_accepted_by_repo_report(tmp_path, capsys, skill
         assert "skill_measured" not in row
 
 
-_NUMBERS_ACCEPTED = [pytest.param(_SAFE_MAGNITUDE, id="at-the-bound"), pytest.param(-_SAFE_MAGNITUDE, id="at-minus-the-bound")]
+_NUMBERS_ACCEPTED = [pytest.param(_SAFE_MAGNITUDE, id="at-the-bound"), pytest.param(-_SAFE_MAGNITUDE, id="at-minus-the-bound"),
+                     pytest.param(1e100, id="large-but-within-the-bound")]
 
 
 @pytest.mark.parametrize("cost", _NUMBERS_ACCEPTED)

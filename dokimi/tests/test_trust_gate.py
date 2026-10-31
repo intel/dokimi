@@ -240,3 +240,236 @@ class TestRetrievalHitRate:
         ))
         assert report["trust"]["verdict"] == "✅ PASS"
         assert report["trust"]["not_measured"] == ["retrieval_hit_rate"]
+
+
+def _row(with_score, without_score, *, agree=None, hit=None):
+    ev = {"question_id": "q", "with_docs": {"aggregate": with_score},
+          "without_docs": {"aggregate": without_score}}
+    if agree is not None:
+        ev["with_docs"]["agreement_score"] = agree
+    if hit is not None:
+        ev["retrieval_hit"] = hit
+    return ev
+
+
+def _check(verdict, name):
+    return next(c for c in verdict.checks if c.name == name)
+
+
+class TestEveryCheckReportsItsNumbers:
+    """One small run, every check's value worked out by hand.
+
+    Context arm 0, 40, 60 (mean 33.33, sample sd 30.55); baseline 10, 20, 30;
+    panel agreement 0.1, 0.2, 0.4; two of three questions retrieved a doc; two
+    runs averaging 40 and 45 (sd 3.536).
+    """
+
+    def test_values_thresholds_and_severities(self):
+        evals = [
+            _row(0, 10, agree=0.1, hit=True),
+            _row(40, 20, agree=0.2, hit=True),
+            _row(60, 30, agree=0.4, hit=False),
+        ]
+
+        v = evaluate_trust(evals, multirun_with_averages=[40.0, 45.0])
+
+        assert [(c.name, c.passed, c.value, c.threshold, c.severity, c.measured)
+                for c in v.checks] == [
+            ("min_questions", False, 3, 10, "fail", True),
+            ("zero_score_fraction", False, 0.333, 0.20, "fail", True),
+            ("min_with_docs_avg", True, 33.3, 30.0, "warn", True),
+            ("min_delta", True, 13.3, -5.0, "warn", True),
+            ("score_cv", False, 0.917, 0.60, "warn", True),
+            ("inter_rater_agreement", False, 0.233, 0.50, "warn", True),
+            ("retrieval_hit_rate", True, 0.667, 0.60, "warn", True),
+            ("multirun_variance", True, 3.54, 5.0, "fail", True),
+        ]
+        assert round(v.multirun_std, 4) == 3.5355
+        assert [c.name for c in v.failures] == ["min_questions", "zero_score_fraction"]
+        assert [c.name for c in v.warnings] == ["score_cv", "inter_rater_agreement"]
+
+
+class TestEveryThresholdIsInclusive:
+    """A value exactly at its threshold passes, for every check."""
+
+    def test_min_questions_at_floor(self):
+        assert _check(evaluate_trust(_evals(10)), "min_questions").passed
+
+    def test_zero_fraction_at_ceiling(self):
+        evals = [_row(0, 0)] * 2 + [_row(70, 50)] * 8
+        assert _check(evaluate_trust(evals), "zero_score_fraction").passed
+
+    def test_context_average_at_floor(self):
+        check = _check(evaluate_trust(_evals(10, with_score=30, without_score=20)), "min_with_docs_avg")
+        assert (check.value, check.passed) == (30.0, True)
+
+    def test_delta_at_floor(self):
+        check = _check(evaluate_trust(_evals(10, with_score=50, without_score=55)), "min_delta")
+        assert (check.value, check.passed) == (-5.0, True)
+
+    def test_cv_at_ceiling(self):
+        v = evaluate_trust(_evals(10), thresholds={"max_cv": 0.0})
+        check = _check(v, "score_cv")
+        assert (check.value, check.passed) == (0.0, True)
+
+    def test_agreement_at_floor(self):
+        evals = [_row(70, 50, agree=0.5)] * 10
+        check = _check(evaluate_trust(evals), "inter_rater_agreement")
+        assert (check.value, check.passed) == (0.5, True)
+
+    def test_one_agreement_score_among_many_rows_is_still_judged(self):
+        evals = [_row(70, 50)] * 10 + [_row(70, 50, agree=0.1)]
+        check = _check(evaluate_trust(evals), "inter_rater_agreement")
+        assert (check.passed, check.value) == (False, 0.1)
+
+    def test_hit_rate_at_floor(self):
+        evals = [_row(70, 50, hit=True)] * 6 + [_row(70, 50, hit=False)] * 4
+        check = _check(evaluate_trust(evals), "retrieval_hit_rate")
+        assert (check.value, check.passed) == (0.6, True)
+
+    def test_multirun_std_at_ceiling(self):
+        v = evaluate_trust(_evals(10), thresholds={"max_multirun_std": 0.0},
+                           multirun_with_averages=[50.0, 50.0])
+        check = _check(v, "multirun_variance")
+        assert (check.value, check.passed) == (0.0, True)
+
+
+class TestWhatTheChecksCount:
+    def test_a_question_scored_in_one_arm_only_is_not_counted(self):
+        evals = _evals(10) + [{"question_id": "q", "with_docs": {"aggregate": 90}}]
+        assert _check(evaluate_trust(evals), "min_questions").value == 10
+
+    def test_a_question_scored_in_the_baseline_only_is_not_counted(self):
+        # The other half of the both-arms filter: a baseline score with no context score
+        # would otherwise count, and its missing context score read as 0.
+        evals = _evals(10) + [{"question_id": "q", "without_docs": {"aggregate": 50}}]
+        v = evaluate_trust(evals)
+        assert _check(v, "min_questions").value == 10
+        assert _check(v, "zero_score_fraction").value == 0.0
+
+    def test_coverage_below_the_default_floor_is_not_measured(self):
+        # 15 of 20 record a retrieval outcome: 75%, under the 80% default floor.
+        v = evaluate_trust([_row(70, 50, hit=True)] * 15 + [_row(70, 50)] * 5)
+        assert not _check(v, "retrieval_hit_rate").measured
+        assert v.not_measured == ["retrieval_hit_rate"]
+
+    def test_a_zero_baseline_counts_as_zero(self):
+        check = _check(evaluate_trust(_evals(10, with_score=40, without_score=0)), "min_delta")
+        assert check.value == 40.0
+
+    def test_two_runs_are_enough_for_the_variance_check(self):
+        v = evaluate_trust(_evals(10), multirun_with_averages=[50.0, 70.0])
+        check = _check(v, "multirun_variance")
+        assert (check.value, check.passed) == (14.14, False)
+
+
+class TestScoreCv:
+    def test_one_question_has_no_spread(self):
+        check = _check(evaluate_trust([_row(50, 40)], thresholds={"min_questions": 1}), "score_cv")
+        assert (check.value, check.passed) == (0.0, True)
+
+    def test_two_questions_use_the_sample_sd(self):
+        # sd(40, 60) = 14.142, mean 50
+        check = _check(evaluate_trust([_row(40, 0), _row(60, 0)]), "score_cv")
+        assert check.value == 0.283
+
+    def test_a_mean_below_one_is_still_divided(self):
+        # sd(0.25, 0.75) = 0.354 over a mean of 0.5
+        check = _check(evaluate_trust([_row(0.25, 0), _row(0.75, 0)]), "score_cv")
+        assert check.value == 0.707
+
+    def test_an_all_zero_context_arm_reads_as_cv_one(self):
+        check = _check(evaluate_trust(_evals(10, with_score=0)), "score_cv")
+        assert (check.value, check.passed) == (1.0, False)
+
+
+def test_a_not_measured_retrieval_check_never_warns():
+    """Under the coverage floor the rate is not judged: it passes, is not a
+    warning, and serializes ``measured`` as false (the report JSON reads it)."""
+    evals = [_row(70, 50, hit=False)] * 2 + [_row(70, 50)] * 8
+
+    v = evaluate_trust(evals)
+    check = _check(v, "retrieval_hit_rate")
+
+    assert (check.passed, check.measured, check.value) == (True, False, None)
+    assert (check.threshold, check.severity) == (0.60, "warn")
+    assert check not in v.warnings
+    assert v.status == "✅ PASS"
+
+
+def test_a_legacy_artifact_serializes_measured_false():
+    import json
+
+    from dokimi.report.generator import ReportGenerator
+
+    check = _check(evaluate_trust(_evals(10)), "retrieval_hit_rate")
+    assert (check.threshold, check.severity) == (0.60, "warn")
+    assert (check.passed, check.measured) == (True, False)
+
+    # The report JSON is what reads "measured", so check the key there.
+    report = json.loads(ReportGenerator().generate_report(
+        {"evaluations": _evals(10)}, {"questions": []}, output_format="json",
+    ))
+    (rate,) = [c for c in report["trust"]["checks"] if c["name"] == "retrieval_hit_rate"]
+    assert (rate["passed"], rate["measured"], rate["severity"]) == (True, False, "warn")
+
+
+class TestTheRenderedBlock:
+    """The block a report shows, whole: each status gets its icon, each list its checks."""
+
+    def test_failures_and_warnings_render_apart(self):
+        evals = [
+            _row(0, 10, agree=0.1, hit=True),
+            _row(40, 20, agree=0.2, hit=True),
+            _row(60, 30, agree=0.4, hit=False),
+        ]
+        md = format_trust_block(evaluate_trust(evals, multirun_with_averages=[40.0, 45.0]))
+        assert md == "\n".join([
+            "## Can We Trust This Run?",
+            "",
+            "**Verdict: ❌ FAIL**",
+            "",
+            "| Check | Status | Value | Threshold | Notes |",
+            "|-------|--------|-------|-----------|-------|",
+            "| min_questions | ❌ | 3 | 10 | 3 questions evaluated (min 10) |",
+            "| zero_score_fraction | ❌ | 0.333 | 0.2 | 1/3 questions scored 0 in the context arm (33.3%) |",
+            "| min_with_docs_avg | ✅ | 33.3 | 30.0 | Context-arm avg = 33.3 (min 30.0) |",
+            "| min_delta | ✅ | 13.3 | -5.0 | Avg delta (context arm minus baseline) = +13.3 (min -5.0) |",
+            "| score_cv | ⚠️ | 0.917 | 0.6 | Score CV = 0.92 std=30.6 (max CV 0.6) |",
+            "| inter_rater_agreement | ⚠️ | 0.233 | 0.5 | Mean inter-rater agreement = 0.23 (min 0.5) |",
+            "| retrieval_hit_rate | ✅ | 0.667 | 0.6 | Retrieval hit rate = 66.7% (2/3) (min 60%) |",
+            "| multirun_variance | ✅ | 3.54 | 5.0 | Multi-run context-arm std = 3.54 across 2 runs (max 5.0) |",
+            "",
+            "**Blocking issues:**",
+            "- ❌ **min_questions**: 3 questions evaluated (min 10)",
+            "- ❌ **zero_score_fraction**: 1/3 questions scored 0 in the context arm (33.3%)",
+            "",
+            "**Warnings:**",
+            "- ⚠️ **score_cv**: Score CV = 0.92 std=30.6 (max CV 0.6)",
+            "- ⚠️ **inter_rater_agreement**: Mean inter-rater agreement = 0.23 (min 0.5)",
+            "",
+        ])
+
+    def test_a_not_measured_check_renders_as_neither_pass_nor_fail(self):
+        md = format_trust_block(evaluate_trust([_row(70, 50)] * 10))
+        lines = md.splitlines()
+        assert lines[2] == "**Verdict: ✅ PASS** (1 of 6 not measured)"
+        assert lines[-1] == (
+            "| retrieval_hit_rate | ➖ | None | 0.6 | Not measured: the evaluations "
+            "record no retrieval outcome (retrieval_hit) |"
+        )
+        assert "Warnings" not in md
+
+    def test_the_hit_rate_names_the_unrecorded_evaluations(self):
+        v = evaluate_trust([_row(70, 50, hit=True)] * 9 + [_row(70, 50)])
+        assert _check(v, "retrieval_hit_rate").message == (
+            "Retrieval hit rate = 100.0% (9/9; 1 unrecorded) (min 60%)"
+        )
+
+    def test_a_warn_only_verdict_renders_warnings_and_no_blocking_section(self):
+        evals = [_row(5, 5)] * 7 + [_row(100, 5)] * 3
+        verdict = evaluate_trust(evals)
+        assert verdict.warnings and not verdict.failures
+        md = format_trust_block(verdict)
+        assert "**Warnings:**" in md
+        assert "**Blocking issues:**" not in md

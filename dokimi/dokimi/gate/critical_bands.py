@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 
@@ -36,6 +37,19 @@ class CriticalBandsResult:
         return any(v.violated for v in self.violations)
 
 
+def _metric(summary: dict, key: str, condition: str) -> float:
+    """The summary value a condition reads. A missing key reads as 0.0; None is an error."""
+    raw = summary.get(key, 0.0)
+    if raw is None:
+        raise ValueError(f"critical_bands {condition}: summary metric {key!r} is None, not a number")
+    return float(raw)
+
+
+def _below(actual: float, threshold: float) -> bool:
+    """Strictly below the threshold. NaN is not a number the gate can pass, so it violates."""
+    return math.isnan(actual) or actual < threshold
+
+
 def check_critical_bands(summary: dict, spec: dict) -> CriticalBandsResult:
     """Check if summary violates any critical bands.
     
@@ -62,20 +76,20 @@ def check_critical_bands(summary: dict, spec: dict) -> CriticalBandsResult:
         threshold = float(band.get("value", 0.0))
 
         if condition == "score_below":
-            actual = float(summary.get("score", 0.0))
-            violated = actual < threshold
+            actual = _metric(summary, "score", "score_below")
+            violated = _below(actual, threshold)
             violations.append(BandViolation(condition, threshold, actual, violated))
         elif condition == "coverage_below":
-            actual = float(summary.get("coverage", 0.0))
-            violated = actual < threshold
+            actual = _metric(summary, "coverage", "coverage_below")
+            violated = _below(actual, threshold)
             violations.append(BandViolation(condition, threshold, actual, violated))
         elif condition == "freshness_below":
-            actual = float(summary.get("freshness_lite", 0.0))
-            violated = actual < threshold
+            actual = _metric(summary, "freshness_lite", "freshness_below")
+            violated = _below(actual, threshold)
             violations.append(BandViolation(condition, threshold, actual, violated))
         elif condition == "readability_below":
-            actual = float(summary.get("readability", 0.0))
-            violated = actual < threshold
+            actual = _metric(summary, "readability", "readability_below")
+            violated = _below(actual, threshold)
             violations.append(BandViolation(condition, threshold, actual, violated))
 
     return CriticalBandsResult(enabled=True, violations=violations)

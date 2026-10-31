@@ -64,6 +64,7 @@ FIELDS: dict[str, KindFields] = {
     "result": KindFields(time=("generated_at",), counts=("cells",)),
     "repo_budget": KindFields(subject=("tree",), counts=("entries",)),
     "task_inspect": KindFields(subject=("root",), counts=("items",)),
+    "cli_routes": KindFields(counts=("roots", "leaves", "tombstones")),
 }
 
 #: Every schema_version an artifact may carry (current and superseded) -> its kind.

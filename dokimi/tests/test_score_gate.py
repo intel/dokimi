@@ -63,3 +63,21 @@ def test_each_gate_reads_only_its_own_key():
 
     assert check_gate({"score": 0.7}, spec, "soft").passed is False
     assert check_gate({"score": 0.7}, spec, "hard").passed is True
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_enabled_gate_without_min_score_lets_any_score_pass(kind):
+    """min_score defaults to 0.0: an enabled gate with no floor blocks nothing."""
+    spec = {"future": {f"{kind}_gate": {"enabled": True}}}
+
+    result = check_gate({"score": 0.25}, spec, kind)
+
+    assert (result.min_score, result.passed) == (0.0, True)
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_a_summary_without_a_score_fails_an_enabled_gate(kind):
+    """A missing score reads as 0.0, never as a pass: a broken run must not clear the gate."""
+    result = check_gate({}, _spec(kind, min_score=0.5), kind)
+
+    assert (result.actual_score, result.passed, result.status) == (0.0, False, "FAIL")

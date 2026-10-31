@@ -56,7 +56,7 @@ def _add(run: NativeRun, qid: Any, text: str, completion: Optional[str], score: 
          passed: Optional[bool], detail: Any = None, error: Optional[str] = None) -> None:
     answer = None if completion is None else {"answer": completion, "model": run.model}
     if answer is not None and error:
-        answer["error"] = error  # a failed sample stays unscored in `eval reference`
+        answer["error"] = error  # a failed sample is counted under `errors` in `eval reference`
     run.answers.append({"question_id": str(qid), "question_text": text, "without_docs": answer})
     run.evaluations.append({"question_id": str(qid), "question_text": text,
                             NATIVE_CONDITION: _block(score, passed, run.tool, detail)})
