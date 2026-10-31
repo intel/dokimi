@@ -195,6 +195,35 @@ def test_catalog_scan_exits_zero_when_every_not_loaded_entry_is_a_benign_skip(tm
     assert "ERROR" not in out
 
 
+def test_catalog_scan_on_a_root_with_no_skill_md_says_so_and_exits_1(tmp_path, capsys):
+    args = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path)])
+    with pytest.raises(SystemExit) as exc_info:
+        args.func(args)
+
+    assert exc_info.value.code == 1
+    assert f"no SKILL.md found under {tmp_path}" in capsys.readouterr().err
+
+
+def test_catalog_scan_with_tasks_but_no_skill_md_warns_and_exits_0_unless_strict(tmp_path, capsys):
+    _write_task(tmp_path, "onetbb-real-task")
+    args = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path)])
+    args.func(args)  # no SystemExit: the tasks are a catalog the scan can run
+
+    assert f"no SKILL.md found under {tmp_path}" in capsys.readouterr().err
+    strict = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path), "--strict"])
+    with pytest.raises(SystemExit) as exc_info:
+        strict.func(strict)
+    assert exc_info.value.code == 1
+
+
+def test_catalog_scan_kind_tasks_does_not_ask_for_a_skill_md(tmp_path, capsys):
+    _write_task(tmp_path, "onetbb-real-task")
+    args = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path), "--kind", "tasks"])
+    args.func(args)
+
+    assert "no SKILL.md" not in capsys.readouterr().err
+
+
 def test_catalog_scan_rejects_missing_root(tmp_path):
     parser = build_parser()
     args = parser.parse_args(

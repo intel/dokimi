@@ -114,7 +114,31 @@ def test_different_skill_md_with_the_same_name_is_not_a_duplicate(tmp_path):
 
     reviews = review_skills(read_skill_manifest(tmp_path))
     assert all(r.duplicate_of is None for r in reviews)
-    assert all(r.state == "ok" for r in reviews)
+    assert all(r.state == "warn" for r in reviews)
+    assert all(r.findings[-1].code == "name-conflict" for r in reviews)
+
+
+def test_same_name_with_different_content_names_the_other_path_on_each_skill(tmp_path):
+    # The routing field refuses such a name (or skips it); the scan must say so, with both paths.
+    _skill(tmp_path / "plugins", "x", name="x", description="Use for x.")
+    _skill(tmp_path / "skills", "x", name="x", description="Use for x, a different text.")
+
+    reviews = review_skills(read_skill_manifest(tmp_path))
+    messages = sorted(f.message for r in reviews for f in r.findings if f.code == "name-conflict")
+    assert len(messages) == 2
+    # Each skill names the other one's path, and only that one.
+    assert any("used by plugins/x," in m for m in messages)
+    assert any("used by skills/x," in m for m in messages)
+
+
+def test_same_name_different_content_is_listed_by_catalog_scan_as_a_warning(tmp_path, capsys):
+    _skill(tmp_path / "plugins", "x", name="x", description="Use for x.")
+    _skill(tmp_path / "skills", "x", name="x", description="Use for x, a different text.")
+
+    report, code = _scan_json(tmp_path, capsys)
+    assert code == 0
+    assert [s["state"] for s in report["skills"]] == ["warn", "warn"]
+    assert all(s["findings"][-1]["code"] == "name-conflict" for s in report["skills"])
 
 
 def test_disable_model_invocation_is_reported_as_a_flag_not_a_finding(tmp_path):

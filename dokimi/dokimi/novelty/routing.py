@@ -484,27 +484,29 @@ def load_candidate(ref: str) -> tuple[Candidate, str, str | None]:
 
 def catalog_competitors(root: str, exclude: set[str],
                         notes: list[str] | None = None, *,
-                        include_disabled: bool = False) -> list[Candidate]:
+                        include_disabled: bool = False,
+                        include_invalid: bool = False) -> list[Candidate]:
     """Every skill under ``root`` whose name is not in ``exclude``.
 
     The field a harness would list next to the artifact, rather than one the caller picks.
     Skills come from the catalog reader, so a ``skills.yaml`` manifest decides which skills
     the catalog has. A declared skill that cannot be loaded is left out and described in
     ``notes`` (when given) rather than aborting the run. A skill with
-    ``disable-model-invocation`` is left out too, unless ``include_disabled``. A mirror, a
-    byte-identical ``SKILL.md`` under another path (a plugin copy of the ``skills/`` tree), is
-    left out too: the copy nearest the catalog root stands for the card.
+    ``disable-model-invocation`` is left out too, unless ``include_disabled``. A skill with a
+    spec error (``catalog scan`` reports it as an error, e.g. a description over 1024
+    characters) is left out too, unless ``include_invalid``. A mirror, a byte-identical
+    ``SKILL.md`` under another path (a plugin copy of the ``skills/`` tree), is left out too:
+    the copy nearest the catalog root stands for the card. Two skills that share a name with
+    different content are both left out, and ``notes`` names both paths.
 
     Raises:
         ValueError: ``root`` is not a directory, or its ``skills.yaml`` is invalid (with no
             manifest every ``SKILL.md`` is read, and a broken one is skipped with a note).
-        RoutingInputError: Two skills in the field share a name with different content; the
-            message names both paths.
     """
     if not Path(root).is_dir():
         raise ValueError(f"--catalog is not a directory: {root}")
-    eligible = _eligible_catalog_skills(root, exclude, notes, include_disabled)
-    _refuse_conflicting_names(eligible)
+    eligible = _eligible_catalog_skills(root, exclude, notes, include_disabled, include_invalid)
+    eligible = _skip_conflicting_names(eligible, notes)
     keeper = _keepers_by_copy(eligible)
     candidates: list[Candidate] = []
     for skill, digest in eligible:
@@ -518,12 +520,16 @@ def catalog_competitors(root: str, exclude: set[str],
 
 
 def _eligible_catalog_skills(root: str, exclude: set[str], notes: list[str] | None,
-                             include_disabled: bool) -> list[tuple[Skill, str]]:
+                             include_disabled: bool,
+                             include_invalid: bool = False) -> list[tuple[Skill, str]]:
     """Each loadable, non-excluded catalog skill with the sha256 of its ``SKILL.md``."""
     from dokimi.external.catalog import read_skill_manifest
+    from dokimi.external.validate import review_skills
 
+    entries = read_skill_manifest(Path(root), notes)
+    reviews = review_skills(entries)
     eligible: list[tuple[Skill, str]] = []
-    for entry in read_skill_manifest(Path(root), notes):
+    for entry, review in zip(entries, reviews, strict=True):
         skill = entry.skill
         if skill is None or not entry.loaded:
             if notes is not None:
@@ -536,27 +542,36 @@ def _eligible_catalog_skills(root: str, exclude: set[str], notes: list[str] | No
                 notes.append(f"left out catalog skill {skill.name!r}: "
                              "disable-model-invocation (--include-disabled keeps it)")
             continue
+        if not include_invalid and review is not None and review.state == "error":
+            if notes is not None:
+                problems = "; ".join(f.message for f in review.findings if f.level == "error")
+                notes.append(f"left out catalog skill {skill.name!r} at {skill.path}: "
+                             f"spec error ({problems}; --include-invalid keeps it)")
+            continue
         eligible.append((skill, hashlib.sha256(skill.path.read_bytes()).hexdigest()))
     return eligible
 
 
-def _refuse_conflicting_names(eligible: list[tuple[Skill, str]]) -> None:
-    """Two skills with one name and different bytes cannot both stand for the card.
+def _skip_conflicting_names(eligible: list[tuple[Skill, str]],
+                            notes: list[str] | None) -> list[tuple[Skill, str]]:
+    """``eligible`` without the skills of a name that two different files share.
 
-    check_field would only say "pass each competitor once", which is not the problem.
+    Two skills with one name and different bytes cannot both stand for the card, so the name
+    leaves the field, and ``notes`` names every path of it. The rest of the field stays.
     """
-    copies_by_name: dict[str, list[tuple[str, str]]] = {}
+    by_name: dict[str, list[tuple[Skill, str]]] = {}
     for skill, digest in eligible:
-        copies_by_name.setdefault(skill.name, []).append((skill.path.as_posix(), digest))
-    for name in sorted(copies_by_name):
-        copies = sorted(copies_by_name[name])
-        first_path, first_digest = copies[0]
-        other = next((path for path, digest in copies if digest != first_digest), None)
-        if other is not None:
-            raise RoutingInputError(
-                f"catalog has {name} at {first_path} and {other} with "
-                "different content; dedupe or rename"
-            )
+        by_name.setdefault(skill.name, []).append((skill, digest))
+    skipped: set[str] = set()
+    for name in sorted(by_name):
+        copies = by_name[name]
+        if len({digest for _, digest in copies}) > 1:
+            skipped.add(name)
+            if notes is not None:
+                paths = ", ".join(sorted(skill.path.as_posix() for skill, _ in copies))
+                notes.append(f"skipped catalog name {name!r}: it has different content at "
+                             f"{paths}; dedupe or rename them to route them")
+    return [(skill, digest) for skill, digest in eligible if skill.name not in skipped]
 
 
 def _keepers_by_copy(eligible: list[tuple[Skill, str]]) -> dict[tuple[str, str], Skill]:

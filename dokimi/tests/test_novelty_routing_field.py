@@ -10,8 +10,8 @@ import json
 import pytest
 
 from dokimi.cli import build_parser
+from dokimi.commands.novelty import _routing_field
 from dokimi.novelty.routing import (
-    RoutingInputError,
     catalog_competitors,
     disables_model_invocation,
 )
@@ -213,22 +213,29 @@ def test_mirrors_at_one_depth_keep_the_path_that_sorts_first(tmp_path):
     assert f"catalog skill 'db' at {root / 'b' / 'skills' / 'db' / 'SKILL.md'}" in notes[0]
 
 
-def test_two_catalog_skills_with_one_name_and_different_content_are_refused_by_name(
+def test_two_catalog_skills_with_one_name_and_different_content_are_skipped_with_a_warning(
     tmp_path, capsys
 ):
-    # Not "pass each competitor once": the catalog holds two different cards under one name,
-    # and the refusal names both copies rather than the duplicate-competitor check.
+    # The catalog holds two different cards under one name. Routing does not abort the repo:
+    # both copies of that name leave the field, the rest of it stays, and stderr names both paths.
     root = tmp_path / "catalog"
     _catalog_skill(root, "perf", "profile a slow binary with perf")
+    _catalog_skill(root, "cache", "warm a cold cache before a benchmark")
     _catalog_skill(root, "db", "tune a slow database query")
     fork = root / "plugins" / "x" / "skills" / "db"
     fork.mkdir(parents=True)
     (fork / "SKILL.md").write_text(
         "---\nname: db\ndescription: a different card\n---\n\n# B\n", encoding="utf-8"
     )
+    notes: list[str] = []
+    names = [c.name for c in catalog_competitors(str(root), {"perf"}, notes)]
+    assert names == ["cache"]
+    assert len(notes) == 1 and "db" in notes[0] and "different content" in notes[0]
+    assert str(root / "skills" / "db" / "SKILL.md") in notes[0]
+    assert str(fork / "SKILL.md") in notes[0]
+
     queries = tmp_path / "q.json"
     queries.write_text(json.dumps(["my binary is slow"]), encoding="utf-8")
-    out = tmp_path / "routing.json"
     args = _parse(
         "novelty",
         "routing",
@@ -239,15 +246,13 @@ def test_two_catalog_skills_with_one_name_and_different_content_are_refused_by_n
         "--queries",
         str(queries),
         "--out",
-        str(out),
+        str(tmp_path / "routing.json"),
     )
-    with pytest.raises(SystemExit) as refused:
-        args.func(args)
-    message = str(refused.value)
-    assert message.startswith("catalog has db at ") and "dedupe or rename" in message
-    assert str(root / "skills" / "db" / "SKILL.md") in message
-    assert str(fork / "SKILL.md") in message
-    assert "more than once" not in message and not out.exists()
+    left_out: list[str] = []
+    field = _routing_field(args, {"perf"}, left_out)
+    assert [c.name for c in field] == ["cache"]
+    assert "WARNING: " + notes[0] in capsys.readouterr().err
+    assert left_out == notes
 
 
 def test_two_differently_named_skills_with_identical_text_both_stay_in_the_field(tmp_path):
@@ -276,13 +281,48 @@ def test_two_manifest_entries_with_identical_text_and_different_names_both_stay(
     assert not any("identical to" in note for note in notes)
 
 
-def test_two_same_name_copies_that_differ_only_late_in_the_body_are_refused(tmp_path):
+def test_two_same_name_copies_that_differ_only_late_in_the_body_are_skipped(tmp_path):
     # The copies share the frontmatter and the first 100+ bytes, so a digest of a prefix would
-    # call them mirrors; the whole file decides, and they clash.
+    # call them mirrors; the whole file decides, and they clash, so the name leaves the field.
     head = "---\nname: db\ndescription: tune a slow database query\n---\n\n" + "x" * 120
     for branch, tail in (("a", "\nfirst ending\n"), ("b", "\nsecond ending\n")):
         copy = tmp_path / branch / "skills" / "db"
         copy.mkdir(parents=True)
         (copy / "SKILL.md").write_text(head + tail, encoding="utf-8")
-    with pytest.raises(RoutingInputError, match="catalog has db at .* different content"):
-        catalog_competitors(str(tmp_path), set(), [])
+    notes: list[str] = []
+    assert catalog_competitors(str(tmp_path), set(), notes) == []
+    assert len(notes) == 1 and "db" in notes[0]
+
+
+def _long_description_catalog(tmp_path):
+    root = tmp_path / "catalog"
+    _catalog_skill(root, "perf", "profile a slow binary with perf")
+    _catalog_skill(root, "long", "x" * 1100)
+    return root
+
+
+def test_a_catalog_skill_over_the_spec_limit_is_left_out_with_a_note(tmp_path):
+    notes: list[str] = []
+    names = [c.name for c in catalog_competitors(str(_long_description_catalog(tmp_path)), set(), notes)]
+    assert names == ["perf"]
+    assert len(notes) == 1 and "long" in notes[0] and "description" in notes[0]
+
+
+def test_include_invalid_keeps_a_catalog_skill_over_the_spec_limit(tmp_path):
+    root = _long_description_catalog(tmp_path)
+    names = [c.name for c in catalog_competitors(str(root), set(), [], include_invalid=True)]
+    assert sorted(names) == ["long", "perf"]
+
+
+def test_the_include_invalid_flag_reaches_the_routing_field(tmp_path, capsys):
+    root = _long_description_catalog(tmp_path)
+    queries = tmp_path / "q.json"
+    queries.write_text(json.dumps(["profile my binary"]), encoding="utf-8")
+    argv = ["novelty", "routing", "--artifact", f"skill:{root / 'skills' / 'perf'}",
+            "--catalog", str(root), "--queries", str(queries), "--out", str(tmp_path / "r.json")]
+    left_out: list[str] = []
+    field = _routing_field(_parse(*argv), {"perf"}, left_out)
+    assert field == []
+    assert "long" in capsys.readouterr().err and left_out
+    field = _routing_field(_parse(*argv, "--include-invalid"), {"perf"}, [])
+    assert [c.name for c in field] == ["long"]

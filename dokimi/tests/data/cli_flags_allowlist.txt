@@ -79,6 +79,7 @@
 --hits  # repo report replay hits (#297) adds it: a view switch has no registry concept yet
 --image
 --include-disabled  # novelty routing (#172) adds it: no registry concept yet; a F1b migration names it
+--include-invalid  # novelty routing: keeps a skill with a spec error in the field; no registry concept yet
 --include-resources
 --input
 --intents

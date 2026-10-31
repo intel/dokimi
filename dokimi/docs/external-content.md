@@ -113,7 +113,9 @@ Read that output as three outcomes, not two:
 
 Only load errors change the exit code, so `catalog scan` exiting 0 means
 "everything declared as runnable is runnable". A spec error (below) changes it
-only under `--strict`. Note the asymmetry above: a `planned` *task*
+only under `--strict`. A root with no `SKILL.md` at all (and no skills.yaml entry)
+prints `no SKILL.md found under <root>` to stderr and exits 1. With `--kind all`, a
+tasks-only root only warns, and exits 1 under `--strict`. Note the asymmetry above: a `planned` *task*
 with no directory is skipped, while a `planned` *skill* with no directory is an
 error — the skill reader has no notion of a not-yet-written entry. Either drop
 such a skill from `skills.yaml` or expect the non-zero exit.
@@ -123,7 +125,9 @@ its directory name and kebab-case (at most 64 characters; a `SKILL.md` directly 
 at most 1024 characters: a violation is an `error`, printed under the skill. It
 exits 1 only with `--strict`; without it, the scan reports the error and still
 exits 0. A `name` missing from the frontmatter, or a `SKILL.md` byte-identical to
-another skill's, is a `warn`. Of identical copies, the one nearest the root (fewest
+another skill's, is a `warn`. So is a skill whose `name` another skill shares with
+different content (`name-conflict`): the finding names the other path, and
+`dokimi novelty routing --catalog` skips that name rather than the whole catalog. Of identical copies, the one nearest the root (fewest
 path parts, ties to path order) is the original, the copy the `skill-catalog:` arm
 offers; each other copy is the `warn` and names it. Warnings never change
 the exit code. `disable-model-invocation: true` is printed as a `note`, because
@@ -392,6 +396,7 @@ Worth knowing before you read a suspiciously clean result:
 | Command | Root missing | Exit |
 |---|---|---|
 | `catalog scan --root <missing>` | `--root is not a directory: <path>` | 1 |
+| `catalog scan --root <no SKILL.md>` | `no SKILL.md found under <path>` | 1 |
 | `tasks run --tasks-root <missing>` | `FileNotFoundError: Task directory not found: demo-widget` | 1 |
 | `tasks list --tasks-root <missing>` | prints nothing | 0 |
 | `explore list --tasks-root <missing>` | `--tasks-root is not a directory: <path>` | 2 |

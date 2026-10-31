@@ -329,9 +329,9 @@ def _routing_field(args: argparse.Namespace, exclude: set[str],
         competitors.append(candidate)
     if args.catalog:
         notes: list[str] = []
-        catalog = catalog_competitors(args.catalog,
-                                      exclude | {c.name for c in competitors}, notes,
-                                      include_disabled=args.include_disabled)
+        catalog = catalog_competitors(args.catalog, exclude | {c.name for c in competitors},
+                                      notes, include_disabled=args.include_disabled,
+                                      include_invalid=args.include_invalid)
         for note in notes:
             print(f"WARNING: {note}", file=sys.stderr)
         if left_out is not None:
@@ -855,16 +855,16 @@ def register(sub, positive_int) -> None:
                            help="Directory of skills to take the competitors from: every "
                                 "skill the catalog lists (skills.yaml when present, else every "
                                 "SKILL.md under it; a template/ copy and vendored or VCS "
-                                "directories like .git are left out, and a byte-identical "
-                                "copy under another path counts once) except "
-                                "the artifact itself, i.e. the "
-                                "siblings a harness lists next to it. Combines with "
-                                "--competitors")
+                                "directories like .git are left out, and a byte-identical copy "
+                                "under another path counts once) except the artifact itself, the "
+                                "siblings a harness lists next to it. Combines with --competitors")
     routing_p.add_argument("--include-disabled", action="store_true", dest="include_disabled",
                            help="Keep skills that set disable-model-invocation in the field. "
                                 "Off by default: no harness lists them, so the model cannot "
                                 "select them and a card for one measures a choice that does "
                                 "not exist")
+    routing_p.add_argument("--include-invalid", action="store_true", dest="include_invalid",
+                           help="Keep catalog skills with a spec error in the field")
     routing_p.add_argument("--queries", default=None,
                            help="JSON list (or one per line) of user-shaped requests that "
                                 "should select this artifact, written independently of it")
