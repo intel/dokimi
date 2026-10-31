@@ -51,8 +51,8 @@ LAYERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "dokimi.config_check", "dokimi.context", "dokimi.coverage", "dokimi.dashboard",
         "dokimi.datasets_export", "dokimi.explore", "dokimi.external", "dokimi.harnesses",
         "dokimi.novelty", "dokimi.orchestrator", "dokimi.report", "dokimi.repos",
-        "dokimi.runner", "dokimi.schema_check", "dokimi.schema_compat", "dokimi.subjects",
-        "dokimi.task_formats", "dokimi.tool_preference",
+        "dokimi.runner", "dokimi.runs", "dokimi.schema_check", "dokimi.schema_compat",
+        "dokimi.subjects", "dokimi.task_formats", "dokimi.tool_preference",
     )),
     # The LLM evaluation engine: answering, judging, panels, arms, questions, personas.
     ("evaluation", (
@@ -68,10 +68,11 @@ LAYERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     # What everything shares: defaults, registries, artifact and record I/O, the LLM and
     # process chokepoints, console output.
     ("foundation", (
-        "dokimi", "dokimi._version", "dokimi.artifacts", "dokimi.caching", "dokimi.cli_flags",
+        "dokimi", "dokimi._version", "dokimi.artifacts", "dokimi.caching", "dokimi.cli_flags", "dokimi.exit_codes",
         "dokimi.config", "dokimi.console", "dokimi.container_policy", "dokimi.defaults",
-        "dokimi.intents", "dokimi.judged", "dokimi.llm", "dokimi.llm_pricing",
-        "dokimi.process", "dokimi.records", "dokimi.registry", "dokimi.utils",
+        "dokimi.intents", "dokimi.judged", "dokimi.llm", "dokimi.llm_cli", "dokimi.llm_json",
+        "dokimi.llm_pricing", "dokimi.process", "dokimi.process_io", "dokimi.records",
+        "dokimi.registry", "dokimi.utils",
         # Token/cost record the LLM chokepoint fills; it lives under metrics/ but
         # depends on nothing and is read by every LLM caller.
         "dokimi.metrics.usage",

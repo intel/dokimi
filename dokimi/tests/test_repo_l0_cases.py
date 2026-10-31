@@ -18,7 +18,7 @@ import pytest
 from dokimi.cli import build_parser
 from dokimi.repos import parse_manifest
 from dokimi.repos.l0 import scan_repo
-from dokimi.repos.source import GitTree, WorkTree
+from dokimi.repos.source import READ_MANY_LIMIT, GitTree, WorkTree
 
 FENCE = "```"
 U = "https://github.com/acme/case"
@@ -657,6 +657,119 @@ def test_a_file_name_with_an_at_sign_is_still_a_path(tmp_path):
     assert got[("path", "tools/run@v2")] == "ok"               # ref-shaped, but it is in the tree
 
 
+def _by_file(payload) -> dict[tuple[str, str], tuple[str, str]]:
+    return {(c["file"], c["claim"]): (c["status"], c["why"]) for c in payload["claims"]}
+
+
+_CHECKOUT = ("jobs:\n  test:\n    steps:\n      - uses: actions/checkout@v6\n"
+             "        with: {persist-credentials: false}\n      - run: echo actions/cache@v4 cached\n")
+
+
+@pytest.mark.parametrize("local_action", [False, True])
+def test_a_bare_action_a_workflow_step_uses_is_ok(tmp_path, local_action):
+    """`actions/checkout` is no path, from the root or `.github/`, also beside a local `.github/actions/<x>/`."""
+    agents = "Every `actions/checkout` sets `persist-credentials: false`; `actions/cache` keeps pip.\n"
+    files = {".github/workflows/ci.yml": _CHECKOUT, ".github/AGENTS.md": agents}
+    if local_action:
+        files[".github/actions/setup/action.yml"] = "runs: {using: composite, steps: []}\n"
+    got = _by_file(_scan(tmp_path, agents, files))
+    for where in ("AGENTS.md", ".github/AGENTS.md"):
+        assert got[(where, "actions/checkout")] == ("ok", "used by .github/workflows/ci.yml")
+    # named only in a `run:` script, so no step uses it: today's verdict, `fail` under an existing .github/actions/
+    assert got[("AGENTS.md", "actions/cache")] == ("unresolved", "tried actions/cache")
+    assert got[(".github/AGENTS.md", "actions/cache")][0] == ("fail" if local_action else "unresolved")
+
+
+def test_actions_used_by_a_yaml_workflow_a_job_and_a_composite_action_are_ok(tmp_path):
+    flow = ("jobs:\n  build:\n    uses: acme/shared/.github/workflows/build.yml@main\n"
+            "  lint:\n    steps: [{uses: actions/setup-python@v6}, {uses: ./.github/actions/setup}]\n")
+    got = _by_file(_scan(tmp_path, "Use `actions/setup-python`.\n\nCall `acme/shared/.github/workflows/build.yml`.\n\n"
+                         "Cache with `actions/cache` and `docker/login-action`.\n",
+                         {".github/workflows/broken.yml": "jobs: [\n", ".github/workflows/build.yaml": flow,
+                          ".github/actions/setup/action.yml": "runs:\n  using: composite\n  steps:\n"
+                                                              "    - uses: actions/cache@v4\n"}))
+    assert got[("AGENTS.md", "actions/setup-python")] == ("ok", "used by .github/workflows/build.yaml")
+    assert got[("AGENTS.md", "acme/shared/.github/workflows/build.yml")] == ("ok", "used by .github/workflows/build.yaml")
+    assert got[("AGENTS.md", "actions/cache")] == ("ok", "used by .github/actions/setup/action.yml")
+    assert got[("AGENTS.md", "docker/login-action")][0] == "unresolved"  # no step uses it; the broken YAML is skipped
+
+
+def test_only_a_workflows_jobs_and_a_composite_actions_steps_use_an_action(tmp_path):
+    """A workflow's `runs`, a non-composite action's `runs.steps` and an action's `jobs` use no Action."""
+    names = ["acme/ghost", "acme/ghost-composite", "acme/node", "acme/jobs", "acme/both", "acme/both-runs"]
+    got = _by_file(_scan(tmp_path, "Use " + ", ".join(f"`{n}`" for n in names) + ".\n", {
+        ".github/workflows/ci.yml": "runs: {steps: [{uses: acme/ghost@v1}]}\n",
+        ".github/workflows/composite.yml": "runs: {using: composite, steps: [{uses: acme/ghost-composite@v1}]}\n",
+        ".github/actions/node/action.yml": "runs: {using: node20, main: x.js, steps: [{uses: acme/node@v1}]}\n",
+        ".github/actions/meta/action.yml": "jobs: {x: {steps: [{uses: acme/jobs@v1}]}}\n",
+        ".github/workflows/action.yml": "jobs: {x: {steps: [{uses: acme/both@v1}]}}\n"  # a workflow, as GitHub runs it
+                                        "runs: {using: composite, steps: [{uses: acme/both-runs@v1}]}\n"}))
+    assert got[("AGENTS.md", "acme/both")] == ("ok", "used by .github/workflows/action.yml")
+    for name in names[:4] + names[5:]:
+        assert got[("AGENTS.md", name)] == ("unresolved", f"tried {name}")
+
+
+def test_an_action_used_only_by_a_nested_workflow_is_not_used(tmp_path):
+    """GitHub runs only the workflows directly in `.github/workflows/`, not `.github/workflows/old/ci.yml`."""
+    got = _by_file(_scan(tmp_path, "Use `nested/only` and `actions/checkout`.\n",
+                         {".github/workflows/ci.yml": _CHECKOUT,
+                          ".github/workflows/old/ci.yml": "jobs:\n  x:\n    steps: [{uses: nested/only@v1}]\n"}))
+    assert got[("AGENTS.md", "nested/only")] == ("unresolved", "tried nested/only")
+    assert got[("AGENTS.md", "actions/checkout")] == ("ok", "used by .github/workflows/ci.yml")
+
+
+def test_a_workflow_the_scan_does_not_read_is_named_in_the_reason_of_an_unused_action(tmp_path):
+    """`actions/only` is used in big.yml alone, which is over the read limit: its verdict stays, its reason says so."""
+    big = "jobs:\n  x:\n    steps: [{uses: actions/only@v1}]\n" + "#" * READ_MANY_LIMIT + "\n"
+    agents = "Use `actions/only`, `actions/checkout`, `build/out`, `build/out/`, `gen/x` and `tools/gone`.\n"
+    got = _by_file(_scan(tmp_path, agents, {
+        ".github/AGENTS.md": agents, ".github/workflows/big.yml": big, ".github/workflows/ci.yml": _CHECKOUT,
+        ".github/actions/bin/action.yml": "runs: {using: composite}\n\0", ".gitignore": "gen/\n", "tools/keep/a": ""}))
+    note = (f"; .github/actions/bin/action.yml was not read (binary (a NUL byte)); .github/workflows/big.yml was "
+            f"not read ({len(big)} bytes, over the 2 MB read limit)")  # in tree order
+    assert got[("AGENTS.md", "actions/only")] == ("unresolved", "tried actions/only" + note)
+    assert got[(".github/AGENTS.md", "actions/only")] == (
+        "fail", ".github/actions/ exists but .github/actions/only does not" + note)
+    assert got[("AGENTS.md", "actions/checkout")] == ("ok", "used by .github/workflows/ci.yml")
+    assert got[("AGENTS.md", "build/out")] == ("unresolved", "tried build/out" + note)
+    assert got[("AGENTS.md", "build/out/")] == ("unresolved", "tried build/out")  # no Action's shape
+    assert got[("AGENTS.md", "gen/x")] == ("unresolved", "tried gen/x" + note + "; .gitignore:1 (`gen/`) ignores it, "
+                                           "so it is likely generated rather than tracked")
+    assert got[("AGENTS.md", "tools/gone")] == ("fail", "tools/ exists but tools/gone does not")  # a path, not read as an Action
+
+
+@pytest.mark.parametrize("bad", ["env: {DATE: 2026-02-30}\njobs: {}\n",  # ValueError: no such day
+                                 "jobs: " + "[" * 5000 + "\n",  # RecursionError
+                                 "env: {X: !!bool maybe}\njobs: {}\n",  # KeyError
+                                 "env: {X: !!timestamp foo}\njobs: {}\n"],  # AttributeError
+                         ids=["bad-date", "deep", "bad-bool", "bad-timestamp"])
+def test_a_workflow_yaml_cannot_build_is_skipped(tmp_path, bad):
+    got = _by_file(_scan(tmp_path, "Write `build/out`; `actions/checkout` fetches.\n",
+                         {".github/workflows/bad.yml": bad, ".github/workflows/ci.yml": _CHECKOUT}))
+    assert got[("AGENTS.md", "build/out")] == ("unresolved", "tried build/out")
+    assert got[("AGENTS.md", "actions/checkout")] == ("ok", "used by .github/workflows/ci.yml")
+
+
+def test_a_name_under_a_root_directory_stays_a_path_when_a_workflow_uses_the_same_name(tmp_path):
+    """A path the tree holds is `ok` as that path; one missing beside a root `tools/` is a stale path, `fail`."""
+    got = _by_file(_scan(tmp_path, "Run `tools/lint` and `tools/gone`.\n",
+                         {"tools/lint/run.sh": "", ".github/workflows/ci.yml": "jobs:\n  x:\n    steps:\n"
+                          "      - uses: tools/lint@v1\n      - uses: tools/gone@v1\n"}))
+    assert got[("AGENTS.md", "tools/lint")] == ("ok", "tools/lint")
+    assert got[("AGENTS.md", "tools/gone")] == ("fail", "tools/ exists but tools/gone does not")
+
+
+def test_a_used_action_inside_a_submodule_keeps_the_submodule_verdict(tmp_path):
+    got = _by_file(_scan(tmp_path, "Call `third/dep/lib`, `third/dep/lib@v1` and `tools/lib`.\n",
+                         {".gitmodules": '[submodule "d"]\n\tpath = third/dep\n', "third/README": "",
+                          ".github/workflows/ci.yml": "jobs:\n  x:\n    steps:\n"
+                          "      - uses: third/dep/lib@v1\n      - uses: tools/lib@v1\n"}))
+    assert got[("AGENTS.md", "third/dep/lib")] == ("unresolved", "inside the submodule third/dep, "
+                                                   "which this snapshot does not hold")
+    assert ("AGENTS.md", "third/dep/lib@v1") not in got  # a reference with its ref is no path claim, as before
+    assert got[("AGENTS.md", "tools/lib")] == ("ok", "used by .github/workflows/ci.yml")
+
+
 def test_links_inside_code_spans_are_not_links(tmp_path):
     got = _verdicts(_scan(tmp_path, "Write `[text](docs/guide.md)` in a page.\n"))
     assert not any(kind == "link" for kind, _ in got)
@@ -713,12 +826,12 @@ def test_cli_exit_codes(tmp_path, capsys):
     assert _cli(tmp_path, empty, "--fail-on-fail") == 1
 
 
-def test_scan_exits_1_with_a_message_on_a_file_that_is_not_utf8(tmp_path, capsys):
+def test_scan_exits_2_with_a_message_on_a_file_that_is_not_utf8(tmp_path, capsys):
     root = tmp_path / "r"
     _git_repo(root, {"AGENTS.md": "`src/a.h`\n", "src/a.h": "", "ev/tasks/t/task.json": "{}"})
     binary = tmp_path / "static.json"
     binary.write_bytes(b'{"schema": "\xff\xfe"}')
-    assert _cli(tmp_path, root, "--static", str(binary)) == 1
+    assert _cli(tmp_path, root, "--static", str(binary)) == 2
     err = capsys.readouterr().err
     assert err.startswith("✗ ") and "utf-8" in err
 
@@ -727,7 +840,7 @@ def test_scan_exits_1_with_a_message_on_a_file_that_is_not_utf8(tmp_path, capsys
     args = build_parser().parse_args(["repo", "scan", str(root), "--manifest-file", str(manifest)])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     err = capsys.readouterr().err
     assert err.startswith("✗ ") and str(manifest) in err
 

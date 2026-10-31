@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 from dokimi.artifacts import save_artifact
 from dokimi.llm import ChatModel
 from dokimi.judged import judged_reply
+from dokimi.llm_cli import BACKENDS as CLI_BACKENDS, check_sampling
 from dokimi.llm import ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
 from dokimi.eval.diagnoser import diagnose
 from dokimi.eval.question_text import require_question_texts
@@ -161,7 +162,8 @@ JUDGE_PROMPT_SHA256 = "sha256:" + hashlib.sha256(
 MAX_GROUND_TRUTH_CHARS = 4000
 
 #: Providers ``Judge.__init__`` accepts; CLI ``--judge-provider`` choices read this.
-JUDGE_PROVIDERS = ("openai", "anthropic", "google", "google-vertex", "openrouter", "amazon-bedrock")
+JUDGE_PROVIDERS = ("openai", "anthropic", "google", "google-vertex", "openrouter", "amazon-bedrock",
+                   *CLI_BACKENDS)
 
 
 def _clip_ground_truth(ground_truth: Optional[str], limit: int = MAX_GROUND_TRUTH_CHARS) -> str:
@@ -241,7 +243,10 @@ class Judge:
             "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0,
             "redrawn_judgements": 0,
         }
+        # The model names a CLI judge's aliases resolved to, for the judge record.
+        self._resolved_models: set = set()
 
+        check_sampling(provider, temperature, seed)
         self.llm: ChatModel
         if provider == "openai":
             self.llm = ChatOpenAI(model=model, api_key=api_key,
@@ -250,7 +255,7 @@ class Judge:
             self.llm = ChatAnthropic(model=model, api_key=api_key,
                                      temperature=temperature, seed=seed)
         elif provider in ("google", "gemini", "google-vertex", "openrouter",
-                          "amazon-bedrock", "vertex_ai"):
+                          "amazon-bedrock", "vertex_ai", *CLI_BACKENDS):
             from dokimi.utils import get_llm
             import os
             fallback_key = os.environ.get("OPENROUTER_API_KEY") if provider == "openrouter" else None
@@ -259,7 +264,7 @@ class Judge:
         else:
             raise ValueError(
                 f"Unsupported provider: '{provider}'. "
-                "Use 'openai', 'anthropic', 'google', 'openrouter', or 'amazon-bedrock'."
+                "Use 'openai', 'anthropic', 'google', 'openrouter', 'amazon-bedrock' or 'claude-cli'."
             )
         
         logger.info(f"Judge initialized: {provider}/{model}")
@@ -597,6 +602,7 @@ class Judge:
             t["prompt_tokens"] += _int(usage.prompt_tokens)
             t["completion_tokens"] += _int(usage.completion_tokens)
             t["total_tokens"] += _int(usage.total_tokens)
+            self._resolved_models.update(n for n in usage.resolved_model.split(",") if n)
             cost = usage.cost_usd
             if isinstance(cost, (int, float)):
                 t["cost_usd"] += float(cost)
@@ -614,6 +620,9 @@ class Judge:
         }
         with self._usage_lock:
             totals = dict(self._usage_totals)
+            resolved = sorted(self._resolved_models)
+        if resolved:
+            output["judge_resolved_models"] = resolved
         # cost_usd is null (not 0.0) when no judge call had known pricing, so a
         # missing price reads distinct from a genuinely free judge.
         output["judge_metrics"] = {

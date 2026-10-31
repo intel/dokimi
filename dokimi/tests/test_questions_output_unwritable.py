@@ -59,19 +59,19 @@ def _run(monkeypatch, *argv):
 
 
 @pytest.mark.parametrize("out", ["under-a-file", "is-a-directory"], indirect=True)
-def test_refine_exits_1_when_the_output_cannot_be_written(monkeypatch, capsys, questions_file, out):
+def test_refine_exits_2_when_the_output_cannot_be_written(monkeypatch, capsys, questions_file, out):
     monkeypatch.setattr("dokimi.questions.artifact.save_questions_artifact",
                         lambda data, path: _write(path))
     assert _run(monkeypatch, "refine", "--product", "p", "--questions", str(questions_file),
-                "--output", str(out)) == 1
+                "--output", str(out)) == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: cannot write ") and str(out) in err
 
 
 @pytest.mark.parametrize("out", ["under-a-file", "is-a-directory"], indirect=True)
-def test_panel_review_exits_1_when_the_output_cannot_be_written(monkeypatch, capsys, questions_file, out):
+def test_panel_review_exits_2_when_the_output_cannot_be_written(monkeypatch, capsys, questions_file, out):
     monkeypatch.setattr("dokimi.questions.panel_reviewer.QuestionPanelReviewer", _FakeReviewer)
     assert _run(monkeypatch, "panel-review", "--product", "p", "--questions", str(questions_file),
-                "--output", str(out)) == 1
+                "--output", str(out)) == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: cannot write ") and str(out) in err

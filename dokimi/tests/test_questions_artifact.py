@@ -566,7 +566,7 @@ def test_answers_generate_refuses_an_unusable_set_before_any_call(tmp_path, monk
                                       "--questions", str(src)])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert "record 0 (id 'q1'), `question`: '' should be non-empty" in capsys.readouterr().err
 
 
@@ -625,7 +625,7 @@ def test_report_generate_refuses_malformed_questions_with_error_exit(tmp_path, m
                                       "--questions", str(src), "--output", str(out)])
     with pytest.raises(SystemExit) as exc_info:
         args.func(args)
-    assert exc_info.value.code == 1
+    assert exc_info.value.code == 2
     assert "Error:" in capsys.readouterr().err
 
 
@@ -640,7 +640,7 @@ def test_questions_refine_refuses_malformed_questions_with_error_exit(tmp_path, 
                                       "--questions", str(src), "--output", str(out)])
     with pytest.raises(SystemExit) as exc_info:
         args.func(args)
-    assert exc_info.value.code == 1
+    assert exc_info.value.code == 2
     assert "Error:" in capsys.readouterr().err
 
 
@@ -654,7 +654,7 @@ def test_questions_refine_names_an_unreadable_questions_file(tmp_path, capsys, k
                                       "--questions", str(src), "--output", str(tmp_path / "out.json")])
     with pytest.raises(SystemExit) as exc_info:
         args.func(args)
-    assert exc_info.value.code == 1
+    assert exc_info.value.code == 2
     assert f"Error: cannot read {src}" in capsys.readouterr().err
 
 
@@ -700,7 +700,7 @@ def test_report_generate_prints_an_error_for_an_empty_question(tmp_path, capsys)
                                       "--questions", str(src), "--output", str(tmp_path / "r.md")])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert capsys.readouterr().err.startswith("Error: ")
 
 
@@ -790,7 +790,7 @@ def test_questions_refine_fill_gaps_refuses_an_invalid_set_before_any_model_call
                                       "--fill-gaps"])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert "Error:" in capsys.readouterr().err
     assert not out.exists()
 

@@ -326,6 +326,9 @@ if command -v bash >/dev/null 2>&1 && command -v timeout >/dev/null 2>&1; then
     if [ -n "${1:-}" ] && exec 4<>"/dev/tcp/$1/$2" 2>/dev/null; then echo open; fi
   ' 2>/dev/null)
   [ "$raw" = "open" ] && net="open"
+else
+  # A failed client fetch says nothing about raw sockets bypassing the proxy.
+  [ "$net" != "open" ] && net="untested"
 fi
 # The Docker API is a way around every other wall (docker cp, exec into anything):
 # a writable socket, or a daemon listening on the gateway (the Docker host).

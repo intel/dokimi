@@ -199,15 +199,20 @@ def test_explore_list_passes_repo_root_from_cli(tmp_path, capsys):
     ["explore", "run", "--all"],
     ["explore", "run", "--tasks", "t"],
 ])
-def test_explore_without_bundled_tasks_says_so(tmp_path, monkeypatch, argv):
+def test_explore_without_bundled_tasks_says_so(tmp_path, monkeypatch, argv, capsys):
     # An installed wheel has no data/explore_tasks: say so, do not find nothing.
     import dokimi.explore.tasks as tasks_mod
     from dokimi.cli import build_parser
 
     monkeypatch.setattr(tasks_mod, "EXPLORE_TASKS_ROOT", tmp_path / "absent")
     args = build_parser().parse_args(argv)
-    with pytest.raises(SystemExit, match="ship with a source checkout.*--tasks-root.*--repo-root"):
+    with pytest.raises(SystemExit) as exc:
         args.func(args)
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "ship with a source checkout" in err
+    assert "--tasks-root" in err
+    assert "--repo-root" in err
 
 
 def test_a_task_file_path_needs_no_bundled_tasks(tmp_path, monkeypatch):
