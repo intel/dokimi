@@ -172,6 +172,12 @@ def test_missing_and_non_yaml_manifest(tmp_path):
         ({"budget_usd": True}, "budget_usd"),
         ({"budget_usd": float("nan")}, "budget_usd"),  # JSON NaN passes `<= 0`
         ({"timeout_s": float("inf")}, "timeout_s"),
+        ({"timeout_s": 10**400}, "timeout_s"),  # an int past the float range is a problem, not a crash
+        ({"gate": [{"metric": "m", "min": float("nan")}]}, "gate"),  # NaN minimum would pass every metric
+        ({"gate": [{"metric": "m", "min": float("inf")}]}, "gate"),
+        ({"score": {"metric": "recall", "max": float("nan")}}, "score must be"),
+        ({"score": {"metric": "recall", "max": 10**400}}, "score must be"),
+        ({"score": {"metric": "recall", "max": 1e200}}, "score must be"),  # `repo report` refuses past SCORE_BOUND
         ({"egress": "pypi.org"}, "egress must be a list"),
         ({"egress": ["https://pypi.org/simple"]}, "egress must be a list"),
         ({"egress": ["*"]}, "egress must be a list"),
