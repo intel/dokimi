@@ -187,20 +187,20 @@ def _blocked(tmp_path):
 
 
 @pytest.mark.parametrize("which", ["json", "md"])
-def test_compare_exits_1_when_an_output_cannot_be_written(tmp_path, monkeypatch, capsys, which):
+def test_compare_exits_2_when_an_output_cannot_be_written(tmp_path, monkeypatch, capsys, which):
     good = _snapshot(tmp_path / "good.json")
     blocked = _blocked(tmp_path) / "out"
     outs = {"json": str(tmp_path / "c.json"), "md": str(tmp_path / "c.md")}
     outs[which] = str(blocked)
     code = _main(monkeypatch, "compare", "--base", good, "--candidate", good,
                  "--out-json", outs["json"], "--out-md", outs["md"])
-    assert code == 1
+    assert code == 2
     err = capsys.readouterr().err
     assert f"Error: cannot write {blocked}" in err and "Traceback" not in err
 
 
 @pytest.mark.parametrize("which", ["json", "md"])
-def test_run_exits_1_when_an_output_cannot_be_written(tmp_path, monkeypatch, capsys, which):
+def test_run_exits_2_when_an_output_cannot_be_written(tmp_path, monkeypatch, capsys, which):
     (tmp_path / "docs").mkdir()
     (tmp_path / "docs" / "a.md").write_text("# A\n\ntext\n", encoding="utf-8")
     spec = tmp_path / "spec.yaml"
@@ -210,7 +210,7 @@ def test_run_exits_1_when_an_output_cannot_be_written(tmp_path, monkeypatch, cap
     outs[which] = str(blocked)
     code = _main(monkeypatch, "run", "--root", str(tmp_path), "--spec", str(spec),
                  "--out-json", outs["json"], "--out-md", outs["md"])
-    assert code == 1
+    assert code == 2
     err = capsys.readouterr().err
     assert f"Error: cannot write {blocked}" in err and "Traceback" not in err
 

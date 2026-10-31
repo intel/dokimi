@@ -13,6 +13,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from dokimi.exit_codes import EXIT_USAGE
+
 
 def _normalize_whitespace(text: str, max_len: int | None = 100) -> str:
     """One line: whitespace runs become one space, control characters are escaped, then truncated."""
@@ -22,26 +24,64 @@ def _normalize_whitespace(text: str, max_len: int | None = 100) -> str:
 
 
 def _write_json(path: str, payload: dict) -> None:
-    """Write a --out report as JSON, or exit 1 with `cannot write`."""
+    """Write a --out report as JSON, or exit 2 with `cannot write`."""
     try:
         Path(path).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     except OSError as exc:
         print(f"✗ cannot write {path}: {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+
+
+def _source_tree(args: argparse.Namespace) -> tuple:
+    """The source (source, tree): a malformed string, unpinned remote or pinned local path that is not the repository root is a usage error (2); a clone, fetch or pin resolution failure is 1."""
+    from dokimi.repos import RepoSource, SourceError, open_source
+    from dokimi.repos.source import SourceArgumentError
+
+    try:
+        source = RepoSource.parse(args.source)
+    except SourceError as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+    # 2 = malformed source string, unpinned remote, pinned local path inside a repository, manifest/profile errors; 1 = clone/fetch/resolve of a pin
+    # (incl. pinned local non-git source, pin absent locally, remote pin missing from origin).
+    try:
+        return source, open_source(source, _cache_dir(args))
+    except SourceArgumentError as exc:  # a pinned local path that is not the repository root
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+    except SourceError as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(1)
+    except (OSError, ValueError) as exc:
+        # A cache dir that cannot be made, or git output that is not UTF-8: a failed read, not a usage error.
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _manifest_or_exit(tree, args: argparse.Namespace, *, guidance_default: bool = False,
+                      also_usage: tuple = ()) -> Any:
+    """The manifest of the tree. A bad manifest or a manifest path that leaves the tree is a usage error
+    (2); a failed `git show` (a blob fetched lazily from origin) is a fetch failure (1)."""
+    from dokimi.repos import ManifestError, SourceError
+    from dokimi.repos.source import SourceArgumentError
+
+    try:
+        return _load_manifest(tree, args, guidance_default=guidance_default)
+    except (SourceArgumentError, ManifestError, *also_usage) as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+    except SourceError as exc:
+        print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
 
 
 def cmd_repo_validate(args: argparse.Namespace) -> None:
     """Validate a repository's repo-eval.yaml and its tasks against one snapshot."""
-    from dokimi.repos import ManifestError, RepoSource, SourceError, check_repo, open_source
+    from dokimi.repos import check_repo
     from dokimi.repos.source import base_opener
 
-    try:
-        source = RepoSource.parse(args.source)
-        tree = open_source(source, _cache_dir(args))
-        manifest = _load_manifest(tree, args)
-    except (SourceError, ManifestError) as exc:
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(1)
+    source, tree = _source_tree(args)
+    manifest = _manifest_or_exit(tree, args)
     open_base = base_opener(source, tree)
     report = check_repo(tree, manifest, open_base)
     if open_base is None:
@@ -79,21 +119,16 @@ def _read_static(path: str) -> Any:
         return json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError, RecursionError) as exc:  # ValueError: bad JSON or UTF-8
         print(f"✗ --static {path}: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
 
 
 def cmd_repo_scan(args: argparse.Namespace) -> None:
     """L0: check every mechanically checkable claim in the guidance against the same tree."""
     from dokimi.artifacts import save_artifact, stamp
-    from dokimi.repos import ManifestError, RepoSource, SourceError, open_source
     from dokimi.repos.l0 import scan_repo
 
-    try:
-        tree = open_source(RepoSource.parse(args.source), _cache_dir(args))
-        manifest = _load_manifest(tree, args, guidance_default=True)
-    except (SourceError, ManifestError, OSError, ValueError, RecursionError) as exc:
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(1)
+    _, tree = _source_tree(args)
+    manifest = _manifest_or_exit(tree, args, guidance_default=True, also_usage=(OSError,))
     static = _read_static(args.static) if args.static else None
     payload = scan_repo(tree, manifest, static)
     if args.out:
@@ -101,7 +136,7 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
             save_artifact("repo_readiness", payload, Path(args.out))
         except OSError as exc:
             print(f"✗ cannot write {args.out}: {exc}", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(EXIT_USAGE)
     static_info = payload["static"]
     static_errors = static_info["errors"] if static_info is not None else []
     for problem in static_errors:  # on stderr in --json mode too
@@ -145,21 +180,16 @@ def _scan_gate(payload: dict, fail_on_fail: bool) -> None:
 def cmd_repo_inspect(args: argparse.Namespace) -> None:
     """Static inspection: instruction files, check surfaces, launch risks, file inventory."""
     from dokimi.artifacts import save_artifact, stamp
-    from dokimi.repos import RepoSource, SourceError, open_source
     from dokimi.repos.environment import inspect_repo
 
-    try:
-        tree = open_source(RepoSource.parse(args.source), _cache_dir(args))
-    except SourceError as exc:
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(1)
+    _, tree = _source_tree(args)
     payload = inspect_repo(tree, large=args.large_bytes)
     if args.out:
         try:
             save_artifact("repo_environment", payload, Path(args.out))
         except OSError as exc:
             print(f"✗ cannot write {args.out}: {exc}", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(EXIT_USAGE)
     if args.json:
         print(json.dumps(stamp("repo_environment", dict(payload)), indent=2))
     else:
@@ -186,14 +216,21 @@ def cmd_repo_inspect(args: argparse.Namespace) -> None:
 def cmd_repo_fetch(args: argparse.Namespace) -> None:
     """Clone (once) and fetch a pinned remote source into the cache; print the SHA."""
     from dokimi.repos import RepoSource, SourceError, open_source
-    from dokimi.repos.source import GitTree
+    from dokimi.repos.source import GitTree, SourceArgumentError
 
-    try:
+    try:  # the source as typed: a usage error
         source = RepoSource.parse(args.source)
         if source.rev is None:
             raise SourceError("fetch needs a pinned source: <url-or-path>@<rev>")
-        tree = open_source(source, _cache_dir(args))
     except SourceError as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+    try:  # the clone and fetch: a runtime failure (network, git, unknown revision)
+        tree = open_source(source, _cache_dir(args))
+    except SourceArgumentError as exc:  # a pinned local path that is not the repository root
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+    except (SourceError, OSError, ValueError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
     assert isinstance(tree, GitTree)
@@ -203,10 +240,33 @@ def cmd_repo_fetch(args: argparse.Namespace) -> None:
         print(f"{tree.sha}\t{tree.git_dir}")
 
 
+def _check_reach_flags(args: argparse.Namespace, kinds: tuple[str, ...]) -> None:
+    """Refuse a flag that would drop a scenario kind silently, or spend a budget that is not one."""
+    from dokimi.repos.reach import ReachError
+
+    # A typo would otherwise drop a scenario kind silently and still spend the budget.
+    unknown_kinds = sorted(set(kinds) - {"root", "cwd", "read"})
+    if unknown_kinds:
+        raise ReachError(f"unknown --scenarios kind(s) {', '.join(unknown_kinds)} (known: root, cwd, read)")
+    if not math.isfinite(args.budget) or args.budget <= 0:
+        raise ReachError(f"--budget must be > 0, got {args.budget:g}")
+
+
+def _tree_read_exit_code(exc: Exception) -> int:
+    """Reading the manifest or the probed files: a path that leaves the tree, a bad manifest or a bad
+    scenario selection is a usage error (2); a failed `git show` or ls-tree is a fetch failure (1)."""
+    from dokimi.repos import SourceError
+    from dokimi.repos.source import SourceArgumentError
+
+    git_failure = isinstance(exc, SourceError) and not isinstance(exc, SourceArgumentError)
+    return 1 if git_failure else EXIT_USAGE
+
+
 def cmd_repo_reach(args: argparse.Namespace) -> None:
     """L1 reach probe: which guidance files one harness/version/model loads."""
     from dokimi.repos import ManifestError, RepoSource, SourceError, open_source
     from dokimi.repos.harness_profile import ProfileError, load_profile
+    from dokimi.repos.source import SourceArgumentError
     from dokimi.repos.reach import (
         ReachError,
         format_matrix,
@@ -219,15 +279,22 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
 
     kinds = tuple(k.strip() for k in args.scenarios.split(",") if k.strip())
     only = tuple(args.only or ())
-    try:
-        # A typo would otherwise drop a scenario kind silently and still spend the budget.
-        unknown_kinds = sorted(set(kinds) - {"root", "cwd", "read"})
-        if unknown_kinds:
-            raise ReachError(f"unknown --scenarios kind(s) {', '.join(unknown_kinds)} (known: root, cwd, read)")
-        if not math.isfinite(args.budget) or args.budget <= 0:
-            raise ReachError(f"--budget must be > 0, got {args.budget:g}")
+    try:  # the arguments as typed: a usage error
+        _check_reach_flags(args, kinds)
         profile = load_profile(args.harness)
-        tree = open_source(RepoSource.parse(args.source), _cache_dir(args))
+        source = RepoSource.parse(args.source)
+    except (SourceError, ProfileError, ReachError) as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+    try:  # the clone and fetch: a runtime failure
+        tree = open_source(source, _cache_dir(args))
+    except SourceArgumentError as exc:  # a pinned local path that is not the repository root
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+    except (SourceError, OSError, ValueError) as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(1)
+    try:  # the manifest and the scenarios it selects: a usage error; a failed git read is a fetch failure (1)
         manifest = _load_manifest(tree, args, guidance_default=True)
         files = probe_files(tree, manifest, profile)
         available = [s.id for s in scenarios(files, kinds)]
@@ -241,16 +308,20 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
         planned_count = len(scenarios(files, kinds, only))
         if not planned_count:
             raise ReachError("no scenario selected (check --scenarios and --only)")
-        print(f"{len(files)} guidance files, {planned_count} scenarios, "
-              f"at most ${args.budget:g} each", file=sys.stderr)
-        out_dir = Path(args.out)
+    except (SourceError, ManifestError, ReachError) as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(_tree_read_exit_code(exc))
+    print(f"{len(files)} guidance files, {planned_count} scenarios, "
+          f"at most ${args.budget:g} each", file=sys.stderr)
+    out_dir = Path(args.out)
+    try:  # the harness runs: a runtime failure
         payload = run_reach(
             tree=tree, manifest=manifest, profile=profile, model=args.model, out_dir=out_dir,
             bin_path=args.bin, work_dir=Path(args.work_dir) if args.work_dir else None, kinds=kinds,
             only=only, salt=args.salt, max_turns=args.max_turns, budget_usd=args.budget,
             timeout_s=args.timeout, keep=args.keep,
         )
-    except (SourceError, ManifestError, ProfileError, ReachError) as exc:
+    except (SourceError, ProfileError, ReachError) as exc:  # ProfileError: --bin cannot run its version command
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
     path = save_reach(payload, out_dir)
@@ -263,23 +334,22 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
 def cmd_repo_budget(args: argparse.Namespace) -> None:
     """What the repository puts into an agent's context at start-up, lazily and on demand."""
     from dokimi.artifacts import save_artifact, stamp
-    from dokimi.repos import RepoSource, SourceError, open_source
     from dokimi.repos.budget import budget
     from dokimi.repos.harness_profile import ProfileError, load_profile
 
-    try:
+    try:  # the harness profile: a usage error
         profile = load_profile(args.harness)
-        tree = open_source(RepoSource.parse(args.source), _cache_dir(args))
-    except (SourceError, ProfileError) as exc:
+    except ProfileError as exc:
         print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
+    _, tree = _source_tree(args)
     payload = budget(tree, profile.guidance_names, profile.import_max_depth)
     if args.out:
         try:
             save_artifact("repo_budget", payload, Path(args.out))
         except OSError as exc:
             print(f"✗ cannot write {args.out}: {exc}", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(EXIT_USAGE)
     if args.json:
         print(json.dumps(stamp("repo_budget", dict(payload)), indent=2))
     else:
@@ -402,7 +472,8 @@ def register(sub, positive_int) -> None:
     scan_p.add_argument("--static", default=None,
                         help="repo_static.v1 document the repository's `static` entry point wrote; merged into "
                         "the report, its claims replacing the framework's on the same file, line and text. "
-                        "An invalid document is reported and makes the command exit 1")
+                        "A file that cannot be read or is not JSON exits 2; a schema-invalid document is "
+                        "reported and makes the command exit 1")
     scan_p.add_argument("--out", default=None, help="Write the repo_readiness.v1 report to this file")
     scan_p.add_argument("--json", action="store_true", help="Print the full report as JSON")
     scan_p.add_argument("--fail-on-fail", action="store_true", dest="fail_on_fail",

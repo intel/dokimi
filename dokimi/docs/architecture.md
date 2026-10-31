@@ -70,7 +70,7 @@ points up:
 | Layer | Modules |
 | --- | --- |
 | front end | `cli`, `commands`, `__main__` (the argparse front end; no layer below imports it) |
-| tracks | `runner`, `report`, `subjects`, `novelty`, `harnesses`, `context`, `repos`, `explore`, `tool_preference`, `external`, `dashboard`, `orchestrator`, `datasets_export`, `coverage`, `task_formats`, and the checkers `config_check`, `schema_check`, `schema_compat` |
+| tracks | `runner`, `runs`, `report`, `subjects`, `novelty`, `harnesses`, `context`, `repos`, `explore`, `tool_preference`, `external`, `dashboard`, `orchestrator`, `datasets_export`, `coverage`, `task_formats`, and the checkers `config_check`, `schema_check`, `schema_compat` |
 | evaluation | `eval`, `personas`, `questions`, `treatments`, `plugins` |
 | components | `ingest`, `metrics`, `gate`, `mcp`, `skills`, `agent_profiles` |
 | foundation | `__init__` (the `dokimi` package itself), `_version`, `artifacts`, `records`, `llm`, `process`, `container_policy`, `caching`, `config`, `registry`, `intents`, `defaults`, `console`, `utils`, `metrics/usage.py` |
@@ -416,6 +416,10 @@ Guide: [run-consistency.md](run-consistency.md).
   adapter seam: `LiteLLMAdapter` in production, `FakeAdapter` in tests (the
   `fake_llm` fixture). `ask_parsed` is the redraw-until-it-parses loop.
   `llm_call`, `chat_completion` and `utils.get_llm` delegate to `LLM`.
+  `dokimi/llm_cli.py` serves the CLI providers (`claude-cli`): `LiteLLMAdapter`
+  hands their requests to it, and it runs the logged-in CLI through `process.run`
+  ([subscription-backends.md](subscription-backends.md)). `dokimi/llm_json.py`
+  holds the JSON extraction helpers `llm.py` re-exports.
 - `dokimi/caching.py` — the two caches that hang off `llm.py`: provider prompt
   caching (the stable part of a prompt goes first, so the provider can reuse it)
   and an opt-in response cache for byte-identical single-shot requests

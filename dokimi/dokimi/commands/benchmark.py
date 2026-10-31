@@ -9,8 +9,9 @@ import argparse
 import os
 import sys
 from pathlib import Path
-from typing import Any, List, cast
+from typing import Any, Callable, List, cast
 
+from dokimi.llm import ANSWER_PROVIDERS
 from dokimi.commands.evaluate import _warn_judge_independence
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
@@ -25,6 +26,7 @@ from dokimi.defaults import (
     JUDGE_MODEL_HELP,
 )
 from dokimi.commands.library import _load_registry
+from dokimi.exit_codes import EXIT_USAGE
 
 
 def _run_single_library(entry, output_dir: str, model: str, provider: str, judge_model: str, judge_provider: str = DEFAULT_JUDGE_PROVIDER, doc_source_override=None, max_tokens_per_question: int = DEFAULT_MAX_TOKENS_PER_QUESTION, force_regen: bool = False, concurrency: int = DEFAULT_CONCURRENCY, questions_from=None, questions_root=None, judge_temperature=None, judge_placeholder=False, registry=None) -> dict:
@@ -85,6 +87,65 @@ def _credential_env_var(provider: str) -> str:
     }.get(provider, "OPENAI_API_KEY")
 
 
+def _credential_error(provider: str, status=None) -> str | None:
+    """Why *provider* cannot run here, or ``None``: a missing key, or a CLI not signed in.
+
+    *status* is the provider's ``llm_cli.detect`` result when the caller already has it.
+    """
+    from dokimi import llm_cli
+
+    if llm_cli.backend(provider) is None:
+        key = _credential_env_var(provider)
+        return None if os.environ.get(key) else f"missing {key} for provider {provider}"
+    status = status or llm_cli.detect(provider)
+    if not status.installed:
+        return f"{provider}: '{status.binary}' is not installed"
+    if status.authenticated is False:
+        return f"{provider}: '{status.binary}' is not signed in ({status.hint})"
+    return None
+
+
+def _provider_checks(providers: list[str], notes: list[str] | None = None,
+                     refusals: list[str] | None = None) -> tuple[list[str], list[str]]:
+    """The errors (a missing key, a CLI not installed or signed in) and warnings for *providers*.
+
+    A CLI provider is probed once: ``detect`` runs ``--version`` and ``auth status``, and two
+    probes of a flaky ``auth status`` could give an error-free pass and a warning in one preflight.
+    A signed-in login that comes from the settings file is appended to *notes*, when given, and
+    every error to *refusals*: a missing key and a CLI not installed or not signed in are both a
+    missing provider credential, an input refusal (exit 2).
+    """
+    from dokimi import llm_cli
+
+    names = sorted(set(providers))
+    statuses = {n: llm_cli.detect(n) for n in names if llm_cli.backend(n) is not None}
+    errors = [e for e in (_credential_error(n, statuses.get(n)) for n in names) if e]
+    if refusals is not None:
+        refusals.extend(errors)
+    warnings = [w for w in (_login_warning(n, statuses.get(n)) for n in names) if w]
+    if notes is not None:
+        notes.extend(f"{n}: signed in ({s.source})" for n, s in statuses.items() if s.authenticated and s.source)
+    return errors, warnings
+
+
+def _login_warning(provider: str, status=None) -> str | None:
+    """A warning when a CLI provider's login could not be checked (no answer from ``auth status``)."""
+    from dokimi import llm_cli
+
+    if llm_cli.backend(provider) is None:
+        return None
+    status = status or llm_cli.detect(provider)
+    if status.installed and status.authenticated is None:
+        return f"{provider}: could not check the login ('{status.binary} auth status' gave no answer)"
+    return None
+
+
+def _print_notes(notes: list[str]) -> None:
+    """The login notes of a preflight: a signed-in login and where it comes from."""
+    for note in notes:
+        print(f"  {note}")
+
+
 def _resolved_benchmark_plan(entry, args: argparse.Namespace) -> dict:
     doc_source = getattr(args, "doc_source", None) or (entry.doc_sources[0] if entry.doc_sources else "context7")
     output_dir = getattr(args, "output_dir", None) or f"results/{entry.key}{DEFAULT_RESULTS_SUFFIX}"
@@ -126,71 +187,95 @@ def _check_questions_from(questions_from: str, key: str) -> tuple[Path, list, st
         return qf, [], f"questions source invalid: {qf} ({exc})"
 
 
-def cmd_benchmark_preflight(args: argparse.Namespace) -> None:
-    """Validate the resolved benchmark plan without running LLM calls."""
+def _check_golden_set(questions_root: str, key: str, refuse: Callable[[str], None]) -> None:
+    """Preflight the golden set under a questions root; each problem is an input refusal."""
     from dokimi.orchestrator.pipeline import load_questions_payload
+
+    root = Path(questions_root)
+    golden = root / f"{key.lower()}_golden.json"
+    if not root.is_dir():
+        refuse(f"questions root not found: {root}")
+        return
+    if not golden.is_file():
+        refuse(f"questions root has no golden set: {golden}")
+        return
+    try:
+        golden_questions = load_questions_payload(golden)
+        print(f"  golden questions: {golden} ({len(golden_questions)} items)")
+        if not golden_questions:
+            refuse(f"golden set is empty: {golden}")
+            return
+        bad = next((i for i, q in enumerate(cast(List[Any], golden_questions)) if not isinstance(q, dict)), None)
+        if bad is not None:
+            refuse(f"golden set item {bad} is not a dict: {golden}")
+    except Exception as exc:
+        refuse(f"golden set invalid: {golden} ({exc})")
+
+
+def _check_doc_source(plan: dict, entry: Any, refuse: Callable[[str], None], errors: list[str],
+                      warnings: list[str]) -> None:
+    """The doc source must build. A --doc-source value the factory rejects is a refusal (exit 2);
+    a source that cannot be built is a failed check (exit 1)."""
     from dokimi.mcp.factory import create_doc_source_client
 
+    source = plan["doc_source"]
+    for prefix in ("local:", "okf:"):  # the factory reads no file; a remote source is not probed
+        if isinstance(source, str) and source.startswith(prefix) and source[len(prefix):] \
+                and not Path(source[len(prefix):]).exists():
+            refuse(f"doc source path does not exist: {source}")
+            return
+    try:
+        create_doc_source_client(plan["doc_source"])
+        if plan["doc_source"] == "context7" and getattr(entry, "context7_id", None):
+            print(f"  context7_id: {entry.context7_id}")
+        elif plan["doc_source"] == "context7":
+            warnings.append("context7 id not pinned; client will resolve by target name")
+    except ValueError as exc:
+        refuse(f"doc source invalid: {plan['doc_source']} ({exc})")
+    except Exception as exc:  # the source cannot be reached or built: a failed check
+        errors.append(f"doc source check failed: {plan['doc_source']} ({exc})")
+
+
+def cmd_benchmark_preflight(args: argparse.Namespace) -> None:
+    """Validate the resolved benchmark plan without running LLM calls."""
     registry = _load_registry(args)
     try:
         entry = registry.get(args.library)
     except KeyError as exc:
         print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
 
     plan = _resolved_benchmark_plan(entry, args)
     _print_plan(plan)
 
-    errors: list[str] = []
-    warnings: list[str] = []
+    # Refusals are missing or invalid inputs and credentials (exit 2, as `benchmark run` refuses
+    # them). The other errors are failed checks (exit 1): a CLI provider not installed or signed in.
+    refusals: list[str] = []
+    notes: list[str] = []
+    errors, warnings = _provider_checks([args.provider, args.judge_provider], notes, refusals)
+    _print_notes(notes)
 
-    for provider in {args.provider, args.judge_provider}:
-        key = _credential_env_var(provider)
-        if not os.environ.get(key):
-            errors.append(f"missing {key} for provider {provider}")
+    def refuse(message: str) -> None:
+        refusals.append(message)
+        errors.append(message)
 
     try:
         Path(plan["output_dir"]).mkdir(parents=True, exist_ok=True)
     except OSError as exc:
-        errors.append(f"output dir not writable: {plan['output_dir']} ({exc})")
+        refuse(f"output dir not writable: {plan['output_dir']} ({exc})")
 
-    try:
-        client = create_doc_source_client(plan["doc_source"])
-        if plan["doc_source"] == "context7" and getattr(entry, "context7_id", None):
-            print(f"  context7_id: {entry.context7_id}")
-        elif plan["doc_source"] == "context7":
-            warnings.append("context7 id not pinned; client will resolve by target name")
-        _ = client
-    except Exception as exc:  # pragma: no cover - defensive for plugin clients
-        errors.append(f"doc source invalid: {plan['doc_source']} ({exc})")
+    _check_doc_source(plan, entry, refuse, errors, warnings)
 
     if plan["questions_from"]:
         qf, questions, problem = _check_questions_from(plan["questions_from"], entry.key)
         if problem:
-            errors.append(problem)
+            refuse(problem)
         else:
             print(f"  questions: {qf} ({len(questions)} items)")
 
     # Check golden set only if no external questions source (--questions-from takes precedence)
     if plan["questions_root"] and not plan["questions_from"]:
-        root = Path(plan["questions_root"])
-        golden = root / f"{entry.key.lower()}_golden.json"
-        if not root.is_dir():
-            errors.append(f"questions root not found: {root}")
-        elif not golden.is_file():
-            errors.append(f"questions root has no golden set: {golden}")
-        else:
-            try:
-                golden_questions = load_questions_payload(golden)
-                print(f"  golden questions: {golden} ({len(golden_questions)} items)")
-                if not golden_questions:
-                    errors.append(f"golden set is empty: {golden}")
-                else:
-                    bad = next((i for i, q in enumerate(cast(List[Any], golden_questions)) if not isinstance(q, dict)), None)
-                    if bad is not None:
-                        errors.append(f"golden set item {bad} is not a dict: {golden}")
-            except Exception as exc:
-                errors.append(f"golden set invalid: {golden} ({exc})")
+        _check_golden_set(plan["questions_root"], entry.key, refuse)
 
     same = _warn_judge_independence(
         answer_provider=args.provider,
@@ -210,7 +295,9 @@ def cmd_benchmark_preflight(args: argparse.Namespace) -> None:
         print("Errors:", file=sys.stderr)
         for item in errors:
             print(f"  ✗ {item}", file=sys.stderr)
-        sys.exit(1)
+        # A missing credential or input is a usage refusal (2), even with a failed check beside it;
+        # a failed check alone is a failed gate (1).
+        sys.exit(EXIT_USAGE if refusals else 1)
     print("✅ Preflight OK")
 
 
@@ -222,7 +309,7 @@ def cmd_benchmark_run(args: argparse.Namespace) -> None:
         entry = registry.get(args.library)
     except KeyError as exc:
         print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
 
     output_dir = args.output_dir or f"results/{entry.key}{DEFAULT_RESULTS_SUFFIX}"
     n_runs = getattr(args, "multi_run", 1)
@@ -234,7 +321,7 @@ def cmd_benchmark_run(args: argparse.Namespace) -> None:
         _, _, problem = _check_questions_from(questions_from, entry.key)
         if problem:
             print(f"Error: {problem}", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(EXIT_USAGE)
 
     if n_runs == 1:
         _run_single_library(
@@ -312,7 +399,7 @@ def cmd_benchmark_batch(args: argparse.Namespace) -> None:
 
     if not entries:
         print("No libraries to run.", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
 
     print(f"Batch run: {len(entries)} libraries → {args.output_dir}")
     results = []
@@ -374,7 +461,7 @@ def register(sub, positive_int) -> None:
     bench_run_p.add_argument("--output-dir", default=None, dest="output_dir",
                              help="Output directory (default: results/{target}_final)")
     bench_run_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL)
-    bench_run_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
+    bench_run_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=ANSWER_PROVIDERS)
     bench_run_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",
                              help=JUDGE_MODEL_HELP)
     bench_run_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider",
@@ -414,7 +501,7 @@ def register(sub, positive_int) -> None:
     bench_pre_p.add_argument("--doc-source", default=None, dest="doc_source", help="Override doc/context source")
     bench_pre_p.add_argument("--output-dir", default=None, dest="output_dir", help="Output directory (default: results/{target}_final)")
     bench_pre_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL)
-    bench_pre_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
+    bench_pre_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=ANSWER_PROVIDERS)
     bench_pre_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",
                              help=JUDGE_MODEL_HELP)
     bench_pre_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider", choices=JUDGE_PROVIDERS)
@@ -436,7 +523,7 @@ def register(sub, positive_int) -> None:
                                help="Run for all libraries in registry")
     bench_batch_p.add_argument("--output-dir", default="results", dest="output_dir")
     bench_batch_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL)
-    bench_batch_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
+    bench_batch_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=ANSWER_PROVIDERS)
     bench_batch_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",
                                help=JUDGE_MODEL_HELP)
     bench_batch_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider",

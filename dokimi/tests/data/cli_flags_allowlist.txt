@@ -187,6 +187,7 @@
 --static
 --stats-correction
 --strict
+--subject  # runs list (#278) adds it: the #94 §2.3 filter; no registry concept yet
 --subjects-root
 --swe-bench
 --target
