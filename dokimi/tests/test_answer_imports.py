@@ -656,3 +656,10 @@ def test_importable_formats_match_the_adapters_and_show_as_consumer(tmp_path):
     assert IMPORTABLE == frozenset(ADAPTERS)
     report = detect(_jsonl(tmp_path / "samples.jsonl", _BORN))
     assert report.consumers == ["eval import"]
+
+
+def test_import_path_without_a_format_names_eval_inspect_when_none_is_detected(tmp_path):
+    notes = tmp_path / "notes.txt"
+    notes.write_text("just some prose, no eval format here\n")
+    with pytest.raises(ValueError, match=r"see `eval inspect .*notes\.txt`"):
+        import_path(notes)
