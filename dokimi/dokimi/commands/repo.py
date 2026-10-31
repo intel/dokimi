@@ -343,7 +343,7 @@ def cmd_repo_budget(args: argparse.Namespace) -> None:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
     _, tree = _source_tree(args)
-    payload = budget(tree, profile.guidance_names, profile.import_max_depth)
+    payload = budget(tree, profile.guidance_names, profile.import_max_depth, profile.reads_claude_rules)
     if args.out:
         try:
             save_artifact("repo_budget", payload, Path(args.out))

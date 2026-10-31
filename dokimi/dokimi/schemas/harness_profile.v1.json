@@ -52,6 +52,7 @@
         "resolution": {"type": "string"},
         "imports": {"type": ["string", "null"]},
         "import_max_depth": {"type": "integer", "minimum": 1, "description": "How many hops of @imports the harness follows from a guidance file; absent: unlimited."},
+        "rules": {"type": "boolean", "description": "The harness reads .claude/rules/**/*.md (repo budget counts them); absent: false."},
         "notes": {"type": "string"}
       }
     },

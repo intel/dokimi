@@ -7,12 +7,15 @@ A static inventory, in characters, of the context a harness takes from the tree 
 starts at the repository root:
 
 - **start**: guidance files at the root, the files a root ``CLAUDE*`` or ``AGENTS.md`` file
-  ``@import``s (``AGENTS.md`` only when it is not turned off), and the skill
+  ``@import``s (``AGENTS.md`` only when it is not turned off), the root ``.claude/rules/**/*.md``
+  files with no ``paths`` frontmatter when the harness reads rules (their own ``@`` paths are not
+  imports), and the skill
   listing (each project skill's ``name``, plus its ``description`` and ``when_to_use`` up to
   1,536 characters together; a skill with
   ``disable-model-invocation: true`` is not listed). Every model call pays for these.
-- **lazy**: guidance files in subdirectories, and what a nested CLAUDE.md or AGENTS.md imports, loaded
-  when the agent works in that subtree.
+- **lazy**: guidance files in subdirectories, what a nested CLAUDE.md or AGENTS.md imports, and the
+  rules of a subdirectory's ``.claude/rules/``, loaded when the agent works in that subtree; rules
+  with ``paths``, loaded when the agent reads a matching file.
 - **on demand**: skill bodies, loaded when the agent invokes the skill.
 - **off**: AGENTS.md files the harness will not read: a root CLAUDE.md, .claude/CLAUDE.md or CLAUDE.local.md is present and no
   CLAUDE.md imports them (measured on Claude Code 2.1.286; the reach probe re-measures).
@@ -37,6 +40,10 @@ from typing import Any
 from dokimi.repos.source import RepoTree
 
 SKILL_GLOB = re.compile(r"^\.claude/skills/[^/]+/SKILL\.md$")
+# Rules are discovered recursively, in the root .claude/rules/ and in a subdirectory's (docs: Memory).
+RULE_GLOB = re.compile(r"^(?:.+/)?\.claude/rules/(?:.+/)?[^/]+\.md$")
+_FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n(.*?)^---[ \t]*(?:\r?\n|\Z)", re.S | re.M)
+_PATHS_KEY = re.compile(r"^paths[ \t]*:", re.M)
 MCP_FILE = ".mcp.json"
 # Claude Code truncates description + when_to_use at 1,536 characters in the listing (docs: Skills).
 LISTING_TEXT_CAP = 1536
@@ -58,7 +65,8 @@ _WORD = re.compile(r"\w+")
 _STOP = frozenset("a an and the of to for in on with use when or is are be this that it its from by as at".split())
 
 
-def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: int | None = None) -> dict[str, Any]:
+def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: int | None = None,
+           rules: bool = False) -> dict[str, Any]:
     files = tree.files()
     names = set(guidance_names)
     every = [f for f in files if f.rsplit("/", 1)[-1] in names]
@@ -116,6 +124,7 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
             unreadable_warnings.append(warning)
         entries.append({"path": f, "kind": "guidance", "when": when, "chars": chars})
     counted = {_target(tree, f) for f in guidance}
+    entries += _rules(tree, files if rules else [], counted, start_t, unreadable_warnings)
     for f in sorted((at_start | lazily) - set(guidance), key=lambda p: (p not in at_start, p)):
         if _is_resolvable(tree, f) and _target(tree, f) not in counted:
             counted.add(_target(tree, f))
@@ -215,6 +224,44 @@ def _chars(tree: RepoTree, path: str) -> tuple[int, str | None]:
         return len(tree.read_text(path)), None
     except (OSError, ValueError, RuntimeError) as err:  # RuntimeError: a link loop before Python 3.13  # UnicodeDecodeError is a ValueError
         return 0, f"{path}: not readable ({_unreadable_reason(err)}), counted as 0"
+
+
+def _rules(tree: RepoTree, files: list[str], counted: set[str], start_t: set[str],
+           warnings: list[str]) -> list[dict[str, Any]]:
+    """The ``rule`` entries of ``files``, skipping files already ``counted`` (and adding theirs).
+
+    ``budget`` passes no files for a harness that does not read ``.claude/rules`` (``guidance.rules``).
+    """
+    out = []
+    for f in sorted(f for f in files if RULE_GLOB.match(f)):
+        if _target(tree, f) in counted:
+            continue  # a link to a file already counted, or a rule that is also a guidance file
+        counted.add(_target(tree, f))
+        chars, scoped, warning = _rule(tree, f)
+        if warning:
+            warnings.append(warning)
+        # a CLAUDE.md that imports a rule at start loads it then, whatever its frontmatter says
+        when = "start" if (f.startswith(".claude/rules/") and not scoped) or _target(tree, f) in start_t else "lazy"
+        out.append({"path": f, "kind": "rule", "when": when, "chars": chars})
+    return out
+
+
+def _rule(tree: RepoTree, path: str) -> tuple[int, bool, str | None]:
+    """Return (chars in context, has ``paths``, warning) for a ``.claude/rules`` file.
+
+    Claude Code removes the frontmatter before loading a rule, so it is not counted. A rule with
+    ``paths`` in its frontmatter loads only when the agent reads a matching file; measured on
+    Claude Code 2.1.304, that holds even when the YAML does not parse, which the docs say
+    loads the rule unconditionally.
+    """
+    try:
+        text = tree.read_text(path)
+    except (OSError, ValueError, RuntimeError) as err:  # UnicodeDecodeError is a ValueError; RuntimeError a loop
+        return 0, False, f"{path}: not readable ({_unreadable_reason(err)}), counted as 0"
+    m = _FRONTMATTER.match(text)
+    if not m:
+        return len(text), False, None
+    return len(text) - m.end(), bool(_PATHS_KEY.search(m.group(1))), None
 
 
 def _imports(tree: RepoTree, roots: list[str], max_depth: int | None = None) -> tuple[set[str], list[tuple[str, str]]]:

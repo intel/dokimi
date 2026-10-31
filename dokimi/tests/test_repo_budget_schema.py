@@ -18,12 +18,13 @@ DESCRIPTION = "Reviews pull requests for security issues in authentication and s
 
 
 def _populated_tree(root):
-    """Guidance, an import, two near-duplicate skills, a hidden skill, an MCP server and a warning."""
+    """Guidance, an import, a rule, two near-duplicate skills, a hidden skill, an MCP server and a warning."""
     files = {
         "CLAUDE.md": "See @docs/style.md for the style.\n",
         "AGENTS.md": "Agents read this.\n",  # turned off by CLAUDE.md: a warning
         "docs/style.md": "Use four spaces.\n",
         "sub/CLAUDE.md": "Nested guidance.\n",
+        ".claude/rules/testing.md": "Run the tests.\n",
         ".claude/skills/review/SKILL.md": SKILL.format(name="review", description=DESCRIPTION),
         ".claude/skills/audit/SKILL.md": SKILL.format(name="audit", description=DESCRIPTION),
         ".claude/skills/hidden/SKILL.md": "---\nname: hidden\ndisable-model-invocation: true\n---\nBody.\n",
@@ -47,7 +48,7 @@ def test_json_is_a_stamped_repo_budget_artifact(tmp_path, capsys):
     assert data["schema_version"] == "repo_budget.v1"
     validate_artifact("repo_budget", data)
     # every field is populated, so the schema was checked against more than empty lists
-    assert {e["kind"] for e in data["entries"]} == {"guidance", "import", "skill listing", "skill body"}
+    assert {e["kind"] for e in data["entries"]} == {"guidance", "import", "rule", "skill listing", "skill body"}
     assert {e["when"] for e in data["entries"]} == {"start", "lazy", "on demand", "off"}
     assert data["skills"] == 3
     assert [(d["a"], d["b"]) for d in data["duplicate_skills"]] == [("audit", "review")]
