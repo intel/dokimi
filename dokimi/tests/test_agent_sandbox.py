@@ -878,3 +878,26 @@ def test_missing_raw_socket_tools_cannot_certify_network_closed(tmp_path):
     assert result["network"] == "untested"
     assert result["docker_api"] == "untested"
     assert probe_reward(result) == 0.0
+
+
+def test_missing_raw_socket_tools_keep_a_proven_open_network(tmp_path):
+    # Without bash and timeout only "closed" may weaken to "untested": a fetch that got through stays open.
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    for name in ("sh", "dirname", "curl", "id", "sed", "tr", "head", "cksum", "ls"):
+        if path := shutil.which(name, path="/usr/bin:/bin"):
+            (bindir / name).symlink_to(path)
+    if not (bindir / "curl").exists():
+        pytest.skip("needs curl in /usr/bin:/bin")
+    with subprocess.Popen(
+        [sys.executable, "-u", "-m", "http.server", "0", "--bind", "127.0.0.1"],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=tmp_path,
+    ) as server:
+        try:
+            port = server.stdout.readline().split(" port ")[1].split()[0]
+            result = _probe_script_run(tmp_path, PATH=str(bindir), PROBE_DNS_NAME="127.0.0.1",
+                                       PROBE_URL=f"http://127.0.0.1:{port}/")
+        finally:
+            server.terminate()
+            server.wait(timeout=10)
+    assert result["network"] == "open"
