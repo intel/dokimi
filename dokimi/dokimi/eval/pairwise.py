@@ -57,6 +57,8 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 from dokimi.eval.binary_stats import exact_binomial_two_sided
+from dokimi.llm import ATTEMPTS, Unparseable
+from dokimi.judged import judged_reply
 from dokimi.eval.question_text import require_question_text
 from dokimi.records import RecordLike, arm_answers, records as as_records
 
@@ -79,9 +81,6 @@ Reply with exactly one token: A, B, or TIE."""
 #: of the same request and *cache_if* is the response cache's acceptance test
 #: (see :func:`dokimi.caching.keeps`), as ``Judge.llm.invoke`` takes them.
 Ask = Callable[..., str]
-
-#: Draws per prompt before a reply counts as unparseable, as ``Judge`` does.
-ATTEMPTS = 3
 
 _CHOICES = ("A", "B", "TIE")
 
@@ -119,27 +118,6 @@ def parse_choice(text: Optional[str]) -> Optional[str]:
     return standalone_verdict(_ARTICLE_TIE.sub("TIE", text or ""), _CHOICES)
 
 
-def ask_parsed(ask: Ask, prompt: str, parse: Callable[[str], Any]) -> Tuple[Any, str]:
-    """``(parse(reply), reply)`` for the first of :data:`ATTEMPTS` draws that parses.
-
-    Each attempt is its own draw and only a reply that parses is cached:
-    otherwise, with the response cache on, an unparseable reply is stored and
-    every later run replays it without a call (measured: one altered reply cost
-    the question on the re-run too, with 0 live calls). Returns ``(None, last
-    reply)`` when no attempt parses.
-    """
-    def parses(raw: str) -> bool:
-        return parse(raw) is not None
-
-    raw = ""
-    for draw in range(ATTEMPTS):
-        raw = ask(prompt, draw=draw, cache_if=parses)
-        value = parse(raw)
-        if value is not None:
-            return value, raw
-    return None, raw
-
-
 @dataclass
 class PairVerdict:
     """+1 when the first answer is better, -1 when the second is, 0 for a tie."""
@@ -161,7 +139,7 @@ class UnparseableVerdict(ValueError):
     """The judge's reply named none of A, B or TIE."""
 
 
-def _both_orders(ask: Ask, library: str, question: str, x: str, y: str) -> PairVerdict:
+def _both_orders(ask: Ask, library: str, question: str, x: str, y: str, *, pinned: bool) -> PairVerdict:
     """Both orders; raises :class:`UnparseableVerdict` rather than reading a non-answer as TIE.
 
     An empty or truncated reply (a reasoning model with the verdict outside
@@ -169,13 +147,17 @@ def _both_orders(ask: Ask, library: str, question: str, x: str, y: str) -> PairV
     well-behaved, length-neutral judge — 0.5 on graded pairs, "unmoved" on
     padding — and would buy an escalation it did not earn.
     """
-    (v1, r1), (v2, r2) = (ask_parsed(ask, _prompt(library, question, a, b), parse_choice)
-                          for a, b in ((x, y), (y, x)))
-    for order, (v, raw) in enumerate(((v1, r1), (v2, r2)), 1):
-        if v is None:
+    def verdict(a: str, b: str, order: int) -> str:
+        try:
+            return judged_reply(ask, _prompt(library, question, a, b), parse_choice,
+                                pinned=pinned, label=f"Pairwise order {order}")[0]
+        except Unparseable as exc:
             raise UnparseableVerdict(
-                f"order {order}: no A/B/TIE in {ATTEMPTS} replies, last {str(raw)[:80]!r}"
-            )
+                f"order {order}: no A/B/TIE in {ATTEMPTS} replies, last {str(exc.reply)[:80]!r}"
+            ) from exc
+
+    v1 = verdict(x, y, 1)
+    v2 = verdict(y, x, 2)
     s1 = {"A": 1, "B": -1}[v1] if v1 in ("A", "B") else 0
     s2 = {"A": -1, "B": 1}[v2] if v2 in ("A", "B") else 0
     return PairVerdict(score=s1 if s1 == s2 else 0, first_order=v1, second_order=v2)
@@ -189,12 +171,15 @@ class PairwiseJudge:
     escalate: Optional[Ask] = None
     #: Also escalate pairs the cheap judge called TIE in both orders.
     escalate_ties: bool = False
+    #: Pinned sampling repeats a redraw's reply, so it is reprompted; unpinned it is a new sample.
+    #: See :func:`dokimi.judged.judged_reply`.
+    pinned: bool = False
 
     def compare(self, library: str, question: str, x: str, y: str) -> PairVerdict:
-        verdict = _both_orders(self.ask, library, question, x, y)
+        verdict = _both_orders(self.ask, library, question, x, y, pinned=self.pinned)
         consistent_tie = verdict.first_order == verdict.second_order == "TIE"
         if verdict.score == 0 and self.escalate is not None and (self.escalate_ties or not consistent_tie):
-            verdict = _both_orders(self.escalate, library, question, x, y)
+            verdict = _both_orders(self.escalate, library, question, x, y, pinned=self.pinned)
             verdict.escalated = True
         return verdict
 

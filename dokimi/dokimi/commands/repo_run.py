@@ -17,7 +17,6 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from dokimi.repos.manifest import RepoManifest
-    from dokimi.repos.workspace import Arm
 
 from dokimi.repos.harness_profile import DELEGATION_MODES
 from dokimi.exit_codes import EXIT_USAGE
@@ -261,6 +260,7 @@ def cmd_repo_run(args: argparse.Namespace) -> None:
 def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock: contextlib.ExitStack) -> None:
     from dokimi.repos import RepoSource, open_source
     from dokimi.repos.arms import check_arms
+    from dokimi.repos.batch_ledger import pin_arms, pin_skills, write_skill_pin
     from dokimi.repos.bases import check_mcp_configs
     from dokimi.repos.container import docker_network
     from dokimi.repos.harness_profile import load_profile
@@ -277,14 +277,14 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
         profile.tool_args(args.tools, args.delegation)  # a profile that cannot turn subagents off: refuse now
         harness_bin = _harness_bin(args.bin or profile.bin)
         source = RepoSource.parse(args.source)  # a misspelled revision fails before the build and the pin too
-        arms = _pin_arms(parsed, source_git_dir(source, open_source(source, _cache_dir(args)), _cache_dir(args)),
-                         args.source)
+        arms = pin_arms(parsed, source_git_dir(source, open_source(source, _cache_dir(args)), _cache_dir(args)),
+                        args.source)
         lock.enter_context(batch_lock(batch_dir))  # before _context, which rewrites _eval/content
         ctx, _ = _context(args, batch_dir, pin=True)
         tasks = load_tasks(ctx.content_dir, ctx.manifest, args.task)
         check_arms(arms, ctx.content_dir, tasks, ctx.git_dir, ctx.manifest.guidance_globs)  # skill paths exist, catalogs hold each expected_skill
         check_mcp_configs(ctx.git_dir, tasks, profile, args.tools)  # a malformed .mcp.json fails here, not in every cell
-        skill_pin = _skill_pin(batch_dir, arms, ctx.content_dir)  # a resume may not swap an arm's skills
+        skill_pin = pin_skills(batch_dir, arms, ctx.content_dir)  # a resume may not swap an arm's skills
         validate_tasks(tasks)  # refuse malformed host requirements before containers start
         options = [AgentOptions(profile=profile, model=m, harness_bin=harness_bin, agent_network=args.agent_network,
                                 tools=args.tools, delegation=args.delegation, timeout_s=args.timeout,
@@ -303,8 +303,7 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
         print(f"{profile.name} {version} in {ctx.image}; {len(tasks)} task(s) x {len(arms)} arm(s) x "
               f"{len(options)} model(s) x {args.reps} rep(s) -> {batch_dir}", file=sys.stderr)
         if skill_pin is not None:
-            (batch_dir / "_eval" / SKILL_PIN).write_text(json.dumps(skill_pin, sort_keys=True) + "\n",
-                                                         encoding="utf-8")
+            write_skill_pin(batch_dir, skill_pin)
         summary = run_batch(ctx, tasks, arms, options, args.reps, batch_dir, jobs=args.jobs, force=args.force,
                             max_batch_usd=args.max_batch_usd, log=_progress)
     except _errors() as exc:
@@ -322,57 +321,6 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
         print(f"✗ incomplete: no cell has a result ({summary['cells']} cells, {summary['unsupported']} unsupported)",
               file=sys.stderr)
         sys.exit(1)
-
-
-SKILL_PIN = "skills.json"
-
-
-def _skill_pin(batch_dir: Path, arms: list[str], content_dir: Path) -> dict[str, list[list[str]]] | None:
-    """The batch's ``_eval/skills.json`` with this run's skill arms added (``None``: nothing to add): arm name ->
-    [skill name, tree sha256] of each skill. A skill arm is named by its directories, so a resume with another
-    path or edited content would add cells of other skills to the arm's row; that is refused."""
-    from dokimi.repos.arms import resolve_skills, tree_sha256
-    from dokimi.repos.workspace import parse_arm
-
-    now = {str(a): [[s.name, tree_sha256(s.dir)] for s in resolve_skills(a, content_dir)]
-           for a in map(parse_arm, arms) if a.skills}
-    path = batch_dir / "_eval" / SKILL_PIN
-    old = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
-    for arm, skills in now.items():
-        if old.get(arm, skills) != skills:
-            was, new = (", ".join(f"{name} {sha[:12]}" for name, sha in pin) for pin in (old[arm], skills))
-            raise ValueError(f"batch {batch_dir.name} ran arm {arm} with skills {was}, not {new}; "
-                             f"use another --batch")
-    return {**old, **now} if now.keys() - old.keys() else None
-
-
-def _pin_arms(arms: list[Arm], git_dir: Path, source: str) -> list[str]:
-    """Each arm under the name its cells get, resolved once for the whole batch (a revision to its
-    full SHA, so a branch that moves later names another arm); two spellings of one arm run once."""
-    from dokimi.repos import RepoSource
-    from dokimi.repos.workspace import pin_arm
-
-    parsed = RepoSource.parse(source)
-    remote = parsed.remote
-    worktree = None if remote else Path(parsed.location)  # HEAD of a linked worktree is not the main one's
-    pinned: list[str] = []  # Arm objects: run_batch hands each to prepare_workspace
-    first_path: dict[str, str | None] = {}
-    first_skills: dict[str, tuple[tuple[str, str], ...]] = {}
-    for arm in arms:
-        named = pin_arm(arm, git_dir, fetch=remote, worktree_dir=worktree)
-        if first_skills.setdefault(named, named.skills) != named.skills:  # skill arms are named by directory
-            raise ValueError(f"arms {named.spec!r} and another spelling of {named!r} name different skill paths "
-                             f"({named.skills} vs {first_skills[named]}) but would share one cell; "
-                             f"rename a directory or spell the path alike")
-        if named != named.spec:
-            detail = f"{named.patch_path}, sha256 {named.patch_sha256}" if named.patch is not None else named.spec
-            print(f"arm {named} = {detail}", file=sys.stderr)
-        first = first_path.setdefault(named, named.patch_path)
-        if first != named.patch_path:  # same bytes under another path: one cell, recorded under the first path
-            print(f"arm {named}: {named.patch_path} and {first} are the same patch and share one cell; "
-                  f"meta.json names {first}", file=sys.stderr)
-        pinned.append(named)
-    return list(dict.fromkeys(pinned))
 
 
 def _harness_bin(name: str) -> Path:

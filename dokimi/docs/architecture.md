@@ -413,7 +413,12 @@ Guide: [run-consistency.md](run-consistency.md).
   read as UTF-8, a captured stream keeps at most 1 MiB in memory (its first and
   last half, `truncated` set; `stdout_to`/`stderr_to` write a whole stream to a
   file; git output is kept whole), and every call states its environment policy (`Env.inherit` or
-  an `Env.only` allow-list). `FakeRunner` is its test adapter: code that spawns
+  an `Env.only` allow-list). `Limits` the platform cannot apply raise `ValueError` before the
+  child starts (any limit on Windows, a memory limit on macOS), a `setrlimit` the kernel
+  rejects raises `subprocess.SubprocessError` before the command runs, and a hard limit the
+  process inherited that is lower than the request stays in force. `dokimi/process_io.py`
+  decides who owns each pipe, so an interrupted launch closes its streams exactly once
+  and Windows reader threads close theirs at EOF. `FakeRunner` is its test adapter: code that spawns
   takes a `runner` argument.
 - `dokimi/llm.py` — the entry point for LLM calls. `LLM` (one model at one provider:
   `complete`/`ask`/`chat`, retry, the response cache, usage) sits on one

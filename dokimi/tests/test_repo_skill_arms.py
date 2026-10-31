@@ -473,7 +473,8 @@ def test_a_nested_name_alone_is_not_the_skill_name(tmp_path):
     assert [s.name for s in resolve_skills(parse_arm("skill:skills/lint"), tmp_path)] == ["lint"]
 
 
-def test_a_skill_the_task_base_already_ships_is_refused_before_any_cell(tmp_path, capsys):
+def test_a_skill_the_task_base_already_ships_is_refused_before_any_cell(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr("dokimi.repos.container.DockerRunner", lambda *a, **k: FakeRunner())
     _skill(tmp_path / "toy", ".claude/skills/lint", "lint")
     root, base = make_repo(tmp_path)
     _skill(root, ".agent-eval/skills/lint", "lint")
