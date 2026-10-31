@@ -146,4 +146,6 @@ def convert_answer(fmt: str | None, answer: str, workdir: str | None = None, *, 
         return answer
     if not findings and not _CLEAN_VERDICT.search(texts[-1]):  # an empty block is a claim the review made
         return answer
-    return f"{answer}\n\n```json\n{json.dumps(findings, indent=1)}\n```\n"
+    # a fence in a message would close the block early: escaped in the JSON, as the review oracles do
+    block = json.dumps(findings, indent=1).replace("```", "\\u0060\\u0060\\u0060")
+    return f"{answer}\n\n```json\n{block}\n```\n"

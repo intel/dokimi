@@ -201,6 +201,15 @@ def test_convert_answer_a_clean_verdict_gets_an_empty_block(answer):
     assert _block(convert_answer("codex-review", answer, "/w")) == []
 
 
+def test_convert_answer_block_round_trips_a_fenced_sample_in_a_body():
+    from dokimi.repos.graders.review import findings_of
+
+    fence = "`" * 3
+    text = f"- [P1] Leak \u2014 /w/a.py:3\n  Use this:\n\n  {fence}python\n  x = 1\n  {fence}\n"
+    found = findings_of(convert_answer("codex-review", text, "/w"))
+    assert [f["message"] for f in found] == [f"Use this: {fence}python x = 1 {fence}"]
+
+
 def test_convert_answer_leaves_an_empty_answer_empty():
     # a failed or timed-out run must not read as a clean review (an empty findings block)
     assert convert_answer("codex-review", "") == ""
