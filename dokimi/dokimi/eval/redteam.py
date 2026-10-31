@@ -10,17 +10,14 @@ Each question with a ``grading`` block is graded against five synthetic answers:
   check accepts it; the probe is skipped only when no candidate is clean.
 - ``empty``: the empty answer; it must fail.
 - ``hedge``: a non-committal answer that carries no check value; it must fail.
-- ``stuffed``: every literal check value listed with no sentence around it; it must fail. Built for
-  a positive check of two or more values (mode ``any``) that does not read the list where it stands:
-  bare for ``exact``, ``json`` and location-``exact`` checks, between two decoys for a ``match`` at
-  ``begin`` or ``end``, after a JSON decoy for a ``json`` check with ``contains``. It is not built for ``fuzzy``, numeric or location-``any`` checks, a block that
-  needs every value, or several checks that each accept one value: the grader is right to accept the
-  stuffed answer there. Also built
+- ``stuffed``: every literal check value listed with no sentence around it; it must fail. Probed only
   for a negated check of one or more values, whose stuffed answer carries the forbidden value; not
   built for a negated ``exact``, ``json`` or location-``exact`` match, which the listed values never
   equal, nor for a negated ``mode: all`` match, whose stuffed answer can pass the negation by its
   location (``Paris Lyon`` ends with one value only). The skip covers every negated ``mode: all``
-  match, which is wider than that case and never a false block.
+  match, which is wider than that case and never a false block. A positive check's stuffed answer is
+  built (for ``grade_check``'s self-test) but not probed: its one check grades it, so no violation is
+  possible.
 
 An answer the grader accepts when it should reject it (or rejects a canary) is a violation, and
 any violation blocks the run. A run with a question whose correctness no probe measured (a judge check without a judge, a block of
@@ -223,7 +220,9 @@ def probe(grading: Mapping[str, Any], question: str, ask: Optional[Ask] = None) 
     """Grade every applicable attack against one grading block."""
     out: dict[str, Probe] = {}
     for name, answer in attacks(grading).items():
-        if answer is None:
+        # A positive block's stuffed answer is graded by the one check it was built to reject, so it can
+        # never be a violation: it stays a unit-test self-check of grade_check, not a probe or a rate.
+        if answer is None or (name == "stuffed" and not negated_only(grading)):
             continue
         g = grade(grading, question, answer, ask)
         # A check left unrun (no judge, or a regex past its timeout) makes a pass on the rest no measurement;

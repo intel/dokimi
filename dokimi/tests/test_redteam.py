@@ -49,11 +49,23 @@ def _accept_stuffed(monkeypatch):
     monkeypatch.setattr(redteam, "grade", grade)
 
 
-def test_keyword_stuffing_that_the_grader_accepts_blocks_the_run(monkeypatch):
+def _negated_match(*values):
+    return {"checks": [{"type": "match", "values": list(values), "negate": True}]}
+
+
+def test_negated_keyword_stuffing_that_the_grader_accepts_blocks_the_run(monkeypatch):
     _accept_stuffed(monkeypatch)
-    result = run([_q("1", _match("Paris", "Lyon"))])
+    result = run([_q("1", _negated_match("Paris", "Lyon"))])
     assert result["status"] == "blocked"
     assert result["violations"] == [{"question_id": "1", "attack": "stuffed", "passed": True}]
+
+
+def test_a_positive_stuffed_answer_is_built_but_not_probed_or_rated():
+    # Its one check grades it, so no grader can be blocked by it: it is a self-test of grade_check only.
+    result = run([_q("1", _match("Paris", "Lyon"))])
+    assert "stuffed" not in result["questions"][0]["probes"]
+    assert result["attacks"]["stuffed"] == {"expected": "fail", "scored": 0, "accepted": 0, "rate": None}
+    assert redteam.attacks(_match("Paris", "Lyon"))["stuffed"] is not None
 
 
 @pytest.mark.parametrize("check", [
@@ -235,7 +247,7 @@ def test_a_block_that_cannot_be_graded_is_refused():
 
 def test_table_names_each_violation_and_the_status(monkeypatch):
     _accept_stuffed(monkeypatch)
-    result = run([_q("7", _match("Paris", "Lyon"))])
+    result = run([_q("7", _negated_match("Paris", "Lyon"))])
     table = format_table(result)
     assert "violation: question 7: stuffed answer accepted" in table
     assert "status blocked: 1 questions" in table
@@ -692,8 +704,8 @@ def test_an_inconclusive_run_still_writes_the_artifact(tmp_path, monkeypatch):
 def test_aliases_of_a_whole_answer_check_are_stuffed_bare_and_the_grader_rejects_the_list(check):
     # The list equals none of the values, so a grader that accepts it is wrong; the real one does not.
     assert redteam.attacks({"checks": [check]})["stuffed"] == "Paris Lyon"
-    result = run([_q("1", {"checks": [check]})])
-    assert result["status"] == "pass" and result["questions"][0]["probes"]["stuffed"]["passed"] is False
+    assert redteam.grade({"checks": [check]}, "", "Paris Lyon").checks[0].passed is False
+    assert run([_q("1", {"checks": [check]})])["status"] == "pass"
 
 
 @pytest.mark.parametrize("value", ["-.5", "+.5"])
@@ -721,9 +733,9 @@ def test_a_list_the_grader_accepts_as_a_value_is_no_stuffing_attack(check):
 def test_a_stuffed_list_at_the_end_picks_decoys_that_do_not_complete_a_value(strip):
     # Each decoy alone is rejected, but "Paris QZX-BOGUS-REPLY-4096" ends the answer and is a value.
     check = {"type": "match", "values": ["Paris QZX-BOGUS-REPLY-4096", "Paris"], "strip": strip}
-    result = run([_q("1", {"checks": [check]})])
-    assert result["status"] == "pass" and result["violations"] == []
-    assert result["questions"][0]["probes"]["stuffed"]["passed"] is False
+    grading = {"checks": [check]}
+    assert redteam.grade(grading, "", redteam.attacks(grading)["stuffed"]).checks[0].passed is False
+    assert run([_q("1", grading)])["status"] == "pass"
 
 
 @pytest.mark.parametrize("value, location", [("-.5", "end"), ("+.5", "begin")])
