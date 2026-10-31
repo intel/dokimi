@@ -1,7 +1,8 @@
 ### Added
 
 - **`novelty routing --include-invalid`** keeps a catalog skill with a spec error in the `--catalog`
-  field, and the saved result records the flag under `field`.
+  field, and the saved result records the flag under `field`. A name that conflicts with another
+  catalog skill still leaves the field.
 
 ### Changed
 

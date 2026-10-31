@@ -612,6 +612,7 @@ not mean to route against, to route the name. `dokimi catalog scan` lists the sa
 `name-conflict` warnings. A skill with a spec error (for example a description over 1024 characters, or a
 name that is not kebab-case or not its directory name) is also left out, with a warning naming the error; pass
 `--include-invalid` to keep it, as a harness that refuses to list such a skill would not.
+A name that conflicts with another catalog skill leaves the field whatever the flag says.
 A `skill:` competitor that is not a `SKILL.md`, or a directory without one, is skipped with a
 warning. A shell glob must be expanded first, with the prefix on each path
 (`skill:dir/a/SKILL.md skill:dir/b/SKILL.md`): an unexpanded `skill:dir/*` is refused as a missing
