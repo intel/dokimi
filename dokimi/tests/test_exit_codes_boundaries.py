@@ -166,6 +166,46 @@ def test_matrix_cell_that_cannot_be_set_up_exits_2_before_any_answer(tmp_path, m
     assert "Error building matrix cell 'cell-bad'" in capsys.readouterr().err
 
 
+def _one_cell(tmp_path):
+    cells = tmp_path / "cells.json"
+    cells.write_text(json.dumps({"cells": [
+        {"id": "c1", "model": "gpt-4o-mini", "provider": "openai", "harness": "arms-runner"}]}), encoding="utf-8")
+    return ["arms", "matrix-run", "--product", "onedal", "--questions", _questions(tmp_path), "--arms", "baseline",
+            "--matrix-cells", str(cells), "--out-dir", str(tmp_path / "matrix")]
+
+
+def test_matrix_cell_that_fails_while_it_runs_exits_1(tmp_path, monkeypatch, capsys):
+    # A provider failure mid-matrix is a run failure, not a bad invocation.
+    def fail(self, *a, **k):
+        raise ValueError("provider returned 500")
+
+    monkeypatch.setattr("dokimi.eval.arm_runner.ArmRunner.run", fail)
+    _argv(monkeypatch, *_one_cell(tmp_path))
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 1
+    assert "Error running matrix cell 'c1': provider returned 500" in capsys.readouterr().err
+
+
+def test_matrix_cell_whose_judge_probe_fails_exits_1_before_any_answer(tmp_path, monkeypatch, capsys,
+                                                                       fresh_probe_cache):
+    # The judge is probed per cell in setup; a failed probe call is a run failure (1), not a refusal (2).
+    def fake_usage(prompt, model, provider="openai", **kwargs):
+        if model == "judge-x":
+            raise RuntimeError("503: judge unavailable")
+        return ("OK", {})
+
+    answered = []
+    monkeypatch.setattr("dokimi.llm.llm_call_with_usage", fake_usage)
+    monkeypatch.setattr("dokimi.eval.arm_runner.ArmRunner.run", lambda self, *a, **k: answered.append(1) or [])
+    _argv(monkeypatch, *_one_cell(tmp_path), "--judge", "--judge-model", "judge-x", "--judge-temperature", "0.5")
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 1
+    assert answered == []
+    assert "Error running matrix cell 'c1'" in capsys.readouterr().err
+
+
 # ── repo fetch / reach: a fetch failure keeps 1; a bad source or profile is 2 ──────────────
 
 def _failed_fetch(source, cache_dir=None):
