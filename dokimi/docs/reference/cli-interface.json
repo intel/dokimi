@@ -12884,6 +12884,7 @@
                 "'answers'",
                 "'arms'",
                 "'cli_routes'",
+                "'dokimi_config'",
                 "'eval'",
                 "'explore_runs'",
                 "'guidance_reach'",

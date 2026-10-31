@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/dokimi_config.v1.json",
+  "title": "Repository dokimi config v1",
+  "description": "What a repository's dokimi config declares: its subjects (skills, or the repository itself), where each subject's evals live, the defaults a plan starts from, the changed-file rules for impact analysis and the budget and baseline store. Read by dokimi.repo_config from --config, .github/dokimi/config.yaml or .dokimi/config.yaml. Holds defaults only: what a run actually used is recorded in plan.v1.",
+  "type": "object",
+  "required": ["schema_version"],
+  "additionalProperties": false,
+  "$defs": {
+    "globs": {
+      "description": "One repository-relative glob, or a list of them.",
+      "oneOf": [
+        {"type": "string", "minLength": 1},
+        {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+      ]
+    },
+    "suite": {
+      "description": "Where a subject's evals are: one glob (or list), or named layouts (harbor, beside) each a glob or list. {skill} stands for the subject's path.",
+      "oneOf": [
+        {"$ref": "#/$defs/globs"},
+        {"type": "object", "minProperties": 1, "additionalProperties": {"$ref": "#/$defs/globs"}}
+      ]
+    }
+  },
+  "properties": {
+    "schema_version": {"const": "dokimi_config.v1"},
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "skills": {"$ref": "#/$defs/globs", "description": "Each directory matching is a subject skill/<name>."},
+        "suite": {"$ref": "#/$defs/suite", "description": "Default suite for a skill subject. Absent means {skill}/evals."}
+      }
+    },
+    "subjects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "minLength": 1, "description": "skill/<name>, or repo"},
+          "kind": {"enum": ["skill", "repo"], "default": "skill"},
+          "path": {"type": "string", "minLength": 1, "description": "The skill directory, repository-relative."},
+          "suite": {"$ref": "#/$defs/suite", "description": "Overrides defaults.suite for this subject."},
+          "manifest": {"type": "string", "minLength": 1, "description": "The repository manifest (kind repo)."}
+        },
+        "if": {"properties": {"kind": {"const": "repo"}}, "required": ["kind"]},
+        "then": {"required": ["manifest"], "not": {"required": ["path"]}},
+        "else": {"required": ["path"], "not": {"required": ["manifest"]}}
+      }
+    },
+    "shared": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "description": "Repository-relative globs of changed files that touch every subject (a harness, a shared script): impact analysis runs the smoke set for them."
+    },
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "models": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+        "reps": {"type": "integer", "minimum": 1},
+        "arms": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pr_max_usd": {"type": "number", "minimum": 0},
+        "record_max_usd": {"type": "number", "minimum": 0}
+      }
+    },
+    "baseline": {
+      "type": "object",
+      "required": ["store"],
+      "additionalProperties": false,
+      "properties": {
+        "store": {"type": "string", "pattern": "^(off|branch:.+)$", "description": "off, or branch:<name> for the baseline branch."}
+      }
+    }
+  }
+}

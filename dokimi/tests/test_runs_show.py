@@ -38,6 +38,7 @@ CONTENTS = {
     "subject_scorecard.v2": {"cells": 0},
     "cli_routes.v1": {"roots": 2, "leaves": 2, "tombstones": 1},
     "task_inspect.v1": {"items": 4},
+    "dokimi_config.v1": {"subjects": 2, "shared": 1},
     "task_runs.v1": {"tasks": 6, "harnesses": 2, "results": 24},
     "tool_preference.v1": {"items": 16, "results": 16},
 }
