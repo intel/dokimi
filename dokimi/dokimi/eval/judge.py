@@ -22,8 +22,8 @@ from dokimi.llm_cli import BACKENDS as CLI_BACKENDS, check_sampling
 from dokimi.llm import ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
 from dokimi.eval.diagnoser import diagnose
 from dokimi.eval.question_text import require_question_texts
-from dokimi.records import BASELINE, CONTEXT, Record, RecordLike, records
-from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
+from dokimi.records import BASELINE, CONTEXT, NO_RETRIEVAL_SOURCES, Record, RecordLike, records
+from dokimi.defaults import ANSWERING_METHOD_VERSION, DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
 # One calibration scale for both the single judge and the panel, so their
 # numbers mean the same thing and can be compared.
 from dokimi.eval.rubric import (
@@ -197,7 +197,12 @@ class Judge:
     - Code Quality
     - Actionability
     """
-    
+
+    #: Class default, so a Judge built without __init__ (tests build one with __new__) keeps the default.
+    judge_placeholder: bool = False
+    #: Same for the stamp: the eval artifact carries the method version of the answers it judged.
+    answers_method_version: int = ANSWERING_METHOD_VERSION
+
     def __init__(
         self,
         model: str = DEFAULT_JUDGE_MODEL,
@@ -207,6 +212,8 @@ class Judge:
         temperature: Optional[float] = None,
         seed: Optional[int] = None,
         prompt_template: Optional[str] = None,
+        judge_placeholder: bool = False,
+        answers_method_version: int = ANSWERING_METHOD_VERSION,
     ):
         """
         Args:
@@ -220,6 +227,12 @@ class Judge:
             prompt_template: Replaces :data:`JUDGE_PROMPT` on the ungrounded
                 path. Exists so the judge can be measured under a rewording of
                 its own prompt; production scoring leaves it unset.
+            judge_placeholder: Judge a context answer that is the no-retrieval
+                placeholder ("[FALLBACK: ...]") too. Off by default: a question
+                with no document reaching the prompt is not scored as an answer.
+            answers_method_version: The method version of the answers being judged,
+                stamped into the eval artifact. Answers read from an artifact with no
+                stamp are version 1; answers generated in this process are the current version.
         """
         if not LANGCHAIN_AVAILABLE:
             raise ImportError(
@@ -235,6 +248,8 @@ class Judge:
         self.prompt_sha256 = JUDGE_PROMPT_SHA256
         self.run_metadata = dict(run_metadata) if run_metadata else {}
         self.prompt_template = prompt_template
+        self.judge_placeholder = judge_placeholder
+        self.answers_method_version = answers_method_version
         # Accumulate judge-side token/cost telemetry across all judge calls
         # (Phase-C.0 covered answering; the judge path was untracked).
         self._usage_lock = threading.Lock()
@@ -325,7 +340,10 @@ class Judge:
                     "error": str(e),
                     "with_docs": None,
                     "without_docs": None,
-                    "delta": None
+                    "delta": None,
+                    # What retrieval returned does not depend on the judge: the trust
+                    # gate's coverage floor must not count this row as unrecorded.
+                    "retrieval_hit": answer.retrieval_hit,
                 }
             elapsed = time.time() - t0
             with lock:
@@ -376,9 +394,11 @@ class Judge:
         context_answer = answer.answer(CONTEXT)
         baseline_answer = answer.answer(BASELINE)
 
-        # Evaluate context arm
+        # Evaluate context arm. The no-retrieval placeholder is not an answer: it is
+        # left unjudged unless the caller opted in with judge_placeholder.
         with_docs_eval = None
-        if context_answer is not None and context_answer.text:
+        placeholder = context_answer is not None and context_answer.doc_source in NO_RETRIEVAL_SOURCES
+        if context_answer is not None and context_answer.text and (self.judge_placeholder or not placeholder):
             with_docs_eval = self._judge_answer(
                 library_name=library_name,
                 question=question_text,
@@ -415,7 +435,7 @@ class Judge:
         }
 
         # Classify retrieval outcome (why docs helped or didn't)
-        result["diagnosis"] = diagnose(context_answer, delta)
+        result["diagnosis"] = diagnose(context_answer, delta, context_scored=with_docs_eval is not None)
         # Carried onto the eval record because the trust gate reads eval.v1, not
         # the answers it was judged from.
         result["retrieval_hit"] = answer.retrieval_hit
@@ -644,6 +664,8 @@ class Judge:
         """Build the serialisable output structure for a set of evaluations."""
         output: Dict[str, Any] = {
             "evaluated_at": self._get_timestamp(),
+            "method_version": self.answers_method_version,
+            "judge_placeholder": self.judge_placeholder,
             "judge_model": self.model,
             "judge_provider": self.provider,
             "judge_temperature": self.temperature,
