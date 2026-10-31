@@ -18,6 +18,8 @@ from __future__ import annotations
 import fnmatch
 import glob
 import hashlib
+import math
+import os
 import re
 from decimal import Decimal, InvalidOperation
 from dataclasses import dataclass, field, replace
@@ -156,6 +158,8 @@ def _check_budget_numbers(data: dict[str, Any], path: Path) -> None:
         return
     for key in ("pr_max_usd", "record_max_usd"):
         value = budget.get(key)
+        if isinstance(value, float) and not math.isfinite(value):
+            raise ConfigError(f"{path}: budget.{key} must be a finite number, not {value}: a cap of nan or inf never stops the spend")
         text = value.strip() if isinstance(value, str) else ""
         if _NUMBER_AS_TEXT.fullmatch(text):
             try:
@@ -330,10 +334,26 @@ def _suite_files(root: Path, globs: tuple[str, ...]) -> dict[str, Path]:
 
 
 def _digest_files(files: dict[str, Path]) -> str:
+    """One digest over the suite's files. A directory is walked file by file, and a symlink is hashed by what it points to."""
     h = hashlib.sha256()
     for rel in sorted(files):
-        h.update(f"{rel}\0{tree_digest(files[rel])}\n".encode())
+        for name, path in _walk(files[rel], rel):
+            target = path.resolve() if path.exists() else path
+            h.update(f"{name}\0{tree_digest(target)}\n".encode())
     return "sha256:" + h.hexdigest()
+
+
+def _walk(path: Path, rel: str) -> list[tuple[str, Path]]:
+    """The regular files under ``path`` (or ``path`` itself); a symlink to a directory is not followed."""
+    if not path.is_dir():
+        return [(rel, path)]
+    found = []
+    for dirpath, _dirs, names in os.walk(path):
+        for name in names:
+            full = Path(dirpath) / name
+            if full.is_file():
+                found.append((f"{rel}/{full.relative_to(path).as_posix()}", full))
+    return sorted(found)
 
 
 def _within(rel: str, base: str) -> bool:

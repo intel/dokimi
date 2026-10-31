@@ -547,3 +547,27 @@ def test_a_budget_text_that_is_no_number_is_a_config_error_not_a_crash(tmp_path,
     root = _tree(tmp_path / "repo", {".github/dokimi/config.yaml": HEADER + f"budget:\n  pr_max_usd: '{value}'\n"})
     with pytest.raises(ConfigError, match=r"pr_max_usd.*not of type 'number'"):
         load_repo_config(root)
+
+
+@pytest.mark.parametrize("key", ["pr_max_usd", "record_max_usd"])
+@pytest.mark.parametrize("value", [".nan", ".inf", "-.inf"])
+def test_a_budget_that_is_not_a_finite_number_is_refused(tmp_path, key, value):
+    root = _tree(tmp_path / "repo", {".github/dokimi/config.yaml": HEADER + f"budget:\n  {key}: {value}\n"})
+    with pytest.raises(ConfigError, match=rf"budget\.{key} must be a finite number"):
+        load_repo_config(root)
+
+
+def test_an_eval_that_is_a_symlink_hashes_the_file_it_points_to(tmp_path):
+    import os
+
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n"
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": body,
+        "skills/a/SKILL.md": "a\n",
+        "shared/q.json": "[1]\n",
+        "skills/a/evals/.keep": "",
+    })
+    os.symlink("../../../shared/q.json", root / "skills/a/evals/q.json")
+    before = _subjects(root)["skill/a"].suite_hash
+    (root / "shared/q.json").write_text("[2]\n", encoding="utf-8")
+    assert _subjects(root)["skill/a"].suite_hash != before
