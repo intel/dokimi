@@ -12,6 +12,7 @@ from pathlib import Path
 from dokimi.defaults import DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER, DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER, DEFAULT_RETRIEVAL_TOP_K
 from dokimi.eval.stats import paired_summary
 from dokimi.mcp.factory import create_doc_source_client
+from dokimi.utils import same_evaluator
 
 logger = logging.getLogger(__name__)
 
@@ -669,10 +670,8 @@ class EvaluationPipeline:
                 "judge_model": self.judge_model,
                 "judge_provider": self.judge_provider,
                 "question_set_hash": question_set_hash,
-                "evaluator_independence_warning": (
-                    str(self.model).strip().lower() == str(self.judge_model).strip().lower()
-                    and str(self.provider).strip().lower() == str(self.judge_provider).strip().lower()
-                ),
+                "evaluator_independence_warning": same_evaluator(
+                    self.provider, str(self.model), self.judge_provider, str(self.judge_model)),
             },
         )
         

@@ -1,0 +1,63 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+schema: harness_profile.v1
+name: codex
+bin: codex  # npm's codex is a node launcher; mount the native one (.../vendor/<triple>/bin/codex) with --bin
+version_cmd: ["{bin}", "--version"]
+# Codex 0.160 runs every tool call through codex-code-mode-host, which it starts from
+# beside its own binary; without it in the container no command can run.
+bin_companions: [codex-code-mode-host]
+# `codex exec` is non-interactive; the prompt follows `--`, so a leading "-" is not a flag. No turn or spend cap:
+# {max_turns}/{budget} are not passed and the timeout bounds the run. CODEX_HOME is fresh per run (no --ignore-user-config).
+invoke:
+  - "{bin}"
+  - "exec"
+  - "--model"
+  - "{model}"
+  - "--ephemeral"
+  - "--skip-git-repo-check"
+  - "--json"
+  - "--color"
+  - "never"
+  - "{tools}"
+  - "--"
+  - "{prompt}"
+# Codex has no tool-off switch: `none` and `read` both get its bwrap sandbox, which needs user namespaces.
+# Where the host denies them every command fails; `all` relies on the framework's container for isolation.
+tools:
+  none: ["--sandbox", "read-only"]
+  read: ["--sandbox", "read-only"]
+  all: ["--dangerously-bypass-approvals-and-sandbox"]
+config_dir_env: CODEX_HOME
+env_allow:
+  - PATH
+  - HOME
+  - LANG
+  - SYSTEMROOT
+  - CODEX_API_KEY
+# OPENAI_API_KEY is not forwarded: `all` mode's shell reads every forwarded variable, and `codex exec` reads neither key.
+# Another endpoint needs a config_files provider with `env_key = "CODEX_API_KEY"`, else no bearer (401 Missing bearer).
+  - OPENAI_BASE_URL
+  - http_proxy
+  - https_proxy
+  - no_proxy
+  - HTTP_PROXY
+  - HTTPS_PROXY
+  - NO_PROXY
+egress:
+  - api.openai.com
+endpoint_env: OPENAI_BASE_URL
+trace: codex-json
+guidance:
+  names: [AGENTS.md, AGENTS.override.md]
+  resolution: codex-home + git-root-to-cwd + lazy-by-shell-read
+  imports: null
+  notes: >-
+    Documented for codex-cli 0.160: one AGENTS.override.md or AGENTS.md per
+    directory from the git root down to the working directory, joined root
+    first; an AGENTS.override.md replaces the AGENTS.md beside it. CLAUDE.md,
+    .github/copilot-instructions.md and .github/instructions are not read.
+    Measured on 0.160 with gpt-6-luna (oneDAL review task): root AGENTS.md
+    applied, subtree AGENTS.md applied only after the agent printed them with a
+    shell command; AGENTS.override.md hid the root AGENTS.md.
