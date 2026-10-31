@@ -435,7 +435,7 @@ class Judge:
         }
 
         # Classify retrieval outcome (why docs helped or didn't)
-        result["diagnosis"] = diagnose(context_answer, delta)
+        result["diagnosis"] = diagnose(context_answer, delta, context_scored=with_docs_eval is not None)
         # Carried onto the eval record because the trust gate reads eval.v1, not
         # the answers it was judged from.
         result["retrieval_hit"] = answer.retrieval_hit

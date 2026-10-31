@@ -70,6 +70,13 @@ def test_unjudged_none_source_is_an_empty_retrieval():
     assert result["evidence"]["doc_source"] == "none"
 
 
+def test_judged_placeholder_with_no_baseline_is_insufficient_data():
+    """With judge_placeholder the context is scored; a missing baseline is the reason there is no delta."""
+    answer = _make_answer(doc_source="fallback_none", retrieved_docs=[])
+    result = diagnose(answer, None, context_scored=True)
+    assert result["label"] == INSUFFICIENT_DATA
+
+
 def test_errored_placeholder_answer_stays_insufficient_data():
     """An errored answer is missing, not a retrieval miss, whatever its doc source."""
     answer = _make_answer(doc_source="fallback_none", retrieved_docs=[], error="timeout")

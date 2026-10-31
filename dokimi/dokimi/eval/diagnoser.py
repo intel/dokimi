@@ -74,6 +74,7 @@ def diagnose(
     context_answer: Optional[Answer],
     delta: Optional[float],
     low_relevance_cutoff: float = LOW_RELEVANCE_CUTOFF,
+    context_scored: bool = False,
 ) -> Dict[str, Any]:
     """
     Classify the retrieval outcome for a single question.
@@ -87,6 +88,9 @@ def diagnose(
         Context-arm score minus baseline score, ``None`` when either is missing.
     low_relevance_cutoff:
         Relevance score below which retrieved docs are treated as off-topic.
+    context_scored:
+        True when the judge scored the context answer (``judge_placeholder``), so a
+        ``None`` delta comes from a missing baseline, not from an unjudged miss.
 
     Returns
     -------
@@ -98,7 +102,8 @@ def diagnose(
     if delta is None:
         # A retrieval miss is left unjudged, so it has no delta; it is still an
         # empty retrieval, not a missing or errored answer.
-        if context_answer is not None and not context_answer.error and context_answer.doc_source in NO_RETRIEVAL_SOURCES:
+        unjudged = not context_scored
+        if unjudged and context_answer is not None and not context_answer.error and context_answer.doc_source in NO_RETRIEVAL_SOURCES:
             return _result(EMPTY_RETRIEVAL, {"doc_source": context_answer.doc_source, "retrieved_count": 0})
         return _result(INSUFFICIENT_DATA, {})
 
