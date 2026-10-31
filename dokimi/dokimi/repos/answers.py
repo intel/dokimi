@@ -38,6 +38,12 @@ _BULLET_MARK = re.compile(r"^[ \t]*(?:[-*]|\d+[.)])[ \t]*(?:\*\*)?\[P\d\]", re.M
 # so it withholds the block; body text (a mid-sentence path, a numbered time) passes, and a dash in it fails safe.
 _HEADER_TAIL = re.compile(r"\[P\d\].*?(?:—| [-] )|[\w./-]*[./][\w./-]*:\d+(?:-\d+)?\W*[ \t\r]*$", re.I)
 _FINDING_MARK = re.compile(_BULLET_MARK.pattern + r"|^[ \t]*(?:\*\*)?\[P\d\]", re.M | re.I)
+# a clean verdict is a whole sentence ("Done. No issues found."); a qualified one ("No issues found beyond the
+# leak above.") is not, so it cannot drop an earlier finding
+_CLEAN_VERDICT = re.compile(
+    r"(?:^|[.!?:\n])[ \t]*(?:no (?:issues|findings|problems|bugs|defects)"
+    r"(?: (?:were |was )?(?:found|detected|identified|reported))?(?: in (?:this|the) (?:patch|change|commit|diff))?"
+    r"|(?:the )?(?:patch|change|commit|diff) (?:is|looks) correct|lgtm)[ \t]*(?:[.!\n]|$)", re.I)
 
 
 def codex_review_findings(text: str, workdir: str | None = None) -> list[dict[str, Any]]:
@@ -98,8 +104,10 @@ def convert_answer(fmt: str | None, answer: str, workdir: str | None = None, *, 
                    messages: Sequence[str] = ()) -> str:
     """``answer`` with the findings block of ``fmt`` appended; unchanged when ``fmt`` is ``None``.
 
-    ``messages`` are every agent message of the run, in order: a review may put its findings in an
-    earlier message than the last one, so the block is built from all of them (``answer`` is the last).
+    ``messages`` are every agent message of the run, in order (``answer`` is the last). The final message
+    is the answer (contract §4): when it holds a finding or states a clean verdict ("No issues found."), it
+    alone decides, and an earlier draft it revises or takes back is not graded. A final message with
+    neither ("Review finished.") only points back at the review, so the block is built from every message.
     Without ``messages`` only ``answer`` is read.
 
     A ``failed`` run or an empty answer stays as it is: a missing review, not a clean one. So does
@@ -111,10 +119,13 @@ def convert_answer(fmt: str | None, answer: str, workdir: str | None = None, *, 
         return answer
     if fmt not in _CONVERTERS:
         raise ValueError(f"unknown answer format {fmt!r} (known: {', '.join(ANSWER_FORMATS)})")
+    final = _CONVERTERS[fmt](texts[-1], workdir)
+    if final or _CLEAN_VERDICT.search(texts[-1]):
+        texts = texts[-1:]  # the final message is the review: earlier drafts do not count
     found: dict[tuple[Any, ...], dict[str, Any]] = {}
     unparsed = 0
     for i, t in enumerate(texts):
-        parsed = _CONVERTERS[fmt](t, workdir)
+        parsed = final if i == len(texts) - 1 else _CONVERTERS[fmt](t, workdir)  # parsed once: one warning each
         # every marker counts in the last message and in a message that holds a finding; in an earlier
         # message with none, only a [Pn] bullet does: a bare "[P1] means a blocker" line is narration
         full = parsed or i == len(texts) - 1

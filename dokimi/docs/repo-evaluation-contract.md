@@ -933,7 +933,11 @@ args_if_present:                     # argv added after the "{tools}" element wh
   `- [P1] title — path:12-14` lines (a failed run, an empty answer or a `[Pn]`
   header that does not parse gets no block, so no block means no review, not a clean one; a priority outside P0–P3 gets `severity` null): `file` relative to the workspace,
   `severity` `blocker` (P0), `major` (P1) or `minor` (P2, P3), `rule` the title
-  and `message` the body.
+  and `message` the body. The final message decides when it holds a finding or
+  a clean-verdict sentence (`No issues found.`): an earlier draft it revises or
+  takes back is not graded. A final message with neither (`Review finished.`)
+  points back at the review, so the findings of every message are read, each
+  once as its last version.
 
 Built-in profiles besides `claude-code`:
 

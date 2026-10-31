@@ -552,19 +552,42 @@ def test_convert_answer_counts_a_finding_repeated_in_two_messages_once():
     assert len(_block(convert_answer("codex-review", _GOOD, "/w", messages=[_GOOD, _GOOD]))) == 1
 
 
+def test_convert_answer_the_final_findings_decide():
+    # the final message holds the review: a finding only an earlier draft had is not graded
+    assert [f["file"] for f in _block(convert_answer("codex-review", _GOOD, "/w", messages=[_OTHER, _GOOD]))] == [
+        "a.py"]
+
+
+@pytest.mark.parametrize("final", ["No issues found.", "Reviewed HEAD. No issues found.", "no issues\nDone",
+                                   "The patch is correct."])
+def test_convert_answer_a_final_clean_verdict_takes_back_an_earlier_draft(final):
+    draft = "- [P1] Maybe leak \u2014 /w/a.c:2\n  thinking"
+    assert _block(convert_answer("codex-review", final, "/w", messages=[draft, final])) == []
+
+
+@pytest.mark.parametrize("final", ["No issues found beyond the leak above.", "Review finished.",
+                                   "The patch is incorrect.", "No other issues."])
+def test_convert_answer_a_final_message_with_no_verdict_keeps_the_earlier_findings(final):
+    # only a whole clean-verdict sentence takes a finding back; a summary or a qualified sentence points at it
+    out = _block(convert_answer("codex-review", final, "/w", messages=[_GOOD, final]))
+    assert [f["file"] for f in out] == ["a.py"]
+
+
+@pytest.mark.parametrize("tail", [[], ["Review finished."]], ids=["final", "summary-after"])
 @pytest.mark.parametrize(("draft", "final", "want"), [
     ("- [P2] Leak — /w/a.py:3\n  body\n", "- [P1] Leak — /w/a.py:3-5\n  body\n", ("major", 5, "body")),
     ("- [P1] Leak — /w/a.py:3\n  draft\n", "- [P1] Leak — /w/a.py:3\n  final\n", ("major", 3, "final")),
     ("- [P1] Leak — /w/a.py:3\n  body\n", "- [P3] Leak — /w/a.py:3\n  body\n", ("minor", 3, "body")),
 ], ids=["priority-and-range", "body", "downgrade"])
-def test_convert_answer_keeps_the_last_version_of_a_revised_finding(draft, final, want):
+def test_convert_answer_keeps_the_last_version_of_a_revised_finding(draft, final, want, tail):
     # the grader counts blocker/major findings: an earlier draft's priority must not stand for the final one's
-    out = _block(convert_answer("codex-review", final, "/w", messages=[draft, final]))
+    messages = [draft, final, *tail]
+    out = _block(convert_answer("codex-review", messages[-1], "/w", messages=messages))
     assert [(f["severity"], f["end_line"], f["message"]) for f in out] == [want]
 
 
 @pytest.mark.parametrize(("messages", "files"), [([_GOOD + _GOOD], ["a.py"]), (["intro", _GOOD + _GOOD], ["a.py"]),
-                                                 ([_OTHER, _GOOD + _GOOD], ["b.py", "a.py"])])
+                                                 ([_OTHER, _GOOD + _GOOD, "done"], ["b.py", "a.py"])])
 def test_convert_answer_keeps_the_block_of_a_finding_repeated_in_one_message(messages, files):
     out = convert_answer("codex-review", messages[-1], "/w", messages=messages)
     assert "```json" in out  # a repeated finding is parsed, not format drift
