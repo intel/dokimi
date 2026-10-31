@@ -121,8 +121,7 @@ def stuffed_for(grading: Mapping[str, Any]) -> Optional[str]:
     A negated check is stuffed with its one or more values: the stuffed answer carries the forbidden
     value, so it must fail, unless the check compares the whole answer (see ``_whole_answer``), which the
     listed values never equal, or is ``mode: all``, which the stuffed answer can pass by its location
-    (the skip is kept for every such check, for simplicity). A choice check is left out: its answer is
-    a bare letter.
+    (the skip is kept for every such check, for simplicity). A choice check is left out: its answer is a bare letter.
     """
     checks = grading.get("checks", [])
     if len(checks) != 1 or checks[0].get("type") not in _LITERAL - {"choice"}:
@@ -302,7 +301,7 @@ def _summary(rows: list[dict[str, Any]]) -> dict[str, int]:
 
 
 def format_table(result: dict[str, Any], output: Any = None) -> str:
-    """The pass-rate table; ``output`` is the ``-o`` path when an artifact is written, else None."""
+    """The pass-rate table; ``output`` is the ``--out`` path when an artifact is written, else None."""
     lines = [f"{'attack':<8} {'expected':<9} {'scored':>6} {'accepted':>8} {'rate':>6}"]
     for name, a in result["attacks"].items():
         rate = "-" if a["rate"] is None else f"{a['rate']:.2f}"
@@ -313,7 +312,7 @@ def format_table(result: dict[str, Any], output: Any = None) -> str:
     if len(result["violations"]) > 20:
         more = len(result["violations"]) - 20
         lines.append(f"  ... {more} more violations in the artifact" if output
-                     else f"  ... {more} more violations; rerun with -o FILE to list them all")
+                     else f"  ... {more} more violations; rerun with --out FILE to list them all")
     s = result["summary"]
     if s["negated_only"]:
         lines.append(f"  {s['negated_only']} questions with only negated checks: "

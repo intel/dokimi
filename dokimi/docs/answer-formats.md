@@ -113,7 +113,7 @@ the run's pass rates and mean scores are under `run_metadata.summary` (or
 
 An attack the grader accepts, or a canary it rejects, is a violation, and any
 violation makes the run `blocked`: the command prints the pass rates and the
-violations and exits 1 (`-o` writes `redteam.v1`). A run in which a graded
+violations and exits 1 (`--out FILE` writes `redteam.v1`). A run in which a graded
 question was not measured is `inconclusive` and also exits 1: a question whose
 `judge` checks have no verdict without `--judge` (no probe scored), or a block
 of only negated checks. A `negate` check passes an answer that lacks its value,

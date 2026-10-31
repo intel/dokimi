@@ -5,8 +5,9 @@
 
 Reads a questions set (with ``grading`` blocks), grades synthetic attacks against it and prints
 the pass rates. Exits 1 when any attack is accepted, a canary is rejected, a graded question was not
-measured, or nothing was graded (``inconclusive``); exits 2 on an unreadable input or an unwritable ``-o``. Judge checks are not
-scored unless ``--judge`` is given, so the default run makes no model call.
+measured, or nothing was graded (``inconclusive``); exits 2 on an unreadable input, a malformed
+``--judge`` or an unwritable ``--out``. Judge checks are not scored unless ``--judge PROVIDER/MODEL``
+is given, so the default run makes no model call.
 """
 
 from __future__ import annotations
@@ -20,7 +21,18 @@ def _ask(args: argparse.Namespace):
         return None
     from dokimi.eval.judge import judge_ask
 
-    return judge_ask(args.judge_model, args.judge_provider)
+    provider, model = args.judge
+    return judge_ask(model, provider)
+
+
+def _judge_ref(value: str) -> tuple[str, str]:
+    from dokimi.eval.judge import JUDGE_PROVIDERS
+
+    provider, _, model = value.partition("/")
+    if provider not in JUDGE_PROVIDERS or not model.strip():
+        raise argparse.ArgumentTypeError(
+            f"expected PROVIDER/MODEL with PROVIDER one of {', '.join(JUDGE_PROVIDERS)}, got {value!r}")
+    return provider, model.strip()
 
 
 def cmd_eval_redteam(args: argparse.Namespace) -> None:
@@ -35,31 +47,26 @@ def cmd_eval_redteam(args: argparse.Namespace) -> None:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(2)
     result["questions_path"] = str(args.questions)
-    result["judge_model"] = args.judge_model if args.judge else None
-    result["judge_provider"] = args.judge_provider if args.judge else None
-    print(format_table(result, output=args.output))
-    if args.output:
+    result["judge_model"] = args.judge[1] if args.judge else None
+    result["judge_provider"] = args.judge[0] if args.judge else None
+    print(format_table(result, output=args.out))
+    if args.out:
         try:
-            save_artifact("redteam", result, args.output)
+            save_artifact("redteam", result, args.out)
         except (OSError, ValueError) as e:
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(2)
-        print(f"Wrote redteam artifact to {args.output}")
+        print(f"Wrote redteam artifact to {args.out}")
     if result["status"] != "pass":
         sys.exit(1)
 
 
 def register_eval(eval_sub) -> None:
-    from dokimi.defaults import DEFAULT_JUDGE_PROVIDER, JUDGE_MODEL_FOR_PROVIDER, JUDGE_MODEL_HELP
-    from dokimi.eval.judge import JUDGE_PROVIDERS
-
     r = eval_sub.add_parser(
         "redteam",
         help="Check grading blocks reject wrong, empty, hedged and stuffed answers and accept a canary")
     r.add_argument("questions", help="questions JSON with grading blocks (from `questions import`)")
-    r.add_argument("--judge", action="store_true",
-                   help="Grade judge checks with the judge model (model calls); default leaves them unscored")
-    r.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, help=JUDGE_MODEL_HELP)
-    r.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, choices=JUDGE_PROVIDERS)
-    r.add_argument("-o", "--output", default=None, help="redteam.v1 JSON to write")
+    r.add_argument("--judge", metavar="PROVIDER/MODEL", type=_judge_ref, default=None,
+                   help="Grade judge checks with this judge model (model calls); default leaves them unscored")
+    r.add_argument("--out", metavar="FILE", default=None, help="redteam.v1 JSON to write")
     r.set_defaults(func=cmd_eval_redteam)
