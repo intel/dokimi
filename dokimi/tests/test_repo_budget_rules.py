@@ -99,6 +99,10 @@ def test_rules_are_counted_only_for_a_harness_that_reads_them(tmp_path):
     ("paths: []\n", "start"),  # measured: an empty list scopes nothing
     ('paths: ""\n', "start"),
     ("paths:\n", "start"),
+    ("paths: null\n", "start"),
+    ("paths: # none yet\n", "start"),
+    ('paths: [\n  "src/**"]\n', "lazy"),
+    ('paths:\n  # the api\n  - "src/**"\n', "lazy"),
 ])
 def test_only_a_paths_value_that_names_a_pattern_scopes_a_rule(tmp_path, front, when):
     payload = budget(_tree(tmp_path, {".claude/rules/r.md": f"---\n{front}---\nbody\n"}), NAMES, rules=True)
@@ -126,3 +130,19 @@ def test_a_linked_rules_directory_is_named_not_silently_skipped(tmp_path):
     payload = budget(WorkTree(tmp_path), NAMES, rules=True)
     assert [e["path"] for e in payload["entries"] if e["kind"] == "rule"] == [".claude/rules/own.md"]
     assert payload["warnings"] == [".claude/rules/shared: a link to a directory; the rules behind it are not counted"]
+
+
+def test_a_rules_link_out_of_the_tree_is_named(tmp_path):
+    shared = tmp_path / "shared"  # the docs' `ln -s ~/shared-claude-rules .claude/rules/shared`
+    shared.mkdir()
+    (shared / "style.md").write_text("style\n", encoding="utf-8")
+    repo = tmp_path / "repo"
+    (repo / ".claude/rules").mkdir(parents=True)
+    try:
+        (repo / ".claude/rules/shared").symlink_to(shared, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    payload = budget(WorkTree(repo), NAMES, rules=True)
+    assert not [e for e in payload["entries"] if e["kind"] == "rule"]
+    assert payload["warnings"] == [
+        ".claude/rules/shared: a link that does not resolve in the tree; any rules behind it are not counted"]

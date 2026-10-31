@@ -8,14 +8,14 @@ starts at the repository root:
 
 - **start**: guidance files at the root, the files a root ``CLAUDE*`` or ``AGENTS.md`` file
   ``@import``s (``AGENTS.md`` only when it is not turned off), the root ``.claude/rules/**/*.md``
-  files with no ``paths`` frontmatter when the harness reads rules (their own ``@`` paths are not
+  files whose ``paths`` frontmatter names no pattern, when the harness reads rules (their own ``@`` paths are not
   imports), and the skill
   listing (each project skill's ``name``, plus its ``description`` and ``when_to_use`` up to
   1,536 characters together; a skill with
   ``disable-model-invocation: true`` is not listed). Every model call pays for these.
 - **lazy**: guidance files in subdirectories, what a nested CLAUDE.md or AGENTS.md imports, and the
   rules of a subdirectory's ``.claude/rules/``, loaded when the agent works in that subtree; rules
-  with ``paths``, loaded when the agent reads a matching file.
+  whose ``paths`` names a pattern, loaded when the agent reads a matching file.
 - **on demand**: skill bodies, loaded when the agent invokes the skill.
 - **off**: AGENTS.md files the harness will not read: a root CLAUDE.md, .claude/CLAUDE.md or CLAUDE.local.md is present and no
   CLAUDE.md imports them (measured on Claude Code 2.1.286; the reach probe re-measures).
@@ -24,10 +24,11 @@ Characters, not tokens: how many tokens a character costs depends on the model's
 and differs between model families. The exact cost is the first-call prompt difference
 between a run with the file and one without.
 
-Five checks ride along: skills with no description and no body text, skills whose descriptions are near-duplicates
+Six checks ride along: skills with no description and no body text, skills whose descriptions are near-duplicates
 (the agent has to choose between them from the listing alone), AGENTS.md files turned off by a
-CLAUDE.md, .claude/CLAUDE.md or CLAUDE.local.md at the root, unreadable files (non-UTF-8, dangling link), and imports past the
-harness's hop limit.
+CLAUDE.md, .claude/CLAUDE.md or CLAUDE.local.md at the root, unreadable files (non-UTF-8, dangling link), imports past the
+harness's hop limit, and links under ``.claude/rules`` to a directory or out of the tree, whose rules
+are not counted.
 """
 
 from __future__ import annotations
@@ -36,6 +37,8 @@ import json
 import re
 from itertools import combinations
 from typing import Any
+
+import yaml
 
 from dokimi.repos.source import RepoTree
 
@@ -237,11 +240,10 @@ def _rules(tree: RepoTree, files: list[str], counted: set[str], start_t: set[str
     out = []
     for f in sorted(f for f in files if _RULES_ENTRY.match(f) and not RULE_GLOB.match(f)):
         try:
-            linked_dir = tree.is_dir(tree.resolve(f, dirs=True))
-        except (OSError, ValueError):  # dangling, looping or out of the tree
-            linked_dir = False
-        if linked_dir:  # a tree lists a link to a directory as one entry, not the files behind it
-            warnings.append(f"{f}: a link to a directory; the rules behind it are not counted")
+            if tree.is_dir(tree.resolve(f, dirs=True)):  # a tree lists a link to a directory as one entry
+                warnings.append(f"{f}: a link to a directory; the rules behind it are not counted")
+        except (OSError, ValueError, RuntimeError):  # out of the tree (a shared rules dir), dangling or a loop
+            warnings.append(f"{f}: a link that does not resolve in the tree; any rules behind it are not counted")
     for f in sorted(f for f in files if RULE_GLOB.match(f)):
         if _target(tree, f) in counted:
             continue  # a link to a file already counted, or a rule that is also a guidance file
@@ -276,6 +278,14 @@ def _rule(tree: RepoTree, path: str) -> tuple[int, bool, str | None]:
 
 def _has_paths(frontmatter: str) -> bool:
     """True if ``paths`` names at least one pattern: a list item or an inline value not ``[]`` or ``""``."""
+    try:
+        meta = yaml.safe_load(frontmatter)
+    except yaml.YAMLError:
+        meta = None  # Claude Code still reads a `paths:` line of YAML that does not parse
+    if isinstance(meta, dict):
+        value = meta.get("paths")
+        items = value if isinstance(value, list) else str(value or "").split(",")
+        return any(str(v).strip() for v in items if v is not None)
     m = _PATHS_KEY.search(frontmatter)
     if not m:
         return False
