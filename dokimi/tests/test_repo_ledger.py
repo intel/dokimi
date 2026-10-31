@@ -350,3 +350,22 @@ def test_a_review_dated_after_today_is_stale_with_a_date_warning(tmp_path):
                      [batch], BASE, today=TODAY)["rules"][0]
     assert entry["stale"] is True
     assert any("after 2026-10-31" in w for w in entry["warnings"])
+
+
+def test_a_not_measured_model_does_not_carry_another_models_warning(tmp_path):
+    tasks = _ids("t", 8)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in tasks})
+    _cell(batch, "t_0", BASE, success=True, model="m-2")  # m-2 pairs nothing on this rule: its baseline only
+    result = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", tasks)])), [batch], BASE,
+                      today=TODAY)
+    (other,) = [e for e in result["rules"] if e["model"] == "m-2"]
+    assert other["verdict"] == INSUFFICIENT
+    assert not any("not paired" in w for w in other["warnings"])
+
+
+def test_a_repeated_model_is_compared_once(tmp_path):
+    tasks = _ids("t", 8)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in tasks})
+    result = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", tasks)])), [batch], BASE,
+                      models=["m-1", "m-1"], today=TODAY)
+    assert [(e["model"], e["verdict"]) for e in result["rules"]] == [("m-1", KEEP)]

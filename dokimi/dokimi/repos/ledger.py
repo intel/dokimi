@@ -139,7 +139,7 @@ def _rule_entries(rule: Rule, batch_dirs: list[Path], default_baseline: str, mod
         return [{**head, "error": "no linked case has a finished cell"}]
     entries: list[dict[str, Any]] = []
     # One comparison per --model: a model with no cell among this rule's cases fails only its own comparison.
-    for model in models or [None]:
+    for model in dict.fromkeys(models) if models else [None]:  # a repeated --model is one comparison
         entries += _compared(rule, head, batch_dirs, base, [model] if model else None, present, seed, warnings)
     per_model = Counter(e["model"] for e in entries if not e["error"] and e["measure"] in PRIMARY)
     for entry in entries:
@@ -162,14 +162,14 @@ def _compared(rule: Rule, head: dict[str, Any], batch_dirs: list[Path], base: st
         reasons = sorted({u["reason"] for u in linked})
         return [{**head, "model": model, "error": "; ".join(reasons) or "no linked case has cells in both arms"}]
     out = [_entry(head, r) for r in rows]
-    for unpaired in sorted({u["model"] for u in linked} - {r["model"] for r in rows}):  # not measured, and named
-        reasons = sorted({u["reason"] for u in linked if u["model"] == unpaired})
-        out.append({**head, "model": unpaired, "error": "; ".join(reasons)})
     for entry in out:
         own = [u for u in linked if u["model"] == entry["model"]]
         if own:
             entry["warnings"].append(f"{len({u['task'] for u in own})} linked case(s) not paired: "
                                      + "; ".join(sorted({u["reason"] for u in own})))
+    for unpaired in sorted({u["model"] for u in linked} - {r["model"] for r in rows}):  # not measured, and named
+        reasons = sorted({u["reason"] for u in linked if u["model"] == unpaired})
+        out.append({**head, "model": unpaired, "error": "; ".join(reasons)})
     return out
 
 
