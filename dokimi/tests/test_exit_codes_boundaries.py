@@ -340,6 +340,15 @@ def test_repo_validate_invalid_manifest_exits_2(tmp_path, monkeypatch, capsys):
     assert err.startswith("✗ ")
 
 
+@pytest.mark.parametrize("command", ["validate", "scan"])
+def test_repo_manifest_yaml_timestamp_out_of_range_exits_2(command, tmp_path, monkeypatch, capsys):
+    # PyYAML raises a bare ValueError for a date it cannot build: a manifest error, not a traceback.
+    (tmp_path / ".agent-eval").mkdir()
+    (tmp_path / ".agent-eval" / "repo-eval.yaml").write_text("id: 2026-99-99\n", encoding="utf-8")
+    err = _expect_exit(monkeypatch, capsys, 2, "repo", command, str(tmp_path))
+    assert err.startswith("✗ ") and "Traceback" not in err
+
+
 def test_repo_budget_unknown_harness_exits_2(tmp_path, monkeypatch, capsys):
     err = _expect_exit(monkeypatch, capsys, 2, "repo", "budget", str(tmp_path), "--harness", "no-such-harness")
     assert "no harness profile" in err

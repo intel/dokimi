@@ -230,6 +230,8 @@ def load_manifest(tree: RepoTree, path: str = DEFAULT_MANIFEST_PATH) -> RepoMani
         raise ManifestError(path, [f"not valid YAML: {exc}"]) from exc
     except (OSError, UnicodeDecodeError, RecursionError) as exc:  # unreadable, not UTF-8, deeply nested `[`
         raise ManifestError(path, [f"cannot read: {exc}"]) from exc
+    except ValueError as exc:  # a date PyYAML cannot build, such as 2026-99-99: not a YAML syntax error
+        raise ManifestError(path, [f"not valid YAML: {exc}"]) from exc
     return parse_manifest(raw, path)
 
 
