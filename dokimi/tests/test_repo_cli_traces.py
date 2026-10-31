@@ -357,6 +357,18 @@ def test_a_jsonl_record_with_a_unicode_line_separator_is_one_record(fmt, record,
     assert t.answer == f"first{sep}second" and t.errors == []
 
 
+def test_copilot_native_tool_paths_start_in_the_given_directory():
+    # view, edit and apply_patch name a relative path from where the CLI started, as a shell read does
+    patch = "*** Begin Patch\n*** Update File: c.py\n*** End Patch"
+    raw = _jsonl(*({"type": "tool.execution_start", "data": {"toolCallId": str(i), "toolName": n, "arguments": a}}
+                   for i, (n, a) in enumerate([("view", {"path": "AGENTS.md"}), ("edit", {"path": "../b.py"}),
+                                               ("apply_patch", patch), ("view", {"path": "/ws/x.md"})])))
+    events = convert("copilot-json", raw, "/ws", "sub").events
+    assert [(e["kind"], e["path"]) for e in events] == [
+        ("read", "sub/AGENTS.md"), ("edit", "b.py"), ("edit", "sub/c.py"), ("read", "x.md")]
+    assert convert("copilot-json", raw, "/ws").events[0]["path"] == "AGENTS.md"
+
+
 def test_codex_json_keeps_every_agent_message_and_the_last_is_the_answer():
     raw = _jsonl(
         {"type": "item.completed", "item": {"type": "agent_message", "text": "first"}},

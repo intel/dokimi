@@ -930,7 +930,8 @@ args_if_present:                     # argv added after the "{tools}" element wh
 - `answer_format` converts the final answer before grading. `codex-review`
   keeps Codex's review text and appends a ```` ```json ```` block of findings
   `{file, line, end_line, severity, priority, rule, message}` parsed from its
-  `- [P1] title — path:12-14` lines (a failed run, an empty answer or a `[Pn]`
+  `- [P1] title — path:12-14` lines (a failed run, an empty answer, an answer
+  with no finding and no clean-verdict sentence, or a `[Pn]`
   header that does not parse gets no block, so no block means no review, not a clean one; a priority outside P0–P3 gets `severity` null): `file` relative to the workspace,
   `severity` `blocker` (P0), `major` (P1) or `minor` (P2, P3), `rule` the title
   and `message` the body. The final message decides when it holds a finding or
