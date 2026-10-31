@@ -6,8 +6,8 @@ the process counts and the reference checks share.
 
 ``json.loads`` reads ``NaN``, ``Infinity`` and integers of any size, and a bool is an int in Python.
 A NaN compares false both ways and an infinity passes any bound, so neither may stand for a result;
-an int past the float range makes ``float()`` raise ``OverflowError``, so it is never converted here
-unless the caller asked for a float.
+an int past the float range makes ``float()`` raise ``OverflowError``, so ``is_finite`` never converts,
+and ``as_float`` converts with that error caught and returned as ``None``.
 """
 
 from __future__ import annotations
