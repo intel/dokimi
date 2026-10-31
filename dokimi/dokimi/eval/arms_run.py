@@ -27,7 +27,7 @@ from dokimi.defaults import (
 from dokimi.eval.arms_refusals import refuse_cli_arms, refuse_cli_cell, refuse_cli_cell_model
 from dokimi.eval.cells import HARNESS_ARMS_RUNNER, MatrixCellDescriptor
 from dokimi.eval.question_text import EmptyQuestionError
-from dokimi.utils import question_id
+from dokimi.utils import InputError, question_id
 
 
 @dataclass(frozen=True)
@@ -385,8 +385,8 @@ def check_matrix(config: ArmsRunConfig, cells: list[MatrixCellDescriptor],
             check_sampling_support(cell_cfg)
             if specs is not None:
                 refuse_cli_cell(cell_cfg, specs)
-        except ValueError as exc:
-            raise ValueError(f"matrix cell '{cell.name}': {exc}") from exc
+        except (ValueError, InputError) as exc:  # keep the type: InputError is the exit-2 class
+            raise type(exc)(f"matrix cell '{cell.name}': {exc}") from exc
 
 
 def run_matrix(config: ArmsRunConfig, cells: list[MatrixCellDescriptor], specs: list[str],

@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from dokimi.utils import InputError
+
 
 def _is_agentic_arm(treatment) -> bool:
     """True when the arm offers tools, so it runs the agentic loop (see ``AgentConfig.tools``).
@@ -40,10 +42,10 @@ def refuse_cli_arms(args: Any, treatments: list) -> None:
         return
     agentic = [t.name for t in treatments if _is_agentic_arm(t)]
     if agentic:
-        raise ValueError(f"--provider {args.provider} runs one prompt with no tools, so it cannot run "
+        raise InputError(f"--provider {args.provider} runs one prompt with no tools, so it cannot run "
                          f"the agentic arm(s) {', '.join(agentic)}: use an API provider for them")
     if getattr(args, "session_turns", None) is not None:
-        raise ValueError(f"--session-turns needs a conversation, which --provider {args.provider} "
+        raise InputError(f"--session-turns needs a conversation, which --provider {args.provider} "
                          "does not have: use an API provider for a session")
 
 
@@ -53,7 +55,7 @@ def refuse_cli_cell_model(matrix_cell) -> None:
 
     if llm_cli.backend(matrix_cell.provider) and not llm_cli.accepts_model(matrix_cell.provider,
                                                                           matrix_cell.model):
-        raise ValueError(f"matrix cell {matrix_cell.name!r}: provider {matrix_cell.provider} takes a "
+        raise InputError(f"matrix cell {matrix_cell.name!r}: provider {matrix_cell.provider} takes a "
                          f"Claude model (sonnet, haiku, opus or a claude-* id), not {matrix_cell.model!r}")
 
 
