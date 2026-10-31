@@ -195,7 +195,9 @@ def _map_one(rel: str, subjects: list[Subject], shared: list[str], impact: Impac
     segs = tuple(rel.split("/"))
     is_shared = any(_claims(g, segs) for g in shared)
     suites = [s.id for s in subjects if any(_claims(g, segs) for g in s.eval_globs)]
-    skill = None if suites else _skill_owner(subjects, segs)
+    skill = _skill_owner(subjects, segs)
+    if skill is not None and any(_claims(g, segs) for g in skill.suite_globs):
+        skill = None  # the skill's own suite holds this file: it is eval, and skill_sha leaves it out
     if is_shared:
         impact.shared.append(rel)
     for sid in suites:

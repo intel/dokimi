@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/intel/dokimi/schemas/dokimi_config.v1.json",
   "title": "Repository dokimi config v1",
-  "description": "What a repository's dokimi config declares: its subjects (skills, or the repository itself), where each subject's evals live, the defaults a plan starts from, the changed-file rules for impact analysis and the budget and baseline store. Read by dokimi.repo_config from --config, .github/dokimi/config.yaml or .dokimi/config.yaml. Holds defaults only: what a run actually used is recorded in plan.v1.",
+  "description": "What a repository's dokimi config declares: its subjects (skills, or the repository itself), where each subject's evals live, the defaults a plan starts from, the changed-file rules for impact analysis and the budget and baseline store. Read by dokimi.repo_config from .github/dokimi/config.yaml or .dokimi/config.yaml, or an explicit path. Holds defaults only: what a run actually used is recorded in plan.v1.",
   "type": "object",
   "required": ["schema_version"],
   "additionalProperties": false,

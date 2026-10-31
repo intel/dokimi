@@ -354,6 +354,28 @@ def test_a_shared_glob_that_climbs_out_is_refused(tmp_path):
         load_repo_config(root).subjects_for_changed(["x/a"])
 
 
+def test_a_file_that_another_subjects_suite_claims_still_moves_its_own_skill(tmp_path):
+    body = (
+        HEADER
+        + "subjects:\n"
+        + "  - id: skill/a\n    path: skills/a\n"
+        + "  - id: skill/b\n    path: skills/b\n    suite: skills/a/notes/*\n"
+    )
+    files = {
+        ".github/dokimi/config.yaml": body,
+        "skills/a/SKILL.md": "# a\n",
+        "skills/a/notes/n1.md": "n\n",
+        "skills/b/SKILL.md": "# b\n",
+    }
+    root = _tree(tmp_path / "repo", files)
+    before = _subjects(root)["skill/a"].skill_sha
+    (root / "skills/a/notes/n1.md").write_text("changed\n", encoding="utf-8")
+    assert _subjects(root)["skill/a"].skill_sha != before  # the hash counts the file ...
+    impact = load_repo_config(root).subjects_for_changed(["skills/a/notes/n1.md"])
+    assert impact.skills == {"skill/a": ["skills/a/notes/n1.md"]}  # ... so the impact must name the skill
+    assert impact.suites == {"skill/b": ["skills/a/notes/n1.md"]}
+
+
 def test_a_skill_directory_with_brackets_in_its_name_keeps_its_evals(tmp_path):
     files = {
         ".github/dokimi/config.yaml": BESIDE_CONFIG,
