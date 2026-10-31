@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from dokimi.repos.events import convert
+from dokimi.repos.events import _apply_result, convert
 from dokimi.repos.host import validate_tasks
 from dokimi.repos.report import format_report, summarize
 from dokimi.repos.useful import (
@@ -236,6 +236,17 @@ def test_the_hit_is_timed_from_the_claude_stream_it_came_from():
 
 
 # -- report and compare rows -------------------------------------------------------------------------------------
+
+
+def test_a_failed_edit_changed_nothing_so_the_next_successful_one_is_the_first_useful_result():
+    failed = {"t": 4.0, "kind": "edit", "path": "src/foo.py"}
+    _apply_result({"tool_use_id": "u1", "is_error": True, "content": "String to replace not found in file."},
+                  {"u1": failed})
+    ok = {"t": 5.0, "kind": "edit", "path": "src/foo.py"}
+    _apply_result({"tool_use_id": "u2", "is_error": False, "content": "edited"}, {"u2": ok})
+    u = parse_useful({"edit": "src/*.py"})
+    assert first_useful(u, [failed]) == {"kind": "edit", "reason": "never", "issued_s": None, "steps": None}
+    assert first_useful(u, [failed, ok]) == {"kind": "edit", "reason": None, "issued_s": 5.0, "steps": 2}
 
 
 def _timed(batch: Path, task: str, arm: str, rep: int, useful: dict | None) -> None:

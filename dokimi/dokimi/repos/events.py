@@ -101,6 +101,9 @@ def _apply_result(block: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> No
     if result_of["kind"] == "read" and not denied:
         # A read that failed (the file does not exist) shows nothing of the file.
         result_of["rc"] = 1 if block.get("is_error") else 0
+    if result_of["kind"] == "edit" and not denied:
+        # A failed edit (old_string not found) left the file as it was: rc 1, so it is no useful result.
+        result_of["rc"] = 1 if block.get("is_error") else 0
     if result_of["kind"] == "command":
         # Claude Code reports success or failure only, with stdout and stderr merged into one text.
         if not denied:

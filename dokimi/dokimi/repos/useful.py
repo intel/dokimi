@@ -5,7 +5,7 @@
 
 The first event of the run that hits the task's definition (:mod:`.useful_spec`): a ``command`` event whose text
 matches and whose ``rc`` is 0, or an ``edit`` event whose path matches a glob. A refused event (``denied``) never
-hits. ``steps`` counts every event up to and including the hit, as ``process.tool_calls`` does. ``issued_s`` is the
+hits, nor does an edit whose tool result is an error (``rc`` 1). ``steps`` counts every event up to and including the hit, as ``process.tool_calls`` does. ``issued_s`` is the
 hit's ``t``: the time the call was issued, since its result is not timed, so a test run's pass is not timed.
 """
 
@@ -32,7 +32,8 @@ def hits(useful: Useful, event: Mapping[str, Any]) -> bool:
         matched = bool(useful.command and useful.command.search(text))
         return event.get("kind") == "command" and event.get("rc") == 0 and matched
     path = str(event.get("path") or "")
-    return event.get("kind") == "edit" and any(match_glob(g, path) for g in useful.globs)
+    failed = event.get("rc") == 1  # an edit whose tool result is an error changed nothing
+    return event.get("kind") == "edit" and not failed and any(match_glob(g, path) for g in useful.globs)
 
 
 def first_useful(
