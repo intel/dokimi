@@ -368,6 +368,22 @@ def test_refused_limits_stop_scoring_instead_of_a_perfect_rate(tmp_path, monkeyp
         score_examples(doc, policy)
 
 
+@_NOT_WINDOWS
+def test_a_rejected_setrlimit_stops_the_run_instead_of_failing_the_snippet(tmp_path, monkeypatch):
+    import resource
+
+    def reject(*args):
+        raise OverflowError("too large for rlim_t")
+
+    monkeypatch.setattr(process.sys, "platform", "linux")
+    monkeypatch.setattr(resource, "setrlimit", reject)
+    doc = tmp_path / "d.md"
+    doc.write_text("```python\nprint(1)\n```\n", encoding="utf-8")
+    with pytest.raises(ExecutionRefused,
+                       match=r"rejected Limits\(cpu_sec=5, memory_bytes=536870912\)"):
+        score_examples(doc, ExecutionPolicy(backend="subprocess", allow_host=True))
+
+
 def test_subprocess_refuses_a_non_positive_memory_cap():
     runner = FakeRunner()
     with pytest.raises(ExecutionRefused, match="mem_mb must be positive"):

@@ -13,8 +13,9 @@ SPDX-License-Identifier: Apache-2.0
 
 - **Host subprocess examples are not run when their limits cannot be applied.** On Windows
   any limit, and on macOS a memory limit, stops the run with an error naming the limit
-  (`dokimi run` exits 2), so `example_pass_rate` is neither 0.0 nor 1.0 for snippets that never
-  ran. On macOS set `mem_mb: null`; on Windows use the `docker` backend. A process limit above
+  (`dokimi run` exits 2), as does a limit the kernel rejects when the snippet starts, so
+  `example_pass_rate` is neither 0.0 nor 1.0 for snippets that never ran. On macOS set
+  `mem_mb: null`; on Windows use the `docker` backend. A process limit above
   an inherited hard limit (for example `ulimit -v`) is lowered to it instead of failing the
   launch. The `docker` backend refuses the same way when `mem_mb` is missing or not positive.
 - **The isolation probe reports `network: untested`, not `closed`**, when `bash` or `timeout`

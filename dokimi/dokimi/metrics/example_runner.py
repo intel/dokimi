@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass, field
@@ -189,6 +190,8 @@ def _run_subprocess(lang: str, code: str, policy: ExecutionPolicy,
         try:  # stdout is not reported
             proc = runner(argv_prefix + [str(script)], cwd=tmp, env=env, timeout=policy.timeout,
                           capture_stdout=False, limits=limits)
+        except subprocess.SubprocessError:  # setrlimit failed in the child, before the snippet ran
+            return None, f"not run: the host rejected {limits}"
         except Exception as exc:  # noqa: BLE001 - report any spawn failure
             return False, f"Execution error: {type(exc).__name__}: {exc}"
 
