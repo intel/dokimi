@@ -187,20 +187,20 @@ def _blocked(tmp_path):
 
 
 @pytest.mark.parametrize("which", ["json", "md"])
-def test_compare_exits_1_when_an_output_cannot_be_written(tmp_path, monkeypatch, capsys, which):
+def test_compare_exits_2_when_an_output_cannot_be_written(tmp_path, monkeypatch, capsys, which):
     good = _snapshot(tmp_path / "good.json")
     blocked = _blocked(tmp_path) / "out"
     outs = {"json": str(tmp_path / "c.json"), "md": str(tmp_path / "c.md")}
     outs[which] = str(blocked)
     code = _main(monkeypatch, "compare", "--base", good, "--candidate", good,
                  "--out-json", outs["json"], "--out-md", outs["md"])
-    assert code == 1
+    assert code == 2
     err = capsys.readouterr().err
     assert f"Error: cannot write {blocked}" in err and "Traceback" not in err
 
 
 @pytest.mark.parametrize("which", ["json", "md"])
-def test_run_exits_1_when_an_output_cannot_be_written(tmp_path, monkeypatch, capsys, which):
+def test_run_exits_2_when_an_output_cannot_be_written(tmp_path, monkeypatch, capsys, which):
     (tmp_path / "docs").mkdir()
     (tmp_path / "docs" / "a.md").write_text("# A\n\ntext\n", encoding="utf-8")
     spec = tmp_path / "spec.yaml"
@@ -210,9 +210,28 @@ def test_run_exits_1_when_an_output_cannot_be_written(tmp_path, monkeypatch, cap
     outs[which] = str(blocked)
     code = _main(monkeypatch, "run", "--root", str(tmp_path), "--spec", str(spec),
                  "--out-json", outs["json"], "--out-md", outs["md"])
-    assert code == 1
+    assert code == 2
     err = capsys.readouterr().err
     assert f"Error: cannot write {blocked}" in err and "Traceback" not in err
+
+
+def test_run_exits_2_when_the_host_cannot_apply_example_limits(tmp_path, monkeypatch, capsys):
+    from dokimi import process
+
+    monkeypatch.setattr(process.sys, "platform", "darwin")  # RLIMIT_AS, the default 512 MiB cap, is refused
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "a.md").write_text("# A\n\n```python\nimport package_that_does_not_exist\n```\n",
+                                            encoding="utf-8")
+    spec = tmp_path / "spec.yaml"
+    spec.write_text(_SPEC_MIN_DOCS.replace("min_docs: 3", "min_docs: 1").replace(
+        "metrics:\n", "metrics:\n  example_pass_rate:\n    enabled: true\n"
+        "    execution:\n      backend: subprocess\n      allow_host: true\n"), encoding="utf-8")
+    code = _main(monkeypatch, "run", "--root", str(tmp_path), "--spec", str(spec),
+                 "--out-json", str(tmp_path / "o.json"), "--out-md", str(tmp_path / "o.md"))
+    assert code == 2
+    err = capsys.readouterr().err
+    assert err.startswith("Error: python example not run: ") and "mem_mb: null" in err
+    assert not (tmp_path / "o.json").exists()
 
 
 _STRICT_BANDS = (

@@ -294,6 +294,9 @@ code.
 - [quickstart.md](quickstart.md) — end-to-end LLM evaluation pipeline:
   personas → questions → answers → judge → report. Includes troubleshooting
   and a cost estimate.
+- [runs.md](runs.md) — what the runs have written: `cli.py runs list` lists
+  every artifact under `results/` (or `DOKIMI_RUNS_DIR`) and counts what it
+  skipped, `cli.py runs show` checks one against its schema. No LLM call.
 - [user-flow.md](user-flow.md) — the canonical end-to-end path: pick a target,
   preflight, run, then pin the question set so runs stay comparable.
 - [benchmarking-and-comparison.md](benchmarking-and-comparison.md) — how to
@@ -313,6 +316,8 @@ code.
   verifier pass rate against a baseline.
 - [answer-formats.md](answer-formats.md) — run Inspect AI, OpenAI evals,
   skill-creator and promptfoo answer-only sets on the answers track
+- [subscription-backends.md](subscription-backends.md) — run the Q&A track through a
+  logged-in coding-agent CLI (`--provider claude-cli`) instead of an API key
 - [context-window.md](context-window.md) — read a run's context window from
   its Claude Code trace with `cli.py context trace`: start-up load, growth,
   compactions, tool-result weight. No LLM call.

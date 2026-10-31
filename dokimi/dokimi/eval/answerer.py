@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 from dokimi.utils import question_id
 from dokimi.artifacts import save_artifact
 from dokimi.llm import ChatModel
+from dokimi.llm_cli import BACKENDS as CLI_BACKENDS
 from dokimi.llm import llm_call_with_usage, ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
 from dokimi.defaults import DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER
 from dokimi.metrics.usage import UsageRecord, to_record
@@ -101,12 +102,12 @@ class Answerer:
         elif provider == "anthropic":
             self.llm = ChatAnthropic(model=model, api_key=api_key)
         elif provider in ("google", "gemini", "google-vertex", "openrouter",
-                          "amazon-bedrock", "vertex_ai"):
+                          "amazon-bedrock", "vertex_ai", *CLI_BACKENDS):
             self.llm = None  # llm_call_with_usage handles these natively
         else:
             raise ValueError(
                 f"Unsupported provider: '{provider}'. "
-                "Use 'openai', 'anthropic', 'google', 'openrouter', or 'amazon-bedrock'."
+                "Use 'openai', 'anthropic', 'google', 'openrouter', 'amazon-bedrock' or 'claude-cli'."
             )
         self.top_k = top_k
         self.debug_retrieval = debug_retrieval

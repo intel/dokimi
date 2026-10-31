@@ -110,6 +110,7 @@ nav:
       - reviewing.md
       - external-content.md
       - quickstart.md
+      - runs.md
       - user-flow.md
       - benchmarking-and-comparison.md
       - adding-doc-source.md
@@ -117,6 +118,7 @@ nav:
       - tool-preference.md
       - run-consistency.md
       - coding-harnesses.md
+      - subscription-backends.md
       - answer-formats.md
       - context-window.md
   - Content novelty:

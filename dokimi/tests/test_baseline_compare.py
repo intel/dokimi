@@ -128,6 +128,110 @@ def test_compare_treats_a_bedrock_alias_and_its_profile_as_one_judge(compare, ca
     assert capsys.readouterr().err == ""
 
 
+def test_one_judge_id_and_snapshot_behind_another_route_is_one_judge_model():
+    dated = _eval(judge=("anthropic", "claude-sonnet-4-5-20250929"))
+    assert baseline_mod._model_mismatches(dated, _eval(judge=("amazon-bedrock", "us.anthropic.claude-sonnet-4-5-20250929"))) == (
+        [], [])
+    alias = _eval(judge=("anthropic", "claude-sonnet-4-5"))
+    assert baseline_mod._model_mismatches(alias, _eval(judge=("amazon-bedrock", "us.anthropic.claude-sonnet-4-5"))) == (
+        [], [])
+
+
+def test_a_dated_snapshot_and_its_undated_alias_are_not_verified_in_either_direction():
+    """The alias does not record which snapshot answered: a role that was not measured, so it is named, not matched."""
+    dated = _eval(judge=("anthropic", "claude-sonnet-4-5-20250929"))
+    alias = _eval(judge=("anthropic", "claude-sonnet-4-5"))
+    assert baseline_mod._model_mismatches(dated, alias) == ([], ["judge"])
+    assert baseline_mod._model_mismatches(alias, dated) == ([], ["judge"])
+
+
+def test_a_panel_is_the_same_only_when_its_judges_pair_one_to_one():
+    verdict = baseline_mod._recorded_verdict
+    assert verdict(("panel", "anthropic/m,anthropic/m"), ("panel", "m,anthropic/m")) == "match"
+    assert verdict(("panel", "anthropic/m,anthropic/m,anthropic/m"), ("panel", "anthropic/m,anthropic/m")) == "mismatch"
+    assert verdict(("panel", "m-20240101,m-20240101"), ("panel", "m,m-20250101")) == "mismatch"
+    assert verdict(("panel", "m"), ("anthropic", "m")) == "mismatch"
+
+
+def test_a_panel_pairs_its_judges_by_augmenting_paths_not_first_match():
+    """``m`` matches both snapshots and ``m-20240101`` only its own: a first-match pairing gives ``m`` the
+    judge ``m-20240101`` and strands the second baseline judge, though a valid pairing exists. The pairing
+    alone is only "not verified" (a dated judge against an undated one), never a match."""
+    verdict = baseline_mod._recorded_verdict
+    assert verdict(("panel", "m,m-20240101"), ("panel", "m-20240101,m-20250101")) == "unverified"
+    assert verdict(("panel", "m-20240101,m-20250101"), ("panel", "m,m-20240101")) == "unverified"  # the reverse side
+    assert verdict(("panel", "m-20240101,m"), ("panel", "m-20240101,m-20250101")) == "unverified"
+    assert verdict(("panel", "m-20240101,m-20240101"), ("panel", "m,m-20250101")) == "mismatch"
+    assert verdict(("panel", "m,m-20240101"), ("panel", "m-20240101,m")) == "match"  # the same judges, reordered
+
+
+def test_a_panel_of_names_with_no_id_is_a_mismatch_and_digit_ids_still_match():
+    """A judge name with no id (separators only) is no model, so two such panels are not the same panel;
+    a digit-only id is an id, as it was on this branch before the round's first fix."""
+    verdict = baseline_mod._recorded_verdict
+    assert verdict(("panel", "/,/"), ("panel", "-,-")) == "mismatch"
+    assert verdict(("panel", "/,/"), ("panel", "/,/")) == "mismatch"
+    assert verdict(("anthropic", "8"), ("anthropic", "8")) == "match"
+    assert verdict(("panel", "anthropic/8,anthropic/9"), ("panel", "openai/9,openai/8")) == "match"
+
+
+def test_a_panel_that_gained_a_judge_is_a_mismatch():
+    """Every judge of the baseline panel can pair with one of the current, and a third one is added:
+    pairing alone would pass it, so the sizes are compared first."""
+    verdict = baseline_mod._recorded_verdict
+    assert verdict(("panel", "m,m-20240101"), ("panel", "m,m-20240101,m")) == "mismatch"
+    assert verdict(("panel", "m,m-20240101,m"), ("panel", "m,m-20240101")) == "mismatch"
+
+
+def test_a_panel_is_matched_by_its_judges_multiset_not_their_set():
+    """The same distinct judges in the same number, one of them twice in the baseline and not in the current:
+    comparing sets would call the two panels the same, comparing multisets does not."""
+    verdict = baseline_mod._recorded_verdict
+    assert verdict(("panel", "anthropic/m,anthropic/m,openai/n"),
+                   ("panel", "anthropic/m,openai/n,openai/n")) == "mismatch"
+
+
+def test_custom_dotted_names_and_a_huggingface_organization_are_different_models():
+    """A custom deployment name is not its first dotted word, and a Hugging Face organization is part of the id:
+    `--strict` refuses both changes."""
+    verdict = baseline_mod._recorded_verdict
+    assert verdict(("azure", "alice.model"), ("azure", "bob.model")) == "mismatch"
+    assert verdict(("huggingface", "huggingface/google/gemma-2-9b-it"), ("huggingface", "gemma-2-9b-it")) == "mismatch"
+    lines, _ = baseline_mod._model_mismatches(
+        _eval(judge=("azure", "alice.model")), _eval(judge=("azure", "bob.model")))
+    assert lines == ["judge model: baseline azure/alice.model, current azure/bob.model"]
+
+
+def test_two_snapshots_of_one_judge_model_are_a_mismatch():
+    lines, _ = baseline_mod._model_mismatches(
+        _eval(judge=("anthropic", "claude-sonnet-4-5-20240620")),
+        _eval(judge=("anthropic", "claude-sonnet-4-5-20250929")))
+    assert lines == ["judge model: baseline anthropic/claude-sonnet-4-5-20240620, "
+                     "current anthropic/claude-sonnet-4-5-20250929"]
+
+
+@pytest.mark.parametrize("base_judge, cur_judge", [
+    ("claude-sonnet-4-5-20240620", "claude-sonnet-4-5"),  # the baseline dated, the current an undated alias
+    ("claude-sonnet-4-5", "claude-sonnet-4-5-20240620"),  # and the other way round
+])
+def test_compare_strict_refuses_a_dated_judge_against_its_undated_alias(compare, capsys, base_judge, cur_judge):
+    """The alias does not say which snapshot answered, so --strict cannot verify that the judge did not change."""
+    with pytest.raises(SystemExit) as exc:
+        compare(_eval(judge=("anthropic", base_judge)), _eval(judge=("anthropic", cur_judge)), "--strict")
+    assert exc.value.code == 1
+    out, err = capsys.readouterr()
+    assert "--strict cannot verify the judge model" in err
+    assert "Avg delta" not in out
+
+
+def test_compare_warns_that_a_dated_judge_against_its_undated_alias_is_not_verified(compare, capsys):
+    compare(_eval(judge=("anthropic", "claude-sonnet-4-5-20240620")), _eval(judge=("anthropic", "claude-sonnet-4-5")))
+    out, err = capsys.readouterr()
+    assert "judge model" in err and "not verified" in err
+    assert "Baseline model warning" not in err and "judge model: baseline" not in err
+    assert "Avg delta" in out
+
+
 def test_compare_names_a_role_the_baseline_does_not_record(compare, capsys):
     old = _eval()
     del old["run_metadata"]
@@ -145,6 +249,17 @@ def test_compare_strict_refuses_a_role_it_cannot_verify(compare, capsys):
         compare(old, _eval(), "--strict")
     assert exc.value.code == 1
     assert "--strict cannot verify the answer model" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("judge_model", ["anthropic/", "--"])
+def test_a_judge_name_with_no_id_is_not_compared_and_strict_refuses_it(compare, capsys, judge_model):
+    run = _eval(judge=("anthropic", judge_model))
+    with pytest.raises(SystemExit) as exc:
+        compare(run, run, "--strict")
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "judge model not recorded in baseline and current eval; not compared" in err
+    assert "--strict cannot verify the judge model" in err and "judge model: baseline" not in err
 
 
 def test_an_unknown_answer_model_is_not_a_model_change(compare, capsys):
@@ -187,6 +302,12 @@ def test_compare_strict_refuses_a_panel_whose_judges_changed(compare, capsys):
     err = capsys.readouterr().err
     assert "judge model: baseline panel/anthropic/claude-sonnet-5-5" in err
     assert "current panel/openai/gpt-4o-mini" in err
+
+
+def test_a_panel_judge_that_only_left_the_claude_cli_route_is_one_judge(compare, capsys):
+    # the single-judge path ignores the provider; a panel stores "provider/model", so the route must go there too
+    compare(_panel("claude-cli/claude-sonnet-5-5"), _panel("anthropic/claude-sonnet-5-5"), "--strict")
+    assert capsys.readouterr().err == ""
 
 
 def test_a_panel_with_the_same_judges_in_another_order_is_one_judge(compare, capsys):

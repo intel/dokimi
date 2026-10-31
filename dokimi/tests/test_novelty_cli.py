@@ -80,6 +80,9 @@ def test_a_judge_provider_alone_takes_the_generator_when_the_judge_is_measured()
     ("--model", f"us.anthropic.{DEFAULT_JUDGE_MODEL}", "--provider", "amazon-bedrock",
      "--judge-provider", "amazon-bedrock"),
     ("--model", DEFAULT_JUDGE_MODEL, "--provider", "anthropic", "--judge-provider", "anthropic"),
+    # A CLI alias is its family's full id: refused here, not after the paid extraction.
+    ("--model", "sonnet", "--provider", "claude-cli", "--judge-provider", "anthropic"),
+    ("--model", "sonnet", "--provider", "claude-cli", "--judge-provider", "amazon-bedrock"),
     # The default answerer is the generator, so openai has no default judge left either.
     ("--judge-provider", "openai"),
 ])
@@ -87,6 +90,17 @@ def test_a_judge_provider_with_no_default_judge_there_exits(argv):
     args = _parse("novelty", "analyze", "--artifact", "skill:x", *argv)
     with pytest.raises(SystemExit, match="--judge-model"):
         novelty_cmd._clients(args)
+
+
+@pytest.mark.parametrize("model", ["sonnet", "opus", "haiku", "claude-opus-5-5"])
+def test_a_cli_answerer_with_no_judge_flags_is_judged_on_the_cli_by_another_family(model):
+    from dokimi.llm_cli import same_model
+
+    args = _parse("novelty", "analyze", "--artifact", "skill:x", "--model", model,
+                  "--provider", "claude-cli")
+    _extractor, _answerer, judge = novelty_cmd._clients(args)
+    assert judge.provider == "claude-cli"
+    assert not same_model("claude-cli", judge.model, "claude-cli", model)
 
 
 def test_a_named_judge_without_a_provider_runs_on_the_answer_provider():

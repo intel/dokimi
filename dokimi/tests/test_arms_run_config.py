@@ -80,14 +80,13 @@ def test_a_doc_arm_without_a_library_id_stops_the_run_before_any_answer(command,
     with pytest.raises(SystemExit) as exc:
         args.func(args)
 
-    assert exc.value.code == 1
+    assert exc.value.code == 2  # a library id that cannot be named is a setup refusal
     # Not under "Error building arms/plugins" or "Error running matrix cell": the id is the
     # product's, not an arm's or a cell's.
     assert capsys.readouterr().err == "Error: cannot name a library id for 'demo'\n"
 
 
-def test_a_failing_matrix_cell_is_named_and_the_cells_before_it_are_kept(tmp_path, provider_calls,
-                                                                        capsys):
+def test_a_refused_matrix_cell_is_named_and_no_cell_is_answered(tmp_path, provider_calls, capsys):
     provider_calls.fake.respond = lambda request: "Use parallel_for."
     questions = tmp_path / "q.json"
     questions.write_text(json.dumps([{"id": "q1", "question": "How?"}]), encoding="utf-8")
@@ -104,10 +103,11 @@ def test_a_failing_matrix_cell_is_named_and_the_cells_before_it_are_kept(tmp_pat
     with pytest.raises(SystemExit) as exc:
         args.func(args)
 
-    assert exc.value.code == 1
+    assert exc.value.code == 2  # every cell is set up before the first answer; a bad spec is a setup refusal
     assert capsys.readouterr().err.startswith(
-        "Error running matrix cell 'bad': Unknown plugin spec: 'plugin:no-such-plugin'")
-    assert sorted(p.name for p in (out / "cells").iterdir()) == ["ok.json", "ok.md"]
+        "Error building matrix cell 'bad': Unknown plugin spec: 'plugin:no-such-plugin'")
+    assert not list((out / "cells").glob("*.json"))
+    assert provider_calls.calls == []
 
 
 def test_run_matrix_checks_every_cell_before_the_first_is_paid_for(monkeypatch, provider_calls):

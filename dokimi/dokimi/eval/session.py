@@ -20,7 +20,9 @@ import logging
 from typing import Any, Dict, List, Optional, Sequence
 
 from dokimi import caching
+from dokimi.eval.question_text import question_text_of
 from dokimi.llm import LLM
+from dokimi.utils import question_id
 from dokimi.metrics.usage import UsageRecord
 
 logger = logging.getLogger(__name__)
@@ -50,6 +52,15 @@ def session_turns_of(question: Dict[str, Any], question_text: str,
             f"{'y' if len(follow_ups) == 1 else 'ies'}; --session-turns {n_turns} needs {n_turns - 1}"
         )
     return [question_text, *follow_ups[: n_turns - 1]]
+
+
+def check_session_questions(questions: List[Dict[str, Any]], session_turns: int) -> None:
+    """Refuse a question that cannot run as a *session_turns* session (``ValueError``, exit 2):
+    a missing or malformed ``follow_ups``, or fewer follow-ups than the session needs."""
+    for i, q in enumerate(questions):
+        qid = question_id(q)
+        session_turns_of(q, question_text_of(q), session_turns,
+                         label=f"#{i}" if qid is None else str(qid))
 
 
 def _with_reminder(text: str, reminder: Optional[str]) -> str:

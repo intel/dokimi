@@ -10,7 +10,9 @@ import sys
 
 import pytest
 
-from dokimi.repos.l0.versions import _RUN, matrix_versions, parse, setup_versions
+from dokimi.repos.l0.core import Scan
+from dokimi.repos.l0.versions import _RUN, judge, matrix_versions, parse, setup_versions
+from dokimi.repos.source import SourceError, WorkTree
 
 
 def _runs(text: str) -> list[tuple[str, object]]:
@@ -173,3 +175,30 @@ def test_a_computed_matrix_is_unknown():
                        "a matrix of ci.yml gives a computed Python version (${{ inputs.python }})",
                        "a matrix of ci.yml computes its exclude (${{ fromJSON(b) }})",
                        "a matrix of ci.yml computes its include (${{ fromJSON(a) }})"]
+
+
+@pytest.mark.parametrize("bad", ["env: {DATE: 2026-02-30}\njobs: {}\n",  # ValueError: no such day
+                                 "jobs: " + "[" * 5000 + "\n",  # RecursionError
+                                 "env: {X: !!bool maybe}\njobs: {}\n",  # KeyError
+                                 "env: {X: !!timestamp foo}\njobs: {}\n"],  # AttributeError
+                         ids=["bad-date", "deep", "bad-bool", "bad-timestamp"])
+def test_a_workflow_yaml_cannot_build_is_unresolved(tmp_path, bad):
+    """A line `py3.12-3.13 (bad.yml)` naming a workflow PyYAML cannot build is unresolved, not a crash."""
+    (tmp_path / ".github/workflows").mkdir(parents=True)
+    (tmp_path / ".github/workflows/bad.yml").write_text(bad, encoding="utf-8")
+    scan = Scan(WorkTree(tmp_path), frozenset())
+    assert judge(scan, parse("py3.12-3.13"), [".github/workflows/bad.yml"]) == (
+        "unresolved", ".github/workflows/bad.yml is not valid YAML")
+
+
+def test_a_git_failure_reading_a_named_workflow_stops_the_scan(tmp_path, monkeypatch):
+    """A `git cat-file` that fails (a SourceError, which is a ValueError) is an error exit, not invalid YAML."""
+    (tmp_path / ".github/workflows").mkdir(parents=True)
+    (tmp_path / ".github/workflows/ci.yml").write_text("jobs: {}\n", encoding="utf-8")
+    scan = Scan(WorkTree(tmp_path), frozenset())
+
+    def fail(*args, **kwargs):
+        raise SourceError("git cat-file failed: timed out after 60 seconds")
+    monkeypatch.setattr(scan.tree, "read_many", fail)
+    with pytest.raises(SourceError, match="timed out"):
+        judge(scan, parse("py3.12-3.13"), [".github/workflows/ci.yml"])

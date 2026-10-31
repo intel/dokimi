@@ -238,8 +238,21 @@ def _kept_estimate(step: dict) -> dict:
     return {**step, "stdout": payload, "stderr": stderr}
 
 
-# Runs main refuses only after the extraction calls it had already made.
-REFUSED_BEFORE_ANY_CALL = {"run/arms-without-full"}
+# Runs main refuses only after the model calls it had already made (the extraction of `analyze`,
+# the probe wordings of `probe`).
+REFUSED_BEFORE_ANY_CALL = {"run/arms-without-full", "probe/arms-without-baseline"}
+# Input refusals from the arm-set checks: main raised the message as the exit status, visible only at interpreter exit.
+# The exit-code table (docs/quickstart.md) makes these exit 2, and usage_exit prints the message before raising.
+ARMS_REFUSALS = {"estimate/arms-without-full", "estimate/arms-without-baseline",
+                 "probe/arms-without-baseline", "run/arms-without-full"}
+
+
+def _refusal_as_exit_2(step: dict[str, Any]) -> dict[str, Any]:
+    if isinstance(step["status"], str):
+        return {**step, "status": 2, "stderr": step["stderr"] + step["status"] + "\n"}
+    return step
+
+
 # `novelty atoms` runs whose cap binds.
 CAPPED_ATOMS = {"atoms/max-atoms-1"}
 # Intended change: the cap warning says how far the cap reached instead of calling the
@@ -264,15 +277,17 @@ def test_no_setting_bill_or_tier_record_differs_from_main(name, tmp_path):
     for step_coverage in coverage:
         if step_coverage is not None:
             _check_headline(step_coverage)
+    expected = [_refusal_as_exit_2(step) if name in ARMS_REFUSALS else step
+                for step in golden[name]]
     if name.startswith("estimate/"):
         assert [_kept_estimate(step) for step in steps] == [
-            _kept_estimate(step) for step in golden[name]]
+            _kept_estimate(step) for step in expected]
     else:
-        expected = json.loads(json.dumps(golden[name]).replace(CAP_WARNING_ON_MAIN, CAP_WARNING))
+        expected = json.loads(json.dumps(expected).replace(CAP_WARNING_ON_MAIN, CAP_WARNING))
         if name in REFUSED_BEFORE_ANY_CALL:
             # Intended change: the arm and placebo checks now run before the clients are
             # built, so the refusal makes no model call. Same status and output as on main.
-            expected = [dict(step, calls=[]) for step in expected]
+            expected = [*expected[:-1], dict(expected[-1], calls=[])]  # the refused step is the last
         if name in CAPPED_ATOMS:
             # Intended change: `novelty atoms` prints the cap warning `analyze` records.
             expected = [dict(step, stderr=f"{step['stderr']}WARNING {CAP_WARNING}\n")
