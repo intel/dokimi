@@ -325,6 +325,14 @@ def test_saving_a_test_log_is_not_an_edit(cmd):
         assert check_contract(_run("r", READ, ("Bash", {"command": write}), TEST), c) == []
 
 
+def test_perl_in_place_is_an_edit_of_its_file():
+    c = parse_contract({"actions": {"edit": {"tool": "Edit", "file_path": r"src/a\.py$"}},
+                        "rules": [{"requires": "edit"}]})
+    assert check_contract(_run("r", ("Bash", {"command": "perl -pi -e 's/a/b/' src/a.py"})), c) == []
+    reads = ("Bash", {"command": "perl -Mstrict -e 'print 1' src/a.py"})
+    assert check_contract(_run("r", reads), c) == ["requires: edit"]
+
+
 def test_no_runs_is_not_a_stable_success():
     p = profile([])
     assert p["verdict"] == "no runs" and p["strategies"] == []

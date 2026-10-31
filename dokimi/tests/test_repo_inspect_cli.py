@@ -41,7 +41,7 @@ def test_cli_json_prints_the_stamped_payload(tmp_path, capsys):
 
 @pytest.mark.outcome("cjm-repo-inspect")
 @pytest.mark.parametrize("case", ["missing source", "unwritable out"])
-def test_cli_exits_1_when_it_cannot_read_or_write(tmp_path, capsys, case):
+def test_cli_exits_2_when_it_cannot_read_or_write(tmp_path, capsys, case):
     _repo(tmp_path / "toy", {"AGENTS.md": "x"})
     (tmp_path / "file").write_text("x")
     argv = ["repo", "inspect", str(tmp_path / "toy"), "--out", str(tmp_path / "file" / "env.json")]
@@ -50,5 +50,5 @@ def test_cli_exits_1_when_it_cannot_read_or_write(tmp_path, capsys, case):
     args = build_parser().parse_args(argv)
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert "✗" in capsys.readouterr().err

@@ -226,18 +226,25 @@ def replaced_files(run_dir: Path) -> list[str]:
     return out
 
 
-def read_grade(run_dir: Path) -> tuple[dict[str, Any] | None, list[str]]:
-    path = run_dir / "grade.json"
+def read_grade_json(path: Path) -> tuple[Any, list[str]]:
+    """The JSON value of a cell's ``grade.json``, read as the host must: a link, FIFO or other non-regular file
+    is not read, and a file nested too deep to parse is no grade. ``(None, problems)`` when it is not one."""
     try:
         if not stat.S_ISREG(os.lstat(path).st_mode):
             return None, ["grade.json is not a regular file"]
         # O_NOFOLLOW: a link swapped in after the lstat is not followed either
         with os.fdopen(os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)), "rb") as f:
-            doc = json.loads(f.read().decode("utf-8"))
+            return json.loads(f.read().decode("utf-8")), []
     except FileNotFoundError:
         return None, ["no grade.json written"]
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, RecursionError) as exc:
         return None, [f"grade.json is not JSON: {exc}"]
+
+
+def read_grade(run_dir: Path) -> tuple[dict[str, Any] | None, list[str]]:
+    doc, problems = read_grade_json(run_dir / "grade.json")
+    if problems:
+        return None, problems
     problems = check_grade(doc)
     return (None, [f"grade.json is not {GRADE_SCHEMA}: {p}" for p in problems]) if problems else (doc, [])
 

@@ -12,7 +12,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from dokimi.utils import normalize_model_ref
+<<<<<<< ours
 from dokimi.commands import baseline_regression
+=======
+from dokimi.exit_codes import EXIT_USAGE
+>>>>>>> theirs
 
 BASELINES_DIR = Path("baselines/eval")
 
@@ -38,7 +42,7 @@ def _read_json_object(path: Path, code: int) -> Dict[str, Any]:
     return data
 
 
-def _baseline_manifest(code: int = 1) -> Dict[str, Any]:
+def _baseline_manifest(code: int = EXIT_USAGE) -> Dict[str, Any]:
     """Load or create the baseline manifest; a corrupt one exits ``code``."""
     manifest_path = BASELINES_DIR / "manifest.json"
     if not manifest_path.exists():
@@ -142,7 +146,7 @@ def cmd_baseline_save(args: argparse.Namespace) -> None:
 
     eval_path = Path(args.from_eval)
     manifest = _baseline_manifest()  # first: a corrupt manifest fails fast and leaves no orphan file
-    eval_data = _read_json_object(eval_path, 1)
+    eval_data = _read_json_object(eval_path, EXIT_USAGE)
     product = args.product or eval_data.get("product", "unknown")
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
     name = args.name or f"{product}-{timestamp}"
@@ -153,13 +157,13 @@ def cmd_baseline_save(args: argparse.Namespace) -> None:
         summary = _compute_summary(eval_data)
     except RecordError as exc:
         print(f"❌ {eval_path}: {exc}", file=sys.stderr)
-        raise SystemExit(1) from exc
+        raise SystemExit(EXIT_USAGE) from exc
 
     BASELINES_DIR.mkdir(parents=True, exist_ok=True)
     dest = BASELINES_DIR / f"{name}.json"
     if dest.exists():
         print(f"❌ Baseline already exists: {dest} (choose a different --name)", file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(EXIT_USAGE)
     dest.write_text(json.dumps(eval_data, indent=2), encoding="utf-8")
 
     manifest["baselines"].append({
@@ -207,7 +211,7 @@ def _pick_entry(args: argparse.Namespace, baselines: list, eval_data: dict) -> d
         entry = next((b for b in baselines if b["name"] == args.baseline), None)
         if not entry:
             print(f"❌ Baseline '{args.baseline}' not found.")
-            raise SystemExit(1)
+            raise SystemExit(EXIT_USAGE)
     else:
         product = args.product or eval_data.get("product")
         candidates = [b for b in baselines if b.get("product") == product] if product else baselines
@@ -263,7 +267,7 @@ def cmd_baseline_compare(args: argparse.Namespace) -> None:
     if not baselines:
         print("No baselines found. Save one first:")
         print("  dokimi baseline save --from-eval eval/oneTBB.json --product oneTBB")
-        raise SystemExit(1)
+        raise SystemExit(EXIT_USAGE)
 
     entry = _pick_entry(args, baselines, eval_data)
     baseline_data = _read_json_object(Path(entry["path"]), 2)

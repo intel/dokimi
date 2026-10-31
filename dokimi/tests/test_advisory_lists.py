@@ -17,6 +17,7 @@ PROJECT = Path(__file__).resolve().parents[1]
 REPO = PROJECT.parent
 OSV_CONFIG = PROJECT / "osv-scanner.toml"
 CI_WORKFLOW = REPO / ".github" / "workflows" / "pip-audit.yml"
+DEPENDENCY_REVIEW = REPO / ".github" / "workflows" / "dependency-review.yml"
 SECURITY = PROJECT / "SECURITY.md"
 ADVISORY_ID = r"PYSEC-\d{4}-\d+|GHSA(?:-[0-9a-z]{4}){3}"
 
@@ -35,12 +36,24 @@ def _pip_audit_ids() -> set[str]:
     )
 
 
+def _dependency_review_ids() -> set[str]:
+    match = re.search(r"allow-ghsas:\s*(.+)", DEPENDENCY_REVIEW.read_text(encoding="utf-8"))
+    assert match, "dependency-review.yml has no allow-ghsas line"
+    return {i.strip() for i in match.group(1).split(",")}
+
+
 def test_osv_and_pip_audit_ignore_the_same_ids():
     assert _osv_ids() == _pip_audit_ids()
 
 
+def test_dependency_review_allows_the_same_ghsa_ids():
+    """allow-ghsas takes GHSA IDs only, so a PYSEC entry has no counterpart there."""
+    ghsa = {i for i in _osv_ids() if i.startswith("GHSA-")}
+    assert _dependency_review_ids() == ghsa
+
+
 def test_ci_and_security_name_the_osv_config():
-    """A removed advisory must be dropped from all three lists, so each names the file."""
+    """A removed advisory must be dropped from every list, so each names the file."""
     assert "dokimi/osv-scanner.toml" in CI_WORKFLOW.read_text(encoding="utf-8")
     assert "osv-scanner.toml" in SECURITY.read_text(encoding="utf-8")
 

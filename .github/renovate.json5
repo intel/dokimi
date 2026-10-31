@@ -51,7 +51,7 @@
   // and updates the SHA and the tag together.
   "pre-commit": { enabled: true },
   "pip-compile": {
-    managerFilePatterns: ["/(^|/)requirements(-ci)?\\.lock\\.txt$/"],
+    managerFilePatterns: ["/(^|/)requirements(-ci|-mutation)?\\.lock\\.txt$/"],
   },
   // Inside a range: bump the lock only. Outside it: move the range too.
   rangeStrategy: "update-lockfile",
@@ -73,6 +73,15 @@
       depNameTemplate: "gitleaks/gitleaks",
       datasourceTemplate: "github-releases",
       extractVersionTemplate: "^v(?<version>.+)$",
+    },
+    {
+      // The renovate-config-validator version renovate-validation.yml pins
+      // (the action would otherwise install the latest from npm).
+      customType: "regex",
+      managerFilePatterns: ["/^\\.github/workflows/renovate-validation\\.yml$/"],
+      matchStrings: ["validator_version: '?(?<currentValue>\\d+\\.\\d+\\.\\d+)'?"],
+      depNameTemplate: "renovate",
+      datasourceTemplate: "npm",
     },
     {
       // The micromamba release conda-forge.yml installs. Its tags carry a

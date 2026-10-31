@@ -196,7 +196,7 @@ def _conflict_reading(artifact: dict, cfg: dict[str, Any]) -> tuple[int, int, bo
     elif capped:
         reason = (
             f"the atom set was capped ({spans.get('n_atoms_indexed')} indexed), so 0 conflicts "
-            "among the sampled atoms is not a cleared check of the artifact"
+            "among the capped atoms is not a cleared check of the artifact"
         )
     else:
         reason = None

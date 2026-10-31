@@ -80,6 +80,9 @@ def test_a_judge_provider_alone_takes_the_generator_when_the_judge_is_measured()
     ("--model", f"us.anthropic.{DEFAULT_JUDGE_MODEL}", "--provider", "amazon-bedrock",
      "--judge-provider", "amazon-bedrock"),
     ("--model", DEFAULT_JUDGE_MODEL, "--provider", "anthropic", "--judge-provider", "anthropic"),
+    # A CLI alias is its family's full id: refused here, not after the paid extraction.
+    ("--model", "sonnet", "--provider", "claude-cli", "--judge-provider", "anthropic"),
+    ("--model", "sonnet", "--provider", "claude-cli", "--judge-provider", "amazon-bedrock"),
     # The default answerer is the generator, so openai has no default judge left either.
     ("--judge-provider", "openai"),
 ])
@@ -87,6 +90,17 @@ def test_a_judge_provider_with_no_default_judge_there_exits(argv):
     args = _parse("novelty", "analyze", "--artifact", "skill:x", *argv)
     with pytest.raises(SystemExit, match="--judge-model"):
         novelty_cmd._clients(args)
+
+
+@pytest.mark.parametrize("model", ["sonnet", "opus", "haiku", "claude-opus-5-5"])
+def test_a_cli_answerer_with_no_judge_flags_is_judged_on_the_cli_by_another_family(model):
+    from dokimi.llm_cli import same_model
+
+    args = _parse("novelty", "analyze", "--artifact", "skill:x", "--model", model,
+                  "--provider", "claude-cli")
+    _extractor, _answerer, judge = novelty_cmd._clients(args)
+    assert judge.provider == "claude-cli"
+    assert not same_model("claude-cli", judge.model, "claude-cli", model)
 
 
 def test_a_named_judge_without_a_provider_runs_on_the_answer_provider():
@@ -838,6 +852,38 @@ def test_a_tiny_non_zero_share_prints_as_under_one_percent(capsys):
     out = capsys.readouterr().out
     assert "coverage: <1% of the artifact's readable words were measured (entry point only)" in out
     assert "WARNING: only <1% of the artifact's readable words" in out
+
+
+def test_a_capped_run_s_headline_does_not_say_the_whole_artifact_was_measured(capsys):
+    # The entry point is every readable word, but the atoms stopped at 22.97% of its tokens.
+    reached = {"last_span": "s0012", "spans": 12, "of": 61, "tokens_share": 0.2297}
+    record = _readable_record(resource_words_on_disk=0)
+    novelty_cmd._print_headline(dict(_minimal_artifact(), bundle=record,
+                                     extraction={"reached": reached}))
+    out = capsys.readouterr().out
+    assert ("coverage: 100% of the artifact's readable words went into the input (entry point "
+            "only); the capped atoms come from the first 22% of the input's tokens\n") in out
+    assert "measured" not in out
+    # The unknown share keeps the reach too; a run the cap did not stop keeps its wording.
+    novelty_cmd._print_headline(dict(_minimal_artifact(), bundle=dict(record, unreadable_files=1),
+                                     extraction={"reached": reached}))
+    assert "counted) (entry point only); the capped atoms come from the first 22% of the " \
+           "input's tokens\n" in capsys.readouterr().out
+    novelty_cmd._print_headline(dict(_minimal_artifact(), bundle=record,
+                                     extraction={"reached": None}))
+    assert "coverage: 100% of the artifact's readable words were measured (entry point only)\n" \
+           in capsys.readouterr().out
+
+
+def test_a_capped_run_under_the_floor_warns_in_the_coverage_line_s_words(capsys):
+    # 10 of the 40 readable words went into the input, and the atoms stopped short of them.
+    reached = {"last_span": "s0002", "spans": 2, "of": 5, "tokens_share": 0.3571}
+    novelty_cmd._print_headline(dict(_minimal_artifact(), bundle=_readable_record(),
+                                     extraction={"reached": reached}))
+    out = capsys.readouterr().out
+    assert ("WARNING: only 25% of the artifact's readable words went into the input, so every "
+            "rate here describes that part, not the artifact") in out
+    assert "measured" not in out
 
 
 def test_a_bundle_run_capped_by_the_budget_warns_without_advising_the_flag_it_passed(capsys):

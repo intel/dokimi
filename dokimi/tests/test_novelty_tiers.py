@@ -226,7 +226,7 @@ def test_forfeits_follow_the_resolved_settings():
     assert sampled in forfeits(standard)
     assert sampled not in forfeits(standard, n_atoms=15)
     assert sampled in forfeits(standard, n_atoms=60)
-    # --all-atoms drops the sampled-rate forfeit, triage included.
+    # --all-atoms drops the cap's forfeit, triage included.
     args = _parse("novelty", "analyze", "--artifact", "skill:x", "--tier", "triage",
                   "--all-atoms")
     assert sampled not in resolve_settings(args.tier, _flags(args)).forfeits()
@@ -276,10 +276,10 @@ def test_shortening_under_a_reached_cap_says_it_saw_only_the_opening():
 
     on = {"max_atoms": 60, "shorten_artifact": True, "paraphrases": 1, "reversals": True,
           "verify_faithfulness": True, "classify_content": True, "confirm_carriers": True}
-    assert any("opening of the artifact" in f for f in forfeits(on, n_atoms=60))
-    assert not any("opening of the artifact" in f for f in forfeits(on, n_atoms=10))
-    assert not any("opening of the artifact" in f for f in forfeits(dict(on, max_atoms=None)))
-    assert not any("opening of the artifact" in f
+    assert any("shortening candidates are scored only" in f for f in forfeits(on, n_atoms=60))
+    assert not any("shortening candidates are scored only" in f for f in forfeits(on, n_atoms=10))
+    assert not any("shortening candidates are scored only" in f for f in forfeits(dict(on, max_atoms=None)))
+    assert not any("shortening candidates are scored only" in f
                    for f in forfeits(dict(on, shorten_artifact=False), n_atoms=60))
 
 

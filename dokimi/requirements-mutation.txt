@@ -1,0 +1,9 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+# The mutation pilot's tool (.github/workflows/mutation.yml), compiled with hashes
+# into requirements-mutation.lock.txt. Kept apart from requirements-ci.txt: only the
+# weekly mutation workflow installs it, so CI, the release job, pip-audit's tools
+# step and the eval image do not carry its closure (libcst, textual, ...).
+# An exact pin: mutmut's config keys changed incompatibly between 2.x and 3.x.
+mutmut==3.8.0

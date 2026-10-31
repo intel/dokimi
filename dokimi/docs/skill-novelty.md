@@ -134,7 +134,7 @@ marked. Read it as a review queue:
   extracted atom set (at most `max_atoms`, 120 by default) in one call, so every pair is compared
   unless a call fails or its reply has to be split. The artifact records the share as
   `conflict_coverage` (`pairs_compared`, `pairs_total`) and warns `the conflict check compared X of
-  Y atom pairs` when it is short. `pairs_total` is over the extracted atoms, which is a sample when
+  Y atom pairs` when it is short. `pairs_total` is over the extracted atoms, which are only the ones the cap kept when
   `spans.capped_atom_set` is true. The `harmful_atoms` gate check reads a count of 0 as cleared only
   when the share reaches `min_conflict_coverage` (1.0 by default) and the atom set was not capped;
   otherwise it is `measured: false`, as it is when `conflict_coverage` is present but malformed. A
@@ -893,10 +893,35 @@ Each tier carries the **claims it forfeits**, and those strings are written into
 `run_config.tier` *and* appended to the artifact's warnings. They follow the settings the
 run used and the atoms it extracted, not the tier's name: `--no-verify` adds the
 faithfulness forfeit, and `--all-atoms` or a skill with fewer atoms than the cap drops the
-sampled-rate ones. `--estimate-only` cannot know the atom count yet, so it lists them:
+cap's ones (that `added` is a rate over the atoms the cap kept, not the whole input, and
+that `frac_carrying_nothing` is not interpretable on a capped atom set). They do not depend on
+how far the cap reached (`--estimate-only` lists them before it is known), and neither does
+the `harmful_atoms` gate reason (`0 conflicts among the capped atoms`).
+`--estimate-only` cannot know the atom count yet, so it lists them:
 
 > tier `triage` forfeits: no paraphrase probe, so a `redundant` verdict is unprotected
 > against the model matching the artifact's own wording
+
+The cap is not a sample: extraction walks the spans in document order and stops at it, so a
+capped run measures the input up to the span it stopped at. The input is the text that was segmented: the
+entry point, plus on a bundle run the files its roles and budgets selected, so a bundled file
+left out is in none of the reach's spans or tokens (the `coverage:` line says how much of the
+artifact went into the input). The warning says how far the cap reached, as in `atom
+extraction hit the cap of 25 at span s0012 (12 of the input's 61 spans, 23% of its tokens):
+rates describe the opening of the input, not all of it; pass --all-atoms for the full sweep`,
+`extraction.reached` records it, and the headline's `coverage:` line then says the words
+went into the input and the capped atoms come from the first 23% of the input's tokens (the
+warning under that line, when half or less of the words went in, says "went into the input"
+too). `novelty atoms` prints the same warning on stderr; `probe` and `shorten`, which read its
+`atoms.json`, do not repeat it.
+
+A cap met on the input's last span leaves no stretch of the input out: what it cut is any atoms
+past the cap in that last reply. The warning then reads `atom extraction hit the cap of 30 at
+span s0010 (10 of the input's 10 spans, 100% of its tokens): any atoms past the cap in its last
+reply were dropped; pass --all-atoms for the full sweep`, the `novelty.md` header says the
+atoms reach the input's last span and the cap dropped any atoms past it in the last reply, and
+the `coverage:` line ends `the capped atoms reach the input's last span, and the cap dropped
+any atoms past it`; none of them says "the opening".
 
 That is the point of naming tiers at all. The cheap run is useful; a cheap run quoted as a
 sweep is not.
@@ -964,6 +989,7 @@ lost to a failed call (with its error). The
 | `retried_batches` | batches whose reply did not parse, or had no usable atom, and were split and re-asked |
 | `calls`, `batches` | calls made, splits included, against the calls the run would make with no splitting |
 | `last_error` | the error behind the unread spans (a failed call first); errors a split recovered from are not recorded |
+| `reached` | on a capped run, how far through the input (the spans segmented, not the files the bundle left out) the cap reached: `last_span`, the last span any kept atom cites among the spans some call was sent (a batch the cap cut mid-reply was sent whole, but its later spans gave no atom; a cited span no call was sent does not count); `spans`, the spans up to and including it, `of` all the input's spans; `tokens_share`, those spans' share of the input's span tokens. `null` when the cap did not bind |
 
 `probe`, `shorten` and `view` read `atoms.json` and repeat the warning. Unread spans are left out
 of `frac_carrying_nothing` (numerator and denominator) and dead weight, reported as

@@ -24,15 +24,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-#: What a run gives up, keyed by the setting that is off ("sampled": an atom cap the
-#: artifact reached). The forfeits of a run are derived from its resolved settings and,
-#: once known, its atom count -- not fixed per tier -- so `--no-verify` adds the
-#: faithfulness forfeit, and `--all-atoms` or an atom set under the cap drops the
-#: sampled-rate ones.
+#: What a run gives up, keyed by the setting that is off. "sampled" is a reached atom cap; the
+#: name is old, the cap takes atoms in document order: https://github.com/intel/dokimi/pull/299
 FORFEITS: dict[str, list[str]] = {
     "sampled": [
-        "`added` is a sampled rate over the atom cap: usable as a sign, not as a figure, "
-        "and not comparable with another artifact's; pass --all-atoms for the full sweep",
+        "`added` is a rate over the atoms the cap kept, not the whole input: usable as a "
+        "sign, not as a figure, and not comparable with another artifact's; pass "
+        "--all-atoms for the full sweep",
         "`frac_carrying_nothing` is not interpretable on a capped atom set (0.064 read "
         "as 0.743 on the study's largest artifact)",
     ],
@@ -217,7 +215,7 @@ class RunSettings:
         rows, yield an atom each), capped at ``max_atoms``. Without ``n_tokens`` only the
         span rule applies. The forfeits assume the cap is reached, since the atom count is
         a guess until extraction runs: an artifact with fewer atoms than the cap drops the
-        sampled-rate forfeits.
+        cap's forfeits.
         """
         cap = self.values["max_atoms"]
         expected = max(1, n_spans // 2)

@@ -45,7 +45,8 @@ The project is pre-1.0; only the latest `main` is supported. Fixes land on
 ## Known advisories in dependencies
 
 `pip-audit` against the locks (`requirements.lock.txt`,
-`requirements-docs.lock.txt` and `requirements-ci.lock.txt`) reports these advisories with no
+`requirements-docs.lock.txt`, `requirements-ci.lock.txt` and
+`requirements-mutation.lock.txt`) reports these advisories with no
 fix the locks can take:
 
 - **filelock 3.32.7 — thirteen advisories** (fixed in 4.2.1, GHSA-j8f7-rjxc-mr56
@@ -122,5 +123,8 @@ on `main`; a daily run that finds a new advisory opens an issue rather than
 failing unrelated PRs. The `static` job in `.github/workflows/ci.yml` runs
 `bandit -ll` with no Medium or High finding allowed.
 The same IDs are ignored by osv-scanner through `dokimi/osv-scanner.toml`,
-which OpenSSF Scorecard runs. A removed advisory comes out of the first list
-above, the `pip-audit` step, and that file together.
+which OpenSSF Scorecard runs, and by `allow-ghsas` in
+`.github/workflows/dependency-review.yml`, which fails a PR that adds or moves a
+dependency to a version with any other High or Critical advisory. A removed
+advisory comes out of the first list above, the `pip-audit` step, that file and
+`allow-ghsas` together.

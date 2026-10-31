@@ -389,7 +389,9 @@ pinned, only measured: run the same configuration several times
   it as `judge_temperature` in their output. So do `eval pairwise` (and its
   escalation judge), `eval checklist`, `eval judge-wording`, `eval cross-judge`
   (every `--judges` entry) and `eval judge-validity --mode pairwise`; each
-  probes every judge model with the setting first and exits 2 if one rejects it.
+  probes every judge model with the setting first, before any judgement: a judge
+  the provider table refuses exits 2 with no call made, and a probe call that the
+  judge rejects exits 1, as `arms run` does.
 - `--judge-panel technical_expert,developer_advocate,doc_reviewer`: grade with
   several judge roles and record their spread and agreement. An unknown role is
   rejected when the command line is parsed.
@@ -800,8 +802,8 @@ stderr as not compared, and `--strict` exits 1 on it as well, since it cannot
 vouch for that role. A malformed record in either file (no `question_id`) exits 2,
 naming the record on stderr, so it never reads as a failed `--strict` check.
 `baseline compare` also exits 2 on an eval file, saved baseline or `manifest.json`
-that is not valid JSON, not a JSON object, or cannot be read. `baseline save` exits 1
-on a bad eval file or `manifest.json`, and `baseline list` exits 1 on a bad
+that is not valid JSON, not a JSON object, or cannot be read. `baseline save` exits 2
+on a bad eval file or `manifest.json`, and `baseline list` exits 2 on a bad
 `manifest.json`. A `manifest.json` whose `baselines` is not a list, or whose entries
 lack a string `name` and `path` or have a `summary` that is not an object, is rejected
 the same way.

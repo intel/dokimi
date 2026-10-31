@@ -34,7 +34,7 @@ questions = {questions}
     args = build_parser().parse_args(["subjects", "run", str(descriptor), *extra_args])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
 
 
 @pytest.mark.parametrize(
@@ -45,7 +45,7 @@ questions = {questions}
         ("s", '["a", "b"]', '["q1.json", "q2.json", "q3.json"]', "suite.questions must contain either"),
     ],
 )
-def test_an_unrunnable_descriptor_exits_1_with_its_reason(
+def test_an_unrunnable_descriptor_exits_2_with_its_reason(
     tmp_path, monkeypatch, capsys, subject_id, products, questions, message
 ):
     _run(tmp_path, monkeypatch, subject_id=subject_id, products=products, questions=questions)
@@ -54,7 +54,7 @@ def test_an_unrunnable_descriptor_exits_1_with_its_reason(
     assert not (tmp_path / "results").exists()
 
 
-def test_an_unknown_baseline_spec_exits_1_with_its_reason(tmp_path, monkeypatch, capsys):
+def test_an_unknown_baseline_spec_exits_2_with_its_reason(tmp_path, monkeypatch, capsys):
     _run(tmp_path, monkeypatch, subject_id="s", products='["a"]', questions='["q.json"]', baseline="nosuchkind:x")
 
     first_line = capsys.readouterr().err.splitlines()[0]
@@ -62,7 +62,7 @@ def test_an_unknown_baseline_spec_exits_1_with_its_reason(tmp_path, monkeypatch,
     assert not (tmp_path / "results").exists()
 
 
-def test_a_baseline_named_like_an_awareness_arm_exits_1_with_its_reason(tmp_path, monkeypatch, capsys):
+def test_a_baseline_named_like_an_awareness_arm_exits_2_with_its_reason(tmp_path, monkeypatch, capsys):
     other = tmp_path / "other" / "docs"
     other.mkdir(parents=True)
     _run(tmp_path, monkeypatch, subject_id="s", products='["a"]', questions='["q.json"]',
@@ -72,7 +72,7 @@ def test_a_baseline_named_like_an_awareness_arm_exits_1_with_its_reason(tmp_path
     assert not (tmp_path / "results").exists()
 
 
-def test_an_out_dir_that_is_a_file_exits_1_naming_it(tmp_path, monkeypatch, capsys):
+def test_an_out_dir_that_is_a_file_exits_2_naming_it(tmp_path, monkeypatch, capsys):
     blocker = tmp_path / "out"
     blocker.write_text("x", encoding="utf-8")
     _run(tmp_path, monkeypatch, subject_id="s", products='["a"]', questions='["q.json"]',
@@ -83,7 +83,7 @@ def test_an_out_dir_that_is_a_file_exits_1_naming_it(tmp_path, monkeypatch, caps
     assert blocker.read_text(encoding="utf-8") == "x"
 
 
-def test_an_out_dir_under_a_file_exits_1_naming_it(tmp_path, monkeypatch, capsys):
+def test_an_out_dir_under_a_file_exits_2_naming_it(tmp_path, monkeypatch, capsys):
     blocker = tmp_path / "out"
     blocker.write_text("x", encoding="utf-8")
     target = blocker / "sub"
@@ -93,12 +93,12 @@ def test_an_out_dir_under_a_file_exits_1_naming_it(tmp_path, monkeypatch, capsys
     assert capsys.readouterr().err.splitlines()[0].startswith(f"Error: cannot write {target}: ")
 
 
-def test_an_unwritable_scorecard_exits_1_naming_it(tmp_path, monkeypatch, capsys):
+def test_an_unwritable_scorecard_exits_2_naming_it(tmp_path, monkeypatch, capsys):
     import dokimi.artifacts
     import dokimi.commands.arms
     import dokimi.subjects
 
-    monkeypatch.setattr(dokimi.commands.arms, "cmd_arms_matrix_run", lambda args: None)
+    monkeypatch.setattr(dokimi.commands.arms, "run_matrix", lambda config, **kw: None)
     monkeypatch.setattr(dokimi.artifacts, "load_artifact", lambda kind, path: {})
     monkeypatch.setattr(dokimi.subjects, "build_subject_scorecard", lambda *a, **k: {})
     monkeypatch.setattr("dokimi.commands.subjects._run_subject_work", lambda *a, **k: {})
@@ -118,7 +118,7 @@ def _stub_run(monkeypatch, saved):
     import dokimi.report.subject_report
     import dokimi.subjects
 
-    monkeypatch.setattr(dokimi.commands.arms, "cmd_arms_matrix_run", lambda args: None)
+    monkeypatch.setattr(dokimi.commands.arms, "run_matrix", lambda config, **kw: None)
     monkeypatch.setattr(dokimi.artifacts, "load_artifact", lambda kind, path: {})
     monkeypatch.setattr(dokimi.artifacts, "save_artifact", lambda kind, data, path: saved.append(path))
     monkeypatch.setattr(dokimi.subjects, "build_subject_scorecard", lambda *a, **k: {})
@@ -126,7 +126,7 @@ def _stub_run(monkeypatch, saved):
     monkeypatch.setattr("dokimi.commands.subjects._run_subject_work", lambda *a, **k: {})
 
 
-def test_an_unwritable_report_dir_exits_1_after_the_scorecard_is_saved(tmp_path, monkeypatch, capsys):
+def test_an_unwritable_report_dir_exits_2_after_the_scorecard_is_saved(tmp_path, monkeypatch, capsys):
     saved: list = []
     _stub_run(monkeypatch, saved)
     blocker = tmp_path / "blocker"
@@ -140,7 +140,7 @@ def test_an_unwritable_report_dir_exits_1_after_the_scorecard_is_saved(tmp_path,
     assert capsys.readouterr().err.splitlines()[0].startswith(f"Error: cannot write {target}: ")
 
 
-def test_a_report_path_that_is_a_directory_exits_1_naming_it(tmp_path, monkeypatch, capsys):
+def test_a_report_path_that_is_a_directory_exits_2_naming_it(tmp_path, monkeypatch, capsys):
     saved: list = []
     _stub_run(monkeypatch, saved)
     target = tmp_path / "report.md"
@@ -179,10 +179,10 @@ def _work(tmp_path, monkeypatch, work_dir: Path, save):
                            work_command_template=None, work_dry_run=False, work_repeats=1)
     with pytest.raises(SystemExit) as exc:
         _run_subject_work(descriptor, args, out_dir=tmp_path / "out", tasks=[object()])
-    assert exc.value.code == 1
+    assert exc.value.code == 2
 
 
-def test_work_exits_1_when_the_task_runs_report_dir_cannot_be_created(tmp_path, monkeypatch, capsys):
+def test_work_exits_2_when_the_task_runs_report_dir_cannot_be_created(tmp_path, monkeypatch, capsys):
     blocker = tmp_path / "blocker"
     blocker.write_text("x", encoding="utf-8")
     saved: list = []
@@ -194,7 +194,7 @@ def test_work_exits_1_when_the_task_runs_report_dir_cannot_be_created(tmp_path, 
     assert capsys.readouterr().err.splitlines()[0].startswith(f"Error: cannot write {expected}: ")
 
 
-def test_work_exits_1_when_the_task_runs_json_cannot_be_written(tmp_path, monkeypatch, capsys):
+def test_work_exits_2_when_the_task_runs_json_cannot_be_written(tmp_path, monkeypatch, capsys):
     blocker = tmp_path / "blocker"
     blocker.write_text("x", encoding="utf-8")
     target = blocker / "work" / "task-runs.json"
@@ -207,7 +207,7 @@ def test_work_exits_1_when_the_task_runs_json_cannot_be_written(tmp_path, monkey
     assert capsys.readouterr().err.splitlines()[0].startswith(f"Error: cannot write {target}: ")
 
 
-def test_work_exits_1_when_the_task_runs_report_path_is_a_directory(tmp_path, monkeypatch, capsys):
+def test_work_exits_2_when_the_task_runs_report_path_is_a_directory(tmp_path, monkeypatch, capsys):
     work_dir = tmp_path / "work"
     (work_dir / "task-runs.md").mkdir(parents=True)
 

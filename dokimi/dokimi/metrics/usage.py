@@ -44,6 +44,9 @@ class UsageRecord:
     cost_known_calls: int = 0
     # served from the response cache: cost_usd is the original call's, not this process's bill
     replayed: bool = False
+    # The model the provider resolved the request to, when it says (a CLI alias names a
+    # version). A sum of rows that resolved differently lists each, comma-separated.
+    resolved_model: str = ""
 
     def __add__(self, other: "UsageRecord | int") -> "UsageRecord":
         """Sum two records: tokens/cost/latency/n_calls add; first ttft wins.
@@ -78,6 +81,7 @@ class UsageRecord:
             n_calls=self.n_calls + other.n_calls,
             cost_known_calls=_known_cost_calls(self) + _known_cost_calls(other),
             replayed=self.replayed and other.replayed,
+            resolved_model=_joined_models(self.resolved_model, other.resolved_model),
         )
 
     __radd__ = __add__  # enables sum([...]) — 0 + record is handled in __add__
@@ -123,6 +127,8 @@ class UsageRecord:
             "cost_known_calls": _known_cost_calls(self),
             "role": self.role,
         }
+        if self.resolved_model:
+            m["resolved_model"] = self.resolved_model
         if answer_chars is not None:
             m["raw_answer_chars"] = answer_chars
             m["final_answer_chars"] = final_chars if final_chars is not None else answer_chars
@@ -170,6 +176,7 @@ def to_record(
             n_calls=(int(obj["n_calls"])
                      if obj.get("n_calls") is not None else 1),
             cost_known_calls=int(obj.get("cost_known_calls", 0) or 0),
+            resolved_model=str(obj.get("resolved_model") or ""),
         )
     raise TypeError(f"Cannot coerce {type(obj).__name__} into UsageRecord")
 
@@ -214,6 +221,12 @@ def _add_optional_costs(a: Optional[float], b: Optional[float]) -> Optional[floa
     if a is None and b is None:
         return None
     return round((a or 0.0) + (b or 0.0), 6)
+
+
+def _joined_models(a: str, b: str) -> str:
+    """The distinct resolved model names of two rows, sorted and comma-separated."""
+    names = {n for n in (*a.split(","), *b.split(",")) if n}
+    return ",".join(sorted(names))
 
 
 def _known_cost_calls(rec: UsageRecord) -> int:

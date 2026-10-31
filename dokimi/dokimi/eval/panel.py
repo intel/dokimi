@@ -27,6 +27,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from dokimi import caching
 from dokimi.llm import ask_parsed, llm_call
+from dokimi.llm_cli import check_sampling
 from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
 from dokimi.eval.question_text import require_question_texts
 # The panel had no numeric-claims criterion (see `eval/rubric.py`) until it was
@@ -203,6 +204,8 @@ class JudgePanel:
                        temperature=temperature, seed=seed)
             for role in DEFAULT_PANEL
         ]
+        for j in self.judges:
+            check_sampling(j.provider, j.temperature, j.seed)
         self.concurrency = concurrency
 
     @property

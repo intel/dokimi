@@ -1,0 +1,15 @@
+{
+  "schema_version": "cli_routes.v1",
+  "sections": ["The loop", "Subjects"],
+  "roots": [
+    {"name": "evaluate", "section": "The loop", "aliases": [], "cost": "paid"},
+    {"name": "library", "section": "Subjects", "aliases": ["product"], "cost": "free"}
+  ],
+  "leaves": [
+    {"path": ["evaluate"], "cost": "paid"},
+    {"path": ["library", "list"], "cost": "free"}
+  ],
+  "tombstones": [
+    {"old": ["old-tool", "inspect"], "new": ["library", "list"]}
+  ]
+}

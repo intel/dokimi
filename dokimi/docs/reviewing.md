@@ -20,7 +20,9 @@ pip install -e .                 # installs the `dokimi` command
 The `novelty` and `arms` steps take `--model` and `--provider`; `arms run` also
 needs `--judge-provider` (it does not fall back to `--provider` for the judge);
 `tasks run` and `repo` take `--model` only. The provider is one of `openai`,
-`anthropic`, `amazon-bedrock`, `google-vertex`, `openrouter` or `openai-codex`;
+`anthropic`, `amazon-bedrock`, `google-vertex`, `openrouter`, `openai-codex` or
+`claude-cli` (a logged-in Claude Code CLI, no key; see
+[subscription backends](subscription-backends.md));
 `arms run --judge-provider` takes `google`, an alias of `google-vertex`, but not
 `openai-codex`.
 Credentials are read from the environment: `OPENAI_API_KEY`,
@@ -83,7 +85,9 @@ self-judge; `arms run` does not check, so name
   the same skill was 1,900 calls, about $14.50.
 - **At triage** with `--include-resources`, the 25-atom cap takes atoms in
   document order, and the entry point comes first: the flag reaches
-  `references/` only if `SKILL.md` has fewer than 25 atoms. For such skills,
+  `references/` only if `SKILL.md` has fewer than 25 atoms, and the run's cap
+  warning prints how far it reached through the input, the entry point and the files the budgets selected (span,
+  spans and token share). For such skills,
   use `--tier standard` (60 atoms), or add `--all-atoms` to the tier command for
   a full sweep; run `--estimate-only` first, it costs more.
 - Step 5 needs evaluation content: a golden question set for 5a, executable
@@ -114,8 +118,12 @@ schema: repo_manifest.v1
 id: my-repo
 guidance:
   globs: ["**/AGENTS.md", "**/CLAUDE.md", ".github/copilot-instructions.md"]
-  also_scan: ["CONTRIBUTING.md"]
 ```
+
+A glob that matches no file is only a warning. To scan a file the globs leave out,
+add `also_scan: ["CONTRIBUTING.md"]` under `guidance`: `also_scan` names files the
+repository has and the gate must see, so a missing one makes the scan `incomplete`
+and `repo scan --fail-on-fail` exits 1.
 
 The `id` must be lowercase: start with a letter or digit, then use only letters, digits, `.`, `_` and `-`.
 `reach` always adds the harness's own guidance file names (for example `CLAUDE.md`, `CLAUDE.local.md` or `AGENTS.md`).

@@ -16,7 +16,7 @@ def _run(argv, capsys):
     args = build_parser().parse_args(argv)
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     return capsys.readouterr().err
 
 
