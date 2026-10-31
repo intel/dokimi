@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, NoReturn
 
 from dokimi.commands.inputs import placebo_text_for_arms_or_exit
 from dokimi.commands.novelty_routing_report import (
+    exit_partial_all_vs_all,
     print_all_vs_all_model,
     print_attractors,
     print_routing_estimate,
@@ -409,17 +410,13 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     if selector is not None:
         payload["cost"] = roll_up_cost([selector])
     out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    # Before the failure exit: the calls that did succeed still cost money and noise is still
-    # measured, so their usage is printed on a partial run too.
-    print_all_vs_all_model(model_arm, payload.get("cost"))
     if failed:
-        raise SystemExit(f"{failed} of {sent} model call(s) failed "
-                         f"({model_arm['first_error']}); the partial result, with those queries "
-                         f"left out of every rate, is in {out}")
+        exit_partial_all_vs_all(model_arm, payload.get("cost"), failed, sent, out)
     print(f"OK Saved all-vs-all routing: {out}")
     print(f"all-vs-all: {len(field)} skills in the field, {result['n_queries']} queries over "
           f"{len(queries_by_skill)} skills with queries")
     print_attractors(result)
+    print_all_vs_all_model(model_arm, payload.get("cost"))
 
 
 def _refuse_queries_naming_disabled(args: argparse.Namespace, field: list,

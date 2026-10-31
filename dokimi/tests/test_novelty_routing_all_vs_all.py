@@ -962,3 +962,28 @@ def test_a_partial_failure_still_prints_the_cost_of_the_calls_that_ran(tmp_path,
     out = capsys.readouterr().out
     assert "OK Saved" not in out
     assert any(line.startswith("cost") for line in out.splitlines()), out
+
+
+def test_a_clean_all_vs_all_run_still_prints_its_cost_after_the_summary(tmp_path, capsys,
+                                                                       monkeypatch):
+    import dokimi.commands.novelty as novelty_cmd
+    from dokimi.metrics.usage import UsageRecord
+
+    def transport(prompt: str, system: str | None = None):
+        return '{"pick": 1}', UsageRecord(cost_usd=0.01)
+
+    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+        model=model, provider=provider, role=role, transport=transport))
+    root = tmp_path / "catalog"
+    _catalog_skill(root, "perf", "profile a slow binary with perf record and report")
+    _catalog_skill(root, "db", "tune a slow database query with an index")
+    queries = _write_queries(tmp_path, {"perf": ["profile a slow program"],
+                                        "db": ["add an index"]})
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"),
+                  "--model", "m")
+    args.func(args)
+    lines = capsys.readouterr().out.splitlines()
+    saved = next(i for i, line in enumerate(lines) if line.startswith("OK Saved"))
+    cost = [i for i, line in enumerate(lines) if line.startswith("cost")]
+    assert cost and cost[-1] > saved

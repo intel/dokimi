@@ -12,11 +12,13 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NoReturn
 
 from dokimi.exit_codes import usage_exit
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from dokimi.novelty.routing import Candidate
 
 
@@ -191,3 +193,16 @@ def print_all_vs_all_model(model_arm: dict, cost: dict | None) -> None:
         print_noise(model_arm)
     if cost is not None:
         print_cost(cost)
+
+
+def exit_partial_all_vs_all(model_arm: dict, cost: dict | None, failed: int, sent: int,
+                            out: Path) -> NoReturn:
+    """The failure exit of an all-vs-all run where some model calls failed.
+
+    The usage of the calls that did succeed still costs money and noise is still measured, so the
+    noise and cost lines print before the exit; the partial result is already saved in ``out``.
+    """
+    print_all_vs_all_model(model_arm, cost)
+    raise SystemExit(f"{failed} of {sent} model call(s) failed "
+                     f"({model_arm['first_error']}); the partial result, with those queries "
+                     f"left out of every rate, is in {out}")
