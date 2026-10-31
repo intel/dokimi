@@ -63,13 +63,17 @@ def test_missing_tasks_root_exits_2_naming_it(tmp_path, capsys, argv):
     assert "--tasks-root" in err.err
 
 
-def test_tasks_root_with_no_yaml_exits_2(tmp_path, capsys):
+@pytest.mark.parametrize("argv", [
+    ["explore", "list"],
+    ["explore", "run", "--all"],
+])
+def test_tasks_root_with_no_yaml_exits_2(tmp_path, capsys, argv):
     empty = tmp_path / "empty"
     empty.mkdir()
     (empty / "notes.txt").write_text("not a task", encoding="utf-8")
-    code, err = _refusal(["explore", "list", "--tasks-root", str(empty)], capsys)
+    code, err = _refusal([*argv, "--tasks-root", str(empty)], capsys)
     assert code == 2
-    assert "--tasks-root" in err.err
+    assert f"No explore tasks under {empty}. Pass --tasks-root" in err.err
 
 
 def test_run_by_id_with_no_bundled_task_exits_2(bundled_absent, capsys):
