@@ -119,6 +119,7 @@ jobs:
           fetch-depth: 0
       # The setup action comes from this workflow's own commit (job.workflow_sha),
       # the one the caller's uses: line pins, and installs dokimi-ref. Sparse: its action/ only.
+      # Kept until the job ends: the composite's post steps read the action from this path (#319 CI).
       - name: Check out the setup action
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -136,11 +137,6 @@ jobs:
           dokimi-ref: ${{ inputs.dokimi-ref }}
           dokimi-repository: ${{ inputs.dokimi-repository }}
           python-version: '3.13'
-      # The checkout is only needed to run the setup action: remove it, so the
-      # caller's tree and its image build context are what they were.
-      - name: Remove the setup action checkout
-        shell: bash
-        run: rm -rf .dokimi-action
       - name: repo validate
         env:
           MANIFEST: ${{ inputs.manifest }}
@@ -297,9 +293,6 @@ jobs:
           dokimi-ref: ${{ needs.validate.outputs.dokimi-sha }}
           dokimi-repository: ${{ inputs.dokimi-repository }}
           python-version: '3.13'
-      - name: Remove the setup action checkout
-        shell: bash
-        run: rm -rf .dokimi-action
       # Report only: a failing claim does not fail the job (an unreadable
       # manifest still does). The table lists the failing claims.
       - name: repo scan
@@ -372,9 +365,6 @@ jobs:
           dokimi-ref: ${{ needs.validate.outputs.dokimi-sha }}
           dokimi-repository: ${{ inputs.dokimi-repository }}
           python-version: '3.13'
-      - name: Remove the setup action checkout
-        shell: bash
-        run: rm -rf .dokimi-action
       # Builds the image from the manifest's Dockerfile (the tree without its
       # tasks), then grades the null and the oracle workspace in it.
       - name: repo tasks check
