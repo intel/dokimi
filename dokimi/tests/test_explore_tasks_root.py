@@ -59,8 +59,7 @@ def test_missing_tasks_root_exits_2_naming_it(tmp_path, capsys, argv):
     missing = tmp_path / "absent"
     code, err = _refusal([*argv, "--tasks-root", str(missing)], capsys)
     assert code == 2
-    assert str(missing) in err.err
-    assert "--tasks-root" in err.err
+    assert f"--tasks-root is not a directory: {missing}" in err.err
 
 
 @pytest.mark.parametrize("argv", [

@@ -28,6 +28,8 @@ def _exit_usage(message: str) -> NoReturn:
 
 
 def _no_tasks(root: Path | None) -> NoReturn:
+    if root is not None and not root.is_dir():
+        _exit_usage(f"--tasks-root is not a directory: {root}")
     where = f"under {root}" if root is not None else "in the bundled data/explore_tasks"
     _exit_usage(f"No explore tasks {where}. Pass --tasks-root <dir> of task YAML files.")
 
