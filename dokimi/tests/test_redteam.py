@@ -241,8 +241,7 @@ def test_table_names_each_violation_and_the_status(monkeypatch):
 
 
 def _args(path, **overrides):
-    base = {"questions": str(path), "judge": False, "judge_model": "m", "judge_provider": "anthropic",
-            "output": None}
+    base = {"questions": str(path), "judge": None, "out": None}
     return argparse.Namespace(**{**base, **overrides})
 
 
@@ -254,7 +253,7 @@ def _patch_questions(monkeypatch, questions):
 def test_command_passes_and_writes_a_redteam_artifact(tmp_path, monkeypatch, capsys):
     _patch_questions(monkeypatch, [_q("1", _match("Paris"))])
     out = tmp_path / "redteam.json"
-    cmd_eval_redteam(_args(tmp_path / "questions.json", output=out))
+    cmd_eval_redteam(_args(tmp_path / "questions.json", out=out))
     saved = json.loads(out.read_text(encoding="utf-8"))
     assert saved["schema_version"] == "redteam.v1" and saved["status"] == "pass"
     assert saved["questions_path"].endswith("questions.json")
@@ -280,8 +279,8 @@ def test_command_exits_2_when_the_artifact_cannot_be_written(tmp_path, monkeypat
     blocker = tmp_path / "a_file"
     blocker.write_text("not a directory", encoding="utf-8")
     with pytest.raises(SystemExit) as exc:
-        cmd_eval_redteam(_args(tmp_path / "questions.json", output=blocker / "out.json"))
-    assert exc.value.code == 2  # not 1: CI must not read an unwritable -o as a blocked run
+        cmd_eval_redteam(_args(tmp_path / "questions.json", out=blocker / "out.json"))
+    assert exc.value.code == 2  # not 1: CI must not read an unwritable --out as a blocked run
     assert capsys.readouterr().err.startswith("Error:")
 
 
@@ -501,8 +500,7 @@ def test_the_artifact_names_the_judge_that_graded_the_judge_checks(tmp_path, mon
     _patch_questions(monkeypatch, [_q("1", _match("Paris"))])
     monkeypatch.setattr("dokimi.eval.judge.Judge", lambda **kw: SimpleNamespace(llm=None))
     out = tmp_path / "judged.json"
-    cmd_eval_redteam(_args(tmp_path / "questions.json", output=out, judge=True,
-                           judge_model="judge-x", judge_provider="openai"))
+    cmd_eval_redteam(_args(tmp_path / "questions.json", out=out, judge=("openai", "judge-x")))
     saved = json.loads(out.read_text(encoding="utf-8"))
     assert (saved["judge_model"], saved["judge_provider"]) == ("judge-x", "openai")
 
@@ -510,7 +508,7 @@ def test_the_artifact_names_the_judge_that_graded_the_judge_checks(tmp_path, mon
 def test_the_artifact_has_no_judge_without_the_judge_flag(tmp_path, monkeypatch):
     _patch_questions(monkeypatch, [_q("1", _match("Paris"))])
     out = tmp_path / "plain.json"
-    cmd_eval_redteam(_args(tmp_path / "questions.json", output=out, judge_model="judge-x"))
+    cmd_eval_redteam(_args(tmp_path / "questions.json", out=out))
     saved = json.loads(out.read_text(encoding="utf-8"))
     assert saved["judge_model"] is None and saved["judge_provider"] is None
 
@@ -540,20 +538,20 @@ def _many_violations():
 
 def test_the_table_names_dash_o_when_it_cuts_the_violations_and_no_artifact_is_written():
     table = format_table(_many_violations())
-    assert "... 4 more violations; rerun with -o FILE to list them all" in table
+    assert "... 4 more violations; rerun with --out FILE to list them all" in table
     assert "in the artifact" not in table
 
 
 def test_the_table_points_to_the_artifact_when_dash_o_was_given(tmp_path):
     table = format_table(_many_violations(), output=tmp_path / "r.json")
     assert "... 4 more violations in the artifact" in table
-    assert "rerun with -o" not in table
+    assert "rerun with --out" not in table
 
 
 def test_the_command_prints_the_cut_violations_with_the_output_path_it_wrote(tmp_path, monkeypatch, capsys):
     _patch_questions(monkeypatch, [_q(str(i), {"checks": [{"type": "regex", "values": [".*"]}]}) for i in range(8)])
     with pytest.raises(SystemExit):
-        cmd_eval_redteam(_args(tmp_path / "questions.json", output=tmp_path / "r.json"))
+        cmd_eval_redteam(_args(tmp_path / "questions.json", out=tmp_path / "r.json"))
     assert "4 more violations in the artifact" in capsys.readouterr().out
 
 
@@ -614,8 +612,7 @@ def test_the_judge_flag_grades_judge_checks_with_the_named_model(tmp_path, monke
     monkeypatch.setattr("dokimi.eval.judge.Judge", fake_judge)
     out = tmp_path / "judged.json"
     with pytest.raises(SystemExit) as exc:
-        cmd_eval_redteam(_args(tmp_path / "questions.json", output=out, judge=True,
-                               judge_model="judge-x", judge_provider="openai"))
+        cmd_eval_redteam(_args(tmp_path / "questions.json", out=out, judge=("openai", "judge-x")))
     assert exc.value.code == 1  # the stub judge accepts every attack
     assert made == {"model": "judge-x", "provider": "openai"}
     saved = json.loads(out.read_text(encoding="utf-8"))
@@ -630,7 +627,7 @@ def test_without_the_judge_flag_no_judge_is_built_and_judge_checks_stay_unscored
     monkeypatch.setattr("dokimi.eval.judge.Judge", refuse)
     out = tmp_path / "plain.json"
     with pytest.raises(SystemExit) as exc:
-        cmd_eval_redteam(_args(tmp_path / "questions.json", output=out))
+        cmd_eval_redteam(_args(tmp_path / "questions.json", out=out))
     assert exc.value.code == 1
     assert json.loads(out.read_text(encoding="utf-8"))["summary"]["unscored"] == 3
 
@@ -655,7 +652,7 @@ def test_command_exits_2_with_the_problem_when_a_grading_block_cannot_be_graded(
     _patch_questions(monkeypatch, [_q("7", {"checks": [{"type": "match", "values": []}]})])
     out = tmp_path / "redteam.json"
     with pytest.raises(SystemExit) as exc:
-        cmd_eval_redteam(_args(tmp_path / "questions.json", output=out))
+        cmd_eval_redteam(_args(tmp_path / "questions.json", out=out))
     assert exc.value.code == 2
     assert "7: check 0: match has no values" in capsys.readouterr().err
     assert not out.exists()
@@ -672,7 +669,7 @@ def test_a_blocked_run_still_writes_the_artifact(tmp_path, monkeypatch):
     _patch_questions(monkeypatch, [_q("1", {"checks": [{"type": "regex", "values": [".*"]}]})])
     out = tmp_path / "blocked.json"
     with pytest.raises(SystemExit) as exc:
-        cmd_eval_redteam(_args(tmp_path / "questions.json", output=out))
+        cmd_eval_redteam(_args(tmp_path / "questions.json", out=out))
     assert exc.value.code == 1
     assert json.loads(out.read_text(encoding="utf-8"))["status"] == "blocked"
 
@@ -681,7 +678,7 @@ def test_an_inconclusive_run_still_writes_the_artifact(tmp_path, monkeypatch):
     _patch_questions(monkeypatch, [{"id": "1", "question": "Capital of France?"}])
     out = tmp_path / "inconclusive.json"
     with pytest.raises(SystemExit) as exc:
-        cmd_eval_redteam(_args(tmp_path / "questions.json", output=out))
+        cmd_eval_redteam(_args(tmp_path / "questions.json", out=out))
     assert exc.value.code == 1
     assert json.loads(out.read_text(encoding="utf-8"))["status"] == "inconclusive"
 
@@ -726,3 +723,17 @@ def test_a_stuffed_list_at_the_end_picks_decoys_that_do_not_complete_a_value(str
     result = run([_q("1", {"checks": [check]})])
     assert result["status"] == "pass" and result["violations"] == []
     assert result["questions"][0]["probes"]["stuffed"]["passed"] is False
+
+
+
+
+def test_judge_takes_a_provider_model_reference_and_a_bad_one_is_a_usage_error(capsys):
+    from dokimi.cli import parse_args
+
+    args = parse_args(["eval", "redteam", "q.json", "--judge", "openai/gpt-x", "--out", "r.json"])
+    assert (args.judge, args.out) == (("openai", "gpt-x"), "r.json")
+    assert parse_args(["eval", "redteam", "q.json"]).judge is None
+    for bad in ("gpt-x", "nosuch/gpt-x", "openai/"):
+        with pytest.raises(SystemExit) as exc:
+            parse_args(["eval", "redteam", "q.json", "--judge", bad])
+        assert exc.value.code == 2, bad
