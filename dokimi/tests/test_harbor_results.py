@@ -311,8 +311,68 @@ def test_a_command_template_keeps_its_exit_code_fallback(tmp_path):
     result = create_harness("command:my-wrapper {task_path}", runner=FakeRunner()).run(
         task, output_dir=tmp_path / "cell")
 
-    assert (result.passed, result.reward) == (True, None)
+    assert (result.passed, result.reward) == (True, 1.0)
     assert "error" not in result.metrics
+
+
+@pytest.mark.parametrize("returncode, expected", [(0, (True, 1.0)), (3, (False, 0.0))])
+def test_a_command_template_scores_its_exit_code_when_it_prints_no_reward(tmp_path, returncode, expected):
+    task = load_task(_fixture_task(tmp_path / "tasks"))
+    result = create_harness("command:my-wrapper {task_path}", runner=FakeRunner(lambda call: reply("", "", returncode))).run(
+        task, output_dir=tmp_path / "cell")
+
+    assert (result.passed, result.reward) == expected
+
+
+@pytest.mark.parametrize("stdout, stderr", [("", ""), ("reward: 1", ""), ("", "reward: 1"), ("1", "reward: 1")])
+@pytest.mark.parametrize("returncode", [126, 127, 137, -9])
+def test_a_command_that_never_ran_or_was_killed_has_no_verdict(tmp_path, returncode, stdout, stderr):
+    """Nor from a reward marker on its output: only a reward file outranks such an exit."""
+    task = load_task(_fixture_task(tmp_path / "tasks"))
+    result = create_harness("command:my-wrapper {task_path}", runner=FakeRunner(lambda call: reply(stdout, stderr, returncode))).run(
+        task, output_dir=tmp_path / "cell")
+
+    assert (result.passed, result.reward) == (False, None)
+    assert result.metrics["solver_error"] == f"no verdict: exit {returncode}"
+    _assert_errored_not_scored(result)
+
+
+def test_a_reward_file_is_the_verdict_of_a_killed_command(tmp_path):
+    task = load_task(_fixture_task(tmp_path / "tasks"))
+
+    def handler(call):
+        (Path(call.env["DOKIMI_OUTPUT_DIR"]) / "reward.txt").write_text("1", encoding="utf-8")
+        return reply("reward: 0", "", 137)
+
+    result = create_harness("command:my-wrapper {task_path}", runner=FakeRunner(handler)).run(
+        task, output_dir=tmp_path / "cell")
+
+    assert (result.passed, result.reward) == (True, 1.0)
+    assert "solver_error" not in result.metrics
+
+
+def _assert_errored_not_scored(result):
+    from dokimi.harnesses.runner import summarize_task_results
+
+    stats = summarize_task_results([result.as_dict()])["per_harness"][result.harness]
+    assert (stats["scored"], stats["errored"], stats["pass_rate"]) == (0, 1, None)
+
+
+@pytest.mark.parametrize("content, output", [("2.0", ""), ("2.0", "reward: 1"), ("", "reward: 1")])
+def test_a_command_with_an_unreadable_reward_file_is_not_scored_from_its_exit_code(tmp_path, content, output):
+    """Nor from a reward marker on its output: the file, not the agent's log, is the verdict."""
+    task = load_task(_fixture_task(tmp_path / "tasks"))
+
+    def handler(call):
+        (Path(call.env["DOKIMI_OUTPUT_DIR"]) / "reward.txt").write_text(content, encoding="utf-8")
+        return reply(output)
+
+    result = create_harness("command:my-wrapper {task_path}", runner=FakeRunner(handler)).run(
+        task, output_dir=tmp_path / "cell")
+
+    assert (result.passed, result.reward) == (False, None)
+    assert "reward file unreadable" in result.metrics["solver_error"]
+    _assert_errored_not_scored(result)
 
 
 @pytest.mark.parametrize("reward_val, expect_pass, expect_reward", [

@@ -155,10 +155,13 @@ class CommandHarness:
                     given_dir / Path(harbor_metrics["result_json"]).relative_to(output_dir))
             passed = reward is not None and reward >= 1.0
         else:
-            reward = _find_reward(output_dir, stdout, stderr)
-            passed = reward is not None and reward >= 1.0
+            # A printed reward is no verdict from a command that never ran or was killed.
+            printed = (stdout, stderr) if not _never_finished(returncode) else ("", "")
+            reward = _find_reward(output_dir, *printed)
             if reward is None:
-                passed = returncode == 0
+                reward = _exit_code_reward(returncode, output_dir)
+                harbor_metrics = _no_verdict(reward, returncode, output_dir)
+            passed = reward is not None and reward >= 1.0
 
         metrics: dict[str, Any] = {
             "dry_run": False,
@@ -390,6 +393,32 @@ def _task_prompt(task: TaskSpec) -> str:
     )
 
 
+def _exit_code_reward(returncode: int, output_dir: Path | None) -> float | None:
+    """1.0 or 0.0 from an exit code; None when the command never ran (126, 127), was killed by a
+    signal, or left a reward file that could not be read."""
+    if _never_finished(returncode) or _has_reward_file(output_dir):
+        return None
+    return 1.0 if returncode == 0 else 0.0
+
+
+def _never_finished(returncode: int) -> bool:
+    return returncode < 0 or returncode in (126, 127) or 128 < returncode <= 192
+
+
+def _no_verdict(reward: float | None, returncode: int, output_dir: Path | None) -> dict[str, Any]:
+    """An errored cell when the exit code gave no verdict, so the summary leaves it out of pass_rate."""
+    if reward is not None:
+        return {}
+    unreadable = ", reward file unreadable" if _has_reward_file(output_dir) else ""
+    return {"solver_error": f"no verdict: exit {returncode}{unreadable}"}
+
+
+def _has_reward_file(output_dir: Path | None) -> bool:
+    if not output_dir:
+        return False
+    return any(next(output_dir.rglob(name), None) for name in ("reward.txt", "reward.json"))
+
+
 def _find_reward(output_dir: Path | None, stdout: str, stderr: str) -> float | None:
     if output_dir:
         candidates = sorted(output_dir.rglob("reward.txt")) + sorted(
@@ -401,6 +430,8 @@ def _find_reward(output_dir: Path | None, stdout: str, stderr: str) -> float | N
             )
             if parsed is not None:
                 return parsed
+        if candidates:
+            return None  # an unreadable reward file is not an absent one: no output fallback
     parsed = _parse_reward_text(stdout)
     return parsed if parsed is not None else _parse_reward_text(stderr)
 

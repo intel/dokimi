@@ -131,6 +131,7 @@ def _select_swebench(args: argparse.Namespace) -> list:
     ids = None if args.all else [t.strip() for t in (args.tasks or "").split(",") if t.strip()]
     if ids == []:
         usage_exit("No tasks selected. Pass --tasks <instance_id[,...]> or --all.")
+    _refuse_repeats("task", ids or [])
     try:
         if ids is None:
             skipped = sorted(KNOWN_BAD.keys() & {str(r.get("instance_id")) for r in read_instances(Path(args.swe_bench))})
@@ -146,6 +147,12 @@ def _select_swebench(args: argparse.Namespace) -> list:
     return tasks
 
 
+def _refuse_repeats(kind: str, names: list[str]) -> None:
+    repeated = sorted({n for n in names if names.count(n) > 1})
+    if repeated:
+        usage_exit(f"Repeated {kind}: {', '.join(repeated)}. List each once; use --repeats to run it again.")
+
+
 def _select_tasks(args: argparse.Namespace) -> list:
     from dokimi.harnesses import discover_tasks, load_task
 
@@ -157,7 +164,10 @@ def _select_tasks(args: argparse.Namespace) -> list:
             tasks = discover_tasks(root)
         else:
             task_names = [t.strip() for t in args.tasks.split(",") if t.strip()]
+            _refuse_repeats("task", task_names)
             tasks = [load_task(t, root=root) for t in task_names]
+            # cells and output dirs are keyed by the loaded name, not the spelling
+            _refuse_repeats("task", [t.name for t in tasks])
     except (ValueError, OSError, RecursionError) as exc:  # a missing or unreadable task, deeply nested YAML
         usage_exit(f"Error: {exc}")
     if not tasks:
@@ -183,11 +193,41 @@ def _print_summary(output: dict) -> None:
         cost_delta = cmp_row.get("cost_delta_usd")
         cost_s = "" if cost_delta is None else f", cost delta ${cost_delta:+.4f}"
         print(f"{harness} vs {cmp_row['baseline_harness']}: pass-rate delta {delta_s}{cost_s}")
-    per_harness = output["summary"]["per_harness"].values()
-    cells = sum(s["n"] for s in per_harness)
-    errored = sum(s.get("errored", 0) for s in per_harness)
-    if cells and errored == cells:  # no cell has a verdict: "0/0 pass (n/a)" is not a result
-        print(f"✗ incomplete: every cell errored (0 scored, {errored} errored of {cells} cells)", file=sys.stderr)
+
+
+def _cell_state(row: dict, dry_run: bool) -> str:
+    from dokimi.harnesses.runner import _num, is_errored
+
+    if is_errored(row):
+        return "errored"
+    if dry_run and row.get("metrics", {}).get("dry_run"):
+        return "planned"
+    return "unscored" if _num(row.get("reward")) is None else "scored"
+
+
+def _check_completion(output: dict, *, dry_run: bool = False) -> None:
+    """A completed failing grade is evidence; an errored or absent cell is not."""
+    from collections import Counter
+
+    planned = {(task["name"], harness, rep)
+               for task in output["tasks"] for harness in output["harnesses"]
+               for rep in range(1, output.get("repeats", 1) + 1)}
+    seen = {(r["task"], r["harness"], r.get("repeat", 1)) for r in output["results"]}
+    counts = Counter(_cell_state(row, dry_run) for row in output["results"])
+    missing = planned - seen
+    duplicate = len(output["results"]) - len(seen)
+    unplanned = seen - planned
+    if dry_run:
+        print(f"Plan: {counts['planned']} supported cells; not executed")
+    incomplete = counts["errored"] + counts["unscored"] + len(missing) + duplicate + len(unplanned)
+    if incomplete or not planned:
+        print(f"✗ incomplete: {counts['scored']} scored, {counts['errored']} errored, "
+              f"{counts['unscored']} unscored, {len(missing)} missing of {len(planned)} planned cells",
+              file=sys.stderr)
+        if duplicate or unplanned:
+            print(f"  invalid identities: {duplicate} duplicate, {len(unplanned)} unplanned", file=sys.stderr)
+        for task, harness, rep in sorted(missing):
+            print(f"  missing: {task} / {harness} / repeat {rep}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -199,6 +239,7 @@ def cmd_tasks_run(args: argparse.Namespace) -> None:
     harnesses = [h.strip() for h in args.harnesses.split(",") if h.strip()]
     if not harnesses:
         usage_exit("No harnesses selected. Pass --harnesses codex,claude-code.")
+    _refuse_repeats("harness", harnesses)
     if args.baseline_harness and args.baseline_harness not in harnesses:
         print(f"Also running baseline harness: {args.baseline_harness}")
         harnesses.insert(0, args.baseline_harness)
@@ -247,6 +288,7 @@ def cmd_tasks_run(args: argparse.Namespace) -> None:
     print(f"Saved task run report:   {out_md}")
 
     _print_summary(output)
+    _check_completion(output, dry_run=args.dry_run)
 
 
 def register(sub, positive_int) -> None:
