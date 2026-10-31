@@ -5,9 +5,14 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
+import pytest
+
 from dokimi.utils import tree_digest
+
+symlinks = pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
 
 
 def _write(root: Path, files: dict[str, str]) -> Path:
@@ -32,15 +37,40 @@ def test_a_byte_a_new_file_or_a_rename_each_moves_the_digest(tmp_path):
     assert edited != base
     (root / "b.txt").write_text("new\n", encoding="utf-8")
     assert tree_digest(root) not in (base, edited)
-    (root / "a.txt").rename(root / "c.txt")
-    assert tree_digest(root) != base
+    before_rename = tree_digest(root)
+    (root / "a.txt").rename(root / "a2.txt")  # same sort position, so only the name can move the digest
+    assert tree_digest(root) != before_rename
 
 
+@pytest.mark.skipif(os.name == "nt", reason="chmod does not change the executable bit on Windows")
 def test_the_executable_bit_is_part_of_the_digest(tmp_path):
     root = _write(tmp_path / "t", {"run.sh": "echo\n"})
+    (root / "run.sh").chmod(0o644)
     before = tree_digest(root)
     (root / "run.sh").chmod(0o755)
     assert tree_digest(root) != before
+
+
+@symlinks
+def test_a_directory_symlink_root_digests_its_target_not_the_tree_under_it(tmp_path):
+    one = _write(tmp_path / "one", {"SKILL.md": "x\n"})
+    two = _write(tmp_path / "two", {"SKILL.md": "x\n"})
+    link = tmp_path / "link"
+    os.symlink(one, link, target_is_directory=True)
+    before = tree_digest(link)
+    link.unlink()
+    os.symlink(two, link, target_is_directory=True)
+    assert tree_digest(link) != before
+
+
+@symlinks
+def test_a_dangling_root_symlink_digests_its_target_text(tmp_path):
+    link = tmp_path / "link"
+    os.symlink("missing-a", link)
+    before = tree_digest(link)
+    link.unlink()
+    os.symlink("missing-b", link)
+    assert tree_digest(link) != before
 
 
 def test_exclude_leaves_out_a_subtree_and_nothing_else(tmp_path):

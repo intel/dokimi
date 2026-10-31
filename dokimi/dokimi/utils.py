@@ -97,12 +97,13 @@ def digest_text(text: str) -> str:
 def tree_digest(root: Path, *, exclude: Iterable[str] = ()) -> str:
     """sha256 (bare hex) over every path, mode bit and byte under ``root``; a link by its target.
 
-    A file ``root`` digests as itself (its path is ``.``). Entries whose path, relative to
+    A file ``root`` digests as itself (its path is ``.``), and so does a symlink ``root``
+    (by its target, dangling or not; it is not walked). Entries whose path, relative to
     ``root``, equals one of ``exclude`` or sits under it are left out, so a skill's digest can
     leave its eval directory out. Output is deterministic: sorted walk, no timestamps.
     """
     skip = tuple(e.strip("/") for e in exclude)
-    entries = [root] if root.is_file() else sorted(root.rglob("*"))
+    entries = [root] if root.is_symlink() or root.is_file() else sorted(root.rglob("*"))
     h = hashlib.sha256()
     for path in entries:
         rel = "." if path == root else path.relative_to(root).as_posix()
