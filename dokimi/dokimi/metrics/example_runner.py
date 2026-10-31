@@ -146,7 +146,7 @@ def extract_examples(markdown: str) -> list[tuple[str, str]]:
 
 
 def _run_subprocess(lang: str, code: str, policy: ExecutionPolicy,
-                    runner: process.Runner) -> tuple[bool, str | None]:
+                    runner: process.Runner) -> tuple[bool | None, str | None]:
     """Run code on the host in a resource-limited subprocess (trusted docs only).
 
     CPU time is capped; address space is capped unless explicitly omitted.
@@ -155,7 +155,7 @@ def _run_subprocess(lang: str, code: str, policy: ExecutionPolicy,
     fork fail on a busy host. Capping the process count is the docker backend's job
     (``--pids-limit``). The runner kills the snippet's whole process group when it
     exits or times out, so a background job it started neither outlives it nor keeps
-    the run waiting.
+    the run waiting. ``None`` means the requested limits cannot be applied here, so nothing ran.
     """
     if not policy.allow_host:
         return False, (
@@ -169,6 +169,13 @@ def _run_subprocess(lang: str, code: str, policy: ExecutionPolicy,
     # hostedtoolcache installs — need it so the dynamic loader can find libpython*.so.
     memory_bytes = None if policy.mem_mb is None else policy.mem_mb * 1024 * 1024
     limits = process.Limits(cpu_sec=max(1, policy.timeout), memory_bytes=memory_bytes)
+    if memory_bytes is not None and memory_bytes <= 0:
+        return None, "not run: mem_mb must be positive"
+    try:
+        process.check_limits(limits)
+    except ValueError as exc:
+        hint = "; set mem_mb: null to keep only the CPU cap" if sys.platform == "darwin" else ""
+        return None, f"not run: {exc}{hint}"
     with tempfile.TemporaryDirectory() as tmp:
         # HOME points at the per-run temp dir rather than a shared /tmp.
         env = process.Env.only(("LD_LIBRARY_PATH",),
@@ -189,10 +196,10 @@ def _run_subprocess(lang: str, code: str, policy: ExecutionPolicy,
 
 
 def _run_docker(lang: str, code: str, policy: ExecutionPolicy,
-                runner: process.Runner) -> tuple[bool, str | None]:
+                runner: process.Runner) -> tuple[bool | None, str | None]:
     """Run code inside a locked-down container (no network, no capabilities, read-only, limited)."""
     if policy.mem_mb is None or policy.mem_mb <= 0:
-        return False, "docker backend requires a positive memory cap (mem_mb)"
+        return None, "not run: docker backend requires a positive memory cap (mem_mb)"
     suffix, argv_prefix = EXECUTORS[lang]
     with tempfile.TemporaryDirectory() as tmp:
         script = Path(tmp) / f"snippet{suffix}"
@@ -248,6 +255,8 @@ def run_example(lang: str, code: str, policy: ExecutionPolicy,
         return ExampleResult(0, lang, code[:100], passed=None, status="error",
                              error=f"Unknown execution backend: {policy.backend}")
 
+    if ok is None:  # refused before launch: nothing was measured, so it is not scored
+        return ExampleResult(0, lang, code[:100], passed=None, status="skipped", error=err)
     return ExampleResult(0, lang, code[:100], passed=ok,
                          status="passed" if ok else "failed", error=err)
 

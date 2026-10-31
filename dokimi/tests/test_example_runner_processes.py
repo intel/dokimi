@@ -34,6 +34,7 @@ def test_subprocess_snippet_can_fork(lang, code):
     assert res.status == "passed", res.error
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="host subprocess examples are refused on Windows")
 def test_subprocess_failure_reports_stderr():
     res = run_example(
         "python", "import sys; sys.exit('boom')",

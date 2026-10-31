@@ -629,20 +629,39 @@ def _kill_tree(proc: subprocess.Popen[bytes], job: int | None) -> None:
         proc.kill()
 
 
-def _limits_preexec(limits: Limits) -> Callable[[], None] | None:
+def check_limits(limits: Limits) -> None:
+    """Raise ``ValueError`` when this platform cannot apply the requested ``limits``."""
     if limits.cpu_sec is None and limits.memory_bytes is None:
-        return None
+        return
     if sys.platform == "win32":
         raise ValueError("requested process limits are unsupported on Windows")
     if sys.platform == "darwin" and limits.memory_bytes is not None:
         raise ValueError("requested memory limit (RLIMIT_AS) is unsupported on macOS")
+
+
+def _limits_preexec(limits: Limits) -> Callable[[], None] | None:
+    check_limits(limits)
+    if limits.cpu_sec is None and limits.memory_bytes is None:
+        return None
     import resource
 
+    def capped(which: int, soft: int, hard: int) -> tuple[int, int]:
+        # An inherited hard limit below the request stays in force: it cannot be raised.
+        inherited = resource.getrlimit(which)[1]
+        if inherited == resource.RLIM_INFINITY:
+            return soft, hard
+        return min(soft, inherited), min(hard, inherited)
+
+    cpu = None if limits.cpu_sec is None else capped(
+        resource.RLIMIT_CPU, limits.cpu_sec, limits.cpu_sec + 1)
+    mem = None if limits.memory_bytes is None else capped(
+        resource.RLIMIT_AS, limits.memory_bytes, limits.memory_bytes)
+
     def apply() -> None:
-        if limits.cpu_sec is not None:
-            resource.setrlimit(resource.RLIMIT_CPU, (limits.cpu_sec, limits.cpu_sec + 1))
-        if limits.memory_bytes is not None:
-            resource.setrlimit(resource.RLIMIT_AS, (limits.memory_bytes, limits.memory_bytes))
+        if cpu is not None:
+            resource.setrlimit(resource.RLIMIT_CPU, cpu)
+        if mem is not None:
+            resource.setrlimit(resource.RLIMIT_AS, mem)
 
     return apply
 

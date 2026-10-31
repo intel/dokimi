@@ -29,6 +29,19 @@ def _py(code: str, *args: str, **kwargs) -> process.Completed:
 
 def _alive(pid: int) -> bool:
     """True while ``pid`` runs; a killed process nobody has reaped yet is a zombie, so not alive."""
+    if sys.platform == "win32":  # os.kill(pid, 0) succeeds on an exited process whose handle is open
+        import ctypes
+
+        kernel32 = ctypes.WinDLL("kernel32")
+        kernel32.OpenProcess.restype = ctypes.c_void_p
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return False
+        code = ctypes.c_ulong()
+        try:
+            return bool(kernel32.GetExitCodeProcess(ctypes.c_void_p(handle), ctypes.byref(code)))                 and code.value == 259  # STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(ctypes.c_void_p(handle))
     try:
         os.kill(pid, 0)
     except (ProcessLookupError, PermissionError, OSError):
@@ -866,6 +879,31 @@ def test_unsupported_limits_refuse_before_launch(tmp_path, monkeypatch, platform
     with pytest.raises(ValueError, match="unsupported"):
         _py("import pathlib, sys; pathlib.Path(sys.argv[1]).touch()", str(marker), limits=limits)
     assert not marker.exists()
+
+
+@pytest.mark.parametrize("platform, limits", [
+    ("darwin", Limits(cpu_sec=2)),
+    ("linux", Limits(cpu_sec=2, memory_bytes=256 * 1024 * 1024)),
+    ("win32", Limits()),
+])
+def test_supported_limits_are_not_refused(monkeypatch, platform, limits):
+    monkeypatch.setattr(process.sys, "platform", platform)
+    process.check_limits(limits)
+
+
+@_POSIX_ONLY
+def test_a_lower_inherited_hard_limit_caps_the_request(monkeypatch):
+    import resource
+
+    applied = {}
+    monkeypatch.setattr(process.sys, "platform", "linux")
+    monkeypatch.setattr(resource, "getrlimit", lambda which: (resource.RLIM_INFINITY, 4000)
+                        if which == resource.RLIMIT_AS else (resource.RLIM_INFINITY, resource.RLIM_INFINITY))
+    monkeypatch.setattr(resource, "setrlimit", lambda which, pair: applied.update({which: pair}))
+    apply = process._limits_preexec(Limits(cpu_sec=2, memory_bytes=8000))
+    assert apply is not None
+    apply()
+    assert applied == {resource.RLIMIT_AS: (4000, 4000), resource.RLIMIT_CPU: (2, 3)}
 
 
 @_POSIX_ONLY

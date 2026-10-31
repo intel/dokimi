@@ -82,6 +82,8 @@ same backend and host opt-in. Linux keeps the default 512 MiB cap unless explici
 omitted. Windows refuses this subprocess mode even with memory omitted, because
 the CPU cap is still required.
 
-A failure to apply a requested limit prevents execution. The `docker` backend
+A failure to apply a requested limit prevents execution. A snippet whose limits the
+host cannot apply is reported as `skipped` with the reason and is not counted in
+`example_pass_rate`, so a run that executed nothing is not scored as failures. The `docker` backend
 requires a positive memory cap and rejects `null`, zero or negative values before
 launch. Use that Linux-container backend when both limits are required.
