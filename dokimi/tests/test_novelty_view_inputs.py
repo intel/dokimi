@@ -22,6 +22,11 @@ def _view(novelty, atoms, out):
     args.func(args)
 
 
+def _as_reasons(reason):
+    """One expected reason, or several where the Python version decides how deep nesting fails."""
+    return (reason,) if isinstance(reason, str) else reason
+
+
 def _err(tmp_path, novelty, atoms, capsys):
     """Run `novelty view` through cli.main, as a user does, and return what it printed."""
     from dokimi import cli
@@ -51,12 +56,13 @@ def test_a_directory_as_novelty_is_reported_as_unreadable(tmp_path, capsys):
     (bytes([0xFF, 0xFE]), "is not UTF-8 text"),
     (b"[1, 2]", "is not a novelty artifact: expected a JSON object"),
     (b"{}", "is not a valid novelty artifact: "),
-    pytest.param(b"[" * 100000 + b"]" * 100000, "is not valid JSON", id="nested_deeply"),
+    pytest.param(b"[" * 100000 + b"]" * 100000, ("is not valid JSON", "is not a novelty artifact: expected a JSON object", "is not a valid novelty artifact: "), id="nested_deeply"),
 ])
 def test_a_novelty_file_that_is_not_a_novelty_artifact_is_reported_as_invalid(tmp_path, capsys, payload, reason):
     bad = tmp_path / "bad.json"
     bad.write_bytes(payload)
-    assert f"{bad} {reason}" in _err(tmp_path, bad, tmp_path / "a.json", capsys)
+    err = _err(tmp_path, bad, tmp_path / "a.json", capsys)
+    assert any(f"{bad} {r}" in err for r in _as_reasons(reason))
 
 
 def test_a_missing_atoms_file_is_reported_as_unreadable(tmp_path, capsys):
@@ -74,7 +80,7 @@ def test_a_missing_atoms_file_is_reported_as_unreadable(tmp_path, capsys):
     (b"{not json", "is not valid JSON"),
     (bytes([0xFF, 0xFE]), "is not UTF-8 text"),
     (b"[1, 2]", "is not a valid atoms file: "),
-    pytest.param(b"[" * 100000 + b"]" * 100000, "is not valid JSON", id="nested_deeply"),
+    pytest.param(b"[" * 100000 + b"]" * 100000, ("is not valid JSON", "is not a valid atoms file: "), id="nested_deeply"),
     (b'{"atoms": [{"unexpected": 1}]}', "is not a valid atoms file: "),
     (b'{"atoms": "x"}', "is not a valid atoms file: "),
     (b'{"spans": [1]}', "is not a valid atoms file: "),
@@ -87,7 +93,8 @@ def test_an_atoms_file_that_is_not_an_atoms_record_is_reported_as_invalid(tmp_pa
     save_artifact("novelty", _minimal_artifact(), novelty)
     bad = tmp_path / "atoms.json"
     bad.write_bytes(payload)
-    assert f"{bad} {reason}" in _err(tmp_path, novelty, bad, capsys)
+    err = _err(tmp_path, novelty, bad, capsys)
+    assert any(f"{bad} {r}" in err for r in _as_reasons(reason))
 
 
 def test_an_atoms_error_names_the_exception_without_its_repr_quotes(tmp_path, capsys):
@@ -110,5 +117,6 @@ def test_an_atoms_file_of_a_wrong_shape_is_reported_as_invalid_by_view(tmp_path,
     save_artifact("novelty", _minimal_artifact(), novelty)
     bad = tmp_path / "atoms.json"
     bad.write_text(_WRONG_SHAPES[kind], encoding="utf-8")
-    reason = "is not valid JSON" if "nested" in kind else "is not a valid atoms file: "
-    assert f"{bad} {reason}" in _err(tmp_path, novelty, bad, capsys)
+    reasons = ("is not valid JSON", "is not a valid atoms file: ") if "nested" in kind else ("is not a valid atoms file: ",)
+    err = _err(tmp_path, novelty, bad, capsys)
+    assert any(f"{bad} {r}" in err for r in reasons)
