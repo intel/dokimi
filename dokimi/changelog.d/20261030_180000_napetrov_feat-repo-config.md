@@ -16,5 +16,6 @@ SPDX-License-Identifier: Apache-2.0
   `suite_hash`. A skill's suite may hold only its evals: a suite that claims its skill's `SKILL.md`,
   scripts or references is refused at load, naming the subject and the file. `baseline.store: false`
   reads as `off`, and a budget number that YAML reads as text (`1e3`) is refused with the plain
-  decimal or the `1.0e+3` spelling. Nothing reads the file yet: the commands that use it come later,
+  decimal or the `1.0e+3` spelling, and a `.nan` or `.inf` budget is refused. A suite directory is
+  hashed file by file, following symlinks, so an edit to a shared eval moves `suite_hash`. Nothing reads the file yet: the commands that use it come later,
   and existing `.agent-eval/` lookups are unchanged.

@@ -571,3 +571,29 @@ def test_an_eval_that_is_a_symlink_hashes_the_file_it_points_to(tmp_path):
     before = _subjects(root)["skill/a"].suite_hash
     (root / "shared/q.json").write_text("[2]\n", encoding="utf-8")
     assert _subjects(root)["skill/a"].suite_hash != before
+
+
+def test_an_eval_directory_that_is_a_symlink_hashes_the_files_it_reaches(tmp_path):
+    import os
+
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n"
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": body,
+        "skills/a/SKILL.md": "a\n",
+        "common/q.json": "[1]\n",
+        "skills/a/evals/.keep": "",
+    })
+    os.symlink("../../../common", root / "skills/a/evals/shared")
+    before = _subjects(root)["skill/a"].suite_hash
+    (root / "common/q.json").write_text("[2]\n", encoding="utf-8")
+    assert _subjects(root)["skill/a"].suite_hash != before
+
+
+def test_an_evals_dir_that_links_to_its_own_skill_is_refused(tmp_path):
+    import os
+
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n"
+    root = _tree(tmp_path / "repo", {".github/dokimi/config.yaml": body, "skills/a/SKILL.md": "a\n"})
+    os.symlink(".", root / "skills/a/evals")
+    with pytest.raises(ConfigError, match=r"skill/a.*evals.*link"):
+        load_repo_config(root).subjects(hashes=False)

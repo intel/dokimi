@@ -19,7 +19,6 @@ import fnmatch
 import glob
 import hashlib
 import math
-import os
 import re
 from decimal import Decimal, InvalidOperation
 from dataclasses import dataclass, field, replace
@@ -344,15 +343,24 @@ def _digest_files(files: dict[str, Path]) -> str:
 
 
 def _walk(path: Path, rel: str) -> list[tuple[str, Path]]:
-    """The regular files under ``path`` (or ``path`` itself); a symlink to a directory is not followed."""
+    """The regular files under ``path`` (or ``path`` itself), following symlinks; a directory is visited once, so a cycle ends."""
     if not path.is_dir():
         return [(rel, path)]
-    found = []
-    for dirpath, _dirs, names in os.walk(path):
-        for name in names:
-            full = Path(dirpath) / name
-            if full.is_file():
-                found.append((f"{rel}/{full.relative_to(path).as_posix()}", full))
+    found: list[tuple[str, Path]] = []
+    seen: set[Path] = set()
+
+    def visit(directory: Path, prefix: str) -> None:
+        real = directory.resolve()
+        if real in seen:
+            return
+        seen.add(real)
+        for child in sorted(directory.iterdir()):
+            if child.is_dir():
+                visit(child, f"{prefix}/{child.name}")
+            elif child.is_file():
+                found.append((f"{prefix}/{child.name}", child))
+
+    visit(path, rel)
     return sorted(found)
 
 
@@ -366,6 +374,11 @@ def _check_suite(subject: Subject, root: Path) -> None:
     if subject.kind != "skill":
         return
     evals = f"{subject.path}/evals"
+    if (root / subject.path).resolve().is_relative_to((root / evals).resolve()):
+        raise ConfigError(
+            f"subject {subject.id}: its evals dir {evals} links to its skill or an ancestor of it, "
+            "so the suite would hold the skill's own files"
+        )
     for rel in _suite_files(root, subject.suite_globs):
         if rel == subject.path:
             raise ConfigError(f"subject {subject.id}: its suite matches the whole skill directory {subject.path}")
