@@ -13,7 +13,7 @@
 #   make benchmark-compare                      # or: make benchmark-compare BASE=<path>
 BASE ?= baselines/baseline.json
 
-.PHONY: validate-benchmark-spec benchmark-run benchmark-compare dev ci-local hooks
+.PHONY: validate-benchmark-spec benchmark-run benchmark-compare cli-snapshot dev ci-local hooks
 
 # `make dev` venv: at the repo root, outside this directory, so `bandit -r .`
 # and the docs benchmark (both run from here) do not scan it. CI's Python:
@@ -30,6 +30,14 @@ benchmark-run:
 benchmark-compare:
 	@test -f "$(BASE)" || { echo "ERROR: base snapshot $(BASE) not found. Take one with 'make benchmark-run', copy baselines/current.json to it, or pass BASE=<path>."; exit 1; }
 	python cli.py compare --base $(BASE) --candidate baselines/current.json --out-json reports/compare.json --out-md reports/compare.md
+
+# Regenerate the CLI snapshot after a command or flag changes. tests/test_cli_flags.py fails
+# while docs/reference/cli-interface.json is stale. It uses the venv's Python (the one
+# `make dev` pins): the dump hashes validator source with ast.dump, whose output differs
+# between Python versions.
+cli-snapshot:
+	@test -x $(VPY) || { echo "ERROR: $(VENV_ABS) not found -- run 'make dev' first"; exit 1; }
+	PYTHONPATH=. $(VPY) scripts/cli_surface.py dump docs/reference/cli-interface.json
 
 validate-benchmark-spec:
 	@command -v yq >/dev/null 2>&1 || { echo "ERROR: yq is not installed"; exit 1; }

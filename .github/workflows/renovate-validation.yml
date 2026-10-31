@@ -1,0 +1,41 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+name: renovate-validation
+
+# Renovate silently stops opening PRs on a config it cannot parse;
+# --strict also fails on deprecated options.
+on:
+  push:
+    branches: [ main ]
+    paths: &renovate-paths
+      - '.github/renovate.json5'
+      - '.github/workflows/renovate-validation.yml'
+  pull_request:
+    paths: *renovate-paths
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  validate:
+    name: Renovate config
+    # A short job: ubuntu-latest, as for the other short jobs (see ci.yml).
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: suzuki-shunsuke/github-action-renovate-config-validator@1e1604219a6b38ae9a10aff42a28a3656322c31a  # v2.4.1
+        with:
+          config_file_path: .github/renovate.json5
+          strict: 'true'
+          # The action installs the latest validator from npm unless pinned;
+          # the custom manager in renovate.json5 bumps this line.
+          validator_version: '44.198.0'

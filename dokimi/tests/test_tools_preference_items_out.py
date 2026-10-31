@@ -21,20 +21,20 @@ def _preference(items_out: Path) -> None:
     args.func(args)
 
 
-def test_an_items_out_inside_a_regular_file_exits_1_naming_the_path(tmp_path, capsys):
+def test_an_items_out_inside_a_regular_file_exits_2_naming_the_path(tmp_path, capsys):
     blocker = tmp_path / "blocker"
     blocker.write_text("x", encoding="utf-8")
     target = blocker / "items.json"
     with pytest.raises(SystemExit) as exc:
         _preference(target)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert f"Error: cannot write --items-out {target}" in capsys.readouterr().err
 
 
-def test_an_items_out_that_is_a_directory_exits_1_naming_the_path(tmp_path, capsys):
+def test_an_items_out_that_is_a_directory_exits_2_naming_the_path(tmp_path, capsys):
     with pytest.raises(SystemExit) as exc:
         _preference(tmp_path)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert f"Error: cannot write --items-out {tmp_path}" in capsys.readouterr().err
 
 

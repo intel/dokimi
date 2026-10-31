@@ -419,6 +419,12 @@ reads the upstream base (`base_sha`) and the workspace start commit
 Code's `modelUsage`), `main` when the harness reported the parent's only, and
 `null` when it reported none. `subagent_calls` counts the parent's and
 subagents' `Agent`/`Task` calls; `null` when the harness wrote no result record.
+`first_prompt_tokens` is what the first main-thread model call was sent
+(`input + cache_creation + cache_read` tokens of that call, counted once per
+message id, as `context trace` reads it): everything start-up loaded plus the
+task, so two arms that differ only in guidance differ there by what start-up
+loaded of it. It is `null` when the trace has no main-thread call with
+`usage`, and for a trace format that carries none (`text`).
 
 `result.json` `process` holds what the framework counts in the events, the
 parent's and subagents' together, so a grader need not:
@@ -616,7 +622,7 @@ failed the task, and on a task with `score` that is a failed run with score
 | `grader` | data next to `task.json` (key that renames it) | `pass` | `metrics` | `details` |
 |---|---|---|---|---|
 | `dokimi:review_seeds` | `manifest.json` (`manifest`); oracle answer `oracle.json` (`oracle_answer`), a list of findings | `null`; for a manifest with no seeds (a clean-diff control), `true` when no finding is `blocker` or `major` | `n_findings`, `n_severe`, `n_decoys`, `unmatched`, `recall` (`null` with no seeds) | `seeds_hit`, `decoys_flagged`, `recall_by_class` (`"hit/total"`) |
-| `dokimi:review_replay` | `gold.json` (`gold`); `task.json` `window`, default 5 | `null` (score-only) | `n_findings`, `n_severe`, `n_threads`, `recall` (= `recall_all`), `recall_addressed`, `precision_proxy` | `threads_hit`, `recall_by_kind`, `decoys_flagged` (always `[]`) |
+| `dokimi:review_replay` | `gold.json` (`gold`); `task.json` `window`, default 5 | `null` (score-only) | `n_findings`, `n_severe`, `n_threads`, `recall` (= `recall_all`), `recall_addressed`, `precision_proxy` | `threads_hit`, `matches`, `recall_by_kind`, `decoys_flagged` (always `[]`) |
 
 `manifest.json` is `{"seeds": [{id, class, file, lines, kw}], "decoys":
 [{id, file, lines, kw}]}`; `file` `"*"` matches any file, and `kw` is a
@@ -637,6 +643,12 @@ review thread of a merged PR, anchored on a line of the reviewed revision.
 - A finding on a thread's file within `window` lines of its anchor can hit
   it. Matching is one-to-one and nearest first: one finding credits at most
   one thread, and one thread at most one finding.
+- `matches` holds one object per credited pair, in `threads_hit` order: the
+  thread's `thread` (id), `thread_file`, `thread_line` and `comment`, the
+  finding's `finding` (its index among the answer's objects), `file`
+  (repository-relative), `line` (as read for matching), `severity` and
+  `message`, and their `distance` in lines; `comment`, `severity` and
+  `message` are cut to 200 characters. `repo report --hits` lists them (§9).
 - `recall_addressed` counts only threads with `addressed: true` (the code
   changed in response), `recall_by_kind` groups by `kind`, and
   `precision_proxy` is the share of findings within the window of any
@@ -1083,8 +1095,9 @@ root. A bare name
 that names some file or directory is `ok_basename`. A glob is tried the same
 way: `ok` when something matches at the file's directory or an ancestor, `fail`
 when its literal parent directory exists there and nothing in it matches
-(`src/*.zzz`), `ok_suffix` when it ends a longer path in the tree, and
-`unresolved` otherwise (`build/*.o`, `out/<run>/grade.json`). A `<placeholder>`
+(`src/*.zzz`), `ok_suffix` when it ends a longer path in the tree,
+`ok_basename` when it has no `/` and matches the name of some file or
+directory (`type_dispatch*.hpp`), and `unresolved` otherwise (`build/*.o`, `out/<run>/grade.json`). A `<placeholder>`
 or a wildcard in the directory part is never `fail`. A `*` may span
 directories and `**/` matches zero or more. A trailing slash on a file
 (`src/mod.py/`) is `fail`. A GitHub Action reference (`actions/checkout@v6`) is not a
@@ -1149,12 +1162,18 @@ scanned once, as the file it names.
 The report lists `warnings` for guidance the manifest names but the tree lacks:
 a glob with no match, a missing `also_scan` file, no guidance at all, and a
 guidance file that cannot be read (a link that dangles or leaves the tree, a
-binary file, a file over 2 MB), named with the reason. An invalid `--static`
-document is not merged, and the command exits 1. `--fail-on-fail` also exits 1
+binary file, a file over 2 MB), named with the reason. A `--static`
+file that cannot be read or is not JSON exits 2; a document that fails the
+`repo_static.v1` schema is not merged, and the command exits 1. `--fail-on-fail` also exits 1
 when any claim fails, an `also_scan` file is missing, a guidance file cannot be
 read, a Bazel build input (`BUILD`, `.bzl`, `.bazelrc`, ...) cannot be read, or no guidance file matched
 (`incomplete`). A glob that matches nothing
 does not fail the gate, so a file the gate must see belongs in `also_scan`.
+`incomplete_reasons` lists the warnings that make the scan `incomplete`, as
+they appear in `warnings` and in its order (`[]` for a complete scan). The text
+output prints them after the warnings, on one `incomplete: ...` line, and when
+`--fail-on-fail` exits 1 on an incomplete scan it prints them on stderr as
+`✗ scan incomplete: ...`.
 
 Statuses are those of §4.4. Only `fail` counts against the guidance;
 `unresolved` needs a human look. Not implemented yet: the pre-commit↔CI
@@ -1302,7 +1321,12 @@ python cli.py repo compare repo-runs/replay --baseline guidance:none --metric re
   same goes for the finished cells of a task this host cannot run, which
   `--force` keeps; that refusal comes after the host probe, before any agent starts. A result from before `execution` was
   recorded is refused as `unrecorded`, not counted as native; `--force` or
-  another `--batch` runs it. A batch stays on the eval tree it
+  another `--batch` runs it. A `result.json` that is not UTF-8, not JSON or
+  not a JSON object is that cell's error, naming the file, and the other cells
+  still run; the file is left in place, and removing it or `--force` runs the
+  cell again. The same holds for a finished cell of a task this host cannot
+  run, except that `--force` keeps it: once its file is removed, the cell runs
+  on a host that meets the task's requirements. A batch stays on the eval tree it
   started with: its revision, or for a working tree the digests of its `eval_dir`
   and of the image build context. A batch with a task that
   names a `dokimi:` grader (or a task directory that cannot be read) also stays on the built-in graders' sources.
@@ -1330,19 +1354,74 @@ python cli.py repo compare repo-runs/replay --baseline guidance:none --metric re
   When cells carry `result.json` `process` (§4.1), a line under the row gives
   the mean of each count over the cells that have it (`guidance_read` counted
   as paths; `counter:<name>` for `process_metrics`); a `null` or absent
-  `process` is left out, not counted as zero.
+  `process` is left out, not counted as zero. A row whose cells include
+  agent answers with no findings JSON that parsed (`grade.json`
+  `parse_error`, §4.5) notes how many, `(scored 0)` on a score-only row and
+  `(counted as failed)` on a gate row; a cell whose `result.json` says
+  `grader_failure` is counted under `grader_fail` instead. `--json` gives
+  `parse_errors` on every row. `repo report --hits` prints, instead of the table, each credited pair of
+  the `dokimi:review_replay` cells (`details.matches`, §4.5) by task, arm,
+  model and rep: the thread and its comment, then the finding that hit it.
+  `--hits --json` gives `{batch, replay_cells, without_matches, hits}`, one
+  record in `hits` per pair (`task`, `arm`, `model`, `rep`, `cell` and the
+  match's fields; the first five come from the cell's `result.json`, and a
+  match key of the same name does not replace them). A cell graded before `matches` was recorded is counted
+  (`N cell(s) graded without hit details`), not listed.
 - `repo compare` reduces cells to one value per (task, arm, model) first:
   repetitions share a task's difficulty and are not paired across arms, so the
   task is the unit. Per treatment arm, model and measure (gate share, score,
-  cost, turns, each `--metric` from `grade.json`, and each `process` count a
+  cost, turns, `first_prompt_tokens`, each `--metric` from `grade.json`, and each `process` count a
   compared cell reports as `process:<key>` or `counter:<name>`) it gives the mean per-task
   delta against the baseline with a 95% interval over tasks (a bootstrap for
-  gate and score, a t interval for cost, turns, metrics and process counts, `-` for a single
+  gate and score, a t interval for the descriptive measures, `-` for a single
   task), the tasks up, down and tied, and a two-sided sign-flip permutation p (exact up to 16
   changed tasks; at one cell per task and arm it equals McNemar's exact test).
-  A `process` count only one arm reports for the shared tasks of a
-  (treatment, model) is not compared; a warning names it. Holm's correction runs over the gate and score comparisons of one call; the
-  rest are descriptive. A gate or score comparison carries `headroom`:
+  A `process` count or `first_prompt_tokens` only one arm reports for the shared tasks of a
+  (treatment, model) is not compared; a warning names it. When neither arm
+  reports it (a batch run before `repo run` recorded it), the row is absent.
+  Holm's correction runs over the gate and score comparisons of one call; the
+  rest are descriptive. Three notes under a comparison keep a row from being
+  misread, and change no delta, interval or p. A gate or score row of 2+ tasks whose
+  interval includes 0 is inconclusive, not evidence of no effect: the note
+  gives `mde`, a planning figure: an approximate, uncorrected t-based estimate,
+  `(t(0.975, n-1) + t(0.80, n-1)) * sd / sqrt(n)` over the per-task deltas, of
+  the mean delta a one-sample t test at the uncorrected two-sided 5% level
+  detects with 80% power at that spread, the t quantiles at `n-1` degrees of
+  freedom (every row has `mde` in `--json`; `null` for one task or deltas with
+  no spread, and then no note). It is not the power of the sign-flip test nor
+  of the Holm-corrected decision; a Holm-calibrated figure would depend on the
+  other rows' observed p, which a figure for planning the next run's task count
+  cannot know. The sign-flip p over k changed (non-tied)
+  tasks cannot go below `2 / 2^k`, so with 5 or fewer no effect of any size
+  reaches p < 0.05: `mde` is `null` there too, and the note says how low p can
+  go instead (`with 3 changed tasks the sign-flip p cannot go below 0.25: no
+  effect can reach p < 0.05 here`). Holm's correction can lift that floor: a
+  gate or score row's `p_holm_floor` is its `p_holm` with its p put at that
+  floor and the other p of the family as observed (in every `--json` row;
+  `null` on a descriptive row or one with every task tied), and where it is not below
+  0.05, `mde` is `null` and the note names Holm instead (`with Holm over 2
+  rows, p_holm cannot go below 0.0625 here: no effect can reach p_holm <
+  0.05`); a family of one row is the raw rule. `p_holm_floor` decides only
+  whether `mde` is given, not its size. A row whose interval and p disagree (the
+  interval excludes 0 while p is 0.05 or more, or includes 0 while p is below
+  0.05; for gate and score that p is `p_holm`, the one that decides them, and the
+  note quotes it) has `interval_p_disagree` `true` and a note: they come from two
+  methods, and for gate and score `p_holm` is the one to read, since a percentile
+  bootstrap runs narrow over few tasks; the inconclusive note gives way to
+  it. Descriptive rows with p below 0.05 are named on one line: their p is
+  uncorrected and outside Holm's family. `--task ID` (repeatable) compares only
+  those tasks: an id no finished cell of the batches has is refused, the tasks
+  left out are not listed as unpaired nor their cells as missing (a missing
+  cell's task is the one its `meta.json` records, else, for a cell only
+  `plan.json` names, the longest task id of the batch's finished cells that its
+  name starts with followed by `__`; a cell of neither is missing only without
+  `--task`), the `--json` summary records the
+  selection as `task_filter` (`tasks`, and `of`, the number of tasks of the
+  batches that have a finished cell, the ids `--task` can name, and
+  `dropped_arms`: without `--arm`, the arms with no finished cell among the
+  selection, which drop out of the comparison, `[]` with `--arm`; `null`
+  without `--task`), and the text header says `tasks: N of M (--task)` and,
+  under it, `not compared, no finished cell among the --task selection: <arms>`. A gate or score comparison carries `headroom`:
   `ceiling` (both arms at 1.0 or the task's `score.max` on every paired
   task), `floor` (both at 0 on every one), `near_ceiling` (the baseline at
   the top on all but at most one of 2+ tasks and the treatment nowhere below

@@ -3,12 +3,11 @@
 
 """What each arms entry point hands the runner, for every run-configuration field.
 
-``arms run``, ``arms matrix-run`` and ``subjects run`` all end in an arms run, each by its
-own path: ``matrix-run`` copies its Namespace per cell, ``subjects run`` builds one by hand
-from ``FORWARDED_RUN_CONFIG_FIELDS``, and the shared code reads most fields with a
-``getattr`` default. A field one path drops is indistinguishable from a user who chose the
-default, so this pins, per entry point, what reaches the runner when every field it takes
-is set away from its default and when every field is left out.
+``arms run``, ``arms matrix-run`` and ``subjects run`` all end in an arms run, each from its
+own flags: ``matrix-run`` puts each cell's model, provider, harness and plugins in, and
+``subjects run`` has only some of the flags. A field one path drops is indistinguishable from
+a user who chose the default, so this pins, per entry point, what reaches the runner when
+every field it takes is set away from its default and when every field is left out.
 
 The argv goes through ``dokimi.cli.parse_args`` (what ``main`` calls) to the command's own
 handler. The boundary is the ``ArmRunner`` constructor and its ``run``/``judge``/

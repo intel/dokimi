@@ -152,7 +152,9 @@ where the model decides to call a doc-search or skill tool (`agent:`,
 The spec grammar — what an `--arms` entry means, where `+` splits a combined
 spec, and what each arm is *named* — is `treatments/specs.py`.
 `eval/arm_runner.py` generates and judges answers for every arm and reports
-per-arm deltas vs a baseline. `dokimi/plugins.py` adds runtime plugins that
+per-arm deltas vs a baseline. `eval/arms_run.py` runs it from an `ArmsRunConfig`,
+the one typed run configuration `arms run`, `arms matrix-run` (one per cell) and
+`subjects run` build from their flags. `dokimi/plugins.py` adds runtime plugins that
 modify every arm inside one run (`plugin:caveman`): a plugin changes the system
 prompt before the model runs or reshapes the answer after it. Entry point:
 `python cli.py arms run`. Details in
@@ -337,7 +339,10 @@ next release.
   share, score, cost, turns, chosen `grade.json` metrics, `result.json`
   `process` counts), with an interval
   over tasks (bootstrap for gate and score, t for the rest), a sign-flip
-  permutation p and Holm's correction.
+  permutation p and Holm's correction. `dokimi/repos/compare_tasks.py` holds
+  what its `--task` selection keeps; `dokimi/repos/compare_reach.py` how small
+  an effect a row can find (`mde`, an uncorrected t-based estimate, and the
+  lowest `p_holm` Holm's family leaves it).
 - `dokimi/repos/selfcheck.py` — `repo tasks check`: on each task
   `grade` must fail the untouched workspace and pass it after `oracle`, and an
   isolation probe must not see the tasks or the source from the agent's
@@ -411,6 +416,10 @@ Guide: [run-consistency.md](run-consistency.md).
   adapter seam: `LiteLLMAdapter` in production, `FakeAdapter` in tests (the
   `fake_llm` fixture). `ask_parsed` is the redraw-until-it-parses loop.
   `llm_call`, `chat_completion` and `utils.get_llm` delegate to `LLM`.
+  `dokimi/llm_cli.py` serves the CLI providers (`claude-cli`): `LiteLLMAdapter`
+  hands their requests to it, and it runs the logged-in CLI through `process.run`
+  ([subscription-backends.md](subscription-backends.md)). `dokimi/llm_json.py`
+  holds the JSON extraction helpers `llm.py` re-exports.
 - `dokimi/caching.py` — the two caches that hang off `llm.py`: provider prompt
   caching (the stable part of a prompt goes first, so the provider can reuse it)
   and an opt-in response cache for byte-identical single-shot requests

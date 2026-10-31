@@ -2,6 +2,7 @@
 depends_on:
   - dokimi/dokimi/treatments/**
   - dokimi/dokimi/commands/arms.py
+  - dokimi/dokimi/eval/arms_run.py
   - dokimi/dokimi/schemas/arms.v1.json
   - dokimi/dokimi/skills/loader.py
   - dokimi/dokimi/agent_profiles/loader.py
@@ -717,10 +718,10 @@ Two gates are deliberately statistical rather than absolute:
 - **coverage, not zero errors.** A judge call fails occasionally (~1.25% observed against
   the Intel proxy), and a failed call leaves `aggregate: null`. The gate requires ≥95% of
   questions scored in *both* arms.
-- **paired deltas, not the artifact's own number.** `delta_vs_baseline` averages each arm
-  over whatever it scored, so one failed call subtracts means taken over different
-  questions (39 vs 40 was observed, worth ~0.4 points). The script recomputes over
-  questions both arms scored. It pools questions; a mean of per-cell means differs slightly
+- **paired deltas.** The artifact's `delta_vs_baseline` is paired over the questions both
+  arms scored, so one failed call does not subtract means taken over different
+  questions (39 vs 40 was observed, worth ~0.4 points). The script recomputes it over
+  those questions. It pools questions; a mean of per-cell means differs slightly
   when the sets have different sizes — say which one a report uses.
 
 ## Scope and caveats

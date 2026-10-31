@@ -32,13 +32,13 @@ def _bad_files(tmp_path):
 
 @pytest.mark.parametrize("cmd", [cmd_questions_analyze, cmd_questions_panel_review])
 @pytest.mark.parametrize("case", ["invalid json", "not utf-8", "a directory", "missing", "nested too deep"])
-def test_unreadable_questions_file_exits_1_with_a_message(cmd, case, tmp_path, capsys):
+def test_unreadable_questions_file_exits_2_with_a_message(cmd, case, tmp_path, capsys):
     path = _bad_files(tmp_path)[case]
 
     with pytest.raises(SystemExit) as exc:
         cmd(_args(path, tmp_path))
 
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: ")
     assert str(path) in err

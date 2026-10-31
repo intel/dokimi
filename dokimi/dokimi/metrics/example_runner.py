@@ -14,8 +14,9 @@ documentation is dangerous, so execution is governed by an explicit
   ``allow_host=True`` (an explicit opt-in). Use only for **trusted, self-owned**
   documentation. Network is *not* isolated in this mode, and the number of
   processes a snippet spawns is not capped.
-* ``docker`` — run inside a locked-down container (``--network none``,
-  read-only mounts, CPU/memory/time limits). Preferred for untrusted docs.
+* ``docker`` — run inside a locked-down container (``--network none``, no
+  capabilities, ``no-new-privileges``, read-only mounts, CPU/memory/process/time
+  limits). Preferred for untrusted docs.
 
 See ``docs/example-execution.md``.
 """
@@ -189,17 +190,22 @@ def _run_subprocess(lang: str, code: str, policy: ExecutionPolicy,
 
 def _run_docker(lang: str, code: str, policy: ExecutionPolicy,
                 runner: process.Runner) -> tuple[bool, str | None]:
-    """Run code inside a locked-down container (no network, read-only, limited)."""
+    """Run code inside a locked-down container (no network, no capabilities, read-only, limited)."""
     if policy.mem_mb is None or policy.mem_mb <= 0:
         return False, "docker backend requires a positive memory cap (mem_mb)"
     suffix, argv_prefix = EXECUTORS[lang]
     with tempfile.TemporaryDirectory() as tmp:
         script = Path(tmp) / f"snippet{suffix}"
         script.write_text(code, encoding="utf-8")
-        flags = ContainerPolicy(network="none", cpus=policy.cpus, memory_mb=policy.mem_mb, pids_limit=64,
-                                read_only=True)
+        # Root without CAP_DAC_OVERRIDE cannot enter a 0700 dir it does not own (#229),
+        # so the :ro mount is world-readable; it holds only the document's own snippet.
+        os.chmod(tmp, 0o755)  # nosec B103 - read and entered as "other", not writable
+        script.chmod(0o644)
+        flags = ContainerPolicy(network="none", no_new_privileges=True, cap_drop_all=True, cpus=policy.cpus,
+                                memory_mb=policy.mem_mb, pids_limit=64, read_only=True)
         cmd = [
             "docker", "run", "--rm",
+            *flags.hardening_argv(),
             *flags.network_argv(),
             *flags.resource_argv(),
             *flags.pids_argv(),

@@ -77,6 +77,8 @@ class CheckResult:
     score: Optional[float]
     weight: float = 1.0
     detail: str = ""
+    #: Set when the check could not be graded because a call failed (the judge), not because it has no verdict.
+    error: Optional[str] = None
 
     def as_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {"type": self.type, "passed": self.passed, "score": self.score}
@@ -84,15 +86,22 @@ class CheckResult:
             out["weight"] = self.weight
         if self.detail:
             out["detail"] = self.detail
+        if self.error is not None:
+            out["error"] = self.error
         return out
 
 
 @dataclass
 class Grade:
-    """One answer graded against one question's checks."""
+    """One answer graded against one question's checks.
+
+    An ``error`` (the answer call failed, or a judge call did) means the answer has no grade: no
+    score and no pass, whatever the other checks said. It is counted as an error, not as unscored.
+    """
 
     checks: list[CheckResult] = field(default_factory=list)
     threshold: Optional[float] = None
+    error: Optional[str] = None
 
     @property
     def counted(self) -> list[CheckResult]:
@@ -110,6 +119,8 @@ class Grade:
 
     @property
     def score(self) -> Optional[float]:
+        if self.error is not None:
+            return None
         counted = self.counted
         total = sum(c.weight for c in counted)
         if not counted or total <= 0:
@@ -127,11 +138,14 @@ class Grade:
 
     def as_dict(self) -> dict[str, Any]:
         score = self.score
-        return {
+        out: dict[str, Any] = {
             "aggregate": None if score is None else round(100 * score, 1),
             "passed": self.passed,
             "checks": [c.as_dict() for c in self.checks],
         }
+        if self.error is not None:
+            out["error"] = self.error
+        return out
 
 
 # --- normalisation -----------------------------------------------------------------------------
@@ -331,9 +345,12 @@ def grade_check(check: Mapping[str, Any], question: str, answer: str, ask: Optio
     if kind in JUDGED:
         if ask is None:
             return CheckResult(kind, None, None, weight, "not judged: no judge model")
-        from dokimi.eval.checklist import check_answer
+        from dokimi.eval.checklist import JudgeFailed, check_answer
 
-        verdict = check_answer(ask, question, answer, [judge_point(check)])[0]
+        try:
+            verdict = check_answer(ask, question, answer, [judge_point(check)], strict=True)[0]
+        except JudgeFailed as exc:
+            return CheckResult(kind, None, None, weight, "judge failed", error=f"judge: {exc}")
         score = verdict.score
         if score is not None and check.get("negate"):
             score = 1.0 - score
@@ -412,18 +429,32 @@ def _check_problems(kind: str, c: Mapping[str, Any]) -> list[str]:
     return out
 
 
-def grade(grading: Mapping[str, Any], question: str, answer: Optional[str], ask: Optional[Ask] = None) -> Grade:
+def grade(grading: Mapping[str, Any], question: str, answer: Optional[str], ask: Optional[Ask] = None,
+          *, answer_error: Optional[str] = None) -> Grade:
     """Every check of ``grading`` on ``answer``.
 
-    A missing answer (the answer call failed) leaves every check unscored rather than failed:
-    a provider error is not the model's wrong answer, and the grade's score is then ``None``.
+    A missing answer leaves every check unscored rather than failed: a provider error is not the
+    model's wrong answer. ``answer_error`` names why there is none; it makes the grade an error.
+    A judge check whose call failed makes the grade an error too, so no pass is decided by the
+    checks that did run.
     """
     threshold = grading.get("threshold")
-    out = Grade(threshold=float(threshold) if threshold is not None else None)
+    out = Grade(threshold=float(threshold) if threshold is not None else None, error=answer_error)
+    judge_failed = False
     for check in grading.get("checks", []):
+        kind = str(check.get("type"))
         if answer is None:
-            out.checks.append(CheckResult(str(check.get("type")), None, None,
+            out.checks.append(CheckResult(kind, None, None,
                                           float(check.get("weight", 1.0)), "no answer"))
             continue
-        out.checks.append(grade_check(check, question, answer or "", ask))
+        if judge_failed and kind in JUDGED:
+            # The grade is already an error, so a further judge call could not change it: skip the paid call.
+            out.checks.append(CheckResult(kind, None, None, float(check.get("weight", 1.0)),
+                                          "not judged: an earlier judge check failed"))
+            continue
+        result = grade_check(check, question, answer or "", ask)
+        out.checks.append(result)
+        if out.error is None and result.error is not None:
+            out.error = result.error
+        judge_failed = judge_failed or (kind in JUDGED and result.error is not None)
     return out

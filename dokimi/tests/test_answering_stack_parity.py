@@ -262,7 +262,7 @@ def _observe(tmp_path: Path, provider_calls) -> Dict[str, Tuple[Any, Any]]:
             mp, tmp_path / "p-noid", provider_calls, context7_id=None, questions=QUESTIONS[:1]
         )
 
-    from dokimi.commands.arms import _resolve_doc_library_id
+    from dokimi.eval.arms_run import resolve_doc_library_id
     from dokimi.registry import ProductRegistry
     from dokimi.treatments.arms import DocTreatment
 
@@ -272,7 +272,7 @@ def _observe(tmp_path: Path, provider_calls) -> Dict[str, Tuple[Any, Any]]:
         f"    description: fixture\n    context7_id: {REGISTRY_ID}\n",
         encoding="utf-8",
     )
-    a_lib = _resolve_doc_library_id(
+    a_lib = resolve_doc_library_id(
         [DocTreatment(a.client, name="docs", top_k=3, reranker=a.reranker)],
         PRODUCT,
         registry=ProductRegistry(registry_path),

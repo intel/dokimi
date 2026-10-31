@@ -11,6 +11,7 @@ point without importing the analyzer that imports it.
 from __future__ import annotations
 
 from pathlib import Path
+from dokimi.exit_codes import usage_exit
 
 
 def load_artifact_text(ref: str) -> tuple[str, str, str, str, str]:
@@ -44,4 +45,4 @@ def load_artifact_or_exit(ref: str) -> tuple[str, str, str, str, str]:
     try:
         return load_artifact_text(ref)
     except (OSError, ValueError, RecursionError) as exc:
-        raise SystemExit(f"cannot load --artifact {ref}: {exc}") from None
+        usage_exit(f"cannot load --artifact {ref}: {exc}")

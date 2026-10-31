@@ -10,6 +10,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 from dokimi.llm import ChatModel
+from dokimi.llm_cli import BACKENDS as CLI_BACKENDS
 from dokimi.llm import ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
 from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
 
@@ -98,7 +99,7 @@ class QuestionGenerator:
         elif provider == "anthropic":
             self.llm = ChatAnthropic(model=model, api_key=api_key)
         elif provider in ("google", "gemini", "google-vertex", "openrouter",
-                          "amazon-bedrock", "vertex_ai"):
+                          "amazon-bedrock", "vertex_ai", *CLI_BACKENDS):
             from dokimi.utils import get_llm
             import os
             fallback_key = os.environ.get("OPENROUTER_API_KEY") if provider == "openrouter" else None
@@ -106,7 +107,7 @@ class QuestionGenerator:
         else:
             raise ValueError(
                 f"Unsupported provider: '{provider}'. "
-                "Use 'openai', 'anthropic', 'google', 'openrouter', or 'amazon-bedrock'."
+                "Use 'openai', 'anthropic', 'google', 'openrouter', 'amazon-bedrock' or 'claude-cli'."
             )
         
         logger.info(f"QuestionGenerator initialized: {provider}/{model}")

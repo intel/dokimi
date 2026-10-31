@@ -122,6 +122,28 @@ class ExecutionMismatch(PrepError):
     """A finished cell of the batch ran with another execution than the one asked for."""
 
 
+class UnreadableResult(PrepError):
+    """A finished cell's ``result.json`` is not a JSON object: it is reported, not overwritten or rerun."""
+
+
+RERUN_HINT = "remove it to run the cell again, or rerun with --force, which replaces every cell of this run's plan"
+
+
+def _finished_result(path: Path, recover: str = RERUN_HINT) -> dict[str, Any]:
+    """The parsed ``result.json`` of a finished cell, or :class:`UnreadableResult` naming the file and ``recover``."""
+    try:
+        done = json.loads(path.read_text(encoding="utf-8"))
+    except UnicodeDecodeError:
+        problem = NOT_UTF8
+    except ValueError as exc:
+        problem = f"not valid JSON ({exc})"
+    else:
+        if isinstance(done, dict):
+            return done
+        problem = "not a JSON object"
+    raise UnreadableResult(f"{path}: {problem}; {recover}")
+
+
 def check_batch_executions(batch_dir: Path, options: list[AgentOptions], replacing: set[str] | None = None) -> None:
     """Refuse, before anything runs, a batch dir whose finished cells ran with another execution.
 
@@ -133,8 +155,10 @@ def check_batch_executions(batch_dir: Path, options: list[AgentOptions], replaci
         if replacing is not None and path.parent.name in replacing:
             continue
         try:
-            ran = recorded_execution(json.loads(path.read_text(encoding="utf-8")))
-        except (OSError, ValueError):
+            ran = recorded_execution(_finished_result(path))
+        except (OSError, UnreadableResult):
+            # No execution to compare. A cell of this run's plan reports it: in run_cell, or for a task this
+            # host cannot run in _unsupported_cell; one outside the plan is not read again.
             continue
         found.add(ran["id"] if isinstance(ran.get("id"), str) else "unrecorded")
     other = found - wanted
@@ -230,7 +254,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     rd = batch_dir / cell_name(task.id, arm, opts.model, rep)
     execution = execution_record(opts)
     if (rd / "result.json").is_file() and not force:
-        done = json.loads((rd / "result.json").read_text(encoding="utf-8"))
+        done = _finished_result(rd / "result.json")
         ran = recorded_execution(done)
         # A result from before execution ids carries none: nothing says how it ran, so it is not reused.
         if ran.get("id") != execution["id"]:
@@ -277,7 +301,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         # A killed harness reports no cost; the batch budget counts the cell's cap instead of $0.
         "charged_usd": caps["budget_usd"], "num_turns": None, "is_error": None, "result_subtype": None,
         "input_tokens": None, "output_tokens": None, "cache_read_tokens": None,
-        "cache_write_tokens": None, "usage_scope": None, "subagent_calls": None,
+        "cache_write_tokens": None, "usage_scope": None, "first_prompt_tokens": None, "subagent_calls": None,
         "plugins": [], "over_budget": False, "caps": caps, "network": network, "trace_errors": []}
     process: dict[str, Any] | None = None  # null when the trace could not be read
     added = meta.get("arm_patch") or {}
@@ -302,6 +326,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
             result_subtype=transcript.result_subtype, input_tokens=transcript.input_tokens,
             output_tokens=transcript.output_tokens, cache_read_tokens=transcript.cache_read_tokens,
             cache_write_tokens=transcript.cache_write_tokens, usage_scope=transcript.usage_scope,
+            first_prompt_tokens=transcript.first_prompt_tokens,
             subagent_calls=transcript.subagent_calls, plugins=transcript.plugins,
             over_budget=cost is not None and cost > caps["budget_usd"], trace_errors=transcript.errors[:5])
         if events is not None:  # after the cost is recorded: a metric that fails must not cost the cell its record
@@ -389,7 +414,8 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
 
     The host is probed once, before any cell (``_eval/host.json``); a cell of a task whose ``host``
     requirements it does not meet is marked unsupported instead of run. One that already has a
-    ``result.json`` (from a host that met them) keeps it, even with ``force``."""
+    ``result.json`` (from a host that met them) keeps it, even with ``force``; one that cannot be read is
+    that cell's error."""
     validate_tasks(tasks)
     cells = [(t, a, o, r) for t in tasks for a in arms for o in options for r in range(1, reps + 1)]
     check_batch_executions(batch_dir, options, {cell_name(t.id, a, o.model, r) for t, a, o, r in cells} if force else None)
@@ -413,11 +439,15 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
         task, arm, opts, rep = cell
         name = cell_name(task.id, arm, opts.model, rep)
         if task.id in unsupported:
-            done = _done(batch_dir / name)
-            if not done and verdicts[task.id][1] != "host-probe":  # a failed probe is no verdict on the cell
-                _mark_unsupported(batch_dir / name, cell, unsupported[task.id], host)
+            try:
+                counted = _unsupported_cell(batch_dir / name, cell, unsupported[task.id], verdicts[task.id][1], host)
+            except (UnreadableResult, OSError) as exc:
+                with lock:
+                    state["errors"].append({"cell": name, "error": str(exc)})
+                log(f"✗ {name}: {exc}")
+                return
             with lock:
-                state["skipped" if done else "unsupported"] += 1
+                state[counted] += 1
             return
         with lock:
             if max_batch_usd is not None and state["spent"] >= max_batch_usd and not _done(batch_dir / name):
@@ -453,6 +483,20 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
 
 
 UNSUPPORTED_FILE = "unsupported.json"
+KEPT_HINT = ("this host cannot run the task, so --force keeps the file; remove it, and the cell runs on a host "
+             "that meets the task's requirements")
+
+
+def _unsupported_cell(rd: Path, cell: tuple[Task, str, AgentOptions, int], why: str, by: str | None,
+                      host: dict[str, Any]) -> str:
+    """The count of a cell of a task this host cannot run: ``skipped`` when it keeps a finished result, else
+    ``unsupported``. A kept ``result.json`` that cannot be read raises, the file left as it is."""
+    if _done(rd):
+        _finished_result(rd / "result.json", KEPT_HINT)
+        return "skipped"
+    if by != "host-probe":  # a failed probe is no verdict on the cell
+        _mark_unsupported(rd, cell, why, host)
+    return "unsupported"
 
 
 def _mark_unsupported(rd: Path, cell: tuple[Task, str, AgentOptions, int], reason: str,

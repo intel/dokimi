@@ -31,7 +31,7 @@ def _results(tmp_path):
     return tmp_path / "results"
 
 
-def test_generate_exits_1_with_a_message_when_the_output_dir_is_a_file(tmp_path, capsys):
+def test_generate_exits_2_with_a_message_when_the_output_dir_is_a_file(tmp_path, capsys):
     results = _results(tmp_path)
     blocker = tmp_path / "out"
     blocker.write_text("not a directory", encoding="utf-8")
@@ -41,7 +41,7 @@ def test_generate_exits_1_with_a_message_when_the_output_dir_is_a_file(tmp_path,
     with pytest.raises(SystemExit) as exc:
         args.func(args)
 
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: cannot write the dashboard to ")
     assert "Traceback" not in err
