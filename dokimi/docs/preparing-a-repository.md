@@ -214,7 +214,8 @@ effect. Targets skipped because a `CLAUDE.md` already exists are listed as
 
 Loading changes between versions. Run `dokimi repo reach` for the harness and
 version you use instead of relying on this table. The `claude-code`, `codex`,
-`codex-review`, `copilot` and `copilot-review` profiles are built in; for another
+`codex-review`, `copilot` and `copilot-review` profiles are built in (`repo reach`
+refuses `codex-review`, which runs its own prompt: probe with `codex`); for another
 harness, pass a `harness_profile.v1` file with `--harness`
 ([contract](repo-evaluation-contract.md)). Tool-use counts need a trace the profile
 can convert, which today means `claude-stream-json`, `codex-json` or `copilot-json`; a `text` trace gives no
