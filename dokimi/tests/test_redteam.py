@@ -215,9 +215,7 @@ def test_a_stuffed_answer_never_ends_in_a_decoy_the_check_accepts():
     grading = _match("Lyon", "QZX-BOGUS-REPLY-4096")
     stuffed = redteam.attacks(grading)["stuffed"]
     assert stuffed is not None and not stuffed.endswith("QZX-BOGUS-REPLY-4096")
-    result = run([_q("1", grading)])
-    assert result["violations"] == []
-    assert result["status"] != "blocked"
+    assert redteam.grade(grading, "", stuffed).checks[0].passed is False
 
 
 def test_a_stuffed_answer_needs_two_decoys_the_check_rejects():
