@@ -31,8 +31,8 @@
   not yet normalize or enforce the version, so it does not yet stop a comparison of mixed methods.
   `eval score` stamps its eval with the version of the answers file it judges, so legacy answers
   re-judged today stay version 1. An eval artifact also carries `judge_placeholder`, so two files
-  of one version that differ in it are told apart. A `method_version` that is not a positive
-  integer is refused before any judge call (`eval score` exits 2).
+  of one version that differ in it are told apart. An absent or null stamp means version 1; any
+  other value must be a positive integer, or `eval score` exits 2 before any judge call.
 
 ### Fixed
 
