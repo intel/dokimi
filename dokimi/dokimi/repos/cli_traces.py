@@ -52,6 +52,7 @@ _DIRS = {"cd"} | _DIR_STACK  # the builtins that change the directory
 _PIPE = re.compile(r"(?<!\|)\|(?!\|)")  # a pipe, not ||
 _GROUP_OPEN = re.compile(r"(?:^|[\s;&|(])\{(?=\s|$)")  # a brace group opens: ``{`` as a word
 _GROUP_CLOSE = re.compile(r"(?:^|\s)\}(?=\s|$|[;&|])")
+_FUNCTION_DEF = re.compile(r"\s*(?:function\s+[^\s(){}]+(?:\s*\(\s*\))?|[^\s(){}=$`]+\s*\(\s*\))\s*\{(?=\s|$)")
 _STDOUT_FILE = re.compile(r"&>>?|(?<![\w&>])1?>>?(?!&)|(?<![\w&>])1?>&(?!\d)")  # a group's stdout to a file: not the agent's
 # the values of long options that take a separate word (``head --lines 5``), by command
 _LONG_VALUE = {
@@ -91,7 +92,7 @@ def shell_reads(script: str, cwd: str = "") -> list[str]:
     restored after it; the reads of a
     group whose output feeds a pipe after it is dropped, as a pipeline is not a read here; a group whose stdout is
     redirected to a file or /dev/null is dropped, as that output is not shown to the agent. ``--help`` and
-    ``--version`` print and open no file. Absolute paths are kept.
+    ``--version`` print and open no file. A function definition is skipped whole. Absolute paths are kept.
     """
     out: list[str] = []
     walk = _Walk(posixpath.normpath(cwd) if cwd else "")
@@ -106,6 +107,8 @@ def shell_reads(script: str, cwd: str = "") -> list[str]:
             walk.lose()
             walk.gated = False
         walk.chain(op, chained)
+        if walk.in_function(_bare(part)):  # a definition runs nothing
+            continue
         if op == "||" and walk.moved:
             walk.here = None
         if in_subshell:  # a subshell: its reads are not tracked
@@ -131,6 +134,7 @@ class _Walk:
         self.groups: list[tuple[str | None, bool, int]] = []
         self.list_start: str | None = here  # the directory where the current && / || list began
         self.listed = False  # that list has more than one command
+        self.function = 0  # the brace depth inside a function definition
 
     def chain(self, op: str, chained: bool) -> None:
         """A list of more than one command ended by ``&`` ran in a subshell, so this shell did not move: ``cd sub &&
@@ -141,6 +145,14 @@ class _Walk:
             self.listed = True
         else:
             self.list_start, self.listed = self.here, False
+
+    def in_function(self, bare: str) -> bool:
+        """Whether ``bare`` is part of a function definition (``f() { cd x; cat a; }``): its body is skipped, as
+        defining it runs nothing (a later call is not followed)."""
+        if not self.function and not _FUNCTION_DEF.match(bare):
+            return False
+        self.function = max(self.function + len(_GROUP_OPEN.findall(bare)) - len(_GROUP_CLOSE.findall(bare)), 0)
+        return True
 
     def lose(self) -> None:
         self.here, self.moved = None, True

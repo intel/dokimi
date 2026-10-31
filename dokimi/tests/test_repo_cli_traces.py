@@ -234,6 +234,14 @@ def test_shell_reads_a_backgrounded_list_leaves_the_directory(command, reads):
     assert shell_reads(command) == reads
 
 
+@pytest.mark.parametrize(("command", "reads"), [
+    ("f() { :; cd sub; }; cat AGENTS.md", ["AGENTS.md"]), ("f() { :; cat AGENTS.md; }", []),
+    ("function f { :; cd sub; }; cat AGENTS.md", ["AGENTS.md"]), ("f() {\n  cd sub\n}\ncat a", ["a"]),
+    ("f() { g() { cd x; }; cd y; }; cat a", ["a"]), ("echo 'f() {'; cd sub; cat a", ["sub/a"])])
+def test_shell_reads_skips_a_function_definition(command, reads):
+    assert shell_reads(command) == reads
+
+
 def test_shell_reads_of_an_empty_script_reads_nothing():
     assert shell_reads("") == [] and shell_reads("  \n") == []
     assert unwrap_shell("") == ""  # an empty command is its own script, not a wrapper
