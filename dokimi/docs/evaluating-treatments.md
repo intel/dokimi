@@ -596,8 +596,13 @@ same code as the `skill-catalog:` arm, one column per trial. `max_turns_hit` cou
 that ended on `--max-turns` (scored as no load), and the command exits 1 when Claude Code
 did not list a catalog skill (`not_listed`). When no run listed any skill, `not_listed`
 stays empty and a warning on stderr says it was not checked. A trigger set with no
-labelled query exits 2 before any run. Records are kept in `<out>.partial` while the
-probe runs:
+labelled query exits 2 before any run. Before the labelled queries, one explicit run
+(`Use the <skill> skill.`, for the `--target` skill or the first skill of the catalog) must
+load that skill; if it does not, no labelled query runs, `status` is
+`invalid: skill not visible` in the output and on stdout, and the command exits 1. This
+known-positive check is what separates "the model did not pick the skill" from "the
+harness never showed it"; `--no-known-positive` skips it, and `status` is then `unchecked`.
+Records are kept in `<out>.partial` while the probe runs:
 
 ```bash
 python cli.py catalog trigger-probe --catalog <skills-checkout>/skills \
