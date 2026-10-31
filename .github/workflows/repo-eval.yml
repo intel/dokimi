@@ -117,7 +117,7 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      # The setup action, from this workflow's own commit (job.workflow_sha), sparse to action/.
+      # The setup action, from this workflow's own commit (job.workflow_sha), sparse to actions/.
       # Kept until the job ends: the composite's post steps read it from this path.
       - name: Check out the setup action
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -125,13 +125,13 @@ jobs:
           repository: ${{ inputs.dokimi-repository }}
           ref: ${{ job.workflow_sha }}
           path: .dokimi-action
-          sparse-checkout: /action/
+          sparse-checkout: /actions/
           sparse-checkout-cone-mode: false
           persist-credentials: false
       # Resolves dokimi-ref to a commit (the validate outputs pass it on) and installs dokimi.
       - name: Set up dokimi
         id: dokimi
-        uses: ./.dokimi-action/action/setup
+        uses: ./.dokimi-action/actions/setup
         with:
           dokimi-ref: ${{ inputs.dokimi-ref }}
           dokimi-repository: ${{ inputs.dokimi-repository }}
@@ -283,11 +283,11 @@ jobs:
           repository: ${{ inputs.dokimi-repository }}
           ref: ${{ job.workflow_sha }}
           path: .dokimi-action
-          sparse-checkout: /action/
+          sparse-checkout: /actions/
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - name: Set up dokimi
-        uses: ./.dokimi-action/action/setup
+        uses: ./.dokimi-action/actions/setup
         with:
           dokimi-ref: ${{ needs.validate.outputs.dokimi-sha }}
           dokimi-repository: ${{ inputs.dokimi-repository }}
@@ -355,11 +355,11 @@ jobs:
           repository: ${{ inputs.dokimi-repository }}
           ref: ${{ job.workflow_sha }}
           path: .dokimi-action
-          sparse-checkout: /action/
+          sparse-checkout: /actions/
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - name: Set up dokimi
-        uses: ./.dokimi-action/action/setup
+        uses: ./.dokimi-action/actions/setup
         with:
           dokimi-ref: ${{ needs.validate.outputs.dokimi-sha }}
           dokimi-repository: ${{ inputs.dokimi-repository }}

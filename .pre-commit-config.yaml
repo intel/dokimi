@@ -48,7 +48,7 @@ repos:
       # The static job's zizmor step: the same command and scope (workflows and the composite actions).
       - id: zizmor
         args: [--no-progress, --offline, --min-severity, medium]
-        files: ^(\.github/workflows/[^/]+|action/[^/]+/action)\.ya?ml$
+        files: ^(\.github/workflows/[^/]+|actions/[^/]+/action)\.ya?ml$
 
   - repo: https://github.com/gitleaks/gitleaks
     rev: 83d9cd684c87d95d656c1458ef04895a7f1cbd8e  # frozen: v8.30.1
