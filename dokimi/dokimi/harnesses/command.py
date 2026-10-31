@@ -155,7 +155,9 @@ class CommandHarness:
                     given_dir / Path(harbor_metrics["result_json"]).relative_to(output_dir))
             passed = reward is not None and reward >= 1.0
         else:
-            reward = _find_reward(output_dir, stdout, stderr)
+            # A printed reward is no verdict from a command that never ran or was killed.
+            printed = (stdout, stderr) if not _never_finished(returncode) else ("", "")
+            reward = _find_reward(output_dir, *printed)
             if reward is None:
                 reward = _exit_code_reward(returncode, output_dir)
                 harbor_metrics = _no_verdict(reward, returncode, output_dir)
@@ -394,9 +396,13 @@ def _task_prompt(task: TaskSpec) -> str:
 def _exit_code_reward(returncode: int, output_dir: Path | None) -> float | None:
     """1.0 or 0.0 from an exit code; None when the command never ran (126, 127), was killed by a
     signal, or left a reward file that could not be read."""
-    if returncode < 0 or returncode in (126, 127) or 128 < returncode <= 192 or _has_reward_file(output_dir):
+    if _never_finished(returncode) or _has_reward_file(output_dir):
         return None
     return 1.0 if returncode == 0 else 0.0
+
+
+def _never_finished(returncode: int) -> bool:
+    return returncode < 0 or returncode in (126, 127) or 128 < returncode <= 192
 
 
 def _no_verdict(reward: float | None, returncode: int, output_dir: Path | None) -> dict[str, Any]:
