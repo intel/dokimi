@@ -465,9 +465,11 @@ harness never started or it did not parse), `never` (no event hit) or `untimed`
 (the trace format has no timestamps, so `steps` is set and `issued_s` is null).
 A cell of an older batch has no `first_useful`. Each cell that declares a definition
 is counted in `repo report`: the row says how many observed a hit, and the medians
-cover only those; `repo compare` has no rate, so read its `first_useful_*` with the
-row's observed count. A compared task has one kind, but the mean delta pools the
-tasks of both kinds: a per-task row shows which.
+cover only those. `repo compare` pairs `first_useful_rate` per task (the share of its
+declared cells that observed a hit, so a task where most runs never hit it is not read
+through its medians alone) and its header counts observed of declared cells per arm. A
+compared task has one kind, but the mean delta pools the tasks of both kinds: a per-task
+row shows which.
 
 A cell of an arm that installs skills also has a `skills` object in
 `result.json`: `measured`, `skills_installed` (the installed skill names),
@@ -1481,7 +1483,8 @@ python cli.py repo compare repo-runs/replay --baseline guidance:none --metric re
   repetitions share a task's difficulty and are not paired across arms, so the
   task is the unit. Per treatment arm, model and measure (gate share, score,
   cost, turns, `first_prompt_tokens`, `first_useful_s` and `first_useful_steps` (the median over a
-  task's cells that observed the first useful result, §4.1), each `--metric` from `grade.json`, and each `process` count a
+  task's cells that observed the first useful result, §4.1), `first_useful_rate` (the share of a task's
+  declared cells that observed one), each `--metric` from `grade.json`, and each `process` count a
   compared cell reports as `process:<key>` or `counter:<name>`) it gives the mean per-task
   delta against the baseline with a 95% interval over tasks (a bootstrap for
   gate and score, a t interval for the descriptive measures, `-` for a single

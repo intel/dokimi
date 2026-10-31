@@ -20,7 +20,7 @@ from .manifest import match_glob
 from .useful_spec import Useful
 
 #: The ``repo compare`` measures of the first useful result, one value per task (see :func:`useful_task_values`).
-USEFUL_MEASURES = ("first_useful_s", "first_useful_steps")
+USEFUL_MEASURES = ("first_useful_s", "first_useful_steps", "first_useful_rate")
 
 
 def hits(useful: Useful, event: Mapping[str, Any]) -> bool:
@@ -92,12 +92,29 @@ def useful_summary(recs: Sequence[Mapping[str, Any]]) -> dict[str, Any] | None:
 
 
 def useful_task_values(recs: Sequence[Mapping[str, Any]]) -> dict[str, list[float | None]]:
-    """``repo compare``'s per-task values: the median over the cells that observed it, one value (None if none)."""
+    """``repo compare``'s per-task values: the medians over the cells that observed it, and the share of the declared
+    cells that did (None if no cell declares it). The medians alone see only the observed cells."""
     have = _declared(recs)
+    observed = _nums(u.get("steps") for u in have)
     return {
         "first_useful_s": [_median(_nums(u.get("issued_s") for u in have))],
-        "first_useful_steps": [_median(_nums(u.get("steps") for u in have))],
+        "first_useful_steps": [_median(observed)],
+        "first_useful_rate": [len(observed) / len(have) if have else None],
     }
+
+
+def useful_counts(recs: Sequence[Mapping[str, Any]]) -> dict[str, int] | None:
+    """One arm's cells that observed a first useful result, of those that declare one; None if none declare."""
+    have = _declared(recs)
+    if not have:
+        return None
+    return {"observed": len(_nums(u.get("steps") for u in have)), "declared": len(have)}
+
+
+def useful_arms_line(counts: Mapping[str, Mapping[str, int] | None]) -> str | None:
+    """The compare header's line of observed-of-declared cells per arm; None when no arm declares one."""
+    shown = [f"{arm} {c['observed']} of {c['declared']}" for arm, c in counts.items() if c]
+    return f"first useful observed: {', '.join(shown)}" if shown else None
 
 
 def useful_line(summary: Mapping[str, Any] | None, width: int) -> list[str]:

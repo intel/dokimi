@@ -13,11 +13,18 @@ import pytest
 from dokimi.repos.events import convert
 from dokimi.repos.host import validate_tasks
 from dokimi.repos.report import format_report, summarize
-from dokimi.repos.useful import first_useful, useful_line, useful_summary, useful_task_values
+from dokimi.repos.useful import (
+    first_useful,
+    useful_arms_line,
+    useful_counts,
+    useful_line,
+    useful_summary,
+    useful_task_values,
+)
 from dokimi.repos.useful_spec import UsefulSpecError, parse_useful
 from dokimi.repos.workspace import Task
 
-from dokimi.repos.compare import compare
+from dokimi.repos.compare import compare, format_compare
 from test_repo_compare import _cell, _row
 from test_repo_run import _only_cell, _run, setup  # noqa: F401  # the run fixture, with its helpers
 
@@ -273,8 +280,23 @@ def test_a_task_value_is_the_median_of_the_cells_that_observed_it():
         {"first_useful": _hit(50.0, 6)},
         {"first_useful": {"kind": "command", "reason": "never", "issued_s": None, "steps": None}},
     ]
-    assert useful_task_values(recs) == {"first_useful_s": [30.0], "first_useful_steps": [6.0]}
-    assert useful_task_values([{}]) == {"first_useful_s": [None], "first_useful_steps": [None]}
+    assert useful_task_values(recs) == {
+        "first_useful_s": [30.0],
+        "first_useful_steps": [6.0],
+        "first_useful_rate": [0.75],
+    }
+    assert useful_task_values([{}]) == {
+        "first_useful_s": [None],
+        "first_useful_steps": [None],
+        "first_useful_rate": [None],
+    }
+    assert useful_counts(recs) == {"observed": 3, "declared": 4}
+    assert useful_counts([{}]) is None
+    assert (
+        useful_arms_line({"a": {"observed": 1, "declared": 2}, "b": None})
+        == "first useful observed: a 1 of 2"
+    )
+    assert useful_arms_line({"a": None}) is None
 
 
 def test_repo_report_shows_the_first_useful_line_under_its_row_only_for_a_declared_task(tmp_path):
@@ -336,6 +358,28 @@ def test_an_older_batch_without_the_field_has_no_first_useful_row(tmp_path):
     s = compare([batch], "guidance:none")
     assert not {r["measure"] for r in s["comparisons"]} & {"first_useful_s", "first_useful_steps"}
     assert not s["unpaired"]
+
+
+def test_the_rate_says_how_many_declared_cells_observed_a_hit_where_the_medians_see_only_those_that_did(
+    tmp_path,
+):
+    batch = tmp_path / "b"
+    never = {"kind": "command", "reason": "never", "issued_s": None, "steps": None}
+    _timed(batch, "t1", "guidance:none", 1, _hit(10.0, 4))
+    _timed(batch, "t1", "guidance:none", 2, never)
+    _timed(batch, "t1", "guidance:raw", 1, _hit(10.0, 4))
+    _timed(batch, "t1", "guidance:raw", 2, _hit(12.0, 5))
+    s = compare([batch], "guidance:none")
+    by_task = {t["task"]: t for t in _row(s, "first_useful_rate")["tasks"]}
+    assert by_task["t1"]["baseline"] == 0.5 and by_task["t1"]["treatment"] == 1.0
+    assert _row(s, "first_useful_rate")["delta"]["mean"] == 0.5
+    assert by_task["t1"]["baseline"] < 1.0  # the medians alone would read this arm as no slower
+    assert _row(s, "first_useful_s")["delta"]["mean"] == 1.0  # medians 10 and 11
+    assert s["first_useful"] == {
+        "guidance:none": {"observed": 1, "declared": 2},
+        "guidance:raw": {"observed": 2, "declared": 2},
+    }
+    assert "first useful observed: guidance:none 1 of 2, guidance:raw 2 of 2" in format_compare(s)
 
 
 # -- the run itself ----------------------------------------------------------------------------------------------

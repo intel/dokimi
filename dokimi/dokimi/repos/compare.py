@@ -17,6 +17,8 @@ cells are first reduced to one value per (task, arm, model):
   compared only when both arms report it for some shared task: a batch run before it was recorded has none;
 - **first_useful_s**, **first_useful_steps**: the median seconds and steps to the first useful result (``first_useful``
   in ``result.json``, :mod:`.useful`) over the cells that observed it; compared like ``first_prompt_tokens``;
+- **first_useful_rate**: the share of the cells that declare a first useful result and observed one, per task; the
+  header counts observed of declared cells per arm;
 - **metric:<name>**: the mean of ``grade.json`` ``metrics.<name>`` over the
   cells that report it (``true`` is 1), for ``--metric``;
 - **pass^k**: for ``--pass-k K``, the chance that K cells drawn from the
@@ -107,16 +109,17 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from dokimi.context.consistency import Run, order_distance, pass_hat, run_from_events
+from dokimi.context.consistency import Run, run_from_events
 from dokimi.eval.stats import bootstrap_ci, correct_family, mean_ci
 from dokimi.utils import same_model
 
 from .compare_reach import ALPHA, holm_floor, min_detectable
 from .compare_tasks import CompareError, select_tasks
-from .process_counts import as_measure, process_lists, process_order, process_values
-from .useful import USEFUL_MEASURES, useful_task_values
-from .report import (load_cells, mismatch_warnings, model_mismatch, reading_cells, resolved_models,
+from .compare_values import finite_values, task_values
+from .process_counts import as_measure, process_order, process_values
+from .report import (load_cells, mismatch_warnings, model_mismatch, resolved_models,
                      unmeasured_note, uptake_counts)
+from .useful import USEFUL_MEASURES, useful_arms_line, useful_counts
 
 #: Largest number of non-zero deltas whose sign-flip distribution is enumerated (2**16 patterns).
 EXACT_MAX = 16
@@ -196,14 +199,17 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
     measures = ["gate", "score", *([f"pass^{pass_k}"] if pass_k else []),
                 *(["path_distance"] if path_stability else []), "cost_usd", "turns", "first_prompt_tokens",
                 *USEFUL_MEASURES, *(f"metric:{m}" for m in metrics)]
-    base_vals = _task_values([c for c in cells if selector_matches(base_sel, c)], metrics, pass_k, path_stability)
+    base_cells = [c for c in cells if selector_matches(base_sel, c)]
+    base_vals = task_values(base_cells, metrics, pass_k, path_stability)
+    useful = {baseline: useful_counts(base_cells)}
     rows: list[dict[str, Any]] = []
     unpaired: list[dict[str, Any]] = []
     one_arm: list[str] = []
     measures += _process_measures(cells, [baseline, *treatments])
     for text in treatments:
-        treat_vals = _task_values([c for c in cells if selector_matches(parse_selector(text), c)], metrics,
-                                  pass_k, path_stability)
+        treat_cells = [c for c in cells if selector_matches(parse_selector(text), c)]
+        treat_vals = task_values(treat_cells, metrics, pass_k, path_stability)
+        useful[text] = useful_counts(treat_cells)
         unpaired += _one_arm_models(text, base_vals, treat_vals, models)
         shared_models = sorted({m for m, _ in base_vals} & {m for m, _ in treat_vals})
         for model in [m for m in shared_models if not models or m in models]:
@@ -217,7 +223,7 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
     provenance["warnings"] += one_arm
     return {"batches": [str(d) for d in batch_dirs], "baseline": baseline, "treatments": treatments,
             "task_filter": task_filter, "cells": len(cells), "missing": missing, **provenance,
-            "comparisons": rows, "unpaired": unpaired}
+            "first_useful": useful, "comparisons": rows, "unpaired": unpaired}
 
 
 def _one_arm_models(treatment: str, base_vals: dict[tuple[str, str], dict[str, Any]],
@@ -679,66 +685,12 @@ def _format_header(summary: dict[str, Any]) -> list[str]:
                          f"{', '.join(summary['task_filter']['dropped_arms'])}")
     for text, batches in summary["sources"].items():
         lines.append(f"  {text}: {', '.join(batches)}")
+    if (useful := useful_arms_line(summary.get("first_useful", {}))):
+        lines.append("  " + useful)
     for name, stamp in summary["stamps"].items():
         shown = [f"{k} {stamp[k][:12] if k in ('eval_dir', 'graders') else stamp[k]}" for k in ("tree", *STAMP_KEYS) if k in stamp]
         lines.append(f"  batch {name}: " + ", ".join([*shown, "harness " + ", ".join(stamp["harness_versions"])]))
     return lines
-
-
-def _task_values(cells: list[dict[str, Any]], metrics: tuple[str, ...], pass_k: int | None = None,
-                 path_stability: bool = False) -> dict[tuple[str, str], dict[str, Any]]:
-    """One value per measure for each (model, task) of one arm."""
-    groups: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
-    for rec in cells:
-        groups[(rec["model"], rec["task"])].append(rec)
-    out = {}
-    for key, recs in groups.items():
-        with reading_cells([f"{r['batch']}/{r['cell']}/result.json" for r in recs]):
-            score_task = any(r["score_task"] for r in recs)
-            found = {"cost_usd": [r["agent"].get("cost_usd") for r in recs],
-                     "turns": [r["agent"].get("num_turns") for r in recs],
-                     "first_prompt_tokens": [r["agent"].get("first_prompt_tokens") for r in recs],
-                     **{f"metric:{name}": [r["metrics"].get(name) for r in recs] for name in metrics}}
-            found.update({**process_lists(recs), **useful_task_values(recs)})
-            if score_task:
-                found["score"] = [0.0 if r["grade"]["status"] == "grader_failure" else (r["grade"]["score"] or 0.0)
-                                  for r in recs]
-            else:
-                found["gate"] = [float(bool(r["grade"]["success"])) for r in recs]
-            # unmeasured: a grader failure, or an agent outage (see _agent_outage); either way its 0 is not a measurement
-            grader_failed = any(r["grade"]["status"] == "grader_failure" or _agent_outage(r) for r in recs)
-        nums = {measure: _finite(vals) for measure, vals in found.items()}
-        score_max_vals = [r.get("score_max") for r in recs]
-        maxes = set(_finite(score_max_vals))  # cells of two eval trees may differ
-        # If any cell has unknown max, or maxes differ, top is None; otherwise take the single value
-        has_unknown_max = any(v is None for v in score_max_vals)
-        top = (maxes.pop() if len(maxes) == 1 and not has_unknown_max else None) if score_task else 1.0
-        n = {measure: len(v) for measure, v in nums.items()}
-        values = {measure: (sum(v) / len(v) if v else None) for measure, v in nums.items()}
-        if pass_k and not score_task:
-            gates = nums["gate"]
-            values[f"pass^{pass_k}"] = pass_hat(len(gates), int(sum(gates)), pass_k) if len(gates) >= pass_k else None
-            n[f"pass^{pass_k}"] = len(gates)
-        if path_stability:
-            runs: list[Run] = [r["path"] for r in recs if r.get("path") is not None]
-            values["path_distance"] = order_distance(runs)
-            n["path_distance"] = len(runs)
-        out[key] = {"kind": "score" if score_task else "gate", "grader_failed": grader_failed,
-                    "top": top, "n": n, "values": values}
-    return out
-
-
-def _agent_outage(rec: dict[str, Any]) -> bool:
-    """A cell whose agent never ran: an error result with no turn count or at most one turn, or a harness that
-    exited non-zero before it reported any turn (no result record, so no ``is_error``) and was not killed for
-    its timeout: an agent killed at its timeout did attempt the task."""
-    agent = rec.get("agent") or {}
-    turns = _finite([agent.get("num_turns")])  # a count that is not a number is no count, as in the turns row
-    if agent.get("is_error") and (not turns or turns[0] <= 1):
-        return True
-    rc = agent.get("rc")
-    crashed = isinstance(rc, int) and not isinstance(rc, bool) and rc != 0
-    return crashed and not turns and not agent.get("timed_out")
 
 
 def _cell_path(path: Path) -> Run | None:
@@ -776,12 +728,8 @@ def _grade_metrics(path: Path, names: tuple[str, ...]) -> dict[str, float]:
     return out
 
 
-def _finite(values: list[Any]) -> list[float]:
-    return [num for v in values if (num := as_measure(v)) is not None]
-
-
 def _mean(values: list[Any]) -> float | None:
-    nums = _finite(values)
+    nums = finite_values(values)
     return sum(nums) / len(nums) if nums else None
 
 

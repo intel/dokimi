@@ -8,6 +8,8 @@
   event's issue time) and `steps` (events up to and including it). A run with no hit says
   why (`never`, `unobserved`, `untimed`); a task with no declaration is `not_declared`.
   `repo report` shows a row's observed count, medians and reasons under the row, and
-  `repo compare` pairs the per-task medians as `first_useful_s` and `first_useful_steps`.
+  `repo compare` pairs the per-task medians as `first_useful_s` and `first_useful_steps`, and
+  the share of declared cells that observed a hit as `first_useful_rate`; its header counts
+  observed of declared cells per arm.
   A malformed `useful` is refused by `repo validate`, `repo tasks check` and `repo run`.
   Batches run before this change have no `first_useful` and no such rows.
