@@ -9,7 +9,7 @@ import json
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 
-from dokimi.defaults import DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER, DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER, DEFAULT_RETRIEVAL_TOP_K
+from dokimi.defaults import (ANSWERING_METHOD_VERSION, LEGACY_ANSWERING_METHOD_VERSION, DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER, DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER, DEFAULT_RETRIEVAL_TOP_K)
 from dokimi.eval.stats import paired_summary
 from dokimi.mcp.factory import create_doc_source_client, resolve_library_id_for_product
 
@@ -680,9 +680,15 @@ class EvaluationPipeline:
         # Use in-memory answers from the previous step (avoid stale disk read);
         # fall back to the answers file when none were passed.
         if answers:
-            answers_list = list(read(answers, source="answers", section="answers").records)
+            run = read(answers, source="answers", section="answers")
         else:
-            answers_list = list(load(self.answers_path, section="answers").records)
+            run = load(self.answers_path, section="answers")
+        answers_list = list(run.records)
+        # Fresh in-memory answers are this process's method; an artifact says its own, unstamped is legacy.
+        if answers and isinstance(answers, list):
+            answers_method_version = ANSWERING_METHOD_VERSION
+        else:
+            answers_method_version = run.meta.get("method_version") or LEGACY_ANSWERING_METHOD_VERSION
         
         # Evaluate
         judge = Judge(
@@ -690,6 +696,7 @@ class EvaluationPipeline:
             provider=self.judge_provider,
             temperature=self.judge_temperature,
             judge_placeholder=self.judge_placeholder,
+            answers_method_version=answers_method_version,
             run_metadata={
                 "question_model": self.model,
                 "question_provider": self.provider,

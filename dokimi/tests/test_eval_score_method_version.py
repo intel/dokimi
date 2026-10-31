@@ -58,3 +58,42 @@ def test_stamped_answers_keep_their_method_version(tmp_path, judge_calls, versio
     out = _eval_score(tmp_path, {"method_version": version, "answers": ANSWERS})
 
     assert out["method_version"] == version
+
+
+def _pipeline_judge_version(monkeypatch, tmp_path, answers, answers_file=None):
+    """The method version the pipeline's judge is built with, for these answers."""
+    from dokimi.eval.judge import Judge
+    from dokimi.orchestrator.pipeline import EvaluationPipeline
+
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key-not-used")
+    seen = []
+
+    def evaluate(self, product, records, concurrency=5):
+        seen.append(self.answers_method_version)
+        return []
+
+    monkeypatch.setattr(Judge, "evaluate_answers", evaluate)
+    monkeypatch.setattr(Judge, "save_evaluations", lambda self, evaluations, path: None)
+    p = EvaluationPipeline.__new__(EvaluationPipeline)  # the attributes _evaluate_answers reads
+    p.product, p.model, p.provider = "L", "gpt-x", "openai"
+    p.judge_model, p.judge_provider, p.judge_temperature, p.judge_placeholder = "gpt-x", "openai", None, False
+    p.answers_path, p.eval_path = answers_file, tmp_path / "eval.json"
+    p._evaluate_answers(answers, concurrency=1)
+    return seen[0]
+
+
+def test_pipeline_judges_a_wrapped_version_1_artifact_as_version_1(monkeypatch, tmp_path):
+    assert _pipeline_judge_version(monkeypatch, tmp_path, {"method_version": 1, "answers": ANSWERS}) == 1
+
+
+def test_pipeline_judges_an_unstamped_answers_file_as_legacy_version_1(monkeypatch, tmp_path):
+    answers_file = tmp_path / "answers.json"
+    answers_file.write_text(json.dumps({"answers": ANSWERS}), encoding="utf-8")
+
+    assert _pipeline_judge_version(monkeypatch, tmp_path, [], answers_file) == 1
+
+
+def test_pipeline_judges_fresh_in_memory_answers_as_the_current_version(monkeypatch, tmp_path):
+    from dokimi.defaults import ANSWERING_METHOD_VERSION
+
+    assert _pipeline_judge_version(monkeypatch, tmp_path, ANSWERS) == ANSWERING_METHOD_VERSION
