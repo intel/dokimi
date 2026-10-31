@@ -72,8 +72,8 @@ def _exit_unless_replicates(runs, inputs) -> None:
         sys.exit(2)
 
 
-# The top-level fields replicate_key reads with a shape it cannot take otherwise: run_config as a
-# mapping (.items()) and arms as a list (tuple()). A wrong shape would be a traceback, not a diagnostic.
+# replicate_key calls .items() on run_config and tuple() on arms: a wrong type there crashes it, or (an
+# arms string or object) is silently split into characters or keys. Both are refused here with a diagnostic.
 _METADATA_SHAPES = (("run_config", dict, "object"), ("arms", list, "array"))
 
 
