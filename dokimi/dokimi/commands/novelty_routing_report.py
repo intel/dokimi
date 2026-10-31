@@ -153,16 +153,16 @@ def print_attractors(result: dict) -> None:
         if arm not in result:
             continue
         section = result[arm]
+        # The model arm counts calls, one per query and repeat; the lexical arm counts queries.
+        unit = "calls" if section.get("repeats", 1) > 1 else "queries"
         rows = section["attractors"][:5]
         if not rows:
             print(f"{arm}: no skill was picked for another skill's query")
         for row in rows:
             print(f"{arm}: {row['skill']} picked for {row['wrongly_picked']} of "
-                  f"{row['sibling_queries']} sibling queries (from {', '.join(row['from'])})")
+                  f"{row['sibling_queries']} sibling {unit} (from {', '.join(row['from'])})")
         tied = sum(picks.get(TIE, 0) for picks in section["confusion"].values())
         unscored = sum(section["n_unscored"].values())
-        # The model arm counts calls, one per query and repeat; the lexical arm counts queries.
-        unit = "calls" if section.get("repeats", 1) > 1 else "queries"
         if tied or unscored:
             print(f"{arm}: {tied} tied and {unscored} unscored {unit} are not counted as picks")
 

@@ -42,6 +42,15 @@ def test_a_skill_with_no_usable_heading_is_queried_by_its_description_sentences(
     assert "description" in capsys.readouterr().err
 
 
+def test_attractor_line_counts_calls_when_the_model_arm_repeats(capsys):
+    from dokimi.commands.novelty_routing_report import print_attractors
+
+    row = {"skill": "perf", "wrongly_picked": 3, "sibling_queries": 6, "from": ["db"]}
+    print_attractors({"tied_groups": [], "model": {"attractors": [row], "confusion": {},
+                                                   "n_unscored": {}, "repeats": 3}})
+    assert "picked for 3 of 6 sibling calls" in capsys.readouterr().out
+
+
 def test_no_derived_queries_refuses_without_claiming_a_derivation(tmp_path, capsys):
     out = tmp_path / "routing.json"
     args = _parse("novelty", "routing",
