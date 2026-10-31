@@ -112,6 +112,7 @@ def _text_of(content: Any) -> str:
 def _tool_event(tool_input: Any) -> Event:
     args = tool_input if isinstance(tool_input, dict) else {}
     strings = [v for k, v in args.items() if k not in _CONTENT_KEYS and isinstance(v, str)]
-    command = args.get("command") if isinstance(args.get("command"), str) else ""
+    raw_command = args.get("command")
+    command = raw_command if isinstance(raw_command, str) else ""
     paths = tuple(args[k] for k in _PATH_KEYS if isinstance(args.get(k), str))
     return Event("tool", " ".join(strings), command=command, paths=paths)

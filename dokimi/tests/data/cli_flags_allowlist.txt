@@ -222,3 +222,6 @@
 --work-output-dir
 --work-repeats
 -o
+--min-sessions  # context prefilter threshold: no registry concept yet
+--rare-max  # context prefilter threshold: no registry concept yet
+--in-use-rate  # context prefilter threshold: no registry concept yet
