@@ -1,0 +1,153 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+name: dokimi setup
+description: >-
+  Installs dokimi at one pinned commit (a SHA, or a release tag resolved to its
+  commit; a branch is refused) with its locked dependencies, sets up Python, and
+  exports what a dokimi run expects on CI: CI=true, DOKIMI_RUNS_DIR and, with
+  `max-usd`, DOKIMI_MAX_USD. Needs no secret. Callers grant `contents: read` at most.
+
+inputs:
+  dokimi-ref:
+    description: >-
+      dokimi commit SHA (40 hex digits) or release tag to install. Use the ref of the
+      `uses:` line that pins this action; a branch is refused.
+    required: true
+  dokimi-repository:
+    description: Repository dokimi-ref is in (owner/name), for testing a fork
+    required: false
+    default: intel/dokimi
+  python-version:
+    description: Python the install and the checks run under
+    required: false
+    default: '3.13'
+  out-dir:
+    description: >-
+      Directory for the run output, created by this action; empty means
+      `$RUNNER_TEMP/dokimi-out`. Its layout is fixed: `runs/` is the runs root
+      (DOKIMI_RUNS_DIR). Upload the whole directory as an artifact.
+    required: false
+    default: ''
+  cache:
+    description: >-
+      `true` restores and saves pip's download cache. The key is the resolved commit, so a
+      changed lock is a new commit and a new key.
+    required: false
+    default: 'false'
+  paid:
+    description: >-
+      `true` when a step of this job calls a model and spends money. Then `max-usd` is
+      required. Free steps leave it `false` and need no cap.
+    required: false
+    default: 'false'
+  max-usd:
+    description: >-
+      The cap in US dollars on the whole job, exported as DOKIMI_MAX_USD. Required when
+      `paid` is `true`; a value that is not a positive number fails the job.
+    required: false
+    default: ''
+
+outputs:
+  sha:
+    description: The commit installed (40 hex digits)
+    value: ${{ steps.ref.outputs.sha }}
+  out-dir:
+    description: Absolute path of the output directory, to upload
+    value: ${{ steps.out.outputs.dir }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check the inputs
+      shell: bash
+      env:
+        PAID: ${{ inputs.paid }}
+        MAX_USD: ${{ inputs.max-usd }}
+      run: |
+        case "$PAID" in
+          true|false) ;;
+          *) echo "::error title=paid::paid must be 'true' or 'false', not '$PAID'"; exit 1 ;;
+        esac
+        if [ -n "$MAX_USD" ]; then
+          if ! [[ "$MAX_USD" =~ ^[0-9]+(\.[0-9]+)?$ ]] || ! awk -v v="$MAX_USD" 'BEGIN { exit !(v > 0) }'; then
+            echo "::error title=max-usd::max-usd must be a positive number of US dollars, not '$MAX_USD'"
+            exit 1
+          fi
+        elif [ "$PAID" = true ]; then
+          echo "::error title=max-usd::max-usd is required when paid is true: a step here calls a model, and a run without a dollar cap is refused"
+          exit 1
+        fi
+
+    # Resolves the ref before anything is installed: a tag becomes the commit it names
+    # (the peeled line of ls-remote), so the jobs of one run install the same commit.
+    - name: Resolve dokimi-ref
+      id: ref
+      shell: bash
+      env:
+        REF: ${{ inputs.dokimi-ref }}
+        DOKIMI_REPO: ${{ inputs.dokimi-repository }}
+      run: |
+        if ! [[ "$DOKIMI_REPO" =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ ]]; then
+          echo "::error title=dokimi-repository::dokimi-repository is not owner/name"
+          exit 1
+        fi
+        if [[ "$REF" =~ ^[0-9a-f]{40}$ ]]; then
+          sha=$REF
+        elif [[ "$REF" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+          # An annotated tag's commit is its peeled (^{}) line.
+          sha=$(git ls-remote --tags "https://github.com/$DOKIMI_REPO" \
+                | awk -v t="refs/tags/$REF" '$2 == t "^{}" { p = $1 } $2 == t { l = $1 } END { print (p != "" ? p : l) }')
+        fi
+        if ! [[ "${sha:-}" =~ ^[0-9a-f]{40}$ ]]; then
+          echo "::error title=dokimi-ref::dokimi-ref is neither a 40-digit commit SHA nor a tag of $DOKIMI_REPO"
+          exit 1
+        fi
+        echo "sha=$sha" >> "$GITHUB_OUTPUT"
+        echo "dokimi $DOKIMI_REPO@$REF -> $sha"
+
+    # The pip cache key is a file that names the commit: setup-python hashes it.
+    - name: Key for the pip cache
+      shell: bash
+      env:
+        SHA: ${{ steps.ref.outputs.sha }}
+      run: |
+        mkdir -p "$RUNNER_TEMP/dokimi-setup"
+        echo "dokimi $SHA" > "$RUNNER_TEMP/dokimi-setup/pip-key.txt"
+
+    - name: Set up Python
+      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      with:
+        python-version: ${{ inputs.python-version }}
+        cache: ${{ inputs.cache == 'true' && 'pip' || '' }}
+        cache-dependency-path: ${{ runner.temp }}/dokimi-setup/pip-key.txt
+
+    - name: Install dokimi
+      shell: bash
+      env:
+        SHA: ${{ steps.ref.outputs.sha }}
+        DOKIMI_REPO: ${{ inputs.dokimi-repository }}
+      run: |
+        # The lock is hashed, and pip cannot hash a git URL: install the lock, then dokimi without deps.
+        pip install --require-hashes -r "https://raw.githubusercontent.com/$DOKIMI_REPO/$SHA/dokimi/requirements.lock.txt"
+        pip install --no-deps "dokimi @ git+https://github.com/$DOKIMI_REPO@$SHA#subdirectory=dokimi"
+
+    - name: Output directory and environment
+      id: out
+      shell: bash
+      env:
+        OUT: ${{ inputs.out-dir }}
+        MAX_USD: ${{ inputs.max-usd }}
+      run: | # zizmor: ignore[github-env] -- intended: the two values written are checked above (no newline, a number)
+        out=${OUT:-$RUNNER_TEMP/dokimi-out}
+        mkdir -p "$out/runs"
+        dir=$(cd "$out" && pwd)
+        # Each value written to GITHUB_ENV is checked here too: a newline would add a variable.
+        if [[ "$dir" == *$'\n'* ]]; then echo "::error title=out-dir::out-dir has a newline"; exit 1; fi
+        if [ -n "$MAX_USD" ] && ! [[ "$MAX_USD" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+          echo "::error title=max-usd::max-usd must be a positive number of US dollars"; exit 1
+        fi
+        echo "dir=$dir" >> "$GITHUB_OUTPUT"
+        echo "CI=true" >> "$GITHUB_ENV"
+        echo "DOKIMI_RUNS_DIR=$dir/runs" >> "$GITHUB_ENV"
+        if [ -n "$MAX_USD" ]; then echo "DOKIMI_MAX_USD=$MAX_USD" >> "$GITHUB_ENV"; fi

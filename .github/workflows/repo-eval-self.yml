@@ -23,6 +23,7 @@ on:
       - 'dokimi/pyproject.toml'
       - '.github/workflows/repo-eval.yml'
       - '.github/workflows/repo-eval-self.yml'
+      - 'actions/**'
   workflow_dispatch:
     inputs:
       tasks:
@@ -51,7 +52,7 @@ jobs:
       # Every `paths:` entry above outside .agent-eval/, as a prefix.
       smoke-paths: >-
         dokimi/dokimi/repos/ dokimi/dokimi/commands/repo dokimi/dokimi/schemas/repo_
-        dokimi/requirements.lock.txt dokimi/pyproject.toml .github/workflows/repo-eval.yml
+        dokimi/requirements.lock.txt dokimi/pyproject.toml .github/workflows/repo-eval.yml actions/
       max-parallel: 4
       # intel-ubuntu-latest: see ci.yml.
       runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
