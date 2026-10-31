@@ -123,8 +123,8 @@ The top-level CLI is `python cli.py` (or `dokimi` once installed):
 Context benchmark
   benchmark           Preflight and run the benchmark for registered targets
   evaluate            Run the full pipeline in one command
-  personas            Discover and approve target user personas
-  questions           Generate, analyze, refine, and review questions
+  eval personas       Discover and approve target user personas
+  eval questions      Generate, analyze, refine, and review questions
   answers             Generate context-arm and baseline answers
   eval                Score answers, run RAGAS, or use a multi-judge panel
   arms                Compare treatment arms (docs / MCP / skills / profiles)
