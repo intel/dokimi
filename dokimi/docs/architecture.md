@@ -416,6 +416,10 @@ Guide: [run-consistency.md](run-consistency.md).
   adapter seam: `LiteLLMAdapter` in production, `FakeAdapter` in tests (the
   `fake_llm` fixture). `ask_parsed` is the redraw-until-it-parses loop.
   `llm_call`, `chat_completion` and `utils.get_llm` delegate to `LLM`.
+  `dokimi/llm_cli.py` serves the CLI providers (`claude-cli`): `LiteLLMAdapter`
+  hands their requests to it, and it runs the logged-in CLI through `process.run`
+  ([subscription-backends.md](subscription-backends.md)). `dokimi/llm_json.py`
+  holds the JSON extraction helpers `llm.py` re-exports.
 - `dokimi/caching.py` — the two caches that hang off `llm.py`: provider prompt
   caching (the stable part of a prompt goes first, so the provider can reuse it)
   and an opt-in response cache for byte-identical single-shot requests

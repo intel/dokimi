@@ -76,6 +76,7 @@ ROOTS: tuple[Root, ...] = (
     Root("tools", "Analysis and data"),
     Root("context", "Analysis and data"),
     Root("runs", "Analysis and data"),
+    Root("backends", "Analysis and data"),
     Root("data", "Analysis and data"),
 )
 
@@ -156,6 +157,7 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("context", "consistency"), FREE),
     Leaf(("runs", "list"), FREE),
     Leaf(("runs", "show"), FREE),
+    Leaf(("backends",), FREE),
     Leaf(("data", "schema", "list"), FREE),
     Leaf(("data", "schema", "show"), FREE),
 )

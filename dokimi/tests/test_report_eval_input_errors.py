@@ -19,7 +19,7 @@ import pytest
     (json.dumps({"evaluations": {}}).encode(), "`evaluations` list"),
 ], ids=["missing", "malformed", "not-utf8", "not-an-object", "no-evaluations",
         "evaluations-not-a-list"])
-def test_report_eval_exits_1_with_a_message_on_an_unreadable_eval_file(tmp_path, monkeypatch, capsys,
+def test_report_eval_exits_2_with_a_message_on_an_unreadable_eval_file(tmp_path, monkeypatch, capsys,
                                                                        content, reason):
     from dokimi import cli
 
@@ -30,13 +30,13 @@ def test_report_eval_exits_1_with_a_message_on_an_unreadable_eval_file(tmp_path,
                                      "--out", str(out)])
     with pytest.raises(SystemExit) as exc:
         cli.main()
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: ") and str(eval_file) in err and reason in err
     assert not out.exists()
 
 
-def test_report_eval_exits_1_with_a_message_when_the_eval_path_is_a_directory(tmp_path, monkeypatch, capsys):
+def test_report_eval_exits_2_with_a_message_when_the_eval_path_is_a_directory(tmp_path, monkeypatch, capsys):
     from dokimi import cli
 
     out = tmp_path / "r.md"
@@ -44,7 +44,7 @@ def test_report_eval_exits_1_with_a_message_when_the_eval_path_is_a_directory(tm
                                      "--out", str(out)])
     with pytest.raises(SystemExit) as exc:
         cli.main()
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: cannot read ") and str(tmp_path) in err
     assert not out.exists()

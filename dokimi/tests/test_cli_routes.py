@@ -93,7 +93,7 @@ def test_help_lists_each_root_under_its_section():
         ),
         **dict.fromkeys(("run", "compare", "library", "catalog", "novelty", "repo"), subjects),
         **dict.fromkeys(("personas", "questions", "eval"), evals),
-        **dict.fromkeys(("dataset", "ingest", "tools", "context", "runs", "data"), data),
+        **dict.fromkeys(("dataset", "ingest", "tools", "context", "runs", "backends", "data"), data),
     }
 
 
@@ -165,9 +165,13 @@ def test_run_and_compare_have_a_one_line_help_in_the_top_level_list(monkeypatch)
     # wrap the cost label onto a continuation line, so pin the width the label is read at.
     monkeypatch.setenv("COLUMNS", "200")
     text = build_parser().format_help()
-    for name in ("run", "compare"):
+    expected = {
+        "run": "Run the static benchmark spec and save a snapshot [free]",
+        "compare": "Compare two saved benchmark snapshots [free]",
+    }
+    for name, help_line in expected.items():
         line = next(line for line in text.splitlines() if re.match(rf"^  {name}\s", line))
-        assert re.search(r"\S.* \[(free|paid)\]$", line), line
+        assert line.split(None, 1)[1] == help_line, line
 
 
 def test_route_table_matches_the_parser_leaves_and_roots():

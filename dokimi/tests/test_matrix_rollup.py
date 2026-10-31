@@ -205,7 +205,7 @@ def test_arms_matrix_run_rejects_sanitized_cell_name_collisions(tmp_path: Path):
 
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
 
 
 def test_arms_matrix_run_rejects_unwired_harnesses(tmp_path: Path):
@@ -242,7 +242,7 @@ def test_arms_matrix_run_rejects_unwired_harnesses(tmp_path: Path):
 
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
 
 
 def test_arms_run_selected_matrix_cell_rejects_unwired_harness(tmp_path: Path):
@@ -281,7 +281,7 @@ def test_arms_run_selected_matrix_cell_rejects_unwired_harness(tmp_path: Path):
 
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
 
 
 def test_arms_matrix_run_keeps_cell_artifacts_away_from_generated_names(tmp_path: Path, monkeypatch):
