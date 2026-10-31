@@ -32,7 +32,9 @@ that skill, so it is reported as a flag (the same reading as the skill arm's
 check in :mod:`dokimi.harnesses.skill_treatment`).
 
 Bundle links: a relative Markdown link in ``SKILL.md`` whose file does not exist is a
-``warn`` (``link-missing``), with a note when the file exists from the catalog root
+``warn`` (``link-missing``), inline or reference-style (``[label]: target``), with an
+optional ``<...>`` destination, and URI destinations (``tel:``, ``urn:``, ``mailto:``) are
+not files. A note is added when the file exists from the catalog root
 instead (a wrong base). Example links such as ``[Title](URL)`` are common, so this is not
 an error and does not fail ``--strict``. A link to a file outside the skill directory is a ``warn``
 (``link-escapes-skill``): it breaks when the skill is installed alone. A ``../`` code span
@@ -87,6 +89,9 @@ STOP_WORDS = frozenset(
     just""".split()
 )
 LINK_RE = re.compile(r"\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
+# A reference-style link definition, ``[label]: destination`` (footnotes ``[^n]:`` excluded).
+REF_DEF_RE = re.compile(r"^ {0,3}\[(?!\^)[^\]]+\]:[ \t]*(\S+)")
+URI_SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.\-]*:")
 CODE_SPAN_RE = re.compile(r"`([^`\n]+)`")
 SKILL_DIR_VAR = "${CLAUDE_SKILL_DIR}/"
 
@@ -238,11 +243,14 @@ def _outside_fences(body: str) -> list[str]:
 def _file_ref(raw: str) -> Optional[str]:
     """The skill-relative file a reference names, or None if it names no file to check.
 
-    None for a URL, a bare anchor, an absolute path, or a template with a variable other
-    than ``${CLAUDE_SKILL_DIR}``.
+    None for a URL or any other URI (``tel:``, ``urn:``, ``MAILTO:``), a bare anchor, an
+    absolute path, or a template with a variable other than ``${CLAUDE_SKILL_DIR}``. A
+    ``<...>`` destination (CommonMark) is read as the path inside the brackets.
     """
     text = raw.split("#", 1)[0].strip()
-    if not text or "://" in text or text.startswith(("mailto:", "/")):
+    if text.startswith("<") and text.endswith(">"):
+        text = text[1:-1].strip()
+    if not text or "://" in text or URI_SCHEME_RE.match(text) or text.startswith("/"):
         return None
     if text.startswith(SKILL_DIR_VAR):
         return text[len(SKILL_DIR_VAR) :] or None
@@ -272,7 +280,10 @@ def _bundle_findings(skill: Skill, source_root: Path) -> list[Finding]:
     skill_dir = skill.path.parent
     real_dir = skill_dir.resolve()
     lines = _outside_fences(skill.body)
-    links = dict.fromkeys(m for line in lines for m in LINK_RE.findall(line))
+    links = dict.fromkeys(
+        [m for line in lines for m in LINK_RE.findall(line)]
+        + [m for line in lines for m in REF_DEF_RE.findall(line)]
+    )
     spans = dict.fromkeys(
         s.strip()
         for line in lines

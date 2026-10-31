@@ -701,3 +701,73 @@ def test_a_link_target_the_os_refuses_is_a_missing_link_not_a_crash(tmp_path):
     reviews = _reviews_by_name(tmp_path)
     assert reviews["healthy"].state == "warn"
     assert _codes(reviews["longname"]) == ["link-missing"]
+
+
+@pytest.mark.parametrize(
+    "destination",
+    ["tel:+15551234567", "urn:isbn:0451450523", "MAILTO:someone@example.com", "data:text/plain,x"],
+)
+def test_uri_scheme_destinations_are_not_files(tmp_path, destination):
+    _skill(tmp_path / "skills", "uris", name="uris", description="Use for uris.",
+           body=f"Reach us at [here]({destination}).\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.state == "ok"
+    assert review.findings == []
+
+
+def test_reference_definition_to_a_missing_file_is_a_warning(tmp_path):
+    _skill(tmp_path / "skills", "refs", name="refs", description="Use for refs.",
+           body="See [the guide][g] for details.\n\n[g]: references/missing.md\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.state == "warn"
+    assert _codes(review) == ["link-missing"]
+
+
+def test_reference_definition_out_of_the_skill_dir_is_a_warning(tmp_path):
+    (tmp_path / "shared").mkdir()
+    (tmp_path / "shared" / "notes.md").write_text("# Notes\n", encoding="utf-8")
+    _skill(tmp_path / "skills", "reach", name="reach", description="Use for reach.",
+           body="See [the notes][n].\n\n[n]: ../../shared/notes.md \"Notes\"\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.state == "warn"
+    assert _codes(review) == ["link-escapes-skill"]
+
+
+def test_reference_definitions_that_name_no_file_are_not_checked(tmp_path):
+    body = (
+        "A footnote[^1] and [a site][web].\n\n"
+        "[^1]: Footnote text, not a file.\n"
+        "[web]: https://example.com/docs\n"
+        "[anchor]: #usage\n"
+        "```markdown\n"
+        "[example]: references/missing.md\n"
+        "```\n"
+    )
+    _skill(tmp_path / "skills", "clean", name="clean", description="Use for clean.", body=body)
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.state == "ok"
+    assert review.findings == []
+
+
+def test_angle_bracket_destination_to_a_missing_file_is_a_warning(tmp_path):
+    _skill(tmp_path / "skills", "angle", name="angle", description="Use for angle.",
+           body="See [the guide](<references/missing.md>).\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.state == "warn"
+    assert _codes(review) == ["link-missing"]
+
+
+def test_angle_bracket_destination_out_of_the_skill_dir_is_a_warning(tmp_path):
+    (tmp_path / "shared").mkdir()
+    (tmp_path / "shared" / "notes.md").write_text("# Notes\n", encoding="utf-8")
+    _skill(tmp_path / "skills", "reach", name="reach", description="Use for reach.",
+           body="See [notes](<../../shared/notes.md>).\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.state == "warn"
+    assert _codes(review) == ["link-escapes-skill"]
