@@ -74,6 +74,9 @@ CASES = [
     ("huggingface/meta-llama/Llama-3.1-8B-Instruct", "meta-llama/llama-3.1-8b-instruct", True),
     ("huggingface/openai/gpt-oss-120b", "huggingface/myorg/gpt-oss-120b", False),
     ("huggingface/gemma-2-9b-it", "gemma-2-9b-it", True),
+    # a route in front of the Hub route does not end the Hub guard: its organization stays too
+    ("openrouter/huggingface/google/gemma-2-9b-it", "gemma-2-9b-it", False),
+    ("openrouter/huggingface/google/gemma-2-9b-it", "huggingface/google/gemma-2-9b-it", True),
     ("zai.glm-4.7", "glm-4.7", True),  # a Bedrock vendor prefix is dropped whatever the vendor
 ]
 

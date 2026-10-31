@@ -149,11 +149,10 @@ def _model_core(model: str) -> tuple[str, str | None]:
         if marker in name:
             name = name.rsplit(marker, 1)[-1]
     parts = name.split("/")
-    if parts[0] == "huggingface" and len(parts) > 1:  # a Hub id: the route goes, its organization stays
-        parts.pop(0)
-    else:
-        while len(parts) > 1 and parts[0] in _ROUTES:
-            parts.pop(0)
+    while len(parts) > 1 and parts[0] in _ROUTES:
+        hub = parts.pop(0) == "huggingface"
+        if hub:  # a Hub id: the route goes, its organization stays, even behind another route
+            break
     name = "/".join(parts)
     name = re.sub(r"-v?\d+:\d+$", "", name)
     for prefix in _REGION_PROFILES:
