@@ -199,8 +199,8 @@ RAGAS meta-evaluation can be run after answer generation to add faithfulness and
 
 Every serious run should answer "Can we trust this run?" before interpreting deltas. The trust gate checks:
 
-- minimum evaluated question count (both arms scored; a question with no document is not judged by default, so it is not counted here),
-- zero-score fraction (computed when at least one question is scored in both arms; over those paired questions plus retrieval misses with a scored baseline or a judge error, which count as unusable),
+- minimum evaluated question count (both arms scored; the single `Judge` does not judge a question with no document, so it is not counted here, while `JudgePanel` judges one whose answer is only a fallback text),
+- zero-score fraction (computed when at least one question is scored in both arms; over those paired questions plus retrieval misses with an unscored context arm and either a scored baseline or a judge error, which count as unusable),
 - minimum `with_docs` average (both-arm-scored questions only),
 - average delta (both-arm-scored questions only),
 - score coefficient of variation (both-arm-scored questions only),
