@@ -8,6 +8,8 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import NoReturn
+
 from dokimi.exit_codes import EXIT_USAGE, usage_exit
 
 _TASKS_ROOT_HELP = (
@@ -21,6 +23,13 @@ _REPO_ROOT_HELP = (
 )
 
 
+def _no_tasks(root: Path | None) -> NoReturn:
+    if root is not None and not root.is_dir():
+        usage_exit(f"--tasks-root is not a directory: {root}")
+    where = f"under {root}" if root is not None else "in the bundled data/explore_tasks"
+    usage_exit(f"No explore tasks {where}. Pass --tasks-root <dir> of task YAML files.")
+
+
 def cmd_explore_list(args: argparse.Namespace) -> None:
     from dokimi.explore import discover_explore_tasks
 
@@ -30,6 +39,8 @@ def cmd_explore_list(args: argparse.Namespace) -> None:
         tasks = discover_explore_tasks(root, default_repo_root=default_repo_root)
     except (FileNotFoundError, ValueError) as exc:  # a task file that cannot be read or parsed
         usage_exit(str(exc))
+    if not tasks:
+        _no_tasks(root)
     for task in tasks:
         n_refs = len(task.references)
         print(f"{task.id}\t{task.product}\t{n_refs} ref(s)\t{task.query[:60]}")
@@ -93,6 +104,8 @@ def cmd_explore_run(args: argparse.Namespace) -> None:
     except (FileNotFoundError, ValueError) as exc:  # a task file that cannot be read or parsed
         usage_exit(str(exc))
     if not tasks:
+        if args.all:
+            _no_tasks(root)
         usage_exit("No tasks selected. Pass --tasks <id[,id]> or --all.")
 
     specs = [s.strip() for s in args.arms.split(",") if s.strip()]
