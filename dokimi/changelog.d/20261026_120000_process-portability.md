@@ -12,11 +12,11 @@ SPDX-License-Identifier: Apache-2.0
 ### Changed
 
 - **Host subprocess examples are not run when their limits cannot be applied.** On Windows
-  any limit, and on macOS a memory limit, makes the snippet `skipped` with the reason, not
-  `failed`, and it is left out of `example_pass_rate`. On macOS set `mem_mb: null`; on Windows
-  use the `docker` backend. A process limit above an inherited hard limit (for example
-  `ulimit -v`) is lowered to it instead of failing the launch. The `docker` backend skips an
-  example when `mem_mb` is missing or not positive.
+  any limit, and on macOS a memory limit, stops the run with an error naming the limit
+  (`dokimi run` exits 2), so `example_pass_rate` is neither 0.0 nor 1.0 for snippets that never
+  ran. On macOS set `mem_mb: null`; on Windows use the `docker` backend. A process limit above
+  an inherited hard limit (for example `ulimit -v`) is lowered to it instead of failing the
+  launch. The `docker` backend refuses the same way when `mem_mb` is missing or not positive.
 - **The isolation probe reports `network: untested`, not `closed`**, when `bash` or `timeout`
   is missing, including inside task containers on images without them. Re-run the probe on
   such an image with the tools installed to get a `closed` result.

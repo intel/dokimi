@@ -46,6 +46,10 @@ _FENCE_OPEN_RE = re.compile(r"^(\s*)(`{3,}|~{3,})(.*)$")
 _FENCE_CLOSE_RE = re.compile(r"^\s*(`{3,}|~{3,})\s*$")
 
 
+class ExecutionRefused(RuntimeError):
+    """The host cannot apply the policy's limits; the run stops instead of scoring examples that never ran."""
+
+
 @dataclass
 class ExampleResult:
     """Single example execution result.
@@ -238,7 +242,10 @@ def _run_docker(lang: str, code: str, policy: ExecutionPolicy,
 
 def run_example(lang: str, code: str, policy: ExecutionPolicy,
                 runner: process.Runner = process.run) -> ExampleResult:
-    """Execute (or skip) a single example according to ``policy``."""
+    """Execute (or skip) a single example according to ``policy``.
+
+    Raises :class:`ExecutionRefused` when the host cannot apply the requested limits.
+    """
     if lang not in policy.allowed_langs or lang not in EXECUTORS:
         return ExampleResult(0, lang, code[:100], passed=None, status="skipped",
                              error=f"Unsupported or disallowed language: {lang}")
@@ -255,8 +262,8 @@ def run_example(lang: str, code: str, policy: ExecutionPolicy,
         return ExampleResult(0, lang, code[:100], passed=None, status="error",
                              error=f"Unknown execution backend: {policy.backend}")
 
-    if ok is None:  # refused before launch: nothing was measured, so it is not scored
-        return ExampleResult(0, lang, code[:100], passed=None, status="skipped", error=err)
+    if ok is None:  # neither 0.0 nor a perfect score for a snippet that never ran
+        raise ExecutionRefused(f"{lang} example {err}")
     return ExampleResult(0, lang, code[:100], passed=ok,
                          status="passed" if ok else "failed", error=err)
 
@@ -269,7 +276,8 @@ def score_examples(
     ``pass_rate`` is computed over *executed* examples only. A document with no
     examples — or whose examples were all skipped — scores 1.0 (nothing failed).
     For backward compatibility, a bare ``timeout`` may be passed instead of a
-    policy (implies the legacy host-subprocess behavior, opt-in).
+    policy (implies the legacy host-subprocess behavior, opt-in). Limits the host
+    cannot apply raise :class:`ExecutionRefused`.
     """
     if policy is None:
         policy = ExecutionPolicy(

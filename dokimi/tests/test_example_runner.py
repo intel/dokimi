@@ -14,6 +14,7 @@ import pytest
 
 from dokimi.metrics.example_runner import (
     ExecutionPolicy,
+    ExecutionRefused,
     extract_examples,
     run_example,
     score_examples,
@@ -332,10 +333,8 @@ def test_explicit_null_memory_keeps_cpu_limit(monkeypatch):
 @pytest.mark.parametrize("mem_mb", [None, 0, -1])
 def test_docker_requires_positive_memory_cap(mem_mb):
     runner = FakeRunner()
-    result = run_example("python", "print(1)",
-                         ExecutionPolicy(backend="docker", mem_mb=mem_mb), runner)
-    assert result.status == "skipped" and result.passed is None
-    assert "positive memory cap" in (result.error or "")
+    with pytest.raises(ExecutionRefused, match="positive memory cap"):
+        run_example("python", "print(1)", ExecutionPolicy(backend="docker", mem_mb=mem_mb), runner)
     assert runner.calls == []
 
 
@@ -351,26 +350,29 @@ def test_unsupported_host_caps_fail_before_launch(monkeypatch, platform, mem_mb,
         pytest.fail("unsupported limits must refuse before launching a child")
 
     monkeypatch.setattr(process.subprocess, "Popen", forbidden)
-    result = run_example("python", "raise AssertionError('must not execute')",
-                         ExecutionPolicy(backend="subprocess", allow_host=True, mem_mb=mem_mb))
-    assert result.status == "skipped" and result.passed is None
-    assert reason in (result.error or "")
+    with pytest.raises(ExecutionRefused, match=reason):
+        run_example("python", "raise AssertionError('must not execute')",
+                    ExecutionPolicy(backend="subprocess", allow_host=True, mem_mb=mem_mb))
 
 
-def test_refused_limits_are_not_scored_as_failed_examples(tmp_path, monkeypatch):
-    monkeypatch.setattr(process.sys, "platform", "darwin")
+@pytest.mark.parametrize("platform,policy", [
+    ("darwin", ExecutionPolicy(backend="subprocess", allow_host=True)),
+    ("win32", ExecutionPolicy(backend="subprocess", allow_host=True)),
+    ("linux", ExecutionPolicy(backend="docker", mem_mb=None)),
+])
+def test_refused_limits_stop_scoring_instead_of_a_perfect_rate(tmp_path, monkeypatch, platform, policy):
+    monkeypatch.setattr(process.sys, "platform", platform)
     doc = tmp_path / "d.md"
-    doc.write_text("```python\nprint(1)\n```\n\n```python\nprint(2)\n```\n", encoding="utf-8")
-    rate, results = score_examples(doc, ExecutionPolicy(backend="subprocess", allow_host=True))
-    assert [r.status for r in results] == ["skipped", "skipped"]
-    assert rate == 1.0 and "mem_mb: null" in (results[0].error or "")
+    doc.write_text("```python\nimport package_that_does_not_exist\n```\n", encoding="utf-8")
+    with pytest.raises(ExecutionRefused, match="python example not run: "):
+        score_examples(doc, policy)
 
 
 def test_subprocess_refuses_a_non_positive_memory_cap():
     runner = FakeRunner()
-    result = run_example("python", "print(1)",
-                         ExecutionPolicy(backend="subprocess", allow_host=True, mem_mb=0), runner)
-    assert result.status == "skipped" and "mem_mb must be positive" in (result.error or "")
+    with pytest.raises(ExecutionRefused, match="mem_mb must be positive"):
+        run_example("python", "print(1)",
+                    ExecutionPolicy(backend="subprocess", allow_host=True, mem_mb=0), runner)
     assert runner.calls == []
 
 
