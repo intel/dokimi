@@ -4,6 +4,7 @@
 """Real writable-socket detection, including hosts with long temporary paths."""
 
 import socket
+import sys
 import tempfile
 from pathlib import Path
 
@@ -13,7 +14,7 @@ import dokimi.harnesses.agent_sandbox as sandbox_mod
 from dokimi.harnesses.agent_sandbox import AgentWorkspace, run_probe
 
 
-@pytest.mark.skipif(not hasattr(socket, "AF_UNIX") or not Path("/tmp").is_dir(),
+@pytest.mark.skipif(not hasattr(socket, "AF_UNIX") or sys.platform == "win32",
                     reason="needs AF_UNIX sockets and a POSIX /tmp")
 def test_probe_reports_a_writable_docker_socket(tmp_path, monkeypatch):
     # AF_UNIX paths on macOS are limited to 104 bytes, which pytest's TMPDIR can exceed;

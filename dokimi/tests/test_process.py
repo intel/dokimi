@@ -888,7 +888,7 @@ def test_unsupported_limits_refuse_before_launch(tmp_path, monkeypatch, platform
 ])
 def test_supported_limits_are_not_refused(monkeypatch, platform, limits):
     monkeypatch.setattr(process.sys, "platform", platform)
-    process.check_limits(limits)
+    assert process.check_limits(limits) is None
 
 
 @_POSIX_ONLY
