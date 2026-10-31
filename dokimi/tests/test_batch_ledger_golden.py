@@ -54,6 +54,64 @@ GOLDEN_SAMPLE_CELLS = {
     },
 }
 
+# The files of a finished cell dir, and the keys of its meta.json and result.json.
+GOLDEN_CELL_FILES = [
+    "agent-git",
+    "agent.stderr",
+    "agent.stdout",
+    "answer.txt",
+    "config",
+    "events.jsonl",
+    "grade-home",
+    "grade.err",
+    "grade.json",
+    "grade.log",
+    "home",
+    "meta.json",
+    "result.json",
+    "state",
+    "task.json",
+    "workspace",
+]
+GOLDEN_META_KEYS = [
+    "agent_network",
+    "args_if_present",
+    "arm",
+    "arm_files",
+    "base_date",
+    "base_rev",
+    "base_sha",
+    "batch",
+    "egress_proxy",
+    "execution",
+    "harness",
+    "harness_version",
+    "host",
+    "model",
+    "model_resolved",
+    "patches",
+    "rep",
+    "start_sha",
+    "task",
+]
+GOLDEN_RESULT_KEYS = [
+    "agent",
+    "arm",
+    "base_date",
+    "execution",
+    "family",
+    "grade",
+    "harness",
+    "harness_version",
+    "model",
+    "model_resolved",
+    "process",
+    "rep",
+    "score_max",
+    "score_task",
+    "task",
+]
+
 
 @pytest.fixture
 def setup(tmp_path, monkeypatch):
@@ -152,12 +210,13 @@ def test_a_sample_batch_writes_the_pinned_cells_records_and_files(setup, capsys)
         assert meta["execution"] == expected
         assert json.loads((rd / "result.json").read_text(encoding="utf-8"))["execution"] == expected
     snapshot = _cell_snapshot(batch / "fix_add__guidance-raw__m-1__r1")
-    assert snapshot["files"] == sorted(snapshot["files"]) and "result.json" in snapshot["files"]
+    assert snapshot["files"] == GOLDEN_CELL_FILES
+    assert snapshot["meta_keys"] == GOLDEN_META_KEYS
+    assert snapshot["result_keys"] == GOLDEN_RESULT_KEYS
     assert (
         snapshot["result"]["harness"] == "fake" and snapshot["result"]["harness_version"] == "1.2.3"
     )
     assert snapshot["grade"] == {"status": "graded", "success": True}
-    assert snapshot["result_keys"] == sorted(snapshot["result_keys"])
     plan = json.loads((batch / "_eval" / "plan.json").read_text(encoding="utf-8"))
     assert plan == {"cells": sorted(GOLDEN_SAMPLE_CELLS)}
 
