@@ -251,6 +251,17 @@ def test_compare_strict_refuses_a_role_it_cannot_verify(compare, capsys):
     assert "--strict cannot verify the answer model" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("judge_model", ["anthropic/", "--"])
+def test_a_judge_name_with_no_id_is_not_compared_and_strict_refuses_it(compare, capsys, judge_model):
+    run = _eval(judge=("anthropic", judge_model))
+    with pytest.raises(SystemExit) as exc:
+        compare(run, run, "--strict")
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "judge model not recorded in baseline and current eval; not compared" in err
+    assert "--strict cannot verify the judge model" in err and "judge model: baseline" not in err
+
+
 def test_an_unknown_answer_model_is_not_a_model_change(compare, capsys):
     # `eval score` writes "unknown" when the answers file names no model.
     old = _eval(answer=("unknown", "unknown"))
