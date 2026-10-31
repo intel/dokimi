@@ -393,14 +393,14 @@ Worth knowing before you read a suspiciously clean result:
 |---|---|---|
 | `catalog scan --root <missing>` | `--root is not a directory: <path>` | 1 |
 | `tasks run --tasks-root <missing>` | `FileNotFoundError: Task directory not found: demo-widget` | 1 |
-| `eval tasks list --tasks-root <missing>` | prints nothing | 0 |
+| `eval tasks list --tasks-root <missing>` | `--tasks-root is not a directory: <path>` | 2 |
 | `explore list --tasks-root <missing>` | `--tasks-root is not a directory: <path>` | 2 |
 | `coverage` with no roots | every product reads `no`/`0`, plus an explicit note | 0 |
 | `evaluate`/`benchmark run` with a root lacking the golden set | `WARNING ... has no golden set for <product>` and continues | — |
 
-`eval tasks list` is the trap: an empty listing and a correct listing both exit 0,
-so a typo in a path looks like an empty checkout. `explore list` refuses an
-empty root with exit 2. The `coverage` matrix is explicit about it instead:
+`eval tasks list` is the trap for an existing directory: an empty listing and a correct listing
+both exit 0, so an empty checkout looks like a correct one. A missing root is refused with exit 2,
+not a silent success. `explore list` refuses an empty root with exit 2. The `coverage` matrix is explicit about it instead:
 
 ```console
 $ python -m dokimi.coverage
