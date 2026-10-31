@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -750,3 +751,10 @@ def test_judge_takes_a_provider_model_reference_and_a_bad_one_is_a_usage_error(c
         with pytest.raises(SystemExit) as exc:
             parse_args(["eval", "redteam", "q.json", "--judge", bad])
         assert exc.value.code == 2, bad
+
+
+def test_docs_name_the_redteam_output_flag_as_out():
+    # The command registers only `--out` (the flag registry bans `-o`); the docs must say so.
+    doc = (Path(__file__).resolve().parents[1] / "docs" / "answer-formats.md").read_text(encoding="utf-8")
+    assert "unwritable `--out`" in doc
+    assert "unwritable `-o`" not in doc
