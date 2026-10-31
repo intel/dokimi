@@ -341,12 +341,14 @@ def _assert_errored_not_scored(result):
     assert (stats["scored"], stats["errored"], stats["pass_rate"]) == (0, 1, None)
 
 
-def test_a_command_with_an_unreadable_reward_file_is_not_scored_from_its_exit_code(tmp_path):
+@pytest.mark.parametrize("content, output", [("2.0", ""), ("2.0", "reward: 1"), ("", "reward: 1")])
+def test_a_command_with_an_unreadable_reward_file_is_not_scored_from_its_exit_code(tmp_path, content, output):
+    """Nor from a reward marker on its output: the file, not the agent's log, is the verdict."""
     task = load_task(_fixture_task(tmp_path / "tasks"))
 
     def handler(call):
-        (Path(call.env["DOKIMI_OUTPUT_DIR"]) / "reward.txt").write_text("2.0", encoding="utf-8")
-        return reply("")
+        (Path(call.env["DOKIMI_OUTPUT_DIR"]) / "reward.txt").write_text(content, encoding="utf-8")
+        return reply(output)
 
     result = create_harness("command:my-wrapper {task_path}", runner=FakeRunner(handler)).run(
         task, output_dir=tmp_path / "cell")

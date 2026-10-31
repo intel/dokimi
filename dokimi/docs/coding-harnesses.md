@@ -606,8 +606,8 @@ refuses the task instead of running it with the internet the task forbade.
 Both now land as errored cells.
 
 A `command:` harness (including a `--command-template` that wraps `harbor`)
-keeps its own rule: a `reward.txt` / `reward.json` under the run dir, else a
-`reward: x` on its output, else exit code 0 is a pass. Exit 126 or 127, a
+keeps its own rule: a `reward.txt` / `reward.json` under the run dir, else (no
+reward file) a `reward: x` on its output, else exit code 0 is a pass. Exit 126 or 127, a
 signal exit, or a reward file it cannot read is no verdict: the cell is
 errored (`metrics.solver_error`).
 

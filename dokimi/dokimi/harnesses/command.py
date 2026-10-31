@@ -424,6 +424,8 @@ def _find_reward(output_dir: Path | None, stdout: str, stderr: str) -> float | N
             )
             if parsed is not None:
                 return parsed
+        if candidates:
+            return None  # an unreadable reward file is not an absent one: no output fallback
     parsed = _parse_reward_text(stdout)
     return parsed if parsed is not None else _parse_reward_text(stderr)
 
