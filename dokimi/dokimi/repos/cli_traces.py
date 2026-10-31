@@ -95,7 +95,9 @@ def shell_reads(script: str, cwd: str = "") -> list[str]:
     out: list[str] = []
     walk = _Walk(posixpath.normpath(cwd) if cwd else "")
     previous = ""
-    script = _HEREDOC.sub(lambda m: m.group(3), _CONTINUATION.sub(" ", script))  # a heredoc body is input, not commands
+    # a line continuation is removed, not made a space (``cat AGENTS\<newline>.md`` reads AGENTS.md); a heredoc body
+    # is input, not commands
+    script = _HEREDOC.sub(lambda m: m.group(3), _CONTINUATION.sub("", script))
     for part, after, in_subshell in _split_script(script):
         op, previous = previous, after
         chained = op in ("&&", "||")

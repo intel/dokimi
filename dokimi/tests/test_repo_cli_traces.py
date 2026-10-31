@@ -213,6 +213,12 @@ def test_shell_reads_start_in_the_given_directory():
     assert shell_reads("{ cd x && cat f; }", "sub") == ["sub/x/f"]
 
 
+@pytest.mark.parametrize(("command", "reads"), [
+    ("cat AGENTS\\\n.md", ["AGENTS.md"]), ("ca\\\nt AGENTS.md", ["AGENTS.md"]), ("cat a \\\n  b", ["a", "b"])])
+def test_shell_reads_joins_a_line_continuation_without_a_space(command, reads):
+    assert shell_reads(command) == reads
+
+
 def test_shell_reads_of_an_empty_script_reads_nothing():
     assert shell_reads("") == [] and shell_reads("  \n") == []
     assert unwrap_shell("") == ""  # an empty command is its own script, not a wrapper
