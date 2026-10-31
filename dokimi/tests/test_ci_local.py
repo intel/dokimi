@@ -544,82 +544,50 @@ def test_needs_tool_job_ids_match_real_jobs() -> None:
     assert set(cl.NEEDS_TOOL) <= job_ids
 
 
+def _gitleaks_steps() -> tuple[list[dict[str, Any]], str]:
+    """The real workflow's gitleaks install and scan steps, and the version it pins."""
+    ci = cl.yaml.safe_load((Path(__file__).resolve().parents[2] / ".github/workflows/ci.yml").read_text())
+    steps = [s for s in ci["jobs"]["static"]["steps"] if s.get("name") in ("Install gitleaks", "Scan commits")]
+    version = str(next(s for s in steps if s["name"] == "Install gitleaks")["env"]["GITLEAKS_VERSION"])
+    return [{"name": "Lint", "run": "echo lint"}, *steps], version
+
+
+def _static_job(steps: list[dict[str, Any]]) -> None:
+    (cl.WORKFLOWS / "x.yml").write_text(cl.yaml.safe_dump(
+        {"on": "pull_request", "jobs": {"static": {"steps": steps}}}))
+
+
+def _host(monkeypatch: pytest.MonkeyPatch, system: str, machine: str) -> None:
+    monkeypatch.setattr(cl.platform, "system", lambda: system)
+    monkeypatch.setattr(cl.platform, "machine", lambda: machine)
+
+
 @pytest.mark.parametrize("system, machine", [("Darwin", "arm64"), ("Linux", "aarch64"), ("Windows", "AMD64")])
 def test_linux_gitleaks_binary_is_not_executed_on_other_hosts(env, monkeypatch, capsys, system, machine):
-    (cl.WORKFLOWS / "x.yml").write_text(
-        "on: pull_request\njobs:\n  gitleaks:\n    steps:\n      - run: download-and-run-linux-x64\n")
-    import platform
-    monkeypatch.setattr(platform, "system", lambda: system)
-    monkeypatch.setattr(platform, "machine", lambda: machine)
-    assert cl.run(ns(jobs="gitleaks")) == 0
-    assert env["calls"] == []
+    _static_job(_gitleaks_steps()[0])
+    _host(monkeypatch, system, machine)
+    assert cl.run(ns(jobs="static")) == 0
+    scripts = [call["cmd"][-1] for call in env["calls"]]
+    assert scripts == ["echo lint"]
     assert "unsupported host" in capsys.readouterr().out
 
 
-def test_gitleaks_linux_x64_keeps_the_workflow_scan(env, monkeypatch, capsys):
-    import platform
-    monkeypatch.setattr(platform, "system", lambda: "Linux")
-    monkeypatch.setattr(platform, "machine", lambda: "x86_64")
-    (cl.WORKFLOWS / "x.yml").write_text(
-        "on: pull_request\njobs:\n  gitleaks:\n    steps:\n      - run: exit 1\n")
-    assert cl.run(ns(jobs="gitleaks")) == 1
-    assert "FAIL (exit 1)" in capsys.readouterr().out
-
-
-@pytest.mark.parametrize("version,scan", [("8.30.1", True), ("8.29.0", False)])
-@pytest.mark.parametrize("scan_exit", [0, 1])
-def test_native_gitleaks_uses_exact_workflow_version(env, monkeypatch, capsys, version, scan, scan_exit):
-    workflow = next(
-        p for p in (Path(__file__).resolve().parents[2] / ".github/workflows").glob("*.yml")
-        if "name: Install gitleaks" in p.read_text()
-    )
-    original_job = next(job for job in cl.yaml.safe_load(workflow.read_text())["jobs"].values()
-                        if any(s.get("name") == "Install gitleaks" for s in job.get("steps", [])))
-    scan_steps = [s for s in original_job["steps"] if "gitleaks/gitleaks" in str(s.get("run", ""))]
-    (cl.WORKFLOWS / "x.yml").write_text(cl.yaml.safe_dump(
-        {"on": "pull_request", "jobs": {"gitleaks": {"steps": scan_steps}}}))
-    monkeypatch.setattr(cl.platform, "system", lambda: "Darwin")
-    monkeypatch.setattr(cl.platform, "machine", lambda: "arm64")
-    native = env["root"] / "native gitleaks"
-    native.write_text("native placeholder")
-    monkeypatch.setattr(cl.shutil, "which", lambda name: str(native) if name == "gitleaks" else None)
-    previous_run = cl.subprocess.run
-
-    def run(cmd, **kwargs):
-        if cmd == [str(native), "version"]:
-            return subprocess.CompletedProcess(cmd, 0, stdout=version + "\n")
-        result = previous_run(cmd, **kwargs)
-        if "git --redact --verbose --no-banner" in cmd[-1]:
-            result.returncode = scan_exit
-        return result
-
-    monkeypatch.setattr(cl.subprocess, "run", run)
-    assert cl.run(ns(jobs="gitleaks", offline=True)) == (scan_exit if scan else 0)
+def test_gitleaks_linux_x64_keeps_the_workflow_download_and_scan(env, monkeypatch):
+    steps, _ = _gitleaks_steps()
+    _static_job(steps)
+    _host(monkeypatch, "Linux", "x86_64")
+    assert cl.run(ns(jobs="static")) == 0
     scripts = [call["cmd"][-1] for call in env["calls"]]
-    output = capsys.readouterr().out
-    if scan:
-        original = scan_steps[-1]["run"]
-        assert original.strip() in scripts
-        assert not any('curl -fsSL' in script for script in scripts)
-        assert "native gitleaks" in output and "8.30.1" in output
-    else:
-        assert scripts == []
-        assert "unsupported host" in output and "8.29.0" in output
+    assert any("curl -fsSL" in s for s in scripts) and any("git --redact" in s for s in scripts)
 
 
-@pytest.mark.parametrize("version", ["8.30.1", "8.29.0"])
-def test_native_gitleaks_in_a_combined_static_job_keeps_other_checks(env, monkeypatch, capsys, version):
-    job = {"steps": [
-        {"name": "Lint", "run": "echo lint"},
-        {"name": "Install gitleaks", "env": {"GITLEAKS_VERSION": "8.30.1"},
-         "run": 'curl linux-x64 && "$RUNNER_TEMP/gitleaks/gitleaks" version'},
-        {"name": "Scan commits", "run": '"$RUNNER_TEMP/gitleaks/gitleaks" git --redact .'},
-    ]}
-    (cl.WORKFLOWS / "x.yml").write_text(cl.yaml.safe_dump(
-        {"on": "pull_request", "jobs": {"static": job}}))
-    monkeypatch.setattr(cl.platform, "system", lambda: "Darwin")
-    monkeypatch.setattr(cl.platform, "machine", lambda: "arm64")
-    native = env["root"] / "gitleaks"
+@pytest.mark.parametrize("offline", [False, True])
+@pytest.mark.parametrize("scan_exit", [0, 1])
+def test_native_gitleaks_at_the_pinned_version_runs_the_scan(env, monkeypatch, capsys, offline, scan_exit):
+    steps, version = _gitleaks_steps()
+    _static_job(steps)
+    _host(monkeypatch, "Darwin", "arm64")
+    native = env["root"] / "native gitleaks"
     native.write_text("native placeholder")
     monkeypatch.setattr(cl.shutil, "which", lambda name: str(native) if name == "gitleaks" else None)
     previous = cl.subprocess.run
@@ -627,12 +595,36 @@ def test_native_gitleaks_in_a_combined_static_job_keeps_other_checks(env, monkey
     def run(cmd, **kwargs):
         if cmd == [str(native), "version"]:
             return subprocess.CompletedProcess(cmd, 0, stdout=version + "\n")
+        result = previous(cmd, **kwargs)
+        if "git --redact" in cmd[-1]:
+            result.returncode = scan_exit
+        return result
+
+    monkeypatch.setattr(cl.subprocess, "run", run)
+    assert cl.run(ns(jobs="static", offline=offline)) == scan_exit
+    scripts = [call["cmd"][-1] for call in env["calls"]]
+    assert "echo lint" in scripts and any("git --redact" in s for s in scripts)
+    assert not any("curl -fsSL" in s for s in scripts)
+    assert f"native gitleaks {version}" in capsys.readouterr().out
+
+
+def test_native_gitleaks_at_another_version_is_unsupported_and_keeps_other_checks(env, monkeypatch, capsys):
+    steps, version = _gitleaks_steps()
+    other = "0." + version
+    _static_job(steps)
+    _host(monkeypatch, "Darwin", "arm64")
+    native = env["root"] / "gitleaks"
+    native.write_text("native placeholder")
+    monkeypatch.setattr(cl.shutil, "which", lambda name: str(native) if name == "gitleaks" else None)
+    previous = cl.subprocess.run
+
+    def run(cmd, **kwargs):
+        if cmd == [str(native), "version"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout=other + "\n")
         return previous(cmd, **kwargs)
 
     monkeypatch.setattr(cl.subprocess, "run", run)
     assert cl.run(ns(jobs="static")) == 0
-    scripts = [call["cmd"][-1] for call in env["calls"]]
-    assert "echo lint" in scripts and not any("curl linux-x64" in s for s in scripts)
-    assert any("git --redact" in s for s in scripts) == (version == "8.30.1")
-    if version != "8.30.1":
-        assert "unsupported host" in capsys.readouterr().out
+    assert [call["cmd"][-1] for call in env["calls"]] == ["echo lint"]
+    out = capsys.readouterr().out
+    assert "unsupported host" in out and other in out

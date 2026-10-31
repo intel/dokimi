@@ -273,6 +273,9 @@ def native_gitleaks(job: dict) -> str | None:
         return f"unsupported host: native gitleaks version {actual!r}; workflow requires {version}"
     print(f"NOTICE: native gitleaks {version} from {binary}; installed locally, "
           "not the workflow's checksum-verified Linux download")
+    for step in job["steps"]:  # the native path needs no download, so it runs offline too
+        if step.get("name") in ("Install gitleaks", "Scan commits"):
+            step["offline_ok"] = True
     install["run"] = (
         'mkdir -p "$RUNNER_TEMP/gitleaks"\n'
         f'cp {shlex.quote(binary)} "$RUNNER_TEMP/gitleaks/gitleaks"\n'
@@ -284,11 +287,9 @@ def native_gitleaks(job: dict) -> str | None:
 def unavailable_job(job_id: str, online: bool, job: dict) -> str | None:
     """Native scans need an exact installed version; Linux x64 keeps the download."""
     install = any(s.get("name") == "Install gitleaks" for s in job.get("steps", []))
-    if (job_id == "gitleaks" or install) and (platform.system(), platform.machine()) != ("Linux", "x86_64"):
-        reason = native_gitleaks(job)
-        if not reason or job_id == "gitleaks":
-            return reason
-        disable_native_scan(job, reason)
+    if install and (platform.system(), platform.machine()) != ("Linux", "x86_64"):
+        if reason := native_gitleaks(job):
+            disable_native_scan(job, reason)
     return "needs network" if job_id in NEEDS_NETWORK and not online else None
 
 
@@ -372,7 +373,7 @@ def run(args: argparse.Namespace) -> int:
                         if not any(x.strip() for x in lines):
                             continue
                         script = "\n".join(lines)
-                    if (job_id, step.get("name")) in NEEDS_NETWORK and not online:
+                    if (job_id, step.get("name")) in NEEDS_NETWORK and not online and not step.get("offline_ok"):
                         record(name, "skip (needs network)")
                         continue
                     if "if" in step and not ctx.condition(str(step["if"])):
