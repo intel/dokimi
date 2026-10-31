@@ -11,23 +11,30 @@ import tomllib
 from pathlib import Path
 
 import pytest
+import yaml
 from packaging.markers import Marker
 from packaging.requirements import Requirement
 
 ROOT = Path(__file__).resolve().parents[1]
 # The locks .github/renovate.json5 hands to the pip-compile manager.
-RENOVATE_LOCKS = ("requirements.lock.txt", "requirements-ci.lock.txt")
+RENOVATE_LOCKS = ("requirements.lock.txt", "requirements-ci.lock.txt", "requirements-mutation.lock.txt")
 # Installed together with --require-hashes (ci.yml, docs.yml, .agent-eval/Dockerfile,
 # make dev), so a pin both carry has to be the same version.
 STACKED_LOCKS = (
     ("requirements.lock.txt", "requirements-ci.lock.txt"),
     ("requirements.lock.txt", "requirements-docs.lock.txt"),
+    ("requirements.lock.txt", "requirements-mutation.lock.txt"),
     ("requirements-ci.lock.txt", "requirements-docs.lock.txt"),
 )
 PIN = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)==([^\s;\\]+)")
 HASH = re.compile(r"--hash=sha256:[0-9a-f]{64}(?!\w)")
 BARE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
-HASHED_LOCKS = ("requirements.lock.txt", "requirements-ci.lock.txt", "requirements-docs.lock.txt")
+HASHED_LOCKS = (
+    "requirements.lock.txt",
+    "requirements-ci.lock.txt",
+    "requirements-docs.lock.txt",
+    "requirements-mutation.lock.txt",
+)
 # Where the stacked locks are installed: CI's Pythons, and make dev on any OS.
 ENVIRONMENTS = [
     {
@@ -117,9 +124,10 @@ def test_lock_is_compiled_with_hashes(name: str) -> None:
     assert "--generate-hashes" in compile_command(name).split(), name
 
 
-def test_tools_lock_is_constrained_to_main_lock() -> None:
-    """The tools lock is compiled against the main lock, so shared pins cannot drift."""
-    assert "--constraint=requirements.lock.txt" in header_command("requirements-ci.lock.txt")
+@pytest.mark.parametrize("name", ("requirements-ci.lock.txt", "requirements-mutation.lock.txt"))
+def test_tools_lock_is_constrained_to_main_lock(name: str) -> None:
+    """The tools locks are compiled against the main lock, so shared pins cannot drift."""
+    assert "--constraint=requirements.lock.txt" in header_command(name)
 
 
 @pytest.mark.parametrize("name", HASHED_LOCKS)
@@ -137,6 +145,26 @@ def test_every_pin_has_hashes(name: str) -> None:
         if not hashes or not all(HASH.search(h) for h in hashes):
             unhashed.append(line)
     assert not unhashed, f"{name}: pins without a valid --hash=sha256 line: {unhashed}"
+
+
+def test_mutation_tool_stays_out_of_the_shared_tools_lock() -> None:
+    """CI, the release job, pip-audit's tools step and the eval image install the tools lock;
+    only mutation.yml installs mutmut, from its own lock."""
+    assert "mutmut" not in pins("requirements-ci.lock.txt")
+    locked = pins("requirements-mutation.lock.txt")
+    assert "mutmut" in locked, "requirements-mutation.lock.txt has no mutmut pin"
+    requested = pins("requirements-mutation.txt")
+    assert "mutmut" in requested, "requirements-mutation.txt must pin mutmut exactly"
+    assert requested["mutmut"] == locked["mutmut"]
+
+
+@pytest.mark.parametrize("name", HASHED_LOCKS)
+def test_pip_audit_audits_every_lock(name: str) -> None:
+    """A lock the audit job does not list ships its pins unchecked against advisories."""
+    workflow = yaml.safe_load((ROOT.parent / ".github/workflows/pip-audit.yml").read_text(encoding="utf-8"))
+    # The audit command itself, not the file text: comments and the Install tools step name locks too.
+    (run,) = [s["run"] for s in workflow["jobs"]["pip-audit"]["steps"] if s.get("name") == "pip-audit"]
+    assert name in run.split()
 
 
 def test_tools_lock_has_every_requested_pin() -> None:

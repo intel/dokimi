@@ -278,7 +278,17 @@ def draw_extra(extra: Dict[str, Any], draw: int) -> Dict[str, Any]:
     return {**extra, "draw": draw} if draw else extra
 
 
-def keeps(cache_if: Optional[Callable[[str], bool]], text: str) -> bool:
+def is_empty_reply(text: Optional[str]) -> bool:
+    """Whether a reply carries no answer: no content (``None``) or only whitespace.
+
+    The one test every path shares (response cache, single-turn and session arms,
+    ``eval reference``, the judge). An empty reply is an error on the cell: it is
+    never scored, never counted as a 0, and never stored or replayed.
+    """
+    return text is None or not text.strip()
+
+
+def keeps(cache_if: Optional[Callable[[str], bool]], text: Optional[str]) -> bool:
     """Whether a completion may be stored, or a stored one replayed.
 
     *cache_if* is the caller's own acceptance test. The judge passes "this reply
@@ -286,7 +296,14 @@ def keeps(cache_if: Optional[Callable[[str], bool]], text: str) -> bool:
     all three of the judge's attempts are stored that way, every later run
     replays the failure without calling the model. Checking on replay too means
     entries stored before the check existed stop poisoning the run.
+
+    An empty reply (see :func:`is_empty_reply`) is never kept, on store or on
+    replay: a stored empty answer would be replayed as a failed answer on every
+    later run, and a content-less one (stored as null) as "no answer". ``text`` is
+    ``None`` for a content-less reply.
     """
+    if text is None or is_empty_reply(text):  # the None test narrows the type for cache_if
+        return False
     return cache_if is None or cache_if(text)
 
 

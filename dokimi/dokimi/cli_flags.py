@@ -23,8 +23,6 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 
 __all__ = [
-    "BANNED",
-    "CANONICAL",
     "CONCEPTS",
     "OWNED_STEMS",
     "Concept",
@@ -285,22 +283,6 @@ CONCEPTS: tuple[Concept, ...] = (
 OWNED_STEMS: tuple[str, ...] = (
     "out", "model", "judge", "usd", "budget", "token", "reps", "json", "format", "strict",
 )
-
-
-def _index() -> tuple[dict[str, str], dict[str, str]]:
-    canonical: dict[str, str] = {}
-    banned: dict[str, str] = {}
-    for concept in CONCEPTS:
-        for flag in concept.canonical:
-            canonical.setdefault(flag.spelling, concept.name)
-        for spelling in concept.banned:
-            banned.setdefault(spelling, concept.name)
-    return canonical, banned
-
-
-# Canonical spelling -> concept name, and banned synonym -> concept name. A banned spelling
-# is enforced only when its concept has canonical spellings.
-CANONICAL, BANNED = _index()
 
 
 def registry_problems(concepts: Iterable[Concept] = CONCEPTS) -> list[str]:

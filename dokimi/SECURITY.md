@@ -45,7 +45,8 @@ The project is pre-1.0; only the latest `main` is supported. Fixes land on
 ## Known advisories in dependencies
 
 `pip-audit` against the locks (`requirements.lock.txt`,
-`requirements-docs.lock.txt` and `requirements-ci.lock.txt`) reports these advisories with no
+`requirements-docs.lock.txt`, `requirements-ci.lock.txt` and
+`requirements-mutation.lock.txt`) reports these advisories with no
 fix the locks can take:
 
 - **filelock 3.32.7 — thirteen advisories** (fixed in 4.2.1, GHSA-j8f7-rjxc-mr56

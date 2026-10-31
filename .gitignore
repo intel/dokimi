@@ -13,6 +13,9 @@ coverage.json
 /dokimi/outcomes-result.json
 /dokimi/journeys-result.json
 /dokimi/journeys-result.md
+# mutmut's working copy and results (`mutmut run`, the mutation workflow)
+/dokimi/mutants/
+/dokimi/mutmut-results.txt
 
 # Local environments and credentials
 .venv/

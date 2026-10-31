@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
+from dokimi.caching import is_empty_reply
 from dokimi.utils import question_id  # noqa: F401  (re-exported: callers import it from here)
 from dokimi.artifacts import save_artifact
 from dokimi.llm import llm_call_with_usage
@@ -25,7 +26,7 @@ from dokimi.defaults import DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER
 from dokimi.eval import stats as arm_stats
 from dokimi.eval.interactions import interaction_significance
 from dokimi.eval.arm_summary import (
-    cost_summary, summarize_agentic_usage, summarize_skill_selection,
+    cell_values, cost_summary, empty_reply_cell, paired_delta, summarize_agentic_usage, summarize_skill_selection, unjudged_cell,
 )
 from dokimi.eval.cells import Cell
 from dokimi.eval.question_text import question_text_of, require_question_texts
@@ -37,7 +38,7 @@ from dokimi.eval.judge_context import JudgeContextStore
 from dokimi.eval.judge_context import build as build_judge_context
 from dokimi.eval.judge_context import cite as cite_judge_materials
 from dokimi.eval.judge_context import join_injected
-from dokimi.eval.session import REMINDER_ARM_SUFFIX, run_session, session_turns_of
+from dokimi.eval.session import REMINDER_ARM_SUFFIX, check_session_questions, run_session, session_turns_of
 from dokimi.metrics.usage import to_record
 from dokimi.treatments.base import Treatment
 
@@ -232,10 +233,7 @@ class ArmRunner:
         n = len(questions)
         if self.session_turns is not None:
             # Before any answer is paid for: a question short of follow-ups fails the run.
-            for i, q in enumerate(questions):
-                qid = question_id(q)
-                session_turns_of(q, question_text_of(q), self.session_turns,
-                                 label=f"#{i}" if qid is None else str(qid))
+            check_session_questions(questions, self.session_turns)
         results: Dict[int, Dict[str, Any]] = {}
         lock = threading.Lock()
         done = [0]
@@ -393,11 +391,13 @@ class ArmRunner:
             return {"error": f"generation_failed: {exc}", "answer": None,
                     "metadata": cfg_metadata}
 
-        raw_chars = len(answer_text or "")
-        final_text = self._apply_shapers(shapers, answer_text)
-        final_chars = len(final_text or "")
-
         rec = to_record(usage, self.model, self.provider)
+        # Read on the reply the model gave, before the shapers: a footer added to nothing is not an answer.
+        if is_empty_reply(answer_text):  # an error cell, as a session's empty turn; the usage still counts
+            return empty_reply_cell(rec, cfg_metadata, t0)
+        final_text = self._apply_shapers(shapers, answer_text)
+        raw_chars = len(answer_text or "")
+        final_chars = len(final_text or "")
         return {
             "answer": final_text,
             "raw_answer": answer_text if shapers else None,
@@ -566,8 +566,13 @@ class ArmRunner:
                     "tool_usage": tool_usage, "metadata": cfg_metadata}
 
         raw_answer = result["answer"]
-        final_answer = self._apply_shapers(shapers, raw_answer)
         rec = to_record(result.get("usage") or result["token_usage"], self.model, self.provider)
+        if is_empty_reply(raw_answer):  # read before the shapers: a footer added to nothing is not an answer
+            return empty_reply_cell(
+                rec, cfg_metadata, t0, agentic=True, transcript=result["transcript"],
+                tool_call_count=result["tool_call_count"], tool_usage=result.get("tool_usage", {}),
+                iterations=result["iterations"], stopped_reason=result["stopped_reason"])
+        final_answer = self._apply_shapers(shapers, raw_answer)
         metrics = rec.as_metrics_dict(
             answer_chars=len(raw_answer or ""), final_chars=len(final_answer or "")
         )
@@ -614,8 +619,8 @@ class ArmRunner:
             gt = rec.ground_truth
             for arm_name in arm_names(rec):
                 answer = rec.answer(arm_name)
-                if answer is None or not answer.text:
-                    scores[arm_name] = None
+                if answer is None or is_empty_reply(answer.text):
+                    scores[arm_name] = unjudged_cell(answer)  # an errored or empty answer is never judged
                     continue
                 context, source = self.judge_context.resolve_with_source(
                     rec.question_id, arm_name, dict(answer.raw)
@@ -630,7 +635,7 @@ class ArmRunner:
                     )
                 except Exception as exc:
                     logger.exception("Judging arm %s failed", arm_name)
-                    score = {"error": str(exc)}
+                    score = {"error": str(exc) or type(exc).__name__}
                 if isinstance(score, dict):
                     score = {**score, "judge_context_source": source}
                     digest = (self.judge_context.digest_of(rec.question_id, arm_name)
@@ -742,35 +747,28 @@ class ArmRunner:
         # cost_summary so a full run's spend is auditable from one artifact).
         if judge is not None and hasattr(judge, "_usage_totals"):
             with judge._usage_lock:
-                totals = dict(judge._usage_totals)
-            totals["cost_usd"] = (
-                round(totals["cost_usd"], 6) if totals["cost_known_calls"] else None
-            )
-            out["judge_metrics"] = totals
+                t = dict(judge._usage_totals)
+            t["cost_usd"] = round(t["cost_usd"], 6) if t["cost_known_calls"] else None
+            out["judge_metrics"] = t
+            if resolved := sorted(getattr(judge, "_resolved_models", ())):
+                out["judge_resolved_models"] = resolved
         return out
 
     def _summarize(
         self, evaluations: List[Dict[str, Any]], baseline_arm: str
     ) -> Dict[str, Any]:
-        per_arm: Dict[str, List[float]] = {name: [] for name in self.arm_names}
-        for ev in as_records(evaluations, source="evaluations", kind="evaluations"):
-            for arm_name in ev.scores:
-                if (v := ev.score(arm_name)) is not None:
-                    per_arm.setdefault(arm_name, []).append(float(v))
+        per_arm, errors = cell_values(evaluations, self.arm_names)
 
         summary: Dict[str, Any] = {"per_arm": {}}
-        base_avg = None
         for arm_name, vals in per_arm.items():
             avg = round(sum(vals) / len(vals), 1) if vals else None
-            summary["per_arm"][arm_name] = {"avg_aggregate": avg, "n": len(vals)}
-            if arm_name == baseline_arm:
-                base_avg = avg
-        if base_avg is not None:
-            for arm_name, stats in summary["per_arm"].items():
-                avg = stats["avg_aggregate"]
-                stats["delta_vs_baseline"] = (
-                    round(avg - base_avg, 1) if avg is not None and arm_name != baseline_arm else None
-                )
+            summary["per_arm"][arm_name] = {"avg_aggregate": avg, "n": len(vals), "errors": errors.get(arm_name, 0)}
+        # Paired over the questions both arms scored; the unpaired means above are still reported.
+        # Always present: null for the baseline, and for an arm with no question both arms scored.
+        for arm_name, stats in summary["per_arm"].items():
+            stats["delta_vs_baseline"] = (
+                paired_delta(evaluations, baseline_arm, arm_name) if arm_name != baseline_arm else None
+            )
 
         # Paired statistics. Every arm is tested against the *same* baseline
         # sample question-by-question, so the arms are mutually comparable and

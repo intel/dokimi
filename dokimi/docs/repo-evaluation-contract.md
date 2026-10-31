@@ -1095,8 +1095,9 @@ root. A bare name
 that names some file or directory is `ok_basename`. A glob is tried the same
 way: `ok` when something matches at the file's directory or an ancestor, `fail`
 when its literal parent directory exists there and nothing in it matches
-(`src/*.zzz`), `ok_suffix` when it ends a longer path in the tree, and
-`unresolved` otherwise (`build/*.o`, `out/<run>/grade.json`). A `<placeholder>`
+(`src/*.zzz`), `ok_suffix` when it ends a longer path in the tree,
+`ok_basename` when it has no `/` and matches the name of some file or
+directory (`type_dispatch*.hpp`), and `unresolved` otherwise (`build/*.o`, `out/<run>/grade.json`). A `<placeholder>`
 or a wildcard in the directory part is never `fail`. A `*` may span
 directories and `**/` matches zero or more. A trailing slash on a file
 (`src/mod.py/`) is `fail`. A GitHub Action reference (`actions/checkout@v6`) is not a
@@ -1161,8 +1162,9 @@ scanned once, as the file it names.
 The report lists `warnings` for guidance the manifest names but the tree lacks:
 a glob with no match, a missing `also_scan` file, no guidance at all, and a
 guidance file that cannot be read (a link that dangles or leaves the tree, a
-binary file, a file over 2 MB), named with the reason. An invalid `--static`
-document is not merged, and the command exits 1. `--fail-on-fail` also exits 1
+binary file, a file over 2 MB), named with the reason. A `--static`
+file that cannot be read or is not JSON exits 2; a document that fails the
+`repo_static.v1` schema is not merged, and the command exits 1. `--fail-on-fail` also exits 1
 when any claim fails, an `also_scan` file is missing, a guidance file cannot be
 read, a Bazel build input (`BUILD`, `.bzl`, `.bazelrc`, ...) cannot be read, or no guidance file matched
 (`incomplete`). A glob that matches nothing
@@ -1319,7 +1321,12 @@ python cli.py repo compare repo-runs/replay --baseline guidance:none --metric re
   same goes for the finished cells of a task this host cannot run, which
   `--force` keeps; that refusal comes after the host probe, before any agent starts. A result from before `execution` was
   recorded is refused as `unrecorded`, not counted as native; `--force` or
-  another `--batch` runs it. A batch stays on the eval tree it
+  another `--batch` runs it. A `result.json` that is not UTF-8, not JSON or
+  not a JSON object is that cell's error, naming the file, and the other cells
+  still run; the file is left in place, and removing it or `--force` runs the
+  cell again. The same holds for a finished cell of a task this host cannot
+  run, except that `--force` keeps it: once its file is removed, the cell runs
+  on a host that meets the task's requirements. A batch stays on the eval tree it
   started with: its revision, or for a working tree the digests of its `eval_dir`
   and of the image build context. A batch with a task that
   names a `dokimi:` grader (or a task directory that cannot be read) also stays on the built-in graders' sources.

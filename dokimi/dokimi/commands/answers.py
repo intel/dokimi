@@ -9,6 +9,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from dokimi.llm import ANSWER_PROVIDERS
 from dokimi.commands.evaluate import _require_ragas, _run_ragas_eval
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
@@ -19,6 +20,7 @@ from dokimi.defaults import (
     DEFAULT_MAX_TOKENS_PER_QUESTION,
     DEFAULT_RETRIEVAL_TOP_K,
 )
+from dokimi.exit_codes import EXIT_USAGE
 
 
 def _load_runtime_config() -> dict:
@@ -33,18 +35,18 @@ def _load_runtime_config() -> dict:
         loaded = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     except yaml.YAMLError as exc:
         print(f"Error: invalid YAML in {config_path}: {exc}", file=sys.stderr)
-        raise SystemExit(1) from exc
+        raise SystemExit(EXIT_USAGE) from exc
     except (OSError, ValueError) as exc:  # ValueError covers bad UTF-8
         print(f"Error: cannot read {config_path}: {exc}", file=sys.stderr)
-        raise SystemExit(1) from exc
+        raise SystemExit(EXIT_USAGE) from exc
     if loaded is not None and not isinstance(loaded, dict):
         print(f"Error: expected a mapping in {config_path}", file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(EXIT_USAGE)
     config = loaded or {}
     for key in ("products", "retrieval"):
         if config.get(key) is not None and not isinstance(config[key], dict):
             print(f"Error: '{key}' in {config_path} must be a mapping", file=sys.stderr)
-            raise SystemExit(1)
+            raise SystemExit(EXIT_USAGE)
     return config
 
 
@@ -55,10 +57,10 @@ def _load_questions(path: str) -> list:
         return load_questions(path).questions
     except ValueError as exc:  # ArtifactValidationError: names the record and the fix
         print(f"Error: {exc}", file=sys.stderr)
-        raise SystemExit(1) from exc
+        raise SystemExit(EXIT_USAGE) from exc
     except OSError as exc:
         print(f"Error: cannot read {path}: {exc.strerror or exc}", file=sys.stderr)
-        raise SystemExit(1) from exc
+        raise SystemExit(EXIT_USAGE) from exc
 
 
 def _output_path(args: argparse.Namespace) -> Path:
@@ -104,7 +106,7 @@ def cmd_answers_generate(args: argparse.Namespace) -> None:
             )
         except ValueError as exc:
             print(f"Error: {exc}", file=sys.stderr)
-            raise SystemExit(1) from exc
+            raise SystemExit(EXIT_USAGE) from exc
 
     print(f"Generating answers for {args.product} (library_id={library_id})")
     print(f"Using model: {args.provider}/{args.model}")
@@ -158,7 +160,7 @@ def register(sub, positive_int) -> None:
                               "Sets output to results/{product}_{run_id}/answers/{product}.json")
     gen_a_p.add_argument("--output", default=None, help="Output file (default: answers/{product}.json)")
     gen_a_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL, help="LLM model for answering")
-    gen_a_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
+    gen_a_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=ANSWER_PROVIDERS)
     gen_a_p.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS_PER_QUESTION, help="Max tokens to retrieve per question")
     gen_a_p.add_argument("--top-k", type=int, default=None, help=f"Number of docs to retrieve before reranking (default from config/products.yaml retrieval.top_k or {DEFAULT_RETRIEVAL_TOP_K})")
     gen_a_p.add_argument("--rerank-threshold", type=float, default=0.3, help="Min relevance score (0-1) to keep docs")

@@ -20,7 +20,9 @@ pip install -e .                 # installs the `dokimi` command
 The `novelty` and `arms` steps take `--model` and `--provider`; `arms run` also
 needs `--judge-provider` (it does not fall back to `--provider` for the judge);
 `tasks run` and `repo` take `--model` only. The provider is one of `openai`,
-`anthropic`, `amazon-bedrock`, `google-vertex`, `openrouter` or `openai-codex`;
+`anthropic`, `amazon-bedrock`, `google-vertex`, `openrouter`, `openai-codex` or
+`claude-cli` (a logged-in Claude Code CLI, no key; see
+[subscription backends](subscription-backends.md));
 `arms run --judge-provider` takes `google`, an alias of `google-vertex`, but not
 `openai-codex`.
 Credentials are read from the environment: `OPENAI_API_KEY`,
@@ -83,7 +85,9 @@ self-judge; `arms run` does not check, so name
   the same skill was 1,900 calls, about $14.50.
 - **At triage** with `--include-resources`, the 25-atom cap takes atoms in
   document order, and the entry point comes first: the flag reaches
-  `references/` only if `SKILL.md` has fewer than 25 atoms. For such skills,
+  `references/` only if `SKILL.md` has fewer than 25 atoms, and the run's cap
+  warning prints how far it reached through the input, the entry point and the files the budgets selected (span,
+  spans and token share). For such skills,
   use `--tier standard` (60 atoms), or add `--all-atoms` to the tier command for
   a full sweep; run `--estimate-only` first, it costs more.
 - Step 5 needs evaluation content: a golden question set for 5a, executable

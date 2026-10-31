@@ -275,3 +275,36 @@ filterwarnings = [
 # Test order is shuffled and `random` reseeded per test (pytest-randomly), so a
 # test that leans on another's leftovers fails. The header prints the seed;
 # `--randomly-seed=<seed>` replays that order, `-p no:randomly` keeps file order.
+
+# Mutation pilot (mutmut 3.x, run by mutation.yml): only_mutate is the statistics, gate decisions and cache key.
+# novelty_gate.py is left out (one 440-line function, copied per mutant). source_paths is the whole package.
+[tool.mutmut]
+source_paths = ["dokimi"]
+only_mutate = [
+  "dokimi/eval/stats.py",
+  "dokimi/eval/binary_stats.py",
+  "dokimi/gate/critical_bands.py",
+  "dokimi/gate/regression.py",
+  "dokimi/gate/score_gate.py",
+  "dokimi/gate/trust_gate.py",
+  "dokimi/caching.py",
+]
+pytest_add_cli_args = ["-p", "no:randomly", "-p", "no:cacheprovider"]
+pytest_add_cli_args_test_selection = [
+  "tests/test_stats.py",
+  "tests/test_stats_properties.py",
+  "tests/test_binary_stats.py",
+  "tests/test_novelty_stats_point_biserial.py",
+  "tests/test_pr26_properties.py",
+  "tests/test_skill_lift_summary.py",
+  "tests/test_model_compare.py",
+  "tests/test_repo_compare.py",
+  "tests/test_critical_bands.py",
+  "tests/test_regression.py",
+  "tests/test_score_gate.py",
+  "tests/test_gate_call_sites.py",
+  "tests/test_trust_gate.py",
+  "tests/test_caching.py",
+  "tests/test_judge_response_cache.py",
+  "tests/test_arm_runner.py",
+]

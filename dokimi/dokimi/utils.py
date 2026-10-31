@@ -7,7 +7,8 @@ import re
 from pathlib import Path
 from typing import Tuple, Dict, Any
 
-from dokimi.defaults import bedrock_profile
+from dokimi.defaults import BEDROCK_MODEL_IDS, bedrock_profile
+from dokimi.exit_codes import EXIT_USAGE
 
 
 def parse_frontmatter(text: str) -> "Tuple[Dict[str, Any], str]":
@@ -230,8 +231,11 @@ def get_llm(provider: str, model: str, api_key: str | None = None,
     ``max_tokens=2000``, Bedrock reads only its bearer token) and its cache keys,
     until the judge, generator and validator move to ``LLM``.
     """
-    from dokimi.llm import _GetLLMCompat, _Invoker
+    from dokimi import llm_cli
+    from dokimi.llm import LLM, _GetLLMCompat, _Invoker
 
+    if llm_cli.backend(provider) is not None:  # a logged-in CLI: no route, no key
+        return _Invoker(LLM(model, provider, temperature=temperature, seed=seed))
     api_key = _read_key(api_key) if api_key else api_key
     max_tokens: int | None = None
     key: str | None
@@ -284,7 +288,7 @@ def read_json_input(path: str | os.PathLike[str], *, flag: str) -> Any:
         raise InputError(f"{flag} {path}: {reason}") from exc
 
 
-def write_text_or_exit(path: Path, text: str, code: int = 1) -> None:
+def write_text_or_exit(path: Path, text: str, code: int = EXIT_USAGE) -> None:
     """Write ``text`` to ``path`` (creating parents), or exit ``code`` naming ``path`` when it cannot be written."""
     import sys
     try:

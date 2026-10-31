@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""`repo` commands exit 1 with a message on deeply nested or non-UTF-8 manifest, static and harness files."""
+"""`repo` commands exit 2 with a message on deeply nested or non-UTF-8 manifest, static and harness files."""
 
 from __future__ import annotations
 
@@ -20,10 +20,10 @@ def _run(*argv: str) -> None:
     args.func(args)
 
 
-def _exits_1_naming(capsys, path, *argv: str) -> None:
+def _exits_2_naming(capsys, path, *argv: str) -> None:
     with pytest.raises(SystemExit) as exc:
         _run(*argv)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert str(path) in capsys.readouterr().err
 
 
@@ -35,29 +35,29 @@ def repo(tmp_path):
 
 
 @pytest.mark.parametrize("command", [["scan"], ["validate"], ["reach", "--model", "m", "--dry-run"]])
-def test_a_deeply_nested_manifest_file_exits_1_naming_it(repo, tmp_path, capsys, command):
+def test_a_deeply_nested_manifest_file_exits_2_naming_it(repo, tmp_path, capsys, command):
     manifest = tmp_path / "deep.yaml"
     manifest.write_text(DEEP, encoding="utf-8")
-    _exits_1_naming(capsys, manifest, command[0], str(repo), "--manifest-file", str(manifest), *command[1:])
+    _exits_2_naming(capsys, manifest, command[0], str(repo), "--manifest-file", str(manifest), *command[1:])
 
 
-def test_a_deeply_nested_static_file_exits_1(repo, tmp_path, capsys):
+def test_a_deeply_nested_static_file_exits_2(repo, tmp_path, capsys):
     static = tmp_path / "static.json"
     static.write_text(DEEP, encoding="utf-8")
     manifest = tmp_path / "m.yaml"
     manifest.write_text("schema: repo_manifest.v1\nid: toy\nguidance:\n  globs: ['AGENTS.md']\n", encoding="utf-8")
     with pytest.raises(SystemExit) as exc:
         _run("scan", str(repo), "--manifest-file", str(manifest), "--static", str(static))
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     err = capsys.readouterr().err
     assert err.startswith("✗ ") and str(static) in err
 
 
 @pytest.mark.parametrize("command", [["budget"], ["reach", "--model", "m", "--dry-run"]])
-def test_a_deeply_nested_harness_file_exits_1_naming_it(repo, tmp_path, capsys, command):
+def test_a_deeply_nested_harness_file_exits_2_naming_it(repo, tmp_path, capsys, command):
     profile = tmp_path / "profile.yaml"
     profile.write_text(DEEP, encoding="utf-8")
-    _exits_1_naming(capsys, profile, command[0], str(repo), "--harness", str(profile), *command[1:])
+    _exits_2_naming(capsys, profile, command[0], str(repo), "--harness", str(profile), *command[1:])
 
 
 def test_load_profile_reports_a_deeply_nested_file(tmp_path):
@@ -76,9 +76,9 @@ def test_load_manifest_reports_a_repo_manifest_it_cannot_read(repo, content):
 
 
 @pytest.mark.parametrize("command", [["validate"], ["reach", "--model", "m", "--dry-run"]])
-def test_a_non_utf8_repo_manifest_exits_1(repo, capsys, command):
+def test_a_non_utf8_repo_manifest_exits_2(repo, capsys, command):
     (repo / ".agent-eval" / "repo-eval.yaml").write_bytes(b"\xff\xfe\x00bad")
-    _exits_1_naming(capsys, "repo-eval.yaml", command[0], str(repo), *command[1:])
+    _exits_2_naming(capsys, "repo-eval.yaml", command[0], str(repo), *command[1:])
 
 
 def test_load_manifest_reports_a_repo_manifest_it_has_no_permission_to_read(repo, monkeypatch):
