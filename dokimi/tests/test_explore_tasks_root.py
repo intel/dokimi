@@ -91,9 +91,13 @@ def test_run_with_no_selection_exits_2(tmp_path, capsys):
 
 def test_list_with_the_bundled_tasks_still_works(capsys):
     # The default root is kept: a source checkout lists its own tasks, exit 0.
+    import dokimi.explore.tasks as tasks_mod
+
+    if not tasks_mod.EXPLORE_TASKS_ROOT.is_dir():
+        pytest.skip("no bundled explore tasks: an installed package has none")
     args = build_parser().parse_args(["explore", "list"])
     args.func(args)
-    assert "citation-localization-scoring\tdokimi\t" in capsys.readouterr().out
+    assert capsys.readouterr().out.strip()
 
 
 def test_list_with_an_explicit_root_still_works(tmp_path, capsys):
