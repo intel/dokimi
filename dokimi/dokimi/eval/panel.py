@@ -25,8 +25,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from dokimi import caching
-from dokimi.llm import ask_parsed, llm_call
+from dokimi.judged import judged_reply
+from dokimi.llm import llm_call
 from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
 from dokimi.eval.question_text import require_question_texts
 # The panel had no numeric-claims criterion (see `eval/rubric.py`) until it was
@@ -37,7 +37,7 @@ from dokimi.eval.question_text import require_question_texts
 # significant, and reported, not hidden.
 from dokimi.eval.rubric import (
     NUMERIC_CLAIMS, NUMERIC_INSTRUCTION, NUMERIC_OUTPUT, SCORE_ANCHORS,
-    cap_for_wrong_figures, reminder_reprompt,
+    FORMAT_REMINDER, cap_for_wrong_figures,
 )
 from dokimi.records import BASELINE, CONTEXT, Answer, RecordLike, records
 
@@ -283,45 +283,19 @@ class JudgePanel:
             scores = {k: max(0.0, min(100.0, float(v))) for k, v in raw_scores.items()}
             return data, scores
 
-        def parses(raw: str) -> bool:
-            # Only a reply that yields a vote is cached: a stored unparseable one
-            # would be replayed on every later run with the cache on.
-            try:
-                parse(raw)
-            except Exception:
-                return False
-            return True
-
-        pinned = config.temperature is not None or config.seed is not None
-        reprompt = reminder_reprompt(pinned)
-
-        def attempt_text(attempt: int) -> str:
-            return reprompt(prompt, attempt) if reprompt and attempt else prompt
-
-        def send(text: str, n: int, cache_if: Callable[[str], bool]) -> str:
+        def send(text: str, *, draw: int, cache_if: Callable[[str], bool]) -> str:
             return llm_call(text, model=config.model, provider=config.provider,
                             temperature=config.temperature, seed=config.seed,
-                            draw=n, cache_if=cache_if)
+                            draw=draw, cache_if=cache_if)
 
         try:
             # Retry an unparseable reply rather than losing this role's vote to a
-            # formatting failure, as ``Judge.score_answer`` does. Each attempt is
-            # its own response-cache draw: under one cache key the retries replayed
-            # the same unparseable reply. With sampling pinned the same prompt
-            # returns the same reply live, so a re-draw then appends a reminder.
-            # A rerun starts at the attempt whose reply is stored: the unparseable
-            # attempts before it were never stored and would be asked live again.
-            first, held = caching.first_replayed(
-                3, lambda i: send(attempt_text(i), i, parses)) or (0, None)
-
-            def ask(text: str, *, draw: int, cache_if: Callable[[str], bool]) -> str:
-                if draw == first and held is not None:
-                    return held
-                return send(text, draw, cache_if)
-
-            (data, scores), _ = ask_parsed(
-                ask, prompt, parse, start=first, reprompt=reprompt,
-                label=f"Judge '{config.role}' reply")
+            # formatting failure, as ``Judge.score_answer`` does. judged_reply draws
+            # each attempt separately, replays a stored attempt on a rerun, and at
+            # pinned sampling reprompts each redraw with the JSON reminder.
+            (data, scores), _ = judged_reply(
+                send, prompt, parse, pinned=config.temperature is not None or config.seed is not None,
+                label=f"Judge '{config.role}' reply", reminder=FORMAT_REMINDER)
             # Hold the prompt's wrong-figure cap in Python, with the single
             # judge's own rule, so the two cannot disagree about what it means.
             capped: Dict[str, Any] = {"correctness": scores["correctness"],

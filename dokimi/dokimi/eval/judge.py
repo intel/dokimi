@@ -15,9 +15,9 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-from dokimi import caching
 from dokimi.artifacts import save_artifact
-from dokimi.llm import ChatModel, ask_parsed
+from dokimi.llm import ChatModel
+from dokimi.judged import judged_reply
 from dokimi.llm import ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
 from dokimi.eval.diagnoser import diagnose
 from dokimi.eval.question_text import require_question_texts
@@ -27,7 +27,7 @@ from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
 # numbers mean the same thing and can be compared.
 from dokimi.eval.rubric import (
     NUMERIC_CLAIMS, NUMERIC_INSTRUCTION, NUMERIC_OUTPUT, SCORE_ANCHORS,
-    cap_for_wrong_figures, reminder_reprompt,
+    FORMAT_REMINDER, cap_for_wrong_figures,
 )
 
 # The output format below uses N placeholders on purpose. Concrete example
@@ -515,11 +515,10 @@ class Judge:
         # without a retry the question loses its score for good and the report
         # still renders a clean-looking delta over the survivors.
         #
-        # ask_parsed re-draws a malformed reply without backoff. With judge sampling
-        # pinned the same prompt returns the same reply, so a re-draw then appends a
-        # format reminder. Each attempt is its own response-cache draw. Transport
-        # faults are retried by the transport layer, not here, so a failed call
-        # raises at once.
+        # judged_reply re-draws a malformed reply, replays a stored attempt on a
+        # rerun, and at pinned sampling reprompts each redraw with the JSON
+        # reminder. Transport faults are retried by the transport layer, not here,
+        # so a failed call raises at once.
         def parse(raw: str) -> "tuple[Dict[str, Any], float]":
             scores = extract_json_object(raw)
             missing = required - scores.keys()
@@ -529,43 +528,18 @@ class Judge:
             cap_for_wrong_figures(scores)
             return scores, self._compute_aggregate(scores, weights)
 
-        def parses(raw: str) -> bool:
-            # Only a reply the judge can use is cached. A stored unparseable one
-            # is replayed on every later run, and once all three attempts are
-            # stored the question has lost its score for good, without a call.
-            try:
-                parse(raw)
-            except Exception:
-                return False
-            return True
-
-        pinned = self.temperature is not None or self.seed is not None
-        reprompt = reminder_reprompt(pinned)
-
-        def attempt_text(attempt: int) -> str:
-            return reprompt(prompt, attempt) if reprompt and attempt else prompt
-
-        def send(text: str, n: int) -> str:
-            response = self.llm.invoke(text, draw=n, cache_if=parses)
+        def send(text: str, *, draw: int, cache_if: Callable[[str], bool]) -> str:
+            response = self.llm.invoke(text, draw=draw, cache_if=cache_if)
             self._accumulate_usage(getattr(response, "usage", None))
             return response.content if hasattr(response, "content") else str(response)
 
-        # A rerun starts at the attempt whose reply is stored: the unparseable
-        # attempts before it were never stored and would be asked live again.
-        first, held = caching.first_replayed(
-            3, lambda i: send(attempt_text(i), draw * 3 + i)) or (0, None)
+        def redrawn() -> None:
+            with self._usage_lock:
+                self._usage_totals["redrawn_judgements"] += 1
 
-        def ask(text: str, *, draw: int, cache_if: Callable[[str], bool]) -> str:
-            attempt = draw % 3
-            if attempt == max(first, 1):
-                with self._usage_lock:
-                    self._usage_totals["redrawn_judgements"] += 1
-            if attempt == first and held is not None:
-                return held
-            return send(text, draw)
-
-        (scores, aggregate), _ = ask_parsed(
-            ask, prompt, parse, draw=draw, label="Judge response", start=first, reprompt=reprompt)
+        (scores, aggregate), _ = judged_reply(
+            send, prompt, parse, pinned=self.temperature is not None or self.seed is not None,
+            draw=draw, label="Judge response", reminder=FORMAT_REMINDER, on_redraw=redrawn)
 
         # Python computes the aggregate on BOTH paths (the LLM sets aggregate=0
         # per instructions). Previously only the grounded path recomputed it and

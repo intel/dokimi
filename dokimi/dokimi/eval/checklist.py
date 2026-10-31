@@ -35,7 +35,9 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from dokimi.eval.binary_stats import exact_binomial_two_sided
-from dokimi.eval.pairwise import ask_parsed, standalone_verdict
+from dokimi.eval.pairwise import standalone_verdict
+from dokimi.llm import Unparseable
+from dokimi.judged import judged_reply
 from dokimi.eval.question_text import require_question_text
 from dokimi.records import RecordLike, arm_answers, records as as_records
 from dokimi.eval.stats import mean_ci
@@ -118,10 +120,16 @@ def check_answer(ask: Ask, question: str, answer: str, points: Sequence[str], *,
     points that did parse.
     """
     def one(point: str, q: str) -> Optional[bool]:
+        verdict: Optional[bool] = None
         try:
-            # Retried under new draws, and an unparseable reply is never cached.
-            verdict, _ = ask_parsed(ask, _TEMPLATE.format(question=question, answer=answer, point=point, ask=q),
-                                    parse_yes_no)
+            # Retried under new draws, and an unparseable reply is never cached. The ask
+            # does not say whether its sampling is pinned, so a redraw is the plain prompt;
+            # at a pinned temperature the CLI's checklist repeats the reply (not pinned here,
+            # a follow-up with the pairwise judge's `pinned`).
+            verdict, _ = judged_reply(ask, _TEMPLATE.format(question=question, answer=answer, point=point, ask=q),
+                                      parse_yes_no, pinned=False)
+        except Unparseable:
+            pass  # no YES or NO after every draw: the point is unscored, as before
         except Exception as exc:  # one failed call is an unparsed point, not a lost run
             if strict:
                 raise JudgeFailed(str(exc) or type(exc).__name__) from exc
