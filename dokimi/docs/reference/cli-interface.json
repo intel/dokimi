@@ -212,6 +212,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -543,6 +544,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google'",
                 "'google-vertex'",
                 "'openai'",
@@ -742,6 +744,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -1120,6 +1123,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google'",
                 "'google-vertex'",
                 "'openai'",
@@ -1303,6 +1307,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -1458,6 +1463,46 @@
           "subcommands": {}
         }
       }
+    },
+    "backends": {
+      "allow_abbrev": true,
+      "params": [
+        {
+          "action": "_HelpAction",
+          "choices": null,
+          "const": null,
+          "default": "==SUPPRESS==",
+          "group_key": null,
+          "group_required": null,
+          "hidden": false,
+          "is_flag": true,
+          "key": "--help/-h",
+          "kind": "option",
+          "nargs": 0,
+          "position": null,
+          "required": false,
+          "type": null
+        },
+        {
+          "action": "_StoreTrueAction",
+          "choices": null,
+          "const": true,
+          "default": false,
+          "group_key": null,
+          "group_required": null,
+          "hidden": false,
+          "is_flag": true,
+          "key": "--json",
+          "kind": "option",
+          "nargs": 0,
+          "position": null,
+          "required": false,
+          "type": null
+        }
+      ],
+      "path": "dokimi backends",
+      "subcommand_required": null,
+      "subcommands": {}
     },
     "baseline": {
       "allow_abbrev": true,
@@ -1795,6 +1840,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google'",
                 "'google-vertex'",
                 "'openai'",
@@ -1882,6 +1928,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -2009,6 +2056,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google'",
                 "'google-vertex'",
                 "'openai'",
@@ -2096,6 +2144,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -2255,6 +2304,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google'",
                 "'google-vertex'",
                 "'openai'",
@@ -2358,6 +2408,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -3894,6 +3945,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google'",
                 "'google-vertex'",
                 "'openai'",
@@ -4528,6 +4580,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google'",
                 "'google-vertex'",
                 "'openai'",
@@ -4599,6 +4652,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google'",
                 "'google-vertex'",
                 "'openai'",
@@ -4921,6 +4975,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google'",
                 "'google-vertex'",
                 "'openai'",
@@ -5248,6 +5303,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google'",
                 "'google-vertex'",
                 "'openai'",
@@ -5319,6 +5375,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google'",
                 "'google-vertex'",
                 "'openai'",
@@ -5542,6 +5599,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -5728,6 +5786,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google'",
                 "'google-vertex'",
                 "'openai'",
@@ -5871,6 +5930,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google'",
                 "'google-vertex'",
                 "'openai'",
@@ -6080,6 +6140,7 @@
           "choices": [
             "'amazon-bedrock'",
             "'anthropic'",
+            "'claude-cli'",
             "'google'",
             "'google-vertex'",
             "'openai'",
@@ -6183,6 +6244,7 @@
           "choices": [
             "'amazon-bedrock'",
             "'anthropic'",
+            "'claude-cli'",
             "'google-vertex'",
             "'openai'",
             "'openai-codex'",
@@ -7035,6 +7097,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -7106,6 +7169,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -7369,6 +7433,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -7724,6 +7789,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -8016,6 +8082,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -8071,6 +8138,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -8222,6 +8290,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -8429,6 +8498,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -8767,6 +8837,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -9082,6 +9153,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -9459,6 +9531,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -9654,6 +9727,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -9949,6 +10023,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",
@@ -12865,6 +12940,179 @@
       "subcommand_required": null,
       "subcommands": {}
     },
+    "runs": {
+      "allow_abbrev": true,
+      "params": [
+        {
+          "action": "_HelpAction",
+          "choices": null,
+          "const": null,
+          "default": "==SUPPRESS==",
+          "group_key": null,
+          "group_required": null,
+          "hidden": false,
+          "is_flag": true,
+          "key": "--help/-h",
+          "kind": "option",
+          "nargs": 0,
+          "position": null,
+          "required": false,
+          "type": null
+        }
+      ],
+      "path": "dokimi runs",
+      "subcommand_required": true,
+      "subcommands": {
+        "list": {
+          "allow_abbrev": true,
+          "params": [
+            {
+              "action": "_HelpAction",
+              "choices": null,
+              "const": null,
+              "default": "==SUPPRESS==",
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": true,
+              "key": "--help/-h",
+              "kind": "option",
+              "nargs": 0,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
+              "action": "_StoreTrueAction",
+              "choices": null,
+              "const": true,
+              "default": false,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": true,
+              "key": "--json",
+              "kind": "option",
+              "nargs": 0,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
+              "action": "_AppendAction",
+              "choices": [
+                "'answers'",
+                "'arms'",
+                "'cli_routes'",
+                "'eval'",
+                "'explore_runs'",
+                "'guidance_reach'",
+                "'matrix_rollup'",
+                "'novelty'",
+                "'plan'",
+                "'plugin_delta'",
+                "'questions'",
+                "'repo_budget'",
+                "'repo_environment'",
+                "'repo_readiness'",
+                "'result'",
+                "'subject_scorecard'",
+                "'task_inspect'",
+                "'task_runs'",
+                "'tool_preference'"
+              ],
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--kind",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--subject",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": null
+            }
+          ],
+          "path": "dokimi runs list",
+          "subcommand_required": null,
+          "subcommands": {}
+        },
+        "show": {
+          "allow_abbrev": true,
+          "params": [
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "path",
+              "kind": "argument",
+              "nargs": null,
+              "position": 0,
+              "required": true,
+              "type": null
+            },
+            {
+              "action": "_HelpAction",
+              "choices": null,
+              "const": null,
+              "default": "==SUPPRESS==",
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": true,
+              "key": "--help/-h",
+              "kind": "option",
+              "nargs": 0,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
+              "action": "_StoreTrueAction",
+              "choices": null,
+              "const": true,
+              "default": false,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": true,
+              "key": "--json",
+              "kind": "option",
+              "nargs": 0,
+              "position": null,
+              "required": false,
+              "type": null
+            }
+          ],
+          "path": "dokimi runs show",
+          "subcommand_required": null,
+          "subcommands": {}
+        }
+      }
+    },
     "subjects": {
       "allow_abbrev": true,
       "params": [
@@ -13064,6 +13312,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google'",
                 "'google-vertex'",
                 "'openai'",
@@ -13215,6 +13464,7 @@
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",
+                "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
                 "'openai-codex'",

@@ -10,6 +10,7 @@ import json
 import sys
 from pathlib import Path
 
+from dokimi.llm import ANSWER_PROVIDERS
 from dokimi.commands._output import exit_on_unwritable
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
@@ -19,6 +20,7 @@ from dokimi.defaults import (
     JUDGE_MODEL_FOR_PROVIDER,
     JUDGE_MODEL_HELP,
 )
+from dokimi.exit_codes import EXIT_USAGE, usage_exit
 
 
 def cmd_subjects_list(args: argparse.Namespace) -> None:
@@ -27,12 +29,10 @@ def cmd_subjects_list(args: argparse.Namespace) -> None:
     # in-repo default root. Name the flag instead of printing an empty list that
     # reads like "no subjects exist".
     if not args.subjects_root:
-        raise SystemExit(
-            "no subjects root given; pass --subjects-root <checkout>/evaluation/subjects"
-        )
+        usage_exit("no subjects root given; pass --subjects-root <checkout>/evaluation/subjects")
     root = Path(args.subjects_root)
     if not root.is_dir():
-        raise SystemExit(f"--subjects-root is not a directory: {root}")
+        usage_exit(f"--subjects-root is not a directory: {root}")
     paths = sorted([*root.glob("*.toml"), *root.glob("*.json")])
     for path in paths:
         try:
@@ -52,7 +52,7 @@ def cmd_subjects_show(args: argparse.Namespace) -> None:
         descriptor = load_subject(args.subject)
     except (ValueError, FileNotFoundError) as exc:
         print(f"Error loading subject: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
 
     if descriptor.subject.kind == "repo":
         print(json.dumps({
@@ -98,11 +98,11 @@ def cmd_subjects_run(args: argparse.Namespace) -> None:
         descriptor = load_subject(args.subject)
     except (ValueError, FileNotFoundError) as exc:
         print(f"Error loading subject: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
     if descriptor.subject.kind == "repo":
         print("Error: repo subjects are not run by `subjects run` yet; "
               "check them with `repo validate`", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
     # Attached, not produced: a novelty run costs atoms x probes x arms x (answer + grade), so it is
     # produced by `novelty analyze` and named here by path. A bad path fails now, before any cell
     # runs, rather than after the expensive part.
@@ -112,12 +112,12 @@ def cmd_subjects_run(args: argparse.Namespace) -> None:
         )
     except (ValueError, FileNotFoundError, json.JSONDecodeError) as exc:
         print(f"Error loading novelty artifact: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
     try:
         work_tasks = _validate_subject_work_args(descriptor, args)
     except (ValueError, FileNotFoundError) as exc:
         print(f"Error loading subject work: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
 
     out_dir, baseline_arm, questions = _run_plan(descriptor, args)
     matrix_path = out_dir / "matrix.cells.json"
@@ -126,7 +126,7 @@ def cmd_subjects_run(args: argparse.Namespace) -> None:
         matrix_path.write_text(json.dumps(_matrix_config_for_run(descriptor, args), indent=2), encoding="utf-8")
     except OSError as exc:
         print(f"Error: cannot write {out_dir}: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
 
     awareness_runs: list[dict] = []
     for product, questions_path in zip(descriptor.suite.products, questions, strict=True):
@@ -198,7 +198,7 @@ def register(sub, positive_int) -> None:
     run_p.add_argument("--out-md", default=None, dest="out_md")
     run_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL, help=argparse.SUPPRESS)
     run_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER,
-                       choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
+                       choices=ANSWER_PROVIDERS)
     run_p.add_argument("--harness", default="arms-runner", help=argparse.SUPPRESS)
     run_p.add_argument("--context7-id", default=None, dest="context7_id")
     run_p.add_argument("--judge", action="store_true")
@@ -266,7 +266,7 @@ def register(sub, positive_int) -> None:
 
 
 def _run_plan(descriptor, args: argparse.Namespace) -> tuple[Path, str, list[str]]:
-    """The output dir, baseline arm name and per-product questions, or exit 1 when the descriptor cannot run.
+    """The output dir, baseline arm name and per-product questions, or exit 2 when the descriptor cannot run.
 
     Checked before anything is written, so a descriptor that cannot run leaves no output dir behind."""
     from dokimi.subjects.loader import awareness_arm_specs
@@ -279,7 +279,7 @@ def _run_plan(descriptor, args: argparse.Namespace) -> tuple[Path, str, list[str
         _validate_unique_product_output_dirs(descriptor.suite.products)
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
     return out_dir, baseline_arm, questions
 
 
@@ -406,7 +406,7 @@ def _run_subject_work(descriptor, args: argparse.Namespace, *, out_dir: Path, ta
     try:
         runner.validate_harnesses()
     except ValueError as exc:
-        raise SystemExit(str(exc)) from None
+        usage_exit(str(exc))
     try:
         artifact = runner.run()
     except PreflightError as exc:

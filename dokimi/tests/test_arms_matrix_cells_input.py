@@ -26,7 +26,7 @@ def _run(tmp_path, cells, capsys, *argv):
     ])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     return capsys.readouterr().err
 
 

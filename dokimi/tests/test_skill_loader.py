@@ -311,7 +311,7 @@ def test_discovery_ignores_a_dangling_skill_md_symlink(tmp_path):
     assert [s.name for s in discover_skills(root)] == ["linux-perf"]
 
 
-def test_arms_run_exits_1_with_a_message_when_skill_md_is_a_directory(tmp_path, monkeypatch, capsys):
+def test_arms_run_exits_2_with_a_message_when_skill_md_is_a_directory(tmp_path, monkeypatch, capsys):
     from dokimi import cli
 
     skill = tmp_path / "perf"
@@ -322,7 +322,7 @@ def test_arms_run_exits_1_with_a_message_when_skill_md_is_a_directory(tmp_path, 
                                      "--arms", f"skill:{skill}", "--out-json", str(tmp_path / "out.json")])
     with pytest.raises(SystemExit) as exc:
         cli.main()
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert "No SKILL.md found" in capsys.readouterr().err
 
 

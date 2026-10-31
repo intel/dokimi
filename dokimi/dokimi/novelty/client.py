@@ -260,7 +260,15 @@ def roll_up_cost(clients: list[LLMClient]) -> dict[str, Any]:
     }
 
 
-def default_judge(model: str, provider: str | None = None) -> tuple[str, str]:
+def same_client(a: LLMClient, b: LLMClient) -> bool:
+    """Whether two clients run one model: the same name, or a CLI alias and a full id of its family."""
+    from dokimi.llm_cli import same_model
+
+    return a.model == b.model or same_model(a.provider, a.model, b.provider, b.model)
+
+
+def default_judge(model: str, provider: str | None = None,
+                  answerer_provider: str | None = None) -> tuple[str, str]:
     """A (model, provider) judge that is not the answerer, when the caller did not name one.
 
     The default judge, unless it is the model under measurement (by bare name, so a
@@ -269,14 +277,27 @@ def default_judge(model: str, provider: str | None = None) -> tuple[str, str]:
     only a default that runs there is taken: its own provider, or Bedrock for a name in
     ``BEDROCK_MODEL_IDS``. Pairing the provider with a model of another provider would
     send e.g. ``bedrock/gpt-6.1-sol``, so with no such default this raises instead.
+    A CLI ``answerer_provider`` with no ``provider`` judges on the same CLI.
 
     Raises:
         ValueError: ``provider`` runs no default judge other than ``model``.
     """
+    from dokimi.llm_cli import backend, same_model
+
     bare = model.rsplit("/", 1)[-1].rsplit("anthropic.", 1)[-1]
+    if provider is None and answerer_provider is not None and backend(answerer_provider) is not None:
+        provider = answerer_provider
+    # Hard-coded for claude-cli; a second CLI backend (codex-cli) needs its own alias list here.
+    if provider == "claude-cli":
+        # The CLI's aliases: the first one not of the answerer's family, so the judge is never the answerer.
+        for alias in ("opus", "sonnet", "haiku"):
+            if not same_model("claude-cli", alias, "claude-cli", bare):
+                return alias, provider
+        raise ValueError(f"judge provider {provider}: no judge of another family than {model}; "
+                         "pass --judge-model as well")
     candidates = [(m, p) for m, p in ((DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER),
                                       (DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER))
-                  if m != bare]
+                  if m != bare and not same_model(answerer_provider or "", bare, p, m)]
     if provider is None:
         return candidates[0]
     for m, p in candidates:
