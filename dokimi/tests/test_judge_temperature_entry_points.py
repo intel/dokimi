@@ -233,3 +233,49 @@ def test_arms_run_judge_whose_sampling_probe_fails_exits_1_before_any_answer(tmp
     assert answered == []
     assert routed and all(_is_probe(r) for r in routed)
     assert "only-t1" in capsys.readouterr().err
+
+
+@pytest.fixture
+def client_refused(monkeypatch):
+    """litellm refuses temperature != 1 for a 'temp1-only' model itself, before any request."""
+    import litellm
+
+    from dokimi.eval.arms_run import probe_sampling
+
+    probe_sampling.cache_clear()
+    sent = []
+
+    def completion(**kw):
+        if "temp1-only" in kw["model"] and kw.get("temperature") not in (None, 1):
+            raise litellm.UnsupportedParamsError("temp1-only does not support temperature=0.0. "
+                                                 "Only temperature=1 is supported", llm_provider="anthropic")
+        sent.append(kw)
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=GOOD))], usage=None)
+
+    monkeypatch.setattr(litellm, "completion", completion)
+    yield sent
+    probe_sampling.cache_clear()
+
+
+def test_a_judge_temperature_litellm_refuses_before_any_call_exits_2(tmp_path, client_refused, capsys):
+    # litellm's own parameter table refuses the value without sending a request: an input refusal.
+    argv = _reliability_argv("pairwise", tmp_path, tmp_path / "out.json")
+    argv = argv[:argv.index("--judge-model") + 1] + ["us.anthropic.temp1-only"] + argv[argv.index("--judge-model") + 2:]
+    assert _exit_code([*argv, "--judge-temperature", "0"]) == 2
+    assert client_refused == []
+    assert not (tmp_path / "out.json").exists()  # refused before judging, not after every judgement failed
+    assert "rejected by judge" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("flags", [
+    ["--judge", "--judge-provider", "anthropic", "--judge-model", "temp1-only", "--judge-temperature", "0"],
+    ["--provider", "anthropic", "--model", "temp1-only", "--temperature", "0"],
+], ids=["judge", "answer"])
+def test_arms_run_sampling_litellm_refuses_before_any_call_exits_2(tmp_path, client_refused, capsys, flags):
+    from tests.test_exit_codes_boundaries import _questions
+
+    assert _exit_code(["arms", "run", "--product", "onedal", "--questions", _questions(tmp_path),
+                       "--arms", "baseline", "--out-json", str(tmp_path / "a.json"),
+                       "--out-md", str(tmp_path / "a.md"), *flags]) == 2
+    assert client_refused == []
+    assert "Error building arms/plugins" in capsys.readouterr().err

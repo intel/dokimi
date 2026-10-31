@@ -140,6 +140,10 @@ def _check_judge_temperature(judges: list[tuple[str, str]], temperature) -> None
             print(f"Error: --judge-temperature {temperature} is rejected by judge {provider}/{model}: {exc}",
                   file=sys.stderr)
             sys.exit(EXIT_FAILURE)
+        except ValueError as exc:  # refused by litellm's provider table before any request
+            print(f"Error: --judge-temperature {temperature} is rejected by judge {provider}/{model}: {exc}",
+                  file=sys.stderr)
+            sys.exit(EXIT_USAGE)
 
 
 def pairwise_judge(args: argparse.Namespace):

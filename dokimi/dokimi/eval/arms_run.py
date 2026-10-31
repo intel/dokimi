@@ -223,6 +223,13 @@ def probe_sampling(model: str, provider: str, temperature, seed) -> None:
         llm_call_with_usage("Reply with OK.", model=model, provider=provider,
                             max_tokens=16, temperature=temperature, seed=seed)
     except Exception as exc:
+        # litellm's own table refused the value while building the request, so nothing was sent.
+        # Matched by class name, as dokimi.llm.is_retryable does.
+        if type(exc).__name__ == "UnsupportedParamsError":
+            raise ValueError(
+                f"Provider '{provider}' refuses temperature={temperature}, seed={seed} for "
+                f"model '{model}' before any call: {exc}"
+            ) from exc
         raise ProbeError(
             f"Probe call to '{provider}/{model}' with temperature={temperature}, "
             f"seed={seed} failed, so every call in the run would too: {exc}"
