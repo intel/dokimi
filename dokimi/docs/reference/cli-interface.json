@@ -13007,6 +13007,7 @@
                 "'eval'",
                 "'explore_runs'",
                 "'guidance_reach'",
+                "'headroom'",
                 "'matrix_rollup'",
                 "'novelty'",
                 "'plan'",
