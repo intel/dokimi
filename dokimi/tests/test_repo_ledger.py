@@ -312,3 +312,41 @@ def test_an_empty_ledger_path_is_refused_not_ignored(tmp_path, capsys):
     with pytest.raises(SystemExit) as exc:
         args.func(args)
     assert exc.value.code == 2
+
+
+def test_a_model_whose_linked_cases_do_not_pair_is_named_when_others_pair(tmp_path):
+    tasks = _ids("t", 8)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in tasks})
+    for task in tasks:  # m-2 has a baseline cell on each linked case, and no arm cell
+        _cell(batch, task, BASE, success=True, model="m-2")
+    result = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", tasks)])), [batch], BASE,
+                      today=TODAY)
+    assert _verdicts(result) == {("R1", "m-1"): KEEP, ("R1", "m-2"): INSUFFICIENT}
+
+
+def test_a_model_error_names_the_model(tmp_path):
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in _ids("t", 8)})
+    _cell(batch, "elsewhere", BASE, success=True, model="m-2")
+    entry = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", _ids("t", 8))])), [batch], BASE,
+                     models=["m-2"], today=TODAY)["rules"][0]
+    assert entry["model"] == "m-2"
+    assert entry["verdict"] == INSUFFICIENT
+
+
+def test_a_stale_review_is_warned_once_per_result(tmp_path):
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in _ids("t", 8)})
+    rule = _rule("R1", _ids("t", 8), reviewed="2026-01-01")
+    results = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [rule])), [batch], BASE, models=["m-2", "m-3"],
+                       today=TODAY)["rules"]
+    assert len(results) == 2
+    for entry in results:
+        assert sum("re-review" in w for w in entry["warnings"]) == 1
+
+
+def test_a_review_dated_after_today_is_stale_with_a_date_warning(tmp_path):
+    tasks = _ids("t", 8)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in tasks})
+    entry = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", tasks, reviewed="2036-10-01")])),
+                     [batch], BASE, today=TODAY)["rules"][0]
+    assert entry["stale"] is True
+    assert any("after 2026-10-31" in w for w in entry["warnings"])

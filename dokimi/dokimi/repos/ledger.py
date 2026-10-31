@@ -101,12 +101,16 @@ def evaluate(ledger: Ledger, batch_dirs: list[Path], baseline: str, models: list
     for rule in ledger.rules:
         rule_entries = _rule_entries(rule, batch_dirs, baseline, models, known, seed, warnings)
         age = (today - rule.reviewed).days
-        stale = age > ledger.review_within_days
+        stale = age < 0 or age > ledger.review_within_days
+        if age < 0:
+            note = f"review date {rule.reviewed.isoformat()} is after {today.isoformat()}: check the date"
+        else:
+            note = (f"review date {rule.reviewed.isoformat()} is {age} days old (policy: "
+                    f"{ledger.review_within_days}): re-review the rule")
         for entry in rule_entries:
             entry.update(reviewed=rule.reviewed.isoformat(), days_since_review=age, stale=stale)
-            if stale:
-                entry["warnings"].append(f"review date {rule.reviewed.isoformat()} is {age} days old (policy: "
-                                         f"{ledger.review_within_days}): re-review the rule")
+            if stale:  # a new list: error entries of one rule share their head's warnings list
+                entry["warnings"] = [*entry["warnings"], note]
         entries += rule_entries
     _holm(entries)
     for entry in entries:
@@ -150,13 +154,17 @@ def _compared(rule: Rule, head: dict[str, Any], batch_dirs: list[Path], base: st
         summary = compare(batch_dirs, base, [rule.arm], models, (), seed=seed, tasks=present)
     except CompareError as exc:  # the arm or the baseline has no cell among this rule's cases
         return [{**head, "model": models[0] if models else None, "error": str(exc)}]
+    model = models[0] if models else None
     warnings.extend(summary["warnings"])
     linked = [u for u in summary["unpaired"] if u["task"] in present]
     rows = [r for r in summary["comparisons"] if r["measure"] in PRIMARY]
     if not rows:
         reasons = sorted({u["reason"] for u in linked})
-        return [{**head, "error": "; ".join(reasons) or "no linked case has cells in both arms"}]
+        return [{**head, "model": model, "error": "; ".join(reasons) or "no linked case has cells in both arms"}]
     out = [_entry(head, r) for r in rows]
+    for unpaired in sorted({u["model"] for u in linked} - {r["model"] for r in rows}):  # not measured, and named
+        reasons = sorted({u["reason"] for u in linked if u["model"] == unpaired})
+        out.append({**head, "model": unpaired, "error": "; ".join(reasons)})
     for entry in out:
         own = [u for u in linked if u["model"] == entry["model"]]
         if own:
