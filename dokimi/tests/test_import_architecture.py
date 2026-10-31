@@ -408,23 +408,29 @@ def spawn_problems(imports: Imports, baseline: Mapping[str, tuple[int, str]],
 #: Modules that end the process (sys.exit, os._exit, exit, quit, raise SystemExit): only the frontend may.
 #: A library raises InputError and cli.main exits 2. Empty: nothing outside the frontend exits.
 EXIT_BASELINE: dict[str, tuple[int, str]] = {}
+#: The exit helper: its own raise is not counted, a call to it is (like SPAWN_WRAPPER).
+EXIT_HELPER = "dokimi.exit_codes"
 
-_EXIT_CALLS = {("sys", "exit"), ("os", "_exit")}
+_EXIT_CALLS = {("sys", "exit"), ("os", "_exit"), ("builtins", "exit"), ("builtins", "quit"),
+               (EXIT_HELPER, "usage_exit")}
+_EXIT_MODULES = {m for m, _ in _EXIT_CALLS}
 
 
 def _exit_imports(tree: ast.Module) -> tuple[dict[str, str], dict[str, tuple[str, str]]]:
-    """Local names bound to ``sys``/``os`` (``import sys as s``) and to their exit callables (``from sys import exit as bye``)."""
+    """Local names bound to an exit module (``import sys as s``) and to its exit callables (``from sys import exit as bye``)."""
     module_aliases = {"sys": "sys", "os": "os"}
     name_aliases: dict[str, tuple[str, str]] = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for a in node.names:
-                if a.name in ("sys", "os"):
+                if a.name in _EXIT_MODULES:
                     module_aliases[a.asname or a.name] = a.name
-        elif isinstance(node, ast.ImportFrom) and node.module in ("sys", "os") and not node.level:
+        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
             for a in node.names:
                 if (node.module, a.name) in _EXIT_CALLS:
                     name_aliases[a.asname or a.name] = (node.module, a.name)
+                elif f"{node.module}.{a.name}" in _EXIT_MODULES:
+                    module_aliases[a.asname or a.name] = f"{node.module}.{a.name}"
     return module_aliases, name_aliases
 
 
@@ -438,26 +444,32 @@ def exit_sites(tree: ast.Module) -> list[int]:
                if isinstance(stmt, ast.If) and ast.unparse(stmt.test) == "__name__ == '__main__'"
                for body_stmt in stmt.body for n in ast.walk(body_stmt)}
     module_aliases, name_aliases = _exit_imports(tree)
+    # ``error = SystemExit(msg); raise error`` is a raise of SystemExit too.
+    bound = {t.id for n in ast.walk(tree) if isinstance(n, ast.Assign) and isinstance(n.value, ast.Call)
+             and isinstance(n.value.func, ast.Name) and n.value.func.id == "SystemExit"
+             for t in n.targets if isinstance(t, ast.Name)}
     lines: list[int] = []
     for node in ast.walk(tree):
         if id(node) in guarded:
             continue
         if isinstance(node, ast.Raise) and node.exc is not None:
             exc = node.exc.func if isinstance(node.exc, ast.Call) else node.exc
-            if isinstance(exc, ast.Name) and exc.id == "SystemExit":
+            if isinstance(exc, ast.Name) and (exc.id == "SystemExit" or exc.id in bound):
                 lines.append(node.lineno)
         elif isinstance(node, ast.Call):
             func = node.func
             if isinstance(func, ast.Name) and (func.id in ("exit", "quit") or func.id in name_aliases):
                 lines.append(node.lineno)
-            elif (isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name)
-                    and (module_aliases.get(func.value.id), func.attr) in _EXIT_CALLS):
+            elif (isinstance(func, ast.Attribute)
+                    and (module_aliases.get(ast.unparse(func.value)), func.attr) in _EXIT_CALLS):
                 lines.append(node.lineno)
     return sorted(lines)
 
 
-def exit_problems(imports: Imports, baseline: Mapping[str, tuple[int, str]]) -> list[str]:
-    counts = {m: exit_sites(t) for m, t in imports.trees.items() if layer_of(m) != "frontend"}
+def exit_problems(imports: Imports, baseline: Mapping[str, tuple[int, str]],
+                  helper: str = EXIT_HELPER) -> list[str]:
+    counts = {m: exit_sites(t) for m, t in imports.trees.items()
+              if layer_of(m) != "frontend" and m != helper}
     problems = []
     for mod, lines in sorted(counts.items()):
         allowed = baseline.get(mod, (0, ""))[0]
@@ -630,6 +642,21 @@ def test_an_aliased_process_exit_outside_the_frontend_is_counted(tmp_path):
     assert exit_sites(imports.trees["dokimi.a"]) == [2]
     assert exit_sites(imports.trees["dokimi.b"]) == [2]
     assert exit_sites(imports.trees["dokimi.c"]) == [2]
+
+
+def test_an_exit_through_the_helper_or_a_bound_raise_outside_the_frontend_fails(tmp_path):
+    imports = _package(tmp_path, {
+        "dokimi/exit_codes.py": "def usage_exit(m):\n    error = SystemExit(m)\n    raise error\n",
+        "dokimi/commands/x.py": "from dokimi.exit_codes import usage_exit\nusage_exit('x')\n",
+        "dokimi/a.py": "from dokimi.exit_codes import usage_exit as ue\nue('x')\n",
+        "dokimi/b.py": "import dokimi.exit_codes\ndokimi.exit_codes.usage_exit('x')\n",
+        "dokimi/c.py": "from dokimi import exit_codes as ec\nec.usage_exit('x')\n",
+        "dokimi/d.py": "def f():\n    e = SystemExit(2)\n    raise e\n",
+        "dokimi/e.py": "import builtins\nbuiltins.exit(1)\n",
+    })
+    problems = exit_problems(imports, {})
+    assert [p.split()[0] for p in problems] == ["dokimi.a", "dokimi.b", "dokimi.c", "dokimi.d", "dokimi.e"]
+    assert [p.split(" at lines ")[1].split(";")[0] for p in problems] == ["[2]", "[2]", "[2]", "[3]", "[2]"]
 
 
 def test_imported_callable_aliases_count_each_launch_once(tmp_path):
