@@ -100,7 +100,7 @@ def diagnose(
         - ``evidence``: dict of signals used to reach the diagnosis
     """
     if delta is None:
-        # A retrieval miss is left unjudged, so it has no delta; it is still an
+        # A retrieval miss the judge did not score has no delta; it is still an
         # empty retrieval, not a missing or errored answer.
         unjudged = not context_scored
         if unjudged and context_answer is not None and not context_answer.error and context_answer.doc_source in NO_RETRIEVAL_SOURCES:
