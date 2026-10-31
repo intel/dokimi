@@ -48,22 +48,40 @@ def routing_queries(args: argparse.Namespace, body: str,
     return queries, True, source
 
 
+def estimate_routing_usd(model: str, provider: str, prompts: list[int],
+                         repeats: int) -> float | None:
+    """The list-price USD of the calls of a routing run, priced one call at a time.
+
+    A long-context tier applies to the prompt of one call, so the run's total prompt is not
+    priced as one completion: each query's prompt and one pick are priced on their own, then
+    summed and multiplied by the repeats. ``None`` when a call has no list price.
+    """
+    from dokimi.llm_pricing import list_cost_usd
+    from dokimi.novelty.routing import PICK_REPLY_TOKENS
+
+    total = 0.0
+    for prompt in prompts:
+        cost = list_cost_usd(model, provider, prompt, PICK_REPLY_TOKENS)
+        if cost is None:
+            return None
+        total += cost
+    return round(total * repeats, 6)
+
+
 def print_routing_estimate(args: argparse.Namespace, candidates: list, queries: list[str]) -> None:
     """The model arm's calls, tokens and list-price USD, as JSON; nothing is sent.
 
     No client is built. Without ``--model`` the run is lexical only, so the bill is zero.
     """
-    from dokimi.llm_pricing import list_cost_usd
-    from dokimi.novelty.routing import selection_estimate
+    from dokimi.novelty.routing import selection_estimate, selection_prompt_tokens
 
     # Without --model there is no selector, so no call is made, whatever --repeats says.
     estimate = selection_estimate(candidates, queries,
                                   repeats=args.repeats if args.model else 0)
     usd: float | None = 0.0
     if args.model and estimate["n_calls"]:
-        priced = list_cost_usd(args.model, args.provider, estimate["input_tokens"],
-                               estimate["output_tokens"])
-        usd = None if priced is None else round(priced, 6)
+        usd = estimate_routing_usd(args.model, args.provider,
+                                   selection_prompt_tokens(candidates, queries), args.repeats)
     print(json.dumps({"estimate_only": True, "artifact": args.artifact, "model": args.model,
                       "provider": args.provider if args.model else None,
                       "n_candidates": len(candidates), **estimate,

@@ -457,26 +457,33 @@ def self_derived_queries(body: str, description: str) -> tuple[list[str], str]:
 PICK_REPLY_TOKENS = 10
 
 
-def selection_estimate(candidates: list[Candidate], queries: list[str], *,
-                       repeats: int = 1) -> dict:
-    """The calls and tokens :func:`model_routing` would make, counted without making them.
+def selection_prompt_tokens(candidates: list[Candidate], queries: list[str]) -> list[int]:
+    """The prompt tokens (chars / 4) of each call one repeat of :func:`model_routing` makes.
 
-    :func:`model_routing` sends every query, contentless ones too, unless none has a content
-    word: then the run refuses before any call, and so does the count. Each call carries the
-    whole field's cards in the selection prompt, sized at chars / 4 as the artifact spans are;
-    every repeat sends the same prompt. The reply is one JSON pick, :data:`PICK_REPLY_TOKENS`.
+    One entry per sent query, in query order. :func:`model_routing` sends every query, contentless
+    ones too, unless none has a content word: then the run refuses before any call, and the list
+    is empty. Each call carries the whole field's cards in the selection prompt.
     """
     cards = "\n".join(f"{position}. {candidate.card}"
                        for position, candidate in enumerate(candidates, 1))
     sent = list(queries) if any(tokenize(query) for query in queries) else []
-    prompt_tokens = sum(len(_SELECT_PROMPT.format(query=query, cards=cards)) // 4
-                        for query in sent)
-    calls = len(sent) * repeats
+    return [len(_SELECT_PROMPT.format(query=query, cards=cards)) // 4 for query in sent]
+
+
+def selection_estimate(candidates: list[Candidate], queries: list[str], *,
+                       repeats: int = 1) -> dict:
+    """The calls and tokens :func:`model_routing` would make, counted without making them.
+
+    Every repeat sends the same prompts (see :func:`selection_prompt_tokens`). The reply is one
+    JSON pick, :data:`PICK_REPLY_TOKENS`.
+    """
+    prompts = selection_prompt_tokens(candidates, queries)
+    calls = len(prompts) * repeats
     return {
         "n_queries": len(queries),
-        "n_queries_sent": len(sent),
+        "n_queries_sent": len(prompts),
         "n_calls": calls,
-        "input_tokens": prompt_tokens * repeats,
+        "input_tokens": sum(prompts) * repeats,
         "output_tokens": calls * PICK_REPLY_TOKENS,
     }
 

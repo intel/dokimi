@@ -131,3 +131,30 @@ def test_estimate_only_without_a_model_is_lexical_and_free(tmp_path, capsys):
     args.func(args)
     estimate = json.loads(capsys.readouterr().out)
     assert (estimate["n_calls"], estimate["input_tokens"], estimate["expected_usd"]) == (0, 0, 0.0)
+
+
+def test_estimate_prices_each_call_so_a_long_context_tier_is_not_reached_by_the_run_total(
+        tmp_path, capsys, monkeypatch):
+    import dokimi.llm_pricing as pricing
+
+    def tiered(model, provider, prompt, completion):
+        # A long-context tier as litellm applies it: the rate follows one call's prompt size.
+        rate = 1e-6 if prompt <= 200_000 else 2e-6
+        return prompt * rate + completion * 2e-6
+
+    monkeypatch.setattr(LLMClient, "text",
+                        lambda self, *a, **k: pytest.fail("the estimate made a model call"))
+    monkeypatch.setattr(pricing, "list_cost_usd", tiered)
+    queries = tmp_path / "q.json"
+    queries.write_text(json.dumps(["profile a binary", "profile a program"]), encoding="utf-8")
+    # About 48k tokens per call and six calls: 288k in total, past the tier, no single call past it.
+    args = _parse("novelty", "routing",
+                  "--artifact", _skill(tmp_path, "perf", "profile " + "filler " * 27_000),
+                  "--competitors", _skill(tmp_path, "tbb", "parallelize loops"),
+                  "--queries", str(queries), "--model", "m", "--repeats", "3",
+                  "--estimate-only")
+    args.func(args)
+    estimate = json.loads(capsys.readouterr().out)
+    assert estimate["input_tokens"] > 200_000 and estimate["n_calls"] == 6
+    assert estimate["expected_usd"] == pytest.approx(
+        estimate["input_tokens"] * 1e-6 + estimate["output_tokens"] * 2e-6, rel=1e-6)
