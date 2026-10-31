@@ -122,6 +122,13 @@ def _unpaired_note(s: dict) -> list[str]:
     ]
 
 
+def _summary_cells(st: dict) -> tuple[str, str, str]:
+    """The context, baseline and delta cells of a Summary row: an em dash when no question is paired."""
+    if not st["valid"]:
+        return "—", "—", "—"
+    return str(st["with_avg"]), str(st["without_avg"]), f'**{st["delta_avg"]:+}**'
+
+
 def fmt_delta(d):
     if d is None:
         return "N/A"
@@ -282,9 +289,9 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
         "## Summary",
         "| Set | Count | Context arm | Baseline | Delta |",
         "|---|---:|---:|---:|---:|",
-        f'| **All** | {_count_cell(all_stats)} | {all_stats["with_avg"]} | {all_stats["without_avg"]} | **{all_stats["delta_avg"]:+}** |',
-        f'| Generated (dynamic) | {_count_cell(dyn_stats)} | {dyn_stats["with_avg"]} | {dyn_stats["without_avg"]} | **{dyn_stats["delta_avg"]:+}** |',
-        f'| Golden (static) | {_count_cell(static_stats)} | {static_stats["with_avg"]} | {static_stats["without_avg"]} | **{static_stats["delta_avg"]:+}** |',
+        f'| **All** | {_count_cell(all_stats)} | {" | ".join(_summary_cells(all_stats))} |',
+        f'| Generated (dynamic) | {_count_cell(dyn_stats)} | {" | ".join(_summary_cells(dyn_stats))} |',
+        f'| Golden (static) | {_count_cell(static_stats)} | {" | ".join(_summary_cells(static_stats))} |',
         "",
     ]
     lines += _unpaired_note(all_stats)
@@ -461,12 +468,17 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
     lines.append("")
 
     # Recommendations
+    overall_line = (
+        f'- **Overall delta: {all_stats["delta_avg"]:+}** — '
+        + ("context arm is helping." if all_stats["delta_avg"] > 2 else
+           "context arm is neutral or slightly harmful.")
+        if all_stats["valid"] else
+        "- **Overall delta:** none — no complete pairs (a question scored in both arms), so there is no delta."
+    )
     lines += [
         "## Key Observations & Recommendations",
         "",
-        f'- **Overall delta: {all_stats["delta_avg"]:+}** — '
-        + ("context arm is helping." if all_stats["delta_avg"] > 2 else
-           "context arm is neutral or slightly harmful."),
+        overall_line,
         f'- **Dynamic vs Static agreement:** {dyn_stats["delta_avg"]:+} vs {static_stats["delta_avg"]:+} — '
         + ("good consistency, benchmark is stable." if abs(dyn_stats["delta_avg"] - static_stats["delta_avg"]) < 3
            else "notable gap — investigate question quality."),
@@ -522,7 +534,10 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
     print(f"✅ Report written to: {out_path}")
     print(f"✅ Q&A JSON written to: {qa_json_out}")
     print(f"   Questions: {all_stats['count']} ({dyn_stats['count']} dynamic + {static_stats['count']} static)")
-    print(f"   Delta: {all_stats['delta_avg']:+} (with={all_stats['with_avg']}, without={all_stats['without_avg']})")
+    if all_stats["valid"]:
+        print(f"   Delta: {all_stats['delta_avg']:+} (with={all_stats['with_avg']}, without={all_stats['without_avg']})")
+    else:
+        print("   Delta: none (no complete pairs)")
     return out_path
 
 

@@ -238,3 +238,24 @@ def test_eval_report_win_and_degradation_rates_divide_by_the_complete_pairs(tmp_
 
     assert "- **Win rate:** 50% questions improved with context (2/4)." in eval_md
     assert "- **Degradations:** 1 questions (25%)." in eval_md
+
+
+def test_report_eval_with_no_complete_pair_says_so_instead_of_a_zero_delta(tmp_path):
+    # One question scored in each arm only: no pair, so there is no delta to report.
+    evaluations = [
+        {"question_id": "q1", "question_text": "How do I pin threads?",
+         "with_docs": {"aggregate": 80.0}, "without_docs": None, "delta": None},
+        {"question_id": "q2", "question_text": "How do I size a pool?",
+         "with_docs": None, "without_docs": {"aggregate": 60.0}, "delta": None},
+    ]
+    path = tmp_path / "eval" / "lib.json"
+    path.parent.mkdir()
+    path.write_text(json.dumps({"judge_model": "m", "evaluations": evaluations}), encoding="utf-8")
+    md = tmp_path / "lib.md"
+    generate_report(str(path), str(md), str(tmp_path / "lib.qa.json"))
+    text = md.read_text(encoding="utf-8")
+
+    all_row = next(line for line in text.splitlines() if line.startswith("| **All** |"))
+    assert all_row.split("|")[3:6] == [" — ", " — ", " — "]
+    assert "Overall delta: +0.0" not in text
+    assert "no complete pairs" in text
