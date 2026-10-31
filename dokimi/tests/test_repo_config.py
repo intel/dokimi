@@ -457,3 +457,13 @@ def test_a_malformed_glob_is_a_config_error_that_names_the_field_and_the_pattern
     with pytest.raises(ConfigError, match=needle) as err:
         load_repo_config(root).subjects(hashes=False)
     assert "a**b" in str(err.value)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_a_skill_directory_that_is_a_symlink_hashes_the_content_it_points_to(tmp_path):
+    root = _tree(tmp_path / "repo", {".github/dokimi/config.yaml": BESIDE_CONFIG, "vendor/a/SKILL.md": "# a\n"})
+    (root / "skills").mkdir()
+    os.symlink(root / "vendor" / "a", root / "skills" / "a", target_is_directory=True)
+    before = _subjects(root)["skill/a"].skill_sha
+    (root / "vendor/a/SKILL.md").write_text("# a, edited\n", encoding="utf-8")
+    assert _subjects(root)["skill/a"].skill_sha != before

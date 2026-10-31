@@ -327,5 +327,6 @@ def _hashed(subject: Subject, root: Path) -> Subject:
         files.setdefault(subject.manifest, root / subject.manifest)
         return replace(subject, suite_hash=_digest_files(files))
     inside = [rel[len(subject.path) + 1:] for rel in files if rel.startswith(subject.path + "/")]
-    skill_sha = "sha256:" + tree_digest(root / subject.path, exclude=inside)
+    # A skill directory that is a symlink is its target's content (a suite match is hashed by its link instead).
+    skill_sha = "sha256:" + tree_digest((root / subject.path).resolve(), exclude=inside)
     return replace(subject, skill_sha=skill_sha, suite_hash=_digest_files(files))
