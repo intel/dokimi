@@ -122,7 +122,7 @@ def headroom(
         # Every item would read as "no ceiling, not a floor": unmeasured, not headroom. Refuse it instead.
         raise ValueError(
             f"no run scored the no-skill arm {control!r}, so no item can be read for headroom; "
-            "the runs were not judged, or the baseline is named differently (pass --no-skill-arm)")
+            "the runs were not judged, or the baseline is named differently (pass --baseline-arm)")
 
     items: List[ItemHeadroom] = []
     for qid in sorted(scores, key=_sort_key):
@@ -173,7 +173,7 @@ def _no_skill_arm(runs: Sequence[Run], given: Optional[str]) -> str:
     declared = {run.baseline for run in runs}
     only = next(iter(declared)) if len(declared) == 1 else None
     if only is None:
-        raise ValueError("the runs do not declare one baseline arm; pass --no-skill-arm")
+        raise ValueError("the runs do not declare one baseline arm; pass --baseline-arm")
     return only
 
 

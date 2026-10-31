@@ -302,7 +302,7 @@ def test_binary_answers_are_refused():
 def test_runs_that_declare_different_baselines_need_an_explicit_arm():
     a = _run([("1", {"baseline": 50, "skill": 50})], baseline="baseline")
     b = _run([("1", {"control": 50, "skill": 50})], baseline="control")
-    with pytest.raises(ValueError, match="--no-skill-arm"):
+    with pytest.raises(ValueError, match="--baseline-arm"):
         headroom([a, b])
     result = headroom([a, b], no_skill_arm="baseline")
     assert result["no_skill_arm"] == "baseline" and result["runs"] == 2
@@ -508,7 +508,7 @@ def test_the_registered_options_reach_the_analysis_through_the_real_parser(tmp_p
                                                "2": {"baseline": 5, "skill": 15}})
     out = tmp_path / "headroom.json"
     args = build_parser().parse_args(["eval", "headroom", str(path), "--ceiling", "0.5", "--floor", "0.2",
-                                      "--min-reps", "1", "--no-skill-arm", "baseline", "-o", str(out)])
+                                      "--min-reps", "1", "--baseline-arm", "baseline", "--out", str(out)])
     args.func(args)
     saved = json.loads(out.read_text(encoding="utf-8"))
     assert saved["thresholds"] == {"ceiling": 0.5, "floor": 0.2, "min_reps": 1}
@@ -542,7 +542,7 @@ def test_command_refuses_a_wrong_baseline_name_with_exit_2(tmp_path, capsys):
     with pytest.raises(SystemExit) as exc:
         cmd_eval_headroom(_args([path]))
     assert exc.value.code == 2
-    assert "pass --no-skill-arm" in capsys.readouterr().err
+    assert "pass --baseline-arm" in capsys.readouterr().err
 
 
 def test_command_exits_2_on_an_input_nested_too_deep_to_read(tmp_path, capsys):

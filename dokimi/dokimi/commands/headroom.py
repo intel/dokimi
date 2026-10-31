@@ -4,7 +4,7 @@
 """``eval headroom``: flag the ceiling, floor and provisional items of arms runs.
 
 Reads one or more ``arms.v1`` files of the same question set (one per repetition) and writes a
-``headroom.v1`` artifact with ``-o``, always printing the human table. A file repeated on the
+``headroom.v1`` artifact with ``--out``, always printing the human table. A file repeated on the
 command line, or holding the same JSON content as an earlier one, is one run: the repeats are skipped with a
 note on stderr. See :mod:`dokimi.eval.headroom` for the rules.
 """
@@ -37,7 +37,7 @@ def _same_file(a, b) -> bool:
 
 
 def _names_a_directory(output) -> bool:
-    """Whether ``-o`` spells a directory: its last component is empty, ``.`` or ``..`` (a trailing
+    """Whether ``--out`` spells a directory: its last component is empty, ``.`` or ``..`` (a trailing
     separator, with or without ``/.``), or it is an existing directory. A path that cannot be
     stat-ed is not one: the save reports it, as before."""
     text = str(output)
@@ -64,11 +64,11 @@ def cmd_eval_headroom(args: argparse.Namespace) -> None:
     if args.output and _names_a_directory(args.output):
         # A directory has no file name for save_artifact's sibling paths ("." has an empty name), and
         # Path() drops a trailing slash, so "newdir/" would otherwise write a plain file named newdir.
-        print(f"Error: -o {args.output} is not a file name (a directory, or a path ending in a separator)",
+        print(f"Error: --out {args.output} is not a file name (a directory, or a path ending in a separator)",
               file=sys.stderr)
         sys.exit(2)
     if args.output and _clobbers_an_input(args.output, args.arms):
-        print(f"Error: -o {args.output} would overwrite one of the input arms files (or its .rejected sibling); "
+        print(f"Error: --out {args.output} would overwrite one of the input arms files (or its .rejected sibling); "
               "the run would be lost", file=sys.stderr)
         sys.exit(2)
     runs: list[records.Run] = []
@@ -116,7 +116,7 @@ def register_eval(eval_sub, positive_int) -> None:
         "headroom",
         help="Flag arms items with no headroom: no-skill ceiling, all-zero floor, provisional reps")
     h.add_argument("arms", nargs="+", help="arms.v1 JSON, one per repetition of the question set")
-    h.add_argument("--no-skill-arm", default=None,
+    h.add_argument("--baseline-arm", default=None, dest="no_skill_arm",
                    help="Arm read as the no-skill control (default: the baseline the runs declare)")
     h.add_argument("--ceiling", type=float, default=DEFAULT_CEILING,
                    help=f"Flag an item when the no-skill arm scores at least this, 0-1 (default {DEFAULT_CEILING})")
@@ -124,5 +124,5 @@ def register_eval(eval_sub, positive_int) -> None:
                    help=f"Flag an item when every arm scores at most this, 0-1 (default {DEFAULT_FLOOR})")
     h.add_argument("--min-reps", type=positive_int, default=DEFAULT_MIN_REPS, dest="min_reps",
                    help=f"Items with fewer runs than this are provisional (default {DEFAULT_MIN_REPS})")
-    h.add_argument("-o", "--output", default=None, help="headroom.v1 JSON to write")
+    h.add_argument("--out", dest="output", default=None, help="headroom.v1 JSON to write")
     h.set_defaults(func=cmd_eval_headroom)
