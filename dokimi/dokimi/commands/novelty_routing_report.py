@@ -248,5 +248,6 @@ def exit_partial_all_vs_all(model_arm: dict, cost: dict | None, failed: int, sen
     """
     print_all_vs_all_model(model_arm, cost)
     raise SystemExit(f"{failed} of {sent} model call(s) failed "
-                     f"({model_arm['first_error']}); the partial result, with those queries "
-                     f"left out of every rate, is in {out}")
+                     f"({model_arm['first_error']}); the partial result leaves the failed calls "
+                     "out of model-arm scoring, and a query with a failed repeat out of the "
+                     f"repeat-noise rates, is in {out}")

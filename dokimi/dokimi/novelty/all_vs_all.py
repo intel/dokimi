@@ -211,7 +211,7 @@ def _model_arm(candidates: list[Candidate], queries_by_skill: dict[str, list[str
         n_abstained += routed["n_abstained"]
         if first_error is None:
             first_error = next((r["error"] for r in rows if r.get("error")), None)
-        # A failed call measured nothing: it is not a pick, so it is left out of every rate.
+        # A failed call measured nothing: it is not a pick, so it is left out of the counts.
         model[name] = Counter(row.get("picked") or NO_PICK for row in rows if not row.get("error"))
         if routed["n_failed"]:
             unscored[name] = unscored.get(name, 0) + routed["n_failed"]

@@ -133,6 +133,16 @@ def test_estimate_only_without_a_model_is_lexical_and_free(tmp_path, capsys):
     assert (estimate["n_calls"], estimate["input_tokens"], estimate["expected_usd"]) == (0, 0, 0.0)
 
 
+def test_a_zero_repeat_estimate_sends_no_queries():
+    from dokimi.novelty.routing import Candidate, selection_estimate
+
+    field = [Candidate("perf", "profile a slow binary"), Candidate("db", "tune a database")]
+    estimate = selection_estimate(field, ["profile my binary", "index a table"], repeats=0)
+    assert estimate["n_queries"] == 2
+    assert (estimate["n_queries_sent"], estimate["n_calls"], estimate["input_tokens"],
+            estimate["output_tokens"]) == (0, 0, 0, 0)
+
+
 def test_estimate_prices_each_call_so_a_long_context_tier_is_not_reached_by_the_run_total(
         tmp_path, capsys, monkeypatch):
     import dokimi.llm_pricing as pricing

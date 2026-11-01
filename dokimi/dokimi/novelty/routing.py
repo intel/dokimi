@@ -489,9 +489,9 @@ def selection_estimate(candidates: list[Candidate], queries: list[str], *,
     """The calls and tokens :func:`model_routing` would make, counted without making them.
 
     Every repeat sends the same prompts (see :func:`selection_prompt_tokens`). The reply is one
-    JSON pick, :data:`PICK_REPLY_TOKENS`.
+    JSON pick, :data:`PICK_REPLY_TOKENS`. Zero repeats send nothing, so no query is sent.
     """
-    prompts = selection_prompt_tokens(candidates, queries)
+    prompts = selection_prompt_tokens(candidates, queries) if repeats else []
     calls = len(prompts) * repeats
     return {
         "n_queries": len(queries),

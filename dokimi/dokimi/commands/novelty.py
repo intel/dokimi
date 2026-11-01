@@ -412,8 +412,8 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     sent = sum(model_arm.get("n_scored", {}).values()) + failed  # contentless ones are not sent
     if failed:
         print(f"WARNING: {failed} model call(s) failed (first error: "
-              f"{model_arm['first_error']}); those queries are left out of "
-              "every rate in the model arm", file=sys.stderr)
+              f"{model_arm['first_error']}); failed calls are left out of model-arm scoring, "
+              "and a query with a failed repeat out of the repeat-noise rates", file=sys.stderr)
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
