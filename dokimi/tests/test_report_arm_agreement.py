@@ -260,3 +260,32 @@ def test_report_eval_with_no_complete_pair_says_so_instead_of_a_zero_delta(tmp_p
     assert "Overall delta: +0.0" not in text
     assert "over the 0 complete pairs" not in text
     assert "no complete pairs" in text
+
+
+def test_breakdown_tables_and_agreement_say_no_pair_instead_of_a_zero_delta(tmp_path):
+    # The static set (onetbb-Q*) has two questions, each scored in one arm only: no complete pair.
+    # The dynamic set has a complete pair. The breakdown rows and the agreement bullet must not
+    # print a zero delta for the static set, nor claim it agrees with the dynamic one.
+    evaluations = [
+        {"question_id": "q1", "question_text": "How do I pin threads?", "difficulty": "easy",
+         "with_docs": {"aggregate": 80.0}, "without_docs": {"aggregate": 60.0}, "delta": 20.0},
+        {"question_id": "onetbb-Q1", "question_text": "How do I size a pool?", "difficulty": "hard",
+         "with_docs": {"aggregate": 80.0}, "without_docs": None, "delta": None},
+        {"question_id": "onetbb-Q2", "question_text": "How do I flush a queue?", "difficulty": "hard",
+         "with_docs": None, "without_docs": {"aggregate": 60.0}, "delta": None},
+    ]
+    path = tmp_path / "eval" / "lib.json"
+    path.parent.mkdir()
+    path.write_text(json.dumps({"judge_model": "m", "evaluations": evaluations}), encoding="utf-8")
+    md = tmp_path / "lib.md"
+    generate_report(str(path), str(md), str(tmp_path / "lib.qa.json"))
+    text = md.read_text(encoding="utf-8")
+
+    static_row = next(line for line in text.splitlines() if line.startswith("| Golden (static) |"))
+    assert static_row.split("|")[3:6] == [" — ", " — ", " — "]
+    hard_row = next(line for line in text.splitlines() if line.startswith("| hard |"))
+    assert hard_row.split("|")[3:6] == [" — ", " — ", " — "]
+    easy_row = next(line for line in text.splitlines() if line.startswith("| easy |"))
+    assert "**+20.0**" in easy_row
+    assert "Dynamic vs Static agreement:** none" in text
+    assert "Dynamic vs Static agreement:** +" not in text
