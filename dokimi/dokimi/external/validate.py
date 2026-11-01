@@ -54,6 +54,7 @@ same skill has probably been edited in one place and not the other.
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
@@ -87,12 +88,19 @@ STOP_WORDS = frozenset(
     should must may might if else only other such via per about over under more most very
     just""".split()
 )
-LINK_RE = re.compile(r"\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
-# A reference-style link definition, ``[label]: destination`` (footnotes ``[^n]:`` excluded).
+# An inline link target: balanced parentheses (``guide(v2).md``) or ``<in angle brackets>`` with spaces;
+# an optional title follows the target.
+_TARGET_TITLE = r"""(?:\s+(?:"[^"]*"|'[^']*'|\([^()]*\)))?"""
+LINK_RE = re.compile(rf"\]\(\s*(<[^<>\n]*>|(?:[^()\s]|\([^()\s]*\))+){_TARGET_TITLE}\s*\)")
+# A reference-style link definition, ``[label]: destination``, the destination on this line or the
+# next (footnotes ``[^n]:`` excluded). Matched over the whole body, not line by line.
 REF_DEF_RE = re.compile(
-    r"""^ {0,3}\[(?!\^)[^\]]+\]:[ \t]*(<[^>\n]*>|\S+)"""
-    r"""(?:[ \t]+(?:"[^"]*"|'[^']*'|\([^)]*\)))?[ \t]*$"""
+    r"""^ {0,3}\[(?!\^)[^\]\n]+\]:[ \t]*\n?[ \t]*(<[^>\n]*>|\S+)"""
+    r"""(?:[ \t]+(?:"[^"]*"|'[^']*'|\([^)]*\)))?[ \t]*$""",
+    re.MULTILINE,
 )
+FENCE_OPEN_RE = re.compile(r"[ \t]*(`{3,}|~{3,})(.*)$")
+FENCE_CLOSE_RE = re.compile(r"[ \t]*(`{3,}|~{3,})[ \t]*$")
 # RFC 3986 scheme, dots included; a dotted one with a line or symbol after it is a file (_file_ref).
 URI_SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+\-.]*:")
 # After a file, a line or a symbol (``run.py:42``, ``run.py:10-20``, ``run.py:main``): read as the file's name.
@@ -150,7 +158,7 @@ def _frontmatter_findings(skill: Skill, *, at_root: bool = False) -> tuple[list[
     meta, parse_error = _strict_meta(skill.path.read_text(encoding="utf-8"))
     if parse_error is not None:
         return [parse_error], False
-    dir_name = skill.path.parent.name
+    dir_name = _dir_name_of(skill.path.parent)
     findings: list[Finding] = []
     declared = str(meta.get("name") or "").strip()
     if not declared:
@@ -235,13 +243,26 @@ def _relative_to_root(path: Path, root: Path) -> str:
 
 
 def _outside_fences(body: str) -> list[str]:
-    """The lines of ``body`` that are not inside a fenced code block."""
+    """The lines of ``body`` that are not inside a fenced code block.
+
+    A block closes only at a line of the same marker (backticks or tildes) that is at least as long
+    as the opening run, as in CommonMark.
+    """
     lines: list[str] = []
-    fenced = False
+    fence = ""  # the run that opened the current block; "" outside one
     for line in body.splitlines():
-        if line.lstrip().startswith(("```", "~~~")):
-            fenced = not fenced
-        elif not fenced:
+        if fence:
+            close = FENCE_CLOSE_RE.match(line)
+            if close and close.group(1)[0] == fence[0] and len(close.group(1)) >= len(fence):
+                fence = ""
+                lines.append("")  # a blank line keeps a definition above the block from reaching below it
+            continue
+        opened = FENCE_OPEN_RE.match(line)
+        # a backtick info string may not hold a backtick: "```x```" is an inline code span, not a fence
+        if opened and not (opened.group(1)[0] == "`" and "`" in opened.group(2)):
+            fence = opened.group(1)
+            lines.append("")
+        else:
             lines.append(line)
     return lines
 
@@ -297,7 +318,7 @@ def _bundle_findings(skill: Skill, source_root: Path) -> list[Finding]:
     lines = _outside_fences(skill.body)
     links = dict.fromkeys(
         [m for line in lines for m in LINK_RE.findall(line)]
-        + [m for line in lines for m in REF_DEF_RE.findall(line)]
+        + REF_DEF_RE.findall("\n".join(lines))
     )
     spans = dict.fromkeys(
         s.strip()
@@ -373,6 +394,14 @@ def _jaccard(a: frozenset[str], b: frozenset[str]) -> float:
     return len(a & b) / len(a | b) if a and b else 0.0
 
 
+def _dir_name_of(directory: Path) -> str:
+    """The name of ``directory`` with its ``..`` parts taken away lexically: ``alpha/sub/..`` is ``alpha``.
+
+    Lexical, not resolved, so a symlinked skill directory keeps the name it is listed under.
+    """
+    return Path(os.path.normpath(directory)).name
+
+
 def _dir_name(item: tuple[SkillCatalogEntry, Skill, SkillReview]) -> Optional[str]:
     """The directory name that can make a skill a mirror of another, None for the root skill.
 
@@ -382,7 +411,7 @@ def _dir_name(item: tuple[SkillCatalogEntry, Skill, SkillReview]) -> Optional[st
     entry, skill, _ = item
     if skill.path.parent.resolve() == entry.source_root.resolve():
         return None
-    return skill.path.parent.name
+    return _dir_name_of(skill.path.parent)
 
 
 def _mirror_drift(loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]]) -> None:
