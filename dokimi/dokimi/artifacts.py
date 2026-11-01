@@ -12,7 +12,8 @@ checks), ``tool_preference`` (which of two equal tools a model picks, and
 what moves it), ``repo_environment`` (static inspection of what a
 repository offers an agent), ``plan`` (the cells a run promises to measure),
 ``result`` (one status per planned cell), ``repo_budget`` (what a repository puts
-into an agent's context), ``task_inspect`` (which eval-task format each
+into an agent's context), ``need_graph`` and ``eval_coverage`` (a frozen need graph and an
+eval set's coverage of it), ``task_inspect`` (which eval-task format each
 path under a tree is) and ``repo_hits_judged`` (a judge's labels of one replay
 cell's credited pairs). This module stamps each with a
 ``schema_version`` and validates it against the JSON Schema in
@@ -59,6 +60,8 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "repo_budget": "repo_budget.v1",
     "task_inspect": "task_inspect.v1",
     "cli_routes": "cli_routes.v1",
+    "need_graph": "need_graph.v1",
+    "eval_coverage": "eval_coverage.v1",
     "repo_hits_judged": "repo_hits_judged.v1",
 }
 

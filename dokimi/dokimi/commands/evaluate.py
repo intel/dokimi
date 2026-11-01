@@ -11,6 +11,7 @@ import json
 import sys
 from pathlib import Path
 
+from dokimi.commands import eval_coverage
 from dokimi.llm import ANSWER_PROVIDERS
 from dokimi.defaults import (
     DEFAULT_CONCURRENCY,
@@ -467,6 +468,7 @@ def register(sub, positive_int) -> None:
     # Eval subcommand group
     eval_p = sub.add_parser("eval", help="Evaluate answers")
     eval_sub = eval_p.add_subparsers(dest="eval_cmd", required=True)
+    eval_coverage.register(eval_sub)
 
     # eval score
     score_p = eval_sub.add_parser("score", help="Score answers using LLM-as-judge")

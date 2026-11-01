@@ -1,9 +1,17 @@
 # Coverage report
 
-dokimi has no command that writes this report (`python -m dokimi.coverage`
-prints a product x awareness/work task count, not scenario coverage). Write
-it by hand, in the suite's README and in the PR that adds or changes the
-suite.
+Write this report by hand, in the suite's README and in the PR that adds or
+changes the suite. `python -m dokimi.coverage` prints only a product x
+awareness/work task count.
+
+`python cli.py eval coverage <evals> --graph need_graph.json` adds the part
+a script can check. It needs a need graph (what users of the subject need,
+built from its name and description only) and a `needs` list on each eval
+that names the graph nodes it grades. From those two files alone it lists the
+core and rare_critical nodes that no eval names, and the relevance of each
+eval: `orphan` for `needs: []`, `unlabelled` for no `needs`. Paste its
+Markdown under the table below. It does not replace the areas in the table,
+and a node the graph never had is still a gap nobody looked at.
 
 ## Template
 

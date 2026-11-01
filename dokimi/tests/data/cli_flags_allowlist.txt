@@ -224,3 +224,5 @@
 --work-output-dir
 --work-repeats
 -o
+--graph  # eval coverage: the frozen need graph input, a file no registry concept names yet (#331)
+--min  # eval coverage gate floor, [METRIC=]X like --timeout [PHASE=]SEC (#331)
