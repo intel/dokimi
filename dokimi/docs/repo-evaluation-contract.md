@@ -449,19 +449,19 @@ hits the task's `useful` key (§3). The definition depends on the grader:
 
 | Grader | Declare | Hit |
 |---|---|---|
-| test: the grade runs the target tests | `{"command": "<regex>"}` | the first `command` event whose text matches the regex (`re.search`) and whose `rc` is `0`. `rc` 0 says that command passed, not that every target test did, so the regex should name the target tests |
+| test: the grade runs the target tests | `{"command": "<regex>"}` | the first `command` event whose text matches the regex (`regex.search`) and whose `rc` is `0`. `rc` 0 says that command passed, not that every target test did, so the regex should name the target tests |
 | edit or diff: the grade reads a target file | `{"edit": "<glob>"}` or a list | the first `edit` event whose path matches a glob (`match_glob`, as the guidance globs) |
 | review (`dokimi:review_*`) | none | none, so `not_declared`: the answer is the product, so no event is the useful result. A declared key is measured all the same |
 | any other repository grader | either form, or none | none declared, `not_declared` |
 
-A refused event (`denied`) never hits, nor does an `edit` whose tool result is an error (`rc` 1: the file was not changed). `steps` counts every event up to and
+A refused event (`denied`) never hits, nor does an `edit` without a success result (`rc` 0): an error result (`rc` 1) means the file was not changed, and no result at all (a killed run) proves nothing. `steps` counts every event up to and
 including the hit, the parent's and subagents' (as `process.tool_calls` does).
 `issued_s` is the hit's `t`: the time the call was issued, since a call's result
 is not timed. `first_useful` is `{"kind": "command"|"edit"|null, "reason": ...,
 "issued_s": number|null, "steps": int|null}`. `reason` is `null` when the hit was
 found and timed; otherwise it says why `issued_s` (and `steps`, with no hit) is
 null: `not_declared` (no definition), `unobserved` (the trace was not read: the
-harness never started or it did not parse), `never` (no event hit), `timeout` (a `command` pattern ran past
+harness never started, it did not parse, or a line of the trace was dropped), `never` (no event hit), `timeout` (a `command` pattern ran past
 2 s on one event: no verdict, and the rest of the trace is not searched) or `untimed`
 (the trace format has no timestamps, so `steps` is set and `issued_s` is null).
 A cell of an older batch has no `first_useful`. Each cell that declares a definition
