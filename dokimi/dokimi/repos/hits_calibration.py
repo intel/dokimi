@@ -63,21 +63,30 @@ def read_labels(path: Path, pairs: list[Pair]) -> dict[tuple[str, str], str]:
     labelled yet and is skipped.
 
     Raises:
-        HitsInputError: the file is unreadable or not a list, or an entry is not an object, names a cell or a
-            thread of no credited pair of the batch, or has a label other than the three.
+        HitsInputError: the file is unreadable or not a list, or an entry is not an object with ``cell``,
+            ``thread`` and ``finding``, names a cell or a thread of no credited pair of the batch, names another
+            finding than the one the batch credits for its thread (a hand-edit, or a sheet older than a
+            regrade), or has a label other than the three.
     """
     known = {p.key: p for p in pairs}
     cells = {p.cell for p in pairs}
     out: dict[tuple[str, str], str] = {}
     for i, entry in enumerate(_entries(path)):
         where = f"{path} entry {i}"
-        if not isinstance(entry, dict) or not isinstance(entry.get("cell"), str) or "thread" not in entry:
-            raise HitsInputError(f"{where} is not an object with `cell`, `thread` and `label`")
+        if (not isinstance(entry, dict) or not isinstance(entry.get("cell"), str)
+                or "thread" not in entry or "finding" not in entry):
+            raise HitsInputError(f"{where} is not an object with `cell`, `thread`, `finding` and `label`")
         if entry["cell"] not in cells:
             raise HitsInputError(f"{where}: cell {entry['cell']!r} has no credited pair in this batch")
         key = pair_key(entry["cell"], entry["thread"])
         if key not in known:
             raise HitsInputError(f"{where}: thread {entry['thread']!r} is not a credited pair of cell {entry['cell']}")
+        credited = known[key].hit.get("finding")
+        if type(entry["finding"]) is not type(credited) or entry["finding"] != credited:
+            raise HitsInputError(
+                f"{where}: the sheet labels finding {entry['finding']!r} of thread {entry['thread']!r}, but the "
+                f"batch credits finding {credited!r} for it in cell {entry['cell']}; write a new sheet with "
+                "`repo hits sheet`")
         label = entry.get("label")
         if label is None:
             continue

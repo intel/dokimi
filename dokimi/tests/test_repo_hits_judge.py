@@ -127,6 +127,7 @@ def test_judge_reads_the_full_texts_and_writes_recall_judged_per_cell(tmp_path, 
     assert [(r["arm"], r["cells"], r["pairs"], r["recall"], r["recall_judged"]) for r in result["rows"]] == [
         ("guidance:none", 1, 2, 0.667, 0.333), ("guidance:raw", 1, 2, 0.667, 0.333)]
     assert (result["calls"], result["spent_usd"], result["calibration"]) == (4, 1.6, None)
+    assert result["uncalibrated_arms"] == ["guidance:none", "guidance:raw"]  # no --labels: no arm is calibrated
 
 
 def test_a_cell_with_no_credited_pair_is_written_and_counted_in_the_means(tmp_path, capsys, judge_llm):
@@ -179,6 +180,21 @@ def test_a_judge_that_runs_an_answer_model_is_refused_before_any_call(tmp_path, 
         code, out, err = _run(capsys, "judge", str(batch), "--judge", judge)
     assert (code, out, fake.requests) == (2, "", [])
     assert err.startswith(f"✗ judge {judge} runs the same model as the answer model")
+    assert not list(batch.glob(f"*/{HITS_JUDGED}"))
+
+
+@pytest.mark.parametrize("record", ["result.json", "meta.json"])
+@pytest.mark.parametrize("resolved", ["claude-opus-5-5", ["claude-sonnet-5-5", "claude-opus-5-5"]])
+def test_a_judge_that_answered_a_cell_under_another_name_is_refused_before_any_call(tmp_path, capsys, record,
+                                                                                    resolved):
+    batch = _batch(tmp_path)
+    path = batch / f"{TASK}__guidance-raw__{MODEL}__r1" / record
+    rec = json.loads(path.read_text())
+    path.write_text(json.dumps({**rec, "model_resolved": resolved}))  # asked of sonnet, the trace says opus answered
+    with llm.use_adapter(llm.FakeAdapter()) as fake:  # an unscripted call fails the test
+        code, out, err = _run(capsys, "judge", str(batch), "--judge", JUDGE)
+    assert (code, out, fake.requests) == (2, "", [])
+    assert err.startswith(f"✗ judge {JUDGE} runs the same model as the answer model 'claude-opus-5-5'")
     assert not list(batch.glob(f"*/{HITS_JUDGED}"))
 
 
@@ -251,7 +267,9 @@ def test_labels_are_compared_per_arm_and_an_unknown_thread_is_refused(tmp_path, 
     assert json.loads(out)["calibration"] == [  # none: agree on t_todo, not on t_op; raw: agree on thread 7
         {"arm": "guidance:none", "labelled": 2, "agreement": 0.5, "kappa": 0.333},
         {"arm": "guidance:raw", "labelled": 1, "agreement": 1.0, "kappa": None}]
-    assert "kappa 0.333" in _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(sheet_file))[1]
+    assert json.loads(out)["uncalibrated_arms"] == []
+    text = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(sheet_file))[1]
+    assert "kappa 0.333" in text and "uncalibrated" not in text
     judge_llm.requests.clear()
     entries[1]["thread"] = "t_gone"
     sheet_file.write_text(json.dumps(entries))
@@ -261,25 +279,89 @@ def test_labels_are_compared_per_arm_and_an_unknown_thread_is_refused(tmp_path, 
                            f"{entries[1]['cell']}")
 
 
+def _sheet(tmp_path: Path, capsys, batch: Path, label=lambda entry: "related") -> Path:
+    """A `repo hits sheet` file of every pair of the batch, each labelled ``label(entry)``."""
+    sheet_file = tmp_path / "sheet.json"
+    assert _run(capsys, "sheet", str(batch), "--out", str(sheet_file))[0] == 0
+    sheet_file.write_text(json.dumps([{**e, "label": label(e)} for e in json.loads(sheet_file.read_text())]))
+    return sheet_file
+
+
+UNCALIBRATED = ("recall_judged is uncalibrated (no pair carries both a person's and the judge's label): label a "
+                "sample of pairs (`repo hits sheet`) and pass it with --labels before quoting it")
+
+
+@pytest.mark.parametrize("case", ["unfilled sheet", "empty list", "labels only on unjudged pairs"])
+def test_labels_no_pair_shares_with_the_judge_leave_recall_judged_uncalibrated(tmp_path, capsys, monkeypatch, case):
+    monkeypatch.delenv(caching.RESPONSE_CACHE_ENV, raising=False)
+    batch = _batch(tmp_path)
+    labels = _sheet(tmp_path, capsys, batch, label=lambda e: None if case == "unfilled sheet" else "related")
+    if case == "empty list":
+        labels.write_text("[]")
+    unparsed = case == "labels only on unjudged pairs"  # the judge never replies with a label: every pair unjudged
+    with llm.use_adapter(llm.FakeAdapter(respond=(lambda _: "no idea") if unparsed else _reply)):
+        code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(labels), "--json")
+        assert code == 0
+        result = json.loads(out)
+        text = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(labels))[1].splitlines()
+    assert result["uncalibrated_arms"] == ["guidance:none", "guidance:raw"]
+    assert result["calibration"] == ([{"arm": arm, "labelled": 0, "agreement": None, "kappa": None}
+                                      for arm in ("guidance:none", "guidance:raw")] if unparsed else [])
+    assert text[-2] == UNCALIBRATED and not any(line.startswith("calibration against") for line in text)
+
+
+def test_labels_on_one_arm_only_name_the_arm_left_uncalibrated(tmp_path, capsys, judge_llm):
+    batch = _batch(tmp_path)
+    labels = _sheet(tmp_path, capsys, batch, label=lambda e: "related" if e["arm"] == "guidance:none" else None)
+    code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(labels), "--json")
+    assert code == 0
+    result = json.loads(out)
+    assert [c["arm"] for c in result["calibration"]] == ["guidance:none"]
+    assert result["uncalibrated_arms"] == ["guidance:raw"]
+    text = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(labels))[1].splitlines()
+    assert text[-4:-1] == ["calibration against the labels (person vs judge):",
+                           "  guidance:none: 2 labelled pair(s), agreement 0.000, kappa 0.000",
+                           "recall_judged is uncalibrated in guidance:raw: no pair of it carries both a person's "
+                           "and the judge's label"]
+
+
+def test_a_label_on_another_finding_than_the_credited_one_is_refused_before_any_call(tmp_path, capsys, judge_llm):
+    batch = _batch(tmp_path)
+    labels = _sheet(tmp_path, capsys, batch)
+    entries = json.loads(labels.read_text())
+    entries[1]["finding"] = 99  # a hand-edit, or a sheet written before a regrade credited another finding
+    labels.write_text(json.dumps(entries))
+    code, out, err = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(labels))
+    assert (code, out, judge_llm.requests) == (2, "", [])
+    credited = next(p.hit["finding"] for p in read_pairs(batch)[1]
+                    if p.key == pair_key(entries[1]["cell"], entries[1]["thread"]))
+    assert err.strip() == (f"✗ {labels} entry 1: the sheet labels finding 99 of thread {entries[1]['thread']!r}, but "
+                           f"the batch credits finding {credited} for it in cell {entries[1]['cell']}; write a new "
+                           "sheet with `repo hits sheet`")
+
+
 @pytest.mark.parametrize("entry, says", [
-    ({"cell": "elsewhere", "thread": "t_op", "label": "related"}, "cell 'elsewhere' has no credited pair"),
-    ({"thread": "t_op", "label": "related"}, "is not an object with `cell`, `thread` and `label`"),
-    ("t_op", "is not an object with `cell`, `thread` and `label`")])
-def test_a_label_entry_naming_no_pair_is_refused(tmp_path, capsys, entry, says):
+    ({"cell": "elsewhere", "thread": "t_op", "finding": 1, "label": "related"}, "cell 'elsewhere' has no credited pair"),
+    ({"thread": "t_op", "finding": 1, "label": "related"}, "is not an object with `cell`, `thread`, `finding` and"),
+    ({"cell": f"{TASK}__guidance-none__{MODEL}__r1", "thread": "t_op", "label": "related"},
+     "is not an object with `cell`, `thread`, `finding` and `label`"),
+    ("t_op", "is not an object with `cell`, `thread`, `finding` and `label`")])
+def test_a_label_entry_naming_no_pair_is_refused(tmp_path, capsys, judge_llm, entry, says):
     batch = _batch(tmp_path)
     labels = tmp_path / "labels.json"
     labels.write_text(json.dumps([entry]))
     code, _, err = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(labels))
     assert code == 2 and err.startswith(f"✗ {labels} entry 0") and says in err
+    assert judge_llm.requests == []
 
 
-def test_a_label_outside_the_three_is_refused(tmp_path, capsys):
+def test_a_label_outside_the_three_is_refused(tmp_path, capsys, judge_llm):
     batch = _batch(tmp_path)
     labels = tmp_path / "labels.json"
     cell = f"{TASK}__guidance-none__{MODEL}__r1"
-    labels.write_text(json.dumps([{"cell": cell, "thread": "t_op", "label": "maybe"}]))
+    labels.write_text(json.dumps([{"cell": cell, "thread": "t_op", "finding": 1, "label": "maybe"}]))
     code, _, err = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(labels))
-    assert code == 2
+    assert (code, judge_llm.requests) == (2, [])
     assert err.strip() == f"✗ {labels} entry 0: label 'maybe' is not one of 'same point', 'related', 'unrelated'"
 
 

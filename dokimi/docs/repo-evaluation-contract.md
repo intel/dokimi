@@ -664,7 +664,9 @@ review thread of a merged PR, anchored on a line of the reviewed revision.
   `recall`. It is a judge's reading, not a verdict: quote a figure only next to
   a person's labels for a sample of the pairs (`repo hits sheet`, then
   `--labels`), whose agreement with the judge and Cohen's kappa per arm the
-  command reports; without them it says the figure is uncalibrated.
+  command reports; without them, or when no pair carries both a person's
+  and the judge's label, it says the figure is uncalibrated, and it names
+  the arms that no labelled pair covers.
 - `recall_addressed` counts only threads with `addressed: true` (the code
   changed in response), `recall_by_kind` groups by `kind`, and
   `precision_proxy` is the share of findings within the window of any
@@ -1481,9 +1483,13 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   pairs and label counts, and the mean `recall` and `recall_judged` of those
   cells (`--json`: the same as JSON). Before any call it refuses, with exit 2,
   a judge that runs the model of any answer of the batch (`meta.json` or
-  `result.json` `model`; a CLI alias counts as its family's full id, the rule
-  of `novelty`), and a `--labels` entry that names no credited pair of the
-  batch or has a label other than the three. A cell graded without `matches`
+  `result.json` `model`, the model asked for, and `model_resolved`, the
+  model or models the trace says answered; a CLI alias counts as its family's
+  full id, the rule of `novelty`), and a `--labels` entry that names no
+  credited pair of the batch, has no `finding` or names another finding than
+  the one the batch credits for its thread (a hand-edit, or a sheet older
+  than a regrade: write a new one), or has a label other than the three. A
+  cell graded without `matches`
   and a grader-failure cell are counted, not judged. A pair whose full text is
   not found (no single task directory or no such thread under
   `<batch>/_eval/content`, no finding at its index in `answer.txt`, or a file
@@ -1496,8 +1502,12 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   `hits_judged.json` (one an earlier run wrote is removed), and the command
   exits 1. With `--labels FILE` it reports, per arm, the pairs both the
   person and the judge labelled, the share with equal labels, and Cohen's
-  kappa over the three labels; without it, a line says `recall_judged` is
-  uncalibrated.
+  kappa over the three labels. Without it, or when no pair carries both the
+  person's and the judge's label (a sheet left `null`, `[]`, labels only on
+  pairs the judge left `unjudged`), a line says `recall_judged` is
+  uncalibrated; when only some arms have such pairs, a line names the others.
+  `--json` lists the arms with no such pair in `uncalibrated_arms` (every
+  arm without `--labels`); `calibration` is `null` without `--labels`.
 - `repo hits sheet <batch> --out FILE` makes no call. It writes a JSON list of
   credited pairs for a person to label: each with its `cell`, `task`, `arm`,
   `model`, `rep`, `thread`, `finding`, their files and lines, the full

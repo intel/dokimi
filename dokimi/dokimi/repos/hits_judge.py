@@ -32,7 +32,7 @@ from dokimi.llm import LLM, Ask, Unparseable
 from dokimi.llm_json import extract_json_object
 
 from .graders.review import finding_fields, findings_of
-from .report import REPLAY, load_cells, load_hits
+from .report import REPLAY, load_cells, load_hits, resolved_models
 
 LABELS = ("same point", "related", "unrelated")
 UNJUDGED = "unjudged"
@@ -221,16 +221,19 @@ def read_pairs(batch_dir: Path) -> tuple[dict[str, Any], list[Pair]]:
 
 
 def answer_models(batch_dir: Path) -> set[str]:
-    """The answer model of every finished cell of the batch: ``meta.json`` ``model``, and ``result.json``'s."""
+    """The answer models of every finished cell of the batch, from ``result.json`` and ``meta.json``: the
+    ``model`` asked for, and the ``model_resolved`` the trace says answered (:func:`.report.resolved_models`);
+    a harness alias can map one to another."""
     cells, _ = load_cells(batch_dir)
-    models = {rec["model"] for rec in cells}
+    models: set[str] = set()
     for rec in cells:
+        models |= {rec["model"], *resolved_models(rec)}
         try:
             meta = _json(batch_dir / rec["cell"] / "meta.json")
         except _NotFound:
             continue
-        if isinstance(meta, dict) and isinstance(meta.get("model"), str):
-            models.add(meta["model"])
+        if isinstance(meta, dict):
+            models |= {*([meta["model"]] if isinstance(meta.get("model"), str) else []), *resolved_models(meta)}
     return models
 
 
@@ -376,14 +379,20 @@ def rows(docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def summary(found: dict[str, Any], pairs: list[Pair], judge: tuple[str, str], done: Judged,
             calibration: Optional[list[dict[str, Any]]]) -> dict[str, Any]:
-    """What ``repo hits judge`` prints (``--json``: this dict)."""
+    """What ``repo hits judge`` prints (``--json``: this dict).
+
+    ``uncalibrated_arms``: the arms of ``rows`` with no pair labelled by both the person and the judge (every
+    arm without ``--labels``), whose ``recall_judged`` no calibration covers."""
+    table = rows(done.docs)
+    calibrated = {c["arm"] for c in calibration or [] if c["labelled"]}
     return {"batch": found["batch"], "judge": {"provider": judge[0], "model": judge[1]},
             "replay_cells": found["replay_cells"], "without_matches": found["without_matches"],
             "grader_failures": found["grader_failures"], "pairs": len(pairs),
             "not_found": [{"cell": p.cell, "thread": p.hit.get("thread"), "problem": p.problem}
                           for p in pairs if p.problem is not None],
-            "rows": rows(done.docs), "written": len(done.docs), "budget_stopped": done.stopped,
-            "calls": done.meter.calls, "spent_usd": round(done.meter.spent_usd, 6), "calibration": calibration}
+            "rows": table, "written": len(done.docs), "budget_stopped": done.stopped,
+            "calls": done.meter.calls, "spent_usd": round(done.meter.spent_usd, 6), "calibration": calibration,
+            "uncalibrated_arms": sorted({r["arm"] for r in table} - calibrated)}
 
 
 def _fmt(value: Optional[float]) -> str:
@@ -403,14 +412,20 @@ def _row_lines(table: list[dict[str, Any]]) -> list[str]:
     return lines
 
 
-def _calibration_lines(calibration: Optional[list[dict[str, Any]]]) -> list[str]:
-    if calibration is None:
-        return ["recall_judged is uncalibrated: label a sample of pairs (`repo hits sheet`) and pass it "
+def _calibration_lines(calibration: Optional[list[dict[str, Any]]], uncalibrated: list[str]) -> list[str]:
+    """No pair labelled by both (no ``--labels``, an unfilled sheet, labels only on unjudged pairs) is no
+    calibration; with some, the arms that have none are named."""
+    if not any(c["labelled"] for c in calibration or []):
+        why = "" if calibration is None else " (no pair carries both a person's and the judge's label)"
+        return [f"recall_judged is uncalibrated{why}: label a sample of pairs (`repo hits sheet`) and pass it "
                 "with --labels before quoting it"]
     lines = ["calibration against the labels (person vs judge):"]
-    for c in calibration:
+    for c in calibration or []:
         lines.append(f"  {c['arm']}: {c['labelled']} labelled pair(s), agreement {_fmt(c['agreement'])}, "
                      f"kappa {_fmt(c['kappa'])}")
+    if uncalibrated:
+        lines.append("recall_judged is uncalibrated in " + ", ".join(uncalibrated)
+                     + ": no pair of it carries both a person's and the judge's label")
     return lines
 
 
@@ -426,7 +441,7 @@ def format_summary(s: dict[str, Any]) -> str:
     if s["budget_stopped"]:
         lines.append(f"{len(s['budget_stopped'])} cell(s) not fully judged (--max-usd spent), no {HITS_JUDGED}: "
                      + ", ".join(s["budget_stopped"]))
-    lines += _calibration_lines(s["calibration"])
+    lines += _calibration_lines(s["calibration"], s["uncalibrated_arms"])
     lines.append(f"{s['calls']} judge call(s), ${s['spent_usd']:.4f}")
     return "\n".join(lines)
 
