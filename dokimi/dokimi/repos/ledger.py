@@ -28,7 +28,7 @@ from typing import Any
 from dokimi.artifacts import schema_errors
 from dokimi.eval.stats import adjust_pvalues
 
-from .compare import PRIMARY, compare, load_batches, min_sign_flip_p, parse_selector
+from .compare import PRIMARY, compare, load_batches, min_sign_flip_p, parse_selector, selector_matches
 from .compare_reach import ALPHA
 from .compare_tasks import CompareError
 
@@ -162,7 +162,9 @@ def _compared(rule: Rule, head: dict[str, Any], batch_dirs: list[Path], base: st
     try:
         summary = compare(batch_dirs, base, [rule.arm], models, (), seed=seed, tasks=present, exact=True)
     except CompareError as exc:  # the arm or the baseline has no cell among this rule's cases
-        return [{**head, "model": models[0] if models else None, "error": str(exc)}]
+        # Without --model, every model that has a linked cell for either side keeps its own result.
+        named = models or _models_on_the_rule(batch_dirs, [rule.arm, base], present) or [None]
+        return [{**head, "model": model, "error": str(exc)} for model in named]
     model = models[0] if models else None
     warnings.extend(summary["warnings"])
     # Only a linked case whose outcome (the gate or score, or the whole task) did not pair counts: a missing
@@ -181,6 +183,14 @@ def _compared(rule: Rule, head: dict[str, Any], batch_dirs: list[Path], base: st
         reasons = sorted({u["reason"] for u in linked if u["model"] == unpaired})
         out.append({**head, "model": unpaired, "error": "; ".join(reasons)})
     return out
+
+
+def _models_on_the_rule(batch_dirs: list[Path], selectors: list[str], tasks: list[str]) -> list[str]:
+    """The models with a finished cell on one of the rule's linked tasks that matches one of the selectors."""
+    parsed = [parse_selector(text) for text in selectors]
+    cells, _ = load_batches(batch_dirs)
+    return sorted({c["model"] for c in cells if c["task"] in tasks
+                   and any(selector_matches(sel, c) for sel in parsed)})
 
 
 def _unmeasured(head: dict[str, Any], linked: list[dict[str, Any]], model: str | None) -> list[dict[str, Any]]:

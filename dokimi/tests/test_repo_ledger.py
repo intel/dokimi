@@ -470,3 +470,42 @@ def test_a_missing_cost_does_not_unpair_a_gate_case(tmp_path):
     assert entry["verdict"] == KEEP
     assert entry["paired"] == 8
     assert not any("not paired" in w for w in entry["warnings"])
+
+
+@pytest.mark.parametrize("absent", ["arm", "baseline"])
+def test_a_rule_whose_arm_or_baseline_is_absent_names_each_model(tmp_path, absent):
+    batch = tmp_path / "run"
+    ran_t1 = BASE if absent == "arm" else ARM  # the side that ran the linked task, for both models
+    other = ARM if absent == "arm" else BASE  # the absent side ran only an unrelated task
+    for model in ("m-1", "m-2"):
+        _cell(batch, "t1", ran_t1, success=True, model=model)
+        _cell(batch, "t9", other, success=True, model=model)
+    entries = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", ["t1"])])), [batch], BASE,
+                       today=TODAY)["rules"]
+    assert sorted(e["model"] for e in entries) == ["m-1", "m-2"]
+    assert all(e["verdict"] == INSUFFICIENT and e["error"] for e in entries)
+
+
+def test_a_p_exactly_on_alpha_is_insufficient_evidence(tmp_path):
+    # eight improved gate cases: the exact sign-flip p is 2 / 2**8, which is exactly representable
+    tasks = _ids("t", 8)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in tasks})
+    result = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", tasks)], alpha=2 / 2**8)),
+                      [batch], BASE, today=TODAY)
+    assert result["rules"][0]["p_holm"] == 2 / 2**8
+    assert _verdicts(result) == {("R1", "m-1"): INSUFFICIENT}
+
+
+def test_compare_with_ledger_and_model_judges_only_that_model(tmp_path, capsys):
+    tasks = _ids("t", 8)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in tasks})  # m-1 improves on every case
+    for t in tasks:  # m-2 does not
+        _cell(batch, t, BASE, success=False, model="m-2")
+        _cell(batch, t, ARM, success=False, model="m-2")
+    path = _ledger(tmp_path / "ledger.json", [_rule("R1", tasks)])
+    args = build_parser().parse_args(["repo", "compare", str(batch), "--baseline", BASE, "--ledger", str(path),
+                                      "--model", "m-1", "--json"])
+    args.func(args)
+    ledger = json.loads(capsys.readouterr().out)["ledger"]
+    assert {e["model"] for e in ledger["rules"]} == {"m-1"}
+    assert ledger["family"] == 1  # the Holm family counts the one model that was asked for
