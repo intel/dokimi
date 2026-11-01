@@ -187,7 +187,7 @@ def _run_tasks(tmp_path, monkeypatch, harness_for):
     args = build_parser().parse_args([
         "tasks", "run", "--tasks", "toy-task", "--tasks-root", str(tmp_path),
         "--harnesses", "codex", "--baseline-harness", "claude-code", "--model", "m",
-        "--out-json", str(tmp_path / "runs.json"), "--dry-run",
+        "--out-json", str(tmp_path / "runs.json"), "--dry-run", "--output-dir", str(tmp_path / "task-runs"),
     ])
     try:
         args.func(args)
@@ -252,6 +252,7 @@ def test_command_harness_exit_code_verdict_is_a_complete_run(tmp_path, capsys, s
     args = build_parser().parse_args([
         "tasks", "run", "--tasks", "toy-task", "--tasks-root", str(tmp_path),
         "--harnesses", harness, "--out-json", str(tmp_path / "runs.json"),
+        "--output-dir", str(tmp_path / "task-runs"),
     ])
     try:
         args.func(args)
@@ -331,7 +332,7 @@ def test_unsupported_dry_run_preserves_artifacts(tmp_path, capsys):
     out = tmp_path / "plan.json"
     args = build_parser().parse_args([
         "tasks", "run", "--tasks", "toy-task", "--tasks-root", str(tmp_path),
-        "--harnesses", "codex", "--dry-run", "--out-json", str(out),
+        "--harnesses", "codex", "--dry-run", "--out-json", str(out), "--output-dir", str(tmp_path / "task-runs"),
     ])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
