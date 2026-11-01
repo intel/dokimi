@@ -91,7 +91,8 @@ class CodeIndex:
 
         A definition with no enclosing range never matches, so this is ``None`` on an index without ranges."""
         best: Occurrence | None = None
-        best_lines = best_span = None
+        best_span: tuple[int, int, int, int] | None = None
+        best_lines = (0, 0)
         for first, last, span, occ in self._scopes.get(path, ()):
             if not first <= line <= last or span[:2] >= span[2:]:  # an empty range holds no position
                 continue
