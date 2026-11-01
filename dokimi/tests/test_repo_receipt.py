@@ -176,6 +176,11 @@ def test_digests_are_of_the_text_read_and_none_when_unreadable(tmp_path):
     ("/home/alice@corp/src/toy", "toy"),
     ("/home/alice@corp.com/toy@4ff761e2d943", "toy@4ff761e2d943"),
     ("C:\\Users\\alice@corp\\toy", "toy"),
+    ("../alice/private/toy@4ff761e2d943", "toy@4ff761e2d943"),
+    ("alice/private/toy", "toy"),
+    ("file:///home/alice/toy.git@4ff761e2d943", "toy.git@4ff761e2d943"),
+    ("git@github.com:org/toy.git@4ff761e2d943", "git@github.com:org/toy.git@4ff761e2d943"),
+    ("ssh://git@example.com/org/toy.git@4ff761e2d943", "ssh://git@example.com/org/toy.git@4ff761e2d943"),
 ])
 def test_the_tree_label_keeps_no_local_directory(tmp_path, label, shared):
     tree = _tree(tmp_path, {"AGENTS.md": "a\n"})
@@ -184,6 +189,12 @@ def test_the_tree_label_keeps_no_local_directory(tmp_path, label, shared):
     receipt = build_receipt(reach, {"entries": []}, tree)
     assert receipt["repo"]["tree"] == shared
     assert "alice" not in json.dumps(receipt)
+
+
+def test_a_working_tree_receipt_says_its_source_is_read_after_the_run(tmp_path):
+    tree = _tree(tmp_path, {"AGENTS.md": "a\n"})
+    receipt = build_receipt(_reach([_record("AGENTS.md", "cwd=.", "loaded")], [ROOT_ROW]), {"entries": []}, tree)
+    assert any("working tree" in u and "pin the source" in u for u in receipt["unknowns"])
 
 
 def test_the_receipt_is_a_valid_artifact_and_a_schema_rejects_a_followed_claim(tmp_path):
@@ -212,6 +223,7 @@ def test_cli_receipt_format_prints_and_writes_a_valid_receipt(tmp_path, monkeypa
     out = capsys.readouterr().out
     data = json.loads(out)
     validate_artifact("effective_instructions", data)
+    assert any("working tree" in u for u in data["unknowns"])  # live on a working tree, unpinned
     assert json.loads((tmp_path / "out" / "effective_instructions.json").read_text(encoding="utf-8")) == data
     run = data["receipts"][0]
     assert run["run_id"] == "s:cwd=." and run["runtime"] == {"name": "claude-code", "version": "9.8.7"}
@@ -254,6 +266,7 @@ def test_from_a_saved_reach_gives_the_receipt_of_the_live_run(tmp_path, monkeypa
     args = build_parser().parse_args(live)
     args.func(args)
     live_receipt = json.loads(capsys.readouterr().out)
+    assert not any("working tree" in u for u in live_receipt["unknowns"])  # pinned: nothing is read after the run
     args = build_parser().parse_args(_from_argv(live, "--from", _saved(tmp_path), "--format", "receipt"))
     args.func(args)
     assert json.loads(capsys.readouterr().out) == live_receipt
@@ -506,3 +519,89 @@ def test_a_lazy_guidance_imported_by_a_nested_file_is_expected_only_where_that_f
     root, sub = _sources(receipt, "cwd=."), _sources(receipt, "read=sub")
     assert root["other/AGENTS.md"]["expected"] == "unknown" and sub["other/AGENTS.md"]["expected"] == "unknown"
     assert root["sub/CLAUDE.md"]["expected"] is False and sub["sub/CLAUDE.md"]["expected"] is True
+
+
+def test_accessed_is_false_without_tools_unknown_when_a_read_is_unseen_and_true_when_seen(tmp_path):
+    tree = _tree(tmp_path, {"AGENTS.md": "a\n"})
+    seen = dict(SUB_ROW, id="read=seen")
+    records = [_record("AGENTS.md", "cwd=.", "not_loaded"), _record("AGENTS.md", "read=sub", "not_loaded"),
+               _record("AGENTS.md", "read=seen", "not_loaded", read_by_tool=True)]
+    receipt = build_receipt(_reach(records, [ROOT_ROW, SUB_ROW, seen]), {"entries": []}, tree)
+    accessed = {r["run_id"].split(":")[1]: _sources(receipt, r["run_id"].split(":")[1])["AGENTS.md"]["states"]
+                ["accessed"] for r in receipt["receipts"]}
+    assert accessed == {"cwd=.": False, "read=sub": "unknown", "read=seen": True}
+
+
+def test_a_lazy_subtree_file_is_expected_in_its_directory_and_below_not_in_a_sibling(tmp_path):
+    tree = _tree(tmp_path, {"sub/AGENTS.md": "s\n"})
+    deep = dict(SUB_ROW, id="read=sub/deeper", read="sub/deeper/REACH_PROBE.txt")
+    sibling = dict(SUB_ROW, id="read=sub2", read="sub2/REACH_PROBE.txt")
+    rows = [ROOT_ROW, SUB_ROW, deep, sibling]
+    records = [_record("sub/AGENTS.md", row["id"], "not_loaded") for row in rows]
+    files = [{"path": "sub/AGENTS.md", "head": "RC000005", "tail": "RC000006"}]
+    budget = {"entries": [{"path": "sub/AGENTS.md", "kind": "guidance", "when": "lazy", "chars": 10}]}
+    receipt = build_receipt(_reach(records, rows, files=files), budget, tree)
+    expected = {row["id"]: _sources(receipt, row["id"])["sub/AGENTS.md"]["expected"] for row in rows}
+    assert expected == {"cwd=.": False, "read=sub": True, "read=sub/deeper": True, "read=sub2": False}
+
+
+def test_a_nested_link_has_the_expectation_of_the_file_it_links_to(tmp_path):
+    tree = _tree(tmp_path, {"sub/AGENTS.md": "s\n"})
+    records = [_record("sub/AGENTS.md", r, "not_loaded") for r in ("cwd=.", "read=sub")]
+    files = [{"path": "sub/AGENTS.md", "head": "RC000005", "tail": "RC000006", "aliases": ["sub/CLAUDE.md"]}]
+    budget = {"entries": [{"path": "sub/AGENTS.md", "kind": "guidance", "when": "lazy", "chars": 10}]}
+    receipt = build_receipt(_reach(records, [ROOT_ROW, SUB_ROW], files=files), budget, tree)
+    root, sub = _sources(receipt, "cwd=."), _sources(receipt, "read=sub")
+    assert root["sub/CLAUDE.md"]["scope"] == "adapter" and sub["sub/CLAUDE.md"]["scope"] == "adapter"
+    assert root["sub/CLAUDE.md"]["expected"] is False and sub["sub/CLAUDE.md"]["expected"] is True
+
+
+@pytest.mark.parametrize("path, scope", [(".claude/CLAUDE.md", "repo"), (".claude/AGENTS.md", "repo"),
+                                         ("docs/CLAUDE.md", "subtree"), ("README.md", "repo")])
+def test_project_memory_in_dot_claude_applies_to_the_repo_not_a_subtree(tmp_path, path, scope):
+    tree = _tree(tmp_path, {path: "x\n"})
+    files = [{"path": path, "head": "RC000001", "tail": "RC000002"}]
+    receipt = build_receipt(_reach([_record(path, "cwd=.", "loaded")], [ROOT_ROW], files=files), {"entries": []}, tree)
+    assert _sources(receipt, "cwd=.")[path]["scope"] == scope
+
+
+@pytest.mark.parametrize("bad", [{"CLAUDE.md": None}, {"CLAUDE.md": {"cwd=.": "bogus"}}],
+                         ids=["row-not-an-object", "cell-not-a-class"])
+def test_a_saved_matrix_with_a_malformed_row_or_cell_is_a_usage_error(tmp_path, monkeypatch, capsys, bad):
+    live = _end_to_end_args(tmp_path, monkeypatch)
+    build_parser().parse_args(live).func(build_parser().parse_args(live))
+    data = json.loads((tmp_path / "out" / "reach.json").read_text(encoding="utf-8"))
+    data["summary"]["matrix"] = bad
+    (tmp_path / "out" / "malformed.json").write_text(json.dumps(data), encoding="utf-8")
+    capsys.readouterr()
+    args = build_parser().parse_args(_from_argv(live, "--from", str(tmp_path / "out" / "malformed.json")))
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    err = capsys.readouterr().err
+    assert exc.value.code == 2 and "cannot be shown as a matrix" in err and "Traceback" not in err
+
+
+def test_a_receipt_output_link_that_loops_is_a_usage_error_before_the_harness_runs(tmp_path, monkeypatch, capsys):
+    live = _end_to_end_args(tmp_path, monkeypatch, "--format", "receipt")
+    (tmp_path / "out").mkdir()
+    loop = tmp_path / "out" / "effective_instructions.json"
+    loop.symlink_to(loop)  # a link to itself: it cannot be resolved
+    args = build_parser().parse_args(live)
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    err = capsys.readouterr().err
+    assert exc.value.code == 2 and "cannot resolve" in err and "Traceback" not in err
+    assert not (tmp_path / "out" / "reach.json").exists()  # the probe never ran
+
+
+def test_from_a_receipt_output_link_that_loops_is_a_usage_error_not_a_traceback(tmp_path, monkeypatch, capsys):
+    live = _pinned(_end_to_end_args(tmp_path, monkeypatch))
+    build_parser().parse_args(live).func(build_parser().parse_args(live))
+    capsys.readouterr()
+    loop = tmp_path / "out" / "effective_instructions.json"
+    loop.symlink_to(loop)
+    args = build_parser().parse_args(_from_argv(live, "--from", _saved(tmp_path), "--format", "receipt"))
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    err = capsys.readouterr().err
+    assert exc.value.code == 2 and "cannot resolve" in err and "Traceback" not in err

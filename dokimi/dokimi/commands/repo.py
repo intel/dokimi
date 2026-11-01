@@ -276,7 +276,7 @@ def _saved_reach_inputs(args: argparse.Namespace):
     """The harness profile, the source and the saved reach.json of ``--from``, as typed; raises on a usage error."""
     from dokimi.repos import RepoSource
     from dokimi.repos.harness_profile import load_profile
-    from dokimi.repos.reach import ReachError, load_reach, saved_gaps
+    from dokimi.repos.reach import ReachError, load_reach, saved_gaps, saved_matrix_problem
 
     given = _probe_flags_given(args)
     if given:
@@ -287,6 +287,8 @@ def _saved_reach_inputs(args: argparse.Namespace):
     gaps = saved_gaps(reach, args.format)
     if gaps:
         raise ReachError(f"{args.from_file} has no {', '.join(gaps)}, which --format {args.format} needs")
+    if args.format == "matrix" and (problem := saved_matrix_problem(reach)):
+        raise ReachError(f"{args.from_file} cannot be shown as a matrix: {problem}")
     if args.format == "receipt" and _receipt_would_overwrite(Path(args.from_file), _receipt_path(args.from_file)):
         raise ReachError(f"the receipt would replace {args.from_file}, the probe it is read from: "
                          "rename the saved file")
@@ -342,8 +344,18 @@ def _tree_read_exit_code(exc: Exception) -> int:
 
 
 def _refuse_receipt_over_probe(args: argparse.Namespace, out_dir: Path) -> None:
-    """Exit as a usage error when ``--format receipt`` would write the receipt over the probe it is built from."""
-    if args.format == "receipt" and _receipt_would_overwrite(out_dir / "reach.json", out_dir / RECEIPT_NAME):
+    """Exit as a usage error when ``--format receipt`` would write the receipt over the probe it is built from, or
+    when an output path is a link that cannot be resolved (a loop)."""
+    from dokimi.repos.reach import ReachError
+
+    if args.format != "receipt":
+        return
+    try:
+        overwrite = _receipt_would_overwrite(out_dir / "reach.json", out_dir / RECEIPT_NAME)
+    except ReachError as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+    if overwrite:
         print(f"✗ {out_dir / RECEIPT_NAME} is the probe itself (a link to {out_dir / 'reach.json'}): "
               "remove the link", file=sys.stderr)
         sys.exit(EXIT_USAGE)
@@ -437,8 +449,14 @@ def _receipt_path(from_file: str) -> Path:
 
 
 def _receipt_would_overwrite(probe: Path, receipt: Path) -> bool:
-    """A receipt written at the probe's path, directly or through a link, would replace the probe it is built from."""
-    return probe.resolve() == receipt.resolve()
+    """A receipt written at the probe's path, directly or through a link, would replace the probe it is built from.
+    A link loop cannot be resolved (RuntimeError before Python 3.13, OSError after): a usage error, not a traceback."""
+    from dokimi.repos.reach import ReachError
+
+    try:
+        return probe.resolve() == receipt.resolve()
+    except (OSError, RuntimeError) as exc:
+        raise ReachError(f"cannot resolve {receipt}: {exc}") from exc
 
 
 def _print_receipt(tree, profile, payload: dict, out_dir: Path) -> None:

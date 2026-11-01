@@ -15,7 +15,7 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass
-from pathlib import PurePosixPath, PureWindowsPath
+from pathlib import PurePosixPath
 from typing import Any
 
 from .budget import _imports, _target
@@ -73,22 +73,31 @@ def build_receipt(reach: dict[str, Any], budget: dict[str, Any], tree: RepoTree)
         "runtime": runtime,
         "model": reach["model"],
         "observation": {"method": OBSERVATION_METHOD, "dokimi_method": DOKIMI_METHOD, "detail": DETAIL},
-        "unknowns": _global_unknowns(harness["name"], rules),
+        "unknowns": _global_unknowns(harness["name"], rules, pinned=bool(getattr(tree, "sha", None))),
         "receipts": receipts,
     }
 
 
 _REV_SUFFIX = re.compile(r"@[0-9a-f]{7,40}$")  # the pinned revision a git source's label ends with
+_URL_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")  # https://, ssh://, file://, ...
+_SCP_LIKE = re.compile(r"^[^/\\\s]+@[^/\\\s]+:")  # git@host:path
 
 
 def _shareable_tree(label: str) -> str:
     """The tree label with a local directory cut to its last component, so no home path reaches a shared receipt.
-    The revision is the label's own hex suffix, so an ``@`` in a parent directory is part of the path."""
+    A remote label (any URL scheme but file://, or git@host:path) is kept whole; any other label names a local
+    directory, absolute or relative, and is cut. The revision is the label's own hex suffix, so an ``@`` in a parent
+    directory is part of the path."""
     match = _REV_SUFFIX.search(label)
     name, rev = (label[: match.start()], match.group()) if match else (label, "")
-    if not (PureWindowsPath(name).drive or PurePosixPath(name).is_absolute() or name.startswith("~")):
+    if name.lower().startswith("file://"):
+        local = True
+    else:
+        local = not (_URL_SCHEME.match(name) or _SCP_LIKE.match(name))
+    if not local:
         return label
-    return (PurePosixPath(name.replace("\\", "/")).name or "tree") + rev
+    base = PurePosixPath(name.replace("\\", "/")).name
+    return (base if base not in ("", ".", "..") else "tree") + rev
 
 
 def check_saved_reach(reach: dict[str, Any], repo_id: str, harness_name: str, tree_sha: str | None) -> None:
@@ -261,7 +270,7 @@ def _run_unknowns(row: dict[str, Any], sources: list[dict[str, Any]]) -> list[st
     return out
 
 
-def _global_unknowns(name: str, rules: bool) -> list[str]:
+def _global_unknowns(name: str, rules: bool, pinned: bool) -> list[str]:
     out = [
         "followed is not observed: no marker shows what the model did with a loaded source",
         "observation_method is unknown: no prompt is captured; dokimi_method names the marker self-report instead",
@@ -274,4 +283,8 @@ def _global_unknowns(name: str, rules: bool) -> list[str]:
     ]
     if not rules:
         out.append(f"budget's start-up rules are Claude Code's: no source has an expected state for {name}")
+    if not pinned:
+        out.append("the source is a working tree: sha256 and expected are read after the harness exits, so an edit "
+                   "made while the run was in flight is not reflected in the observations; pin the source to a "
+                   "revision for a stable receipt")
     return out
