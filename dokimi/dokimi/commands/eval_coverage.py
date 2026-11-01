@@ -43,16 +43,34 @@ def _below(report: dict, floors: list[tuple[str, float]]) -> list[str]:
     return out
 
 
+def _refuse_out_over_input(args: argparse.Namespace, root: Path) -> None:
+    """Exit 2 when ``--out`` cannot be resolved (a symlink loop) or would overwrite an input or the sibling."""
+    from dokimi.eval_coverage import input_files
+
+    try:
+        # save_artifact also removes <out>.rejected after a valid save, so that sibling is an output too
+        out = Path(args.out)
+        outputs = (out, out.with_name(out.name + ".rejected"))
+        inputs = {Path(args.graph).resolve(), *input_files(root)}
+        clobbers = any(p.resolve() in inputs for p in outputs)
+    except (OSError, RuntimeError, ValueError) as exc:  # a symlink loop: Python 3.11/3.12 raise RuntimeError
+        print(f"Error: cannot resolve {args.out}: {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+    if clobbers:
+        print(f"Error: --out would overwrite an input file: {args.out}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+
+
 def cmd_eval_coverage(args: argparse.Namespace) -> None:
     """Print the report; exit 2 on an unreadable input or a bad ``needs`` label, 1 under a floor."""
     from dokimi.artifacts import ArtifactValidationError, save_artifact
-    from dokimi.eval_coverage import coverage_report, input_files, load_graph, read_labels, render_markdown
+    from dokimi.eval_coverage import coverage_report, load_graph, read_labels, render_markdown
 
     root = Path(args.evals)
-    if not root.exists():
-        print(f"Error: {root} does not exist", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
     try:
+        if not root.exists():
+            print(f"Error: {root} does not exist", file=sys.stderr)
+            sys.exit(EXIT_USAGE)
         graph = load_graph(Path(args.graph))
         evals = read_labels(root)
     except (OSError, ValueError, ArtifactValidationError) as exc:
@@ -62,14 +80,7 @@ def cmd_eval_coverage(args: argparse.Namespace) -> None:
         print(f"Error: no evals.json rows or tasks under {root}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
     if args.out:
-        try:
-            clobbers = Path(args.out).resolve() in {Path(args.graph).resolve(), *input_files(root)}
-        except (OSError, RuntimeError) as exc:  # a symlink loop: Python 3.11/3.12 raise RuntimeError
-            print(f"Error: cannot resolve {args.out}: {exc}", file=sys.stderr)
-            sys.exit(EXIT_USAGE)
-        if clobbers:
-            print(f"Error: --out would overwrite an input file: {args.out}", file=sys.stderr)
-            sys.exit(EXIT_USAGE)
+        _refuse_out_over_input(args, root)
     report = coverage_report(graph, evals, str(root))
     if args.out:
         try:

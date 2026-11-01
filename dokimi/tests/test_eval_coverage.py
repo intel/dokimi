@@ -351,6 +351,36 @@ def test_a_floor_equal_to_the_share_passes(tmp_path, capsys):
     assert res.returncode == 0, res.stderr
 
 
+def test_an_unreadable_evals_directory_exits_2_not_a_traceback(tmp_path, capsys, monkeypatch):
+    skill = _skill(tmp_path, ROWS)
+    real_exists = Path.exists
+
+    def exists(self, *args, **kwargs):
+        if self == skill / "evals" / "evals.json" or self == skill:
+            raise PermissionError(13, "Permission denied", str(self))
+        return real_exists(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "exists", exists)
+    res = _run(capsys, str(skill), "--graph", str(_graph(tmp_path)))
+
+    assert res.returncode == 2
+    assert "Permission denied" in res.stderr
+
+
+def test_out_whose_rejected_sibling_is_the_graph_is_refused(tmp_path, capsys):
+    # save_artifact removes <out>.rejected after a valid save: an input at that path must not be deleted
+    graph = _graph(tmp_path)
+    sibling = graph.with_name("cov.json.rejected")
+    graph.rename(sibling)
+    before = sibling.read_bytes()
+
+    res = _run(capsys, str(_skill(tmp_path, ROWS)), "--graph", str(sibling), "--out", str(tmp_path / "cov.json"))
+
+    assert res.returncode == 2
+    assert "--out would overwrite an input file" in res.stderr
+    assert sibling.read_bytes() == before
+
+
 def test_a_floor_on_a_class_the_graph_lacks_is_n_a_and_fails(tmp_path, capsys):
     nodes = [{"id": f"c{i}", "text": "t", "path_class": "core"} for i in range(2)]
     graph = tmp_path / "need_graph.json"
