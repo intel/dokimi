@@ -639,6 +639,39 @@ def test_unrelated_descriptions_are_not_near_duplicates(tmp_path):
     assert all(r.state == "ok" for r in reviews)
 
 
+def test_identical_and_same_named_pairs_get_no_near_duplicate_warning(tmp_path):
+    same = "Use when reviewing Python pull requests for style and bugs."
+    _skill(tmp_path / "skills", "copy-a", name="copy", description=same)
+    _skill(tmp_path / "skills", "copy-b", name="copy", description=same)
+    other = "Builds Kubernetes container deployment manifests."
+    _skill(tmp_path / "plugins", "x", name="x", description=other, body="# Old\n")
+    _skill(tmp_path / "skills", "x", name="x", description=other, body="# New\n")
+
+    reviews = review_skills(read_skill_manifest(tmp_path))
+    assert len(reviews) == 4
+    assert all("description-near-duplicate" not in _codes(r) for r in reviews)
+
+
+def _words(prefix: str, count: int) -> str:
+    return " ".join(f"{prefix}{c}" for c in "abcdefghijklmnopqrstuvwxyz"[:count])
+
+
+@pytest.mark.parametrize(
+    ("shared", "own_a", "own_b", "warns"),
+    [(2, 1, 1, True), (24, 13, 12, False)],  # 2/4 = 0.5 exactly; 24/49 just below it
+)
+def test_near_duplicate_threshold_is_half_the_words(tmp_path, shared, own_a, own_b, warns):
+    common = _words("zq", shared)
+    _skill(tmp_path / "skills", "one", name="one",
+           description=f"{common} {_words('xa', own_a)}")
+    _skill(tmp_path / "skills", "two", name="two",
+           description=f"{common} {_words('xb', own_b)}")
+
+    reviews = review_skills(read_skill_manifest(tmp_path))
+    assert ("description-near-duplicate" in _codes(reviews[0])) is warns
+    assert ("description-near-duplicate" in _codes(reviews[1])) is warns
+
+
 def test_drifted_copies_of_one_skill_warn_on_both_and_name_each_other(tmp_path):
     _skill(tmp_path / "plugins", "x", name="x", description="Use for x.", body="# Old\n")
     _skill(tmp_path / "skills", "x", name="x", description="Use for x.", body="# New\n")
