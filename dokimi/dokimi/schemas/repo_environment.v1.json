@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/intel/dokimi/schemas/repo_environment.v1.json",
   "title": "Repository environment inspection v1",
-  "description": "What a repository offers a coding agent and what may stop or endanger it, read from the tree alone: no LLM call, no repository command run (docs/repo-evaluation-contract.md §8.1). Observations (instructions, checks, capabilities, scripts, hook_risks, files) are kept apart from the findings drawn from them. A finding's severity and confidence are separate fields. A stage is `no_known_blocker` at best, never ready; `not_observed` lists what the tree cannot show.",
+  "description": "What a repository offers a coding agent and what may stop or endanger it, read from the tree alone (and, with `repo inspect --index`, a SCIP code index of it): no LLM call, no repository command run (docs/repo-evaluation-contract.md §8.1). Observations (instructions, checks, capabilities, scripts, hook_risks, files) are kept apart from the findings drawn from them. A finding's severity and confidence are separate fields. A stage is `no_known_blocker` at best, never ready; `not_observed` lists what the tree cannot show.",
   "type": "object",
   "required": ["schema_version", "repo", "instructions", "checks", "capabilities", "scripts", "hook_risks", "files",
                "findings", "counts", "stages", "risk", "not_observed"],
@@ -159,6 +159,59 @@
       }
     },
     "risk": {"enum": ["high", "medium", "low"]},
-    "not_observed": {"type": "array", "items": {"type": "string"}}
+    "not_observed": {"type": "array", "items": {"type": "string"}},
+    "structure": {
+      "description": "Present with --index: modules and their ties, read from a SCIP code index of the tree.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["index", "rules", "modules"],
+      "properties": {
+        "index": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["format", "tool", "documents", "root_prefix", "documents_in_tree", "documents_not_in_tree"],
+          "properties": {
+            "format": {"enum": ["scip"]},
+            "tool": {"type": "string"},
+            "documents": {"type": "integer", "minimum": 0},
+            "root_prefix": {"type": "string"},
+            "documents_in_tree": {"type": "integer", "minimum": 0},
+            "documents_not_in_tree": {"type": "integer", "minimum": 0}
+          }
+        },
+        "rules": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["module_limit", "tree_depth", "min_files", "min_fanin", "hotspots", "min_ambiguity", "min_other_tree_modules"],
+          "properties": {
+            "module_limit": {"type": "integer", "minimum": 1},
+            "tree_depth": {"type": "integer", "minimum": 1},
+            "min_files": {"type": "integer", "minimum": 1},
+            "min_fanin": {"type": "integer", "minimum": 0},
+            "hotspots": {"type": "integer", "minimum": 0},
+            "min_ambiguity": {"type": "number", "minimum": 0, "maximum": 1},
+            "min_other_tree_modules": {"type": "integer", "minimum": 1}
+          }
+        },
+        "modules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["module", "files", "reference_fanin", "other_tree_modules", "ambiguity", "names", "in_guidance", "kept"],
+            "properties": {
+              "module": {"type": "string"},
+              "files": {"type": "integer", "minimum": 1},
+              "reference_fanin": {"type": "integer", "minimum": 0},
+              "other_tree_modules": {"type": "integer", "minimum": 0},
+              "ambiguity": {"type": "number", "minimum": 0, "maximum": 1},
+              "names": {"type": "integer", "minimum": 0},
+              "in_guidance": {"type": "boolean"},
+              "kept": {"type": "boolean"}
+            }
+          }
+        }
+      }
+    }
   }
 }

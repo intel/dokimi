@@ -60,7 +60,8 @@ manifest it owns:
   load?
 - `dokimi repo inspect` (static, no LLM): which instruction files, checks,
   capability surfaces and risky hooks or scripts the repository offers an
-  agent, with findings per stage.
+  agent, with findings per stage; with `--index`, a SCIP code index of the
+  tree, also its modules and how the code ties them together.
 - `dokimi repo run`: run an agent per (task, arm, model, repetition) inside the
   repository's image, grade each run with the repository's own tests, and
   `dokimi repo report` the per (task, arm, model) table. With the `guidance:*`

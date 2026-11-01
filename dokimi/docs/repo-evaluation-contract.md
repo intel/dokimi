@@ -63,7 +63,7 @@ SPDX-License-Identifier: Apache-2.0
 > `repo inspect` (§8.1) needs no manifest: a static look at what the tree offers an agent.
 >
 > ```bash
-> python cli.py repo inspect <source> [--out environment.json] [--json] [--large-bytes N] [--fail-on-error]
+> python cli.py repo inspect <source> [--index index.scip] [--out environment.json] [--json] [--large-bytes N] [--fail-on-error]
 > ```
 >
 > `--manifest-file <local.yaml>` on `validate`, `scan` and `reach` reads the manifest
@@ -187,8 +187,8 @@ documented in `dokimi/repos/code_index/index.py`.
 
 The decoder uses only the standard library. A malformed, empty, or garbled
 file raises `CodeIndexError`. A file cut at a document boundary still reads,
-with fewer documents, so compare the indexed files with the tree. Nothing in
-the eval flow reads an index yet.
+with fewer documents, so compare the indexed files with the tree. `repo
+inspect --index` reads one (§8.1); nothing in the eval flow does yet.
 
 ## 2. `repo-eval.yaml`
 
@@ -1293,7 +1293,8 @@ checkers: see the pull request that added the scan (#68).
 
 ### 8.1 Inspection (`repo_environment.v1`)
 
-`repo inspect <source>` reads the tree and nothing else: no manifest, no LLM
+`repo inspect <source>` reads the tree and, with `--index`, a code index of
+it, nothing else: no manifest, no LLM
 call, no command of the repository run. Where L0 asks whether what the
 guidance says is true, inspection asks what the guidance may have left out:
 which instruction files exist and where they apply, how a change can be built
@@ -1361,6 +1362,36 @@ tree and is listed under `not_observed`. A stage is `blocked` by an error,
 pass, CI secrets and the agent's network. `risk` is the worst of the launch
 observations. There is no overall score. `--fail-on-error` exits 1 when any
 finding is an error.
+
+With `--index FILE`, a SCIP index of the tree (§1.2), the report adds a
+`structure` section. The index's root prefix is found by matching its document
+paths to the tree's files; documents that are not files of the tree are
+counted and left out; an index none of whose documents is a file of the tree
+exits 2. A module is a directory; one holding more indexed non-test files
+than `max(30, n / 20)`, `n` the indexed non-test files of the tree, is split
+into its subdirectories,
+the files right in it staying its own. Test files are neither modules nor
+callers. Per module:
+
+- `reference_fanin`: the files outside the module that reference a function or
+  method defined in it. The index records references, not calls, so a type
+  use or a header declaration counts too; this is not a caller count.
+- `other_tree_modules`: the modules of another tree (the first two path
+  components, `cpp/daal` against `cpp/oneapi`; a module shallower than that is
+  of the tree of the modules under it) it shares a reference with, either way.
+- `ambiguity`: the share of its function and method names that another module
+  defines too.
+- `in_guidance`: whether an instruction file names the module's path,
+  or its name between `/` or backticks.
+
+A module is `kept` with at least 3 files and a fan-in of 3. Of the ten kept
+modules with most fan-in, one with an ambiguity of 0.5 or more gets a
+`structure.name_ambiguity` finding, one sharing references with 5 or more
+modules of another tree gets `structure.cross_tree_bridge`; `rules` records
+these numbers; both are `info` with `low` confidence: on
+oneDAL they tracked agent cost or error over 39 modules only, which cannot
+separate structure from question design.
+Whether the index is current is not checked: `not_observed` says so.
 
 ## 9. Running
 
