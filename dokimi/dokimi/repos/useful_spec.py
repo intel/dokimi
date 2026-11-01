@@ -41,7 +41,7 @@ def parse_useful(value: Any) -> Useful | None:
     if kind == "command" and isinstance(pattern, str) and pattern:
         try:
             return Useful("command", command=re.compile(pattern))
-        except re.error as exc:
+        except (re.error, RecursionError) as exc:  # a deeply nested pattern overflows the parser
             raise UsefulSpecError(f"useful command is not a valid regex ({exc})") from exc
     globs = [pattern] if isinstance(pattern, str) else pattern
     if (

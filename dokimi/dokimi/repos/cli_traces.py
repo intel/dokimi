@@ -752,6 +752,9 @@ def _copilot_result(out: Transcript, events: list[dict[str, Any]], data: dict[st
     reads = [e for e in events if e["kind"] == "read"]
     failed = data.get("success") is False
     for event in events:
+        if event["kind"] == "edit" and data.get("success") is not None:
+            # a failed edit changed nothing: rc 1, so it is no useful result
+            event["rc"] = 0 if data.get("success") else 1
         if event["kind"] != "command":
             continue
         shell = data.get("shellExecution") or {}

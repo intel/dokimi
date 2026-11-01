@@ -583,6 +583,18 @@ def test_copilot_failed_view_is_not_a_read(success, reads):
     assert convert("copilot-json", raw, "/ws").reads() == reads
 
 
+@pytest.mark.parametrize(("success", "rc"), [(False, 1), (True, 0), (None, None)])
+def test_copilot_edit_rc_is_the_completion_success(success, rc):
+    done = {"toolCallId": "e"} if success is None else {"toolCallId": "e", "success": success}
+    raw = _jsonl(
+        {"type": "tool.execution_start",
+         "data": {"toolCallId": "e", "toolName": "edit", "arguments": {"path": "/ws/src/a.py"}}},
+        {"type": "tool.execution_complete", "data": done},
+    )
+    edits = [e for e in convert("copilot-json", raw, "/ws").events if e["kind"] == "edit"]
+    assert [e.get("rc") for e in edits] == [rc]
+
+
 def test_copilot_result_without_an_exit_code_is_not_an_error():
     t = convert("copilot-json", _jsonl({"type": "assistant.message", "data": {"content": "x"}}, {"type": "result"}),
                 None)
