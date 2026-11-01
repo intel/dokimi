@@ -40,7 +40,8 @@ model is called; every match is lexical.
   `` `changelog.d/` ``). A command counts when it runs the named command at the start of
   a shell segment (after `uv run`, `sudo` or environment assignments), so an `echo`, a
   `grep` argument or a `#` comment that names it does not. A path counts when a tool call
-  names it, a shell command included; a Windows path matches with backslashes too.
+  names it in a path input or shell command, excluding shell comments and echo/printf
+  arguments (their redirection targets still count). A Windows path matches with backslashes too.
   A rule that names neither is not measurable here: its
   `acted` is `null` and it carries the flag `acted_not_measurable`.
 - **Corrected.** Within `--window` events after the trigger, the user's next
