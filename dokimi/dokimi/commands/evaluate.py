@@ -19,6 +19,7 @@ from dokimi.defaults import (
     DEFAULT_JUDGE_PROVIDER,
     JUDGE_MODEL_FOR_PROVIDER,
     JUDGE_MODEL_HELP,
+    answers_method_version,
 )
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY, NoUsablePairs
@@ -199,6 +200,11 @@ def cmd_eval_score(args: argparse.Namespace) -> None:
             context="eval-score",
         )
 
+    try:
+        method_version = answers_method_version(run.meta)
+    except ValueError as exc:  # refused before any judge call is paid for
+        print(f"Error: {args.answers}: {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
     print(f"Evaluating with judge: {args.judge_provider}/{args.judge_model}")
 
     # Evaluate
@@ -206,6 +212,9 @@ def cmd_eval_score(args: argparse.Namespace) -> None:
         model=args.judge_model,
         provider=args.judge_provider,
         temperature=args.judge_temperature,
+        judge_placeholder=getattr(args, "judge_placeholder", False),
+        # The eval says which answering method made the answers it judges; an unstamped file is legacy.
+        answers_method_version=method_version,
         run_metadata={
             "question_model": run.meta.get("question_model", "unknown"),
             "question_provider": run.meta.get("question_provider", "unknown"),
@@ -482,6 +491,8 @@ def register(sub, positive_int) -> None:
     score_p.add_argument("--concurrency", type=positive_int, default=DEFAULT_CONCURRENCY, help="Parallel judge calls (default: 5)")
     score_p.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
                          help="Judge sampling temperature, recorded as judge_temperature in the output")
+    score_p.add_argument("--judge-placeholder", action="store_true", dest="judge_placeholder",
+                         help="Judge the no-retrieval placeholder answers too (default: they are not scored)")
     score_p.set_defaults(func=cmd_eval_score)
 
     # eval ragas

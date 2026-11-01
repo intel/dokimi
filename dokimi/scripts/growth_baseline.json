@@ -65,7 +65,7 @@
     "dokimi/records.py::record": {"complexity": 14, "rationale": "pre-existing when the gate was introduced"},
     "dokimi/report/arms_report.py::render_arms_report": {"complexity": 25},
     "dokimi/report/eval_report.py::generate_report": {"complexity": 18},
-    "dokimi/report/generator.py::ReportGenerator._format_markdown": {"complexity": 18},
+    "dokimi/report/generator.py::ReportGenerator._format_markdown": {"complexity": 16},
     "dokimi/report/model_compare.py::check_run_consistency": {"complexity": 13},
     "dokimi/report/model_compare.py::extract_scores": {"complexity": 16},
     "dokimi/report/subject_report.py::render_subject_scorecard": {"complexity": 12},
