@@ -40,7 +40,10 @@ NOTE = ("Candidates for ablation, not verdicts: a candidate is a rule the sessio
 _RULE_KINDS = frozenset({"sentence", "list_item", "table_row"})
 _BACKTICK = re.compile(r"`([^`\n]+)`")
 _WORD = re.compile(r"[a-z][a-z0-9_-]{2,}")
-_PATH = re.compile(r"/|\.[A-Za-z0-9]{1,6}$")
+_PATH = re.compile(r"[/\\]|\.[A-Za-z0-9]{1,6}$")
+# a shell command's runner words before the command it runs (``uv run pytest``, ``sudo make``, ``A=1 make``)
+_RUNNER = r"(?:(?:[A-Za-z_]\w*=\S*|sudo|env|time|nohup|exec|npx|uv\s+run|poetry\s+run)\s+)*"
+_SEGMENT = re.compile(r"&&|\|\||[;|\n]")
 _CUE = re.compile(r"\b(no|not|don't|do not|stop|instead|wrong|forgot|should have|revert|undo|why did you)\b", re.I)
 _STOP = frozenset("""
 able about above after again against all also always and any are because been before being below
@@ -104,9 +107,9 @@ def claims_from_guidance(text: str) -> list[Claim]:
         if span.kind not in _RULE_KINDS:
             continue
         keywords = _stems(_BACKTICK.sub(" ", span.text))
-        if not keywords:
-            continue
         keys = [k.strip() for k in _BACKTICK.findall(span.text) if k.strip()]
+        if not (keywords or keys or span.protection):  # a rule with nothing to match on is no claim
+            continue
         claims.append(Claim(
             id=span.id, text=span.text.strip(), heading=" > ".join(span.heading_path), keywords=keywords,
             commands=tuple(k for k in keys if not _is_path(k)),
@@ -121,25 +124,56 @@ def _names(key: str, text: str) -> bool:
     return bool(words) and re.search(rf"(?<![\w-]){re.escape(words)}(?![\w-])", " ".join(text.split())) is not None
 
 
+def _invokes(key: str, command: str) -> bool:
+    """Whether a shell command runs ``key``: at the start of one of its command segments (after runner words),
+    so an ``echo``, a ``grep`` argument or a ``#`` comment that names it does not count."""
+    words = " ".join(key.split())
+    if not words:
+        return False
+    run = re.compile(rf"{_RUNNER}{re.escape(words)}(?![\w-])")
+    return any(run.match(seg.strip()) for seg in _SEGMENT.split(command) if not seg.strip().startswith("#"))
+
+
 def _triggers(claim: Claim, event: Event) -> bool:
-    """Half the claim's keywords (rounded up) in the event: one word of a two-word rule is enough."""
+    """Half the claim's keywords (rounded up) in the event: one word of a two-word rule is enough.
+
+    A rule with no prose keywords (only named commands or paths, or a protection) triggers on the event naming one.
+    """
+    if not claim.keywords:
+        return _mentions(claim, event)
     return len(claim.keywords & _stems(event.text)) >= (len(claim.keywords) + 1) // 2
+
+
+def _slashes(text: str) -> str:
+    return text.replace("\\", "/")  # a Windows path is the same path with backslashes
 
 
 def _at_path(key: str, text: str) -> bool:
     """Whether ``key`` occurs in ``text`` from a path-segment start, so ``a.md`` does not match ``data.md``."""
-    name = key.removeprefix("./")
+    name = _slashes(key).removeprefix("./")
+    text = _slashes(text)
     # a file name ends where the name ends (``a.md`` is not ``a.mdx`` or ``a.md.bak``); a directory
     # (``docs/``) is followed by its entries, so it has no end boundary
     end = "" if name.endswith("/") else r"(?![\w-]|\.\w)"
     return bool(name) and re.search(rf"(?<![\w.-]){re.escape(name)}{end}", text) is not None
 
 
+def _path_named(claim: Claim, texts: tuple[str, ...]) -> bool:
+    return any(_at_path(k, t) for k in claim.paths for t in texts)
+
+
+def _mentions(claim: Claim, event: Event) -> bool:
+    """Whether an event names one of the claim's commands or paths (the trigger of a rule with no keywords)."""
+    if event.kind == "tool":
+        return any(_invokes(k, event.command) for k in claim.commands) or _path_named(claim, (*event.paths, event.command))
+    return any(_names(k, event.text) for k in claim.commands) or _path_named(claim, (event.text,))
+
+
 def _acts(claim: Claim, event: Event) -> bool:
     if event.kind != "tool":
         return False
-    return (any(_names(k, event.command) for k in claim.commands)
-            or any(_at_path(k, p) for k in claim.paths for p in event.paths))
+    return (any(_invokes(k, event.command) for k in claim.commands)
+            or _path_named(claim, (*event.paths, event.command)))
 
 
 def _corrects(claim: Claim, event: Event) -> bool:
@@ -162,7 +196,8 @@ def _scan(claim: Claim, events: list[Event], window: int) -> tuple[int, int, int
         around = events[max(0, i - window): i + window + 1]
         after = events[i + 1: i + window + 1]
         acted += int(claim.has_keys and any(_acts(claim, e) for e in around))
-        corrected += int(any(_corrects(claim, e) for e in after))
+        next_prompt = next((e for e in after if e.kind == "prompt"), None)  # the user's next word, only
+        corrected += int(next_prompt is not None and _corrects(claim, next_prompt))
         i += window + 1
     return episodes, acted, corrected
 
@@ -226,9 +261,11 @@ def _row(claim: Claim, t: Tally, status: str, sessions_total: int) -> dict[str, 
     }
 
 
-def _rank_key(row: dict[str, Any]) -> tuple[float, float]:
-    acted = row["acted_rate"]
-    return (row["trigger_rate"] or 0.0, 0.5 if acted is None else acted)
+def _rank_key(row: dict[str, Any]) -> tuple[int, float]:
+    """Fewest triggered sessions first (an exact count: the rates share one session total), then the lowest acted share."""
+    acted = row["acted"]
+    share = 0.5 if acted is None or not row["episodes"] else acted / row["episodes"]
+    return (row["sessions_triggered"], share)
 
 
 def build_report(guidance_name: str, guidance_text: str, sessions: list[Session], *, window: int,
