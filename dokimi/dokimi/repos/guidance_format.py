@@ -21,7 +21,8 @@ FORMATS = ("xml",)
 _ROOT, _ROOT_CLOSE, _CLOSE = "<guidance>", "</guidance>", "</section>"
 _HEADING = re.compile(r"^(#{1,6}) (\S[^\r]*)$")  # canonical only: one space, no CR; anything else is body text
 _FENCE = re.compile(r"^( *)(`{3,}|~{3,})(.*)$")  # the indentation, a run of ``` or ~~~, and what follows it
-_ITEM = re.compile(r"^( *(?:[-*+]|\d{1,9}[.)]) +)")  # a list item's marker and the spaces after it
+_ITEM = re.compile(r" *(?:[-*+]|\d{1,9}[.)]) {1,4}(?=\S)")  # a list marker and the one to four spaces after it
+_OPENER = re.compile(r" {0,3}(`{3,}|~{3,})(.*)$")  # up to three spaces, then a run that opens a fence
 _OPEN = re.compile(r'^<section level="([1-6])" title="([^"]*)">$')
 _ESCAPES = {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}
 _UNESCAPES = {v: k for k, v in _ESCAPES.items()}
@@ -57,21 +58,22 @@ def restore(rendered: str) -> str:
 
 def _opened(line: str) -> tuple[str, int] | None:
     """The fence a line opens, as (its run, the column its content starts at), or None. A fence may open a list item
-    (``- ```) and then its content is indented to the item's column. As in CommonMark, a backtick fence's info string
-    has no backtick."""
-    item = _ITEM.match(line)
-    lead = item.group(1) if item else ""
-    match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line[len(lead):])
+    (``- ```, ``- - ```) and then its content is indented to the item's column. As in CommonMark, a backtick fence's
+    info string has no backtick."""
+    column = 0
+    while (item := _ITEM.match(line, column)) is not None:
+        column = item.end()
+    match = _OPENER.match(line, column)
     if match is None or (match.group(1)[0] == "`" and "`" in match.group(2)):
         return None
-    return match.group(1), len(lead)
+    return match.group(1), column
 
 
 def _closes(fence: tuple[str, int], line: str) -> bool:
     """Whether a line closes the fence: a run of its character, at least as long as the opening one, followed by
     nothing but whitespace, indented at most three columns past the item's content column."""
     run, column = fence
-    match = _FENCE.match(line)
+    match = _FENCE.match(line.expandtabs(4))
     return bool(match and match.group(2)[0] == run[0] and len(match.group(2)) >= len(run)
                 and not match.group(3).strip() and len(match.group(1)) <= column + 3)
 

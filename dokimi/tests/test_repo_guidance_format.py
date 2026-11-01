@@ -57,6 +57,9 @@ tail"""
     ("1. ```\n   # not\n   ```\n# Real\n", ["Real"]),  # an ordered item
     ("- ```\n# Real\n```\n# Real2\n", ["Real"]),  # the item ends; the ``` at column 0 opens a fence over Real2
     ("- use ``` for code\n# Real\n", ["Real"]),  # a list item that is prose, not a fence
+    ("- - ```\n    # not\n    ```\n# Real\n", ["Real"]),  # two markers on one line
+    ("-      ```\n# Real\n", ["Real"]),  # five spaces after the marker: indented code, not a fence
+    ("- ```\n\t# not\n\t```\n# Real\n", ["Real"]),  # a tab is four columns of indentation: the item's content
 ])
 def test_a_fence_opened_by_a_list_item_holds_body_text_only_inside_the_item(text, sections):
     assert re.findall(r'title="([^"]*)"', to_format(text, "xml")) == sections
