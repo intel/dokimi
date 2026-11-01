@@ -535,6 +535,7 @@ def test_cli_probes_the_target_or_the_first_skill_before_the_set(tmp_path, monke
     assert _cli(tmp_path, monkeypatch, "--target", "sum-fast", "--out", "probe.json")["known"] == ["sum-fast"]
     out = json.loads((tmp_path / "probe.json").read_text(encoding="utf-8"))
     assert out["status"] == "ok" and out["known_positive"]["passed"] is True
+    assert out["cost_usd"] == 0.04  # 3 labelled runs at 0.01 each, plus the guard's 0.01
 
 
 def test_cli_stops_before_the_labelled_runs_when_the_skill_is_not_visible(tmp_path, monkeypatch, capsys):
