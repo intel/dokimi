@@ -64,6 +64,18 @@ def test_a_mean_exactly_at_the_floor_is_flagged_though_float_division_overshoots
     assert _flags(headroom(runs, floor=0.3, min_reps=1)) == {"1": FLOOR}
 
 
+def test_a_mean_a_hair_below_the_ceiling_is_not_a_ceiling():
+    # 89.99999995 on 0-100 is 0.8999999995: a real 5e-10 below 0.9, not float error, so unflagged.
+    run = _run([("1", {"baseline": 89.99999995, "skill": 95})])
+    assert _flags(headroom([run], min_reps=2)) == {"1": None}
+
+
+def test_a_mean_a_hair_above_zero_is_not_the_floor():
+    # 0.00000005 on 0-100 is 5e-10 above a floor of 0: every arm is positive, so unflagged.
+    run = _run([("1", {"baseline": 0.00000005, "skill": 0.00000005})])
+    assert _flags(headroom([run], min_reps=2)) == {"1": None}
+
+
 def test_floor_needs_every_arm_at_zero_not_just_the_baseline():
     run = _run([("1", {"baseline": 0, "skill": 0}), ("2", {"baseline": 0, "skill": 40})])
     assert _flags(headroom([run])) == {"1": FLOOR, "2": None}
@@ -941,11 +953,12 @@ def test_command_pools_legacy_runs_without_a_top_level_arms_list_whose_arms_agre
     assert json.loads(out.read_text(encoding="utf-8"))["runs"] == 2
 
 
-def _reference_file(path, questions, scores):
+def _reference_file(path, questions, scores, ungraded=0):
     """An arms file rescored by ``eval reference`` against ``questions``: a summary per run, as the real artifact has."""
     data = json.loads(_arms_file(path, {"1": {"baseline": scores, "skill": scores}}).read_text(encoding="utf-8"))
     data["reference_scoring"] = {"scorer": "reference", "questions": questions,
-                                 "summary": {"baseline": {"correct": int(scores >= 50)}}, "ungraded_questions": 0}
+                                 "summary": {"baseline": {"correct": int(scores >= 50)}},
+                                 "ungraded_questions": ungraded}
     path.write_text(json.dumps(data), encoding="utf-8")
     return path
 
@@ -965,3 +978,21 @@ def test_command_pools_reference_scored_runs_that_share_their_grading_and_differ
     out = tmp_path / "headroom.json"
     cmd_eval_headroom(_args([first, second], output=out))
     assert json.loads(out.read_text(encoding="utf-8"))["runs"] == 2
+
+
+def test_command_pools_reference_scored_runs_that_differ_only_in_ungraded_questions(tmp_path):
+    first = _reference_file(tmp_path / "first.json", "x1.json", 90)
+    second = _reference_file(tmp_path / "second.json", "x1.json", 10, ungraded=3)
+    out = tmp_path / "headroom.json"
+    cmd_eval_headroom(_args([first, second], output=out))
+    assert json.loads(out.read_text(encoding="utf-8"))["runs"] == 2
+
+
+def test_command_checks_every_reference_scored_file_not_only_the_second(tmp_path, capsys):
+    first = _reference_file(tmp_path / "first.json", "x1.json", 90)
+    second = _reference_file(tmp_path / "second.json", "x1.json", 10)
+    third = _reference_file(tmp_path / "third.json", "x2.json", 50)
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_headroom(_args([first, second, third]))
+    assert exc.value.code == 2
+    assert f"{third} was scored by eval reference against different grading than {first}" in capsys.readouterr().err

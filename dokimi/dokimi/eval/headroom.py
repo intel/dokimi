@@ -37,7 +37,9 @@ DEFAULT_CEILING = 0.9
 DEFAULT_FLOOR = 0.0
 DEFAULT_MIN_REPS = 3
 
-_EPS = 1e-9  # float error bound for a threshold comparison on a mean of 0-1 scores
+# Float error bound for a threshold comparison on a mean of 0-1 scores. _mean rounds its sum once (math.fsum),
+# so the mean is within a few ulps of the exact one; 1e-12 is far below any real score difference.
+_EPS = 1e-12
 # The smallest positive threshold: far below a score step (tenths of a point on 0-100 is 0.001) and
 # far above the float tolerance _EPS, so a threshold this small still compares what it is given.
 _MIN_THRESHOLD = 1e-6
@@ -84,7 +86,7 @@ def check_thresholds(ceiling: float, floor: float, min_reps: int) -> None:
 
 def _mean(values: List[float]) -> Optional[float]:
     # Unrounded: the thresholds compare the exact mean (a 89.996 item is not a ceiling).
-    return sum(values) / len(values) if values else None
+    return math.fsum(values) / len(values) if values else None
 
 
 def _flag(
