@@ -246,3 +246,20 @@ def test_a_relative_python_env_is_made_absolute_before_the_tool_runs(tmp_path, m
     monkeypatch.chdir(tmp_path)
     args = build_parser().parse_args(["repo", "scan", str(tmp_path), "--typecheck", "--python-env", "py"])
     assert Path(_typecheck_or_exit(args).python).is_absolute()
+
+
+def test_a_fence_too_deep_for_the_parser_is_unresolved_not_a_crash(tmp_path):
+    deep = "x = " + "+".join(["1"] * 20000)  # ast.parse raises RecursionError on this
+    agents = f"# Toy\n\n{FENCE}python\n{deep}\n{FENCE}\n"
+    payload = scan_repo(_tree(tmp_path, agents), parse_manifest(MANIFEST), typecheck=Check("mypy", None))
+    [claim] = _fence_claims(payload)
+    assert claim["status"] == "unresolved"
+    assert "RecursionError" in claim["why"]
+    assert payload["typecheck"]["syntax"] == 1
+
+
+def test_a_line_less_mypy_error_is_the_fence_line_not_the_line_above(tmp_path):
+    from dokimi.repos.l0.typecheck import _errors
+
+    report = json.dumps({"file": "fence_0.py", "line": -1, "severity": "error", "message": "no line"})
+    assert _errors("mypy", report) == {0: [(0, "no line")]}

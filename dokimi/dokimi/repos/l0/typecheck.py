@@ -62,10 +62,11 @@ def check_fences(scan: Scan, files: list[str], check: Check) -> dict[str, Any]:
     for f, fence, code in found:
         try:
             ast.parse(code)
-        except (SyntaxError, ValueError) as exc:  # a placeholder such as `f(<arg>)` is not Python
+        except (SyntaxError, ValueError, RecursionError, MemoryError) as exc:  # `f(<arg>)` is not Python
             block["syntax"] += 1
+            why = exc.msg if isinstance(exc, SyntaxError) else type(exc).__name__  # too deep: no parse tree
             scan.add(f, fence.line, "python_fence", _label(code), "unresolved",
-                     f"not valid Python ({getattr(exc, 'msg', exc)}): not type-checked")
+                     f"not valid Python ({why}): not type-checked")
             continue
         runnable.append((f, fence, code))
     if check.python is None:
@@ -84,8 +85,9 @@ def check_fences(scan: Scan, files: list[str], check: Check) -> dict[str, Any]:
         block["fail"] += 1
         line, message = errors[0]
         more = f" (+{len(errors) - 1} more)" if len(errors) > 1 else ""
+        where = f"line {line}: " if line else ""  # 0: the tool gave no line, so the claim is the fence itself
         scan.add(f, fence.line + line, "python_fence", _label(code), "fail",
-                 f"{check.tool}: line {line}: {message}{more}"[:MAX_WHY])
+                 f"{check.tool}: {where}{message}{more}"[:MAX_WHY])
     block["checked"] = len(runnable)
     return block
 
@@ -147,7 +149,8 @@ def _errors(tool: str, stdout: str) -> dict[int, list[tuple[int, str]]]:
             except ValueError:
                 continue
             if isinstance(d, dict) and d.get("severity") == "error":
-                diagnostics.append((str(d.get("file")), int(d.get("line") or 0), str(d.get("message"))))
+                line = int(d.get("line") or 0)  # mypy writes -1 for an error with no line
+                diagnostics.append((str(d.get("file")), max(line, 0), str(d.get("message"))))
     else:  # basedpyright: one document; its ranges are zero-based
         doc = json.loads(stdout or "{}")
         diagnostics = [(Path(str(d.get("file"))).name, int(d["range"]["start"]["line"]) + 1,
