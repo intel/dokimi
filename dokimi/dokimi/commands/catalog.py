@@ -134,7 +134,10 @@ def cmd_catalog_scan(args: argparse.Namespace) -> None:
     if args.kind in ("skills", "all") and not report["skills"]:
         # Nothing to scan is a wrong root or an empty checkout, so a skills scan fails on it. A
         # --kind all scan of a tasks-only catalog is a warning, which --strict makes a failure.
-        print(f"no SKILL.md found under {root}", file=sys.stderr)
+        if (root / "skills.yaml").is_file():
+            print(f"skills.yaml under {root} has no skill that can be scanned", file=sys.stderr)
+        else:
+            print(f"no SKILL.md found under {root}", file=sys.stderr)
         if args.kind == "skills" or args.strict or not report["tasks"]:
             any_failure = True
     if as_json:

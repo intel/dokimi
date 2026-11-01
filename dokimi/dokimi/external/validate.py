@@ -28,7 +28,7 @@ Mirrors are common (one skill checked in under two plugin directories), and
 counting them twice inflates routing and coverage numbers.
 
 Same name, different content: a skill whose ``name`` another skill shares, with other bytes, is a
-``warn`` (``name-conflict``) naming the other path. Routing skips that name rather than aborting.
+``warn`` (``name-conflict``) naming the other path. Routing leaves that name out of the field rather than aborting.
 
 ``disable-model-invocation: true`` is not a finding: the model is never offered
 that skill, so it is reported as a flag (the same reading as the skill arm's
@@ -247,6 +247,7 @@ def _name_conflicts(by_name: dict[str, list[tuple[SkillReview, str, str]]]) -> N
                     "warn",
                     "name-conflict",
                     f"name {name!r} is also used by {', '.join(others)}, with different content; "
-                    "routing skips this name until one is renamed or removed",
+                    "`novelty routing --catalog` leaves this name out of the field "
+                    "until one is renamed or removed",
                 )
             )

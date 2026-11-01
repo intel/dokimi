@@ -30,7 +30,6 @@ as a routing rate.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import random
@@ -537,17 +536,18 @@ def _eligible_catalog_skills(root: str, exclude: set[str], notes: list[str] | No
 
     entries = read_skill_manifest(Path(root), notes)
     reviews = review_skills(entries)
-    loaded: list[tuple[Skill, str, SkillReview | None]] = []
+    loaded: list[tuple[Skill, str, SkillReview]] = []
     for entry, review in zip(entries, reviews, strict=True):
         skill = entry.skill
-        if skill is None or not entry.loaded:
+        if skill is None or not entry.loaded or review is None:
             if notes is not None:
                 notes.append(f"skipped catalog entry {entry.name!r}: {entry.error}")
             continue
         if skill.name in exclude:
             continue
-        loaded.append((skill, hashlib.sha256(skill.path.read_bytes()).hexdigest(), review))
-    conflicting = _conflicting_names([(skill, digest) for skill, digest, _ in loaded], notes)
+        # the digest and the disabled flag are the review's, so routing and catalog scan cannot disagree
+        loaded.append((skill, review.content_sha256 or "", review))
+    conflicting = _conflicting_names(loaded, notes)
     eligible: list[tuple[Skill, str]] = []
     for skill, digest, review in loaded:
         if skill.name in conflicting or _left_out_by_flag(
@@ -557,15 +557,15 @@ def _eligible_catalog_skills(root: str, exclude: set[str], notes: list[str] | No
     return eligible
 
 
-def _left_out_by_flag(skill: Skill, review: SkillReview | None, include_disabled: bool,
+def _left_out_by_flag(skill: Skill, review: SkillReview, include_disabled: bool,
                       include_invalid: bool, notes: list[str] | None) -> bool:
     """Whether a disabled or spec-error skill is left out, with the note that says why."""
-    if not include_disabled and disables_model_invocation(skill.path):
+    if not include_disabled and review.disable_model_invocation:
         if notes is not None:
             notes.append(f"left out catalog skill {skill.name!r}: "
                          "disable-model-invocation (--include-disabled keeps it)")
         return True
-    if not include_invalid and review is not None and review.state == "error":
+    if not include_invalid and review.state == "error":
         if notes is not None:
             problems = "; ".join(f.message for f in review.findings if f.level == "error")
             notes.append(f"left out catalog skill {skill.name!r} at {skill.path}: "
@@ -574,24 +574,22 @@ def _left_out_by_flag(skill: Skill, review: SkillReview | None, include_disabled
     return False
 
 
-def _conflicting_names(loaded: list[tuple[Skill, str]], notes: list[str] | None) -> set[str]:
+def _conflicting_names(loaded: list[tuple[Skill, str, SkillReview]],
+                       notes: list[str] | None) -> set[str]:
     """The names that two different files among ``loaded`` share, with a note naming each path.
 
     Two skills with one name and different bytes cannot both stand for the card, so the name
-    leaves the field. The rest of the field stays.
+    leaves the field. The rest of the field stays. The names are the ``name-conflict`` findings
+    of the reviews, which ``catalog scan`` reports too.
     """
-    by_name: dict[str, list[tuple[Skill, str]]] = {}
-    for skill, digest in loaded:
-        by_name.setdefault(skill.name, []).append((skill, digest))
-    conflicting: set[str] = set()
-    for name in sorted(by_name):
-        copies = by_name[name]
-        if len({digest for _, digest in copies}) > 1:
-            conflicting.add(name)
-            if notes is not None:
-                paths = ", ".join(sorted(skill.path.as_posix() for skill, _ in copies))
-                notes.append(f"skipped catalog name {name!r}: it has different content at "
-                             f"{paths}; dedupe or rename them to route them")
+    conflicting = {skill.name for skill, _, review in loaded
+                   if any(f.code == "name-conflict" for f in review.findings)}
+    if notes is not None:
+        for name in sorted(conflicting):
+            paths = ", ".join(sorted(skill.path.as_posix() for skill, _, _ in loaded
+                                     if skill.name == name))
+            notes.append(f"skipped catalog name {name!r}: it has different content at "
+                         f"{paths}; dedupe or rename them to route them")
     return conflicting
 
 

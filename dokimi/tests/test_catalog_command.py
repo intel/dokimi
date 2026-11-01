@@ -204,6 +204,19 @@ def test_catalog_scan_on_a_root_with_no_skill_md_says_so_and_exits_1(tmp_path, c
     assert f"no SKILL.md found under {tmp_path}" in capsys.readouterr().err
 
 
+def test_catalog_scan_with_a_manifest_that_declares_no_skill_says_so_and_exits_1(tmp_path, capsys):
+    _write_skill(tmp_path, "lint")
+    (tmp_path / "skills.yaml").write_text("skills: []\n", encoding="utf-8")
+    args = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path)])
+    with pytest.raises(SystemExit) as exc_info:
+        args.func(args)
+
+    assert exc_info.value.code == 1
+    err = capsys.readouterr().err
+    assert f"skills.yaml under {tmp_path} has no skill that can be scanned" in err
+    assert "no SKILL.md found" not in err
+
+
 def test_catalog_scan_with_tasks_but_no_skill_md_warns_and_exits_0_unless_strict(tmp_path, capsys):
     _write_task(tmp_path, "onetbb-real-task")
     args = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path)])
