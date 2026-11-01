@@ -3,6 +3,8 @@
 
 """Tests for failure diagnoser."""
 
+from unittest.mock import MagicMock
+
 import pytest
 from dokimi import records
 from dokimi.records import CONTEXT
@@ -16,6 +18,7 @@ from dokimi.eval.diagnoser import (
     KNOWLEDGE_SUFFICIENT,
     INSUFFICIENT_DATA,
 )
+from dokimi.eval.judge import Judge
 
 
 def _make_answer(doc_source="context7", retrieved_docs=None, error=None):
@@ -75,6 +78,28 @@ def test_judged_placeholder_with_no_baseline_is_insufficient_data():
     answer = _make_answer(doc_source="fallback_none", retrieved_docs=[])
     result = diagnose(answer, None, context_scored=True)
     assert result["label"] == INSUFFICIENT_DATA
+
+
+def test_judge_diagnoses_a_judged_placeholder_without_a_baseline_as_insufficient_data():
+    """Through Judge: the context arm was scored, so the missing baseline is why there is no delta."""
+    judge = Judge.__new__(Judge)
+    judge._accumulate_usage = lambda usage: None
+    judge.temperature = judge.seed = None
+    judge.judge_placeholder = True
+    judge.llm = MagicMock()
+    judge.llm.invoke.return_value = MagicMock(content=(
+        '{"correctness": 60, "completeness": 60, "specificity": 60, '
+        '"code_quality": 60, "actionability": 60, "aggregate": 0}'
+    ))
+    row = judge._evaluate_answer_pair("L", {
+        "question_id": "q1",
+        "question_text": "How?",
+        "with_docs": {"answer": "[FALLBACK: No relevant documentation found]",
+                      "doc_source": "fallback_none", "retrieved_docs": []},
+    })
+    assert row["with_docs"] is not None
+    assert row["without_docs"] is None
+    assert row["diagnosis"]["label"] == INSUFFICIENT_DATA
 
 
 def test_errored_placeholder_answer_stays_insufficient_data():
