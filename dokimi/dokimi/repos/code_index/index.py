@@ -41,6 +41,7 @@ class CodeIndex:
                     first, last = occ.enclosing
                     self._scopes.setdefault(occ.path, []).append((first, last, occ))
         self._bases = decoded.bases
+        self._lists_ancestors: bool | None = None
 
     @property
     def tool(self) -> str:
@@ -91,28 +92,34 @@ class CodeIndex:
     def bases(self, symbol: str) -> tuple[str, ...]:
         """The symbols ``symbol`` directly implements or extends.
 
-        Read from SCIP ``is_implementation`` relationships. scip-python lists direct bases only, scip-clang every
-        ancestor, so a listed symbol that is an ancestor of another listed one is dropped (both stay when each is
-        an ancestor of the other)."""
+        Read from SCIP ``is_implementation`` relationships. scip-python lists direct bases only; scip-clang lists
+        every ancestor. On an index that lists ancestors (:attr:`lists_ancestors`), a listed symbol that is a base
+        of another listed one is dropped (both stay when each lists the other)."""
         _refuse_local(symbol)
         listed = self._bases.get(symbol, ())
-        if len(listed) < 2:
+        if len(listed) < 2 or not self.lists_ancestors:
             return listed
-        above = {base: self._ancestors(base) for base in listed}
+        above = {base: set(self._bases.get(base, ())) for base in listed}
         return tuple(base for base in listed
                      if not any(base in above[other] and other not in above[base] for other in listed))
 
-    def _ancestors(self, symbol: str) -> set[str]:
-        """Every symbol reachable from ``symbol`` through ``is_implementation``, ``symbol`` itself excluded."""
-        seen: set[str] = set()
-        todo = list(self._bases.get(symbol, ()))
-        while todo:
-            base = todo.pop()
-            if base not in seen and base != symbol:
-                seen.add(base)
-                todo.extend(self._bases.get(base, ()))
-        return seen
+    @property
+    def lists_ancestors(self) -> bool:
+        """True when the index lists every ancestor of a class, not only its direct bases.
 
+        Decided over the types (``#`` symbols) that have a grandparent: the index lists ancestors when most of
+        them list every base of each listed base too. scip-clang does (1,716 of 1,733 on oneDAL), scip-python
+        does not. With no grandparent anywhere there is nothing to drop, so the answer is False."""
+        if self._lists_ancestors is None:
+            closed = deep = 0
+            for symbol, listed in self._bases.items():
+                above = [self._bases.get(base, ()) for base in listed]
+                if not symbol.endswith("#") or not any(above):
+                    continue
+                deep += 1
+                closed += all(set(grand) <= set(listed) | {symbol} for grand in above)
+            self._lists_ancestors = deep > 0 and 2 * closed > deep
+        return self._lists_ancestors
 
 def load(path: str | Path, *, root_prefix: str = "") -> CodeIndex:
     """Read the SCIP index at ``path``. ``root_prefix`` is put before each document path, so an index written

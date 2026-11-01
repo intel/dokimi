@@ -269,6 +269,25 @@ def test_bases_keep_two_unrelated_bases_and_both_sides_of_a_cycle():
     assert _index(index(document("a.py"), external=cycle)).bases(C_SYM) == (B_SYM, BASE_SYM)
 
 
+def test_bases_are_read_as_listed_when_the_index_lists_direct_bases_only():
+    # scip-python: D(C), C(B), B(A); a C(B, A) with B(A) keeps A
+    d_sym = PKG + "`m`/D#"
+    data = (symbol_info(d_sym, (C_SYM,)) + symbol_info(C_SYM, (B_SYM, BASE_SYM)) + symbol_info(B_SYM, (BASE_SYM,))
+            + symbol_info(BASE_SYM, (PKG + "`m`/Root#",)) + symbol_info(PKG + "`m`/E#", (d_sym,)))
+    ix = _index(index(document("a.py"), external=data))
+    assert not ix.lists_ancestors
+    assert ix.bases(C_SYM) == (B_SYM, BASE_SYM)
+
+
+def test_bases_reduce_a_four_level_ancestor_listing():
+    d_sym, root = PKG + "`m`/D#", PKG + "`m`/Root#"
+    data = (symbol_info(d_sym, (C_SYM, B_SYM, BASE_SYM, root)) + symbol_info(C_SYM, (B_SYM, BASE_SYM, root))
+            + symbol_info(B_SYM, (BASE_SYM, root)) + symbol_info(BASE_SYM, (root,)))
+    ix = _index(index(document("a.py"), external=data))
+    assert ix.lists_ancestors
+    assert [ix.bases(s) for s in (d_sym, C_SYM, B_SYM)] == [(C_SYM,), (B_SYM,), (BASE_SYM,)]
+
+
 def test_bases_from_two_records_of_one_symbol_are_merged():
     data = index(document("a.py", symbols=symbol_info(C_SYM, (B_SYM,))), external=symbol_info(C_SYM, (BASE_SYM,)))
     assert _index(data).bases(C_SYM) == (B_SYM, BASE_SYM)
