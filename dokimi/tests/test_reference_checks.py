@@ -193,9 +193,8 @@ def test_an_all_mode_regex_is_not_settled_by_its_first_match():
 
 
 def test_the_regex_limit_is_shared_by_every_pattern_of_one_check(monkeypatch):
-    # One budget for the whole check, not one per pattern. A fake clock stands in for wall time:
-    # each search costs 0.6 * REGEX_TIMEOUT, so the second pattern has only 0.4 left and must time
-    # out, while a per-pattern budget would let it finish. Asserts on the work done, not the clock.
+    # One budget per check: a fake clock charges each search 0.6x the limit, so the second
+    # pattern has only 0.4x left and times out (a per-pattern budget would let it finish).
     now = [0.0]
     monkeypatch.setattr(reference_checks, "time", SimpleNamespace(monotonic=lambda: now[0]))
     searched = []
