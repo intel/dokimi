@@ -394,14 +394,21 @@ def test_a_floor_on_a_class_the_graph_lacks_is_n_a_and_fails(tmp_path, capsys):
 
 
 def test_out_that_is_a_symlink_loop_exits_2_not_a_traceback(tmp_path, capsys, monkeypatch):
-    # Python 3.11/3.12 raise RuntimeError from Path.resolve() on a loop; 3.13+ raise nothing here
+    # Python 3.11/3.12 raise RuntimeError from Path.resolve() on a loop; 3.13+ do not, so raise it here
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "loop").symlink_to("loop")
+    real_resolve = Path.resolve
+
+    def resolve(self, *args, **kwargs):
+        if self.name == "loop":
+            raise RuntimeError("Symlink loop")
+        return real_resolve(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", resolve)
 
     res = _run(capsys, str(_skill(tmp_path, ROWS)), "--graph", str(_graph(tmp_path)), "--out", "loop")
 
     assert res.returncode == 2
-    assert "Error:" in res.stderr
+    assert "cannot resolve" in res.stderr
 
 
 def test_out_as_a_relative_path_to_an_input_is_refused(tmp_path, capsys, monkeypatch):
