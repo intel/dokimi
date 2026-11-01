@@ -75,7 +75,8 @@ def check_fences(scan: Scan, files: list[str], check: Check) -> dict[str, Any]:
                      "unknown: no repository environment (--python-env), not type-checked")
         block["unknown"] = len(runnable)
         return block
-    block["tool_version"] = tool_version(check)
+    # Nothing to run, no tool run: a version probe would fail on a repository without the tool, for no result.
+    block["tool_version"] = tool_version(check) if runnable else None
     # no file: usage error. ``blocked``: the tool stopped early, so a fence with no error was not necessarily checked.
     found_errors, blocked = _run(check, [code for _, _, code in runnable], target) if runnable else ({}, False)
     unchecked = 0
@@ -169,8 +170,10 @@ def _run(check: Check, codes: list[str],
     with tempfile.TemporaryDirectory(prefix="dokimi-typecheck-") as tmp:
         names = []
         for i, code in enumerate(codes):
-            Path(tmp, f"fence_{i}.py").write_text(code + "\n", encoding="utf-8")
-            names.append(f"fence_{i}.py")
+            # A hyphen makes the name unimportable: no ``import`` in one fence can resolve to another fence's file,
+            # so every fence is checked against the repository's environment alone.
+            Path(tmp, f"fence-{i}.py").write_text(code + "\n", encoding="utf-8")
+            names.append(f"fence-{i}.py")
         if check.tool == "mypy":
             # The config is explicit and empty: no subject or host mypy settings apply. -I: nothing in the
             # run directory or PYTHON* variables can stand in for mypy or for the standard library.
@@ -242,8 +245,8 @@ def _errors(tool: str, stdout: str) -> dict[int, list[tuple[int, str]]]:
 
 
 def _fence_index(name: str) -> int | None:
-    """``3`` for ``fence_3.py``; None for any other file (a note about an import, say)."""
+    """``3`` for ``fence-3.py``; None for any other file (a note about an import, say)."""
     stem = Path(name).name
-    if stem.startswith("fence_") and stem.endswith(".py") and stem[6:-3].isdigit():
+    if stem.startswith("fence-") and stem.endswith(".py") and stem[6:-3].isdigit():
         return int(stem[6:-3])
     return None

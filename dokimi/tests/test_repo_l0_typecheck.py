@@ -119,9 +119,10 @@ def test_basedpyright_fails_the_same_stale_fence(tmp_path):
 
 
 def test_fence_file_names_map_back_to_their_index_only():
-    assert _fence_index("fence_3.py") == 3
-    assert _fence_index("elsewhere/x/fence_12.py") == 12
-    assert _fence_index("fence_x.py") is None
+    assert _fence_index("fence-3.py") == 3
+    assert _fence_index("elsewhere/x/fence-12.py") == 12
+    assert _fence_index("fence-x.py") is None
+    assert _fence_index("fence_3.py") is None  # the name an import could reach: not a fence file
     assert _fence_index("pkg/other.py") is None
 
 
@@ -286,7 +287,7 @@ def test_a_fence_too_deep_for_the_parser_is_unresolved_not_a_crash(tmp_path):
 def test_a_line_less_mypy_error_is_the_fence_line_not_the_line_above(tmp_path):
     from dokimi.repos.l0.typecheck import _errors
 
-    report = json.dumps({"file": "fence_0.py", "line": -1, "severity": "error", "message": "no line"})
+    report = json.dumps({"file": "fence-0.py", "line": -1, "severity": "error", "message": "no line"})
     assert _errors("mypy", report) == {0: [(0, "no line")]}
 
 
@@ -387,7 +388,7 @@ def _fake_tools(monkeypatch, mypy_result, seen: list):
 
 
 def test_a_tool_that_stops_on_a_blocking_error_leaves_the_unchecked_fences_unresolved(tmp_path, monkeypatch):
-    report = json.dumps({"file": "fence_0.py", "line": 1, "severity": "error", "message": "blocking"})
+    report = json.dumps({"file": "fence-0.py", "line": 1, "severity": "error", "message": "blocking"})
     _fake_tools(monkeypatch, _completed(returncode=2, stdout=report + "\n"), [])
     agents = f"{FENCE}python\nx: int = 1\n{FENCE}\n\n{FENCE}python\ny: int = 2\n{FENCE}\n"
     payload = scan_repo(_tree(tmp_path, agents), parse_manifest(MANIFEST), typecheck=Check("mypy", sys.executable))
@@ -465,3 +466,89 @@ def test_a_linked_guidance_file_has_its_fences_checked_and_counted_once(tmp_path
     payload = scan_repo(WorkTree(root), manifest, typecheck=Check("mypy", sys.executable))
     assert len(_fence_claims(payload)) == 1
     assert payload["typecheck"]["fences"] == 1
+
+
+def test_a_fence_cannot_import_another_fence_as_a_module(tmp_path):
+    agents = f"{FENCE}python\nvalue: int = 1\n{FENCE}\n\n{FENCE}python\nimport fence_0\nprint(fence_0.value)\n{FENCE}\n"
+    payload = scan_repo(_tree(tmp_path, agents), parse_manifest(MANIFEST), typecheck=Check("mypy", sys.executable))
+    assert [c["status"] for c in _fence_claims(payload)] == ["ok", "fail"]
+
+
+def test_mypy_is_given_the_repository_interpreter(monkeypatch):
+    from dokimi.repos.l0 import typecheck as l0_typecheck
+
+    seen = []
+
+    def fake(argv, cwd, stdin=None):
+        seen.append(argv)
+        return _completed(returncode=0, stdout="")
+
+    monkeypatch.setattr(l0_typecheck, "_run_tool", fake)
+    l0_typecheck._run(Check("mypy", "/opt/repo/bin/python"), ["x: int = 1\n"])
+    argv = seen[0]
+    assert argv[argv.index("--python-executable") + 1] == "/opt/repo/bin/python"
+
+
+def test_nothing_to_check_runs_no_tool_not_even_a_version_probe(tmp_path, monkeypatch):
+    from dokimi.repos.l0 import typecheck as l0_typecheck
+
+    seen = []
+
+    def fake(argv, cwd, stdin=None):
+        seen.append(argv)
+        return _completed(returncode=1, stderr="No module named mypy")
+
+    monkeypatch.setattr(l0_typecheck, "_run_tool", fake)
+    payload = scan_repo(_tree(tmp_path, "# Toy\n\nNo code here.\n"), parse_manifest(MANIFEST),
+                        typecheck=Check("mypy", sys.executable))
+    assert seen == []
+    assert payload["typecheck"]["tool_version"] is None
+
+
+def test_fences_that_do_not_parse_run_no_tool_either(tmp_path, monkeypatch):
+    from dokimi.repos.l0 import typecheck as l0_typecheck
+
+    seen = []
+
+    def fake(argv, cwd, stdin=None):
+        seen.append(argv)
+        if "version_info" in argv[-1]:
+            return _completed(returncode=0, stdout="3 11\n")
+        return _completed(returncode=0, stdout=json.dumps(["invalid syntax"]))  # the parse: one fence, not valid
+
+    monkeypatch.setattr(l0_typecheck, "_run_tool", fake)
+    payload = scan_repo(_tree(tmp_path, f"{FENCE}python\nx = (\n{FENCE}\n"), parse_manifest(MANIFEST),
+                        typecheck=Check("mypy", sys.executable))
+    assert all("--version" not in argv and "mypy" not in argv for argv in seen)  # no tool run
+    assert payload["typecheck"]["syntax"] == 1
+    assert payload["typecheck"]["tool_version"] is None
+
+
+def test_basedpyright_exit_two_is_the_tools_own_failure(monkeypatch):
+    from dokimi.repos.l0 import typecheck as l0_typecheck
+
+    monkeypatch.setattr(l0_typecheck, "_run_tool", lambda argv, cwd, stdin=None: _completed(
+        returncode=2, stdout="{}", stderr="fatal"))
+    with pytest.raises(l0_typecheck.TypecheckError, match="exited 2"):
+        l0_typecheck._run(Check("basedpyright", sys.executable), ["x: int = 1\n"])
+
+
+def test_an_exit_code_outside_zero_to_two_is_the_tools_own_failure(monkeypatch):
+    from dokimi.repos.l0 import typecheck as l0_typecheck
+
+    monkeypatch.setattr(l0_typecheck, "_run_tool", lambda argv, cwd, stdin=None: _completed(
+        returncode=3, stdout="", stderr="crashed"))
+    with pytest.raises(l0_typecheck.TypecheckError, match="exited 3"):
+        l0_typecheck._run(Check("mypy", sys.executable), ["x: int = 1\n"])
+
+
+def test_only_error_diagnostics_count_as_fence_errors():
+    from dokimi.repos.l0 import typecheck as l0_typecheck
+
+    mypy_out = "\n".join(json.dumps({"file": "fence-0.py", "line": n, "severity": sev, "message": "m"})
+                         for n, sev in [(1, "error"), (2, "note"), (3, "warning")])
+    assert l0_typecheck._errors("mypy", mypy_out) == {0: [(1, "m")]}
+    pyright_out = json.dumps({"generalDiagnostics": [
+        {"file": "/tmp/x/fence-0.py", "severity": sev, "message": sev, "range": {"start": {"line": n}}}
+        for n, sev in [(0, "error"), (1, "warning"), (2, "information")]]})
+    assert l0_typecheck._errors("basedpyright", pyright_out) == {0: [(1, "error")]}
