@@ -121,6 +121,29 @@ def test_skills_named_through_a_subdirectory_dot_dot_are_not_mirror_drift(tmp_pa
     assert _codes(reviews["beta"]) == []
 
 
+@pytest.mark.parametrize("body", [
+    '[a](gone.md "t")\n',
+    "[a](gone.md 't')\n",
+    "[a](gone.md (t))\n",
+    "[a]( gone.md )\n",
+    "```x``` then\n[a](gone.md)\n",
+])
+def test_link_forms_and_fence_lookalikes_are_still_checked(tmp_path, body):
+    _skill(tmp_path / "skills", "forms", name="forms", description="Use for forms.", body=body)
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == ["link-missing"]
+
+
+def test_a_link_inside_parentheses_does_not_take_the_closing_one(tmp_path):
+    skill_dir = _skill(tmp_path / "skills", "wrapped", name="wrapped", description="Use for wrapped.",
+                       body="(see [a](here.md))\n")
+    (skill_dir / "here.md").write_text("# Here\n", encoding="utf-8")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.findings == []
+
+
 def test_a_reference_label_before_a_fence_does_not_take_a_destination_after_it(tmp_path):
     (tmp_path / "shared").mkdir()
     (tmp_path / "shared" / "notes.md").write_text("# Notes\n", encoding="utf-8")
