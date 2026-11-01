@@ -82,6 +82,17 @@ def test_each_row_is_a_session_and_a_session_without_a_prompt_or_call_is_dropped
     assert session.events[1].command == "make ci-local"
 
 
+def test_a_session_of_unreadable_messages_only_is_not_counted(tmp_path):
+    db = _store(tmp_path, {"s0": [("user", _text("push the branch now"), None)], "s1": []})
+    conn = sqlite3.connect(db)
+    conn.execute("INSERT INTO messages (session_id, role, content_json, created_timestamp) "
+                 "VALUES ('s1', 'user', 'not json', 1)")
+    conn.commit()
+    conn.close()
+    sessions = read_goose_store(db)
+    assert [s.name for s in sessions] == [f"{db}#s0"]
+
+
 def test_tool_arguments_come_from_the_tool_call_value_and_name_a_path(tmp_path):
     db = _store(tmp_path, {"s1": [("assistant", _call(path="/w/docs/guide.md"), None)]})
     (session,) = read_goose_store(db)

@@ -44,8 +44,8 @@ def read_goose_store(path: Path) -> list[Session]:
         raise SessionError(f"{path}: not a Goose sessions store: {exc}") from exc
     finally:
         conn.close()
-    kept = [s for s in sessions if s.events or s.errors]
-    if not any(s.events for s in kept):
+    kept = [s for s in sessions if s.events]  # a session of unreadable messages only is no session
+    if not kept:
         raise SessionError(f"{path}: no prompt and no tool call in any session")
     return kept
 
