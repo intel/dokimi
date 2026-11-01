@@ -723,6 +723,33 @@ def test_a_change_to_a_suite_file_reached_through_a_link_maps_to_the_suite(tmp_p
     assert impact.unclaimed == []
 
 
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_a_config_reached_through_a_link_is_shared_at_its_declared_path_and_its_target(tmp_path):
+    root = _tree(tmp_path / "repo", {"ci/config.yaml": BESIDE_CONFIG, "ci/other.yaml": "x\n"})
+    (root / ".github/dokimi").mkdir(parents=True)
+    os.symlink("../../ci/config.yaml", root / ".github/dokimi/config.yaml")
+    impact = load_repo_config(root, explicit=root / ".github/dokimi/config.yaml").subjects_for_changed(
+        [".github/dokimi/config.yaml", "ci/config.yaml", "ci/other.yaml"])
+    assert sorted(impact.shared) == [".github/dokimi/config.yaml", "ci/config.yaml"]
+    assert impact.unclaimed == ["ci/other.yaml"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_a_deleted_file_in_a_linked_suite_directory_still_maps_to_the_suite(tmp_path):
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": BESIDE_CONFIG,
+        "skills/.keep": "",
+        "vendor/a/SKILL.md": "a\n",
+        "vendor/a/evals/.keep": "",
+        "vendor/a/evals/q.json": "[1]\n",
+    })
+    os.symlink("../vendor/a", root / "skills/a")
+    (root / "vendor/a/evals/q.json").unlink()
+    impact = load_repo_config(root).subjects_for_changed(["vendor/a/evals/q.json"])
+    assert impact.suites == {"skill/a": ["vendor/a/evals/q.json"]}
+    assert impact.skills == {} and impact.unclaimed == []
+
+
 def test_a_suite_that_ends_in_double_star_hashes_like_its_directory(tmp_path):
     files = {"skills/a/SKILL.md": "a\n", "skills/a/evals/q.json": "{}\n", "skills/a/evals/sub/b.json": "{}\n"}
     head = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: "

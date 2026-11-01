@@ -109,13 +109,15 @@ def tree_digest(root: Path, *, exclude: Iterable[str] = ()) -> str:
         rel = "." if path == root else path.relative_to(root).as_posix()
         if any(rel == e or rel.startswith(e + "/") for e in skip):
             continue
+        # names and link targets are bytes on POSIX and may hold undecodable bytes: encode them as the OS does
+        name = os.fsencode(rel)
         if path.is_symlink():
-            h.update(f"L {rel}\0{os.readlink(path)}\0".encode())
+            h.update(b"L " + name + b"\0" + os.fsencode(os.readlink(path)) + b"\0")
         elif path.is_file():
-            h.update(f"F {rel}\0{int(os.access(path, os.X_OK))}\0".encode())
+            h.update(b"F " + name + f"\0{int(os.access(path, os.X_OK))}\0".encode())
             h.update(hashlib.sha256(path.read_bytes()).digest())
         elif path.is_dir():
-            h.update(f"D {rel}\0".encode())
+            h.update(b"D " + name + b"\0")
     return h.hexdigest()
 
 

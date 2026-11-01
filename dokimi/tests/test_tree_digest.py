@@ -97,3 +97,19 @@ def test_a_file_root_digests_as_itself(tmp_path):
 def test_the_digest_is_bare_hex(tmp_path):
     digest = tree_digest(_write(tmp_path / "t", {"a": "a\n"}))
     assert len(digest) == 64 and all(c in "0123456789abcdef" for c in digest)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file names and link targets are bytes")
+def test_an_undecodable_name_and_link_target_digest_without_error(tmp_path):
+    root = tmp_path / "tree"
+    root.mkdir()
+    fd = os.open(os.fsencode(root) + b"/bad-\xff", os.O_CREAT | os.O_WRONLY, 0o644)
+    os.close(fd)
+    os.symlink(b"target-\xff", os.fsencode(root / "link"))
+    first = tree_digest(root)
+    other = tmp_path / "other"
+    other.mkdir()
+    fd = os.open(os.fsencode(other) + b"/bad-\xfe", os.O_CREAT | os.O_WRONLY, 0o644)
+    os.close(fd)
+    os.symlink(b"target-\xff", os.fsencode(other / "link"))
+    assert first != tree_digest(other)

@@ -221,12 +221,16 @@ def _as_list(value: Any) -> list[str]:
 
 
 def _own_path(config: RepoConfig) -> list[str]:
-    """The config file is shared: a change to it reruns the smoke set. Empty when it sits outside the root.
-    It is a literal path, but ``shared`` is matched as a glob, so its metacharacters are escaped."""
-    try:
-        return [glob.escape(config.path.resolve().relative_to(config.root.resolve()).as_posix())]
-    except ValueError:
-        return []
+    """The config file is shared: a change to it reruns the smoke set. Both its declared path and the file it
+    resolves to, so a config linked from elsewhere in the repository counts at either. A path outside the root is
+    skipped. Each is a literal path, but ``shared`` is matched as a glob, so its metacharacters are escaped."""
+    found: list[str] = []
+    for path, root in ((config.path, config.root), (config.path.resolve(), config.root.resolve())):
+        try:
+            found.append(glob.escape(path.relative_to(root).as_posix()))
+        except ValueError:
+            pass
+    return list(dict.fromkeys(found))
 
 
 def _claims(pattern: str, segs: tuple[str, ...]) -> bool:
@@ -262,7 +266,7 @@ def _reach(subject: Subject, root: Path) -> Reach:
         if real_manifest is not None:
             suite_roots.append(real_manifest)
     for rel, path in _suite_files(root, subject.suite_globs).items():
-        for _, entry in _walk(path, rel):
+        for _, entry in _walk(path, rel, dirs=True):
             real = _inside(entry, root_real)
             if real is not None:
                 suite_roots.append(real)
@@ -497,8 +501,9 @@ def _real(path: Path) -> Path | None:
         return None
 
 
-def _walk(path: Path, rel: str) -> list[tuple[str, Path]]:
-    """Entries under ``path`` (or ``path`` itself): regular files and symlinks. Symlinks are followed into their
+def _walk(path: Path, rel: str, *, dirs: bool = False) -> list[tuple[str, Path]]:
+    """Entries under ``path`` (or ``path`` itself): regular files and symlinks, and with ``dirs`` the directories
+    too, so a deleted file under a directory that still exists maps to it. Symlinks are followed into their
     directories; a directory is visited once by its resolved path, so a cycle ends."""
     found: list[tuple[str, Path]] = []
     seen: set[Path] = set()
@@ -507,6 +512,8 @@ def _walk(path: Path, rel: str) -> list[tuple[str, Path]]:
         if entry.is_symlink():
             found.append((name, entry))
         if entry.is_dir():
+            if dirs:
+                found.append((name, entry))
             real = _real(entry)
             if real is None or real in seen:
                 return
