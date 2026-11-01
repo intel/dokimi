@@ -83,7 +83,7 @@ Schema cannot).
 
 | Field | Meaning |
 |---|---|
-| `id` | Stable across edits, `[A-Za-z0-9][A-Za-z0-9._-]*`. |
+| `id` | Stable across edits, `[A-Za-z0-9][A-Za-z0-9._-]{0,63}` (at most 64 characters). |
 | `rule`, `source` | Optional text and anchor, printed for the reader. |
 | `hypothesis` | Required. The claim the verdict tests, in words. |
 | `arm` | The treatment arm that carries the rule, `ARM` or `BATCH/ARM`. |
