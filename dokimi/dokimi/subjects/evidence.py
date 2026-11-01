@@ -114,6 +114,6 @@ def _result(cell: dict[str, Any], arm: str, row: dict[str, Any]) -> dict[str, An
 
 def _verdict(delta: float | None, sig: dict[str, Any]) -> str:
     """``improved``/``regressed`` only on a corrected significant delta; else ``inconclusive``."""
-    if delta is None or not sig.get("significant_adjusted"):
+    if delta is None or sig.get("significant_adjusted") is not True:  # a string "false" is not a verdict
         return "inconclusive"
     return "improved" if delta > 0 else "regressed" if delta < 0 else "inconclusive"

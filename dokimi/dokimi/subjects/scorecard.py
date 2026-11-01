@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -141,6 +142,10 @@ def _digest_values(values: tuple[str, ...]) -> str:
     return "sha256:" + h.hexdigest()
 
 
+#: A URI scheme (``context7:``, ``https:``). Two characters or more: a Windows drive letter is not a scheme.
+_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]+:")
+
+
 def distribution_digest(ref: str | None, *, base: Path) -> str | None:
     """The digest a ``.well-known/agent-skills`` index would publish for *ref*, or None.
 
@@ -154,7 +159,10 @@ def distribution_digest(ref: str | None, *, base: Path) -> str | None:
     """
     if not ref:
         return None
-    path = Path(ref.removeprefix("local:"))
+    local = ref.removeprefix("local:")
+    if _SCHEME.match(local):  # a non-local reference names no file here, even one that has its name
+        return None
+    path = Path(local)
     if not path.is_absolute():
         path = base / path
     if path.is_dir():

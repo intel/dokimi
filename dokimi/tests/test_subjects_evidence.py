@@ -106,11 +106,18 @@ def test_subjects_evidence_refuses_a_file_that_is_not_a_scorecard(tmp_path: Path
     assert exc.value.code == 2
 
 
-def test_subjects_evidence_refuses_a_scorecard_with_a_wrong_typed_cell(tmp_path: Path, monkeypatch):
+@pytest.mark.parametrize("cells", [
+    [None],
+    [{"summary": []}],
+    [{"summary": {"per_arm": []}}],
+    [{"summary": {"per_arm": {"skill:s": 5}}}],
+    [{"summary": {"per_arm": {"skill:s": {"significance": "x"}}}}],
+])
+def test_subjects_evidence_refuses_a_scorecard_with_a_wrong_typed_cell(tmp_path: Path, monkeypatch, cells):
     from dokimi.cli import main
 
     bad = tmp_path / "x.json"
-    bad.write_text(json.dumps({**_scorecard(), "cells": [None]}), encoding="utf-8")
+    bad.write_text(json.dumps({**_scorecard(), "cells": cells}), encoding="utf-8")
     monkeypatch.setattr("sys.argv", ["dokimi", "subjects", "evidence", str(bad)])
     with pytest.raises(SystemExit) as exc:
         main()
@@ -163,9 +170,35 @@ def test_subjects_evidence_refuses_to_overwrite_the_scorecard_or_publish_nothing
     assert exc.value.code == 2 and not (tmp_path / "skill-evidence.json").exists()
 
 
-def test_the_rollup_and_scorecard_cells_carry_the_baseline_arm(tmp_path: Path):
+def test_the_rollup_cells_carry_the_baseline_arm(tmp_path: Path):
     from dokimi.eval.matrix_rollup import build_matrix_rollup
 
     rollup = build_matrix_rollup(library_name="l", out_dir=tmp_path, compute_plugin_deltas=False,
                                  cell_artifacts=[("c1", tmp_path / "c1.json", {"baseline_arm": "none"})])
     assert rollup["cells"][0]["baseline_arm"] == "none"
+
+
+def test_a_significance_flag_that_is_not_a_boolean_gives_no_direction():
+    scorecard = _scorecard()
+    row = scorecard["cells"][0]["summary"]["per_arm"]["skill:s"]
+    row["significance"] = {**_significance(12.0, significant=True), "significant_adjusted": "false"}
+
+    by_arm = {r["arm"]: r for r in build_skill_evidence(scorecard)["results"]}
+    assert by_arm["skill:s"]["verdict"] == "inconclusive"
+
+
+def test_the_scorecard_cells_carry_the_baseline_arm_of_the_rollup(tmp_path: Path):
+    from dokimi.subjects import build_subject_scorecard, load_subject
+
+    (tmp_path / "subject.toml").write_text(
+        '[subject]\nid = "s"\nkind = "doc-source"\nref = "local:docs"\n\n'
+        '[suite]\nproducts = ["oneTBB"]\nquestions = ["questions.json"]\n', encoding="utf-8")
+    rollup = {"cells": [{"matrix_cell": "c1", "artifact": "c1.json", "model": "m", "provider": "p",
+                         "harness": "arms-runner", "baseline_arm": "none", "plugin_set": "none",
+                         "summary": {}, "cost_summary": {}}], "plugin_deltas": [], "warnings": []}
+    scorecard = build_subject_scorecard(
+        load_subject(tmp_path / "subject.toml"),
+        awareness_runs=[{"product": "oneTBB", "questions": "questions.json", "matrix_rollup": "m.json",
+                         "rollup": rollup}],
+        out_dir=tmp_path)
+    assert scorecard["cells"][0]["baseline_arm"] == "none"

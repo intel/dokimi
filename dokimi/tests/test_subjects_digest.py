@@ -6,7 +6,10 @@
 from __future__ import annotations
 
 import hashlib
+import sys
 from pathlib import Path
+
+import pytest
 
 from dokimi.subjects.scorecard import distribution_digest
 
@@ -48,3 +51,12 @@ def test_the_scorecard_carries_the_distribution_digest(tmp_path: Path, monkeypat
 
     assert scorecard["subject"]["distribution_digest"] == "sha256:" + hashlib.sha256(b"body").hexdigest()
     validate_artifact("subject_scorecard", scorecard)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a colon is not allowed in a Windows file name")
+def test_a_non_local_ref_is_not_looked_up_on_disk(tmp_path: Path):
+    # A directory named like the ref's scheme holds a SKILL.md; the ref is not a local path, so no digest.
+    (tmp_path / "context7:" / "org" / "lib").mkdir(parents=True)
+    (tmp_path / "context7:" / "org" / "lib" / "SKILL.md").write_bytes(b"body")
+    assert distribution_digest("context7:/org/lib", base=tmp_path) is None
+    assert distribution_digest("local:context7:/org/lib", base=tmp_path) is None
