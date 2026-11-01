@@ -53,9 +53,9 @@ def test_validate_checks_the_action_out_at_dokimi_ref_and_records_its_commit() -
     workflow = _load(REPO_EVAL)
     checkouts = dict(_action_checkouts(workflow))
     assert checkouts["validate"]["ref"] == "${{ inputs.dokimi-ref }}"
-    assert "action-sha" in workflow["jobs"]["validate"]["outputs"]
+    assert workflow["jobs"]["validate"]["outputs"]["action-sha"] == "${{ steps.action.outputs.sha }}"
     recorder = [s for s in workflow["jobs"]["validate"]["steps"] if s.get("id") == "action"]
-    assert recorder and "rev-parse HEAD" in recorder[0]["run"]
+    assert recorder and recorder[0]["run"] == 'echo "sha=$(git -C .dokimi-action rev-parse HEAD)" >> "$GITHUB_OUTPUT"'
 
 
 def test_downstream_jobs_check_the_action_out_at_the_commit_validate_recorded() -> None:
