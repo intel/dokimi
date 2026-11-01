@@ -135,6 +135,13 @@ def test_a_commit_ref_is_installed_as_given_and_the_tag_is_not_looked_up_again(t
     assert output == f"sha={PEELED}\n"
 
 
+def test_an_uppercase_commit_ref_is_lowercased(tmp_path: Path) -> None:
+    result, calls, output = _resolve_ref(tmp_path, PEELED.upper())
+    assert result.returncode == 0, result.stderr
+    assert calls == ""
+    assert output == f"sha={PEELED}\n"
+
+
 def test_a_tag_ref_resolves_to_the_commit_it_names(tmp_path: Path) -> None:
     result, calls, output = _resolve_ref(tmp_path, "release")
     assert result.returncode == 0, result.stderr

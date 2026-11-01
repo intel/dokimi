@@ -53,8 +53,8 @@ runs:
           echo "::error title=dokimi-repository::dokimi-repository is not owner/name"
           exit 1
         fi
-        if [[ "$REF" =~ ^[0-9a-f]{40}$ ]]; then
-          sha=$REF
+        if [[ "$REF" =~ ^[0-9A-Fa-f]{40}$ ]]; then
+          sha=${REF,,}
         elif [[ "$REF" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
           # An annotated tag's commit is its peeled (^{}) line.
           sha=$(git ls-remote --tags "https://github.com/$DOKIMI_REPO" \
