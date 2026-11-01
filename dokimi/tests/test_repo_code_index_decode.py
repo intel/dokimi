@@ -250,6 +250,20 @@ def test_enclosing_ending_after_column_zero_includes_its_end_line():
     assert ix.enclosing("a.py", 9).symbol == SYM
 
 
+def test_an_empty_enclosing_range_holds_no_line():
+    ix = _index(index(document("a.py", (occurrence([4, 3, 3], SYM, roles=1, enclosing=[4, 3, 4, 3]),))))
+    assert ix.enclosing("a.py", 4) is None
+
+
+@pytest.mark.parametrize("order", [0, 1])
+def test_the_inner_of_two_equal_line_spans_is_the_one_nested_by_columns(order):
+    outer = occurrence([1, 0, 3], "outer", roles=1, enclosing=[1, 0, 9, 20])
+    inner = occurrence([1, 15, 18], "inner", roles=1, enclosing=[1, 15, 9, 10])
+    occs = (outer, inner) if order == 0 else (inner, outer)
+    ix = _index(index(document("a.py", occs)))
+    assert ix.enclosing("a.py", 5).symbol == "inner"
+
+
 def test_a_local_definition_keeps_its_enclosing_scope():
     ix = _index(index(document("a.py", (occurrence([1, 2, 5], "local 1", roles=1, enclosing=[1, 0, 9, 0]),))))
     assert ix.has_enclosing_ranges
@@ -295,6 +309,32 @@ def test_typed_ranges_take_precedence_over_the_deprecated_ones():
     both = occurrence([2, 0, 5], SYM, roles=1, enclosing=[1, 0, 9, 0], extra=typed(8, 4, 1, 7) + typed(10, 4, 0, 8))
     (occ,) = _index(index(document("a.py", (both,)))).occurrences("a.py")
     assert (occ.line, occ.start_col, occ.end_col, occ.enclosing) == (4, 1, 7, (4, 4))
+
+
+def test_a_split_typed_range_merges_as_protobuf_does():
+    single = occurrence([], SYM, roles=1, extra=typed(8, 4, 1) + ld(8, vint(3, 7)))
+    (occ,) = _index(index(document("a.py", (single,)))).occurrences("a.py")
+    assert (occ.line, occ.start_col, occ.end_line, occ.end_col) == (4, 1, 4, 7)
+    multi = occurrence([], SYM, roles=1, extra=typed(9, 1, 0, 3) + ld(9, vint(4, 9)))
+    (occ,) = _index(index(document("a.py", (multi,)))).occurrences("a.py")
+    assert (occ.line, occ.start_col, occ.end_line, occ.end_col) == (1, 0, 3, 9)
+    enclosing = occurrence([], SYM, roles=1, extra=typed(8, 4, 1, 3) + typed(10, 4, 0, 8) + ld(10, vint(3, 9)))
+    (occ,) = _index(index(document("a.py", (enclosing,)))).occurrences("a.py")
+    assert occ.enclosing == (4, 4) and occ.enclosing_span == (4, 0, 4, 9)
+
+
+def test_a_split_tool_info_merges_name_and_version_across_metadata_messages():
+    meta = ld(1, ld(2, ld(1, b"scip-test"))) + ld(1, ld(2, ld(2, b"0.1")))
+    assert _index(index(meta=meta)).tool == "scip-test 0.1"
+    later = ld(1, ld(2, ld(1, b"scip-test") + ld(2, b"0.1"))) + ld(1, ld(2, ld(2, b"0.2")))
+    assert _index(index(meta=later)).tool == "scip-test 0.2"
+
+
+def test_the_largest_field_number_is_legal_and_the_next_one_is_not():
+    largest = metadata() + key(2**29 - 1, 0) + varint(0)
+    assert _index(largest).tool == "scip-test 0.1"
+    with pytest.raises(CodeIndexError, match="is above the protobuf maximum"):
+        _index(metadata() + key(2**29, 0) + varint(0))
 
 
 def test_a_varint_of_ten_bytes_must_fit_in_64_bits():
@@ -419,6 +459,7 @@ def test_an_explicit_zero_is_implementation_is_not_a_base():
     (b"\x80", "truncated varint"),
     (b"\x80" * 11, "longer than 10 bytes"),
     (b"\x00", "field number 0"),
+    (b"\x0a\x00" + key(2**29, 0) + b"\x00", "is above the protobuf maximum"),
     (key(40, 3), "unsupported wire type 3"),
     (key(40, 6), "unsupported wire type 6"),
     (key(40, 5) + b"\x01\x02", "fixed32 field at byte"),

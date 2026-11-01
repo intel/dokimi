@@ -28,16 +28,16 @@ class CodeIndex:
         self._docs = {path: tuple(occs) for path, occs in sorted(decoded.occurrences.items())}
         self._by_symbol: dict[str, list[Occurrence]] = {}
         self._by_name: dict[str, list[Occurrence]] = {}
-        self._scopes: dict[str, list[tuple[int, int, Occurrence]]] = {}
+        self._scopes: dict[str, list[tuple[int, int, tuple[int, int, int, int], Occurrence]]] = {}
         names: dict[str, str | None] = {}
         for occs in decoded.occurrences.values():
             for occ in occs:
                 if not occ.symbol:
                     continue
                 # a local id is scoped to its document, so its scope is keyed by that document: keep it
-                if occ.is_definition and occ.enclosing is not None:
+                if occ.is_definition and occ.enclosing is not None and occ.enclosing_span is not None:
                     first, last = occ.enclosing
-                    self._scopes.setdefault(occ.path, []).append((first, last, occ))
+                    self._scopes.setdefault(occ.path, []).append((first, last, occ.enclosing_span, occ))
                 if is_local(occ.symbol):
                     continue
                 self._by_symbol.setdefault(occ.symbol, []).append(occ)
@@ -91,10 +91,14 @@ class CodeIndex:
 
         A definition with no enclosing range never matches, so this is ``None`` on an index without ranges."""
         best: Occurrence | None = None
-        best_span = -1
-        for first, last, occ in self._scopes.get(path, ()):
-            if first <= line <= last and (best is None or last - first < best_span):
-                best, best_span = occ, last - first
+        best_lines = best_span = None
+        for first, last, span, occ in self._scopes.get(path, ()):
+            if not first <= line <= last or span[:2] >= span[2:]:  # an empty range holds no position
+                continue
+            # a range nested in the best so far is the inner one; otherwise the shorter range by lines wins
+            if best_span is None or _inside(span, best_span) or (
+                    not _inside(best_span, span) and last - first < best_lines[1] - best_lines[0]):
+                best, best_span, best_lines = occ, span, (first, last)
         return best
 
     def bases(self, symbol: str) -> tuple[str, ...]:
@@ -139,6 +143,11 @@ def load(path: str | Path, *, root_prefix: str = "") -> CodeIndex:
     Raises :class:`~dokimi.repos.errors.CodeIndexError` for an empty, truncated or garbled file. A file cut at a
     document boundary still decodes, with fewer documents: compare :meth:`CodeIndex.files` with the tree."""
     return CodeIndex(decode_index(memoryview(Path(path).read_bytes()), root_prefix))
+
+
+def _inside(inner: tuple[int, int, int, int], outer: tuple[int, int, int, int]) -> bool:
+    """Whether the span ``inner`` lies strictly within ``outer``; both are (line, col, line, col), end exclusive."""
+    return outer[:2] <= inner[:2] and inner[2:] <= outer[2:] and inner != outer
 
 
 def _refuse_local(symbol: str) -> None:

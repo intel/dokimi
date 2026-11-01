@@ -23,8 +23,8 @@ from dokimi.repos.code_index.wire import LEN, VARINT, read_delimited, read_ints,
 DEFINITION = 0x1
 _INT32_MAX = 2**31 - 1
 
-# (line, start_col, end_line, end_col, symbol, roles, enclosing lines)
-_Raw = tuple[int, int, int, int, str, int, tuple[int, int] | None]
+# (line, start_col, end_line, end_col, symbol, roles, enclosing span)
+_Raw = tuple[int, int, int, int, str, int, tuple[int, int, int, int] | None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +44,8 @@ class Occurrence:
     symbol: str
     roles: int
     enclosing: tuple[int, int] | None
+    # the enclosing range's start and (exclusive) end as (line, col, line, col): nesting and emptiness need the columns
+    enclosing_span: tuple[int, int, int, int] | None = None
 
     @property
     def is_definition(self) -> bool:
@@ -64,7 +66,7 @@ def decode_index(buf: memoryview, root_prefix: str = "") -> Decoded:
     if not len(buf):
         raise CodeIndexError("the file is empty, not a SCIP index")
     prefix = root_prefix if not root_prefix or root_prefix.endswith("/") else root_prefix + "/"
-    tool = ""
+    tool_info: dict[int, str] = {}
     occurrences: dict[str, list[Occurrence]] = {}
     bases: dict[str, tuple[str, ...]] = {}
     intern: dict[bytes, str] = {}
@@ -74,15 +76,15 @@ def decode_index(buf: memoryview, root_prefix: str = "") -> Decoded:
         field, wire, pos = read_key(buf, pos)
         if field == 1 and wire == LEN:
             body, pos = read_delimited(buf, pos)
-            tool = _metadata_tool(body)
+            _metadata(body, tool_info)
             has_metadata = True
         elif field == 2 and wire == LEN:
             body, pos = read_delimited(buf, pos)
             path, raw = _document(body, intern, bases)
             full = prefix + path
             occurrences.setdefault(full, []).extend(
-                Occurrence(full, line, start, end_line, end, symbol, roles, enclosing)
-                for line, start, end_line, end, symbol, roles, enclosing in raw)
+                Occurrence(full, line, start, end_line, end, symbol, roles, _lines(span), span)
+                for line, start, end_line, end, symbol, roles, span in raw)
         elif field == 3 and wire == LEN:
             body, pos = read_delimited(buf, pos)
             _symbol_information(body, intern, bases)
@@ -90,6 +92,7 @@ def decode_index(buf: memoryview, root_prefix: str = "") -> Decoded:
             pos = skip(buf, pos, wire)
     if not has_metadata:
         raise CodeIndexError("no metadata message: not a SCIP index, or truncated before its first field")
+    tool = f"{tool_info.get(1, '')} {tool_info.get(2, '')}".strip()
     return Decoded(tool, occurrences, bases)
 
 
@@ -110,30 +113,24 @@ def _symbol(raw: memoryview, intern: dict[bytes, str]) -> str:
     return text
 
 
-def _metadata_tool(body: memoryview) -> str:
-    """``name version`` from Metadata.tool_info; the other metadata fields are not used."""
-    tool = ""
+def _metadata(body: memoryview, tool_info: dict[int, str]) -> None:
+    """Merge the tool name (1) and version (2) of Metadata.tool_info into ``tool_info``. A repeated singular
+    message merges in protobuf: a field the later copy sets replaces the earlier value, an absent one keeps it."""
     pos = 0
     while pos < len(body):
         field, wire, pos = read_key(body, pos)
         if field == 2 and wire == LEN:
             info, pos = read_delimited(body, pos)
-            name = version = ""
             at = 0
             while at < len(info):
                 sub, sub_wire, at = read_key(info, at)
                 if sub in (1, 2) and sub_wire == LEN:
                     raw, at = read_delimited(info, at)
-                    if sub == 1:
-                        name = _text(raw, "tool name")
-                    else:
-                        version = _text(raw, "tool version")
+                    tool_info[sub] = _text(raw, "tool name" if sub == 1 else "tool version")
                 else:
                     at = skip(info, at, sub_wire)
-            tool = f"{name} {version}".strip()
         else:
             pos = skip(body, pos, wire)
-    return tool
 
 
 def _document(body: memoryview, intern: dict[bytes, str],
@@ -162,10 +159,10 @@ def _document(body: memoryview, intern: dict[bytes, str],
 
 
 def _occurrence(body: memoryview, intern: dict[bytes, str]) -> _Raw:
-    """(line, start_col, end_line, end_col, symbol, roles, enclosing lines) of one Occurrence."""
+    """(line, start_col, end_line, end_col, symbol, roles, enclosing span) of one Occurrence."""
     rng: list[int] = []
     enc: list[int] = []
-    typed: dict[int, list[int]] = {}
+    typed: dict[int, dict[int, int]] = {}
     symbol = ""
     roles = 0
     pos = 0
@@ -182,7 +179,7 @@ def _occurrence(body: memoryview, intern: dict[bytes, str]) -> _Raw:
             pos = read_ints(body, pos, wire, enc)
         elif field in (8, 9, 10, 11) and wire == LEN:
             raw, pos = read_delimited(body, pos)
-            typed[field] = _typed_range(raw, multi=field in (9, 11))
+            _typed_range(raw, field in (9, 11), typed.setdefault(field, {}))
         else:
             pos = skip(body, pos, wire)
     rng = _precedence(typed, (8, 9), rng)
@@ -195,33 +192,39 @@ def _occurrence(body: memoryview, intern: dict[bytes, str]) -> _Raw:
     return rng[0], rng[1], end_line, rng[-1], symbol, roles, _enclosing(enc)
 
 
-def _precedence(typed: dict[int, list[int]], fields: tuple[int, int], legacy: list[int]) -> list[int]:
+def _precedence(typed: dict[int, dict[int, int]], fields: tuple[int, int], legacy: list[int]) -> list[int]:
     """The first typed range of ``fields`` that the occurrence sets, else the deprecated repeated-int range."""
     for field in fields:
         if field in typed:
-            return typed[field]
+            return _ordered(typed[field], field in (9, 11))
     return legacy
 
 
-def _enclosing(enc: list[int]) -> tuple[int, int] | None:
-    """The first and last line of an enclosing range, or ``None`` when there is none."""
+def _enclosing(enc: list[int]) -> tuple[int, int, int, int] | None:
+    """The start and the exclusive end of an enclosing range as (line, col, line, col), or ``None`` when there is none."""
     if not enc:
         return None
     if len(enc) not in (3, 4):
         raise CodeIndexError(f"an enclosing range has {len(enc)} values, expected 3 or 4")
     _check_span(enc, "enclosing range")
-    # the end is exclusive: a multiline range ending at column 0 leaves the line before its end uncovered
-    last = enc[0] if len(enc) == 3 else enc[2]
-    if len(enc) == 4 and enc[3] == 0 and enc[2] > enc[0]:
-        last -= 1
-    return enc[0], last
+    return (enc[0], enc[1], enc[0], enc[2]) if len(enc) == 3 else (enc[0], enc[1], enc[2], enc[3])
 
 
-def _typed_range(body: memoryview, multi: bool) -> list[int]:
-    """The values of a SingleLineRange (line, start column, end column) or a MultiLineRange (start line, start
-    column, end line, end column), in the order of the repeated-int range. An absent field is 0, as in protobuf."""
+def _lines(span: tuple[int, int, int, int] | None) -> tuple[int, int] | None:
+    """The first and last line an enclosing span covers: a multiline range ending at column 0 leaves the line
+    before its end uncovered, since its end is exclusive."""
+    if span is None:
+        return None
+    first, _, end_line, end_col = span
+    last = end_line - 1 if end_col == 0 and end_line > first else end_line
+    return first, last
+
+
+def _typed_range(body: memoryview, multi: bool, values: dict[int, int]) -> None:
+    """Merge the values of a SingleLineRange (line, start column, end column) or a MultiLineRange (start line,
+    start column, end line, end column) into ``values``. A repeated singular message merges as in protobuf, so
+    a split message keeps the fields the first copy set."""
     wanted = (1, 2, 3, 4) if multi else (1, 2, 3)
-    values: dict[int, int] = {}
     pos = 0
     while pos < len(body):
         field, wire, pos = read_key(body, pos)
@@ -229,7 +232,11 @@ def _typed_range(body: memoryview, multi: bool) -> list[int]:
             values[field], pos = read_varint(body, pos)
         else:
             pos = skip(body, pos, wire)
-    return [values.get(field, 0) for field in wanted]
+
+
+def _ordered(values: dict[int, int], multi: bool) -> list[int]:
+    """The values in the order of the repeated-int range. An absent field is 0, as in protobuf."""
+    return [values.get(field, 0) for field in ((1, 2, 3, 4) if multi else (1, 2, 3))]
 
 
 def _check_span(values: list[int], what: str) -> None:

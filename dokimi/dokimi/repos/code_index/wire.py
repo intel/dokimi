@@ -35,12 +35,17 @@ def read_varint(buf: memoryview, pos: int) -> tuple[int, int]:
     raise CodeIndexError(f"varint longer than 10 bytes ending at byte {pos}")
 
 
+_MAX_FIELD = 2**29 - 1
+
+
 def read_key(buf: memoryview, pos: int) -> tuple[int, int, int]:
     """The field number, the wire type and the position after the key at ``pos``."""
     key, pos = read_varint(buf, pos)
     field, wire = key >> 3, key & 7
     if field == 0:
         raise CodeIndexError(f"field number 0 at byte {pos}: not a protobuf message")
+    if field > _MAX_FIELD:
+        raise CodeIndexError(f"field number {field} at byte {pos} is above the protobuf maximum 2^29-1")
     return field, wire, pos
 
 
