@@ -12,8 +12,9 @@ checks), ``tool_preference`` (which of two equal tools a model picks, and
 what moves it), ``repo_environment`` (static inspection of what a
 repository offers an agent), ``plan`` (the cells a run promises to measure),
 ``result`` (one status per planned cell), ``repo_budget`` (what a repository puts
-into an agent's context) and ``task_inspect`` (which eval-task format each
-path under a tree is) and ``dokimi_config`` (a repository's subjects and where their evals are). This module stamps each with a
+into an agent's context), ``task_inspect`` (which eval-task format each
+path under a tree is) and ``dokimi_config`` (a repository's subjects and where
+their evals are). This module stamps each with a
 ``schema_version`` and validates it against the JSON Schema in
 ``dokimi/schemas/`` on save and load, so fixtures and baselines stay
 forward-compatible and self-describing.

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -115,7 +116,7 @@ def test_an_invalid_config_is_refused_with_the_file_and_the_reason(tmp_path, bod
     root = _tree(tmp_path / "repo", {".github/dokimi/config.yaml": body})
     with pytest.raises(ConfigError, match=needle) as err:
         load_repo_config(root)
-    assert ".github/dokimi/config.yaml" in str(err.value)
+    assert str(Path(".github/dokimi/config.yaml")) in str(err.value)
 
 
 def test_a_valid_full_config_loads_with_plan_budget_and_baseline(tmp_path):
@@ -579,6 +580,7 @@ def test_a_budget_that_is_not_a_finite_number_is_refused(tmp_path, key, value):
         load_repo_config(root)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
 def test_an_eval_that_is_a_symlink_hashes_the_file_it_points_to(tmp_path):
     import os
 
@@ -595,6 +597,7 @@ def test_an_eval_that_is_a_symlink_hashes_the_file_it_points_to(tmp_path):
     assert _subjects(root)["skill/a"].suite_hash != before
 
 
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
 def test_an_eval_directory_that_is_a_symlink_hashes_the_files_it_reaches(tmp_path):
     import os
 
@@ -611,6 +614,7 @@ def test_an_eval_directory_that_is_a_symlink_hashes_the_files_it_reaches(tmp_pat
     assert _subjects(root)["skill/a"].suite_hash != before
 
 
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
 def test_an_evals_dir_that_links_to_its_own_skill_is_refused(tmp_path):
     import os
 
@@ -637,11 +641,163 @@ def test_a_budget_with_a_huge_exponent_is_refused_with_a_short_message(tmp_path)
 
 
 @pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
-@pytest.mark.parametrize(("link", "target"), [("evals/skill_link.md", "../SKILL.md"), ("evals/up", "..")])
+@pytest.mark.parametrize(
+    ("link", "target"), [("evals/skill_link.md", "../SKILL.md"), ("evals/up", ".."), ("evals/root", "../../..")]
+)
 def test_a_suite_link_into_its_skill_is_refused(tmp_path, link, target):
     body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n"
     files = {".github/dokimi/config.yaml": body, "skills/a/SKILL.md": "a\n", "skills/a/evals/e.json": "{}\n"}
     root = _tree(tmp_path / "repo", files)
     os.symlink(target, root / "skills/a" / link)
     with pytest.raises(ConfigError, match=r"skill/a.*link"):
+        load_repo_config(root).subjects(hashes=False)
+
+
+# --- links and globs as the reviews found them ------------------------------------------------------
+
+
+def test_an_explicit_config_at_a_bracketed_path_claims_its_own_change_only(tmp_path):
+    name = "ci/config[1].yaml"
+    root = _tree(tmp_path / "repo", {name: HEADER + "defaults:\n  skills: skills/*\n", "skills/a/SKILL.md": "a\n", "ci/config1.yaml": "x\n"})
+    impact = load_repo_config(root, explicit=root / name).subjects_for_changed([name, "ci/config1.yaml"])
+    assert impact.shared == [name]
+    assert impact.unclaimed == ["ci/config1.yaml"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_a_change_to_a_symlinked_skills_target_maps_to_that_skill(tmp_path):
+    root = _tree(tmp_path / "repo", {".github/dokimi/config.yaml": BESIDE_CONFIG, "vendor/a/SKILL.md": "# a\n"})
+    (root / "skills").mkdir()
+    os.symlink(root / "vendor" / "a", root / "skills" / "a", target_is_directory=True)
+    impact = load_repo_config(root).subjects_for_changed(["vendor/a/SKILL.md"])
+    assert impact.skills == {"skill/a": ["vendor/a/SKILL.md"]}
+    assert impact.unclaimed == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_two_skills_that_alias_one_directory_both_own_its_change(tmp_path):
+    root = _tree(tmp_path / "repo", {".github/dokimi/config.yaml": BESIDE_CONFIG, "skills/b/SKILL.md": "# b\n"})
+    os.symlink("b", root / "skills" / "a", target_is_directory=True)
+    cfg = load_repo_config(root)
+    assert len({s.skill_sha for s in cfg.subjects()}) == 1  # both hash the same tree
+    impact = cfg.subjects_for_changed(["skills/b/SKILL.md"])
+    assert impact.skills == {"skill/a": ["skills/b/SKILL.md"], "skill/b": ["skills/b/SKILL.md"]}
+    assert impact.unclaimed == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_a_skill_linked_into_another_skills_directory_is_refused(tmp_path):
+    body = HEADER + "subjects:\n  - id: skill/q\n    path: vendor/q\n  - id: skill/r\n    path: skills/r\n"
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": body,
+        "vendor/q/SKILL.md": "q\n",
+        "vendor/q/inner/SKILL.md": "i\n",
+    })
+    (root / "skills").mkdir()
+    os.symlink(root / "vendor/q/inner", root / "skills/r", target_is_directory=True)
+    with pytest.raises(ConfigError, match=r"skill/r.*inside the skill vendor/q"):
+        load_repo_config(root).subjects(hashes=False)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_a_change_to_a_repo_manifest_reached_through_a_link_maps_to_the_subject(tmp_path):
+    body = HEADER + "subjects:\n  - id: repo\n    kind: repo\n    manifest: dokimi.toml\n"
+    root = _tree(tmp_path / "repo", {".github/dokimi/config.yaml": body, "pyproject.toml": "[project]\n"})
+    os.symlink("pyproject.toml", root / "dokimi.toml")
+    impact = load_repo_config(root).subjects_for_changed(["pyproject.toml"])
+    assert impact.suites == {"repo": ["pyproject.toml"]}
+    assert impact.unclaimed == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_a_change_to_a_suite_file_reached_through_a_link_maps_to_the_suite(tmp_path):
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": BESIDE_CONFIG,
+        "skills/a/SKILL.md": "a\n",
+        "shared/q.json": "[1]\n",
+        "skills/a/evals/.keep": "",
+    })
+    os.symlink("../../../shared/q.json", root / "skills/a/evals/q.json")
+    impact = load_repo_config(root).subjects_for_changed(["shared/q.json"])
+    assert impact.suites == {"skill/a": ["shared/q.json"]}
+    assert impact.unclaimed == []
+
+
+def test_a_suite_that_ends_in_double_star_hashes_like_its_directory(tmp_path):
+    files = {"skills/a/SKILL.md": "a\n", "skills/a/evals/q.json": "{}\n", "skills/a/evals/sub/b.json": "{}\n"}
+    head = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: "
+    root = _tree(tmp_path / "repo", {".github/dokimi/config.yaml": head + "skills/a/evals\n", **files})
+    dir_hash = _subjects(root)["skill/a"].suite_hash
+    (root / ".github/dokimi/config.yaml").write_text(head + "skills/a/evals/**\n", encoding="utf-8")
+    assert _subjects(root)["skill/a"].suite_hash == dir_hash
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_a_symlink_loop_in_a_suite_is_a_config_error_naming_the_link(tmp_path):
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n"
+    root = _tree(tmp_path / "repo", {".github/dokimi/config.yaml": body, "skills/a/SKILL.md": "a\n", "skills/a/evals/q.json": "{}\n"})
+    os.symlink("loop", root / "skills/a/evals/loop")
+    with pytest.raises(ConfigError, match=r"skill/a.*loop"):
+        load_repo_config(root).subjects(hashes=False)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_a_double_star_reaches_a_linked_directory_one_step_only(tmp_path):
+    from dokimi.repo_config import _glob_paths
+
+    root = _tree(tmp_path / "repo", {"dir/sub/x": "x\n", "dir/x": "x\n"})
+    os.symlink("dir", root / "link")
+    found = sorted(p.relative_to(root).as_posix() for p in _glob_paths(root, "**/x"))
+    assert found == ["dir/sub/x", "dir/x", "link/x"]
+
+
+@pytest.mark.skipif(os.name == "nt" or os.geteuid() == 0, reason="permissions are not enforced on Windows or for root")
+def test_an_unreadable_suite_directory_is_a_config_error_naming_it(tmp_path):
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n"
+    root = _tree(tmp_path / "repo", {".github/dokimi/config.yaml": body, "skills/a/SKILL.md": "a\n", "skills/a/evals/q.json": "{}\n"})
+    evals = root / "skills/a/evals"
+    evals.chmod(0)
+    try:
+        with pytest.raises(ConfigError, match=r"cannot read .*evals"):
+            load_repo_config(root).subjects()
+    finally:
+        evals.chmod(0o755)
+
+
+@pytest.mark.skipif(os.name == "nt" or os.geteuid() == 0, reason="permissions are not enforced on Windows or for root")
+def test_an_unreadable_directory_under_a_skills_glob_matches_nothing(tmp_path):
+    body = HEADER + "defaults:\n  skills: locked/skills\n"
+    root = _tree(tmp_path / "repo", {".github/dokimi/config.yaml": body, "locked/skills/a/SKILL.md": "a\n"})
+    locked = root / "locked"
+    locked.chmod(0)
+    try:
+        assert load_repo_config(root).subjects(hashes=False) == []
+    finally:
+        locked.chmod(0o755)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+@pytest.mark.parametrize(
+    ("suite", "link", "target", "files"),
+    [
+        (
+            "evaluation/linked/SKILL.md",
+            "evaluation/linked",
+            "../skills/a",
+            {"skills/a/SKILL.md": "a\n", "skills/a/evals/e.json": "{}\n", "evaluation/.keep": ""},
+        ),
+        (
+            "vendor/a/SKILL.md",
+            "skills/a",
+            "../vendor/a",
+            {"vendor/a/SKILL.md": "a\n", "vendor/a/evals/e.json": "{}\n", "evaluation/.keep": ""},
+        ),
+    ],
+)
+def test_a_suite_file_reached_through_a_link_into_its_skill_is_refused(tmp_path, suite, link, target, files):
+    body = HEADER + f"subjects:\n  - id: skill/a\n    path: skills/a\n    suite: {suite}\n"
+    root = _tree(tmp_path / "repo", {".github/dokimi/config.yaml": body, **files})
+    (root / link).parent.mkdir(parents=True, exist_ok=True)
+    os.symlink(target, root / link, target_is_directory=True)
+    with pytest.raises(ConfigError, match=rf"skill/a.*{re.escape(suite)}"):
         load_repo_config(root).subjects(hashes=False)

@@ -84,24 +84,33 @@ class RepoConfig:
     data: dict[str, Any]
 
     def subjects(self, *, hashes: bool = True) -> list[Subject]:
-        """The subjects after defaults and explicit overrides, sorted by id; ``hashes=False`` skips the tree walks."""
-        resolved = _resolve(self.data, self.root)
-        for subject in resolved:
-            _check_suite(subject, self.root)
-        return [_hashed(s, self.root, resolved) for s in resolved] if hashes else resolved
+        """The subjects after defaults and explicit overrides, sorted by id; ``hashes=False`` skips the tree walks.
+        A directory that cannot be read raises ConfigError naming it."""
+        try:
+            resolved = _resolve(self.data, self.root)
+            _check_nesting(resolved, self.root)
+            for subject in resolved:
+                _check_suite(subject, self.root)
+            return [_hashed(s, self.root, resolved) for s in resolved] if hashes else resolved
+        except OSError as exc:
+            raise _unreadable(exc) from exc
 
     def subjects_for_changed(self, paths: Iterable[str]) -> Impact:
         """Map repository-relative changed paths onto subjects, suites and ``shared``; the rest is unclaimed."""
-        subjects = self.subjects(hashes=False)
-        shared = [*(_pattern(g, "shared") for g in _as_list(self.data.get("shared"))), *_own_path(self)]
-        impact = Impact()
-        for raw in paths:
-            rel = _norm(str(raw))
-            if rel is None:
-                impact.unclaimed.append(str(raw))
-                continue
-            _map_one(rel, subjects, shared, impact)
-        return impact
+        try:
+            subjects = self.subjects(hashes=False)
+            reach = {s.id: _reach(s, self.root) for s in subjects}
+            shared = [*(_pattern(g, "shared") for g in _as_list(self.data.get("shared"))), *_own_path(self)]
+            impact = Impact()
+            for raw in paths:
+                rel = _norm(str(raw))
+                if rel is None:
+                    impact.unclaimed.append(str(raw))
+                    continue
+                _map_one(rel, subjects, reach, shared, impact)
+            return impact
+        except OSError as exc:
+            raise _unreadable(exc) from exc
 
 
 def find_repo_root(start: Path) -> Path:
@@ -212,9 +221,10 @@ def _as_list(value: Any) -> list[str]:
 
 
 def _own_path(config: RepoConfig) -> list[str]:
-    """The config file is shared: a change to it reruns the smoke set. Empty when it sits outside the root."""
+    """The config file is shared: a change to it reruns the smoke set. Empty when it sits outside the root.
+    It is a literal path, but ``shared`` is matched as a glob, so its metacharacters are escaped."""
     try:
-        return [config.path.resolve().relative_to(config.root.resolve()).as_posix()]
+        return [glob.escape(config.path.resolve().relative_to(config.root.resolve()).as_posix())]
     except ValueError:
         return []
 
@@ -233,27 +243,75 @@ def _match(pat: tuple[str, ...], segs: tuple[str, ...]) -> bool:
     return bool(segs) and fnmatch.fnmatchcase(segs[0], pat[0]) and _match(pat[1:], segs[1:])
 
 
-def _map_one(rel: str, subjects: list[Subject], shared: list[str], impact: Impact) -> None:
+Reach = tuple[list[tuple[str, ...]], list[tuple[str, ...]]]  # (skill directories, suite files) by resolved location
+
+
+def _reach(subject: Subject, root: Path) -> Reach:
+    """Where a subject's hashes read, as repository-relative segments, through links as well as by declared path:
+    a symlinked skill directory or suite file maps a change at its target to the subject."""
+    root_real = _real(root)
+    skill_roots: list[tuple[str, ...]] = [_segs(subject.path)] if subject.kind == "skill" else []
+    suite_roots: list[tuple[str, ...]] = []
+    if root_real is None:
+        return skill_roots, suite_roots
+    real_skill = _inside(root / subject.path, root_real) if subject.kind == "skill" else None
+    if real_skill is not None:
+        skill_roots.append(real_skill)
+    if subject.manifest is not None:  # the repo subject hashes its manifest through a link, so its target is covered
+        real_manifest = _inside(root / subject.manifest, root_real)
+        if real_manifest is not None:
+            suite_roots.append(real_manifest)
+    for rel, path in _suite_files(root, subject.suite_globs).items():
+        for _, entry in _walk(path, rel):
+            real = _inside(entry, root_real)
+            if real is not None:
+                suite_roots.append(real)
+    return skill_roots, suite_roots
+
+
+def _inside(path: Path, root_real: Path) -> tuple[str, ...] | None:
+    """The segments of ``path``'s resolved location under the repository root; None when it is the root or outside it."""
+    real = _real(path)
+    if real is None or real == root_real or not real.is_relative_to(root_real):
+        return None
+    return tuple(real.relative_to(root_real).as_posix().split("/"))
+
+
+def _under(segs: tuple[str, ...], base: tuple[str, ...]) -> bool:
+    return segs[:len(base)] == base
+
+
+def _in_suite(subject: Subject, segs: tuple[str, ...], reach: Reach) -> bool:
+    return any(_claims(g, segs) for g in subject.eval_globs) or any(_under(segs, r) for r in reach[1])
+
+
+def _map_one(rel: str, subjects: list[Subject], reach: dict[str, Reach], shared: list[str], impact: Impact) -> None:
     segs = tuple(rel.split("/"))
     is_shared = any(_claims(g, segs) for g in shared)
-    suites = [s.id for s in subjects if any(_claims(g, segs) for g in s.eval_globs)]
-    skill = _skill_owner(subjects, segs)
-    if skill is not None and any(_claims(g, segs) for g in skill.suite_globs):
-        skill = None  # the skill's own suite holds this file: it is eval, and skill_sha leaves it out
+    suites = [s.id for s in subjects if _in_suite(s, segs, reach[s.id])]
+    # a skill whose own suite holds this file gets nothing: it is eval, and skill_sha leaves it out
+    skills = [s for s in _skill_owners(subjects, reach, segs) if not _in_suite(s, segs, reach[s.id])]
     if is_shared:
         impact.shared.append(rel)
     for sid in suites:
         impact.suites.setdefault(sid, []).append(rel)
-    if skill is not None:
+    for skill in skills:
         impact.skills.setdefault(skill.id, []).append(rel)
-    if not (is_shared or suites or skill is not None):
+    if not (is_shared or suites or skills):
         impact.unclaimed.append(rel)
 
 
-def _skill_owner(subjects: list[Subject], segs: tuple[str, ...]) -> Subject | None:
-    """The skill whose directory holds ``segs``; the deepest one when skills nest."""
-    owners = [s for s in subjects if s.kind == "skill" and segs[:len(_segs(s.path))] == _segs(s.path)]
-    return max(owners, key=lambda s: len(_segs(s.path)), default=None)
+def _skill_owners(subjects: list[Subject], reach: dict[str, Reach], segs: tuple[str, ...]) -> list[Subject]:
+    """The skills whose directory (declared or resolved) holds ``segs``: the deepest ones when skills nest. Two subjects
+    that alias one directory both own its files, since both skill_sha values cover them."""
+    depth = max(
+        (len(root) for s in subjects if s.kind == "skill" for root in reach[s.id][0] if _under(segs, root)),
+        default=0,
+    )
+    return [
+        s for s in subjects
+        if s.kind == "skill" and any(len(root) == depth and _under(segs, root) for root in reach[s.id][0])
+    ] if depth else []
 
 
 def _segs(path: str) -> tuple[str, ...]:
@@ -282,12 +340,32 @@ def _resolve(data: dict[str, Any], root: Path) -> list[Subject]:
     return sorted(subjects, key=lambda s: s.id)
 
 
+def _check_nesting(subjects: list[Subject], root: Path) -> None:
+    """A skill whose resolved directory lies inside another skill's, but whose declared path does not, is refused: the
+    outer skill's hash covers it, and a change to it could not be attributed to one owner. Skills that alias one
+    directory are both owners, so they are allowed."""
+    real = {s.id: _real(root / s.path) for s in subjects if s.kind == "skill"}
+    for s in subjects:
+        s_real = real.get(s.id) if s.kind == "skill" else None
+        if s_real is None:
+            continue
+        for t in subjects:
+            t_real = real.get(t.id) if t.kind == "skill" and t is not s else None
+            if t_real is None or t_real == s_real:
+                continue
+            if s_real.is_relative_to(t_real) and not _within(s.path, t.path):
+                raise ConfigError(
+                    f"subject {s.id}: its directory {s.path} is inside the skill {t.path} through a link; "
+                    "a skill reached by a link into another skill is not supported"
+                )
+
+
 def _skill_dirs(data: dict[str, Any], root: Path) -> list[str]:
     """Repository-relative directories matched by ``defaults.skills``; files do not count."""
     rels: set[str] = set()
     for pattern in _as_list((data.get("defaults") or {}).get("skills")):
-        for match in root.glob(_glob(pattern, "defaults.skills")):
-            if match.is_dir():
+        for match in _glob_paths(root, _glob(pattern, "defaults.skills")):
+            if match.is_dir():  # an OSError here is turned into ConfigError by the caller
                 rels.add(match.relative_to(root).as_posix())
     return sorted(rels)
 
@@ -334,12 +412,66 @@ def _suite_globs(spec: Any, *, where: str, skill: str | None) -> tuple[str, ...]
     return tuple(dict.fromkeys(globs))
 
 
+def _unreadable(exc: OSError) -> ConfigError:
+    """A ConfigError naming the path that could not be read, so an unreadable directory is a config problem, not a
+    traceback out of the loader."""
+    return ConfigError(f"cannot read {exc.filename or 'part of the repository'}: {exc.strerror or exc}")
+
+
+def _listing(base: Path) -> list[tuple[str, bool, bool]]:
+    """(name, is_dir, is_symlink) of each entry of ``base`` that can be read; an unreadable one is left out."""
+    out: list[tuple[str, bool, bool]] = []
+    try:
+        with os.scandir(base) as it:
+            for entry in it:
+                try:
+                    out.append((entry.name, entry.is_dir(), entry.is_symlink()))
+                except OSError:
+                    continue
+    except OSError:
+        pass
+    return out
+
+
+def _glob_walk(base: Path, segs: tuple[str, ...], i: int, found: set[Path]) -> None:
+    if i == len(segs):
+        found.add(base)
+        return
+    seg = segs[i]
+    if seg == "**":
+        _glob_walk(base, segs, i + 1, found)
+        for name, is_dir, is_link in _listing(base):
+            if is_dir:  # follows symlinks: a linked directory is matched, but not descended
+                _glob_walk(base / name, segs, i + 1 if is_link else i, found)
+        return
+    wild = any(c in seg for c in "*?[")  # matched by exact name against the listing: case-sensitive everywhere
+    for name, _, _ in _listing(base):
+        if fnmatch.fnmatchcase(name, seg) if wild else name == seg:
+            _glob_walk(base / name, segs, i + 1, found)
+
+
+def _glob_paths(root: Path, pattern: str) -> list[Path]:
+    """The paths ``pattern`` matches under ``root``. Every segment, literal ones included, is matched against the names
+    in the directory listing, case-sensitively on every platform: ``Path.glob`` folds case on Windows, and 3.11 has no
+    ``case_sensitive`` switch, so a suite would differ between OSes and from impact. ``**`` is a whole segment matching
+    zero or more directories. It does not recurse through a symlinked directory: the link counts as one directory for the
+    segments after it, so ``**/x`` reaches ``link/x`` but not ``link/sub/x``; a second ``**`` placed after a link can still
+    descend it, so ``**/**/x`` is not guaranteed to match as ``**/x`` does. Unlike ``Path.glob`` on some versions, a
+    linked directory is matched by ``**`` itself on every version. A directory that cannot be listed contributes no
+    matches."""
+    found: set[Path] = set()
+    _glob_walk(root, tuple(pattern.split("/")), 0, found)
+    return sorted(found)
+
+
 def _suite_files(root: Path, globs: tuple[str, ...]) -> dict[str, Path]:
+    """The suite's matches by repository-relative path. A match under another match is left out: that match's walk
+    already covers it, so ``{skill}/evals/**`` hashes the same whether ``**`` yields files too (3.13+) or not (3.11/3.12)."""
     found: dict[str, Path] = {}
     for pattern in globs:
-        for match in sorted(root.glob(pattern)):
+        for match in _glob_paths(root, pattern):
             found.setdefault(match.relative_to(root).as_posix(), match)
-    return found
+    return {rel: path for rel, path in found.items() if not any(other != rel and _within(rel, other) for other in found)}
 
 
 def _digest_files(files: dict[str, Path]) -> str:
@@ -357,6 +489,14 @@ def _digest_files(files: dict[str, Path]) -> str:
     return "sha256:" + h.hexdigest()
 
 
+def _real(path: Path) -> Path | None:
+    """The resolved path, or None when it cannot be resolved: a symlink loop (3.11 and 3.12 raise RuntimeError for it)."""
+    try:
+        return path.resolve()
+    except (OSError, RuntimeError):
+        return None
+
+
 def _walk(path: Path, rel: str) -> list[tuple[str, Path]]:
     """Entries under ``path`` (or ``path`` itself): regular files and symlinks. Symlinks are followed into their
     directories; a directory is visited once by its resolved path, so a cycle ends."""
@@ -367,8 +507,8 @@ def _walk(path: Path, rel: str) -> list[tuple[str, Path]]:
         if entry.is_symlink():
             found.append((name, entry))
         if entry.is_dir():
-            real = entry.resolve()
-            if real in seen:
+            real = _real(entry)
+            if real is None or real in seen:
                 return
             seen.add(real)
             for child in sorted(entry.iterdir()):
@@ -386,30 +526,70 @@ def _within(rel: str, base: str) -> bool:
 
 
 def _check_suite(subject: Subject, root: Path) -> None:
-    """A skill's suite claims whole directories of its skill, never single files of it (SKILL.md, scripts, references)."""
+    """A skill's suite claims whole directories of its skill, never single files of it (SKILL.md, scripts, references),
+    and no link in it reaches into its skill or to an ancestor of it. Declared paths and resolved links are both checked."""
     if subject.kind != "skill":
         return
     matches = _suite_files(root, subject.suite_globs)
-    real_skill = (root / subject.path).resolve()
+    real_skill = _real(root / subject.path)
+    if real_skill is None:
+        raise ConfigError(f"subject {subject.id}: {subject.path} is a link that does not resolve")
     for rel, path in matches.items():
-        if rel == subject.path:
-            raise ConfigError(f"subject {subject.id}: its suite matches the whole skill directory {subject.path}")
-        if subject.path.startswith(rel + "/"):
-            raise ConfigError(f"subject {subject.id}: its suite {rel} contains the skill directory {subject.path}")
-        if path.is_dir() and real_skill.is_relative_to(path.resolve()):
-            raise ConfigError(
-                f"subject {subject.id}: its directory {rel} links to its skill or an ancestor of it, "
-                "so the suite would hold the skill's own files"
-            )
-        for name, entry in _walk(path, rel):
-            if entry.is_symlink() and entry.resolve().is_relative_to(real_skill):
-                raise ConfigError(
-                    f"subject {subject.id}: its suite holds {name}, a link into its skill {subject.path}; "
-                    "a suite holds its own files, not links into the skill"
-                )
+        _check_match(subject, rel, path, real_skill)
+    _check_claims(subject, matches, real_skill)
+
+
+def _into_skill(path: Path, real_skill: Path) -> bool:
+    real = _real(path)
+    return real is not None and real.is_relative_to(real_skill)
+
+
+def _check_match(subject: Subject, rel: str, path: Path, real_skill: Path) -> None:
+    if rel == subject.path:
+        raise ConfigError(f"subject {subject.id}: its suite matches the whole skill directory {subject.path}")
+    if subject.path.startswith(rel + "/"):
+        raise ConfigError(f"subject {subject.id}: its suite {rel} contains the skill directory {subject.path}")
+    real = _real(path)
+    if real is None:
+        raise ConfigError(f"subject {subject.id}: its suite holds {rel}, a link that loops; a suite holds real files")
+    if path.is_dir() and real_skill.is_relative_to(real):
+        raise ConfigError(
+            f"subject {subject.id}: its directory {rel} links to its skill or an ancestor of it, "
+            "so the suite would hold the skill's own files"
+        )
+    for name, entry in _walk(path, rel):
+        if entry.is_symlink():
+            _check_link(subject, name, entry, real_skill)
+
+
+def _check_link(subject: Subject, name: str, entry: Path, real_skill: Path) -> None:
+    target = _real(entry)
+    if target is None:
+        raise ConfigError(f"subject {subject.id}: its suite holds {name}, a link that loops; a suite holds real files")
+    if target.is_relative_to(real_skill):
+        raise ConfigError(
+            f"subject {subject.id}: its suite holds {name}, a link into its skill {subject.path}; "
+            "a suite holds its own files, not links into the skill"
+        )
+    if real_skill.is_relative_to(target):
+        raise ConfigError(
+            f"subject {subject.id}: its suite holds {name}, a link to {subject.path} or an ancestor of it, "
+            "so the suite would hold the skill's own files"
+        )
+
+
+def _check_claims(subject: Subject, matches: dict[str, Path], real_skill: Path) -> None:
     dirs = [rel for rel, path in matches.items() if path.is_dir() and _within(rel, subject.path)]
     for rel, path in matches.items():
-        if path.is_dir() or not _within(rel, subject.path) or any(_within(rel, d) for d in dirs):
+        into = _into_skill(path, real_skill)
+        if path.is_dir() and not _within(rel, subject.path) and into:
+            how = "links into" if path.is_symlink() else "is inside the real directory of"
+            raise ConfigError(
+                f"subject {subject.id}: its directory {rel} {how} its skill {subject.path}, "
+                "so the skill's hash would cover the suite's files"
+            )
+        inside = _within(rel, subject.path) or into
+        if path.is_dir() or not inside or any(_within(rel, d) for d in dirs):
             continue
         raise ConfigError(
             f"subject {subject.id}: its suite claims the file {rel} of its skill, not a whole directory; "
