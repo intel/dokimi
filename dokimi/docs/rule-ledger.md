@@ -71,7 +71,7 @@ Schema cannot).
       "id": "R13",
       "rule": "Revert edits to files the change does not need.",
       "source": "AGENTS.md#commits-and-pull-requests",
-      "hypothesis": "With the rule, agents stop touching unrelated files on the replayed PRs.",
+      "hypothesis": "With the rule, the agent's review findings land on more of the reviewers' threads on the replayed PRs.",
       "arm": "guidance:raw",
       "baseline": "guidance:none",
       "cases": ["review_replay_pr3580", "review_replay_pr3659"],
