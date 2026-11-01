@@ -73,3 +73,4 @@ guidance:
     .github/instructions files are probed through the manifest's globs. The
     hosted Copilot code review (on a pull request) reads a different set,
     REVIEW.md included.
+overlay: copilot   # AGENTS.copilot.md, the guidance:overlay arm (agentsmd/agents.md#185)

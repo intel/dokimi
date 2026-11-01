@@ -76,6 +76,11 @@
         "write": {"type": "string"},
         "content": {"type": "string"}
       }
+    },
+    "overlay": {
+      "type": ["string", "null"],
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "The agent name of the AGENTS.<overlay>.md the guidance:overlay arm keeps for this harness (agentsmd/agents.md#185). Absent or null: the arm cannot run with this profile."
     }
   }
 }

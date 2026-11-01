@@ -12,7 +12,7 @@ Every task runs in ``<run_dir>/workspace``, made from the task's ``base``:
 3. ``git init`` and commit (no history, so an upstream fix cannot leak)
 4. apply ``setup_patches``
 5. apply the arm (``guidance:none`` | ``guidance:raw`` | ``guidance:bridge`` |
-   ``guidance:rev:<sha>`` | ``patch:<name>@<digest>``, see :class:`Arm`), then its
+   ``guidance:overlay`` | ``guidance:rev:<sha>`` | ``patch:<name>@<digest>``, see :class:`Arm`), then its
    skills into ``.claude/skills/`` (:mod:`.arms`)
 6. amend the commit
 7. apply ``review_patch`` with ``git am`` under a neutral author
@@ -53,10 +53,12 @@ from .arms import ArmError, Skill, resolve_skills, tree_sha256
 from .errors import PrepError
 from .harness_profile import HarnessProfile
 from .manifest import RepoManifest, _is_within, match_glob
+from .overlays import overlay_of
 from .source import GitTree, RepoSource, RepoTree, SourceError, cache_path, default_cache_dir, resolve_rev
 from .uptake import MCP_CONFIG, base_servers, mcp_servers
 
-ARMS = ("guidance:none", "guidance:raw", "guidance:bridge")  # the guidance parts
+ARMS = ("guidance:none", "guidance:raw", "guidance:bridge", "guidance:overlay")  # the guidance parts
+OVERLAY_ARM = "guidance:overlay"  # base + the profile's AGENTS.<overlay>.md, other overlays removed (repos/overlays.py)
 REV_ARM, PATCH_ARM = "guidance:rev:", "patch:"
 #: Every form ``repo run --arm`` takes
 ARM_FORMS = (*ARMS, f"{REV_ARM}<rev>", f"{PATCH_ARM}<file>", "skill:<dir>", "skill-catalog:<dir>")
@@ -364,6 +366,10 @@ def prepare_workspace(git_dir: Path, manifest: RepoManifest, task: Task, arm: st
     if arm.base == "guidance:bridge" and not bridge:
         name = profile.name if profile is not None else "no harness"
         raise PrepError(f"guidance:bridge needs a harness profile with a `bridge` key; {name} has none")
+    overlay = profile.overlay if profile is not None else None
+    if arm.base == OVERLAY_ARM and not overlay:
+        name = profile.name if profile is not None else "no harness"
+        raise PrepError(f"guidance:overlay needs a harness profile with an `overlay` key; {name} has none")
     try:
         base_sha = resolve_rev(git_dir, task.base)
     except SourceError as exc:
@@ -382,7 +388,7 @@ def prepare_workspace(git_dir: Path, manifest: RepoManifest, task: Task, arm: st
     _git(ws, env, "commit", "-q", "--no-gpg-sign", "--allow-empty", "--no-verify", "-m", "snapshot")
     patches = _apply_setup_patches(ws, env, task)                                            # 4
     try:
-        arm_files, arm_meta = _apply_arm(ws, env, git_dir, manifest, arm, bridge)            # 5
+        arm_files, arm_meta = _apply_arm(ws, env, git_dir, manifest, arm, bridge, overlay)   # 5
     except PrepError as exc:
         raise PrepError(f"task {task.id}: {exc}") from exc
     installed = _install_skills(ws, task, skills)
@@ -446,14 +452,16 @@ def _forget(ws: Path, env: dict[str, str]) -> None:
 
 
 def _apply_arm(ws: Path, env: dict[str, str], git_dir: Path, manifest: RepoManifest, arm: Arm,
-               bridge: dict[str, str] | None) -> tuple[list[str], dict[str, Any]]:
+               bridge: dict[str, str] | None, overlay: str | None = None) -> tuple[list[str], dict[str, Any]]:
     """The files the arm removed (none), wrote (bridge, rev) or changed (patch), and its other
-    ``meta.json`` fields: bridge targets left alone, the revision, the patch file."""
+    ``meta.json`` fields: bridge targets left alone, the revision, the patch file, the overlay kept."""
     if arm.base == "guidance:raw":
         return [], {}
     if arm.patch is not None:
         return _apply_patch(ws, env, manifest, arm)
     tracked = [p for p in _git(ws, env, "ls-files", "-z").split("\0") if p]
+    if arm.base == OVERLAY_ARM:
+        return _apply_overlay(ws, tracked, overlay or "")
     matched = sorted(p for p in tracked if any(match_glob(g, p) for g in manifest.guidance_globs))
     if arm.base == "guidance:none" or arm.rev_sha is not None:
         for rel in matched:
@@ -520,6 +528,40 @@ def _apply_bridge(ws: Path, matched: list[str], bridge: dict[str, str]) -> tuple
         (ws / target).write_text(bridge["content"] + "\n", encoding="utf-8")
         written.append(target.as_posix())
     return written, ({"bridge_skipped": skipped} if skipped else {})
+
+
+def _canon(path: Path) -> Path:
+    """``path`` with its directories resolved and its final name kept, so a link is compared by its own name."""
+    return Path(os.path.realpath(path.parent)) / path.name
+
+
+def _link_hits(link: Path, gone: set[Path]) -> bool:
+    """Whether the symbolic link ``link`` names one of the canonical paths ``gone``, hop by hop: a shared final
+    target is no hit, a cycle ends the walk."""
+    hop, seen = _canon(link), set()
+    while hop.is_symlink() and hop not in seen:
+        seen.add(hop)
+        hop = _canon(hop.parent / os.readlink(hop))
+        if hop in gone:
+            return True
+    return False
+
+
+def _apply_overlay(ws: Path, tracked: list[str], own: str) -> tuple[list[str], dict[str, Any]]:
+    """Remove the overlays of other agents, keeping ``AGENTS.md`` and the ``own`` overlay; refused without one."""
+    kept = sorted(p for p in tracked if overlay_of(p) == own)
+    if not kept:
+        raise PrepError(f"guidance:overlay: the base has no AGENTS.{own}.md to keep")
+    removed = sorted(p for p in tracked if overlay_of(p) not in (None, own))
+    gone = {_canon(ws / rel) for rel in removed}
+    for rel in tracked:
+        if rel not in removed and _link_hits(ws / rel, gone):
+            raise PrepError(f"guidance:overlay: {rel} links to an overlay the arm removes; the base would dangle")
+    for rel in removed:
+        if (ws / rel).is_dir() and not (ws / rel).is_symlink():
+            raise PrepError(f"guidance:overlay: {rel} is a directory, not an overlay file")
+        (ws / rel).unlink()
+    return removed, {"arm_overlay": {"name": own, "kept": kept}}
 
 
 def _guidance_at(git_dir: Path, manifest: RepoManifest, sha: str) -> tuple[list[str], dict[str, str]]:

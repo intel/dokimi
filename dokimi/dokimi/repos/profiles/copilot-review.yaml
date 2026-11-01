@@ -76,3 +76,4 @@ guidance:
     REVIEW.md included. Measured with /review: the same files reached it, and the
     existing oneDAL guidance did not change its recall until the review rules sat in
     the root AGENTS.md.
+overlay: copilot   # AGENTS.copilot.md, the guidance:overlay arm (agentsmd/agents.md#185)

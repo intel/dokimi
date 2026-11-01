@@ -51,6 +51,7 @@ from .events import convert
 from .transcript import Transcript
 from .harness_profile import HarnessProfile
 from .manifest import RepoManifest, check_repo
+from .overlays import overlay_of
 from .runner import SUPPORT_HOST
 from .source import RepoTree, SourceError
 
@@ -58,6 +59,7 @@ TOKEN_RE = re.compile(r"\bRC[0-9A-F]{6}\b")
 PROBE_FILE = "REACH_PROBE.txt"
 PROSE_LIMIT = 8
 CLASSES = ("loaded", "truncated", "fetched", "not_loaded", "error")
+SEEN = ("loaded", "truncated", "fetched")  # the classes that mean the harness had (some of) the file
 # Names some harness loads by convention. Any of them in an ancestor of the
 # workspace would be read by the harness and pollute every scenario.
 ANCESTOR_GUARD = ("CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md", "AGENTS.md", "AGENT.md",
@@ -113,7 +115,31 @@ def probe_files(tree: RepoTree, manifest: RepoManifest, profile: HarnessProfile)
     declared = set(check_repo(tree, manifest).guidance_files)
     names = set(profile.guidance_names)
     native = {p for p in tree.files() if PurePosixPath(p).name in names}
-    return sorted(p for p in declared | native if not manifest.in_eval_dir(p))
+    # Every overlay, even where the globs miss it: whether a foreign one loads is the question (repos/overlays.py)
+    overlays = {p for p in tree.files() if overlay_of(p) is not None}
+    return sorted(p for p in declared | native | overlays if not manifest.in_eval_dir(p))
+
+
+def overlay_report(records: list[dict[str, Any]], own: str | None,
+                   links: dict[str, tuple[str, ...]]) -> dict[str, Any]:
+    """The overlay part of the payload: which of the ``own`` overlay files loaded, and which foreign overlays did
+    (``cross_loaded``, a finding: the harness read guidance written for another agent). ``links`` maps each probed
+    file to the links that name it: a file reached through an overlay-named link is an overlay under that name."""
+    names = {target: (target, *aliases) for target, aliases in links.items()}
+    own_files = {n for ns in names.values() for n in ns if own and overlay_of(n) == own}
+    foreign = {n for ns in names.values() for n in ns if overlay_of(n) not in (None, own)}
+    cross: dict[str, dict[str, str]] = {}
+    own_loaded: set[str] = set()
+    for r in records:
+        if r["class"] not in SEEN:
+            continue
+        for n in names.get(r["file"], ()):
+            if n in foreign:
+                cross.setdefault(n, {})[r["scenario"]] = r["class"]
+            if n in own_files:
+                own_loaded.add(n)
+    return {"own": own, "own_files": sorted(own_files), "own_loaded": sorted(own_loaded),
+            "foreign_files": sorted(foreign), "cross_loaded": dict(sorted(cross.items()))}
 
 
 def scenarios(files: list[str], kinds: tuple[str, ...] = ("root", "cwd", "read"),
@@ -357,6 +383,7 @@ def run_reach(
         "unresolved": unresolved,
         "scenarios": scenario_rows,
         "records": records,
+        "overlays": overlay_report(records, profile.overlay, {s.path: s.aliases for s in seeded}),
         "summary": {
             "cost_usd": round(sum(r.get("cost_usd") or 0 for r in scenario_rows), 6),
             "by_class": by_class,
@@ -420,6 +447,12 @@ def format_matrix(payload: dict[str, Any]) -> str:
         row = payload["summary"]["matrix"].get(f["path"], {})
         lines.append(f"{label[f['path']]:<{width}}  " + " ".join(f"{short[row.get(s, 'error')]:>2}" for s in ids))
     lines.append("L loaded  T truncated  F fetched (after a tool read)  . not loaded  E error")
+    overlays = payload.get("overlays") or {}
+    for path, seen in (overlays.get("cross_loaded") or {}).items():
+        where = ", ".join(f"{sid} ({cls})" for sid, cls in seen.items())
+        lines.append(f"finding: {path}, an overlay for another agent, was loaded by {payload['harness']['name']} in {where}")
+    if overlays.get("own_files") and not overlays.get("own_loaded"):
+        lines.append(f"note: no {overlays['own']} overlay ({', '.join(overlays['own_files'])}) was loaded in any scenario")
     if any(f.get("alias_kind") == "copy" for f in payload["files"]):
         lines.append("note: the paths after = are copies, not links (this OS refused a symlink); "
                      "a harness that skips symlinks would still load them")

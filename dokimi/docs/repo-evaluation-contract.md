@@ -293,7 +293,7 @@ belongs to the repository's grader and is passed through unread, except `grader`
 3. `git init` and commit (no history, so fixes cannot leak)
 4. apply `setup_patches`
 5. apply the arm: `guidance:none`, `guidance:raw`, `guidance:bridge`,
-   `guidance:rev:<rev>` or `patch:<file>`
+   `guidance:overlay`, `guidance:rev:<rev>` or `patch:<file>`
 6. amend the commit
 7. apply `review_patch` with `git am` under a neutral author
 8. expire the reflog and prune unreachable objects: the
@@ -313,6 +313,15 @@ content:
   depends on its version: Claude Code 2.1.286 loads `AGENTS.md` itself, but
   only when no `CLAUDE.md` is in its start-up chain, so a repository-side
   bridge arm would mean different things on different versions.
+- `overlay` exists only for a profile with an `overlay` key (the agent name, for
+  Claude Code `claude`). It is the per-agent overlay of agentsmd/agents.md#185:
+  `AGENTS.<agent>.md` beside an `AGENTS.md`, at any depth. The workspace keeps
+  the base `AGENTS.md` and the `AGENTS.<overlay>.md` files and removes every
+  other `AGENTS.<name>.md` (not the harness's own names such as
+  `AGENTS.override.md`, nor files under `.claude`). The files are recognised by
+  name, not by `guidance.globs`. A base with no `AGENTS.<overlay>.md` is a
+  preparation error, so a cell cannot be the base alone by accident. The arm
+  does not make a harness load its overlay: the reach probe reports that.
 - `rev:<rev>` keeps the base's code and replaces its guidance with that of
   another revision of the source: the base's matched files are deleted and the
   files the globs match at `<rev>` (outside `eval_dir`) are written. It answers
@@ -864,6 +873,7 @@ guidance:                            # DECLARED; verified by the reach probe, ne
   resolution: ancestors-of-cwd + lazy-on-subtree-access
   imports: "@path"
 bridge: {for: AGENTS.md, write: CLAUDE.md, content: "@AGENTS.md"}
+overlay: claude                      # the AGENTS.claude.md the guidance:overlay arm keeps (agentsmd/agents.md#185)
 args_if_present:                     # argv added after the "{tools}" element when the workspace file exists and the tool mode is `all`
   .mcp.json: ["--mcp-config", ".mcp.json"]
 ```
@@ -1045,6 +1055,13 @@ per scenario).
     - `unknown`: tokens the model reported that were never seeded;
     - `prose`: words besides tokens. A high count usually means an explanation
       or a refusal, so read that trace before trusting its `not_loaded` cells.
+- Overlays (`overlays` in `guidance_reach.v1`, the design note of §3): every
+  `AGENTS.<name>.md` is probed, even where the globs miss it, so a foreign overlay
+  is tested rather than assumed absent. The expectation is that foreign overlays are
+  `not_loaded`. `cross_loaded` lists each foreign overlay some scenario reported
+  as `loaded`, `truncated` or `fetched`; the text report prints it as a `finding:`
+  line. `own_loaded` lists the harness's own overlays that loaded in some scenario;
+  when none did, the text report says so. `own` is the profile's `overlay`.
 - If payload capture is available, a `payload` field records whether each
   token was in the request bytes. This settles cells where the model
   under-reports, which is how a small model produces false `truncated` cells.

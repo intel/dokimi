@@ -460,7 +460,8 @@ def register(repo_sub, positive_int, source_help: str, cache_help: str) -> None:
         "result.json per cell, already finished cells skipped")
     _common(run_p, source_help, cache_help, positive_int)
     run_p.add_argument("--arm", action="append", default=None, required=True,
-                       help="guidance:none | guidance:raw | guidance:bridge | guidance:rev:REV (the base with "
+                       help="guidance:none | guidance:raw | guidance:bridge | guidance:overlay (the base with the AGENTS.<agent>.md "
+                       "of the harness only) | guidance:rev:REV (the base with "
                        "the guidance files of revision REV of the source; the arm is named by REV's full SHA, "
                        "resolved once per batch) | patch:FILE (a unified diff on this host, applied with git "
                        "apply on top of guidance:raw; named patch:<file name>@<sha256 prefix>, path and "

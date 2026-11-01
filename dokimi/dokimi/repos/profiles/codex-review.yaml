@@ -57,3 +57,4 @@ guidance:
     it opened AGENTS.md but reported only defects its P0-P3 rubric keeps;
     convention rules moved it only when the guidance called a violation
     merge-blocking (P1). It reports zero token usage in this mode.
+overlay: codex   # AGENTS.codex.md, the guidance:overlay arm (agentsmd/agents.md#185)
