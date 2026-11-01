@@ -448,13 +448,23 @@ def _receipt_path(from_file: str) -> Path:
     return Path(from_file).parent / RECEIPT_NAME
 
 
+def _strict_resolve(path: Path) -> Path:
+    """``path`` with every link resolved, a missing or dangling last component included. Non-strict resolve() of a link
+    loop raises RuntimeError before Python 3.13 and returns the looping path from 3.13 on; strict resolve raises
+    OSError on a loop on every version."""
+    try:
+        return path.resolve(strict=True)
+    except FileNotFoundError:
+        return path.resolve()
+
+
 def _receipt_would_overwrite(probe: Path, receipt: Path) -> bool:
     """A receipt written at the probe's path, directly or through a link, would replace the probe it is built from.
-    A link loop cannot be resolved (RuntimeError before Python 3.13, OSError after): a usage error, not a traceback."""
+    A link loop cannot be resolved (OSError, or RuntimeError before Python 3.13): a usage error, not a traceback."""
     from dokimi.repos.reach import ReachError
 
     try:
-        return probe.resolve() == receipt.resolve()
+        return _strict_resolve(probe) == _strict_resolve(receipt)
     except (OSError, RuntimeError) as exc:
         raise ReachError(f"cannot resolve {receipt}: {exc}") from exc
 
