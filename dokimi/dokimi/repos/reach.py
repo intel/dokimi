@@ -120,7 +120,7 @@ def probe_files(tree: RepoTree, manifest: RepoManifest, profile: HarnessProfile)
     return sorted(p for p in declared | native | overlays if not manifest.in_eval_dir(p))
 
 
-def _pinned_names(links: dict[str, tuple[str, ...]], own: str | None,
+def _pinned_names(links: dict[str, tuple[str, ...]],
                   native: set[str] | frozenset[str]) -> tuple[dict[str, tuple[str, ...]], set[str]]:
     """Each probed file with the names a load of it can be pinned on, and the aliases that cannot be pinned."""
     names: dict[str, tuple[str, ...]] = {}
@@ -170,7 +170,7 @@ def overlay_report(records: list[dict[str, Any]], own: str | None,
     every = {n for target, aliases in links.items() for n in (target, *aliases)}
     own_files = {n for n in every if own and overlay_of(n) == own}
     foreign = {n for n in every if overlay_of(n) not in (None, own)}
-    names, ambiguous = _pinned_names(links, own, native)
+    names, ambiguous = _pinned_names(links, native)
     cross, own_loaded, unpinned = _loads(records, names, links, ambiguous, foreign, own_files)
     report: dict[str, Any] = {"own": own, "own_files": sorted(own_files), "own_loaded": sorted(own_loaded),
                               "foreign_files": sorted(foreign), "cross_loaded": dict(sorted(cross.items()))}
