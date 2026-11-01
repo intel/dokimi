@@ -1064,8 +1064,12 @@ tree, or a probe of one (`repo.sha` null), is a usage error (exit 2), because
 `sha256` and the expectations are computed from the source as it is at
 conversion time and a working tree can change after the probe. A live
 `repo reach --format receipt` run is not held to this: it builds the receipt
-from the source it probes. The matrix (without `--format receipt`) still
-accepts an unpinned source. The harness configuration is not
+from the source it probes, but it reads `sha256` and the expectations after
+the harness exits. An edit to a guidance file made while the run is in flight
+therefore appears in the receipt next to the observations of the old text;
+the receipt's `unknowns` says so for a working tree, and a pinned source
+(`<path>@<rev>`) has no such window. The matrix (without `--format receipt`)
+still accepts an unpinned source. The harness configuration is not
 pinned: `expected` comes from the harness profile as it is at conversion time,
 and its guidance names and import depth are not compared with the probe's, so
 a receipt is the same only for an unchanged profile. The receipt is written
