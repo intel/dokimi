@@ -755,7 +755,7 @@ The table always goes to stdout: the flagged and provisional items, with the no-
 in its own column, a note naming any arm no run scored, and the counts. The JSON goes to
 `--out` only, as a `headroom.v1` artifact with every item; if that file cannot be written the
 command prints `Error: cannot write ...` on stderr and exits 2, after the table. Scores are compared unrounded
-and shown rounded down to six decimals, so 0.89996 prints as 0.89996 and a value just under a threshold never
+and shown rounded down to up to nine decimal places, so 0.89996 prints as 0.89996 and a value just under a threshold never
 prints as the threshold. Without `--baseline-arm`, the runs must
 declare the same baseline; the default is that baseline. The runs must also be repetitions of one
 configuration: a file whose model, judge, run config (the seed aside), harness, arms or library
