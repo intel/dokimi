@@ -15,6 +15,7 @@ COPY dokimi/requirements.lock.txt dokimi/requirements-ci.lock.txt dokimi/require
 # The lock and the tools CI installs (uv among them), hash-checked so a rerun grades alike.
 RUN pip install --no-cache-dir --require-hashes -r /opt/dokimi-req/requirements.lock.txt \
        -r /opt/dokimi-req/requirements-ci.lock.txt
+# A warm uv cache, so `make dev` inside a run downloads nothing.
 ENV UV_CACHE_DIR=/opt/uv-cache UV_PYTHON_PREFERENCE=only-system UV_LINK_MODE=copy
 RUN uv venv --python 3.11 --seed /tmp/warm && uv pip install --python /tmp/warm/bin/python \
        --require-hashes -r /opt/dokimi-req/requirements.lock.txt -r /opt/dokimi-req/requirements-ci.lock.txt \
