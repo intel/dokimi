@@ -3,10 +3,8 @@
 
 name: reach-matrix
 
-# The nightly reach conformance matrix (dokimi/docs/reach-matrix.md): each harness runs `repo reach` over the
-# fixtures in dokimi/data/reach-conformance, and the three matrices merge into one page. This makes paid model
-# calls, so it is not a check on pull requests. A harness with no model variable, no credential or no CLI on
-# the runner is recorded as skipped; it does not fail the run.
+# Paid model calls, so never a PR check; a harness without a model, credential or CLI is skipped, not failed.
+# Design and secrets: dokimi/docs/reach-matrix.md.
 on:
   schedule:
     - cron: '37 4 * * *'

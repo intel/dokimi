@@ -1,11 +1,8 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-# What each harness's vendor documentation says each fixture loads, per reach scenario
-# (cwd=. is the root, cwd=<dir> starts there, read=<dir> starts at the root and reads a file in <dir>).
-# A file or scenario not listed is `unknown`: the docs do not say, so the matrix reports the
-# observation without a claim. Sources: code.claude.com/docs/en/memory (Claude Code, "AGENTS.md"
-# and "How CLAUDE.md files load") and learn.chatgpt.com/docs/agent-configuration/agents-md (Codex).
+# Vendor-documented state per file and reach scenario; unlisted means unknown (no claim).
+# Sources and scenario meanings: docs/reach-matrix.md.
 schema: reach_conformance.v1
 cases:
   root-agents:
