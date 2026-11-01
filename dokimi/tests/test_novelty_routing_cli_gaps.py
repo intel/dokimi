@@ -214,3 +214,28 @@ def test_a_sentence_with_e_g_or_i_e_is_one_description_query():
     assert description_as_queries(
         "Tune kernels, i.e. hot loops. Report vs. baseline timings.") == [
         "Tune kernels, i.e. hot loops.", "Report vs. baseline timings."]
+    assert description_as_queries(
+        "Profile code (e.g. PyTorch training loops) and report hotspots.") == [
+        "Profile code (e.g. PyTorch training loops) and report hotspots."]
+
+
+def test_the_estimate_counts_the_prompts_the_run_sends():
+    # The estimate and the run each build the selection prompt. Every prompt the run sends must
+    # have the length the estimate counts for it, so a drift between the two shows here.
+    from dokimi.novelty.routing import Candidate, model_routing, selection_prompt_tokens
+
+    field = [Candidate("perf", "profile a slow binary with perf"),
+             Candidate("db", "tune a database index"),
+             Candidate("tbb", "parallelize loops with threads")]
+    queries = ["profile my binary", "index a table", "parallelize the loops"]
+    sent = []
+
+    class Recorder:
+        model = "m"
+
+        def text(self, prompt, *, system=None, accept=None, draw=0):
+            sent.append(prompt)
+            return '{"pick": 1}'
+
+    model_routing(field, queries, client=Recorder(), gold=0, repeats=1)
+    assert [len(prompt) // 4 for prompt in sent] == selection_prompt_tokens(field, queries)

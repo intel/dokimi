@@ -426,8 +426,9 @@ def headings_as_queries(body: str, *, limit: int = 40) -> list[str]:
 
 
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
-# A period that ends an abbreviation, not a sentence: "e.g.", "i.e.", "vs.", "cf.".
-_ABBREVIATION_END = re.compile(r"(?:^|\s)(?:e\.g|i\.e|vs|cf)\.$", re.IGNORECASE)
+# A period that ends an abbreviation, not a sentence: "e.g.", "i.e.", "vs.", "cf.". It may follow
+# an opening bracket or quote: "(e.g."
+_ABBREVIATION_END = re.compile(r"(?:^|[\s(\[{\"'])(?:e\.g|i\.e|vs|cf)\.$", re.IGNORECASE)
 
 
 def _sentences(text: str) -> list[str]:
