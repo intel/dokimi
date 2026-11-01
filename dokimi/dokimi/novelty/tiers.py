@@ -24,8 +24,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-#: What a run gives up, keyed by the setting that is off. "sampled" is a reached atom cap, which
-#: probes atoms spread over the input: https://github.com/intel/dokimi/issues/293
+#: What a run gives up, keyed by the setting that is off. "sampled" is an atom cap that left atoms
+#: out, which probes atoms spread over the input: https://github.com/intel/dokimi/issues/293
 FORFEITS: dict[str, list[str]] = {
     "sampled": [
         "`added` is a rate over the atoms the cap kept, not the whole input: usable as a "
@@ -57,15 +57,17 @@ FORFEITS: dict[str, list[str]] = {
 }
 
 
-def forfeits(settings: dict, *, n_atoms: int | None = None) -> list[str]:
+def forfeits(settings: dict, *, sampled: bool | None = None) -> list[str]:
     """The claims a run with these settings may not make.
 
     Args:
         settings: Resolved ``AnalyzeConfig`` fields; a stage switch that is absent is off.
-        n_atoms: Atoms extracted, when known. Before extraction a cap is assumed reached.
+        sampled: Whether the cap left atoms out (``ExtractionReport.sampled`` is set), once
+            extraction has run: an input with as many atoms as the cap, or fewer, keeps every
+            atom. ``None`` before extraction, when a cap is assumed to bind.
     """
     cap = settings.get("max_atoms")
-    capped = cap is not None and (n_atoms is None or n_atoms >= cap)
+    capped = cap is not None and sampled is not False
     out = list(FORFEITS["sampled"]) if capped else []
     if capped and settings.get("shorten_artifact"):
         out.append(
@@ -154,7 +156,8 @@ class RunSettings:
     ``values`` holds every :data:`SETTING_NAMES` entry, resolved; ``tier`` and
     ``overrides`` say how they were reached, because a ``--tier triage --max-atoms 90`` run
     is not a stock triage run and must not be read as one. The forfeits and warnings
-    follow ``values`` (and, once known, the atom count) -- never the tier's name.
+    follow ``values`` (and, once known, whether the cap left atoms out) -- never the tier's
+    name.
     """
 
     values: dict[str, Any]
@@ -172,18 +175,18 @@ class RunSettings:
         """The ``AnalyzeConfig`` keyword arguments that carry these settings."""
         return {**self.values, "tier": self.tier, "tier_overrides": dict(self.overrides)}
 
-    def forfeits(self, n_atoms: int | None = None) -> list[str]:
+    def forfeits(self, sampled: bool | None = None) -> list[str]:
         """The claims a run at these settings may not make (see :func:`forfeits`)."""
-        return forfeits(self.values, n_atoms=n_atoms)
+        return forfeits(self.values, sampled=sampled)
 
-    def tier_record(self, n_atoms: int | None = None) -> dict | None:
+    def tier_record(self, sampled: bool | None = None) -> dict | None:
         """``run_config.tier``: name, forfeits, overrides; ``None`` without a tier."""
         if self.tier is None:
             return None
-        return {"name": self.tier, "forfeits": self.forfeits(n_atoms),
+        return {"name": self.tier, "forfeits": self.forfeits(sampled),
                 "overrides": dict(self.overrides)}
 
-    def warnings(self, n_atoms: int | None = None) -> list[str]:
+    def warnings(self, sampled: bool | None = None) -> list[str]:
         """The warnings a result at these settings carries.
 
         With a tier: its forfeits, recomputed from what the run did, and the overrides.
@@ -197,7 +200,7 @@ class RunSettings:
             if not self.values["reversals"]:
                 out.extend(FORFEITS["reversals"])
             return out
-        out = [f"tier `{self.tier}` forfeits: {line}" for line in self.forfeits(n_atoms)]
+        out = [f"tier `{self.tier}` forfeits: {line}" for line in self.forfeits(sampled)]
         if self.overrides:
             out.append(
                 f"tier `{self.tier}` was overridden by flags "
@@ -215,7 +218,8 @@ class RunSettings:
         rows, yield an atom each), capped at ``max_atoms`` for every stage but extraction,
         which reads the whole input. Without ``n_tokens`` only the span rule applies. The
         forfeits assume the cap is reached, since the atom count is a guess until extraction
-        runs: an artifact with fewer atoms than the cap drops the cap's forfeits.
+        runs: an artifact with no more atoms than the cap keeps them all and drops the cap's
+        forfeits.
         """
         cap = self.values["max_atoms"]
         expected = max(1, n_spans // 2)

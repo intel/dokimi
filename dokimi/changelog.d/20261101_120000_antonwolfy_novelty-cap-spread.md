@@ -12,8 +12,11 @@
   sample. `novelty analyze` and `novelty atoms` (whose `atoms.json` `probe` and
   `shorten` read) probe the same atoms. A cap below 1 is refused before any
   call. New runs record `atoms.sampling` as `cap-spread:<n>` and
-  `extraction.sampled` as `{"atoms", "of", "rule"}`, with `extraction.reached`
-  `null`; the cap warning, the `novelty.md` header and the headline's
+  `extraction.reached` `null`; `extraction.sampled` is `{"atoms", "of", "rule"}`
+  when the cap leaves atoms out, and `null` when it keeps every atom (M ≤ n).
+  Only a cap that leaves atoms out sets `spans.capped_atom_set` and brings the
+  cap's forfeits: an input whose atoms exactly meet the cap no longer counts as
+  capped. The cap warning, the `novelty.md` header and the headline's
   `coverage:` line say how many of the input's atoms were probed and with what
   stride, or, when some spans went unread, that the sample is spread over the
   atoms of the spans that were read and how many were not. Artifacts written

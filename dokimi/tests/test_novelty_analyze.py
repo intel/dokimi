@@ -676,6 +676,26 @@ def test_a_cap_the_atoms_meet_samples_nothing(tmp_path):
     validate_artifact("novelty", dict(artifact, schema_version="novelty.v1"))
 
 
+@pytest.mark.parametrize("cap, capped", [(2, False), (1, True)], ids=["cap-met", "cap-binds"])
+def test_only_a_cap_that_leaves_atoms_out_counts_as_capped(tmp_path, cap, capped):
+    # Two atoms at `study`: a cap they meet keeps them all, so no cap forfeit and no flag;
+    # one atom more than the cap is a sample, and says so (#358).
+    from dokimi.novelty.tiers import FORFEITS, resolve_settings
+
+    settings = resolve_settings("study", {"max_atoms": cap})
+    artifact = _analyze(tmp_path, **settings.config_fields()).artifact
+    assert (artifact["extraction"]["sampled"] is not None) is capped
+    assert artifact["spans"]["capped_atom_set"] is capped
+    shortening = (f"shortening candidates are scored against a spread sample of {cap} of the "
+                  "extracted atoms: a cut of a span with no sampled atom looks free")
+    warned = "\n".join(artifact["warnings"])
+    recorded = artifact["run_config"]["tier"]["forfeits"]
+    for line in [*FORFEITS["sampled"], shortening]:
+        assert (line in warned) is capped, line
+        assert (line in recorded) is capped, line
+    validate_artifact("novelty", dict(artifact, schema_version="novelty.v1"))
+
+
 @pytest.mark.parametrize("cap, probed, by_file", [
     # 8 atoms, one per span; SKILL.md holds s0001-s0005, references/tuning.md s0006-s0008.
     (2, ["s0003", "s0007"], {"SKILL.md": 1, "references/tuning.md": 1}),

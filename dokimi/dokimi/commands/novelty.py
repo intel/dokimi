@@ -167,7 +167,7 @@ def cmd_novelty_atoms(args: argparse.Namespace) -> None:
     save_atoms(atoms, spans, out, extractor=extractor.model, cap=cap,
                bundle=artifact_bundle.summary(), extraction=extraction)
     print(f"OK Saved {len(atoms)} atoms over {len(spans)} spans: {out}")
-    print(json.dumps(span_summary(spans, atoms, atom_cap=cap), indent=2))
+    print(json.dumps(span_summary(spans, atoms, capped=extraction.sampled is not None), indent=2))
 
 
 def cmd_novelty_probe(args: argparse.Namespace) -> None:

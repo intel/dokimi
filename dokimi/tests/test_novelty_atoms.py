@@ -641,6 +641,35 @@ def test_a_run_with_cut_off_and_unusable_splits_names_both_and_keeps_the_advice(
     )
 
 
+@pytest.mark.parametrize("cap, capped", [(3, False), (2, True)], ids=["cap-met", "cap-binds"])
+def test_novelty_atoms_flags_the_atom_set_only_when_the_cap_left_atoms_out(
+        tmp_path, monkeypatch, capsys, cap, capped):
+    """Three spans, one atom each: a cap of 3 keeps every atom, a cap of 2 samples them."""
+    from tests import test_novelty_cli as novelty_cli
+
+    skill = tmp_path / "s" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("---\nname: s\ndescription: d\n---\n\n" + "\n\n".join(
+        f"Setting {i} defaults to {i}." for i in range(1, 4)) + "\n", encoding="utf-8")
+
+    def transport(prompt, system=None):
+        ids = re.findall(r"^\[(s\d+)\]", prompt, flags=re.M)
+        return json.dumps([{"statement": f"{sid} holds.", "question": f"What of {sid}?",
+                            "answer": "a value", "span_ids": [sid]} for sid in ids]), None
+
+    real_client = novelty_cli.novelty_cmd._client
+    monkeypatch.setattr(novelty_cli.novelty_cmd, "_client",
+                        lambda model, provider, role, args: novelty_cli._with_transport(
+                            real_client(model, provider, role, args), transport))
+    args = novelty_cli._parse("novelty", "atoms", "--artifact", f"skill:{skill}", "--out",
+                              str(tmp_path / "atoms.json"), "--max-atoms", str(cap), "--no-verify")
+    args.func(args)
+    out = capsys.readouterr().out
+    summary = json.loads(out[out.index("{"):])
+    assert summary["n_atoms_indexed"] == cap
+    assert summary["capped_atom_set"] is capped
+
+
 def test_novelty_atoms_saves_the_same_spread_sample_analyze_probes(tmp_path, monkeypatch, capsys):
     """Two batches of 25 spans, one atom each: a cap of 2 keeps s0013 and s0038 for probe and shorten."""
     from tests import test_novelty_cli as novelty_cli

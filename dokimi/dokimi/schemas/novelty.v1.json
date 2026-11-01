@@ -302,7 +302,7 @@
         },
         "capped_atom_set": {
           "type": "boolean",
-          "description": "True when the indexed atom set hit the extraction cap. The dead-token share is then a property of the sample, not of the artifact, and must not be quoted as the latter."
+          "description": "True when the atom cap left extracted atoms out, so the indexed atoms are a sample (extraction.sampled is set); an input with as many atoms as the cap, or fewer, keeps every atom and is false. Runs written before the spread rule (#293) set it when the indexed atoms reached the cap. The dead-token share is then a property of the sample, not of the artifact, and must not be quoted as the latter."
         },
         "sole_carrier": {"type": "integer", "minimum": 0},
         "protected": {"type": "integer", "minimum": 0},

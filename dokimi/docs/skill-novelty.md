@@ -897,12 +897,13 @@ read as one.
 Each tier carries the **claims it forfeits**, and those strings are written into
 `run_config.tier` *and* appended to the artifact's warnings. They follow the settings the
 run used and the atoms it extracted, not the tier's name: `--no-verify` adds the
-faithfulness forfeit, and `--all-atoms` or a skill with fewer atoms than the cap drops the
+faithfulness forfeit, and `--all-atoms` or a skill with no more atoms than the cap (which
+keeps every atom: `extraction.sampled` is `null` and `spans.capped_atom_set` false) drops the
 cap's ones (that `added` is a rate over the atoms the cap kept, not the whole input, and
 that `frac_carrying_nothing` is not interpretable on a capped atom set). They do not depend on
 which atoms the cap kept (`--estimate-only` lists them before it is known), and neither does
 the `harmful_atoms` gate reason (`0 conflicts among the capped atoms`). With shortening on, a
-reached cap adds that `shortening candidates are scored against a spread sample of 60 of the
+cap that left atoms out adds that `shortening candidates are scored against a spread sample of 60 of the
 extracted atoms: a cut of a span with no sampled atom looks free` (60 at `standard`, 120 at
 `study`). `--estimate-only` cannot know the atom count yet, so it lists them:
 

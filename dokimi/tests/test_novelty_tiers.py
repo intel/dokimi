@@ -222,10 +222,10 @@ def test_forfeits_follow_the_resolved_settings():
 
     sampled = FORFEITS["sampled"][0]
     standard = TIERS["standard"]["settings"]
-    # Before extraction the cap is assumed reached; an atom set under it is not sampled.
+    # Before extraction the cap is assumed to bind; a cap that kept every atom sampled none.
     assert sampled in forfeits(standard)
-    assert sampled not in forfeits(standard, n_atoms=15)
-    assert sampled in forfeits(standard, n_atoms=60)
+    assert sampled not in forfeits(standard, sampled=False)
+    assert sampled in forfeits(standard, sampled=True)
     # --all-atoms drops the cap's forfeit, triage included.
     args = _parse("novelty", "analyze", "--artifact", "skill:x", "--tier", "triage",
                   "--all-atoms")
@@ -271,19 +271,22 @@ def test_flags_that_drop_the_probe_kinds_warn_without_a_tier(tmp_path):
     assert not any("no paraphrase probe" in w or "no reversal probe" in w for w in full)
 
 
-def test_shortening_under_a_reached_cap_says_it_saw_only_a_spread_sample():
+def test_shortening_under_a_cap_that_left_atoms_out_says_it_saw_only_a_spread_sample():
     from dokimi.novelty.tiers import forfeits
 
     on = {"max_atoms": 60, "shorten_artifact": True, "paraphrases": 1, "reversals": True,
           "verify_faithfulness": True, "classify_content": True, "confirm_carriers": True}
     line = ("shortening candidates are scored against a spread sample of 60 of the extracted "
             "atoms: a cut of a span with no sampled atom looks free")
-    assert line in forfeits(on, n_atoms=60)
-    assert not any("opening" in f or "tail" in f for f in forfeits(on, n_atoms=60))
-    assert not any("spread sample" in f for f in forfeits(on, n_atoms=10))
+    assert line in forfeits(on, sampled=True)
+    # Before extraction (an estimate) the cap is assumed to leave atoms out.
+    assert line in forfeits(on)
+    assert not any("opening" in f or "tail" in f for f in forfeits(on, sampled=True))
+    # A cap that kept every atom (M <= n, the atoms meeting it exactly included) sampled none.
+    assert not any("spread sample" in f for f in forfeits(on, sampled=False))
     assert not any("spread sample" in f for f in forfeits(dict(on, max_atoms=None)))
     assert not any("spread sample" in f
-                   for f in forfeits(dict(on, shorten_artifact=False), n_atoms=60))
+                   for f in forfeits(dict(on, shorten_artifact=False), sampled=True))
 
 
 def test_the_settings_travel_through_the_config_unchanged():
@@ -336,11 +339,11 @@ def test_the_estimate_caps_the_expected_atoms_and_records_the_tier():
 
 def test_the_warnings_follow_the_settings_and_the_atom_count():
     standard = resolve_settings("standard", {"no_verify": True})
-    warned = standard.warnings(n_atoms=60)
+    warned = standard.warnings(sampled=True)
     assert all(w.startswith("tier `standard`") for w in warned)
     assert any(FORFEITS["verify_faithfulness"][0] in w for w in warned)
     assert "overridden by flags (no_verify)" in warned[-1]
-    assert not any(FORFEITS["sampled"][0] in w for w in standard.warnings(n_atoms=10))
+    assert not any(FORFEITS["sampled"][0] in w for w in standard.warnings(sampled=False))
     # Without a tier only the dropped probe kinds warn; the stages warn in the analyzer.
     bare = resolve_settings(None, {"no_paraphrase": True, "no_classify": True})
     assert bare.warnings() == FORFEITS["paraphrases"]
@@ -362,7 +365,7 @@ def test_a_tier_on_the_config_and_the_older_tier_argument_record_the_same(tmp_pa
                           judge=_clients()[2],
                           tier={"name": "triage", "overrides": {"max_atoms": 1}}).artifact
     assert on_config["run_config"]["tier"] == as_argument["run_config"]["tier"] == (
-        settings.tier_record(n_atoms=1))
+        settings.tier_record(sampled=True))
     assert on_config["warnings"] == as_argument["warnings"]
     assert any("tier `triage` was overridden by flags (max_atoms)" in w
                for w in on_config["warnings"])
