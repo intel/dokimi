@@ -622,12 +622,15 @@ def _codex_item_completed(out: Transcript, item: dict[str, Any], messages: list[
     elif itype == "file_change":
         status = item.get("status")  # a failed patch changed nothing
         rc = {"completed": 0, "failed": 1}.get(status) if isinstance(status, str) else None
-        for change in item.get("changes") or []:
-            if isinstance(change, dict) and change.get("path"):
-                event: dict[str, Any] = {"t": None, "kind": "edit", "path": relative_path(str(change["path"]), workdir)}
-                if rc is not None:
-                    event["rc"] = rc
-                out.events.append(event)
+        changes = item.get("changes") or []
+        # an entry that is not a change makes the record malformed: it is dropped whole (counted), not read in part
+        if not isinstance(changes, list) or not all(isinstance(c, dict) and c.get("path") for c in changes):
+            raise ValueError("file_change with a malformed changes entry")
+        for change in changes:
+            event: dict[str, Any] = {"t": None, "kind": "edit", "path": relative_path(str(change["path"]), workdir)}
+            if rc is not None:
+                event["rc"] = rc
+            out.events.append(event)
     elif itype in ("mcp_tool_call", "web_search"):
         name = f"{item.get('server')}.{item.get('tool')}" if itype == "mcp_tool_call" else "web_search"
         out.events.append({"t": None, "kind": "tool", "name": name})

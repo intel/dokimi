@@ -23,6 +23,10 @@ from .process_counts import as_measure
 from .process_metrics import _workspace_path
 from .useful_spec import Useful
 
+#: Seconds one ``command`` pattern may search one event's text. Past it the run gets reason ``timeout``: no verdict,
+#: and the rest of its trace is not searched (a catastrophic pattern never stalls the host-side result).
+USEFUL_REGEX_TIMEOUT = 2.0
+
 #: The ``repo compare`` measures of the first useful result, one value per task (see :func:`useful_task_values`).
 USEFUL_MEASURES = ("first_useful_s", "first_useful_steps", "first_useful_rate")
 
@@ -39,7 +43,9 @@ def hits(useful: Useful, event: Mapping[str, Any]) -> bool:
     if event.get("rc") != 0:
         return False
     if useful.kind == "command":
-        return event.get("kind") == "command" and bool(useful.command and useful.command.search(str(event.get("text") or "")))
+        if event.get("kind") != "command" or useful.command is None:
+            return False
+        return useful.command.search(str(event.get("text") or ""), timeout=USEFUL_REGEX_TIMEOUT) is not None
     raw = str(event.get("path") or "")
     # no path, outside the workspace, or the workspace root itself: no target
     if event.get("kind") != "edit" or not raw or _NON_POSIX_ROOT.match(raw):
@@ -59,7 +65,11 @@ def first_useful(
     if events is None:
         return _record(useful.kind, "unobserved")
     for steps, event in enumerate(events, 1):
-        if hits(useful, event):
+        try:
+            found = hits(useful, event)
+        except TimeoutError:  # the pattern ran past its budget on this event: no verdict
+            return _record(useful.kind, "timeout")
+        if found:
             t = event.get("t")
             if isinstance(t, (int, float)) and not isinstance(t, bool):
                 return _record(useful.kind, None, issued_s=float(t), steps=steps)

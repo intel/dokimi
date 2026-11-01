@@ -9,7 +9,7 @@ of globs) the first edit of a target file. :mod:`.useful` reads it. No parser im
 
 from __future__ import annotations
 
-import re
+import regex
 from dataclasses import dataclass
 from typing import Any
 
@@ -27,7 +27,7 @@ class Useful:
     """One task's definition: ``command`` (a regex over command text) or ``edit`` (globs over edited paths)."""
 
     kind: str
-    command: re.Pattern[str] | None = None
+    command: regex.Pattern[str] | None = None
     globs: tuple[str, ...] = ()
 
 
@@ -39,10 +39,11 @@ def parse_useful(value: Any) -> Useful | None:
         raise UsefulSpecError(SHAPE)
     ((kind, pattern),) = value.items()
     if kind == "command" and isinstance(pattern, str) and pattern:
-        # a deep nesting or a huge repeat count overflows the parser, not only re.error
+        # a deep nesting or a huge repeat count overflows the parser, not only regex.error. The regex module
+        # searches with a timeout (useful.hits); re has none, and a pattern like (a+)+$ takes exponential time in it.
         try:
-            return Useful("command", command=re.compile(pattern))
-        except (re.error, RecursionError, OverflowError, ValueError) as exc:
+            return Useful("command", command=regex.compile(pattern))
+        except (regex.error, RecursionError, OverflowError, ValueError) as exc:
             raise UsefulSpecError(f"useful command is not a valid regex ({exc})") from exc
     globs = [pattern] if isinstance(pattern, str) else pattern
     if (

@@ -740,3 +740,45 @@ def test_claude_text_and_thinking_blocks_are_not_dropped():
     line = {"type": "assistant", "message": {"content": [
         {"type": "text", "text": "hi"}, {"type": "thinking", "thinking": "t", "signature": "s"}]}}
     assert convert("claude-stream-json", json.dumps(line), "/ws").dropped_lines == 0
+
+
+def test_a_catastrophic_pattern_on_a_long_non_matching_command_does_not_hang():
+    # (a+)+$ is exponential in re, which hung this test run before the regex module. The command text is long and
+    # does not match, so the run is a plain "never" and returns at once.
+    import time
+
+    events = [_command("a" * 40 + "!", 0, t=1.0), _command("pytest tests/test_x.py", 0, t=2.0)]
+    started = time.monotonic()
+    assert first_useful(parse_useful({"command": "(a+)+$"}), events) == {
+        "kind": "command", "reason": "never", "issued_s": None, "steps": None}
+    assert time.monotonic() - started < 5
+
+
+def test_the_command_search_is_bounded_by_the_budget_constant(monkeypatch):
+    # (a|a)+$ is exponential in regex too, so only a search that really gets a timeout ends in "timeout", not "never".
+    from dokimi.repos import useful as useful_module
+
+    monkeypatch.setattr(useful_module, "USEFUL_REGEX_TIMEOUT", 0.05)
+    events = [_command("a" * 40 + "!", 0, t=1.0)]
+    assert first_useful(parse_useful({"command": "(a|a)+$"}), events) == {
+        "kind": "command", "reason": "timeout", "issued_s": None, "steps": None}
+
+
+def test_a_pattern_past_its_search_budget_is_a_timeout_reason_and_the_trace_is_not_searched(monkeypatch):
+    # The engine's own timing is not what is tested here: a search that raises TimeoutError maps to the reason
+    # "timeout", and the events after it are not searched.
+    from dokimi.repos import useful as useful_module
+
+    searched = []
+
+    def slow(useful, event):
+        searched.append(event["text"])
+        if len(searched) == 1:
+            raise TimeoutError
+        return False
+
+    monkeypatch.setattr(useful_module, "hits", slow)
+    events = [_command("a" * 40 + "!", 0, t=1.0), _command("pytest tests/test_x.py", 0, t=2.0)]
+    assert first_useful(parse_useful({"command": "(a|a)+$"}), events) == {
+        "kind": "command", "reason": "timeout", "issued_s": None, "steps": None}
+    assert len(searched) == 1

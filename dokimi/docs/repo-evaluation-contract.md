@@ -461,7 +461,8 @@ is not timed. `first_useful` is `{"kind": "command"|"edit"|null, "reason": ...,
 "issued_s": number|null, "steps": int|null}`. `reason` is `null` when the hit was
 found and timed; otherwise it says why `issued_s` (and `steps`, with no hit) is
 null: `not_declared` (no definition), `unobserved` (the trace was not read: the
-harness never started or it did not parse), `never` (no event hit) or `untimed`
+harness never started or it did not parse), `never` (no event hit), `timeout` (a `command` pattern ran past
+2 s on one event: no verdict, and the rest of the trace is not searched) or `untimed`
 (the trace format has no timestamps, so `steps` is set and `issued_s` is null).
 A cell of an older batch has no `first_useful`. Each cell that declares a definition
 is counted in `repo report`: the row says how many observed a hit, and the medians

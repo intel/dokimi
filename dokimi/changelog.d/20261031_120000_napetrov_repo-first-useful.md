@@ -6,10 +6,13 @@
   file. The first event that hits it (a command whose text matches and whose `rc` is 0, or an
   edit whose path matches) is recorded in `result.json` `first_useful` with its `issued_s` (the
   event's issue time) and `steps` (events up to and including it). A run with no hit says
-  why (`never`, `unobserved`, `untimed`); a task with no declaration is `not_declared`.
+  why (`never`, `unobserved`, `untimed`, or `timeout`: a `command` pattern, searched with the `regex` module, ran past
+  2 s on one event, so the run has no verdict); a task with no declaration is `not_declared`.
   `repo report` shows a row's observed count, medians and reasons under the row, and
   `repo compare` pairs the per-task medians as `first_useful_s` and `first_useful_steps`, and
   the share of declared cells that observed a hit as `first_useful_rate`; its header counts
   observed of declared cells per arm.
   A malformed `useful` is refused by `repo validate`, `repo tasks check` and `repo run`.
   Batches run before this change have no `first_useful` and no such rows.
+- A Codex `file_change` record with a malformed entry (not an object, or no path) is a dropped line, as the other
+  malformed records are; before, its valid entries were not read either, and the drop was silent.
