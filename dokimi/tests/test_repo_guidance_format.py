@@ -391,3 +391,13 @@ def test_as_skill_refuses_a_dangling_link_at_the_skill_directory(tmp_path):
     with pytest.raises(PrepError, match="already has"):
         _apply_as_skill(ws, types.SimpleNamespace(id="toy"), ["AGENTS.md"])
     assert list(host.iterdir()) == []
+
+
+def test_as_skill_packages_beside_a_skill_the_base_ships_without_a_collision(tmp_path):
+    ws = tmp_path / "ws"
+    write(ws, "AGENTS.md", "# a\n")
+    write(ws, ".claude/skills/lint/SKILL.md", "---\nname: lint\n---\n")
+    _, meta = _apply_as_skill(ws, types.SimpleNamespace(id="toy"), ["AGENTS.md"])
+    assert (ws / ".claude/skills/lint/SKILL.md").read_text(encoding="utf-8") == "---\nname: lint\n---\n"
+    assert (ws / ".claude/skills/toy-guidance/SKILL.md").is_file()
+    assert meta["guidance_skill"]["path"] == ".claude/skills/toy-guidance"
