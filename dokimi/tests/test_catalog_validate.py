@@ -839,10 +839,11 @@ def test_prose_line_that_starts_with_a_bracketed_label_is_not_a_definition(tmp_p
     assert review.findings == []
 
 
-def test_a_file_line_link_to_a_missing_file_is_still_a_warning(tmp_path):
+@pytest.mark.parametrize("destination", ["run.py:42", "run.py:10-20", "scripts/run.py:42:7"])
+def test_a_file_line_link_to_a_missing_file_is_still_a_warning(tmp_path, destination):
     # "run.py:42" is read as a path, not a URI, so it is checked and the missing file is flagged.
     _skill(tmp_path / "skills", "fileline", name="fileline", description="Use for fileline.",
-           body="See [the entry point](run.py:42).\n")
+           body=f"See [the entry point]({destination}).\n")
 
     [review] = review_skills(read_skill_manifest(tmp_path))
     assert review.state == "warn"
