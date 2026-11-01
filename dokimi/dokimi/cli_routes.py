@@ -241,9 +241,8 @@ def moved_argv(
             continue
         if any(canon[:k] in live for k in range(n + 1, len(canon) + 1)):
             continue
-        # A group that stays under its own name (`eval score` -> `eval score pointwise`) keeps its
-        # help, and a plain word after it is a mistyped leaf that argparse names with its choices.
-        # Only an option after it is an old call.
+        # A group that stays under its own name (`eval score` -> `eval score pointwise`) keeps its help.
+        # A plain word after it is a mistyped leaf (argparse names the choices); an option is an old call.
         if tomb.new[:n] == _canonical(tomb.old) and (
             all(a in ("-h", "--help") for a in argv[n:]) or not argv[n].startswith("-")
         ):

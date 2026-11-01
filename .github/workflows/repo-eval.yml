@@ -3,26 +3,8 @@
 
 name: repo-eval
 
-# The no-LLM checks of a repository's evals (dokimi/docs/repo-evaluation-contract.md),
-# for repositories to call from their own workflow:
-#
-#   validate     `repo validate`: the manifest and every task.json (seconds; a gate)
-#   scan         `repo scan`: the L0 claims of the guidance (report only)
-#   tasks-check  `eval check`, one job per selected task: the untouched
-#                workspace fails the gate, the reference solution passes it
-#
-# Nothing here calls a model or reads a secret. The caller pins dokimi twice,
-# by the same commit SHA (or tag): in `uses: ...@<sha>` and in `dokimi-ref`. The
-# ref installs dokimi and, through its requirements.lock.txt, every dependency,
-# so a rerun checks with the same framework. A branch name is refused. The
-# calling job grants `contents: read`, all any job here asks for.
-#
-# Task selection (`tasks`): `changed` on a pull request is the tasks whose
-# directories it touches, plus `smoke-tasks` when it changes anything else the
-# self-check depends on: the eval directory outside its tasks (harness,
-# graders, Dockerfile; Markdown excepted), the manifest, the calling workflow
-# file, or a path under `smoke-paths`. On a push `changed` diffs against the
-# previous tip; on any other event it means `all`.
+# The no-LLM checks of a repo's evals, as a reusable workflow: no model, no secret.
+# Jobs, task selection and the pin rule: dokimi/docs/repo-evaluation-contract.md, "CI for a repository".
 
 on:
   workflow_call:
