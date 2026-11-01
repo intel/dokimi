@@ -113,7 +113,7 @@ def _resolve_ref(tmp_path: Path, ref: str) -> tuple[subprocess.CompletedProcess[
     fake.write_text(
         "#!/bin/sh\n"
         f"echo \"$*\" >> '{log}'\n"
-        f"printf '%s\\trefs/tags/release\\n%s\\trefs/tags/release^{{}}\\n%s\\trefs/tags/releases/v1\\n' '{TAG_OBJECT}' '{PEELED}' '{PEELED}'\n",
+        f"printf '%s\\trefs/tags/release\\n%s\\trefs/tags/release^{{}}\\n%s\\trefs/tags/releases/v1\\n%s\\trefs/tags/v1.2.3+build.1\\n' '{TAG_OBJECT}' '{PEELED}' '{PEELED}' '{PEELED}'\n",
         encoding="utf-8")
     fake.chmod(0o755)
     output = tmp_path / "output"
@@ -151,6 +151,13 @@ def test_a_tag_ref_resolves_to_the_commit_it_names(tmp_path: Path) -> None:
 
 def test_a_tag_ref_with_a_slash_resolves(tmp_path: Path) -> None:
     result, calls, output = _resolve_ref(tmp_path, "releases/v1")
+    assert result.returncode == 0, result.stderr
+    assert "ls-remote --tags" in calls
+    assert output == f"sha={PEELED}\n"
+
+
+def test_a_tag_ref_with_a_plus_resolves(tmp_path: Path) -> None:
+    result, calls, output = _resolve_ref(tmp_path, "v1.2.3+build.1")
     assert result.returncode == 0, result.stderr
     assert "ls-remote --tags" in calls
     assert output == f"sha={PEELED}\n"

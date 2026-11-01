@@ -141,7 +141,7 @@ jobs:
           sha=
           if [[ "$REF" =~ ^[0-9A-Fa-f]{40}$ ]]; then
             sha=${REF,,}
-          elif [[ "$REF" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]]; then
+          elif [[ "$REF" =~ ^[A-Za-z0-9][A-Za-z0-9._/+-]*$ ]]; then
             sha=$(git ls-remote --tags "https://github.com/$ACTION_REPO" \
                   | awk -v t="refs/tags/$REF" '$2 == t "^{}" { p = $1 } $2 == t { l = $1 } END { print (p != "" ? p : l) }')
           fi
