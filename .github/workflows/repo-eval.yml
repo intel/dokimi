@@ -34,7 +34,14 @@ on:
         required: true
         type: string
       dokimi-repository:
-        description: Repository dokimi-ref is in (owner/name), for testing a fork
+        description: Repository the dokimi package is installed from (owner/name), for testing a fork
+        required: false
+        type: string
+        default: intel/dokimi
+      dokimi-action-repository:
+        description: >-
+          Repository the setup action is checked out from (owner/name). It holds the commit
+          `dokimi-ref` names, so a fork's `dokimi-ref` needs this set to the fork too.
         required: false
         type: string
         default: intel/dokimi
@@ -117,13 +124,13 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      # The setup action, from this workflow's own commit (job.workflow_sha), sparse to actions/.
+      # The setup action, at dokimi-ref (the commit the caller pins in `uses:`), sparse to actions/.
       # Kept until the job ends: the composite's post steps read it from this path.
       - name: Check out the setup action
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
-          repository: ${{ inputs.dokimi-repository }}
-          ref: ${{ job.workflow_sha }}
+          repository: ${{ inputs.dokimi-action-repository }}
+          ref: ${{ inputs.dokimi-ref }}
           path: .dokimi-action
           sparse-checkout: /actions/
           sparse-checkout-cone-mode: false
@@ -280,8 +287,8 @@ jobs:
       - name: Check out the setup action
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
-          repository: ${{ inputs.dokimi-repository }}
-          ref: ${{ job.workflow_sha }}
+          repository: ${{ inputs.dokimi-action-repository }}
+          ref: ${{ inputs.dokimi-ref }}
           path: .dokimi-action
           sparse-checkout: /actions/
           sparse-checkout-cone-mode: false
@@ -352,8 +359,8 @@ jobs:
       - name: Check out the setup action
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
-          repository: ${{ inputs.dokimi-repository }}
-          ref: ${{ job.workflow_sha }}
+          repository: ${{ inputs.dokimi-action-repository }}
+          ref: ${{ inputs.dokimi-ref }}
           path: .dokimi-action
           sparse-checkout: /actions/
           sparse-checkout-cone-mode: false

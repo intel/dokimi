@@ -41,3 +41,18 @@ def test_no_step_keeps_the_key_under_runner_temp() -> None:
     text = ACTION.read_text(encoding="utf-8")
     assert "runner.temp }}/dokimi-setup" not in text
     assert "$RUNNER_TEMP/dokimi-setup" not in text
+
+
+def test_the_action_declares_no_paid_or_max_usd_input() -> None:
+    # A spending cap the action does not enforce must not ship as a safety input.
+    inputs = yaml.safe_load(ACTION.read_text(encoding="utf-8"))["inputs"]
+    assert "paid" not in inputs
+    assert "max-usd" not in inputs
+
+
+def test_the_action_exports_no_dokimi_runs_dir_or_max_usd() -> None:
+    # DOKIMI_RUNS_DIR is read only by `dokimi runs`; the writers ignore it, so exporting it
+    # misleads. DOKIMI_MAX_USD is read by no code. Neither is exported or documented here.
+    text = ACTION.read_text(encoding="utf-8")
+    assert "DOKIMI_RUNS_DIR" not in text
+    assert "DOKIMI_MAX_USD" not in text

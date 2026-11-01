@@ -46,6 +46,7 @@ jobs:
       # The commit under test: the merge commit on a pull request.
       dokimi-ref: ${{ github.sha }}
       dokimi-repository: ${{ github.repository }}
+      dokimi-action-repository: ${{ github.repository }}
       manifest: .agent-eval/repo-eval.yaml
       tasks: ${{ inputs.tasks || 'changed' }}
       smoke-tasks: fix-degrade-pre review-pr-conventions

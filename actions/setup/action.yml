@@ -5,8 +5,7 @@ name: dokimi setup
 description: >-
   Installs dokimi at one pinned commit (a SHA, or a release tag resolved to its
   commit; a branch is refused) with its locked dependencies, sets up Python, and
-  exports what a dokimi run expects on CI: CI=true, DOKIMI_RUNS_DIR and, with
-  `max-usd`, DOKIMI_MAX_USD. Needs no secret. Callers grant `contents: read` at most.
+  exports CI=true. Needs no secret. Callers grant `contents: read` at most.
 
 inputs:
   dokimi-ref:
@@ -15,7 +14,7 @@ inputs:
       `uses:` line that pins this action; a branch is refused.
     required: true
   dokimi-repository:
-    description: Repository dokimi-ref is in (owner/name), for testing a fork
+    description: Repository dokimi-ref is in (owner/name), for installing a fork's package
     required: false
     default: intel/dokimi
   python-version:
@@ -25,8 +24,8 @@ inputs:
   out-dir:
     description: >-
       Directory for the run output, created by this action; empty means
-      `$RUNNER_TEMP/dokimi-out`. Its layout is fixed: `runs/` is the runs root
-      (DOKIMI_RUNS_DIR). Upload the whole directory as an artifact.
+      `$RUNNER_TEMP/dokimi-out`. The caller writes its output under it, and uploads the
+      whole directory as an artifact.
     required: false
     default: ''
   cache:
@@ -35,18 +34,6 @@ inputs:
       changed lock is a new commit and a new key.
     required: false
     default: 'false'
-  paid:
-    description: >-
-      `true` when a step of this job calls a model and spends money. Then `max-usd` is
-      required. Free steps leave it `false` and need no cap.
-    required: false
-    default: 'false'
-  max-usd:
-    description: >-
-      The cap in US dollars on the whole job, exported as DOKIMI_MAX_USD. Required when
-      `paid` is `true`; a value that is not a positive number fails the job.
-    required: false
-    default: ''
 
 outputs:
   sha:
@@ -59,26 +46,6 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Check the inputs
-      shell: bash
-      env:
-        PAID: ${{ inputs.paid }}
-        MAX_USD: ${{ inputs.max-usd }}
-      run: |
-        case "$PAID" in
-          true|false) ;;
-          *) echo "::error title=paid::paid must be 'true' or 'false', not '$PAID'"; exit 1 ;;
-        esac
-        if [ -n "$MAX_USD" ]; then
-          if ! [[ "$MAX_USD" =~ ^[0-9]+(\.[0-9]+)?$ ]] || ! awk -v v="$MAX_USD" 'BEGIN { exit !(v > 0) }'; then
-            echo "::error title=max-usd::max-usd must be a positive number of US dollars, not '$MAX_USD'"
-            exit 1
-          fi
-        elif [ "$PAID" = true ]; then
-          echo "::error title=max-usd::max-usd is required when paid is true: a step here calls a model, and a run without a dollar cap is refused"
-          exit 1
-        fi
-
     # Resolves the ref before anything is installed: a tag becomes the commit it names
     # (the peeled line of ls-remote), so the jobs of one run install the same commit.
     - name: Resolve dokimi-ref
@@ -138,17 +105,11 @@ runs:
       shell: bash
       env:
         OUT: ${{ inputs.out-dir }}
-        MAX_USD: ${{ inputs.max-usd }}
-      run: | # zizmor: ignore[github-env] -- intended: the two values written are checked above (no newline, a number)
+      run: | # zizmor: ignore[github-env] -- intended: the only value written to GITHUB_ENV is the constant CI=true
         out=${OUT:-$RUNNER_TEMP/dokimi-out}
-        mkdir -p "$out/runs"
+        mkdir -p "$out"
         dir=$(cd "$out" && pwd)
-        # Each value written to GITHUB_ENV is checked here too: a newline would add a variable.
+        # The path written to GITHUB_OUTPUT is checked here: a newline would add an output.
         if [[ "$dir" == *$'\n'* ]]; then echo "::error title=out-dir::out-dir has a newline"; exit 1; fi
-        if [ -n "$MAX_USD" ] && ! [[ "$MAX_USD" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-          echo "::error title=max-usd::max-usd must be a positive number of US dollars"; exit 1
-        fi
         echo "dir=$dir" >> "$GITHUB_OUTPUT"
         echo "CI=true" >> "$GITHUB_ENV"
-        echo "DOKIMI_RUNS_DIR=$dir/runs" >> "$GITHUB_ENV"
-        if [ -n "$MAX_USD" ]; then echo "DOKIMI_MAX_USD=$MAX_USD" >> "$GITHUB_ENV"; fi
