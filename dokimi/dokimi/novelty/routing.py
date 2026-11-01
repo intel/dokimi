@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import random
 import re
 from collections import Counter
@@ -459,6 +460,9 @@ def competitor_left_out(ref: str, *, include_disabled: bool, include_invalid: bo
     path = skill_file(ref)
     if path is None:
         return None
+    # absolute first: a relative ``skill:SKILL.md`` has parent.parent == "." and would be read as a
+    # root skill (no directory-name check), so the same skill would get a different verdict by spelling
+    path = Path(os.path.abspath(path))
     if not include_disabled and disables_model_invocation(path):
         return "disable-model-invocation (--include-disabled keeps it)"
     if include_invalid:
@@ -526,9 +530,9 @@ def catalog_competitors(root: str, exclude: set[str],
     spec error (``catalog scan`` reports it as an error, e.g. a description over 1024
     characters) is left out too, unless ``include_invalid``. A mirror, a byte-identical
     ``SKILL.md`` under another path (a plugin copy of the ``skills/`` tree), is left out too:
-    the copy nearest the catalog root stands for the card. Every copy of a name whose loaded
-    skills differ in content is left out, with the disabled and spec-error ones too, and
-    ``notes`` names every path of that name.
+    the copy nearest the catalog root stands for the card. Disabled and spec-error copies are
+    filtered according to the flags first. A name whose remaining copies differ in content leaves
+    the field whole, with a note naming every remaining path of that name.
 
     Raises:
         ValueError: ``root`` is not a directory, or its ``skills.yaml`` is invalid (with no
@@ -554,9 +558,9 @@ def _eligible_catalog_skills(root: str, exclude: set[str], notes: list[str] | No
                              include_invalid: bool = False) -> list[tuple[Skill, str]]:
     """Each loadable, non-excluded catalog skill with the sha256 of its ``SKILL.md``.
 
-    A name whose loaded copies differ in content leaves the field whole. That check runs
-    before the disabled and spec-error filters, so it sees the copies ``catalog scan`` warns
-    about, and the note names all of them.
+    Disabled and spec-error copies are filtered according to the flags first. A name whose
+    remaining copies differ in content leaves the field whole, with a note naming every
+    remaining path of that name.
     """
     from dokimi.external.catalog import read_skill_manifest
     from dokimi.external.validate import review_skills

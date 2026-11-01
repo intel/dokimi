@@ -13,6 +13,7 @@ from dokimi.cli import build_parser
 from dokimi.commands.novelty import _routing_field
 from dokimi.novelty.routing import (
     catalog_competitors,
+    competitor_left_out,
     disables_model_invocation,
 )
 
@@ -305,6 +306,23 @@ def test_an_explicit_spec_error_competitor_is_skipped_with_a_warning(tmp_path, c
     assert any(long_ref in entry and "spec error" in entry for entry in left_out)
     field = _routing_field(_parse(*argv, "--include-invalid"), {"a"}, [])
     assert sorted(c.name for c in field) == ["b", "long"]
+
+
+def test_the_spelling_of_an_explicit_competitor_does_not_change_its_verdict(tmp_path, monkeypatch):
+    # ``skill:SKILL.md`` and ``skill:.`` (relative, from inside the skill) must get the verdict of
+    # the absolute reference: the directory name is checked for a skill that is not a catalog root
+    skill_dir = tmp_path / "checkout"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: db\ndescription: tune a database query\n---\n\n# B\n\n## A section\n",
+        encoding="utf-8")
+    absolute = competitor_left_out(f"skill:{skill_dir}/SKILL.md",
+                                   include_disabled=False, include_invalid=False)
+    assert absolute is not None and "not the directory name 'checkout'" in absolute
+    monkeypatch.chdir(skill_dir)
+    for ref in ("skill:SKILL.md", "skill:.", f"skill:{skill_dir}"):
+        assert competitor_left_out(ref, include_disabled=False, include_invalid=False) == absolute, ref
+    assert competitor_left_out("skill:SKILL.md", include_disabled=False, include_invalid=True) is None
 
 
 def _db_with_a_hidden_copy(tmp_path):

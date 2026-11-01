@@ -9,9 +9,10 @@
 - **`novelty routing --catalog` leaves out a skill with a spec error by default** (for example a
   description over 1024 characters, or a name that is not kebab-case or not its directory name), with
   a warning on stderr naming the error. Before, such a skill was in the field. `--include-invalid`
-  keeps it. A name with two different copies, or a copy that is `disable-model-invocation`, also changes
+  keeps it. A name with two different copies also changes
   the field, so a routing result saved before this change is not comparable with one saved now for the
-  same `--catalog`: rerun it to compare.
+  same `--catalog`: rerun it to compare. With `--include-disabled`, a copy that is
+  `disable-model-invocation` counts as one of the copies.
 - **`novelty routing --catalog` skips a name that two different skills share, with a warning, instead of
   refusing the run** (exit 2). Every copy of that name leaves the field, the rest of it stays, and stderr
   names every path.
