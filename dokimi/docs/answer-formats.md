@@ -118,8 +118,8 @@ question was not measured is `inconclusive` and also exits 1: a question whose
 of only negated checks. A `negate` check passes an answer that lacks its value,
 so a block of only negated checks gets none of `wrong`, `empty` and `hedge`: it
 is marked `negated_only` in the artifact (the table prints a line "N questions with only negated checks: wrong, empty and hedge not run"),
-and it has no probe at all. The table names every question that was not
-measured and counts it as `unprobed`; only a run that measured every graded
+and it has no probe at all. The table names up to 20 questions that were not
+measured and counts them as `unprobed`; `--out FILE` keeps the complete list; only a run that measured every graded
 question and found no violation is `pass`. An unwritable `--out` exits 2.
 A block with a positive check
 is graded as written, `threshold` included, so a negated check's share of the score
