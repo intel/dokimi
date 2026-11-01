@@ -70,7 +70,7 @@ def test_a_cwd_ending_in_a_newline_is_refused(tmp_path: Path) -> None:
     # The path that reaches GITHUB_OUTPUT must not lose a newline at its end.
     cwd = tmp_path / "work\n"
     cwd.mkdir()
-    result = _run_out_step(tmp_path, "out", cwd=cwd)
+    result = _run_out_step(tmp_path, ".", cwd=cwd)
     assert result.returncode != 0
     assert "out-dir has a newline" in result.stdout
     assert (tmp_path / "output").read_text(encoding="utf-8") == ""
