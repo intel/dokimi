@@ -222,7 +222,7 @@
           "type": "string"
         },
         "validation_score": {
-          "description": "Aggregate quality score from question validation (`questions generate --validate`), 0-100.",
+          "description": "Aggregate quality score from question validation (`eval questions generate --validate`), 0-100.",
           "type": "number"
         },
         "validation_details": {

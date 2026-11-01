@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""eval subcommand group: score, ragas, panel-score."""
+"""eval subcommand group: score, judge, and the eval sets (personas, questions, tasks, triggers, check)."""
 
 from __future__ import annotations
 
@@ -143,7 +143,7 @@ def cmd_eval_panel_score(args: argparse.Namespace) -> None:
                 answer_model=answer_model,
                 judge_provider=cfg.provider,
                 judge_model=cfg.model,
-                context="panel-score",
+                context="eval score panel",
             )
 
     n_effective = min(len(answers), args.limit) if args.limit else len(answers)
@@ -195,7 +195,7 @@ def cmd_eval_score(args: argparse.Namespace) -> None:
             answer_model=answer_model,
             judge_provider=args.judge_provider,
             judge_model=args.judge_model,
-            context="eval-score",
+            context="eval score pointwise",
         )
 
     print(f"Evaluating with judge: {args.judge_provider}/{args.judge_model}")
@@ -468,7 +468,7 @@ def register(sub, positive_int):
     The groups that join `eval` (personas, questions, tasks, triggers, check) register on the return value.
     """
     # Eval subcommand group
-    eval_p = sub.add_parser("eval", help="Evaluate answers")
+    eval_p = sub.add_parser("eval", help="Build and check eval sets, score answers, calibrate judges")
     eval_sub = eval_p.add_subparsers(dest="eval_cmd", required=True)
 
     score_group = eval_sub.add_parser(

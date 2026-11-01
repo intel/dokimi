@@ -23,7 +23,7 @@ from dokimi.exit_codes import EXIT_USAGE
 
 
 def _context(args: argparse.Namespace, out: Path, pin: bool = False):
-    """Source, manifest, exported eval dir, image and caches shared by `tasks check` and `run`.
+    """Source, manifest, exported eval dir, image and caches shared by `eval check` and `run`.
 
     With ``pin`` (a batch), the batch keeps the eval tree it started with: a later invocation
     from another revision would grade new cells with other graders, so it is refused. A working
@@ -411,7 +411,7 @@ def _common(p: argparse.ArgumentParser, source_help: str, cache_help: str, posit
 def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str) -> None:
     tasks_p = repo_sub.add_parser("tasks", help="Review tasks built from past reviews (no LLM)")
     tasks_sub = tasks_p.add_subparsers(dest="repo_tasks_cmd", required=True)
-    # eval check (#94 M1): the self-check of `eval check`, moved under eval
+    # eval check (#94 M1): the self-check that `repo tasks check` ran, now `eval check`
     check_p = eval_sub.add_parser(
         "check", help="Per task: grade on the untouched workspace must fail the gate, oracle then grade must "
         "pass it (score-only: reach score.max), and the agent's container must not see tasks or source")
