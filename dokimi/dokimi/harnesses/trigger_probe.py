@@ -145,7 +145,13 @@ def parse_stream(stream: str) -> Dict[str, Any]:
     # share message.id. Subagent events (parent_tool_use_id set) are not the choice.
     by_turn: Dict[str, List[str]] = {}
     other_tools: List[str] = []
+    failed_ids: set = set()  # tool_use ids whose tool_result is an error
+    calls: List[tuple] = []  # (tool_use id, raw skill name) of top-level Skill calls
     for n, ev in enumerate(_events(stream)):
+        if ev.get("type") == "user":
+            for c in (ev.get("message") or {}).get("content") or []:
+                if isinstance(c, dict) and c.get("type") == "tool_result" and c.get("is_error"):
+                    failed_ids.add(c.get("tool_use_id"))
         if ev.get("type") == "system" and ev.get("subtype") == "init":
             listed = [str(s) for s in ev.get("skills") or []]
             version = ev.get("claude_code_version")
@@ -154,6 +160,8 @@ def parse_stream(stream: str) -> Dict[str, Any]:
         message = ev.get("message") or {}
         uses = [c for c in message.get("content") or [] if isinstance(c, dict) and c.get("type") == "tool_use"]
         skills = [_skill_name((c.get("input") or {}).get("skill")) for c in uses if c.get("name") == "Skill"]
+        calls += [(c.get("id"), str((c.get("input") or {}).get("skill") or ""))
+                  for c in uses if c.get("name") == "Skill"]
         if not by_turn:  # tools after the choice are not "before" it
             other_tools += [str(c.get("name")) for c in uses if c.get("name") != "Skill"]
         if skills:
@@ -167,6 +175,8 @@ def parse_stream(stream: str) -> Dict[str, Any]:
         "selected": first[0] if first else None,
         "first_turn_loaded": first,
         "loaded": [s for t in turns for s in t],
+        # Raw names (plugin namespace kept) of Skill calls whose result was not an error.
+        "loaded_ok": [name for tid, name in calls if tid is None or tid not in failed_ids],
         "tools_before_choice": other_tools,
         "claude_code_version": version,
     }
@@ -186,17 +196,21 @@ def run_query(query: str, catalog: Path, cfg: ProbeConfig, *, runner: process.Ru
         skill = parse_stream(stream)
         result = result_event(stream) or {}
         error = None
+        # The failure as it is, before the Skill-call suppression below (the guard reports it).
+        terminal = None
+        if not result:
+            terminal = "timeout" if done.timed_out else f"no result event (exit {done.returncode})"
+        elif result.get("is_error") and result.get("subtype") != "error_max_turns":
+            terminal = str(result.get("subtype") or "error")
         # A Skill call seen is the choice, whatever came after it (a hang, a timeout, an
         # error). A result event read decides the rest, even if the CLI then hung.
         if skill["first_turn_loaded"]:
             pass
-        elif not result:
-            error = "timeout" if done.timed_out else f"no result event (exit {done.returncode})"
-        # Out of turns without a Skill call is an observation (nothing triggered), not a failure.
-        elif result.get("is_error") and result.get("subtype") != "error_max_turns":
-            error = str(result.get("subtype") or "error")
+        else:  # out of turns without a Skill call is an observation (nothing triggered), not a failure
+            error = terminal
         return {"skill": skill, "cost_usd": result.get("total_cost_usd"),
-                "num_turns": result.get("num_turns"), "result_subtype": result.get("subtype"), "error": error}
+                "num_turns": result.get("num_turns"), "result_subtype": result.get("subtype"), "error": error,
+                "terminal_error": terminal}
     finally:
         kill_strays(ws.root)
         ws.cleanup()
@@ -215,10 +229,13 @@ def known_positive(skill: str, catalog: Path, cfg: ProbeConfig, *, runner: proce
     except (OSError, RuntimeError) as exc:
         return {"skill": skill, "query": query, "passed": False, "loaded": [], "listed": [], "cost_usd": None,
                 "claude_code_version": None, "error": f"{type(exc).__name__}: {exc}"}
-    # The guard passes on the Skill call alone; ``listed`` records whether the harness showed the skill.
-    return {"skill": skill, "query": query, "passed": skill in r["skill"]["loaded"],
+    # The guard passes on a successful call of exactly this skill (a `plugin:skill` is another one);
+    # ``listed`` records whether the harness showed it. A failure is reported even after a Skill call.
+    passed = skill in r["skill"]["loaded_ok"]
+    return {"skill": skill, "query": query, "passed": passed,
             "loaded": r["skill"]["loaded"], "listed": r["skill"]["listed"], "cost_usd": r["cost_usd"],
-            "claude_code_version": r["skill"]["claude_code_version"], "error": r["error"]}
+            "claude_code_version": r["skill"]["claude_code_version"],
+            "error": None if passed else r["terminal_error"]}
 
 
 def kill_strays(root: Path) -> List[int]:

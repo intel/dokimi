@@ -459,6 +459,40 @@ def test_known_positive_passes_only_when_the_explicit_request_loads_the_skill(tm
     assert r["passed"] is passed and r["error"] is None
 
 
+def _skill_stream(name, *, is_error=False, result=True):
+    events = [{"type": "system", "subtype": "init", "skills": ["sum-fast"], "claude_code_version": "2.1.304"},
+              {"type": "assistant", "message": {"id": "m1", "content": [
+                  {"type": "tool_use", "id": "tu1", "name": "Skill", "input": {"skill": name}}]}},
+              {"type": "user", "message": {"content": [
+                  {"type": "tool_result", "tool_use_id": "tu1", "is_error": is_error, "content": "x"}]}}]
+    if result:
+        events.append({"type": "result", "subtype": "success", "is_error": False, "total_cost_usd": 0.01, "num_turns": 2})
+    return "\n".join(json.dumps(e) for e in events) + "\n"
+
+
+def _known(tmp_path, stream, timed_out=False):
+    def runner(argv, **kw):
+        return process.run(argv, **kw) if argv[0] == "git" else process.reply(stream, timed_out=timed_out)
+
+    return tp.known_positive("sum-fast", _catalog(tmp_path), tp.ProbeConfig(), runner=runner,
+                             source_env={"PATH": "/usr/bin:/bin"})
+
+
+@pytest.mark.parametrize("name, is_error, passed", [
+    ("sum-fast", False, True), ("sum-fast", True, False), ("plug:sum-fast", False, False)],
+    ids=["loaded", "result-is-error", "other-namespace"])
+def test_known_positive_needs_the_exact_skill_loaded_without_error(tmp_path, name, is_error, passed):
+    r = _known(tmp_path, _skill_stream(name, is_error=is_error))
+    assert r["passed"] is passed
+    # Labelled scoring still sees the namespace-stripped name.
+    assert r["loaded"] == ["sum-fast"]
+
+
+def test_known_positive_keeps_the_timeout_when_another_skill_was_called_first(tmp_path):
+    r = _known(tmp_path, _skill_stream("io-read", result=False), timed_out=True)
+    assert r["passed"] is False and r["error"] == "timeout"
+
+
 def test_known_positive_that_cannot_run_fails_without_raising(tmp_path):
     def runner(argv, **kw):
         if argv[0] == "git":
@@ -479,12 +513,34 @@ def test_cli_probes_the_target_or_the_first_skill_before_the_set(tmp_path, monke
 
 def test_cli_stops_before_the_labelled_runs_when_the_skill_is_not_visible(tmp_path, monkeypatch, capsys):
     with pytest.raises(SystemExit, match="invalid: skill not visible"):
-        _cli(tmp_path, monkeypatch, "--out", "probe.json", known_passed=False)
+        _cli(tmp_path, monkeypatch, "--out", "probe.json", known_passed=False, init_skills=("sum-fast",))
     out = json.loads((tmp_path / "probe.json").read_text(encoding="utf-8"))
     assert out["status"] == "invalid: skill not visible" and out["answers"] == []
     assert out["known_positive"]["passed"] is False
     assert not (tmp_path / "probe.json.partial").exists()
     assert '"status": "invalid: skill not visible"' in capsys.readouterr().out
+
+
+def test_cli_says_not_loaded_when_the_harness_listed_the_skill(tmp_path, monkeypatch, capsys):
+    with pytest.raises(SystemExit, match="invalid: skill not loaded"):
+        _cli(tmp_path, monkeypatch, "--out", "probe.json", known_passed=False)
+    out = json.loads((tmp_path / "probe.json").read_text(encoding="utf-8"))
+    assert out["status"] == "invalid: skill not loaded"
+    assert '"status": "invalid: skill not loaded"' in capsys.readouterr().out
+
+
+def test_the_refusal_output_has_the_probe_keys_of_an_unrun_probe(tmp_path, monkeypatch):
+    with pytest.raises(SystemExit):
+        _cli(tmp_path, monkeypatch, "--out", "probe.json", known_passed=False, init_skills=("sum-fast",))
+    out = json.loads((tmp_path / "probe.json").read_text(encoding="utf-8"))
+    assert out["max_turns_hit"] == 0 and out["not_listed"] == [] and out["skill_selection_summary"] == {}
+
+
+def test_a_refusal_removes_the_stale_partial_of_an_earlier_run(tmp_path, monkeypatch):
+    (tmp_path / "probe.json.partial").write_text("{}", encoding="utf-8")
+    with pytest.raises(SystemExit):
+        _cli(tmp_path, monkeypatch, "--out", "probe.json", known_passed=False)
+    assert not (tmp_path / "probe.json.partial").exists()
 
 
 def test_no_known_positive_skips_the_guard(tmp_path, monkeypatch):

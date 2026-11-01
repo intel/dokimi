@@ -18,6 +18,7 @@ from dokimi.exit_codes import usage_exit
 
 #: Status of a run whose known-positive guard failed: no labelled query ran.
 _INVALID = "invalid: skill not visible"
+_NOT_LOADED = "invalid: skill not loaded"  # the harness listed the skill, the explicit request did not load it
 _ERROR = "error: known-positive run failed"  # the guard run ended in an error, not a missing skill
 _NOT_LISTED = "invalid: skill not listed"
 
@@ -137,9 +138,14 @@ def _known_positive_guard(args: argparse.Namespace, names: set, catalog: Path, c
     if known["passed"]:
         return known
     # A run that errored says so: "not visible" would read as the harness hiding the skill.
-    status = _ERROR if known["error"] else _INVALID
+    if known["error"]:
+        status = _ERROR
+    else:
+        status = _NOT_LOADED if known["skill"] in known["listed"] else _INVALID
     _write(out_path, {**_header(args, catalog, known, status, known.get("cost_usd") or 0,
-                                known.get("claude_code_version")), "answers": []})
+                                known.get("claude_code_version")),
+                      "max_turns_hit": 0, "not_listed": [], "answers": [], "skill_selection_summary": {}})
+    out_path.with_name(out_path.name + ".partial").unlink(missing_ok=True)
     print(json.dumps({"status": status, "known_positive": known}, indent=2))
     raise SystemExit(f"{status}: {known['query']!r} did not load {known['skill']!r}"
                      + (f" ({known['error']})" if known["error"] else "") + "; no labelled query was run")
