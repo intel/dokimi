@@ -390,8 +390,13 @@ def _near_duplicates(loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]])
     """``description-near-duplicate`` on both skills of each pair whose descriptions overlap."""
     shown = [item for item in loaded if not item[2].disable_model_invocation]
     tokens = [_tokens(" ".join(item[1].description.split())) for item in shown]
+    by_token: dict[str, list[int]] = {}
+    for index, words in enumerate(tokens):
+        for word in words:
+            by_token.setdefault(word, []).append(index)
     for i, (entry, skill, review) in enumerate(shown):
-        for j in range(i + 1, len(shown)):
+        # only a pair that shares a word can overlap
+        for j in sorted({k for word in tokens[i] for k in by_token[word] if k > i}):
             o_entry, o_skill, o_review = shown[j]
             if o_review.content_sha256 == review.content_sha256:
                 continue  # an identical SKILL.md: already a duplicate
