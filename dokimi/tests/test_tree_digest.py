@@ -156,6 +156,25 @@ def test_a_dotdot_after_a_link_is_kept_so_retargeting_through_it_moves_the_diges
     assert tree_digest(root) != before
 
 
+@symlinks
+def test_an_absolute_link_ending_in_a_slash_digests_differently_from_one_without(tmp_path):
+    # root/q.json/ and root/q.json/. do not resolve for a regular file; they must not digest as root/q.json
+    plain, slash, dot = (_write(tmp_path / n, {"q.json": "[]\n"}) for n in ("plain", "slash", "dot"))
+    os.symlink(f"{plain}/q.json", plain / "current")
+    os.symlink(f"{slash}/q.json/", slash / "current")
+    os.symlink(f"{dot}/q.json/.", dot / "current")
+    assert tree_digest(slash) != tree_digest(plain)
+    assert tree_digest(dot) != tree_digest(plain)
+
+
+@symlinks
+def test_a_root_link_to_itself_digests_differently_from_a_link_to_dot(tmp_path):
+    loop, dot = tmp_path / "loop", tmp_path / "dot"
+    os.symlink(loop, loop)
+    os.symlink(".", dot)
+    assert tree_digest(loop) != tree_digest(dot)
+
+
 def test_a_tracked_file_whose_name_has_brackets_takes_its_mode_from_the_index(tmp_path):
     # ls-files reads the name as a glob unless it is literal: [1] would match nothing and the disk bit would count
     root = _write(tmp_path / "t", {"question[1].json": "[]\n"})

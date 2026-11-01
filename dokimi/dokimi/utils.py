@@ -112,12 +112,15 @@ def link_text(link: Path, root: Path) -> str:
         except ValueError:  # different drives, or a relative path mixed in
             continue
         if inside:
+            if link == root and target == anchor:
+                return target  # the root links to itself, a loop: "." would read as a link to its own directory
             rest = [part for part in target[len(anchor):].split(os.sep) if part not in ("", ".")]
             depth = len(link.relative_to(root).parent.parts)  # the link's directory, as the text is read from there
+            slash = "/" if target.endswith((os.sep, os.sep + ".")) else ""  # "x/" and "x/." need a directory
             if ".." in rest:
-                return "/".join([".."] * depth + rest) or "."
+                return "/".join([".."] * depth + rest) + slash or "."
             here = os.path.join(anchor, *link.relative_to(root).parent.parts)
-            return os.path.relpath(os.path.join(anchor, *rest), here).replace(os.sep, "/")
+            return os.path.relpath(os.path.join(anchor, *rest), here).replace(os.sep, "/") + slash
     return target  # outside the tree: as written
 
 
