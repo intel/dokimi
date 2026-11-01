@@ -169,6 +169,22 @@ def test_subjects_evidence_refuses_an_out_that_is_a_symlink_loop(tmp_path: Path,
     assert exc.value.code == 2
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="the root is not a bare name there")
+@pytest.mark.parametrize("out", [".", "/"])
+def test_subjects_evidence_refuses_an_out_with_no_file_name(tmp_path: Path, monkeypatch, out):
+    # Path("." or "/").with_name(...) raises ValueError; that must be a usage diagnostic, not a traceback.
+    from dokimi.cli import main
+
+    scorecard = tmp_path / "sc.json"
+    scorecard.write_text(json.dumps(_scorecard()), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("sys.argv", ["dokimi", "subjects", "evidence", str(scorecard), "--out", out])
+    with pytest.raises(SystemExit) as exc:
+        main()
+    assert exc.value.code == 2
+    assert not (tmp_path / "skill-evidence.json").exists()
+
+
 def test_n_and_delta_are_the_paired_tests_not_the_arms_own_counts():
     scorecard = _scorecard()
     row = scorecard["cells"][0]["summary"]["per_arm"]["skill:s"]

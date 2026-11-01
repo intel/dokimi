@@ -188,7 +188,8 @@ def cmd_subjects_evidence(args: argparse.Namespace) -> None:
         # save_artifact keeps and removes "<out>.rejected"; that sibling must not be the scorecard.
         stale_real = out.with_name(out.name + ".rejected").resolve()
         card_real = Path(args.scorecard).resolve()
-    except (OSError, RuntimeError) as exc:  # a symlink loop raises RuntimeError before Python 3.13
+    # A symlink loop raises RuntimeError before Python 3.13; "." or "/" has no name, so with_name raises ValueError.
+    except (OSError, RuntimeError, ValueError) as exc:
         usage_exit(f"cannot resolve --out {out}: {exc}")
     if out_real == card_real:
         usage_exit("--out names the scorecard itself; pick another file")
