@@ -344,7 +344,7 @@
               "nargs": null,
               "position": null,
               "required": false,
-              "type": "int"
+              "type": "dokimi.cli.build_parser.<locals>.positive_int#faf57db5ff9f"
             }
           ],
           "path": "dokimi answers generate",
@@ -2300,6 +2300,22 @@
               "type": null
             },
             {
+              "action": "_StoreTrueAction",
+              "choices": null,
+              "const": true,
+              "default": false,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": true,
+              "key": "--judge-placeholder",
+              "kind": "option",
+              "nargs": 0,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
               "action": "_StoreAction",
               "choices": [
                 "'amazon-bedrock'",
@@ -2322,6 +2338,22 @@
               "position": null,
               "required": false,
               "type": null
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--judge-temperature",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": "float"
             },
             {
               "action": "_StoreAction",
@@ -4014,6 +4046,94 @@
             }
           ],
           "path": "dokimi eval checklist",
+          "subcommand_required": null,
+          "subcommands": {}
+        },
+        "coverage": {
+          "allow_abbrev": true,
+          "params": [
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "evals",
+              "kind": "argument",
+              "nargs": null,
+              "position": 0,
+              "required": true,
+              "type": null
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--graph",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": true,
+              "type": null
+            },
+            {
+              "action": "_HelpAction",
+              "choices": null,
+              "const": null,
+              "default": "==SUPPRESS==",
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": true,
+              "key": "--help/-h",
+              "kind": "option",
+              "nargs": 0,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
+              "action": "_AppendAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--min",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": "dokimi.commands.eval_coverage._floor#bbd5737352a9"
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--out",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": null
+            }
+          ],
+          "path": "dokimi eval coverage",
           "subcommand_required": null,
           "subcommands": {}
         },
@@ -5806,6 +5926,22 @@
               "type": null
             },
             {
+              "action": "_StoreTrueAction",
+              "choices": null,
+              "const": true,
+              "default": false,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": true,
+              "key": "--judge-placeholder",
+              "kind": "option",
+              "nargs": 0,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
               "action": "_StoreAction",
               "choices": [
                 "'amazon-bedrock'",
@@ -6011,6 +6147,22 @@
           "key": "--judge-model",
           "kind": "option",
           "nargs": null,
+          "position": null,
+          "required": false,
+          "type": null
+        },
+        {
+          "action": "_StoreTrueAction",
+          "choices": null,
+          "const": true,
+          "default": false,
+          "group_key": null,
+          "group_required": null,
+          "hidden": false,
+          "is_flag": true,
+          "key": "--judge-placeholder",
+          "kind": "option",
+          "nargs": 0,
           "position": null,
           "required": false,
           "type": null
@@ -12901,9 +13053,11 @@
                 "'arms'",
                 "'cli_routes'",
                 "'eval'",
+                "'eval_coverage'",
                 "'explore_runs'",
                 "'guidance_reach'",
                 "'matrix_rollup'",
+                "'need_graph'",
                 "'novelty'",
                 "'plan'",
                 "'plugin_delta'",

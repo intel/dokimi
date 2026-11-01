@@ -88,6 +88,7 @@
 --judge-configs
 --judge-model
 --judge-panel
+--judge-placeholder  # placeholder judge (#274) adds it: no registry concept yet; a F1b migration names it
 --judge-provider
 --judge-temperature
 --judges
@@ -223,3 +224,5 @@
 --work-output-dir
 --work-repeats
 -o
+--graph  # eval coverage: the frozen need graph input, a file no registry concept names yet (#331)
+--min  # eval coverage gate floor, [METRIC=]X like --timeout [PHASE=]SEC (#331)
