@@ -57,18 +57,19 @@ class CodeIndex:
         return tuple(self._docs)
 
     def occurrences(self, path: str) -> tuple[Occurrence, ...]:
-        """Every occurrence in one document, in the order the index holds them."""
+        """Every occurrence in one document, in the order the index holds them, an identical repeat kept once."""
         return self._docs.get(path, ())
 
     def definitions(self, query: str) -> tuple[Occurrence, ...]:
         """The definition occurrences of a symbol, or of a name.
 
-        A query with a space is a full symbol string. Any other query is a name, matched against the last
-        namespace, type, term, method, meta or macro descriptor of each symbol (``Impl#run().`` is ``run``), so
-        a qualified path such as ``pkg.module.run`` matches nothing."""
+        A query that is a global symbol of this index is looked up exactly. Any other query is a name, matched
+        against the last descriptor of each symbol: namespace, type, term, method, meta, macro, parameter or
+        type parameter (``Impl#run().`` is ``run``, ``Impl#run().(value)`` is ``value``). A name may hold
+        spaces (``operator new``); a qualified path such as ``pkg.module.run`` matches nothing."""
         _refuse_local(query)
-        if " " in query:
-            return tuple(occ for occ in self._by_symbol.get(query, ()) if occ.is_definition)
+        if query in self._by_symbol:
+            return tuple(occ for occ in self._by_symbol[query] if occ.is_definition)
         return tuple(self._by_name.get(query, ()))
 
     def references(self, symbol: str) -> tuple[Occurrence, ...]:
@@ -88,9 +89,29 @@ class CodeIndex:
         return best
 
     def bases(self, symbol: str) -> tuple[str, ...]:
-        """The symbols ``symbol`` directly implements or extends (SCIP ``is_implementation`` relationships)."""
+        """The symbols ``symbol`` directly implements or extends.
+
+        Read from SCIP ``is_implementation`` relationships. scip-python lists direct bases only, scip-clang every
+        ancestor, so a listed symbol that is an ancestor of another listed one is dropped (both stay when each is
+        an ancestor of the other)."""
         _refuse_local(symbol)
-        return self._bases.get(symbol, ())
+        listed = self._bases.get(symbol, ())
+        if len(listed) < 2:
+            return listed
+        above = {base: self._ancestors(base) for base in listed}
+        return tuple(base for base in listed
+                     if not any(base in above[other] and other not in above[base] for other in listed))
+
+    def _ancestors(self, symbol: str) -> set[str]:
+        """Every symbol reachable from ``symbol`` through ``is_implementation``, ``symbol`` itself excluded."""
+        seen: set[str] = set()
+        todo = list(self._bases.get(symbol, ()))
+        while todo:
+            base = todo.pop()
+            if base not in seen and base != symbol:
+                seen.add(base)
+                todo.extend(self._bases.get(base, ()))
+        return seen
 
 
 def load(path: str | Path, *, root_prefix: str = "") -> CodeIndex:

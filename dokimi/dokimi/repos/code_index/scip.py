@@ -20,18 +20,23 @@ from dokimi.repos.code_index.wire import LEN, VARINT, read_delimited, read_ints,
 
 DEFINITION = 0x1
 
+# (line, start_col, end_line, end_col, symbol, roles, enclosing lines)
+_Raw = tuple[int, int, int, int, str, int, tuple[int, int] | None]
+
 
 @dataclass(frozen=True, slots=True)
 class Occurrence:
     """One occurrence of a symbol in one document.
 
-    ``path`` is repo-relative (the index's relative path with the root prefix applied). ``symbol`` is a global
-    symbol string, or a ``local N`` id that is only meaningful within ``path``. ``enclosing`` is the first and
-    last line of the enclosing range, or ``None`` when the tool wrote none."""
+    ``path`` is repo-relative (the index's relative path with the root prefix applied). The range starts at
+    ``line``, ``start_col`` and ends at ``end_line``, ``end_col`` (``end_line == line`` for a one-line range).
+    ``symbol`` is a global symbol string, or a ``local N`` id that is only meaningful within ``path``.
+    ``enclosing`` is the first and last line of the enclosing range, or ``None`` when the tool wrote none."""
 
     path: str
     line: int
     start_col: int
+    end_line: int
     end_col: int
     symbol: str
     roles: int
@@ -73,8 +78,8 @@ def decode_index(buf: memoryview, root_prefix: str = "") -> Decoded:
             path, raw = _document(body, intern, bases)
             full = prefix + path
             occurrences.setdefault(full, []).extend(
-                Occurrence(full, line, start, end, symbol, roles, enclosing)
-                for line, start, end, symbol, roles, enclosing in raw)
+                Occurrence(full, line, start, end_line, end, symbol, roles, enclosing)
+                for line, start, end_line, end, symbol, roles, enclosing in raw)
         elif field == 3 and wire == LEN:
             body, pos = read_delimited(buf, pos)
             _symbol_information(body, intern, bases)
@@ -129,10 +134,11 @@ def _metadata_tool(body: memoryview) -> str:
 
 
 def _document(body: memoryview, intern: dict[bytes, str],
-              bases: dict[str, tuple[str, ...]]) -> tuple[str, list[tuple[int, int, int, str, int, tuple[int, int] | None]]]:
-    """The relative path and the raw occurrences of one Document (no root prefix yet)."""
+              bases: dict[str, tuple[str, ...]]) -> tuple[str, list[_Raw]]:
+    """The relative path and the raw occurrences of one Document (no root prefix yet). An occurrence repeated
+    identically is kept once: scip-clang writes a header's occurrences again for each translation unit."""
     path = ""
-    raw: list[tuple[int, int, int, str, int, tuple[int, int] | None]] = []
+    raw: list[_Raw] = []
     pos = 0
     while pos < len(body):
         field, wire, pos = read_key(body, pos)
@@ -149,11 +155,11 @@ def _document(body: memoryview, intern: dict[bytes, str],
             pos = skip(body, pos, wire)
     if not path:
         raise CodeIndexError("a document has no relative_path")
-    return path, raw
+    return path, list(dict.fromkeys(raw))
 
 
-def _occurrence(body: memoryview, intern: dict[bytes, str]) -> tuple[int, int, int, str, int, tuple[int, int] | None]:
-    """(line, start_col, end_col, symbol, roles, enclosing lines) of one Occurrence."""
+def _occurrence(body: memoryview, intern: dict[bytes, str]) -> _Raw:
+    """(line, start_col, end_line, end_col, symbol, roles, enclosing lines) of one Occurrence."""
     rng: list[int] = []
     enc: list[int] = []
     symbol = ""
@@ -178,7 +184,8 @@ def _occurrence(body: memoryview, intern: dict[bytes, str]) -> tuple[int, int, i
     if enc and len(enc) not in (3, 4):
         raise CodeIndexError(f"an enclosing range has {len(enc)} values, expected 3 or 4")
     enclosing = (enc[0], enc[2] if len(enc) == 4 else enc[0]) if enc else None
-    return rng[0], rng[1], rng[-1], symbol, roles, enclosing
+    end_line = rng[2] if len(rng) == 4 else rng[0]
+    return rng[0], rng[1], end_line, rng[-1], symbol, roles, enclosing
 
 
 def _symbol_information(body: memoryview, intern: dict[bytes, str], bases: dict[str, tuple[str, ...]]) -> None:

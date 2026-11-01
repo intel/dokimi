@@ -209,6 +209,76 @@ def test_an_index_without_ranges_has_no_enclosing_scope():
     assert ix.enclosing("a.py", 1) is None
 
 
+def test_a_four_value_range_keeps_its_end_line():
+    (occ,) = _index(index(document("a.py", (occurrence([10, 4, 14, 1], SYM),)))).occurrences("a.py")
+    assert (occ.line, occ.start_col, occ.end_line, occ.end_col) == (10, 4, 14, 1)
+    (one,) = _index(index(document("a.py", (occurrence([4, 1, 7], SYM),)))).occurrences("a.py")
+    assert (one.line, one.end_line, one.end_col) == (4, 4, 7)
+
+
+def test_an_identical_repeated_occurrence_is_kept_once():
+    ref = occurrence([3, 0, 1], SYM)
+    defn = occurrence([1, 2, 5], SYM, roles=1)
+    ix = _index(index(document("a.py", (defn, ref, defn, ref, occurrence([3, 4, 5], SYM)))))
+    assert [o.line for o in ix.occurrences("a.py")] == [1, 3, 3]
+    assert [(o.line, o.start_col) for o in ix.references(SYM)] == [(3, 0), (3, 4)]
+    assert len(ix.definitions("f")) == 1
+
+
+def test_the_same_path_in_two_documents_is_one_file():
+    ix = _index(index(document("a.py", (occurrence([1, 0, 1], SYM),)),
+                      document("a.py", (occurrence([2, 0, 1], SYM),))))
+    assert ix.files() == ("a.py",)
+    assert [o.line for o in ix.occurrences("a.py")] == [1, 2]
+
+
+def test_files_are_sorted_whatever_the_document_order():
+    assert _index(index(document("b.py"), document("a.py"))).files() == ("a.py", "b.py")
+
+
+def test_enclosing_holds_the_first_and_last_line_of_the_range():
+    ix = _index(index(document("a.py", (occurrence([1, 2, 5], SYM, roles=1, enclosing=[1, 0, 9, 0]),))))
+    assert ix.enclosing("a.py", 1).symbol == SYM
+    assert ix.enclosing("a.py", 9).symbol == SYM
+    assert ix.enclosing("a.py", 10) is None
+
+
+def test_a_name_with_a_space_is_found_by_name():
+    spaced = PKG + "`m`/`operator new`()."
+    ix = _index(index(document("a.py", (occurrence([1, 0, 3], spaced, roles=1),))))
+    assert [o.symbol for o in ix.definitions("operator new")] == [spaced]
+    assert [o.symbol for o in ix.definitions(spaced)] == [spaced]
+    assert ix.definitions(PKG + "`m`/missing().") == ()
+
+
+C_SYM = PKG + "`m`/C#"
+B_SYM = PKG + "`m`/B#"
+
+
+def test_bases_drop_an_ancestor_of_another_listed_base():
+    # scip-clang lists every ancestor: C -> B -> A is written as C: [B, A], B: [A]
+    ix = _index(index(document("a.py"), external=symbol_info(C_SYM, (B_SYM, BASE_SYM)) + symbol_info(B_SYM, (BASE_SYM,))))
+    assert ix.bases(C_SYM) == (B_SYM,)
+    assert ix.bases(B_SYM) == (BASE_SYM,)
+
+
+def test_bases_keep_two_unrelated_bases_and_both_sides_of_a_cycle():
+    ix = _index(index(document("a.py"), external=symbol_info(C_SYM, (B_SYM, BASE_SYM))))
+    assert ix.bases(C_SYM) == (B_SYM, BASE_SYM)
+    cycle = symbol_info(C_SYM, (B_SYM, BASE_SYM)) + symbol_info(B_SYM, (BASE_SYM,)) + symbol_info(BASE_SYM, (B_SYM,))
+    assert _index(index(document("a.py"), external=cycle)).bases(C_SYM) == (B_SYM, BASE_SYM)
+
+
+def test_bases_from_two_records_of_one_symbol_are_merged():
+    data = index(document("a.py", symbols=symbol_info(C_SYM, (B_SYM,))), external=symbol_info(C_SYM, (BASE_SYM,)))
+    assert _index(data).bases(C_SYM) == (B_SYM, BASE_SYM)
+
+
+def test_an_explicit_zero_is_implementation_is_not_a_base():
+    info = ld(3, ld(1, SYM.encode()) + ld(4, ld(1, BASE_SYM.encode()) + vint(3, 0)))
+    assert _index(index(document("a.py", symbols=info))).bases(SYM) == ()
+
+
 @pytest.mark.parametrize(("data", "message"), [
     (b"", "the file is empty"),
     (ld(2, ld(1, b"a.py")), "no metadata message"),
@@ -219,6 +289,9 @@ def test_an_index_without_ranges_has_no_enclosing_scope():
     (key(40, 6), "unsupported wire type 6"),
     (key(40, 5) + b"\x01\x02", "fixed32 field at byte"),
     (key(41, 1) + b"\x01", "fixed64 field at byte"),
+    (key(41, 1) + b"\x00" * 7, "fixed64 field at byte"),
+    (key(40, 5) + b"\x00" * 3, "fixed32 field at byte"),
+    (key(40, 2) + varint(3) + b"ab", "length 3 at byte"),
     (ld(1, key(2, 2) + varint(5) + b"ab"), "runs past the end"),
     (ld(2, ld(2, occurrence([1, 2, 5], SYM))), "a document has no relative_path"),
     (ld(2, vint(1, 5)), "a document has no relative_path"),

@@ -167,25 +167,24 @@ outside every workspace and passes its absolute path to entry points as
 
 A repository can be read through a SCIP index (`index.scip`, the format of
 `scip.proto`) that another tool wrote. dokimi never runs an indexer. The
-reader is `dokimi.repos.code_index.load(path, root_prefix=...)`, which returns
-a `CodeIndex` with:
+reader, `dokimi.repos.code_index.load(path, root_prefix=...)`, answers
+definitions, references, enclosing scopes and base classes; the queries are
+documented in `dokimi/repos/code_index/index.py`.
 
-- `files()`, `occurrences(path)`, `tool`: the documents, the occurrences in
-  one document, and the tool that wrote the index.
-- `definitions(query)` and `references(symbol)`: a query with a space is a
-  full SCIP symbol string, anything else is a name matched against the last
-  descriptor (`Impl#run().` is `run`).
-- `enclosing(path, line)`: the innermost definition whose enclosing range
-  holds a 0-based line. Only indexers that write enclosing ranges give one
-  (`has_enclosing_ranges` says whether this index does).
-- `bases(symbol)`: the symbols a class directly implements or extends.
+- Document paths are relative to the directory the indexer ran in; pass
+  `root_prefix` to map them to repository paths.
+- Enclosing scopes need an indexer that writes enclosing ranges (scip-python
+  does, scip-clang 0.4 does not).
+- Base classes are direct bases, whether the indexer lists direct bases
+  (scip-python) or every ancestor (scip-clang).
+- An occurrence repeated identically in one document is kept once.
+- A `local N` id is scoped to one document, so only per-document reads
+  return it.
 
-The decoder uses only the standard library. A malformed, empty, or truncated
-file raises `CodeIndexError`. Document paths are relative to the directory
-the indexer ran in, so pass `root_prefix` to map them to repository paths.
-A `local N` id is scoped to one document: read it with `occurrences(path)`,
-since `definitions`, `references` and `bases` refuse it. Nothing in the eval
-flow reads an index yet.
+The decoder uses only the standard library. A malformed, empty, or garbled
+file raises `CodeIndexError`. A file cut at a document boundary still reads,
+with fewer documents, so compare the indexed files with the tree. Nothing in
+the eval flow reads an index yet.
 
 ## 2. `repo-eval.yaml`
 
