@@ -16,6 +16,13 @@ from pathlib import Path
 from dokimi.exit_codes import usage_exit
 
 
+#: Status of a run whose known-positive guard failed: no labelled query ran.
+_INVALID = "invalid: skill not visible"
+_NOT_LOADED = "invalid: skill not loaded"  # the harness listed the skill, the explicit request did not load it
+_ERROR = "error: known-positive run failed"  # the guard run ended in an error, not a missing skill
+_NOT_LISTED = "invalid: skill not listed"
+
+
 def cmd_catalog_trigger_probe(args: argparse.Namespace) -> None:
     from dokimi.eval.arm_summary import summarize_skill_selection
     from dokimi.harnesses import trigger_probe as tp
@@ -47,6 +54,7 @@ def cmd_catalog_trigger_probe(args: argparse.Namespace) -> None:
     cfg = tp.ProbeConfig(model=args.model, max_turns=args.max_turns, timeout_sec=args.timeout,
                          stock=not args.sealed, listing_budget_fraction=args.listing_budget_fraction,
                          claude=os.path.abspath(claude))
+    known = _known_positive_guard(args, names, catalog, cfg, out_path)
 
     done: list = []
     lock = threading.Lock()
@@ -73,18 +81,12 @@ def cmd_catalog_trigger_probe(args: argparse.Namespace) -> None:
     # a nested layout) reads as a 0% recall; say so instead of scoring it.
     not_listed = sorted(names - listed) if listed else []
     cost = sum(v["metrics"]["cost_usd"] or 0 for r in records for v in r["arms"].values())
+    cost += (known or {}).get("cost_usd") or 0
+    version = next((v["tool_usage"]["skill"]["claude_code_version"] for r in records
+                    for v in r["arms"].values() if v["tool_usage"]["skill"]["claude_code_version"]), None)
+    status = _NOT_LISTED if not_listed else ("ok" if known else "unchecked")
     out = {
-        "harness": "claude-code",
-        "mode": "sealed" if args.sealed else "stock",
-        "model": args.model,
-        "catalog": str(catalog),
-        "trials": args.trials,
-        "max_turns": args.max_turns,
-        "listing_budget_fraction": args.listing_budget_fraction,
-        "claude_code_version": next((v["tool_usage"]["skill"]["claude_code_version"] for r in records
-                                     for v in r["arms"].values()
-                                     if v["tool_usage"]["skill"]["claude_code_version"]), None),
-        "cost_usd": round(cost, 4),
+        **_header(args, catalog, known, status, cost, version),
         "max_turns_hit": sum(v["metrics"].get("result_subtype") == "error_max_turns" for v in runs),
         "not_listed": not_listed,
         "answers": records,
@@ -92,13 +94,61 @@ def cmd_catalog_trigger_probe(args: argparse.Namespace) -> None:
     }
     _write(out_path, out)
     partial.unlink(missing_ok=True)
-    print(json.dumps({"cost_usd": out["cost_usd"], "claude_code_version": out["claude_code_version"],
+    print(json.dumps({"status": out["status"], "cost_usd": out["cost_usd"],
+                      "claude_code_version": out["claude_code_version"],
                       "max_turns_hit": out["max_turns_hit"], "not_listed": not_listed,
                       "summary": {a: {k: s[k] for k in ("recall", "false_trigger_rate", "misroute_rate", "n_failed")}
                                   for a, s in out["skill_selection_summary"].items()}}, indent=2))
     print(f"wrote {args.out}")
     if not_listed:
         raise SystemExit(f"catalog skills Claude Code did not list: {', '.join(not_listed)}")
+
+
+def _header(args: argparse.Namespace, catalog: Path, known, status: str, cost: float, version) -> dict:
+    """The fields every output carries, whether the run was probed or refused by the guard."""
+    return {
+        "harness": "claude-code",
+        "status": status,
+        "known_positive": known,
+        "mode": "sealed" if args.sealed else "stock",
+        "model": args.model,
+        "catalog": str(catalog),
+        "trials": args.trials,
+        "max_turns": args.max_turns,
+        "listing_budget_fraction": args.listing_budget_fraction,
+        "claude_code_version": version,
+        "cost_usd": round(cost, 4),
+    }
+
+
+def _known_positive_guard(args: argparse.Namespace, names: set, catalog: Path, cfg, out_path: Path):
+    """The known-positive record, or None when skipped. A failed guard writes the invalid output and exits 1.
+
+    A skill the harness never loads on an explicit request would score every query 0%, which reads as a
+    finding; this refuses the run before any labelled query, which costs one query.
+    """
+    if args.no_known_positive:
+        return None
+    from dokimi.harnesses import trigger_probe as tp
+    from dokimi.utils import InputError
+
+    if not names:  # the guard's default target is the first catalog skill: with none, nothing to probe
+        raise InputError(f"--catalog holds no skills: {catalog}")
+    known = tp.known_positive(args.target or sorted(names)[0], catalog, cfg)
+    if known["passed"]:
+        return known
+    # A run that errored says so: "not visible" would read as the harness hiding the skill.
+    if known["error"]:
+        status = _ERROR
+    else:
+        status = _NOT_LOADED if known["skill"] in known["listed"] else _INVALID
+    _write(out_path, {**_header(args, catalog, known, status, known.get("cost_usd") or 0,
+                                known.get("claude_code_version")),
+                      "max_turns_hit": 0, "not_listed": [], "answers": [], "skill_selection_summary": {}})
+    out_path.with_name(out_path.name + ".partial").unlink(missing_ok=True)
+    print(json.dumps({"status": status, "known_positive": known}, indent=2))
+    raise SystemExit(f"{status}: {known['query']!r} did not load {known['skill']!r}"
+                     + (f" ({known['error']})" if known["error"] else "") + "; no labelled query was run")
 
 
 def _labelled_queries(args: argparse.Namespace, names: set) -> list:
@@ -152,5 +202,9 @@ def register(catalog_sub, positive_int) -> None:
     p.add_argument("--sealed", action="store_true",
                    help="Switch off bundled skills as the docker-claude arms do (default: stock harness)")
     p.add_argument("--claude", default="claude", help="claude executable (default: claude)")
+    p.add_argument("--no-known-positive", action="store_true", dest="no_known_positive",
+                   help="Skip the known-positive guard: one explicit run that must load a catalog skill "
+                        "before the labelled queries; a failed guard exits 1 with an 'invalid: ...' "
+                        "or 'error: ...' status")
     p.add_argument("--out", required=True, help="Output JSON path")
     p.set_defaults(func=cmd_catalog_trigger_probe)

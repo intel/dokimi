@@ -120,6 +120,7 @@
 --no-confirm-carriers
 --no-json
 --no-judge
+--no-known-positive  # catalog trigger-probe known-positive guard: no registry concept yet
 --no-paraphrase
 --no-plugin-deltas
 --no-recursive

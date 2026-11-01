@@ -35,10 +35,13 @@ def _stream(*skills_per_turn, other: str = "", version: str = "2.1.304") -> str:
     if other:
         lines.append({"type": "assistant", "message": {"content": [
             {"type": "tool_use", "name": other, "input": {}}]}})
-    for turn in skills_per_turn:
-        lines.append({"type": "assistant", "message": {"content": [
-            {"type": "text", "text": "ok"}] + [
-            {"type": "tool_use", "name": "Skill", "input": {"skill": s}} for s in turn]}})
+    for t, turn in enumerate(skills_per_turn):
+        uses = [{"type": "tool_use", "id": f"t{t}-{i}", "name": "Skill", "input": {"skill": s}}
+                for i, s in enumerate(turn)]
+        lines.append({"type": "assistant", "message": {"content": [{"type": "text", "text": "ok"}] + uses}})
+        if uses:  # each call got its result back, not an error
+            lines.append({"type": "user", "message": {"content": [
+                {"type": "tool_result", "tool_use_id": u["id"], "is_error": False, "content": "x"} for u in uses]}})
     lines.append({"type": "result", "subtype": "success", "is_error": False,
                   "total_cost_usd": 0.01, "num_turns": 2})
     return "\n".join(json.dumps(x) for x in lines) + "\n"
@@ -219,9 +222,11 @@ def test_cli_runs_a_relative_claude_from_the_scratch_cwd(tmp_path, monkeypatch, 
     _catalog(tmp_path)
     monkeypatch.chdir(tmp_path)
     args = build_parser().parse_args(["catalog", "trigger-probe", "--catalog", "cat", "--trigger-set",
-                                      "ts.json", "--claude", "bin/claude", "--out", "probe.json"])
+                                      "ts.json", "--claude", "bin/claude", "--target", "sum-fast",
+                                      "--out", "probe.json"])
     args.func(args)
     out = json.loads((tmp_path / "probe.json").read_text(encoding="utf-8"))
+    assert out["status"] == "ok" and out["known_positive"]["passed"] is True
     arm = out["answers"][0]["arms"]["claude_code#1"]
     assert arm["error"] is None and arm["tool_usage"]["skill"]["first_turn_loaded"] == ["sum-fast"]
 
@@ -311,10 +316,20 @@ def test_run_query_kills_what_the_run_left_in_its_workspace_only(tmp_path):
             shutil.rmtree(procs["sibling_dir"], ignore_errors=True)
 
 
-def _cli(tmp_path, monkeypatch, *extra, init_skills=("sum-fast", "io-read"), expected="sum-fast"):
+def _cli(tmp_path, monkeypatch, *extra, init_skills=("sum-fast", "io-read"), expected="sum-fast", known_passed=True,
+         known_error=None):
     from dokimi.commands import catalog_probe
 
     seen = {}
+
+    def fake_known(skill, catalog, cfg, **kw):
+        # the guard runs before any labelled query: a refusal must not cost the labelled runs
+        if seen.get("queries"):
+            seen.setdefault("order_violation", []).append(skill)
+        seen.setdefault("known", []).append(skill)
+        return {"skill": skill, "query": f"Use the {skill} skill.", "passed": known_passed,
+                "loaded": [skill] if known_passed else [], "listed": list(init_skills), "cost_usd": 0.01,
+                "claude_code_version": "2.1.3xx", "error": known_error}
 
     def fake_probe(queries, catalog, cfg, *, trials=1, **kw):
         seen.update(cfg=cfg, trials=trials, catalog=catalog)
@@ -332,6 +347,7 @@ def _cli(tmp_path, monkeypatch, *extra, init_skills=("sum-fast", "io-read"), exp
             super().__init__(n)
 
     monkeypatch.setattr(tp, "probe_trigger_set", fake_probe)
+    monkeypatch.setattr(tp, "known_positive", fake_known)
     monkeypatch.setattr(catalog_probe, "ThreadPoolExecutor", Pool)
     (tmp_path / "ts.json").write_text(json.dumps({"questions": [
         {"id": q, "question": f"q {q}", "expected_skill": expected} for q in ("a", "b", "c")]}),
@@ -341,7 +357,12 @@ def _cli(tmp_path, monkeypatch, *extra, init_skills=("sum-fast", "io-read"), exp
         _catalog(tmp_path)
     args = build_parser().parse_args(["catalog", "trigger-probe", "--catalog", "cat", "--trigger-set",
                                       "ts.json", "--claude", "sh", *extra])
-    args.func(args)
+    try:
+        args.func(args)
+    finally:
+        # checked here, after the CLI returns or exits, so no handler in the CLI can swallow it
+        assert not seen.get("order_violation"), (
+            f"labelled queries ran before the known-positive guard: {seen.get('order_violation')}")
     return seen
 
 
@@ -415,4 +436,166 @@ def test_cli_warns_when_no_run_listed_any_skill(tmp_path, monkeypatch, capsys):
 def test_cli_fails_when_claude_code_did_not_list_a_catalog_skill(tmp_path, monkeypatch):
     with pytest.raises(SystemExit, match="did not list: io-read"):
         _cli(tmp_path, monkeypatch, "--out", "probe.json", init_skills=("sum-fast", "dataviz"))
-    assert json.loads((tmp_path / "probe.json").read_text(encoding="utf-8"))["not_listed"] == ["io-read"]
+    out = json.loads((tmp_path / "probe.json").read_text(encoding="utf-8"))
+    assert out["not_listed"] == ["io-read"] and out["status"] == "invalid: skill not listed"
+
+
+def test_cli_reports_a_guard_run_that_errored_apart_from_a_skill_not_shown(tmp_path, monkeypatch, capsys):
+    with pytest.raises(SystemExit, match="error: known-positive run failed"):
+        _cli(tmp_path, monkeypatch, "--out", "probe.json", known_passed=False, known_error="error_during_execution")
+    out = json.loads((tmp_path / "probe.json").read_text(encoding="utf-8"))
+    assert out["status"] == "error: known-positive run failed" and out["answers"] == []
+    assert '"status": "error: known-positive run failed"' in capsys.readouterr().out
+
+
+def test_the_invalid_output_has_the_header_fields_and_the_guard_cost(tmp_path, monkeypatch):
+    with pytest.raises(SystemExit):
+        _cli(tmp_path, monkeypatch, "--out", "probe.json", known_passed=False)
+    out = json.loads((tmp_path / "probe.json").read_text(encoding="utf-8"))
+    assert out["cost_usd"] == 0.01 and out["claude_code_version"] == "2.1.3xx"
+    assert out["trials"] == 1 and out["max_turns"] and "listing_budget_fraction" in out
+
+
+@pytest.mark.parametrize("stream, passed", [(_stream(["sum-fast"]), True), (_stream(), False)],
+                         ids=["loads-the-skill", "never-loads-it"])
+def test_known_positive_passes_only_when_the_explicit_request_loads_the_skill(tmp_path, stream, passed):
+    def runner(argv, **kw):
+        if argv[0] == "git":
+            return process.run(argv, **kw)
+        assert argv[list(argv).index("-p") + 1] == "Use the sum-fast skill."
+        return process.reply(stream)
+
+    r = tp.known_positive("sum-fast", _catalog(tmp_path), tp.ProbeConfig(), runner=runner,
+                          source_env={"PATH": "/usr/bin:/bin"})
+    assert r["passed"] is passed and r["error"] is None
+
+
+def _skill_stream(name, *, is_error=False, result=True, answered=True, final=None):
+    events = [{"type": "system", "subtype": "init", "skills": ["sum-fast"], "claude_code_version": "2.1.304"},
+              {"type": "assistant", "message": {"id": "m1", "content": [
+                  {"type": "tool_use", "id": "tu1", "name": "Skill", "input": {"skill": name}}]}}]
+    if answered:
+        events.append({"type": "user", "message": {"content": [
+            {"type": "tool_result", "tool_use_id": "tu1", "is_error": is_error, "content": "x"}]}})
+    if final is not None:
+        events.append(final)
+    elif result:
+        events.append({"type": "result", "subtype": "success", "is_error": False, "total_cost_usd": 0.01, "num_turns": 2})
+    return "\n".join(json.dumps(e) for e in events) + "\n"
+
+
+def _known(tmp_path, stream, timed_out=False):
+    def runner(argv, **kw):
+        return process.run(argv, **kw) if argv[0] == "git" else process.reply(stream, timed_out=timed_out)
+
+    return tp.known_positive("sum-fast", _catalog(tmp_path), tp.ProbeConfig(), runner=runner,
+                             source_env={"PATH": "/usr/bin:/bin"})
+
+
+@pytest.mark.parametrize("name, is_error, passed", [
+    ("sum-fast", False, True), ("sum-fast", True, False), ("plug:sum-fast", False, False)],
+    ids=["loaded", "result-is-error", "other-namespace"])
+def test_known_positive_needs_the_exact_skill_loaded_without_error(tmp_path, name, is_error, passed):
+    r = _known(tmp_path, _skill_stream(name, is_error=is_error))
+    assert r["passed"] is passed
+    # Labelled scoring still sees the namespace-stripped name.
+    assert r["loaded"] == ["sum-fast"]
+
+
+def test_known_positive_keeps_the_timeout_when_another_skill_was_called_first(tmp_path):
+    r = _known(tmp_path, _skill_stream("io-read", result=False), timed_out=True)
+    assert r["passed"] is False and r["error"] == "timeout"
+
+
+def test_known_positive_fails_when_the_target_call_timed_out_before_its_result(tmp_path):
+    # The target was called, but its result never arrived: nothing shows it loaded.
+    r = _known(tmp_path, _skill_stream("sum-fast", answered=False, result=False), timed_out=True)
+    assert r["passed"] is False and r["error"] == "timeout" and r["loaded"] == ["sum-fast"]
+
+
+def test_known_positive_keeps_a_terminal_error_after_the_target_loaded(tmp_path):
+    final = {"type": "result", "subtype": "error_during_execution", "is_error": True, "num_turns": 2}
+    r = _known(tmp_path, _skill_stream("sum-fast", final=final))
+    assert r["passed"] is False and r["error"] == "error_during_execution"
+
+
+def test_known_positive_that_cannot_run_fails_without_raising(tmp_path):
+    def runner(argv, **kw):
+        if argv[0] == "git":
+            return process.run(argv, **kw)
+        raise FileNotFoundError(2, "No such file or directory", argv[0])
+
+    r = tp.known_positive("sum-fast", _catalog(tmp_path), tp.ProbeConfig(), runner=runner,
+                          source_env={"PATH": "/usr/bin:/bin"})
+    assert r["passed"] is False and r["error"].startswith("FileNotFoundError")
+
+
+def test_cli_probes_the_target_or_the_first_skill_before_the_set(tmp_path, monkeypatch):
+    assert _cli(tmp_path, monkeypatch, "--out", "probe.json")["known"] == ["io-read"]
+    assert _cli(tmp_path, monkeypatch, "--target", "sum-fast", "--out", "probe.json")["known"] == ["sum-fast"]
+    out = json.loads((tmp_path / "probe.json").read_text(encoding="utf-8"))
+    assert out["status"] == "ok" and out["known_positive"]["passed"] is True
+    assert out["cost_usd"] == 0.04  # 3 labelled runs at 0.01 each, plus the guard's 0.01
+
+
+def test_cli_stops_before_the_labelled_runs_when_the_skill_is_not_visible(tmp_path, monkeypatch, capsys):
+    with pytest.raises(SystemExit, match="invalid: skill not visible"):
+        _cli(tmp_path, monkeypatch, "--out", "probe.json", known_passed=False, init_skills=("sum-fast",))
+    out = json.loads((tmp_path / "probe.json").read_text(encoding="utf-8"))
+    assert out["status"] == "invalid: skill not visible" and out["answers"] == []
+    assert out["known_positive"]["passed"] is False
+    assert not (tmp_path / "probe.json.partial").exists()
+    assert '"status": "invalid: skill not visible"' in capsys.readouterr().out
+
+
+def test_cli_says_not_loaded_when_the_harness_listed_the_skill(tmp_path, monkeypatch, capsys):
+    with pytest.raises(SystemExit, match="invalid: skill not loaded"):
+        _cli(tmp_path, monkeypatch, "--out", "probe.json", known_passed=False)
+    out = json.loads((tmp_path / "probe.json").read_text(encoding="utf-8"))
+    assert out["status"] == "invalid: skill not loaded"
+    assert '"status": "invalid: skill not loaded"' in capsys.readouterr().out
+
+
+def test_the_refusal_output_has_the_probe_keys_of_an_unrun_probe(tmp_path, monkeypatch):
+    with pytest.raises(SystemExit):
+        _cli(tmp_path, monkeypatch, "--out", "probe.json", known_passed=False, init_skills=("sum-fast",))
+    out = json.loads((tmp_path / "probe.json").read_text(encoding="utf-8"))
+    assert out["max_turns_hit"] == 0 and out["not_listed"] == [] and out["skill_selection_summary"] == {}
+
+
+def test_a_refusal_removes_the_stale_partial_of_an_earlier_run(tmp_path, monkeypatch):
+    (tmp_path / "probe.json.partial").write_text("{}", encoding="utf-8")
+    with pytest.raises(SystemExit):
+        _cli(tmp_path, monkeypatch, "--out", "probe.json", known_passed=False)
+    assert not (tmp_path / "probe.json.partial").exists()
+
+
+def test_no_known_positive_skips_the_guard(tmp_path, monkeypatch):
+    seen = _cli(tmp_path, monkeypatch, "--no-known-positive", "--out", "probe.json", known_passed=False)
+    assert "known" not in seen and sorted(seen["queries"]) == ["a", "b", "c"]
+    out = json.loads((tmp_path / "probe.json").read_text(encoding="utf-8"))
+    assert out["status"] == "unchecked" and out["known_positive"] is None
+
+
+def test_cli_refuses_an_empty_catalog_before_the_guard_picks_a_skill(tmp_path, monkeypatch):
+    # A negative-only set has no label naming a skill, so only the guard's default target could
+    # name one; with no skill in the catalog that was an IndexError, not an input error.
+    from dokimi.utils import InputError
+
+    (tmp_path / "cat").mkdir()
+    with pytest.raises(InputError, match="--catalog holds no skills"):
+        _cli(tmp_path, monkeypatch, "--out", "probe.json", expected=None)
+    assert not (tmp_path / "probe.json.partial").exists() and not (tmp_path / "probe.json").exists()
+
+
+def test_no_known_positive_still_runs_a_negative_only_set_on_an_empty_catalog(tmp_path, monkeypatch):
+    # The guard is what needs a skill; with it skipped the run is what it was before the refusal.
+    (tmp_path / "cat").mkdir()
+    seen = _cli(tmp_path, monkeypatch, "--no-known-positive", "--out", "probe.json", expected=None)
+    assert "known" not in seen and sorted(seen["queries"]) == ["a", "b", "c"]
+
+
+def test_negative_only_set_on_a_catalog_with_skills_still_runs_the_guard(tmp_path, monkeypatch):
+    # names come from the catalog's skills, not the labels: a negative-only set on a non-empty
+    # catalog is not refused, and the guard probes the first catalog skill as before.
+    assert _cli(tmp_path, monkeypatch, "--out", "probe.json", expected=None)["known"] == ["io-read"]

@@ -594,10 +594,20 @@ left on as a user has them (`--sealed` turns them off). The skill chosen is read
 transcript's `Skill` calls, and the output's `skill_selection_summary` is scored by the
 same code as the `skill-catalog:` arm, one column per trial. `max_turns_hit` counts runs
 that ended on `--max-turns` (scored as no load), and the command exits 1 when Claude Code
-did not list a catalog skill (`not_listed`). When no run listed any skill, `not_listed`
+did not list a catalog skill (`not_listed`; `status` is then `invalid: skill not listed`, and the labelled results are still written). When no run listed any skill, `not_listed`
 stays empty and a warning on stderr says it was not checked. A trigger set with no
-labelled query exits 2 before any run. Records are kept in `<out>.partial` while the
-probe runs:
+labelled query exits 2 before any run. Before the labelled queries, one explicit run
+(`Use the <skill> skill.`, for the `--target` skill or the alphabetically first skill name of the
+catalog) must load that skill; if it does not, no labelled query runs, `status` is
+`invalid: skill not loaded` (Claude Code listed the skill but the request did not load it) or
+`invalid: skill not visible` (it did not list it) in the output and on stdout, and the command
+exits 1; a leftover `<out>.partial` is removed. A skill call that returned an error, or a
+`plugin:skill` of another plugin, does not count as a load. If that run ended in an error, `status` is `error: known-positive run failed` instead. An empty catalog is
+refused (exit 2) before the guard runs, unless `--no-known-positive` is passed. This
+known-positive check is what separates "the model did not pick the skill" from "the
+harness never showed it"; `--no-known-positive` skips it, and `status` is then `unchecked` (`invalid: skill not listed` still applies
+when a catalog skill is never listed).
+Records are kept in `<out>.partial` while the probe runs:
 
 ```bash
 python cli.py catalog trigger-probe --catalog <skills-checkout>/skills \
