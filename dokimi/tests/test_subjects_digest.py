@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from dokimi.subjects.scorecard import distribution_digest
+from dokimi.subjects.scorecard import _SCHEME, distribution_digest
 
 
 def test_distribution_digest_matches_a_well_known_skill_md_entry(tmp_path: Path):
@@ -60,3 +60,8 @@ def test_a_non_local_ref_is_not_looked_up_on_disk(tmp_path: Path):
     (tmp_path / "context7:" / "org" / "lib" / "SKILL.md").write_bytes(b"body")
     assert distribution_digest("context7:/org/lib", base=tmp_path) is None
     assert distribution_digest("local:context7:/org/lib", base=tmp_path) is None
+
+
+def test_a_one_letter_drive_letter_is_not_a_scheme():
+    assert _SCHEME.match("C:/skills/x") is None
+    assert _SCHEME.match("ab:/skills/x") is not None
