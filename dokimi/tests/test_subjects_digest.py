@@ -18,8 +18,8 @@ def test_distribution_digest_matches_a_well_known_skill_md_entry(tmp_path: Path)
     # agentskills PR #254: a skill-md index entry carries sha256 of the SKILL.md bytes it serves.
     skill = tmp_path / "skill"
     skill.mkdir()
-    (skill / "SKILL.md").write_bytes(b"---\nname: s\n---\nbody\n")
-    expected = "sha256:" + hashlib.sha256(b"---\nname: s\n---\nbody\n").hexdigest()
+    (skill / "SKILL.md").write_bytes(b"---\r\nname: s\r\n---\r\nbody\r\n")
+    expected = "sha256:" + hashlib.sha256(b"---\r\nname: s\r\n---\r\nbody\r\n").hexdigest()
 
     assert distribution_digest("skill", base=tmp_path) == expected
     assert distribution_digest("local:skill/SKILL.md", base=tmp_path) == expected
