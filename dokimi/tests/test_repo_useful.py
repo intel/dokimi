@@ -736,6 +736,18 @@ def test_a_claude_block_without_a_string_type_is_a_dropped_line(content):
     assert convert("claude-stream-json", json.dumps(line), "/ws").dropped_lines == 1
 
 
+@pytest.mark.parametrize("message", [{"content": None}, {}])
+def test_an_assistant_record_without_content_is_a_dropped_line(message):
+    line = {"type": "assistant", "message": message}
+    assert convert("claude-stream-json", json.dumps(line), "/ws").dropped_lines == 1
+    assert convert("claude-stream-json", json.dumps({"type": "assistant"}), "/ws").dropped_lines == 1
+
+
+def test_a_user_record_without_content_is_not_dropped():
+    line = {"type": "user", "message": {"content": None}}
+    assert convert("claude-stream-json", json.dumps(line), "/ws").dropped_lines == 0
+
+
 def test_claude_text_and_thinking_blocks_are_not_dropped():
     line = {"type": "assistant", "message": {"content": [
         {"type": "text", "text": "hi"}, {"type": "thinking", "thinking": "t", "signature": "s"}]}}
