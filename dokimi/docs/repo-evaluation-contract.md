@@ -366,12 +366,16 @@ grader diffs the agent's changes from `start_sha`. With the arm come
 files with no counterpart at `<rev>`), which also records the guidance history
 of `<rev>` (`dokimi/repos/guidance_history.py`): `guidance_latest`, for
 each guidance file the arm wrote, the commit reachable from `<rev>` that last
-touched it by committer date; `guidance_commits`, the commits reachable from
-`<rev>` that touch a path the guidance globs match, newest first by committer
+touched it, or for a link the file it resolves to, by committer date;
+`guidance_commits`, the commits reachable from `<rev>` that touch a path the
+guidance globs match or a guidance link's target, newest first by committer
 date, at most 200, each with its `subject`; and `guidance_commits_truncated`,
 `true` when that cap cut the list. Each commit has its `sha`, `authored` and
-`committed` (strict ISO 8601, `%aI` and `%cI`); a merge commit lists no files
-and is not counted. A reader can compare `committed` with a replay task's
+`committed` (strict ISO 8601, `%aI` and `%cI`). A merge commit counts for a
+path when its result differs there from every parent: a conflict resolution,
+an edit made in the merge, or a clean merge of its parents' edits to
+different parts of one file; a merge that takes the path as one parent has
+it does not, and the commits it merged count. A reader can compare `committed` with a replay task's
 `public_at` (§4.6) to see whether a guidance commit came after the task's
 answer was public; the author date alone cannot show it, as an amend or a
 rebase keeps it. For `patch:` an `arm_patch` object (the

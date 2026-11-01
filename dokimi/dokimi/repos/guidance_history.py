@@ -9,14 +9,28 @@ that last touched each guidance file at the revision, and the newest commits tha
 path, each with its author and committer date. The flag reads the committer date: ``git commit
 --amend`` and a rebase keep the author date (https://github.com/intel/dokimi/issues/290).
 
-The history is one ``git log`` over the revision, filtered with :func:`~.manifest.match_glob`, and
-read once per git dir, revision and globs in a process: every cell of the arm asks the same.
-``git log`` lists no files for a merge commit, so a merge is never listed: the commits it merged are.
+The history is one ``git log -z --raw`` over the revision, filtered with :func:`~.manifest.match_glob`.
+``-z`` ends every field with a NUL, and each file the commit touched is a ``:``-led status record
+followed by its one path, so a subject or a path, whatever it holds, cannot pass for the other.
+Git cuts a subject at a NUL (``git commit`` refuses one), so a subject is one field. The history is
+read once per git dir, revision, globs and links in a process, also when cells of the arm prepare at
+once: every cell asks the same.
+
+The arm installs a guidance link (``AGENTS.md -> docs/GUIDE.md``) as its target's bytes, so a
+commit that touches the target counts for the link's path, whether or not a glob matches the target.
+
+A merge counts when its own result changes a guidance path against every parent
+(``--diff-merges=dense-combined``): a conflict resolution, an edit made in the merge, or a clean
+merge that joins its parents' edits to different parts of one file. A merge that takes a file as
+one parent has it does not: the commits it merged count.
 """
 
 from __future__ import annotations
 
 import os
+import re
+import threading
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from functools import lru_cache
@@ -31,7 +45,10 @@ from .manifest import match_glob
 #: At most this many commits in ``guidance_commits``; ``guidance_latest`` is not capped
 GUIDANCE_COMMITS_CAP = 200
 _GIT_TIMEOUT_S = 1800.0
-_FORMAT = "--format=%x1e%H%x1f%aI%x1f%cI%x1f%s"  # subject last: a \x1f in it stays in it
+_FORMAT = "--format=%H%x00%aI%x00%cI%x00%s"  # with -z, a NUL ends the subject too
+_COMMIT_ID = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")  # SHA-1 or SHA-256
+
+_Links = tuple[tuple[str, str], ...]  # (link path, the file it resolves to), sorted
 
 
 @dataclass(frozen=True)
@@ -46,10 +63,12 @@ class _Commit:
         return {"sha": self.sha, "authored": self.authored, "committed": self.committed}
 
 
-def arm_rev_history(git_dir: Path, globs: tuple[str, ...], sha: str, files: list[str]) -> dict[str, Any]:
-    """``guidance_latest`` for each of ``files`` (the guidance at ``sha``), ``guidance_commits`` (newest
-    first by committer date, at most :data:`GUIDANCE_COMMITS_CAP`) and ``guidance_commits_truncated``."""
-    commits = _guidance_commits(git_dir, sha, globs)
+def arm_rev_history(git_dir: Path, globs: tuple[str, ...], sha: str, files: list[str],
+                    links: dict[str, str]) -> dict[str, Any]:
+    """``guidance_latest`` for each of ``files`` (the guidance at ``sha``; ``links`` maps those that
+    are links to their targets), ``guidance_commits`` (newest first by committer date, at most
+    :data:`GUIDANCE_COMMITS_CAP`) and ``guidance_commits_truncated``."""
+    commits = _guidance_commits(git_dir, sha, globs, tuple(sorted(links.items())))
     latest: dict[str, dict[str, str]] = {}
     for c in commits:  # newest first: the first commit naming a file is its latest
         for path in c.paths:
@@ -59,27 +78,71 @@ def arm_rev_history(git_dir: Path, globs: tuple[str, ...], sha: str, files: list
             "guidance_commits_truncated": len(commits) > GUIDANCE_COMMITS_CAP}
 
 
+_key_locks: dict[tuple[Any, ...], threading.Lock] = {}
+_key_locks_guard = threading.Lock()
+
+
+def _guidance_commits(git_dir: Path, sha: str, globs: tuple[str, ...], links: _Links) -> tuple[_Commit, ...]:
+    """:func:`_read_guidance_commits`, one thread per key at a time: a cell that asks while another
+    cell reads the same history waits for that read and takes its answer from the cache."""
+    key = (git_dir, sha, globs, links)
+    with _key_locks_guard:
+        lock = _key_locks.setdefault(key, threading.Lock())
+    with lock:
+        return _read_guidance_commits(git_dir, sha, globs, links)
+
+
 @lru_cache(maxsize=64)
-def _guidance_commits(git_dir: Path, sha: str, globs: tuple[str, ...]) -> tuple[_Commit, ...]:
-    """The commits reachable from ``sha`` that touch a path ``globs`` match, newest first by committer date."""
+def _read_guidance_commits(git_dir: Path, sha: str, globs: tuple[str, ...], links: _Links) -> tuple[_Commit, ...]:
+    """The commits reachable from ``sha`` that touch a path ``globs`` match or a target of ``links``,
+    newest first by committer date."""
+    linked: dict[str, list[str]] = {}
+    for link, target in links:
+        linked.setdefault(target, []).append(link)
     found = []
-    for record in _git_log(git_dir, sha).split("\x1e")[1:]:
-        header, _, names = record.partition("\0")
-        commit, authored, committed, subject = header.split("\x1f", 3)
-        paths = tuple(p for p in names.lstrip("\n").split("\0") if p and any(match_glob(g, p) for g in globs))
+    for (commit, authored, committed, subject), touched in _parse_log(_git_log(git_dir, sha)):
+        paths = tuple(dict.fromkeys(g for p in touched for g in _counts_for(p, globs, linked)))
         if paths:
             found.append(_Commit(commit, authored, committed, subject, paths))
     # stable: commits with one committer date keep git's order
     return tuple(sorted(found, key=lambda c: datetime.fromisoformat(c.committed), reverse=True))
 
 
+def _counts_for(path: str, globs: tuple[str, ...], linked: dict[str, list[str]]) -> list[str]:
+    """The guidance paths a change to ``path`` counts for: itself when a glob matches it, and each link to it."""
+    return ([path] if any(match_glob(g, path) for g in globs) else []) + linked.get(path, [])
+
+
+def _parse_log(out: str) -> list[tuple[tuple[str, str, str, str], list[str]]]:
+    """Each commit of :func:`_git_log`'s output as ``((sha, authored, committed, subject), paths)``.
+    A field that starts with ``:`` (after the newline that ends a header) is a status record, and the
+    field after it is its path; a path is never read as a header. Any other non-empty field starts a
+    header of four fields; an empty one ends a merge's header, and the output."""
+    fields = iter(out.split("\0"))
+    commits: list[tuple[tuple[str, str, str, str], list[str]]] = []
+    for field in fields:
+        if field.lstrip("\n").startswith(":") and commits:
+            commits[-1][1].append(next(fields, ""))
+        elif field:
+            commits.append((_header(field, fields), []))
+    return commits
+
+
+def _header(sha: str, fields: Iterator[str]) -> tuple[str, str, str, str]:
+    authored, committed, subject = next(fields, ""), next(fields, ""), next(fields, "")
+    if not _COMMIT_ID.fullmatch(sha):
+        raise PrepError(f"git log: a commit starts with {sha[:60]!r}, not a commit id")
+    return sha, authored, committed, subject
+
+
 def _git_log(git_dir: Path, sha: str) -> str:
-    """Every commit reachable from ``sha`` with its dates, subject and the paths it touched."""
+    """Every commit reachable from ``sha`` with its dates, subject and the paths it touched; a merge
+    with the paths its result changes against every parent."""
     keep = ("PATH", "LANG", "TMPDIR", "SYSTEMROOT")
     env = process.Env.only(keep, {"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, "HOME": os.devnull,
                                   "GIT_TERMINAL_PROMPT": "0"})
-    done = process.git("-C", str(git_dir), "log", "-z", "--no-renames", "--name-only", _FORMAT, sha, "--",
-                       timeout=_GIT_TIMEOUT_S, env=env)
+    done = process.git("-C", str(git_dir), "log", "-z", "--raw", "--no-abbrev", "--no-renames",
+                       "--diff-merges=dense-combined", _FORMAT, sha, "--", timeout=_GIT_TIMEOUT_S, env=env)
     if done.timed_out:
         raise PrepError(f"git log {sha[:12]}: timed out after {_GIT_TIMEOUT_S:.0f} seconds")
     if done.returncode:

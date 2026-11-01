@@ -505,7 +505,7 @@ def _apply_rev(ws: Path, git_dir: Path, manifest: RepoManifest, arm: Arm,
         if mode == "100755":
             dest_path.chmod(dest_path.stat().st_mode | 0o111)
     # arm_files: the files it wrote and the base's guidance it deleted (contract §3 meta.json)
-    history = arm_rev_history(git_dir, manifest.guidance_globs, arm.rev_sha, written)
+    history = arm_rev_history(git_dir, manifest.guidance_globs, arm.rev_sha, written, links)
     return sorted(set(written) | set(removed)), {"arm_rev": {"rev": arm.rev, "sha": arm.rev_sha,
                                                              "removed": sorted(set(removed) - set(written)), **history}}
 
