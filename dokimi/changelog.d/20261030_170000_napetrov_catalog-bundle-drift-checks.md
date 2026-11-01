@@ -11,4 +11,4 @@
   a `warn` on both (`mirror-drift`), naming the other copies. Links inside code fences, URLs,
   anchors, and code spans that name no file are not checked. Skills with
   `disable-model-invocation: true` are exempt from the description checks. Warnings never
-  change the exit code; only `--strict` makes an `error` fail.
+  change the exit code; a spec `error` fails only with `--strict`, while a load error always fails.
