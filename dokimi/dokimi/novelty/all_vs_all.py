@@ -17,7 +17,7 @@ from collections import Counter
 from pathlib import Path
 
 from .client import LLMClient
-from .routing import BM25, Candidate, RoutingInputError, model_routing, tokenize
+from .routing import BM25, Candidate, RoutingInputError, model_routing, repeat_noise, tokenize
 
 NO_PICK = "(none)"
 TIE = "(tie)"
@@ -65,12 +65,12 @@ def load_queries_by_skill(path: str) -> dict[str, list[str]]:
 
 
 def all_vs_all(candidates: list[Candidate], queries_by_skill: dict[str, list[str]], *,
-               client: LLMClient | None = None, seed: int = 0) -> dict:
+               client: LLMClient | None = None, seed: int = 0, repeats: int = 1) -> dict:
     """Each skill's queries, routed against the whole field: a confusion matrix and attractors.
 
     Every skill that has queries is the gold in turn. Its queries go to the whole field, and
     the pick is recorded. The lexical arm always runs (free); the model arm runs when
-    ``client`` is given. A query no card shares a word with is ``(none)``, not the first card:
+    ``client`` is given, ``repeats`` times per query as :func:`model_routing` asks. A query no card shares a word with is ``(none)``, not the first card:
     the tie-break in ``lexical_routing`` would otherwise name a card that matched nothing.
 
     An attractor is a skill picked for queries written for other skills. ``wrongly_picked``
@@ -84,8 +84,10 @@ def all_vs_all(candidates: list[Candidate], queries_by_skill: dict[str, list[str
         ``confusion`` (gold skill to picked skill to count, ``(none)`` and ``(tie)`` included),
         ``own_rate`` per gold skill (``None`` when none of its queries was scored), ``n_scored``
         and ``n_unscored`` per gold skill, and ``attractors`` ordered by ``wrongly_picked``. The
-        model arm also records ``model``, ``seed``, ``n_failed``, ``n_abstained`` and
-        ``first_error``.
+        model arm also records ``model``, ``seed``, ``repeats``, ``noise`` (``None`` for one
+        repeat; otherwise as :func:`dokimi.novelty.routing.model_routing` reports it, pooled over
+        every skill's queries), ``n_failed``, ``n_abstained`` and ``first_error``. With repeats
+        the model arm's counts are calls, one per query per repeat.
 
     Raises:
         RoutingInputError: Fewer than two skills in the field; a name repeated in the field; a
@@ -101,7 +103,7 @@ def all_vs_all(candidates: list[Candidate], queries_by_skill: dict[str, list[str
                                     names, _tied_groups(candidates)),
     }
     if client is not None:
-        result["model"] = _model_arm(candidates, queries_by_skill, names, client, seed)
+        result["model"] = _model_arm(candidates, queries_by_skill, names, client, seed, repeats)
     return result
 
 
@@ -179,7 +181,7 @@ def _lexical_picks(candidates: list[Candidate], queries_by_skill: dict[str, list
 
 
 def _model_arm(candidates: list[Candidate], queries_by_skill: dict[str, list[str]],
-               names: list[str], client: LLMClient, seed: int) -> dict:
+               names: list[str], client: LLMClient, seed: int, repeats: int) -> dict:
     """The model arm of :func:`all_vs_all`: attractor table plus failure counts.
 
     A query with no content word is not sent: it is unscored here as in the lexical arm, so
@@ -187,6 +189,8 @@ def _model_arm(candidates: list[Candidate], queries_by_skill: dict[str, list[str
     """
     model: dict[str, Counter] = {}
     unscored: dict[str, int] = {}
+    groups: list[list[dict]] = []  # one per query, its repeats in order, for the noise block
+    golds: list[str] = []  # the gold of each group, so a noise row says which skill it is for
     n_failed = n_abstained = 0
     first_error = None
     for index, name in enumerate(names):
@@ -194,24 +198,30 @@ def _model_arm(candidates: list[Candidate], queries_by_skill: dict[str, list[str
             continue
         queries = [q for q in queries_by_skill[name] if tokenize(q)]
         if len(queries) < len(queries_by_skill[name]):
-            unscored[name] = len(queries_by_skill[name]) - len(queries)
+            unscored[name] = (len(queries_by_skill[name]) - len(queries)) * repeats
         if not queries:
             model[name] = Counter()
             continue
         routed = model_routing(candidates, queries, client=client,
-                               gold=index, seed=seed + index)
+                               gold=index, seed=seed + index, repeats=repeats)
         rows = routed["per_query"]
+        groups += [rows[start:start + repeats] for start in range(0, len(rows), repeats)]
+        golds += [name] * len(queries)
         n_failed += routed["n_failed"]
         n_abstained += routed["n_abstained"]
         if first_error is None:
             first_error = next((r["error"] for r in rows if r.get("error")), None)
-        # A failed call measured nothing: it is not a pick, so it is left out of every rate.
+        # A failed call measured nothing: it is not a pick, so it is left out of the counts.
         model[name] = Counter(row.get("picked") or NO_PICK for row in rows if not row.get("error"))
         if routed["n_failed"]:
             unscored[name] = unscored.get(name, 0) + routed["n_failed"]
+    noise = repeat_noise(groups) if repeats > 1 and groups else None
+    if noise is not None:
+        for row, gold in zip(noise["per_query"], golds, strict=True):
+            row["gold"] = gold
     return dict(_attractor_table(model, unscored, names, _tied_groups(candidates)),
-                model=client.model, seed=seed, n_failed=n_failed, n_abstained=n_abstained,
-                first_error=first_error)
+                model=client.model, seed=seed, repeats=repeats, noise=noise,
+                n_failed=n_failed, n_abstained=n_abstained, first_error=first_error)
 
 
 def _attractor_table(picks_by_gold: dict[str, Counter], unscored: dict[str, int],

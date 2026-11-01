@@ -327,7 +327,7 @@ def model_routing(
         "selection_rate_among_answered": (
             round(hits / len(answered), 4) if answered else None
         ),
-        "noise": _noise(groups) if repeats > 1 else None,
+        "noise": repeat_noise(groups) if repeats > 1 else None,
         "per_query": picks,
         "note": (
             "An upper bound on harness behaviour, not a harness measurement: a harness "
@@ -337,7 +337,7 @@ def model_routing(
     }
 
 
-def _noise(groups: list[list[dict]]) -> dict:
+def repeat_noise(groups: list[list[dict]]) -> dict:
     """Agreement across the repeats of each query, and the run-to-run spread of the rate.
 
     A query's agreement is the share of its answered repeats that gave its most common
@@ -425,6 +425,84 @@ def headings_as_queries(body: str, *, limit: int = 40) -> list[str]:
     return [h for h in headings if len(tokenize(h)) >= 2][:limit]
 
 
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+# A period that ends an abbreviation, not a sentence: "e.g.", "i.e.", "vs.", "cf.". It may follow
+# an opening bracket or quote: "(e.g."
+_ABBREVIATION_END = re.compile(r"(?:^|[\s(\[{\"'])(?:e\.g|i\.e|vs|cf)\.$", re.IGNORECASE)
+
+
+def _sentences(text: str) -> list[str]:
+    """``text`` split after each sentence-ending period, not after an abbreviation's."""
+    sentences, start = [], 0
+    for match in _SENTENCE_END.finditer(text):
+        if _ABBREVIATION_END.search(text[start:match.start()]):
+            continue
+        sentences.append(text[start:match.start()])
+        start = match.end()
+    sentences.append(text[start:])
+    return sentences
+
+
+def description_as_queries(description: str, *, limit: int = 40) -> list[str]:
+    """Sentences of a description, for triage when the artifact has no usable heading.
+
+    A skill whose body is a ``#`` title and no ``##`` heading of two or more words still says
+    what it is for in its description. Each sentence with two or more content words is
+    offered, as :func:`headings_as_queries` offers headings. The same self-derived stamp applies.
+    """
+    sentences = _sentences(" ".join(description.split()))
+    return [s for s in sentences if len(tokenize(s)) >= 2][:limit]
+
+
+def self_derived_queries(body: str, description: str) -> tuple[list[str], str]:
+    """The triage queries of an artifact and where they came from.
+
+    Headings are preferred; the description's sentences are the fallback. Returns
+    ``(queries, source)`` with ``source`` ``"headings"``, ``"description"``, or ``"none"`` when
+    neither gives a query of two or more content words.
+    """
+    headings = headings_as_queries(body)
+    if headings:
+        return headings, "headings"
+    sentences = description_as_queries(description)
+    return sentences, "description" if sentences else "none"
+
+
+# A selection reply is one JSON object, ``{"pick": N}``: a few tokens.
+PICK_REPLY_TOKENS = 10
+
+
+def selection_prompt_tokens(candidates: list[Candidate], queries: list[str]) -> list[int]:
+    """The prompt tokens (chars / 4) of each call one repeat of :func:`model_routing` makes.
+
+    One entry per sent query, in query order. :func:`model_routing` sends every query, contentless
+    ones too, unless none has a content word: then the run refuses before any call, and the list
+    is empty. Each call carries the whole field's cards in the selection prompt.
+    """
+    cards = "\n".join(f"{position}. {candidate.card}"
+                       for position, candidate in enumerate(candidates, 1))
+    sent = list(queries) if any(tokenize(query) for query in queries) else []
+    return [len(_SELECT_PROMPT.format(query=query, cards=cards)) // 4 for query in sent]
+
+
+def selection_estimate(candidates: list[Candidate], queries: list[str], *,
+                       repeats: int = 1) -> dict:
+    """The calls and tokens :func:`model_routing` would make, counted without making them.
+
+    Every repeat sends the same prompts (see :func:`selection_prompt_tokens`). The reply is one
+    JSON pick, :data:`PICK_REPLY_TOKENS`. Zero repeats send nothing, so no query is sent.
+    """
+    prompts = selection_prompt_tokens(candidates, queries) if repeats else []
+    calls = len(prompts) * repeats
+    return {
+        "n_queries": len(queries),
+        "n_queries_sent": len(prompts),
+        "n_calls": calls,
+        "input_tokens": sum(prompts) * repeats,
+        "output_tokens": calls * PICK_REPLY_TOKENS,
+    }
+
+
 def non_skill_reason(ref: str) -> str | None:
     """Why a ``skill:`` reference names something other than a skill, or ``None``.
 
@@ -484,16 +562,18 @@ def load_candidate(ref: str) -> tuple[Candidate, str, str | None]:
 
 def catalog_competitors(root: str, exclude: set[str],
                         notes: list[str] | None = None, *,
-                        include_disabled: bool = False) -> list[Candidate]:
+                        include_disabled: bool = False,
+                        disabled: list[str] | None = None) -> list[Candidate]:
     """Every skill under ``root`` whose name is not in ``exclude``.
 
     The field a harness would list next to the artifact, rather than one the caller picks.
     Skills come from the catalog reader, so a ``skills.yaml`` manifest decides which skills
     the catalog has. A declared skill that cannot be loaded is left out and described in
     ``notes`` (when given) rather than aborting the run. A skill with
-    ``disable-model-invocation`` is left out too, unless ``include_disabled``. A mirror, a
-    byte-identical ``SKILL.md`` under another path (a plugin copy of the ``skills/`` tree), is
-    left out too: the copy nearest the catalog root stands for the card.
+    ``disable-model-invocation`` is left out too, unless ``include_disabled``; its name is
+    appended to ``disabled`` (when given), so a caller need not read the catalog again. A
+    mirror, a byte-identical ``SKILL.md`` under another path (a plugin copy of the ``skills/``
+    tree), is left out too: the copy nearest the catalog root stands for the card.
 
     Raises:
         ValueError: ``root`` is not a directory, or its ``skills.yaml`` is invalid (with no
@@ -503,7 +583,7 @@ def catalog_competitors(root: str, exclude: set[str],
     """
     if not Path(root).is_dir():
         raise ValueError(f"--catalog is not a directory: {root}")
-    eligible = _eligible_catalog_skills(root, exclude, notes, include_disabled)
+    eligible = _eligible_catalog_skills(root, exclude, notes, include_disabled, disabled)
     _refuse_conflicting_names(eligible)
     keeper = _keepers_by_copy(eligible)
     candidates: list[Candidate] = []
@@ -518,7 +598,8 @@ def catalog_competitors(root: str, exclude: set[str],
 
 
 def _eligible_catalog_skills(root: str, exclude: set[str], notes: list[str] | None,
-                             include_disabled: bool) -> list[tuple[Skill, str]]:
+                             include_disabled: bool,
+                             disabled: list[str] | None = None) -> list[tuple[Skill, str]]:
     """Each loadable, non-excluded catalog skill with the sha256 of its ``SKILL.md``."""
     from dokimi.external.catalog import read_skill_manifest
 
@@ -535,6 +616,8 @@ def _eligible_catalog_skills(root: str, exclude: set[str], notes: list[str] | No
             if notes is not None:
                 notes.append(f"left out catalog skill {skill.name!r}: "
                              "disable-model-invocation (--include-disabled keeps it)")
+            if disabled is not None:
+                disabled.append(skill.name)
             continue
         eligible.append((skill, hashlib.sha256(skill.path.read_bytes()).hexdigest()))
     return eligible

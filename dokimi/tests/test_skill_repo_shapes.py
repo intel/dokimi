@@ -220,16 +220,18 @@ def test_all_vs_all_names_the_flag_when_queries_name_a_disabled_skill(shape_path
     assert code == 0
 
 
-def test_headings_as_queries_on_a_skill_with_no_headings_is_a_usage_refusal(shape_paths, tmp_path,
-                                                                           capsys):
+def test_headings_as_queries_on_a_skill_with_no_headings_falls_back_to_its_description(
+        shape_paths, tmp_path, capsys):
     root, _, _ = shape_paths
     build_shape("no_usable_headings", root)
     artifact = root / "skills" / "door-check"  # its only body line is prose, no heading
     out_file = tmp_path / "routing.json"
     argv = ["novelty", "routing", "--artifact", f"skill:{artifact}", "--catalog", str(root),
             "--queries-from-headings", "--out", str(out_file)]
-    code, _, err = _run(argv, capsys)
-    assert code == 2 and "no usable queries" in err and "headings" in err
-    # The refusal still leaves a record, so a batch run shows why it has no rate.
+    code, _, _ = _run(argv, capsys)
+    # No heading to offer, so the description's sentences are the triage queries (stamped as
+    # self-derived); a skill with neither still refuses, as in the cli-gaps tests.
+    assert code == 0
     record = json.loads(out_file.read_text(encoding="utf-8"))
-    assert record["status"] == "no_queries" and record["queries_self_derived"] is True
+    assert record["status"] == "ok" and record["queries_source"] == "description"
+    assert record["queries_self_derived"] is True

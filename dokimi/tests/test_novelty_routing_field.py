@@ -286,3 +286,22 @@ def test_two_same_name_copies_that_differ_only_late_in_the_body_are_refused(tmp_
         (copy / "SKILL.md").write_text(head + tail, encoding="utf-8")
     with pytest.raises(RoutingInputError, match="catalog has db at .* different content"):
         catalog_competitors(str(tmp_path), set(), [])
+
+
+def test_a_disabled_skill_named_by_a_query_warns_once_and_counts_the_field_once(tmp_path, capsys):
+    root = tmp_path / "catalog"
+    _catalog_skill(root, "perf", "profile a slow binary")
+    (root / "skills" / "grill").mkdir(parents=True)
+    (root / "skills" / "grill" / "SKILL.md").write_text(
+        "---\nname: grill\ndescription: relentless interview about a plan\n"
+        "disable-model-invocation: true\n---\n\n# B\n", encoding="utf-8")
+    queries = tmp_path / "queries_by_skill.json"
+    queries.write_text(json.dumps({"perf": ["profile a slow binary"],
+                                   "grill": ["interview me about my plan"]}), encoding="utf-8")
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
+    with pytest.raises(SystemExit):
+        args.func(args)
+    err = capsys.readouterr().err
+    assert err.count("competitors") == 1
+    assert err.count("left out catalog skill") == 1
