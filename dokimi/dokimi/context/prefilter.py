@@ -126,16 +126,52 @@ def _names(key: str, text: str) -> bool:
     return bool(words) and re.search(rf"(?<![\w-]){re.escape(words)}(?![\w-])", " ".join(text.split())) is not None
 
 
+def _unquote(text: str) -> str:
+    return text.replace('"', "").replace("'", "")
+
+
+# A separator or a ``#`` inside quotes is text, not shell syntax: it is swapped for a private-use character
+# while the command is split and cut, and swapped back in each segment.
+_SPECIAL = ";|&()\n#"
+_TO_MASK = str.maketrans(_SPECIAL, "".join(chr(0xE000 + i) for i in range(len(_SPECIAL))))
+_FROM_MASK = str.maketrans("".join(chr(0xE000 + i) for i in range(len(_SPECIAL))), _SPECIAL)
+
+
+def _mask(match: re.Match[str]) -> str:
+    return match.group(0).translate(_TO_MASK)
+
+
+def _segments(command: str) -> list[str]:
+    """The command's segments, each with its quotes removed and its spacing normalized."""
+    masked = _COMMENT.sub("", _QUOTED.sub(_mask, command or ""))
+    return [" ".join(_unquote(seg).translate(_FROM_MASK).split()) for seg in _SEGMENT.split(masked)]
+
+
 def _invokes(key: str, command: str) -> bool:
     """Whether a shell command runs ``key``: at the start of one of its command segments (after runner words),
-    so an ``echo``, a ``grep`` argument or a ``#`` comment that names it does not count."""
-    words = " ".join(key.split())
+    so an ``echo``, a ``grep`` argument or a ``#`` comment that names it does not count. The key ends where
+    its last word ends: ``make ci-local`` does not run ``make ci-local.debug``."""
+    words = " ".join(_unquote(key).split())
     if not words:
         return False
-    run = re.compile(rf"{_RUNNER}{re.escape(words)}(?![\w-])")
-    bare = _COMMENT.sub("", _QUOTED.sub("''", command))
-    segments = (" ".join(seg.split()) for seg in _SEGMENT.split(bare))
-    return any(run.match(seg) for seg in segments if seg)
+    run = re.compile(rf"{_RUNNER}{re.escape(words)}(?=\s|$)")
+    return any(run.match(seg) for seg in _segments(command) if seg)
+
+
+# the arguments of echo and printf are printed, not read or written; a redirection target is written
+_PRINTS = re.compile(rf"{_RUNNER}(?:echo|printf)(?=\s|$)")
+_REDIRECT = re.compile(r">>?\s*([^\s;&|<>]+)")
+
+
+def _shell_paths(command: str) -> str:
+    """The text of a shell command that can name a file it reads or writes: its redirection targets and the
+    segments that are not printing commands. Comments are gone and printed text is left out."""
+    parts: list[str] = []
+    for seg in _segments(command):
+        parts.extend(_REDIRECT.findall(seg))
+        if not _PRINTS.match(seg):
+            parts.append(seg)
+    return " ".join(parts)
 
 
 def _triggers(claim: Claim, event: Event) -> bool:
@@ -175,7 +211,7 @@ def _acts(claim: Claim, event: Event) -> bool:
     if event.kind != "tool":
         return False
     return (any(_invokes(k, event.command) for k in claim.commands)
-            or _path_named(claim, (*event.paths, event.command)))
+            or _path_named(claim, (*event.paths, _shell_paths(event.command))))
 
 
 def _corrects(claim: Claim, event: Event) -> bool:

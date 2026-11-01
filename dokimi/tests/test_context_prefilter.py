@@ -375,6 +375,37 @@ def test_a_command_run_directly_after_a_runner_or_in_a_chain_is_an_action(comman
     assert _row(_report([session]), CI)["acted"] == 1
 
 
+@pytest.mark.parametrize("command", ["make ci-local.debug", "make ci-local/x", "make ci-local=1"])
+def test_a_longer_target_of_the_named_command_is_not_an_action(command):
+    session = _session(_prompt("push the branch now"), _tool("Bash", command=command))
+    assert _row(_report([session]), CI)["acted"] == 0
+
+
+def test_a_quoted_argument_of_the_named_command_is_an_action():
+    rule = "- Run `pytest tests/test_x.py` before pushing a branch.\n"
+    session = _session(_prompt("push the branch now"), _tool("Bash", command='pytest "tests/test_x.py" -q'))
+    assert _row(_report([session], rule), "Run")["acted"] == 1
+
+
+@pytest.mark.parametrize("command", ["echo 'changelog.d/x.md'", "ls # changelog.d/x.md", "echo changelog.d/x.md"])
+def test_a_path_printed_or_commented_by_a_shell_command_is_not_acted_on(command):
+    rule = "- Keep `changelog.d/` current.\n"
+    session = _session(_prompt("keep the changelog current"), _tool("Bash", command=command))
+    assert _row(_report([session], rule), "Keep")["acted"] == 0
+
+
+def test_a_quoted_separator_or_hash_in_a_path_argument_is_kept_as_text():
+    rule = "- Keep `ab.py` current.\n"
+    session = _session(_prompt("keep ab.py current"), _tool("Bash", command='cat "a#b.py"'))
+    assert _row(_report([session], rule), "Keep")["acted"] == 0
+
+
+def test_a_path_read_by_a_shell_command_is_acted_on():
+    rule = "- Keep `changelog.d/` current.\n"
+    session = _session(_prompt("keep the changelog current"), _tool("Bash", command="cat changelog.d/x.md"))
+    assert _row(_report([session], rule), "Keep")["acted"] == 1
+
+
 def test_a_correction_is_read_from_the_next_prompt_only():
     later = _session(_prompt("push the branch"), _prompt("thanks, continue"),
                      _prompt("no, the branch must not go before ci"))
