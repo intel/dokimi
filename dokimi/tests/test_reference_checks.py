@@ -14,10 +14,13 @@ from __future__ import annotations
 
 import json
 import time
+from types import SimpleNamespace
 
 import pytest
+import regex
 
 from dokimi.artifacts import save_artifact
+from dokimi.eval import reference_checks
 from dokimi.eval.checklist import ASK_COVERED
 from dokimi.eval.reference_checks import (
     REGEX_TIMEOUT, chosen_letters, grade, match_text, parse_json, validate_grading,
@@ -189,11 +192,27 @@ def test_an_all_mode_regex_is_not_settled_by_its_first_match():
     assert _one({"type": "regex", "values": ["a", "zzz"], "mode": "all"}, "a").passed is False
 
 
-def test_the_regex_limit_is_shared_by_every_pattern_of_one_check():
-    started = time.monotonic()
-    g = _one({"type": "regex", "values": ["(a|aa)+$", "(a|aa)+$"]}, "a" * 40 + "!")
+def test_the_regex_limit_is_shared_by_every_pattern_of_one_check(monkeypatch):
+    # One budget for the whole check, not one per pattern. A fake clock stands in for wall time:
+    # each search costs 0.6 * REGEX_TIMEOUT, so the second pattern has only 0.4 left and must time
+    # out, while a per-pattern budget would let it finish. Asserts on the work done, not the clock.
+    now = [0.0]
+    monkeypatch.setattr(reference_checks, "time", SimpleNamespace(monotonic=lambda: now[0]))
+    searched = []
+
+    def search(pattern, string, flags=0, timeout=None):
+        searched.append(pattern)
+        cost = 0.6 * REGEX_TIMEOUT
+        if cost > timeout:
+            now[0] += timeout
+            raise TimeoutError("regex search ran past its timeout")
+        now[0] += cost
+        return object()  # a match
+
+    monkeypatch.setattr(regex, "search", search)
+    g = _one({"type": "regex", "values": ["p1", "p2"], "mode": "all"}, "answer")
     assert g.checks[0].passed is None
-    assert time.monotonic() - started < 1.5 * REGEX_TIMEOUT
+    assert searched == ["p1", "p2"]
 
 
 def test_a_question_with_one_failing_check_fails_without_a_threshold():
