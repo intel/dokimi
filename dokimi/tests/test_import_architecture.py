@@ -559,10 +559,15 @@ def exit_sites(tree: ast.Module) -> list[int]:
     """Lines that end the process: an exit call (by module attribute, through an alias, or builtin name) or a raise of SystemExit.
 
     The ``if __name__ == '__main__':`` block of a script is the process boundary of ``python -m``, so it is
-    not counted. Each name resolves like Python's scoping (see ``_resolve``): an import, a parameter or an
+    not counted. Each name resolves by function scope (see ``_resolve``): an import, a parameter or an
     assignment in one function does not change what another function's name means, and a method does not see
     the names of its class body. Linear, not control-flow aware: ``if c: e = SystemExit(2)`` then
     ``else: e = ValueError()`` is read as the else binding.
+
+    Known gaps, where a real exit is missed: comprehension targets (bound in the enclosing scope here),
+    defaults, decorators and annotations (owned by the function scope here), ``global``/``nonlocal``
+    declarations, a class body that reads an enclosing name before assigning it, and a module-level import
+    followed by a later rebinding such as ``except ImportError: sys = None``.
     """
     guarded = {id(n) for stmt in tree.body
                if isinstance(stmt, ast.If) and ast.unparse(stmt.test) == "__name__ == '__main__'"
