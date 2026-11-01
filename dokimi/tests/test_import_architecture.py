@@ -445,15 +445,20 @@ def exit_sites(tree: ast.Module) -> list[int]:
                if isinstance(stmt, ast.If) and ast.unparse(stmt.test) == "__name__ == '__main__'"
                for body_stmt in stmt.body for n in ast.walk(body_stmt)}
     module_aliases, name_aliases = _exit_imports(tree)
-    # ``error = SystemExit(msg); raise error`` is a raise of SystemExit too.
-    bound = {t.id for n in ast.walk(tree) if isinstance(n, ast.Assign) and isinstance(n.value, ast.Call)
-             and isinstance(n.value.func, ast.Name) and n.value.func.id == "SystemExit"
-             for t in n.targets if isinstance(t, ast.Name)}
     # ``SystemExit`` under another name: ``from builtins import SystemExit as Stop`` or ``builtins.SystemExit``.
     exc_names = {a.asname or a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module == "builtins"
                  and not n.level for a in n.names if a.name == "SystemExit"}
     builtins_names = {a.asname or a.name for n in ast.walk(tree) if isinstance(n, ast.Import)
                       for a in n.names if a.name == "builtins"}
+
+    def is_system_exit(func: ast.expr) -> bool:
+        return ((isinstance(func, ast.Name) and (func.id == "SystemExit" or func.id in exc_names))
+                or (isinstance(func, ast.Attribute) and func.attr == "SystemExit"
+                    and ast.unparse(func.value) in builtins_names))
+
+    # ``error = SystemExit(msg); raise error`` (under any of those names) is a raise of SystemExit too.
+    bound = {t.id for n in ast.walk(tree) if isinstance(n, ast.Assign) and isinstance(n.value, ast.Call)
+             and is_system_exit(n.value.func) for t in n.targets if isinstance(t, ast.Name)}
     lines: list[int] = []
     raised: set[int] = set()  # the call of a raise is counted once, by the raise
     for node in ast.walk(tree):
@@ -665,12 +670,14 @@ def test_an_exit_through_the_helper_or_a_bound_raise_outside_the_frontend_fails(
         "dokimi/e.py": "import builtins\nbuiltins.exit(1)\n",
         "dokimi/f.py": "import builtins\nraise builtins.SystemExit(2)\n",
         "dokimi/g.py": "from builtins import SystemExit as Stop\nraise Stop(2)\n",
+        "dokimi/h.py": "from builtins import SystemExit as Stop\nerror = Stop(2)\nraise error\n",
+        "dokimi/i.py": "import builtins\nerror = builtins.SystemExit(2)\nraise error\n",
     })
     problems = exit_problems(imports, {})
     assert [p.split()[0] for p in problems] == ["dokimi.a", "dokimi.b", "dokimi.c", "dokimi.d", "dokimi.e",
-                                                "dokimi.f", "dokimi.g"]
+                                                "dokimi.f", "dokimi.g", "dokimi.h", "dokimi.i"]
     assert [p.split(" at lines ")[1].split(";")[0] for p in problems] == ["[2]", "[2]", "[2]", "[3]", "[2]",
-                                                                         "[2]", "[2]"]
+                                                                         "[2]", "[2]", "[3]", "[3]"]
 
 
 def test_imported_callable_aliases_count_each_launch_once(tmp_path):
