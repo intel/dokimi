@@ -183,8 +183,6 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
     _warn_unread(saved_spans, "the atoms probed here leave out whatever those spans assert")
     verdict = check_answer_key(args.artifact, saved.get("bundle"), source=args.atoms)
     if not verdict.ok:
-        if verdict.problem == "unloadable":  # the artifact cannot be read: bad input, exit 2
-            raise InputError(verdict.message)
         raise InputError(verdict.message)
     for note in verdict.notes:
         print(note, file=sys.stderr)
