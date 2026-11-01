@@ -302,8 +302,8 @@ next release.
   hop limit, and on a link under `.claude/rules` to a directory or out of the tree (the rules behind
   it are not counted), each of which also trips `--fail-on-warning`. For a profile with `guidance.claude_rules` (Claude Code),
   `.claude/rules/**/*.md` files are `rule` entries: `start` in the root `.claude/rules/` when
-  `paths` names no pattern, `lazy` when it does or in a subdirectory's `.claude/rules/`, the
-  frontmatter not counted. `start` is not an upper bound: it is too low by what it does not count
+  `paths` names no pattern, `lazy` when it does or in a subdirectory's `.claude/rules/`, but `start` whatever its `paths` when a root CLAUDE.md or
+  AGENTS.md imports it, the frontmatter not counted. `start` is not an upper bound: it is too low by what it does not count
   (only `@path.md` imports are followed, so `@notes.txt` adds nothing;
   skills are read only from real `.claude/skills/*/SKILL.md` directories at the root, so a skill
   behind a linked directory is not seen, nor are the rules behind one (a warning names it), and a

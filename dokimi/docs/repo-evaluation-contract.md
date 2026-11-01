@@ -48,7 +48,8 @@ SPDX-License-Identifier: Apache-2.0
 > `CLAUDE.local.md` turns them off), nested guidance lazily, skill bodies on demand, and AGENTS.md
 > files a root CLAUDE* turns off. For a profile with `guidance.claude_rules` (`claude-code`),
 > `.claude/rules/**/*.md` files are `rule` entries: at start in the root `.claude/rules/` unless
-> their frontmatter's `paths` names a pattern, lazily then and in a subdirectory's `.claude/rules/`;
+> their frontmatter's `paths` names a pattern, lazily then and in a subdirectory's `.claude/rules/`; a rule a root CLAUDE.md or AGENTS.md
+> imports is `start` whatever its `paths`;
 > an `@` path in a rule is not followed. The `start` total is not an upper bound: it is too low by
 > what it does not count (non-`.md` imports, skills behind a linked directory, rules behind one,
 > which warns, nested `.claude/skills/` skills, and

@@ -2,7 +2,7 @@
 
 - **`repo budget` counts `.claude/rules`** — a `.claude/rules/**/*.md` file is a `rule` entry.
   A rule in the root `.claude/rules/` whose `paths` frontmatter names no pattern is `start`; one
-  whose `paths` does, and every rule of a subdirectory's `.claude/rules/`, is `lazy`. The
+  whose `paths` does, and every rule of a subdirectory's `.claude/rules/`, is `lazy`, unless a root `CLAUDE.md` or `AGENTS.md` imports it: then it is `start` whatever its `paths`. The
   frontmatter is not counted, since Claude Code removes it before loading the rule, and an `@`
   path in a rule is not followed as an import. A link to a directory under `.claude/rules` is a
   warning: the rules behind it are not counted. A link under `.claude/rules` that does not resolve in
