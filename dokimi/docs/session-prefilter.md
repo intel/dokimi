@@ -43,7 +43,8 @@ model is called; every match is lexical.
   names it in a path input or shell command, excluding shell comments, heredoc bodies,
   echo/printf arguments (their redirection targets still count) and quoted sentences: a quoted
   argument with a space in it is text, so `git commit -m "update docs/guide.md"` does not act on
-  the file, while `cat "docs/guide.md"` does. A `>` inside quotes is text, not a redirection.
+  the file, while `cat "docs/guide.md"` does. A quoted path that itself contains a space is read as a
+  sentence and does not count. A `>` inside quotes is text, not a redirection.
   A bare file name in backticks (`` `Makefile` ``) matches an edit of that file. A Windows path
   matches with backslashes too.
   A rule that names neither is not measurable here: its
