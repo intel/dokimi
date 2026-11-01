@@ -255,9 +255,8 @@ def test_two_catalog_skills_with_one_name_and_different_content_are_skipped_with
     assert left_out == notes
 
 
-def test_a_name_with_a_spec_error_copy_leaves_the_field_as_the_scan_warns(tmp_path):
-    # catalog scan warns on both copies of a name with different content, the spec-error one
-    # included. Routing must agree: the name leaves the field, not only when both copies pass.
+def test_a_spec_error_copy_is_no_conflict_with_a_valid_copy_of_the_name(tmp_path):
+    # the spec-error copy is left out by default, so the valid one stays and nothing conflicts
     root = tmp_path / "catalog"
     _catalog_skill(root, "perf", "profile a slow binary with perf")
     _catalog_skill(root, "db", "x" * 1100)
@@ -268,31 +267,82 @@ def test_a_name_with_a_spec_error_copy_leaves_the_field_as_the_scan_warns(tmp_pa
     )
     notes: list[str] = []
     names = [c.name for c in catalog_competitors(str(root), {"perf"}, notes)]
+    assert names == ["db"]
+    assert not [note for note in notes if "different content" in note]
+    assert str(root / "skills" / "db" / "SKILL.md") in " ".join(notes)  # left out for its spec error
+
+
+def test_include_invalid_makes_the_spec_error_copy_a_conflict_again(tmp_path):
+    root = tmp_path / "catalog"
+    _catalog_skill(root, "perf", "profile a slow binary with perf")
+    _catalog_skill(root, "db", "x" * 1100)
+    fork = root / "plugins" / "x" / "skills" / "db"
+    fork.mkdir(parents=True)
+    (fork / "SKILL.md").write_text(
+        "---\nname: db\ndescription: a valid card\n---\n\n# B\n", encoding="utf-8"
+    )
+    notes: list[str] = []
+    names = [c.name for c in catalog_competitors(str(root), {"perf"}, notes, include_invalid=True)]
     assert "db" not in names
-    assert len(notes) == 1 and "different content" in notes[0]
-    assert str(root / "skills" / "db" / "SKILL.md") in notes[0]
-    assert str(fork / "SKILL.md") in notes[0]
+    conflict = [note for note in notes if "different content" in note]
+    assert len(conflict) == 1
+    assert str(root / "skills" / "db" / "SKILL.md") in conflict[0]
+    assert str(fork / "SKILL.md") in conflict[0]
 
 
-def test_the_conflict_note_names_a_disabled_copy_of_the_name_too(tmp_path):
+def test_an_explicit_spec_error_competitor_is_skipped_with_a_warning(tmp_path, capsys):
+    # a skill: competitor gets the same rule as a catalog skill: left out with a warning, not kept silently
+    long_ref = _skill(tmp_path, "long", "x" * 1100)
+    queries = tmp_path / "q.json"
+    queries.write_text(json.dumps(["profile a binary"]), encoding="utf-8")
+    argv = ["novelty", "routing", "--artifact", _skill(tmp_path, "a", "profile a binary"),
+            "--competitors", long_ref, _skill(tmp_path, "b", "tune a database"),
+            "--queries", str(queries), "--out", str(tmp_path / "r.json")]
+    left_out: list[str] = []
+    field = _routing_field(_parse(*argv), {"a"}, left_out)
+    assert [c.name for c in field] == ["b"]
+    assert f"skipped competitor {long_ref}: spec error" in capsys.readouterr().err
+    assert any(long_ref in entry and "spec error" in entry for entry in left_out)
+    field = _routing_field(_parse(*argv, "--include-invalid"), {"a"}, [])
+    assert sorted(c.name for c in field) == ["b", "long"]
+
+
+def _db_with_a_hidden_copy(tmp_path):
     catalog = tmp_path / "catalog"
     catalog.mkdir()
     _catalog_skill(catalog, "db", "tune a slow database query")
-    other = catalog / "plugins" / "b" / "skills"
+    other = catalog / "plugins" / "b" / "skills" / "db"
     other.mkdir(parents=True)
-    (other / "db").mkdir()
-    (other / "db" / "SKILL.md").write_text(
+    (other / "SKILL.md").write_text(
         "---\nname: db\ndescription: a different card\n---\n\n# B\n", encoding="utf-8")
     hidden = catalog / "plugins" / "c" / "skills" / "db"
     hidden.mkdir(parents=True)
     (hidden / "SKILL.md").write_text(
         "---\nname: db\ndescription: a hidden card\ndisable-model-invocation: true\n---\n\n# B\n",
         encoding="utf-8")
+    return catalog, other, hidden
+
+
+def test_a_disabled_copy_of_a_name_is_no_conflict_with_the_enabled_copies(tmp_path):
+    # no harness lists the disabled copy, so the two listed copies are the conflict, and the
+    # disabled one is not named in it
+    catalog, other, hidden = _db_with_a_hidden_copy(tmp_path)
     notes: list[str] = []
     assert catalog_competitors(str(catalog), set(), notes) == []
     conflict = [note for note in notes if "different content" in note]
     assert len(conflict) == 1
-    for path in (catalog / "skills" / "db", other / "db", hidden):
+    for path in (catalog / "skills" / "db", other):
+        assert str(path / "SKILL.md") in conflict[0]
+    assert str(hidden / "SKILL.md") not in conflict[0]
+
+
+def test_include_disabled_brings_the_disabled_copy_back_into_the_conflict(tmp_path):
+    catalog, other, hidden = _db_with_a_hidden_copy(tmp_path)
+    notes: list[str] = []
+    assert catalog_competitors(str(catalog), set(), notes, include_disabled=True) == []
+    conflict = [note for note in notes if "different content" in note]
+    assert len(conflict) == 1
+    for path in (catalog / "skills" / "db", other, hidden):
         assert str(path / "SKILL.md") in conflict[0]
 
 

@@ -304,9 +304,8 @@ def _routing_field(args: argparse.Namespace, exclude: set[str],
     """
     from dokimi.novelty.routing import (
         catalog_competitors,
-        disables_model_invocation,
+        competitor_left_out,
         non_skill_reason,
-        skill_file,
     )
 
     competitors = []
@@ -318,13 +317,12 @@ def _routing_field(args: argparse.Namespace, exclude: set[str],
                 left_out.append(f"{ref}: {reason}")
             continue
         candidate = _routing_card(ref)[0]
-        ref_file = skill_file(ref)
-        if (ref_file and not args.include_disabled
-                and disables_model_invocation(ref_file)):
-            print(f"WARNING: skipped competitor {ref}: disable-model-invocation "
-                  "(--include-disabled keeps it)", file=sys.stderr)
+        reason = competitor_left_out(ref, include_disabled=args.include_disabled,
+                                     include_invalid=args.include_invalid)
+        if reason:
+            print(f"WARNING: skipped competitor {ref}: {reason}", file=sys.stderr)
             if left_out is not None:
-                left_out.append(f"{ref}: disable-model-invocation")
+                left_out.append(f"{ref}: {reason}")
             continue
         competitors.append(candidate)
     if args.catalog:
@@ -864,7 +862,7 @@ def register(sub, positive_int) -> None:
                                 "select them and a card for one measures a choice that does "
                                 "not exist")
     routing_p.add_argument("--include-invalid", action="store_true", dest="include_invalid",
-                           help="Keep catalog skills with a spec error in the field")
+                           help="Keep catalog and skill: competitors with a spec error in the field")
     routing_p.add_argument("--queries", default=None,
                            help="JSON list (or one per line) of user-shaped requests that "
                                 "should select this artifact, written independently of it")

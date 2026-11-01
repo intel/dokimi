@@ -27,8 +27,9 @@ files differ (a plugin copy with an extra ``agents/`` folder is still a mirror).
 Mirrors are common (one skill checked in under two plugin directories), and
 counting them twice inflates routing and coverage numbers.
 
-Same name, different content: a skill whose ``name`` another skill shares, with other bytes, is a
-``warn`` (``name-conflict``) naming the other path. Routing leaves that name out of the field rather than aborting.
+Same name, different content: a skill whose ``name`` another listed skill shares, with other bytes, is a
+``warn`` (``name-conflict``) naming the other path. A listed skill is one a harness offers (no
+``disable-model-invocation``, no spec error). Routing leaves that name out of the field rather than aborting.
 
 ``disable-model-invocation: true`` is not a finding: the model is never offered
 that skill, so it is reported as a flag (the same reading as the skill arm's
@@ -232,12 +233,16 @@ def review_skills(entries: Sequence[SkillCatalogEntry]) -> list[Optional[SkillRe
 
 
 def _name_conflicts(by_name: dict[str, list[tuple[SkillReview, str, str]]]) -> None:
-    """A warning on each skill that shares its name with a skill of different content, naming that path.
+    """A warning on each listed skill that shares its name with a listed skill of different content.
 
-    Identical copies are not a conflict (they are the duplicate above). The routing field skips
-    such a name, so the scan names both paths to say which skills are affected.
+    Listed means a harness offers it: a skill with ``disable-model-invocation`` or a spec error is
+    left out of the routing field by default, so its copy is no conflict. Identical copies are not
+    a conflict (they are the duplicate above). The routing field skips such a name, so the scan
+    names both paths to say which skills are affected.
     """
     for name, group in by_name.items():
+        group = [entry for entry in group
+                 if not entry[0].disable_model_invocation and entry[0].state != "error"]
         for review, _, digest in group:
             others = sorted({other for _, other, other_digest in group if other_digest != digest})
             if not others:

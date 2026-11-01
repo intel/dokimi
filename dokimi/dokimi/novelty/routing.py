@@ -446,6 +446,33 @@ def non_skill_reason(ref: str) -> str | None:
     return None
 
 
+def competitor_left_out(ref: str, *, include_disabled: bool, include_invalid: bool) -> str | None:
+    """Why an explicit ``skill:`` competitor is left out of the field, as the note says, or None.
+
+    The same two rules as a catalog skill: a ``disable-model-invocation`` skill (unless
+    ``include_disabled``) and a skill with a spec error (unless ``include_invalid``).
+    """
+    from dokimi.external.catalog import SkillCatalogEntry
+    from dokimi.external.validate import review_skills
+    from dokimi.skills import load_skill
+
+    path = skill_file(ref)
+    if path is None:
+        return None
+    if not include_disabled and disables_model_invocation(path):
+        return "disable-model-invocation (--include-disabled keeps it)"
+    if include_invalid:
+        return None
+    skill = load_skill(path)
+    entry = SkillCatalogEntry(name=skill.name, status=None, path=path.parent,
+                              source_root=path.parent.parent, skill=skill)
+    review = review_skills([entry])[0]
+    if review is None or review.state != "error":
+        return None
+    problems = "; ".join(f.message for f in review.findings if f.level == "error")
+    return f"spec error ({problems}; --include-invalid keeps it)"
+
+
 def skill_file(ref: str) -> Path | None:
     """The ``SKILL.md`` a ``skill:`` reference names, or ``None`` for any other reference."""
     if not ref.startswith("skill:"):
@@ -547,14 +574,13 @@ def _eligible_catalog_skills(root: str, exclude: set[str], notes: list[str] | No
             continue
         # the digest and the disabled flag are the review's, so routing and catalog scan cannot disagree
         loaded.append((skill, review.content_sha256 or "", review))
-    conflicting = _conflicting_names(loaded, notes)
-    eligible: list[tuple[Skill, str]] = []
+    # the flags first: a copy no harness lists (disabled, or a spec error) does not make its name a conflict
+    listed: list[tuple[Skill, str]] = []
     for skill, digest, review in loaded:
-        if skill.name in conflicting or _left_out_by_flag(
-                skill, review, include_disabled, include_invalid, notes):
-            continue
-        eligible.append((skill, digest))
-    return eligible
+        if not _left_out_by_flag(skill, review, include_disabled, include_invalid, notes):
+            listed.append((skill, digest))
+    conflicting = _conflicting_names(listed, notes)
+    return [(skill, digest) for skill, digest in listed if skill.name not in conflicting]
 
 
 def _left_out_by_flag(skill: Skill, review: SkillReview, include_disabled: bool,
@@ -574,19 +600,20 @@ def _left_out_by_flag(skill: Skill, review: SkillReview, include_disabled: bool,
     return False
 
 
-def _conflicting_names(loaded: list[tuple[Skill, str, SkillReview]],
-                       notes: list[str] | None) -> set[str]:
-    """The names that two different files among ``loaded`` share, with a note naming each path.
+def _conflicting_names(listed: list[tuple[Skill, str]], notes: list[str] | None) -> set[str]:
+    """The names that two different files among ``listed`` share, with a note naming each path.
 
     Two skills with one name and different bytes cannot both stand for the card, so the name
-    leaves the field. The rest of the field stays. The names are the ``name-conflict`` findings
-    of the reviews, which ``catalog scan`` reports too.
+    leaves the field. The rest of the field stays. ``listed`` holds only the copies the flags
+    let into the field, so ``catalog scan`` names the same copies as conflicting.
     """
-    conflicting = {skill.name for skill, _, review in loaded
-                   if any(f.code == "name-conflict" for f in review.findings)}
+    digests: dict[str, set[str]] = {}
+    for skill, digest in listed:
+        digests.setdefault(skill.name, set()).add(digest)
+    conflicting = {name for name, found in digests.items() if len(found) > 1}
     if notes is not None:
         for name in sorted(conflicting):
-            paths = ", ".join(sorted(skill.path.as_posix() for skill, _, _ in loaded
+            paths = ", ".join(sorted(skill.path.as_posix() for skill, _ in listed
                                      if skill.name == name))
             notes.append(f"skipped catalog name {name!r}: it has different content at "
                          f"{paths}; dedupe or rename them to route them")

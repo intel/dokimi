@@ -141,6 +141,16 @@ def test_same_name_different_content_is_listed_by_catalog_scan_as_a_warning(tmp_
     assert all(s["findings"][-1]["code"] == "name-conflict" for s in report["skills"])
 
 
+def test_a_disabled_copy_of_a_name_is_not_a_name_conflict(tmp_path):
+    # the routing field lists only the enabled copy, so there is no conflict to warn about
+    _skill(tmp_path / "skills", "x", name="x", description="Use for x.")
+    _skill(tmp_path / "plugins", "x", name="x", description="Use for x, hidden.",
+           extra="disable-model-invocation: true\n")
+    reviews = review_skills(read_skill_manifest(tmp_path))
+    assert all(f.code != "name-conflict" for r in reviews for f in r.findings)
+    assert [r.state for r in reviews] == ["ok", "ok"]
+
+
 def test_disable_model_invocation_is_reported_as_a_flag_not_a_finding(tmp_path):
     _skill(tmp_path / "skills", "hidden", name="hidden",
            extra="disable-model-invocation: true\n")
