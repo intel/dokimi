@@ -716,3 +716,38 @@ def test_an_empty_out_is_refused_with_exit_2_through_the_real_parser(tmp_path, c
         args.func(args)
     assert exc.value.code == 2
     assert "not a file name" in capsys.readouterr().err
+
+
+def _arms_file_with_text(path, questions, baseline="baseline"):
+    """An arms.v1 file on disk: ``questions`` is ``[(question_id, question_text, baseline score)]``."""
+    payload = {"baseline_arm": baseline,
+               "answers": [{"question_id": qid, "question_text": text,
+                            "arms": {baseline: {"answer": "x"}, "skill": {"answer": "x"}}}
+                           for qid, text, _ in questions],
+               "evaluations": [{"question_id": qid,
+                                "scores": {baseline: {"aggregate": v}, "skill": {"aggregate": v}}}
+                               for qid, _, v in questions]}
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+def test_command_exits_2_when_two_inputs_give_one_id_different_question_text(tmp_path, capsys):
+    # The first file's question 1 is a ceiling item, the second's is another question with no headroom:
+    # pooled under id "1" they would average to a mid score, so the command refuses the pair.
+    first = _arms_file_with_text(tmp_path / "a.json", [("1", "What is X?", 100)])
+    second = _arms_file_with_text(tmp_path / "b.json", [("1", "What is Y?", 0)])
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_headroom(_args([first, second]))
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "question_id '1' has a different question text" in err and str(second) in err
+
+
+def test_command_pools_partial_runs_that_share_ids_for_the_same_question(tmp_path, capsys):
+    first = _arms_file_with_text(tmp_path / "a.json", [("1", "What is X?", 100), ("2", "What is Z?", 50)])
+    second = _arms_file_with_text(tmp_path / "b.json", [("1", "What is X?", 100)])
+    out = tmp_path / "headroom.json"
+    cmd_eval_headroom(_args([first, second], output=out))
+    assert "Error" not in capsys.readouterr().err
+    items = {i["question_id"]: i["reps"] for i in json.loads(out.read_text(encoding="utf-8"))["items"]}
+    assert items == {"1": 2, "2": 1}  # id 1 pooled over both runs, id 2 kept from the partial one

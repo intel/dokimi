@@ -74,6 +74,24 @@ def _exit_unless_replicates(runs, inputs) -> None:
         sys.exit(2)
 
 
+def _exit_on_conflicting_questions(runs, inputs) -> None:
+    """Exit 2 when two inputs give one question id a different question text or ground truth (a
+    non-empty value each): pooled under one id, the two questions would hide each other's headroom.
+    Partial runs may still differ in their id sets; only a shared id is compared."""
+    seen: dict[str, dict[str, tuple[str, str]]] = {}  # question id -> field -> (value, first input)
+    for run, path in zip(runs, inputs, strict=True):
+        for rec in run:
+            for name, value in (("question text", rec.question_text), ("ground truth", rec.ground_truth)):
+                if not value:
+                    continue
+                first = seen.setdefault(rec.key, {}).setdefault(name, (value, path))
+                if first[0] != value:
+                    print(f"Error: question_id {rec.key!r} has a different {name} in {path} than in "
+                          f"{first[1]}: the two are different questions and are not pooled",
+                          file=sys.stderr)
+                    sys.exit(2)
+
+
 # replicate_key calls .items() on run_config and tuple() on arms: a wrong type there crashes it, or (an
 # arms string or object) is silently split into characters or keys. Both are refused here with a diagnostic.
 _METADATA_SHAPES = (("run_config", dict, "object"), ("arms", list, "array"))
@@ -134,6 +152,7 @@ def cmd_eval_headroom(args: argparse.Namespace) -> None:
         runs.append(run)
         inputs.append(str(path))
     _exit_unless_replicates(runs, inputs)
+    _exit_on_conflicting_questions(runs, inputs)
     try:
         result = headroom(runs, no_skill_arm=args.no_skill_arm, ceiling=args.ceiling,
                           floor=args.floor, min_reps=args.min_reps)
