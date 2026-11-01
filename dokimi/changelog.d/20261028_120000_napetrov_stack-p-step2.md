@@ -17,7 +17,9 @@
   summary says how many questions it left out. Pass `--judge-placeholder` to judge the
   placeholder again (this restores only that part of the old method). The dashboard's arm
   means and delta leave such a question out too, as `report eval` does; its doc score still
-  counts it as 0. `benchmark run`,
+  counts it as 0. `report eval` and `report generate` show `—` for the arm means and delta when
+  no question is scored in both arms (the `report generate --format json` `stats` block carries
+  `null` for `avg`, `min` and `max`), and the run summary prints no means then. `benchmark run`,
   `evaluate` and `eval score` take the same flag; `benchmark batch` has none and never judges
   the placeholder. Scores from before this change are not comparable with new ones.
 - **Trust gate** — `retrieval_hit_rate` counts every evaluation's recorded retrieval outcome,
