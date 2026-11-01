@@ -125,7 +125,6 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
       # The setup action, at dokimi-ref (the commit the caller pins in `uses:`), sparse to actions/.
-      # Kept until the job ends: the composite's post steps read it from this path.
       - name: Check out the setup action
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:

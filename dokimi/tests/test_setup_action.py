@@ -12,6 +12,7 @@ the same path.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import yaml
@@ -26,7 +27,9 @@ def _steps() -> list[dict]:
 
 
 def test_pip_key_is_written_under_the_workspace() -> None:
-    writers = [s for s in _steps() if f"$GITHUB_WORKSPACE/{KEY_FILE}" in s.get("run", "")]
+    # The key must be the target of a redirect in a step: a path in a comment or an echo does not write it.
+    redirect = re.compile(r'>\s*"?\$GITHUB_WORKSPACE/' + re.escape(KEY_FILE))
+    writers = [s for s in _steps() if redirect.search(s.get("run", ""))]
     assert writers, "no step writes the pip key under $GITHUB_WORKSPACE"
 
 
