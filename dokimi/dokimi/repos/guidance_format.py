@@ -109,7 +109,9 @@ def _advance(fence: tuple[str, int] | None, items: tuple[int, ...], line: str
 
 
 def _render_xml(text: str) -> str:
-    out, fence, items = [_ROOT], None, ()
+    out = [_ROOT]
+    fence: tuple[str, int] | None = None
+    items: tuple[int, ...] = ()
     open_levels: list[int] = []
     for line in text.split("\n"):
         fence, items = _advance(fence, items, line)
