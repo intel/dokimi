@@ -53,6 +53,7 @@ class HarnessProfile:
     egress: tuple[str, ...] = ()
     endpoint_env: str | None = None
     guidance: dict[str, Any] = field(default_factory=dict)
+    skills: dict[str, Any] = field(default_factory=dict)  # declared skill dirs; verified only by `repo skill-reach`
     bridge: dict[str, str] | None = None
     prompt_suffix: str = ""
     config_files: dict[str, str] = field(default_factory=dict)
@@ -250,6 +251,7 @@ def parse_profile(raw: Any, path: str = "<profile>") -> HarnessProfile:
         egress=tuple(raw.get("egress") or ()),
         endpoint_env=raw.get("endpoint_env"),
         guidance=dict(raw.get("guidance") or {}),
+        skills=dict(raw.get("skills") or {}),
         bridge=raw.get("bridge"),
         prompt_suffix=raw.get("prompt_suffix") or "",
         config_files=dict(raw.get("config_files") or {}),

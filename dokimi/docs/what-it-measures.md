@@ -58,6 +58,10 @@ manifest it owns:
   demand, and which AGENTS.md files a CLAUDE.md turns off.
 - `dokimi repo reach` (L1): which guidance files does a given harness actually
   load?
+- `dokimi repo skill-reach` (L1): which Agent Skills does a given harness list,
+  from a fixture catalogue of `SKILL.md` placements (project and user dirs,
+  `.agents/skills`, nesting, symlinks, description formats, same-name
+  collisions)? Writes `skill_discovery.v1`.
 - `dokimi repo inspect` (static, no LLM): which instruction files, checks,
   capability surfaces and risky hooks or scripts the repository offers an
   agent, with findings per stage.

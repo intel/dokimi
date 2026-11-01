@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/skill_discovery.v1.json",
+  "title": "Skill discovery probe v1",
+  "description": "Which Agent Skills one (harness, version, model) lists, from a fixture of SKILL.md files placed in a fresh workspace, HOME and config dir (`dokimi repo skill-reach`). Each skill carries a token in its description and one in its body. `class` is listed (description token reported), fetched (reported after the agent ran a command or read a file), not_listed, or error (no usable answer). `body` says the body token was reported too. A collision verdict is one, all, some, none or error.",
+  "type": "object",
+  "required": ["schema_version", "harness", "model", "cases", "scenarios", "records", "collisions", "summary"],
+  "properties": {
+    "schema_version": {"const": "skill_discovery.v1"},
+    "generated_at": {"type": "string"},
+    "harness": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": {"type": "string"},
+        "version": {"type": "string"},
+        "profile": {"type": "string"},
+        "declared": {"type": "object"}
+      }
+    },
+    "model": {"type": "string"},
+    "salt": {"type": "string"},
+    "ask": {"type": "string", "description": "The instruction every scenario used; results with different asks are not comparable."},
+    "catalogue": {"type": "string"},
+    "workspace": {"type": ["string", "null"]},
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "scope", "path", "name", "token", "body_token"],
+        "properties": {
+          "id": {"type": "string"},
+          "scope": {"enum": ["project", "home", "config"]},
+          "path": {"type": "string", "description": "The skill directory, relative to its scope root."},
+          "name": {"type": "string"},
+          "description": {"type": "string"},
+          "eol": {"enum": ["lf", "crlf"]},
+          "token": {"type": "string", "pattern": "^SK[0-9A-F]{6}$"},
+          "body_token": {"type": "string", "pattern": "^SB[0-9A-F]{6}$"},
+          "link": {"const": "symlink"},
+          "collision": {"type": "string"}
+        }
+      }
+    },
+    "skipped": {
+      "type": "array",
+      "items": {"type": "object", "required": ["case", "reason"],
+                "properties": {"case": {"type": "string"}, "reason": {"type": "string"}}}
+    },
+    "scenarios": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "cwd", "error", "reported"],
+        "properties": {
+          "id": {"type": "string"},
+          "cwd": {"type": "string"},
+          "returncode": {"type": ["integer", "null"]},
+          "error": {"type": ["string", "null"]},
+          "cost_usd": {"type": ["number", "null"]},
+          "num_turns": {"type": ["integer", "null"]},
+          "reported": {"type": "array", "items": {"type": "string"}},
+          "unknown": {"type": "array", "items": {"type": "string"}},
+          "prose": {"type": ["integer", "null"]},
+          "looked": {"type": "boolean"}
+        }
+      }
+    },
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["case", "scenario", "class", "body"],
+        "properties": {
+          "case": {"type": "string"},
+          "scenario": {"type": "string"},
+          "class": {"enum": ["listed", "fetched", "not_listed", "error"]},
+          "body": {"type": "boolean"}
+        }
+      }
+    },
+    "collisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["group", "scenario", "members", "listed", "verdict"],
+        "properties": {
+          "group": {"type": "string"},
+          "scenario": {"type": "string"},
+          "members": {"type": "array", "items": {"type": "string"}},
+          "listed": {"type": "array", "items": {"type": "string"}},
+          "verdict": {"enum": ["one", "all", "some", "none", "error"]}
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["cost_usd", "by_class"],
+      "properties": {
+        "cost_usd": {"type": "number"},
+        "by_class": {"type": "object", "additionalProperties": {"type": "integer"}}
+      }
+    }
+  }
+}

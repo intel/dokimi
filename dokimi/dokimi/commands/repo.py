@@ -331,6 +331,58 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def cmd_repo_skill_reach(args: argparse.Namespace) -> None:
+    """Skill-discovery probe: which skills one harness/version/model lists, from a fixture catalogue."""
+    from dokimi.repos.harness_profile import ProfileError, load_profile
+    from dokimi.repos.reach import ReachError
+    from dokimi.repos.skill_reach import (
+        SkillReachError,
+        format_table,
+        load_catalogue,
+        run_skill_reach,
+        save_skill_reach,
+        scenario_ids,
+    )
+
+    try:  # the arguments as typed: a usage error
+        if not math.isfinite(args.budget) or args.budget <= 0:
+            raise SkillReachError(f"--budget must be > 0, got {args.budget:g}")
+        profile = load_profile(args.harness)
+        cases = load_catalogue(Path(args.catalogue) if args.catalogue else None)
+        only = tuple(args.only or ())
+        missing = sorted(set(only) - {c.id for c in cases})
+        if missing:
+            raise SkillReachError(f"--only {', '.join(missing)} matches no case")
+        selected = [c for c in cases if not only or c.id in only]
+    except (ProfileError, SkillReachError) as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+    if args.dry_run:
+        argv = profile.argv(prompt="<ask>", model=args.model, tools="skills", max_turns=args.max_turns,
+                            budget_usd=args.budget, bin_path=args.bin) if "skills" in profile.tools else None
+        print(json.dumps({"cases": [c.id for c in selected], "scenarios": [s for s, _ in scenario_ids(selected)],
+                          "argv": argv, "declared": profile.skills}, indent=2))
+        return
+    print(f"{len(selected)} cases, {len(scenario_ids(selected))} scenarios, at most ${args.budget:g} each",
+          file=sys.stderr)
+    out_dir = Path(args.out)
+    try:
+        payload = run_skill_reach(
+            profile=profile, model=args.model, out_dir=out_dir, cases=selected,
+            catalogue=Path(args.catalogue) if args.catalogue else None, bin_path=args.bin,
+            work_dir=Path(args.work_dir) if args.work_dir else None, salt=args.salt,
+            max_turns=args.max_turns, budget_usd=args.budget, timeout_s=args.timeout, keep=args.keep,
+        )
+    except (ProfileError, SkillReachError, ReachError) as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(1)
+    path = save_skill_reach(payload, out_dir)
+    print(format_table(payload))
+    print(f"wrote {path}")
+    if any(s["error"] for s in payload["scenarios"]):
+        sys.exit(1)
+
+
 def cmd_repo_budget(args: argparse.Namespace) -> None:
     """What the repository puts into an agent's context at start-up, lazily and on demand."""
     from dokimi.artifacts import save_artifact, stamp
@@ -539,6 +591,34 @@ def register(sub, positive_int) -> None:
                          help="Print the files and the exact argv of every scenario; run nothing")
     reach_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
     reach_p.set_defaults(func=cmd_repo_reach)
+
+    skill_p = repo_sub.add_parser(
+        "skill-reach",
+        help="Skill-discovery probe: place token-seeded SKILL.md fixtures (project, user and client dirs, "
+        "nesting, symlinks, name collisions, description formats) in a fresh workspace and HOME and report "
+        "which skills a harness lists (skill_discovery.v1). Costs one cheap-model call per scenario.",
+    )
+    skill_p.add_argument("--harness", default="claude-code",
+                         help="Built-in profile name or a harness_profile.v1 YAML path (default: claude-code); "
+                         "it needs a `skills` block and a `skills` tool mode")
+    skill_p.add_argument("--model", required=True, help="Model string passed to the harness as it is")
+    skill_p.add_argument("--catalogue", default=None,
+                         help="A skill_fixtures.v1 YAML (default: the built-in repos/skill_fixtures.yaml)")
+    skill_p.add_argument("--only", action="append", default=None, metavar="CASE",
+                         help="Place only this case id; repeatable")
+    skill_p.add_argument("--bin", default=None, help="Harness executable (default: the profile's `bin`)")
+    skill_p.add_argument("--out", default="skill-reach-out", help="Output directory: skill-discovery.json and traces/")
+    skill_p.add_argument("--work-dir", default=None, dest="work_dir",
+                         help="Parent of the temporary fixture (default: the system temp dir). No ancestor may "
+                         "hold guidance or a skills dir.")
+    skill_p.add_argument("--salt", default=None, help="Token salt (default: random per run)")
+    skill_p.add_argument("--max-turns", type=positive_int, default=4, dest="max_turns")
+    skill_p.add_argument("--budget", type=float, default=0.10, help="Per-scenario USD cap (default: 0.10)")
+    skill_p.add_argument("--timeout", type=positive_int, default=300, help="Per-scenario seconds")
+    skill_p.add_argument("--keep", action="store_true", help="Keep the temporary fixture")
+    skill_p.add_argument("--dry-run", action="store_true", dest="dry_run",
+                         help="Print the cases, scenarios and argv; run nothing")
+    skill_p.set_defaults(func=cmd_repo_skill_reach)
 
     budget_p = repo_sub.add_parser(
         "budget",

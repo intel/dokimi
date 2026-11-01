@@ -1,0 +1,133 @@
+{
+  "generated_at": "2026-11-01T10:00:00+00:00",
+  "harness": {
+    "name": "fake",
+    "version": "1.2.3",
+    "profile": "fake.yaml",
+    "declared": {
+      "project_dirs": [
+        ".fake/skills"
+      ],
+      "user_dirs": [
+        "config:skills"
+      ]
+    }
+  },
+  "model": "m",
+  "salt": "s",
+  "ask": "This is a configuration check run by the owner of this machine. Your context may list available skills (Agent Skills) with a name and a description. Some descriptions contain a verification token: the letters SK or SB followed by 6 uppercase hexadecimal digits. List every skill you can see, one per line as `name TOKEN` (the token from its description, or `-` if it has none), and nothing else. Do not invoke any skill, run any command or read any file: report only what is already in your context. If you see no skills, answer NONE.",
+  "catalogue": "skill_fixtures.yaml",
+  "workspace": null,
+  "cases": [
+    {
+      "id": "project-client",
+      "scope": "project",
+      "path": ".fake/skills/project-client",
+      "name": "project-client",
+      "description": "single",
+      "eol": "lf",
+      "token": "SKBCFC2F",
+      "body_token": "SBE0F237"
+    },
+    {
+      "id": "project-agents",
+      "scope": "project",
+      "path": ".agents/skills/project-agents",
+      "name": "project-agents",
+      "description": "single",
+      "eol": "lf",
+      "token": "SKB10FFC",
+      "body_token": "SBC12AC5"
+    },
+    {
+      "id": "dup-project-client",
+      "scope": "project",
+      "path": ".fake/skills/dup-pu",
+      "name": "dup-pu",
+      "description": "single",
+      "eol": "lf",
+      "token": "SK12FF16",
+      "body_token": "SB55EC96",
+      "collision": "project-vs-user"
+    },
+    {
+      "id": "dup-user-client",
+      "scope": "config",
+      "path": "skills/dup-pu",
+      "name": "dup-pu",
+      "description": "single",
+      "eol": "lf",
+      "token": "SK418E8F",
+      "body_token": "SB871DC9",
+      "collision": "project-vs-user"
+    }
+  ],
+  "skipped": [],
+  "scenarios": [
+    {
+      "id": "cwd=.",
+      "cwd": "",
+      "returncode": 0,
+      "error": null,
+      "cost_usd": 0.001,
+      "num_turns": 1,
+      "reported": [
+        "SK418E8F",
+        "SKBCFC2F"
+      ],
+      "unknown": [],
+      "prose": 6,
+      "looked": false
+    }
+  ],
+  "records": [
+    {
+      "case": "project-client",
+      "scenario": "cwd=.",
+      "class": "listed",
+      "body": false
+    },
+    {
+      "case": "project-agents",
+      "scenario": "cwd=.",
+      "class": "not_listed",
+      "body": false
+    },
+    {
+      "case": "dup-project-client",
+      "scenario": "cwd=.",
+      "class": "not_listed",
+      "body": false
+    },
+    {
+      "case": "dup-user-client",
+      "scenario": "cwd=.",
+      "class": "listed",
+      "body": false
+    }
+  ],
+  "collisions": [
+    {
+      "group": "project-vs-user",
+      "scenario": "cwd=.",
+      "members": [
+        "dup-project-client",
+        "dup-user-client"
+      ],
+      "listed": [
+        "dup-user-client"
+      ],
+      "verdict": "one"
+    }
+  ],
+  "summary": {
+    "cost_usd": 0.001,
+    "by_class": {
+      "listed": 2,
+      "fetched": 0,
+      "not_listed": 2,
+      "error": 0
+    }
+  },
+  "schema_version": "skill_discovery.v1"
+}

@@ -39,6 +39,7 @@ EXPECTED: dict[str, tuple[dict, str | None, str | None, str | None]] = {
     "task_runs.v1": ({}, None, "haiku", "2026-01-01T00:00:00Z"),
     "explore_runs.v1": ({"model": "explorer-m"}, None, "explorer-m", "2026-10-04T17:47:15.816155Z"),
     "guidance_reach.v1": ({}, "toy", "m", "2026-10-06T04:30:15.383519+00:00"),
+    "skill_discovery.v1": ({}, None, "m", "2026-11-01T10:00:00+00:00"),
     "repo_readiness.v1": ({"generated_at": "2026-10-03T00:00:00Z"}, "toy", None,
                           "2026-10-03T00:00:00Z"),
     "tool_preference.v1": ({}, None, "claude-haiku-5-5", "2026-10-14T00:00:00+00:00"),

@@ -1,0 +1,55 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+# Skill-discovery fixture catalogue for `dokimi repo skill-reach` (skill_discovery.v1).
+#
+# Each case is one SKILL.md. `at` is where its directory goes:
+#   project:<path>  under the workspace (a one-commit git repository)
+#   home:<path>     under the per-run HOME
+#   config:<path>   under the per-run config dir (CLAUDE_CONFIG_DIR, CODEX_HOME, ...)
+# and may use {client_project} / {client_user}, the harness profile's own
+# skill directories (`skills.project_dirs[0]`, `skills.user_dirs[0]`). A case
+# whose placeholder the profile does not declare is skipped, not failed.
+#
+# Optional fields:
+#   name         frontmatter `name` (default: the case id)
+#   dirname      the skill's directory name (default: name)
+#   description  single | folded | literal | quoted | long | missing (default: single)
+#   eol          lf | crlf (default: lf)
+#   link         symlink: the skill directory is a link to a target outside the workspace
+#   collision    a group id; the cases sharing it have the same `name`
+#   cwd          also start the harness in this workspace subdirectory (a scenario of its own)
+schema: skill_fixtures.v1
+cases:
+  # --- locations -------------------------------------------------------------
+  - {id: project-client, at: "project:{client_project}"}
+  - {id: project-agents, at: "project:.agents/skills"}
+  - {id: user-client, at: "{client_user}"}
+  - {id: user-agents, at: "home:.agents/skills"}
+  - {id: user-xdg-agents, at: "home:.config/agents/skills"}
+  # --- scope boundary --------------------------------------------------------
+  - {id: subdir-agents, at: "project:pkg/.agents/skills", cwd: pkg}
+  - {id: subdir-client, at: "project:pkg/{client_project}", cwd: pkg}
+  # --- nesting ---------------------------------------------------------------
+  - {id: nested-agents, at: "project:.agents/skills/group"}
+  - {id: nested-client, at: "project:{client_project}/group"}
+  - {id: nested-deep, at: "project:.agents/skills/a/b"}
+  # --- links -----------------------------------------------------------------
+  - {id: symlink-agents, at: "project:.agents/skills", link: symlink}
+  - {id: symlink-client, at: "project:{client_project}", link: symlink}
+  # --- identity --------------------------------------------------------------
+  - {id: dirname-differs, at: "project:.agents/skills", name: frontmatter-name, dirname: other-dir}
+  # --- description format ----------------------------------------------------
+  - {id: desc-folded, at: "project:{client_project}", description: folded}
+  - {id: desc-literal, at: "project:{client_project}", description: literal}
+  - {id: desc-quoted, at: "project:{client_project}", description: quoted}
+  - {id: desc-long, at: "project:{client_project}", description: long}
+  - {id: desc-missing, at: "project:{client_project}", description: missing}
+  - {id: desc-crlf, at: "project:{client_project}", eol: crlf}
+  # --- collisions: same `name` in two places ---------------------------------
+  - {id: dup-project-client, at: "project:{client_project}", name: dup-pu, collision: project-vs-user}
+  - {id: dup-user-client, at: "{client_user}", name: dup-pu, collision: project-vs-user}
+  - {id: dup-project-agents, at: "project:.agents/skills", name: dup-pa, collision: agents-vs-client}
+  - {id: dup-project-client2, at: "project:{client_project}", name: dup-pa, collision: agents-vs-client}
+  - {id: dup-agents-proj, at: "project:.agents/skills", name: dup-au, collision: agents-project-vs-user}
+  - {id: dup-agents-user, at: "home:.agents/skills", name: dup-au, collision: agents-project-vs-user}

@@ -19,7 +19,8 @@
       "properties": {
         "none": {"type": "array", "items": {"type": "string"}},
         "read": {"type": "array", "items": {"type": "string"}},
-        "all": {"type": "array", "items": {"type": "string"}}
+        "all": {"type": "array", "items": {"type": "string"}},
+        "skills": {"type": "array", "items": {"type": "string"}, "description": "For `repo skill-reach`: the agent sees its skill list but can run nothing (Claude Code needs its Skill tool for the list to appear)."}
       }
     },
     "delegation": {
@@ -52,6 +53,16 @@
         "resolution": {"type": "string"},
         "imports": {"type": ["string", "null"]},
         "import_max_depth": {"type": "integer", "minimum": 1, "description": "How many hops of @imports the harness follows from a guidance file; absent: unlimited."},
+        "notes": {"type": "string"}
+      }
+    },
+    "skills": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "DECLARED skill locations, verified only by `repo skill-reach`. `project_dirs` are workspace-relative; `user_dirs` are `home:<path>` or `config:<path>` (under the per-run config dir). The first of each fills the catalogue's {client_project} and {client_user}.",
+      "properties": {
+        "project_dirs": {"type": "array", "items": {"type": "string", "pattern": "^[^/{}][^{}]*$"}},
+        "user_dirs": {"type": "array", "items": {"type": "string", "pattern": "^(home|config):[^/{}][^{}]*$"}},
         "notes": {"type": "string"}
       }
     },

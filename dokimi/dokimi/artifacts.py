@@ -7,7 +7,8 @@ The benchmark produces long-lived JSON artifact kinds: ``questions``,
 ``answers``, ``eval`` (LLM-judge scores), ``arms`` (treatment-arm comparisons),
 ``task_runs`` (executable task results), ``explore_runs`` (ExploreBench
 localization results), ``novelty`` (what an artifact's content adds to one
-model), ``guidance_reach`` (L1 reach probes), ``repo_readiness`` (L0 claim
+model), ``guidance_reach`` (L1 reach probes), ``skill_discovery`` (which
+skills a harness lists, from where), ``repo_readiness`` (L0 claim
 checks), ``tool_preference`` (which of two equal tools a model picks, and
 what moves it), ``repo_environment`` (static inspection of what a
 repository offers an agent), ``plan`` (the cells a run promises to measure),
@@ -50,6 +51,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "task_runs": "task_runs.v1",
     "explore_runs": "explore_runs.v1",
     "guidance_reach": "guidance_reach.v1",
+    "skill_discovery": "skill_discovery.v1",
     "repo_readiness": "repo_readiness.v1",
     "tool_preference": "tool_preference.v1",
     "repo_environment": "repo_environment.v1",
