@@ -158,6 +158,9 @@ def oracle(task: dict[str, Any], task_dir: Path, run_dir: Path | None = None) ->
     reference = task_dir / REFERENCE_DIR
     if reference.is_dir() and run_dir is not None:
         workspace = Path(run_dir) / "workspace"
+        # checked even for an empty reference: copytree still copies the mode onto a linked root
+        if _linked_on_the_way(workspace, workspace):
+            raise ValueError("the workspace is a symbolic link; the reference would be written through it")
         for source in reference.rglob("*"):  # directories too: copytree creates an empty one through a link
             if source.is_symlink():
                 raise ValueError(f"reference/{source.relative_to(reference).as_posix()} is a symbolic link; "

@@ -319,6 +319,52 @@ def test_the_oracle_refuses_an_empty_reference_directory_created_through_a_link(
     assert not (outside / "sub").exists()
 
 
+def test_the_oracle_refuses_a_linked_workspace_even_with_an_empty_reference(tmp_path):
+    # no entry in reference/, so the walk checks nothing; copytree still copies the mode onto the linked root
+    outside = tmp_path / "outside"
+    outside.mkdir(mode=0o700)
+    task_dir = tmp_path / "task"
+    (task_dir / "reference").mkdir(parents=True)
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "workspace").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ValueError, match="symbolic link"):
+        typecheck.oracle(_task(), task_dir, run)
+    assert outside.stat().st_mode & 0o777 == 0o700
+
+
+def test_linked_on_the_way_sees_a_link_in_the_middle_of_a_path(tmp_path):
+    # the oracle's walk also reaches this through the reference's directories; the helper is pinned on its own
+    outside = tmp_path / "outside"
+    (outside / "c").mkdir(parents=True)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "a").symlink_to(outside, target_is_directory=True)
+    assert typecheck._linked_on_the_way(workspace, workspace / "a" / "b" / "c.py") is True
+    assert typecheck._linked_on_the_way(workspace, workspace / "d" / "c.py") is False
+
+
+def test_check_task_runs_no_oracle_step_for_a_typecheck_task_without_reference(tmp_path, monkeypatch):
+    # the gate in check_task itself: a mutated `_oracle_applies(...) and` would run the oracle here
+    from types import SimpleNamespace
+
+    from dokimi.repos import selfcheck
+    from dokimi.repos.workspace import Task
+
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    raw = {"grader": "dokimi:typecheck", "tool": "mypy", "version": "1", "paths": ["pkg/api.py"]}
+    ran = []
+    monkeypatch.setattr(selfcheck, "_host_reason", lambda ctx, task, work_dir, host: (None, None, None))
+    monkeypatch.setattr(selfcheck, "_check_step",
+                        lambda ctx, task, rd, kind, run_it, net, res: ran.append((kind, run_it)))
+    monkeypatch.setattr(selfcheck, "isolation_probe", lambda *args, **kwargs: [])
+    ctx = SimpleNamespace(manifest=SimpleNamespace(image=None))
+    res = selfcheck.check_task(ctx, Task("t", raw, bare), tmp_path / "work")
+    assert ran == [("null", True), ("oracle", False)]
+    assert res["verdict"] == "ok"
+
+
 def test_a_typecheck_task_without_reference_runs_no_oracle_step(tmp_path):
     # reference/ is optional: without it the grade reads the workspace as it is, and the self-check has no
     # repair to apply, so it runs the null step alone (the untouched listed files must fail the gate).

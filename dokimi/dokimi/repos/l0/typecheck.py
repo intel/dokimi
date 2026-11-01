@@ -222,38 +222,46 @@ def _run_tool(argv: list[str], cwd: str, stdin: str | None = None):
 def _errors(tool: str, stdout: str) -> dict[int, list[tuple[int, str]]]:
     """Parse the tool's JSON output into errors keyed by fence index."""
     out: dict[int, list[tuple[int, str]]] = {}
-    diagnostics = []
     # A report we cannot read is a tool failure, not a clean run: the fences it would have flagged pass otherwise.
-    if tool == "mypy":  # one JSON object per line
-        for text in stdout.splitlines():
-            if not text.strip():
-                continue
-            try:
-                d = json.loads(text)
-                # A valid JSON object is not a diagnostic: without these fields "{}" would read as a clean run.
-                if not isinstance(d, dict) or not {"file", "line", "severity", "message"} <= d.keys():
-                    raise ValueError("not a diagnostic")
-                if d["severity"] == "error":
-                    line = int(d.get("line") or 0)  # mypy writes -1 for an error with no line
-                    diagnostics.append((str(d.get("file")), max(line, 0), str(d.get("message"))))
-            except (ValueError, TypeError) as exc:
-                raise TypecheckError(f"mypy wrote a line that is not a diagnostic in its report: {text[:200]!r}") \
-                    from exc
-    else:  # basedpyright: one document; its ranges are zero-based
-        try:
-            doc = json.loads(stdout)  # empty output is not a report either
-            if not isinstance(doc, dict) or not isinstance(doc.get("generalDiagnostics"), list):
-                raise ValueError("no generalDiagnostics list")  # a missing list is not an empty one
-            diagnostics = [(Path(str(d.get("file"))).name, int(d["range"]["start"]["line"]) + 1,
-                            str(d.get("message")) + (f" [{d['rule']}]" if d.get("rule") else ""))
-                           for d in doc["generalDiagnostics"] if d.get("severity") == "error"]
-        except (ValueError, KeyError, TypeError, AttributeError) as exc:
-            raise TypecheckError(f"basedpyright wrote a report that is not in its JSON format: {exc}") from exc
+    diagnostics = _mypy_errors(stdout) if tool == "mypy" else _basedpyright_errors(stdout)
     for name, line, message in diagnostics:
         index = _fence_index(name)
         if index is not None:
             out.setdefault(index, []).append((line, message))
     return out
+
+
+def _mypy_errors(stdout: str) -> list[tuple[str, int, str]]:
+    """The error diagnostics in mypy's report: one JSON object per line."""
+    diagnostics = []
+    for text in stdout.splitlines():
+        if not text.strip():
+            continue
+        try:
+            d = json.loads(text)
+            # A valid JSON object is not a diagnostic: without these fields "{}" would read as a clean run.
+            if not isinstance(d, dict) or not {"file", "line", "severity", "message"} <= d.keys():
+                raise ValueError("not a diagnostic")
+            if d["severity"] == "error":
+                line = int(d.get("line") or 0)  # mypy writes -1 for an error with no line
+                diagnostics.append((str(d.get("file")), max(line, 0), str(d.get("message"))))
+        except (ValueError, TypeError) as exc:
+            raise TypecheckError(f"mypy wrote a line that is not a diagnostic in its report: {text[:200]!r}") \
+                from exc
+    return diagnostics
+
+
+def _basedpyright_errors(stdout: str) -> list[tuple[str, int, str]]:
+    """The error diagnostics in basedpyright's report: one document whose ranges are zero-based."""
+    try:
+        doc = json.loads(stdout)  # empty output is not a report either
+        if not isinstance(doc, dict) or not isinstance(doc.get("generalDiagnostics"), list):
+            raise ValueError("no generalDiagnostics list")  # a missing list is not an empty one
+        return [(Path(str(d.get("file"))).name, int(d["range"]["start"]["line"]) + 1,
+                 str(d.get("message")) + (f" [{d['rule']}]" if d.get("rule") else ""))
+                for d in doc["generalDiagnostics"] if d.get("severity") == "error"]
+    except (ValueError, KeyError, TypeError, AttributeError) as exc:
+        raise TypecheckError(f"basedpyright wrote a report that is not in its JSON format: {exc}") from exc
 
 
 def _fence_index(name: str) -> int | None:
