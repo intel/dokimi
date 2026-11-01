@@ -56,3 +56,20 @@ def test_the_scorecard_carries_the_distribution_digest(tmp_path: Path, monkeypat
 
     assert scorecard["subject"]["distribution_digest"] == "sha256:" + hashlib.sha256(b"body").hexdigest()
     validate_artifact("subject_scorecard", scorecard)
+
+
+def test_the_scorecard_carries_a_distribution_digest_per_member(tmp_path: Path, monkeypatch):
+    from dokimi.subjects import build_subject_scorecard, load_subject
+
+    (tmp_path / "SKILL.md").write_bytes(b"member body")
+    (tmp_path / "subject.toml").write_text(
+        '[subject]\nid = "b"\nkind = "bundle"\n\n'
+        '[[subject.members]]\nkind = "skill"\nref = "SKILL.md"\n\n'
+        '[[subject.members]]\nkind = "skill"\nref = "context7:/org/lib"\n\n'
+        '[suite]\nproducts = ["p"]\nquestions = ["q.json"]\n', encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    scorecard = build_subject_scorecard(load_subject(tmp_path / "subject.toml"), awareness_runs=[], out_dir=tmp_path)
+
+    digests = [member["distribution_digest"] for member in scorecard["subject"]["members"]]
+    assert digests == ["sha256:" + hashlib.sha256(b"member body").hexdigest(), None]
