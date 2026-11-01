@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import mypy.version
@@ -43,6 +44,14 @@ def test_listed_file_that_type_checks_passes(tmp_path):
     assert result["pass"] is True
     assert result["n_errors"] == 0
     assert result["tool_version"] == PINNED
+
+
+def test_grading_leaves_the_recursion_limit_as_it_was(tmp_path):
+    # mypy's main raises the process-wide recursion limit; in-process, that leaked into later code.
+    before = sys.getrecursionlimit()
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": CLEAN}, _task())
+    typecheck.grade(_task(), tmp_path, "", run)
+    assert sys.getrecursionlimit() == before
 
 
 def test_listed_file_with_a_type_error_fails_and_names_the_error(tmp_path):

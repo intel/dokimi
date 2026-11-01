@@ -19,6 +19,7 @@ import os
 import posixpath
 import re
 import shutil
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -102,6 +103,7 @@ def grade(task: dict[str, Any], task_dir: Path, answer: str, run_dir: Path | Non
     if present:
         cache = tempfile.mkdtemp(prefix="dokimi-mypy-")
         neutral = tempfile.mkdtemp(prefix="dokimi-mypy-cfg-")
+        limit = sys.getrecursionlimit()  # mypy's main raises it for the whole process
         try:
             # Neutral config: the subject's mypy.ini, pyproject.toml and the host's user config are not read.
             # mypy_path is the workspace and each regular package's source root (src/ for src/pkg/__init__.py).
@@ -111,6 +113,7 @@ def grade(task: dict[str, Any], task_dir: Path, answer: str, run_dir: Path | Non
             stdout, stderr, status = api.run(["--no-incremental", f"--cache-dir={cache}", f"--config-file={config}",
                                               "--explicit-package-bases", *[str(workspace / p) for p in present]])
         finally:
+            sys.setrecursionlimit(limit)
             shutil.rmtree(cache, ignore_errors=True)
             shutil.rmtree(neutral, ignore_errors=True)
         # 2 is also what mypy gives for a blocking source error (a syntax error, a duplicate module): those
