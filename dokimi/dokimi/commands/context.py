@@ -165,6 +165,8 @@ def cmd_context_prefilter(args: argparse.Namespace) -> None:
         sys.exit("✗ no session could be read")
     report = build_report(guidance.name, text, sessions, window=args.window, min_sessions=args.min_sessions,
                           rare_max=args.rare_max, in_use_rate=args.in_use_rate)
+    if not report["claims"]:
+        print(f"warning: no rules found in {guidance}", file=sys.stderr)
     print(json.dumps(report, indent=2) if args.json else render_table(report))
     if failed:
         sys.exit(1)
