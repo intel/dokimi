@@ -117,6 +117,9 @@ def test_delta_vs_baseline_is_paired_over_the_questions_both_arms_scored():
     summary = runner._summarize(evaluations, "baseline")
     assert summary["per_arm"]["skill"]["delta_vs_baseline"] == -10.0
     assert summary["per_arm"]["skill"]["avg_aggregate"] == 55.0  # the unpaired mean is still reported
+    # The baseline has no delta against itself: the key is there, as null, not 0.0.
+    assert "delta_vs_baseline" in summary["per_arm"]["baseline"]
+    assert summary["per_arm"]["baseline"]["delta_vs_baseline"] is None
 
 
 @pytest.mark.parametrize("reply", ["", "   \n\t", None])

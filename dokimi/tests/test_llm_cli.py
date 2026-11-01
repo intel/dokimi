@@ -831,6 +831,21 @@ def test_evaluate_with_a_cli_judge_given_a_temperature_exits_2_like_the_other_ju
     assert "Traceback" not in err
 
 
+def test_benchmark_run_with_a_cli_judge_given_a_temperature_refuses_before_any_answer(monkeypatch, capsys):
+    """The refusal comes before the pipeline is built, so no answer is paid for."""
+    from dokimi import cli, orchestrator
+
+    built = []
+    monkeypatch.setattr(orchestrator, "EvaluationPipeline", lambda **kwargs: built.append(kwargs))
+    monkeypatch.setattr("sys.argv", ["dokimi", "benchmark", "run", "--library", "onetbb",
+                                     "--judge-provider", "claude-cli", "--judge-temperature", "0"])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    err = capsys.readouterr().err
+    assert exc.value.code == 2 and err.startswith("Error: claude-cli takes no temperature")
+    assert built == []
+
+
 def test_the_main_model_falls_back_to_most_output_when_the_requested_family_is_unknown():
     usage = {"helper-a": {"outputTokens": 5}, "helper-b": {"outputTokens": 500}}
     assert llm_cli._main_model(usage, "claude-fable-5-1") == "helper-b"
