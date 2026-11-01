@@ -459,9 +459,9 @@ def _apply_arm(ws: Path, env: dict[str, str], git_dir: Path, manifest: RepoManif
         return [], {}
     if arm.patch is not None:
         return _apply_patch(ws, env, manifest, arm)
-    tracked = [p for p in _git(ws, env, "ls-files", "-z").split("\0") if p]
     if arm.base == OVERLAY_ARM:
-        return _apply_overlay(ws, tracked, overlay or "")
+        return _apply_overlay(ws, _workspace_files(ws, env), overlay or "")
+    tracked = [p for p in _git(ws, env, "ls-files", "-z").split("\0") if p]
     matched = sorted(p for p in tracked if any(match_glob(g, p) for g in manifest.guidance_globs))
     if arm.base == "guidance:none" or arm.rev_sha is not None:
         for rel in matched:
@@ -535,15 +535,45 @@ def _canon(path: Path) -> Path:
     return Path(os.path.realpath(path.parent)) / path.name
 
 
+_MAX_HOPS = 64  # symbolic links followed by one walk; a cycle runs out
+
+
+def _workspace_files(ws: Path, env: dict[str, str]) -> list[str]:
+    """The paths the workspace holds now: the indexed ones and the untracked ones (ignored ones too), since a setup
+    patch applied with ``git apply`` changes the tree and not the index. A path that is gone is no path."""
+    listed = _git(ws, env, "ls-files", "-z", "--cached", "--others").split("\0")
+    return sorted({p for p in listed if p and os.path.lexists(ws / p)})
+
+
 def _link_hits(link: Path, gone: set[Path]) -> bool:
-    """Whether the symbolic link ``link`` names one of the canonical paths ``gone``, hop by hop: a shared final
-    target is no hit, a cycle ends the walk."""
-    hop, seen = _canon(link), set()
-    while hop.is_symlink() and hop not in seen:
-        seen.add(hop)
-        hop = _canon(hop.parent / os.readlink(hop))
-        if hop in gone:
+    """Whether resolving the symbolic link ``link`` passes through one of the canonical paths ``gone``. Each path
+    component is checked before it is resolved, so a removed directory link named in the middle of the path is a
+    hit as well; a link is followed hop by hop, and a cycle ends the walk."""
+    resolved = Path(os.path.realpath(link.parent))
+    todo = [link.name]
+    hops = 0
+    while todo:
+        part = todo.pop(0)
+        if part in ("", "."):
+            continue
+        if part == "..":
+            resolved = resolved.parent
+            continue
+        cand = resolved / part
+        if cand in gone:
             return True
+        if not cand.is_symlink():
+            resolved = cand
+            continue
+        hops += 1
+        if hops > _MAX_HOPS:
+            return False
+        target = PurePosixPath(os.readlink(cand))
+        if target.is_absolute():
+            resolved, parts = Path(target.anchor), target.parts[1:]
+        else:
+            parts = target.parts
+        todo[:0] = list(parts)
     return False
 
 
@@ -552,6 +582,10 @@ def _apply_overlay(ws: Path, tracked: list[str], own: str) -> tuple[list[str], d
     kept = sorted(p for p in tracked if overlay_of(p) == own)
     if not kept:
         raise PrepError(f"guidance:overlay: the base has no AGENTS.{own}.md to keep")
+    for rel in kept:  # the arm keeps it, so it must supply a file: a dangling, cyclic or directory link does not
+        real = Path(os.path.realpath(ws / rel))
+        if not real.is_file() or not real.is_relative_to(ws.resolve()):
+            raise PrepError(f"guidance:overlay: {rel} does not resolve to a usable file in the workspace")
     removed = sorted(p for p in tracked if overlay_of(p) not in (None, own))
     gone = {_canon(ws / rel) for rel in removed}
     for rel in tracked:

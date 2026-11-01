@@ -18,8 +18,12 @@ from dokimi.repos.overlays import overlay_of
 from dokimi.repos.reach import format_matrix, overlay_report, probe_files
 from dokimi.repos.workspace import (
     ARM_FORMS,
+    OVERLAY_ARM,
+    SNAPSHOT_AUTHOR,
     PrepError,
+    _apply_arm,
     _apply_overlay,
+    _git_env,
     export_eval_dir,
     load_tasks,
     parse_arm,
@@ -248,3 +252,45 @@ def test_text_report_states_the_cross_load_as_a_finding():
     assert ("finding: AGENTS.codex.md, an overlay for another agent, was loaded by claude-code in cwd=. (loaded)"
             in text)
     assert "note: no claude overlay (AGENTS.claude.md) was loaded in any scenario" in text
+
+
+def test_overlay_arm_refuses_a_base_link_through_a_removed_directory_link(tmp_path):
+    """A removed overlay that is a directory link: the base link resolves through it, so it would dangle."""
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "base.md").write_text("base\n", encoding="utf-8")
+    (tmp_path / "AGENTS.codex.md").symlink_to("docs")
+    (tmp_path / "AGENTS.md").symlink_to("AGENTS.codex.md/base.md")
+    (tmp_path / "AGENTS.claude.md").write_text("claude\n", encoding="utf-8")
+    with pytest.raises(PrepError, match="the base would dangle"):
+        _apply_overlay(tmp_path, ["AGENTS.md", "AGENTS.codex.md", "AGENTS.claude.md", "docs/base.md"], "claude")
+    assert (tmp_path / "AGENTS.codex.md").is_symlink()  # refused before anything is removed
+
+
+@pytest.mark.parametrize("own_target", ["missing.md", "AGENTS.claude.md", "docs"])
+def test_overlay_arm_refuses_an_own_overlay_that_supplies_no_file(tmp_path, own_target):
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "AGENTS.md").write_text("base\n", encoding="utf-8")
+    (tmp_path / "AGENTS.claude.md").symlink_to(own_target)  # dangling, a cycle, a directory
+    (tmp_path / "AGENTS.codex.md").write_text("codex\n", encoding="utf-8")
+    with pytest.raises(PrepError, match="does not resolve to a usable file"):
+        _apply_overlay(tmp_path, ["AGENTS.md", "AGENTS.claude.md", "AGENTS.codex.md", "docs"], "claude")
+    assert (tmp_path / "AGENTS.codex.md").exists()
+
+
+def test_overlay_arm_reads_the_workspace_after_setup_patches_not_the_index(tmp_path):
+    """A setup patch applied with git apply changes the tree and not the index: the arm sees an added foreign
+    overlay (removes it) and a deleted one (skips it), instead of failing on a stale index entry."""
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / "AGENTS.md").write_text("base\n", encoding="utf-8")
+    (ws / "AGENTS.claude.md").write_text("claude\n", encoding="utf-8")
+    (ws / "AGENTS.copilot.md").write_text("copilot\n", encoding="utf-8")
+    git(ws, "init", "-q")
+    git(ws, "add", "-A")
+    git(ws, "commit", "-q", "-m", "base")
+    (ws / "AGENTS.copilot.md").unlink()  # a setup patch deleted it
+    (ws / "AGENTS.codex.md").write_text("codex\n", encoding="utf-8")  # and added this one, unstaged
+    env = _git_env(SNAPSHOT_AUTHOR)
+    removed, _ = _apply_arm(ws, env, tmp_path, None, parse_arm(OVERLAY_ARM), None, "claude")
+    assert removed == ["AGENTS.codex.md"]
+    assert not (ws / "AGENTS.codex.md").exists() and (ws / "AGENTS.claude.md").exists()
