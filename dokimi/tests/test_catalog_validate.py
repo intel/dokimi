@@ -847,3 +847,51 @@ def test_a_file_line_link_to_a_missing_file_is_still_a_warning(tmp_path):
     [review] = review_skills(read_skill_manifest(tmp_path))
     assert review.state == "warn"
     assert _codes(review) == ["link-missing"]
+
+
+@pytest.mark.parametrize(
+    "destination", ["z39.50r:example.org/database", "x.y+z:records/item"],
+)
+def test_dotted_uri_scheme_destinations_are_not_files(tmp_path, destination):
+    _skill(tmp_path / "skills", "dotted", name="dotted", description="Use for dotted.",
+           body=f"Look up [the record]({destination}).\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.findings == []
+
+
+def test_skill_dir_variable_with_another_variable_is_not_read_as_a_file(tmp_path):
+    _skill(tmp_path / "skills", "tpl", name="tpl", description="Use for tpl.",
+           body="Run [it](${CLAUDE_SKILL_DIR}/scripts/${SCRIPT_NAME}.py).\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.findings == []
+
+
+def test_root_skill_and_a_nested_skill_named_like_the_checkout_are_not_mirror_drift(tmp_path):
+    # The root SKILL.md is named by the checkout's directory, so it is no copy of skills/tools.
+    root = tmp_path / "tools"
+    _root_skill(root, "name: root-skill\ndescription: Use for root work.\n")
+    _skill(root, "skills/tools", name="tools", description="Use for tool work.")
+
+    reviews = _reviews_by_name(root)
+    assert _codes(reviews["root-skill"]) == []
+    assert _codes(reviews["tools"]) == []
+
+
+def test_near_duplicate_check_reads_non_ascii_description_words(tmp_path):
+    shared = "Use when проверка исходного кода необходима."
+    _skill(tmp_path / "skills", "code-check", name="code-check", description=shared)
+    _skill(tmp_path / "skills", "code-audit", name="code-audit", description=shared)
+
+    reviews = _reviews_by_name(tmp_path)
+    assert _codes(reviews["code-check"]) == ["description-near-duplicate"]
+    assert _codes(reviews["code-audit"]) == ["description-near-duplicate"]
+
+
+def test_a_file_symbol_link_to_a_missing_file_is_still_a_warning(tmp_path):
+    _skill(tmp_path / "skills", "symbol", name="symbol", description="Use for symbol.",
+           body="See [the entry point](run.py:main).\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == ["link-missing"]

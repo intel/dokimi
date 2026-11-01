@@ -94,8 +94,11 @@ REF_DEF_RE = re.compile(
     r"""^ {0,3}\[(?!\^)[^\]]+\]:[ \t]*(<[^>\n]*>|\S+)"""
     r"""(?:[ \t]+(?:"[^"]*"|'[^']*'|\([^)]*\)))?[ \t]*$"""
 )
-# A scheme has no dot, so ``README.md:42`` and ``run.py:main`` stay paths to check.
-URI_SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+\-]*:")
+# RFC 3986 scheme: letters, digits, ``+``, ``-`` and ``.`` (``z39.50r:``). A dotted scheme is
+# still read as a path when what follows the colon is a line number or a symbol, the
+# ``README.md:42`` and ``run.py:main`` file references.
+URI_SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+\-.]*:")
+FILE_SUFFIX_RE = re.compile(r"\d+|[A-Za-z_]\w*")
 CODE_SPAN_RE = re.compile(r"`([^`\n]+)`")
 SKILL_DIR_VAR = "${CLAUDE_SKILL_DIR}/"
 
@@ -255,10 +258,15 @@ def _file_ref(raw: str) -> Optional[str]:
     if text.startswith("<") and text.endswith(">"):
         text = text[1:-1].strip()
     text = text.split("#", 1)[0].strip()
-    if not text or "://" in text or URI_SCHEME_RE.match(text) or text.startswith("/"):
+    if not text or "://" in text or text.startswith("/"):
+        return None
+    scheme = URI_SCHEME_RE.match(text)
+    if scheme and not ("." in scheme.group() and FILE_SUFFIX_RE.fullmatch(text[scheme.end() :])):
         return None
     if text.startswith(SKILL_DIR_VAR):
-        return text[len(SKILL_DIR_VAR) :] or None
+        text = text[len(SKILL_DIR_VAR) :]
+        if not text:
+            return None
     if any(c in text for c in "${}<>*"):
         return None
     return text
@@ -354,8 +362,8 @@ def _description_findings(skill: Skill) -> list[Finding]:
 
 
 def _tokens(description: str) -> frozenset[str]:
-    """The lowercase words of three or more letters in ``description``, less the stop words."""
-    words = re.findall(r"[a-z]{3,}", description.lower())
+    """The lowercase words of three or more letters, in any script, less the stop words."""
+    words = re.findall(r"[^\W\d_]{3,}", description.lower())
     return frozenset(w for w in words if w not in STOP_WORDS)
 
 
@@ -363,11 +371,25 @@ def _jaccard(a: frozenset[str], b: frozenset[str]) -> float:
     return len(a & b) / len(a | b) if a and b else 0.0
 
 
+def _dir_name(item: tuple[SkillCatalogEntry, Skill, SkillReview]) -> Optional[str]:
+    """The directory name that can make a skill a mirror of another, None for the root skill.
+
+    The root ``SKILL.md`` is named by the checkout's directory, not by the skill, so it has no
+    name to match (as ``_frontmatter_findings`` treats it with ``at_root``).
+    """
+    entry, skill, _ = item
+    if skill.path.parent.resolve() == entry.source_root.resolve():
+        return None
+    return skill.path.parent.name
+
+
 def _mirror_drift(loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]]) -> None:
     """``mirror-drift`` on each skill that shares its directory name with a differing copy."""
     by_dir_name: dict[str, list[tuple[SkillCatalogEntry, Skill, SkillReview]]] = {}
     for item in loaded:
-        by_dir_name.setdefault(item[1].path.parent.name, []).append(item)
+        name = _dir_name(item)
+        if name is not None:
+            by_dir_name.setdefault(name, []).append(item)
     for group in by_dir_name.values():
         for _, _, review in group:
             others = [
@@ -390,6 +412,7 @@ def _near_duplicates(loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]])
     """``description-near-duplicate`` on both skills of each pair whose descriptions overlap."""
     shown = [item for item in loaded if not item[2].disable_model_invocation]
     tokens = [_tokens(" ".join(item[1].description.split())) for item in shown]
+    names = [_dir_name(item) for item in shown]
     by_token: dict[str, list[int]] = {}
     for index, words in enumerate(tokens):
         for word in words:
@@ -400,7 +423,7 @@ def _near_duplicates(loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]])
             o_entry, o_skill, o_review = shown[j]
             if o_review.content_sha256 == review.content_sha256:
                 continue  # an identical SKILL.md: already a duplicate
-            if o_skill.path.parent.name == skill.path.parent.name:
+            if names[i] is not None and names[i] == names[j]:
                 continue  # the same skill in another path: already a mirror-drift
             similarity = _jaccard(tokens[i], tokens[j])
             if similarity >= NEAR_DUPLICATE_JACCARD:
