@@ -614,48 +614,95 @@ def test_a_tier_writes_its_forfeits_into_the_run_it_produced(tmp_path):
     validate_artifact("novelty", dict(artifact, schema_version="novelty.v1"))
 
 
-def test_a_capped_run_says_how_far_through_the_artifact_the_cap_reached(tmp_path):
-    # One extraction batch sends all five spans; the cap keeps the first atom, from s0002.
-    artifact = _analyze(tmp_path, max_atoms=1).artifact
-    # s0001 and s0002 are 15 of the body's 42 span tokens.
-    reached = {"last_span": "s0002", "spans": 2, "of": 5, "tokens_share": 0.3571}
-    assert artifact["extraction"]["reached"] == reached
-    warning = ("atom extraction hit the cap of 1 at span s0002 (2 of the input's 5 spans, 35% "
-               "of its tokens): rates describe the opening of the input, not all of it; pass "
-               "--all-atoms for the full sweep")
+def test_a_capped_run_probes_a_spread_sample_and_says_so(tmp_path, monkeypatch):
+    # One batch, two atoms (s0002, s0003); a cap of 1 keeps the middle of its one stride, the
+    # second, where the document-order cap kept the first.
+    from dokimi.novelty import shorten
+
+    scored: list = []
+    build = shorten.build_candidates
+
+    def recording(span_list, atom_list, **kwargs):
+        scored.append([atom.span_ids for atom in atom_list])
+        return build(span_list, atom_list, **kwargs)
+
+    monkeypatch.setattr(shorten, "build_candidates", recording)
+    result = _analyze(tmp_path, max_atoms=1)
+    artifact = result.artifact
+    assert [atom.span_ids for atom in result.atoms] == [("s0003",)]
+    # Shortening candidates are judged against the sampled atom only.
+    assert scored == [[("s0003",)]]
+    assert artifact["atoms"]["sampling"] == "cap-spread:1"
+    assert artifact["extraction"]["sampled"] == {"atoms": 1, "of": 2, "rule": "cap-spread"}
+    assert artifact["extraction"]["reached"] is None
+    warning = ("atom extraction read the whole input, and the atom cap probes 1 of the input's 2 "
+               "atoms, spread over all of it (a stride of 2 atoms in document order): rates are "
+               "estimated from that sample; pass --all-atoms to probe every atom")
     assert warning in artifact["warnings"]
-    assert not any("sampled atoms" in w for w in artifact["warnings"])
-    assert ("1 atoms (cap-per-artifact:1), 1 probed. The atom cap stopped extraction at span "
-            "s0002 (2 of the input's 5 spans, 35% of its tokens): the atoms come from the "
-            "opening of the input, not all of it.") in render_novelty_markdown(artifact)
+    assert not any("opening" in w for w in artifact["warnings"])
+    assert ("1 atoms (cap-spread:1), 1 probed. Extraction read the whole input; the atom cap "
+            "probed 1 of the input's 2 atoms, spread over all of it (a stride of 2 atoms in "
+            "document order).") in render_novelty_markdown(artifact)
     validate_artifact("novelty", dict(artifact, schema_version="novelty.v1"))
+    # The renderers read every key of the sample, so a partial one does not validate.
+    partial = dict(artifact["extraction"], sampled={"atoms": 1})
+    with pytest.raises(ArtifactValidationError, match="extraction/sampled: 'of' is a required"):
+        validate_artifact("novelty", dict(artifact, schema_version="novelty.v1", extraction=partial))
+    # A sample of no atoms has no stride to describe; `null` is the absence of a sample.
+    empty = dict(artifact["extraction"], sampled={"atoms": 0, "of": 2, "rule": "cap-spread"})
+    with pytest.raises(ArtifactValidationError, match="extraction/sampled/atoms: 0 is less than"):
+        validate_artifact("novelty", dict(artifact, schema_version="novelty.v1", extraction=empty))
+
+
+def test_an_artifact_written_under_the_document_order_cap_still_validates(tmp_path):
+    artifact = _analyze(tmp_path, max_atoms=1).artifact
+    old = {key: value for key, value in artifact["extraction"].items() if key != "sampled"}
+    old["reached"] = {"last_span": "s0002", "spans": 2, "of": 5, "tokens_share": 0.3571}
+    validate_artifact("novelty", dict(artifact, schema_version="novelty.v1", extraction=old,
+                                      atoms=dict(artifact["atoms"], sampling="cap-per-artifact:1")))
     # The renderers read every key of the reach, so a partial one does not validate.
-    partial = dict(artifact["extraction"], reached={"spans": 3})
+    partial = dict(old, reached={"spans": 3})
     with pytest.raises(ArtifactValidationError, match="extraction/reached: 'last_span' is a required"):
         validate_artifact("novelty", dict(artifact, schema_version="novelty.v1", extraction=partial))
 
 
-def test_the_reach_is_null_only_when_the_cap_did_not_bind(tmp_path):
-    # A cap the last atom meets binds, and reaches that atom's span; one above it does not.
+def test_a_cap_the_atoms_meet_samples_nothing(tmp_path):
+    # Two atoms under a cap of 2: every atom is probed, exactly as with no cap.
     artifact = _analyze(tmp_path, max_atoms=2).artifact
-    assert artifact["atoms"]["n"] == 2 and artifact["spans"]["capped_atom_set"] is True
-    assert artifact["extraction"]["reached"]["last_span"] == "s0003"
-    uncapped = _analyze(tmp_path / "again", max_atoms=3).artifact
-    assert uncapped["extraction"]["reached"] is None
-    assert not any("hit the cap" in w for w in uncapped["warnings"])
-    assert "atom cap stopped" not in render_novelty_markdown(uncapped)
-    validate_artifact("novelty", dict(uncapped, schema_version="novelty.v1"))
+    assert artifact["atoms"]["n"] == 2 and artifact["atoms"]["sampling"] == "cap-spread:2"
+    assert artifact["extraction"]["sampled"] is None
+    assert not any("atom cap probes" in w for w in artifact["warnings"])
+    assert "atom cap" not in render_novelty_markdown(artifact)
+    validate_artifact("novelty", dict(artifact, schema_version="novelty.v1"))
 
 
-@pytest.mark.parametrize("cap, header, tail", [
-    (2, "s0002 (2 of the input's 8 spans, 25% of its tokens): the atoms come from the opening "
-        "of the input, not all of it.", "come from the first 25% of the input's tokens"),
-    (8, "s0008 (8 of the input's 8 spans, 100% of its tokens): the atoms reach the input's last "
-        "span, and the cap dropped any atoms past it in the last reply.",
-     "reach the input's last span, and the cap dropped any atoms past it"),
-], ids=["mid-input", "last-span"])
-def test_a_capped_bundle_run_reaches_through_its_input_not_the_artifact(tmp_path, capsys, cap,
-                                                                        header, tail):
+@pytest.mark.parametrize("cap, capped", [(2, False), (1, True)], ids=["cap-met", "cap-binds"])
+def test_only_a_cap_that_leaves_atoms_out_counts_as_capped(tmp_path, cap, capped):
+    # Two atoms at `study`: a cap they meet keeps them all, so no cap forfeit and no flag;
+    # one atom more than the cap is a sample, and says so (#358).
+    from dokimi.novelty.tiers import FORFEITS, resolve_settings
+
+    settings = resolve_settings("study", {"max_atoms": cap})
+    artifact = _analyze(tmp_path, **settings.config_fields()).artifact
+    assert (artifact["extraction"]["sampled"] is not None) is capped
+    assert artifact["spans"]["capped_atom_set"] is capped
+    shortening = (f"shortening candidates are scored against a spread sample of {cap} of the "
+                  "extracted atoms: a cut of a span with no sampled atom looks free")
+    warned = "\n".join(artifact["warnings"])
+    recorded = artifact["run_config"]["tier"]["forfeits"]
+    for line in [*FORFEITS["sampled"], shortening]:
+        assert (line in warned) is capped, line
+        assert (line in recorded) is capped, line
+    validate_artifact("novelty", dict(artifact, schema_version="novelty.v1"))
+
+
+@pytest.mark.parametrize("cap, probed, by_file", [
+    # 8 atoms, one per span; SKILL.md holds s0001-s0005, references/tuning.md s0006-s0008.
+    (2, ["s0003", "s0007"], {"SKILL.md": 1, "references/tuning.md": 1}),
+    (3, ["s0002", "s0005", "s0007"], {"SKILL.md": 2, "references/tuning.md": 1}),
+], ids=["cap-2", "cap-3"])
+def test_a_capped_bundle_run_strides_across_its_files_in_file_order(tmp_path, capsys, cap, probed,
+                                                                     by_file):
     from dokimi.commands import novelty as novelty_cmd
     from dokimi.novelty.bundle import load_bundle
 
@@ -664,7 +711,7 @@ def test_a_capped_bundle_run_reaches_through_its_input_not_the_artifact(tmp_path
     (root / "SKILL.md").write_text(SKILL, encoding="utf-8")
     (root / "references" / "tuning.md").write_text(
         "# Tuning\n\nSet `--threads` to the core count.\n", encoding="utf-8")
-    # 500 words over the 100-word file budget: on disk, in no span the reach counts.
+    # 500 words over the 100-word file budget: on disk, in no span.
     (root / "references" / "zlarge.md").write_text(
         " ".join(f"word{i}" for i in range(500)), encoding="utf-8")
     bundle = load_bundle(f"skill:{root}", include_resources=True, max_file_words=100)
@@ -685,15 +732,17 @@ def test_a_capped_bundle_run_reaches_through_its_input_not_the_artifact(tmp_path
     )
     _, answerer, judge = _clients()
     extractor = LLMClient(model="extractor-m", role="extractor", transport=per_span)
-    artifact = analyze(bundle.text, config, extractor=extractor, answerer=answerer,
-                       judge=judge, artifact_bundle=bundle).artifact
-    assert artifact["extraction"]["reached"]["of"] == 8
-    assert f"The atom cap stopped extraction at span {header}" in render_novelty_markdown(artifact)
+    result = analyze(bundle.text, config, extractor=extractor, answerer=answerer,
+                     judge=judge, artifact_bundle=bundle)
+    artifact = result.artifact
+    assert [atom.span_ids[0] for atom in result.atoms] == probed
+    assert {row["source"]: row["n_atoms"] for row in artifact["bundle"]["by_source"]} == by_file
+    assert artifact["extraction"]["sampled"] == {"atoms": cap, "of": 8, "rule": "cap-spread"}
     novelty_cmd._print_coverage(artifact["bundle"], artifact["extraction"])
-    # 6% of the artifact went into the input; the reach is a share of the input alone.
+    # 6% of the artifact went into the input; the sample is of the input's atoms.
     assert capsys.readouterr().out.startswith(
-        "coverage: 6% of the artifact's readable words went into the input; the capped atoms "
-        f"{tail}\n")
+        "coverage: 6% of the artifact's readable words went into the input; the cap probed "
+        f"{cap} of the input's 8 atoms, spread over all of it")
 
 
 def test_skipping_the_faithfulness_check_is_recorded_as_a_warning(tmp_path):

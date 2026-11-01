@@ -71,7 +71,7 @@
         },
         "sampling": {
           "type": "string",
-          "description": "How the probed subset was chosen (e.g. cap-per-artifact:120). Present so a capped run is never read as a full sweep."
+          "description": "How the probed subset was chosen: full, or cap-spread:<n> (e.g. cap-spread:120), n atoms spread over every extracted atom in document order (extraction.sampled). Runs before cap-spread wrote cap-per-artifact:<n>, the first n atoms in document order. Present so a capped run is never read as a full sweep."
         },
         "faithfulness": {
           "type": ["object", "null"],
@@ -270,7 +270,7 @@
     },
     "conflict_coverage": {
       "type": "object",
-      "description": "How much of the atom-pair space the conflict check compared. pairs_compared counts pairs that shared an answered call; pairs_total is every pair among the extracted atoms, which is the capped sample when spans.capped_atom_set is true. pairs_compared <= pairs_total is not expressible here and is enforced by the gate. A run that left pairs_compared below pairs_total, or capped the atom set, does not clear harmful_atoms at a count of 0.",
+      "description": "How much of the atom-pair space the conflict check compared. pairs_compared counts pairs that shared an answered call; pairs_total is every pair among the probed atoms, which is the capped sample when spans.capped_atom_set is true. pairs_compared <= pairs_total is not expressible here and is enforced by the gate. A run that left pairs_compared below pairs_total, or capped the atom set, does not clear harmful_atoms at a count of 0.",
       "additionalProperties": false,
       "required": ["pairs_compared", "pairs_total"],
       "properties": {
@@ -302,7 +302,7 @@
         },
         "capped_atom_set": {
           "type": "boolean",
-          "description": "True when the indexed atom set hit the extraction cap. The dead-token share is then a property of the sample, not of the artifact, and must not be quoted as the latter."
+          "description": "True when the atom cap left extracted atoms out, so the indexed atoms are a sample (extraction.sampled is set); an input with as many atoms as the cap, or fewer, keeps every atom and is false. Runs written before the spread rule (#293) set it when the indexed atoms reached the cap. The dead-token share is then a property of the sample, not of the artifact, and must not be quoted as the latter."
         },
         "sole_carrier": {"type": "integer", "minimum": 0},
         "protected": {"type": "integer", "minimum": 0},
@@ -334,11 +334,11 @@
         },
         "retried_batches": {"type": "integer", "minimum": 0, "description": "Batches whose reply did not parse, or had no usable atom, and were split and re-asked."},
         "calls": {"type": "integer", "minimum": 0, "description": "Extraction calls made, splits included. An n-span batch that never parses costs up to 2n-1 calls."},
-        "batches": {"type": "integer", "minimum": 0, "description": "Calls the same extraction would make with no splitting: batches the run reached (a capped run stops early), each counted once whatever its halves cost."},
+        "batches": {"type": "integer", "minimum": 0, "description": "Calls the same extraction would make with no splitting: every batch of the input (a capped run before cap-spread stopped early and counted only the batches it reached), each counted once whatever its halves cost."},
         "last_error": {"type": "string", "description": "The last error on a span that stayed unread; errors a split recovered from are not recorded."},
         "reached": {
           "type": ["object", "null"],
-          "description": "How far through the input a capped atom set reached; null when the cap did not bind. The input is the text that was segmented into spans: the entry point, plus on a bundle run the files its roles and budgets selected; bundled files it left out are in no span, so none of these figures counts them (bundle.measured_share says how much of the artifact went into the input). Extraction walks the spans in document order and stops at the cap, so a capped set covers the input up to the span it stopped at, not a sample of it. last_span is the last span any kept atom cites among the spans some call was sent (not the last batch sent: a batch the cap cut mid-reply was sent whole; nor a cited span no call was sent), spans the count of the input's spans up to and including it, of all the input's spans, and tokens_share those spans' share of the input's span tokens. Absent from artifacts written before it existed.",
+          "description": "Written by runs before cap-spread (atoms.sampling cap-per-artifact:<n>): how far through the input a capped atom set reached; null when the cap did not bind. A cap-spread run extracts every span and writes null here, and says what it probed in sampled. The input is the text that was segmented into spans: the entry point, plus on a bundle run the files its roles and budgets selected; bundled files it left out are in no span, so none of these figures counts them (bundle.measured_share says how much of the artifact went into the input). On those older runs extraction walked the spans in document order and stopped at the cap, so a capped set covers the input up to the span it stopped at, not a sample of it. last_span is the last span any kept atom cites among the spans some call was sent (not the last batch sent: a batch the cap cut mid-reply was sent whole; nor a cited span no call was sent), spans the count of the input's spans up to and including it, of all the input's spans, and tokens_share those spans' share of the input's span tokens. Absent from artifacts written before it existed.",
           "properties": {
             "last_span": {"type": "string"},
             "spans": {"type": "integer", "minimum": 1},
@@ -346,6 +346,16 @@
             "tokens_share": {"type": "number", "minimum": 0, "maximum": 1}
           },
           "required": ["last_span", "spans", "of", "tokens_share"]
+        },
+        "sampled": {
+          "type": ["object", "null"],
+          "description": "What a binding cap probed (atoms.sampling cap-spread:<n>): atoms of the of atoms extracted from every span some call read (extraction.unread_span_ids lists the rest), at indices floor((i + 0.5) * of / atoms) for i in 0..atoms-1 of the extracted list sorted by the earliest span each atom cites (document order; on a bundle run, the files in bundle order). No seed: the same extracted list gives the same sample. null when the cap kept every atom. Absent from artifacts written before it existed.",
+          "properties": {
+            "atoms": {"type": "integer", "minimum": 1},
+            "of": {"type": "integer", "minimum": 1},
+            "rule": {"type": "string"}
+          },
+          "required": ["atoms", "of", "rule"]
         }
       }
     },

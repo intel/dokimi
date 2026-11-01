@@ -158,8 +158,8 @@ def cmd_novelty_atoms(args: argparse.Namespace) -> None:
     except ExtractionError as exc:
         raise SystemExit(str(exc)) from None
     # The cap warning analyze records; probe and shorten, which read atoms.json, do not repeat it.
-    reach = [cap_warning(cap, extraction.reached)] if extraction.reached else []
-    for warning in extraction.warnings(len(spans)) + reach:
+    sampled = [cap_warning(extraction.as_dict())] if extraction.sampled else []
+    for warning in extraction.warnings(len(spans)) + sampled:
         print(f"WARNING {warning}", file=sys.stderr)
     if settings.values["verify_faithfulness"]:
         verify_atoms(atoms, spans, client=extractor)
@@ -167,7 +167,7 @@ def cmd_novelty_atoms(args: argparse.Namespace) -> None:
     save_atoms(atoms, spans, out, extractor=extractor.model, cap=cap,
                bundle=artifact_bundle.summary(), extraction=extraction)
     print(f"OK Saved {len(atoms)} atoms over {len(spans)} spans: {out}")
-    print(json.dumps(span_summary(spans, atoms, atom_cap=cap), indent=2))
+    print(json.dumps(span_summary(spans, atoms, capped=extraction.sampled is not None), indent=2))
 
 
 def cmd_novelty_probe(args: argparse.Namespace) -> None:
@@ -948,7 +948,7 @@ def _add_common(parser: argparse.ArgumentParser, positive_int) -> None:
                              "Unset by default so that passing the default value explicitly "
                              "still overrides a --tier cap")
     parser.add_argument("--all-atoms", action="store_true", dest="all_atoms",
-                        help="Extract every atom (opt-in: this is the expensive sweep)")
+                        help="Probe every extracted atom (opt-in: this is the expensive sweep)")
     parser.add_argument("--budgets", type=float, nargs="+", default=[0.75, 0.5],
                         help="Target token fractions for shortening candidates")
     parser.add_argument("--cache-dir", default=None, dest="cache_dir",
@@ -1159,7 +1159,7 @@ def _print_coverage(bundle: dict, extraction: dict | None = None) -> None:
     The share is stated on stdout because the headline is what a user copies. A run under
     the floor also says so on stdout: a stderr-only warning is one a user piping the
     headline never sees, and a rate quoted off half-read skill is not a property of it.
-    A capped run says the words went into the input, and how far its atoms reach.
+    A capped run says the words went into the input, and how many of its atoms were probed.
     """
     from dokimi.novelty.bundle import MEASURED_SHARE_WARN_AT, Coverage
     from dokimi.novelty.report import coverage_reach, floored_percent

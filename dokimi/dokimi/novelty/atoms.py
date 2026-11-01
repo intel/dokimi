@@ -193,14 +193,13 @@ class ExtractionReport:
             cut-off ones are cured by ``--max-tokens``. Kept for the warning.
         calls: Extraction calls made, splits included, so the cost of re-asking is visible.
         batches: Calls the same run would make with no splitting: a batch counts once it
-            is asked, and its halves count at its level, so a run the cap stopped early
-            counts only the batches it reached.
+            is asked, and its halves count at its level. A capped run asks every batch.
         parse_error: The last parse failure on a span that stayed unread.
         call_error: The last failed call on a span that stayed unread. Errors that
             splitting recovered from are not recorded: they did not lose anything, and
             quoting one would blame the wrong cause.
-        reached: How far through the input a capped atom set reached (see
-            :func:`_cap_reach`); ``None`` when the cap did not bind.
+        sampled: What a binding cap kept (see :func:`sample_record`); ``None`` when every
+            extracted atom was kept.
     """
 
     unread_span_ids: list[str] = field(default_factory=list)
@@ -215,7 +214,7 @@ class ExtractionReport:
     parse_error: str = ""
     call_error: str = ""
     unusable_error: str = ""
-    reached: dict | None = None
+    sampled: dict | None = None
 
     @property
     def last_error(self) -> str:
@@ -291,7 +290,9 @@ class ExtractionReport:
             "calls": self.calls,
             "batches": self.batches,
             "last_error": self.last_error,
-            "reached": self.reached,
+            # How far a document-order cap reached (#299); a spread sample has no reach.
+            "reached": None,
+            "sampled": self.sampled,
         }
 
 
@@ -307,12 +308,13 @@ def extract_atoms(
 
     A batch whose reply does not parse, or parses to rows none of which is a usable atom
     (see :func:`_atom_from_row`), is split in half and re-asked, down to one span
-    per call; the halves go back to the front of the queue, so atoms keep document order
-    (which is what ``cap`` cuts on). The common cause is an output ceiling: a provider
-    that defaults to 4096 output tokens truncates a 25-span reply mid-array, and a
+    per call; the halves go back to the front of the queue, so batches keep document order
+    (within a batch, atoms come in the reply's order). The common cause is an output
+    ceiling: a provider that defaults to 4096 output tokens truncates a 25-span reply
+    mid-array, and a
     truncated array does not parse. Splitting recovers without knowing the ceiling, at a
     cost of up to 2n-1 calls for an n-span batch that never parses; ``report.calls``
-    counts them, against ``report.batches`` for the batches the run reached. A call that
+    counts them, against ``report.batches`` for the batches of the input. A call that
     raises (transport, auth) or returns nothing is not split, because re-asking smaller
     would only multiply it.
 
@@ -321,14 +323,19 @@ def extract_atoms(
         client: Extractor client (must not be the judge — see :mod:`.measure`).
         batch_spans: Spans per extraction call. Batching is what keeps extraction
             affordable; too large and the model starts skipping spans.
-        cap: Stop after this many atoms. Recorded in the artifact as the sampling
-            rule, so a capped run is never quoted as a full sweep.
+        cap: Keep this many atoms, spread over the extracted atoms in document order
+            (:func:`spread_sample`); every span is extracted either way. At least 1: a
+            smaller cap raises ``ValueError`` before any call. Recorded in the artifact as
+            the sampling rule, so a capped run is never quoted as a full sweep.
         report: Filled in place with what could not be read and what re-asking cost,
-            and how far a binding cap reached (``reached``). Spans no call could read
-            are also marked ``unread`` in place.
+            and what a binding cap kept (``sampled``). Spans no call could read are also
+            marked ``unread`` in place.
 
     Returns:
-        Atoms in extraction order, de-duplicated by id.
+        Atoms de-duplicated by id. When the cap keeps them all (no cap, or ``M <= n``):
+        every atom, in extraction order (batches in document order, each in its reply's
+        order). When it binds: the cap's sample, in document order, by the earliest span
+        each atom cites (atoms citing the same earliest span keep extraction order).
     """
     from dokimi.llm import extract_json_array
 
@@ -346,7 +353,6 @@ def extract_atoms(
     for span in spans:
         span.unread = False
     seen: set[str] = set()
-    sent: set[str] = set()  # span ids some call was shown, which bound the reach
     atoms: list[Atom] = []
     lost: Exception | None = None
     # (spans, is a half): a half was counted in ``batches`` with the batch it came from.
@@ -354,11 +360,9 @@ def extract_atoms(
         (spans[start:start + batch_spans], False)
         for start in range(0, len(spans), batch_spans)
     ]
+    _check_cap(cap)  # before any call
     while pending:
-        if cap is not None and len(atoms) >= cap:
-            break
         batch, is_half = pending.pop(0)
-        sent.update(span.id for span in batch)
         if not is_half:
             report.batches += 1
         prompt = _EXTRACT_PROMPT.format(
@@ -408,45 +412,51 @@ def extract_atoms(
                 continue
             seen.add(atom.id)
             atoms.append(atom)
-            if cap is not None and len(atoms) >= cap:
-                break
     if not atoms and lost is not None and all(span.unread for span in spans):
         # Only when nothing was read: spans that were read and asserted nothing are a
         # result, and a recovered parse error is not a failure.
         raise ExtractionError(f"no atoms: every extraction call failed ({lost})") from lost
-    report.reached = _cap_reach(spans, atoms, cap, sent)
-    return atoms
+    report.sampled = sample_record(len(atoms), cap)
+    return spread_sample(atoms, cap, key=_earliest_span(spans))
 
 
-def _cap_reach(spans: list[Span], atoms: list[Atom], cap: int | None,
-               sent: set[str]) -> dict | None:
-    """How far through the input (``spans``) a capped atom set reached; ``None`` under the cap.
+def _check_cap(cap: int | None) -> None:
+    """A cap probes at least one atom: ``0`` would record a sample of nothing (the CLI's
+    ``--max-atoms`` takes positive ints only; this guards the Python API)."""
+    if cap is not None and cap < 1:
+        raise ValueError(f"the atom cap must be at least 1, or None for no cap; got {cap}")
 
-    Extraction walks the spans in document order and stops at the cap, so a capped set
-    covers the input up to the span it stopped at, not a sample of it. The input is the text segmented,
-    not the artifact: a bundled file it left out counts in no span. The reach is the last span any
-    kept atom cites, not the last batch sent: a batch the cap cut mid-reply was sent whole,
-    but its later spans gave no atom. Only the ``sent`` spans count: an atom may cite a span
-    of the document its call was never shown, and that made-up id must not move the reach
-    (an atom set citing nothing sent reaches the last span sent). ``spans`` counts the spans
-    up to and including it, ``of`` all of them, and ``tokens_share`` is their share of the
-    span tokens.
+
+def _earliest_span(spans: list[Span]):
+    """Sort key: the input position of the earliest span an atom cites. Within a batch the
+    reply's order is the model's, which the prompt does not fix."""
+    position = {span.id: i for i, span in enumerate(spans)}
+    return lambda atom: min(position[span_id] for span_id in atom.span_ids)
+
+
+def spread_sample(atoms: list, cap: int | None, *, key=None) -> list:
+    """The ``cap`` atoms a capped run probes: every (M/n)-th of the M extracted.
+
+    Index ``floor((i + 0.5) * M / n)`` for ``i`` in ``0..n-1`` of the atoms sorted by ``key``
+    (stably, so atoms with equal keys keep their order; ``None``: as given), so the sample
+    starts at the middle of the first stride and estimates the per-atom rate an uncapped run
+    reports. :func:`extract_atoms` sorts by the earliest cited span, i.e. document order
+    (on a bundle run, the files in bundle order). A pure function of the list, with no seed:
+    the same extracted list gives the same sample. With no cap, or ``M <= n``, every atom,
+    in the order given and unsorted. https://github.com/intel/dokimi/issues/293
     """
-    if cap is None or not atoms or len(atoms) < cap:
+    if cap is None or len(atoms) <= cap:
+        return list(atoms)
+    ordered = sorted(atoms, key=key) if key is not None else list(atoms)
+    return [ordered[(2 * i + 1) * len(ordered) // (2 * cap)] for i in range(cap)]
+
+
+def sample_record(n_extracted: int, cap: int | None) -> dict | None:
+    """``extraction.sampled``: the cap's ``atoms`` of the ``of`` extracted, and the rule; ``None``
+    when the cap kept every atom."""
+    if cap is None or n_extracted <= cap:
         return None
-    order = {span.id: index for index, span in enumerate(spans) if span.id in sent}
-    last = max((order[span_id] for atom in atoms for span_id in atom.span_ids if span_id in order),
-               default=max(order.values()))
-    reached = sum(span.tokens for span in spans[:last + 1])
-    total = sum(span.tokens for span in spans)
-    # Floored in integers, as floored_percent prints it: a cap one span short of the end must not round to 1.0
-    share = reached * 10000 // total
-    return {
-        "last_span": spans[last].id,
-        "spans": last + 1,
-        "of": len(spans),
-        "tokens_share": (max(share, 1) if reached else 0) / 10000,
-    }
+    return {"atoms": cap, "of": n_extracted, "rule": "cap-spread"}
 
 
 def _mark_unread(batch: list[Span], report: ExtractionReport) -> None:

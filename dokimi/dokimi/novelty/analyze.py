@@ -177,14 +177,14 @@ def analyze(
     if tier:
         settings = replace(settings, tier=tier["name"],
                            overrides=dict(tier.get("overrides") or {}))
-    # From what this run did, not the tier's text: an override or an atom set under the
-    # cap changes which claims are forfeit.
-    warnings.extend(settings.warnings(n_atoms=len(atom_list)))
-    sampling = (
-        f"cap-per-artifact:{config.max_atoms}" if config.max_atoms is not None else "full"
-    )
-    if extraction.reached and config.max_atoms is not None:  # reached is set only under a cap
-        warnings.append(report.cap_warning(config.max_atoms, extraction.reached))
+    # From what this run did, not the tier's text: an override, or a cap that kept every atom
+    # (M <= n, so `sampled` is unset), changes which claims are forfeit.
+    capped = extraction.sampled is not None
+    warnings.extend(settings.warnings(sampled=capped))
+    # Older runs recorded `cap-per-artifact:<n>`, the first n atoms in document order (#293).
+    sampling = f"cap-spread:{config.max_atoms}" if config.max_atoms is not None else "full"
+    if extraction.sampled:  # set only when the cap left atoms out
+        warnings.append(report.cap_warning(extraction.as_dict()))
     if not atom_list:
         warnings.append("no atoms with span provenance were extracted; nothing to measure")
 
@@ -361,7 +361,7 @@ def analyze(
         atoms=atom_list,
         sampling=sampling,
         measure_result=measure_result,
-        span_summary=spans.span_summary(span_list, atom_list, atom_cap=config.max_atoms),
+        span_summary=spans.span_summary(span_list, atom_list, capped=capped),
         by_knowledge_kind=by_knowledge_kind,
         probe_fidelity=probe_set.as_dict(),
         items=item_stats,
@@ -385,7 +385,7 @@ def analyze(
         warnings=warnings,
     )
     payload["run_config"] = _run_config(config)
-    payload["run_config"]["tier"] = settings.tier_record(n_atoms=len(atom_list))
+    payload["run_config"]["tier"] = settings.tier_record(sampled=capped)
     return AnalyzeResult(
         artifact=payload,
         attributions=attributions,

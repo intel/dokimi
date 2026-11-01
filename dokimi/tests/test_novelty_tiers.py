@@ -222,10 +222,10 @@ def test_forfeits_follow_the_resolved_settings():
 
     sampled = FORFEITS["sampled"][0]
     standard = TIERS["standard"]["settings"]
-    # Before extraction the cap is assumed reached; an atom set under it is not sampled.
+    # Before extraction the cap is assumed to bind; a cap that kept every atom sampled none.
     assert sampled in forfeits(standard)
-    assert sampled not in forfeits(standard, n_atoms=15)
-    assert sampled in forfeits(standard, n_atoms=60)
+    assert sampled not in forfeits(standard, sampled=False)
+    assert sampled in forfeits(standard, sampled=True)
     # --all-atoms drops the cap's forfeit, triage included.
     args = _parse("novelty", "analyze", "--artifact", "skill:x", "--tier", "triage",
                   "--all-atoms")
@@ -271,16 +271,22 @@ def test_flags_that_drop_the_probe_kinds_warn_without_a_tier(tmp_path):
     assert not any("no paraphrase probe" in w or "no reversal probe" in w for w in full)
 
 
-def test_shortening_under_a_reached_cap_says_it_saw_only_the_opening():
+def test_shortening_under_a_cap_that_left_atoms_out_says_it_saw_only_a_spread_sample():
     from dokimi.novelty.tiers import forfeits
 
     on = {"max_atoms": 60, "shorten_artifact": True, "paraphrases": 1, "reversals": True,
           "verify_faithfulness": True, "classify_content": True, "confirm_carriers": True}
-    assert any("shortening candidates are scored only" in f for f in forfeits(on, n_atoms=60))
-    assert not any("shortening candidates are scored only" in f for f in forfeits(on, n_atoms=10))
-    assert not any("shortening candidates are scored only" in f for f in forfeits(dict(on, max_atoms=None)))
-    assert not any("shortening candidates are scored only" in f
-                   for f in forfeits(dict(on, shorten_artifact=False), n_atoms=60))
+    line = ("shortening candidates are scored against a spread sample of 60 of the extracted "
+            "atoms: a cut of a span with no sampled atom looks free")
+    assert line in forfeits(on, sampled=True)
+    # Before extraction (an estimate) the cap is assumed to leave atoms out.
+    assert line in forfeits(on)
+    assert not any("opening" in f or "tail" in f for f in forfeits(on, sampled=True))
+    # A cap that kept every atom (M <= n, the atoms meeting it exactly included) sampled none.
+    assert not any("spread sample" in f for f in forfeits(on, sampled=False))
+    assert not any("spread sample" in f for f in forfeits(dict(on, max_atoms=None)))
+    assert not any("spread sample" in f
+                   for f in forfeits(dict(on, shorten_artifact=False), sampled=True))
 
 
 def test_the_settings_travel_through_the_config_unchanged():
@@ -315,8 +321,13 @@ def test_the_estimate_caps_the_expected_atoms_and_records_the_tier():
     study = resolve_settings("study", {})
     bill = study.estimate(300, budgets=(0.5,), n_arms=3)
     assert (bill["spans"], bill["atom_cap"]) == (300, 120)
+    # Probing stops at the cap; extraction reads all 150 expected atoms' spans.
     assert bill["estimate"] == estimate_calls(
-        120, dict(TIERS["study"]["settings"], budgets=(0.5,)), n_arms=3)
+        120, dict(TIERS["study"]["settings"], budgets=(0.5,)), n_arms=3, n_extracted=150)
+    assert bill["estimate"]["n_atoms"] == 120
+    # 12 extraction batches (150 / 12, rounded half to even) where the cap's 120 atoms take 10.
+    assert bill["estimate"]["stage_calls"] - estimate_calls(
+        120, dict(TIERS["study"]["settings"], budgets=(0.5,)), n_arms=3)["stage_calls"] == 2
     assert bill["tier"] == {"name": "study", "forfeits": TIERS["study"]["forfeits"],
                             "overrides": {}}
     assert "cap is reached" in bill["caveat"]
@@ -328,11 +339,11 @@ def test_the_estimate_caps_the_expected_atoms_and_records_the_tier():
 
 def test_the_warnings_follow_the_settings_and_the_atom_count():
     standard = resolve_settings("standard", {"no_verify": True})
-    warned = standard.warnings(n_atoms=60)
+    warned = standard.warnings(sampled=True)
     assert all(w.startswith("tier `standard`") for w in warned)
     assert any(FORFEITS["verify_faithfulness"][0] in w for w in warned)
     assert "overridden by flags (no_verify)" in warned[-1]
-    assert not any(FORFEITS["sampled"][0] in w for w in standard.warnings(n_atoms=10))
+    assert not any(FORFEITS["sampled"][0] in w for w in standard.warnings(sampled=False))
     # Without a tier only the dropped probe kinds warn; the stages warn in the analyzer.
     bare = resolve_settings(None, {"no_paraphrase": True, "no_classify": True})
     assert bare.warnings() == FORFEITS["paraphrases"]
@@ -354,7 +365,7 @@ def test_a_tier_on_the_config_and_the_older_tier_argument_record_the_same(tmp_pa
                           judge=_clients()[2],
                           tier={"name": "triage", "overrides": {"max_atoms": 1}}).artifact
     assert on_config["run_config"]["tier"] == as_argument["run_config"]["tier"] == (
-        settings.tier_record(n_atoms=1))
+        settings.tier_record(sampled=True))
     assert on_config["warnings"] == as_argument["warnings"]
     assert any("tier `triage` was overridden by flags (max_atoms)" in w
                for w in on_config["warnings"])
@@ -412,10 +423,14 @@ def pinned_list_prices(monkeypatch):
 
 
 def _projection(tier, spans, tokens):
-    """The estimate a run at this tier on this artifact prints, and its dollar figure."""
-    estimate = resolve_settings(tier, {}).estimate(
-        spans, n_tokens=tokens, budgets=_BUDGETS, n_arms=2
-    )["estimate"]
+    """The estimate of this run as it was measured, and its dollar figure.
+
+    The runs predate the spread cap (#293): extraction stopped at the cap, so its batches follow
+    the capped atoms here. The estimate a run prints now counts every batch (no measured run yet).
+    """
+    settings = resolve_settings(tier, {})
+    n_atoms = settings.estimate(spans, n_tokens=tokens, budgets=_BUDGETS)["estimate"]["n_atoms"]
+    estimate = estimate_calls(n_atoms, dict(settings.values, budgets=_BUDGETS), n_arms=2)
     return estimate, estimate_usd(estimate["by_role"], tokens, _MODELS, tier)
 
 
