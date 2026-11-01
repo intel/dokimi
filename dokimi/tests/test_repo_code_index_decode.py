@@ -19,6 +19,7 @@ from dokimi.repos.code_index import load
 from dokimi.repos.code_index.index import CodeIndex
 from dokimi.repos.code_index.scip import decode_index
 from dokimi.repos.code_index.symbols import descriptor_name
+from dokimi.repos.code_index.wire import read_varint
 from dokimi.repos.errors import CodeIndexError
 
 SYM = "scip-test python pkg 1.0 `m`/f()."
@@ -107,7 +108,7 @@ def test_a_hand_built_index_decodes_each_field(tmp_path):
     (defn,) = ix.definitions("f")
     assert (defn.path, defn.line, defn.start_col, defn.end_col) == ("a.py", 1, 2, 5)
     assert defn.symbol == SYM and defn.is_definition
-    assert defn.enclosing == (1, 9)
+    assert defn.enclosing == (1, 8)
     assert ix.has_enclosing_ranges
 
 
@@ -115,7 +116,7 @@ def test_packed_and_unpacked_repeated_ints_decode_the_same(tmp_path):
     packed = index(document("a.py", (occurrence([300, 2, 5], SYM, enclosing=[290, 0, 310, 0]),)))
     unpacked = index(document("a.py", (occurrence([300, 2, 5], SYM, enclosing=[290, 0, 310, 0], packed=False),)))
     assert _index(packed).occurrences("a.py") == _index(unpacked).occurrences("a.py")
-    assert _index(packed).occurrences("a.py")[0].enclosing == (290, 310)
+    assert _index(packed).occurrences("a.py")[0].enclosing == (290, 309)
 
 
 def test_a_three_value_range_is_on_one_line_and_encloses_that_line(tmp_path):
@@ -236,11 +237,77 @@ def test_files_are_sorted_whatever_the_document_order():
     assert _index(index(document("b.py"), document("a.py"))).files() == ("a.py", "b.py")
 
 
-def test_enclosing_holds_the_first_and_last_line_of_the_range():
+def test_enclosing_is_half_open_so_an_end_at_column_zero_excludes_that_line():
     ix = _index(index(document("a.py", (occurrence([1, 2, 5], SYM, roles=1, enclosing=[1, 0, 9, 0]),))))
     assert ix.enclosing("a.py", 1).symbol == SYM
+    assert ix.enclosing("a.py", 8).symbol == SYM
+    assert ix.enclosing("a.py", 9) is None
+
+
+def test_enclosing_ending_after_column_zero_includes_its_end_line():
+    ix = _index(index(document("a.py", (occurrence([1, 2, 5], SYM, roles=1, enclosing=[1, 0, 9, 4]),))))
+    assert ix.occurrences("a.py")[0].enclosing == (1, 9)
     assert ix.enclosing("a.py", 9).symbol == SYM
-    assert ix.enclosing("a.py", 10) is None
+
+
+def test_a_local_definition_keeps_its_enclosing_scope():
+    ix = _index(index(document("a.py", (occurrence([1, 2, 5], "local 1", roles=1, enclosing=[1, 0, 9, 0]),))))
+    assert ix.has_enclosing_ranges
+    scope = ix.enclosing("a.py", 4)
+    assert scope is not None and scope.symbol == "local 1"
+
+
+@pytest.mark.parametrize("rng", [[1, 5, 2], [3, 0, 2, 9], [1, 0, 2**31], [2**31, 0, 2**31, 1]])
+def test_an_occurrence_span_must_be_ordered_and_fit_int32(rng):
+    with pytest.raises(CodeIndexError):
+        _index(index(document("a.py", (occurrence(rng, SYM, roles=1),))))
+
+
+@pytest.mark.parametrize("enc", [[4, 5, 2], [5, 0, 4, 0], [1, 0, 2**31]])
+def test_an_enclosing_span_must_be_ordered_and_fit_int32(enc):
+    with pytest.raises(CodeIndexError):
+        _index(index(document("a.py", (occurrence([1, 2, 5], SYM, roles=1, enclosing=enc),))))
+
+
+def test_a_zero_width_span_is_valid():
+    ix = _index(index(document("a.py", (occurrence([4, 3, 3], SYM, roles=1, enclosing=[4, 3, 4, 3]),))))
+    (occ,) = ix.occurrences("a.py")
+    assert (occ.line, occ.start_col, occ.end_col) == (4, 3, 3)
+
+
+def typed(field: int, *values: int) -> bytes:
+    """A typed range message: SingleLineRange (fields 8 and 10) or MultiLineRange (9 and 11)."""
+    return ld(field, b"".join(vint(i + 1, v) for i, v in enumerate(values)))
+
+
+def test_typed_ranges_alone_decode():
+    single = _index(index(document("a.py", (occurrence([], SYM, roles=1, extra=typed(8, 4, 1, 7)
+                                                    + typed(10, 4, 0, 8)),))))
+    (occ,) = single.occurrences("a.py")
+    assert (occ.line, occ.start_col, occ.end_line, occ.end_col, occ.enclosing) == (4, 1, 4, 7, (4, 4))
+    multi = _index(index(document("a.py", (occurrence([], SYM, roles=1, extra=typed(9, 1, 0, 3, 4)
+                                                   + typed(11, 1, 0, 9, 0)),))))
+    (occ,) = multi.occurrences("a.py")
+    assert (occ.line, occ.start_col, occ.end_line, occ.end_col, occ.enclosing) == (1, 0, 3, 4, (1, 8))
+
+
+def test_typed_ranges_take_precedence_over_the_deprecated_ones():
+    both = occurrence([2, 0, 5], SYM, roles=1, enclosing=[1, 0, 9, 0], extra=typed(8, 4, 1, 7) + typed(10, 4, 0, 8))
+    (occ,) = _index(index(document("a.py", (both,)))).occurrences("a.py")
+    assert (occ.line, occ.start_col, occ.end_col, occ.enclosing) == (4, 1, 7, (4, 4))
+
+
+def test_a_varint_of_ten_bytes_must_fit_in_64_bits():
+    assert read_varint(memoryview(b"\xff" * 9 + b"\x01"), 0) == ((1 << 64) - 1, 10)
+    with pytest.raises(CodeIndexError):
+        decode_index(memoryview(b"\x0a\x00\xc0\x02" + b"\x80" * 9 + b"\x02"))
+    with pytest.raises(CodeIndexError):
+        read_varint(memoryview(b"\x80" * 9 + b"\x81\x01"), 0)
+
+
+def test_an_escaped_disambiguator_may_hold_a_closing_parenthesis():
+    assert descriptor_name(PKG + "Foo#bar(`x)y`).") == "bar"
+    assert descriptor_name(PKG + "Foo#bar().") == "bar"
 
 
 def test_a_name_with_a_space_is_found_by_name():

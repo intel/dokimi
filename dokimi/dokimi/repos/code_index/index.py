@@ -32,7 +32,13 @@ class CodeIndex:
         names: dict[str, str | None] = {}
         for occs in decoded.occurrences.values():
             for occ in occs:
-                if not occ.symbol or is_local(occ.symbol):
+                if not occ.symbol:
+                    continue
+                # a local id is scoped to its document, so its scope is keyed by that document: keep it
+                if occ.is_definition and occ.enclosing is not None:
+                    first, last = occ.enclosing
+                    self._scopes.setdefault(occ.path, []).append((first, last, occ))
+                if is_local(occ.symbol):
                     continue
                 self._by_symbol.setdefault(occ.symbol, []).append(occ)
                 if not occ.is_definition:
@@ -42,9 +48,6 @@ class CodeIndex:
                 name = names[occ.symbol]
                 if name is not None:
                     self._by_name.setdefault(name, []).append(occ)
-                if occ.enclosing is not None:
-                    first, last = occ.enclosing
-                    self._scopes.setdefault(occ.path, []).append((first, last, occ))
         self._bases = decoded.bases
         self._lists_ancestors: bool | None = None
 

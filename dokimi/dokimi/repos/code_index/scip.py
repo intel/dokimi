@@ -5,7 +5,9 @@
 
 Field numbers: Index.metadata=1, documents=2, external_symbols=3; Metadata.tool_info=2; ToolInfo.name=1,
 version=2; Document.relative_path=1, occurrences=2, symbols=3; Occurrence.range=1, symbol=2, symbol_roles=3,
-enclosing_range=7; SymbolInformation.symbol=1, relationships=4; Relationship.symbol=1, is_implementation=3.
+enclosing_range=7, single_line_range=8, multi_line_range=9, single_line_enclosing_range=10,
+multi_line_enclosing_range=11 (the typed ranges win over range and enclosing_range when both are set);
+SymbolInformation.symbol=1, relationships=4; Relationship.symbol=1, is_implementation=3.
 Other field numbers are skipped, so an index written by a newer tool still reads. Lines and columns are
 0-based, as in SCIP.
 """
@@ -19,6 +21,7 @@ from dokimi.repos.code_index.symbols import is_local
 from dokimi.repos.code_index.wire import LEN, VARINT, read_delimited, read_ints, read_key, read_varint, skip
 
 DEFINITION = 0x1
+_INT32_MAX = 2**31 - 1
 
 # (line, start_col, end_line, end_col, symbol, roles, enclosing lines)
 _Raw = tuple[int, int, int, int, str, int, tuple[int, int] | None]
@@ -162,6 +165,7 @@ def _occurrence(body: memoryview, intern: dict[bytes, str]) -> _Raw:
     """(line, start_col, end_line, end_col, symbol, roles, enclosing lines) of one Occurrence."""
     rng: list[int] = []
     enc: list[int] = []
+    typed: dict[int, list[int]] = {}
     symbol = ""
     roles = 0
     pos = 0
@@ -176,16 +180,67 @@ def _occurrence(body: memoryview, intern: dict[bytes, str]) -> _Raw:
             roles, pos = read_varint(body, pos)
         elif field == 7:
             pos = read_ints(body, pos, wire, enc)
+        elif field in (8, 9, 10, 11) and wire == LEN:
+            raw, pos = read_delimited(body, pos)
+            typed[field] = _typed_range(raw, multi=field in (9, 11))
         else:
             pos = skip(body, pos, wire)
+    rng = _precedence(typed, (8, 9), rng)
+    enc = _precedence(typed, (10, 11), enc)
     # [line, startCol, endCol] for a single-line range, [startLine, startCol, endLine, endCol] otherwise
     if len(rng) not in (3, 4):
         raise CodeIndexError(f"an occurrence range has {len(rng)} values, expected 3 or 4")
-    if enc and len(enc) not in (3, 4):
-        raise CodeIndexError(f"an enclosing range has {len(enc)} values, expected 3 or 4")
-    enclosing = (enc[0], enc[2] if len(enc) == 4 else enc[0]) if enc else None
+    _check_span(rng, "occurrence range")
     end_line = rng[2] if len(rng) == 4 else rng[0]
-    return rng[0], rng[1], end_line, rng[-1], symbol, roles, enclosing
+    return rng[0], rng[1], end_line, rng[-1], symbol, roles, _enclosing(enc)
+
+
+def _precedence(typed: dict[int, list[int]], fields: tuple[int, int], legacy: list[int]) -> list[int]:
+    """The first typed range of ``fields`` that the occurrence sets, else the deprecated repeated-int range."""
+    for field in fields:
+        if field in typed:
+            return typed[field]
+    return legacy
+
+
+def _enclosing(enc: list[int]) -> tuple[int, int] | None:
+    """The first and last line of an enclosing range, or ``None`` when there is none."""
+    if not enc:
+        return None
+    if len(enc) not in (3, 4):
+        raise CodeIndexError(f"an enclosing range has {len(enc)} values, expected 3 or 4")
+    _check_span(enc, "enclosing range")
+    # the end is exclusive: a multiline range ending at column 0 leaves the line before its end uncovered
+    last = enc[0] if len(enc) == 3 else enc[2]
+    if len(enc) == 4 and enc[3] == 0 and enc[2] > enc[0]:
+        last -= 1
+    return enc[0], last
+
+
+def _typed_range(body: memoryview, multi: bool) -> list[int]:
+    """The values of a SingleLineRange (line, start column, end column) or a MultiLineRange (start line, start
+    column, end line, end column), in the order of the repeated-int range. An absent field is 0, as in protobuf."""
+    wanted = (1, 2, 3, 4) if multi else (1, 2, 3)
+    values: dict[int, int] = {}
+    pos = 0
+    while pos < len(body):
+        field, wire, pos = read_key(body, pos)
+        if field in wanted and wire == VARINT:
+            values[field], pos = read_varint(body, pos)
+        else:
+            pos = skip(body, pos, wire)
+    return [values.get(field, 0) for field in wanted]
+
+
+def _check_span(values: list[int], what: str) -> None:
+    """Refuse a span with a value outside int32 or an end before its start (the end is exclusive, so an empty
+    span with equal start and end is valid)."""
+    if max(values) > _INT32_MAX:
+        raise CodeIndexError(f"{what} {values} has a value outside int32")
+    start = (values[0], values[1])
+    end = (values[0], values[2]) if len(values) == 3 else (values[2], values[3])
+    if end < start:
+        raise CodeIndexError(f"{what} {values} ends before it starts")
 
 
 def _symbol_information(body: memoryview, intern: dict[bytes, str], bases: dict[str, tuple[str, ...]]) -> None:

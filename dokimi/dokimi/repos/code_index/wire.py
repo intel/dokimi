@@ -26,6 +26,8 @@ def read_varint(buf: memoryview, pos: int) -> tuple[int, int]:
             raise CodeIndexError(f"truncated varint at byte {pos}")
         byte = buf[pos]
         pos += 1
+        if shift == 63 and byte & 0x7F > 1:
+            raise CodeIndexError(f"varint larger than 64 bits ending at byte {pos}")
         value |= (byte & 0x7F) << shift
         if byte < 0x80:
             return value, pos

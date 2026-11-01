@@ -42,12 +42,11 @@ def descriptor_name(symbol: str) -> str | None:
             last = name
             pos += 1
         elif name and mark == "(":
-            # a method: `name(disambiguator).`
-            close = desc.find(")", pos)
-            if close < 0 or desc[close + 1:close + 2] != ".":
+            end = _method_end(desc, pos)
+            if end is None:
                 return None
             last = name
-            pos = close + 2
+            pos = end
         elif not name and mark in "([":
             # a parameter `(name)` or a type parameter `[name]`: the name is inside the brackets
             inner = _read_name(desc, pos + 1)
@@ -59,6 +58,18 @@ def descriptor_name(symbol: str) -> str | None:
         else:
             return None
     return last
+
+
+def _method_end(desc: str, pos: int) -> int | None:
+    """The position after ``(disambiguator).`` of a method whose ``(`` is at ``pos``. The disambiguator is an
+    escaped or simple name, or empty, so a ``)`` inside backticks does not close it."""
+    inner = _read_name(desc, pos + 1)
+    if inner is None or inner[1] >= len(desc) or desc[inner[1]] != ")":
+        return None
+    close = inner[1]
+    if desc[close + 1:close + 2] != ".":
+        return None
+    return close + 2
 
 
 def _descriptors_start(symbol: str) -> int | None:
