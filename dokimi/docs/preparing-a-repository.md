@@ -6,7 +6,8 @@ SPDX-License-Identifier: Apache-2.0
 # Preparing a repository for coding agents
 
 > **Status: recommendations.** §1–§7 apply today. The measurement loop in §8 runs
-> today for guidance arms (`guidance:none`, `guidance:raw`, `guidance:bridge`).
+> today for guidance arms (`guidance:none`, `guidance:raw`, `guidance:bridge`,
+> `guidance:as-skill`, `guidance:format=xml`).
 > `guidance:bridge` measures the `CLAUDE.md` import (§7). The `skill:` and
 > `skill-catalog:` arms, which install skills, run today too
 > ([skill arms](benchmarking-and-comparison.md#skill-arms-in-repository-mode)). Arms
