@@ -1,0 +1,257 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""Eval coverage of a subject's problem space, from files only (issue #331, AC-J07-007).
+
+The problem space is a frozen need graph (``need_graph.v1``): the graph
+:func:`dokimi.novelty.needs.build_need_graph` builds from a subject's name and description,
+written once and kept next to the suite. Each eval names the nodes it grades in ``needs``:
+
+* a row of a skill-creator ``evals.json``: ``{"id": ..., "needs": ["n1", "n4"]}``;
+* a task's ``task.toml`` / ``task.md``: ``metadata.needs`` (a list; a bare string is refused).
+
+:func:`coverage_report` is a pure function of the graph and those labels, so the same files
+always give the same report. No model is called here; drafting labels is a separate, paid step.
+
+Relevance of one eval: ``relevant_core`` (names a core or rare_critical node),
+``relevant_peripheral`` (only branch or supporting nodes), ``out_of_scope`` (only nodes the
+graph marks out of scope), ``orphan`` (``needs: []``: it grades nothing the subject is for)
+and ``unlabelled`` (no ``needs`` at all: not yet mapped, so it covers nothing).
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from dokimi.artifacts import load_artifact
+from dokimi.harnesses import tbench_v1
+from dokimi.harnesses.tasks import FORMAT_TASK_MD, is_task_dir, read_task_config, task_format
+from dokimi.novelty.needs import PATH_WEIGHTS
+
+CRITICAL = ("core", "rare_critical")
+CLASSES = ("core", "rare_critical", "branch", "supporting", "out_of_scope")
+
+
+@dataclass(frozen=True)
+class LabelledEval:
+    """One eval and the need-node ids it says it grades (``None``: the row or task has no ``needs`` key)."""
+
+    id: str
+    source: str
+    needs: tuple[str, ...] | None
+    malformed: bool = False  # ``needs`` is there but is not a list of strings
+
+
+def load_graph(path: Path) -> dict:
+    """Read and validate a ``need_graph.v1`` file (an unstamped ``save_graph`` file is valid).
+
+    Raises ``ValueError`` when two nodes share an id: ids are what the ``needs`` labels join on.
+    """
+    graph = load_artifact("need_graph", Path(path))
+    ids = [n["id"] for n in graph["nodes"]]
+    dupes = sorted({i for i in ids if ids.count(i) > 1})
+    if dupes:
+        raise ValueError(f"{path}: duplicate node ids {dupes}")
+    return graph
+
+
+def graph_digest(graph: dict) -> str:
+    """sha256 of each node's id, text, type, path_class and confirmed_by, defaults filled in.
+
+    Other keys and node order do not change it; a confirmation does.
+    """
+    nodes = sorted(({"id": n["id"], "text": n["text"], "type": n.get("type", "intent"),
+                     "path_class": n["path_class"],
+                     "confirmed_by": n.get("confirmed_by", "hypothesis")}
+                    for n in graph["nodes"]), key=lambda n: n["id"])
+    blob = json.dumps(nodes, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+_ABSENT = object()  # no ``needs`` key at all: not the same as ``"needs": null``, which is malformed
+
+
+def _labelled(eid: str, source: str, value: Any) -> LabelledEval:
+    if value is _ABSENT:
+        return LabelledEval(eid, source, None)
+    if isinstance(value, list) and all(isinstance(v, str) for v in value):
+        return LabelledEval(eid, source, tuple(value))
+    return LabelledEval(eid, source, None, malformed=True)
+
+
+def _evals_files(root: Path) -> list[Path]:
+    if root.is_file():
+        return [root]
+    return [p for p in (root / "evals.json", root / "evals" / "evals.json") if p.is_file()]
+
+
+# every task file a task reader may parse: Harbor / BenchFlow (task.toml, task.md, instruction.md, which load_task
+# runs), terminal-bench v1 (task.yaml, compose)
+_TASK_FILES = ("task.toml", "task.md", "instruction.md", tbench_v1.CONFIG, tbench_v1.COMPOSE)
+
+
+def _is_task(path: Path) -> bool:
+    """A task directory the way discover_tasks counts it: a lone task.md without frontmatter is an author's note."""
+    if not is_task_dir(path):
+        return False
+    if task_format(path) != FORMAT_TASK_MD:
+        return True
+    with (path / "task.md").open(encoding="utf-8", errors="replace") as fh:
+        return fh.readline().strip() == "---"
+
+
+def input_files(root: Path) -> list[Path]:
+    """The resolved files :func:`read_labels` reads under ``root``, so an output can be refused when it would
+    overwrite one of them."""
+    files = _evals_files(root)
+    if root.is_dir():
+        for task_dir in (p for p in root.iterdir() if _is_task(p)):
+            files += [task_dir / name for name in _TASK_FILES if (task_dir / name).is_file()]
+    return [p.resolve() for p in files]
+
+
+def exact_shares(report: dict) -> dict[str, float | None]:
+    """The three coverage figures computed from the report's counts and weights, unrounded. A floor is judged
+    on these: the report rounds its own figures for display only."""
+    by_class, weights = report["coverage"]["by_class"], report["coverage"]["weights"]
+    scope = [c for c in CLASSES if c != "out_of_scope"]
+    weight = sum(weights[c] * by_class[c]["total"] for c in scope)
+
+    def share(classes: tuple[str, ...]) -> float | None:
+        total = sum(by_class[c]["total"] for c in classes)
+        return sum(by_class[c]["covered"] for c in classes) / total if total else None
+
+    return {
+        "weighted": sum(weights[c] * by_class[c]["covered"] for c in scope) / weight if weight else None,
+        "core_rare_critical": share(CRITICAL),
+        "rare_critical": share(("rare_critical",)),
+    }
+
+
+def read_labels(root: Path) -> list[LabelledEval]:
+    """Every eval under ``root`` with its ``needs``: skill-creator ``evals.json`` rows, then tasks.
+
+    ``root`` is an ``evals.json`` file, a skill directory (its ``evals/evals.json``) or a tasks
+    root whose child directories are tasks. Raises ``ValueError`` on an unreadable ``evals.json``
+    or task.
+    """
+    out: list[LabelledEval] = []
+    for path in _evals_files(root):
+        try:
+            rows = json.loads(path.read_text(encoding="utf-8")).get("evals", [])
+        except (OSError, ValueError, AttributeError) as exc:
+            raise ValueError(f"{path}: not a skill-creator evals.json ({exc})") from exc
+        if not isinstance(rows, list):
+            raise ValueError(f"{path}: \"evals\" is not a list")
+        for index, row in enumerate(rows):
+            if isinstance(row, dict):
+                out.append(_labelled(str(row.get("id", index)), path.name, row.get("needs", _ABSENT)))
+    if root.is_dir():
+        for task_dir in sorted(p for p in root.iterdir() if _is_task(p)):
+            try:
+                meta = read_task_config(task_dir).get("metadata", {})
+            except (ValueError, OSError) as exc:
+                raise ValueError(f"{task_dir}: unreadable task ({exc})") from exc
+            needs = meta.get("needs", _ABSENT) if isinstance(meta, dict) else _ABSENT
+            out.append(_labelled(task_dir.name, "task", needs))
+    return out
+
+
+def _relevance(needs: tuple[str, ...] | None, classes: dict[str, str]) -> str:
+    if needs is None:
+        return "unlabelled"
+    named = [classes[n] for n in needs if n in classes]
+    if not named:
+        return "orphan"
+    if any(c in CRITICAL for c in named):
+        return "relevant_core"
+    if any(c != "out_of_scope" for c in named):
+        return "relevant_peripheral"
+    return "out_of_scope"
+
+
+def _share(nodes: list[dict], covered: set[str]) -> float | None:
+    return round(sum(n["id"] in covered for n in nodes) / len(nodes), 4) if nodes else None
+
+
+def coverage_report(graph: dict, evals: list[LabelledEval], evals_root: str) -> dict:
+    """The ``eval_coverage.v1`` payload (unstamped) for ``graph`` and ``evals``."""
+    classes = {n["id"]: n["path_class"] for n in graph["nodes"]}
+    problems = [{"eval": e.id, "source": e.source, "kind": "malformed_needs", "need": None}
+                for e in evals if e.malformed]
+    problems += [{"eval": e.id, "source": e.source, "kind": "unknown_need", "need": n}
+                 for e in evals for n in (e.needs or ()) if n not in classes]
+    covered = {n for e in evals for n in (e.needs or ()) if n in classes}
+    scope = [n for n in graph["nodes"] if n["path_class"] != "out_of_scope"]
+    weight = sum(PATH_WEIGHTS[n["path_class"]] for n in scope)
+    critical = [n for n in scope if n["path_class"] in CRITICAL]
+    return {
+        "evals_root": evals_root,
+        "graph": {
+            "artifact_name": graph["artifact_name"],
+            "digest": graph_digest(graph),
+            "nodes": len(graph["nodes"]),
+            "in_scope": len(scope),
+            "hypotheses": sum(n.get("confirmed_by", "hypothesis") == "hypothesis"
+                              for n in graph["nodes"]),
+        },
+        "coverage": {
+            "weights": {c: PATH_WEIGHTS[c] for c in CLASSES},
+            "weighted": round(sum(PATH_WEIGHTS[n["path_class"]] for n in scope
+                                  if n["id"] in covered) / weight, 4) if weight else None,
+            "core_rare_critical": _share(critical, covered),
+            "rare_critical": _share([n for n in scope if n["path_class"] == "rare_critical"], covered),
+            "by_class": {c: {"covered": sum(n["id"] in covered for n in graph["nodes"]
+                                            if n["path_class"] == c),
+                             "total": sum(n["path_class"] == c for n in graph["nodes"])}
+                         for c in CLASSES},
+        },
+        "gaps": [{"id": n["id"], "path_class": n["path_class"], "text": n["text"],
+                  "confirmed_by": n.get("confirmed_by", "hypothesis")}
+                 for n in critical if n["id"] not in covered],
+        "evals": [{"id": e.id, "source": e.source, "needs": list(e.needs or ()),
+                   "relevance": _relevance(e.needs, classes)} for e in evals],
+        "problems": problems,
+    }
+
+
+def _pct(value: float | None) -> str:
+    return "n/a" if value is None else f"{value:.0%}"
+
+
+def _problem(p: dict) -> str:
+    what = "needs is not a list of node ids" if p["kind"] == "malformed_needs" \
+        else f"unknown need id {p['need']!r}"
+    return f"- {p['eval']} ({p['source']}): {what}"
+
+
+def _cell(text: str) -> str:
+    """A Markdown table cell: pipes escaped, line breaks flattened so the row stays one line."""
+    return " ".join(text.replace("|", "\\|").splitlines())
+
+
+def render_markdown(report: dict) -> str:
+    """The report as Markdown, for a suite's README or the PR that changes the suite."""
+    g, c = report["graph"], report["coverage"]
+    lines = [
+        f"## Eval coverage: {g['artifact_name']} (graph {g['digest'][:12]})",
+        "",
+        f"Weighted coverage {_pct(c['weighted'])}; core + rare_critical "
+        f"{_pct(c['core_rare_critical'])}; rare_critical {_pct(c['rare_critical'])}. "
+        f"{g['hypotheses']} of {g['nodes']} nodes are unconfirmed hypotheses.",
+        "",
+        "| Eval | Source | Needs | Relevance |",
+        "|---|---|---|---|",
+    ]
+    lines += [f"| {_cell(e['id'])} | {_cell(e['source'])} | {_cell(', '.join(e['needs']) or '-')} | {e['relevance']} |"
+              for e in report["evals"]]
+    lines += ["", "Gaps (core and rare_critical nodes no eval names):"]
+    lines += [f"- {n['id']} [{n['path_class']}, {n['confirmed_by']}] {n['text']}"
+              for n in report["gaps"]] or ["- none"]
+    if report["problems"]:
+        lines += ["", "Problems:"] + [_problem(p) for p in report["problems"]]
+    return "\n".join(lines) + "\n"
