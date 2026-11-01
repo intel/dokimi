@@ -49,6 +49,8 @@ EXPECTED: dict[str, tuple[dict, str | None, str | None, str | None]] = {
     "task_inspect.v1": ({}, "tests/fixtures/task_formats", None, None),
     "cli_routes.v1": ({}, None, None, None),
     "dokimi_config.v1": ({}, "skill/onetbb, repo", None, None),
+    "need_graph.v1": ({}, "dpnp-io", None, None),
+    "eval_coverage.v1": ({}, "dpnp-io", None, None),
 }
 
 

@@ -182,11 +182,24 @@ class TestRetrievalHitRate:
         ]
 
     def test_fails_when_retrieval_never_returned_a_doc(self):
-        evals = self._judged(n_hit=0, n_miss=12)
-        assert all(e["with_docs"]["aggregate"] > 0 for e in evals)
+        evals = self._judged(n_hit=0, n_miss=14)
+        # Every question is an unjudged miss: nothing is scored in both arms, the run is not
+        # trusted, and the message names the cause (0 of 14 hit) beside the question count.
+        verdict = evaluate_trust(evals)
+        assert not verdict.is_trusted
+        assert [c.name for c in verdict.failures] == ["min_questions"]
+        check = next(c for c in verdict.checks if c.name == "retrieval_hit_rate")
+        assert not check.passed and check.measured and check.value == 0.0
+        assert "(0/14)" in check.message
+
+    def test_fails_when_retrieval_rarely_returned_a_doc(self):
+        evals = self._judged(n_hit=2, n_miss=12)
+        # The placeholder is not judged by default: only the two hits carry a with-docs score,
+        # and the twelve misses still count against the rate.
+        assert sum(e["with_docs"] is None for e in evals) == 12
         check = next(c for c in evaluate_trust(evals).checks if c.name == "retrieval_hit_rate")
         assert not check.passed, check.message
-        assert check.value == 0.0
+        assert check.value == round(2 / 14, 3)
         assert check.measured
 
     def test_rate_counts_recorded_hits(self):
@@ -353,6 +366,15 @@ class TestWhatTheChecksCount:
         assert not _check(v, "retrieval_hit_rate").measured
         assert v.not_measured == ["retrieval_hit_rate"]
 
+    def test_legacy_judge_error_rows_leave_a_stored_rate_measured(self):
+        # A judge-error row as eval score wrote it before error rows carried retrieval_hit.
+        legacy_error = {"question_id": "q", "error": "judge failed", "with_docs": None,
+                        "without_docs": None, "delta": None}
+        evals = ([_row(70, 50, hit=True)] * 5 + [_row(70, 50, hit=False)] * 10
+                 + [legacy_error] * 5)
+        check = _check(evaluate_trust(evals), "retrieval_hit_rate")
+        assert (check.measured, check.value, check.passed) == (True, 0.333, False)
+
     def test_a_zero_baseline_counts_as_zero(self):
         check = _check(evaluate_trust(_evals(10, with_score=40, without_score=0)), "min_delta")
         assert check.value == 40.0
@@ -432,7 +454,7 @@ class TestTheRenderedBlock:
             "| Check | Status | Value | Threshold | Notes |",
             "|-------|--------|-------|-----------|-------|",
             "| min_questions | ❌ | 3 | 10 | 3 questions evaluated (min 10) |",
-            "| zero_score_fraction | ❌ | 0.333 | 0.2 | 1/3 questions scored 0 in the context arm (33.3%) |",
+            "| zero_score_fraction | ❌ | 0.333 | 0.2 | 1/3 questions scored 0 or had no document in the context arm (33.3%) |",
             "| min_with_docs_avg | ✅ | 33.3 | 30.0 | Context-arm avg = 33.3 (min 30.0) |",
             "| min_delta | ✅ | 13.3 | -5.0 | Avg delta (context arm minus baseline) = +13.3 (min -5.0) |",
             "| score_cv | ⚠️ | 0.917 | 0.6 | Score CV = 0.92 std=30.6 (max CV 0.6) |",
@@ -442,7 +464,7 @@ class TestTheRenderedBlock:
             "",
             "**Blocking issues:**",
             "- ❌ **min_questions**: 3 questions evaluated (min 10)",
-            "- ❌ **zero_score_fraction**: 1/3 questions scored 0 in the context arm (33.3%)",
+            "- ❌ **zero_score_fraction**: 1/3 questions scored 0 or had no document in the context arm (33.3%)",
             "",
             "**Warnings:**",
             "- ⚠️ **score_cv**: Score CV = 0.92 std=30.6 (max CV 0.6)",
