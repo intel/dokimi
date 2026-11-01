@@ -6,7 +6,10 @@
 from __future__ import annotations
 
 import hashlib
+import sys
 from pathlib import Path
+
+import pytest
 
 from dokimi.subjects.scorecard import distribution_digest
 
@@ -33,6 +36,7 @@ def test_distribution_digest_matches_a_well_known_skill_md_entry(tmp_path: Path)
     assert distribution_digest("notes.md", base=tmp_path) is None
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="a colon is invalid in a Windows directory name")
 def test_a_ref_with_a_scheme_gets_no_digest_even_when_a_directory_collides(tmp_path: Path):
     colliding = tmp_path / "context7:" / "org" / "lib"
     colliding.mkdir(parents=True)
