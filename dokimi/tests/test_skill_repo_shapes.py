@@ -168,7 +168,8 @@ def test_every_shape_gets_its_expected_status(shape, shape_paths, tmp_path, caps
 
 
 @pytest.mark.parametrize("shape", [
-    pytest.param(shape, id=shape, marks=pytest.mark.xfail(strict=True, reason=reason))
+    pytest.param(shape, id=shape,
+                 marks=pytest.mark.xfail(strict=True, raises=AssertionError, reason=reason))
     for shape, (_, reason) in sorted(OPEN_BUGS.items())
 ])
 def test_open_bug_dimension_meets_its_expectation(shape, shape_paths, tmp_path, capsys,
