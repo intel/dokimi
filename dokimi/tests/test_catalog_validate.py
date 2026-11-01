@@ -151,6 +151,14 @@ def test_a_disabled_copy_of_a_name_is_not_a_name_conflict(tmp_path):
     assert [r.state for r in reviews] == ["ok", "ok"]
 
 
+def test_a_spec_error_copy_of_a_name_is_not_a_name_conflict(tmp_path):
+    _skill(tmp_path / "skills", "x", name="x", description="Use for x.")
+    _skill(tmp_path / "plugins", "x", name="x", description="y" * 1100)
+    reviews = review_skills(read_skill_manifest(tmp_path))
+    assert all(f.code != "name-conflict" for r in reviews for f in r.findings)
+    assert sorted(r.state for r in reviews) == ["error", "ok"]
+
+
 def test_disable_model_invocation_is_reported_as_a_flag_not_a_finding(tmp_path):
     _skill(tmp_path / "skills", "hidden", name="hidden",
            extra="disable-model-invocation: true\n")
