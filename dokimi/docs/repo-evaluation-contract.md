@@ -1479,7 +1479,11 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   judge, each pair's `thread`, `finding`, `label` and `reason`, the counts of
   `same point`, `related`, `unrelated` and `unjudged`, `n_threads` (from
   `grade.json` `metrics`), the grader's `recall`, and `recall_judged`. A rerun
-  rewrites it. The command prints, per (arm, model), the cells written, their
+  rewrites it. Before its first call, a run that judges (not `--dry-run`)
+  removes the `hits_judged.json` an earlier run left in every other finished
+  cell of the batch, one regraded since into a grader failure, a grade
+  without `matches` or another grader, and a line names those cells
+  (`--json`: `stale_removed`). The command prints, per (arm, model), the cells written, their
   pairs and label counts, and the mean `recall` and `recall_judged` of those
   cells (`--json`: the same as JSON). Before any call it refuses, with exit 2,
   a judge that runs the model of any answer of the batch (`meta.json` or

@@ -19,6 +19,7 @@ uncalibrated until a person's labels are compared with the judge's (:mod:`.hits_
 from __future__ import annotations
 
 import json
+import os
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -328,11 +329,13 @@ def cell_doc(cell: dict[str, Any], judge: tuple[str, str], judged: list[dict[str
 
 @dataclass
 class Judged:
-    """What :func:`judge_cells` did: the documents written, the cells the budget stopped, the calls made."""
+    """What :func:`judge_cells` did: the documents written, the cells the budget stopped, the calls made, and the
+    cells whose earlier file it removed because their grade no longer gives credited pairs."""
 
     docs: list[dict[str, Any]] = field(default_factory=list)
     stopped: list[str] = field(default_factory=list)
     meter: Meter = field(default_factory=Meter)
+    stale: list[str] = field(default_factory=list)
 
     def labels(self) -> dict[tuple[str, str], str]:
         """The judge's label of each judged pair, by :func:`pair_key`."""
@@ -353,11 +356,25 @@ def judge_cells(batch_dir: Path, found: dict[str, Any], pairs: list[Pair], judge
     """Judge every pair, one call each through :func:`dokimi.judged.judged_reply`, and write each fully judged
     cell's ``hits_judged.json``. A cell the budget stopped gets no file (one left by an earlier run goes).
 
+    First, before any call, it removes the ``hits_judged.json`` an earlier run left in every other finished cell
+    of the batch (:func:`.report.load_cells`): one regraded since into a state ``found["cells"]`` leaves out (a
+    grader failure, a grade with no ``matches``, another grader). ``Judged.stale`` names those cells.
+
     Raises :class:`HitsWriteError` at the first file it cannot write or remove, before any further call."""
     by_cell: dict[str, list[Pair]] = defaultdict(list)
     for pair in pairs:
         by_cell[pair.cell].append(pair)
     done = Judged(meter=Meter(max_usd))
+    read = {cell["cell"] for cell in found["cells"]}
+    for rec in load_cells(batch_dir)[0]:
+        path = batch_dir / rec["cell"] / HITS_JUDGED
+        if rec["cell"] in read or not os.path.lexists(path):
+            continue
+        try:  # before the first call: a file that cannot go stops the run before it spends anything
+            path.unlink()
+        except OSError as exc:
+            raise HitsWriteError("remove", path, exc, done) from exc
+        done.stale.append(rec["cell"])
     ask = done.meter.asking(LLM(judge[1], judge[0]))
     for cell in found["cells"]:
         path = batch_dir / cell["cell"] / HITS_JUDGED
@@ -399,7 +416,8 @@ def summary(found: dict[str, Any], pairs: list[Pair], judge: tuple[str, str], do
     """What ``repo hits judge`` prints (``--json``: this dict).
 
     ``uncalibrated_arms``: the arms of ``rows`` with no pair labelled by both the person and the judge (every
-    arm without ``--labels``), whose ``recall_judged`` no calibration covers."""
+    arm without ``--labels``), whose ``recall_judged`` no calibration covers. ``stale_removed``: the cells whose
+    earlier ``hits_judged.json`` :func:`judge_cells` removed (``Judged.stale``)."""
     table = rows(done.docs)
     calibrated = {c["arm"] for c in calibration or [] if c["labelled"]}
     return {"batch": found["batch"], "judge": {"provider": judge[0], "model": judge[1]},
@@ -407,7 +425,7 @@ def summary(found: dict[str, Any], pairs: list[Pair], judge: tuple[str, str], do
             "grader_failures": found["grader_failures"], "pairs": len(pairs),
             "not_found": [{"cell": p.cell, "thread": p.hit.get("thread"), "problem": p.problem}
                           for p in pairs if p.problem is not None],
-            "rows": table, "written": len(done.docs), "budget_stopped": done.stopped,
+            "rows": table, "written": len(done.docs), "budget_stopped": done.stopped, "stale_removed": done.stale,
             "calls": done.meter.calls, "spent_usd": round(done.meter.spent_usd, 6), "calibration": calibration,
             "uncalibrated_arms": sorted({r["arm"] for r in table} - calibrated)}
 
@@ -458,6 +476,11 @@ def format_summary(s: dict[str, Any]) -> str:
     if s["budget_stopped"]:
         lines.append(f"{len(s['budget_stopped'])} cell(s) not fully judged (--max-usd spent), no {HITS_JUDGED}: "
                      + ", ".join(s["budget_stopped"]))
+    if s["stale_removed"]:
+        shown = s["stale_removed"][:10]
+        lines.append(f"removed the earlier {HITS_JUDGED} of {len(s['stale_removed'])} cell(s) not judged now "
+                     "(a grader failure, a grade without hit details, another grader): " + ", ".join(shown)
+                     + (f" and {len(s['stale_removed']) - len(shown)} more" if len(s["stale_removed"]) > 10 else ""))
     lines += _calibration_lines(s["calibration"], s["uncalibrated_arms"])
     lines.append(f"{s['calls']} judge call(s), ${s['spent_usd']:.4f}")
     return "\n".join(lines)

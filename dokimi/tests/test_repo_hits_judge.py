@@ -266,6 +266,63 @@ def test_an_earlier_file_that_cannot_be_removed_stops_the_run_with_exit_2(tmp_pa
     assert not _judged(batch, "guidance:raw", 3).exists()
 
 
+def _regrade(batch: Path, arm: str, rep: int, state: str) -> None:
+    """Regrade a cell into a state `load_hits` leaves out: a grader failure, or a grade with no ``matches``."""
+    rd = _judged(batch, arm, rep).parent
+    name = "result.json" if state == "grader failure" else "grade.json"
+    doc = json.loads((rd / name).read_text())
+    if state == "grader failure":
+        doc["grade"]["status"] = "grader_failure"
+    else:
+        doc["details"] = {"parse_error": "no findings JSON"}
+    (rd / name).write_text(json.dumps(doc))
+
+
+@pytest.mark.parametrize("state", ["grader failure", "no matches"])
+def test_a_judged_cell_regraded_out_of_the_hits_loses_its_earlier_file(tmp_path, capsys, judge_llm, state):
+    batch = _batch(tmp_path)
+    code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE)
+    assert code == 0 and not any(line.startswith("removed the earlier") for line in out.splitlines())
+    stale, kept = _judged(batch, "guidance:raw", 1), _judged(batch, "guidance:none", 1)
+    earlier = stale.read_text()
+    _regrade(batch, "guidance:raw", 1, state)
+    code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE)
+    assert code == 0 and not stale.exists() and kept.is_file()
+    assert (f"removed the earlier {HITS_JUDGED} of 1 cell(s) not judged now (a grader failure, a grade without hit "
+            f"details, another grader): {TASK}__guidance-raw__{MODEL}__r1") in out.splitlines()
+    stale.write_text(earlier)
+    code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--json")
+    assert code == 0 and not stale.exists() and kept.is_file()
+    assert json.loads(out)["stale_removed"] == [f"{TASK}__guidance-raw__{MODEL}__r1"]
+    code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--json")
+    assert (code, json.loads(out)["stale_removed"]) == (0, [])  # nothing left to remove
+
+
+def test_an_earlier_file_of_a_regraded_cell_that_cannot_be_removed_stops_the_run_before_any_call(tmp_path, capsys,
+                                                                                               judge_llm):
+    batch = _batch(tmp_path)
+    assert _run(capsys, "judge", str(batch), "--judge", JUDGE)[0] == 0
+    kept, stale = _judged(batch, "guidance:none", 1), _judged(batch, "guidance:raw", 1)
+    _regrade(batch, "guidance:raw", 1, "grader failure")
+    stale.unlink()
+    stale.mkdir()  # a directory in the file's place: the removal fails
+    with llm.use_adapter(llm.FakeAdapter()) as fake:  # an unscripted call fails the test
+        code, out, err = _run(capsys, "judge", str(batch), "--judge", JUDGE)
+    assert (code, out, fake.requests) == (2, "", [])
+    assert err.startswith(f"✗ cannot remove {stale}: ")
+    assert err.rstrip().endswith(f"stopped there after 0 judge call(s), $0.0000; "
+                                 f"the 0 cell(s) written before keep their {HITS_JUDGED}")
+    assert stale.is_dir() and kept.is_file()
+
+
+def test_dry_run_removes_no_earlier_file(tmp_path, capsys, judge_llm):
+    batch = _batch(tmp_path)
+    assert _run(capsys, "judge", str(batch), "--judge", JUDGE)[0] == 0
+    _regrade(batch, "guidance:raw", 1, "no matches")
+    code, _, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--dry-run")
+    assert code == 0 and _judged(batch, "guidance:raw", 1).is_file()
+
+
 def test_a_pair_whose_full_text_is_missing_is_reported_and_not_judged(tmp_path, capsys, judge_llm):
     batch = _batch(tmp_path)
     (batch / f"{TASK}__guidance-raw__{MODEL}__r1" / "answer.txt").write_text("no findings any more")
