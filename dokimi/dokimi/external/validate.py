@@ -95,7 +95,7 @@ LINK_RE = re.compile(rf"\]\(\s*(<[^<>\n]*>|(?:[^()\s]|\([^()\s]*\))+){_TARGET_TI
 # A reference-style link definition, ``[label]: destination``, the destination on this line or the
 # next (footnotes ``[^n]:`` excluded). Matched over the whole body, not line by line.
 REF_DEF_RE = re.compile(
-    r"""^ {0,3}\[(?!\^)[^\]\n]+\]:[ \t]*\n?[ \t]*(<[^>\n]*>|\S+)"""
+    r"""^ {0,3}\[(?!\^)[^\]\n]+\]:[ \t]*(?:\n[ \t]*)?(<[^>\n]*>|\S+)"""
     r"""(?:[ \t]+(?:"[^"]*"|'[^']*'|\([^)]*\)))?[ \t]*$""",
     re.MULTILINE,
 )
