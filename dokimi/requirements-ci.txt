@@ -15,6 +15,9 @@ pip-audit==2.10.1
 mypy==2.4.0
 PyYAML
 jsonschema
+# regex: the static job's registry-drift-check and guidance self-scan import dokimi.repos,
+# which imports the `regex` module (the reference check's engine); the job installs no other lock.
+regex
 types-PyYAML
 types-jsonschema
 deptry==0.25.1
