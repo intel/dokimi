@@ -880,6 +880,24 @@ def test_root_skill_and_a_nested_skill_named_like_the_checkout_are_not_mirror_dr
     assert _codes(reviews["tools"]) == []
 
 
+def test_root_skills_of_two_checkouts_are_near_duplicates_not_mirror_drift(tmp_path):
+    # Both root skills reached as "sub/.." have no directory name, so they never mirror each other.
+    entries = []
+    for checkout, ending in (("a/repo", "bugs"), ("b/repo", "typing")):
+        root = tmp_path / checkout
+        root.mkdir(parents=True)
+        _root_skill(
+            root, f"name: r{checkout[0]}\ndescription: Use when reviewing Python pull "
+                  f"requests for style and {ending}.\n")
+        (root / "sub").mkdir()
+        (root / "skills.yaml").write_text(
+            f"skills:\n  - name: r{checkout[0]}\n    catalog_path: sub/..\n", encoding="utf-8")
+        entries.extend(read_skill_manifest(root))
+
+    reviews = review_skills(entries)
+    assert [_codes(r) for r in reviews] == [["description-near-duplicate"]] * 2
+
+
 def test_near_duplicate_check_reads_non_ascii_description_words(tmp_path):
     shared = "Use when проверка исходного кода необходима."
     _skill(tmp_path / "skills", "code-check", name="code-check", description=shared)
