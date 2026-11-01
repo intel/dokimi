@@ -1055,8 +1055,13 @@ per scenario).
 in `--out`, a receipt in the shape of `effective-instructions/v0`
 (agentsmd/agents.md#213). It is built from the reach payload and from the
 start-up chain of `repo budget` (`repos/budget.py`). It makes no
-LLM call. The schema is `schemas/effective_instructions.v1.json`; the code is
-`repos/receipt.py`.
+LLM call. `repo reach --from <reach.json> --format receipt` builds the same
+receipt from a saved probe without running the harness: the source is read
+only to check that the file is for the same repository, harness and commit
+(a different one is a usage error, exit 2). The receipt is written beside the
+saved file. The probe-only flags (`--model`, `--budget`, `--scenarios`, `--only`
+and the rest) cannot be combined with `--from`. The schema is
+`schemas/effective_instructions.v1.json`; the code is `repos/receipt.py`.
 
 One receipt is written per reach scenario, with `run_id` `<salt>:<scenario id>`.
 Each source carries:
@@ -1068,16 +1073,19 @@ Each source carries:
 | `scope` | path | `repo` at the root or in `.claude/`; `subtree` for a nested AGENTS.md, CLAUDE.md or CLAUDE.local.md; else `unknown` |
 | `expected` | budget `when` | see the table below |
 | `observed` | reach class | `loaded` → loaded, `fetched` → fetched, `not_loaded` → not_loaded, `truncated` and `error` → unknown |
-| `observation_method` | | `prompt_capture` for every observed source; `unknown` for an error |
+| `observation_method` | | `unknown` for every source: the thread vocabulary's method, since no runtime event, prompt capture or hook backs the probe |
+| `dokimi_method` | | `marker_self_report` for a source the probe recorded; null for a start-up file budget found and reach did not probe |
 | `states.accessed` | the Read tool | `true` if a Read-tool read was seen, `false` with tools off, else `unknown` |
 | `states.selected` | the class | `true` for loaded or fetched (the source entered the request, by the harness or a read), else `unknown` |
 | `states.loaded` | the class | `true` for loaded, `false` for not_loaded, else `unknown`; a fetched file is not loaded |
 | `states.followed` | | always `unknown` (the schema's `const`) |
 
 `runtime` and `model` are the harness's own name and version, as reach records
-them. `observation.method` is `prompt_capture`: the model reports the tokens it
-can see, and the request sent to the provider is not captured. A reported token
-is evidence of loading, not a copy of the bytes received.
+them. `observation.method` is `unknown` and `observation.dokimi_method` is
+`marker_self_report`: the model reports the tokens it can see, and the request
+sent to the provider is not captured. A reported token is evidence of loading,
+not a copy of the bytes received. The name is not `prompt_capture`, because
+dokimi does not capture the prompt.
 
 **Expected state.** budget's start-up rules are Claude Code's, so they apply
 only to `claude-code` runs; for other harnesses every `expected` is `unknown`
@@ -1094,8 +1102,10 @@ and the receipt says so.
 **Precedence.** `precedence_observed` lists a displacement only: a root
 CLAUDE\*.md (`CLAUDE.md`, `CLAUDE.local.md`, `.claude/CLAUDE.md`) observed
 loaded in a run, with an `off` AGENTS.md observed not_loaded in that run. It
-does not give an order of entry; budget's displacement rule is applied as
-written, so nested AGENTS.md files that budget marks `off` appear too.
+does not give an order of entry. The displacement follows budget's rule as
+written (`repos/budget.py`: every AGENTS.md is `off` while a root CLAUDE\*.md
+exists, nested ones included), so nested AGENTS.md files appear too. If budget's
+rule changes, the receipt follows it.
 
 **What the marker method can and cannot show.** It shows which tokens were
 reported in a run, so it can support `loaded`, `fetched` and `not_loaded` as

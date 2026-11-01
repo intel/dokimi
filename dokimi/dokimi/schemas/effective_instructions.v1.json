@@ -22,9 +22,10 @@
     "model": {"type": "string"},
     "observation": {
       "type": "object",
-      "required": ["method", "detail"],
+      "required": ["method", "dokimi_method", "detail"],
       "properties": {
-        "method": {"enum": ["prompt_capture"], "description": "The probe's method for every observed source."},
+        "method": {"enum": ["unknown"], "description": "The thread vocabulary's observation_method: no runtime event, prompt capture or hook backs the probe."},
+        "dokimi_method": {"const": "marker_self_report", "description": "dokimi's method: the model reports the marker tokens it can see; the request is not captured."},
         "detail": {"type": "string"}
       }
     },
@@ -64,7 +65,7 @@
     "tristate": {"enum": [true, false, "unknown"]},
     "source": {
       "type": "object",
-      "required": ["path", "sha256", "scope", "expected", "observed", "observation_method", "states"],
+      "required": ["path", "sha256", "scope", "expected", "observed", "observation_method", "dokimi_method", "states"],
       "properties": {
         "path": {"type": "string"},
         "alias_of": {"type": "string", "description": "Set when the path is a link to another probed file; its tokens and its observation are the target's."},
@@ -72,7 +73,8 @@
         "scope": {"enum": ["repo", "subtree", "user", "adapter", "unknown"]},
         "expected": {"$ref": "#/$defs/tristate", "description": "Budget's start-up rules: true for start, false for off, true for a lazy file whose subtree the run works in. unknown without Claude Code's rules."},
         "observed": {"enum": ["loaded", "fetched", "not_loaded", "unknown"]},
-        "observation_method": {"enum": ["runtime_event", "prompt_capture", "hook", "unknown"]},
+        "observation_method": {"enum": ["runtime_event", "prompt_capture", "hook", "unknown"], "description": "The thread vocabulary's method; unknown for every source, since no runtime event backs the probe."},
+        "dokimi_method": {"enum": ["marker_self_report", null], "description": "Set when the probe saw a marker token for the source; null for a source it did not probe."},
         "states": {
           "type": "object",
           "required": ["accessed", "selected", "loaded", "followed"],

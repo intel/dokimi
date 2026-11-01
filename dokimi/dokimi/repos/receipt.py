@@ -17,19 +17,21 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any
 
-from .reach import PROSE_LIMIT
+from .reach import PROSE_LIMIT, ReachError
 from .source import RepoTree
 
 SCHEMA = "effective-instructions/v0"
 SCHEMA_VERSION = "effective_instructions.v1"
 UNKNOWN = "unknown"
-# The probe's method: the model reports the marker tokens it can see; the request itself is not captured.
-METHOD = "prompt_capture"
+# The thread vocabulary's observation_method: no runtime event, prompt capture or hook backs the probe.
+OBSERVATION_METHOD = UNKNOWN
+# dokimi's own method: the model reports the marker tokens it can see; the request itself is not captured.
+DOKIMI_METHOD = "marker_self_report"
 # Root-level files that turn AGENTS.md off in Claude Code (budget.py): the displacing set.
 CLAUDE_ROOT = ("CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md")
 ROOT_NESTED = (".claude/CLAUDE.md", ".claude/AGENTS.md")  # project memory in .claude/ applies repo-wide
 SUBTREE_NAMES = ("AGENTS.md", "CLAUDE.md", "CLAUDE.local.md")
-_STATE = {"loaded": "loaded", "fetched": "fetched", "not_loaded": "not_loaded"}
+_STATE: dict[str | None, str] = {"loaded": "loaded", "fetched": "fetched", "not_loaded": "not_loaded"}
 _LOADED: dict[str | None, bool] = {"loaded": True, "not_loaded": False}
 DETAIL = ("the model is asked to report the marker tokens it can see; the request sent to the provider is not "
           "captured, so a reported token is evidence of loading, not a copy of the bytes it received")
@@ -65,7 +67,7 @@ def build_receipt(reach: dict[str, Any], budget: dict[str, Any], tree: RepoTree)
         "repo": {**reach["repo"], "tree": _shareable_tree(reach["repo"]["tree"])},
         "runtime": runtime,
         "model": reach["model"],
-        "observation": {"method": METHOD, "detail": DETAIL},
+        "observation": {"method": OBSERVATION_METHOD, "dokimi_method": DOKIMI_METHOD, "detail": DETAIL},
         "unknowns": _global_unknowns(harness["name"], rules),
         "receipts": receipts,
     }
@@ -79,6 +81,17 @@ def _shareable_tree(label: str) -> str:
     if not (PureWindowsPath(name).drive or PurePosixPath(name).is_absolute() or name.startswith("~")):
         return label
     return (PurePosixPath(name.replace("\\", "/")).name or "tree") + at + sha
+
+
+def check_saved_reach(reach: dict[str, Any], repo_id: str, harness_name: str, tree_sha: str | None) -> None:
+    """Refuse a saved reach.json probed on another repository, harness or commit than the one it is read against."""
+    if reach["repo"]["id"] != repo_id:
+        raise ReachError(f"reach.json is for repository {reach['repo']['id']!r}, not {repo_id!r}")
+    if reach["harness"]["name"] != harness_name:
+        raise ReachError(f"reach.json was probed with harness {reach['harness']['name']!r}, not {harness_name!r}")
+    probed = reach["repo"].get("sha")
+    if probed and tree_sha and probed != tree_sha:
+        raise ReachError(f"reach.json was probed at {probed[:12]}, the source is at {tree_sha[:12]}")
 
 
 def source_digests(tree: RepoTree, paths: list[str]) -> dict[str, str | None]:
@@ -143,15 +156,15 @@ def _source(path: str, alias_of: str | None, run: _Run) -> dict[str, Any]:
     target = alias_of or path
     rec = run.records.get((target, run.row["id"]))
     cls = rec["class"] if rec else None
-    observed, method = _observation(cls)
     return {
         "path": path,
         **({"alias_of": alias_of} if alias_of else {}),
         "sha256": run.digests.get(path),
         "scope": _scope(path, alias_of is not None),
         "expected": _expected(target, run.when_of.get(target), run),
-        "observed": observed,
-        "observation_method": method,
+        "observed": _STATE.get(cls, UNKNOWN),  # a truncated cell saw one token: an observation, no verdict
+        "observation_method": OBSERVATION_METHOD,
+        "dokimi_method": DOKIMI_METHOD if rec else None,
         "states": _states(cls, run.row["tools"] == "none", bool(rec and rec["read_by_tool"])),
     }
 
@@ -160,17 +173,8 @@ def _budget_only(path: str, run: _Run) -> dict[str, Any]:
     """A start-up import or guidance file budget found and reach did not probe: expected, never observed."""
     return {"path": path, "sha256": run.digests.get(path), "scope": _scope(path, False),
             "expected": _expected(path, run.when_of[path], run), "observed": UNKNOWN,
-            "observation_method": UNKNOWN, "states": _states(None, False, False)}
-
-
-def _observation(cls: str | None) -> tuple[str, str]:
-    """(observed state, observation_method) of one reach class. A truncated cell saw one token: an observation,
-    no verdict."""
-    if cls in _STATE:
-        return _STATE[cls], METHOD
-    if cls == "truncated":
-        return UNKNOWN, METHOD
-    return UNKNOWN, UNKNOWN  # error, or no record (not probed in this run)
+            "observation_method": OBSERVATION_METHOD, "dokimi_method": None,
+            "states": _states(None, False, False)}
 
 
 def _states(cls: str | None, tools_off: bool, read_by_tool: bool) -> dict[str, Any]:
@@ -216,8 +220,9 @@ def _run_unknowns(row: dict[str, Any], sources: list[dict[str, Any]]) -> list[st
     out = []
     if row.get("error"):
         out.append("no usable answer from this run: every observed state is unknown")
+    marked = [s for s in sources if s["observed"] == UNKNOWN and s["dokimi_method"] == DOKIMI_METHOD]
     out += [f"{s['path']}: one of its two marker tokens was reported; loaded is not established"
-            for s in sources if s["observed"] == UNKNOWN and s["observation_method"] == METHOD]
+            for s in marked if not row.get("error")]
     if (row.get("prose") or 0) > PROSE_LIMIT:
         out.append(f"answered with {row['prose']} words besides tokens; its not_loaded states may be under-reports")
     if row.get("unknown"):
@@ -228,6 +233,7 @@ def _run_unknowns(row: dict[str, Any], sources: list[dict[str, Any]]) -> list[st
 def _global_unknowns(name: str, rules: bool) -> list[str]:
     out = [
         "followed is not observed: no marker shows what the model did with a loaded source",
+        "observation_method is unknown: no prompt is captured; dokimi_method names the marker self-report instead",
         "accessed is observed only for the Read tool; a read through a shell (cat, rg, grep) is not seen",
         "sha256 is over the LF-normalised UTF-8 text dokimi reads, which the probe seeds; a CRLF file's bytes differ",
         "no load timestamps: the probe does not record when a source entered the request",

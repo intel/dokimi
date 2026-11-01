@@ -250,6 +250,67 @@ def _check_reach_flags(args: argparse.Namespace, kinds: tuple[str, ...]) -> None
         raise ReachError(f"unknown --scenarios kind(s) {', '.join(unknown_kinds)} (known: root, cwd, read)")
     if not math.isfinite(args.budget) or args.budget <= 0:
         raise ReachError(f"--budget must be > 0, got {args.budget:g}")
+    if args.model is None:
+        raise ReachError("--model is required to probe (leave it out only with --from)")
+
+
+# The probe's flags and their defaults: --from refuses any of them set to another value.
+_PROBE_ONLY = {"only": None, "salt": None, "work_dir": None, "keep": False, "bin": None, "dry_run": False,
+               "model": None, "scenarios": "root,cwd,read", "max_turns": 4, "budget": 0.10, "timeout": 300,
+               "out": None}
+
+
+def _reach_entry(args: argparse.Namespace) -> None:
+    """`repo reach`: probe the repository, or with --from read a saved reach.json."""
+    if args.from_file:
+        _reach_from_saved(args)
+    else:
+        cmd_repo_reach(args)
+
+
+def _probe_flags_given(args: argparse.Namespace) -> list[str]:
+    return [f"--{k.replace('_', '-')}" for k, default in _PROBE_ONLY.items() if getattr(args, k) != default]
+
+
+def _reach_from_saved(args: argparse.Namespace) -> None:
+    """The matrix or the receipt of a saved reach.json, checked against the source; no harness runs."""
+    from dokimi.repos import ManifestError, RepoSource, SourceError, open_source
+    from dokimi.repos.harness_profile import ProfileError, load_profile
+    from dokimi.repos.receipt import check_saved_reach
+    from dokimi.repos.reach import ReachError, format_matrix, load_reach
+    from dokimi.repos.source import SourceArgumentError
+
+    try:  # the arguments and the saved file as typed: a usage error
+        given = _probe_flags_given(args)
+        if given:
+            raise ReachError(f"--from reads a saved probe, so {', '.join(given)} cannot be used with it")
+        profile = load_profile(args.harness)
+        source = RepoSource.parse(args.source)
+        reach = load_reach(Path(args.from_file))
+    except (SourceError, ProfileError, ReachError, OSError, ValueError) as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+    try:  # the clone and fetch: a runtime failure
+        tree = open_source(source, _cache_dir(args))
+    except SourceArgumentError as exc:  # a pinned local path that is not the repository root
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+    except (SourceError, OSError, ValueError) as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(1)
+    try:  # the manifest and the file's provenance: a usage error; a failed git read is a fetch failure (1)
+        manifest = _load_manifest(tree, args, guidance_default=True)
+        check_saved_reach(reach, manifest.id, profile.name, getattr(tree, "sha", None))
+    except (SourceError, ManifestError, ReachError) as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(_tree_read_exit_code(exc))
+    if args.format == "receipt":
+        _print_receipt(tree, profile, reach, Path(args.from_file).parent)
+        print(f"wrote {Path(args.from_file).parent / 'effective_instructions.json'}", file=sys.stderr)
+    else:
+        print(format_matrix(reach))
+    if any(s["error"] for s in reach["scenarios"]):
+        sys.exit(1)
 
 
 def _tree_read_exit_code(exc: Exception) -> int:
@@ -312,7 +373,7 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
         sys.exit(_tree_read_exit_code(exc))
     print(f"{len(files)} guidance files, {planned_count} scenarios, "
           f"at most ${args.budget:g} each", file=sys.stderr)
-    out_dir = Path(args.out)
+    out_dir = Path(args.out or "reach-out")
     try:  # the harness runs: a runtime failure
         payload = run_reach(
             tree=tree, manifest=manifest, profile=profile, model=args.model, out_dir=out_dir,
@@ -541,9 +602,13 @@ def register(sub, positive_int) -> None:
                          "at --manifest (for a repository that has not added it yet)")
     reach_p.add_argument("--harness", default="claude-code",
                          help="Built-in profile name or a harness_profile.v1 YAML path (default: claude-code)")
-    reach_p.add_argument("--model", required=True, help="Model string passed to the harness as it is")
+    reach_p.add_argument("--model", default=None, help="Model string passed to the harness as it is (required "
+                         "unless --from)")
+    reach_p.add_argument("--from", default=None, dest="from_file", metavar="REACH_JSON",
+                         help="Read a saved reach.json instead of probing: no harness runs, no cost. The source is "
+                         "still read, to check the file's repository, harness and sha; the receipt goes beside the file")
     reach_p.add_argument("--bin", default=None, help="Harness executable (default: the profile's `bin`)")
-    reach_p.add_argument("--out", default="reach-out", help="Output directory: reach.json and traces/")
+    reach_p.add_argument("--out", default=None, help="Output directory: reach.json and traces/ (default: reach-out)")
     reach_p.add_argument("--scenarios", default="root,cwd,read",
                          help="Comma list of scenario kinds: root, cwd, read (default: all)")
     reach_p.add_argument("--only", action="append", default=None, metavar="SCENARIO",
@@ -562,7 +627,7 @@ def register(sub, positive_int) -> None:
     reach_p.add_argument("--dry-run", action="store_true", dest="dry_run",
                          help="Print the files and the exact argv of every scenario; run nothing")
     reach_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
-    reach_p.set_defaults(func=cmd_repo_reach)
+    reach_p.set_defaults(func=_reach_entry)
 
     budget_p = repo_sub.add_parser(
         "budget",

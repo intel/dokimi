@@ -13,7 +13,8 @@ import pytest
 from dokimi.artifacts import ArtifactValidationError, validate_artifact
 from dokimi.cli import build_parser
 from dokimi.repos import WorkTree
-from dokimi.repos.receipt import build_receipt, source_digests
+from dokimi.repos.receipt import build_receipt, check_saved_reach, source_digests
+from dokimi.repos.reach import ReachError, format_matrix, load_reach
 from tests.test_repo_reach import _profile, _repo
 
 ROOT_ROW = {"id": "cwd=.", "cwd": "", "tools": "none", "read": None, "error": None, "prose": 0, "unknown": []}
@@ -58,12 +59,12 @@ def _sources(receipt: dict, run_id: str) -> dict[str, dict]:
     return {s["path"]: s for s in run["sources"]}
 
 
-CLASS_MAP = {  # reach class -> (observed, observation_method, selected, loaded)
-    "loaded": ("loaded", "prompt_capture", True, True),
-    "fetched": ("fetched", "prompt_capture", True, "unknown"),
-    "not_loaded": ("not_loaded", "prompt_capture", "unknown", False),
-    "truncated": ("unknown", "prompt_capture", "unknown", "unknown"),
-    "error": ("unknown", "unknown", "unknown", "unknown"),
+CLASS_MAP = {  # reach class -> (observed, selected, loaded)
+    "loaded": ("loaded", True, True),
+    "fetched": ("fetched", True, "unknown"),
+    "not_loaded": ("not_loaded", "unknown", False),
+    "truncated": ("unknown", "unknown", "unknown"),
+    "error": ("unknown", "unknown", "unknown"),
 }
 
 
@@ -72,10 +73,22 @@ def test_each_reach_class_maps_to_its_observed_and_thread_states(tmp_path, cls):
     tree = _tree(tmp_path, {"AGENTS.md": "a\n", "CLAUDE.md": "c\n", "sub/AGENTS.md": "s\n"})
     reach = _reach([_record("AGENTS.md", "cwd=.", cls, read_by_tool=cls == "fetched")], [ROOT_ROW])
     src = _sources(build_receipt(reach, {"entries": []}, tree), "cwd=.")["AGENTS.md"]
-    observed, method, selected, loaded = CLASS_MAP[cls]
-    assert (src["observed"], src["observation_method"]) == (observed, method)
+    observed, selected, loaded = CLASS_MAP[cls]
+    assert src["observed"] == observed
+    assert src["observation_method"] == "unknown"  # the thread vocabulary: no runtime event backs the probe
+    assert src["dokimi_method"] == "marker_self_report"  # the probe saw a marker record for this source
     assert (src["states"]["selected"], src["states"]["loaded"]) == (selected, loaded)
     assert src["states"]["followed"] == "unknown"
+
+
+def test_a_source_the_probe_did_not_record_has_no_dokimi_method(tmp_path):
+    tree = _tree(tmp_path, {"AGENTS.md": "a\n", "CLAUDE.md": "c\n", "docs/style.md": "d\n"})
+    reach = _reach([_record("AGENTS.md", "cwd=.", "loaded")], [ROOT_ROW])
+    receipt = build_receipt(reach, BUDGET, tree)
+    src = _sources(receipt, "cwd=.")
+    assert src["docs/style.md"]["dokimi_method"] is None and src["docs/style.md"]["observation_method"] == "unknown"
+    assert receipt["observation"] == {"method": "unknown", "dokimi_method": "marker_self_report",
+                                      "detail": receipt["observation"]["detail"]}
 
 
 def test_start_up_expectations_follow_budget_and_the_run_directory(tmp_path):
@@ -211,3 +224,100 @@ def test_default_format_still_prints_the_matrix(tmp_path, monkeypatch, capsys):
     args.func(args)
     out = capsys.readouterr().out
     assert "wrote" in out and not (tmp_path / "out" / "effective_instructions.json").exists()
+
+
+def _from_argv(live: list[str], *extra: str) -> list[str]:
+    """The argv that reads a saved reach.json against the same source and harness as a live run's argv."""
+    return ["repo", "reach", live[2], "--manifest", "evals/repo-eval.yaml", "--harness",
+            live[live.index("--harness") + 1], *extra]
+
+
+def _saved(tmp_path) -> str:
+    return str(tmp_path / "out" / "reach.json")
+
+
+def test_from_a_saved_reach_gives_the_receipt_of_the_live_run(tmp_path, monkeypatch, capsys):
+    live = _end_to_end_args(tmp_path, monkeypatch, "--format", "receipt")
+    args = build_parser().parse_args(live)
+    args.func(args)
+    live_receipt = json.loads(capsys.readouterr().out)
+    args = build_parser().parse_args(_from_argv(live, "--from", _saved(tmp_path), "--format", "receipt"))
+    args.func(args)
+    assert json.loads(capsys.readouterr().out) == live_receipt
+    assert (tmp_path / "out" / "effective_instructions.json").exists()  # beside the saved file
+
+
+def test_from_prints_the_matrix_of_the_saved_probe_and_runs_nothing(tmp_path, monkeypatch, capsys):
+    live = _end_to_end_args(tmp_path, monkeypatch)
+    args = build_parser().parse_args(live)
+    args.func(args)
+    capsys.readouterr()
+
+    def no_probe(**_kwargs):
+        raise AssertionError("a saved probe must not run the harness")
+
+    monkeypatch.setattr("dokimi.repos.reach.run_reach", no_probe)
+    args = build_parser().parse_args(_from_argv(live, "--from", _saved(tmp_path)))
+    args.func(args)
+    assert capsys.readouterr().out == format_matrix(load_reach(tmp_path / "out" / "reach.json")) + "\n"
+
+
+def test_from_a_missing_file_is_a_usage_error(tmp_path, monkeypatch, capsys):
+    live = _end_to_end_args(tmp_path, monkeypatch)
+    args = build_parser().parse_args(_from_argv(live, "--from", str(tmp_path / "nope.json")))
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2 and "nope.json" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("text", ["{not json", "[1, 2]", '{"schema": "guidance_reach.v1"}'])
+def test_from_a_malformed_or_wrong_shaped_file_is_a_usage_error(tmp_path, monkeypatch, capsys, text):
+    live = _end_to_end_args(tmp_path, monkeypatch)
+    bad = tmp_path / "bad.json"
+    bad.write_text(text, encoding="utf-8")
+    args = build_parser().parse_args(_from_argv(live, "--from", str(bad)))
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2 and capsys.readouterr().err.startswith("\u2717")
+
+
+def test_from_refuses_a_saved_probe_of_another_repository_or_harness(tmp_path, monkeypatch, capsys):
+    live = _end_to_end_args(tmp_path, monkeypatch)
+    build_parser().parse_args(live).func(build_parser().parse_args(live))
+    data = json.loads((tmp_path / "out" / "reach.json").read_text(encoding="utf-8"))
+    for key, value, text in (("repo", {**data["repo"], "id": "other"}, "for repository 'other'"),
+                             ("harness", {**data["harness"], "name": "codex"}, "harness 'codex'")):
+        other = tmp_path / f"{key}.json"
+        other.write_text(json.dumps({**data, key: value}), encoding="utf-8")
+        args = build_parser().parse_args(_from_argv(live, "--from", str(other)))
+        with pytest.raises(SystemExit) as exc:
+            args.func(args)
+        assert exc.value.code == 2 and text in capsys.readouterr().err
+
+
+def test_from_refuses_the_probe_only_flags(tmp_path, monkeypatch, capsys):
+    live = _end_to_end_args(tmp_path, monkeypatch)
+    args = build_parser().parse_args(_from_argv(live, "--from", _saved(tmp_path), "--budget", "0.5", "--model", "m"))
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "--model, --budget" in err  # both named, in one message
+
+
+def test_a_probe_needs_a_model(tmp_path, monkeypatch, capsys):
+    live = _end_to_end_args(tmp_path, monkeypatch)
+    no_model = live[:live.index("--model")] + live[live.index("--model") + 2:]
+    args = build_parser().parse_args(no_model)
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2 and "--model is required" in capsys.readouterr().err
+
+
+def test_a_saved_probe_must_match_the_commit_it_is_read_against(tmp_path):
+    reach = _reach([_record("AGENTS.md", "cwd=.", "loaded")], [ROOT_ROW])
+    reach["repo"]["sha"] = "a" * 40
+    check_saved_reach(reach, "toy", "claude-code", "a" * 40)  # the same commit is accepted
+    check_saved_reach(reach, "toy", "claude-code", None)  # a tree without a commit cannot be compared
+    with pytest.raises(ReachError, match="probed at aaaaaaaaaaaa, the source is at bbbbbbbbbbbb"):
+        check_saved_reach(reach, "toy", "claude-code", "b" * 40)
