@@ -97,6 +97,7 @@ def _result(cell: dict[str, Any], arm: str, row: dict[str, Any]) -> dict[str, An
         "harness": cell.get("harness"),
         # Absent until a run records the effort it applied; null means "not recorded", not "default".
         "effort": cell.get("effort"),
+        "judge_model": cell.get("judge_model"),
         "arm": arm,
         "metric": METRIC,
         "n": sig.get("n"),

@@ -166,6 +166,12 @@
               "null"
             ]
           },
+          "judge_model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "arm": {
             "type": "string"
           },

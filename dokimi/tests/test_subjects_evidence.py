@@ -57,7 +57,7 @@ def test_each_non_baseline_arm_is_one_result_read_from_the_scorecard(tmp_path: P
     assert (skill["p_value"], skill["p_correction"], skill["verdict"]) == (0.001, "holm", "improved")
     assert by_arm["placebo"]["verdict"] == "inconclusive"
     # Not recorded by the run, so not filled in.
-    assert skill["effort"] is None
+    assert skill["effort"] is None and skill["judge_model"] is None
     save_artifact("skill_evidence", evidence, tmp_path / "e.json")  # validates against the schema
 
 
