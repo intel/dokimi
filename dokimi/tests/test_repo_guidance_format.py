@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import re
 import types
 
 import pytest
@@ -47,6 +48,18 @@ Text.
 
 # Other
 tail"""
+
+
+@pytest.mark.parametrize("text, sections", [
+    ("- ```\n  echo hi\n  ```\n# Real\n", ["Real"]),  # the closer is indented to the item's content column
+    ("- ```\n  echo hi\n# Real\n", ["Real"]),  # a line less indented than the item ends the item and its fence
+    ("- a\n  - ```\n    # not\n    ```\n# Real\n", ["Real"]),  # a nested item
+    ("1. ```\n   # not\n   ```\n# Real\n", ["Real"]),  # an ordered item
+    ("- ```\n# Real\n```\n# Real2\n", ["Real"]),  # the item ends; the ``` at column 0 opens a fence over Real2
+    ("- use ``` for code\n# Real\n", ["Real"]),  # a list item that is prose, not a fence
+])
+def test_a_fence_opened_by_a_list_item_holds_body_text_only_inside_the_item(text, sections):
+    assert re.findall(r'title="([^"]*)"', to_format(text, "xml")) == sections
 
 
 @pytest.mark.parametrize("text", [

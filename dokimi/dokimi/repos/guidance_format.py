@@ -20,7 +20,8 @@ FORMATS = ("xml",)
 
 _ROOT, _ROOT_CLOSE, _CLOSE = "<guidance>", "</guidance>", "</section>"
 _HEADING = re.compile(r"^(#{1,6}) (\S[^\r]*)$")  # canonical only: one space, no CR; anything else is body text
-_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")  # up to three spaces, a run of ``` or ~~~, and what follows it
+_FENCE = re.compile(r"^( *)(`{3,}|~{3,})(.*)$")  # the indentation, a run of ``` or ~~~, and what follows it
+_ITEM = re.compile(r"^( *(?:[-*+]|\d{1,9}[.)]) +)")  # a list item's marker and the spaces after it
 _OPEN = re.compile(r'^<section level="([1-6])" title="([^"]*)">$')
 _ESCAPES = {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}
 _UNESCAPES = {v: k for k, v in _ESCAPES.items()}
@@ -54,31 +55,45 @@ def restore(rendered: str) -> str:
     return "\n".join(out)
 
 
-def _opening_run(line: str) -> str | None:
-    """The run a line opens a fence with, or None. As in CommonMark, a backtick fence's info string has no backtick."""
-    match = _FENCE.match(line)
+def _opened(line: str) -> tuple[str, int] | None:
+    """The fence a line opens, as (its run, the column its content starts at), or None. A fence may open a list item
+    (``- ```) and then its content is indented to the item's column. As in CommonMark, a backtick fence's info string
+    has no backtick."""
+    item = _ITEM.match(line)
+    lead = item.group(1) if item else ""
+    match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line[len(lead):])
     if match is None or (match.group(1)[0] == "`" and "`" in match.group(2)):
         return None
-    return match.group(1)
+    return match.group(1), len(lead)
 
 
-def _fence_after(fence: str | None, line: str) -> str | None:
-    """The fence a line leaves open (its opening run), or None. A run of the same character, at least as long as the
-    opening one and followed by nothing but whitespace, closes it; any other fence line is body text."""
-    if fence is None:
-        return _opening_run(line)
+def _closes(fence: tuple[str, int], line: str) -> bool:
+    """Whether a line closes the fence: a run of its character, at least as long as the opening one, followed by
+    nothing but whitespace, indented at most three columns past the item's content column."""
+    run, column = fence
     match = _FENCE.match(line)
-    if match and match.group(1)[0] == fence[0] and len(match.group(1)) >= len(fence) and not match.group(2).strip():
-        return None
-    return fence
+    return bool(match and match.group(2)[0] == run[0] and len(match.group(2)) >= len(run)
+                and not match.group(3).strip() and len(match.group(1)) <= column + 3)
+
+
+def _advance(fence: tuple[str, int] | None, line: str) -> tuple[str, int] | None:
+    """The fence open after a line. A line indented less than the column of the item that opened the fence ends the
+    item, and the fence with it; the line is then read as any other line."""
+    if fence is not None:
+        expanded = line.expandtabs(4)  # a tab is indentation up to the next multiple of four
+        if line.strip() and len(expanded) - len(expanded.lstrip(" ")) < fence[1]:
+            fence = None
+        else:
+            return None if _closes(fence, line) else fence
+    return _opened(line)
 
 
 def _render_xml(text: str) -> str:
     out, fence = [_ROOT], None
     open_levels: list[int] = []
     for line in text.split("\n"):
-        heading = None if fence else _HEADING.match(line)
-        fence = _fence_after(fence, line)
+        fence = _advance(fence, line)
+        heading = _HEADING.match(line) if fence is None else None  # a line of a fence is body text
         if heading is None:
             out.append(line)
             continue
