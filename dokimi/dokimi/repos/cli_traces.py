@@ -620,9 +620,14 @@ def _codex_item_completed(out: Transcript, item: dict[str, Any], messages: list[
         else:
             _codex_command_unstarted(out, item, script, workdir, cwd)
     elif itype == "file_change":
+        status = item.get("status")  # a failed patch changed nothing
+        rc = {"completed": 0, "failed": 1}.get(status) if isinstance(status, str) else None
         for change in item.get("changes") or []:
             if isinstance(change, dict) and change.get("path"):
-                out.events.append({"t": None, "kind": "edit", "path": relative_path(str(change["path"]), workdir)})
+                event = {"t": None, "kind": "edit", "path": relative_path(str(change["path"]), workdir)}
+                if rc is not None:
+                    event["rc"] = rc
+                out.events.append(event)
     elif itype in ("mcp_tool_call", "web_search"):
         name = f"{item.get('server')}.{item.get('tool')}" if itype == "mcp_tool_call" else "web_search"
         out.events.append({"t": None, "kind": "tool", "name": name})

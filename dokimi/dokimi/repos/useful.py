@@ -12,6 +12,7 @@ hit's ``t``: the time the call was issued, since its result is not timed, so a t
 from __future__ import annotations
 
 import statistics
+import re
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
@@ -24,6 +25,10 @@ from .useful_spec import Useful
 #: The ``repo compare`` measures of the first useful result, one value per task (see :func:`useful_task_values`).
 USEFUL_MEASURES = ("first_useful_s", "first_useful_steps", "first_useful_rate")
 
+#: A drive-qualified (``C:/x``, ``c:x``) or backslash-rooted (``\\server\share``, ``\\x``) path: not a POSIX
+#: path, so ``_workspace_path`` would take it for relative; it is outside the workspace.
+_NON_POSIX_ROOT = re.compile(r"^(?:[A-Za-z]:|\\)")
+
 
 def hits(useful: Useful, event: Mapping[str, Any]) -> bool:
     """Whether ``event`` satisfies ``useful``: a passing command matching the regex, or an edit matching a glob."""
@@ -33,9 +38,9 @@ def hits(useful: Useful, event: Mapping[str, Any]) -> bool:
         text = str(event.get("text") or "")
         matched = bool(useful.command and useful.command.search(text))
         return event.get("kind") == "command" and event.get("rc") == 0 and matched
-    path = _workspace_path(
-        str(event.get("path") or "")
-    )  # outside the workspace, or not a path: no target
+    raw = str(event.get("path") or "")
+    # outside the workspace, or not a path: no target
+    path = None if _NON_POSIX_ROOT.match(raw) else _workspace_path(raw)
     failed = event.get("rc") == 1  # an edit whose tool result is an error changed nothing
     if path is None or event.get("kind") != "edit" or failed:
         return False

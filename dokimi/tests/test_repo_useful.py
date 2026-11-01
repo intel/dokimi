@@ -510,7 +510,7 @@ def test_a_task_whose_cells_name_two_kinds_has_no_useful_value():
 def test_an_edit_path_is_matched_after_normalization_and_one_outside_the_workspace_never_hits():
     assert hits(parse_useful({"edit": "src/*.py"}), _edit("./src/x.py"))
     assert hits(parse_useful({"edit": "src/*.py"}), _edit("src/../src/x.py"))
-    assert not hits(parse_useful({"edit": "**/*.py"}), _edit("/tmp/x.py"))
+    assert not hits(parse_useful({"edit": "**/*.py"}), _edit("/etc/x.py"))
     assert not hits(parse_useful({"edit": "**/*.py"}), _edit("../x.py"))
     assert not hits(parse_useful({"edit": "**/*.py"}), _edit("src/../../x.py"))
 
@@ -600,3 +600,35 @@ def test_a_review_task_with_no_definition_in_either_arm_is_not_reported_unpaired
         for u in s["unpaired"]
         if u["task"] == "t2" and (u["measure"] or "").startswith("first_useful")
     ]
+
+
+@pytest.mark.parametrize("path", ["C:/tmp/x.py", "c:x.py", "\\\\srv\\share\\x.py", "\\x.py"])
+def test_a_windows_absolute_or_drive_path_outside_the_workspace_never_hits(path):
+    assert not hits(parse_useful({"edit": "**/*.py"}), _edit(path))
+
+
+def test_a_codex_file_change_that_failed_is_no_useful_edit():
+    def change(status: str) -> list[dict]:
+        item = {"id": "1", "type": "file_change", "status": status, "changes": [{"path": "/ws/src/x.py", "kind": "update"}]}
+        return convert("codex-json", json.dumps({"type": "item.completed", "item": item}), "/ws").events
+
+    spec = parse_useful({"edit": "src/*.py"})
+    assert first_useful(spec, change("failed"))["reason"] == "never"
+    assert first_useful(spec, change("completed"))["reason"] == "untimed"  # a hit: the edit landed (no clock here)
+
+
+def test_a_claude_trace_with_a_malformed_content_block_is_unobserved_not_never():
+    lines = [
+        {"type": "assistant", "message": {"content": [42]}},  # a block of no known shape
+        {"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "e", "name": "Edit",
+                                                       "input": {"file_path": "/ws/src/x.py"}}]}},
+        {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "e", "is_error": False,
+                                                   "content": "ok"}]}},
+        {"type": "result", "subtype": "success", "is_error": False, "num_turns": 2, "result": "done",
+         "usage": {"input_tokens": 1, "output_tokens": 1}},
+    ]
+    transcript = convert("claude-stream-json", "\n".join(json.dumps(x) for x in lines), "/ws")
+    assert transcript.dropped_lines == 1
+    # the runner reports the uptake as unobserved when a line was dropped, as it would for a trace it could not read
+    events = None if transcript.dropped_lines else transcript.events
+    assert first_useful(parse_useful({"edit": "src/*.py"}), events)["reason"] == "unobserved"

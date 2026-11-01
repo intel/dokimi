@@ -131,7 +131,7 @@ def _apply(out: Transcript, rec: dict[str, Any], t: float | None,
         out.plugins = sorted(str(p.get("name")) for p in rec.get("plugins") or []
                              if isinstance(p, dict) and p.get("name"))
     elif kind == "assistant":
-        for block in _content(rec):
+        for block in _content(rec, out):
             if block.get("type") == "tool_use":
                 event = _tool_event(block, t, workdir)
                 if rec.get("parent_tool_use_id"):
@@ -146,7 +146,7 @@ def _apply(out: Transcript, rec: dict[str, Any], t: float | None,
         if model and model != "<synthetic>" and rec.get("parent_tool_use_id") is None:
             out.answered_by.add(str(model))
     elif kind == "user":
-        for block in _content(rec):
+        for block in _content(rec, out):
             if block.get("type") == "tool_result":
                 _apply_result(block, by_id)
     elif kind == "result":
@@ -195,6 +195,15 @@ def _result_text(content: Any) -> str | None:
     return None
 
 
-def _content(rec: dict[str, Any]) -> list[dict[str, Any]]:
+def _content(rec: dict[str, Any], out: Transcript) -> list[dict[str, Any]]:
+    """The object blocks of a message; a record with a block or a content of another shape counts as dropped."""
     content = (rec.get("message") or {}).get("content")
-    return [b for b in content if isinstance(b, dict)] if isinstance(content, list) else []
+    if content is None or isinstance(content, str):  # a user's prompt is a plain string: no block, nothing lost
+        return []
+    if not isinstance(content, list):
+        out.dropped_lines += 1
+        return []
+    blocks = [b for b in content if isinstance(b, dict)]
+    if len(blocks) != len(content):
+        out.dropped_lines += 1
+    return blocks
