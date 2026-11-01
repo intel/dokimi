@@ -33,6 +33,14 @@ def test_distribution_digest_matches_a_well_known_skill_md_entry(tmp_path: Path)
     assert distribution_digest("notes.md", base=tmp_path) is None
 
 
+def test_a_ref_with_a_scheme_gets_no_digest_even_when_a_directory_collides(tmp_path: Path):
+    colliding = tmp_path / "context7:" / "org" / "lib"
+    colliding.mkdir(parents=True)
+    (colliding / "SKILL.md").write_bytes(b"body")
+
+    assert distribution_digest("context7:/org/lib", base=tmp_path) is None
+
+
 def test_the_scorecard_carries_the_distribution_digest(tmp_path: Path, monkeypatch):
     from dokimi.artifacts import validate_artifact
     from dokimi.subjects import build_subject_scorecard, load_subject

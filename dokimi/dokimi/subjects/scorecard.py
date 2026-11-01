@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -152,6 +153,8 @@ def distribution_digest(ref: str | None, *, base: Path) -> str | None:
     of the tree.
     """
     if not ref:
+        return None
+    if re.match(r"[A-Za-z][A-Za-z0-9+.-]+:", ref) and not ref.startswith("local:"):
         return None
     path = Path(ref.removeprefix("local:"))
     if not path.is_absolute():
