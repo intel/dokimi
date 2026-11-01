@@ -323,6 +323,9 @@ def _cli(tmp_path, monkeypatch, *extra, init_skills=("sum-fast", "io-read"), exp
     seen = {}
 
     def fake_known(skill, catalog, cfg, **kw):
+        # the guard runs before any labelled query: a refusal must not cost the labelled runs
+        if seen.get("queries"):
+            seen.setdefault("order_violation", []).append(skill)
         seen.setdefault("known", []).append(skill)
         return {"skill": skill, "query": f"Use the {skill} skill.", "passed": known_passed,
                 "loaded": [skill] if known_passed else [], "listed": list(init_skills), "cost_usd": 0.01,
@@ -354,7 +357,12 @@ def _cli(tmp_path, monkeypatch, *extra, init_skills=("sum-fast", "io-read"), exp
         _catalog(tmp_path)
     args = build_parser().parse_args(["catalog", "trigger-probe", "--catalog", "cat", "--trigger-set",
                                       "ts.json", "--claude", "sh", *extra])
-    args.func(args)
+    try:
+        args.func(args)
+    finally:
+        # checked here, after the CLI returns or exits, so no handler in the CLI can swallow it
+        assert not seen.get("order_violation"), (
+            f"labelled queries ran before the known-positive guard: {seen.get('order_violation')}")
     return seen
 
 
