@@ -247,30 +247,62 @@ def _match(pat: tuple[str, ...], segs: tuple[str, ...]) -> bool:
     return bool(segs) and fnmatch.fnmatchcase(segs[0], pat[0]) and _match(pat[1:], segs[1:])
 
 
-Reach = tuple[list[tuple[str, ...]], list[tuple[str, ...]]]  # (skill directories, suite files) by resolved location
+@dataclass(frozen=True)
+class Reach:
+    """Where a subject's hashes read, by repository-relative segments.
+
+    ``skills``: skill directories, declared and resolved (a change under one moves skill_sha).
+    ``suites``: suite directories and files, reached through links (a change under one moves suite_hash).
+    ``links``, ``skill_links``: symlinks on the declared way to a suite read or to a skill directory, matched
+    exactly: retargeting one moves the hash, but a change to a file beside it does not.
+    ``globs``: the eval globs, with a skill's resolved directory in place of its declared one, so a suite still
+    claims its files after the link's target loses them (a deleted eval has no match to find)."""
+
+    skills: list[tuple[str, ...]]
+    suites: list[tuple[str, ...]]
+    links: list[tuple[str, ...]]
+    skill_links: list[tuple[str, ...]]
+    globs: tuple[str, ...]
+
+
+def _link_ancestors(rel: str, root: Path) -> list[tuple[str, ...]]:
+    """The proper ancestors of ``rel`` (repository-relative) that are symbolic links under ``root``."""
+    parts = rel.split("/")
+    return [tuple(parts[:k]) for k in range(1, len(parts)) if root.joinpath(*parts[:k]).is_symlink()]
 
 
 def _reach(subject: Subject, root: Path) -> Reach:
     """Where a subject's hashes read, as repository-relative segments, through links as well as by declared path:
-    a symlinked skill directory or suite file maps a change at its target to the subject."""
+    a symlinked skill directory or suite file maps a change at its target to the subject, and a symlink on the way
+    to any of them maps a change to the link itself."""
     root_real = _real(root)
-    skill_roots: list[tuple[str, ...]] = [_segs(subject.path)] if subject.kind == "skill" else []
-    suite_roots: list[tuple[str, ...]] = []
+    skills: list[tuple[str, ...]] = [_segs(subject.path)] if subject.kind == "skill" else []
+    suites: list[tuple[str, ...]] = []
+    links: list[tuple[str, ...]] = []
+    skill_links: list[tuple[str, ...]] = []
+    globs = subject.eval_globs
     if root_real is None:
-        return skill_roots, suite_roots
+        return Reach(skills, suites, links, skill_links, globs)
     real_skill = _inside(root / subject.path, root_real) if subject.kind == "skill" else None
     if real_skill is not None:
-        skill_roots.append(real_skill)
+        skills.append(real_skill)
+        declared, resolved = glob.escape(subject.path), glob.escape("/".join(real_skill))
+        if resolved != declared:  # a linked skill: its suite globs, rewritten to where the files live
+            moved = [resolved + g[len(declared):] for g in globs if g == declared or g.startswith(declared + "/")]
+            globs = (*globs, *moved)
+        skill_links.extend(_link_ancestors(subject.path, root))
     if subject.manifest is not None:  # the repo subject hashes its manifest through a link, so its target is covered
         real_manifest = _inside(root / subject.manifest, root_real)
         if real_manifest is not None:
-            suite_roots.append(real_manifest)
+            suites.append(real_manifest)
+        links.extend(_link_ancestors(subject.manifest, root))
     for rel, path in _suite_files(root, subject.suite_globs).items():
+        links.extend(_link_ancestors(rel, root))
         for _, entry in _walk(path, rel, dirs=True):
             real = _inside(entry, root_real)
             if real is not None:
-                suite_roots.append(real)
-    return skill_roots, suite_roots
+                suites.append(real)
+    return Reach(skills, suites, links, skill_links, globs)
 
 
 def _inside(path: Path, root_real: Path) -> tuple[str, ...] | None:
@@ -286,7 +318,8 @@ def _under(segs: tuple[str, ...], base: tuple[str, ...]) -> bool:
 
 
 def _in_suite(subject: Subject, segs: tuple[str, ...], reach: Reach) -> bool:
-    return any(_claims(g, segs) for g in subject.eval_globs) or any(_under(segs, r) for r in reach[1])
+    return (any(_claims(g, segs) for g in reach.globs) or any(_under(segs, r) for r in reach.suites)
+            or segs in reach.links)
 
 
 def _map_one(rel: str, subjects: list[Subject], reach: dict[str, Reach], shared: list[str], impact: Impact) -> None:
@@ -307,15 +340,18 @@ def _map_one(rel: str, subjects: list[Subject], reach: dict[str, Reach], shared:
 
 def _skill_owners(subjects: list[Subject], reach: dict[str, Reach], segs: tuple[str, ...]) -> list[Subject]:
     """The skills whose directory (declared or resolved) holds ``segs``: the deepest ones when skills nest. Two subjects
-    that alias one directory both own its files, since both skill_sha values cover them."""
+    that alias one directory both own its files, since both skill_sha values cover them. A symlink on a skill's way
+    is owned by that skill, whatever is beside it, since retargeting it changes the directory the skill hashes."""
     depth = max(
-        (len(root) for s in subjects if s.kind == "skill" for root in reach[s.id][0] if _under(segs, root)),
+        (len(root) for s in subjects if s.kind == "skill" for root in reach[s.id].skills if _under(segs, root)),
         default=0,
     )
-    return [
-        s for s in subjects
-        if s.kind == "skill" and any(len(root) == depth and _under(segs, root) for root in reach[s.id][0])
-    ] if depth else []
+    owned = {
+        s.id for s in subjects
+        if s.kind == "skill" and depth and any(len(root) == depth and _under(segs, root) for root in reach[s.id].skills)
+    }
+    owned |= {s.id for s in subjects if s.kind == "skill" and segs in reach[s.id].skill_links}
+    return [s for s in subjects if s.id in owned]
 
 
 def _segs(path: str) -> tuple[str, ...]:
@@ -485,11 +521,11 @@ def _digest_files(files: dict[str, Path]) -> str:
     for rel in sorted(files):
         for name, path in _walk(files[rel], rel):
             if path.is_symlink():
-                h.update(f"{name}\0-> {os.readlink(path)}\n".encode())
+                h.update(os.fsencode(f"{name}\0-> {os.readlink(path)}\n"))  # names may hold undecodable bytes
             if path.is_dir():
                 continue  # a linked directory: its files are walked and hashed one by one
             target = path.resolve() if path.exists() else path
-            h.update(f"{name}\0{tree_digest(target)}\n".encode())
+            h.update(os.fsencode(f"{name}\0{tree_digest(target)}\n"))
     return "sha256:" + h.hexdigest()
 
 

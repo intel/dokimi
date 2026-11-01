@@ -828,3 +828,76 @@ def test_a_suite_file_reached_through_a_link_into_its_skill_is_refused(tmp_path,
     os.symlink(target, root / link, target_is_directory=True)
     with pytest.raises(ConfigError, match=rf"skill/a.*{re.escape(suite)}"):
         load_repo_config(root).subjects(hashes=False)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_a_linked_skill_still_claims_its_evals_after_their_whole_directory_is_deleted(tmp_path):
+    import shutil
+
+    files = {
+        ".github/dokimi/config.yaml": BESIDE_CONFIG,
+        "vendor/a/SKILL.md": "# a\n",
+        "vendor/a/evals/q.json": "[1]\n",
+    }
+    root = _tree(tmp_path / "repo", files)
+    (root / "skills").mkdir()
+    os.symlink("../vendor/a", root / "skills" / "a")
+    shutil.rmtree(root / "vendor/a/evals")
+    impact = load_repo_config(root).subjects_for_changed(["vendor/a/evals/q.json"])
+    assert impact.suites == {"skill/a": ["vendor/a/evals/q.json"]}
+    assert impact.skills == {} and impact.unclaimed == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_retargeting_a_link_on_the_way_to_a_suite_file_claims_the_link_itself(tmp_path):
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: evaluation/current/task.json\n"
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": body,
+        "skills/a/SKILL.md": "# a\n",
+        "one/task.json": "[1]\n",
+        "two/task.json": "[2]\n",
+    })
+    os.makedirs(root / "evaluation")
+    os.symlink("../one", root / "evaluation" / "current")
+    before = _subjects(root)["skill/a"].suite_hash
+    (root / "evaluation" / "current").unlink()
+    os.symlink("../two", root / "evaluation" / "current")
+    assert _subjects(root)["skill/a"].suite_hash != before
+    impact = load_repo_config(root).subjects_for_changed(["evaluation/current"])
+    assert impact.suites == {"skill/a": ["evaluation/current"]}
+    assert impact.unclaimed == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_retargeting_a_link_above_a_skill_claims_the_skill_by_its_link(tmp_path):
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: linked/a\n"
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": body,
+        "real1/a/SKILL.md": "# a\n",
+        "real2/a/SKILL.md": "# b\n",
+    })
+    os.symlink("real1", root / "linked")
+    before = _subjects(root)["skill/a"].skill_sha
+    (root / "linked").unlink()
+    os.symlink("real2", root / "linked")
+    assert _subjects(root)["skill/a"].skill_sha != before
+    impact = load_repo_config(root).subjects_for_changed(["linked", "linked-sibling/x"])
+    assert impact.skills == {"skill/a": ["linked"]}
+    assert impact.unclaimed == ["linked-sibling/x"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file names and link targets are bytes")
+def test_undecodable_names_and_link_targets_under_a_suite_load_and_digest(tmp_path):
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": BESIDE_CONFIG,
+        "skills/a/SKILL.md": "# a\n",
+    })
+    evals = root / "skills" / "a" / "evals"
+    evals.mkdir()
+    fd = os.open(os.fsencode(evals) + b"/bad-\xff", os.O_CREAT | os.O_WRONLY, 0o644)
+    os.close(fd)
+    os.symlink(b"../../../shared/target-\xff", os.fsencode(evals / "link"))  # a dangling link out of the skill
+    subject = _subjects(root)["skill/a"]
+    assert subject.suite_hash and subject.suite_hash.startswith("sha256:")
+    impact = load_repo_config(root).subjects_for_changed(["skills/a/evals/bad-\udcff"])
+    assert impact.suites == {"skill/a": ["skills/a/evals/bad-\udcff"]}
