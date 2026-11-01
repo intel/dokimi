@@ -15,6 +15,11 @@ from dokimi.repos.code_index.scip import Decoded, Occurrence, decode_index
 from dokimi.repos.code_index.symbols import descriptor_name, is_local
 
 
+# Whether a tool's is_implementation relationships list every ancestor (checked on scip-clang 0.4.0 and
+# scip-python 0.6.8); another tool is decided by CodeIndex.lists_ancestors' vote.
+_TOOLS_LISTING_ANCESTORS = {"scip-clang": True, "scip-python": False}
+
+
 class CodeIndex:
     """The occurrences, definitions and base-class relations of one SCIP index."""
 
@@ -107,9 +112,11 @@ class CodeIndex:
     def lists_ancestors(self) -> bool:
         """True when the index lists every ancestor of a class, not only its direct bases.
 
-        Decided over the types (``#`` symbols) that have a grandparent: the index lists ancestors when most of
-        them list every base of each listed base too. scip-clang does (1,716 of 1,733 on oneDAL), scip-python
-        does not. With no grandparent anywhere there is nothing to drop, so the answer is False."""
+        Known tools decide it: scip-clang lists ancestors, scip-python does not. For another tool it is a vote
+        over the types (``#`` symbols) that have a grandparent: True when more than half of them list every base
+        of each listed base too. With no grandparent anywhere there is nothing to drop, so the vote is False."""
+        if self._lists_ancestors is None:
+            self._lists_ancestors = _TOOLS_LISTING_ANCESTORS.get(self._tool.split(" ")[0])
         if self._lists_ancestors is None:
             closed = deep = 0
             for symbol, listed in self._bases.items():
@@ -118,8 +125,9 @@ class CodeIndex:
                     continue
                 deep += 1
                 closed += all(set(grand) <= set(listed) | {symbol} for grand in above)
-            self._lists_ancestors = deep > 0 and 2 * closed > deep
+            self._lists_ancestors = 2 * closed > deep
         return self._lists_ancestors
+
 
 def load(path: str | Path, *, root_prefix: str = "") -> CodeIndex:
     """Read the SCIP index at ``path``. ``root_prefix`` is put before each document path, so an index written

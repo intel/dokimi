@@ -176,7 +176,8 @@ documented in `dokimi/repos/code_index/index.py`.
 - Enclosing scopes need an indexer that writes enclosing ranges (scip-python
   does, scip-clang 0.4 does not).
 - Base classes are direct bases. scip-python lists direct bases; scip-clang
-  lists every ancestor, which the reader detects per index and reduces.
+  lists every ancestor, which the reader reduces. It knows both tools by
+  name; for another tool it decides from the relationships themselves.
 - An occurrence repeated identically in one document is kept once.
 - A `local N` id is scoped to one document, so only per-document reads
   return it.

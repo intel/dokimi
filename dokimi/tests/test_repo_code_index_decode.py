@@ -288,6 +288,54 @@ def test_bases_reduce_a_four_level_ancestor_listing():
     assert [ix.bases(s) for s in (d_sym, C_SYM, B_SYM)] == [(C_SYM,), (B_SYM,), (BASE_SYM,)]
 
 
+def _meta(tool: str) -> bytes:
+    return ld(1, ld(2, ld(1, tool.encode()) + ld(2, b"1.0")))
+
+
+def test_a_known_tool_decides_whether_ancestors_are_listed():
+    # C(B, A) with B(A): the only vote is closed, but scip-python lists direct bases
+    data = document("a.py"), symbol_info(C_SYM, (B_SYM, BASE_SYM)) + symbol_info(B_SYM, (BASE_SYM,))
+    python = _index(index(data[0], external=data[1], meta=_meta("scip-python")))
+    assert not python.lists_ancestors and python.bases(C_SYM) == (B_SYM, BASE_SYM)
+    clang = _index(index(data[0], external=data[1], meta=_meta("scip-clang")))
+    assert clang.lists_ancestors and clang.bases(C_SYM) == (B_SYM,)
+
+
+def _vote(closed: int, open_: int, method: bool = False) -> bool:
+    """lists_ancestors of an unknown tool's index with ``closed`` types listing their grandparent and
+    ``open_`` types missing it."""
+    data = symbol_info(BASE_SYM, (PKG + "`m`/Root#",))
+    for k in range(closed):
+        name = PKG + f"`m`/K{k}#" + ("go()." if method else "")
+        data += symbol_info(name, (BASE_SYM, PKG + "`m`/Root#"))
+    for k in range(open_):
+        data += symbol_info(PKG + f"`m`/O{k}#", (BASE_SYM,))
+    return _index(index(document("a.py"), external=data, meta=_meta("scip-other"))).lists_ancestors
+
+
+@pytest.mark.parametrize(("closed", "open_", "expected"), [
+    (2, 1, True), (1, 1, False), (1, 2, False), (0, 0, False), (3, 0, True),
+])
+def test_an_unknown_tool_is_decided_by_a_majority_of_types_with_a_grandparent(closed, open_, expected):
+    assert _vote(closed, open_) is expected
+
+
+def test_a_type_votes_closed_only_when_every_listed_base_has_its_bases_listed():
+    root, other, grand = PKG + "`m`/Root#", PKG + "`m`/Other#", PKG + "`m`/Grand#"
+    data = (symbol_info(BASE_SYM, (root,)) + symbol_info(other, (grand,))
+            + symbol_info(C_SYM, (BASE_SYM, root, other)))
+    assert not _index(index(document("a.py"), external=data, meta=_meta("scip-other"))).lists_ancestors
+
+
+def test_methods_do_not_vote():
+    assert _vote(3, 1, method=True) is False
+
+
+def test_a_type_listing_itself_through_a_cycle_still_votes_closed():
+    data = symbol_info(C_SYM, (B_SYM,)) + symbol_info(B_SYM, (C_SYM,))
+    assert _index(index(document("a.py"), external=data, meta=_meta("scip-other"))).lists_ancestors
+
+
 def test_bases_from_two_records_of_one_symbol_are_merged():
     data = index(document("a.py", symbols=symbol_info(C_SYM, (B_SYM,))), external=symbol_info(C_SYM, (BASE_SYM,)))
     assert _index(data).bases(C_SYM) == (B_SYM, BASE_SYM)
