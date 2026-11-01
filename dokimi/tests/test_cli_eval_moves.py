@@ -81,11 +81,25 @@ def test_a_retired_root_names_its_new_group(old, new, tail, capsys):
 
 @pytest.mark.parametrize(("old", "new"), MOVES, ids=[" ".join(old) for old, _ in MOVES])
 def test_an_old_path_exits_2_and_names_the_new_argv(old, new, capsys):
-    # A positional after the old path: a bare `eval score` is the group's help, not an old call.
+    # An option after the old path: a bare `eval score` is the group's help, and a plain word after
+    # it is a mistyped leaf (see the test below), so neither is an old call to name here.
     with pytest.raises(SystemExit) as exc:
-        parse_args([*old, "data.json"])
+        parse_args([*old, "--answers", "a.json"])
     assert exc.value.code == 2
     assert f"moved: dokimi {shlex.join(new)}" in capsys.readouterr().err
+
+
+def test_a_typo_after_a_group_that_stays_is_not_an_old_call(capsys):
+    # `eval score` is still a group, so `eval score pointwse` is a mistyped leaf: argparse names the
+    # choices. Reporting it as a moved command would suggest a command that does not exist.
+    argv = ["eval", "score", "pointwse", "--answers", "a.json"]
+    assert cli_routes.moved_argv(argv) is None
+    with pytest.raises(SystemExit) as exc:
+        parse_args(argv)
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "moved:" not in err
+    assert "invalid choice" in err
 
 
 @pytest.mark.parametrize(("old", "new"), MOVES, ids=[" ".join(old) for old, _ in MOVES])

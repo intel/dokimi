@@ -36,7 +36,7 @@ class Root:
 
 @dataclass(frozen=True)
 class Leaf:
-    """An operation: a parser with no subcommands. ``path`` is its argv, e.g. ``("eval", "score")``."""
+    """An operation: a parser with no subcommands. ``path`` is its argv, e.g. ``("eval", "score", "pointwise")``."""
 
     path: tuple[str, ...]
     cost: str
@@ -45,7 +45,11 @@ class Leaf:
 
 @dataclass(frozen=True)
 class Tombstone:
-    """An old argv prefix that now moved: it answers with ``new`` and exits 2, never forwards."""
+    """An old argv prefix that now moved: it answers with ``new`` and exits 2, never forwards.
+
+    A group that stays in place (``eval score``) is the exception when no option follows it: see
+    ``moved_argv``.
+    """
 
     old: tuple[str, ...]
     new: tuple[str, ...]
@@ -238,8 +242,11 @@ def moved_argv(
         if any(canon[:k] in live for k in range(n + 1, len(canon) + 1)):
             continue
         # A group that stays under its own name (`eval score` -> `eval score pointwise`) keeps its
-        # help and its usage error when it has no leaf; any other argument is an old call.
-        if tomb.new[:n] == _canonical(tomb.old) and all(a in ("-h", "--help") for a in argv[n:]):
+        # help, and a plain word after it is a mistyped leaf that argparse names with its choices.
+        # Only an option after it is an old call.
+        if tomb.new[:n] == _canonical(tomb.old) and (
+            all(a in ("-h", "--help") for a in argv[n:]) or not argv[n].startswith("-")
+        ):
             continue
         return [*tomb.new, *argv[n:]]
     return None
@@ -262,7 +269,8 @@ def _resolve(path: tuple[str, ...]) -> tuple[str, ...] | None:
 def _is_route(path: tuple[str, ...]) -> bool:
     """True when argv ``path`` names a root or an alias, or a group or leaf under one.
 
-    ``moved_argv`` matches by prefix, so a tombstone on a group shadows every route under it.
+    ``moved_argv`` matches by prefix and skips a live leaf, so a tombstone on a group shadows
+    the argv under it that is not a live leaf.
     """
     full = _resolve(path)
     return full is not None and any(leaf.path[: len(full)] == full for leaf in LEAVES)

@@ -264,7 +264,7 @@ def test_every_alias_points_at_its_own_root_parser():
 
 
 def test_a_tombstone_rewrites_the_argv_and_exits_2(monkeypatch, capsys):
-    # Test-only entry: no command moves in this release.
+    # Test-only entry: `old-tool` is not a real command; the table is replaced for this test.
     monkeypatch.setattr(
         cli_routes,
         "TOMBSTONES",
