@@ -61,9 +61,15 @@ def cmd_eval_coverage(args: argparse.Namespace) -> None:
     if not evals:
         print(f"Error: no evals.json rows or tasks under {root}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
-    if args.out and Path(args.out).resolve() in {Path(args.graph).resolve(), *input_files(root)}:
-        print(f"Error: --out would overwrite an input file: {args.out}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+    if args.out:
+        try:
+            clobbers = Path(args.out).resolve() in {Path(args.graph).resolve(), *input_files(root)}
+        except (OSError, RuntimeError) as exc:  # a symlink loop: Python 3.11/3.12 raise RuntimeError
+            print(f"Error: cannot resolve {args.out}: {exc}", file=sys.stderr)
+            sys.exit(EXIT_USAGE)
+        if clobbers:
+            print(f"Error: --out would overwrite an input file: {args.out}", file=sys.stderr)
+            sys.exit(EXIT_USAGE)
     report = coverage_report(graph, evals, str(root))
     if args.out:
         try:

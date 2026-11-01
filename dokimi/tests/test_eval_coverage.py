@@ -363,6 +363,17 @@ def test_a_floor_on_a_class_the_graph_lacks_is_n_a_and_fails(tmp_path, capsys):
     assert "FAIL: rare_critical coverage n/a < 0.500000" in res.stderr
 
 
+def test_out_that_is_a_symlink_loop_exits_2_not_a_traceback(tmp_path, capsys, monkeypatch):
+    # Python 3.11/3.12 raise RuntimeError from Path.resolve() on a loop; 3.13+ raise nothing here
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "loop").symlink_to("loop")
+
+    res = _run(capsys, str(_skill(tmp_path, ROWS)), "--graph", str(_graph(tmp_path)), "--out", "loop")
+
+    assert res.returncode == 2
+    assert "Error:" in res.stderr
+
+
 def test_out_as_a_relative_path_to_an_input_is_refused(tmp_path, capsys, monkeypatch):
     skill = _skill(tmp_path, ROWS)
     work = tmp_path / "work"
