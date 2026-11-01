@@ -60,8 +60,8 @@ from .uptake import MCP_CONFIG, base_servers, mcp_servers
 
 ARMS = ("guidance:none", "guidance:raw", "guidance:bridge", "guidance:as-skill")  # the guidance parts
 #: The description of the skill ``guidance:as-skill`` packages the guidance into: the same for every repository.
-GUIDANCE_SKILL_DESCRIPTION = ("Repository guidance for working in this codebase: its conventions, build and test "
-                              "commands and rules. Load it before changing its code.")
+GUIDANCE_SKILL_DESCRIPTION = ("Repository guidance for working in this codebase, its conventions, build and test "
+                              "commands and rules. Load it before changing its code.")  # no ": " (YAML plain scalar)
 REV_ARM, PATCH_ARM, FORMAT_ARM = "guidance:rev:", "patch:", "guidance:format="
 #: Every form ``repo run --arm`` takes
 ARM_FORMS = (*ARMS, f"{REV_ARM}<rev>", f"{PATCH_ARM}<file>", f"{FORMAT_ARM}<{'|'.join(FORMATS)}>",
@@ -490,16 +490,24 @@ def _apply_format(ws: Path, matched: list[str], fmt: str) -> tuple[list[str], di
         raise PrepError(f"guidance:format={fmt}: the base has no guidance file to render")
     written, links = [], []
     for rel in matched:
-        path = ws / rel
-        if path.is_symlink():
+        if (ws / rel).is_symlink():
             links.append(rel)
             continue
         try:
-            path.write_text(to_format(path.read_bytes().decode("utf-8"), fmt), encoding="utf-8")
-        except (UnicodeDecodeError, FormatError) as exc:
+            rendered = to_format(_guidance_text(ws, rel, f"guidance:format={fmt}"), fmt)
+        except FormatError as exc:
             raise PrepError(f"guidance:format={fmt}: {rel}: {exc}") from exc
+        (ws / rel).write_text(rendered, encoding="utf-8")
         written.append(rel)
     return written, ({"guidance_links_kept": links} if links else {})
+
+
+def _guidance_text(ws: Path, rel: str, arm: str) -> str:
+    """The text of a guidance file of the workspace; one that is not UTF-8 is a prep error of the cell."""
+    try:
+        return (ws / rel).read_bytes().decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise PrepError(f"{arm}: {rel} is not UTF-8: {exc}") from exc
 
 
 def _apply_as_skill(ws: Path, manifest: RepoManifest, matched: list[str]) -> tuple[list[str], dict[str, Any]]:
@@ -516,9 +524,13 @@ def _apply_as_skill(ws: Path, manifest: RepoManifest, matched: list[str]) -> tup
         raise PrepError(f"guidance:as-skill: the workspace already has {SKILLS_DIR}/{name}")
     parts = []
     for rel in matched:
-        if not (ws / rel).is_symlink():
-            text = (ws / rel).read_bytes().decode("utf-8")
-            parts.append(f"## File: {rel}\n\n" + (text if text.endswith("\n") else text + "\n"))
+        if (ws / rel).is_symlink():  # packaged once under its target's name; a link to anything else would be lost
+            target = posixpath.normpath(posixpath.join(posixpath.dirname(rel), os.readlink(ws / rel)))
+            if target not in matched:
+                raise PrepError(f"guidance:as-skill: {rel} links to {target}, which is not a guidance file")
+            continue
+        text = _guidance_text(ws, rel, "guidance:as-skill")
+        parts.append(f"## File: {rel}\n\n" + (text if text.endswith("\n") else text + "\n"))
     for rel in matched:
         (ws / rel).unlink()
     skill_dir.mkdir(parents=True)

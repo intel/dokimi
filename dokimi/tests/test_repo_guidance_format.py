@@ -8,6 +8,7 @@ from __future__ import annotations
 import types
 
 import pytest
+import yaml
 
 from dokimi.repos import RepoSource, load_manifest, open_source
 from dokimi.repos.arms import slug, tree_sha256
@@ -225,3 +226,39 @@ def test_the_text_of_each_guidance_file_is_in_the_skill_verbatim(tmp_path):
     skill = (ws / ".claude/skills/toy-guidance/SKILL.md").read_text()
     assert RICH in skill and "# src\nno final newline\n" in skill
     assert meta["guidance_skill"]["name"] == "toy-guidance"
+
+
+def test_the_skill_frontmatter_is_valid_yaml_with_name_and_description(tmp_path):
+    ws = tmp_path / "ws"
+    write(ws, "AGENTS.md", "# A\n")
+    _apply_as_skill(ws, types.SimpleNamespace(id="toy"), ["AGENTS.md"])
+    skill = (ws / ".claude/skills/toy-guidance/SKILL.md").read_text()
+    frontmatter = yaml.safe_load(skill.split("---\n")[1])
+    assert frontmatter == {"name": "toy-guidance", "description": GUIDANCE_SKILL_DESCRIPTION}
+
+
+def test_as_skill_refuses_a_file_that_is_not_utf8_as_a_prep_error(tmp_path):
+    ws = tmp_path / "ws"
+    (ws / "AGENTS.md").parent.mkdir(parents=True)
+    (ws / "AGENTS.md").write_bytes(b"\xff# A\n")
+    with pytest.raises(PrepError, match="AGENTS.md"):
+        _apply_as_skill(ws, types.SimpleNamespace(id="toy"), ["AGENTS.md"])
+
+
+def test_as_skill_packages_a_linked_guidance_file_once(tmp_path):
+    ws = tmp_path / "ws"
+    write(ws, "AGENTS.md", "# A\nbody\n")
+    (ws / "CLAUDE.md").symlink_to("AGENTS.md")
+    _apply_as_skill(ws, types.SimpleNamespace(id="toy"), ["AGENTS.md", "CLAUDE.md"])
+    skill = (ws / ".claude/skills/toy-guidance/SKILL.md").read_text()
+    assert skill.count("# A\nbody\n") == 1 and "## File: CLAUDE.md" not in skill
+    assert not (ws / "CLAUDE.md").is_symlink() and not (ws / "CLAUDE.md").exists()
+
+
+def test_as_skill_refuses_a_link_to_a_file_that_is_not_guidance(tmp_path):
+    ws = tmp_path / "ws"
+    write(ws, "docs/guide.md", "# guide\n")
+    write(ws, "AGENTS.md", "# A\n")
+    (ws / "CLAUDE.md").symlink_to("docs/guide.md")
+    with pytest.raises(PrepError, match="not a guidance file"):
+        _apply_as_skill(ws, types.SimpleNamespace(id="toy"), ["AGENTS.md", "CLAUDE.md"])

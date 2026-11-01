@@ -322,7 +322,9 @@ the cells the way the skill arms are compared above.
   needs a decision about which element a heading maps to.
 - `guidance:as-skill`: the guidance files are removed (as `guidance:none` removes
   them) and their text goes into `.claude/skills/<repo id>-guidance/SKILL.md`, each
-  file under a `## File: <path>` line with its text verbatim. The frontmatter
+  file under a `## File: <path>` line with its text verbatim; a symlink to another
+  guidance file (`CLAUDE.md` to `AGENTS.md`) is packaged once under that file, and a
+  symlink to any other file fails the cell. The frontmatter
   description is one fixed sentence for every repository, so the skill is
   selected on its description alone. Nested guidance files lose the directory
   they applied to; the skill records its sha256 and appears in `skills` like any
