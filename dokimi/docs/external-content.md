@@ -135,7 +135,7 @@ file exists from the catalog root instead. Example links such as `[Title](URL)`
 are common, so `--strict` does not fail on them. A link, or a `../` code span,
 that reaches a file outside the skill directory is a `warn`
 (`link-escapes-skill`, `path-escapes-skill`), since it breaks when the skill is
-installed alone. A description with no "when to use" clause is a `warn`
+installed alone. A description with no "when" clause (`use when ...`, `when deploying ...`) is a `warn`
 (`description-no-when`), and so is one that overlaps another skill's by at least
 half (`description-near-duplicate`). Two skills in different paths with the same
 directory name and different `SKILL.md` text are a `warn` on both

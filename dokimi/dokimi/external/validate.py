@@ -41,7 +41,7 @@ an error and does not fail ``--strict``. A link to a file outside the skill dire
 naming such a file is ``path-escapes-skill``. Code spans that name no file are not checked,
 and neither are code fences: those are usually examples or paths in the user's own project.
 
-Descriptions: one with no "when to use" clause is a ``warn`` (``description-no-when``),
+Descriptions: one with no "when" clause is a ``warn`` (``description-no-when``),
 and so is one whose tokens overlap another skill's at a Jaccard similarity of at least
 :data:`NEAR_DUPLICATE_JACCARD` (``description-near-duplicate``). Skills with
 ``disable-model-invocation: true`` are exempt from both, as the model never chooses them.
@@ -71,13 +71,12 @@ NAME_MAX = 64
 DESCRIPTION_MAX = 1024
 NEAR_DUPLICATE_JACCARD = 0.5
 
-# A "when to use" clause: the model chooses a skill from its description alone.
+# A "when" clause of any subject and verb ("run migrations when deploying"), or a use phrase: the model
+# chooses a skill from its description alone.
 WHEN_RE = re.compile(
-    r"\b(?:when to use|when to delegate|use when|use this when|use for|use this skill|"
-    r"trigger(?:s|ed)?\s*(?:on|when|:)|invoke (?:when|this)|invoke only|"
-    r"use (?:it |this |these )?(?:when|if|before|after|whenever|proactively|anytime)|"
-    r"whenever|when the user|activate\b|should be used when|when building|"
-    r"when (?:you|the user) )",
+    r"\b(?:when\s+\w|use for|use this skill|trigger(?:s|ed)?\s*(?:on|:)|invoke only|activate\b|"
+    r"invoke this|use (?:it |this |these )?(?:when|if|before|after|whenever|proactively|anytime)|"
+    r"whenever)",
     re.I,
 )
 # Words that say nothing about what a skill is for; left out of the description overlap.
@@ -96,7 +95,9 @@ REF_DEF_RE = re.compile(
 )
 # RFC 3986 scheme, dots included; a dotted one with a line or symbol after it is a file (_file_ref).
 URI_SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+\-.]*:")
-FILE_SUFFIX_RE = re.compile(r"\d+|[A-Za-z_]\w*")
+# After a file, a line or a symbol (``run.py:42``, ``run.py:10-20``, ``run.py:main``): read as the file's name.
+FILE_SUFFIX_RE = re.compile(r"\d+(?:[-:]\d+)?|[A-Za-z_]\w*")
+LOCATION_SUFFIX_RE = re.compile(r":(?:\d+(?:[-:]\d+)?|[A-Za-z_]\w*)$")
 CODE_SPAN_RE = re.compile(r"`([^`\n]+)`")
 SKILL_DIR_VAR = "${CLAUDE_SKILL_DIR}/"
 
@@ -261,6 +262,9 @@ def _file_ref(raw: str) -> Optional[str]:
     scheme = URI_SCHEME_RE.match(text)
     if scheme and not ("." in scheme.group() and FILE_SUFFIX_RE.fullmatch(text[scheme.end() :])):
         return None
+    text = LOCATION_SUFFIX_RE.sub("", text)  # the file is named before its line or symbol suffix
+    if not text:
+        return None
     if text.startswith(SKILL_DIR_VAR):
         text = text[len(SKILL_DIR_VAR) :]
         if not text:
@@ -346,13 +350,13 @@ def _bundle_findings(skill: Skill, source_root: Path) -> list[Finding]:
 
 
 def _description_findings(skill: Skill) -> list[Finding]:
-    """A ``warn`` when the description has no "when to use" clause."""
+    """A ``warn`` when the description has no "when" clause."""
     if not WHEN_RE.search(" ".join(skill.description.split())):
         return [
             Finding(
                 "warn",
                 "description-no-when",
-                "description has no 'when to use' or 'use when' clause; the model chooses "
+                "description has no 'when' clause (e.g. 'use when ...'); the model chooses "
                 "the skill from the description alone",
             )
         ]

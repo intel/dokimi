@@ -895,3 +895,46 @@ def test_a_file_symbol_link_to_a_missing_file_is_still_a_warning(tmp_path):
 
     [review] = review_skills(read_skill_manifest(tmp_path))
     assert _codes(review) == ["link-missing"]
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "Run database migrations when deploying a new release.",
+        "Diagnose failures when debugging production incidents.",
+        "Format commit messages when the user asks for a commit.",
+    ],
+)
+def test_a_general_when_clause_is_not_a_description_warning(tmp_path, description):
+    _skill(tmp_path / "skills", "clause", name="clause", description=description)
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == []
+
+
+@pytest.mark.parametrize("body", [
+    "See [the entry point](run.py:42).\n",
+    "See [the entry point](run.py:main).\n",
+    "See [the entry point](run.py:10-20).\n",
+    "See [the entry point](scripts/run.py:42:7).\n",
+])
+def test_an_existing_file_with_a_line_or_symbol_suffix_is_not_a_missing_link(tmp_path, body):
+    skill_dir = _skill(tmp_path / "skills", "bundled-run", name="bundled-run",
+                       description="Use for bundled run.", body=body)
+    (skill_dir / "run.py").write_text("print('x')\n", encoding="utf-8")
+    (skill_dir / "scripts").mkdir()
+    (skill_dir / "scripts" / "run.py").write_text("print('x')\n", encoding="utf-8")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.findings == []
+
+
+def test_an_escaping_link_with_a_line_suffix_is_named_as_escaping(tmp_path):
+    (tmp_path / "shared").mkdir()
+    (tmp_path / "shared" / "run.py").write_text("print('x')\n", encoding="utf-8")
+    _skill(tmp_path / "skills", "reach-run", name="reach-run", description="Use for reach run.",
+           body="See [the entry point](../../shared/run.py:42).\n"
+                "Also `../../shared/run.py:main`.\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert sorted(_codes(review)) == ["link-escapes-skill", "path-escapes-skill"]
