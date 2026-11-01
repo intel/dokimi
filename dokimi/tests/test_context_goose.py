@@ -153,3 +153,39 @@ def test_the_command_reads_a_store_and_a_claude_log_together(tmp_path, capsys):
                                       "--min-sessions", "1", "--json"])
     args.func(args)
     assert json.loads(capsys.readouterr().out)["sessions"] == 2
+
+
+def test_a_user_message_of_several_text_blocks_is_one_prompt(tmp_path):
+    db = _store(tmp_path, {"s1": [("user", [{"type": "text", "text": "update the changelog fragment"},
+                                            {"type": "text", "text": "no, update the changelog fragment first"}],
+                                   None)]})
+    (session,) = read_goose_store(db)
+    assert [e.kind for e in session.events] == ["prompt"]
+
+
+def test_an_unreadable_only_session_is_dropped_from_the_corpus_and_its_diagnostic_is_kept(tmp_path):
+    from dokimi.commands.context import _read_sessions
+    db = _store(tmp_path, {"s0": [("user", _text("push the branch now"), None)], "s1": []})
+    conn = sqlite3.connect(db)
+    conn.execute("INSERT INTO messages (session_id, role, content_json, created_timestamp) "
+                 "VALUES ('s1', 'user', 'not json', 1)")
+    conn.commit()
+    conn.close()
+    dropped: list = []
+    sessions = read_goose_store(db, dropped)
+    assert [s.name for s in sessions] == [f"{db}#s0"]
+    assert len(dropped) == 1 and dropped[0].errors[0].endswith("content is not JSON")
+    loaded, failed = _read_sessions([str(db)])
+    assert len(loaded) == 1 and not failed
+
+
+def test_a_goose_session_with_a_bad_message_reports_it_on_the_command_line(tmp_path, capsys):
+    from dokimi.commands.context import _read_sessions
+    db = _store(tmp_path, {"s0": [("user", _text("push the branch now"), None)], "s1": []})
+    conn = sqlite3.connect(db)
+    conn.execute("INSERT INTO messages (session_id, role, content_json, created_timestamp) "
+                 "VALUES ('s1', 'user', 'not json', 1)")
+    conn.commit()
+    conn.close()
+    _read_sessions([str(db)])
+    assert "content is not JSON" in capsys.readouterr().err

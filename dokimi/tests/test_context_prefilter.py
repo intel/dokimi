@@ -332,3 +332,90 @@ def test_the_command_refuses_a_guidance_file_it_cannot_read(tmp_path):
     with pytest.raises(SystemExit, match="cannot read"):
         args.func(args)
 
+
+
+# --- review fixes: keyless rules, separators, shell commands, corrections, ranking, sources --------
+
+def test_a_rule_of_named_commands_only_is_kept_and_triggers_on_its_command():
+    guide = "- Run `pytest`.\n- Do not use `sudo`.\n"
+    session = _session(_prompt("the tests: pytest"), _tool("Bash", command="uv run pytest -q"))
+    rows = _report([session], guide)
+    run = _row(rows, "Run `pytest`")
+    assert run["episodes"] == 1 and run["acted"] == 1
+    assert _row(rows, "sudo")["status"] == KEPT
+
+
+def test_windows_separators_match_a_path_and_a_backslash_directory_is_a_path():
+    rule = "- Keep `changelog.d/` current.\n- Update `docs/guide.md` before release.\n"
+    write = _session(_prompt("keep the changelog current"), _tool("Write", file_path="C:\\w\\changelog.d\\x.md"))
+    assert _row(_report([write], rule), "Keep")["acted"] == 1
+    edit = _session(_prompt("update the release"), _tool("Edit", file_path="C:\\work\\docs\\guide.md"))
+    assert _row(_report([edit], rule), "Update")["acted"] == 1
+    (dir_claim,) = claims_from_guidance("- Keep `C:\\repo\\docs\\` clean.\n")
+    assert dir_claim.paths == ("C:\\repo\\docs\\",) and dir_claim.commands == ()
+
+
+def test_a_shell_command_that_writes_a_named_directory_counts_as_acting():
+    rule = "- Keep `changelog.d/` current.\n"
+    session = _session(_prompt("keep the changelog current"), _tool("Bash", command="printf 'entry' > changelog.d/x.md"))
+    assert _row(_report([session], rule), "Keep")["acted"] == 1
+
+
+@pytest.mark.parametrize("command", ["echo 'make ci-local'", "grep -F 'make ci-local' AGENTS.md", "# make ci-local"])
+def test_a_mention_of_the_command_is_not_an_action(command):
+    session = _session(_prompt("push the branch now"), _tool("Bash", command=command))
+    assert _row(_report([session]), CI)["acted"] == 0
+
+
+@pytest.mark.parametrize("command", ["make ci-local", "uv run make ci-local", "cd x && make ci-local"])
+def test_a_command_run_directly_after_a_runner_or_in_a_chain_is_an_action(command):
+    session = _session(_prompt("push the branch now"), _tool("Bash", command=command))
+    assert _row(_report([session]), CI)["acted"] == 1
+
+
+def test_a_correction_is_read_from_the_next_prompt_only():
+    later = _session(_prompt("push the branch"), _prompt("thanks, continue"),
+                     _prompt("no, the branch must not go before ci"))
+    assert _row(_report([later]), CI)["corrected"] == 0
+
+
+def test_goose_edit_bodies_are_not_event_text():
+    from dokimi.context.session_log import tool_event
+    event = tool_event({"path": "/w/README.md", "file_text": "Keep the changelog fragment current",
+                        "old_str": "changelog", "new_str": "changelog fragment"})
+    assert "changelog" not in event.text and event.paths == ("/w/README.md",)
+
+
+def test_candidates_with_equal_rounded_rates_rank_by_exact_count():
+    from dokimi.context.prefilter import _rank_key
+    more_triggered = {"sessions_triggered": 3, "trigger_rate": 0.001, "episodes": 3, "acted": 0, "acted_rate": 0.0}
+    fewer_triggered = {"sessions_triggered": 2, "trigger_rate": 0.001, "episodes": 2, "acted": 2, "acted_rate": 1.0}
+    assert min([more_triggered, fewer_triggered], key=_rank_key) is fewer_triggered
+
+
+def test_a_repeated_or_aliased_source_is_read_once(tmp_path):
+    from dokimi.commands.context import _read_sessions
+    log = _write(tmp_path / "s.jsonl", [_prompt("push the branch now")])
+    alias = tmp_path / "alias.jsonl"
+    alias.symlink_to(log)
+    sessions, failed = _read_sessions([str(log)] * 5 + [str(alias), f"{tmp_path}/*.jsonl"])
+    assert len(sessions) == 1 and not failed
+
+
+@pytest.mark.parametrize("flag,value", [("--rare-max", "-1"), ("--in-use-rate", "nan"), ("--in-use-rate", "inf"),
+                                        ("--in-use-rate", "1.5"), ("--in-use-rate", "-0.1")])
+def test_the_thresholds_refuse_values_outside_their_domain(tmp_path, flag, value):
+    guide = tmp_path / "AGENTS.md"
+    guide.write_text(GUIDE, encoding="utf-8")
+    log = _write(tmp_path / "s.jsonl", [_prompt("push the branch now")])
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["context", "prefilter", str(guide), str(log), flag, value])
+
+
+def test_the_thresholds_accept_their_edge_values(tmp_path):
+    guide = tmp_path / "AGENTS.md"
+    guide.write_text(GUIDE, encoding="utf-8")
+    log = _write(tmp_path / "s.jsonl", [_prompt("push the branch now")])
+    args = build_parser().parse_args(["context", "prefilter", str(guide), str(log),
+                                      "--rare-max", "0", "--in-use-rate", "1"])
+    assert args.rare_max == 0 and args.in_use_rate == 1.0
