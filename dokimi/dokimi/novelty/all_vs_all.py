@@ -17,7 +17,7 @@ from collections import Counter
 from pathlib import Path
 
 from .client import LLMClient
-from .routing import BM25, Candidate, RoutingInputError, _noise, model_routing, tokenize
+from .routing import BM25, Candidate, RoutingInputError, model_routing, repeat_noise, tokenize
 
 NO_PICK = "(none)"
 TIE = "(tie)"
@@ -190,6 +190,7 @@ def _model_arm(candidates: list[Candidate], queries_by_skill: dict[str, list[str
     model: dict[str, Counter] = {}
     unscored: dict[str, int] = {}
     groups: list[list[dict]] = []  # one per query, its repeats in order, for the noise block
+    golds: list[str] = []  # the gold of each group, so a noise row says which skill it is for
     n_failed = n_abstained = 0
     first_error = None
     for index, name in enumerate(names):
@@ -205,6 +206,7 @@ def _model_arm(candidates: list[Candidate], queries_by_skill: dict[str, list[str
                                gold=index, seed=seed + index, repeats=repeats)
         rows = routed["per_query"]
         groups += [rows[start:start + repeats] for start in range(0, len(rows), repeats)]
+        golds += [name] * len(queries)
         n_failed += routed["n_failed"]
         n_abstained += routed["n_abstained"]
         if first_error is None:
@@ -213,9 +215,12 @@ def _model_arm(candidates: list[Candidate], queries_by_skill: dict[str, list[str
         model[name] = Counter(row.get("picked") or NO_PICK for row in rows if not row.get("error"))
         if routed["n_failed"]:
             unscored[name] = unscored.get(name, 0) + routed["n_failed"]
+    noise = repeat_noise(groups) if repeats > 1 and groups else None
+    if noise is not None:
+        for row, gold in zip(noise["per_query"], golds, strict=True):
+            row["gold"] = gold
     return dict(_attractor_table(model, unscored, names, _tied_groups(candidates)),
-                model=client.model, seed=seed, repeats=repeats,
-                noise=_noise(groups) if repeats > 1 and groups else None,
+                model=client.model, seed=seed, repeats=repeats, noise=noise,
                 n_failed=n_failed, n_abstained=n_abstained, first_error=first_error)
 
 

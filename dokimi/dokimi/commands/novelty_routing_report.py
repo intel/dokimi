@@ -70,6 +70,50 @@ def estimate_routing_usd(model: str, provider: str, prompts: list[int],
     return round(total * repeats, 6)
 
 
+def no_queries_reason(args: argparse.Namespace, queries: list[str], self_derived: bool) -> str:
+    """Why a routing run has no query to score."""
+    if not queries and self_derived:
+        return (f"no section heading or description sentence of two or more words in "
+                f"{args.artifact} outside code fences; headings inside fenced code are not "
+                "requests")
+    if not queries:
+        return f"--queries {args.queries} holds no non-blank query"
+    return (f"none of the {len(queries)} queries has a content word, since words "
+            "like a, the, how do not count")
+
+
+def refuse_estimate_without_queries(args: argparse.Namespace, queries: list[str],
+                                    self_derived: bool) -> None:
+    """Exit as the real run would when no query has a content word, so no budget is read off it."""
+    from dokimi.novelty.routing import tokenize
+
+    if not any(tokenize(query) for query in queries):
+        usage_exit(f"no usable queries: {no_queries_reason(args, queries, self_derived)}. "
+                   "Nothing is estimated, since the run would be refused")
+
+
+def refuse_queries_naming_disabled(args: argparse.Namespace, field: list,
+                                    queries_by_skill: dict[str, list[str]],
+                                    disabled: list[str]) -> None:
+    """Refuse queries for a skill the field leaves out only because it sets disable-model-invocation.
+
+    ``disabled`` is the names :func:`_routing_field` left out for that reason, so the field is
+    not read again. The generic "not in the field" refusal does not say why, so this names the
+    disabled skills and the flag that keeps them. Other unknown names fall through to that refusal.
+    """
+    if args.include_disabled:
+        return
+    held = {c.name for c in field}
+    unknown = sorted(set(queries_by_skill) - held)
+    named = [name for name in unknown if name in disabled]
+    if named:
+        usage_exit("the queries name skills that are not in the field: "
+                   + ", ".join(f"`{n}`" for n in unknown) + ". "
+                   + "; ".join(f"`{n}` sets disable-model-invocation, so the field leaves it out"
+                               for n in named)
+                   + "; pass --include-disabled to keep those skills in the field")
+
+
 def print_routing_estimate(args: argparse.Namespace, candidates: list, queries: list[str]) -> None:
     """The model arm's calls, tokens and list-price USD, as JSON; nothing is sent.
 

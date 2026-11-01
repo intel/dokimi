@@ -648,7 +648,8 @@ Two numbers, reported side by side and never merged:
   fresh sample, so under `DOKIMI_RESPONSE_CACHE` a repeat is not a
   replay. Repeats need `--model`, and cost N times the calls. With repeats, `n_calls` is
   queries x repeats, `n_abstained` and `n_failed` count calls, and each `per_query` row
-  carries its `repeat` index.
+  carries its `repeat` index. In an `--all-vs-all` run each `noise` row also names its `gold`
+  skill, since two skills can list the same request.
 
 A single-artifact `--model` run also writes a `cost` block (calls, input and output tokens, cache read and
 write tokens, and `usd`, which is `null` when any call this run paid for had no known price) and prints the

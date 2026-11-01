@@ -795,9 +795,9 @@ def test_the_modal_pick_is_the_most_frequent_not_the_first():
 
 
 def test_a_single_usable_repeat_has_no_half_range():
-    from dokimi.novelty.routing import _noise
+    from dokimi.novelty.routing import repeat_noise
 
-    noise = _noise([[{"query": "q", "repeat": 0, "picked": PERF.name, "correct": True}]])
+    noise = repeat_noise([[{"query": "q", "repeat": 0, "picked": PERF.name, "correct": True}]])
     assert noise["selection_rate_by_repeat"] == [1.0]
     assert noise["half_range"] is None
 

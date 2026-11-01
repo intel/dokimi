@@ -174,3 +174,33 @@ def test_estimate_only_gives_a_null_dollar_figure_for_a_routing_model_with_no_pr
     estimate = json.loads(captured.out)
     assert estimate["n_calls"] == 1 and estimate["expected_usd"] is None
     assert "expected_usd is null" in captured.err
+
+
+@pytest.mark.parametrize("queries", [None, ["the a of", "how do i"]],
+                         ids=["no-query-lines", "only-stop-words"])
+def test_estimate_only_refuses_the_run_the_real_run_refuses(tmp_path, capsys, queries):
+    out = tmp_path / "routing.json"
+    flags = ["--queries-from-headings"]
+    if queries is not None:
+        qfile = tmp_path / "q.json"
+        qfile.write_text(json.dumps(queries), encoding="utf-8")
+        flags = ["--queries", str(qfile)]
+    args = _parse("novelty", "routing",
+                  "--artifact", _skill(tmp_path, "grill", "Stop.", body="# Grill\n\n## Steps\n"),
+                  "--competitors", _skill(tmp_path, "b", "tune a database"),
+                  *flags, "--model", "m", "--estimate-only", "--out", str(out))
+    with pytest.raises(SystemExit):
+        args.func(args)
+    assert "no usable queries" in capsys.readouterr().err
+    assert not out.exists()
+
+
+def test_a_sentence_with_e_g_or_i_e_is_one_description_query():
+    from dokimi.novelty.routing import description_as_queries
+
+    assert description_as_queries(
+        "Profile code, e.g. PyTorch training loops, and report hotspots.") == [
+        "Profile code, e.g. PyTorch training loops, and report hotspots."]
+    assert description_as_queries(
+        "Tune kernels, i.e. hot loops. Report vs. baseline timings.") == [
+        "Tune kernels, i.e. hot loops.", "Report vs. baseline timings."]

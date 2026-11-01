@@ -26,6 +26,9 @@ from dokimi.commands.novelty_routing_report import (
     print_attractors,
     print_routing_estimate,
     print_routing_summary,
+    no_queries_reason,
+    refuse_estimate_without_queries,
+    refuse_queries_naming_disabled,
     routing_queries,
 )
 from dokimi.defaults import (
@@ -301,21 +304,10 @@ def _routing_card(ref: str):
     return candidate, body
 
 
-def _routing_field(args: argparse.Namespace, exclude: set[str],
-                   left_out: list[str] | None = None) -> list:
-    """The field ``--competitors`` and ``--catalog`` name, without the names in ``exclude``.
-
-    What was left out of the field, and why, is appended to ``left_out`` when given.
-
-    Raises:
-        OSError, ValueError, RecursionError: A reference or the catalog cannot be loaded.
-    """
-    from dokimi.novelty.routing import (
-        catalog_competitors,
-        disables_model_invocation,
-        non_skill_reason,
-        skill_file,
-    )
+def _named_competitors(args: argparse.Namespace, left_out: list[str] | None,
+                      disabled: list[str] | None) -> list:
+    """The ``--competitors`` references that stay in the field, each as a candidate."""
+    from dokimi.novelty.routing import disables_model_invocation, non_skill_reason, skill_file
 
     competitors = []
     for ref in args.competitors or []:
@@ -333,13 +325,33 @@ def _routing_field(args: argparse.Namespace, exclude: set[str],
                   "(--include-disabled keeps it)", file=sys.stderr)
             if left_out is not None:
                 left_out.append(f"{ref}: disable-model-invocation")
+            if disabled is not None:
+                disabled.append(candidate.name)
             continue
         competitors.append(candidate)
+    return competitors
+
+
+def _routing_field(args: argparse.Namespace, exclude: set[str],
+                   left_out: list[str] | None = None,
+                   disabled: list[str] | None = None) -> list:
+    """The field ``--competitors`` and ``--catalog`` name, without the names in ``exclude``.
+
+    What was left out of the field, and why, is appended to ``left_out`` when given. The
+    names left out for disable-model-invocation are appended to ``disabled`` when given.
+
+    Raises:
+        OSError, ValueError, RecursionError: A reference or the catalog cannot be loaded.
+    """
+    from dokimi.novelty.routing import catalog_competitors
+
+    competitors = _named_competitors(args, left_out, disabled)
     if args.catalog:
         notes: list[str] = []
         catalog = catalog_competitors(args.catalog,
                                       exclude | {c.name for c in competitors}, notes,
-                                      include_disabled=args.include_disabled)
+                                      include_disabled=args.include_disabled,
+                                      disabled=disabled)
         for note in notes:
             print(f"WARNING: {note}", file=sys.stderr)
         if left_out is not None:
@@ -362,8 +374,9 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
 
     _check_all_vs_all_args(args)
     left_out: list[str] = []
+    disabled: list[str] = []
     try:
-        field = _routing_field(args, set(), left_out)
+        field = _routing_field(args, set(), left_out, disabled)
     except RoutingInputError as exc:
         usage_exit(str(exc))
     except (OSError, ValueError, RecursionError) as exc:
@@ -373,7 +386,7 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
             queries_by_skill = load_queries_by_skill(args.queries_by_skill)
         except (OSError, UnicodeDecodeError) as exc:
             usage_exit(f"cannot read the queries: {exc}")
-        _refuse_queries_naming_disabled(args, field, queries_by_skill)
+        refuse_queries_naming_disabled(args, field, queries_by_skill, disabled)
         selector = _client(args.model, args.provider, "selector", args) if args.model else None
         if selector is not None:
             # One call per query with a content word and per repeat, each sending every card.
@@ -417,30 +430,6 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
           f"{len(queries_by_skill)} skills with queries")
     print_attractors(result)
     print_all_vs_all_model(model_arm, payload.get("cost"))
-
-
-def _refuse_queries_naming_disabled(args: argparse.Namespace, field: list,
-                                    queries_by_skill: dict[str, list[str]]) -> None:
-    """Refuse queries for a skill the field leaves out only because it sets disable-model-invocation.
-
-    The generic "not in the field" refusal does not say why, so this names the disabled skills
-    and the flag that keeps them. Other unknown names fall through to that refusal.
-    """
-    if args.include_disabled:
-        return
-    held = {c.name for c in field}
-    unknown = sorted(set(queries_by_skill) - held)
-    if not unknown:
-        return
-    everyone = _routing_field(argparse.Namespace(**{**vars(args), "include_disabled": True}),
-                              set())
-    disabled = [name for name in unknown if name in {c.name for c in everyone}]
-    if disabled:
-        usage_exit("the queries name skills that are not in the field: "
-                   + ", ".join(f"`{n}`" for n in unknown) + ". "
-                   + "; ".join(f"`{n}` sets disable-model-invocation, so the field leaves it out"
-                               for n in disabled)
-                   + "; pass --include-disabled to keep those skills in the field")
 
 
 def _field_record(args: argparse.Namespace, competitors: list, left_out: list[str]) -> dict:
@@ -515,6 +504,7 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
     queries, self_derived, queries_source = routing_queries(args, body, gold)
     candidates = [gold, *competitors]
     if args.estimate_only:
+        refuse_estimate_without_queries(args, queries, self_derived)
         print_routing_estimate(args, candidates, queries)
         return
     lexical = dict(lexical_routing(candidates, queries, gold=0),
@@ -555,15 +545,7 @@ def _refuse_no_queries(args: argparse.Namespace, queries: list[str], self_derive
                        queries_source: str | None = None) -> NoReturn:
     """Write the ``no_queries`` record, then exit saying why no query was scored."""
     # Written too, so a batch run leaves a record of why it has no rate.
-    if not queries and self_derived:
-        reason = (f"no section heading or description sentence of two or more words in "
-                  f"{args.artifact} outside code fences; headings inside fenced code are not "
-                  "requests")
-    elif not queries:
-        reason = f"--queries {args.queries} holds no non-blank query"
-    else:
-        reason = (f"none of the {len(queries)} queries has a content word, since words "
-                  "like a, the, how do not count")
+    reason = no_queries_reason(args, queries, self_derived)
     out.write_text(json.dumps({"artifact": args.artifact, "status": "no_queries",
                                "reason": reason, "queries_self_derived": self_derived,
                                "queries_source": queries_source or ("none" if self_derived else None),

@@ -987,3 +987,13 @@ def test_a_clean_all_vs_all_run_still_prints_its_cost_after_the_summary(tmp_path
     saved = next(i for i, line in enumerate(lines) if line.startswith("OK Saved"))
     cost = [i for i, line in enumerate(lines) if line.startswith("cost")]
     assert cost and cost[-1] > saved
+
+
+def test_every_noise_row_names_the_gold_skill_it_belongs_to():
+    same = "profile a slow program"
+    queries = {"linux-perf": [same], "mkl-advisor": [same]}
+    result = all_vs_all(ALL_FIELD, queries, client=_positional_client(lambda p: 1),
+                        seed=0, repeats=2)
+    rows = result["model"]["noise"]["per_query"]
+    assert sorted(row["gold"] for row in rows) == ["linux-perf", "mkl-advisor"]
+    assert all(row["query"] == same for row in rows)

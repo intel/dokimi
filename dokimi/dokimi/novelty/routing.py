@@ -327,7 +327,7 @@ def model_routing(
         "selection_rate_among_answered": (
             round(hits / len(answered), 4) if answered else None
         ),
-        "noise": _noise(groups) if repeats > 1 else None,
+        "noise": repeat_noise(groups) if repeats > 1 else None,
         "per_query": picks,
         "note": (
             "An upper bound on harness behaviour, not a harness measurement: a harness "
@@ -337,7 +337,7 @@ def model_routing(
     }
 
 
-def _noise(groups: list[list[dict]]) -> dict:
+def repeat_noise(groups: list[list[dict]]) -> dict:
     """Agreement across the repeats of each query, and the run-to-run spread of the rate.
 
     A query's agreement is the share of its answered repeats that gave its most common
@@ -426,6 +426,20 @@ def headings_as_queries(body: str, *, limit: int = 40) -> list[str]:
 
 
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+# A period that ends an abbreviation, not a sentence: "e.g.", "i.e.", "vs.", "cf.".
+_ABBREVIATION_END = re.compile(r"(?:^|\s)(?:e\.g|i\.e|vs|cf)\.$", re.IGNORECASE)
+
+
+def _sentences(text: str) -> list[str]:
+    """``text`` split after each sentence-ending period, not after an abbreviation's."""
+    sentences, start = [], 0
+    for match in _SENTENCE_END.finditer(text):
+        if _ABBREVIATION_END.search(text[start:match.start()]):
+            continue
+        sentences.append(text[start:match.start()])
+        start = match.end()
+    sentences.append(text[start:])
+    return sentences
 
 
 def description_as_queries(description: str, *, limit: int = 40) -> list[str]:
@@ -435,7 +449,7 @@ def description_as_queries(description: str, *, limit: int = 40) -> list[str]:
     what it is for in its description. Each sentence with two or more content words is
     offered, as :func:`headings_as_queries` offers headings. The same self-derived stamp applies.
     """
-    sentences = _SENTENCE_END.split(" ".join(description.split()))
+    sentences = _sentences(" ".join(description.split()))
     return [s for s in sentences if len(tokenize(s)) >= 2][:limit]
 
 
@@ -547,16 +561,18 @@ def load_candidate(ref: str) -> tuple[Candidate, str, str | None]:
 
 def catalog_competitors(root: str, exclude: set[str],
                         notes: list[str] | None = None, *,
-                        include_disabled: bool = False) -> list[Candidate]:
+                        include_disabled: bool = False,
+                        disabled: list[str] | None = None) -> list[Candidate]:
     """Every skill under ``root`` whose name is not in ``exclude``.
 
     The field a harness would list next to the artifact, rather than one the caller picks.
     Skills come from the catalog reader, so a ``skills.yaml`` manifest decides which skills
     the catalog has. A declared skill that cannot be loaded is left out and described in
     ``notes`` (when given) rather than aborting the run. A skill with
-    ``disable-model-invocation`` is left out too, unless ``include_disabled``. A mirror, a
-    byte-identical ``SKILL.md`` under another path (a plugin copy of the ``skills/`` tree), is
-    left out too: the copy nearest the catalog root stands for the card.
+    ``disable-model-invocation`` is left out too, unless ``include_disabled``; its name is
+    appended to ``disabled`` (when given), so a caller need not read the catalog again. A
+    mirror, a byte-identical ``SKILL.md`` under another path (a plugin copy of the ``skills/``
+    tree), is left out too: the copy nearest the catalog root stands for the card.
 
     Raises:
         ValueError: ``root`` is not a directory, or its ``skills.yaml`` is invalid (with no
@@ -566,7 +582,7 @@ def catalog_competitors(root: str, exclude: set[str],
     """
     if not Path(root).is_dir():
         raise ValueError(f"--catalog is not a directory: {root}")
-    eligible = _eligible_catalog_skills(root, exclude, notes, include_disabled)
+    eligible = _eligible_catalog_skills(root, exclude, notes, include_disabled, disabled)
     _refuse_conflicting_names(eligible)
     keeper = _keepers_by_copy(eligible)
     candidates: list[Candidate] = []
@@ -581,7 +597,8 @@ def catalog_competitors(root: str, exclude: set[str],
 
 
 def _eligible_catalog_skills(root: str, exclude: set[str], notes: list[str] | None,
-                             include_disabled: bool) -> list[tuple[Skill, str]]:
+                             include_disabled: bool,
+                             disabled: list[str] | None = None) -> list[tuple[Skill, str]]:
     """Each loadable, non-excluded catalog skill with the sha256 of its ``SKILL.md``."""
     from dokimi.external.catalog import read_skill_manifest
 
@@ -598,6 +615,8 @@ def _eligible_catalog_skills(root: str, exclude: set[str], notes: list[str] | No
             if notes is not None:
                 notes.append(f"left out catalog skill {skill.name!r}: "
                              "disable-model-invocation (--include-disabled keeps it)")
+            if disabled is not None:
+                disabled.append(skill.name)
             continue
         eligible.append((skill, hashlib.sha256(skill.path.read_bytes()).hexdigest()))
     return eligible
