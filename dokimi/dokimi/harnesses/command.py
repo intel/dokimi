@@ -409,8 +409,8 @@ def _no_verdict(reward: float | None, returncode: int, output_dir: Path | None) 
     """An errored cell when the exit code gave no verdict, so the summary leaves it out of pass_rate."""
     if reward is not None:
         return {}
-    unreadable = ", reward file unreadable" if _has_reward_file(output_dir) else ""
-    return {"solver_error": f"no verdict: exit {returncode}{unreadable}"}
+    no_reward = ", reward file has no reward" if _has_reward_file(output_dir) else ""
+    return {"solver_error": f"no verdict: exit {returncode}{no_reward}"}
 
 
 def _has_reward_file(output_dir: Path | None) -> bool:

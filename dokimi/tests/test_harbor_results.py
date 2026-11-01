@@ -371,7 +371,7 @@ def test_a_command_with_an_unreadable_reward_file_is_not_scored_from_its_exit_co
         task, output_dir=tmp_path / "cell")
 
     assert (result.passed, result.reward) == (False, None)
-    assert "reward file unreadable" in result.metrics["solver_error"]
+    assert "reward file has no reward" in result.metrics["solver_error"]
     _assert_errored_not_scored(result)
 
 
