@@ -58,10 +58,12 @@ def check_fences(scan: Scan, files: list[str], check: Check) -> dict[str, Any]:
     found = python_fences(scan, files)
     block: dict[str, Any] = {"tool": check.tool, "tool_version": None, "python": check.python,
                              "fences": len(found), "checked": 0, "fail": 0, "unknown": 0, "syntax": 0}
+    # The repository's grammar and version are the target: a fence is parsed as that Python parses it.
+    target = python_version(check) if check.python is not None and found else None
     runnable = []
     for f, fence, code in found:
         try:
-            ast.parse(code)
+            ast.parse(code, feature_version=target)
         except (SyntaxError, ValueError, RecursionError, MemoryError) as exc:  # `f(<arg>)` is not Python
             block["syntax"] += 1
             why = exc.msg if isinstance(exc, SyntaxError) else type(exc).__name__  # too deep: no parse tree
@@ -76,7 +78,7 @@ def check_fences(scan: Scan, files: list[str], check: Check) -> dict[str, Any]:
         block["unknown"] = len(runnable)
         return block
     block["tool_version"] = tool_version(check)
-    found_errors = _run(check, [code for _, _, code in runnable]) if runnable else {}  # no file: a usage error
+    found_errors = _run(check, [code for _, _, code in runnable], target) if runnable else {}  # no file: usage error
     for i, (f, fence, code) in enumerate(runnable):
         errors = found_errors.get(i, [])
         if not errors:
@@ -93,13 +95,24 @@ def check_fences(scan: Scan, files: list[str], check: Check) -> dict[str, Any]:
 
 
 def tool_version(check: Check) -> str:
-    """The version the tool reports, e.g. ``2.4.0``."""
-    argv = [sys.executable, "-m", "mypy", "--version"] if check.tool == "mypy" else [check.tool, "--version"]
-    done = _run_tool(argv, os.getcwd())
+    """The version the tool reports, e.g. ``2.4.0``. ``-I``: a module in the checkout cannot stand in for it."""
+    argv = ([sys.executable, "-I", "-m", "mypy", "--version"] if check.tool == "mypy"
+            else [check.tool, "--version"])
+    done = _run_tool(argv, tempfile.gettempdir())
     if done.timed_out or done.returncode != 0:  # a missing module exits 1 with the reason on stderr
         raise TypecheckError(f"{check.tool} --version exited {done.returncode}: {done.stderr[-300:]}")
     parts = done.stdout.split()
     return parts[1] if len(parts) > 1 else done.stdout.strip()
+
+
+def python_version(check: Check) -> tuple[int, int]:
+    """The repository interpreter's (major, minor) version, read by the interpreter itself (``-I``)."""
+    done = _run_tool([str(check.python), "-I", "-c", "import sys; print(*sys.version_info[:2])"],
+                     tempfile.gettempdir())
+    if done.timed_out or done.returncode != 0:
+        raise TypecheckError(f"{check.python} did not report its version: {done.stderr[-300:]}")
+    major, minor = done.stdout.split()[:2]
+    return int(major), int(minor)
 
 
 def _label(code: str) -> str:
@@ -108,15 +121,21 @@ def _label(code: str) -> str:
     return first[:80]
 
 
-def _run(check: Check, codes: list[str]) -> dict[int, list[tuple[int, str]]]:
-    """Errors per fence index: (line in the fence, message), in tool order."""
+def _run(check: Check, codes: list[str], target: tuple[int, int] | None = None) -> dict[int, list[tuple[int, str]]]:
+    """Errors per fence index: (line in the fence, message), in tool order. ``target``: the repository's version."""
     with tempfile.TemporaryDirectory(prefix="dokimi-typecheck-") as tmp:
         names = []
         for i, code in enumerate(codes):
             Path(tmp, f"fence_{i}.py").write_text(code + "\n", encoding="utf-8")
             names.append(f"fence_{i}.py")
         if check.tool == "mypy":
-            argv = [sys.executable, "-m", "mypy", "--python-executable", str(check.python),
+            # The config is explicit and empty: no subject or host mypy settings apply. -I: nothing in the
+            # run directory or PYTHON* variables can stand in for mypy or for the standard library.
+            config = os.path.join(tmp, "mypy.ini")
+            Path(config).write_text("[mypy]\n", encoding="utf-8")
+            version = [] if target is None else ["--python-version", f"{target[0]}.{target[1]}"]
+            argv = [sys.executable, "-I", "-m", "mypy", "--python-executable", str(check.python), *version,
+                    "--config-file", config, "--check-untyped-defs",
                     "--follow-imports=silent", "--no-incremental", "--cache-dir", os.path.join(tmp, "cache"),
                     "--output", "json", *names]
         else:

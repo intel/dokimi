@@ -147,9 +147,34 @@ def test_the_scan_command_refuses_a_python_env_that_is_not_executable(tmp_path, 
 
 
 def test_bare_typecheck_flag_means_mypy(tmp_path):
+    from dokimi.commands.repo import _typecheck_or_exit
+
     args = build_parser().parse_args(["repo", "scan", str(tmp_path), "--typecheck"])
-    assert args.typecheck == "mypy"
+    assert args.typecheck is True
     assert args.python_env is None
+    assert _typecheck_or_exit(args).tool == "mypy"
+
+
+def test_the_typecheck_flag_takes_no_value_so_a_source_after_it_is_not_its_checker(tmp_path):
+    # `repo scan --typecheck <source>`: the source must not be read as the checker name
+    args = build_parser().parse_args(["repo", "scan", "--typecheck", str(tmp_path)])
+    assert str(tmp_path) in vars(args).values()
+    assert args.typecheck is True
+
+
+def test_the_checker_is_chosen_by_typecheck_tool(tmp_path):
+    args = build_parser().parse_args(["repo", "scan", str(tmp_path), "--typecheck", "--typecheck-tool", "basedpyright"])
+    assert args.typecheck_tool == "basedpyright"
+
+
+def test_typecheck_tool_without_typecheck_is_refused(tmp_path, capsys):
+    from dokimi.commands.repo import _typecheck_or_exit
+
+    args = build_parser().parse_args(["repo", "scan", str(tmp_path), "--typecheck-tool", "mypy"])
+    with pytest.raises(SystemExit) as exc:
+        _typecheck_or_exit(args)
+    assert exc.value.code == 2
+    assert "needs --typecheck" in capsys.readouterr().err
 
 
 def test_the_payload_is_json_serialisable(tmp_path):
@@ -184,7 +209,7 @@ def test_the_scan_text_report_says_unknown_without_an_interpreter(tmp_path, caps
 def test_a_tool_failure_is_a_usage_error_not_a_traceback(tmp_path, capsys, monkeypatch):
     from dokimi.repos.l0 import typecheck as l0_typecheck
 
-    def broken(check, codes):
+    def broken(check, codes, target=None):
         raise l0_typecheck.TypecheckError("mypy exited 2: broken")
 
     monkeypatch.setattr(l0_typecheck, "_run", broken)
@@ -199,7 +224,7 @@ def test_basedpyright_missing_from_path_is_a_usage_error(tmp_path, capsys, monke
     empty = tmp_path / "empty-path"
     empty.mkdir()
     monkeypatch.setenv("PATH", str(empty))
-    args = _scan_args(tmp_path, "--typecheck", "basedpyright")
+    args = _scan_args(tmp_path, "--typecheck", "--typecheck-tool", "basedpyright")
     with pytest.raises(SystemExit) as exc:
         args.func(args)
     assert exc.value.code == 2
@@ -249,7 +274,7 @@ def test_a_relative_python_env_is_made_absolute_before_the_tool_runs(tmp_path, m
 
 
 def test_a_fence_too_deep_for_the_parser_is_unresolved_not_a_crash(tmp_path):
-    deep = "x = " + "+".join(["1"] * 20000)  # ast.parse raises RecursionError on this
+    deep = "x = " + "+".join(["1"] * 200000)  # ast.parse raises RecursionError on this (CPython 3.14 among them)
     agents = f"# Toy\n\n{FENCE}python\n{deep}\n{FENCE}\n"
     payload = scan_repo(_tree(tmp_path, agents), parse_manifest(MANIFEST), typecheck=Check("mypy", None))
     [claim] = _fence_claims(payload)
@@ -263,3 +288,62 @@ def test_a_line_less_mypy_error_is_the_fence_line_not_the_line_above(tmp_path):
 
     report = json.dumps({"file": "fence_0.py", "line": -1, "severity": "error", "message": "no line"})
     assert _errors("mypy", report) == {0: [(0, "no line")]}
+
+
+def test_mypy_checks_untyped_function_bodies(tmp_path):
+    # Guidance examples are often unannotated functions; mypy skips their bodies unless told not to.
+    agents = f"{FENCE}python\nimport json\n\ndef example():\n    json.dumps(1).nosuch()\n{FENCE}\n"
+    payload = scan_repo(_tree(tmp_path, agents), parse_manifest(MANIFEST),
+                        typecheck=Check("mypy", sys.executable))
+    [claim] = _fence_claims(payload)
+    assert claim["status"] == "fail"
+    assert "nosuch" in claim["why"]
+
+
+def test_a_subject_or_host_mypy_config_cannot_suppress_a_fence(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    (home / ".config" / "mypy").mkdir(parents=True)
+    (home / ".config" / "mypy" / "config").write_text("[mypy]\nignore_errors = True\n", encoding="utf-8")
+    (home / ".mypy.ini").write_text("[mypy]\nignore_errors = True\n", encoding="utf-8")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
+    tree = _tree(tmp_path, f"{FENCE}python\nimport json\nprint(json.dumps(1).nosuch())\n{FENCE}\n")
+    (tree.root / "mypy.ini").write_text("[mypy]\nignore_errors = True\n", encoding="utf-8")
+    [claim] = _fence_claims(scan_repo(tree, parse_manifest(MANIFEST), typecheck=Check("mypy", sys.executable)))
+    assert claim["status"] == "fail"
+
+
+def test_the_version_probe_is_not_shadowed_by_a_module_in_the_checkout(tmp_path, monkeypatch):
+    from dokimi.repos.l0 import typecheck as l0_typecheck
+
+    import mypy.version
+
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    (checkout / "mypy.py").write_text("print('mypy 9.9.9')\n", encoding="utf-8")
+    monkeypatch.chdir(checkout)
+    assert l0_typecheck.tool_version(Check("mypy", sys.executable)) == mypy.version.__version__
+
+
+def test_mypy_is_told_the_repository_interpreters_version(monkeypatch):
+    from dokimi.repos.l0 import typecheck as l0_typecheck
+
+    seen = []
+
+    def fake(argv, cwd):
+        seen.append(argv)
+        return _completed(returncode=0, stdout="")
+
+    monkeypatch.setattr(l0_typecheck, "_run_tool", fake)
+    l0_typecheck._run(Check("mypy", sys.executable), ["x.py"], (3, 11))
+    argv = seen[0]
+    assert argv[argv.index("--python-version") + 1] == "3.11"
+
+
+def test_a_fence_that_is_newer_syntax_than_the_repository_is_checked_against_its_grammar(tmp_path, monkeypatch):
+    from dokimi.repos.l0 import typecheck as l0_typecheck
+
+    monkeypatch.setattr(l0_typecheck, "python_version", lambda check: (3, 11))
+    tree = _tree(tmp_path, f"{FENCE}python\ntype Alias = int\n{FENCE}\n")
+    payload = scan_repo(tree, parse_manifest(MANIFEST), typecheck=Check("mypy", sys.executable))
+    assert payload["typecheck"]["syntax"] == 1  # `type` is not a 3.11 statement, whatever the host runs
