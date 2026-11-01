@@ -257,6 +257,7 @@ def test_text_report_states_the_cross_load_as_a_finding():
         "harness": {"name": "claude-code", "version": "2.1.0"}, "model": "m",
         "summary": {"cost_usd": 0.0, "matrix": {}}, "files": [], "unresolved": [],
         "scenarios": [{"id": "cwd=.", "error": None, "prose": 0, "unknown": []}],
+        "records": [{"file": "AGENTS.claude.md", "scenario": "cwd=.", "class": "not_loaded"}],
         "overlays": {"own": "claude", "own_files": ["AGENTS.claude.md"], "own_loaded": [],
                      "foreign_files": ["AGENTS.codex.md"], "cross_loaded": {"AGENTS.codex.md": {"cwd=.": "loaded"}}},
     }
@@ -264,6 +265,91 @@ def test_text_report_states_the_cross_load_as_a_finding():
     assert ("finding: AGENTS.codex.md, an overlay for another agent, was loaded by claude-code in cwd=. (loaded)"
             in text)
     assert "note: no claude overlay (AGENTS.claude.md) was loaded in any scenario" in text
+
+
+def _payload(records, own, links, native=frozenset(), scenarios=("cwd=.",)):
+    """A text-report payload with the overlay part computed from ``records`` the way run_reach computes it."""
+    files = [{"path": t, **({"aliases": list(a)} if a else {})} for t, a in links.items()]
+    return {
+        "harness": {"name": "claude-code", "version": "2.1.0"}, "model": "m",
+        "summary": {"cost_usd": 0.0, "matrix": {}}, "files": files, "unresolved": [],
+        "scenarios": [{"id": s, "error": None, "prose": 0, "unknown": []} for s in scenarios],
+        "records": records, "overlays": overlay_report(records, own, links, native),
+    }
+
+
+@pytest.mark.parametrize("cls, note", [
+    ("not_loaded", "note: no claude overlay (AGENTS.claude.md) was loaded in any scenario"),
+    ("error", "note: could not determine whether the claude overlay (AGENTS.claude.md) was loaded"),
+])
+def test_text_report_says_not_loaded_only_for_a_usable_negative_record(cls, note):
+    records = [{"file": "AGENTS.claude.md", "scenario": "cwd=.", "class": cls}]
+    text = format_matrix(_payload(records, "claude", {"AGENTS.claude.md": ()}))
+    assert note in text
+    assert ("was loaded in any scenario" in text) == (cls == "not_loaded")
+
+
+def test_text_report_does_not_claim_not_loaded_for_an_all_error_run():
+    records = [{"file": "AGENTS.claude.md", "scenario": s, "class": "error"} for s in ("cwd=.", "read=sub")]
+    text = format_matrix(_payload(records, "claude", {"AGENTS.claude.md": ()}, scenarios=("cwd=.", "read=sub")))
+    assert "was loaded in any scenario" not in text
+    assert "could not determine whether the claude overlay (AGENTS.claude.md) was loaded" in text
+
+
+def test_text_report_keeps_the_ambiguous_load_out_of_the_own_overlay_note():
+    """A loaded file that two own/foreign names could name is ambiguous: no own-overlay note is printed for it."""
+    records = [{"file": "docs/x.md", "scenario": "cwd=.", "class": "loaded"}]
+    payload = _payload(records, "claude", {"docs/x.md": ("AGENTS.claude.md", "AGENTS.codex.md")})
+    assert payload["overlays"]["ambiguous"] == ["AGENTS.claude.md", "AGENTS.codex.md"]
+    assert "note:" not in format_matrix(payload)
+
+
+def test_overlay_report_leaves_a_load_of_two_foreign_aliases_unattributed():
+    """A harness reading one of two foreign alias names of docs/shared.md reads the same file under both."""
+    records = [{"file": "docs/shared.md", "scenario": "cwd=.", "class": "loaded"}]
+    links = {"docs/shared.md": ("AGENTS.codex.md", "AGENTS.copilot.md")}
+    report = overlay_report(records, "claude", links, native={"CLAUDE.md", "AGENTS.md"})
+    assert report["cross_loaded"] == {}
+    assert report["ambiguous"] == ["AGENTS.codex.md", "AGENTS.copilot.md"]
+
+
+def test_overlay_report_leaves_a_load_of_a_foreign_target_with_a_foreign_alias_unattributed():
+    records = [{"file": "AGENTS.codex.md", "scenario": "cwd=.", "class": "loaded"}]
+    report = overlay_report(records, "claude", {"AGENTS.codex.md": ("AGENTS.copilot.md",)})
+    assert report["cross_loaded"] == {}
+    assert report["ambiguous"] == ["AGENTS.codex.md", "AGENTS.copilot.md"]
+
+
+@pytest.mark.parametrize("via", ["absolute", "dotdot", "dot-then-up", "chain"])
+def test_overlay_arm_refuses_a_base_link_to_a_removed_overlay_however_it_is_written(tmp_path, via):
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "AGENTS.codex.md").write_text("codex\n", encoding="utf-8")
+    (tmp_path / "AGENTS.claude.md").write_text("claude\n", encoding="utf-8")
+    files = ["AGENTS.md", "AGENTS.codex.md", "AGENTS.claude.md"]
+    if via == "chain":
+        (tmp_path / "mid.md").symlink_to("AGENTS.codex.md")
+        (tmp_path / "AGENTS.md").symlink_to("mid.md")
+        files.append("mid.md")
+    else:
+        target = {"absolute": str(tmp_path / "AGENTS.codex.md"),
+                  "dotdot": f"../{tmp_path.name}/AGENTS.codex.md",
+                  "dot-then-up": "./sub/../AGENTS.codex.md"}[via]
+        (tmp_path / "AGENTS.md").symlink_to(target)
+    with pytest.raises(PrepError, match="the base would dangle"):
+        _apply_overlay(tmp_path, files, "claude")
+    assert (tmp_path / "AGENTS.codex.md").exists()
+
+
+def test_overlay_arm_refuses_an_own_overlay_that_links_outside_the_workspace(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (tmp_path / "guide.md").write_text("outside\n", encoding="utf-8")
+    (ws / "AGENTS.md").write_text("base\n", encoding="utf-8")
+    (ws / "AGENTS.claude.md").symlink_to("../guide.md")
+    (ws / "AGENTS.codex.md").write_text("codex\n", encoding="utf-8")
+    with pytest.raises(PrepError, match="does not resolve to a usable file"):
+        _apply_overlay(ws, ["AGENTS.md", "AGENTS.claude.md", "AGENTS.codex.md"], "claude")
+    assert (ws / "AGENTS.codex.md").exists()
 
 
 def test_overlay_arm_refuses_a_base_link_through_a_removed_directory_link(tmp_path):
@@ -375,4 +461,4 @@ def test_overlay_report_leaves_a_load_of_a_foreign_target_with_an_own_alias_unat
     records = [{"file": "AGENTS.codex.md", "scenario": "cwd=.", "class": "loaded"}]
     report = overlay_report(records, "claude", {"AGENTS.codex.md": ("AGENTS.claude.md",)})
     assert report["cross_loaded"] == {} and report["own_loaded"] == []
-    assert report["ambiguous"] == ["AGENTS.claude.md"]
+    assert report["ambiguous"] == ["AGENTS.claude.md", "AGENTS.codex.md"]

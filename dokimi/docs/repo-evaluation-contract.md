@@ -1061,7 +1061,14 @@ per scenario).
   `not_loaded`. `cross_loaded` lists each foreign overlay some scenario reported
   as `loaded`, `truncated` or `fetched`; the text report prints it as a `finding:`
   line. `own_loaded` lists the harness's own overlays that loaded in some scenario;
-  when none did, the text report says so. `own` is the profile's `overlay`.
+  when none did, the text report says so, but only if some own-overlay scenario
+  read as `not_loaded` and none errored; otherwise it says loading could not be
+  determined. `own` is the profile's `overlay`.
+  `ambiguous` lists the names of a load that could have been read under another
+  name: a file reached through an alias group that holds a native guidance name
+  or two overlay names. Those loads are neither own nor cross loads. The text
+  report prints no own-overlay note for them, and a foreign target with an own
+  alias is listed there too, not reported as a cross load.
 - If payload capture is available, a `payload` field records whether each
   token was in the request bytes. This settles cells where the model
   under-reports, which is how a small model produces false `truncated` cells.

@@ -126,13 +126,15 @@ def _pinned_names(links: dict[str, tuple[str, ...]], own: str | None,
     names: dict[str, tuple[str, ...]] = {}
     ambiguous: set[str] = set()
     for target, aliases in links.items():
-        kinds = {"own" if overlay_of(n) == own else "foreign" for n in (target, *aliases) if overlay_of(n) is not None}
-        # a native name anywhere in the group (the target or an alias) cannot tell which file a harness read
-        if aliases and (any(PurePosixPath(n).name in native for n in (target, *aliases)) or {"own", "foreign"} <= kinds):
-            ambiguous.update(aliases)
+        group = (target, *aliases)
+        overlay_names = [n for n in group if overlay_of(n) is not None]
+        # a native name anywhere in the group cannot tell which file a harness read, and neither can two overlay
+        # names (own or foreign): a harness that reads one of them reads the same file under every other one
+        if aliases and (any(PurePosixPath(n).name in native for n in group) or len(overlay_names) > 1):
+            ambiguous.update((*aliases, *overlay_names))
             names[target] = ()
         else:
-            names[target] = (target, *aliases)
+            names[target] = group
     return names, ambiguous
 
 
@@ -152,7 +154,7 @@ def _loads(records: list[dict[str, Any]], names: dict[str, tuple[str, ...]], lin
                 cross.setdefault(n, {})[r["scenario"]] = r["class"]
             if n in own_files:
                 own_loaded.add(n)
-        unpinned.update(n for n in links.get(r["file"], ()) if n in ambiguous)
+        unpinned.update(n for n in (r["file"], *links.get(r["file"], ())) if n in ambiguous)
     return cross, own_loaded, unpinned
 
 
@@ -468,6 +470,17 @@ def _matrix(records: list[dict[str, Any]]) -> dict[str, dict[str, str]]:
     return matrix
 
 
+def _own_overlay_note(payload: dict[str, Any], overlays: dict[str, Any]) -> str:
+    """A "not loaded" note needs a usable negative record and no error: an errored scenario says nothing about loading."""
+    group = {f["path"]: (f["path"], *f.get("aliases", ())) for f in payload["files"]}
+    own = set(overlays["own_files"])
+    seen = {r["class"] for r in payload["records"] if own & set(group.get(r["file"], (r["file"],)))}
+    files = ", ".join(overlays["own_files"])
+    if "not_loaded" in seen and "error" not in seen:
+        return f"note: no {overlays['own']} overlay ({files}) was loaded in any scenario"
+    return f"note: could not determine whether the {overlays['own']} overlay ({files}) was loaded"
+
+
 def format_matrix(payload: dict[str, Any]) -> str:
     """A plain-text table: one row per guidance file, one column per scenario."""
     short = {"loaded": "L", "truncated": "T", "fetched": "F", "not_loaded": ".", "error": "E"}
@@ -488,7 +501,7 @@ def format_matrix(payload: dict[str, Any]) -> str:
         where = ", ".join(f"{sid} ({cls})" for sid, cls in seen.items())
         lines.append(f"finding: {path}, an overlay for another agent, was loaded by {payload['harness']['name']} in {where}")
     if overlays.get("own_files") and not overlays.get("own_loaded") and not overlays.get("ambiguous"):
-        lines.append(f"note: no {overlays['own']} overlay ({', '.join(overlays['own_files'])}) was loaded in any scenario")
+        lines.append(_own_overlay_note(payload, overlays))
     if any(f.get("alias_kind") == "copy" for f in payload["files"]):
         lines.append("note: the paths after = are copies, not links (this OS refused a symlink); "
                      "a harness that skips symlinks would still load them")
