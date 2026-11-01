@@ -60,6 +60,12 @@ tail"""
     ("- - ```\n    # not\n    ```\n# Real\n", ["Real"]),  # two markers on one line
     ("-      ```\n# Real\n", ["Real"]),  # five spaces after the marker: indented code, not a fence
     ("- ```\n\t# not\n\t```\n# Real\n", ["Real"]),  # a tab is four columns of indentation: the item's content
+    ("- Example:\n  ```\n  code\n# Real\n", ["Real"]),  # a fence on a continuation line takes the item's column
+    ("1. Step\n\n   ```sh\n   x\n# Real\n", ["Real"]),  # the same after a blank line, ordered item
+    ("- Example:\n  ```\n  code\n  ```\n# Real\n", ["Real"]),  # closed inside the item: the heading is a section
+    ("- Example:\n\n```\n# not\n```\n# Real\n", ["Real"]),  # a column-0 fence after a blank line ends the item
+    ("- a\n  - b\n  ```\n  code\n# Real\n", ["Real"]),  # a fence on the outer item's line after a nested item
+    ("- a\n\t```\n```\n# Real\n", []),  # a tab-indented continuation fence (a pin: the sections match the spaces form)
 ])
 def test_a_fence_opened_by_a_list_item_holds_body_text_only_inside_the_item(text, sections):
     assert re.findall(r'title="([^"]*)"', to_format(text, "xml")) == sections

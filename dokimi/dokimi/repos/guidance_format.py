@@ -56,14 +56,32 @@ def restore(rendered: str) -> str:
     return "\n".join(out)
 
 
-def _opened(line: str) -> tuple[str, int] | None:
-    """The fence a line opens, as (its run, the column its content starts at), or None. A fence may open a list item
-    (``- ```, ``- - ```) and then its content is indented to the item's column. As in CommonMark, a backtick fence's
-    info string has no backtick."""
-    column = 0
-    while (item := _ITEM.match(line, column)) is not None:
-        column = item.end()
-    match = _OPENER.match(line, column)
+def _marker_columns(line: str) -> tuple[int, ...]:
+    """The content columns of the list markers that start a line, outermost first (``- - x`` gives two)."""
+    columns: list[int] = []
+    while (item := _ITEM.match(line, columns[-1] if columns else 0)) is not None:
+        columns.append(item.end())
+    return tuple(columns)
+
+
+def _items_after(items: tuple[int, ...], line: str) -> tuple[int, ...]:
+    """The list items open after a line read outside a fence, outermost first. A blank line keeps them. A non-blank line
+    ends the items whose content column it is indented less than, and a list marker it starts opens one item per
+    marker at its content column."""
+    if not line.strip():
+        return items
+    expanded = line.expandtabs(4)
+    indent = len(expanded) - len(expanded.lstrip(" "))
+    return tuple(column for column in items if column <= indent) + _marker_columns(line)
+
+
+def _opened(line: str, items: tuple[int, ...]) -> tuple[str, int] | None:
+    """The fence a line opens, as (its run, the column its content starts at), or None. The fence takes the content
+    column of the innermost item open at the line (``items``, from `_items_after`), so a fence on a list marker line
+    (``- ```, ``- - ```) and one on a continuation line both sit inside their item. The line is read expanded, a tab
+    counting to four columns. As in CommonMark, a backtick fence's info string has no backtick."""
+    column = items[-1] if items else 0
+    match = _OPENER.match(line.expandtabs(4), column)
     if match is None or (match.group(1)[0] == "`" and "`" in match.group(2)):
         return None
     return match.group(1), column
@@ -78,23 +96,23 @@ def _closes(fence: tuple[str, int], line: str) -> bool:
                 and not match.group(3).strip() and len(match.group(1)) <= column + 3)
 
 
-def _advance(fence: tuple[str, int] | None, line: str) -> tuple[str, int] | None:
-    """The fence open after a line. A line indented less than the column of the item that opened the fence ends the
-    item, and the fence with it; the line is then read as any other line."""
+def _advance(fence: tuple[str, int] | None, items: tuple[int, ...], line: str
+             ) -> tuple[tuple[str, int] | None, tuple[int, ...]]:
+    """The fence open after a line, and the list items open after it. A line indented less than the column of the item
+    that opened the fence ends the item, and the fence with it; the line is then read as any other line."""
     if fence is not None:
         expanded = line.expandtabs(4)  # a tab is indentation up to the next multiple of four
-        if line.strip() and len(expanded) - len(expanded.lstrip(" ")) < fence[1]:
-            fence = None
-        else:
-            return None if _closes(fence, line) else fence
-    return _opened(line)
+        if not (line.strip() and len(expanded) - len(expanded.lstrip(" ")) < fence[1]):
+            return (None if _closes(fence, line) else fence), items
+    items = _items_after(items, line)
+    return _opened(line, items), items
 
 
 def _render_xml(text: str) -> str:
-    out, fence = [_ROOT], None
+    out, fence, items = [_ROOT], None, ()
     open_levels: list[int] = []
     for line in text.split("\n"):
-        fence = _advance(fence, line)
+        fence, items = _advance(fence, items, line)
         heading = _HEADING.match(line) if fence is None else None  # a line of a fence is body text
         if heading is None:
             out.append(line)
