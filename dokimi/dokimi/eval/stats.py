@@ -529,7 +529,7 @@ def _describe_deltas(
         "ci_method": ci.get("method"),
         # The fields above are rounded for display; a consumer that re-derives a verdict
         # or publishes the effect reads these. p_adjusted is set with the family correction.
-        "exact": {"delta_mean": d_mean, "ci_lo": exact_ci["lo"], "ci_hi": exact_ci["hi"], "p_adjusted": None},
+        "exact": {"delta_mean": d_mean, "ci_lo": exact_ci["lo"], "ci_hi": exact_ci["hi"]},
     }
     result.update(_one_sample_pvalues(deltas))
 
