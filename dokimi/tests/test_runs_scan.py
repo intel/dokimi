@@ -49,6 +49,7 @@ EXPECTED: dict[str, tuple[dict, str | None, str | None, str | None]] = {
     "effective_instructions.v1": ({}, "toy", "m", "2026-10-31T00:00:00+00:00"),
     "task_inspect.v1": ({}, "tests/fixtures/task_formats", None, None),
     "cli_routes.v1": ({}, None, None, None),
+    "reach_matrix.v1": ({}, None, None, "2026-10-31T04:37:00+00:00"),
 }
 
 

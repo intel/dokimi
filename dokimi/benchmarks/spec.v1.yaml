@@ -76,7 +76,7 @@ future:
 # that matched almost nothing, max_docs one that escaped; raise it with each new doc.
 golden_manifest:
   min_docs: 10
-  max_docs: 37
+  max_docs: 38
   include:
     - docs/**/*.md
   exclude:

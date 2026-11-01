@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/reach_matrix.v1.json",
+  "title": "Reach conformance matrix v1",
+  "description": "The matrix of the reach conformance suite (docs/reach-matrix.md): for each harness run over each fixture repository, the state each guidance file was observed in, per reach scenario, next to what the harness's vendor documentation says (reach_conformance.v1). One matrix is written per harness and several are merged into one. A `skipped` run has no cells; a cell whose documented state is `unknown` makes no claim.",
+  "type": "object",
+  "required": ["schema_version", "generated_at", "expectations", "runs", "cells", "summary"],
+  "properties": {
+    "schema_version": {"const": "reach_matrix.v1"},
+    "generated_at": {"type": "string"},
+    "expectations": {"const": "reach_conformance.v1", "description": "The schema of the expectations file the documented states come from."},
+    "runs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["harness", "version", "model", "case", "status", "reason", "scenarios"],
+        "properties": {
+          "harness": {"type": "string"},
+          "version": {"type": "string", "description": "The harness's own version as reach reports it; `unknown` when no receipt came back."},
+          "model": {"type": "string", "description": "The model string passed to the harness; empty when none was configured."},
+          "case": {"type": "string", "description": "The fixture repository's directory name."},
+          "status": {"enum": ["ran", "errors", "failed", "skipped"], "description": "ran: every scenario answered; errors: a receipt came back with at least one scenario that gave no usable answer; failed: no receipt; skipped: the harness could not run here."},
+          "reason": {"type": ["string", "null"]},
+          "scenarios": {"type": "integer", "minimum": 0}
+        }
+      }
+    },
+    "cells": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["harness", "version", "case", "scenario", "path", "observed", "documented", "agreement"],
+        "properties": {
+          "harness": {"type": "string"},
+          "version": {"type": "string"},
+          "case": {"type": "string"},
+          "scenario": {"type": "string", "pattern": "^(cwd=|read=)"},
+          "path": {"type": "string"},
+          "alias_of": {"type": "string", "description": "Set when the path is a link; its observed state is the target's."},
+          "observed": {"enum": ["loaded", "fetched", "not_loaded", "unknown"]},
+          "documented": {"enum": ["loaded", "not_loaded", "unknown"]},
+          "agreement": {"enum": ["agrees", "disagrees", "inconclusive", "no_claim", "alias"], "description": "agrees and disagrees compare observed with documented; inconclusive: observed is unknown or fetched; no_claim: the docs say nothing; alias: a link, not compared."}
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["agrees", "disagrees", "inconclusive", "no_claim", "alias", "runs"],
+      "properties": {
+        "agrees": {"type": "integer", "minimum": 0},
+        "disagrees": {"type": "integer", "minimum": 0},
+        "inconclusive": {"type": "integer", "minimum": 0},
+        "no_claim": {"type": "integer", "minimum": 0},
+        "alias": {"type": "integer", "minimum": 0},
+        "runs": {
+          "type": "object",
+          "required": ["ran", "errors", "failed", "skipped"],
+          "properties": {
+            "ran": {"type": "integer", "minimum": 0},
+            "errors": {"type": "integer", "minimum": 0},
+            "failed": {"type": "integer", "minimum": 0},
+            "skipped": {"type": "integer", "minimum": 0}
+          }
+        }
+      }
+    }
+  }
+}

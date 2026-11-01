@@ -33,6 +33,7 @@ CONTENTS = {
     "questions.v2": {"questions": 3},
     "repo_budget.v1": {"entries": 9},
     "effective_instructions.v1": {"receipts": 1},
+    "reach_matrix.v1": {"runs": 2, "cells": 3},
     "repo_environment.v1": {"instructions": 4, "findings": 13},
     "repo_readiness.v1": {"files": 2, "claims": 52},
     "result.v1": {"cells": 6},

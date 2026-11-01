@@ -1113,6 +1113,10 @@ Each run lists its own `unknowns` (no usable answer, a source with one token
 reported, prose above the limit, unseeded tokens). The receipt-level `unknowns`
 repeat the limits above.
 
+The same receipt, run over the fixtures in `data/reach-conformance/` for several
+harnesses and versions, is the reach conformance matrix; see
+[reach-matrix.md](reach-matrix.md).
+
 ## 8. L0 scan (`repo_readiness.v1`)
 
 `repo scan <source>` checks every mechanically checkable claim in the guidance

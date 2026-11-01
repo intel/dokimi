@@ -353,6 +353,10 @@ code.
   harness profiles, and the guidance reach probe; and how to run its task
   self-check, agent runs, report and arm comparison (`repo tasks check`,
   `repo run`, `repo report`, `repo compare`). Tasks and graders stay in the scanned repository.
+- [reach-matrix.md](reach-matrix.md) — the reach conformance suite: fixture
+  repositories, what each harness's vendor documentation says they load, the
+  `scripts/reach_conformance.py` run and merge that produce the agent × version
+  matrix, and the nightly workflow that publishes it.
 - [repo-evaluation-mergeability.md](repo-evaluation-mergeability.md) —
   *(proposed)* grading whether a maintainer would merge a test-passing change:
   `rubric.json` (blockers, non-blockers, scope), deterministic scope and

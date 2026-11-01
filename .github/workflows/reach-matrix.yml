@@ -1,0 +1,182 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+name: reach-matrix
+
+# The nightly reach conformance matrix (dokimi/docs/reach-matrix.md): each harness runs `repo reach` over the
+# fixtures in dokimi/data/reach-conformance, and the three matrices merge into one page. This makes paid model
+# calls, so it is not a check on pull requests. A harness with no model variable, no credential or no CLI on
+# the runner is recorded as skipped; it does not fail the run.
+on:
+  schedule:
+    - cron: '37 4 * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  claude-code:
+    permissions:
+      contents: read
+    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Install dokimi
+        working-directory: dokimi
+        run: pip install --require-hashes -r requirements.lock.txt
+      - name: Check the credential
+        id: creds
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AWS_BEARER_TOKEN_BEDROCK: ${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}
+        run: |
+          if [ -n "$ANTHROPIC_API_KEY$AWS_BEARER_TOKEN_BEDROCK" ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; fi
+      - name: Install the CLI
+        if: steps.creds.outputs.present == 'true'
+        run: npm install -g @anthropic-ai/claude-code@2.1.316
+      - name: Run reach over the fixtures
+        working-directory: dokimi
+        env:
+          PYTHONPATH: .
+          REACH_MODEL: ${{ vars.REACH_MODEL_CLAUDE_CODE }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AWS_BEARER_TOKEN_BEDROCK: ${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}
+        run: python scripts/reach_conformance.py run --harness "claude-code=$REACH_MODEL" --out reach-out
+      - name: Upload the matrix
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: reach-matrix-claude-code
+          path: dokimi/reach-out/claude-code.matrix.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  codex:
+    permissions:
+      contents: read
+    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Install dokimi
+        working-directory: dokimi
+        run: pip install --require-hashes -r requirements.lock.txt
+      - name: Check the credential
+        id: creds
+        env:
+          CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
+        run: |
+          if [ -n "$CODEX_API_KEY" ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; fi
+      - name: Install the CLI
+        if: steps.creds.outputs.present == 'true'
+        run: npm install -g @openai/codex@0.166.0
+      - name: Run reach over the fixtures
+        working-directory: dokimi
+        env:
+          PYTHONPATH: .
+          REACH_MODEL: ${{ vars.REACH_MODEL_CODEX }}
+          CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
+        run: python scripts/reach_conformance.py run --harness "codex=$REACH_MODEL" --out reach-out
+      - name: Upload the matrix
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: reach-matrix-codex
+          path: dokimi/reach-out/codex.matrix.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  copilot:
+    permissions:
+      contents: read
+    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Install dokimi
+        working-directory: dokimi
+        run: pip install --require-hashes -r requirements.lock.txt
+      - name: Check the credential
+        id: creds
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+        run: |
+          if [ -n "$COPILOT_GITHUB_TOKEN" ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; fi
+      - name: Install the CLI
+        if: steps.creds.outputs.present == 'true'
+        run: npm install -g @github/copilot@1.0.105
+      - name: Run reach over the fixtures
+        working-directory: dokimi
+        env:
+          PYTHONPATH: .
+          REACH_MODEL: ${{ vars.REACH_MODEL_COPILOT }}
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+        run: python scripts/reach_conformance.py run --harness "copilot=$REACH_MODEL" --out reach-out
+      - name: Upload the matrix
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: reach-matrix-copilot
+          path: dokimi/reach-out/copilot.matrix.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  matrix:
+    needs: [claude-code, codex, copilot]
+    if: always()
+    permissions:
+      contents: read
+    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Install dokimi
+        working-directory: dokimi
+        run: pip install --require-hashes -r requirements.lock.txt
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          pattern: reach-matrix-*
+          merge-multiple: true
+          path: dokimi/reach-in
+      - name: Merge the matrices
+        working-directory: dokimi
+        env:
+          PYTHONPATH: .
+        run: |
+          python scripts/reach_conformance.py merge reach-in/*.matrix.json \
+            --out reach-out/reach-matrix.json --md reach-out/reach-matrix.md
+          cat reach-out/reach-matrix.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload the matrix page
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: reach-matrix
+          path: |
+            dokimi/reach-out/reach-matrix.json
+            dokimi/reach-out/reach-matrix.md
+          if-no-files-found: error
+          retention-days: 90
