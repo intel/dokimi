@@ -163,6 +163,30 @@ outside every workspace and passes its absolute path to entry points as
 - `tasks check` (§4.3) fails a task whose agent container can read any file
   under `tasks` or `{source_dir}`.
 
+### 1.2 Code index input
+
+A repository can be read through a SCIP index (`index.scip`, the format of
+`scip.proto`) that another tool wrote. dokimi never runs an indexer. The
+reader is `dokimi.repos.code_index.load(path, root_prefix=...)`, which returns
+a `CodeIndex` with:
+
+- `files()`, `occurrences(path)`, `tool`: the documents, the occurrences in
+  one document, and the tool that wrote the index.
+- `definitions(query)` and `references(symbol)`: a query with a space is a
+  full SCIP symbol string, anything else is a name matched against the last
+  descriptor (`Impl#run().` is `run`).
+- `enclosing(path, line)`: the innermost definition whose enclosing range
+  holds a 0-based line. Only indexers that write enclosing ranges give one
+  (`has_enclosing_ranges` says whether this index does).
+- `bases(symbol)`: the symbols a class directly implements or extends.
+
+The decoder uses only the standard library. A malformed, empty, or truncated
+file raises `CodeIndexError`. Document paths are relative to the directory
+the indexer ran in, so pass `root_prefix` to map them to repository paths.
+A `local N` id is scoped to one document: read it with `occurrences(path)`,
+since `definitions`, `references` and `bases` refuse it. Nothing in the eval
+flow reads an index yet.
+
 ## 2. `repo-eval.yaml`
 
 ```yaml
