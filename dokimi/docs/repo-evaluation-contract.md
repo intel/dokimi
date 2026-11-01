@@ -1357,7 +1357,8 @@ claim:
 - `fail`: a stale-API candidate. The claim's line is the error's line in the
   guidance file, and its `why` names the first error (`mypy: line N: message`).
 - `unresolved`: the fence is not valid Python (a placeholder such as `f(<arg>)`),
-  or no `--python-env` was given, so nothing was checked. The reason says which.
+  is too deeply nested for the parser, or no `--python-env` was given, so nothing
+  was checked. The reason says which.
 
 `--python-env PYTHON` names the repository's interpreter, a virtualenv with its
 pinned dependencies installed (and the repository itself, if its fences import
