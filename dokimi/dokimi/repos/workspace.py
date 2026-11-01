@@ -491,15 +491,29 @@ def _apply_format(ws: Path, matched: list[str], fmt: str) -> tuple[list[str], di
     written, links = [], []
     for rel in matched:
         if (ws / rel).is_symlink():
+            _link_file(ws, rel, matched)  # the link must reach a file that is rendered, not raw guidance
             links.append(rel)
             continue
         try:
             rendered = to_format(_guidance_text(ws, rel, f"guidance:format={fmt}"), fmt)
         except FormatError as exc:
             raise PrepError(f"guidance:format={fmt}: {rel}: {exc}") from exc
-        (ws / rel).write_text(rendered, encoding="utf-8")
+        (ws / rel).write_bytes(rendered.encode("utf-8"))  # no newline translation: the restore check holds on disk
         written.append(rel)
     return written, ({"guidance_links_kept": links} if links else {})
+
+
+def _link_file(ws: Path, rel: str, matched: list[str]) -> None:
+    """The regular guidance file a link of the workspace reaches, following the links in turn. PrepError when the
+    chain cycles or ends outside the matched guidance files: that file would be dropped or left unrendered."""
+    chain = [rel]
+    while (ws / chain[-1]).is_symlink():
+        target = posixpath.normpath(posixpath.join(posixpath.dirname(chain[-1]), os.readlink(ws / chain[-1])))
+        if target in chain:
+            raise PrepError(f"guidance link cycle: {' -> '.join([*chain, target])}")
+        chain.append(target)
+    if chain[-1] not in matched:
+        raise PrepError(f"guidance link {rel} reaches {chain[-1]}, which is not a guidance file")
 
 
 def _guidance_text(ws: Path, rel: str, arm: str) -> str:
@@ -525,9 +539,7 @@ def _apply_as_skill(ws: Path, manifest: RepoManifest, matched: list[str]) -> tup
     parts = []
     for rel in matched:
         if (ws / rel).is_symlink():  # packaged once under its target's name; a link to anything else would be lost
-            target = posixpath.normpath(posixpath.join(posixpath.dirname(rel), os.readlink(ws / rel)))
-            if target not in matched:
-                raise PrepError(f"guidance:as-skill: {rel} links to {target}, which is not a guidance file")
+            _link_file(ws, rel, matched)
             continue
         text = _guidance_text(ws, rel, "guidance:as-skill")
         parts.append(f"## File: {rel}\n\n" + (text if text.endswith("\n") else text + "\n"))
@@ -535,7 +547,7 @@ def _apply_as_skill(ws: Path, manifest: RepoManifest, matched: list[str]) -> tup
         (ws / rel).unlink()
     skill_dir.mkdir(parents=True)
     frontmatter = f"---\nname: {name}\ndescription: {GUIDANCE_SKILL_DESCRIPTION}\n---\n\n"
-    (skill_dir / "SKILL.md").write_text(frontmatter + "\n".join(parts), encoding="utf-8")
+    (skill_dir / "SKILL.md").write_bytes((frontmatter + "\n".join(parts)).encode("utf-8"))  # verbatim: no newline translation
     return matched, {"guidance_skill": {"name": name, "path": f"{SKILLS_DIR}/{name}",
                                         "sha256": tree_sha256(skill_dir)}}
 

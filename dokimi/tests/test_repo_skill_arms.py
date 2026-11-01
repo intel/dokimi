@@ -774,3 +774,17 @@ def test_the_base_check_refuses_a_tracked_symlink_at_claude_or_its_skills(tmp_pa
 def test_a_frontmatter_name_that_yaml_reads_as_an_impossible_date_is_the_directory_name_not_a_crash(tmp_path):
     write(tmp_path, "skills/lint/SKILL.md", "---\nname: 2024-13-45\n---\nBody.\n")
     assert [s.name for s in resolve_skills(parse_arm("skill:skills/lint"), tmp_path)] == ["lint"]
+
+
+def test_the_as_skill_arm_removes_the_base_skill_it_packages_so_it_is_not_refused(tmp_path):
+    _skill(tmp_path / "toy", ".claude/skills/lint", "lint")  # make_repo commits this as the base, which guidance:raw refuses
+    root, base = make_repo(tmp_path)
+    _skill(root, ".agent-eval/skills/lint", "lint")
+    _skill(root, ".claude/skills/lint", "lint")
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "skills")
+    tasks = [Task("t1", {"base": base}, root)]
+    content, globs = root / ".agent-eval", ["**/AGENTS.md", ".claude/skills/**"]
+    check_arms([parse_arm("guidance:as-skill+skill:skills/lint")], content, tasks, root / ".git", globs)
+    with pytest.raises(ArmError, match="already has .claude/skills/lint"):  # the same base under guidance:raw
+        check_arms([parse_arm("guidance:raw+skill:skills/lint")], content, tasks, root / ".git", globs)

@@ -197,7 +197,7 @@ def check_arms(arms: list[Any], content_dir: Path, tasks: list[Any], git_dir: Pa
         if cells.setdefault(cell, arm.spec) != arm.spec:
             raise ArmError(f"arms {cells[cell]!r} and {arm.spec!r} would share one result directory ({cell})")
         skills = resolve_skills(arm, content_dir)
-        drops = arm.patch is None and (arm.base == "guidance:none" or arm.rev is not None)
+        drops = arm.patch is None and (arm.base in ("guidance:none", "guidance:as-skill") or arm.rev is not None)
         rev = (arm.rev_sha or arm.rev) if arm.patch is None else None
         if skills and git_dir is not None:
             for task in tasks:

@@ -262,3 +262,44 @@ def test_as_skill_refuses_a_link_to_a_file_that_is_not_guidance(tmp_path):
     (ws / "CLAUDE.md").symlink_to("docs/guide.md")
     with pytest.raises(PrepError, match="not a guidance file"):
         _apply_as_skill(ws, types.SimpleNamespace(id="toy"), ["AGENTS.md", "CLAUDE.md"])
+
+
+# -- review of #333: the fence delimiter, the links, the bytes on disk ----------------------------------------
+
+
+def test_a_fence_closes_only_on_its_own_delimiter_and_length():
+    assert "<section" not in to_format("````\n```\n# code comment\n````\n", "xml")
+    assert "<section" not in to_format("```\n~~~\n# code comment\n```\n", "xml")
+    rendered = to_format("````md\n```text\n# code comment\n````\n# real\n", "xml")
+    assert rendered.count("<section") == 1 and '<section level="1" title="real">' in rendered
+
+
+def test_a_format_link_to_a_file_the_globs_do_not_match_is_a_prep_error(tmp_path):
+    ws = tmp_path / "ws"
+    write(ws, "docs/guide.md", "# guide\n")
+    (ws / "AGENTS.md").symlink_to("docs/guide.md")
+    with pytest.raises(PrepError, match="not a guidance file"):
+        _apply_format(ws, ["AGENTS.md"], "xml")
+
+
+def test_a_link_cycle_is_refused_and_nothing_is_deleted(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / "AGENTS.md").symlink_to("CLAUDE.md")
+    (ws / "CLAUDE.md").symlink_to("AGENTS.md")
+    with pytest.raises(PrepError, match="cycle"):
+        _apply_as_skill(ws, types.SimpleNamespace(id="toy"), ["AGENTS.md", "CLAUDE.md"])
+    assert (ws / "AGENTS.md").is_symlink() and (ws / "CLAUDE.md").is_symlink()
+    with pytest.raises(PrepError, match="cycle"):
+        _apply_format(ws, ["AGENTS.md", "CLAUDE.md"], "xml")
+
+
+def test_format_and_as_skill_write_the_bytes_they_read_with_no_newline_translation(tmp_path):
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / "AGENTS.md").write_bytes(b"# A\r\nbody\r\n")
+    _apply_format(ws, ["AGENTS.md"], "xml")
+    assert (ws / "AGENTS.md").read_bytes() == to_format("# A\r\nbody\r\n", "xml").encode("utf-8")
+    (ws / "AGENTS.md").write_bytes(b"# A\r\nbody\r\n")
+    _apply_as_skill(ws, types.SimpleNamespace(id="toy"), ["AGENTS.md"])
+    assert b"body\r\n" in (ws / ".claude/skills/toy-guidance/SKILL.md").read_bytes()

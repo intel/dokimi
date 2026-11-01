@@ -20,7 +20,7 @@ FORMATS = ("xml",)
 
 _ROOT, _ROOT_CLOSE, _CLOSE = "<guidance>", "</guidance>", "</section>"
 _HEADING = re.compile(r"^(#{1,6}) (\S[^\r]*)$")  # canonical only: one space, no CR; anything else is body text
-_FENCE = re.compile(r"^\s{0,3}(```|~~~)")
+_FENCE = re.compile(r"^\s{0,3}(`{3,}|~{3,})(.*)$")  # a run of ``` or ~~~, and what follows it on the line
 _OPEN = re.compile(r'^<section level="([1-6])" title="([^"]*)">$')
 _ESCAPES = {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}
 _UNESCAPES = {v: k for k, v in _ESCAPES.items()}
@@ -54,13 +54,23 @@ def restore(rendered: str) -> str:
     return "\n".join(out)
 
 
+def _fence_after(fence: str | None, line: str) -> str | None:
+    """The fence a line leaves open (its opening run), or None. A run of the same character, at least as long as the
+    opening one and followed by nothing but whitespace, closes it; any other fence line is body text."""
+    match = _FENCE.match(line)
+    if fence is None:
+        return match.group(1) if match else None
+    if match and match.group(1)[0] == fence[0] and len(match.group(1)) >= len(fence) and not match.group(2).strip():
+        return None
+    return fence
+
+
 def _render_xml(text: str) -> str:
-    out, fenced = [_ROOT], False
+    out, fence = [_ROOT], None
     open_levels: list[int] = []
     for line in text.split("\n"):
-        heading = None if fenced else _HEADING.match(line)
-        if _FENCE.match(line):
-            fenced = not fenced
+        heading = None if fence else _HEADING.match(line)
+        fence = _fence_after(fence, line)
         if heading is None:
             out.append(line)
             continue
