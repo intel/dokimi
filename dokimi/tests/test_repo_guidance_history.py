@@ -10,6 +10,7 @@ date is not the order git walks in. No docker, no LLM.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -32,12 +33,15 @@ new file mode 100644
 """
 
 
-def _commit_at(root: Path, files: dict[str, str], subject: str, authored: str, committed: str) -> str:
+def _commit_at(root: Path, files: dict[str, str], subject: str, authored: str, committed: str,
+               *opts: str, stage: bool = True) -> str:
+    """A commit of ``files`` (``stage=False``: of the index as it is), ``opts`` before ``commit``."""
     for rel, text in files.items():
         write(root, rel, text)
-    git(root, "add", "-A")
+    if stage:
+        git(root, "add", "-A")
     env = {**os.environ, "GIT_AUTHOR_DATE": authored, "GIT_COMMITTER_DATE": committed}
-    subprocess.run(["git", "-C", str(root), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", subject],
+    subprocess.run(["git", "-C", str(root), "-c", "user.name=t", "-c", "user.email=t@t", *opts, "commit", "-qm", subject],
                    check=True, capture_output=True, env=env)
     return git(root, "rev-parse", "HEAD")
 
@@ -259,3 +263,66 @@ def test_an_edit_to_a_guidance_links_target_counts_for_the_link(hist):
     assert [(c["sha"], c["subject"]) for c in rev["guidance_commits"]][:2] == [(edit, "Guide for #12"),
                                                                               (link, "link the guide")]
     assert "docs/GUIDE.md" not in rev["guidance_latest"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symbolic links")
+def test_a_commit_that_only_retargets_an_intermediate_link_counts_for_the_guidance_link(hist):
+    """``AGENTS.md -> docs/current -> old.md``; no glob matches docs/current or a file it names."""
+    (hist["root"] / "AGENTS.md").unlink()
+    os.symlink("docs/current", hist["root"] / "AGENTS.md")
+    write(hist["root"], "docs/old.md", "# old guide\n")
+    os.symlink("old.md", hist["root"] / "docs" / "current")
+    chain = _commit_at(hist["root"], {}, "chain the guide", "2030-05-01T00:00:00+00:00", "2030-05-01T00:00:00+00:00")
+    added = _commit_at(hist["root"], {"docs/review-derived.md": "# from review\n"}, "add a guide",
+                       "2030-05-02T00:00:00+00:00", "2030-05-02T00:00:00+00:00")
+    (hist["root"] / "docs" / "current").unlink()
+    os.symlink("review-derived.md", hist["root"] / "docs" / "current")
+    retarget = _commit_at(hist["root"], {}, "Point the guide at #12's rule", "2030-06-01T00:00:00+00:00",
+                          "2030-06-01T00:00:00+00:00")
+    rev = _prep(hist, f"guidance:rev:{retarget}")["arm_rev"]
+    assert rev["guidance_latest"]["AGENTS.md"] == {
+        "sha": retarget, "authored": "2030-06-01T00:00:00Z", "committed": "2030-06-01T00:00:00Z"}
+    assert [c["sha"] for c in rev["guidance_commits"]][:3] == [retarget, added, chain]
+    assert (hist["tmp"] / "rd" / "workspace" / "AGENTS.md").read_text() == "# from review\n"  # the final file's bytes
+
+
+def _signing_key(tmp: Path) -> Path:
+    key = tmp / "signing-key"
+    subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "t", "-f", str(key)], check=True,
+                   capture_output=True)
+    return key
+
+
+@pytest.mark.skipif(shutil.which("ssh-keygen") is None, reason="needs ssh-keygen to sign a commit")
+def test_a_signed_commit_under_the_repositorys_show_signature_is_read_and_listed(hist):
+    """Repository-local ``log.showSignature=true`` would print verification text outside the fields."""
+    key = _signing_key(hist["tmp"])
+    signed = _commit_at(hist["root"], {"AGENTS.md": "# signed guidance\n"}, "signed guidance",
+                        "2030-05-01T00:00:00+00:00", "2030-05-01T00:00:00+00:00",
+                        "-c", "gpg.format=ssh", "-c", f"user.signingkey={key}", "-c", "commit.gpgSign=true")
+    assert "gpgsig" in git(hist["root"], "cat-file", "commit", signed)
+    git(hist["root"], "config", "log.showSignature", "true")
+    rev = _prep(hist, f"guidance:rev:{signed}")["arm_rev"]
+    assert [(c["sha"], c["subject"]) for c in rev["guidance_commits"]][:2] == [
+        (signed, "signed guidance"), (hist["added"], "src guidance")]
+    assert rev["guidance_latest"]["AGENTS.md"]["sha"] == signed
+
+
+@pytest.mark.parametrize(("key", "value"), [
+    ("log.showRoot", "false"),  # the root commit, which adds AGENTS.md, with no files
+    ("i18n.logOutputEncoding", "UTF-16"),  # every subject re-encoded, NULs in it
+    ("diff.ignoreSubmodules", "all"),  # no commit that adds a gitlink
+])
+def test_the_repositorys_own_config_does_not_change_the_history(hist, key, value):
+    guidance = _commit_at(hist["root"], {"AGENTS.md": "# Leitfaden\n"}, "Leitfaden für #12",
+                          "2030-05-01T00:00:00+00:00", "2030-05-01T00:00:00+00:00")
+    git(hist["root"], "update-index", "--add", "--cacheinfo", f"160000,{guidance},vendor/AGENTS.md")
+    gitlink = _commit_at(hist["root"], {}, "vendor a gitlink", "2030-05-02T00:00:00+00:00",
+                         "2030-05-02T00:00:00+00:00", stage=False)
+    plain = _prep(hist, f"guidance:rev:{gitlink}", "plain")["arm_rev"]
+    assert [(c["sha"], c["subject"]) for c in plain["guidance_commits"]][:2] == [
+        (gitlink, "vendor a gitlink"), (guidance, "Leitfaden für #12")]
+    assert plain["guidance_commits"][-1]["sha"] == hist["first"]
+    guidance_history._read_guidance_commits.cache_clear()
+    git(hist["root"], "config", key, value)
+    assert _prep(hist, f"guidance:rev:{gitlink}", "configured")["arm_rev"] == plain

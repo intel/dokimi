@@ -366,9 +366,10 @@ grader diffs the agent's changes from `start_sha`. With the arm come
 files with no counterpart at `<rev>`), which also records the guidance history
 of `<rev>` (`dokimi/repos/guidance_history.py`): `guidance_latest`, for
 each guidance file the arm wrote, the commit reachable from `<rev>` that last
-touched it, or for a link the file it resolves to, by committer date;
+touched it, or for a link it or any path its resolution goes through (each
+intermediate link and the file it resolves to), by committer date;
 `guidance_commits`, the commits reachable from `<rev>` that touch a path the
-guidance globs match or a guidance link's target, newest first by committer
+guidance globs match or a path a guidance link resolves through, newest first by committer
 date, at most 200, each with its `subject`; and `guidance_commits_truncated`,
 `true` when that cap cut the list. Each commit has its `sha`, `authored` and
 `committed` (strict ISO 8601, `%aI` and `%cI`). A merge commit counts for a

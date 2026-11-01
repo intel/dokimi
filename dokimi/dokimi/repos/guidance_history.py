@@ -14,10 +14,12 @@ The history is one ``git log -z --raw`` over the revision, filtered with :func:`
 followed by its one path, so a subject or a path, whatever it holds, cannot pass for the other.
 Git cuts a subject at a NUL (``git commit`` refuses one), so a subject is one field. The history is
 read once per git dir, revision, globs and links in a process, also when cells of the arm prepare at
-once: every cell asks the same.
+once: every cell asks the same. A key of the repository's own config that changes what the log
+prints (as checked with git 2.51) is overridden by a flag (:data:`_PINNED`).
 
-The arm installs a guidance link (``AGENTS.md -> docs/GUIDE.md``) as its target's bytes, so a
-commit that touches the target counts for the link's path, whether or not a glob matches the target.
+The arm installs a guidance link (``AGENTS.md -> docs/current -> GUIDE.md``) as the bytes of the file
+it resolves to, so a commit that touches any path of its chain, an intermediate link or that file,
+counts for the link's path, whether or not a glob matches that path.
 
 A merge counts when its own result changes a guidance path against every parent
 (``--diff-merges=dense-combined``): a conflict resolution, an edit made in the merge, or a clean
@@ -47,8 +49,15 @@ GUIDANCE_COMMITS_CAP = 200
 _GIT_TIMEOUT_S = 1800.0
 _FORMAT = "--format=%H%x00%aI%x00%cI%x00%s"  # with -z, a NUL ends the subject too
 _COMMIT_ID = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")  # SHA-1 or SHA-256
+#: Each overrides a key of the repository's config that changes the output (git 2.51)
+_PINNED = (
+    "--no-show-signature",  # log.showSignature: verification text outside the fields
+    "--root",  # log.showRoot=false: the root commit with no files
+    "--encoding=UTF-8",  # i18n.logOutputEncoding: a subject re-encoded, in UTF-16 with NULs
+    "--ignore-submodules=none",  # diff.ignoreSubmodules=all: no commit that adds or moves a gitlink
+)
 
-_Links = tuple[tuple[str, str], ...]  # (link path, the file it resolves to), sorted
+_Links = tuple[tuple[str, tuple[str, ...]], ...]  # (link path, the paths it resolves through), sorted
 
 
 @dataclass(frozen=True)
@@ -64,11 +73,12 @@ class _Commit:
 
 
 def arm_rev_history(git_dir: Path, globs: tuple[str, ...], sha: str, files: list[str],
-                    links: dict[str, str]) -> dict[str, Any]:
+                    links: dict[str, list[str]]) -> dict[str, Any]:
     """``guidance_latest`` for each of ``files`` (the guidance at ``sha``; ``links`` maps those that
-    are links to their targets), ``guidance_commits`` (newest first by committer date, at most
-    :data:`GUIDANCE_COMMITS_CAP`) and ``guidance_commits_truncated``."""
-    commits = _guidance_commits(git_dir, sha, globs, tuple(sorted(links.items())))
+    are links to every path they resolve through, the file they resolve to last), ``guidance_commits``
+    (newest first by committer date, at most :data:`GUIDANCE_COMMITS_CAP`) and
+    ``guidance_commits_truncated``."""
+    commits = _guidance_commits(git_dir, sha, globs, tuple(sorted((k, tuple(v)) for k, v in links.items())))
     latest: dict[str, dict[str, str]] = {}
     for c in commits:  # newest first: the first commit naming a file is its latest
         for path in c.paths:
@@ -94,11 +104,12 @@ def _guidance_commits(git_dir: Path, sha: str, globs: tuple[str, ...], links: _L
 
 @lru_cache(maxsize=64)
 def _read_guidance_commits(git_dir: Path, sha: str, globs: tuple[str, ...], links: _Links) -> tuple[_Commit, ...]:
-    """The commits reachable from ``sha`` that touch a path ``globs`` match or a target of ``links``,
-    newest first by committer date."""
+    """The commits reachable from ``sha`` that touch a path ``globs`` match or a path a link of ``links``
+    resolves through, newest first by committer date."""
     linked: dict[str, list[str]] = {}
-    for link, target in links:
-        linked.setdefault(target, []).append(link)
+    for link, chain in links:
+        for path in chain:
+            linked.setdefault(path, []).append(link)
     found = []
     for (commit, authored, committed, subject), touched in _parse_log(_git_log(git_dir, sha)):
         paths = tuple(dict.fromkeys(g for p in touched for g in _counts_for(p, globs, linked)))
@@ -109,7 +120,7 @@ def _read_guidance_commits(git_dir: Path, sha: str, globs: tuple[str, ...], link
 
 
 def _counts_for(path: str, globs: tuple[str, ...], linked: dict[str, list[str]]) -> list[str]:
-    """The guidance paths a change to ``path`` counts for: itself when a glob matches it, and each link to it."""
+    """The guidance paths a change to ``path`` counts for: itself when a glob matches it, and each link through it."""
     return ([path] if any(match_glob(g, path) for g in globs) else []) + linked.get(path, [])
 
 
@@ -142,7 +153,7 @@ def _git_log(git_dir: Path, sha: str) -> str:
     env = process.Env.only(keep, {"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, "HOME": os.devnull,
                                   "GIT_TERMINAL_PROMPT": "0"})
     done = process.git("-C", str(git_dir), "log", "-z", "--raw", "--no-abbrev", "--no-renames",
-                       "--diff-merges=dense-combined", _FORMAT, sha, "--", timeout=_GIT_TIMEOUT_S, env=env)
+                       "--diff-merges=dense-combined", *_PINNED, _FORMAT, sha, "--", timeout=_GIT_TIMEOUT_S, env=env)
     if done.timed_out:
         raise PrepError(f"git log {sha[:12]}: timed out after {_GIT_TIMEOUT_S:.0f} seconds")
     if done.returncode:
