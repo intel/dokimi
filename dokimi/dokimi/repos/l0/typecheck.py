@@ -75,7 +75,7 @@ def check_fences(scan: Scan, files: list[str], check: Check) -> dict[str, Any]:
         block["unknown"] = len(runnable)
         return block
     block["tool_version"] = tool_version(check)
-    found_errors = _run(check, [code for _, _, code in runnable])
+    found_errors = _run(check, [code for _, _, code in runnable]) if runnable else {}  # no file: a usage error
     for i, (f, fence, code) in enumerate(runnable):
         errors = found_errors.get(i, [])
         if not errors:
@@ -94,6 +94,8 @@ def tool_version(check: Check) -> str:
     """The version the tool reports, e.g. ``2.4.0``."""
     argv = [sys.executable, "-m", "mypy", "--version"] if check.tool == "mypy" else [check.tool, "--version"]
     done = _run_tool(argv, os.getcwd())
+    if done.timed_out or done.returncode != 0:  # a missing module exits 1 with the reason on stderr
+        raise TypecheckError(f"{check.tool} --version exited {done.returncode}: {done.stderr[-300:]}")
     parts = done.stdout.split()
     return parts[1] if len(parts) > 1 else done.stdout.strip()
 
@@ -120,6 +122,10 @@ def _run(check: Check, codes: list[str]) -> dict[int, list[tuple[int, str]]]:
         done = _run_tool(argv, tmp)
     if done.timed_out or done.returncode not in (0, 1):  # 1: the tool found errors; anything else is its failure
         raise TypecheckError(f"{check.tool} exited {done.returncode}: {done.stderr[-300:]}")
+    if done.truncated:  # the middle of the output was dropped, so an error there would be missed
+        raise TypecheckError(f"{check.tool} output was truncated; not every error is known")
+    if done.returncode == 1 and not done.stdout.strip():  # exit 1 with no report: the tool did not run
+        raise TypecheckError(f"{check.tool} exited 1 with no report: {done.stderr[-300:]}")
     return _errors(check.tool, done.stdout)
 
 

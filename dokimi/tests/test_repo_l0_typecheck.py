@@ -204,3 +204,45 @@ def test_basedpyright_missing_from_path_is_a_usage_error(tmp_path, capsys, monke
         args.func(args)
     assert exc.value.code == 2
     assert "--typecheck basedpyright: not on PATH" in capsys.readouterr().err
+
+
+def test_an_interpreter_with_nothing_to_check_runs_no_tool(tmp_path):
+    payload = scan_repo(_tree(tmp_path, "# Toy\n\nNo code here.\n"), parse_manifest(MANIFEST),
+                        typecheck=Check("mypy", sys.executable))
+    assert payload["typecheck"]["checked"] == 0
+    assert payload["typecheck"]["fail"] == 0
+
+
+def _completed(**over):
+    from types import SimpleNamespace
+
+    done = {"returncode": 0, "stdout": "", "stderr": "", "timed_out": False, "truncated": False}
+    done.update(over)
+    return SimpleNamespace(**done)
+
+
+def test_a_tool_that_exits_one_with_no_report_is_an_error_not_a_pass(monkeypatch):
+    from dokimi.repos.l0 import typecheck as l0_typecheck
+
+    monkeypatch.setattr(l0_typecheck, "_run_tool", lambda argv, cwd: _completed(
+        returncode=1, stderr="No module named mypy"))
+    with pytest.raises(l0_typecheck.TypecheckError, match="no report"):
+        l0_typecheck._run(Check("mypy", sys.executable), ["x: int = 1\n"])
+
+
+def test_truncated_tool_output_is_an_error_not_a_partial_result(monkeypatch):
+    from dokimi.repos.l0 import typecheck as l0_typecheck
+
+    monkeypatch.setattr(l0_typecheck, "_run_tool", lambda argv, cwd: _completed(truncated=True))
+    with pytest.raises(l0_typecheck.TypecheckError, match="truncated"):
+        l0_typecheck._run(Check("mypy", sys.executable), ["x: int = 1\n"])
+
+
+def test_a_relative_python_env_is_made_absolute_before_the_tool_runs(tmp_path, monkeypatch):
+    from dokimi.commands.repo import _typecheck_or_exit
+
+    link = tmp_path / "py"
+    link.symlink_to(sys.executable)
+    monkeypatch.chdir(tmp_path)
+    args = build_parser().parse_args(["repo", "scan", str(tmp_path), "--typecheck", "--python-env", "py"])
+    assert Path(_typecheck_or_exit(args).python).is_absolute()

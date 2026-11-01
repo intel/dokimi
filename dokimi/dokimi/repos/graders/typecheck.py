@@ -27,7 +27,7 @@ from typing import Any
 VERSION = "1"
 TOOL = "mypy"
 MAX_ERRORS = 50  # reported in details; the count is in the metrics
-_ERROR = re.compile(r"^(?P<file>[^\n:]+):(?P<line>\d+):(?:\d+:)? error: (?P<message>.*?)(?:\s+\[(?P<code>[\w-]+)\])?$")
+_ERROR = re.compile(r"^(?P<file>.+?)(?::(?P<line>\d+))?(?::\d+)?: error: (?P<message>.*?)(?:\s+\[(?P<code>[\w-]+)\])?$")
 
 
 def _safe_path(path: object) -> bool:
@@ -49,13 +49,17 @@ def task_problems(raw: dict[str, Any]) -> list[str]:
     return problems
 
 
-def _errors(stdout: str, listed: set[str]) -> list[dict[str, Any]]:
-    """The error lines of mypy's output on a listed file, in output order."""
+def _errors(stdout: str, listed: set[str], root: str) -> list[dict[str, Any]]:
+    """The error lines of mypy's output on a listed file, in output order; ``root`` is stripped from the names."""
     out = []
     for line in stdout.splitlines():
         m = _ERROR.match(line)
-        if m and posixpath.normpath(m.group("file")) in listed:
-            out.append({"file": posixpath.normpath(m.group("file")), "line": int(m.group("line")),
+        if not m:
+            continue
+        name = m.group("file")
+        name = posixpath.normpath(name[len(root):] if name.startswith(root) else name)
+        if name in listed:
+            out.append({"file": name, "line": int(m.group("line") or 0),
                         "code": m.group("code") or "", "message": m.group("message")})
     return out
 
@@ -78,16 +82,19 @@ def grade(task: dict[str, Any], task_dir: Path, answer: str, run_dir: Path | Non
     errors: list[dict[str, Any]] = []
     if present:
         cache = tempfile.mkdtemp(prefix="dokimi-mypy-")
+        neutral = tempfile.mkdtemp(prefix="dokimi-mypy-cwd-")  # no config here: the subject's mypy.ini is not read
         cwd = os.getcwd()
         try:
-            os.chdir(workspace)
-            stdout, stderr, status = api.run(["--no-incremental", f"--cache-dir={cache}", *present])
+            os.chdir(neutral)
+            stdout, stderr, status = api.run(["--no-incremental", f"--cache-dir={cache}",
+                                              *[str(workspace / p) for p in present]])
         finally:
             os.chdir(cwd)
             shutil.rmtree(cache, ignore_errors=True)
+            shutil.rmtree(neutral, ignore_errors=True)
         if status not in (0, 1):  # 2: mypy itself failed (a bad config, a crash)
             raise RuntimeError(f"mypy exited {status}: {stderr[-300:]}")
-        errors = _errors(stdout, set(present))
+        errors = _errors(stdout, set(present), str(workspace) + os.sep)
     shown = [f"{e['file']}:{e['line']}: {e['message']}" + (f" [{e['code']}]" if e["code"] else "") for e in errors]
     return {"pass": not errors and not missing, "n_errors": len(errors), "n_missing": len(missing),
             "n_files": len(paths), "errors": shown[:MAX_ERRORS], "missing": missing,

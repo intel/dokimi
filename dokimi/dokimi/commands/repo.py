@@ -139,7 +139,8 @@ def _typecheck_or_exit(args: argparse.Namespace):
     if args.typecheck != "mypy" and shutil.which(args.typecheck) is None:
         print(f"✗ --typecheck {args.typecheck}: not on PATH", file=sys.stderr)
         sys.exit(EXIT_USAGE)
-    return Check(args.typecheck, args.python_env)
+    python = os.path.abspath(args.python_env) if args.python_env is not None else None  # the tool runs elsewhere
+    return Check(args.typecheck, python)
 
 
 def cmd_repo_scan(args: argparse.Namespace) -> None:

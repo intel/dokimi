@@ -133,3 +133,21 @@ def test_the_grader_script_loads_its_siblings_by_name(monkeypatch):
     script = runpy.run_path(grader_main.__file__, run_name="grader_script")  # a script: no package
     assert script["GRADERS"]["typecheck"] is script["typecheck"].GRADERS["typecheck"]
     assert script["VERSIONS"]["typecheck"] == typecheck.VERSION
+
+
+def test_the_subjects_mypy_ini_cannot_suppress_a_listed_file(tmp_path):
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": WRONG,
+                          "mypy.ini": "[mypy-pkg.api]\nignore_errors = True\n"}, _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is False
+    assert result["n_errors"] == 1
+
+
+def test_a_listed_path_with_a_colon_is_matched():
+    out = typecheck._errors("a:b.py:3: error: boom  [misc]", {"a:b.py"}, "")
+    assert [(e["file"], e["line"]) for e in out] == [("a:b.py", 3)]
+
+
+def test_a_line_less_error_on_a_listed_file_is_counted():
+    out = typecheck._errors("pkg/a.py: error: Duplicate module named 'a'", {"pkg/a.py"}, "")
+    assert [(e["file"], e["line"]) for e in out] == [("pkg/a.py", 0)]
