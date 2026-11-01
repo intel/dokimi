@@ -5,8 +5,9 @@
 
 The first event of the run that hits the task's definition (:mod:`.useful_spec`): a ``command`` event whose text
 matches and whose ``rc`` is 0, or an ``edit`` event whose path matches a glob. A refused event (``denied``) never
-hits, nor does an edit whose tool result is an error (``rc`` 1). ``steps`` counts every event up to and including the hit, as ``process.tool_calls`` does. ``issued_s`` is the
-hit's ``t``: the time the call was issued, since its result is not timed, so a test run's pass is not timed.
+hits, nor does an edit whose tool result is not a success (``rc`` 0 is the only success). ``steps`` counts every event
+up to and including the hit, as ``process.tool_calls`` does. ``issued_s`` is the hit's ``t``: the time the call was
+issued, since its result is not timed, so a test run's pass is not timed.
 """
 
 from __future__ import annotations
@@ -34,15 +35,17 @@ def hits(useful: Useful, event: Mapping[str, Any]) -> bool:
     """Whether ``event`` satisfies ``useful``: a passing command matching the regex, or an edit matching a glob."""
     if event.get("denied"):  # a refused call never ran, or never changed the file
         return False
+    # only a call whose result says it succeeded counts: a call with no result, or a failed one, changed nothing
+    if event.get("rc") != 0:
+        return False
     if useful.kind == "command":
-        text = str(event.get("text") or "")
-        matched = bool(useful.command and useful.command.search(text))
-        return event.get("kind") == "command" and event.get("rc") == 0 and matched
+        return event.get("kind") == "command" and bool(useful.command and useful.command.search(str(event.get("text") or "")))
     raw = str(event.get("path") or "")
-    # outside the workspace, or not a path: no target
-    path = None if _NON_POSIX_ROOT.match(raw) else _workspace_path(raw)
-    failed = event.get("rc") == 1  # an edit whose tool result is an error changed nothing
-    if path is None or event.get("kind") != "edit" or failed:
+    # no path, outside the workspace, or the workspace root itself: no target
+    if event.get("kind") != "edit" or not raw or _NON_POSIX_ROOT.match(raw):
+        return False
+    path = _workspace_path(raw)
+    if path is None or path == ".":
         return False
     return any(match_glob(g, path) for g in useful.globs)
 

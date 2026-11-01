@@ -31,24 +31,25 @@ GOLDEN_CLAUDE_CODE_IDS = {
 }
 
 # The sample batch (the fake profile and binary of the fixture): every cell's execution record, by cell name.
+# The id moves whenever the fixture binary changes (its digest is in the id), e.g. when it gains a tool_result.
 GOLDEN_SAMPLE_CELLS = {
     "fix_add__guidance-none__m-1__r1": {
-        "id": "d8d2e00d02f7",
+        "id": "ac034e664259",
         "tools": "all",
         "delegation": "native",
     },
     "fix_add__guidance-none__m-1__r2": {
-        "id": "d8d2e00d02f7",
+        "id": "ac034e664259",
         "tools": "all",
         "delegation": "native",
     },
     "fix_add__guidance-raw__m-1__r1": {
-        "id": "d8d2e00d02f7",
+        "id": "ac034e664259",
         "tools": "all",
         "delegation": "native",
     },
     "fix_add__guidance-raw__m-1__r2": {
-        "id": "d8d2e00d02f7",
+        "id": "ac034e664259",
         "tools": "all",
         "delegation": "native",
     },

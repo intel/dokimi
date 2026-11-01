@@ -203,7 +203,7 @@ def _content(rec: dict[str, Any], out: Transcript) -> list[dict[str, Any]]:
     if not isinstance(content, list):
         out.dropped_lines += 1
         return []
-    blocks = [b for b in content if isinstance(b, dict)]
+    blocks = [b for b in content if isinstance(b, dict) and isinstance(b.get("type"), str)]  # a block says its type
     if len(blocks) != len(content):
         out.dropped_lines += 1
     return blocks

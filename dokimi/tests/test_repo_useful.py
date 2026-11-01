@@ -39,7 +39,8 @@ def _command(text: str, rc: int | None, t: float | None = None, **extra) -> dict
 
 
 def _edit(path: str, t: float | None = None, **extra) -> dict:
-    return {"t": t, "kind": "edit", "path": path, **extra}
+    """An edit whose result is a success (rc 0), unless ``extra`` says otherwise."""
+    return {"t": t, "kind": "edit", "path": path, "rc": 0, **extra}
 
 
 # -- the definition ----------------------------------------------------------------------------------------------
@@ -200,6 +201,15 @@ def test_the_hit_is_timed_from_the_claude_stream_it_came_from():
                         "name": "Edit",
                         "input": {"file_path": "/ws/src/x.py"},
                     }
+                ]
+            },
+        },
+        {
+            "type": "user",
+            "timestamp": "2026-10-31T10:00:11.000Z",
+            "message": {
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "b", "is_error": False, "content": "ok"}
                 ]
             },
         },
@@ -632,3 +642,101 @@ def test_a_claude_trace_with_a_malformed_content_block_is_unobserved_not_never()
     # the runner reports the uptake as unobserved when a line was dropped, as it would for a trace it could not read
     events = None if transcript.dropped_lines else transcript.events
     assert first_useful(parse_useful({"edit": "src/*.py"}), events)["reason"] == "unobserved"
+
+
+# -- the hit rules, the summary and the dropped lines, pinned -----------------------------------------------------
+
+
+@pytest.mark.parametrize("useful, event", [
+    ({"edit": "src/*.py"}, _edit("src/x.py", t=1.0, rc=None)),  # no tool result: the call never ran (killed)
+    ({"edit": "**"}, _edit("", t=1.0)),  # an Edit with no file_path: no target, not the workspace root
+    ({"edit": "**"}, _edit("./", t=1.0)),
+    ({"edit": "*"}, _edit(".", t=1.0)),
+])
+def test_an_edit_with_no_result_or_no_target_is_never_the_first_useful_result(useful, event):
+    assert first_useful(parse_useful(useful), [event])["reason"] == "never"
+
+
+def test_a_command_pattern_is_searched_anywhere_in_the_command_text():
+    events = [_command("cd x && pytest -q", 0, t=1.0)]
+    assert first_useful(parse_useful({"command": "pytest"}), events) == {
+        "kind": "command", "reason": None, "issued_s": 1.0, "steps": 1}
+
+
+def test_a_read_of_a_matching_path_is_no_edit():
+    events = [{"t": 1.0, "kind": "read", "path": "src/x.py", "rc": 0}, _edit("docs/y.md", t=2.0)]
+    assert first_useful(parse_useful({"edit": "src/*.py"}), events)["reason"] == "never"
+
+
+def test_the_median_is_the_middle_cell_not_the_mean():
+    recs = [{"first_useful": _hit(1.0, 1)}, {"first_useful": _hit(2.0, 2)}, {"first_useful": _hit(10.0, 10)}]
+    summary = useful_summary(recs)
+    assert (summary["median_s"], summary["median_steps"]) == (2.0, 2.0)
+
+
+def test_a_cell_that_names_no_definition_is_not_in_the_summary():
+    recs = [{"first_useful": {"kind": None, "reason": "not_declared", "issued_s": None, "steps": None}},
+            {"first_useful": _hit(5.0, 3)}]
+    assert (useful_summary(recs)["n"], useful_summary(recs)["observed"]) == (1, 1)
+
+
+def test_an_untimed_hit_is_observed_with_steps_but_no_seconds():
+    recs = [{"first_useful": {"kind": "command", "reason": "untimed", "issued_s": None, "steps": 3}}]
+    summary = useful_summary(recs)
+    assert (summary["observed"], summary["median_s"], summary["median_steps"]) == (1, None, 3.0)
+
+
+def test_the_rate_is_over_the_declared_cells_and_its_count_is_the_declared_cells():
+    recs = [{"first_useful": _hit(1.0, 1)},
+            {"first_useful": {"kind": "command", "reason": "never", "issued_s": None, "steps": None}},
+            {"first_useful": _hit(3.0, 2)}]
+    assert useful_task_values(recs)["first_useful_rate"] == [2 / 3]
+    assert useful_task_counts(recs)["first_useful_rate"] == 3
+
+
+@pytest.mark.parametrize("dropped, reason", [(0, None), (1, "unobserved")])
+def test_result_json_says_a_trace_with_a_dropped_line_is_unobserved_not_never(setup, monkeypatch, dropped, reason):  # noqa: F811
+    """The runner's own guard: a dropped line may hold the hit, so the kept events are not used for it."""
+    from dokimi.repos import runner
+
+    real_convert = runner.convert
+
+    def convert_with_a_hit_and_a_drop(trace, raw, workspace):
+        transcript = real_convert(trace, raw, workspace)
+        transcript.dropped_lines = dropped
+        transcript.events.insert(0, {"t": 1.0, "kind": "command", "text": "bazel build //x", "rc": 0})
+        return transcript
+
+    monkeypatch.setattr(runner, "convert", convert_with_a_hit_and_a_drop)
+    task_json = setup["root"] / ".agent-eval/tasks/fix_add/task.json"
+    task = json.loads(task_json.read_text())
+    task["useful"] = {"command": "bazel build"}
+    task_json.write_text(json.dumps(task))
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add", source=str(setup["root"]))
+    first = _only_cell(setup)["first_useful"]
+    assert first["reason"] == reason
+    assert first["steps"] == (None if reason else 1)
+
+
+def test_the_treatment_header_counts_only_the_models_compared(tmp_path):
+    batch = tmp_path / "b"
+    for arm, model in (("guidance:none", "m1"), ("guidance:raw", "m1"), ("guidance:raw", "m2")):
+        _cell(batch, "t1", arm, 1, model=model)
+    _set_useful(batch, "t1__guidance-none__m1__r1", _hit(5.0, 3))
+    _set_useful(batch, "t1__guidance-raw__m1__r1",
+                {"kind": "command", "reason": "never", "issued_s": None, "steps": None})
+    _set_useful(batch, "t1__guidance-raw__m2__r1", _hit(9.0, 4))
+    s = compare([batch], "guidance:none", models=["m1"])
+    assert s["first_useful"]["guidance:raw"] == {"observed": 0, "declared": 1}
+
+
+@pytest.mark.parametrize("content", [[{}], [{"type": 7}], [{"type": None}], [{"text": "no type"}]])
+def test_a_claude_block_without_a_string_type_is_a_dropped_line(content):
+    line = {"type": "assistant", "message": {"content": content}}
+    assert convert("claude-stream-json", json.dumps(line), "/ws").dropped_lines == 1
+
+
+def test_claude_text_and_thinking_blocks_are_not_dropped():
+    line = {"type": "assistant", "message": {"content": [
+        {"type": "text", "text": "hi"}, {"type": "thinking", "thinking": "t", "signature": "s"}]}}
+    assert convert("claude-stream-json", json.dumps(line), "/ws").dropped_lines == 0
