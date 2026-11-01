@@ -446,3 +446,11 @@ def test_a_true_python_env_is_a_usage_error_not_a_traceback(tmp_path, capsys):
         args.func(args)
     assert exc.value.code == 2
     assert "did not report its version" in capsys.readouterr().err
+
+
+def test_a_blocking_type_comment_is_a_failing_fence_not_a_tool_failure(tmp_path):
+    # ast.parse reads no type comments by default, so this passes the parse; mypy then exits 2 on it
+    tree = _tree(tmp_path, f"{FENCE}python\nx = 1  # type: ???\n{FENCE}\n")
+    [claim] = _fence_claims(scan_repo(tree, parse_manifest(MANIFEST), typecheck=Check("mypy", sys.executable)))
+    assert claim["status"] == "fail"
+    assert "type comment" in claim["why"]
