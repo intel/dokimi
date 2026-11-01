@@ -96,6 +96,14 @@ def test_a_closing_fence_shorter_than_the_opening_one_does_not_close_it(tmp_path
     assert review.findings == []
 
 
+def test_a_fence_indented_four_spaces_does_not_open_a_block(tmp_path):
+    _skill(tmp_path / "skills", "indented", name="indented", description="Use for indented.",
+           body="    ```\n[a](gone.md)\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == ["link-missing"]
+
+
 def test_skills_named_through_a_subdirectory_dot_dot_are_not_mirror_drift(tmp_path):
     # "skills/alpha/sub/.." is the skill directory "alpha": two such skills are not copies of each other.
     _skill(tmp_path / "skills", "alpha", name="alpha", description="Use for alpha work.", body="# Alpha\n")
