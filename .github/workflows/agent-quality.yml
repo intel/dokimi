@@ -51,6 +51,8 @@ jobs:
     runs-on: ${{ github.repository_owner == 'intel' && github.event_name == 'pull_request' && 'dokimi-ec2' || 'ubuntu-latest' }}
     permissions:
       contents: read
+      # The changes step reads this workflow's earlier runs (gh api).
+      actions: read
     timeout-minutes: 15
     env:
       # Pinned, not `main` -- an upstream rename/restructure of
@@ -64,24 +66,72 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      # Whether a PR changes anything besides Markdown. A docs-only PR skips the
-      # steps below (the Docker smoke test cannot be affected by it); the benchmark
-      # job measures the docs, so it always runs. The job itself still takes a
-      # runner, as its steps are skipped, not the job.
+      # Docs-only runs skip the code steps (the benchmark still runs). A push diffs from the last verified smoke run, else all; docs are the Markdown in DOCS below.
+      # dokimi/data/, tests and .agent-eval count as code, and a base that moved since that run's merge also runs everything. Force pushes run all.
       - id: changes
         working-directory: .
+        # Explicit, so the step runs as `bash --noprofile --norc -eo pipefail`, the flags the test harness uses.
+        shell: bash
         env:
           EVENT: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_REF: ${{ github.head_ref }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+          DOCS: '^([^/]+|dokimi/[^/]+|dokimi/docs/(.+/)?[^/]+|dokimi/changelog\.d/[^/]+|\.github/(.+/)?[^/]+)\.md$'
         run: |
-          if [ "$EVENT" != pull_request ]; then echo code=true >> "$GITHUB_OUTPUT"; exit 0; fi
-          # The base branch's current tip (fetched by the checkout), not base.sha
-          # (the base when the PR was opened).
-          if git diff --name-only "origin/$BASE_REF"...HEAD | grep -qv '\.md$'; then
-            echo code=true >> "$GITHUB_OUTPUT"
+          set_code() { echo "code=$1" >> "$GITHUB_OUTPUT"; echo "changes: code=$1 ($2)"; }
+          # Newest commit reachable from AFTER whose smoke run passed (Verify pass rate succeeded): prints "<sha> <run id>",
+          # or nothing if none. An unreadable run list also prints nothing; the caller then runs everything.
+          last_verified() {
+            runs=$(gh api "repos/$REPO/actions/workflows/agent-quality.yml/runs" --method GET \
+              -f branch="$HEAD_REF" -f event=pull_request -f status=completed -f per_page=20 \
+              --jq '.workflow_runs[] | "\(.id) \(.head_sha)"') || return 0
+            while read -r id sha; do
+              [ -n "$id" ] || continue
+              git cat-file -e "$sha^{commit}" 2>/dev/null && git merge-base --is-ancestor "$sha" "$AFTER" 2>/dev/null || continue
+              verdict=$(gh api "repos/$REPO/actions/runs/$id/jobs" \
+                --jq '.jobs[] | select(.name | startswith("External catalog smoke test")) | .steps[] | select(.name == "Verify pass rate") | .conclusion') || continue
+              if [ "$verdict" = success ]; then echo "$sha $id"; return 0; fi
+            done <<< "$runs"
+          }
+          if [ "$EVENT" != pull_request ]; then set_code true "not a pull request"; exit 0; fi
+          # --no-renames: a rename from code to Markdown must count as the code it removes.
+          if [ "$ACTION" = synchronize ]; then
+            if ! { [ -n "$BEFORE" ] && [ -n "$AFTER" ] \
+                && git cat-file -e "$BEFORE^{commit}" && git cat-file -e "$AFTER^{commit}" \
+                && git merge-base --is-ancestor "$BEFORE" "$AFTER"; } 2>/dev/null; then
+              set_code true "force push, or the commits are not fetched"; exit 0
+            fi
+            # Diffed from the last passed run's commit, not from BEFORE: a run this push
+            # cancelled or that failed verified nothing, so its code is diffed again.
+            read -r from verified_run <<< "$(last_verified)" || true
+            if [ -z "$from" ]; then set_code true "push: no passed smoke run to diff from"; exit 0; fi
+            # The diff above does not show base changes: the run tested its merge with the base it was built on.
+            # Skip only if origin/$BASE_REF is still that base (the smoke job records it; no record means run everything).
+            dl=$(mktemp -d)
+            tested_base=$(gh run download "$verified_run" -R "$REPO" -n external-catalog-smoke-runs -D "$dl" >/dev/null 2>&1 && cat "$dl/base.sha") || tested_base=
+            base=$(git rev-parse --verify -q "origin/$BASE_REF") || base=
+            if [ -z "$tested_base" ] || [ "$tested_base" != "$base" ]; then
+              set_code true "push: the base moved since ${from:0:7}, or that run did not record it"; exit 0
+            fi
+            scope="push since ${from:0:7}"
+            files=$(git -c core.quotepath=false diff --no-renames --name-only "$from" "$AFTER") \
+              || { set_code true "push diff failed"; exit 0; }
           else
-            echo code=false >> "$GITHUB_OUTPUT"
+            # The base branch's current tip (fetched by the checkout), not the event's pull_request.base.sha
+            # (the base when the PR was opened).
+            scope=pr
+            files=$(git -c core.quotepath=false diff --no-renames --name-only "origin/$BASE_REF"...HEAD) \
+              || { set_code true "PR diff failed"; exit 0; }
           fi
+          if [ -z "$files" ]; then set_code true "$scope diff is empty"; exit 0; fi
+          # A here-string, not a pipe: grep -q may exit early, and under pipefail the pipe's printf would get SIGPIPE.
+          if grep -qvE "$DOCS" <<< "$files"; then set_code true "$scope changes code"; exit 0; fi
+          set_code false "$scope changes only documentation"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         if: steps.changes.outputs.code == 'true'
         with:
@@ -121,6 +171,22 @@ jobs:
             --tasks-root "${{ runner.temp }}/uxl-skills/evaluation/harbor/tasks" \
             --harnesses docker-oracle,docker-probe \
             --out-json "${{ github.workspace }}/logs/external-catalog-smoke/runs.json"
+      # The base the merge commit (refs/pull/N/merge) was built on, its first parent; not origin/$BASE_REF, which may have moved since.
+      # A PR that does not merge records nothing. A later docs-only push skips only while origin/$BASE_REF is still this one.
+      - name: Record the base this run tested
+        if: steps.changes.outputs.code == 'true' && github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          RECORD: ${{ github.workspace }}/logs/external-catalog-smoke/base.sha
+        run: |
+          # The checkout is the PR's merge commit; its first parent is the base tip the merge was built on.
+          # Recorded only if that parent is on origin/<base>; else nothing, so the next push runs everything.
+          rm -f "$RECORD"
+          if git rev-parse --verify -q HEAD^2 > /dev/null \
+              && parent=$(git rev-parse --verify HEAD^1) \
+              && git merge-base --is-ancestor "$parent" "origin/$BASE_REF"; then
+            echo "$parent" > "$RECORD"
+          fi
       # Every cell passed and none errored (an errored cell leaves pass_rate's
       # denominator, so pass_rate alone would read 1.0), and the probe's fetch
       # was denied by the egress proxy; see scripts/check_smoke_runs.py.

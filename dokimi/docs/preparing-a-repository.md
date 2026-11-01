@@ -199,8 +199,10 @@ Recurring review comments are review knowledge a repository already has.
 |---|---|
 | Claude Code 2.1.286 (measured 2026-10) | `CLAUDE.md`. `AGENTS.md` only when no `CLAUDE.md` is in its start-up chain. Subdirectory files lazily, when it reads a file there (a subdirectory `AGENTS.md` only if no `CLAUDE.md` is in the chain). |
 
-Other harnesses (Codex, Copilot and others) are not listed because no loading
-behavior was measured for them. Each needs its own `harness_profile.v1` and a
+Codex (codex-cli 0.160) and Copilot CLI (1.0.91) were measured too: what each
+loaded is in the `guidance.notes` of the built-in `codex` and `copilot` profiles
+(`dokimi/repos/profiles/codex.yaml`, `dokimi/repos/profiles/copilot.yaml`). A
+harness without a built-in profile needs its own `harness_profile.v1` and a
 measurement with `dokimi repo reach`; the `text`-trace limit below applies.
 
 Put a `CLAUDE.md` containing `@AGENTS.md` next to each `AGENTS.md`, including in
@@ -213,10 +215,12 @@ effect. Targets skipped because a `CLAUDE.md` already exists are listed as
 `bridge_skipped` in `meta.json`; `repo report` does not show them.
 
 Loading changes between versions. Run `dokimi repo reach` for the harness and
-version you use instead of relying on this table. Only the `claude-code` profile is
-built in; for Codex or Copilot, pass a `harness_profile.v1` file with `--harness`
+version you use instead of relying on this table. The `claude-code`, `codex`,
+`codex-review`, `copilot` and `copilot-review` profiles are built in (`repo reach`
+refuses `codex-review`, which runs its own prompt: probe with `codex`); for another
+harness, pass a `harness_profile.v1` file with `--harness`
 ([contract](repo-evaluation-contract.md)). Tool-use counts need a trace the profile
-can convert, which today means `claude-stream-json`; a `text` trace gives no
+can convert, which today means `claude-stream-json`, `codex-json` or `copilot-json`; a `text` trace gives no
 events, turns or cost, so for such a harness `repo reach` can report a file as
 loaded but never as fetched by the agent. For Claude Code it requires the `claude`
 CLI, credentials and a mandatory `--model` flag; `repo --help` notes it costs one
@@ -281,5 +285,5 @@ Treat each item above as a hypothesis for your repository.
 - C/C++: `compile_commands.json` covers every build variant; indexes are prebuilt if you offer navigation tools.
 - Recurring review rules, curated, are in the review prompt (§6); `AGENTS.md` placement is not measured yet.
 - A `CLAUDE.md` containing `@AGENTS.md` sits next to each `AGENTS.md` (§7).
-- `dokimi repo reach` (only `claude-code` is built in; others need a `harness_profile.v1` file) confirms each harness you use loads the files you rely on.
+- `dokimi repo reach` (`claude-code`, `codex`, `copilot` and `copilot-review` are built in; `codex-review` runs its own prompt and is refused; others need a `harness_profile.v1` file) confirms each harness you use loads the files you rely on.
 - Each change was compared against the baseline on current models.

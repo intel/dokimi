@@ -284,8 +284,10 @@ next release.
   it can see. A file comes back `loaded`, `truncated` (one token — the file was
   cut), `fetched` (seen only after the agent read it), `not_loaded`, or `error`
   (no usable answer). Harness behaviour is data, not code:
-  `dokimi/repos/profiles/claude-code.yaml` is a `harness_profile.v1`
-  file and any other harness is another YAML.
+  `dokimi/repos/profiles/` holds `harness_profile.v1` files for Claude
+  Code, the Codex CLI (`codex`, and its native review mode `codex-review`) and
+  the Copilot CLI (`copilot`, and `copilot-review`, a `/review`-prefixed prompt variant of it); any
+  other harness is another YAML.
 - `dokimi/repos/budget.py` — `repo budget`: what the tree puts into an
   agent's context when it starts at the root, in characters, with no LLM call.
   Root CLAUDE.md files and their `@` imports, the root AGENTS.md files and their `@` imports, and
@@ -312,7 +314,9 @@ next release.
 - `dokimi/repos/bases.py` — checks that need every task base: each
   `base` must resolve, and the guidance globs are evaluated at each base.
 - `dokimi/repos/events.py` — converts a harness trace to the
-  `events.jsonl` run trace.
+  `events.jsonl` run trace; `dokimi/repos/cli_traces.py` holds the Codex and
+  Copilot JSON converters, and `dokimi/repos/answers.py` the `answer_format`
+  conversions that turn a native review answer into a findings block.
 - `dokimi/repos/l0/` — `repo scan` (L0): checks the links, paths,
   identifiers, commands and build labels the guidance names against the same
   tree (`repo_readiness.v1`), with no LLM call.
@@ -409,7 +413,12 @@ Guide: [run-consistency.md](run-consistency.md).
   read as UTF-8, a captured stream keeps at most 1 MiB in memory (its first and
   last half, `truncated` set; `stdout_to`/`stderr_to` write a whole stream to a
   file; git output is kept whole), and every call states its environment policy (`Env.inherit` or
-  an `Env.only` allow-list). `FakeRunner` is its test adapter: code that spawns
+  an `Env.only` allow-list). `Limits` the platform cannot apply raise `ValueError` before the
+  child starts (any limit on Windows, a memory limit on macOS), a `setrlimit` the kernel
+  rejects raises `subprocess.SubprocessError` before the command runs, and a hard limit the
+  process inherited that is lower than the request stays in force. `dokimi/process_io.py`
+  decides who owns each pipe, so an interrupted launch closes its streams exactly once
+  and Windows reader threads close theirs at EOF. `FakeRunner` is its test adapter: code that spawns
   takes a `runner` argument.
 - `dokimi/llm.py` — the entry point for LLM calls. `LLM` (one model at one provider:
   `complete`/`ask`/`chat`, retry, the response cache, usage) sits on one

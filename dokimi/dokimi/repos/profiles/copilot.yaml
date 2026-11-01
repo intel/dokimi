@@ -1,0 +1,75 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+schema: harness_profile.v1
+name: copilot
+bin: copilot  # npm's copilot is a node launcher; mount the native one (@github/copilot-<platform>/copilot) with --bin
+version_cmd: ["{bin}", "--version"]
+# `copilot -p` is non-interactive; {max_turns} and {budget} have no flag. Tool mode last: --available-tools
+# takes every later argument. The prompt is one `--prompt=` element, else a leading "-" parses as an option.
+invoke:
+  - "{bin}"
+  - "--prompt={prompt}"
+  - "--model"
+  - "{model}"
+  - "--output-format"
+  - "json"
+  - "--no-auto-update"
+  - "--no-ask-user"
+  - "--no-color"
+  - "--disable-builtin-mcps"
+  - "--allow-all-tools"
+  - "{tools}"
+# An empty --available-tools list leaves every tool on: `none` names a tool that does
+# not exist (measured on 1.0.91: the model then reports no tools).
+tools:
+  none: ["--available-tools", "__none__"]
+  read: ["--available-tools", "view", "grep", "glob"]
+  all: []
+config_dir_env: COPILOT_HOME
+env_allow:
+  - PATH
+  - HOME
+  - LANG
+  - SYSTEMROOT
+  # Copilot hides COPILOT_GITHUB_TOKEN from its shell but not GH_TOKEN or GITHUB_TOKEN,
+  # which the agent's commands could then read: those two are not forwarded.
+  - COPILOT_GITHUB_TOKEN
+  # BYOK: a custom OpenAI-compatible, Azure or Anthropic endpoint instead of Copilot's
+  - COPILOT_PROVIDER_BASE_URL
+  - COPILOT_PROVIDER_TYPE
+  - COPILOT_PROVIDER_API_KEY
+  - COPILOT_PROVIDER_BEARER_TOKEN
+  - COPILOT_PROVIDER_WIRE_API
+  - COPILOT_PROVIDER_MODEL_ID
+  - COPILOT_PROVIDER_WIRE_MODEL
+  - COPILOT_OFFLINE
+  - http_proxy
+  - https_proxy
+  - no_proxy
+  - HTTP_PROXY
+  - HTTPS_PROXY
+  - NO_PROXY
+env_set:
+  COPILOT_AUTO_UPDATE: "false"
+egress:
+  - api.github.com
+  - api.githubcopilot.com
+  - api.individual.githubcopilot.com
+  - api.business.githubcopilot.com
+  - api.enterprise.githubcopilot.com
+endpoint_env: COPILOT_PROVIDER_BASE_URL
+trace: copilot-json
+guidance:
+  names: [AGENTS.md, CLAUDE.md, GEMINI.md, copilot-instructions.md]
+  resolution: git-root + applyTo-globs + lazy-on-read
+  imports: null
+  notes: >-
+    Measured on Copilot CLI 1.0.91 (BYOK, gpt-6-luna and claude-haiku-4-5, oneDAL
+    review task): root AGENTS.md, CLAUDE.md, GEMINI.md,
+    .github/copilot-instructions.md and the .github/instructions/*.instructions.md
+    files whose applyTo matched were applied; subtree AGENTS.md only after a
+    read; REVIEW.md was not. The names list can only match file names, so the
+    .github/instructions files are probed through the manifest's globs. The
+    hosted Copilot code review (on a pull request) reads a different set,
+    REVIEW.md included.
