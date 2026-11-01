@@ -313,6 +313,27 @@ def test_a_subject_or_host_mypy_config_cannot_suppress_a_fence(tmp_path, monkeyp
     assert claim["status"] == "fail"
 
 
+def test_a_host_mypypath_cannot_supply_a_module_the_pinned_environment_lacks(tmp_path, monkeypatch):
+    extra = tmp_path / "extra"
+    extra.mkdir()
+    (extra / "ghost_pkg_mod.py").write_text("def run() -> int:\n    return 1\n", encoding="utf-8")
+    monkeypatch.setenv("MYPYPATH", str(extra))
+    tree = _tree(tmp_path, f"{FENCE}python\nimport ghost_pkg_mod\nprint(ghost_pkg_mod.run())\n{FENCE}\n")
+    [claim] = _fence_claims(scan_repo(tree, parse_manifest(MANIFEST), typecheck=Check("mypy", sys.executable)))
+    assert claim["status"] == "fail"
+
+
+def test_a_python_env_that_reports_no_version_is_a_usage_error_not_a_traceback(tmp_path, capsys):
+    silent = tmp_path / "silent-python"
+    silent.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    silent.chmod(0o755)
+    args = _scan_args(tmp_path, "--typecheck", "--python-env", str(silent))
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2
+    assert "did not report its version" in capsys.readouterr().err
+
+
 def test_the_version_probe_is_not_shadowed_by_a_module_in_the_checkout(tmp_path, monkeypatch):
     from dokimi.repos.l0 import typecheck as l0_typecheck
 

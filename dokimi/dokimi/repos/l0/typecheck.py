@@ -111,8 +111,11 @@ def python_version(check: Check) -> tuple[int, int]:
                      tempfile.gettempdir())
     if done.timed_out or done.returncode != 0:
         raise TypecheckError(f"{check.python} did not report its version: {done.stderr[-300:]}")
-    major, minor = done.stdout.split()[:2]
-    return int(major), int(minor)
+    try:
+        major, minor = done.stdout.split()[:2]
+        return int(major), int(minor)
+    except ValueError:  # no output, or output that is not two integers: the path is not a Python
+        raise TypecheckError(f"{check.python} did not report its version: {done.stdout[-300:]!r}") from None
 
 
 def _label(code: str) -> str:
@@ -150,9 +153,14 @@ def _run(check: Check, codes: list[str], target: tuple[int, int] | None = None) 
     return _errors(check.tool, done.stdout)
 
 
+# What a tool run may inherit from the host. Not the whole environment: MYPYPATH, for one, adds modules to
+# mypy's search path, so a fence could pass on a module the pinned environment does not have.
+_TOOL_ENV = ("PATH", "LANG", "LC_ALL", "LC_CTYPE", "TMPDIR", "TEMP", "TMP", "SYSTEMROOT")
+
+
 def _run_tool(argv: list[str], cwd: str):
     try:
-        return process.run(argv, timeout=TIMEOUT, env=process.Env(allow=None), cwd=cwd)
+        return process.run(argv, timeout=TIMEOUT, env=process.Env.only(_TOOL_ENV), cwd=cwd)
     except OSError as exc:
         raise TypecheckError(f"cannot run {argv[0]}: {exc}") from exc
 
