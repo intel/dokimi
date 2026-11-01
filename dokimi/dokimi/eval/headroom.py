@@ -277,9 +277,8 @@ def format_table(result: Dict[str, Any]) -> str:
 
 
 def _fmt(value: Optional[float]) -> str:
-    # Floored, never up, to nine decimals, so a value on one side of a threshold never reads as the threshold:
-    # 0.89996 shows 0.89996, an exact 0.9 shows 0.90, 0.3000004 shows 0.3000004, 0.00004 shows 0.00004. The
-    # offset only absorbs float error in the division, far below the last digit.
+    # Floored, never up, to nine decimals, so a value never reads as the threshold it sits just below.
+    # The 1e-12 offset only absorbs float error in the division (0.9 shows 0.90, 0.89996 shows 0.89996).
     if value is None:
         return "-"
     whole, _, frac = f"{math.floor((value + 1e-12) * 1e9) / 1e9:.9f}".partition(".")
