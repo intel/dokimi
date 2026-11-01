@@ -158,7 +158,7 @@ def test_cli_writes_artifact_and_fails_under_floor(tmp_path, capsys):
     assert "n3 [rare_critical, hypothesis]" in ok.stdout
     assert load_artifact("eval_coverage", out)["gaps"][0]["id"] == "n3"
     assert low.returncode == 1
-    assert "FAIL: rare_critical coverage 0.00 < 0.50" in low.stderr
+    assert "FAIL: rare_critical coverage 0.000000 < 0.500000" in low.stderr
     assert load_artifact("eval_coverage", out)["coverage"]["weights"]["branch"] == 0.7
 
 
@@ -199,7 +199,7 @@ def test_markdown_lists_problems_and_says_none_without_gaps(tmp_path, capsys):
     assert "Problems:\n- all (evals.json): unknown need id 'n9'" in res.stdout
 
 
-@pytest.mark.parametrize("needs", ["n1", {"n1": 1}, 3, [1]])
+@pytest.mark.parametrize("needs", ["n1", {"n1": 1}, 3, [1], None])
 def test_needs_that_is_not_a_list_of_ids_is_a_problem(tmp_path, capsys, needs):
     res = _run(capsys, str(_skill(tmp_path, [{"id": "e", "needs": needs}])), "--graph",
                str(_graph(tmp_path)))
@@ -234,7 +234,7 @@ def test_cli_refuses_an_empty_suite_a_non_list_evals_and_out_over_graph(tmp_path
     assert (none.returncode, dict_rows.returncode, clobber.returncode) == (2, 2, 2)
     assert "no evals.json rows or tasks" in none.stderr
     assert '"evals" is not a list' in dict_rows.stderr
-    assert "--out would overwrite --graph" in clobber.stderr
+    assert "--out would overwrite an input file" in clobber.stderr
     assert json.loads(graph.read_text())["nodes"] == NODES
 
 
@@ -249,3 +249,67 @@ def test_graph_with_only_out_of_scope_nodes_has_no_coverage_figures(tmp_path):
         "by_class": {c: {"covered": 0, "total": int(c == "out_of_scope")}
                      for c in ("core", "rare_critical", "branch", "supporting", "out_of_scope")},
     }
+
+
+@pytest.mark.parametrize("target", ["graph", "evals", "task"])
+def test_out_never_overwrites_an_input_file(tmp_path, capsys, target):
+    graph, skill = _graph(tmp_path), _skill(tmp_path, ROWS)
+    tasks, task = tmp_path / "tasks", tmp_path / "tasks" / "t1"
+    task.mkdir(parents=True)
+    (task / "task.toml").write_text('[metadata]\nneeds = ["n1"]\n')
+    (task / "instruction.md").write_text("x")
+    victim = {"graph": graph, "evals": skill / "evals" / "evals.json", "task": task / "task.toml"}[target]
+    root = tasks if target == "task" else skill
+    before = victim.read_bytes()
+
+    res = _run(capsys, str(root), "--graph", str(graph), "--out", str(victim))
+
+    assert res.returncode == 2
+    assert "--out would overwrite an input file" in res.stderr
+    assert victim.read_bytes() == before
+
+
+@pytest.mark.parametrize("name", ["task.yaml", "docker-compose.yaml"])
+def test_out_never_overwrites_a_terminal_bench_task_file(tmp_path, capsys, name):
+    task = tmp_path / "tasks" / "tb1"
+    task.mkdir(parents=True)
+    (task / "task.yaml").write_text("instruction: write chunks\n")
+    (task / "docker-compose.yaml").write_text("services: {}\n")
+    victim = task / name
+    before = victim.read_bytes()
+
+    res = _run(capsys, str(tmp_path / "tasks"), "--graph", str(_graph(tmp_path)), "--out", str(victim))
+
+    assert res.returncode == 2, res.stderr
+    assert "--out would overwrite an input file" in res.stderr
+    assert victim.read_bytes() == before
+
+
+def test_a_null_task_needs_is_malformed_and_a_missing_key_is_unlabelled(tmp_path):
+    tasks = tmp_path / "tasks"
+    task = tasks / "t-null"
+    task.mkdir(parents=True)
+    (task / "task.md").write_text("---\nmetadata:\n  needs:\n---\n\nwrite chunks\n")
+    missing = tasks / "t-missing"
+    missing.mkdir()
+    (missing / "task.toml").write_text("[metadata]\n")
+    (missing / "instruction.md").write_text("x")
+
+    labels = {e.id: e for e in read_labels(tasks)}
+
+    assert labels["t-null"].malformed and labels["t-null"].needs is None
+    assert not labels["t-missing"].malformed and labels["t-missing"].needs is None
+
+
+@pytest.mark.parametrize(("covered", "floor", "code"), [(6, "0.85714", 0), (2, "0.66669", 1)])
+def test_a_floor_is_judged_on_the_unrounded_share(tmp_path, capsys, covered, floor, code):
+    # 6 of 7 core nodes is 0.857142... (rounds to 0.8571); 2 of 3 is 0.666666... (rounds to 0.6667)
+    cores = 7 if covered == 6 else 3
+    nodes = [{"id": f"c{i}", "text": "t", "path_class": "core"} for i in range(cores)]
+    graph = tmp_path / "need_graph.json"
+    graph.write_text(json.dumps({"artifact_name": "x", "nodes": nodes}))
+    skill = _skill(tmp_path, [{"id": "e", "needs": [f"c{i}" for i in range(covered)]}])
+
+    res = _run(capsys, str(skill), "--graph", str(graph), "--min", f"core_rare_critical={floor}")
+
+    assert res.returncode == code, res.stderr

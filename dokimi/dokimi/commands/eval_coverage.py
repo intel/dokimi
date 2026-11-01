@@ -30,15 +30,17 @@ def _floor(value: str) -> tuple[str, float]:
 
 
 def _below(report: dict, floors: list[tuple[str, float]]) -> list[str]:
-    cov = report["coverage"]
-    return [f"{metric} coverage {cov[metric]:.2f} < {floor:.2f}" for metric, floor in floors
-            if cov[metric] is not None and cov[metric] < floor]
+    from dokimi.eval_coverage import exact_shares
+
+    exact = exact_shares(report)
+    return [f"{metric} coverage {exact[metric]:.6f} < {floor:.6f}" for metric, floor in floors
+            if exact[metric] is not None and exact[metric] < floor]
 
 
 def cmd_eval_coverage(args: argparse.Namespace) -> None:
     """Print the report; exit 2 on an unreadable input or a bad ``needs`` label, 1 under a floor."""
     from dokimi.artifacts import ArtifactValidationError, save_artifact
-    from dokimi.eval_coverage import coverage_report, load_graph, read_labels, render_markdown
+    from dokimi.eval_coverage import coverage_report, input_files, load_graph, read_labels, render_markdown
 
     root = Path(args.evals)
     if not root.exists():
@@ -53,8 +55,8 @@ def cmd_eval_coverage(args: argparse.Namespace) -> None:
     if not evals:
         print(f"Error: no evals.json rows or tasks under {root}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
-    if args.out and Path(args.out).resolve() == Path(args.graph).resolve():
-        print("Error: --out would overwrite --graph", file=sys.stderr)
+    if args.out and Path(args.out).resolve() in {Path(args.graph).resolve(), *input_files(root)}:
+        print(f"Error: --out would overwrite an input file: {args.out}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
     report = coverage_report(graph, evals, str(root))
     if args.out:

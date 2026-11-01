@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from dokimi.artifacts import load_artifact
+from dokimi.harnesses import tbench_v1
 from dokimi.harnesses.tasks import is_task_dir, read_task_config
 from dokimi.novelty.needs import PATH_WEIGHTS
 
@@ -37,7 +38,7 @@ CLASSES = ("core", "rare_critical", "branch", "supporting", "out_of_scope")
 
 @dataclass(frozen=True)
 class LabelledEval:
-    """One eval and the need-node ids it says it grades (``None``: it has no ``needs``)."""
+    """One eval and the need-node ids it says it grades (``None``: the row or task has no ``needs`` key)."""
 
     id: str
     source: str
@@ -71,8 +72,11 @@ def graph_digest(graph: dict) -> str:
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
+_ABSENT = object()  # no ``needs`` key at all: not the same as ``"needs": null``, which is malformed
+
+
 def _labelled(eid: str, source: str, value: Any) -> LabelledEval:
-    if value is None:
+    if value is _ABSENT:
         return LabelledEval(eid, source, None)
     if isinstance(value, list) and all(isinstance(v, str) for v in value):
         return LabelledEval(eid, source, tuple(value))
@@ -83,6 +87,38 @@ def _evals_files(root: Path) -> list[Path]:
     if root.is_file():
         return [root]
     return [p for p in (root / "evals.json", root / "evals" / "evals.json") if p.is_file()]
+
+
+# every task file a task reader may parse: Harbor / BenchFlow (task.toml, task.md), terminal-bench v1 (task.yaml, compose)
+_TASK_FILES = ("task.toml", "task.md", tbench_v1.CONFIG, tbench_v1.COMPOSE)
+
+
+def input_files(root: Path) -> list[Path]:
+    """The resolved files :func:`read_labels` reads under ``root``, so an output can be refused when it would
+    overwrite one of them."""
+    files = _evals_files(root)
+    if root.is_dir():
+        for task_dir in (p for p in root.iterdir() if is_task_dir(p)):
+            files += [task_dir / name for name in _TASK_FILES if (task_dir / name).is_file()]
+    return [p.resolve() for p in files]
+
+
+def exact_shares(report: dict) -> dict[str, float | None]:
+    """The three coverage figures computed from the report's counts and weights, unrounded. A floor is judged
+    on these: the report rounds its own figures for display only."""
+    by_class, weights = report["coverage"]["by_class"], report["coverage"]["weights"]
+    scope = [c for c in CLASSES if c != "out_of_scope"]
+    weight = sum(weights[c] * by_class[c]["total"] for c in scope)
+
+    def share(classes: tuple[str, ...]) -> float | None:
+        total = sum(by_class[c]["total"] for c in classes)
+        return sum(by_class[c]["covered"] for c in classes) / total if total else None
+
+    return {
+        "weighted": sum(weights[c] * by_class[c]["covered"] for c in scope) / weight if weight else None,
+        "core_rare_critical": share(CRITICAL),
+        "rare_critical": share(("rare_critical",)),
+    }
 
 
 def read_labels(root: Path) -> list[LabelledEval]:
@@ -102,14 +138,14 @@ def read_labels(root: Path) -> list[LabelledEval]:
             raise ValueError(f"{path}: \"evals\" is not a list")
         for index, row in enumerate(rows):
             if isinstance(row, dict):
-                out.append(_labelled(str(row.get("id", index)), path.name, row.get("needs")))
+                out.append(_labelled(str(row.get("id", index)), path.name, row.get("needs", _ABSENT)))
     if root.is_dir():
         for task_dir in sorted(p for p in root.iterdir() if is_task_dir(p)):
             try:
                 meta = read_task_config(task_dir).get("metadata", {})
             except (ValueError, OSError) as exc:
                 raise ValueError(f"{task_dir}: unreadable task ({exc})") from exc
-            needs = meta.get("needs") if isinstance(meta, dict) else None
+            needs = meta.get("needs", _ABSENT) if isinstance(meta, dict) else _ABSENT
             out.append(_labelled(task_dir.name, "task", needs))
     return out
 

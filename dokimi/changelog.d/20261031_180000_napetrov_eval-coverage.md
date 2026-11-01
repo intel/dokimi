@@ -14,5 +14,8 @@ SPDX-License-Identifier: Apache-2.0
   (`relevant_core`, `relevant_peripheral`, `out_of_scope`, `orphan`, `unlabelled`). `--out`
   writes an `eval_coverage.v1` artifact. Exit 1 under a `--min [METRIC=]X` floor, exit 2 on an
   unreadable input, a graph with duplicate node ids, or a `needs` label that is not a list of
-  ids the graph has. Novelty's need graph now keeps `confirmed_by` and `provenance`. Building the graph, the user
-  interview and drafting labels follow in #331.
+  ids the graph has. A row or task with no `needs` key is `unlabelled`; an explicit
+  `"needs": null` is malformed and exits 2. `--out` is refused when it would overwrite the
+  graph or any input file. A `--min` floor is judged on the unrounded share, not the rounded
+  figure shown in the report. Novelty's need graph now keeps `confirmed_by` and `provenance`.
+  Building the graph, the user interview and drafting labels follow in #331.
