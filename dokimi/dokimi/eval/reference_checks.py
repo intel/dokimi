@@ -51,6 +51,8 @@ from typing import Any, Callable, Mapping, Optional, Sequence
 
 import regex
 
+from dokimi.measure import as_float
+
 #: Seconds a ``regex`` check may run before it is left unscored (``re`` has no timeout).
 REGEX_TIMEOUT = 1.0
 
@@ -382,12 +384,8 @@ def validate_grading(grading: Any) -> list[str]:
     return problems
 
 
-def _is_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
-
-
 def _number_or_none(value: Any) -> bool:
-    return value is None or _is_number(value)
+    return value is None or as_float(value) is not None
 
 
 def blank_value(kind: str, c: Mapping[str, Any], value: Any) -> bool:
@@ -405,7 +403,7 @@ def blank_value(kind: str, c: Mapping[str, Any], value: Any) -> bool:
 def _check_problems(kind: str, c: Mapping[str, Any]) -> list[str]:
     # An absent weight is 1.0; an explicit null is not a number, and grade_check would raise on it.
     weight = c.get("weight", 1.0)
-    out = ["weight is not a number"] if not _is_number(weight) else (
+    out = ["weight is not a number"] if as_float(weight) is None else (
         ["weight must not be negative"] if weight < 0 else [])
     if kind in DETERMINISTIC and kind != "json":
         values = check_values(c)
