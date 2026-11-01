@@ -542,13 +542,29 @@ def test_an_exit_code_outside_zero_to_two_is_the_tools_own_failure(monkeypatch):
         l0_typecheck._run(Check("mypy", sys.executable), ["x: int = 1\n"])
 
 
-def test_only_error_diagnostics_count_as_fence_errors():
+def test_only_error_diagnostics_count_as_fence_errors(tmp_path):
     from dokimi.repos.l0 import typecheck as l0_typecheck
 
     mypy_out = "\n".join(json.dumps({"file": "fence-0.py", "line": n, "severity": sev, "message": "m"})
                          for n, sev in [(1, "error"), (2, "note"), (3, "warning")])
     assert l0_typecheck._errors("mypy", mypy_out) == {0: [(1, "m")]}
     pyright_out = json.dumps({"generalDiagnostics": [
-        {"file": "/tmp/x/fence-0.py", "severity": sev, "message": sev, "range": {"start": {"line": n}}}
+        {"file": str(tmp_path / "fence-0.py"), "severity": sev, "message": sev, "range": {"start": {"line": n}}}
         for n, sev in [(0, "error"), (1, "warning"), (2, "information")]]})
     assert l0_typecheck._errors("basedpyright", pyright_out) == {0: [(1, "error")]}
+
+
+@pytest.mark.parametrize("tool,stdout", [
+    ("mypy", "not JSON"),
+    ("mypy", "[1, 2]"),
+    ("basedpyright", "not JSON"),
+    ("basedpyright", '{"generalDiagnostics": [{"severity": "error", "message": "m"}]}'),  # no range
+])
+def test_a_nonempty_report_that_is_not_the_tools_json_is_a_tool_failure(monkeypatch, tool, stdout):
+    # Exit 1 says the tool found errors; a report we cannot read must not pass every fence as clean.
+    from dokimi.repos.l0 import typecheck as l0_typecheck
+
+    monkeypatch.setattr(l0_typecheck, "_run_tool", lambda argv, cwd, stdin=None: _completed(
+        returncode=1, stdout=stdout, stderr=""))
+    with pytest.raises(l0_typecheck.TypecheckError, match="report"):
+        l0_typecheck._run(Check(tool, sys.executable), ["x: int = 1\n"])

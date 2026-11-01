@@ -153,11 +153,15 @@ def _linked_on_the_way(workspace: Path, dest: Path) -> bool:
 def oracle(task: dict[str, Any], task_dir: Path, run_dir: Path | None = None) -> str:
     """No reference answer: the grade reads the workspace only. A task with a ``reference/`` directory
     has its files copied over the workspace first, so the reference repair is what gets graded. A destination
-    reached through a symbolic link in the workspace is refused before anything is copied."""
+    reached through a symbolic link in the workspace is refused before anything is copied. A symbolic link in the
+    reference is refused too: copytree would follow it, and the entries behind it are not walked here."""
     reference = task_dir / REFERENCE_DIR
     if reference.is_dir() and run_dir is not None:
         workspace = Path(run_dir) / "workspace"
         for source in reference.rglob("*"):  # directories too: copytree creates an empty one through a link
+            if source.is_symlink():
+                raise ValueError(f"reference/{source.relative_to(reference).as_posix()} is a symbolic link; "
+                                 "the reference is copied without links")
             dest = workspace / source.relative_to(reference)
             if _linked_on_the_way(workspace, dest):
                 raise ValueError(f"{dest.relative_to(workspace).as_posix()} would be written through a "

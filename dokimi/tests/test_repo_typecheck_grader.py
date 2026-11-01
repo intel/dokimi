@@ -276,6 +276,27 @@ def test_the_oracle_refuses_to_write_through_a_symbolic_link(tmp_path, linked):
     assert sentinel.read_text(encoding="utf-8") == "ORIGINAL"
 
 
+def test_the_oracle_refuses_a_linked_reference_directory_with_a_linked_destination(tmp_path):
+    # copytree follows a linked reference directory and writes its entries through a linked destination
+    # file; the walk of the reference does not see inside the link, so the link itself is refused.
+    repairs = tmp_path / "repairs"
+    repairs.mkdir()
+    (repairs / "api.py").write_text("REFERENCE", encoding="utf-8")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    sentinel = outside / "api.py"
+    sentinel.write_text("ORIGINAL", encoding="utf-8")
+    task_dir = tmp_path / "task"
+    (task_dir / "reference").mkdir(parents=True)
+    (task_dir / "reference" / "pkg").symlink_to(repairs, target_is_directory=True)
+    run = tmp_path / "run"
+    (run / "workspace" / "pkg").mkdir(parents=True)
+    (run / "workspace" / "pkg" / "api.py").symlink_to(sentinel)
+    with pytest.raises(ValueError, match="symbolic link"):
+        typecheck.oracle(_task(), task_dir, run)
+    assert sentinel.read_text(encoding="utf-8") == "ORIGINAL"
+
+
 def test_the_oracle_copies_the_reference_when_no_link_is_on_the_way(tmp_path):
     task_dir = tmp_path / "task"
     (task_dir / "reference" / "pkg").mkdir(parents=True)

@@ -222,21 +222,30 @@ def _run_tool(argv: list[str], cwd: str, stdin: str | None = None):
 def _errors(tool: str, stdout: str) -> dict[int, list[tuple[int, str]]]:
     """Parse the tool's JSON output into errors keyed by fence index."""
     out: dict[int, list[tuple[int, str]]] = {}
+    diagnostics = []
+    # A report we cannot read is a tool failure, not a clean run: the fences it would have flagged pass otherwise.
     if tool == "mypy":  # one JSON object per line
-        diagnostics = []
         for text in stdout.splitlines():
+            if not text.strip():
+                continue
             try:
                 d = json.loads(text)
-            except ValueError:
-                continue
-            if isinstance(d, dict) and d.get("severity") == "error":
-                line = int(d.get("line") or 0)  # mypy writes -1 for an error with no line
-                diagnostics.append((str(d.get("file")), max(line, 0), str(d.get("message"))))
+                if not isinstance(d, dict):
+                    raise ValueError("not an object")
+                if d.get("severity") == "error":
+                    line = int(d.get("line") or 0)  # mypy writes -1 for an error with no line
+                    diagnostics.append((str(d.get("file")), max(line, 0), str(d.get("message"))))
+            except (ValueError, TypeError) as exc:
+                raise TypecheckError(f"mypy wrote a line that is not a diagnostic in its report: {text[:200]!r}") \
+                    from exc
     else:  # basedpyright: one document; its ranges are zero-based
-        doc = json.loads(stdout or "{}")
-        diagnostics = [(Path(str(d.get("file"))).name, int(d["range"]["start"]["line"]) + 1,
-                        str(d.get("message")) + (f" [{d['rule']}]" if d.get("rule") else ""))
-                       for d in doc.get("generalDiagnostics", []) if d.get("severity") == "error"]
+        try:
+            doc = json.loads(stdout or "{}")
+            diagnostics = [(Path(str(d.get("file"))).name, int(d["range"]["start"]["line"]) + 1,
+                            str(d.get("message")) + (f" [{d['rule']}]" if d.get("rule") else ""))
+                           for d in doc.get("generalDiagnostics", []) if d.get("severity") == "error"]
+        except (ValueError, KeyError, TypeError, AttributeError) as exc:
+            raise TypecheckError(f"basedpyright wrote a report that is not in its JSON format: {exc}") from exc
     for name, line, message in diagnostics:
         index = _fence_index(name)
         if index is not None:
