@@ -8,7 +8,7 @@ name: repo-eval
 #
 #   validate     `repo validate`: the manifest and every task.json (seconds; a gate)
 #   scan         `repo scan`: the L0 claims of the guidance (report only)
-#   tasks-check  `repo tasks check`, one job per selected task: the untouched
+#   tasks-check  `eval check`, one job per selected task: the untouched
 #                workspace fails the gate, the reference solution passes it
 #
 # Nothing here calls a model or reads a secret. The caller pins dokimi twice,
