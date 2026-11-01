@@ -13,7 +13,7 @@ import pytest
 
 from dokimi.artifacts import ArtifactValidationError, load_artifact
 from dokimi.cli import build_parser
-from dokimi.eval_coverage import LabelledEval, coverage_report, graph_digest, load_graph, read_labels
+from dokimi.eval_coverage import LabelledEval, coverage_report, exact_shares, graph_digest, load_graph, read_labels
 from dokimi.novelty.needs import NeedGraph, NeedNode
 from dokimi.novelty.needs import load_graph as novelty_load_graph
 from dokimi.novelty.needs import save_graph
@@ -251,15 +251,16 @@ def test_graph_with_only_out_of_scope_nodes_has_no_coverage_figures(tmp_path):
     }
 
 
-@pytest.mark.parametrize("target", ["graph", "evals", "task"])
+@pytest.mark.parametrize("target", ["graph", "evals", "task", "instruction"])
 def test_out_never_overwrites_an_input_file(tmp_path, capsys, target):
     graph, skill = _graph(tmp_path), _skill(tmp_path, ROWS)
     tasks, task = tmp_path / "tasks", tmp_path / "tasks" / "t1"
     task.mkdir(parents=True)
     (task / "task.toml").write_text('[metadata]\nneeds = ["n1"]\n')
     (task / "instruction.md").write_text("x")
-    victim = {"graph": graph, "evals": skill / "evals" / "evals.json", "task": task / "task.toml"}[target]
-    root = tasks if target == "task" else skill
+    victim = {"graph": graph, "evals": skill / "evals" / "evals.json", "task": task / "task.toml",
+              "instruction": task / "instruction.md"}[target]
+    root = tasks if target in ("task", "instruction") else skill
     before = victim.read_bytes()
 
     res = _run(capsys, str(root), "--graph", str(graph), "--out", str(victim))
@@ -281,6 +282,86 @@ def test_out_never_overwrites_a_terminal_bench_task_file(tmp_path, capsys, name)
     res = _run(capsys, str(tmp_path / "tasks"), "--graph", str(_graph(tmp_path)), "--out", str(victim))
 
     assert res.returncode == 2, res.stderr
+    assert "--out would overwrite an input file" in res.stderr
+    assert victim.read_bytes() == before
+
+
+def test_a_task_md_without_frontmatter_is_a_note_not_a_task(tmp_path, capsys):
+    tasks = tmp_path / "tasks"
+    notes = tasks / "notes"
+    notes.mkdir(parents=True)
+    (notes / "task.md").write_text("# planning notes\n")
+    real = tasks / "t1"
+    real.mkdir()
+    (real / "task.toml").write_text('[metadata]\nneeds = ["n1"]\n')
+
+    labels = read_labels(tasks)
+    res = _run(capsys, str(tasks), "--graph", str(_graph(tmp_path)))
+
+    assert [e.id for e in labels] == ["t1"]
+    assert res.returncode == 0, res.stderr
+
+
+def test_exact_shares_are_the_hand_computed_figures():
+    # weighted = (core c1 + 3 branch at 0.7) / (core c1, c2 + rare r1 + 3 branch) = 3.1 / 5.1; out_of_scope is outside it
+    graph = {"artifact_name": "x", "nodes": [
+        {"id": "c1", "text": "t", "path_class": "core"},
+        {"id": "c2", "text": "t", "path_class": "core"},
+        {"id": "r1", "text": "t", "path_class": "rare_critical"},
+        {"id": "b1", "text": "t", "path_class": "branch"},
+        {"id": "b2", "text": "t", "path_class": "branch"},
+        {"id": "b3", "text": "t", "path_class": "branch"},
+        {"id": "o1", "text": "t", "path_class": "out_of_scope"},
+    ]}
+    evals = [LabelledEval("e1", "task", ("c1", "b1", "b2", "b3", "o1"))]
+
+    figures = exact_shares(coverage_report(graph, evals, "r"))
+
+    assert figures["weighted"] == pytest.approx(3.1 / 5.1, abs=1e-12)
+    assert figures["core_rare_critical"] == pytest.approx(1 / 3, abs=1e-12)
+    assert figures["rare_critical"] == 0.0
+
+
+def test_a_bare_floor_is_on_the_weighted_figure(tmp_path, capsys):
+    # weighted is 0.6078 and core_rare_critical 0.3333: a bare 0.5 passes only if the default metric is weighted
+    graph = tmp_path / "need_graph.json"
+    graph.write_text(json.dumps({"artifact_name": "x", "nodes": [
+        {"id": "c1", "text": "t", "path_class": "core"},
+        {"id": "c2", "text": "t", "path_class": "core"},
+        {"id": "r1", "text": "t", "path_class": "rare_critical"},
+        {"id": "b1", "text": "t", "path_class": "branch"},
+        {"id": "b2", "text": "t", "path_class": "branch"},
+        {"id": "b3", "text": "t", "path_class": "branch"},
+    ]}))
+    skill = _skill(tmp_path, [{"id": "e", "needs": ["c1", "b1", "b2", "b3"]}])
+
+    res = _run(capsys, str(skill), "--graph", str(graph), "--min", "0.5")
+
+    assert res.returncode == 0, res.stderr
+
+
+def test_a_floor_equal_to_the_share_passes(tmp_path, capsys):
+    nodes = [{"id": f"c{i}", "text": "t", "path_class": "core"} for i in range(4)]
+    graph = tmp_path / "need_graph.json"
+    graph.write_text(json.dumps({"artifact_name": "x", "nodes": nodes}))
+    skill = _skill(tmp_path, [{"id": "e", "needs": ["c0", "c1"]}])
+
+    res = _run(capsys, str(skill), "--graph", str(graph), "--min", "core_rare_critical=0.5")
+
+    assert res.returncode == 0, res.stderr
+
+
+def test_out_as_a_relative_path_to_an_input_is_refused(tmp_path, capsys, monkeypatch):
+    skill = _skill(tmp_path, ROWS)
+    work = tmp_path / "work"
+    work.mkdir()
+    monkeypatch.chdir(work)
+    victim = skill / "evals" / "evals.json"
+    before = victim.read_bytes()
+
+    res = _run(capsys, "../skill", "--graph", str(_graph(tmp_path)), "--out", "../skill/evals/evals.json")
+
+    assert res.returncode == 2
     assert "--out would overwrite an input file" in res.stderr
     assert victim.read_bytes() == before
 

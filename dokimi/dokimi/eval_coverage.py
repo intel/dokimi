@@ -29,7 +29,7 @@ from typing import Any
 
 from dokimi.artifacts import load_artifact
 from dokimi.harnesses import tbench_v1
-from dokimi.harnesses.tasks import is_task_dir, read_task_config
+from dokimi.harnesses.tasks import FORMAT_TASK_MD, is_task_dir, read_task_config, task_format
 from dokimi.novelty.needs import PATH_WEIGHTS
 
 CRITICAL = ("core", "rare_critical")
@@ -89,8 +89,19 @@ def _evals_files(root: Path) -> list[Path]:
     return [p for p in (root / "evals.json", root / "evals" / "evals.json") if p.is_file()]
 
 
-# every task file a task reader may parse: Harbor / BenchFlow (task.toml, task.md), terminal-bench v1 (task.yaml, compose)
-_TASK_FILES = ("task.toml", "task.md", tbench_v1.CONFIG, tbench_v1.COMPOSE)
+# every task file a task reader may parse: Harbor / BenchFlow (task.toml, task.md, instruction.md, which load_task
+# runs), terminal-bench v1 (task.yaml, compose)
+_TASK_FILES = ("task.toml", "task.md", "instruction.md", tbench_v1.CONFIG, tbench_v1.COMPOSE)
+
+
+def _is_task(path: Path) -> bool:
+    """A task directory the way discover_tasks counts it: a lone task.md without frontmatter is an author's note."""
+    if not is_task_dir(path):
+        return False
+    if task_format(path) != FORMAT_TASK_MD:
+        return True
+    with (path / "task.md").open(encoding="utf-8", errors="replace") as fh:
+        return fh.readline().strip() == "---"
 
 
 def input_files(root: Path) -> list[Path]:
@@ -98,7 +109,7 @@ def input_files(root: Path) -> list[Path]:
     overwrite one of them."""
     files = _evals_files(root)
     if root.is_dir():
-        for task_dir in (p for p in root.iterdir() if is_task_dir(p)):
+        for task_dir in (p for p in root.iterdir() if _is_task(p)):
             files += [task_dir / name for name in _TASK_FILES if (task_dir / name).is_file()]
     return [p.resolve() for p in files]
 
@@ -140,7 +151,7 @@ def read_labels(root: Path) -> list[LabelledEval]:
             if isinstance(row, dict):
                 out.append(_labelled(str(row.get("id", index)), path.name, row.get("needs", _ABSENT)))
     if root.is_dir():
-        for task_dir in sorted(p for p in root.iterdir() if is_task_dir(p)):
+        for task_dir in sorted(p for p in root.iterdir() if _is_task(p)):
             try:
                 meta = read_task_config(task_dir).get("metadata", {})
             except (ValueError, OSError) as exc:
