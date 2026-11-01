@@ -199,6 +199,22 @@ def test_run_case_without_a_receipt_is_failed(tmp_path, monkeypatch, kwargs, rea
     assert cells == []
 
 
+def test_run_case_with_a_malformed_receipt_is_failed_not_fatal(tmp_path, monkeypatch):
+    fixture, _receipt = _toy_fixture(tmp_path)
+
+    def fake_run(argv, *, timeout, env, **_):
+        out = Path(argv[argv.index("--out") + 1])
+        out.mkdir(parents=True, exist_ok=True)
+        (out / cf.RECEIPT_NAME).write_text('{"schema_version": "effective_instructions.v1"}', encoding="utf-8")
+        return process.Completed(argv=tuple(argv), returncode=0)
+
+    monkeypatch.setattr(cf.process, "run", fake_run)
+    record, cells = cf.run_case(CODEX, "m", fixture, tmp_path / "g.yaml", tmp_path / "out", _expect(),
+                                timeout=30, budget=0.5)
+    assert record["status"] == "failed" and record["reason"].startswith("invalid receipt")
+    assert cells == []
+
+
 def test_run_harness_skips_every_fixture_when_the_harness_cannot_run(tmp_path, monkeypatch):
     def must_not_run(*_args, **_kwargs):
         raise AssertionError("an unavailable harness must not be run")
