@@ -94,9 +94,8 @@ runs:
         # Refused before mkdir, so a newline name is never created.
         if [[ "$out" == *$'\n'* ]]; then echo "::error title=out-dir::out-dir has a newline"; exit 1; fi
         mkdir -p "$out"
-        # The x keeps a trailing newline from being stripped by the command substitution.
-        dir=$(cd "$out" && pwd && printf x); dir=${dir%x}
-        # The path written to GITHUB_OUTPUT is checked here: a newline would add an output.
+        # The x keeps a newline at the end of $PWD from being stripped by the command substitution.
+        dir=$(cd "$out" && printf '%sx' "$PWD"); dir=${dir%x}
         if [[ "$dir" == *$'\n'* ]]; then echo "::error title=out-dir::out-dir has a newline"; exit 1; fi
         echo "dir=$dir" >> "$GITHUB_OUTPUT"
         echo "CI=true" >> "$GITHUB_ENV"
