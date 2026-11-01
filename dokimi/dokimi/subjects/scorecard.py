@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -76,11 +77,13 @@ def build_subject_scorecard(
             "kind": descriptor.subject.kind,
             "ref": descriptor.subject.ref,
             "ref_digest": _digest_ref(descriptor.subject.ref, base=Path.cwd()),
+            "distribution_digest": distribution_digest(descriptor.subject.ref, base=Path.cwd()),
             "members": [
                 {
                     "kind": member.kind,
                     "ref": member.ref,
                     "ref_digest": _digest_ref(member.ref, base=Path.cwd()),
+                    "distribution_digest": distribution_digest(member.ref, base=Path.cwd()),
                 }
                 for member in descriptor.subject.members
             ],
@@ -136,6 +139,37 @@ def _digest_values(values: tuple[str, ...]) -> str:
         if path.is_file():
             h.update(path.read_bytes())
     return "sha256:" + h.hexdigest()
+
+
+def distribution_digest(ref: str | None, *, base: Path) -> str | None:
+    """The digest a ``.well-known/agent-skills`` index would publish for *ref*, or None.
+
+    That index (agentskills PR #254) hashes the bytes it serves: one ``SKILL.md`` for a
+    ``skill-md`` entry, the archive for an ``archive`` entry. Only the first can be derived
+    from a checkout. A ``SKILL.md`` is hashed as is when its directory holds nothing else,
+    whether the ref names the file or the directory. A skill whose directory holds resources
+    is served as an archive, whose bytes depend on how it was packed, so it gets None rather
+    than a digest no index carries, under either spelling of its ref. So does a ref that is
+    not a local path. ``ref_digest`` stays a content digest of the tree.
+    """
+    if not ref:
+        return None
+    if re.match(r"[A-Za-z][A-Za-z0-9+.-]+:", ref) and not ref.startswith("local:"):
+        return None
+    path = Path(ref.removeprefix("local:"))
+    if not path.is_absolute():
+        path = base / path
+    if path.is_dir():
+        skill_dir = path
+    elif path.name == "SKILL.md" and path.is_file():
+        skill_dir = path.parent
+    else:
+        return None
+    skill = skill_dir / "SKILL.md"
+    # Any other entry makes it an archive; one stray file is enough, so stop at the second.
+    if [p.name for _, p in zip(range(2), skill_dir.iterdir(), strict=False)] != ["SKILL.md"] or not skill.is_file():
+        return None
+    return "sha256:" + hashlib.sha256(skill.read_bytes()).hexdigest()
 
 
 def _digest_ref(ref: str | None, *, base: Path) -> str | None:
