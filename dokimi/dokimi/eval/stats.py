@@ -92,8 +92,14 @@ def _is_degenerate(mean: float, sd: float) -> bool:
     return sd <= ZERO_VARIANCE_REL_TOL * max(1.0, abs(mean))
 
 
+def _rnd(x: float, ndigits: Optional[int]) -> float:
+    """``round(x, ndigits)``, or ``x`` itself when ``ndigits`` is None."""
+    return x if ndigits is None else round(x, ndigits)
+
+
 def bootstrap_ci(
-    values, confidence: float = 0.95, n_resamples: int = 10_000, seed: int = 0
+    values, confidence: float = 0.95, n_resamples: int = 10_000, seed: int = 0,
+    ndigits: Optional[int] = 4,
 ) -> dict:
     """Percentile bootstrap confidence interval for the mean of ``values``.
 
@@ -116,7 +122,7 @@ def bootstrap_ci(
     if n == 0:
         return {"mean": None, "lo": None, "hi": None, "n": 0}
     if n == 1:
-        return {"mean": round(vals[0], 4), "lo": round(vals[0], 4), "hi": round(vals[0], 4), "n": 1}
+        return {"mean": _rnd(vals[0], ndigits), "lo": _rnd(vals[0], ndigits), "hi": _rnd(vals[0], ndigits), "n": 1}
 
     rng = random.Random(seed)
     means = []
@@ -131,15 +137,15 @@ def bootstrap_ci(
     lo_idx = max(0, int(round(alpha * (n_resamples - 1))))
     hi_idx = min(n_resamples - 1, int(round((1.0 - alpha) * (n_resamples - 1))))
     return {
-        "mean": round(sum(vals) / n, 4),
-        "lo": round(means[lo_idx], 4),
-        "hi": round(means[hi_idx], 4),
+        "mean": _rnd(sum(vals) / n, ndigits),
+        "lo": _rnd(means[lo_idx], ndigits),
+        "hi": _rnd(means[hi_idx], ndigits),
         "n": n,
         "method": "percentile_bootstrap",
     }
 
 
-def mean_ci(values, confidence: float = 0.95, seed: int = 0) -> dict:
+def mean_ci(values, confidence: float = 0.95, seed: int = 0, ndigits: Optional[int] = 4) -> dict:
     """Confidence interval for the mean: Student-t when SciPy is available.
 
     The t interval is both better calibrated at small n and *coherent* with the
@@ -158,20 +164,20 @@ def mean_ci(values, confidence: float = 0.95, seed: int = 0) -> dict:
     if n == 0:
         return {"mean": None, "lo": None, "hi": None, "n": 0, "method": "none"}
     if not HAS_SCIPY or n < 2:
-        return bootstrap_ci(vals, confidence=confidence, seed=seed)
+        return bootstrap_ci(vals, confidence=confidence, seed=seed, ndigits=ndigits)
 
     mu = _mean(vals)
     sd = _sample_sd(vals)
     if _is_degenerate(mu, sd):
         # Every value identical: the interval is the point itself, and a
         # bootstrap would report the same thing after 10k pointless resamples.
-        return {"mean": round(mu, 4), "lo": round(mu, 4), "hi": round(mu, 4),
+        return {"mean": _rnd(mu, ndigits), "lo": _rnd(mu, ndigits), "hi": _rnd(mu, ndigits),
                 "n": n, "method": "degenerate"}
     half = _sp_stats.t.ppf(1.0 - (1.0 - confidence) / 2.0, n - 1) * sd / (n ** 0.5)
     return {
-        "mean": round(mu, 4),
-        "lo": round(mu - half, 4),
-        "hi": round(mu + half, 4),
+        "mean": _rnd(mu, ndigits),
+        "lo": _rnd(mu - half, ndigits),
+        "hi": _rnd(mu + half, ndigits),
         "n": n,
         "method": "student_t",
     }
@@ -508,7 +514,8 @@ def _describe_deltas(
         # zero: reporting 0.0 would label a flawless, perfectly consistent
         # shift "negligible". None renders as "unknown" — what we actually know.
         cohens_d = None
-    ci = mean_ci(deltas, confidence=confidence, seed=seed)
+    exact_ci = mean_ci(deltas, confidence=confidence, seed=seed, ndigits=None)
+    ci = {k: round(v, 4) if k in ("lo", "hi") and v is not None else v for k, v in exact_ci.items()}
 
     result: Dict[str, Any] = {
         "n": len(deltas),
@@ -520,6 +527,9 @@ def _describe_deltas(
         "ci_hi": ci["hi"],
         "ci_confidence": confidence,
         "ci_method": ci.get("method"),
+        # The fields above are rounded for display; a consumer that re-derives a verdict
+        # or publishes the effect reads these. p_adjusted is set with the family correction.
+        "exact": {"delta_mean": d_mean, "ci_lo": exact_ci["lo"], "ci_hi": exact_ci["hi"], "p_adjusted": None},
     }
     result.update(_one_sample_pvalues(deltas))
 
@@ -615,6 +625,14 @@ def arm_significance(
     return out
 
 
+def set_exact_p_adjusted(results: Sequence[Dict[str, Any]], *, method: str) -> None:
+    """Set ``exact.p_adjusted`` to the family correction of ``p_ttest`` before rounding."""
+    exact = adjust_pvalues([r["p_ttest"] for r in results], method=method, rounded=False)
+    for res, p in zip(results, exact, strict=True):
+        if "exact" in res:
+            res["exact"]["p_adjusted"] = p
+
+
 def _apply_correction(
     results: Sequence[Dict[str, Any]], *, correction: str, label: str
 ) -> None:
@@ -626,6 +644,7 @@ def _apply_correction(
     the multiplier on both.
     """
     decided = correct_family([r["p_ttest"] for r in results], method=correction)
+    set_exact_p_adjusted(results, method=correction)
     tested = sum(1 for r in results if r["p_ttest"] is not None)
     for res, (adj, adj_significant) in zip(results, decided, strict=True):
         res["p_adjusted"] = adj
