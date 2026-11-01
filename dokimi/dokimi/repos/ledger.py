@@ -163,7 +163,7 @@ def _compared(rule: Rule, head: dict[str, Any], batch_dirs: list[Path], base: st
         summary = compare(batch_dirs, base, [rule.arm], models, (), seed=seed, tasks=present, exact=True)
     except CompareError as exc:  # the arm or the baseline has no cell among this rule's cases
         # Without --model, every model that has a linked cell for either side keeps its own result.
-        named = models or _models_on_the_rule(batch_dirs, [rule.arm, base], present) or [None]
+        named: list[str | None] = list(models or _models_on_the_rule(batch_dirs, [rule.arm, base], present)) or [None]
         return [{**head, "model": model, "error": str(exc)} for model in named]
     model = models[0] if models else None
     warnings.extend(summary["warnings"])
