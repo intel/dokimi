@@ -66,6 +66,23 @@ def _errors(stdout: str, listed: set[str] | None, root: str) -> list[dict[str, A
     return out
 
 
+def _package_roots(workspace: Path, paths: list[str]) -> list[Path]:
+    """For each listed file inside regular packages (``__init__.py``), the directory above its top package.
+
+    A namespace directory (no ``__init__.py``) is not a package root: its files are named from the workspace, as
+    an import names them, and nothing above them is added."""
+    roots: list[Path] = []
+    for p in paths:
+        top = None
+        d = (workspace / p).parent
+        while d != workspace and (d / "__init__.py").is_file():
+            top = d
+            d = d.parent
+        if top is not None and top.parent != workspace and top.parent not in roots:
+            roots.append(top.parent)
+    return roots
+
+
 def grade(task: dict[str, Any], task_dir: Path, answer: str, run_dir: Path | None = None) -> dict[str, Any]:
     """Type-check the listed files in the workspace of ``run_dir``; the grader's result dict."""
     del task_dir, answer  # the answer is not read: the workspace is the subject
@@ -87,11 +104,14 @@ def grade(task: dict[str, Any], task_dir: Path, answer: str, run_dir: Path | Non
         neutral = tempfile.mkdtemp(prefix="dokimi-mypy-cfg-")
         try:
             # An explicit neutral config: the subject's mypy.ini, pyproject.toml and the host's user config are
-            # not read. mypy_path keeps the workspace root on the import path, so a namespace package resolves.
+            # not read. Explicit package bases name a listed file the way an import of it does: relative to the
+            # root it is imported from (pkg.other, not other). So the roots are on mypy_path: the workspace, and
+            # the source root of each regular package (src/ for src/pkg/__init__.py).
+            roots = [*_package_roots(workspace, present), workspace]
             config = Path(neutral, "mypy.ini")
-            config.write_text(f"[mypy]\nmypy_path = {workspace}\n", encoding="utf-8")
+            config.write_text(f"[mypy]\nmypy_path = {':'.join(str(r) for r in roots)}\n", encoding="utf-8")
             stdout, stderr, status = api.run(["--no-incremental", f"--cache-dir={cache}", f"--config-file={config}",
-                                              *[str(workspace / p) for p in present]])
+                                              "--explicit-package-bases", *[str(workspace / p) for p in present]])
         finally:
             shutil.rmtree(cache, ignore_errors=True)
             shutil.rmtree(neutral, ignore_errors=True)

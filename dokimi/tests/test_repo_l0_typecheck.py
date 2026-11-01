@@ -361,10 +361,88 @@ def test_mypy_is_told_the_repository_interpreters_version(monkeypatch):
     assert argv[argv.index("--python-version") + 1] == "3.11"
 
 
-def test_a_fence_that_is_newer_syntax_than_the_repository_is_checked_against_its_grammar(tmp_path, monkeypatch):
-    from dokimi.repos.l0 import typecheck as l0_typecheck
-
-    monkeypatch.setattr(l0_typecheck, "python_version", lambda check: (3, 11))
+@pytest.mark.skipif(sys.version_info >= (3, 12), reason="the fence needs a repository interpreter older than 3.12")
+def test_a_fence_newer_than_the_repository_grammar_is_a_syntax_error(tmp_path):
+    # `type` is a 3.12 statement: the repository's interpreter (here, 3.11) is what parses the fence
     tree = _tree(tmp_path, f"{FENCE}python\ntype Alias = int\n{FENCE}\n")
     payload = scan_repo(tree, parse_manifest(MANIFEST), typecheck=Check("mypy", sys.executable))
-    assert payload["typecheck"]["syntax"] == 1  # `type` is not a 3.11 statement, whatever the host runs
+    assert payload["typecheck"]["syntax"] == 1
+
+
+def _fake_tools(monkeypatch, mypy_result, seen: list):
+    """Stand-in for the tool runs: the version probes answer, the parse passes every fence, mypy gives ``mypy_result``."""
+    from dokimi.repos.l0 import typecheck as l0_typecheck
+
+    def fake(argv, cwd, stdin=None):
+        seen.append(argv)
+        if "ast" in argv[-1]:  # the fence parse, run by the repository's interpreter
+            return _completed(returncode=0, stdout=json.dumps([None] * len(json.loads(stdin))))
+        if "version_info" in argv[-1]:
+            return _completed(returncode=0, stdout="3 11\n")
+        if "--version" in argv:
+            return _completed(returncode=0, stdout="mypy 2.4.0 (compiled: no)\n")
+        return mypy_result
+
+    monkeypatch.setattr(l0_typecheck, "_run_tool", fake)
+
+
+def test_a_tool_that_stops_on_a_blocking_error_leaves_the_unchecked_fences_unresolved(tmp_path, monkeypatch):
+    report = json.dumps({"file": "fence_0.py", "line": 1, "severity": "error", "message": "blocking"})
+    _fake_tools(monkeypatch, _completed(returncode=2, stdout=report + "\n"), [])
+    agents = f"{FENCE}python\nx: int = 1\n{FENCE}\n\n{FENCE}python\ny: int = 2\n{FENCE}\n"
+    payload = scan_repo(_tree(tmp_path, agents), parse_manifest(MANIFEST), typecheck=Check("mypy", sys.executable))
+    claims = _fence_claims(payload)
+    assert [c["status"] for c in claims] == ["fail", "unresolved"]
+    assert "blocking" in claims[0]["why"]
+    assert "stopped before this fence was checked" in claims[1]["why"]  # no error reported is not a pass
+    assert payload["typecheck"]["checked"] == 1
+    assert payload["typecheck"]["unknown"] == 1
+
+
+def test_a_tool_that_exits_two_with_no_fence_report_is_an_error_not_a_pass(monkeypatch):
+    from dokimi.repos.l0 import typecheck as l0_typecheck
+
+    monkeypatch.setattr(l0_typecheck, "_run_tool", lambda argv, cwd, stdin=None: _completed(
+        returncode=2, stderr="usage: mypy [-h]"))
+    with pytest.raises(l0_typecheck.TypecheckError, match="exited 2 with no fence report"):
+        l0_typecheck._run(Check("mypy", sys.executable), ["x: int = 1\n"])
+
+
+def test_basedpyright_is_given_an_empty_project_so_no_config_above_the_run_applies(monkeypatch):
+    from dokimi.repos.l0 import typecheck as l0_typecheck
+
+    seen = {}
+
+    def fake(argv, cwd, stdin=None):
+        seen["argv"] = argv
+        seen["config"] = Path(argv[argv.index("--project") + 1]).read_text(encoding="utf-8")  # while it exists
+        return _completed(returncode=0, stdout="")
+
+    monkeypatch.setattr(l0_typecheck, "_run_tool", fake)
+    l0_typecheck._run(Check("basedpyright", sys.executable), ["x: int = 1\n"])
+    assert seen["argv"][0] == "basedpyright"
+    assert seen["config"] == "{}\n"
+
+
+def test_a_fence_is_parsed_by_the_repository_interpreter_not_the_host(monkeypatch):
+    from dokimi.repos.l0 import typecheck as l0_typecheck
+
+    seen = []
+
+    def fake(argv, cwd, stdin=None):
+        seen.append(argv)
+        return _completed(returncode=0, stdout=json.dumps([None]))
+
+    monkeypatch.setattr(l0_typecheck, "_run_tool", fake)
+    assert l0_typecheck._syntax_errors(Check("mypy", "/opt/repo/python"), ["x = 1\n"]) == [None]
+    assert seen[0][:3] == ["/opt/repo/python", "-I", "-c"]
+
+
+@pytest.mark.skipif(not Path("/bin/true").exists(), reason="needs /bin/true")
+def test_a_true_python_env_is_a_usage_error_not_a_traceback(tmp_path, capsys):
+    # /bin/true exits 0 with no output: it reports no version, so the scan refuses it cleanly
+    args = _scan_args(tmp_path, "--typecheck", "--python-env", "/bin/true")
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2
+    assert "did not report its version" in capsys.readouterr().err

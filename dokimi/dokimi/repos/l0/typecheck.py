@@ -11,7 +11,6 @@ interpreter's site-packages are the pinned dependencies, and imports are not fol
 
 from __future__ import annotations
 
-import ast
 import json
 import os
 import sys
@@ -58,15 +57,14 @@ def check_fences(scan: Scan, files: list[str], check: Check) -> dict[str, Any]:
     found = python_fences(scan, files)
     block: dict[str, Any] = {"tool": check.tool, "tool_version": None, "python": check.python,
                              "fences": len(found), "checked": 0, "fail": 0, "unknown": 0, "syntax": 0}
-    # The repository's grammar and version are the target: a fence is parsed as that Python parses it.
+    # The repository's grammar and version are the target: a fence is parsed by that interpreter, and checked as
+    # that Python. No feature_version: it approximates an older grammar, the interpreter has the real one.
     target = python_version(check) if check.python is not None and found else None
+    syntax = _syntax_errors(check, [code for _, _, code in found])
     runnable = []
-    for f, fence, code in found:
-        try:
-            ast.parse(code, feature_version=target)
-        except (SyntaxError, ValueError, RecursionError, MemoryError) as exc:  # `f(<arg>)` is not Python
+    for (f, fence, code), why in zip(found, syntax, strict=True):
+        if why is not None:  # `f(<arg>)` is not Python, or too deep for the parser
             block["syntax"] += 1
-            why = exc.msg if isinstance(exc, SyntaxError) else type(exc).__name__  # too deep: no parse tree
             scan.add(f, fence.line, "python_fence", _label(code), "unresolved",
                      f"not valid Python ({why}): not type-checked")
             continue
@@ -78,9 +76,16 @@ def check_fences(scan: Scan, files: list[str], check: Check) -> dict[str, Any]:
         block["unknown"] = len(runnable)
         return block
     block["tool_version"] = tool_version(check)
-    found_errors = _run(check, [code for _, _, code in runnable], target) if runnable else {}  # no file: usage error
+    # no file: usage error. ``blocked``: the tool stopped early, so a fence with no error was not necessarily checked.
+    found_errors, blocked = _run(check, [code for _, _, code in runnable], target) if runnable else ({}, False)
+    unchecked = 0
     for i, (f, fence, code) in enumerate(runnable):
         errors = found_errors.get(i, [])
+        if not errors and blocked:
+            unchecked += 1
+            scan.add(f, fence.line, "python_fence", _label(code), "unresolved",
+                     f"{check.tool} stopped before this fence was checked: not type-checked")
+            continue
         if not errors:
             scan.add(f, fence.line, "python_fence", _label(code), "ok", f"{check.tool}: no error")
             continue
@@ -90,7 +95,8 @@ def check_fences(scan: Scan, files: list[str], check: Check) -> dict[str, Any]:
         where = f"line {line}: " if line else ""  # 0: the tool gave no line, so the claim is the fence itself
         scan.add(f, fence.line + line, "python_fence", _label(code), "fail",
                  f"{check.tool}: {where}{message}{more}"[:MAX_WHY])
-    block["checked"] = len(runnable)
+    block["checked"] = len(runnable) - unchecked
+    block["unknown"] += unchecked  # "unknown" is every fence that was not checked
     return block
 
 
@@ -124,8 +130,42 @@ def _label(code: str) -> str:
     return first[:80]
 
 
-def _run(check: Check, codes: list[str], target: tuple[int, int] | None = None) -> dict[int, list[tuple[int, str]]]:
-    """Errors per fence index: (line in the fence, message), in tool order. ``target``: the repository's version."""
+_PARSE = """\
+import ast, json, sys
+out = []
+for code in json.load(sys.stdin):
+    try:
+        ast.parse(code, type_comments=True)
+        out.append(None)
+    except (SyntaxError, ValueError, RecursionError, MemoryError) as exc:
+        out.append((exc.msg or "invalid syntax") if isinstance(exc, SyntaxError) else type(exc).__name__)
+json.dump(out, sys.stdout)
+"""
+
+
+def _syntax_errors(check: Check, codes: list[str]) -> list[str | None]:
+    """Per fence: None when it parses, else why not. The repository's interpreter parses it (its own grammar);
+    with none given, dokimi's own, ``-I`` and from the temporary directory, so the checkout cannot shadow it."""
+    if not codes:
+        return []
+    python = check.python or sys.executable
+    with tempfile.TemporaryDirectory(prefix="dokimi-typecheck-") as tmp:
+        done = _run_tool([python, "-I", "-c", _PARSE], tmp, stdin=json.dumps(codes))
+    if done.timed_out or done.returncode != 0 or done.truncated:
+        raise TypecheckError(f"{python} did not parse the fences: {done.stderr[-300:]}")
+    try:
+        reasons = json.loads(done.stdout)
+    except ValueError:
+        reasons = None
+    if not isinstance(reasons, list) or len(reasons) != len(codes):
+        raise TypecheckError(f"{python} did not parse the fences: {done.stdout[-300:]!r}")
+    return reasons
+
+
+def _run(check: Check, codes: list[str],
+         target: tuple[int, int] | None = None) -> tuple[dict[int, list[tuple[int, str]]], bool]:
+    """Errors per fence index: (line in the fence, message), in tool order; and whether the tool stopped early.
+    ``target``: the repository's version."""
     with tempfile.TemporaryDirectory(prefix="dokimi-typecheck-") as tmp:
         names = []
         for i, code in enumerate(codes):
@@ -142,15 +182,26 @@ def _run(check: Check, codes: list[str], target: tuple[int, int] | None = None) 
                     "--follow-imports=silent", "--no-incremental", "--cache-dir", os.path.join(tmp, "cache"),
                     "--output", "json", *names]
         else:
-            argv = [check.tool, "--pythonpath", str(check.python), "--outputjson", *names]
+            # The project is explicit and empty: a pyrightconfig.json above the temporary directory is not read.
+            project = os.path.join(tmp, "pyrightconfig.json")
+            Path(project).write_text("{}\n", encoding="utf-8")
+            argv = [check.tool, "--project", project, "--pythonpath", str(check.python), "--outputjson", *names]
         done = _run_tool(argv, tmp)
-    if done.timed_out or done.returncode not in (0, 1):  # 1: the tool found errors; anything else is its failure
+    # 1: the tool found errors. mypy's 2: it stopped on a blocking one ("errors prevented further checking"),
+    # which is a result only when it names a fence. Any other exit is the tool's own failure (pyright's 2 is fatal).
+    blocked = check.tool == "mypy" and done.returncode == 2
+    if done.timed_out or (done.returncode not in (0, 1) and not blocked):
         raise TypecheckError(f"{check.tool} exited {done.returncode}: {done.stderr[-300:]}")
     if done.truncated:  # the middle of the output was dropped, so an error there would be missed
         raise TypecheckError(f"{check.tool} output was truncated; not every error is known")
     if done.returncode == 1 and not done.stdout.strip():  # exit 1 with no report: the tool did not run
         raise TypecheckError(f"{check.tool} exited 1 with no report: {done.stderr[-300:]}")
-    return _errors(check.tool, done.stdout)
+    errors = _errors(check.tool, done.stdout)
+    if blocked:
+        if not errors:  # a usage error, or a blocking one that names no fence
+            raise TypecheckError(f"{check.tool} exited 2 with no fence report: {done.stderr[-300:]}")
+        return errors, True
+    return errors, False
 
 
 # What a tool run may inherit from the host. Not the whole environment: MYPYPATH, for one, adds modules to
@@ -158,9 +209,9 @@ def _run(check: Check, codes: list[str], target: tuple[int, int] | None = None) 
 _TOOL_ENV = ("PATH", "LANG", "LC_ALL", "LC_CTYPE", "TMPDIR", "TEMP", "TMP", "SYSTEMROOT")
 
 
-def _run_tool(argv: list[str], cwd: str):
+def _run_tool(argv: list[str], cwd: str, stdin: str | None = None):
     try:
-        return process.run(argv, timeout=TIMEOUT, env=process.Env.only(_TOOL_ENV), cwd=cwd)
+        return process.run(argv, timeout=TIMEOUT, env=process.Env.only(_TOOL_ENV), cwd=cwd, input=stdin)
     except OSError as exc:
         raise TypecheckError(f"cannot run {argv[0]}: {exc}") from exc
 

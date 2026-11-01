@@ -166,8 +166,20 @@ def test_a_relative_run_directory_is_graded(tmp_path, monkeypatch):
 
 
 def test_a_namespace_package_resolves_from_the_workspace_root(tmp_path):
-    run = _run(tmp_path, {"pkg/api.py": NAMESPACE_API, "pkg/other.py": NAMESPACE_OTHER}, _task())
-    result = typecheck.grade(_task(), tmp_path, "", run)
+    # both files listed: a listed other.py must be named pkg.other, the name api.py imports it by
+    task = _task(paths=["pkg/api.py", "pkg/other.py"])
+    run = _run(tmp_path, {"pkg/api.py": NAMESPACE_API, "pkg/other.py": NAMESPACE_OTHER}, task)
+    result = typecheck.grade(task, tmp_path, "", run)
+    assert result["pass"] is True, result["errors"]
+
+
+def test_a_src_layout_package_resolves_when_both_files_are_listed(tmp_path):
+    # a regular package under src/: pkg.x is imported from src/, so src/ is a root with the workspace
+    files = {"src/pkg/__init__.py": "", "src/pkg/x.py": "val: int = 1\n",
+             "src/pkg/y.py": "from pkg.x import val\n\nprint(val + 1)\n"}
+    task = _task(paths=["src/pkg/x.py", "src/pkg/y.py"])
+    run = _run(tmp_path, files, task)
+    result = typecheck.grade(task, tmp_path, "", run)
     assert result["pass"] is True, result["errors"]
 
 
