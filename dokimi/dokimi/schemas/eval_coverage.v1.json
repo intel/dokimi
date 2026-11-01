@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/eval_coverage.v1.json",
+  "title": "Eval coverage report v1",
+  "description": "What `eval coverage` computed from a frozen need graph and the `needs` labels of an eval set, with no model call: the same files give the same report. Coverage counts in-scope nodes some eval names; weights are dokimi.novelty.needs.PATH_WEIGHTS.",
+  "type": "object",
+  "required": ["schema_version", "evals_root", "graph", "coverage", "gaps", "evals", "problems"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "eval_coverage.v1"},
+    "evals_root": {"type": "string"},
+    "graph": {
+      "type": "object",
+      "required": ["artifact_name", "digest", "nodes", "in_scope", "hypotheses"],
+      "additionalProperties": false,
+      "properties": {
+        "artifact_name": {"type": "string"},
+        "digest": {"type": "string", "description": "sha256 of the graph's nodes, canonical JSON"},
+        "nodes": {"type": "integer", "minimum": 0},
+        "in_scope": {"type": "integer", "minimum": 0},
+        "hypotheses": {"type": "integer", "minimum": 0, "description": "Nodes no person confirmed"}
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "required": ["weighted", "core_rare_critical", "rare_critical", "by_class"],
+      "additionalProperties": false,
+      "properties": {
+        "weighted": {"type": ["number", "null"]},
+        "core_rare_critical": {"type": ["number", "null"]},
+        "rare_critical": {"type": ["number", "null"]},
+        "by_class": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["covered", "total"],
+            "additionalProperties": false,
+            "properties": {"covered": {"type": "integer"}, "total": {"type": "integer"}}
+          }
+        }
+      }
+    },
+    "gaps": {
+      "type": "array",
+      "description": "Uncovered core and rare_critical nodes",
+      "items": {
+        "type": "object",
+        "required": ["id", "path_class", "text", "confirmed_by"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string"},
+          "path_class": {"type": "string"},
+          "text": {"type": "string"},
+          "confirmed_by": {"enum": ["user", "hypothesis"]}
+        }
+      }
+    },
+    "evals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "source", "needs", "relevance"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string"},
+          "source": {"type": "string"},
+          "needs": {"type": "array", "items": {"type": "string"}},
+          "relevance": {"enum": ["relevant_core", "relevant_peripheral", "out_of_scope", "orphan", "unlabelled"]}
+        }
+      }
+    },
+    "problems": {"type": "array", "items": {"type": "string"}}
+  }
+}
