@@ -348,3 +348,10 @@ def test_an_overlay_cell_is_identified_by_the_overlay_it_keeps(tmp_path):
         json.dumps({"execution": {"id": cell_id(claude, "guidance:none"), "tools": "all", "delegation": "native"}}),
         encoding="utf-8")
     check_batch_executions(batch, [options(claude)])  # a plain cell beside an overlay cell of one profile
+
+
+def test_overlay_report_leaves_a_load_of_a_foreign_target_with_an_own_alias_unattributed():
+    records = [{"file": "AGENTS.codex.md", "scenario": "cwd=.", "class": "loaded"}]
+    report = overlay_report(records, "claude", {"AGENTS.codex.md": ("AGENTS.claude.md",)})
+    assert report["cross_loaded"] == {} and report["own_loaded"] == []
+    assert report["ambiguous"] == ["AGENTS.claude.md"]

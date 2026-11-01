@@ -126,10 +126,10 @@ def _pinned_names(links: dict[str, tuple[str, ...]], own: str | None,
     names: dict[str, tuple[str, ...]] = {}
     ambiguous: set[str] = set()
     for target, aliases in links.items():
-        kinds = {"own" if overlay_of(n) == own else "foreign" for n in aliases if overlay_of(n) is not None}
+        kinds = {"own" if overlay_of(n) == own else "foreign" for n in (target, *aliases) if overlay_of(n) is not None}
         if aliases and (PurePosixPath(target).name in native or {"own", "foreign"} <= kinds):
             ambiguous.update(aliases)
-            names[target] = (target,)
+            names[target] = ()
         else:
             names[target] = (target, *aliases)
     return names, ambiguous
