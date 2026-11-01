@@ -389,8 +389,8 @@ def test_a_mixed_rule_takes_no_slot_in_the_holm_family(tmp_path):
                          for e in mixed)
 
 
-@pytest.mark.parametrize("alpha", ["NaN", "Infinity"])
-def test_a_non_finite_alpha_is_refused(tmp_path, alpha):
+@pytest.mark.parametrize("alpha", ["NaN", "Infinity", "-Infinity", "0", "1", "2", "-0.5"])
+def test_an_alpha_outside_the_open_interval_zero_one_is_refused(tmp_path, alpha):
     # json.loads accepts NaN and Infinity; NaN compares false with every p, so it would turn any rule insufficient
     path = tmp_path / "ledger.json"
     path.write_text('{"schema_version":"repo_ledger.v1","policy":{"alpha":%s},"rules":[{"id":"R1",'

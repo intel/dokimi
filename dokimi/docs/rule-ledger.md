@@ -90,7 +90,7 @@ Schema cannot).
 | `baseline` | Optional. Overrides the `--baseline` of the compare for this rule. |
 | `cases` | Task ids, at least one, unique. Ids with no finished cell are listed as missing. |
 | `reviewed` | `YYYY-MM-DD`, the last date a person confirmed the rule. |
-| `policy.alpha` | Default 0.05. |
+| `policy.alpha` | Default 0.05; a number strictly between 0 and 1. |
 | `policy.review_within_days` | Default 180. An older `reviewed` gets a warning. |
 
 ## Verdicts

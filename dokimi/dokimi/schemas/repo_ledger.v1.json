@@ -17,7 +17,7 @@
       "description": "Optional. alpha: the Holm-adjusted p below which a delta counts. review_within_days: a review older than this is flagged as stale.",
       "additionalProperties": false,
       "properties": {
-        "alpha": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+        "alpha": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1},
         "review_within_days": {"type": "integer", "minimum": 1}
       }
     },
