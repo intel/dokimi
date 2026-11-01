@@ -20,7 +20,7 @@ FORMATS = ("xml",)
 
 _ROOT, _ROOT_CLOSE, _CLOSE = "<guidance>", "</guidance>", "</section>"
 _HEADING = re.compile(r"^(#{1,6}) (\S[^\r]*)$")  # canonical only: one space, no CR; anything else is body text
-_FENCE = re.compile(r"^\s{0,3}(`{3,}|~{3,})(.*)$")  # a run of ``` or ~~~, and what follows it on the line
+_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")  # up to three spaces, a run of ``` or ~~~, and what follows it
 _OPEN = re.compile(r'^<section level="([1-6])" title="([^"]*)">$')
 _ESCAPES = {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}
 _UNESCAPES = {v: k for k, v in _ESCAPES.items()}
@@ -54,12 +54,20 @@ def restore(rendered: str) -> str:
     return "\n".join(out)
 
 
+def _opening_run(line: str) -> str | None:
+    """The run a line opens a fence with, or None. As in CommonMark, a backtick fence's info string has no backtick."""
+    match = _FENCE.match(line)
+    if match is None or (match.group(1)[0] == "`" and "`" in match.group(2)):
+        return None
+    return match.group(1)
+
+
 def _fence_after(fence: str | None, line: str) -> str | None:
     """The fence a line leaves open (its opening run), or None. A run of the same character, at least as long as the
     opening one and followed by nothing but whitespace, closes it; any other fence line is body text."""
-    match = _FENCE.match(line)
     if fence is None:
-        return match.group(1) if match else None
+        return _opening_run(line)
+    match = _FENCE.match(line)
     if match and match.group(1)[0] == fence[0] and len(match.group(1)) >= len(fence) and not match.group(2).strip():
         return None
     return fence

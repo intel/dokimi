@@ -303,3 +303,91 @@ def test_format_and_as_skill_write_the_bytes_they_read_with_no_newline_translati
     (ws / "AGENTS.md").write_bytes(b"# A\r\nbody\r\n")
     _apply_as_skill(ws, types.SimpleNamespace(id="toy"), ["AGENTS.md"])
     assert b"body\r\n" in (ws / ".claude/skills/toy-guidance/SKILL.md").read_bytes()
+
+
+def test_a_fence_opener_is_one_only_where_markdown_accepts_it():
+    # a backtick in the info string: not a fence, so the heading after the line is a section
+    assert '<section level="1" title="Heading">' in to_format("```foo`bar\n# Heading\n", "xml")
+    # a tab is four columns of indentation: indented code, not a fence
+    assert '<section level="1" title="H">' in to_format("\t```\n# H\n", "xml")
+
+
+def test_a_fence_closes_only_on_its_own_character_and_on_no_info_string():
+    # a tilde run opens a fence: the comment in it is body text
+    rendered = to_format("~~~\n# comment\n~~~\n# real\n", "xml")
+    assert 'title="comment"' not in rendered and '<section level="1" title="real">' in rendered
+    # a ``` line followed by an info string does not close a ``` fence
+    rendered = to_format("```\n```bash\n# comment\n```\n# real\n", "xml")
+    assert rendered.count("<section") == 1 and 'title="real"' in rendered
+
+
+def _a_link_through_a_linked_directory(tmp_path):
+    ws = tmp_path / "ws"
+    write(ws, "other/AGENTS.md", "# other\n")
+    write(ws, "AGENTS.md", "# root\n")
+    (ws / "other" / "sub").mkdir()
+    (ws / "sub").symlink_to("other/sub", target_is_directory=True)
+    (ws / "CLAUDE.md").symlink_to("sub/../AGENTS.md")  # the filesystem reaches other/AGENTS.md
+    return ws
+
+
+def _run_link_caller(caller, ws, matched):
+    if caller == "format":
+        return _apply_format(ws, matched, "xml")
+    return _apply_as_skill(ws, types.SimpleNamespace(id="toy"), matched)
+
+
+@pytest.mark.parametrize("caller", ["format", "as-skill"])
+def test_a_link_through_a_linked_directory_reaches_what_the_filesystem_reaches(tmp_path, caller):
+    ws = _a_link_through_a_linked_directory(tmp_path)
+    with pytest.raises(PrepError, match="not a guidance file"):
+        _run_link_caller(caller, ws, ["AGENTS.md", "CLAUDE.md"])
+
+
+def test_a_link_through_a_linked_directory_to_a_matched_file_is_kept(tmp_path):
+    ws = _a_link_through_a_linked_directory(tmp_path)
+    _, meta = _apply_format(ws, ["AGENTS.md", "other/AGENTS.md", "CLAUDE.md"], "xml")
+    assert meta == {"guidance_links_kept": ["CLAUDE.md"]}
+
+
+@pytest.mark.parametrize("caller", ["format", "as-skill"])
+def test_a_link_in_a_subdirectory_resolves_from_its_own_directory(tmp_path, caller):
+    ws = tmp_path / "ws"
+    write(ws, "AGENTS.md", "# root\n")
+    write(ws, "sub/AGENTS.md", "# sub, not matched\n")
+    (ws / "sub" / "CLAUDE.md").symlink_to("AGENTS.md")  # sub/AGENTS.md, not the root file
+    with pytest.raises(PrepError, match="not a guidance file"):
+        _run_link_caller(caller, ws, ["AGENTS.md", "sub/CLAUDE.md"])
+
+
+@pytest.mark.parametrize("caller", ["format", "as-skill"])
+def test_a_dangling_link_is_a_prep_error(tmp_path, caller):
+    ws = tmp_path / "ws"
+    write(ws, "AGENTS.md", "# a\n")
+    (ws / "CLAUDE.md").symlink_to("nowhere.md")
+    with pytest.raises(PrepError, match="dangling"):
+        _run_link_caller(caller, ws, ["AGENTS.md", "CLAUDE.md"])
+
+
+def test_as_skill_does_not_write_through_a_linked_skills_directory(tmp_path):
+    ws = tmp_path / "ws"
+    write(ws, "AGENTS.md", "# a\n")
+    host = tmp_path / "host"
+    host.mkdir()
+    (ws / ".claude").mkdir()
+    (ws / ".claude" / "skills").symlink_to(host, target_is_directory=True)
+    with pytest.raises(PrepError, match="symlink"):
+        _apply_as_skill(ws, types.SimpleNamespace(id="toy"), ["AGENTS.md"])
+    assert list(host.iterdir()) == []
+
+
+def test_as_skill_refuses_a_dangling_link_at_the_skill_directory(tmp_path):
+    ws = tmp_path / "ws"
+    write(ws, "AGENTS.md", "# a\n")
+    host = tmp_path / "host"
+    host.mkdir()
+    (ws / ".claude" / "skills").mkdir(parents=True)
+    (ws / ".claude" / "skills" / "toy-guidance").symlink_to(host / "nowhere", target_is_directory=True)
+    with pytest.raises(PrepError, match="already has"):
+        _apply_as_skill(ws, types.SimpleNamespace(id="toy"), ["AGENTS.md"])
+    assert list(host.iterdir()) == []

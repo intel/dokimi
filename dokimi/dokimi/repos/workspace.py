@@ -504,16 +504,19 @@ def _apply_format(ws: Path, matched: list[str], fmt: str) -> tuple[list[str], di
 
 
 def _link_file(ws: Path, rel: str, matched: list[str]) -> None:
-    """The regular guidance file a link of the workspace reaches, following the links in turn. PrepError when the
-    chain cycles or ends outside the matched guidance files: that file would be dropped or left unrendered."""
-    chain = [rel]
-    while (ws / chain[-1]).is_symlink():
-        target = posixpath.normpath(posixpath.join(posixpath.dirname(chain[-1]), os.readlink(ws / chain[-1])))
-        if target in chain:
-            raise PrepError(f"guidance link cycle: {' -> '.join([*chain, target])}")
-        chain.append(target)
-    if chain[-1] not in matched:
-        raise PrepError(f"guidance link {rel} reaches {chain[-1]}, which is not a guidance file")
+    """The regular file a guidance link of the workspace reaches, resolved as the filesystem resolves it (a linked
+    directory on the way counts). PrepError when the link dangles or cycles, or reaches a file outside the workspace
+    or outside the matched guidance files: that file would be dropped or left unrendered."""
+    try:
+        target = (ws / rel).resolve(strict=True)
+    except (OSError, RuntimeError) as exc:  # RuntimeError: a symlink loop, before Python 3.13
+        raise PrepError(f"guidance link {rel} does not reach a file (a dangling link or a cycle): {exc}") from exc
+    root = ws.resolve()
+    if not target.is_relative_to(root) or not target.is_file():
+        raise PrepError(f"guidance link {rel} reaches {target}, which is outside the workspace or not a regular file")
+    reached = target.relative_to(root).as_posix()
+    if reached not in matched:
+        raise PrepError(f"guidance link {rel} reaches {reached}, which is not a guidance file")
 
 
 def _guidance_text(ws: Path, rel: str, arm: str) -> str:
