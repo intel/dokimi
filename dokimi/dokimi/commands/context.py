@@ -170,7 +170,8 @@ def cmd_context_prefilter(args: argparse.Namespace) -> None:
 
 
 def _read_sessions(names: list[str]) -> tuple[list, bool]:
-    """Every readable session log of ``names`` (a quoted glob expands here), and whether one failed."""
+    """Every readable session of ``names``: JSONL logs or Goose stores; a quoted glob expands."""
+    from dokimi.context.goose_log import is_goose_store, read_goose_store
     from dokimi.context.session_log import SessionError, read_session
 
     loaded, failed = [], False
@@ -178,14 +179,16 @@ def _read_sessions(names: list[str]) -> tuple[list, bool]:
         matches = [name] if os.path.exists(name) else sorted(glob.glob(os.path.expanduser(name), recursive=True))
         for path in matches or [name]:
             try:
-                session = read_session(Path(path))
+                source = Path(path)
+                sessions = read_goose_store(source) if is_goose_store(source) else [read_session(source)]
             except SessionError as exc:  # report it, and still read the sessions that do
                 print(f"✗ {exc}", file=sys.stderr)
                 failed = True
                 continue
-            for problem in session.errors:
-                print(f"warning: {path}: {problem}", file=sys.stderr)
-            loaded.append(session)
+            for session in sessions:
+                for problem in session.errors:
+                    print(f"warning: {session.name}: {problem}", file=sys.stderr)
+            loaded.extend(sessions)
     return loaded, failed
 
 

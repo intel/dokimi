@@ -74,10 +74,15 @@ This slice reads **Claude Code** session logs: JSON lines under
 no prompt and no tool call, is reported and the rest are still read; the exit
 code is 1 when any file failed.
 
-Goose session logs are not supported yet. The format was not confirmed from
-the tree, and no fixture of it exists here. Adding one means a second reader
-in `dokimi/context/session_log.py` that returns the same events; the matcher
-does not change.
+**Goose** sessions are read from its SQLite store, `sessions.db` under the Goose
+data directory (`~/.local/share/goose/sessions/` on Linux). Each session in the
+store is one session here. The layout comes from the block/goose source
+(session storage and message serialization), not from a sample store: a
+message's `content_json` is a list of blocks, a `text` block of a user message
+is a prompt, and a `toolRequest` block carries the tool's arguments. A message
+whose `metadata_json` marks it not user-visible is not a prompt. The store is
+opened read-only. Pass the `.db` file in place of, or next to, JSONL logs. The
+reader is `dokimi/context/goose_log.py`.
 
 ## Privacy and offline use
 

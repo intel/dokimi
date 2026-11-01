@@ -72,14 +72,19 @@ def parse_session(raw: str, name: str = "") -> Session:
         try:
             rec = json.loads(line)
         except (ValueError, RecursionError):  # JSONDecodeError, an over-long integer, deep nesting
-            _error(session, f"line {n}: not JSON")
+            add_error(session, f"line {n}: not JSON")
             continue
         if isinstance(rec, dict):
             session.events.extend(_events_of(rec))
     return session
 
 
-def _error(session: Session, message: str) -> None:
+def prompt_text(raw: str) -> str:
+    """The user's own words: harness markup removed, edges trimmed."""
+    return _INJECTED.sub(" ", raw).strip()
+
+
+def add_error(session: Session, message: str) -> None:
     if len(session.errors) < _ERROR_LIMIT:
         session.errors.append(message)
 
@@ -92,10 +97,10 @@ def _events_of(rec: dict[str, Any]) -> list[Event]:
     if rec.get("type") == "user":
         if rec.get("isSidechain"):
             return []
-        text = _INJECTED.sub(" ", _text_of(content)).strip()
+        text = prompt_text(_text_of(content))
         return [Event("prompt", text)] if text else []
     if rec.get("type") == "assistant" and isinstance(content, list):
-        return [_tool_event(b.get("input")) for b in content
+        return [tool_event(b.get("input")) for b in content
                 if isinstance(b, dict) and b.get("type") == "tool_use"]
     return []
 
@@ -109,7 +114,7 @@ def _text_of(content: Any) -> str:
     return ""
 
 
-def _tool_event(tool_input: Any) -> Event:
+def tool_event(tool_input: Any) -> Event:
     args = tool_input if isinstance(tool_input, dict) else {}
     strings = [v for k, v in args.items() if k not in _CONTENT_KEYS and isinstance(v, str)]
     raw_command = args.get("command")
