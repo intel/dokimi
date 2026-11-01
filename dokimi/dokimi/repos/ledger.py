@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -34,6 +35,7 @@ from .compare_tasks import CompareError
 KEEP, REVIEW, INSUFFICIENT = "keep", "review", "insufficient-evidence"
 DEFAULT_REVIEW_DAYS = 180
 _EPS = 1e-9  # a mean delta this close to zero is a tie, as in compare
+_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")  # repo_ledger.v1's rule id
 
 
 class LedgerError(ValueError):
@@ -70,6 +72,8 @@ def load_ledger(path: Path) -> Ledger:
         raise LedgerError(f"{path}: " + "; ".join(errors))
     rules, seen = [], set()
     for entry in raw["rules"]:
+        if not _ID.fullmatch(entry["id"]):  # the schema's pattern ends in `$`, which also matches before a newline
+            raise LedgerError(f"{path}: rule id {entry['id']!r} is not a valid id")
         rule = _rule(entry, path)
         if rule.id in seen:
             raise LedgerError(f"{path}: rule id {rule.id!r} is listed twice")
@@ -156,7 +160,7 @@ def _compared(rule: Rule, head: dict[str, Any], batch_dirs: list[Path], base: st
               present: list[str], seed: int, warnings: list[str]) -> list[dict[str, Any]]:
     """The rule's results of one compare() call, with its linked cases that did not pair, as warnings."""
     try:
-        summary = compare(batch_dirs, base, [rule.arm], models, (), seed=seed, tasks=present)
+        summary = compare(batch_dirs, base, [rule.arm], models, (), seed=seed, tasks=present, exact=True)
     except CompareError as exc:  # the arm or the baseline has no cell among this rule's cases
         return [{**head, "model": models[0] if models else None, "error": str(exc)}]
     model = models[0] if models else None

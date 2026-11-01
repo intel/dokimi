@@ -174,7 +174,9 @@ def batch_stamp(batch_dir: Path) -> dict[str, str]:
 
 def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None = None,
             models: list[str] | None = None, metrics: tuple[str, ...] = (), seed: int = 0,
-            pass_k: int | None = None, path_stability: bool = False, tasks: list[str] | None = None) -> dict[str, Any]:
+            pass_k: int | None = None, path_stability: bool = False, tasks: list[str] | None = None,
+            *, exact: bool = False) -> dict[str, Any]:
+    """``exact``: the statistics at full precision (the ledger's verdicts read them); otherwise rounded as printed."""
     metrics = tuple(dict.fromkeys(metrics))
     if pass_k is not None and pass_k < 1:
         raise CompareError(f"--pass-k must be at least 1, got {pass_k}")
@@ -204,7 +206,7 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
         unpaired += _one_arm_models(text, base_vals, treat_vals, models)
         shared_models = sorted({m for m, _ in base_vals} & {m for m, _ in treat_vals})
         for model in [m for m in shared_models if not models or m in models]:
-            skipped = _compare_model(text, model, base_vals, treat_vals, measures, seed, rows, unpaired)
+            skipped = _compare_model(text, model, base_vals, treat_vals, measures, seed, rows, unpaired, exact=exact)
             if skipped:
                 one_arm.append(f"{text} {model}: only one arm reports {', '.join(skipped)} for any shared task; "
                                "not compared")
@@ -359,7 +361,7 @@ def _holm(rows: list[dict[str, Any]]) -> None:
 
 def _compare_model(treatment: str, model: str, base_vals: dict[tuple[str, str], dict[str, Any]],
                    treat_vals: dict[tuple[str, str], dict[str, Any]], measures: list[str], seed: int,
-                   rows: list[dict[str, Any]], unpaired: list[dict[str, Any]]) -> list[str]:
+                   rows: list[dict[str, Any]], unpaired: list[dict[str, Any]], *, exact: bool = False) -> list[str]:
     """Append one row per measure of one (treatment, model), and the tasks only one arm has.
 
     Returns the :data:`REPORTED` measures only one arm reports for any shared task: they are skipped, not unpaired.
@@ -383,7 +385,7 @@ def _compare_model(treatment: str, model: str, base_vals: dict[tuple[str, str], 
                 if any(has):
                     skipped.append(measure)
                 continue
-        row = _compare_measure(treatment, model, measure, shared, base_vals, treat_vals, seed, unpaired)
+        row = _compare_measure(treatment, model, measure, shared, base_vals, treat_vals, seed, unpaired, exact=exact)
         if row is not None:
             rows.append(row)
     return skipped
@@ -421,7 +423,7 @@ def _measure_pairs(treatment: str, model: str, shared: list[str], base_vals: dic
 def _compare_measure(treatment: str, model: str, measure: str, shared: list[str],
                      base_vals: dict[tuple[str, str], dict[str, Any]],
                      treat_vals: dict[tuple[str, str], dict[str, Any]], seed: int,
-                     unpaired: list[dict[str, Any]]) -> dict[str, Any] | None:
+                     unpaired: list[dict[str, Any]], *, exact: bool = False) -> dict[str, Any] | None:
     """The row of one measure over the shared tasks of one (treatment, model), or None with no pair."""
     pairs = _measure_pairs(treatment, model, shared, base_vals, treat_vals, measure, unpaired)
     if not pairs:
@@ -433,7 +435,7 @@ def _compare_measure(treatment: str, model: str, measure: str, shared: list[str]
                   or treat_vals[(model, p["task"])]["grader_failed"] for p in pairs]
         flag = headroom(pairs, tops, failed)
     return {"treatment": treatment, "model": model, "measure": measure,
-            **paired_summary(pairs, measure, seed=seed), "headroom": flag}
+            **paired_summary(pairs, measure, seed=seed, exact=exact), "headroom": flag}
 
 
 def headroom(pairs: list[dict[str, Any]], tops: list[tuple[float | None, float | None]],
@@ -516,7 +518,8 @@ def _pair(task: str, base: dict[str, Any], treat: dict[str, Any], measure: str) 
             "n_baseline": base["n"][measure], "n_treatment": treat["n"][measure]}
 
 
-def paired_summary(pairs: list[dict[str, Any]], measure: str = "gate", seed: int = 0) -> dict[str, Any]:
+def paired_summary(pairs: list[dict[str, Any]], measure: str = "gate", seed: int = 0, *,
+                   exact: bool = False) -> dict[str, Any]:
     """Statistics over per-task pairs ``{task, baseline, treatment, delta, ...}``.
 
     The values are taken at full precision and rounded only in the output: rounded rates such as 1/3 and 2/3
@@ -530,14 +533,14 @@ def paired_summary(pairs: list[dict[str, Any]], measure: str = "gate", seed: int
     deltas = [p["delta"] for p in pairs]
     ci = (bootstrap_ci if measure in PRIMARY else mean_ci)(deltas, seed=seed)
     lo, hi = (float(ci["lo"]), float(ci["hi"])) if len(deltas) > 1 else (None, None)  # mean_ci gives numpy floats
-    p = sign_flip_p(deltas, seed=seed)
+    p = sign_flip_p(deltas, seed=seed, exact=exact)
     sd = statistics.stdev(deltas) if len(deltas) > 1 else 0.0
     reachable = min_sign_flip_p(sum(abs(d) > EPS for d in deltas)) < ALPHA  # else no effect can be detected
     return {
         "n_tasks": len(pairs),
         "baseline_mean": _round(_mean([p["baseline"] for p in pairs])),
         "treatment_mean": _round(_mean([p["treatment"] for p in pairs])),
-        "delta": {"mean": sum(deltas) / len(deltas), "lo": lo, "hi": hi},  # unrounded: a verdict reads its sign
+        "delta": {"mean": sum(deltas) / len(deltas) if exact else ci["mean"], "lo": lo, "hi": hi},
         "p": p,
         "p_holm": None,
         "p_holm_floor": None,
@@ -557,10 +560,12 @@ def min_sign_flip_p(changed: int) -> float:
     return min(1.0, 2 / 2 ** changed) if changed <= EXACT_MAX else 1 / (N_RESAMPLES + 1)
 
 
-def sign_flip_p(deltas: list[float], seed: int = 0, n_resamples: int = N_RESAMPLES) -> float | None:
+def sign_flip_p(deltas: list[float], seed: int = 0, n_resamples: int = N_RESAMPLES, *,
+                exact: bool = False) -> float | None:
     """Two-sided p of ``|sum(deltas)|`` when each delta's sign is a fair coin under the null.
 
     ``None`` when every delta is a tie: there is no evidence either way, and 1.0 would read as a measured null.
+    Rounded to 6 places as printed, unless ``exact``.
     """
     d = [x for x in deltas if abs(x) > EPS]
     if not d:
@@ -569,10 +574,12 @@ def sign_flip_p(deltas: list[float], seed: int = 0, n_resamples: int = N_RESAMPL
     if len(d) <= EXACT_MAX:
         hits = sum(abs(sum(s * x for s, x in zip(signs, d, strict=True))) >= observed
                    for signs in itertools.product((1, -1), repeat=len(d)))
-        return hits / 2 ** len(d)
-    rng = random.Random(seed)
-    hits = sum(abs(sum(x if rng.random() < 0.5 else -x for x in d)) >= observed for _ in range(n_resamples))
-    return (hits + 1) / (n_resamples + 1)
+        p = hits / 2 ** len(d)
+    else:
+        rng = random.Random(seed)
+        hits = sum(abs(sum(x if rng.random() < 0.5 else -x for x in d)) >= observed for _ in range(n_resamples))
+        p = (hits + 1) / (n_resamples + 1)
+    return p if exact else round(p, 6)
 
 
 def format_compare(summary: dict[str, Any]) -> str:

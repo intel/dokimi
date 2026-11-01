@@ -95,6 +95,13 @@ def test_a_repeated_rule_id_is_refused(tmp_path):
         load_ledger(path)
 
 
+def test_a_rule_id_with_a_trailing_newline_is_refused_not_a_second_R1(tmp_path):
+    # The schema's `$` matches before a final newline in Python; "R1\n" would otherwise load as its own rule.
+    path = _ledger(tmp_path / "ledger.json", [_rule("R1", ["t1"]), _rule("R1\n", ["t2"])])
+    with pytest.raises(LedgerError, match="R1"):
+        load_ledger(path)
+
+
 def test_an_unreadable_ledger_is_refused(tmp_path):
     path = tmp_path / "ledger.json"
     path.write_text("{not json", encoding="utf-8")
