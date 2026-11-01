@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any
 
+from .budget import _imports, _target
 from .reach import PROSE_LIMIT, ReachError
 from .source import RepoTree
 
@@ -56,7 +57,7 @@ def build_receipt(reach: dict[str, Any], budget: dict[str, Any], tree: RepoTree)
     harness = reach["harness"]
     rules = harness["name"] == "claude-code"  # budget's start-up rules are Claude Code's
     when_of = _budget_when(reach, budget) if rules else {}
-    own = _own_guidance(reach, budget)
+    own = _own_guidance(reach, budget, tree)
     start_up = [p for p, when in when_of.items() if when in ("start", "off") and p not in _known(reach)]
     digests = source_digests(tree, [p for p, _ in _probed(reach)] + start_up)
     records = {(r["file"], r["scenario"]): r for r in reach["records"]}
@@ -144,10 +145,13 @@ def _budget_when(reach: dict[str, Any], budget: dict[str, Any]) -> dict[str, str
             for e in budget["entries"] if e["kind"] in ("guidance", "import", "skill listing")}
 
 
-def _own_guidance(reach: dict[str, Any], budget: dict[str, Any]) -> frozenset[str]:
-    """Guidance files budget lists under their own path: a link or an import has no subtree of its own."""
+def _own_guidance(reach: dict[str, Any], budget: dict[str, Any], tree: RepoTree) -> frozenset[str]:
+    """Guidance files budget lists under their own path, and that no other guidance file @-imports: a link or an
+    import is activated where its importer is, so the file has no subtree of its own."""
     aliases = {alias for item in reach["files"] for alias in item.get("aliases", [])}
-    return frozenset(e["path"] for e in budget["entries"] if e["kind"] == "guidance" and e["path"] not in aliases)
+    guidance = [e["path"] for e in budget["entries"] if e["kind"] == "guidance"]
+    imported = {_target(tree, p) for g in guidance for p in _imports(tree, [g])[0]}
+    return frozenset(p for p in guidance if p not in aliases and p not in imported)
 
 
 def _dir(path: str) -> str:

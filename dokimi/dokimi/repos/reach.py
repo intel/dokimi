@@ -438,7 +438,7 @@ def format_matrix(payload: dict[str, Any]) -> str:
         if (s.get("prose") or 0) > PROSE_LIMIT:
             lines.append(f"warning: {s['id']} answered with {s['prose']} words besides tokens; "
                          "read its trace before trusting its not_loaded cells")
-        if s["unknown"]:
+        if s.get("unknown"):  # schema-optional: a scenario saved without it reports no unknown tokens
             lines.append(f"unknown tokens in {s['id']}: {', '.join(s['unknown'])}")
     return "\n".join(lines)
 

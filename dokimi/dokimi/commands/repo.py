@@ -290,6 +290,9 @@ def _reach_from_saved(args: argparse.Namespace) -> None:
         gaps = saved_gaps(reach, args.format)
         if gaps:
             raise ReachError(f"{args.from_file} has no {', '.join(gaps)}, which --format {args.format} needs")
+        if args.format == "receipt" and _receipt_would_overwrite(Path(args.from_file), _receipt_path(args.from_file)):
+            raise ReachError(f"the receipt would replace {args.from_file}, the probe it is read from: "
+                             "rename the saved file")
     except (SourceError, ProfileError, ReachError, OSError, ValueError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
@@ -311,7 +314,7 @@ def _reach_from_saved(args: argparse.Namespace) -> None:
         sys.exit(_tree_read_exit_code(exc))
     if args.format == "receipt":
         _print_receipt(tree, profile, reach, Path(args.from_file).parent)
-        print(f"wrote {Path(args.from_file).parent / 'effective_instructions.json'}", file=sys.stderr)
+        print(f"wrote {_receipt_path(args.from_file)}", file=sys.stderr)
     else:
         print(format_matrix(reach))
     if any(s["error"] for s in reach["scenarios"]):
@@ -379,6 +382,10 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
     print(f"{len(files)} guidance files, {planned_count} scenarios, "
           f"at most ${args.budget:g} each", file=sys.stderr)
     out_dir = Path(args.out or "reach-out")
+    if args.format == "receipt" and _receipt_would_overwrite(out_dir / "reach.json", out_dir / RECEIPT_NAME):
+        print(f"✗ {out_dir / RECEIPT_NAME} is the probe itself (a link to {out_dir / 'reach.json'}): "
+              "remove the link", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
     try:  # the harness runs: a runtime failure
         payload = run_reach(
             tree=tree, manifest=manifest, profile=profile, model=args.model, out_dir=out_dir,
@@ -407,6 +414,18 @@ def _print_reach_output(tree, profile, payload: dict, out_dir: Path, path: Path,
         print(f"wrote {path}")
 
 
+RECEIPT_NAME = "effective_instructions.json"
+
+
+def _receipt_path(from_file: str) -> Path:
+    return Path(from_file).parent / RECEIPT_NAME
+
+
+def _receipt_would_overwrite(probe: Path, receipt: Path) -> bool:
+    """A receipt written at the probe's path, directly or through a link, would replace the probe it is built from."""
+    return probe.resolve() == receipt.resolve()
+
+
 def _print_receipt(tree, profile, payload: dict, out_dir: Path) -> None:
     """The effective-instructions receipt of a probe: budget's start-up chain, reach's observed states."""
     from dokimi.artifacts import save_artifact
@@ -414,7 +433,11 @@ def _print_receipt(tree, profile, payload: dict, out_dir: Path) -> None:
     from dokimi.repos.receipt import build_receipt
 
     receipt = build_receipt(payload, budget(tree, profile.guidance_names, profile.import_max_depth), tree)
-    written = save_artifact("effective_instructions", receipt, out_dir / "effective_instructions.json")
+    try:  # a directory that is not writable, or one already named effective_instructions.json: a runtime failure
+        written = save_artifact("effective_instructions", receipt, out_dir / RECEIPT_NAME)
+    except OSError as exc:
+        print(f"✗ cannot write {out_dir / RECEIPT_NAME}: {exc}", file=sys.stderr)
+        sys.exit(1)
     print(json.dumps(written, indent=2))
 
 

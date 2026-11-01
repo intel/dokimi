@@ -437,3 +437,72 @@ def test_a_schema_valid_probe_without_what_its_format_needs_is_a_usage_error(tmp
         args.func(args)
     err = capsys.readouterr().err
     assert exc.value.code == 2 and key in err and "Traceback" not in err
+
+
+@pytest.mark.parametrize("link", [False, True], ids=["renamed", "symlink"])
+def test_from_never_writes_the_receipt_over_the_probe_it_reads(tmp_path, monkeypatch, capsys, link):
+    live = _pinned(_end_to_end_args(tmp_path, monkeypatch))
+    build_parser().parse_args(live).func(build_parser().parse_args(live))
+    capsys.readouterr()
+    saved = tmp_path / "out" / "reach.json"
+    before = saved.read_text(encoding="utf-8")
+    receipt = tmp_path / "out" / "effective_instructions.json"
+    if link:
+        receipt.symlink_to(saved)
+    else:
+        saved.rename(receipt)
+        saved = receipt
+    args = build_parser().parse_args(_from_argv(live, "--from", str(saved), "--format", "receipt"))
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2 and "Traceback" not in capsys.readouterr().err
+    assert receipt.resolve().read_text(encoding="utf-8") == before
+
+
+def test_a_receipt_that_cannot_be_written_is_a_runtime_failure_not_a_traceback(tmp_path, monkeypatch, capsys):
+    live = _pinned(_end_to_end_args(tmp_path, monkeypatch))
+    build_parser().parse_args(live).func(build_parser().parse_args(live))
+    capsys.readouterr()
+    (tmp_path / "out" / "effective_instructions.json").mkdir()  # a directory where the receipt goes
+    args = build_parser().parse_args(_from_argv(live, "--from", _saved(tmp_path), "--format", "receipt"))
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    err = capsys.readouterr().err
+    assert exc.value.code == 1 and "cannot write" in err and "Traceback" not in err
+
+
+def test_a_live_receipt_that_cannot_be_written_is_a_runtime_failure(tmp_path, monkeypatch, capsys):
+    live = _end_to_end_args(tmp_path, monkeypatch, "--format", "receipt")
+    (tmp_path / "out").mkdir()
+    (tmp_path / "out" / "effective_instructions.json").mkdir()
+    args = build_parser().parse_args(live)
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 1 and "cannot write" in capsys.readouterr().err
+
+
+def test_a_matrix_of_a_probe_saved_without_unknown_tokens_renders(tmp_path, monkeypatch, capsys):
+    live = _end_to_end_args(tmp_path, monkeypatch)
+    build_parser().parse_args(live).func(build_parser().parse_args(live))
+    data = json.loads((tmp_path / "out" / "reach.json").read_text(encoding="utf-8"))
+    for scenario in data["scenarios"]:
+        scenario.pop("unknown", None)  # schema-optional
+    (tmp_path / "out" / "bare.json").write_text(json.dumps(data), encoding="utf-8")
+    capsys.readouterr()
+    args = build_parser().parse_args(_from_argv(live, "--from", str(tmp_path / "out" / "bare.json")))
+    args.func(args)
+    assert capsys.readouterr().out == format_matrix(data) + "\n"
+
+
+def test_a_lazy_guidance_imported_by_a_nested_file_is_expected_only_where_that_file_is(tmp_path):
+    tree = _tree(tmp_path, {"sub/CLAUDE.md": "@../other/AGENTS.md\n", "other/AGENTS.md": "o\n"})
+    records = [_record(f, s, "not_loaded") for f in ("other/AGENTS.md", "sub/CLAUDE.md") for s in ("cwd=.", "read=sub")]
+    files = [{"path": "other/AGENTS.md", "head": "RC000001", "tail": "RC000002"},
+             {"path": "sub/CLAUDE.md", "head": "RC000003", "tail": "RC000004"}]
+    budget = {"entries": [  # the import activates other/AGENTS.md in sub/, not where the file lies
+        {"path": "sub/CLAUDE.md", "kind": "guidance", "when": "lazy", "chars": 10},
+        {"path": "other/AGENTS.md", "kind": "guidance", "when": "lazy", "chars": 10}]}
+    receipt = build_receipt(_reach(records, [ROOT_ROW, SUB_ROW], files=files), budget, tree)
+    root, sub = _sources(receipt, "cwd=."), _sources(receipt, "read=sub")
+    assert root["other/AGENTS.md"]["expected"] == "unknown" and sub["other/AGENTS.md"]["expected"] == "unknown"
+    assert root["sub/CLAUDE.md"]["expected"] is False and sub["sub/CLAUDE.md"]["expected"] is True

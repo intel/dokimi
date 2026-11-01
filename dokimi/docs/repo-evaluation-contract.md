@@ -1058,33 +1058,37 @@ start-up chain of `repo budget` (`repos/budget.py`). It makes no
 LLM call. `repo reach --from <reach.json> --format receipt` builds the same
 receipt from a saved probe without running the harness. The source is read
 again: the file must be for the same repository, harness and commit (a
-different one is a usage error, exit 2). A receipt also needs a pinned source
-(`<path>@<rev>`) and a saved probe made at a commit: a working tree, or a probe
-of one (`repo.sha` null), is a usage error (exit 2), because `sha256` and the
-expectations are computed from the source as it is at conversion time and a
-working tree can change after the probe. The matrix (without `--format
-receipt`) still accepts an unpinned source. The harness configuration is not
+different one is a usage error, exit 2). With `--from`, a receipt also needs a
+pinned source (`<path>@<rev>`) and a saved probe made at a commit: a working
+tree, or a probe of one (`repo.sha` null), is a usage error (exit 2), because
+`sha256` and the expectations are computed from the source as it is at
+conversion time and a working tree can change after the probe. A live
+`repo reach --format receipt` run is not held to this: it builds the receipt
+from the source it probes. The matrix (without `--format receipt`) still
+accepts an unpinned source. The harness configuration is not
 pinned: `expected` comes from the harness profile as it is at conversion time,
 and its guidance names and import depth are not compared with the probe's, so
 a receipt is the same only for an unchanged profile. The receipt is written
-beside the saved file. The probe-only flags (`--model`,
+beside the saved file; a name that resolves to the saved probe is a usage error
+(exit 2), and a write that fails is a runtime failure (exit 1). The probe-only flags (`--model`,
 `--budget`, `--scenarios`, `--only` and the rest) cannot be combined with
 `--from`. The schema is `schemas/effective_instructions.v1.json`; the code is
 `repos/receipt.py`.
 
-One receipt is written per reach scenario, with `run_id` `<salt>:<scenario id>`.
+One artifact is written to `effective_instructions.json`, with one entry in its
+`receipts` array per reach scenario and `run_id` `<salt>:<scenario id>`.
 Each source carries:
 
 | Receipt field | From | Meaning |
 |---|---|---|
 | `path`, `alias_of` | reach `files`, `aliases` | a link is `adapter` scope and takes its target's tokens |
 | `sha256` | the text dokimi reads (LF-normalised UTF-8) | null when the file is not readable as text |
-| `scope` | path | `repo` at the root or in `.claude/`; `subtree` for a nested AGENTS.md, CLAUDE.md or CLAUDE.local.md; else `unknown` |
+| `scope` | path | `repo` for a root-level file and for `.claude/CLAUDE.md` and `.claude/AGENTS.md` only; `subtree` for a nested AGENTS.md, CLAUDE.md or CLAUDE.local.md (`.claude/CLAUDE.local.md` included); else `unknown` (a skill, for one) |
 | `expected` | budget `when` | see the table below |
 | `observed` | reach class | `loaded` → loaded, `fetched` → fetched, `not_loaded` → not_loaded, `truncated` and `error` → unknown |
 | `observation_method` | | `unknown` for every source: the thread vocabulary's method, since no runtime event, prompt capture or hook backs the probe |
 | `dokimi_method` | | `marker_self_report` for a source the probe recorded; null for a start-up file budget found and reach did not probe |
-| `states.accessed` | the harness's read events | `true` if the harness reported a read of the file (the Read tool; Codex and Copilot also report supported shell reads, §7), `false` with tools off, else `unknown` |
+| `states.accessed` | the harness's read events | `true` if the harness reported a read of the file (the Read tool; Codex and Copilot also report supported shell reads, §7); for a probed source `false` with tools off, else `unknown`; always `unknown` for a start-up file budget found and reach did not probe |
 | `states.selected` | the class | `true` for loaded or fetched (the source entered the request, by the harness or a read), else `unknown` |
 | `states.loaded` | the class | `true` for loaded, `false` for not_loaded, `unknown` for fetched, truncated and error: a tool read is not proof that start-up loading did not happen |
 | `states.followed` | | always `unknown` (the schema's `const`) |
@@ -1107,16 +1111,18 @@ and the receipt says so.
 | `off` | `false` | a root CLAUDE\*.md turns AGENTS.md off |
 | `lazy`, run directory is the file's directory or inside it | `true` | loaded when the work reaches that directory |
 | `lazy`, run directory outside it | `false` | not reached by this run |
-| `lazy` on a link or an import, or at the root | `unknown` | budget's flattened `when` does not say which directory activates the file, so only a nested AGENTS/CLAUDE file in its own subtree gets a verdict |
+| `lazy` on a link, an import, a root file, or a file another guidance file `@`-imports | `unknown` | budget's flattened `when` does not say which directory activates the file, so only a nested AGENTS/CLAUDE file that budget lists under its own path, and that no guidance file imports, gets a verdict |
 | `on demand` or absent | `unknown` | budget does not say |
 
 **Precedence.** `precedence_observed` lists a displacement only: a root
 CLAUDE\*.md (`CLAUDE.md`, `CLAUDE.local.md`, `.claude/CLAUDE.md`) observed
 loaded in a run, with an `off` AGENTS.md observed not_loaded in that run. It
 does not give an order of entry. The displacement follows budget's rule as
-written (`repos/budget.py`: every AGENTS.md is `off` while a root CLAUDE\*.md
-exists, nested ones included), so nested AGENTS.md files appear too. If budget's
-rule changes, the receipt follows it.
+written (`repos/budget.py`): an AGENTS.md is `off` while a root CLAUDE\*.md
+exists, nested ones included, unless a root CLAUDE\* file aliases it or
+`@`-imports it (`start`), or a nested CLAUDE\* file `@`-imports it (`lazy`). So
+nested AGENTS.md files can appear, and an AGENTS.md at the root is not always
+`off`. If budget's rule changes, the receipt follows it.
 
 **What the marker method can and cannot show.** It shows which tokens were
 reported in a run, so it can support `loaded`, `fetched` and `not_loaded` as
