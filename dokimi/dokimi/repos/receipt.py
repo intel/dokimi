@@ -186,7 +186,7 @@ def _receipt(reach: dict[str, Any], run: _Run, runtime: dict[str, str], start_up
         "target": row.get("read"),
         "sources": sources,
         "precedence_observed": _precedence(sources, off),
-        "unknowns": _run_unknowns(row, sources),
+        "unknowns": _run_unknowns(row, sources, run),
     }
 
 
@@ -256,13 +256,22 @@ def _precedence(sources: list[dict[str, Any]], off: set[str]) -> list[dict[str, 
             for w in winners]
 
 
-def _run_unknowns(row: dict[str, Any], sources: list[dict[str, Any]]) -> list[str]:
+def _recorded_class(source: dict[str, Any], run: _Run) -> str | None:
+    """The reach class of the record this source's observation came from (its alias's, for a link)."""
+    rec = run.records.get((source.get("alias_of") or source["path"], run.row["id"]))
+    return rec["class"] if rec else None
+
+
+def _run_unknowns(row: dict[str, Any], sources: list[dict[str, Any]], run: _Run) -> list[str]:
     out = []
     if row.get("error"):
         out.append("no usable answer from this run: every observed state is unknown")
-    marked = [s for s in sources if s["observed"] == UNKNOWN and s["dokimi_method"] == DOKIMI_METHOD]
-    out += [f"{s['path']}: one of its two marker tokens was reported; loaded is not established"
-            for s in marked if not row.get("error")]
+    else:
+        # a truncated record saw one of the two marker tokens; an error record saw neither, so it says nothing
+        out += [f"{s['path']}: one of its two marker tokens was reported; loaded is not established"
+                for s in sources if _recorded_class(s, run) == "truncated"]
+        out += [f"{s['path']}: the probe recorded an error for this file; no state is established"
+                for s in sources if _recorded_class(s, run) == "error"]
     if (row.get("prose") or 0) > PROSE_LIMIT:
         out.append(f"answered with {row['prose']} words besides tokens; its not_loaded states may be under-reports")
     if row.get("unknown"):

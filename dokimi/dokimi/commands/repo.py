@@ -254,17 +254,20 @@ def _check_reach_flags(args: argparse.Namespace, kinds: tuple[str, ...]) -> None
         raise ReachError("--model is required to probe (leave it out only with --from)")
 
 
-# The probe's flags and their defaults: --from refuses any of them set to another value.
+# The probe's flags, unset by default: --from refuses any of them given, even at its default value.
 _PROBE_ONLY = {"only": None, "salt": None, "work_dir": None, "keep": False, "bin": None, "dry_run": False,
-               "model": None, "scenarios": "root,cwd,read", "max_turns": 4, "budget": 0.10, "timeout": 300,
-               "out": None}
+               "model": None, "scenarios": None, "max_turns": None, "budget": None, "timeout": None, "out": None}
+_PROBE_DEFAULTS = {"scenarios": "root,cwd,read", "max_turns": 4, "budget": 0.10, "timeout": 300}
 
 
 def _reach_entry(args: argparse.Namespace) -> None:
     """`repo reach`: probe the repository, or with --from read a saved reach.json."""
-    if args.from_file:
+    if args.from_file is not None:  # an empty name is still a name: a usage error, never a probe
         _reach_from_saved(args)
     else:
+        for key, value in _PROBE_DEFAULTS.items():
+            if getattr(args, key) is None:
+                setattr(args, key, value)
         cmd_repo_reach(args)
 
 
@@ -278,6 +281,8 @@ def _saved_reach_inputs(args: argparse.Namespace):
     from dokimi.repos.harness_profile import load_profile
     from dokimi.repos.reach import ReachError, load_reach, saved_gaps, saved_matrix_problem
 
+    if not args.from_file:
+        raise ReachError("--from needs a file name")
     given = _probe_flags_given(args)
     if given:
         raise ReachError(f"--from reads a saved probe, so {', '.join(given)} cannot be used with it")
@@ -680,7 +685,7 @@ def register(sub, positive_int) -> None:
                          "still read, to check the file's repository, harness and sha; the receipt goes beside the file")
     reach_p.add_argument("--bin", default=None, help="Harness executable (default: the profile's `bin`)")
     reach_p.add_argument("--out", default=None, help="Output directory: reach.json and traces/ (default: reach-out)")
-    reach_p.add_argument("--scenarios", default="root,cwd,read",
+    reach_p.add_argument("--scenarios", default=None,
                          help="Comma list of scenario kinds: root, cwd, read (default: all)")
     reach_p.add_argument("--only", action="append", default=None, metavar="SCENARIO",
                          help="Run only this scenario id (for example read=cpp); repeatable")
@@ -688,9 +693,10 @@ def register(sub, positive_int) -> None:
                          help="Parent of the temporary workspace (default: the system temp dir). "
                          "No ancestor may hold guidance files.")
     reach_p.add_argument("--salt", default=None, help="Token salt (default: random per run)")
-    reach_p.add_argument("--max-turns", type=positive_int, default=4, dest="max_turns")
-    reach_p.add_argument("--budget", type=float, default=0.10, help="Per-scenario USD cap (default: 0.10)")
-    reach_p.add_argument("--timeout", type=positive_int, default=300, help="Per-scenario seconds")
+    reach_p.add_argument("--max-turns", type=positive_int, default=None, dest="max_turns",
+                         help="Turn cap per scenario (default: 4)")
+    reach_p.add_argument("--budget", type=float, default=None, help="Per-scenario USD cap (default: 0.10)")
+    reach_p.add_argument("--timeout", type=positive_int, default=None, help="Per-scenario seconds (default: 300)")
     reach_p.add_argument("--keep", action="store_true", help="Keep the temporary workspace")
     reach_p.add_argument("--format", choices=["matrix", "receipt"], default="matrix",
                          help="matrix: the table (default). receipt: print the effective-instructions/v0 receipt as JSON and "

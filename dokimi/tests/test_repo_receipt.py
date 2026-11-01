@@ -605,3 +605,32 @@ def test_from_a_receipt_output_link_that_loops_is_a_usage_error_not_a_traceback(
         args.func(args)
     err = capsys.readouterr().err
     assert exc.value.code == 2 and "cannot resolve" in err and "Traceback" not in err
+
+
+@pytest.mark.parametrize("cls", ["truncated", "error"])
+def test_the_unknowns_name_a_truncated_record_and_an_error_record_apart(tmp_path, cls):
+    tree = _tree(tmp_path, {"AGENTS.md": "a\n", "CLAUDE.md": "c\n", "sub/AGENTS.md": "s\n"})
+    reach = _reach([_record("AGENTS.md", "cwd=.", cls)], [ROOT_ROW])
+    run = next(r for r in build_receipt(reach, {"entries": []}, tree)["receipts"] if r["run_id"].endswith("cwd=."))
+    text = " | ".join(run["unknowns"])
+    assert ("AGENTS.md: one of its two marker tokens was reported" in text) == (cls == "truncated")
+    assert ("AGENTS.md: the probe recorded an error for this file" in text) == (cls == "error")
+
+
+@pytest.mark.parametrize("flags", [["--budget", "0.10"], ["--max-turns", "4"], ["--scenarios", "root,cwd,read"],
+                                   ["--timeout", "300"]])
+def test_from_refuses_a_probe_flag_given_at_its_default_value(tmp_path, monkeypatch, capsys, flags):
+    live = _end_to_end_args(tmp_path, monkeypatch)
+    args = build_parser().parse_args(_from_argv(live, "--from", _saved(tmp_path), *flags))
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2 and flags[0] in capsys.readouterr().err
+
+
+def test_from_an_empty_file_name_is_a_usage_error_and_runs_no_probe(tmp_path, monkeypatch, capsys):
+    live = _end_to_end_args(tmp_path, monkeypatch)
+    args = build_parser().parse_args([*live, "--from", ""])  # a shell variable that holds no file name
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2 and "--from needs a file name" in capsys.readouterr().err
+    assert not (tmp_path / "out" / "reach.json").exists()
