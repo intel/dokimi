@@ -175,7 +175,10 @@ def cmd_subjects_evidence(args: argparse.Namespace) -> None:
         scorecard = load_artifact("subject_scorecard", Path(args.scorecard))
     except (OSError, ValueError, ArtifactValidationError) as exc:
         usage_exit(f"cannot read subject scorecard {args.scorecard}: {exc}")
-    evidence = build_skill_evidence(scorecard, source=str(args.scorecard))
+    try:
+        evidence = build_skill_evidence(scorecard, source=str(args.scorecard))
+    except (AttributeError, TypeError) as exc:
+        usage_exit(f"{args.scorecard} is not a well-formed subject scorecard: {exc}")
     if not evidence["results"]:
         usage_exit(f"{args.scorecard} holds no awareness arm with a baseline to compare against: "
                    "nothing to publish")

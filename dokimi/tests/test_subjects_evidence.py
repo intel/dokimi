@@ -106,6 +106,17 @@ def test_subjects_evidence_refuses_a_file_that_is_not_a_scorecard(tmp_path: Path
     assert exc.value.code == 2
 
 
+def test_subjects_evidence_refuses_a_scorecard_with_a_wrong_typed_cell(tmp_path: Path, monkeypatch):
+    from dokimi.cli import main
+
+    bad = tmp_path / "x.json"
+    bad.write_text(json.dumps({**_scorecard(), "cells": [None]}), encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["dokimi", "subjects", "evidence", str(bad)])
+    with pytest.raises(SystemExit) as exc:
+        main()
+    assert exc.value.code == 2
+
+
 def test_n_and_delta_are_the_paired_tests_not_the_arms_own_counts():
     scorecard = _scorecard()
     row = scorecard["cells"][0]["summary"]["per_arm"]["skill:s"]
