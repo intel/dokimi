@@ -203,12 +203,14 @@ def test_a_windows_extended_path_prefix_is_read_as_the_plain_path():
 
 
 @pytest.mark.skipif(os.name != "nt", reason="the extended-path prefix is what Windows reads an absolute link back as")
-@symlinks
 def test_an_absolute_link_inside_the_tree_digests_the_same_at_another_path_on_windows(tmp_path):
     a = _write(tmp_path / "a", {"q.json": "[]\n"})
     b = _write(tmp_path / "b", {"q.json": "[]\n"})
-    os.symlink(a / "q.json", a / "current")
-    os.symlink(b / "q.json", b / "current")
+    try:
+        os.symlink(a / "q.json", a / "current")
+        os.symlink(b / "q.json", b / "current")
+    except OSError:
+        pytest.skip("creating symlinks needs privileges on Windows")
     assert tree_digest(a) == tree_digest(b)
 
 
