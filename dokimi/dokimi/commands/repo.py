@@ -426,7 +426,7 @@ def register(sub, positive_int, eval_sub) -> None:
     repo_p = sub.add_parser(
         "repo",
         help="Repositories as evaluation subjects: validate repo-eval.yaml, L0 scan, fetch sources, reach probe, budget, "
-        "task self-check, agent runs and their report",
+        "agent runs and their report",
     )
     repo_sub = repo_p.add_subparsers(dest="repo_cmd", required=True)
     source_help = (

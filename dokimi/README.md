@@ -126,7 +126,7 @@ Context benchmark
   eval personas       Discover and approve target user personas
   eval questions      Generate, analyze, refine, and review questions
   answers             Generate context-arm and baseline answers
-  eval                Score answers, run RAGAS, or use a multi-judge panel
+  eval                Build and check eval sets, score answers, calibrate judges
   arms                Compare treatment arms (docs / MCP / skills / profiles)
   subjects            Run a subject descriptor (artifact + suite) into a scorecard
 

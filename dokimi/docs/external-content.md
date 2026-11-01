@@ -391,8 +391,8 @@ Worth knowing before you read a suspiciously clean result:
 
 | Command | Root missing | Exit |
 |---|---|---|
-| `catalog scan --root <missing>` | `--root is not a directory: <path>` | 1 |
-| `tasks run --tasks-root <missing>` | `FileNotFoundError: Task directory not found: demo-widget` | 1 |
+| `catalog scan --root <missing>` | `--root is not a directory: <path>` | 2 |
+| `tasks run --tasks-root <missing>` | `--tasks-root is not a directory: <path>` | 2 |
 | `eval tasks list --tasks-root <missing>` | `--tasks-root is not a directory: <path>` | 2 |
 | `explore list --tasks-root <missing>` | `--tasks-root is not a directory: <path>` | 2 |
 | `coverage` with no roots | every product reads `no`/`0`, plus an explicit note | 0 |
