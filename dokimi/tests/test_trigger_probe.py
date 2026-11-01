@@ -313,7 +313,8 @@ def test_run_query_kills_what_the_run_left_in_its_workspace_only(tmp_path):
             shutil.rmtree(procs["sibling_dir"], ignore_errors=True)
 
 
-def _cli(tmp_path, monkeypatch, *extra, init_skills=("sum-fast", "io-read"), expected="sum-fast", known_passed=True):
+def _cli(tmp_path, monkeypatch, *extra, init_skills=("sum-fast", "io-read"), expected="sum-fast", known_passed=True,
+         known_error=None):
     from dokimi.commands import catalog_probe
 
     seen = {}
@@ -321,7 +322,8 @@ def _cli(tmp_path, monkeypatch, *extra, init_skills=("sum-fast", "io-read"), exp
     def fake_known(skill, catalog, cfg, **kw):
         seen.setdefault("known", []).append(skill)
         return {"skill": skill, "query": f"Use the {skill} skill.", "passed": known_passed,
-                "loaded": [skill] if known_passed else [], "cost_usd": 0.01, "error": None}
+                "loaded": [skill] if known_passed else [], "listed": list(init_skills), "cost_usd": 0.01,
+                "claude_code_version": "2.1.3xx", "error": known_error}
 
     def fake_probe(queries, catalog, cfg, *, trials=1, **kw):
         seen.update(cfg=cfg, trials=trials, catalog=catalog)
@@ -423,7 +425,24 @@ def test_cli_warns_when_no_run_listed_any_skill(tmp_path, monkeypatch, capsys):
 def test_cli_fails_when_claude_code_did_not_list_a_catalog_skill(tmp_path, monkeypatch):
     with pytest.raises(SystemExit, match="did not list: io-read"):
         _cli(tmp_path, monkeypatch, "--out", "probe.json", init_skills=("sum-fast", "dataviz"))
-    assert json.loads((tmp_path / "probe.json").read_text(encoding="utf-8"))["not_listed"] == ["io-read"]
+    out = json.loads((tmp_path / "probe.json").read_text(encoding="utf-8"))
+    assert out["not_listed"] == ["io-read"] and out["status"] == "invalid: skill not listed"
+
+
+def test_cli_reports_a_guard_run_that_errored_apart_from_a_skill_not_shown(tmp_path, monkeypatch, capsys):
+    with pytest.raises(SystemExit, match="error: known-positive run failed"):
+        _cli(tmp_path, monkeypatch, "--out", "probe.json", known_passed=False, known_error="error_during_execution")
+    out = json.loads((tmp_path / "probe.json").read_text(encoding="utf-8"))
+    assert out["status"] == "error: known-positive run failed" and out["answers"] == []
+    assert '"status": "error: known-positive run failed"' in capsys.readouterr().out
+
+
+def test_the_invalid_output_has_the_header_fields_and_the_guard_cost(tmp_path, monkeypatch):
+    with pytest.raises(SystemExit):
+        _cli(tmp_path, monkeypatch, "--out", "probe.json", known_passed=False)
+    out = json.loads((tmp_path / "probe.json").read_text(encoding="utf-8"))
+    assert out["cost_usd"] == 0.01 and out["claude_code_version"] == "2.1.3xx"
+    assert out["trials"] == 1 and out["max_turns"] and "listing_budget_fraction" in out
 
 
 @pytest.mark.parametrize("stream, passed", [(_stream(["sum-fast"]), True), (_stream(), False)],

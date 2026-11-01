@@ -213,10 +213,12 @@ def known_positive(skill: str, catalog: Path, cfg: ProbeConfig, *, runner: proce
     try:
         r = run_query(query, catalog, cfg, runner=runner, source_env=source_env)
     except (OSError, RuntimeError) as exc:
-        return {"skill": skill, "query": query, "passed": False, "loaded": [], "cost_usd": None,
-                "error": f"{type(exc).__name__}: {exc}"}
+        return {"skill": skill, "query": query, "passed": False, "loaded": [], "listed": [], "cost_usd": None,
+                "claude_code_version": None, "error": f"{type(exc).__name__}: {exc}"}
+    # The guard passes on the Skill call alone; ``listed`` records whether the harness showed the skill.
     return {"skill": skill, "query": query, "passed": skill in r["skill"]["loaded"],
-            "loaded": r["skill"]["loaded"], "cost_usd": r["cost_usd"], "error": r["error"]}
+            "loaded": r["skill"]["loaded"], "listed": r["skill"]["listed"], "cost_usd": r["cost_usd"],
+            "claude_code_version": r["skill"]["claude_code_version"], "error": r["error"]}
 
 
 def kill_strays(root: Path) -> List[int]:

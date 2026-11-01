@@ -18,6 +18,8 @@ from dokimi.exit_codes import usage_exit
 
 #: Status of a run whose known-positive guard failed: no labelled query ran.
 _INVALID = "invalid: skill not visible"
+_ERROR = "error: known-positive run failed"  # the guard run ended in an error, not a missing skill
+_NOT_LISTED = "invalid: skill not listed"
 
 
 def cmd_catalog_trigger_probe(args: argparse.Namespace) -> None:
@@ -79,20 +81,11 @@ def cmd_catalog_trigger_probe(args: argparse.Namespace) -> None:
     not_listed = sorted(names - listed) if listed else []
     cost = sum(v["metrics"]["cost_usd"] or 0 for r in records for v in r["arms"].values())
     cost += (known or {}).get("cost_usd") or 0
+    version = next((v["tool_usage"]["skill"]["claude_code_version"] for r in records
+                    for v in r["arms"].values() if v["tool_usage"]["skill"]["claude_code_version"]), None)
+    status = _NOT_LISTED if not_listed else ("ok" if known else "unchecked")
     out = {
-        "harness": "claude-code",
-        "status": "ok" if known else "unchecked",
-        "known_positive": known,
-        "mode": "sealed" if args.sealed else "stock",
-        "model": args.model,
-        "catalog": str(catalog),
-        "trials": args.trials,
-        "max_turns": args.max_turns,
-        "listing_budget_fraction": args.listing_budget_fraction,
-        "claude_code_version": next((v["tool_usage"]["skill"]["claude_code_version"] for r in records
-                                     for v in r["arms"].values()
-                                     if v["tool_usage"]["skill"]["claude_code_version"]), None),
-        "cost_usd": round(cost, 4),
+        **_header(args, catalog, known, status, cost, version),
         "max_turns_hit": sum(v["metrics"].get("result_subtype") == "error_max_turns" for v in runs),
         "not_listed": not_listed,
         "answers": records,
@@ -108,6 +101,23 @@ def cmd_catalog_trigger_probe(args: argparse.Namespace) -> None:
     print(f"wrote {args.out}")
     if not_listed:
         raise SystemExit(f"catalog skills Claude Code did not list: {', '.join(not_listed)}")
+
+
+def _header(args: argparse.Namespace, catalog: Path, known, status: str, cost: float, version) -> dict:
+    """The fields every output carries, whether the run was probed or refused by the guard."""
+    return {
+        "harness": "claude-code",
+        "status": status,
+        "known_positive": known,
+        "mode": "sealed" if args.sealed else "stock",
+        "model": args.model,
+        "catalog": str(catalog),
+        "trials": args.trials,
+        "max_turns": args.max_turns,
+        "listing_budget_fraction": args.listing_budget_fraction,
+        "claude_code_version": version,
+        "cost_usd": round(cost, 4),
+    }
 
 
 def _known_positive_guard(args: argparse.Namespace, names: set, catalog: Path, cfg, out_path: Path):
@@ -126,11 +136,12 @@ def _known_positive_guard(args: argparse.Namespace, names: set, catalog: Path, c
     known = tp.known_positive(args.target or sorted(names)[0], catalog, cfg)
     if known["passed"]:
         return known
-    _write(out_path, {"harness": "claude-code", "status": _INVALID, "known_positive": known,
-                      "mode": "sealed" if args.sealed else "stock", "model": args.model,
-                      "catalog": str(catalog), "answers": []})
-    print(json.dumps({"status": _INVALID, "known_positive": known}, indent=2))
-    raise SystemExit(f"{_INVALID}: {known['query']!r} did not load {known['skill']!r}"
+    # A run that errored says so: "not visible" would read as the harness hiding the skill.
+    status = _ERROR if known["error"] else _INVALID
+    _write(out_path, {**_header(args, catalog, known, status, known.get("cost_usd") or 0,
+                                known.get("claude_code_version")), "answers": []})
+    print(json.dumps({"status": status, "known_positive": known}, indent=2))
+    raise SystemExit(f"{status}: {known['query']!r} did not load {known['skill']!r}"
                      + (f" ({known['error']})" if known["error"] else "") + "; no labelled query was run")
 
 
