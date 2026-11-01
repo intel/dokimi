@@ -1056,12 +1056,15 @@ in `--out`, a receipt in the shape of `effective-instructions/v0`
 (agentsmd/agents.md#213). It is built from the reach payload and from the
 start-up chain of `repo budget` (`repos/budget.py`). It makes no
 LLM call. `repo reach --from <reach.json> --format receipt` builds the same
-receipt from a saved probe without running the harness: the source is read
-only to check that the file is for the same repository, harness and commit
-(a different one is a usage error, exit 2). The receipt is written beside the
-saved file. The probe-only flags (`--model`, `--budget`, `--scenarios`, `--only`
-and the rest) cannot be combined with `--from`. The schema is
-`schemas/effective_instructions.v1.json`; the code is `repos/receipt.py`.
+receipt from a saved probe without running the harness. The source is read
+again: the file must be for the same repository, harness and commit (a
+different one is a usage error, exit 2), and `sha256` and the expectations are
+computed from the source as it is at conversion time. So the two receipts are
+the same only for unchanged source contents and harness configuration. The
+receipt is written beside the saved file. The probe-only flags (`--model`,
+`--budget`, `--scenarios`, `--only` and the rest) cannot be combined with
+`--from`. The schema is `schemas/effective_instructions.v1.json`; the code is
+`repos/receipt.py`.
 
 One receipt is written per reach scenario, with `run_id` `<salt>:<scenario id>`.
 Each source carries:
@@ -1075,13 +1078,14 @@ Each source carries:
 | `observed` | reach class | `loaded` → loaded, `fetched` → fetched, `not_loaded` → not_loaded, `truncated` and `error` → unknown |
 | `observation_method` | | `unknown` for every source: the thread vocabulary's method, since no runtime event, prompt capture or hook backs the probe |
 | `dokimi_method` | | `marker_self_report` for a source the probe recorded; null for a start-up file budget found and reach did not probe |
-| `states.accessed` | the Read tool | `true` if a Read-tool read was seen, `false` with tools off, else `unknown` |
+| `states.accessed` | the harness's read events | `true` if the harness reported a read of the file (the Read tool; Codex and Copilot also report supported shell reads, §7), `false` with tools off, else `unknown` |
 | `states.selected` | the class | `true` for loaded or fetched (the source entered the request, by the harness or a read), else `unknown` |
-| `states.loaded` | the class | `true` for loaded, `false` for not_loaded, else `unknown`; a fetched file is not loaded |
+| `states.loaded` | the class | `true` for loaded, `false` for not_loaded, `unknown` for fetched, truncated and error: a tool read is not proof that start-up loading did not happen |
 | `states.followed` | | always `unknown` (the schema's `const`) |
 
-`runtime` and `model` are the harness's own name and version, as reach records
-them. `observation.method` is `unknown` and `observation.dokimi_method` is
+`runtime` is the harness's name and version, as reach records them. `model` is
+the string passed with `--model`, not the harness's name or a resolved model
+version. `observation.method` is `unknown` and `observation.dokimi_method` is
 `marker_self_report`: the model reports the tokens it can see, and the request
 sent to the provider is not captured. A reported token is evidence of loading,
 not a copy of the bytes received. The name is not `prompt_capture`, because
@@ -1097,6 +1101,7 @@ and the receipt says so.
 | `off` | `false` | a root CLAUDE\*.md turns AGENTS.md off |
 | `lazy`, run directory is the file's directory or inside it | `true` | loaded when the work reaches that directory |
 | `lazy`, run directory outside it | `false` | not reached by this run |
+| `lazy` on a link or an import, or at the root | `unknown` | budget's flattened `when` does not say which directory activates the file, so only a nested AGENTS/CLAUDE file in its own subtree gets a verdict |
 | `on demand` or absent | `unknown` | budget does not say |
 
 **Precedence.** `precedence_observed` lists a displacement only: a root
@@ -1112,16 +1117,19 @@ reported in a run, so it can support `loaded`, `fetched` and `not_loaded` as
 observations of that run. It cannot show:
 
 - that an instruction was followed (`followed` is always `unknown`);
-- a read through a shell (`cat`, `rg`, `grep`), which the `Read` tool check
-  does not see;
+- a read through a shell that the harness does not normalise into a read
+  event (`cat`, `rg`, `grep` under Claude Code; Codex and Copilot normalise
+  only the shell commands §7 lists);
 - when a source entered the request, or in what order (no timestamps);
-- start-up imports and skills from budget, which reach does not probe: they
-  appear with `observed: unknown` and a run-level unknown saying so;
+- start-up imports and skill listings from budget, which reach does not probe:
+  they appear with `observed: unknown`. A skill body is loaded on demand, so it
+  is not listed; the receipt-level unknown says both;
 - anything a model under-reports; a prose-heavy answer is flagged.
 
 Each run lists its own `unknowns` (no usable answer, a source with one token
 reported, prose above the limit, unseeded tokens). The receipt-level `unknowns`
-repeat the limits above.
+repeat the limits above and carry the notice that start-up imports and skill
+listings are not probed.
 
 ## 8. L0 scan (`repo_readiness.v1`)
 
