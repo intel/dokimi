@@ -13,7 +13,8 @@
   refusals already exited 2 and keep that code. Exit 1 stays the verdict of the gates
   (`--strict`, `eval judge-validity`) and the code of a model failure (an extractor or judge
   that errors), so a script that branches on the code must treat 2 as "fix the input".
-  `subjects run --novelty-artifact` still prints its own message and exits 1. `novelty view`
+  `subjects run --novelty-artifact` still prints its own `Error loading novelty artifact:` message
+  (now with the new reason text) and exits 2, as before. `novelty view`
   also checks the `bundle` of an atoms file, so a malformed bundle is refused with exit 2. Two `report model-compare` messages changed wording:
   `File not found: <file>` is now `cannot read <file>: No such file or directory`, and
   `Invalid JSON in <file>` is now `<file> is not valid JSON`. An invalid artifact named by

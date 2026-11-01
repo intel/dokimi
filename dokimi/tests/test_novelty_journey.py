@@ -319,3 +319,38 @@ def test_documented_estimate_flags_match_the_run_it_prices():
     """The walkthrough's estimate commands carry the flags of the run they price (doc reference)."""
     estimates = [c for c in _documented_novelty_commands() if "--estimate-only" in c]
     assert estimates and all("--include-resources" in c for c in estimates)
+
+
+@pytest.mark.parametrize("command", ["analyze", "probe"])
+def test_a_model_failure_exits_1_with_its_message_through_cli_main(command, tmp_path, skill, stub_models,
+                                                                   monkeypatch):
+    # A model failure is a runtime failure: SystemExit(message), which exits 1, not the bad-input 2.
+    import importlib
+    import sys
+
+    from dokimi import cli
+    from dokimi.novelty import measure as measure_mod
+    from dokimi.novelty.atoms import ExtractionError
+
+    common = ["--artifact", f"skill:{skill}", "--model", "model-a", "--judge-model", "judge-m"]
+    if command == "analyze":
+        def failing_analyze(*args, **kwargs):
+            raise ExtractionError("extractor unavailable")
+        # importlib: ``dokimi.novelty.analyze`` the attribute is the function, not the module
+        monkeypatch.setattr(importlib.import_module("dokimi.novelty.analyze"), "analyze", failing_analyze)
+        argv = ["novelty", "analyze", *common, "--out-dir", str(tmp_path / "out")]
+        message = "extractor unavailable"
+    else:
+        atoms_out = tmp_path / "atoms.json"
+        _run("novelty", "atoms", "--artifact", f"skill:{skill}", "--extract-model", "extractor-m",
+             "--out", str(atoms_out))
+
+        def failing_measurement(*args, **kwargs):
+            raise ValueError("answerer unavailable")
+        monkeypatch.setattr(measure_mod, "run_measurement", failing_measurement)
+        argv = ["novelty", "probe", *common, "--atoms", str(atoms_out), "--out", str(tmp_path / "p.json")]
+        message = "answerer unavailable"
+    monkeypatch.setattr(sys, "argv", ["dokimi", *argv])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == message

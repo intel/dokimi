@@ -439,50 +439,113 @@ def _exit_imports(tree: ast.Module) -> tuple[dict[str, set[str]], dict[str, tupl
     return module_aliases, name_aliases
 
 
+_SCOPE_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+
+
+def _scope_owners(tree: ast.Module) -> dict[int, ast.AST]:
+    """``id(node) -> `` the function, lambda, class or module whose names ``node`` binds or uses."""
+    owner: dict[int, ast.AST] = {}
+    stack: list[tuple[ast.AST, ast.AST]] = [(tree, tree)]
+    while stack:
+        node, scope = stack.pop()
+        for child in ast.iter_child_nodes(node):
+            owner[id(child)] = scope
+            stack.append((child, child if isinstance(child, _SCOPE_NODES) else scope))
+    return owner
+
+
+def _builtin_exit_names(tree: ast.Module) -> tuple[set[str], set[str]]:
+    """``SystemExit`` under another name (``from builtins import SystemExit as Stop``), and the names of ``builtins``."""
+    exc_names = {a.asname or a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module == "builtins"
+                 and not n.level for a in n.names if a.name == "SystemExit"}
+    builtins_names = {a.asname or a.name for n in ast.walk(tree) if isinstance(n, ast.Import)
+                      for a in n.names if a.name == "builtins"}
+    return exc_names, builtins_names
+
+
+def _is_system_exit(func: ast.expr, exc_names: set[str], builtins_names: set[str]) -> bool:
+    return ((isinstance(func, ast.Name) and (func.id == "SystemExit" or func.id in exc_names))
+            or (isinstance(func, ast.Attribute) and func.attr == "SystemExit"
+                and ast.unparse(func.value) in builtins_names))
+
+
+def _exit_bindings(tree: ast.Module, owner: dict[int, ast.AST], exc_names: set[str],
+                   builtins_names: set[str]) -> dict[tuple[int, str], list[tuple[int, bool]]]:
+    """``(scope id, name) -> [(line, bound to SystemExit?)]`` for every plain or annotated assignment."""
+    bindings: dict[tuple[int, str], list[tuple[int, bool]]] = {}
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Assign):
+            targets = n.targets
+        elif isinstance(n, ast.AnnAssign) and n.value is not None:  # ``error: SystemExit = SystemExit(2)``
+            targets = [n.target]
+        else:
+            continue
+        exits = isinstance(n.value, ast.Call) and _is_system_exit(n.value.func, exc_names, builtins_names)
+        for t in targets:
+            if isinstance(t, ast.Name):
+                bindings.setdefault((id(owner[id(n)]), t.id), []).append((n.lineno, exits))
+    return bindings
+
+
+def _bound_to_exit(name: str, raise_node: ast.Raise, owner: dict[int, ast.AST],
+                   bindings: dict[tuple[int, str], list[tuple[int, bool]]]) -> bool:
+    """Whether ``name`` at ``raise_node`` resolves, like Python's scoping, to a binding of SystemExit."""
+    raise_scope = owner[id(raise_node)]
+    scope = raise_scope
+    while True:
+        found = bindings.get((id(scope), name))
+        if found:
+            if scope is raise_scope:
+                found = [b for b in found if b[0] <= raise_node.lineno]
+            return bool(found) and sorted(found)[-1][1]
+        if id(scope) not in owner:  # the module: no enclosing scope
+            return False
+        scope = owner[id(scope)]
+
+
+def _raises_exit(node: ast.Raise, owner: dict[int, ast.AST], bindings, exc_names: set[str],
+                 builtins_names: set[str]) -> bool:
+    exc = node.exc.func if isinstance(node.exc, ast.Call) else node.exc
+    if isinstance(exc, ast.Name):
+        return exc.id == "SystemExit" or exc.id in exc_names or _bound_to_exit(exc.id, node, owner, bindings)
+    return isinstance(exc, ast.Attribute) and exc.attr == "SystemExit" and ast.unparse(exc.value) in builtins_names
+
+
+def _calls_exit(node: ast.Call, module_aliases: dict[str, set[str]], name_aliases: set[str]) -> bool:
+    func = node.func
+    if isinstance(func, ast.Name):
+        return func.id in ("exit", "quit") or func.id in name_aliases
+    return isinstance(func, ast.Attribute) and any(
+        (m, func.attr) in _EXIT_CALLS for m in module_aliases.get(ast.unparse(func.value), ()))
+
+
 def exit_sites(tree: ast.Module) -> list[int]:
     """Lines that end the process: an exit call (by module attribute, through an alias, or builtin name) or a raise of SystemExit.
 
     The ``if __name__ == '__main__':`` block of a script is the process boundary of ``python -m``, so it is
-    not counted.
+    not counted. ``error = SystemExit(msg); raise error`` (under any of those names) is a raise of SystemExit too.
+    The name resolves like Python's: the innermost scope that binds it, and in the raise's own scope the last
+    binding above the raise decides. Linear, not control-flow aware: ``if c: e = SystemExit(2)`` then
+    ``else: e = ValueError()`` is read as the else binding.
     """
     guarded = {id(n) for stmt in tree.body
                if isinstance(stmt, ast.If) and ast.unparse(stmt.test) == "__name__ == '__main__'"
                for body_stmt in stmt.body for n in ast.walk(body_stmt)}
     module_aliases, name_aliases = _exit_imports(tree)
-    # ``SystemExit`` under another name: ``from builtins import SystemExit as Stop`` or ``builtins.SystemExit``.
-    exc_names = {a.asname or a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module == "builtins"
-                 and not n.level for a in n.names if a.name == "SystemExit"}
-    builtins_names = {a.asname or a.name for n in ast.walk(tree) if isinstance(n, ast.Import)
-                      for a in n.names if a.name == "builtins"}
-
-    def is_system_exit(func: ast.expr) -> bool:
-        return ((isinstance(func, ast.Name) and (func.id == "SystemExit" or func.id in exc_names))
-                or (isinstance(func, ast.Attribute) and func.attr == "SystemExit"
-                    and ast.unparse(func.value) in builtins_names))
-
-    # ``error = SystemExit(msg); raise error`` (under any of those names) is a raise of SystemExit too.
-    bound = {t.id for n in ast.walk(tree) if isinstance(n, ast.Assign) and isinstance(n.value, ast.Call)
-             and is_system_exit(n.value.func) for t in n.targets if isinstance(t, ast.Name)}
+    exc_names, builtins_names = _builtin_exit_names(tree)
+    owner = _scope_owners(tree)
+    bindings = _exit_bindings(tree, owner, exc_names, builtins_names)
     lines: list[int] = []
     raised: set[int] = set()  # the call of a raise is counted once, by the raise
     for node in ast.walk(tree):
         if id(node) in guarded or id(node) in raised:
             continue
         if isinstance(node, ast.Raise) and node.exc is not None:
-            exc = node.exc.func if isinstance(node.exc, ast.Call) else node.exc
-            if ((isinstance(exc, ast.Name) and (exc.id == "SystemExit" or exc.id in bound or exc.id in exc_names))
-                    or (isinstance(exc, ast.Attribute) and exc.attr == "SystemExit"
-                        and ast.unparse(exc.value) in builtins_names)):
+            if _raises_exit(node, owner, bindings, exc_names, builtins_names):
                 lines.append(node.lineno)
                 raised.add(id(node.exc))
-        elif isinstance(node, ast.Call):
-            func = node.func
-            if isinstance(func, ast.Name) and (func.id in ("exit", "quit") or func.id in name_aliases):
-                lines.append(node.lineno)
-            elif (isinstance(func, ast.Attribute)
-                    and any((m, func.attr) in _EXIT_CALLS
-                            for m in module_aliases.get(ast.unparse(func.value), ()))):
-                lines.append(node.lineno)
+        elif isinstance(node, ast.Call) and _calls_exit(node, module_aliases, name_aliases):
+            lines.append(node.lineno)
     return sorted(lines)
 
 
@@ -694,6 +757,20 @@ def test_relative_helper_imports_and_a_reused_module_alias_are_counted(tmp_path)
     assert exit_sites(imports.trees["dokimi.a"]) == [2]
     assert exit_sites(imports.trees["dokimi.b"]) == [2]
     assert exit_sites(imports.trees["dokimi.c"]) == [3]
+
+
+def test_annotated_and_scoped_bindings_of_a_raised_exit_are_counted_per_scope(tmp_path):
+    imports = _package(tmp_path, {
+        "dokimi/a.py": "error: SystemExit = SystemExit(2)\nraise error\n",
+        "dokimi/b.py": ("def f():\n    error = SystemExit(2)\n    return error\n\n"
+                        "def g():\n    error = ValueError('bad')\n    raise error\n"),
+        "dokimi/c.py": "error = SystemExit(2)\nerror = ValueError('bad')\nraise error\n",
+        "dokimi/d.py": "def f():\n    error = SystemExit(3)\n    raise error\n",
+    })
+    assert exit_sites(imports.trees["dokimi.a"]) == [2]
+    assert exit_sites(imports.trees["dokimi.b"]) == []
+    assert exit_sites(imports.trees["dokimi.c"]) == []
+    assert exit_sites(imports.trees["dokimi.d"]) == [3]
 
 
 def test_imported_callable_aliases_count_each_launch_once(tmp_path):
