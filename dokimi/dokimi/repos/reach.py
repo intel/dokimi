@@ -120,16 +120,29 @@ def probe_files(tree: RepoTree, manifest: RepoManifest, profile: HarnessProfile)
     return sorted(p for p in declared | native | overlays if not manifest.in_eval_dir(p))
 
 
-def overlay_report(records: list[dict[str, Any]], own: str | None,
-                   links: dict[str, tuple[str, ...]]) -> dict[str, Any]:
-    """The overlay part of the payload: which of the ``own`` overlay files loaded, and which foreign overlays did
-    (``cross_loaded``, a finding: the harness read guidance written for another agent). ``links`` maps each probed
-    file to the links that name it: a file reached through an overlay-named link is an overlay under that name."""
-    names = {target: (target, *aliases) for target, aliases in links.items()}
-    own_files = {n for ns in names.values() for n in ns if own and overlay_of(n) == own}
-    foreign = {n for ns in names.values() for n in ns if overlay_of(n) not in (None, own)}
+def _pinned_names(links: dict[str, tuple[str, ...]], own: str | None,
+                  native: set[str] | frozenset[str]) -> tuple[dict[str, tuple[str, ...]], set[str]]:
+    """Each probed file with the names a load of it can be pinned on, and the aliases that cannot be pinned."""
+    names: dict[str, tuple[str, ...]] = {}
+    ambiguous: set[str] = set()
+    for target, aliases in links.items():
+        kinds = {"own" if overlay_of(n) == own else "foreign" for n in aliases if overlay_of(n) is not None}
+        if aliases and (PurePosixPath(target).name in native or {"own", "foreign"} <= kinds):
+            ambiguous.update(aliases)
+            names[target] = (target,)
+        else:
+            names[target] = (target, *aliases)
+    return names, ambiguous
+
+
+def _loads(records: list[dict[str, Any]], names: dict[str, tuple[str, ...]], links: dict[str, tuple[str, ...]],
+           ambiguous: set[str], foreign: set[str], own_files: set[str]) -> tuple[dict[str, dict[str, str]], set[str],
+                                                                               set[str]]:
+    """The foreign overlays and own overlay files that loaded, by the names they can be pinned on, and the
+    aliases whose file loaded without a way to tell which of them was read."""
     cross: dict[str, dict[str, str]] = {}
     own_loaded: set[str] = set()
+    unpinned: set[str] = set()
     for r in records:
         if r["class"] not in SEEN:
             continue
@@ -138,8 +151,29 @@ def overlay_report(records: list[dict[str, Any]], own: str | None,
                 cross.setdefault(n, {})[r["scenario"]] = r["class"]
             if n in own_files:
                 own_loaded.add(n)
-    return {"own": own, "own_files": sorted(own_files), "own_loaded": sorted(own_loaded),
-            "foreign_files": sorted(foreign), "cross_loaded": dict(sorted(cross.items()))}
+        unpinned.update(n for n in links.get(r["file"], ()) if n in ambiguous)
+    return cross, own_loaded, unpinned
+
+
+def overlay_report(records: list[dict[str, Any]], own: str | None,
+                   links: dict[str, tuple[str, ...]], native: set[str] | frozenset[str] = frozenset()) -> dict[str, Any]:
+    """The overlay part of the payload: which of the ``own`` overlay files loaded, and which foreign overlays did
+    (``cross_loaded``, a finding: the harness read guidance written for another agent). ``links`` maps each probed
+    file to the links that name it: a file reached through an overlay-named link is an overlay under that name.
+
+    A load is pinned on a link only when no other name of its file could have been read: the harness reads a
+    file of a ``native`` name by itself, and an own and a foreign overlay can name one file. Those links are
+    ``ambiguous`` when the file loaded, and are neither own nor cross loads."""
+    every = {n for target, aliases in links.items() for n in (target, *aliases)}
+    own_files = {n for n in every if own and overlay_of(n) == own}
+    foreign = {n for n in every if overlay_of(n) not in (None, own)}
+    names, ambiguous = _pinned_names(links, own, native)
+    cross, own_loaded, unpinned = _loads(records, names, links, ambiguous, foreign, own_files)
+    report: dict[str, Any] = {"own": own, "own_files": sorted(own_files), "own_loaded": sorted(own_loaded),
+                              "foreign_files": sorted(foreign), "cross_loaded": dict(sorted(cross.items()))}
+    if unpinned:
+        report["ambiguous"] = sorted(unpinned)
+    return report
 
 
 def scenarios(files: list[str], kinds: tuple[str, ...] = ("root", "cwd", "read"),
@@ -383,7 +417,8 @@ def run_reach(
         "unresolved": unresolved,
         "scenarios": scenario_rows,
         "records": records,
-        "overlays": overlay_report(records, profile.overlay, {s.path: s.aliases for s in seeded}),
+        "overlays": overlay_report(records, profile.overlay, {s.path: s.aliases for s in seeded},
+                                   {PurePosixPath(n).name for n in profile.guidance_names}),
         "summary": {
             "cost_usd": round(sum(r.get("cost_usd") or 0 for r in scenario_rows), 6),
             "by_class": by_class,
@@ -451,7 +486,7 @@ def format_matrix(payload: dict[str, Any]) -> str:
     for path, seen in (overlays.get("cross_loaded") or {}).items():
         where = ", ".join(f"{sid} ({cls})" for sid, cls in seen.items())
         lines.append(f"finding: {path}, an overlay for another agent, was loaded by {payload['harness']['name']} in {where}")
-    if overlays.get("own_files") and not overlays.get("own_loaded"):
+    if overlays.get("own_files") and not overlays.get("own_loaded") and not overlays.get("ambiguous"):
         lines.append(f"note: no {overlays['own']} overlay ({', '.join(overlays['own_files'])}) was loaded in any scenario")
     if any(f.get("alias_kind") == "copy" for f in payload["files"]):
         lines.append("note: the paths after = are copies, not links (this OS refused a symlink); "

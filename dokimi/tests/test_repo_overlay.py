@@ -294,3 +294,21 @@ def test_overlay_arm_reads_the_workspace_after_setup_patches_not_the_index(tmp_p
     removed, _ = _apply_arm(ws, env, tmp_path, None, parse_arm(OVERLAY_ARM), None, "claude")
     assert removed == ["AGENTS.codex.md"]
     assert not (ws / "AGENTS.codex.md").exists() and (ws / "AGENTS.claude.md").exists()
+
+
+def test_overlay_report_leaves_a_load_of_a_shared_target_unattributed():
+    """A harness that loads AGENTS.md reads the file its AGENTS.claude.md and AGENTS.codex.md aliases name too:
+    neither alias is pinned as loaded, and the load is reported as ambiguous."""
+    records = [{"file": "AGENTS.md", "scenario": "cwd=.", "class": "loaded"}]
+    links = {"AGENTS.md": ("AGENTS.claude.md", "AGENTS.codex.md")}
+    report = overlay_report(records, "claude", links, native={"AGENTS.md"})
+    assert report["own_loaded"] == [] and report["cross_loaded"] == {}
+    assert report["ambiguous"] == ["AGENTS.claude.md", "AGENTS.codex.md"]
+    assert report["own_files"] == ["AGENTS.claude.md"] and report["foreign_files"] == ["AGENTS.codex.md"]
+
+
+def test_overlay_report_leaves_a_load_of_an_own_and_a_foreign_alias_unattributed():
+    records = [{"file": "docs/x.md", "scenario": "cwd=.", "class": "loaded"}]
+    report = overlay_report(records, "claude", {"docs/x.md": ("AGENTS.claude.md", "AGENTS.codex.md")})
+    assert report["own_loaded"] == [] and report["cross_loaded"] == {}
+    assert report["ambiguous"] == ["AGENTS.claude.md", "AGENTS.codex.md"]
