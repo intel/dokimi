@@ -624,7 +624,7 @@ def _codex_item_completed(out: Transcript, item: dict[str, Any], messages: list[
         rc = {"completed": 0, "failed": 1}.get(status) if isinstance(status, str) else None
         for change in item.get("changes") or []:
             if isinstance(change, dict) and change.get("path"):
-                event = {"t": None, "kind": "edit", "path": relative_path(str(change["path"]), workdir)}
+                event: dict[str, Any] = {"t": None, "kind": "edit", "path": relative_path(str(change["path"]), workdir)}
                 if rc is not None:
                     event["rc"] = rc
                 out.events.append(event)
