@@ -167,6 +167,34 @@ outside every workspace and passes its absolute path to entry points as
 - `tasks check` (§4.3) fails a task whose agent container can read any file
   under `tasks` or `{source_dir}`.
 
+### 1.2 Code index input
+
+A repository can be read through a SCIP index (`index.scip`, the format of
+`scip.proto`) that another tool wrote. dokimi never runs an indexer. The
+reader, `dokimi.repos.code_index.load(path, root_prefix=...)`, answers
+definitions, references, enclosing scopes and base classes; the queries are
+documented in `dokimi/repos/code_index/index.py`.
+
+- Document paths are relative to the directory the indexer ran in; pass
+  `root_prefix` to map them to repository paths.
+- Enclosing scopes need an indexer that writes enclosing ranges (scip-python
+  does, scip-clang 0.4 does not).
+- `bases()` returns the bases the index lists; on an index that lists every
+  ancestor (scip-clang) it returns a truncated ancestor graph, not declared
+  direct bases. scip-python lists direct bases, so its result is those.
+  scip-clang lists every ancestor, which the reader reduces to a minimal set of bases that
+  still reaches each ancestor (`C : B, A` with `B : A` gives `B` alone). An
+  inherited base can therefore be absent. The reader knows both tools by
+  name; for another tool it decides from the relationships themselves.
+- An occurrence repeated identically in one document is kept once.
+- A `local N` id is scoped to one document, so only per-document reads
+  return it.
+
+The decoder uses only the standard library. A malformed, empty, or garbled
+file raises `CodeIndexError`. A file cut at a document boundary still reads,
+with fewer documents, so compare the indexed files with the tree. Nothing in
+the eval flow reads an index yet.
+
 ## 2. `repo-eval.yaml`
 
 ```yaml
