@@ -204,7 +204,7 @@ def register(catalog_sub, positive_int) -> None:
     p.add_argument("--claude", default="claude", help="claude executable (default: claude)")
     p.add_argument("--no-known-positive", action="store_true", dest="no_known_positive",
                    help="Skip the known-positive guard: one explicit run that must load a catalog skill "
-                        "before the labelled queries; a failed guard exits 1 with status "
-                        "'invalid: skill not visible'")
+                        "before the labelled queries; a failed guard exits 1 with an 'invalid: ...' "
+                        "or 'error: ...' status")
     p.add_argument("--out", required=True, help="Output JSON path")
     p.set_defaults(func=cmd_catalog_trigger_probe)
