@@ -133,6 +133,22 @@ def test_a_block_of_only_negated_checks_has_no_probe_so_it_is_inconclusive():
     assert result["status"] == "inconclusive" and result["violations"] == []
 
 
+def test_an_unsupported_check_does_not_give_a_negated_block_the_rejection_probes():
+    # Grade never counts an unsupported check, so the only counted check is the negated match, which accepts these answers.
+    grading = {"checks": [{"type": "unsupported", "native": "code assertion"}, {"type": "match", "value": "Paris", "negate": True}]}
+    result = run([_q("1", grading)])
+    assert result["questions"][0]["probes"] == {}
+    assert result["status"] == "inconclusive" and result["violations"] == []
+
+
+def test_a_negated_exact_check_of_an_article_is_inconclusive_not_given_a_canary():
+    # A negated check builds no canary, so the article-only value that normalizes to nothing is not a rejected canary.
+    grading = {"checks": [{"type": "exact", "value": "the", "negate": True}]}
+    assert redteam.canary_for(grading) is None
+    result = run([_q("1", grading)])
+    assert result["status"] == "inconclusive" and result["violations"] == []
+
+
 def test_a_grader_that_ignores_location_passes_the_red_team_since_no_stuffed_probe_is_run(monkeypatch):
     # A grader that ignores location accepts "XYZ Paris Lyon QQQ"; no attack in the run is that answer, so it passes.
     real = redteam.grade

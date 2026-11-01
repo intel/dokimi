@@ -126,7 +126,7 @@ def attacks(grading: Mapping[str, Any]) -> dict[str, Optional[str]]:
     reads a number out of the planted answer, or a short value the check does not find in the hedge, are
     judged as the grader judges them).
     """
-    applies = any(float(c.get("weight", 1.0)) > 0 for c in _positive_checks(grading))
+    applies = any(float(c.get("weight", 1.0)) > 0 and c.get("type") != "unsupported" for c in _positive_checks(grading))
     clashes = _accepts(grading, HEDGE)
     return {"canary": canary_for(grading),
             "wrong": wrong_for(grading) if applies else None,
