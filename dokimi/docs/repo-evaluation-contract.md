@@ -524,7 +524,8 @@ measure the patch's text, such as a guidance line, not the tool.
 For every task, before any paid run:
 
 - the null workspace (prepared, untouched) must fail the gate
-- the workspace after `oracle` must pass the gate
+- the workspace after `oracle` must pass the gate (a `dokimi:typecheck` task with no `reference/`
+  has no oracle step: its null step alone must fail, §4.5)
 - for score-only tasks, the oracle must reach `score.max` on `score.metric`
 - the agent container must not be able to read any file under `tasks` or
   `{source_dir}` (§1.1)
@@ -633,8 +634,10 @@ listed file" (an error in a module a listed file imports belongs to that module,
 not to the listed file), and a listed file that is missing fails. The exception
 is a blocking error (a syntax error, a duplicate module) that stops mypy before
 it reaches the listed files: then that error is the grade's, and the grade fails.
-The task's `oracle` copies its `reference/` directory, when it has one, over the
-workspace, so a reference repair is what gets graded; its answer is empty.
+`reference/` is optional. The task's `oracle` copies its `reference/` directory, when it has one, over the
+workspace, so a reference repair is what gets graded; its answer is empty. Without `reference/` the grade
+reads the listed files as they are, and the self-check (§4.3) runs the null step only: the untouched
+listed files must fail, since there is no reference repair for the oracle step to pass.
 It runs mypy in-process in the grading container, so the image's `python3`
 must import the pinned mypy: a `version` other than the installed one is a
 grader failure, not a fail. It is not "no new errors against the base": the

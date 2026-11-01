@@ -6,3 +6,6 @@
   each Python fence of the guidance against `--python-env`'s site-packages: a fence with an error is a `fail`
   stale-API candidate, a fence that does not parse or has no interpreter is `unresolved`. The report gains a
   `typecheck` block, `null` without the flag. See `docs/repo-evaluation-contract.md` §4.5 and §8.2.
+- A `dokimi:typecheck` task needs no `reference/` directory: with one, its files are the repair the grade
+  reads; without one, the listed files are graded as they are and the self-check runs the null step only.
+- A tool report without its diagnostic fields (for example `{}`) is a tool failure, not a clean run.

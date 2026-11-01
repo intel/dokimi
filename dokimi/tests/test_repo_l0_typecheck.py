@@ -417,7 +417,7 @@ def test_basedpyright_is_given_an_empty_project_so_no_config_above_the_run_appli
     def fake(argv, cwd, stdin=None):
         seen["argv"] = argv
         seen["config"] = Path(argv[argv.index("--project") + 1]).read_text(encoding="utf-8")  # while it exists
-        return _completed(returncode=0, stdout="")
+        return _completed(returncode=0, stdout='{"generalDiagnostics": []}')  # basedpyright always writes its report
 
     monkeypatch.setattr(l0_typecheck, "_run_tool", fake)
     l0_typecheck._run(Check("basedpyright", sys.executable), ["x: int = 1\n"])
@@ -559,6 +559,10 @@ def test_only_error_diagnostics_count_as_fence_errors(tmp_path):
     ("mypy", "[1, 2]"),
     ("basedpyright", "not JSON"),
     ("basedpyright", '{"generalDiagnostics": [{"severity": "error", "message": "m"}]}'),  # no range
+    ("mypy", "{}"),  # valid JSON, no diagnostic fields: not a clean run
+    ("mypy", '{"file": "fence-0.py", "line": 1, "message": "m"}'),  # no severity
+    ("basedpyright", "{}"),  # no generalDiagnostics list
+    ("basedpyright", '{"generalDiagnostics": 3}'),
 ])
 def test_a_nonempty_report_that_is_not_the_tools_json_is_a_tool_failure(monkeypatch, tool, stdout):
     # Exit 1 says the tool found errors; a report we cannot read must not pass every fence as clean.

@@ -317,3 +317,20 @@ def test_the_oracle_refuses_an_empty_reference_directory_created_through_a_link(
     with pytest.raises(ValueError, match="symbolic link"):
         typecheck.oracle(_task(), task_dir, run)
     assert not (outside / "sub").exists()
+
+
+def test_a_typecheck_task_without_reference_runs_no_oracle_step(tmp_path):
+    # reference/ is optional: without it the grade reads the workspace as it is, and the self-check has no
+    # repair to apply, so it runs the null step alone (the untouched listed files must fail the gate).
+    from dokimi.repos import selfcheck
+    from dokimi.repos.workspace import Task
+
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    with_reference = tmp_path / "with"
+    (with_reference / "reference").mkdir(parents=True)
+    raw = {"grader": "dokimi:typecheck", "tool": "mypy", "version": "1", "paths": ["pkg/api.py"]}
+    assert selfcheck._oracle_applies(Task("t", raw, bare)) is False
+    assert selfcheck._oracle_applies(Task("t", raw, with_reference)) is True
+    assert selfcheck._oracle_applies(Task("t", {"grader": "dokimi:review_seeds"}, bare)) is True
+    assert selfcheck._oracle_applies(Task("t", {}, bare)) is True
