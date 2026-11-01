@@ -116,6 +116,7 @@ def test_the_setup_action_commit_resolver_takes_a_tag_as_its_peeled_commit(tmp_p
 
     assert resolve_ref("release") == "sha=2222222222222222222222222222222222222222\n"
     assert resolve_ref("3" * 40) == f"sha={'3' * 40}\n"
+    assert resolve_ref("B" * 40) == f"sha={'b' * 40}\n"
 
 
 def test_validate_installs_the_commit_it_resolved_when_the_repositories_match() -> None:
@@ -125,3 +126,22 @@ def test_validate_installs_the_commit_it_resolved_when_the_repositories_match() 
     assert setup["with"]["dokimi-ref"] == (
         "${{ inputs.dokimi-repository == inputs.dokimi-action-repository"
         " && steps.action-ref.outputs.sha || inputs.dokimi-ref }}")
+
+
+def test_scan_and_tasks_check_install_the_package_commit_validate_gated() -> None:
+    # The package SHA validate gated is the one the later jobs install: a tag in dokimi-ref may move meanwhile.
+    workflow = _load(REPO_EVAL)
+    for job_id in ("scan", "tasks-check"):
+        setup = [s for s in workflow["jobs"][job_id]["steps"] if s.get("uses") == f"./{CHECKOUT_PATH}/actions/setup"]
+        assert len(setup) == 1, job_id
+        assert setup[0]["with"]["dokimi-ref"] == "${{ needs.validate.outputs.dokimi-sha }}", job_id
+        assert setup[0]["with"]["dokimi-repository"] == "${{ inputs.dokimi-repository }}", job_id
+
+
+def test_every_checkout_in_repo_eval_keeps_no_credentials() -> None:
+    # The checkouts sit in jobs that run the checked-out task code: the token must not stay in .git/config.
+    checkouts = [(job_id, step) for job_id, job in _load(REPO_EVAL)["jobs"].items()
+                 for step in job.get("steps", []) if str(step.get("uses", "")).startswith("actions/checkout@")]
+    assert checkouts
+    for job_id, step in checkouts:
+        assert step.get("with", {}).get("persist-credentials") is False, job_id

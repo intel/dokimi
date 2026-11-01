@@ -162,3 +162,11 @@ def test_the_action_exports_no_dokimi_runs_dir_or_max_usd() -> None:
     text = ACTION.read_text(encoding="utf-8")
     assert "DOKIMI_RUNS_DIR" not in text
     assert "DOKIMI_MAX_USD" not in text
+
+
+def test_the_install_step_installs_the_resolved_commit_with_its_locked_dependencies() -> None:
+    # Without the resolved SHA a moved tag installs another commit; without --require-hashes the lock is not verified.
+    install = next(s for s in _steps() if s.get("name") == "Install dokimi")
+    assert install["env"]["SHA"] == "${{ steps.ref.outputs.sha }}"
+    assert "pip install --require-hashes -r" in install["run"]
+    assert 'pip install --no-deps "dokimi @ git+' in install["run"]
