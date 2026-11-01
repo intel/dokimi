@@ -639,7 +639,7 @@ It runs mypy in-process in the grading container, so the image's `python3`
 must import the pinned mypy: a `version` other than the installed one is a
 grader failure, not a fail. It is not "no new errors against the base": the
 grader is stdlib-only and cannot run `git` to read the base, and it does not
-start basedpyright (the L0 check, §8.2, runs both tools on the host). A repository that
+start basedpyright (the L0 check, §8.2, runs mypy or basedpyright on the host, as `--typecheck-tool` selects). A repository that
 needs that comparison writes it in its own `grade` entry point.
 
 `manifest.json` is `{"seeds": [{id, class, file, lines, kw}], "decoys":

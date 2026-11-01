@@ -9,7 +9,7 @@ on a listed file and every listed file exists. Errors in other modules are not c
 
 It runs mypy in-process: the grader cannot start a child (the import layers allow spawns only in
 ``dokimi.process``, which the container cannot import), so basedpyright is not offered here. The
-host-side L0 check (``repo scan --typecheck``) runs both tools. Standard library only at import
+host-side L0 check (``repo scan --typecheck``) runs one, as ``--typecheck-tool`` selects. Standard library only at import
 time; mypy is imported by :func:`grade` and must be importable by the image's ``python3``.
 """
 
