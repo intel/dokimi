@@ -22,7 +22,7 @@ from typing import Any, Callable, Mapping, Sequence
 import yaml
 
 from dokimi import process
-from dokimi.artifacts import ArtifactValidationError, load_artifact, save_artifact, schema_errors
+from dokimi.artifacts import load_artifact, save_artifact, schema_errors
 
 SCHEMA_EXPECTATIONS = "reach_conformance.v1"
 RECEIPT_NAME = "effective_instructions.json"
@@ -197,7 +197,7 @@ def run_case(harness: Harness, model: str, fixture: Path, guidance: Path, out: P
         return run_record(harness.name, case, "failed", _reason(proc), UNKNOWN, model, 0), []
     try:
         receipt = load_artifact("effective_instructions", receipt_path)
-    except ArtifactValidationError as exc:  # one bad receipt fails its run, not the whole harness
+    except (OSError, ValueError) as exc:  # one bad receipt fails its run, not the whole harness
         return run_record(harness.name, case, "failed", f"invalid receipt: {exc}", UNKNOWN, model, 0), []
     status = "ran" if proc.returncode == 0 else "errors"
     reason = None if status == "ran" else _reason(proc)

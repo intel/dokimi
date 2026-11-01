@@ -199,13 +199,18 @@ def test_run_case_without_a_receipt_is_failed(tmp_path, monkeypatch, kwargs, rea
     assert cells == []
 
 
-def test_run_case_with_a_malformed_receipt_is_failed_not_fatal(tmp_path, monkeypatch):
+@pytest.mark.parametrize("text", [
+    '{"schema_version": "effective_instructions.v1"}',  # fails the schema
+    '{"schema_version": "effective_instructions.v1", "receipts": [',  # truncated JSON
+    "[1, 2]",  # not an object
+])
+def test_run_case_with_a_malformed_receipt_is_failed_not_fatal(tmp_path, monkeypatch, text):
     fixture, _receipt = _toy_fixture(tmp_path)
 
     def fake_run(argv, *, timeout, env, **_):
         out = Path(argv[argv.index("--out") + 1])
         out.mkdir(parents=True, exist_ok=True)
-        (out / cf.RECEIPT_NAME).write_text('{"schema_version": "effective_instructions.v1"}', encoding="utf-8")
+        (out / cf.RECEIPT_NAME).write_text(text, encoding="utf-8")
         return process.Completed(argv=tuple(argv), returncode=0)
 
     monkeypatch.setattr(cf.process, "run", fake_run)
