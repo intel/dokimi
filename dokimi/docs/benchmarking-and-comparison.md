@@ -301,6 +301,39 @@ both per row. Every cell also records `cache_read_tokens` and
 `cache_write_tokens` with the input and output tokens, and
 `repo report --json` gives their means.
 
+### Guidance formats and packaging
+
+Two guidance arms answer "does the same content work better in another shape?"
+The model stays the same, so run them per model (one `--model` each) and compare
+the cells the way the skill arms are compared above.
+
+- `guidance:format=xml`: every guidance file of the base, rendered as XML tags.
+  Each Markdown heading becomes `<section level="N" title="...">`, closed before
+  the next heading of its level or above; `<guidance>` wraps the file. No other
+  line changes. The rendering is checked before it is written: it must restore to
+  the original file exactly, so a file with a line that looks like one of these
+  tags (or a heading the restore cannot rebuild) fails the cell's preparation
+  rather than measuring altered content. A heading inside a code fence is body
+  text. A heading line that is not `#`…`######`, one space, then the title, with no
+  carriage return, is body text too: a file with CRLF line endings has no sections
+  at all, only the wrapper. `guidance:format=md` is `guidance:raw`
+  and is refused as a second name for it. POML is not offered yet: its documented
+  components (`role`, `task`, `example`, ...) have no heading tag, so a POML arm
+  needs a decision about which element a heading maps to.
+- `guidance:as-skill`: the guidance files are removed (as `guidance:none` removes
+  them) and their text goes into `.claude/skills/<repo id>-guidance/SKILL.md`, each
+  file under a `## File: <path>` line with its text verbatim. The frontmatter
+  description is one fixed sentence for every repository, so the skill is
+  selected on its description alone. Nested guidance files lose the directory
+  they applied to; the skill records its sha256 and appears in `skills` like any
+  installed skill, so `repo report` counts whether the agent loaded it.
+
+Reading the two together: `guidance:format=xml` against `guidance:raw` isolates
+the markup, and `guidance:as-skill` against `guidance:raw` isolates the packaging
+(always in context, or loaded on demand), with the fixed description a known
+confound of the second. The arms do not rewrite the content, so a difference
+comes from the format or the packaging, not from edited guidance.
+
 ### Reading the significance tables
 
 Arms are compared **paired per question** against the one shared `baseline`

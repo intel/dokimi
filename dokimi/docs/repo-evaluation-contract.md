@@ -293,7 +293,10 @@ belongs to the repository's grader and is passed through unread, except `grader`
 3. `git init` and commit (no history, so fixes cannot leak)
 4. apply `setup_patches`
 5. apply the arm: `guidance:none`, `guidance:raw`, `guidance:bridge`,
-   `guidance:rev:<rev>` or `patch:<file>`
+   `guidance:rev:<rev>`, `patch:<file>`, `guidance:format=xml` (the guidance
+   files rendered as tagged sections, `dokimi/repos/guidance_format.py`) or
+   `guidance:as-skill` (the guidance files removed, their text packaged as one
+   skill, see [Guidance formats and packaging](benchmarking-and-comparison.md#guidance-formats-and-packaging))
 6. amend the commit
 7. apply `review_patch` with `git am` under a neutral author
 8. expire the reflog and prune unreachable objects: the
