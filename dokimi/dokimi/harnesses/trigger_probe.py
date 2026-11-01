@@ -230,9 +230,8 @@ def known_positive(skill: str, catalog: Path, cfg: ProbeConfig, *, runner: proce
     except (OSError, RuntimeError) as exc:
         return {"skill": skill, "query": query, "passed": False, "loaded": [], "listed": [], "cost_usd": None,
                 "claude_code_version": None, "error": f"{type(exc).__name__}: {exc}"}
-    # The guard passes on an observed, successful call of exactly this skill (a `plugin:skill` is another
-    # one) in a run that then ended without a terminal error; ``listed`` records whether the harness showed
-    # it. A terminal failure is reported even after the skill loaded.
+    # The guard passes on an observed, successful call of exactly this skill (not another plugin's) with no
+    # terminal error; ``listed`` records whether the harness showed it.
     passed = skill in r["skill"]["loaded_ok"] and r["terminal_error"] is None
     return {"skill": skill, "query": query, "passed": passed,
             "loaded": r["skill"]["loaded"], "listed": r["skill"]["listed"], "cost_usd": r["cost_usd"],

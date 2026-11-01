@@ -9,6 +9,6 @@
   exits 1. A skill call whose result is an error, or another plugin's `plugin:skill`, does
   not count as a load. So a skill the harness never shows cannot read as a 0% trigger rate. A guard run
   that ended in an error writes `"status": "error: known-positive run failed"` instead. An
-  empty `--catalog` is refused (exit 2) before the guard runs. Pass
+  empty `--catalog` is refused (exit 2) before the guard runs, unless `--no-known-positive` is passed. Pass
   `--no-known-positive` to skip the check; the output then says `"status": "unchecked"` (or `invalid: skill not listed` when a
   catalog skill is never listed).
