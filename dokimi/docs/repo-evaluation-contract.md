@@ -1368,7 +1368,7 @@ With `--index FILE`, a SCIP index of the tree (§1.2), the report adds a
 paths to the tree's files; documents that are not files of the tree are
 counted and left out; an index none of whose documents is a file of the tree
 exits 2. A module is a directory; one holding more indexed non-test files
-than `max(30, n / 20)`, `n` the indexed non-test files of the tree, is split
+than `max(30, n // 20)`, `n` the indexed non-test files of the tree and `//` integer division, is split
 into its subdirectories,
 the files right in it staying its own. Test files are neither modules nor
 callers. Per module:
