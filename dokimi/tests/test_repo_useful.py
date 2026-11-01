@@ -59,6 +59,7 @@ def test_the_two_kinds_parse_to_their_pattern_and_globs():
         ({"command": ""}, "useful must be"),
         ({"command": "("}, "not a valid regex"),
         ({"command": "(" * 2000 + ")" * 2000}, "not a valid regex"),  # overflows, not re.error
+        ({"command": "a{99999999999}"}, "not a valid regex"),  # a repeat count too large for the parser
         ({"edit": []}, "useful must be"),
         ({"edit": ["src/a.py", ""]}, "useful must be"),
         ({"edit": 3}, "useful must be"),
