@@ -369,3 +369,21 @@ def test_a_repeated_model_is_compared_once(tmp_path):
     result = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", tasks)])), [batch], BASE,
                       models=["m-1", "m-1"], today=TODAY)
     assert [(e["model"], e["verdict"]) for e in result["rules"]] == [("m-1", KEEP)]
+
+
+def test_a_mixed_rule_takes_no_slot_in_the_holm_family(tmp_path):
+    # A mixes gate and score (both improve); B is six gate cases, all improved. Alone B reaches p = 2/64.
+    gate_a, score_a, gate_b = _ids("ga", 6), _ids("sa", 6), _ids("gb", 6)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in gate_a + gate_b})
+    for task in score_a:
+        _cell(batch, task, BASE, score=0.2)
+        _cell(batch, task, ARM, score=0.9)
+    rules = [_rule("A", gate_a + score_a), _rule("B", gate_b)]
+    result = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", rules)), [batch], BASE, today=TODAY)
+    verdicts = {e["rule"]: e for e in result["rules"] if e["rule"] == "B"}
+    assert result["family"] == 1
+    assert verdicts["B"]["verdict"] == KEEP
+    assert verdicts["B"]["p_holm"] == pytest.approx(2 / 2**6, abs=1e-5)
+    mixed = [e for e in result["rules"] if e["rule"] == "A"]
+    assert mixed and all(e["verdict"] == INSUFFICIENT and e["p_holm"] is None and "Holm family" in e["reason"]
+                         for e in mixed)

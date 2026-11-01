@@ -116,7 +116,7 @@ def evaluate(ledger: Ledger, batch_dirs: list[Path], baseline: str, models: list
     for entry in entries:
         entry["verdict"], entry["reason"] = _verdict(entry, ledger.alpha)
     return {"ledger": ledger_name, "alpha": ledger.alpha, "review_within_days": ledger.review_within_days,
-            "today": today.isoformat(), "family": sum(e["p"] is not None for e in entries),
+            "today": today.isoformat(), "family": sum(_in_family(e) for e in entries),
             "rules": entries, "warnings": list(dict.fromkeys(warnings))}
 
 
@@ -185,9 +185,14 @@ def _entry(head: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _in_family(entry: dict[str, Any]) -> bool:
+    """A result has a p and is not mixed: a gate-and-score rule has no single test, so it takes no slot."""
+    return entry["p"] is not None and not entry["mixed"]
+
+
 def _holm(entries: list[dict[str, Any]]) -> None:
-    """``p_holm`` over every result that has a p, as one family (the exact adjusted value)."""
-    scored = [e for e in entries if e["p"] is not None]
+    """``p_holm`` over every result in the family (the exact adjusted value); the others get none."""
+    scored = [e for e in entries if _in_family(e)]
     for entry, adjusted in zip(scored, adjust_pvalues([e["p"] for e in scored], rounded=False), strict=True):
         entry["p_holm"] = adjusted
 
@@ -197,7 +202,8 @@ def _verdict(entry: dict[str, Any], alpha: float) -> tuple[str, str]:
     if entry["error"] or not entry["paired"]:
         return INSUFFICIENT, f"not measured: {entry['error'] or 'no linked case has cells in both arms'}"
     if entry["mixed"]:
-        return INSUFFICIENT, "the linked cases mix gate and score tasks: link one kind of task per rule"
+        return INSUFFICIENT, ("the linked cases mix gate and score tasks: link one kind of task per rule "
+                              "(not in the Holm family)")
     if entry["p_holm"] is None:
         return INSUFFICIENT, "every linked case ties: there is no difference to test"
     p, mean = entry["p_holm"], entry["delta"]["mean"]

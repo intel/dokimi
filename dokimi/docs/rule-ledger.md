@@ -98,8 +98,10 @@ Schema cannot).
 For each rule and model, `repo compare --ledger` runs the ordinary paired
 comparison of the rule's arm against its baseline over the rule's linked cases
 (`repo compare` itself, so the pairing, headroom and provenance warnings are
-the same). The p values of all rule results are Holm-corrected together. The
-rules' family is separate from the family of the comparison's own rows.
+the same). The p values of the rule results are Holm-corrected together. A result whose
+linked cases mix gate and score tasks has no single test, so it takes no slot in
+that family and is `insufficient-evidence`. The rules' family is separate from the
+family of the comparison's own rows.
 
 | Verdict | When | Meaning |
 |---|---|---|
