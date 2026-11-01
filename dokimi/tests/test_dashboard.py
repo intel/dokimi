@@ -5,6 +5,7 @@
 import json
 from pathlib import Path
 
+import pytest
 
 from dokimi.dashboard.aggregator import (
     DashboardData,
@@ -265,3 +266,16 @@ def test_an_all_miss_run_scores_its_misses_as_zero_with_no_delta(tmp_path):
     p = ResultsAggregator(tmp_path).aggregate().products[0]
     assert (p.avg_with_docs, p.avg_without_docs, p.avg_delta) == (None, None, None)
     assert (p.doc_health, p.doc_score, p.status) == (0.0, 0.0, "poor")
+
+
+@pytest.mark.parametrize("miss", [
+    {"question_id": "q2", "question": "Q?", "retrieval_hit": False, "with_docs": None, "without_docs": None,
+     "delta": None},
+    {**_miss("q2", 60), "error": "judge failed"},
+    {**_miss("q2", 60), "with_docs": {"error": "judge failed"}},
+])
+def test_a_miss_without_a_clean_baseline_score_leaves_the_doc_score_alone(tmp_path, miss):
+    # Only a retrieval miss that the baseline answered and no error touched counts as a context zero.
+    _make_eval_file(tmp_path, "oneTBB", [_ev("q1", "Q?", 80, 60), miss])
+    p = ResultsAggregator(tmp_path).aggregate().products[0]
+    assert (p.doc_health, p.doc_score) == (80.0, 80.0)

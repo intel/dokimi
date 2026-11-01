@@ -307,3 +307,19 @@ def test_an_all_miss_run_prints_no_zero_mean_delta_or_conclusion(tmp_path):
     assert "no complete pairs" in md
     average = next(line for line in md.splitlines() if line.startswith("| Average |"))
     assert average == "| Average | — | — | **—** |"
+
+
+def test_a_group_with_no_complete_pair_has_no_means_in_the_grouped_tables():
+    # Persona B and source "manual" hold only q3, which has a context score and no baseline score.
+    evaluations = [EVALUATIONS[0], EVALUATIONS[2]]
+    questions = [{"id": "q1", "persona_id": "A", "source_type": "generated"},
+                 {"id": "q3", "persona_id": "B", "source_type": "manual"}]
+    report = json.loads(ReportGenerator().generate_report({"evaluations": evaluations}, {"questions": questions}, "json"))
+    clusters = {c["topic"]: c for c in report["clusters"]}
+    assert clusters["B"] == {"topic": "B", "count": 1, "unpaired": 1,
+                             "with_avg": None, "without_avg": None, "delta_avg": None}
+    sources = {s["source_type"]: s for s in report["sources_summary"]}
+    assert sources["manual"]["with_avg"] is None and sources["manual"]["delta_avg"] is None
+    md = ReportGenerator().generate_report({"evaluations": evaluations}, {"questions": questions}, "markdown")
+    assert "| B | 1 (1 unpaired) | — | — | **—** |" in md
+    assert "| manual | 1 (1 unpaired) | — | — | **—** |" in md
