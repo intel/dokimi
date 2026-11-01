@@ -125,10 +125,8 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      # The setup action's commit, resolved before anything is checked out. A tag and a branch can share
-      # a name, and actions/checkout takes the branch for a bare name, so the ref is passed as a commit:
-      # a 40-digit SHA as it is, a tag as the commit its peeled ls-remote line names. Anything else (a branch)
-      # is refused here, before any code of the action repository runs.
+      # The setup action's commit, resolved before any checkout: actions/checkout takes a branch that shares a
+      # tag's name, so the ref goes in as a commit. A branch is refused here, before the action's code runs.
       - name: Resolve the setup action commit
         id: action-ref
         shell: bash
@@ -169,12 +167,13 @@ jobs:
         id: action
         shell: bash
         run: echo "sha=$(git -C .dokimi-action rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      # Resolves dokimi-ref to a commit (the validate outputs pass it on) and installs dokimi.
+      # Installs dokimi. With one repository for both, the commit resolved above is passed on: a second
+      # ls-remote of a tag that has moved would install another commit than the action it runs.
       - name: Set up dokimi
         id: dokimi
         uses: ./.dokimi-action/actions/setup
         with:
-          dokimi-ref: ${{ inputs.dokimi-ref }}
+          dokimi-ref: ${{ inputs.dokimi-repository == inputs.dokimi-action-repository && steps.action-ref.outputs.sha || inputs.dokimi-ref }}
           dokimi-repository: ${{ inputs.dokimi-repository }}
           python-version: '3.13'
       - name: repo validate

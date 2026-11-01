@@ -116,3 +116,13 @@ def test_the_setup_action_commit_resolver_takes_a_tag_as_its_peeled_commit(tmp_p
 
     assert resolve_ref("release") == "sha=2222222222222222222222222222222222222222\n"
     assert resolve_ref("3" * 40) == f"sha={'3' * 40}\n"
+
+
+def test_validate_installs_the_commit_it_resolved_when_the_repositories_match() -> None:
+    # Two ls-remote calls for one tag can name two commits if the tag moves between them. With one
+    # repository for the package and the action, the setup step gets the commit resolved above; a
+    # different package repository resolves its own ref, as before.
+    setup = next(s for s in _validate_steps() if s.get("id") == "dokimi")
+    assert setup["with"]["dokimi-ref"] == (
+        "${{ inputs.dokimi-repository == inputs.dokimi-action-repository"
+        " && steps.action-ref.outputs.sha || inputs.dokimi-ref }}")

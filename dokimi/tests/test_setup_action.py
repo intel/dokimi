@@ -99,6 +99,49 @@ def test_out_dir_with_a_newline_is_refused_before_mkdir(tmp_path: Path) -> None:
     assert (tmp_path / "output").read_text(encoding="utf-8") == ""
 
 
+TAG_OBJECT = "a" * 40  # the annotated tag's own object
+PEELED = "b" * 40  # the commit the tag names (its ^{} line)
+
+
+def _resolve_ref(tmp_path: Path, ref: str) -> tuple[subprocess.CompletedProcess[str], str, str]:
+    # Runs the ref step the way the runner does, with a fake git that logs its calls and lists a tag.
+    # Returns (result, the git calls logged, the sha written to GITHUB_OUTPUT).
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "git.log"
+    fake = bin_dir / "git"
+    fake.write_text(
+        "#!/bin/sh\n"
+        f"echo \"$*\" >> '{log}'\n"
+        f"printf '%s\\trefs/tags/release\\n%s\\trefs/tags/release^{{}}\\n' '{TAG_OBJECT}' '{PEELED}'\n",
+        encoding="utf-8")
+    fake.chmod(0o755)
+    output = tmp_path / "output"
+    output.touch()
+    script = next(s["run"] for s in _steps() if s.get("id") == "ref")
+    env = {"PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}", "REF": ref,
+           "DOKIMI_REPO": "intel/dokimi", "GITHUB_OUTPUT": str(output)}
+    result = subprocess.run(["bash", "--noprofile", "--norc", "-e", "-o", "pipefail", "-c", script],
+                            env=env, capture_output=True, text=True, check=False, cwd=tmp_path)
+    calls = log.read_text(encoding="utf-8") if log.exists() else ""
+    return result, calls, output.read_text(encoding="utf-8")
+
+
+def test_a_commit_ref_is_installed_as_given_and_the_tag_is_not_looked_up_again(tmp_path: Path) -> None:
+    # repo-eval passes the commit it resolved, so a tag that moved since cannot change what is installed.
+    result, calls, output = _resolve_ref(tmp_path, PEELED)
+    assert result.returncode == 0, result.stderr
+    assert calls == ""
+    assert output == f"sha={PEELED}\n"
+
+
+def test_a_tag_ref_resolves_to_the_commit_it_names(tmp_path: Path) -> None:
+    result, calls, output = _resolve_ref(tmp_path, "release")
+    assert result.returncode == 0, result.stderr
+    assert "ls-remote --tags" in calls
+    assert output == f"sha={PEELED}\n"
+
+
 def test_the_action_declares_no_paid_or_max_usd_input() -> None:
     # A spending cap the action does not enforce must not ship as a safety input.
     inputs = yaml.safe_load(ACTION.read_text(encoding="utf-8"))["inputs"]
