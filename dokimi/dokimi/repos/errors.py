@@ -8,3 +8,7 @@ from __future__ import annotations
 
 class PrepError(RuntimeError):
     """A workspace could not be prepared (a patch does not apply, a base is missing, ...)."""
+
+
+class CodeIndexError(ValueError):
+    """A SCIP code index cannot be read: empty, truncated, garbled, or not an index at all."""

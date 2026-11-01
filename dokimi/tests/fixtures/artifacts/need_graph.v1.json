@@ -1,0 +1,38 @@
+{
+  "schema_version": "need_graph.v1",
+  "artifact_name": "dpnp-io",
+  "description": "Save and load dpnp arrays.",
+  "nodes": [
+    {
+      "id": "n1",
+      "text": "convert with dpnp.asnumpy before numpy.save",
+      "type": "action",
+      "path_class": "core",
+      "confirmed_by": "user"
+    },
+    {
+      "id": "n2",
+      "text": "keep allow_pickle=False for untrusted files",
+      "type": "constraint",
+      "path_class": "rare_critical"
+    },
+    {
+      "id": "n3",
+      "text": "plot the loaded array",
+      "type": "intent",
+      "path_class": "out_of_scope"
+    }
+  ],
+  "edges": [
+    {
+      "from": "n2",
+      "to": "n1",
+      "kind": "requires"
+    }
+  ],
+  "provenance": {
+    "model": "claude-sonnet-5-5",
+    "prompt_version": "needs-v1",
+    "draws": 3
+  }
+}
