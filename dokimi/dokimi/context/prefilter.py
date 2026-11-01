@@ -129,7 +129,10 @@ def _triggers(claim: Claim, event: Event) -> bool:
 def _at_path(key: str, text: str) -> bool:
     """Whether ``key`` occurs in ``text`` from a path-segment start, so ``a.md`` does not match ``data.md``."""
     name = key.removeprefix("./")
-    return bool(name) and re.search(rf"(?<![\w.-]){re.escape(name)}", text) is not None
+    # a file name ends where the name ends (``a.md`` is not ``a.mdx`` or ``a.md.bak``); a directory
+    # (``docs/``) is followed by its entries, so it has no end boundary
+    end = "" if name.endswith("/") else r"(?![\w-]|\.\w)"
+    return bool(name) and re.search(rf"(?<![\w.-]){re.escape(name)}{end}", text) is not None
 
 
 def _acts(claim: Claim, event: Event) -> bool:

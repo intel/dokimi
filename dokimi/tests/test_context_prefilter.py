@@ -193,6 +193,19 @@ def test_a_path_matches_from_a_segment_start_not_inside_a_longer_name():
     assert _row(_report([inside, named], rule), "Update")["acted"] == 1
 
 
+def test_a_file_name_does_not_match_a_longer_extension_or_a_backup_of_it():
+    rule = "- Update `a.md` before the release.\n"
+    longer = _session(_prompt("update the release"), _tool("Edit", file_path="/w/a.mdx"))
+    backup = _session(_prompt("update the release"), _tool("Edit", file_path="/w/a.md.bak"))
+    assert _row(_report([longer, backup], rule), "Update")["acted"] == 0
+
+
+def test_a_directory_name_matches_the_entries_under_it():
+    rule = "- Keep `changelog.d/` current.\n"
+    inside = _session(_prompt("keep the changelog current"), _tool("Write", file_path="/w/changelog.d/x.md"))
+    assert _row(_report([inside], rule), "Keep")["acted"] == 1
+
+
 def test_a_claim_without_a_named_command_is_not_measured_as_acted():
     session = _session(_prompt("keep the changelog fragment current"))
     row = _row(_report([session]), CHANGELOG)
