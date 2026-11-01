@@ -121,8 +121,8 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
                          artifact_bundle=artifact_bundle)
     except SelfJudgeError as exc:  # the judge is the answering model: the flags contradict
         raise InputError(str(exc)) from exc
-    except (ExtractionError, ValueError) as exc:  # a model failure under way
-        raise InputError(str(exc)) from None
+    except (ExtractionError, ValueError) as exc:  # a model failure under way: exit 1, not bad input
+        raise SystemExit(str(exc)) from None
 
     out_dir = Path(args.out_dir) if args.out_dir else _default_dir(args.artifact)
     out_json = Path(args.out_json) if args.out_json else out_dir / "novelty.json"
@@ -156,8 +156,8 @@ def cmd_novelty_atoms(args: argparse.Namespace) -> None:
     extraction = ExtractionReport()
     try:
         atoms = extract_atoms(spans, client=extractor, cap=cap, report=extraction)
-    except ExtractionError as exc:
-        raise InputError(str(exc)) from None
+    except ExtractionError as exc:  # a model failure under way: exit 1, not bad input
+        raise SystemExit(str(exc)) from None
     # The cap warning analyze records; probe and shorten, which read atoms.json, do not repeat it.
     reach = [cap_warning(cap, extraction.reached)] if extraction.reached else []
     for warning in extraction.warnings(len(spans)) + reach:
@@ -217,8 +217,8 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
             allow_self_judge=args.allow_self_judge, seed=args.seed,
             placebo_text=placebo_text,
         )
-    except ValueError as exc:  # a model failure under way
-        raise InputError(str(exc)) from None
+    except ValueError as exc:  # a model failure under way: exit 1, not bad input
+        raise SystemExit(str(exc)) from None
 
     payload = build_probe_record(
         artifact_ref=args.artifact, model=answerer.model, judge_model=judge.model,
