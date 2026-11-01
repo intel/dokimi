@@ -4038,25 +4038,6 @@
             },
             {
               "action": "_StoreAction",
-              "choices": [
-                "'json'",
-                "'markdown'"
-              ],
-              "const": null,
-              "default": "markdown",
-              "group_key": null,
-              "group_required": null,
-              "hidden": false,
-              "is_flag": false,
-              "key": "--format",
-              "kind": "option",
-              "nargs": null,
-              "position": null,
-              "required": false,
-              "type": null
-            },
-            {
-              "action": "_StoreAction",
               "choices": null,
               "const": null,
               "default": null,
@@ -4088,7 +4069,7 @@
               "type": null
             },
             {
-              "action": "_StoreAction",
+              "action": "_AppendAction",
               "choices": null,
               "const": null,
               "default": null,
@@ -4096,28 +4077,12 @@
               "group_required": null,
               "hidden": false,
               "is_flag": false,
-              "key": "--min-coverage",
+              "key": "--min",
               "kind": "option",
               "nargs": null,
               "position": null,
               "required": false,
-              "type": "dokimi.commands.eval_coverage._floor#e9bf1357f2fa"
-            },
-            {
-              "action": "_StoreAction",
-              "choices": null,
-              "const": null,
-              "default": null,
-              "group_key": null,
-              "group_required": null,
-              "hidden": false,
-              "is_flag": false,
-              "key": "--min-rare-critical",
-              "kind": "option",
-              "nargs": null,
-              "position": null,
-              "required": false,
-              "type": "dokimi.commands.eval_coverage._floor#e9bf1357f2fa"
+              "type": "dokimi.commands.eval_coverage._floor#bbd5737352a9"
             },
             {
               "action": "_StoreAction",

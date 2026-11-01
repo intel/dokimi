@@ -8,7 +8,7 @@ The problem space is a frozen need graph (``need_graph.v1``): the graph
 written once and kept next to the suite. Each eval names the nodes it grades in ``needs``:
 
 * a row of a skill-creator ``evals.json``: ``{"id": ..., "needs": ["n1", "n4"]}``;
-* a task's ``task.toml`` / ``task.md``: ``metadata.needs``.
+* a task's ``task.toml`` / ``task.md``: ``metadata.needs`` (a list; a bare string is refused).
 
 :func:`coverage_report` is a pure function of the graph and those labels, so the same files
 always give the same report. No model is called here; drafting labels is a separate, paid step.
@@ -42,26 +42,41 @@ class LabelledEval:
     id: str
     source: str
     needs: tuple[str, ...] | None
+    malformed: bool = False  # ``needs`` is there but is not a list of strings
 
 
 def load_graph(path: Path) -> dict:
-    """Read and validate a ``need_graph.v1`` file (an unstamped ``save_graph`` file is valid)."""
-    return load_artifact("need_graph", Path(path))
+    """Read and validate a ``need_graph.v1`` file (an unstamped ``save_graph`` file is valid).
+
+    Raises ``ValueError`` when two nodes share an id: ids are what the ``needs`` labels join on.
+    """
+    graph = load_artifact("need_graph", Path(path))
+    ids = [n["id"] for n in graph["nodes"]]
+    dupes = sorted({i for i in ids if ids.count(i) > 1})
+    if dupes:
+        raise ValueError(f"{path}: duplicate node ids {dupes}")
+    return graph
 
 
 def graph_digest(graph: dict) -> str:
-    """sha256 of the nodes in canonical JSON: the identity a report and a plan can record."""
-    nodes = sorted(graph["nodes"], key=lambda n: n["id"])
+    """sha256 of each node's id, text, type, path_class and confirmed_by, defaults filled in.
+
+    Other keys and node order do not change it; a confirmation does.
+    """
+    nodes = sorted(({"id": n["id"], "text": n["text"], "type": n.get("type", "intent"),
+                     "path_class": n["path_class"],
+                     "confirmed_by": n.get("confirmed_by", "hypothesis")}
+                    for n in graph["nodes"]), key=lambda n: n["id"])
     blob = json.dumps(nodes, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
-def _needs(value: Any) -> tuple[str, ...] | None:
+def _labelled(eid: str, source: str, value: Any) -> LabelledEval:
     if value is None:
-        return None
-    if isinstance(value, str):  # one id, not a sequence of letters
-        return (value,)
-    return tuple(str(v) for v in value) if isinstance(value, list) else None
+        return LabelledEval(eid, source, None)
+    if isinstance(value, list) and all(isinstance(v, str) for v in value):
+        return LabelledEval(eid, source, tuple(value))
+    return LabelledEval(eid, source, None, malformed=True)
 
 
 def _evals_files(root: Path) -> list[Path]:
@@ -74,7 +89,8 @@ def read_labels(root: Path) -> list[LabelledEval]:
     """Every eval under ``root`` with its ``needs``: skill-creator ``evals.json`` rows, then tasks.
 
     ``root`` is an ``evals.json`` file, a skill directory (its ``evals/evals.json``) or a tasks
-    root whose child directories are tasks. Raises ``ValueError`` on an unreadable ``evals.json``.
+    root whose child directories are tasks. Raises ``ValueError`` on an unreadable ``evals.json``
+    or task.
     """
     out: list[LabelledEval] = []
     for path in _evals_files(root):
@@ -82,18 +98,19 @@ def read_labels(root: Path) -> list[LabelledEval]:
             rows = json.loads(path.read_text(encoding="utf-8")).get("evals", [])
         except (OSError, ValueError, AttributeError) as exc:
             raise ValueError(f"{path}: not a skill-creator evals.json ({exc})") from exc
-        for index, row in enumerate(rows if isinstance(rows, list) else []):
+        if not isinstance(rows, list):
+            raise ValueError(f"{path}: \"evals\" is not a list")
+        for index, row in enumerate(rows):
             if isinstance(row, dict):
-                eid = str(row.get("id", index))
-                out.append(LabelledEval(eid, path.name, _needs(row.get("needs"))))
+                out.append(_labelled(str(row.get("id", index)), path.name, row.get("needs")))
     if root.is_dir():
         for task_dir in sorted(p for p in root.iterdir() if is_task_dir(p)):
             try:
                 meta = read_task_config(task_dir).get("metadata", {})
-            except (ValueError, OSError):
-                continue
-            needs = _needs(meta.get("needs")) if isinstance(meta, dict) else None
-            out.append(LabelledEval(task_dir.name, "task", needs))
+            except (ValueError, OSError) as exc:
+                raise ValueError(f"{task_dir}: unreadable task ({exc})") from exc
+            needs = meta.get("needs") if isinstance(meta, dict) else None
+            out.append(_labelled(task_dir.name, "task", needs))
     return out
 
 
@@ -117,8 +134,10 @@ def _share(nodes: list[dict], covered: set[str]) -> float | None:
 def coverage_report(graph: dict, evals: list[LabelledEval], evals_root: str) -> dict:
     """The ``eval_coverage.v1`` payload (unstamped) for ``graph`` and ``evals``."""
     classes = {n["id"]: n["path_class"] for n in graph["nodes"]}
-    problems = [f"{e.id}: unknown need id {n!r}"
-                for e in evals for n in (e.needs or ()) if n not in classes]
+    problems = [{"eval": e.id, "source": e.source, "kind": "malformed_needs", "need": None}
+                for e in evals if e.malformed]
+    problems += [{"eval": e.id, "source": e.source, "kind": "unknown_need", "need": n}
+                 for e in evals for n in (e.needs or ()) if n not in classes]
     covered = {n for e in evals for n in (e.needs or ()) if n in classes}
     scope = [n for n in graph["nodes"] if n["path_class"] != "out_of_scope"]
     weight = sum(PATH_WEIGHTS[n["path_class"]] for n in scope)
@@ -134,6 +153,7 @@ def coverage_report(graph: dict, evals: list[LabelledEval], evals_root: str) -> 
                               for n in graph["nodes"]),
         },
         "coverage": {
+            "weights": {c: PATH_WEIGHTS[c] for c in CLASSES},
             "weighted": round(sum(PATH_WEIGHTS[n["path_class"]] for n in scope
                                   if n["id"] in covered) / weight, 4) if weight else None,
             "core_rare_critical": _share(critical, covered),
@@ -156,6 +176,12 @@ def _pct(value: float | None) -> str:
     return "n/a" if value is None else f"{value:.0%}"
 
 
+def _problem(p: dict) -> str:
+    what = "needs is not a list of node ids" if p["kind"] == "malformed_needs" \
+        else f"unknown need id {p['need']!r}"
+    return f"- {p['eval']} ({p['source']}): {what}"
+
+
 def render_markdown(report: dict) -> str:
     """The report as Markdown, for a suite's README or the PR that changes the suite."""
     g, c = report["graph"], report["coverage"]
@@ -175,5 +201,5 @@ def render_markdown(report: dict) -> str:
     lines += [f"- {n['id']} [{n['path_class']}, {n['confirmed_by']}] {n['text']}"
               for n in report["gaps"]] or ["- none"]
     if report["problems"]:
-        lines += ["", "Problems:"] + [f"- {p}" for p in report["problems"]]
+        lines += ["", "Problems:"] + [_problem(p) for p in report["problems"]]
     return "\n".join(lines) + "\n"

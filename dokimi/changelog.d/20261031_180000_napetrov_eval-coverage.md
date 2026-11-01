@@ -12,6 +12,7 @@ SPDX-License-Identifier: Apache-2.0
   prints the weighted coverage, the coverage of `core` + `rare_critical` and of `rare_critical`
   alone, the uncovered `core` / `rare_critical` nodes, and each eval's relevance
   (`relevant_core`, `relevant_peripheral`, `out_of_scope`, `orphan`, `unlabelled`). `--out`
-  writes an `eval_coverage.v1` artifact. Exit 1 under `--min-coverage` / `--min-rare-critical`,
-  exit 2 on an unreadable input or a `needs` id the graph lacks. Building the graph, the user
+  writes an `eval_coverage.v1` artifact. Exit 1 under a `--min [METRIC=]X` floor, exit 2 on an
+  unreadable input, a graph with duplicate node ids, or a `needs` label that is not a list of
+  ids the graph has. Novelty's need graph now keeps `confirmed_by` and `provenance`. Building the graph, the user
   interview and drafting labels follow in #331.

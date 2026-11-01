@@ -14,7 +14,9 @@ import pytest
 from dokimi.artifacts import ArtifactValidationError, load_artifact
 from dokimi.cli import build_parser
 from dokimi.eval_coverage import LabelledEval, coverage_report, graph_digest, load_graph, read_labels
-from dokimi.novelty.needs import NeedGraph, NeedNode, save_graph
+from dokimi.novelty.needs import NeedGraph, NeedNode
+from dokimi.novelty.needs import load_graph as novelty_load_graph
+from dokimi.novelty.needs import save_graph
 
 NODES = [
     {"id": "n1", "text": "convert with asnumpy before numpy.save", "path_class": "core"},
@@ -80,7 +82,7 @@ def test_peripheral_eval_and_task_metadata_needs(tmp_path):
     tasks = tmp_path / "tasks"
     task = tasks / "hdf5-write"
     task.mkdir(parents=True)
-    (task / "task.toml").write_text('[metadata]\nneeds = "n4"\n')
+    (task / "task.toml").write_text('[metadata]\nneeds = ["n4"]\n')
     (task / "instruction.md").write_text("write chunks")
 
     labels = read_labels(tasks)
@@ -100,13 +102,39 @@ def test_same_files_same_report_and_digest_ignores_node_order(tmp_path):
     assert json.dumps(first, sort_keys=True) == json.dumps(second, sort_keys=True)
     assert graph_digest(reordered) == first["graph"]["digest"]
     assert graph_digest({"nodes": NODES[:4]}) != first["graph"]["digest"]
+    defaults = [{**n, "type": "intent", "confirmed_by": n.get("confirmed_by", "hypothesis"),
+                 "note": "x"} for n in NODES]
+    assert graph_digest({"nodes": defaults}) == first["graph"]["digest"]
+    confirmed = [{**n, "confirmed_by": "user"} for n in NODES]
+    assert graph_digest({"nodes": confirmed}) != first["graph"]["digest"]
 
 
 def test_novelty_save_graph_output_loads_as_need_graph(tmp_path):
     path = tmp_path / "g.json"
-    save_graph(NeedGraph("x", "d", nodes=[NeedNode("n1", "a need", path_class="core")]), path)
+    node = NeedNode("n1", "a need", path_class="core", confirmed_by="user")
+    save_graph(NeedGraph("x", "d", nodes=[node], provenance={"draws": 3}), path)
 
-    assert load_graph(path)["nodes"][0]["path_class"] == "core"
+    assert load_graph(path)["nodes"][0]["confirmed_by"] == "user"
+    assert novelty_load_graph(path).as_dict() == json.loads(path.read_text())
+
+
+def test_both_readers_agree_on_the_fixture():
+    fixture = Path(__file__).parent / "fixtures" / "artifacts" / "need_graph.v1.json"
+    novelty = novelty_load_graph(fixture)
+
+    assert [(n.id, n.path_class, n.confirmed_by) for n in novelty.nodes] == [
+        (n["id"], n["path_class"], n.get("confirmed_by", "hypothesis"))
+        for n in load_graph(fixture)["nodes"]]
+
+
+def test_duplicate_node_ids_are_rejected(tmp_path):
+    path = tmp_path / "g.json"
+    path.write_text(json.dumps({"artifact_name": "x", "nodes": [
+        {"id": "n1", "text": "a", "path_class": "core"},
+        {"id": "n1", "text": "b", "path_class": "out_of_scope"}]}))
+
+    with pytest.raises(ValueError, match="duplicate node ids"):
+        load_graph(path)
 
 
 def test_graph_with_unknown_path_class_is_rejected(tmp_path):
@@ -123,13 +151,15 @@ def test_cli_writes_artifact_and_fails_under_floor(tmp_path, capsys):
     graph, skill = _graph(tmp_path), _skill(tmp_path, ROWS)
 
     ok = _run(capsys, str(skill), "--graph", str(graph), "--out", str(out))
-    low = _run(capsys, str(skill), "--graph", str(graph), "--min-rare-critical", "0.5")
+    low = _run(capsys, str(skill), "--graph", str(graph), "--min", "0.5",
+               "--min", "rare_critical=0.5")
 
     assert ok.returncode == 0, ok.stderr
     assert "n3 [rare_critical, hypothesis]" in ok.stdout
     assert load_artifact("eval_coverage", out)["gaps"][0]["id"] == "n3"
     assert low.returncode == 1
-    assert "rare_critical coverage 0.00 < 0.50" in low.stderr
+    assert "FAIL: rare_critical coverage 0.00 < 0.50" in low.stderr
+    assert load_artifact("eval_coverage", out)["coverage"]["weights"]["branch"] == 0.7
 
 
 def test_cli_unknown_need_id_and_bad_inputs_exit_2(tmp_path, capsys):
@@ -138,23 +168,26 @@ def test_cli_unknown_need_id_and_bad_inputs_exit_2(tmp_path, capsys):
     broken = tmp_path / "evals.json"
     broken.write_text("{not json")
 
-    unknown = _run(capsys, str(typo), "--graph", str(graph), "--format", "json")
+    out = tmp_path / "cov.json"
+    unknown = _run(capsys, str(typo), "--graph", str(graph), "--out", str(out))
     bad = _run(capsys, str(broken), "--graph", str(graph))
     missing = _run(capsys, str(tmp_path / "nope"), "--graph", str(graph))
     no_graph = _run(capsys, str(typo), "--graph", str(tmp_path / "none.json"))
 
     assert unknown.returncode == 2
-    assert json.loads(unknown.stdout)["problems"] == ["save: unknown need id 'n9'"]
+    assert load_artifact("eval_coverage", out)["problems"] == [
+        {"eval": "save", "source": "evals.json", "kind": "unknown_need", "need": "n9"}]
     assert (bad.returncode, missing.returncode, no_graph.returncode) == (2, 2, 2)
     assert "not a skill-creator evals.json" in bad.stderr
 
 
 def test_cli_rejects_a_floor_outside_0_1(capsys):
-    for value in ("1.5", "high"):
+    for value in ("1.5", "high", "recall=0.5"):
         with pytest.raises(SystemExit) as exc:
-            build_parser().parse_args(["eval", "coverage", "x", "--graph", "g", "--min-coverage", value])
+            build_parser().parse_args(["eval", "coverage", "x", "--graph", "g", "--min", value])
         assert exc.value.code == 2
-    assert "must lie in 0-1, got 1.5" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "must lie in 0-1, got 1.5" in err and "got 'recall'" in err
 
 
 def test_markdown_lists_problems_and_says_none_without_gaps(tmp_path, capsys):
@@ -163,18 +196,46 @@ def test_markdown_lists_problems_and_says_none_without_gaps(tmp_path, capsys):
 
     assert res.returncode == 2
     assert "- none" in res.stdout
-    assert "Problems:\n- all: unknown need id 'n9'" in res.stdout
+    assert "Problems:\n- all (evals.json): unknown need id 'n9'" in res.stdout
 
 
-def test_unparsable_task_is_skipped_and_rows_that_are_not_objects_ignored(tmp_path):
+@pytest.mark.parametrize("needs", ["n1", {"n1": 1}, 3, [1]])
+def test_needs_that_is_not_a_list_of_ids_is_a_problem(tmp_path, capsys, needs):
+    res = _run(capsys, str(_skill(tmp_path, [{"id": "e", "needs": needs}])), "--graph",
+               str(_graph(tmp_path)))
+
+    assert res.returncode == 2
+    assert "- e (evals.json): needs is not a list of node ids" in res.stdout
+
+
+def test_rows_that_are_not_objects_are_ignored_and_an_unparsable_task_refused(tmp_path):
     root = tmp_path / "suite"
+    root.mkdir()
+    (root / "evals.json").write_text(json.dumps({"evals": ["text row", {"needs": ["n1"]}]}))
+    assert read_labels(root) == [LabelledEval("1", "evals.json", ("n1",))]
+
     bad = root / "broken-task"
-    bad.mkdir(parents=True)
+    bad.mkdir()
     (bad / "task.toml").write_text("[metadata\n")
     (bad / "instruction.md").write_text("x")
-    (root / "evals.json").write_text(json.dumps({"evals": ["text row", {"needs": "n1"}]}))
+    with pytest.raises(ValueError, match="unreadable task"):
+        read_labels(root)
 
-    assert read_labels(root) == [LabelledEval("1", "evals.json", ("n1",))]
+
+def test_cli_refuses_an_empty_suite_a_non_list_evals_and_out_over_graph(tmp_path, capsys):
+    graph, empty = _graph(tmp_path), tmp_path / "empty"
+    empty.mkdir()
+    (tmp_path / "evals.json").write_text(json.dumps({"evals": {"id": "x"}}))
+
+    none = _run(capsys, str(empty), "--graph", str(graph))
+    dict_rows = _run(capsys, str(tmp_path / "evals.json"), "--graph", str(graph))
+    clobber = _run(capsys, str(_skill(tmp_path, ROWS)), "--graph", str(graph), "--out", str(graph))
+
+    assert (none.returncode, dict_rows.returncode, clobber.returncode) == (2, 2, 2)
+    assert "no evals.json rows or tasks" in none.stderr
+    assert '"evals" is not a list' in dict_rows.stderr
+    assert "--out would overwrite --graph" in clobber.stderr
+    assert json.loads(graph.read_text())["nodes"] == NODES
 
 
 def test_graph_with_only_out_of_scope_nodes_has_no_coverage_figures(tmp_path):
@@ -182,6 +243,8 @@ def test_graph_with_only_out_of_scope_nodes_has_no_coverage_figures(tmp_path):
     report = coverage_report(graph, [LabelledEval("e", "task", None)], "r")
 
     assert report["coverage"] == {
+        "weights": {"core": 1.0, "rare_critical": 1.0, "branch": 0.7, "supporting": 0.4,
+                    "out_of_scope": 0.0},
         "weighted": None, "core_rare_critical": None, "rare_critical": None,
         "by_class": {c: {"covered": 0, "total": int(c == "out_of_scope")}
                      for c in ("core", "rare_critical", "branch", "supporting", "out_of_scope")},

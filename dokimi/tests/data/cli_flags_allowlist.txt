@@ -223,5 +223,4 @@
 --work-repeats
 -o
 --graph  # eval coverage: the frozen need graph input, a file no registry concept names yet (#331)
---min-coverage  # eval coverage gate floor; joins a gate-floor concept with --min-accuracy (#331)
---min-rare-critical  # eval coverage gate floor, same concept as --min-coverage (#331)
+--min  # eval coverage gate floor, [METRIC=]X like --timeout [PHASE=]SEC (#331)

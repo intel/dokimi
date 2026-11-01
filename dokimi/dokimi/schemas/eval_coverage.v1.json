@@ -15,7 +15,7 @@
       "additionalProperties": false,
       "properties": {
         "artifact_name": {"type": "string"},
-        "digest": {"type": "string", "description": "sha256 of the graph's nodes, canonical JSON"},
+        "digest": {"type": "string", "description": "sha256 of each node's id, text, type, path_class and confirmed_by (defaults filled in), canonical JSON"},
         "nodes": {"type": "integer", "minimum": 0},
         "in_scope": {"type": "integer", "minimum": 0},
         "hypotheses": {"type": "integer", "minimum": 0, "description": "Nodes no person confirmed"}
@@ -23,9 +23,11 @@
     },
     "coverage": {
       "type": "object",
-      "required": ["weighted", "core_rare_critical", "rare_critical", "by_class"],
+      "required": ["weights", "weighted", "core_rare_critical", "rare_critical", "by_class"],
       "additionalProperties": false,
       "properties": {
+        "weights": {"type": "object", "description": "Weight per path class used for `weighted`",
+                    "additionalProperties": {"type": "number"}},
         "weighted": {"type": ["number", "null"]},
         "core_rare_critical": {"type": ["number", "null"]},
         "rare_critical": {"type": ["number", "null"]},
@@ -69,6 +71,19 @@
         }
       }
     },
-    "problems": {"type": "array", "items": {"type": "string"}}
+    "problems": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["eval", "source", "kind", "need"],
+        "additionalProperties": false,
+        "properties": {
+          "eval": {"type": "string"},
+          "source": {"type": "string"},
+          "kind": {"enum": ["unknown_need", "malformed_needs"]},
+          "need": {"type": ["string", "null"]}
+        }
+      }
+    }
   }
 }

@@ -9,6 +9,13 @@
     "hypotheses": 2
   },
   "coverage": {
+    "weights": {
+      "core": 1.0,
+      "rare_critical": 1.0,
+      "branch": 0.7,
+      "supporting": 0.4,
+      "out_of_scope": 0.0
+    },
     "weighted": 0.5,
     "core_rare_critical": 0.5,
     "rare_critical": 0.0,
