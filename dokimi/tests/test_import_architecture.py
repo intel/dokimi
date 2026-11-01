@@ -586,15 +586,17 @@ def _resolve(name: str, use: ast.AST, lineno: int, table: ExitTable, owner: dict
 
     Python's scoping: the innermost scope that binds the name wins. In the use's own scope the last binding at or
     above the use decides, and a binding only below it leaves the name local and unbound there; a class body then
-    reads the enclosing names. An enclosing scope is read as its first binding of the name. A class body is seen
-    only from its own statements, not from the functions inside it.
+    reads the enclosing names. An enclosing scope is read as its last exit-kind binding of the name, if it has one:
+    a function may run after any rebinding. A class body is seen only from its own statements, not from the
+    functions inside it.
     """
     scope = use
     while True:
         if scope is use or not isinstance(scope, ast.ClassDef):
             found = table.get((id(scope), name))
-            if found and scope is not use:
-                return sorted(found, key=lambda b: b[0])[0]
+            if found and scope is not use:  # a function may run later: its exit-kind binding counts
+                exits = [b for b in found if b[1] != "other"] or found
+                return sorted(exits, key=lambda b: b[0])[-1]
             if found:
                 before = [b for b in found if b[0] <= lineno]
                 if before:
@@ -989,12 +991,14 @@ def test_an_assigned_exit_callable_or_module_keeps_its_meaning(tmp_path):
         "dokimi/c.py": "import sys\nstop: object = sys.exit\nstop(2)\n",
         "dokimi/d.py": "def f():\n    import sys\n    stop = sys.exit\n    stop(2)\n",
         "dokimi/e.py": "import builtins\nstop = builtins.SystemExit\nraise stop(2)\n",
+        "dokimi/f.py": "import sys\nstop = None\nstop = sys.exit\n\ndef f():\n    stop(1)\n",
     })
     assert exit_sites(imports.trees["dokimi.a"]) == [3]
     assert exit_sites(imports.trees["dokimi.b"]) == [3]
     assert exit_sites(imports.trees["dokimi.c"]) == [3]
     assert exit_sites(imports.trees["dokimi.d"]) == [4]
     assert exit_sites(imports.trees["dokimi.e"]) == [3]
+    assert exit_sites(imports.trees["dokimi.f"]) == [6]
 
 
 def test_a_stale_layer_or_banned_baseline_entry_is_reported():
