@@ -36,6 +36,7 @@ from __future__ import annotations
 import json
 import re
 from itertools import combinations
+from pathlib import PurePosixPath
 from typing import Any
 
 import yaml
@@ -249,21 +250,27 @@ def _rules(tree: RepoTree, files: list[str], counted: set[str], start_t: set[str
             if tree.is_dir(tree.resolve(f, dirs=True)):  # a tree lists a link to a directory as one entry
                 warnings.append(f"{f}: a link to a directory; the rules behind it are not counted")
         except (OSError, ValueError, RuntimeError):  # out of the tree (a shared rules dir), dangling or a loop
-            warnings.append(f"{f}: a link that does not resolve in the tree; any rules behind it are not counted")
+            if not PurePosixPath(f).suffix:  # a file with a suffix (notes.txt) is never a rule; a name without one may be a directory
+                warnings.append(f"{f}: a link that does not resolve in the tree; any rules behind it are not counted")
     for f in sorted(f for f in files if RULE_GLOB.match(f)):
         target = _target(tree, f)
         chars, scoped, warning = _rule(tree, f)
         # a CLAUDE.md that imports a rule at start loads it then, whatever its frontmatter says
         when = "start" if (f.startswith(".claude/rules/") and not scoped) or target in start_t else "lazy"
         if target in counted:
-            # a link to a file already counted (a guidance file, or a rule): the same bytes, loaded once
-            if target in by_target and rank[when] > rank[by_target[target]["when"]]:
-                by_target[target]["when"] = when
+            # a link to a file already counted (a guidance file, or another rule): the same bytes, loaded once.
+            # The entry takes the earlier loading condition, and that route's count: a rule has its frontmatter removed.
+            entry = by_target.get(target)
+            if entry is not None and rank[when] > rank[entry["when"]]:
+                entry["when"] = when
+                entry["chars"] = chars
             continue
         counted.add(target)
         if warning:
             warnings.append(warning)
-        out.append({"path": f, "kind": "rule", "when": when, "chars": chars})
+        entry = {"path": f, "kind": "rule", "when": when, "chars": chars}
+        out.append(entry)
+        by_target[target] = entry
     return out
 
 
@@ -280,6 +287,7 @@ def _rule(tree: RepoTree, path: str) -> tuple[int, bool, str | None]:
         text = tree.read_text(path)
     except (OSError, ValueError, RuntimeError) as err:  # UnicodeDecodeError is a ValueError; RuntimeError a loop
         return 0, False, f"{path}: not readable ({_unreadable_reason(err)}), counted as 0"
+    text = text.removeprefix("\ufeff")  # a UTF-8 BOM from an editor is not part of the frontmatter (as in skills)
     m = _FRONTMATTER.match(text)
     if not m:
         return len(text), False, None
@@ -287,19 +295,38 @@ def _rule(tree: RepoTree, path: str) -> tuple[int, bool, str | None]:
 
 
 def _has_paths(frontmatter: str) -> bool:
-    """True if ``paths`` names at least one pattern: a list item or an inline value not ``[]`` or ``""``."""
+    """True if ``paths`` names at least one pattern: a string, or a list item that is a string, not blank.
+
+    A value that is not a string (a number, a boolean, a mapping) names no pattern, and a container is never
+    converted to text: a YAML alias chain expands on ``str()``.
+    """
     try:
         meta = yaml.safe_load(frontmatter)
     except (yaml.YAMLError, RecursionError, ValueError):  # RecursionError: nesting too deep; ValueError: an integer over the digit limit
         meta = None  # Claude Code still reads a `paths:` line of YAML that does not parse
     if isinstance(meta, dict):
         value = meta.get("paths")
-        items = value if isinstance(value, list) else str(value or "").split(",")
-        return any(str(v).strip() for v in items if v is not None)
+        items = value if isinstance(value, list) else value.split(",") if isinstance(value, str) else []
+        return any(isinstance(v, str) and v.strip() for v in items)
     values = _fallback_paths(frontmatter)
     if values is None:
         return False
-    return any(v.strip().strip("[]").strip(" \t\"'") for v in values)
+    return any(_names_pattern(v) for v in values)
+
+
+def _names_pattern(value: str) -> bool:
+    """True if one unparsed ``paths`` value (the inline value or a list item) names a pattern.
+
+    Brackets and commas are split as YAML would; an empty item, ``null`` and ``~`` name nothing, and quotes
+    around an item are not part of it (``"null"`` is the pattern ``null``).
+    """
+    for part in value.strip().strip("[]").split(","):
+        part = part.strip()
+        if part in ("", "null", "~"):
+            continue
+        if part.strip("\"'").strip():
+            return True
+    return False
 
 
 def _fallback_paths(frontmatter: str) -> list[str] | None:

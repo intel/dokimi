@@ -298,9 +298,9 @@ next release.
   non-empty body line, as Claude Code does. It warns on skills with no description or body text,
   skills with near-duplicate descriptions (identical descriptions, or Jaccard index >= 0.5
   after stop-word removal when both have 3+ words left), on AGENTS.md files turned off, on
-  unreadable files (non-UTF-8, dangling or out-of-tree link), and on imports past the harness's
-  hop limit, each of which also trips
-  `--fail-on-warning`. For a profile with `guidance.claude_rules` (Claude Code),
+  unreadable files (non-UTF-8, dangling or out-of-tree link), on imports past the harness's
+  hop limit, and on a link under `.claude/rules` to a directory or out of the tree (the rules behind
+  it are not counted), each of which also trips `--fail-on-warning`. For a profile with `guidance.claude_rules` (Claude Code),
   `.claude/rules/**/*.md` files are `rule` entries: `start` in the root `.claude/rules/` when
   `paths` names no pattern, `lazy` when it does or in a subdirectory's `.claude/rules/`, the
   frontmatter not counted. `start` is not an upper bound: it is too low by what it does not count

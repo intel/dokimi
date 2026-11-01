@@ -140,6 +140,14 @@ def test_rules_are_counted_only_for_a_harness_that_reads_them(tmp_path):
                  id="unparsed-comment-line-before-item"),
     pytest.param('paths:\n\n  - "src/**"\nfoo: [unclosed\n', "lazy", id="unparsed-blank-line-before-item"),
     pytest.param('paths: "src/#x" # the api\nfoo: [unclosed\n', "lazy", id="unparsed-quoted-hash-kept"),
+    # null and empty items name no pattern, with or without unrelated malformed YAML
+    pytest.param("paths: null\nunused: [unclosed\n", "start", id="unparsed-null-unrelated-malformed"),
+    pytest.param('paths: ["", ""]\nunused: [unclosed\n', "start", id="unparsed-empty-items-unrelated-malformed"),
+    pytest.param('paths: ["", ""]\n', "start", id="parsed-empty-items"),
+    # a value that is not a string names no pattern (not measured either way)
+    pytest.param("paths: true\n", "start", id="paths-boolean"),
+    pytest.param("paths: 5\n", "start", id="paths-integer"),
+    pytest.param("paths: {a: 1}\n", "start", id="paths-mapping"),
 ])
 def test_only_a_paths_value_that_names_a_pattern_scopes_a_rule(tmp_path, front, when):
     payload = budget(_tree(tmp_path, {".claude/rules/r.md": f"---\n{front}---\nbody\n"}), NAMES, rules=True)
@@ -183,3 +191,74 @@ def test_a_rules_link_out_of_the_tree_is_named(tmp_path):
     assert not [e for e in payload["entries"] if e["kind"] == "rule"]
     assert payload["warnings"] == [
         ".claude/rules/shared: a link that does not resolve in the tree; any rules behind it are not counted"]
+
+
+def test_a_rule_with_a_utf8_bom_reads_its_frontmatter(tmp_path):
+    payload = budget(_tree(tmp_path, {".claude/rules/r.md": "\ufeff---\npaths: src/**\n---\nbody\n"}),
+                     NAMES, rules=True)
+    assert _by_path(payload)[(".claude/rules/r.md", "rule")] == {
+        "path": ".claude/rules/r.md", "kind": "rule", "when": "lazy", "chars": len("body\n")}
+
+
+def test_a_paths_value_is_never_stringified(monkeypatch):
+    # a YAML alias chain expands on str(); only strings are patterns, so a container is never converted
+    from dokimi.repos import budget as module
+
+    class Bomb:
+        def __str__(self):
+            raise AssertionError("a paths value was stringified")
+
+    monkeypatch.setattr(module.yaml, "safe_load", lambda text: {"paths": [Bomb()]})
+    assert module._has_paths("paths: x\n") is False
+
+
+def test_a_root_rule_linked_to_an_off_agents_md_is_charged_its_body(tmp_path):
+    # the rule route strips the frontmatter, so the body is what loads at start
+    _tree(tmp_path, {"CLAUDE.md": "claude\n", "AGENTS.md": "---\npaths: []\n---\nagents\n"})
+    (tmp_path / ".claude/rules").mkdir(parents=True)
+    try:
+        (tmp_path / ".claude/rules/agents.md").symlink_to(tmp_path / "AGENTS.md")
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    payload = budget(WorkTree(tmp_path), NAMES, rules=True)
+    assert _by_path(payload)[("AGENTS.md", "guidance")] == {
+        "path": "AGENTS.md", "kind": "guidance", "when": "start", "chars": len("agents\n")}
+    assert payload["totals"]["start"] == len("claude\n") + len("agents\n")
+
+
+def test_a_root_rule_linked_to_a_nested_rule_that_sorts_first_still_loads_at_start(tmp_path):
+    # "!" sorts before "." : the nested real file is listed first, its root alias must still promote it
+    _tree(tmp_path, {"!sub/.claude/rules/r.md": "rule body\n"})
+    (tmp_path / ".claude/rules").mkdir(parents=True)
+    try:
+        (tmp_path / ".claude/rules/r.md").symlink_to(tmp_path / "!sub/.claude/rules/r.md")
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    payload = budget(WorkTree(tmp_path), NAMES, rules=True)
+    assert _by_path(payload)[("!sub/.claude/rules/r.md", "rule")]["when"] == "start"
+    assert payload["totals"]["start"] == len("rule body\n")
+    assert payload["totals"]["lazy"] == 0
+
+
+def test_a_dangling_link_to_a_non_markdown_file_under_rules_is_not_warned(tmp_path):
+    # such a file can never be a rule, so no rule is behind it
+    (tmp_path / ".claude/rules").mkdir(parents=True)
+    (tmp_path / ".claude/rules/own.md").write_text("own\n", encoding="utf-8")
+    try:
+        (tmp_path / ".claude/rules/notes.txt").symlink_to(tmp_path / "nowhere.txt")
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    payload = budget(WorkTree(tmp_path), NAMES, rules=True)
+    assert payload["warnings"] == []
+
+
+def test_a_dangling_link_to_a_markdown_rule_is_named_and_counted_as_zero(tmp_path):
+    (tmp_path / ".claude/rules").mkdir(parents=True)
+    try:
+        (tmp_path / ".claude/rules/api.md").symlink_to(tmp_path / "missing.md")
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    payload = budget(WorkTree(tmp_path), NAMES, rules=True)
+    assert _by_path(payload)[(".claude/rules/api.md", "rule")]["chars"] == 0
+    assert payload["warnings"] == [".claude/rules/api.md: not readable (not found, broken link, or outside tree), "
+                                   "counted as 0"]
