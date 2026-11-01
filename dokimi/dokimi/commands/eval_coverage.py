@@ -36,7 +36,9 @@ def _below(report: dict, floors: list[tuple[str, float]]) -> list[str]:
     out = []
     for metric, floor in floors:
         share = exact[metric]
-        if share is not None and share < floor:
+        if share is None:  # nothing of that class in the graph: the floor cannot be met
+            out.append(f"{metric} coverage n/a < {floor:.6f}")
+        elif share < floor:
             out.append(f"{metric} coverage {share:.6f} < {floor:.6f}")
     return out
 
@@ -91,6 +93,7 @@ def register(eval_sub) -> None:
                    help="need_graph.v1 file (a novelty need graph is valid as written)")
     p.add_argument("--out", default=None, help="Write the eval_coverage.v1 artifact here")
     p.add_argument("--min", type=_floor, action="append", metavar="[METRIC=]X",
-                   help="Exit 1 when a coverage figure is below X (0-1); METRIC is weighted "
-                        "(default), core_rare_critical or rare_critical. Repeatable")
+                   help="Exit 1 when a coverage figure is below X (0-1) or n/a (the graph has no "
+                        "node of that class); METRIC is weighted (default), core_rare_critical or "
+                        "rare_critical. Repeatable")
     p.set_defaults(func=cmd_eval_coverage)

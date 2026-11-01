@@ -17,5 +17,8 @@ SPDX-License-Identifier: Apache-2.0
   ids the graph has. A row or task with no `needs` key is `unlabelled`; an explicit
   `"needs": null` is malformed and exits 2. `--out` is refused when it would overwrite the
   graph or any input file. A `--min` floor is judged on the unrounded share, not the rounded
-  figure shown in the report. Novelty's need graph now keeps `confirmed_by` and `provenance`.
+  figure shown in the report; a floor on a class the graph has no node of (n/a) also exits 1.
+  Known gap: a terminal-bench v1 task (`task.yaml`) has its `metadata.needs` ignored, so it counts
+  as `unlabelled`; `task.toml` and `task.md` tasks are read. Novelty's need graph now keeps
+  `confirmed_by` and `provenance`.
   Building the graph, the user interview and drafting labels follow in #331.

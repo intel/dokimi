@@ -351,6 +351,18 @@ def test_a_floor_equal_to_the_share_passes(tmp_path, capsys):
     assert res.returncode == 0, res.stderr
 
 
+def test_a_floor_on_a_class_the_graph_lacks_is_n_a_and_fails(tmp_path, capsys):
+    nodes = [{"id": f"c{i}", "text": "t", "path_class": "core"} for i in range(2)]
+    graph = tmp_path / "need_graph.json"
+    graph.write_text(json.dumps({"artifact_name": "x", "nodes": nodes}))
+    skill = _skill(tmp_path, [{"id": "e", "needs": ["c0"]}])
+
+    res = _run(capsys, str(skill), "--graph", str(graph), "--min", "rare_critical=0.5")
+
+    assert res.returncode == 1
+    assert "FAIL: rare_critical coverage n/a < 0.500000" in res.stderr
+
+
 def test_out_as_a_relative_path_to_an_input_is_refused(tmp_path, capsys, monkeypatch):
     skill = _skill(tmp_path, ROWS)
     work = tmp_path / "work"
