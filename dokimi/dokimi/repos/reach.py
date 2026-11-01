@@ -127,7 +127,8 @@ def _pinned_names(links: dict[str, tuple[str, ...]], own: str | None,
     ambiguous: set[str] = set()
     for target, aliases in links.items():
         kinds = {"own" if overlay_of(n) == own else "foreign" for n in (target, *aliases) if overlay_of(n) is not None}
-        if aliases and (PurePosixPath(target).name in native or {"own", "foreign"} <= kinds):
+        # a native name anywhere in the group (the target or an alias) cannot tell which file a harness read
+        if aliases and (any(PurePosixPath(n).name in native for n in (target, *aliases)) or {"own", "foreign"} <= kinds):
             ambiguous.update(aliases)
             names[target] = ()
         else:

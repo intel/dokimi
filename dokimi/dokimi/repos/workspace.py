@@ -568,7 +568,7 @@ def _link_hits(link: Path, gone: set[Path]) -> bool:
         hops += 1
         if hops > _MAX_HOPS:
             return False
-        target = PurePosixPath(os.readlink(cand))
+        target = Path(os.readlink(cand))  # the native separators: a Windows target splits on backslashes
         if target.is_absolute():
             resolved, parts = Path(target.anchor), target.parts[1:]
         else:

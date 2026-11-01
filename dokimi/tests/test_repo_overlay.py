@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -219,6 +220,17 @@ def test_overlay_arm_keeps_a_base_link_whose_target_a_removed_link_also_names(tm
     assert (tmp_path / "AGENTS.md").read_text(encoding="utf-8") == "shared\n"
 
 
+@pytest.mark.skipif(os.name != "nt", reason="a backslash in a link target separates names on Windows only")
+def test_overlay_arm_refuses_a_backslash_base_link_through_a_removed_directory_link(tmp_path):
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "base.md").write_text("base\n", encoding="utf-8")
+    (tmp_path / "AGENTS.codex.md").symlink_to("docs", target_is_directory=True)
+    (tmp_path / "AGENTS.md").symlink_to("AGENTS.codex.md\\base.md")
+    (tmp_path / "AGENTS.claude.md").write_text("claude\n", encoding="utf-8")
+    with pytest.raises(PrepError, match="the base would dangle"):
+        _apply_overlay(tmp_path, ["AGENTS.md", "AGENTS.codex.md", "AGENTS.claude.md"], "claude")
+
+
 def test_overlay_arm_refuses_a_base_link_through_a_directory_link(tmp_path):
     (tmp_path / "real").mkdir()
     (tmp_path / "real" / "AGENTS.codex.md").write_text("codex\n", encoding="utf-8")
@@ -305,6 +317,15 @@ def test_overlay_report_leaves_a_load_of_a_shared_target_unattributed():
     assert report["own_loaded"] == [] and report["cross_loaded"] == {}
     assert report["ambiguous"] == ["AGENTS.claude.md", "AGENTS.codex.md"]
     assert report["own_files"] == ["AGENTS.claude.md"] and report["foreign_files"] == ["AGENTS.codex.md"]
+
+
+def test_overlay_report_does_not_pin_a_shared_target_read_through_a_native_alias():
+    """CLAUDE.md and AGENTS.codex.md both link to docs/shared.md: a Claude load of it is CLAUDE.md, not the foreign alias."""
+    records = [{"file": "docs/shared.md", "scenario": "cwd=.", "class": "loaded"}]
+    links = {"docs/shared.md": ("CLAUDE.md", "AGENTS.codex.md")}
+    report = overlay_report(records, "claude", links, native={"CLAUDE.md"})
+    assert report["cross_loaded"] == {}
+    assert "AGENTS.codex.md" in report["ambiguous"]
 
 
 def test_overlay_report_leaves_a_load_of_an_own_and_a_foreign_alias_unattributed():
