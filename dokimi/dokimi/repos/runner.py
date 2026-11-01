@@ -76,7 +76,7 @@ from .harness_profile import HarnessProfile
 from .host import probe_host, unmet, validate_tasks
 from .manifest import match_glob, scratch_name
 from .process_metrics import process_metrics
-from .workspace import PrepError, Task, prepare_workspace
+from .workspace import OVERLAY_ARM, PrepError, Task, parse_arm, prepare_workspace
 
 SUPPORT_HOST = Path(__file__).resolve().parent / "support"
 CONFIG_DIR = f"{RUN_DIR}/config"
@@ -99,22 +99,26 @@ class AgentOptions:
     budget_usd: float = 2.0
 
 
-def execution_record(opts: AgentOptions) -> dict[str, str]:
+def execution_record(opts: AgentOptions, arm: str | None = None) -> dict[str, str]:
     """How the cell's agent was started, as ``meta.json`` and ``result.json`` record it.
 
     The executable is digested for each cell, not once per batch: a cell records the bytes it actually ran, so a
-    binary replaced mid-batch shows up as cells of two executions, which the next run refuses."""
+    binary replaced mid-batch shows up as cells of two executions, which the next run refuses. A cell of the
+    overlay arm also records the profile's overlay: the arm keeps that overlay's file, so another one is another run."""
     beside = opts.harness_bin.resolve().parent  # where harness_mounts takes the companions from
     companions = {n: harness_sha256(beside / n) if (beside / n).is_file() else None
                   for n in opts.profile.bin_companions}
+    overlay = opts.profile.overlay if arm is not None and parse_arm(arm).base == OVERLAY_ARM else None
     return batch_ledger.execution_record(opts.profile, opts.tools, opts.delegation, harness_sha256(opts.harness_bin),
-                                         opts.harness_version, companions)
+                                         opts.harness_version, companions, overlay)
 
 
 def check_batch_executions(batch_dir: Path, options: list[AgentOptions], replacing: set[str] | None = None) -> None:
     """Refuse, before anything runs, a batch dir whose finished cells ran with another execution than ``options``
-    (see :func:`batch_ledger.check_batch_executions`)."""
-    batch_ledger.check_batch_executions(batch_dir, {execution_record(o)["id"] for o in options}, replacing)
+    (see :func:`batch_ledger.check_batch_executions`). Each option's plain cells and its overlay cells are both
+    this execution, so a batch may hold either kind of cell of one profile."""
+    wanted = {execution_record(o, a)["id"] for o in options for a in (None, OVERLAY_ARM)}
+    batch_ledger.check_batch_executions(batch_dir, wanted, replacing)
 
 
 def agent_network(opts: AgentOptions, ctx: EvalContext, task: Task) -> str:
@@ -200,7 +204,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
 
     ``host`` (the probed facts of :func:`.host.probe_host`) is recorded in ``meta.json``."""
     rd = batch_dir / cell_name(task.id, arm, opts.model, rep)
-    execution = execution_record(opts)
+    execution = execution_record(opts, arm)
     done = batch_ledger.reused_result(rd, execution, force)
     if done is not None:
         return {**done, "skipped": True}

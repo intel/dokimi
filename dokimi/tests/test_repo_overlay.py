@@ -312,3 +312,39 @@ def test_overlay_report_leaves_a_load_of_an_own_and_a_foreign_alias_unattributed
     report = overlay_report(records, "claude", {"docs/x.md": ("AGENTS.claude.md", "AGENTS.codex.md")})
     assert report["own_loaded"] == [] and report["cross_loaded"] == {}
     assert report["ambiguous"] == ["AGENTS.claude.md", "AGENTS.codex.md"]
+
+
+def test_an_overlay_cell_is_identified_by_the_overlay_it_keeps(tmp_path):
+    """A resumed batch must not reuse an overlay cell that kept another agent's overlay; other cells keep their ids."""
+    from dokimi.repos.runner import AgentOptions, ExecutionMismatch, check_batch_executions, execution_record
+
+    harness = tmp_path / "harness"
+    harness.write_bytes(b"harness\n")
+    claude = load_profile("claude-code")
+    codex = dataclasses.replace(claude, overlay="codex")
+
+    def options(profile):
+        return AgentOptions(profile=profile, model="m", harness_bin=harness)
+
+    def cell_id(profile, arm):
+        return execution_record(options(profile), arm)["id"]
+
+    assert cell_id(claude, "guidance:overlay") != cell_id(codex, "guidance:overlay")
+    assert cell_id(claude, "guidance:none") == cell_id(codex, "guidance:none")
+    assert cell_id(claude, "guidance:overlay") == execution_record(options(claude), "guidance:overlay")["id"]
+
+    batch = tmp_path / "batch"
+    cell = batch / "task__guidance-overlay__m__r1"
+    cell.mkdir(parents=True)
+    (cell / "result.json").write_text(
+        json.dumps({"execution": {"id": cell_id(claude, "guidance:overlay"), "tools": "all", "delegation": "native"}}),
+        encoding="utf-8")
+    check_batch_executions(batch, [options(claude)])  # the same execution: no refusal
+    with pytest.raises(ExecutionMismatch, match="another execution"):
+        check_batch_executions(batch, [options(codex)])
+    plain = batch / "task__guidance-none__m__r1"
+    plain.mkdir()
+    (plain / "result.json").write_text(
+        json.dumps({"execution": {"id": cell_id(claude, "guidance:none"), "tools": "all", "delegation": "native"}}),
+        encoding="utf-8")
+    check_batch_executions(batch, [options(claude)])  # a plain cell beside an overlay cell of one profile
