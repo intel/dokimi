@@ -272,27 +272,37 @@ def _probe_flags_given(args: argparse.Namespace) -> list[str]:
     return [f"--{k.replace('_', '-')}" for k, default in _PROBE_ONLY.items() if getattr(args, k) != default]
 
 
+def _saved_reach_inputs(args: argparse.Namespace):
+    """The harness profile, the source and the saved reach.json of ``--from``, as typed; raises on a usage error."""
+    from dokimi.repos import RepoSource
+    from dokimi.repos.harness_profile import load_profile
+    from dokimi.repos.reach import ReachError, load_reach, saved_gaps
+
+    given = _probe_flags_given(args)
+    if given:
+        raise ReachError(f"--from reads a saved probe, so {', '.join(given)} cannot be used with it")
+    profile = load_profile(args.harness)
+    source = RepoSource.parse(args.source)
+    reach = load_reach(Path(args.from_file))
+    gaps = saved_gaps(reach, args.format)
+    if gaps:
+        raise ReachError(f"{args.from_file} has no {', '.join(gaps)}, which --format {args.format} needs")
+    if args.format == "receipt" and _receipt_would_overwrite(Path(args.from_file), _receipt_path(args.from_file)):
+        raise ReachError(f"the receipt would replace {args.from_file}, the probe it is read from: "
+                         "rename the saved file")
+    return profile, source, reach
+
+
 def _reach_from_saved(args: argparse.Namespace) -> None:
     """The matrix or the receipt of a saved reach.json, checked against the source; no harness runs."""
-    from dokimi.repos import ManifestError, RepoSource, SourceError, open_source
-    from dokimi.repos.harness_profile import ProfileError, load_profile
+    from dokimi.repos import ManifestError, SourceError, open_source
+    from dokimi.repos.harness_profile import ProfileError
     from dokimi.repos.receipt import check_receipt_provenance, check_saved_reach
-    from dokimi.repos.reach import ReachError, format_matrix, load_reach, saved_gaps
+    from dokimi.repos.reach import ReachError, format_matrix
     from dokimi.repos.source import SourceArgumentError
 
     try:  # the arguments and the saved file as typed: a usage error
-        given = _probe_flags_given(args)
-        if given:
-            raise ReachError(f"--from reads a saved probe, so {', '.join(given)} cannot be used with it")
-        profile = load_profile(args.harness)
-        source = RepoSource.parse(args.source)
-        reach = load_reach(Path(args.from_file))
-        gaps = saved_gaps(reach, args.format)
-        if gaps:
-            raise ReachError(f"{args.from_file} has no {', '.join(gaps)}, which --format {args.format} needs")
-        if args.format == "receipt" and _receipt_would_overwrite(Path(args.from_file), _receipt_path(args.from_file)):
-            raise ReachError(f"the receipt would replace {args.from_file}, the probe it is read from: "
-                             "rename the saved file")
+        profile, source, reach = _saved_reach_inputs(args)
     except (SourceError, ProfileError, ReachError, OSError, ValueError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
@@ -329,6 +339,14 @@ def _tree_read_exit_code(exc: Exception) -> int:
 
     git_failure = isinstance(exc, SourceError) and not isinstance(exc, SourceArgumentError)
     return 1 if git_failure else EXIT_USAGE
+
+
+def _refuse_receipt_over_probe(args: argparse.Namespace, out_dir: Path) -> None:
+    """Exit as a usage error when ``--format receipt`` would write the receipt over the probe it is built from."""
+    if args.format == "receipt" and _receipt_would_overwrite(out_dir / "reach.json", out_dir / RECEIPT_NAME):
+        print(f"✗ {out_dir / RECEIPT_NAME} is the probe itself (a link to {out_dir / 'reach.json'}): "
+              "remove the link", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
 
 
 def cmd_repo_reach(args: argparse.Namespace) -> None:
@@ -382,10 +400,7 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
     print(f"{len(files)} guidance files, {planned_count} scenarios, "
           f"at most ${args.budget:g} each", file=sys.stderr)
     out_dir = Path(args.out or "reach-out")
-    if args.format == "receipt" and _receipt_would_overwrite(out_dir / "reach.json", out_dir / RECEIPT_NAME):
-        print(f"✗ {out_dir / RECEIPT_NAME} is the probe itself (a link to {out_dir / 'reach.json'}): "
-              "remove the link", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+    _refuse_receipt_over_probe(args, out_dir)
     try:  # the harness runs: a runtime failure
         payload = run_reach(
             tree=tree, manifest=manifest, profile=profile, model=args.model, out_dir=out_dir,
