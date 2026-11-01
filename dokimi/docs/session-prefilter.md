@@ -32,13 +32,19 @@ model is called; every match is lexical.
 - **Trigger.** An *episode* where the situation came up: a prompt the user
   typed, or a tool call's inputs (command, paths, search patterns, description),
   share at least half of the rule's keywords (stemmed, stop words dropped,
-  rounded up). Repeats within the window after a trigger are the same episode.
+  rounded up). A rule with no prose keywords (only backticked commands or paths, or a
+  protection tag) triggers on a prompt that names one of them, or a tool call that runs one.
+  Repeats within the window after a trigger are the same episode.
 - **Acted.** Within `--window` events either side of the trigger, a tool call
   ran a command or touched a path the rule names in backticks (`` `make ci-local` ``,
-  `` `changelog.d/` ``). A rule that names neither is not measurable here: its
+  `` `changelog.d/` ``). A command counts when it runs the named command at the start of
+  a shell segment (after `uv run`, `sudo` or environment assignments), so an `echo`, a
+  `grep` argument or a `#` comment that names it does not. A path counts when a tool call
+  names it or a shell command writes into it; a Windows path matches with backslashes too.
+  A rule that names neither is not measurable here: its
   `acted` is `null` and it carries the flag `acted_not_measurable`.
 - **Corrected.** Within `--window` events after the trigger, the user's next
-  prompt pushes back (`no`, `don't`, `instead`, `forgot`, `revert`, ...) and
+  prompt (the first prompt after it, and only that one) pushes back (`no`, `don't`, `instead`, `forgot`, `revert`, ...) and
   shares a keyword with the rule or names its command or path. Two or more
   episodes with corrections on half or more of them carry `user_overrides`:
   check the wording before anything else.
@@ -52,11 +58,16 @@ memory echo of a rule would otherwise trigger that rule on every session.
 
 | Status | Meaning | Ranked |
 | --- | --- | --- |
-| `candidate_for_ablation` | Triggered in fewer than `--in-use-rate` of the sessions, or never. Ranked lowest trigger rate first. | yes |
+| `candidate_for_ablation` | Triggered in fewer than `--in-use-rate` of the sessions, or never. Ranked fewest triggered sessions first, then lowest acted share. | yes |
 | `in_use` | Triggered in at least `--in-use-rate` of the sessions. | no |
-| `rare_not_ranked` | Triggered in at most `--rare-max` sessions. Few sessions are too little evidence to call a rule unused. | no |
+| `rare_not_ranked` | Triggered in 1 through `--rare-max` sessions. Few sessions are too little evidence to call a rule unused. | no |
 | `kept_protected` | The rule carries a protection tag: a negation, a version gate, an ordering constraint or a threshold (the same tags the novelty layer uses). Its failure case is rare by design. | no |
 | `insufficient_corpus` | Fewer than `--min-sessions` sessions were read. | no |
+
+Precedence: `kept_protected`, then `insufficient_corpus`, then a rule with no trigger
+(a candidate), then `rare_not_ranked`, then `in_use`; the rest are candidates. `--rare-max`
+takes 0 or more and `--in-use-rate` a number from 0 to 1. A file named twice (a repeat, an
+overlapping glob, a symlink to it) is read once.
 
 The table prints the same counts; the JSON has every claim with its status,
 keys (commands, paths, keywords), counts, rates and flags. Defaults: window 10
