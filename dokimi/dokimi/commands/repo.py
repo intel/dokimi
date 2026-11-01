@@ -8,7 +8,9 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import re
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -122,15 +124,39 @@ def _read_static(path: str) -> Any:
         sys.exit(EXIT_USAGE)
 
 
+def _typecheck_or_exit(args: argparse.Namespace):
+    """The ``--typecheck`` check, or None; ``--python-env`` needs it and must name an interpreter."""
+    from dokimi.repos.l0 import Check
+
+    if args.typecheck is None:
+        if args.python_env is not None:
+            print("✗ --python-env needs --typecheck", file=sys.stderr)
+            sys.exit(EXIT_USAGE)
+        return None
+    if args.python_env is not None and not os.access(args.python_env, os.X_OK):
+        print(f"✗ --python-env {args.python_env}: not an executable interpreter", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+    if args.typecheck != "mypy" and shutil.which(args.typecheck) is None:
+        print(f"✗ --typecheck {args.typecheck}: not on PATH", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+    return Check(args.typecheck, args.python_env)
+
+
 def cmd_repo_scan(args: argparse.Namespace) -> None:
     """L0: check every mechanically checkable claim in the guidance against the same tree."""
     from dokimi.artifacts import save_artifact, stamp
     from dokimi.repos.l0 import scan_repo
+    from dokimi.repos.l0.typecheck import TypecheckError
 
     _, tree = _source_tree(args)
     manifest = _manifest_or_exit(tree, args, guidance_default=True, also_usage=(OSError,))
     static = _read_static(args.static) if args.static else None
-    payload = scan_repo(tree, manifest, static)
+    check = _typecheck_or_exit(args)
+    try:
+        payload = scan_repo(tree, manifest, static, typecheck=check)
+    except TypecheckError as exc:
+        print(f"✗ --typecheck {check.tool}: {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
     if args.out:
         try:
             save_artifact("repo_readiness", payload, Path(args.out))
@@ -144,28 +170,39 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
     if args.json:
         print(json.dumps(stamp("repo_readiness", dict(payload)), indent=2))
     else:
-        c = payload["counts"]
-        detected = " (detected)" if payload["adapters_detected"] else ""
-        print(f"{manifest.id}: {len(payload['files'])} guidance files in {payload['repo']['tree']}; "
-              f"adapters: {', '.join(payload['adapters']) or 'none'}{detected}")
-        print(f"  claims: {c['total']} (ok {c['ok']}, unresolved {c['unresolved']}, fail {c['fail']})")
-        for warning in payload["warnings"]:
-            print(f"  warning: {warning}")
-        if payload["incomplete"]:
-            print(f"  incomplete: {'; '.join(payload['incomplete_reasons'])} (repo scan --fail-on-fail exits 1)")
-        if static_info is not None and not static_errors:
-            r = payload["by_source"]["repository"]
-            print(f"  repository static: {r['total']} claims, {r['fail']} fail; "
-                  f"{static_info['superseded']} framework claims replaced")
-        for claim in payload["claims"]:
-            if claim["status"].split("_", 1)[0] == "fail":
-                print(f"  FAIL {claim['file']}:{claim['line']} [{claim.get('kind')}] "
-                      f"{str(claim.get('claim'))[:90]} -- {claim.get('why')}")
-        if args.out:
-            print(f"wrote {args.out}")
+        _print_scan_text(manifest, payload, args.out)
     _scan_gate(payload, args.fail_on_fail)  # runs first: an invalid --static still gets the incomplete reason
     if static_errors:
         sys.exit(1)
+
+
+def _print_scan_text(manifest, payload: dict, out: str | None) -> None:
+    """The text report of ``repo scan``: the counts, the warnings, the typecheck and static lines, the FAIL lines."""
+    c = payload["counts"]
+    detected = " (detected)" if payload["adapters_detected"] else ""
+    print(f"{manifest.id}: {len(payload['files'])} guidance files in {payload['repo']['tree']}; "
+          f"adapters: {', '.join(payload['adapters']) or 'none'}{detected}")
+    print(f"  claims: {c['total']} (ok {c['ok']}, unresolved {c['unresolved']}, fail {c['fail']})")
+    for warning in payload["warnings"]:
+        print(f"  warning: {warning}")
+    if payload["incomplete"]:
+        print(f"  incomplete: {'; '.join(payload['incomplete_reasons'])} (repo scan --fail-on-fail exits 1)")
+    tc = payload["typecheck"]
+    if tc is not None:
+        where = tc["python"] or "no --python-env: unknown"
+        print(f"  typecheck {tc['tool']} {tc['tool_version'] or ''} ({where}): {tc['fences']} python fences, "
+              f"{tc['checked']} checked, {tc['fail']} fail, {tc['unknown']} unknown, {tc['syntax']} not Python")
+    static_info = payload["static"]
+    if static_info is not None and not static_info["errors"]:
+        r = payload["by_source"]["repository"]
+        print(f"  repository static: {r['total']} claims, {r['fail']} fail; "
+              f"{static_info['superseded']} framework claims replaced")
+    for claim in payload["claims"]:
+        if claim["status"].split("_", 1)[0] == "fail":
+            print(f"  FAIL {claim['file']}:{claim['line']} [{claim.get('kind')}] "
+                  f"{str(claim.get('claim'))[:90]} -- {claim.get('why')}")
+    if out:
+        print(f"wrote {out}")
 
 
 def _scan_gate(payload: dict, fail_on_fail: bool) -> None:
@@ -474,6 +511,13 @@ def register(sub, positive_int) -> None:
                         "the report, its claims replacing the framework's on the same file, line and text. "
                         "A file that cannot be read or is not JSON exits 2; a schema-invalid document is "
                         "reported and makes the command exit 1")
+    scan_p.add_argument("--typecheck", nargs="?", const="mypy", default=None, choices=("mypy", "basedpyright"),
+                        help="Type-check each Python fence of the guidance (§8.2): one claim per fence, fail when the "
+                        "tool reports an error. mypy is the host's pinned copy; basedpyright must be on PATH. Without "
+                        "--python-env the fences are unknown (unresolved), not checked. Bare --typecheck means mypy")
+    scan_p.add_argument("--python-env", default=None, dest="python_env", metavar="PYTHON",
+                        help="The repository's interpreter (a venv with its pinned dependencies installed); the fences "
+                        "are checked against its site-packages. Needs --typecheck")
     scan_p.add_argument("--out", default=None, help="Write the repo_readiness.v1 report to this file")
     scan_p.add_argument("--json", action="store_true", help="Print the full report as JSON")
     scan_p.add_argument("--fail-on-fail", action="store_true", dest="fail_on_fail",

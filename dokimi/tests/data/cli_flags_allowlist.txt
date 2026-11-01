@@ -148,6 +148,7 @@
 --product
 --prompt-file  # repo tasks replay (#265) adds it: no registry concept yet; a F1b migration names it
 --provider
+--python-env  # repo scan --typecheck: the interpreter whose site-packages the fences resolve against; no registry concept yet
 --queries
 --queries-by-skill  # novelty routing (#172) adds it: no registry concept yet; a F1b migration names it
 --queries-from-headings
@@ -205,6 +206,7 @@
 --trials  # catalog trigger-probe (#217) adds it: a banned synonym of reps; renaming it changes the CLI, so it waits for F1b
 --trigger-set
 --turn-reminder
+--typecheck  # repo scan's Python-fence check (mypy or basedpyright): no registry concept yet
 --typed-max-len
 --typed-threads
 --validate

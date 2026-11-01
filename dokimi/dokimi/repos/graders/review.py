@@ -181,7 +181,7 @@ def _per_group(entries, key, hit):
     return {k: f"{a}/{b}" for k, (a, b) in counts.items()}
 
 
-def grade_seeds(task, task_dir, answer):
+def grade_seeds(task, task_dir, answer, run_dir=None):
     """``review_seeds``: the result dict (``pass`` and flat metrics, lists and objects for details)."""
     man = _read_json(task_dir, task.get("manifest", "manifest.json"))
     seeds, decoys = man.get("seeds", []), man.get("decoys", [])
@@ -250,7 +250,7 @@ def _match(g, i, f, distance):
             "message": _cut(f.get("message")), "distance": distance}
 
 
-def grade_replay(task, task_dir, answer):
+def grade_replay(task, task_dir, answer, run_dir=None):
     """``review_replay``: score-only, ``recall`` over the human threads."""
     gold = _read_json(task_dir, task.get("gold", "gold.json"))
     findings = findings_of(answer)
