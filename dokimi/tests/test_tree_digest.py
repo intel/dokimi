@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -113,3 +115,27 @@ def test_an_undecodable_name_and_link_target_digest_without_error(tmp_path):
     os.close(fd)
     os.symlink(b"target-\xff", os.fsencode(other / "link"))
     assert first != tree_digest(other)
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="the mode bit comes from git's index; needs git")
+def test_the_executable_bit_is_the_one_git_records_not_the_disk_one(tmp_path):
+    root = _write(tmp_path / "t", {"run.sh": "echo\n"})
+    (root / "run.sh").chmod(0o755)
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    subprocess.run(["git", "-C", str(root), "add", "run.sh"], check=True)
+    before = tree_digest(root)
+    (root / "run.sh").chmod(0o644)  # a Windows checkout has no exec bit on disk; git still records 100755
+    assert tree_digest(root) == before
+
+
+@symlinks
+def test_an_absolute_link_inside_the_tree_digests_the_same_at_another_path(tmp_path):
+    a = _write(tmp_path / "a", {"q.json": "[]\n", "other.json": "[1]\n"})
+    b = _write(tmp_path / "b", {"q.json": "[]\n", "other.json": "[1]\n"})
+    os.symlink(a / "q.json", a / "current")  # an absolute target: the checkout path must not reach the digest
+    os.symlink(b / "q.json", b / "current")
+    assert tree_digest(a) == tree_digest(b)
+    before = tree_digest(a)
+    (a / "current").unlink()
+    os.symlink(a / "other.json", a / "current")
+    assert tree_digest(a) != before

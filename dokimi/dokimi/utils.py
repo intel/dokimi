@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 from pathlib import Path
 from typing import Iterable, Tuple, Dict, Any
 
@@ -94,6 +95,48 @@ def digest_text(text: str) -> str:
     return "sha256:" + hashlib.sha256((text or "").encode("utf-8", errors="surrogatepass")).hexdigest()
 
 
+def link_text(link: Path, root: Path) -> str:
+    """A symlink's target as the digests hold it: as written, except an absolute target inside ``root``, which is
+    written relative to the link. So a tree digests the same at another checkout path (the link's text is the same)."""
+    target = os.readlink(link)
+    if not os.path.isabs(target):
+        return target
+    target = os.path.normpath(target)
+    # the tree may be named by a path with links in it: match the target under the name as given and as resolved
+    # (a link that is the root itself is not resolved, or its own target would count as inside it)
+    anchors = [os.fspath(root)] if root.is_symlink() else [os.fspath(root), os.path.realpath(root)]
+    for anchor in anchors:
+        try:
+            inside = os.path.commonpath([target, anchor]) == anchor
+        except ValueError:  # different drives, or a relative path mixed in
+            continue
+        if inside:
+            here = os.path.join(anchor, os.path.dirname(link.relative_to(root)))
+            return os.path.relpath(target, here).replace(os.sep, "/")
+    return target
+
+
+def _tracked_modes(base: Path, spec: str) -> dict[str, bool]:
+    """The executable bit git records (mode 100755) for each file ``spec`` names under ``base``, keyed by the path
+    relative to ``base``. Empty when git cannot say (no git, or ``base`` is not in a repository)."""
+    from dokimi.process import Env, run
+
+    # GIT_* variables (a hook's GIT_DIR or GIT_INDEX_FILE) would point git at some other repository's index
+    env = Env.only(allow=[k for k in os.environ if not k.startswith("GIT_")])
+    try:
+        done = run(["git", "-C", os.fspath(base), "ls-files", "--stage", "-z", "--", spec], timeout=60, env=env)
+    except OSError:
+        return {}
+    if not done.ok:
+        return {}
+    modes: dict[str, bool] = {}
+    for record in done.stdout_bytes.split(b"\0"):
+        meta, tab, name = record.partition(b"\t")
+        if tab:
+            modes[os.fsdecode(name)] = meta.split()[0] == b"100755"
+    return modes
+
+
 def tree_digest(root: Path, *, exclude: Iterable[str] = ()) -> str:
     """sha256 (bare hex) over every path, mode bit and byte under ``root``; a link by its target.
 
@@ -101,9 +144,16 @@ def tree_digest(root: Path, *, exclude: Iterable[str] = ()) -> str:
     (by its target, dangling or not; it is not walked). Entries whose path, relative to
     ``root``, equals one of ``exclude`` or sits under it are left out, so a skill's digest can
     leave its eval directory out. Output is deterministic: sorted walk, no timestamps.
+
+    The same tree digests the same on every OS: a file's mode bit is the one git records (the index, so a
+    Windows checkout with no exec bit still matches), and an untracked file takes its owner's exec bit
+    from the disk. A link inside ``root`` with an absolute target is hashed by a relative target (see
+    ``link_text``); one pointing outside ``root`` is hashed as written.
     """
     skip = tuple(e.strip("/") for e in exclude)
     entries = [root] if root.is_symlink() or root.is_file() else sorted(root.rglob("*"))
+    base, spec = (root.parent, root.name) if root.is_file() else (root, ".")
+    tracked = _tracked_modes(base, spec) if any(p.is_file() and not p.is_symlink() for p in entries) else {}
     h = hashlib.sha256()
     for path in entries:
         rel = "." if path == root else path.relative_to(root).as_posix()
@@ -112,9 +162,14 @@ def tree_digest(root: Path, *, exclude: Iterable[str] = ()) -> str:
         # names and link targets are bytes on POSIX and may hold undecodable bytes: encode them as the OS does
         name = os.fsencode(rel)
         if path.is_symlink():
-            h.update(b"L " + name + b"\0" + os.fsencode(os.readlink(path)) + b"\0")
+            h.update(b"L " + name + b"\0" + os.fsencode(link_text(path, root)) + b"\0")
         elif path.is_file():
-            h.update(b"F " + name + f"\0{int(os.access(path, os.X_OK))}\0".encode())
+            key = path.relative_to(base).as_posix()
+            if key in tracked:
+                executable = tracked[key]
+            else:
+                executable = bool(os.lstat(path).st_mode & stat.S_IXUSR)
+            h.update(b"F " + name + f"\0{int(executable)}\0".encode())
             h.update(hashlib.sha256(path.read_bytes()).digest())
         elif path.is_dir():
             h.update(b"D " + name + b"\0")

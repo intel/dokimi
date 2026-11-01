@@ -854,8 +854,8 @@ def test_retargeting_a_link_on_the_way_to_a_suite_file_claims_the_link_itself(tm
     root = _tree(tmp_path / "repo", {
         ".github/dokimi/config.yaml": body,
         "skills/a/SKILL.md": "# a\n",
-        "one/task.json": "[1]\n",
-        "two/task.json": "[2]\n",
+        "one/task.json": "[]\n",  # identical bytes: only the link's target tells the two apart
+        "two/task.json": "[]\n",
     })
     os.makedirs(root / "evaluation")
     os.symlink("../one", root / "evaluation" / "current")
@@ -901,3 +901,83 @@ def test_undecodable_names_and_link_targets_under_a_suite_load_and_digest(tmp_pa
     assert subject.suite_hash and subject.suite_hash.startswith("sha256:")
     impact = load_repo_config(root).subjects_for_changed(["skills/a/evals/bad-\udcff"])
     assert impact.suites == {"skill/a": ["skills/a/evals/bad-\udcff"]}
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_a_link_on_the_way_to_a_suite_files_target_claims_the_suite(tmp_path):
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: skills/a/evals/**\n"
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": body,
+        "skills/a/SKILL.md": "# a\n",
+        "shared/one/q.json": "[]\n",  # identical bytes in both: the chain alone tells them apart
+        "shared/two/q.json": "[]\n",
+    })
+    os.makedirs(root / "skills" / "a" / "evals")
+    os.symlink("../../../shared/current/q.json", root / "skills" / "a" / "evals" / "q.json")
+    os.symlink("one", root / "shared" / "current")
+    before = _subjects(root)["skill/a"].suite_hash
+    (root / "shared" / "current").unlink()
+    os.symlink("two", root / "shared" / "current")
+    assert _subjects(root)["skill/a"].suite_hash != before
+    impact = load_repo_config(root).subjects_for_changed(["shared/current", "shared/current-sibling/x"])
+    assert impact.suites == {"skill/a": ["shared/current"]}
+    assert impact.unclaimed == ["shared/current-sibling/x"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_a_link_on_the_way_to_a_skill_claims_the_skill(tmp_path):
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: linked/a\n"
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": body,
+        "real1/a/SKILL.md": "# a\n",
+        "real2/a/SKILL.md": "# b\n",
+    })
+    os.symlink("hop", root / "linked")
+    os.symlink("real1", root / "hop")
+    before = _subjects(root)["skill/a"].skill_sha
+    (root / "hop").unlink()
+    os.symlink("real2", root / "hop")
+    assert _subjects(root)["skill/a"].skill_sha != before
+    impact = load_repo_config(root).subjects_for_changed(["hop"])
+    assert impact.skills == {"skill/a": ["hop"]}
+    assert impact.unclaimed == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_a_link_on_the_way_to_a_manifest_claims_the_subject(tmp_path):
+    body = HEADER + "subjects:\n  - id: repo\n    kind: repo\n    manifest: dokimi.toml\n"
+    root = _tree(tmp_path / "repo", {".github/dokimi/config.yaml": body, "one/pyproject.toml": "[project]\n"})
+    os.symlink("one", root / "current")
+    os.symlink("current/pyproject.toml", root / "dokimi.toml")
+    before = _subjects(root)["repo"].suite_hash
+    (root / "current").unlink()
+    os.symlink("two", root / "current")
+    (root / "two").mkdir()
+    (root / "two" / "pyproject.toml").write_text("[project]\n")
+    assert _subjects(root)["repo"].suite_hash != before
+    impact = load_repo_config(root).subjects_for_changed(["current"])
+    assert impact.suites == {"repo": ["current"]}
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_a_link_inside_the_skill_that_a_suite_file_reaches_through_is_claimed_by_both(tmp_path):
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: skills/a/evals/**\n"
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": body,
+        "skills/a/SKILL.md": "# a\n",
+        "shared/one.md": "same\n",  # identical bytes in both: only the link tells them apart
+        "shared/two.md": "same\n",
+    })
+    os.makedirs(root / "skills" / "a" / "refs")
+    os.makedirs(root / "skills" / "a" / "evals")
+    os.symlink("../../../shared/one.md", root / "skills" / "a" / "refs" / "l")
+    os.symlink("../refs/l", root / "skills" / "a" / "evals" / "q.json")
+    before = _subjects(root)["skill/a"]
+    (root / "skills" / "a" / "refs" / "l").unlink()
+    os.symlink("../../../shared/two.md", root / "skills" / "a" / "refs" / "l")
+    after = _subjects(root)["skill/a"]
+    assert after.skill_sha != before.skill_sha and after.suite_hash != before.suite_hash
+    impact = load_repo_config(root).subjects_for_changed(["skills/a/refs/l"])
+    assert impact.skills == {"skill/a": ["skills/a/refs/l"]}
+    assert impact.suites == {"skill/a": ["skills/a/refs/l"]}
+    assert impact.unclaimed == []

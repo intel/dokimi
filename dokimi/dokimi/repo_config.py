@@ -29,7 +29,7 @@ from typing import Any, Iterable
 import yaml
 
 from dokimi.artifacts import ArtifactValidationError, validate_artifact
-from dokimi.utils import tree_digest
+from dokimi.utils import link_text, tree_digest
 
 KIND = "dokimi_config"
 CONFIG_CANDIDATES = (".github/dokimi/config.yaml", ".dokimi/config.yaml")
@@ -265,10 +265,52 @@ class Reach:
     globs: tuple[str, ...]
 
 
-def _link_ancestors(rel: str, root: Path) -> list[tuple[str, ...]]:
-    """The proper ancestors of ``rel`` (repository-relative) that are symbolic links under ``root``."""
-    parts = rel.split("/")
-    return [tuple(parts[:k]) for k in range(1, len(parts)) if root.joinpath(*parts[:k]).is_symlink()]
+def _declared_links(path: Path, root: Path) -> list[tuple[str, ...]]:
+    """The links on the declared way to ``path`` (a path under ``root``, as written), the path itself included when it is
+    one: the components that are symbolic links, not the links met by following them."""
+    parts = path.relative_to(root).parts
+    return [parts[:k] for k in range(1, len(parts) + 1) if root.joinpath(*parts[:k]).is_symlink()]
+
+
+def _hops(path: Path, root: Path, root_real: Path) -> list[tuple[str, ...]]:
+    """The repository-relative links met resolving ``path`` (a path under ``root``, as written): each link on its
+    declared way, and each link on the way to every target a link points to, until the path is resolved or leaves the
+    repository. A link's location is its real one, as git names it. A loop is cut after a fixed number of hops."""
+    pending = list(path.relative_to(root).parts)
+    here: tuple[str, ...] = ()  # the real directory the next component is looked up in
+    found: dict[tuple[str, ...], None] = {}
+    hops = 0
+    while pending:
+        part = pending.pop(0)
+        if part in ("", "."):
+            continue
+        if part == "..":
+            if not here:
+                break
+            here = here[:-1]
+            continue
+        link = root_real.joinpath(*here, part)
+        if not link.is_symlink():
+            here = (*here, part)
+            continue
+        hops += 1
+        if hops > 256:
+            break
+        found[(*here, part)] = None
+        target = os.readlink(link)
+        if os.path.isabs(target):
+            for anchor in (root_real, root):  # written as the resolved or the given spelling of the repository
+                try:
+                    pending = [*Path(os.path.normpath(target)).relative_to(anchor).parts, *pending]
+                    break
+                except ValueError:
+                    continue
+            else:
+                break  # an absolute target outside the repository: no more of the way is ours
+            here = ()
+        else:
+            pending = [*Path(target).parts, *pending]
+    return list(found)
 
 
 def _reach(subject: Subject, root: Path) -> Reach:
@@ -290,19 +332,31 @@ def _reach(subject: Subject, root: Path) -> Reach:
         if resolved != declared:  # a linked skill: its suite globs, rewritten to where the files live
             moved = [resolved + g[len(declared):] for g in globs if g == declared or g.startswith(declared + "/")]
             globs = (*globs, *moved)
-        skill_links.extend(_link_ancestors(subject.path, root))
+        skill_links.extend(_hops(root / subject.path, root, root_real))
     if subject.manifest is not None:  # the repo subject hashes its manifest through a link, so its target is covered
         real_manifest = _inside(root / subject.manifest, root_real)
         if real_manifest is not None:
             suites.append(real_manifest)
-        links.extend(_link_ancestors(subject.manifest, root))
+        links.extend(_hops(root / subject.manifest, root, root_real))
     for rel, path in _suite_files(root, subject.suite_globs).items():
-        links.extend(_link_ancestors(rel, root))
         for _, entry in _walk(path, rel, dirs=True):
-            real = _inside(entry, root_real)
-            if real is not None:
-                suites.append(real)
+            _suite_entry(entry, root, root_real, real_skill, suites, links, skill_links)
     return Reach(skills, suites, links, skill_links, globs)
+
+
+def _suite_entry(entry: Path, root: Path, root_real: Path, real_skill: tuple[str, ...] | None,
+                 suites: list[tuple[str, ...]], links: list[tuple[str, ...]],
+                 skill_links: list[tuple[str, ...]]) -> None:
+    """Add one suite file's claims: its own location and the links on the way to it, and a link inside the skill
+    that the suite reaches through (skill_sha covers it, so the skill claims it too)."""
+    declared_links = set(_declared_links(entry, root))
+    for hop in _hops(entry, root, root_real):
+        links.append(hop)
+        if real_skill is not None and _under(hop, real_skill) and hop not in declared_links:
+            skill_links.append(hop)
+    real = _inside(entry, root_real)
+    if real is not None:
+        suites.append(real)
 
 
 def _inside(path: Path, root_real: Path) -> tuple[str, ...] | None:
@@ -327,7 +381,10 @@ def _map_one(rel: str, subjects: list[Subject], reach: dict[str, Reach], shared:
     is_shared = any(_claims(g, segs) for g in shared)
     suites = [s.id for s in subjects if _in_suite(s, segs, reach[s.id])]
     # a skill whose own suite holds this file gets nothing: it is eval, and skill_sha leaves it out
-    skills = [s for s in _skill_owners(subjects, reach, segs) if not _in_suite(s, segs, reach[s.id])]
+    skills = [
+        s for s in _skill_owners(subjects, reach, segs)
+        if not _in_suite(s, segs, reach[s.id]) or segs in reach[s.id].skill_links
+    ]
     if is_shared:
         impact.shared.append(rel)
     for sid in suites:
@@ -514,14 +571,20 @@ def _suite_files(root: Path, globs: tuple[str, ...]) -> dict[str, Path]:
     return {rel: path for rel, path in found.items() if not any(other != rel and _within(rel, other) for other in found)}
 
 
-def _digest_files(files: dict[str, Path]) -> str:
+def _digest_files(files: dict[str, Path], root: Path) -> str:
     """One digest over the suite's files. A directory is walked file by file; a symlink counts by its target text
-    (as tree_digest does) and by what it points to, so retargeting a link moves the hash even between identical trees."""
+    (as tree_digest does) and by what it points to, so retargeting a link moves the hash even between identical trees.
+    Every link met on the way to a file counts too (a link above the file, or one on the way to its target), so
+    retargeting a link on the way to a suite file moves the hash even when the files behind it are identical."""
     h = hashlib.sha256()
+    root_real = _real(root) or root
     for rel in sorted(files):
         for name, path in _walk(files[rel], rel):
+            for hop in _hops(path, root, root_real):
+                text = link_text(root.joinpath(*hop), root)  # the same spelling of the tree as the symlink lines below
+                h.update(os.fsencode(f"link {'/'.join(hop)}\0-> {text}\n"))
             if path.is_symlink():
-                h.update(os.fsencode(f"{name}\0-> {os.readlink(path)}\n"))  # names may hold undecodable bytes
+                h.update(os.fsencode(f"{name}\0-> {link_text(path, root)}\n"))  # names may hold undecodable bytes
             if path.is_dir():
                 continue  # a linked directory: its files are walked and hashed one by one
             target = path.resolve() if path.exists() else path
@@ -645,7 +708,7 @@ def _hashed(subject: Subject, root: Path, all_subjects: list[Subject]) -> Subjec
     if subject.kind == "repo":
         assert subject.manifest is not None  # set by _subject for kind repo
         files.setdefault(subject.manifest, root / subject.manifest)
-        return replace(subject, suite_hash=_digest_files(files))
+        return replace(subject, suite_hash=_digest_files(files, root))
     inside = [rel[len(subject.path) + 1:] for rel in files if _within(rel, subject.path) and rel != subject.path]
     # a nested skill is its own subject: its files belong to its own skill_sha, not to the outer one
     nested = [
@@ -655,4 +718,4 @@ def _hashed(subject: Subject, root: Path, all_subjects: list[Subject]) -> Subjec
     ]
     # A skill directory that is a symlink is its target's content (a suite match is hashed by its link instead).
     skill_sha = "sha256:" + tree_digest((root / subject.path).resolve(), exclude=[*inside, *nested])
-    return replace(subject, skill_sha=skill_sha, suite_hash=_digest_files(files))
+    return replace(subject, skill_sha=skill_sha, suite_hash=_digest_files(files, root))
