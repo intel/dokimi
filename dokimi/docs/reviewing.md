@@ -83,12 +83,12 @@ self-judge; `arms run` does not check, so name
   times arms, or tasks times harnesses. One measured example: triage on a
   19k-token skill with a mid-size model was 103 calls, about $1.80; `study` on
   the same skill was 1,900 calls, about $14.50.
-- **At triage** with `--include-resources`, the 25-atom cap takes atoms in
-  document order, and the entry point comes first: the flag reaches
-  `references/` only if `SKILL.md` has fewer than 25 atoms, and the run's cap
-  warning prints how far it reached through the input, the entry point and the files the budgets selected (span,
-  spans and token share). For such skills,
-  use `--tier standard` (60 atoms), or add `--all-atoms` to the tier command for
+- **At triage** with `--include-resources`, the 25-atom cap probes atoms spread
+  over every file the budgets selected, in file order, so `references/` gets its
+  share by atom count; the run's cap warning says how many of the input's atoms
+  it probed. Extraction still reads every file, so a large bundle costs more
+  extraction calls than its 25 probes suggest. Spread over several files, 25
+  atoms leave each file few; for a figure per file, use `--tier standard` (60 atoms), or add `--all-atoms` to the tier command for
   a full sweep; run `--estimate-only` first, it costs more.
 - Step 5 needs evaluation content: a golden question set for 5a, executable
   tasks for 5b. `arms run` takes no tasks. That content lives outside this repository

@@ -180,11 +180,10 @@ def analyze(
     # From what this run did, not the tier's text: an override or an atom set under the
     # cap changes which claims are forfeit.
     warnings.extend(settings.warnings(n_atoms=len(atom_list)))
-    sampling = (
-        f"cap-per-artifact:{config.max_atoms}" if config.max_atoms is not None else "full"
-    )
-    if extraction.reached and config.max_atoms is not None:  # reached is set only under a cap
-        warnings.append(report.cap_warning(config.max_atoms, extraction.reached))
+    # Older runs recorded `cap-per-artifact:<n>`, the first n atoms in document order (#293).
+    sampling = f"cap-spread:{config.max_atoms}" if config.max_atoms is not None else "full"
+    if extraction.sampled:  # set only when the cap left atoms out
+        warnings.append(report.cap_warning(extraction.sampled))
     if not atom_list:
         warnings.append("no atoms with span provenance were extracted; nothing to measure")
 

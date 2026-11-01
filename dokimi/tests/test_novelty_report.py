@@ -6,7 +6,13 @@
 import pytest
 
 from dokimi.gate.novelty_gate import uncleared_conflicts
-from dokimi.novelty.report import _capped_at, cap_warning, coverage_reach, render_novelty_markdown
+from dokimi.novelty.report import (
+    _capped_at,
+    cap_warning,
+    coverage_reach,
+    floored_percent,
+    render_novelty_markdown,
+)
 
 
 def _artifact(**overrides):
@@ -72,27 +78,61 @@ def test_the_cost_line_names_replayed_calls_only_when_there_are_some(cost, line)
     assert line in render_novelty_markdown(_artifact(cost=cost)).splitlines()
 
 
-def test_a_cap_that_stopped_on_the_last_span_does_not_say_the_atoms_come_from_the_opening():
+SAMPLED = {"atoms": 25, "of": 61, "rule": "cap-spread"}
+
+
+def test_a_spread_run_says_how_many_atoms_it_probed_spread_over_the_whole_input():
+    assert cap_warning(SAMPLED) == (
+        "atom extraction read the whole input, and the atom cap probes 25 of the input's 61 atoms, "
+        "spread over all of it (a stride of 2.44 atoms in document order): rates are estimated from "
+        "that sample; pass --all-atoms to probe every atom")
+    assert coverage_reach({"reached": None, "sampled": SAMPLED}) == (
+        "went into the input", "; the cap probed 25 of the input's 61 atoms, spread over all of it "
+        "(a stride of 2.44 atoms in document order)")
+    header = _capped_at({"extraction": {"reached": None, "sampled": SAMPLED}})
+    assert header == (" Extraction read the whole input; the atom cap probed 25 of the input's 61 "
+                      "atoms, spread over all of it (a stride of 2.44 atoms in document order).")
+    assert "opening" not in header
+
+
+def test_an_uncapped_record_says_the_words_were_measured_and_adds_no_header():
+    assert coverage_reach({"reached": None, "sampled": None}) == ("were measured", "")
+    assert _capped_at({"extraction": {"reached": None, "sampled": None}}) == ""
+
+
+def test_an_old_cap_that_stopped_on_the_last_span_does_not_say_the_atoms_come_from_the_opening():
+    # A `cap-per-artifact` artifact, written before the spread rule: `reached`, no `sampled`.
     end = {"last_span": "s0010", "spans": 10, "of": 10, "tokens_share": 1.0}
     assert coverage_reach({"reached": end}) == (
         "went into the input", "; the capped atoms reach the input's last span, and the cap dropped any atoms "
         "past it")
     assert "opening" not in _capped_at({"extraction": {"reached": end}})
-    assert cap_warning(30, end) == (
-        "atom extraction hit the cap of 30 at span s0010 (10 of the input's 10 spans, 100% of its tokens): "
-        "any atoms past the cap in its last reply were dropped; pass --all-atoms for the full sweep")
 
 
-def test_a_cap_that_stopped_inside_the_input_still_says_the_rates_describe_the_opening():
+def test_an_old_cap_that_stopped_inside_the_input_still_says_the_rates_describe_the_opening():
     inside = {"last_span": "s0002", "spans": 2, "of": 5, "tokens_share": 0.3571}
     assert coverage_reach({"reached": inside}) == (
         "went into the input", "; the capped atoms come from the first 35% of the input's tokens")
     assert _capped_at({"extraction": {"reached": inside}}) == (
         " The atom cap stopped extraction at span s0002 (2 of the input's 5 spans, 35% of its tokens): the "
         "atoms come from the opening of the input, not all of it.")
-    assert cap_warning(1, inside) == (
-        "atom extraction hit the cap of 1 at span s0002 (2 of the input's 5 spans, 35% of its tokens): rates "
-        "describe the opening of the input, not all of it; pass --all-atoms for the full sweep")
+
+
+def test_an_old_artifact_with_a_reach_renders_its_header_as_before():
+    artifact = _artifact(atoms={"n": 1, "n_probed": 1, "sampling": "cap-per-artifact:1"},
+                         extraction={"reached": {"last_span": "s0002", "spans": 2, "of": 5,
+                                                 "tokens_share": 0.3571}})
+    assert ("1 atoms (cap-per-artifact:1), 1 probed. The atom cap stopped extraction at span "
+            "s0002 (2 of the input's 5 spans, 35% of its tokens): the atoms come from the "
+            "opening of the input, not all of it.") in render_novelty_markdown(artifact)
+
+
+@pytest.mark.parametrize("share, shown", [
+    (0.9999, "99%"),  # one span short of the end: floored, never rounded up to 100%
+    (0.0001, "<1%"),  # a reach above zero is never 0%
+])
+def test_an_old_reach_share_is_floored_not_rounded(share, shown):
+    assert floored_percent(share) == shown
 
 
 def test_a_cap_met_on_the_last_span_leaves_the_zero_uncleared_without_naming_an_opening():

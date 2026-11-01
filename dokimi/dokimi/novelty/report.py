@@ -257,21 +257,31 @@ def reach_is_end(reached: dict) -> bool:
     return reached["spans"] == reached["of"]
 
 
-def cap_warning(cap: int, reached: dict) -> str:
-    """The warning for a binding cap: where extraction stopped, and what that leaves out."""
-    left_out = ("any atoms past the cap in its last reply were dropped" if reach_is_end(reached)
-                else "rates describe the opening of the input, not all of it")
-    return (f"atom extraction hit the cap of {cap} at {describe_reach(reached)}: {left_out}; "
-            "pass --all-atoms for the full sweep")
+def describe_sample(sampled: dict) -> str:
+    """What a binding cap probed, as ``25 of the input's 61 atoms, spread over all of it (a
+    stride of 2.44 atoms in document order)``: ``extraction.sampled`` of a ``cap-spread`` run."""
+    stride = sampled["of"] / sampled["atoms"]
+    return (f"{sampled['atoms']} of the input's {sampled['of']} atoms, spread over all of it "
+            f"(a stride of {stride:.3g} atoms in document order)")
+
+
+def cap_warning(sampled: dict) -> str:
+    """The warning for a binding cap: which atoms it probed, and how to probe them all."""
+    return (f"atom extraction read the whole input, and the atom cap probes "
+            f"{describe_sample(sampled)}: rates are estimated from that sample; pass "
+            "--all-atoms to probe every atom")
 
 
 def coverage_reach(extraction: dict | None) -> tuple[str, str]:
     """The verb and tail of the headline's coverage line, from the ``extraction`` record.
 
-    The coverage share counts the words that went into the input. Under a binding cap the
-    atoms come from those words up to the span the cap stopped at, so the line must not say
-    they were measured, and it says how far the atoms reach.
+    The coverage share counts the words that went into the input. Under a binding cap only
+    the cap's atoms were probed, so the line must not say the words were measured: it says
+    which atoms were (``sampled``), or for a run before #293, how far the atoms reach.
     """
+    sampled = (extraction or {}).get("sampled")
+    if sampled:
+        return "went into the input", f"; the cap probed {describe_sample(sampled)}"
     reached = (extraction or {}).get("reached")
     if not reached:
         return "were measured", ""
@@ -283,7 +293,12 @@ def coverage_reach(extraction: dict | None) -> tuple[str, str]:
 
 
 def _capped_at(artifact: dict) -> str:
-    """The report header's sentence on where a binding cap stopped extraction, or ``""``."""
+    """The report header's sentence on what a binding cap probed (or, before #293, where it
+    stopped extraction), or ``""``."""
+    sampled = (artifact.get("extraction") or {}).get("sampled")
+    if sampled:
+        return (f" Extraction read the whole input; the atom cap probed "
+                f"{describe_sample(sampled)}.")
     reached = (artifact.get("extraction") or {}).get("reached")
     if not reached:
         return ""

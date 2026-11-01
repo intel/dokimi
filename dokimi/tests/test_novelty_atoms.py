@@ -7,13 +7,11 @@ from __future__ import annotations
 
 import json
 import re
-from types import SimpleNamespace
 
 import pytest
 
-from dokimi.novelty.atoms import ExtractionError, ExtractionReport, _cap_reach, extract_atoms
+from dokimi.novelty.atoms import ExtractionError, ExtractionReport, extract_atoms, spread_sample
 from dokimi.novelty.client import LLMClient
-from dokimi.novelty.report import floored_percent
 from dokimi.novelty.spans import segment
 
 DOC = "\n\n".join(f"Setting number {i} defaults to {i * 10}." for i in range(1, 11))
@@ -198,7 +196,7 @@ def test_an_empty_reply_is_its_own_cause_with_the_max_tokens_hint():
     assert report.as_dict()["last_error"] == report.last_error
 
 
-def test_a_capped_extraction_counts_only_the_batches_it_reached():
+def test_a_capped_extraction_sends_every_batch():
     """200 spans, 3 atoms each; every 25-span reply is cut and both halves parse."""
     doc = "\n\n".join(f"Setting number {i} defaults to {i * 10}." for i in range(1, 201))
     spans = segment(doc)
@@ -215,12 +213,33 @@ def test_a_capped_extraction_counts_only_the_batches_it_reached():
     client = LLMClient(model="x", transport=three_per_span_cut_above_13)
     atoms = extract_atoms(spans, client=client, cap=120, report=report)
     assert len(atoms) == 120
-    # Two 25-span batches reached the cap: each cost one cut call and two halves.
-    assert (report.calls, report.batches, report.retried_batches) == (6, 2, 2)
+    # All eight 25-span batches were asked, though the first two held 150 atoms: each cost
+    # one cut call and two halves.
+    assert (report.calls, report.batches, report.retried_batches) == (24, 8, 8)
     assert (
-        "atom extraction re-asked 2 unparseable batches as halves: 6 extraction calls where "
-        "2 would do without splitting; a higher --max-tokens avoids the extra calls"
+        "atom extraction re-asked 8 unparseable batches as halves: 24 extraction calls where "
+        "8 would do without splitting; a higher --max-tokens avoids the extra calls"
     ) in report.warnings(len(spans))
+    # The 120 kept are spread over all 600, one per 5, from the middle of the first stride.
+    assert [a.span_ids[0] for a in atoms[:3]] == ["s0001", "s0003", "s0005"]
+    assert atoms[-1].span_ids[0] == "s0200"
+
+
+# The issue's root AGENTS.md: 61 atoms under the triage cap of 25.
+SPREAD_61_25 = [1, 3, 6, 8, 10, 13, 15, 18, 20, 23, 25, 28, 30, 32, 35, 37, 40, 42, 45, 47,
+                50, 52, 54, 57, 59]
+
+
+@pytest.mark.parametrize("n_atoms, cap, kept", [
+    (61, 25, SPREAD_61_25),
+    (61, 1, [30]),             # one atom: the middle one, not the first
+    (25, 25, list(range(25))),  # a cap the atoms meet exactly keeps them all
+    (10, 25, list(range(10))),
+    (10, None, list(range(10))),
+], ids=["61-of-25", "cap-1", "at-cap", "under-cap", "no-cap"])
+def test_a_cap_keeps_every_kth_atom_from_the_middle_of_the_first_stride(n_atoms, cap, kept):
+    """``floor((i + 0.5) * M / n)``: the stride rule of https://github.com/intel/dokimi/issues/293."""
+    assert spread_sample([f"atom{i}" for i in range(n_atoms)], cap) == [f"atom{i}" for i in kept]
 
 
 def _three_per_span(prompt, system):
@@ -230,60 +249,47 @@ def _three_per_span(prompt, system):
     return json.dumps(rows), None
 
 
-def test_a_capped_extraction_records_the_last_span_its_atoms_reached(tmp_path):
-    """60 spans, 3 atoms each, 10 per batch: the 25th atom is span 9's, mid-batch."""
+def test_a_capped_extraction_reads_every_span_and_records_the_sample(tmp_path):
+    """60 spans, 3 atoms each, 10 per batch: a cap of 25 keeps 25 of 180, from every part."""
     from dokimi.novelty.atoms import save_atoms
 
     doc = "\n\n".join(f"Setting number {i} defaults to {i * 10}." for i in range(1, 61))
     spans = segment(doc)
+    calls: list[str] = []
+
+    def counted(prompt, system):
+        calls.append(prompt)
+        return _three_per_span(prompt, system)
+
     report = ExtractionReport()
-    atoms = extract_atoms(spans, client=LLMClient(model="x", transport=_three_per_span),
+    atoms = extract_atoms(spans, client=LLMClient(model="x", transport=counted),
                           batch_spans=10, cap=25, report=report)
-    assert len(atoms) == 25 and report.batches == 1
-    # The batch sent s0001-s0010; the cap cut its reply inside s0009's atoms.
-    # Nine spans of 8 tokens, of 480 tokens in all: 72 / 480.
-    assert [s.tokens for s in spans[:9]] == [8] * 9 and sum(s.tokens for s in spans) == 480
-    assert report.reached == {"last_span": "s0009", "spans": 9, "of": 60, "tokens_share": 0.15}
+    assert (len(calls), report.batches, report.calls) == (6, 6, 6)
+    assert len(atoms) == 25
+    # Every batch gives sampled atoms, the first from s0002 (atom 3) and the last from s0059 (176).
+    assert {(int(a.span_ids[0][1:]) - 1) // 10 for a in atoms} == set(range(6))
+    assert atoms[0].span_ids[0] == "s0002" and atoms[-1].span_ids[0] == "s0059"
+    assert report.sampled == {"atoms": 25, "of": 180, "rule": "cap-spread"}
     path = tmp_path / "atoms.json"
     save_atoms(atoms, spans, path, cap=25, extraction=report)
-    assert json.loads(path.read_text())["extraction"]["reached"] == report.reached
+    saved = json.loads(path.read_text())["extraction"]
+    assert (saved["sampled"], saved["reached"]) == (report.sampled, None)
+    # Selection is a pure function of the extracted list: a second run picks the same atoms.
+    again = extract_atoms(segment(doc), client=LLMClient(model="x", transport=_three_per_span),
+                          batch_spans=10, cap=25)
+    assert [a.id for a in again] == [a.id for a in atoms]
 
 
-def test_a_span_id_no_call_was_shown_does_not_move_the_reach():
-    """The cap binds on the first batch's last span (s0010); one atom also cites s0055."""
-    def made_up(prompt, system):
-        # Two atoms for each of s0001-s0005 and three for s0006-s0010: 25 in all.
-        rows = [dict(row, statement=f"{row['statement']} ({k})", question=f"q{k} {row['span_ids'][0]}")
-                for row in _rows(prompt) for k in range(2 if row["span_ids"][0] <= "s0005" else 3)]
-        rows[4]["span_ids"] = ["s0003", "s0055"]
-        return json.dumps(rows), None
-
-    spans = segment("\n\n".join(f"Setting number {i} defaults to {i * 10}." for i in range(1, 61)))
-    report = ExtractionReport()
-    atoms = extract_atoms(spans, client=LLMClient(model="x", transport=made_up),
-                          batch_spans=10, cap=25, report=report)
-    assert "s0055" in atoms[4].span_ids and report.batches == 1
-    assert report.reached == {"last_span": "s0010", "spans": 10, "of": 60,
-                              "tokens_share": 0.1666}
-    # An atom set that cites nothing it was shown reaches the last span sent.
-    first_ten = {span.id for span in spans[:10]}
-    assert _cap_reach(spans, [SimpleNamespace(span_ids=["s0055"])], 1, first_ten)["spans"] == 10
-
-
-@pytest.mark.parametrize("cap, reached", [
-    (None, None),
-    (31, None),
-    # Met on the last span: still a capped set, and its reach is the whole artifact.
-    (30, {"last_span": "s0010", "spans": 10, "of": 10, "tokens_share": 1.0}),
-])
-def test_an_extraction_the_cap_did_not_stop_reaches_nothing_or_the_end(cap, reached):
+@pytest.mark.parametrize("cap", [None, 31, 30], ids=["no-cap", "above", "at-cap"])
+def test_a_cap_the_atoms_do_not_exceed_keeps_them_all_and_records_no_sample(cap):
     """No cap, a cap above the 30 atoms, and a cap the last atom meets exactly."""
     spans = segment(DOC)
     report = ExtractionReport()
     atoms = extract_atoms(spans, client=LLMClient(model="x", transport=_three_per_span),
                           cap=cap, report=report)
     assert len(atoms) == 30 and len(spans) == 10
-    assert report.reached == report.as_dict()["reached"] == reached
+    assert report.sampled is None
+    assert (report.as_dict()["sampled"], report.as_dict()["reached"]) == (None, None)
 
 
 def _half_lost(n: int = 50, silent: frozenset[int] = frozenset()):
@@ -567,12 +573,33 @@ def test_a_run_with_cut_off_and_unusable_splits_names_both_and_keeps_the_advice(
     )
 
 
-@pytest.mark.parametrize("first, share, shown", [
-    (29_999, 0.9999, "99%"),  # one span short of the end: floored, never rounded up to 100%
-    (1, 0.0001, "<1%"),       # a reach above zero is never 0%
-])
-def test_a_cap_reach_share_is_floored_not_rounded(first, share, shown):
-    spans = [SimpleNamespace(id="s0001", tokens=first), SimpleNamespace(id="s0002", tokens=30_000 - first)]
-    reach = _cap_reach(spans, [SimpleNamespace(span_ids=["s0001"])], cap=1, sent={"s0001", "s0002"})
-    assert reach == {"last_span": "s0001", "spans": 1, "of": 2, "tokens_share": share}
-    assert floored_percent(reach["tokens_share"]) == shown
+def test_novelty_atoms_saves_the_same_spread_sample_analyze_probes(tmp_path, monkeypatch, capsys):
+    """Two batches of 25 spans, one atom each: a cap of 2 keeps s0013 and s0038 for probe and shorten."""
+    from tests import test_novelty_cli as novelty_cli
+
+    skill = tmp_path / "s" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("---\nname: s\ndescription: d\n---\n\n" + "\n\n".join(
+        f"Setting {i} defaults to {i}." for i in range(1, 51)) + "\n", encoding="utf-8")
+    batches: list = []
+
+    def transport(prompt, system=None):
+        ids = re.findall(r"^\[(s\d+)\]", prompt, flags=re.M)
+        batches.append(ids)
+        return json.dumps([{"statement": f"{sid} holds.", "question": f"What of {sid}?",
+                            "answer": "a value", "span_ids": [sid]} for sid in ids]), None
+
+    real_client = novelty_cli.novelty_cmd._client
+    monkeypatch.setattr(novelty_cli.novelty_cmd, "_client",
+                        lambda model, provider, role, args: novelty_cli._with_transport(
+                            real_client(model, provider, role, args), transport))
+    out = tmp_path / "atoms.json"
+    args = novelty_cli._parse("novelty", "atoms", "--artifact", f"skill:{skill}", "--out",
+                              str(out), "--max-atoms", "2", "--no-verify")
+    args.func(args)
+    payload = json.loads(out.read_text())
+    assert len(batches) == 2  # the cap no longer stops extraction after the first batch
+    assert [atom["span_ids"] for atom in payload["atoms"]] == [["s0013"], ["s0038"]]
+    assert payload["extraction"]["sampled"] == {"atoms": 2, "of": 50, "rule": "cap-spread"}
+    assert ("WARNING atom extraction read the whole input, and the atom cap probes 2 of the "
+            "input's 50 atoms") in capsys.readouterr().err

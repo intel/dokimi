@@ -24,8 +24,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-#: What a run gives up, keyed by the setting that is off. "sampled" is a reached atom cap; the
-#: name is old, the cap takes atoms in document order: https://github.com/intel/dokimi/pull/299
+#: What a run gives up, keyed by the setting that is off. "sampled" is a reached atom cap, which
+#: probes atoms spread over the input: https://github.com/intel/dokimi/issues/293
 FORFEITS: dict[str, list[str]] = {
     "sampled": [
         "`added` is a rate over the atoms the cap kept, not the whole input: usable as a "
@@ -69,8 +69,8 @@ def forfeits(settings: dict, *, n_atoms: int | None = None) -> list[str]:
     out = list(FORFEITS["sampled"]) if capped else []
     if capped and settings.get("shorten_artifact"):
         out.append(
-            "shortening candidates are scored only against the capped atoms, i.e. the "
-            "opening of the artifact: a cut of the uncovered tail looks free"
+            f"shortening candidates are scored against a spread sample of {cap} of the "
+            "extracted atoms: a cut of a span with no sampled atom looks free"
         )
     for setting, lines in FORFEITS.items():
         if setting != "sampled" and not settings.get(setting):
@@ -212,10 +212,10 @@ class RunSettings:
 
         The atom count is the larger of one atom per two spans and one per
         :data:`TOKENS_PER_ATOM` tokens (spans alone undercount: short spans, such as table
-        rows, yield an atom each), capped at ``max_atoms``. Without ``n_tokens`` only the
-        span rule applies. The forfeits assume the cap is reached, since the atom count is
-        a guess until extraction runs: an artifact with fewer atoms than the cap drops the
-        cap's forfeits.
+        rows, yield an atom each), capped at ``max_atoms`` for every stage but extraction,
+        which reads the whole input. Without ``n_tokens`` only the span rule applies. The
+        forfeits assume the cap is reached, since the atom count is a guess until extraction
+        runs: an artifact with fewer atoms than the cap drops the cap's forfeits.
         """
         cap = self.values["max_atoms"]
         expected = max(1, n_spans // 2)
@@ -229,7 +229,7 @@ class RunSettings:
             # The full resolved settings, so the projection is the model `estimate_calls`
             # implements rather than a subset of it.
             "estimate": estimate_calls(n_atoms, dict(self.values, budgets=tuple(budgets)),
-                                       n_arms=n_arms),
+                                       n_arms=n_arms, n_extracted=expected),
             "tier": self.tier_record(),
             "caveat": (
                 "forfeits assume the atom cap is reached; the run recomputes them from the "
@@ -372,7 +372,8 @@ def estimate_usd(
     return round(total, 6)
 
 
-def estimate_calls(n_atoms: int, settings: dict, *, n_arms: int = 2) -> dict:
+def estimate_calls(n_atoms: int, settings: dict, *, n_arms: int = 2,
+                   n_extracted: int | None = None) -> dict:
     """Project the model-call bill before spending it.
 
     From the instrumented runs: every probe, reversal included, costs an answer and a grade
@@ -390,6 +391,8 @@ def estimate_calls(n_atoms: int, settings: dict, *, n_arms: int = 2) -> dict:
         n_atoms: Atoms expected after the cap.
         settings: Resolved tier settings (``paraphrases``, ``reversals``, stage switches).
         n_arms: Arms in the run, including the baseline.
+        n_extracted: Atoms expected before the cap (default ``n_atoms``). Extraction asks
+            every batch whatever the cap, so its calls follow this count.
 
     Returns:
         ``{"n_atoms", "paired_probes", "reversal_probes", "probe_calls", "stage_calls",
@@ -408,8 +411,9 @@ def estimate_calls(n_atoms: int, settings: dict, *, n_arms: int = 2) -> dict:
     # Reversals are graded in every arm too: the baseline arm's resistance to a planted
     # inversion is a reported control, not a by-product.
     probe_calls = (paired + reversals) * n_arms * 2
+    extracted = n_atoms if n_extracted is None else n_extracted
     stage_calls = (
-        max(1, round(n_atoms / 12))                                # extraction batches
+        max(1, round(extracted / 12))                              # extraction batches
         + (n_atoms if settings.get("verify_faithfulness") else 0)   # one per atom
         + (1 if settings.get("paraphrases") else 0)
         + (1 if settings.get("reversals") else 0)

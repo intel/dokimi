@@ -49,7 +49,7 @@
     "dokimi/harnesses/tasks.py::harbor_task_problem": {"complexity": 11},
     "dokimi/mcp/context7.py::Context7Client.get_library_docs": {"complexity": 12},
     "dokimi/novelty/analyze.py::analyze": {"complexity": 22},
-    "dokimi/novelty/atoms.py::extract_atoms": {"complexity": 16},
+    "dokimi/novelty/atoms.py::extract_atoms": {"complexity": 14},
     "dokimi/novelty/bundle.py::load_bundle": {"complexity": 14},
     "dokimi/novelty/items.py::discrimination": {"complexity": 11},
     "dokimi/novelty/items.py::load_probe_cells": {"complexity": 11, "rationale": "pre-existing when the gate was introduced"},

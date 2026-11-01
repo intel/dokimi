@@ -27,6 +27,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import sys
 from decimal import ROUND_FLOOR, Decimal
 from pathlib import Path
@@ -136,8 +137,9 @@ def _headline_coverage(text: str, work: Path) -> dict[str, Any]:
     printed = [line for line in text.splitlines() if line.startswith(COVERAGE_LINES)]
     record = work / "out" / "novelty.json"
     saved = json.loads(record.read_text(encoding="utf-8")) if record.exists() else {}
+    extraction = saved.get("extraction") or {}
     return {"printed": printed, "measured_share": (saved.get("bundle") or {}).get("measured_share"),
-            "reached": (saved.get("extraction") or {}).get("reached")}
+            "capped": bool(extraction.get("reached") or extraction.get("sampled"))}
 
 
 def _check_headline(coverage: dict[str, Any]) -> None:
@@ -151,7 +153,7 @@ def _check_headline(coverage: dict[str, Any]) -> None:
     pct = f"{int(Decimal(str(share)).scaleb(2).to_integral_value(ROUND_FLOOR))}%"
     assert printed, "a run with a record must print its coverage line"
     # A capped run's words went into the input; its atoms do not cover all of them.
-    went = "went into the input" if coverage["reached"] else "were measured"
+    went = "went into the input" if coverage["capped"] else "were measured"
     assert printed[0].startswith(
         f"coverage: {pct} of the artifact's readable words {went}"
     ), printed
@@ -215,6 +217,8 @@ _ESTIMATE_BILL_KEYS = (
     "n_atoms",
     "total_calls",
     "total_calls_if_every_pair_escalates",
+    # Extraction asks every batch under a cap too (#293); tests/test_novelty_tiers.py pins it.
+    "stage_calls",
 )
 
 
@@ -259,20 +263,45 @@ CAPPED_ATOMS = {"atoms/max-atoms-1"}
 # atoms a sample. In the warnings and on stderr alike.
 CAP_WARNING_ON_MAIN = ("atom extraction hit the cap of 1; rates describe the sampled atoms, "
                        "not the whole artifact")
-CAP_WARNING = ("atom extraction hit the cap of 1 at span s0002 (2 of the input's 5 spans, 35% "
-               "of its tokens): rates describe the opening of the input, not all of it; pass "
-               "--all-atoms for the full sweep")
+# Intended change (#293): the cap probes atoms spread over the input, and the warning says so.
+CAP_WARNING = ("atom extraction read the whole input, and the atom cap probes 1 of the input's 2 "
+               "atoms, spread over all of it (a stride of 2 atoms in document order): rates are "
+               "estimated from that sample; pass --all-atoms to probe every atom")
 # Intended change: the cap's forfeit no longer calls `added` a sampled rate, in the tier
 # record, the warnings and the estimate's stderr.
 CAP_FORFEIT_ON_MAIN = "`added` is a sampled rate over the atom cap: usable"
 CAP_FORFEIT = "`added` is a rate over the atoms the cap kept, not the whole input: usable"
+# Intended change (#293): shortening is scored against a spread sample, not the opening. The
+# forfeit names the cap, which tests/test_novelty_tiers.py pins; here both sides read <cap>.
+SHORTEN_FORFEIT_ON_MAIN = ("shortening candidates are scored only against the capped atoms, i.e. "
+                           "the opening of the artifact: a cut of the uncovered tail looks free")
+SHORTEN_FORFEIT = ("shortening candidates are scored against a spread sample of <cap> of the "
+                   "extracted atoms: a cut of a span with no sampled atom looks free")
+
+
+# Intended change (#293): a cap of 1 on two atoms probes the second (s0003, mid-stride), not the first,
+# so what follows the atom (dead tokens, oracle calls, the warnings on it) is not main's.
+SPREAD_RUNS = {"run/max-atoms-1", "run/triage-max-atoms-1"}
+
+
+def _settings_only(step: dict) -> dict:
+    """What the flags decide in a run step: its status, run_config and tier and cap warnings."""
+    return {"status": step["status"], "run_config": step.get("run_config"),
+            "warnings": [w for w in step.get("warnings", [])
+                         if w.startswith("tier `") or w == CAP_WARNING]}
+
+
+def _cap_named(steps: list) -> list:
+    return json.loads(re.sub(r"spread sample of \d+ of", "spread sample of <cap> of",
+                             json.dumps(steps)))
 
 
 @pytest.mark.parametrize("name", list(CASES))
 def test_no_setting_bill_or_tier_record_differs_from_main(name, tmp_path):
     golden = json.loads(json.dumps(json.loads(GOLDEN.read_text(encoding="utf-8")))
-                        .replace(CAP_FORFEIT_ON_MAIN, CAP_FORFEIT))
-    steps = _capture(name, tmp_path)
+                        .replace(CAP_FORFEIT_ON_MAIN, CAP_FORFEIT)
+                        .replace(SHORTEN_FORFEIT_ON_MAIN, SHORTEN_FORFEIT))
+    steps = _cap_named(_capture(name, tmp_path))
     coverage = [step.pop("coverage") for step in steps]
     for step_coverage in coverage:
         if step_coverage is not None:
@@ -292,6 +321,9 @@ def test_no_setting_bill_or_tier_record_differs_from_main(name, tmp_path):
             # Intended change: `novelty atoms` prints the cap warning `analyze` records.
             expected = [dict(step, stderr=f"{step['stderr']}WARNING {CAP_WARNING}\n")
                         for step in expected]
+        if name in SPREAD_RUNS:
+            steps, expected = ([_settings_only(step) for step in side] for side in (steps, expected))
+            assert any(CAP_WARNING in step["warnings"] for step in steps)
         assert steps == expected
 
 

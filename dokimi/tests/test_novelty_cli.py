@@ -875,6 +875,17 @@ def test_a_capped_run_s_headline_does_not_say_the_whole_artifact_was_measured(ca
            in capsys.readouterr().out
 
 
+def test_a_spread_run_s_headline_says_how_many_atoms_the_cap_probed(capsys):
+    sampled = {"atoms": 25, "of": 61, "rule": "cap-spread"}
+    novelty_cmd._print_headline(dict(_minimal_artifact(), bundle=_readable_record(resource_words_on_disk=0),
+                                     extraction={"reached": None, "sampled": sampled}))
+    out = capsys.readouterr().out
+    assert ("coverage: 100% of the artifact's readable words went into the input (entry point "
+            "only); the cap probed 25 of the input's 61 atoms, spread over all of it (a stride of "
+            "2.44 atoms in document order)\n") in out
+    assert "measured" not in out and "opening" not in out
+
+
 def test_a_capped_run_under_the_floor_warns_in_the_coverage_line_s_words(capsys):
     # 10 of the 40 readable words went into the input, and the atoms stopped short of them.
     reached = {"last_span": "s0002", "spans": 2, "of": 5, "tokens_share": 0.3571}
