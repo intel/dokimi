@@ -19,7 +19,8 @@ from dokimi import records
 from dokimi.cli import build_parser
 from dokimi.commands.headroom import cmd_eval_headroom
 from dokimi.eval.headroom import (
-    CEILING, DEFAULT_CEILING, DEFAULT_FLOOR, DEFAULT_MIN_REPS, FLOOR, check_thresholds, format_table, headroom,
+    CEILING, DEFAULT_CEILING, DEFAULT_FLOOR, DEFAULT_MIN_REPS, FLOOR, _fmt, check_thresholds, format_table,
+    headroom,
 )
 
 
@@ -231,6 +232,7 @@ def test_the_table_and_json_do_not_round_0_89996_up_to_the_ceiling():
     assert result["items"][0]["no_skill"] == pytest.approx(0.89996) and result["items"][0]["flag"] is None
     table = format_table(result)
     assert "0.89" in table and "0.90" not in table
+    assert _fmt(0.8999999996) == "0.899999999"
 
 
 def test_the_table_lists_the_control_arm_once():
