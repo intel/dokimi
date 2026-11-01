@@ -14,7 +14,7 @@ import functools
 import re
 from pathlib import PurePosixPath
 
-from .harness_profile import builtin_profiles, load_profile
+from .harness_profile import PROFILE_DIR, builtin_profiles, load_profile
 
 OVERLAY_RE = re.compile(r"AGENTS\.([A-Za-z0-9][A-Za-z0-9-]*)\.md")
 
@@ -22,7 +22,11 @@ OVERLAY_RE = re.compile(r"AGENTS\.([A-Za-z0-9][A-Za-z0-9-]*)\.md")
 @functools.lru_cache(maxsize=1)
 def native_names() -> frozenset[str]:
     """Guidance names a builtin harness loads by its own convention (``AGENTS.override.md``): never an overlay."""
-    return frozenset(n for name in builtin_profiles() for n in load_profile(name).guidance_names)
+    return frozenset(
+        n
+        for name in builtin_profiles()
+        for n in load_profile(str(PROFILE_DIR / f"{name}.yaml")).guidance_names
+    )
 
 
 def overlay_of(path: str) -> str | None:
