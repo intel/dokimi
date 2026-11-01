@@ -23,7 +23,8 @@ from pathlib import Path
 from typing import Any
 
 # Input keys whose value is file content, not the agent's intent: left out of an event's text.
-_CONTENT_KEYS = frozenset({"old_string", "new_string", "content", "new_source", "edits"})
+_CONTENT_KEYS = frozenset({"old_string", "new_string", "content", "new_source", "edits",
+                           "file_text", "old_str", "new_str"})  # the last three: Goose's editor tools
 _PATH_KEYS = ("file_path", "path", "notebook_path")
 # Markup a harness wraps around text it injects into a user turn; not the user's words.
 _INJECTED = re.compile(r"<(system-reminder|command-[a-z-]+|local-command-[a-z-]+)>.*?</\1>", re.S)

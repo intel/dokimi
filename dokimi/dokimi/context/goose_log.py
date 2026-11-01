@@ -31,8 +31,12 @@ def is_goose_store(path: Path) -> bool:
         return False
 
 
-def read_goose_store(path: Path) -> list[Session]:
-    """The sessions of a Goose store that hold a prompt or a tool call, oldest first."""
+def read_goose_store(path: Path, dropped: list[Session] | None = None) -> list[Session]:
+    """The sessions of a Goose store that hold a prompt or a tool call, oldest first.
+
+    A session with no prompt or call is not counted; given ``dropped``, it is appended there so its
+    diagnostics can still be reported.
+    """
     try:
         conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
     except sqlite3.Error as exc:
@@ -45,6 +49,8 @@ def read_goose_store(path: Path) -> list[Session]:
     finally:
         conn.close()
     kept = [s for s in sessions if s.events]  # a session of unreadable messages only is no session
+    if dropped is not None:
+        dropped.extend(s for s in sessions if not s.events and s.errors)
     if not kept:
         raise SessionError(f"{path}: no prompt and no tool call in any session")
     return kept
@@ -78,15 +84,13 @@ def _events_of(role: str, content: Any, user_visible: bool) -> list[Event]:
     if not isinstance(content, list):
         return []
     events = []
+    if role == "user" and user_visible:  # the text blocks of one message are one prompt
+        texts = [b.get("text") for b in content if isinstance(b, dict) and b.get("type") == "text"]
+        words = prompt_text(" ".join(t for t in texts if isinstance(t, str)))
+        if words:
+            events.append(Event("prompt", words))
     for block in content:
-        if not isinstance(block, dict):
-            continue
-        if role == "user" and user_visible and block.get("type") == "text":
-            text = block.get("text")
-            words = prompt_text(text) if isinstance(text, str) else ""
-            if words:
-                events.append(Event("prompt", words))
-        elif role == "assistant" and block.get("type") == "toolRequest":
+        if isinstance(block, dict) and role == "assistant" and block.get("type") == "toolRequest":
             call = block.get("toolCall")
             value = call.get("value") if isinstance(call, dict) else None
             if isinstance(value, dict):

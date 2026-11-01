@@ -3425,7 +3425,7 @@
               "nargs": null,
               "position": null,
               "required": false,
-              "type": "float"
+              "type": "dokimi.commands.context._unit_rate#9396aeedb2c0"
             },
             {
               "action": "_StoreTrueAction",
@@ -3473,7 +3473,7 @@
               "nargs": null,
               "position": null,
               "required": false,
-              "type": "int"
+              "type": "dokimi.commands.context._non_negative_int#3a500817a521"
             },
             {
               "action": "_StoreAction",

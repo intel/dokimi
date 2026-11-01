@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import glob
 import json
+import math
 import os
 import sys
 from pathlib import Path
@@ -170,26 +171,50 @@ def cmd_context_prefilter(args: argparse.Namespace) -> None:
 
 
 def _read_sessions(names: list[str]) -> tuple[list, bool]:
-    """Every readable session of ``names``: JSONL logs or Goose stores; a quoted glob expands."""
+    """Every readable session of ``names``: JSONL logs or Goose stores; a quoted glob expands.
+
+    A file is read once however often it is named (a repeat, a glob that overlaps, a symlink to it).
+    """
     from dokimi.context.goose_log import is_goose_store, read_goose_store
     from dokimi.context.session_log import SessionError, read_session
 
-    loaded, failed = [], False
+    loaded, failed, seen = [], False, set()
     for name in names:
         matches = [name] if os.path.exists(name) else sorted(glob.glob(os.path.expanduser(name), recursive=True))
         for path in matches or [name]:
+            real = os.path.realpath(path)
+            if real in seen:
+                print(f"warning: {path} given twice; counted once", file=sys.stderr)
+                continue
+            seen.add(real)
+            unreadable: list = []  # Goose sessions of unreadable messages only: not counted, still reported
             try:
                 source = Path(path)
-                sessions = read_goose_store(source) if is_goose_store(source) else [read_session(source)]
+                sessions = (read_goose_store(source, unreadable) if is_goose_store(source)
+                            else [read_session(source)])
             except SessionError as exc:  # report it, and still read the sessions that do
                 print(f"✗ {exc}", file=sys.stderr)
                 failed = True
-                continue
-            for session in sessions:
+                sessions = []
+            for session in [*sessions, *unreadable]:
                 for problem in session.errors:
                     print(f"warning: {session.name}: {problem}", file=sys.stderr)
             loaded.extend(sessions)
     return loaded, failed
+
+
+def _non_negative_int(value: str) -> int:
+    number = int(value)
+    if number < 0:
+        raise argparse.ArgumentTypeError(f"must be 0 or more, not {value}")
+    return number
+
+
+def _unit_rate(value: str) -> float:
+    rate = float(value)
+    if not math.isfinite(rate) or not 0 <= rate <= 1:
+        raise argparse.ArgumentTypeError(f"must be a number from 0 to 1, not {value}")
+    return rate
 
 
 def _unique_traces(label: str, names: list[str]) -> list[str]:
@@ -296,9 +321,9 @@ def register(sub, positive_int) -> None:
                        "correction (default 10)")
     pre_p.add_argument("--min-sessions", type=positive_int, default=5,
                        help="Fewer sessions than this: no candidates are ranked (default 5)")
-    pre_p.add_argument("--rare-max", type=int, default=3,
+    pre_p.add_argument("--rare-max", type=_non_negative_int, default=3,
                        help="A rule triggered in at most this many sessions is rare: listed, not ranked (default 3)")
-    pre_p.add_argument("--in-use-rate", type=float, default=0.2,
+    pre_p.add_argument("--in-use-rate", type=_unit_rate, default=0.2,
                        help="A rule triggered in at least this share of sessions is in use, not a candidate (default 0.2)")
     pre_p.add_argument("--json", action="store_true", help="Print the full report as JSON")
     pre_p.set_defaults(func=cmd_context_prefilter)
