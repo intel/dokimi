@@ -75,8 +75,14 @@ def parse_session(raw: str, name: str = "") -> Session:
         except (ValueError, RecursionError):  # JSONDecodeError, an over-long integer, deep nesting
             add_error(session, f"line {n}: not JSON")
             continue
-        if isinstance(rec, dict):
-            session.events.extend(_events_of(rec))
+        if not isinstance(rec, dict):
+            add_error(session, f"line {n}: not a JSON object")
+            continue
+        problem = _shape_problem(rec)
+        if problem:
+            add_error(session, f"line {n}: {problem}")
+            continue
+        session.events.extend(_events_of(rec))
     return session
 
 
@@ -88,6 +94,22 @@ def prompt_text(raw: str) -> str:
 def add_error(session: Session, message: str) -> None:
     if len(session.errors) < _ERROR_LIMIT:
         session.errors.append(message)
+
+
+def _shape_problem(rec: dict[str, Any]) -> str | None:
+    """What is wrong with a prompt or tool record's message, if anything. Other record types (summaries, and
+    tool results, which are user records of tool_result blocks) are recognized and not checked here."""
+    if rec.get("type") not in ("user", "assistant"):
+        return None
+    message = rec.get("message")
+    if message is None:
+        return None
+    if not isinstance(message, dict):
+        return "message is not an object"
+    content = message.get("content")
+    if content is not None and not isinstance(content, (str, list)):
+        return "message content is not text or a list of blocks"
+    return None
 
 
 def _events_of(rec: dict[str, Any]) -> list[Event]:

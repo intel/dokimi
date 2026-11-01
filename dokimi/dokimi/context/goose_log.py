@@ -67,6 +67,9 @@ def _session_of(conn: sqlite3.Connection, session_id: str, name: str) -> Session
         except (ValueError, RecursionError):  # not JSON, or nested too deeply
             add_error(session, f"message {row_id}: content is not JSON")
             continue
+        if not isinstance(content, list):
+            add_error(session, f"message {row_id}: content is not a list of blocks")
+            continue
         session.events.extend(_events_of(role, content, _user_visible(metadata_json)))
     return session
 
@@ -80,9 +83,7 @@ def _user_visible(metadata_json: str | None) -> bool:
     return not (isinstance(meta, dict) and meta.get("userVisible") is False)
 
 
-def _events_of(role: str, content: Any, user_visible: bool) -> list[Event]:
-    if not isinstance(content, list):
-        return []
+def _events_of(role: str, content: list[Any], user_visible: bool) -> list[Event]:
     events = []
     if role == "user" and user_visible:  # the text blocks of one message are one prompt
         texts = [b.get("text") for b in content if isinstance(b, dict) and b.get("type") == "text"]

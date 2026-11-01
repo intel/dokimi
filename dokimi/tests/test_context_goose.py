@@ -189,3 +189,19 @@ def test_a_goose_session_with_a_bad_message_reports_it_on_the_command_line(tmp_p
     conn.close()
     _read_sessions([str(db)])
     assert "content is not JSON" in capsys.readouterr().err
+
+
+def test_a_message_whose_content_is_an_object_is_reported_and_the_rest_still_reads(tmp_path):
+    db = _store(tmp_path, {"s1": [("user", _text("push the branch now"), None),
+                                  ("user", _result(), None)]})
+    conn = sqlite3.connect(db)
+    conn.execute("INSERT INTO messages (session_id, role, content_json, created_timestamp) "
+                 "VALUES ('s1', 'user', '{\"type\": \"text\", \"text\": \"x\"}', 9)")
+    conn.execute("INSERT INTO messages (session_id, role, content_json, created_timestamp) "
+                 "VALUES ('s1', 'user', 'null', 10)")
+    conn.commit()
+    conn.close()
+    (session,) = read_goose_store(db)
+    assert [e.text for e in session.events] == ["push the branch now"]
+    assert len(session.errors) == 2
+    assert all(err.endswith("content is not a list of blocks") for err in session.errors)

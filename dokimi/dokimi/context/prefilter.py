@@ -44,6 +44,8 @@ _PATH = re.compile(r"[/\\]|\.[A-Za-z0-9]{1,6}$")
 # a shell command's runner words before the command it runs (``uv run pytest``, ``sudo make``, ``A=1 make``)
 _RUNNER = r"(?:(?:[A-Za-z_]\w*=\S*|sudo|env|time|nohup|exec|npx|uv\s+run|poetry\s+run|timeout\s+\d+)\s+)*"
 _QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")  # a quoted argument is text, not a command
+# a heredoc body is data for the command, not commands: from the line after ``<<WORD`` to a line that is WORD alone
+_HEREDOC = re.compile(r"(?m)((?<!<)<<-?[ \t]*['\"]?(\w+)['\"]?[^\n]*\n)(?:.*?\n)??[ \t]*\2[ \t]*$", re.S)
 _COMMENT = re.compile(r"(?m)(?:^|\s)#.*$")
 _SEGMENT = re.compile(r"&&|\|\||[;|&()\n]")
 _CUE = re.compile(r"\b(no|not|don't|do not|stop|instead|wrong|forgot|should have|revert|undo|why did you)\b", re.I)
@@ -130,21 +132,40 @@ def _unquote(text: str) -> str:
     return text.replace('"', "").replace("'", "")
 
 
-# A separator or a ``#`` inside quotes is text, not shell syntax: it is swapped for a private-use character
-# while the command is split and cut, and swapped back in each segment.
-_SPECIAL = ";|&()\n#"
+# A separator, a ``#`` or a redirection sign inside quotes is text, not shell syntax: it is swapped for a
+# private-use character while the command is split and cut, and swapped back where the text is used.
+_SPECIAL = ";|&()\n#<>"
 _TO_MASK = str.maketrans(_SPECIAL, "".join(chr(0xE000 + i) for i in range(len(_SPECIAL))))
 _FROM_MASK = str.maketrans("".join(chr(0xE000 + i) for i in range(len(_SPECIAL))), _SPECIAL)
+_HIDDEN = " "  # stands in for a quoted sentence in a path text: none of its words count as a path
 
 
 def _mask(match: re.Match[str]) -> str:
     return match.group(0).translate(_TO_MASK)
 
 
+def _hide_sentence(match: re.Match[str]) -> str:
+    """A quoted argument with a space in it is a sentence, not a path; one word is kept."""
+    return _HIDDEN if any(c.isspace() for c in match.group(0)[1:-1]) else match.group(0)
+
+
+def _masked_segments(command: str, *, hide_spaced: bool = False) -> list[str]:
+    """The command's segments with their quotes removed, still masked. A heredoc body is dropped; with
+    ``hide_spaced`` a quoted argument with a space in it is replaced by a placeholder."""
+    text = _HEREDOC.sub(r"\1", command or "")
+    if hide_spaced:
+        text = _QUOTED.sub(_hide_sentence, text)  # the same pairing of quotes as _mask
+    masked = _COMMENT.sub("", _QUOTED.sub(_mask, text))
+    return [_unquote(seg) for seg in _SEGMENT.split(masked)]
+
+
+def _words(seg: str) -> str:
+    return " ".join(seg.translate(_FROM_MASK).split())
+
+
 def _segments(command: str) -> list[str]:
     """The command's segments, each with its quotes removed and its spacing normalized."""
-    masked = _COMMENT.sub("", _QUOTED.sub(_mask, command or ""))
-    return [" ".join(_unquote(seg).translate(_FROM_MASK).split()) for seg in _SEGMENT.split(masked)]
+    return [_words(seg) for seg in _masked_segments(command)]
 
 
 def _invokes(key: str, command: str) -> bool:
@@ -165,12 +186,14 @@ _REDIRECT = re.compile(r">>?\s*([^\s;&|<>]+)")
 
 def _shell_paths(command: str) -> str:
     """The text of a shell command that can name a file it reads or writes: its redirection targets and the
-    segments that are not printing commands. Comments are gone and printed text is left out."""
+    segments that are not printing commands. Comments, heredoc bodies, printed text and quoted sentences are
+    left out; a redirection sign inside quotes is not a redirection."""
     parts: list[str] = []
-    for seg in _segments(command):
-        parts.extend(_REDIRECT.findall(seg))
-        if not _PRINTS.match(seg):
-            parts.append(seg)
+    for seg in _masked_segments(command, hide_spaced=True):
+        parts.extend(target.translate(_FROM_MASK) for target in _REDIRECT.findall(seg))
+        text = _words(seg)
+        if not _PRINTS.match(text):
+            parts.append(text)
     return " ".join(parts)
 
 
@@ -211,7 +234,14 @@ def _acts(claim: Claim, event: Event) -> bool:
     if event.kind != "tool":
         return False
     return (any(_invokes(k, event.command) for k in claim.commands)
+            or any(_file_named(k, event.paths) for k in claim.commands)
             or _path_named(claim, (*event.paths, _shell_paths(event.command))))
+
+
+def _file_named(key: str, paths: tuple[str, ...]) -> bool:
+    """Whether a touched file's name is ``key``: a bare file name such as ``Makefile`` is a command key, and an
+    edit of that file is the named file being acted on."""
+    return any(_slashes(p).rsplit("/", 1)[-1] == key for p in paths)
 
 
 def _corrects(claim: Claim, event: Event) -> bool:

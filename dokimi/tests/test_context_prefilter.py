@@ -21,9 +21,11 @@ from dokimi.context.prefilter import (
     KEPT,
     RARE,
     STATUSES,
+    Tally,
     build_report,
     claims_from_guidance,
     render_table,
+    status_of,
 )
 from dokimi.context.session_log import SessionError, parse_session, read_session
 
@@ -452,3 +454,125 @@ def test_the_thresholds_accept_their_edge_values(tmp_path):
     args = build_parser().parse_args(["context", "prefilter", str(guide), str(log),
                                       "--rare-max", "0", "--in-use-rate", "1"])
     assert args.rare_max == 0 and args.in_use_rate == 1.0
+
+
+# --- review round 3: quoting, heredocs, bare names, boundaries, shapes -------------------------
+
+@pytest.mark.parametrize("command", ["echo '> changelog.d/x.md'", 'echo "a > changelog.d/x.md"',
+                                     "printf '%s' '>>changelog.d/x'", "git commit -m '> changelog.d/x.md'"])
+def test_a_quoted_redirection_sign_is_text_not_a_redirect(command):
+    rule = "- Keep `changelog.d/` current.\n"
+    session = _session(_prompt("keep the changelog current"), _tool("Bash", command=command))
+    assert _row(_report([session], rule), "Keep")["acted"] == 0
+
+
+def test_a_redirect_after_quoted_text_is_still_a_write_to_its_target():
+    rule = "- Keep `changelog.d/` current.\n"
+    session = _session(_prompt("keep the changelog current"),
+                       _tool("Bash", command="echo 'a > b' > changelog.d/x.md"))
+    assert _row(_report([session], rule), "Keep")["acted"] == 1
+
+
+def test_a_heredoc_body_naming_the_command_is_text_not_a_run():
+    session = _session(_prompt("push the branch now"),
+                       _tool("Bash", command="cat > notes.txt <<'EOF'\nmake ci-local\nEOF"))
+    assert _row(_report([session]), CI)["acted"] == 0
+
+
+def test_a_heredoc_body_naming_a_path_does_not_act_on_it_but_a_heredoc_target_does():
+    rule = "- Keep `changelog.d/` current.\n"
+    body = _session(_prompt("keep the changelog current"),
+                    _tool("Bash", command="cat > notes.txt <<EOF\nchangelog.d/x.md\nEOF"))
+    target = _session(_prompt("keep the changelog current"),
+                      _tool("Bash", command="cat > changelog.d/x.md <<'EOF'\nentry\nEOF"))
+    assert _row(_report([body], rule), "Keep")["acted"] == 0
+    assert _row(_report([target], rule), "Keep")["acted"] == 1
+
+
+@pytest.mark.parametrize("name", ["Makefile", "Dockerfile", "LICENSE"])
+def test_a_bare_file_name_claim_is_acted_on_when_an_edit_touches_that_file(name):
+    rule = f"- Edit `{name}` carefully.\n"
+    session = _session(_prompt("edit the file carefully"), _tool("Edit", file_path=f"/repo/{name}"))
+    assert _row(_report([session], rule), "Edit")["acted"] == 1
+
+
+@pytest.mark.parametrize("command", ['git commit -m "update docs/guide.md"', "gh pr create --body 'see docs/guide.md'",
+                                     'git commit -m "docs/guide.md updated"'])
+def test_a_quoted_sentence_that_names_a_path_is_not_an_action(command):
+    rule = "- Update `docs/guide.md` when behaviour changes.\n"
+    session = _session(_prompt("update the guide behaviour"), _tool("Bash", command=command))
+    assert _row(_report([session], rule), "Update")["acted"] == 0
+
+
+def test_a_quoted_path_argument_without_spaces_is_still_an_action():
+    rule = "- Update `docs/guide.md` when behaviour changes.\n"
+    session = _session(_prompt("update the guide behaviour"), _tool("Bash", command='cat "docs/guide.md"'))
+    assert _row(_report([session], rule), "Update")["acted"] == 1
+
+
+def test_a_rule_at_exactly_min_sessions_is_measured_and_one_session_short_is_insufficient():
+    claim = claims_from_guidance("- Keep `changelog.d/` current.\n")[0]
+    assert status_of(claim, Tally(), 3, min_sessions=3, rare_max=0, in_use_rate=0.5) == CANDIDATE
+    assert status_of(claim, Tally(), 2, min_sessions=3, rare_max=0, in_use_rate=0.5) == INSUFFICIENT
+
+
+def test_exactly_rare_max_triggered_sessions_is_rare_and_one_more_is_not():
+    claim = claims_from_guidance("- Keep `changelog.d/` current.\n")[0]
+    assert status_of(claim, Tally(sessions_triggered=3), 10, min_sessions=1, rare_max=3, in_use_rate=0.9) == RARE
+    assert status_of(claim, Tally(sessions_triggered=4), 10, min_sessions=1, rare_max=3, in_use_rate=0.9) == CANDIDATE
+
+
+def test_a_trigger_share_exactly_at_in_use_rate_is_in_use():
+    claim = claims_from_guidance("- Keep `changelog.d/` current.\n")[0]
+    assert status_of(claim, Tally(sessions_triggered=5), 10, min_sessions=1, rare_max=3, in_use_rate=0.5) == IN_USE
+    assert status_of(claim, Tally(sessions_triggered=4), 10, min_sessions=1, rare_max=3, in_use_rate=0.5) == CANDIDATE
+
+
+def test_a_session_with_two_episodes_counts_once_in_sessions_triggered():
+    session = _session(_prompt("push the branch now"), _tool("Read", file_path="/w/a.py"),
+                       _tool("Read", file_path="/w/b.py"), _prompt("push the branch now again"))
+    row = _row(_report([session], window=2), CI)
+    assert row["episodes"] == 2 and row["sessions_triggered"] == 1
+
+
+def test_an_action_counts_only_within_the_window_of_its_trigger():
+    near = _session(_prompt("push the branch now"), _tool("Read", file_path="/w/a.py"),
+                    _tool("Bash", command="make ci-local"))
+    far = _session(_prompt("push the branch now"), _tool("Read", file_path="/w/a.py"),
+                   _tool("Read", file_path="/w/b.py"), _tool("Bash", command="make ci-local"))
+    assert _row(_report([near], window=2), CI)["acted"] == 1
+    assert _row(_report([far], window=2), CI)["acted"] == 0
+
+
+def test_candidates_with_the_same_trigger_count_rank_by_the_lower_acted_share():
+    from dokimi.context.prefilter import _rank_key
+    low = {"sessions_triggered": 2, "episodes": 2, "acted": 0, "acted_rate": 0.0}
+    high = {"sessions_triggered": 2, "episodes": 2, "acted": 2, "acted_rate": 1.0}
+    assert min([high, low], key=_rank_key) is low
+
+
+def test_a_line_that_is_json_but_not_an_object_is_reported_and_the_rest_still_reads():
+    raw = "\n".join([json.dumps(_prompt("hello there")), "[]", "42",
+                     json.dumps({"type": "summary", "summary": "x"})]) + "\n"
+    session = parse_session(raw, "x")
+    assert [e.text for e in session.events] == ["hello there"]
+    assert session.errors == ["line 2: not a JSON object", "line 3: not a JSON object"]
+
+
+def test_a_record_whose_message_or_content_has_the_wrong_shape_is_reported_and_tool_results_are_not():
+    tool_result = {"type": "user", "message": {"role": "user", "content": [
+        {"type": "tool_result", "tool_use_id": "t", "content": "ok"}]}}
+    raw = "\n".join([json.dumps(_prompt("hello there")), json.dumps({"type": "user", "message": "oops"}),
+                     json.dumps({"type": "user", "message": {"role": "user", "content": {"text": "x"}}}),
+                     json.dumps(tool_result)]) + "\n"
+    session = parse_session(raw, "x")
+    assert [e.text for e in session.events] == ["hello there"]
+    assert session.errors == ["line 2: message is not an object",
+                              "line 3: message content is not text or a list of blocks"]
+
+
+def test_an_apostrophe_inside_double_quotes_does_not_hide_the_path_after_it():
+    rule = "- Update `docs/guide.md` when behaviour changes.\n"
+    command = "echo \"isn't\"; cat docs/guide.md; echo 'a b'"
+    session = _session(_prompt("update the guide behaviour"), _tool("Bash", command=command))
+    assert _row(_report([session], rule), "Update")["acted"] == 1

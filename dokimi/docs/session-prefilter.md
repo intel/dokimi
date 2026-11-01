@@ -40,8 +40,12 @@ model is called; every match is lexical.
   `` `changelog.d/` ``). A command counts when it runs the named command at the start of
   a shell segment (after `uv run`, `sudo` or environment assignments), so an `echo`, a
   `grep` argument or a `#` comment that names it does not. A path counts when a tool call
-  names it in a path input or shell command, excluding shell comments and echo/printf
-  arguments (their redirection targets still count). A Windows path matches with backslashes too.
+  names it in a path input or shell command, excluding shell comments, heredoc bodies,
+  echo/printf arguments (their redirection targets still count) and quoted sentences: a quoted
+  argument with a space in it is text, so `git commit -m "update docs/guide.md"` does not act on
+  the file, while `cat "docs/guide.md"` does. A `>` inside quotes is text, not a redirection.
+  A bare file name in backticks (`` `Makefile` ``) matches an edit of that file. A Windows path
+  matches with backslashes too.
   A rule that names neither is not measurable here: its
   `acted` is `null` and it carries the flag `acted_not_measurable`.
 - **Corrected.** Within `--window` events after the trigger, the user's next
@@ -84,14 +88,17 @@ This slice reads **Claude Code** session logs: JSON lines under
 `~/.claude/projects/<project>/`, with `user` and `assistant` records and
 `tool_use` blocks. A quoted glob expands. A file that cannot be read, or holds
 no prompt and no tool call, is reported and the rest are still read; the exit
-code is 1 when any file failed.
+code is 1 when any file failed. A line that is valid JSON but not an object, or a
+record whose message or content has the wrong shape, is reported by line number and
+skipped; summaries and tool results are recognized and not reported.
 
 **Goose** sessions are read from its SQLite store, `sessions.db` under the Goose
 data directory (`~/.local/share/goose/sessions/` on Linux). Each session in the
 store is one session here. The layout comes from the block/goose source
 (session storage and message serialization), not from a sample store: a
 message's `content_json` is a list of blocks, a `text` block of a user message
-is a prompt, and a `toolRequest` block carries the tool's arguments. A message
+is a prompt, and a `toolRequest` block carries the tool's arguments. A message whose
+content is not a list of blocks is reported by message id and skipped. A message
 whose `metadata_json` marks it not user-visible is not a prompt. The store is
 opened read-only. Pass the `.db` file in place of, or next to, JSONL logs. The
 reader is `dokimi/context/goose_log.py`.
@@ -110,6 +117,8 @@ content. The tests use synthetic fixtures only.
   a rule's text is read before any ablation, not after.
 - "Acted" needs a named command or path. Most prose rules have none; for them
   the report says `null`, not zero.
+- A quoted argument with no space is read as a path, so a commit message of one
+  word that names a file (`git commit -m "docs/guide.md"`) counts as acting on it.
 - Corrections are read from the next prompts only, so a correction given much
   later is missed.
 
