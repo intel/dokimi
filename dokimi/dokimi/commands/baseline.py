@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from dokimi.utils import model_identity, same_model
+from dokimi.commands import baseline_regression
 from dokimi.exit_codes import EXIT_USAGE
 
 BASELINES_DIR = Path("baselines/eval")
@@ -99,7 +100,8 @@ def _recorded_models(eval_data: Dict[str, Any]) -> Dict[str, Optional[Tuple[str,
         meta = {}
 
     def pair(provider: Any, model: Any) -> Optional[Tuple[str, str]]:
-        if not provider or not model or "unknown" in (provider, model):
+        if any(not isinstance(v, str) or not v.strip() or v.strip().lower() == "unknown"
+               for v in (provider, model)):
             return None
         if model_identity(str(model))[0] is None:  # a route with no id after it ("anthropic/") names no model
             return None
@@ -109,7 +111,8 @@ def _recorded_models(eval_data: Dict[str, Any]) -> Dict[str, Optional[Tuple[str,
     if str(judge_model or "").startswith("panel("):
         panel = eval_data.get("panel_config")
         models = panel.get("models") if isinstance(panel, dict) else None
-        if not (isinstance(models, list) and all(isinstance(m, str) for m in models)):
+        if not (isinstance(models, list) and all(isinstance(m, str) and "/" in m
+                                                and pair(*m.split("/", 1)) is not None for m in models)):
             models = []
         judge = ("panel", ",".join(sorted(models))) if models else None
     else:
@@ -276,7 +279,8 @@ def _pick_entry(args: argparse.Namespace, baselines: list, eval_data: dict) -> d
 
 def _report_model_checks(args: argparse.Namespace, entry: dict, baseline_data: dict, eval_data: dict) -> None:
     mismatches, unverified = _model_mismatches(baseline_data, eval_data)
-    strict = getattr(args, "strict", False)
+    strict = getattr(args, "strict", False) or baseline_regression.enabled(args)
+    policy = "--strict" if getattr(args, "strict", False) else "regression gate"
     base_rec, cur_rec = _recorded_models(baseline_data), _recorded_models(eval_data)
     for role in unverified:
         b, c = base_rec[role], cur_rec[role]
@@ -287,13 +291,13 @@ def _report_model_checks(args: argparse.Namespace, entry: dict, baseline_data: d
         sides = [name for name, rec in (("baseline", base_rec), ("current eval", cur_rec)) if rec[role] is None]
         print(f"⚠ {role} model not recorded in {' and '.join(sides)}; not compared", file=sys.stderr)
     if unverified and strict:
-        print(f"❌ --strict cannot verify the {' and '.join(unverified)} model against "
+        print(f"❌ {policy} cannot verify the {' and '.join(unverified)} model against "
               f"baseline '{entry['name']}'", file=sys.stderr)
         raise SystemExit(1)
     if mismatches:
         detail = "".join(f"\n  {line}" for line in mismatches)
         if strict:
-            print(f"❌ Baseline '{entry['name']}' was scored with different models (--strict):{detail}",
+            print(f"❌ Baseline '{entry['name']}' was scored with different models ({policy}):{detail}",
                   file=sys.stderr)
             raise SystemExit(1)
         print(f"⚠ Baseline model warning: '{entry['name']}' was scored with different models;"
@@ -316,6 +320,7 @@ def _print_metric_table(cur_summary: dict, base_summary: dict) -> None:
 
 def cmd_baseline_compare(args: argparse.Namespace) -> None:
     """Compare an eval result against a saved baseline."""
+    baseline_regression.require_gate_for_min_matched(args)
     eval_path = Path(args.eval)
     eval_data = _read_json_object(eval_path, 2)  # 1 is the --strict verdict
     manifest = _baseline_manifest(2)
@@ -333,8 +338,9 @@ def cmd_baseline_compare(args: argparse.Namespace) -> None:
 
     # Read both record lists before the model checks: a malformed file must exit 2, not reach the --strict verdict.
     try:
-        baseline_evals = {e.key: e for e in records(baseline_data.get("evaluations", []),
-                                                    source=entry["path"], kind="evaluations")}
+        baseline_records = records(baseline_data.get("evaluations", []),
+                                   source=entry["path"], kind="evaluations")
+        baseline_evals = {e.key: e for e in baseline_records}
         current_evals = records(eval_data.get("evaluations", []), source=str(eval_path), kind="evaluations")
     except RecordError as exc:
         print(f"❌ {exc}", file=sys.stderr)
@@ -377,6 +383,8 @@ def cmd_baseline_compare(args: argparse.Namespace) -> None:
     else:
         print(f"\n✅ No notable changes vs baseline ({n_compared} of {len(current_evals)} questions compared).")
 
+    baseline_regression.check(args, baseline_records, current_evals)
+
 
 def register(sub, positive_int) -> None:
     """Add the `baseline` subcommand group."""
@@ -403,4 +411,12 @@ def register(sub, positive_int) -> None:
     bl_cmp.add_argument("--strict", action="store_true",
                         help="Exit 1 instead of warning when the baseline's answer or judge model "
                              "differs from the current eval's")
+    bl_cmp.add_argument("--max-context-drop", type=baseline_regression.threshold, default=None,
+                        help="Gate on the mean matched context-score drop in score points (equality passes)")
+    bl_cmp.add_argument("--max-lift-drop", type=baseline_regression.threshold, default=None,
+                        help="Gate on the mean matched (context minus baseline) lift drop in score points")
+    bl_cmp.add_argument("--min-matched", type=positive_int, default=None,
+                        help="Minimum matched scored questions under a regression gate (default: 1); "
+                             "needs --max-context-drop or --max-lift-drop; complete coverage and "
+                             "matching known models are always required")
     bl_cmp.set_defaults(func=cmd_baseline_compare)

@@ -717,19 +717,21 @@ cost.
 `python cli.py baseline compare --strict`), as do static gates
 (`python cli.py repo scan --fail-on-fail`). `baseline compare --strict` adds a
 non-zero exit only when a model cannot be verified or differs from the
-baseline; a regression in the scores is printed and exits 0. Failing on a regression beyond
-a threshold is **proposed** (AC-J12-001). Blocking policy is **partial**
-(AC-J12-002): `repo tasks check --allow-unsupported` decides host-unsupported
-tasks; budget-stopped and inconclusive judge results have no policy.
+baseline. Explicit `--max-context-drop` and `--max-lift-drop` thresholds block
+score regressions, requiring complete matched scores and known matching models
+(AC-J12-001). `eval judge-validity --strict` blocks inconclusive checks; without
+it an above-threshold inconclusive check warns and exits 0. Blocking policy remains
+partial for budget-stopped checks (AC-J12-002). Native `tasks run` rejects any
+missing, unscored or errored planned cell and preserves the artifacts (AC-J12-004).
 
 ### Use cases and acceptance
 
 #### UC-J12-001 Gate a PR on a budgeted check
 
-- **AC-J12-001** A strict baseline comparison exits non-zero on a regression beyond the threshold.
-- **AC-J12-002** An inconclusive or budget-stopped check is reported as such, and whether it blocks is the configured policy's decision. *Partial: one flag, for host-unsupported tasks; budget-stopped and inconclusive judge results have none.*
+- **AC-J12-001** An explicitly gated baseline comparison exits non-zero on a regression beyond its context-score or paired-lift threshold; `--strict` alone checks model identity.
+- **AC-J12-002** An inconclusive or budget-stopped check is reported as such, and whether it blocks is the configured policy's decision. *Partial: explicit flags cover host-unsupported tasks and inconclusive judge checks; general budget-stop policy remains proposed.*
 - **AC-J12-003** The reusable CI check runs only the tasks a change touches, adds a smoke set when shared harness files change, and fails on an unknown task name instead of checking nothing.
-- **AC-J12-004** A gate on a run whose result lacks planned cells reports it incomplete and names the missing cells; it never passes on the cells that finished. *Proposed.*
+- **AC-J12-004** A gate on a run whose result lacks planned cells reports it incomplete and names the missing cells; it never passes on the cells that finished. *Partial: enforced for native task runs.*
 
 ---
 

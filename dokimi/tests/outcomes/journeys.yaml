@@ -302,15 +302,14 @@ criteria:
         invokes: ["repo tasks check --task", "repo validate --json"]
         stubs: [Docker (FakeRunner)]
   AC-J07-005:
-    delivery: partial
-    enforce: false
+    delivery: available
+    enforce: true
     capability: judge-validity
-    surfaces: ["eval judge-validity --sequential"]
-    # The test pins what happens today, which is not what the criterion asks for.
+    surfaces: ["eval judge-validity --sequential", "eval judge-validity --strict"]
     evidence:
       - {id: cjm-judge-cap-inconclusive, kind: unit, stubs: [judge scores (fixed function)]}
-    gaps:
-      - "a capped, undecided run above the gate prints RESULT: PASS (inconclusive ...) and exits 0 with a warning; the criterion asks for no pass"
+    scope: The visible verdict is INCONCLUSIVE; --strict blocks an above-threshold undecided check.
+
   AC-J07-006:
     delivery: proposed
   AC-J07-007:
@@ -327,13 +326,14 @@ criteria:
         invokes: ["repo run --reps"]
         stubs: [Docker (FakeRunner), agent (fake harness executable)]
   AC-J11-002:
-    delivery: partial
-    enforce: false
+    delivery: available
+    enforce: true
     capability: judge-validity
+    surfaces: ["eval judge-validity --sequential", "eval judge-validity --strict"]
     evidence:
       - {id: cjm-judge-cap-inconclusive, kind: unit, stubs: [judge scores (fixed function)]}
-    gaps:
-      - "a reached cap is flagged inconclusive (conclusive: false), but the verdict line still reads PASS (inconclusive ...) and the exit code is 0, so a script reading the result sees a pass"
+    scope: The visible verdict is INCONCLUSIVE; --strict blocks an above-threshold undecided check.
+
   AC-J11-003:
     delivery: available
     enforce: true
@@ -505,9 +505,16 @@ criteria:
 
   # ---------------------------------------------------------------- J12
   AC-J12-001:
-    delivery: proposed
-    # baseline compare --strict exits 1 only on an unverified or mismatched model; compare --spec finds CRITICAL and exits 0.
-    gaps: ["baseline compare --strict adds a non-zero exit only on an unverified or mismatched model; a regression beyond a threshold exits 0 and no threshold is defined"]
+    delivery: available
+    enforce: true
+    capability: baseline-regression
+    surfaces: ["baseline compare --max-context-drop --max-lift-drop"]
+    evidence:
+      - id: cjm-baseline-regression
+        kind: cli_scenario
+        invokes: ["baseline compare --max-context-drop --max-lift-drop"]
+        stubs: []
+
   AC-J12-002:
     delivery: partial
     enforce: true
@@ -519,7 +526,7 @@ criteria:
         stubs: [Docker (host probe fake)]
       - {id: cjm-repo-eval-workflow, kind: unit, stubs: [dokimi (stub executable)]}
     gaps:
-      - the policy is one flag for host-unsupported tasks; budget-stopped and inconclusive judge results have none
+      - Host-unsupported tasks and inconclusive judge checks have explicit flags; a general budget-stop policy remains proposed.
   AC-J12-003:
     delivery: available
     enforce: true
@@ -527,8 +534,14 @@ criteria:
     evidence:
       - {id: cjm-repo-eval-selection, kind: unit, stubs: [git (temporary repository)]}
   AC-J12-004:
-    delivery: proposed
-    decision_ref: https://github.com/intel/dokimi/pull/161
+    delivery: partial
+    enforce: true
+    capability: tasks-completion
+    surfaces: ["tasks run"]
+    evidence:
+      - {id: cjm-tasks-completion, kind: unit, stubs: [task result rows]}
+    scope: Native tasks run rejects missing, unscored and errored cells after saving artifacts.
+    gaps: ["Other evaluation tracks do not share this completion check."]
 
   # ---------------------------------------------------------------- J5, J6, J8
   AC-J05-003:

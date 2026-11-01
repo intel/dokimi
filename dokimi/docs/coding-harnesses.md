@@ -579,10 +579,12 @@ a verdict. The rules mirror intel/skills' `tools/check_harbor_job.py`:
 | no trial file (with or without the job's), more than one trial, or not a JSON object | errored |
 
 An errored cell is out of the pass-rate denominator and the paired test, as
-for `docker-*` and BenchFlow. When every cell of a `tasks run` errored, it
-still writes the artifact and the report, then exits 1 as `incomplete`
-(`0 scored, N errored of N cells`); a run with some cells scored exits 0 and
-prints the errored count per harness. `metrics.n_trials` counts the trial files and
+for `docker-*` and BenchFlow. When any planned cell of a `tasks run` errors, lacks a finite score, or is missing,
+the command writes the artifact and report, then exits 1 as `incomplete`.
+It reports scored, errored, unscored and missing counts and names missing cells.
+A completed verifier failure (reward 0) is scored evidence and does not itself
+change the exit code. A supported `--dry-run` plan exits 0 without claiming
+execution; unsupported cells still fail. `metrics.n_trials` counts the trial files and
 `metrics.result_json` names the one read. A `harbor` that `dokimi` kills at
 the task budget is a failed cell (reward 0, returncode 124), as above.
 
@@ -604,8 +606,11 @@ refuses the task instead of running it with the internet the task forbade.
 Both now land as errored cells.
 
 A `command:` harness (including a `--command-template` that wraps `harbor`)
-keeps its own rule: a `reward.txt` / `reward.json` under the run dir, else a
-`reward: x` on its output, else exit code 0 is a pass.
+keeps its own rule: a `reward.txt` / `reward.json` under the run dir, else (no
+reward file) a `reward: x` on its output, else exit code 0 is a pass. Exit 126 or 127, a
+signal exit, or a reward file with no reward in it is no verdict: the cell is
+errored (`metrics.solver_error`). Only a reward file with a reward in it outranks such an
+exit; a `reward: x` on the output does not.
 
 ### Network policy
 

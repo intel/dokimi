@@ -105,14 +105,17 @@
 --max-atoms
 --max-bases
 --max-batch-usd
+--max-context-drop  # baseline compare score tolerance in points, not a spend cap; moves to the gate policy (#94)
 --max-cost-usd
 --max-file-words
 --max-iterations
+--max-lift-drop  # baseline compare score tolerance in points, not a spend cap; moves to the gate policy (#94)
 --max-resource-words
 --max-tokens
 --max-turns
 --metric
 --min-accuracy
+--min-matched  # baseline compare gate: no registry concept yet; moves to the gate policy (#94)
 --mode
 --multi-run
 --no-classify
