@@ -157,12 +157,11 @@ def oracle(task: dict[str, Any], task_dir: Path, run_dir: Path | None = None) ->
     reference = task_dir / REFERENCE_DIR
     if reference.is_dir() and run_dir is not None:
         workspace = Path(run_dir) / "workspace"
-        for source in reference.rglob("*"):
-            if source.is_file():
-                dest = workspace / source.relative_to(reference)
-                if _linked_on_the_way(workspace, dest):
-                    raise ValueError(f"{dest.relative_to(workspace).as_posix()} would be written through a "
-                                     "symbolic link in the workspace")
+        for source in reference.rglob("*"):  # directories too: copytree creates an empty one through a link
+            dest = workspace / source.relative_to(reference)
+            if _linked_on_the_way(workspace, dest):
+                raise ValueError(f"{dest.relative_to(workspace).as_posix()} would be written through a "
+                                 "symbolic link in the workspace")
         shutil.copytree(reference, workspace, dirs_exist_ok=True)
     return ""
 

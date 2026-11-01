@@ -283,3 +283,16 @@ def test_the_oracle_copies_the_reference_when_no_link_is_on_the_way(tmp_path):
     run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": WRONG}, _task())
     typecheck.oracle(_task(), task_dir, run)
     assert (run / "workspace" / "pkg" / "api.py").read_text(encoding="utf-8") == CLEAN
+
+
+def test_the_oracle_refuses_an_empty_reference_directory_created_through_a_link(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    task_dir = tmp_path / "task"
+    (task_dir / "reference" / "pkg" / "sub").mkdir(parents=True)  # no file under it
+    run = tmp_path / "run"
+    (run / "workspace").mkdir(parents=True)
+    (run / "workspace" / "pkg").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ValueError, match="symbolic link"):
+        typecheck.oracle(_task(), task_dir, run)
+    assert not (outside / "sub").exists()
