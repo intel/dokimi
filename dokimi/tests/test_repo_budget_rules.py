@@ -148,6 +148,11 @@ def test_rules_are_counted_only_for_a_harness_that_reads_them(tmp_path):
     pytest.param("paths: true\n", "start", id="paths-boolean"),
     pytest.param("paths: 5\n", "start", id="paths-integer"),
     pytest.param("paths: {a: 1}\n", "start", id="paths-mapping"),
+    # the key is read on its own when the rest of the frontmatter does not parse
+    pytest.param("paths: true\nunused: [unclosed\n", "start", id="unparsed-boolean-unrelated-malformed"),
+    pytest.param("paths: 5\nunused: [unclosed\n", "start", id="unparsed-integer-unrelated-malformed"),
+    pytest.param('paths: [\n  "src/**"]\nunused: [unclosed\n', "lazy", id="unparsed-flow-list-over-lines"),
+    pytest.param('paths: [\n  ""]\nunused: [unclosed\n', "start", id="unparsed-flow-list-empty-over-lines"),
 ])
 def test_only_a_paths_value_that_names_a_pattern_scopes_a_rule(tmp_path, front, when):
     payload = budget(_tree(tmp_path, {".claude/rules/r.md": f"---\n{front}---\nbody\n"}), NAMES, rules=True)
@@ -240,16 +245,45 @@ def test_a_root_rule_linked_to_a_nested_rule_that_sorts_first_still_loads_at_sta
     assert payload["totals"]["lazy"] == 0
 
 
-def test_a_dangling_link_to_a_non_markdown_file_under_rules_is_not_warned(tmp_path):
-    # such a file can never be a rule, so no rule is behind it
+def test_a_dangling_link_under_rules_that_is_not_markdown_is_named(tmp_path):
+    # a link that does not resolve may be a directory of rules (`shared.rules`), which the tree cannot tell apart
     (tmp_path / ".claude/rules").mkdir(parents=True)
     (tmp_path / ".claude/rules/own.md").write_text("own\n", encoding="utf-8")
     try:
-        (tmp_path / ".claude/rules/notes.txt").symlink_to(tmp_path / "nowhere.txt")
+        (tmp_path / ".claude/rules/shared.rules").symlink_to(tmp_path / "nowhere")
     except OSError:
         pytest.skip("symlinks unavailable")
     payload = budget(WorkTree(tmp_path), NAMES, rules=True)
-    assert payload["warnings"] == []
+    assert payload["warnings"] == [
+        ".claude/rules/shared.rules: a link that does not resolve in the tree; any rules behind it are not counted"]
+
+
+def test_a_rule_does_not_expand_its_at_imports_even_when_claude_md_imports_it(tmp_path):
+    files = {"CLAUDE.md": "@.claude/rules/r.md\n", ".claude/rules/r.md": "rule @../../extra.md\n",
+             "extra.md": "extra\n"}
+    payload = budget(_tree(tmp_path, files), NAMES, rules=True)
+    assert _by_path(payload)[(".claude/rules/r.md", "rule")]["when"] == "start"
+    assert [e["path"] for e in payload["entries"] if e["path"] == "extra.md"] == []
+
+
+def test_a_file_named_claude_md_under_rules_is_a_rule_not_guidance(tmp_path):
+    files = {"CLAUDE.md": "root\n", ".claude/rules/CLAUDE.md": "@extra.md\n", ".claude/rules/extra.md": "extra\n"}
+    payload = budget(_tree(tmp_path, files), NAMES, rules=True)
+    assert _by_path(payload)[(".claude/rules/CLAUDE.md", "rule")]["when"] == "start"
+    assert not [e for e in payload["entries"] if e["kind"] == "guidance" and e["path"].startswith(".claude/rules/")]
+
+
+def test_a_linked_directory_named_like_a_rule_is_named_not_counted_as_a_rule(tmp_path):
+    (tmp_path / "shared").mkdir()
+    (tmp_path / "shared/style.md").write_text("style\n", encoding="utf-8")
+    (tmp_path / ".claude/rules").mkdir(parents=True)
+    try:
+        (tmp_path / ".claude/rules/shared.md").symlink_to(tmp_path / "shared", target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    payload = budget(WorkTree(tmp_path), NAMES, rules=True)
+    assert not [e for e in payload["entries"] if e["kind"] == "rule"]
+    assert payload["warnings"] == [".claude/rules/shared.md: a link to a directory; the rules behind it are not counted"]
 
 
 def test_a_dangling_link_to_a_markdown_rule_is_named_and_counted_as_zero(tmp_path):

@@ -36,7 +36,6 @@ from __future__ import annotations
 import json
 import re
 from itertools import combinations
-from pathlib import PurePosixPath
 from typing import Any
 
 import yaml
@@ -48,7 +47,7 @@ SKILL_GLOB = re.compile(r"^\.claude/skills/[^/]+/SKILL\.md$")
 RULE_GLOB = re.compile(r"^(?:.+/)?\.claude/rules/(?:.+/)?[^/]+\.md$")
 _RULES_ENTRY = re.compile(r"^(?:.+/)?\.claude/rules(?:/.+)?$")
 _FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n(.*?)^---[ \t]*(?:\r?\n|\Z)", re.S | re.M)
-# The `paths:` key of frontmatter that does not parse: its line, read on its own (see _fallback_paths).
+# The `paths:` key of frontmatter that does not parse: its line, read on its own (see _paths_block).
 _PATHS_LINE = re.compile(r"^paths[ \t]*:(.*)$")
 MCP_FILE = ".mcp.json"
 # Claude Code truncates description + when_to_use at 1,536 characters in the listing (docs: Skills).
@@ -75,7 +74,8 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
            rules: bool = False) -> dict[str, Any]:
     files = tree.files()
     names = set(guidance_names)
-    every = [f for f in files if f.rsplit("/", 1)[-1] in names]
+    # a file under .claude/rules is a rule whatever its name (a rules/CLAUDE.md is not guidance)
+    every = [f for f in files if f.rsplit("/", 1)[-1] in names and not RULE_GLOB.match(f)]
     guidance = _unaliased(tree, every)
     groups: dict[str, list[str]] = {}
     for f in every:
@@ -245,14 +245,18 @@ def _rules(tree: RepoTree, files: list[str], counted: set[str], start_t: set[str
     rank = {"off": 0, "lazy": 1, "start": 2}
     by_target = {_target(tree, e["path"]): e for e in guidance}
     out = []
-    for f in sorted(f for f in files if _RULES_ENTRY.match(f) and not RULE_GLOB.match(f)):
+    dirs: set[str] = set()
+    for f in sorted(f for f in files if _RULES_ENTRY.match(f)):
         try:
             if tree.is_dir(tree.resolve(f, dirs=True)):  # a tree lists a link to a directory as one entry
                 warnings.append(f"{f}: a link to a directory; the rules behind it are not counted")
+                dirs.add(f)
         except (OSError, ValueError, RuntimeError):  # out of the tree (a shared rules dir), dangling or a loop
-            if not PurePosixPath(f).suffix:  # a file with a suffix (notes.txt) is never a rule; a name without one may be a directory
+            # A link that does not resolve may be a directory whatever its name, and the tree cannot tell which:
+            # any such entry is named, except a Markdown rule, which _rule names as unreadable and counts as 0.
+            if not RULE_GLOB.match(f):
                 warnings.append(f"{f}: a link that does not resolve in the tree; any rules behind it are not counted")
-    for f in sorted(f for f in files if RULE_GLOB.match(f)):
+    for f in sorted(f for f in files if RULE_GLOB.match(f) and f not in dirs):
         target = _target(tree, f)
         chars, scoped, warning = _rule(tree, f)
         # a CLAUDE.md that imports a rule at start loads it then, whatever its frontmatter says
@@ -298,20 +302,37 @@ def _has_paths(frontmatter: str) -> bool:
     """True if ``paths`` names at least one pattern: a string, or a list item that is a string, not blank.
 
     A value that is not a string (a number, a boolean, a mapping) names no pattern, and a container is never
-    converted to text: a YAML alias chain expands on ``str()``.
+    converted to text: a YAML alias chain expands on ``str()``. When the frontmatter does not parse, the
+    ``paths`` key is read on its own (``_paths_block``), as Claude Code reads it.
     """
     try:
         meta = yaml.safe_load(frontmatter)
     except (yaml.YAMLError, RecursionError, ValueError):  # RecursionError: nesting too deep; ValueError: an integer over the digit limit
         meta = None  # Claude Code still reads a `paths:` line of YAML that does not parse
     if isinstance(meta, dict):
-        value = meta.get("paths")
-        items = value if isinstance(value, list) else value.split(",") if isinstance(value, str) else []
-        return any(isinstance(v, str) and v.strip() for v in items)
-    values = _fallback_paths(frontmatter)
-    if values is None:
+        return _value_names(meta.get("paths"))
+    block = _paths_block(frontmatter)
+    if block is None:
         return False
+    try:
+        own = yaml.safe_load("\n".join(block))
+    except (yaml.YAMLError, RecursionError, ValueError):
+        own = None
+    if isinstance(own, dict):  # the key parses on its own, whatever the rest of the frontmatter does
+        return _value_names(own.get("paths"))
+    # the key itself does not parse (`[unclosed`): its text names a pattern unless every part is empty
+    values = [_without_comment(block[0].split(":", 1)[1])]
+    for line in block[1:]:
+        s = line.strip()
+        if s and not s.startswith("#"):
+            values.append(_without_comment(s[1:] if s.startswith("-") else s))
     return any(_names_pattern(v) for v in values)
+
+
+def _value_names(value: object) -> bool:
+    """True if a parsed ``paths`` value names a pattern: a string (split on commas) or a list with a non-blank string."""
+    items = value if isinstance(value, list) else value.split(",") if isinstance(value, str) else []
+    return any(isinstance(v, str) and v.strip() for v in items)
 
 
 def _names_pattern(value: str) -> bool:
@@ -329,26 +350,22 @@ def _names_pattern(value: str) -> bool:
     return False
 
 
-def _fallback_paths(frontmatter: str) -> list[str] | None:
-    """The values of the ``paths`` key in frontmatter that does not parse: its inline value and its ``- item`` lines.
+def _paths_block(frontmatter: str) -> list[str] | None:
+    """The lines of the ``paths`` key: its line, then the lines that continue it (indented, ``- item``, blank or comment).
 
-    Comment lines and blank lines between the items are skipped, and a YAML comment is cut from each value
-    (``_without_comment``). None when there is no ``paths`` key.
+    None when there is no ``paths`` key. A flow list that runs over several lines (``paths: [`` then ``"src/**"]``)
+    is one block, so its continuation lines are read with the key.
     """
     lines = frontmatter.splitlines()
     for i, line in enumerate(lines):
-        m = _PATHS_LINE.match(line)
-        if not m:
-            continue
-        values = [_without_comment(m.group(1))]
-        for item in lines[i + 1:]:
-            s = item.strip()
-            if not s or s.startswith("#"):
-                continue
-            if not s.startswith("-"):
-                break
-            values.append(_without_comment(s[1:]))
-        return values
+        if _PATHS_LINE.match(line):
+            block = [line]
+            for item in lines[i + 1:]:
+                if not item.strip() or item[:1] in (" ", "\t", "-", "#"):
+                    block.append(item)
+                else:
+                    break
+            return block
     return None
 
 
@@ -385,6 +402,8 @@ def _imports(tree: RepoTree, roots: list[str], max_depth: int | None = None) -> 
     while level:
         nxt: list[str] = []
         for f in level:
+            if RULE_GLOB.match(f):
+                continue  # an @ path in a rule is not followed (docs/repo-evaluation-contract.md)
             try:
                 text = tree.read_text(f)
             except (OSError, ValueError, RuntimeError):  # RuntimeError: a link loop before Python 3.13

@@ -5,7 +5,9 @@
   whose `paths` does, and every rule of a subdirectory's `.claude/rules/`, is `lazy`. The
   frontmatter is not counted, since Claude Code removes it before loading the rule, and an `@`
   path in a rule is not followed as an import. A link to a directory under `.claude/rules` is a
-  warning: the rules behind it are not counted. Measured on Claude Code 2.1.304: a root rule
+  warning: the rules behind it are not counted. A link under `.claude/rules` that does not resolve in
+  the tree is named too, whatever its suffix, since the tree cannot tell a dangling file from a directory; a
+  `CLAUDE.md` under `.claude/rules` is a rule, not guidance. Measured on Claude Code 2.1.304: a root rule
   raised the first prompt by its size, `paths: []` included; a scoped or nested one loaded only
   once the agent read a file it covers; a rule's `@extra.md` was not expanded. `start` was too
   low by every root rule before; `repo_budget.v1` widens `kind` with `rule`. Rules are counted
