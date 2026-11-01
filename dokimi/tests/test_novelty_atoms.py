@@ -242,6 +242,74 @@ def test_a_cap_keeps_every_kth_atom_from_the_middle_of_the_first_stride(n_atoms,
     assert spread_sample([f"atom{i}" for i in range(n_atoms)], cap) == [f"atom{i}" for i in kept]
 
 
+def _cited(*span_ids: str) -> dict:
+    return {"statement": f"{'+'.join(span_ids)} holds a default.", "question": f"q {span_ids}",
+            "answer": "a value", "kind": "proposition", "tags": [], "span_ids": list(span_ids)}
+
+
+@pytest.mark.parametrize("reply, cap, probed", [
+    # Sorted s0001 s0002 s0003; the one stride's middle is s0002, where reply order gives s0003.
+    ([("s0001",), ("s0003",), ("s0002",)], 1, [("s0002",)]),
+    ([("s0001",), ("s0003",), ("s0002",), ("s0004",)], 2, [("s0002",), ("s0004",)]),
+    # By the earliest span an atom cites, not its first: (s0004, s0001) sorts first.
+    ([("s0003",), ("s0004", "s0001"), ("s0002",)], 1, [("s0002",)]),
+    # A cap that does not bind keeps the reply's order: atoms.json is as before #293.
+    ([("s0002",), ("s0001",)], 2, [("s0002",), ("s0001",)]),
+    ([("s0001",), ("s0003",), ("s0002",)], None, [("s0001",), ("s0003",), ("s0002",)]),
+], ids=["cap-1", "cap-2-of-4", "earliest-cited", "at-cap", "no-cap"])
+def test_a_binding_cap_strides_in_document_order_whatever_the_reply_s_order(reply, cap, probed):
+    def out_of_order(prompt, system):
+        return json.dumps([_cited(*span_ids) for span_ids in reply]), None
+
+    atoms = extract_atoms(segment(DOC), client=LLMClient(model="x", transport=out_of_order),
+                          cap=cap)
+    assert [atom.span_ids for atom in atoms] == probed
+
+
+def test_a_cap_below_one_is_refused_before_any_call():
+    calls: list[str] = []
+
+    def counted(prompt, system):
+        calls.append(prompt)
+        return _three_per_span(prompt, system)
+
+    with pytest.raises(ValueError, match="the atom cap must be at least 1"):
+        extract_atoms(segment(DOC), client=LLMClient(model="x", transport=counted), cap=0)
+    assert calls == []
+
+
+def test_a_binding_cap_over_a_partly_read_input_makes_no_whole_input_claim():
+    """50 spans, cap 2: the first batch gives 25 atoms and the second an empty reply."""
+    from dokimi.novelty.report import _capped_at, cap_warning, coverage_reach
+
+    spans = segment("\n\n".join(f"Setting number {i} defaults to {i * 10}." for i in range(1, 51)))
+    second_batch = {s.id for s in spans[25:]}
+
+    def second_empty(prompt, system):
+        if second_batch & set(re.findall(r"^\[(s\d+)\]", prompt, flags=re.M)):
+            return "", None
+        return json.dumps(_rows(prompt)), None
+
+    report = ExtractionReport()
+    atoms = extract_atoms(spans, client=LLMClient(model="x", transport=second_empty), cap=2,
+                          report=report)
+    assert [a.span_ids[0] for a in atoms] == ["s0007", "s0019"]  # both from the opening
+    assert report.sampled == {"atoms": 2, "of": 25, "rule": "cap-spread"}
+    assert len(report.unread_span_ids) == 25
+    record = report.as_dict()
+    sample = ("2 of the 25 atoms extracted from the spans that were read, spread over those (a "
+              "stride of 12.5 atoms in document order; 25 of the input's spans were not read, see "
+              "extraction.unread_span_ids)")
+    texts = [cap_warning(record), _capped_at({"extraction": record}), coverage_reach(record)[1]]
+    assert texts == [
+        f"atom extraction could not read 25 of the input's spans, and the atom cap probes {sample}: "
+        "rates are estimated from that sample; pass --all-atoms to probe every atom",
+        f" Extraction could not read 25 of the input's spans; the atom cap probed {sample}.",
+        f"; the cap probed {sample}",
+    ]
+    assert not any("whole input" in text or "all of it" in text for text in texts)
+
+
 def _three_per_span(prompt, system):
     rows = [dict(row, statement=f"{row['statement']} ({k})",
                  question=f"q{k} {row['span_ids'][0]}")

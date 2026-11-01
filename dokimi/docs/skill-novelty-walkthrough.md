@@ -94,9 +94,10 @@ comparable with another artifact's.
 
 If the skill is a thin `SKILL.md` over a `references/` tree, add `--include-resources`.
 Without it the run measures the entry point and prints the share it is skipping — in the
-study corpus that share was 0.72 of all words. At `triage` the 25-atom cap probes atoms spread
-over every selected file in file order, so `references/` gets its share by atom count; 25 atoms
-over several files leave each one few, so for a figure per file use `--tier standard` or higher.
+study corpus that share was 0.72 of all words. At `triage` the 25-atom cap strides over the
+concatenated atom list of the selected files, in file order, so a file with few atoms may get no
+probe. A higher tier spreads more probes without promising each file one; `--all-atoms` probes
+every extracted atom.
 
 ## 4–5. Extract once, probe per model
 

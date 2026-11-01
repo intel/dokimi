@@ -911,22 +911,37 @@ extracted atoms: a cut of a span with no sampled atom looks free` (60 at `standa
 
 The cap is a spread sample, not the opening. Extraction reads every span of the input, and when
 it yields M atoms, more than the cap n, the run probes the atoms at indices
-`floor((i + 0.5) * M / n)` for `i` in `0..n-1` of the extracted list (`spread_sample` in
-`dokimi/novelty/atoms.py`): every (M/n)-th atom in document order, starting in the middle of the
-first stride, so the sample estimates the per-atom rate an uncapped run reports. A stride needs no
-seed: the same text gives the same sample. With M ≤ n every atom is probed. The input is the text that was
-segmented: the entry point, plus on a bundle run the files its roles and budgets selected, in that
-order, so the stride gives each selected file its share by atom count, and a bundled file left
-out has no atom in it (the `coverage:` line says how much of the artifact went into the input).
-The run records `atoms.sampling` as `cap-spread:<n>` and `extraction.sampled` as
-`{"atoms": n, "of": M, "rule": "cap-spread"}`, and warns `atom extraction read the whole input,
-and the atom cap probes 25 of the input's 61 atoms, spread over all of it (a stride of 2.44
-atoms in document order): rates are estimated from that sample; pass --all-atoms to probe every
-atom`. The `novelty.md` header says the same, and the headline's `coverage:` line says the
-words went into the input and the cap probed 25 of the input's 61 atoms (the warning under that
-line, when half or less of the words went in, says "went into the input" too). `novelty atoms`
-prints the same warning on stderr and saves the same sample in `atoms.json`; `probe` and
-`shorten`, which read it, do not repeat the warning.
+`floor((i + 0.5) * M / n)` for `i` in `0..n-1` of the extracted list sorted by the earliest span
+each atom cites (`spread_sample` in `dokimi/novelty/atoms.py`): every (M/n)-th atom in document
+order, starting in the middle of the first stride, so the sample estimates the per-atom rate an
+uncapped run reports. The sort is needed because the extractor's reply lists a batch's atoms in
+its own order; it is stable, so atoms citing the same span keep that order, and with M ≤ n
+nothing is sorted and every atom is probed in extraction order. A stride needs no seed: the
+same extracted atom list gives the same sample. A fresh extraction is new model calls, so the
+same text can give other atoms and so another sample; to probe identical atoms across runs or
+models, extract once with `novelty atoms` and pass its `atoms.json` to `novelty probe --atoms`
+(and `novelty shorten --atoms`), which probe the saved atoms without sampling again. The input
+is the text that was segmented: the entry point, plus on a bundle run the files its roles and
+budgets selected, in that order. The stride runs over the concatenated atom list of those
+files, so a file's expected share of the probes is its share of the atoms, but a file with few
+atoms can fall between two sampled indices and get no probe; a higher cap spreads more probes
+without promising each file one, and `--all-atoms` probes every extracted atom. A bundled file
+left out has no atom in it (the `coverage:` line says how much of the artifact went into the
+input). The run records `atoms.sampling` as `cap-spread:<n>` and `extraction.sampled` as
+`{"atoms": n, "of": M, "rule": "cap-spread"}`. When every span was read it warns `atom
+extraction read the whole input, and the atom cap probes 25 of the input's 61 atoms, spread over
+all of it (a stride of 2.44 atoms in document order): rates are estimated from that sample; pass
+--all-atoms to probe every atom`. When some spans were left unread (`extraction.unread_span_ids`:
+a failed call, an empty or unparseable reply), M counts only the atoms of the spans that were
+read, and the warning says so instead: `atom extraction could not read 25 of the input's spans,
+and the atom cap probes 2 of the 25 atoms extracted from the spans that were read, spread over
+those (a stride of 12.5 atoms in document order; 25 of the input's spans were not read, see
+extraction.unread_span_ids): ...`. The `novelty.md` header says the same, and the headline's
+`coverage:` line says the words went into the input and the cap probed 25 of the input's 61
+atoms, or of the atoms extracted from the spans that were read (the warning under that line,
+when half or less of the words went in, says "went into the input" too). `novelty atoms` prints
+the same warning on stderr and saves the same sample in `atoms.json`; `probe` and `shorten`,
+which read it, do not repeat the warning.
 
 Runs written before the spread rule recorded `cap-per-artifact:<n>`: extraction walked the spans
 in document order and stopped at the cap, so their atoms cover the input up to the span it
@@ -1001,7 +1016,7 @@ lost to a failed call (with its error). The
 | `retried_batches` | batches whose reply did not parse, or had no usable atom, and were split and re-asked |
 | `calls`, `batches` | calls made, splits included, against the calls the run would make with no splitting |
 | `last_error` | the error behind the unread spans (a failed call first); errors a split recovered from are not recorded |
-| `sampled` | on a run whose cap left atoms out, what it probed: `atoms`, the cap; `of`, the atoms extracted from every span; `rule`, `cap-spread`. `null` when every atom was probed |
+| `sampled` | on a run whose cap left atoms out, what it probed: `atoms`, the cap; `of`, the atoms extracted from every span some call read; `rule`, `cap-spread`. `null` when every atom was probed |
 | `reached` | `null` on a `cap-spread` run. On a run before it, how far through the input (the spans segmented, not the files the bundle left out) the cap reached: `last_span`, the last span any kept atom cites among the spans some call was sent (a batch the cap cut mid-reply was sent whole, but its later spans gave no atom; a cited span no call was sent does not count); `spans`, the spans up to and including it, `of` all the input's spans; `tokens_share`, those spans' share of the input's span tokens. `null` when the cap did not bind |
 
 `probe`, `shorten` and `view` read `atoms.json` and repeat the warning. Unread spans are left out

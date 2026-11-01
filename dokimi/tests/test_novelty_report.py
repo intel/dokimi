@@ -82,7 +82,7 @@ SAMPLED = {"atoms": 25, "of": 61, "rule": "cap-spread"}
 
 
 def test_a_spread_run_says_how_many_atoms_it_probed_spread_over_the_whole_input():
-    assert cap_warning(SAMPLED) == (
+    assert cap_warning({"sampled": SAMPLED, "unread_span_ids": []}) == (
         "atom extraction read the whole input, and the atom cap probes 25 of the input's 61 atoms, "
         "spread over all of it (a stride of 2.44 atoms in document order): rates are estimated from "
         "that sample; pass --all-atoms to probe every atom")

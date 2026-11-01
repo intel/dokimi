@@ -349,9 +349,9 @@
         },
         "sampled": {
           "type": ["object", "null"],
-          "description": "What a binding cap probed (atoms.sampling cap-spread:<n>): atoms of the of atoms extracted from every span, at indices floor((i + 0.5) * of / atoms) for i in 0..atoms-1 of the extracted list (document order; on a bundle run, the files in bundle order). No seed: the same extracted list gives the same sample. null when the cap kept every atom. Absent from artifacts written before it existed.",
+          "description": "What a binding cap probed (atoms.sampling cap-spread:<n>): atoms of the of atoms extracted from every span some call read (extraction.unread_span_ids lists the rest), at indices floor((i + 0.5) * of / atoms) for i in 0..atoms-1 of the extracted list sorted by the earliest span each atom cites (document order; on a bundle run, the files in bundle order). No seed: the same extracted list gives the same sample. null when the cap kept every atom. Absent from artifacts written before it existed.",
           "properties": {
-            "atoms": {"type": "integer", "minimum": 0},
+            "atoms": {"type": "integer", "minimum": 1},
             "of": {"type": "integer", "minimum": 1},
             "rule": {"type": "string"}
           },

@@ -648,6 +648,10 @@ def test_a_capped_run_probes_a_spread_sample_and_says_so(tmp_path, monkeypatch):
     partial = dict(artifact["extraction"], sampled={"atoms": 1})
     with pytest.raises(ArtifactValidationError, match="extraction/sampled: 'of' is a required"):
         validate_artifact("novelty", dict(artifact, schema_version="novelty.v1", extraction=partial))
+    # A sample of no atoms has no stride to describe; `null` is the absence of a sample.
+    empty = dict(artifact["extraction"], sampled={"atoms": 0, "of": 2, "rule": "cap-spread"})
+    with pytest.raises(ArtifactValidationError, match="extraction/sampled/atoms: 0 is less than"):
+        validate_artifact("novelty", dict(artifact, schema_version="novelty.v1", extraction=empty))
 
 
 def test_an_artifact_written_under_the_document_order_cap_still_validates(tmp_path):

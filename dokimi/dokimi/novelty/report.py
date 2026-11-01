@@ -257,18 +257,35 @@ def reach_is_end(reached: dict) -> bool:
     return reached["spans"] == reached["of"]
 
 
-def describe_sample(sampled: dict) -> str:
+def describe_sample(sampled: dict, n_unread: int = 0) -> str:
     """What a binding cap probed, as ``25 of the input's 61 atoms, spread over all of it (a
-    stride of 2.44 atoms in document order)``: ``extraction.sampled`` of a ``cap-spread`` run."""
-    stride = sampled["of"] / sampled["atoms"]
+    stride of 2.44 atoms in document order)``: ``extraction.sampled`` of a ``cap-spread`` run.
+
+    With ``n_unread`` spans no extraction call read, the atoms are only those of the spans
+    that were read, so the sample is spread over those, not over the whole input.
+    """
+    stride = f"a stride of {sampled['of'] / sampled['atoms']:.3g} atoms in document order"
+    if n_unread:
+        return (f"{sampled['atoms']} of the {sampled['of']} atoms extracted from the spans that "
+                f"were read, spread over those ({stride}; {n_unread} of the input's spans were "
+                "not read, see extraction.unread_span_ids)")
     return (f"{sampled['atoms']} of the input's {sampled['of']} atoms, spread over all of it "
-            f"(a stride of {stride:.3g} atoms in document order)")
+            f"({stride})")
 
 
-def cap_warning(sampled: dict) -> str:
-    """The warning for a binding cap: which atoms it probed, and how to probe them all."""
-    return (f"atom extraction read the whole input, and the atom cap probes "
-            f"{describe_sample(sampled)}: rates are estimated from that sample; pass "
+def _what_extraction_read(n_unread: int) -> str:
+    """What extraction read, after "extraction" in a cap sentence: every span, or not."""
+    if n_unread:
+        return f"could not read {n_unread} of the input's spans"
+    return "read the whole input"
+
+
+def cap_warning(extraction: dict) -> str:
+    """The warning for a binding cap, from the ``extraction`` record of a run whose ``sampled``
+    is set: which atoms it probed, and how to probe them all."""
+    sampled, n_unread = extraction["sampled"], len(extraction.get("unread_span_ids") or [])
+    return (f"atom extraction {_what_extraction_read(n_unread)}, and the atom cap probes "
+            f"{describe_sample(sampled, n_unread)}: rates are estimated from that sample; pass "
             "--all-atoms to probe every atom")
 
 
@@ -277,11 +294,13 @@ def coverage_reach(extraction: dict | None) -> tuple[str, str]:
 
     The coverage share counts the words that went into the input. Under a binding cap only
     the cap's atoms were probed, so the line must not say the words were measured: it says
-    which atoms were (``sampled``), or for a run before #293, how far the atoms reach.
+    which atoms were (``sampled``; over the read spans only, when some went unread), or for a
+    run before #293, how far the atoms reach.
     """
     sampled = (extraction or {}).get("sampled")
     if sampled:
-        return "went into the input", f"; the cap probed {describe_sample(sampled)}"
+        n_unread = len((extraction or {}).get("unread_span_ids") or [])
+        return "went into the input", f"; the cap probed {describe_sample(sampled, n_unread)}"
     reached = (extraction or {}).get("reached")
     if not reached:
         return "were measured", ""
@@ -297,8 +316,9 @@ def _capped_at(artifact: dict) -> str:
     stopped extraction), or ``""``."""
     sampled = (artifact.get("extraction") or {}).get("sampled")
     if sampled:
-        return (f" Extraction read the whole input; the atom cap probed "
-                f"{describe_sample(sampled)}.")
+        n_unread = len(artifact["extraction"].get("unread_span_ids") or [])
+        return (f" Extraction {_what_extraction_read(n_unread)}; the atom cap probed "
+                f"{describe_sample(sampled, n_unread)}.")
     reached = (artifact.get("extraction") or {}).get("reached")
     if not reached:
         return ""

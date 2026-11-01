@@ -158,7 +158,7 @@ def cmd_novelty_atoms(args: argparse.Namespace) -> None:
     except ExtractionError as exc:
         raise SystemExit(str(exc)) from None
     # The cap warning analyze records; probe and shorten, which read atoms.json, do not repeat it.
-    sampled = [cap_warning(extraction.sampled)] if extraction.sampled else []
+    sampled = [cap_warning(extraction.as_dict())] if extraction.sampled else []
     for warning in extraction.warnings(len(spans)) + sampled:
         print(f"WARNING {warning}", file=sys.stderr)
     if settings.values["verify_faithfulness"]:

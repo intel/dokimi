@@ -183,7 +183,7 @@ def analyze(
     # Older runs recorded `cap-per-artifact:<n>`, the first n atoms in document order (#293).
     sampling = f"cap-spread:{config.max_atoms}" if config.max_atoms is not None else "full"
     if extraction.sampled:  # set only when the cap left atoms out
-        warnings.append(report.cap_warning(extraction.sampled))
+        warnings.append(report.cap_warning(extraction.as_dict()))
     if not atom_list:
         warnings.append("no atoms with span provenance were extracted; nothing to measure")
 
