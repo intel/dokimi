@@ -182,8 +182,9 @@ def _read_sessions(names: list[str]) -> tuple[list, bool]:
 
     loaded, failed, seen = [], False, set()
     for name in names:
-        matches = [name] if os.path.exists(name) else sorted(glob.glob(os.path.expanduser(name), recursive=True))
-        for path in matches or [name]:
+        expanded = os.path.expanduser(name)  # a literal file is checked after ~ is expanded, before any glob
+        matches = [expanded] if os.path.exists(expanded) else sorted(glob.glob(expanded, recursive=True))
+        for path in matches or [expanded]:
             real = os.path.realpath(path)
             if real in seen:
                 print(f"warning: {path} given twice; counted once", file=sys.stderr)

@@ -38,14 +38,19 @@ model is called; every match is lexical.
 - **Acted.** Within `--window` events either side of the trigger, a tool call
   ran a command or touched a path the rule names in backticks (`` `make ci-local` ``,
   `` `changelog.d/` ``). A command counts when it runs the named command at the start of
-  a shell segment (after `uv run`, `sudo` or environment assignments), so an `echo`, a
-  `grep` argument or a `#` comment that names it does not. A path counts when a tool call
+  a pipeline stage or compound command (after `uv run`, `sudo`, environment assignments, or
+  `then`, `do`, `(`), so an `echo`, a `grep` argument or a `#` comment that names it does not.
+  The key is read the same way as the command, so a wrapper in a key (`` `python -m pytest` ``)
+  matches the same wrapped command, and a quoted argument with a space is one word on both sides. A path counts when a tool call
   names it in a path input or shell command, excluding shell comments, heredoc bodies,
   echo/printf arguments (their redirection targets still count) and quoted sentences: a quoted
   argument with a space in it is text, so `git commit -m "update docs/guide.md"` does not act on
   the file, while `cat "docs/guide.md"` does. A quoted path that itself contains a space is read as a
   sentence and does not count. A `>` inside quotes is text, not a redirection.
-  A bare file name in backticks (`` `Makefile` ``) matches an edit of that file. A Windows path
+  A capitalised bare file name in backticks (`` `Makefile` ``) matches an edit of that file, or a
+  shell command that names it as an argument (`cat Makefile`); an `echo` of it does not. A lowercase bare word
+  (`` `pytest` ``) is a command, so an argument naming it (`grep pytest`) does not count. A path with a
+  space in its name (`` `docs/my guide.md` ``) is a path, not a command. A Windows path
   matches with backslashes too.
   A rule that names neither is not measurable here: its
   `acted` is `null` and it carries the flag `acted_not_measurable`.

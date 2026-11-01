@@ -46,8 +46,9 @@ _PATH = re.compile(r"[/\\]|\.[A-Za-z0-9]{1,6}$")
 _QUOTED = re.compile(r"\\[\s\S]|'[^']*'|\"(?:\\[\s\S]|[^\"\\])*\"")
 # an unquoted backslash-newline is a line continuation: the line goes on, it is not a new command
 _CONTINUATION = re.compile(r"\\\n|\\[\s\S]|'[^']*'|\"(?:\\[\s\S]|[^\"\\])*\"")
-# a heredoc body is data for the command, not commands: from the line after ``<<WORD`` to a line that is WORD alone
-_HEREDOC = re.compile(r"(?m)((?<!<)<<-?[ \t]*['\"]?(\w+)['\"]?[^\n]*\n)(?:.*?\n)??[ \t]*\2[ \t]*$", re.S)
+# a heredoc header is ``<<WORD`` (or ``<<'WORD'``) outside quotes and not a here-string (``<<<``)
+_HEREDOC_OPEN = re.compile(r"(?<!<)<<(?!<)")
+_HEREDOC_WORD = re.compile(r"-?[ \t]*(['\"]?)(\w+)\1")
 _COMMENT = re.compile(r"(?m)(?:^|\s)#.*$")
 _SEGMENT = re.compile(r"&&|\|\||[;|&()\n]")
 _CUE = re.compile(r"\b(no|not|don't|do not|stop|instead|wrong|forgot|should have|revert|undo|why did you)\b", re.I)
@@ -102,8 +103,13 @@ def _stems(text: str) -> frozenset[str]:
 
 
 def _is_path(key: str) -> bool:
-    """A bare file name or path; a key with a space is a command line that names a file."""
-    return " " not in key and bool(_PATH.search(key))
+    """A bare file name or a path, or a path with a space in its name (``docs/my guide.md``): its first word is
+    a directory part and its last ends in an extension. A command line that names a file is a command."""
+    if " " not in key:
+        return bool(_PATH.search(key))
+    words = shell.tokens(key)
+    return (len(words) >= 2 and bool(re.search(r"[/\\]", words[0])) and not any(w.startswith("-") for w in words)
+            and bool(re.search(r"\.[A-Za-z0-9]{1,6}$", words[-1])))
 
 
 def claims_from_guidance(text: str) -> list[Claim]:
@@ -155,10 +161,36 @@ def _join_line(match: re.Match[str]) -> str:
     return "" if match.group(0) == "\\\n" else match.group(0)
 
 
+def _heredoc_words(line: str) -> list[str]:
+    """The words of the heredocs a line opens: a ``<<`` inside quotes is text and opens none."""
+    masked = _QUOTED.sub(lambda m: "_" * len(m.group(0)), line)  # same length: positions line up
+    words = []
+    for opened in _HEREDOC_OPEN.finditer(masked):
+        word = _HEREDOC_WORD.match(line, opened.end())
+        if word:
+            words.append(word.group(2))
+    return words
+
+
+def _without_heredoc_bodies(command: str) -> str:
+    """The command with each heredoc body dropped: the lines after its header up to a line that is its WORD
+    alone. Body lines are read as data, so their quotes do not pair with the rest of the command."""
+    out: list[str] = []
+    pending: list[str] = []  # the WORDs of the bodies still to skip, in order
+    for line in command.split("\n"):
+        if pending:
+            if line.strip() == pending[0]:
+                pending.pop(0)
+            continue
+        out.append(line)
+        pending.extend(_heredoc_words(line))
+    return "\n".join(out)
+
+
 def _masked_segments(command: str, *, hide_spaced: bool = False) -> list[str]:
     """The command's segments with their quotes removed, still masked. A heredoc body is dropped; with
     ``hide_spaced`` a quoted argument with a space in it is replaced by a placeholder."""
-    text = _CONTINUATION.sub(_join_line, _HEREDOC.sub(r"\1", command or ""))
+    text = _CONTINUATION.sub(_join_line, _without_heredoc_bodies(command or ""))
     if hide_spaced:
         text = _QUOTED.sub(_hide_sentence, text)  # the same pairing of quotes as _mask
     masked = _COMMENT.sub("", _QUOTED.sub(_mask, text))
@@ -169,15 +201,37 @@ def _words(seg: str) -> str:
     return " ".join(seg.translate(_FROM_MASK).split())
 
 
+def _command_segments(command: str) -> list[str]:
+    """The simple commands of a shell line, quotes kept: split at separators and pipes outside quotes, with
+    heredoc bodies, line continuations and comments left out. Read here, not by ``shell.segments``, because that
+    walker cuts a heredoc at a ``<<`` inside quotes and would hide the command after it."""
+    text = _CONTINUATION.sub(_join_line, _without_heredoc_bodies(command or ""))
+    masked = _COMMENT.sub("", _QUOTED.sub(_mask, text))
+    return [seg.translate(_FROM_MASK) for seg in _SEGMENT.split(masked)]
+
+
+def _words_of(segment: str) -> list[str]:
+    """A simple command as shell words, past its compound-command syntax (``then``, ``do``, ``(``)."""
+    return shell.tokens(shell.clean(segment))
+
+
+def _key_words(key: str) -> list[str]:
+    """A guidance key as shell words, with its wrappers stripped the way a command's are (``python -m pytest``
+    is ``pytest``), unless that leaves nothing."""
+    words = shell.tokens(key)
+    return shell.strip_wrappers(words) or words
+
+
 def _invokes(key: str, command: str) -> bool:
-    """Whether a shell command runs ``key``: as the program of one of its command segments, after the wrappers
+    """Whether a shell command runs ``key``: as the program of one of its pipeline stages, after the wrappers
     (``sudo -n``, ``env -u X``, ``timeout 600``, ``uv run``, ``A=1``), so an ``echo``, a ``grep`` argument or a
-    ``#`` comment that names it does not count. The key ends where its last word ends: ``make ci-local`` does
-    not run ``make ci-local.debug``, while a redirection after it (``make ci-local>log``) still runs it."""
-    words = _unquote(key).split()
+    ``#`` comment that names it does not count. The key and the command are read the same way, so a quoted
+    argument with a space is one word on both sides. The key ends where its last word ends: ``make ci-local``
+    does not run ``make ci-local.debug``, while a redirection after it (``make ci-local>log``) still runs it."""
+    words = _key_words(key)
     if not words:
         return False
-    return any(shell.strip_wrappers(shell.tokens(seg))[:len(words)] == words for seg in shell.segments(command))
+    return any(shell.strip_wrappers(_words_of(seg))[:len(words)] == words for seg in _command_segments(command))
 
 
 def _prints(text: str) -> bool:
@@ -190,6 +244,7 @@ def _prints(text: str) -> bool:
 _REDIRECT = re.compile(r">>?\s*([^\s;&|<>]+)")
 
 
+@functools.lru_cache(maxsize=8192)  # every claim is matched against the same tool calls
 def _shell_paths(command: str) -> str:
     """The text of a shell command that can name a file it reads or writes: its redirection targets and the
     segments that are not printing commands. Comments, heredoc bodies, printed text and quoted sentences are
@@ -239,9 +294,20 @@ def _named(claim: Claim, text: str) -> bool:
 def _acts(claim: Claim, event: Event) -> bool:
     if event.kind != "tool":
         return False
+    shell_text = _shell_paths(event.command)
     return (any(_invokes(k, event.command) for k in claim.commands)
             or any(_file_named(k, event.paths) for k in claim.commands)
-            or _path_named(claim, (*event.paths, _shell_paths(event.command))))
+            or _path_named(claim, (*event.paths, shell_text))
+            or any(_at_path(k, shell_text) for k in claim.commands if _is_bare_file(k)))
+
+
+# a capitalised bare name (Makefile, LICENSE) is a file; a lowercase one (pytest) is a command, and its argument
+# in a grep or an echo names it without running it
+_BARE_FILE = re.compile(r"[A-Z][A-Za-z0-9_-]*")
+
+
+def _is_bare_file(key: str) -> bool:
+    return _BARE_FILE.fullmatch(key) is not None
 
 
 def _file_named(key: str, paths: tuple[str, ...]) -> bool:

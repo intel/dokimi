@@ -610,3 +610,104 @@ def test_a_path_in_an_escaped_quote_is_not_a_path_argument():
     command = r'echo "say \" ; cat changelog.d/x.md ; \""'
     session = _session(_prompt("keep the changelog current"), _tool("Bash", command=command))
     assert _row(_report([session], rule), "Keep")["acted"] == 0
+
+
+# --- round 6: keys and commands read by the same shell rules; pipelines; heredocs; bare names; window ----
+@pytest.mark.parametrize(("key", "command"), [("python -m pytest", "python -m pytest"),
+                                              ("uv run pytest", "uv run pytest"),
+                                              ("sudo make install", "sudo make install"),
+                                              ("timeout 300 make test", "timeout 300 make test")])
+def test_a_wrapper_in_the_guidance_key_matches_the_same_wrapped_command(key, command):
+    rule = f"- Run `{key}` when testing changes.\n"
+    session = _session(_prompt("testing changes"), _tool("Bash", command=command))
+    assert _row(_report([session], rule), "Run")["acted"] == 1
+
+
+@pytest.mark.parametrize("command", ["true | make ci-local", "(make ci-local)", "if true; then make ci-local; fi",
+                                     "for f in a; do make ci-local; done", "true && (make ci-local)"])
+def test_a_command_run_as_a_pipeline_stage_or_inside_compound_syntax_is_an_action(command):
+    session = _session(_prompt("push the branch now"), _tool("Bash", command=command))
+    assert _row(_report([session]), CI)["acted"] == 1
+
+
+@pytest.mark.parametrize("command", ['echo "<<true"\ncat changelog.d/x.md\ntrue',
+                                     'echo "<<true"\nprintf "x" > changelog.d/x.md\ntrue'])
+def test_a_quoted_heredoc_sign_does_not_erase_the_commands_after_it(command):
+    rule = "- Keep `changelog.d/` current.\n"
+    session = _session(_prompt("keep the changelog current"), _tool("Bash", command=command))
+    assert _row(_report([session], rule), "Keep")["acted"] == 1
+
+
+def test_a_quoted_heredoc_sign_before_the_named_command_still_runs_it():
+    session = _session(_prompt("push the branch now"), _tool("Bash", command='echo "<<true"\nmake ci-local\ntrue'))
+    assert _row(_report([session]), CI)["acted"] == 1
+
+
+def test_a_key_with_a_quoted_argument_with_a_space_matches_the_same_argument():
+    rule = '- Run `pytest "tests/my test.py"` when testing changes.\n'
+    session = _session(_prompt("testing changes"), _tool("Bash", command='pytest "tests/my test.py"'))
+    assert _row(_report([session], rule), "Run")["acted"] == 1
+
+
+def test_a_path_key_with_a_space_in_the_file_name_is_a_path_and_an_edit_of_it_is_an_action():
+    rule = "- Update `docs/my guide.md` when behaviour changes.\n"
+    session = _session(_prompt("update behaviour changes"), _tool("Edit", file_path="/repo/docs/my guide.md"))
+    row = _row(_report([session], rule), "Update")
+    assert row["keys"]["paths"] == ["docs/my guide.md"] and row["acted"] == 1
+
+
+@pytest.mark.parametrize("command", ["cat Makefile", "sed -i 's/old/new/' Makefile", "truncate -s 0 Makefile"])
+def test_shell_access_to_a_bare_file_name_key_is_an_action(command):
+    rule = "- Edit `Makefile` carefully.\n"
+    session = _session(_prompt("edit the file carefully"), _tool("Bash", command=command))
+    assert _row(_report([session], rule), "Edit")["acted"] == 1
+
+
+@pytest.mark.parametrize("command", ["grep pytest src/", "which pytest", "echo pytest"])
+def test_a_lowercase_command_key_named_as_an_argument_is_not_an_action(command):
+    rule = "- Run `pytest` before pushing a branch.\n"
+    session = _session(_prompt("push the branch now"), _tool("Bash", command=command))
+    assert _row(_report([session], rule), "Run")["acted"] == 0
+
+
+def test_a_printed_bare_file_name_key_is_not_an_action():
+    rule = "- Edit `Makefile` carefully.\n"
+    session = _session(_prompt("edit the file carefully"), _tool("Bash", command="echo Makefile"))
+    assert _row(_report([session], rule), "Edit")["acted"] == 0
+
+
+def test_an_action_before_the_trigger_inside_the_window_counts():
+    session = _session(_tool("Bash", command="make ci-local"), _prompt("push the branch now"))
+    assert _row(_report([session], window=2), CI)["acted"] == 1
+
+
+def test_an_action_exactly_window_events_before_the_trigger_counts_and_one_more_does_not():
+    edge = _session(_tool("Bash", command="make ci-local"), _tool("Read", file_path="/w/a.py"),
+                    _prompt("push the branch now"))
+    past = _session(_tool("Bash", command="make ci-local"), _tool("Read", file_path="/w/a.py"),
+                    _tool("Read", file_path="/w/b.py"), _prompt("push the branch now"))
+    assert _row(_report([edge], window=2), CI)["acted"] == 1
+    assert _row(_report([past], window=2), CI)["acted"] == 0
+
+
+def test_a_glob_path_with_brackets_under_home_is_read_as_the_literal_file(tmp_path, monkeypatch):
+    from dokimi.commands.context import _read_sessions
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    literal = _write(logs / "session[1].jsonl", [_prompt("one")])
+    _write(logs / "session1.jsonl", [_prompt("two")])
+    loaded, failed = _read_sessions(["~/logs/session[1].jsonl"])
+    assert not failed and [s.name for s in loaded] == [str(literal)]
+
+
+def test_a_home_relative_literal_path_is_read_when_only_that_file_exists(tmp_path, monkeypatch):
+    from dokimi.commands.context import _read_sessions
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    literal = _write(logs / "session[1].jsonl", [_prompt("one")])
+    loaded, failed = _read_sessions(["~/logs/session[1].jsonl"])
+    assert not failed and [s.name for s in loaded] == [str(literal)]
