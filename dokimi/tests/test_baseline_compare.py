@@ -526,3 +526,26 @@ def test_regression_gate_refuses_unknown_panel_members(compare, capsys, model):
         compare(_panel(model), _panel(model), "--max-context-drop", "0")
     assert exc.value.code == 1
     assert "cannot verify the judge model" in capsys.readouterr().err
+
+
+def _scores(*context: float) -> dict:
+    data = _eval()
+    data["evaluations"] = [{"question_id": f"q{i}", "with_docs": {"aggregate": score},
+                            "without_docs": {"aggregate": 0.0}, "delta": score}
+                           for i, score in enumerate(context)]
+    return data
+
+
+@pytest.mark.parametrize("base_scores, cur_scores", [((5.0, 5.0), (4.0, 4.0)), ((5.0,), (9.0,))])
+def test_regression_gate_compares_the_mean_drop_and_ignores_improvement(
+        compare, capsys, base_scores, cur_scores):
+    compare(_scores(*base_scores), _scores(*cur_scores), "--max-context-drop", "1")
+    out = capsys.readouterr().out
+    assert "Regression gate: PASS" in out
+
+
+def test_regression_gate_needs_at_least_one_matched_question_by_default(compare, capsys):
+    with pytest.raises(SystemExit) as exc:
+        compare(_scores(), _scores(), "--max-context-drop", "0")
+    assert exc.value.code == 2
+    assert "insufficient" in capsys.readouterr().err
