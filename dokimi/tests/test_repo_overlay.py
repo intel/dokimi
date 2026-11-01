@@ -418,6 +418,34 @@ def test_overlay_arm_does_not_unlink_through_a_setup_patch_that_made_a_directory
     assert (host / "AGENTS.codex.md").read_text(encoding="utf-8") == "host\n"
 
 
+def test_overlay_arm_refuses_a_kept_overlay_under_a_removed_directory_link(tmp_path):
+    """A setup patch replaces the indexed directory AGENTS.codex.md/ with a link to docs/. The stale index entry
+    AGENTS.codex.md/AGENTS.claude.md still resolves to a file, but once the removed link goes it no longer exists."""
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "AGENTS.claude.md").write_text("claude\n", encoding="utf-8")
+    (tmp_path / "AGENTS.codex.md").symlink_to("docs", target_is_directory=True)
+    (tmp_path / "AGENTS.claude.md").write_text("claude\n", encoding="utf-8")
+    tracked = ["AGENTS.md", "AGENTS.codex.md", "AGENTS.claude.md", "AGENTS.codex.md/AGENTS.claude.md",
+               "docs/AGENTS.claude.md"]
+    with pytest.raises(PrepError, match="the base would dangle"):
+        _apply_overlay(tmp_path, tracked, "claude")
+    assert (tmp_path / "AGENTS.codex.md").is_symlink()  # refused before anything is removed
+
+
+@pytest.mark.parametrize("alias", ["sub", "aa"])  # the alias sorts after the real name, or before it
+def test_overlay_arm_removes_a_file_a_directory_alias_lists_twice_once(tmp_path, alias):
+    """A setup patch replaces the indexed directory `alias` with a link to real/: the index still lists
+    alias/AGENTS.codex.md next to real/AGENTS.codex.md, which is one file. It is removed once, not twice."""
+    (tmp_path / "real").mkdir()
+    (tmp_path / "real" / "AGENTS.codex.md").write_text("codex\n", encoding="utf-8")
+    (tmp_path / alias).symlink_to("real", target_is_directory=True)
+    (tmp_path / "AGENTS.claude.md").write_text("claude\n", encoding="utf-8")
+    tracked = sorted(["AGENTS.claude.md", "real/AGENTS.codex.md", f"{alias}/AGENTS.codex.md"])
+    removed, _ = _apply_overlay(tmp_path, tracked, "claude")
+    assert len(removed) == 1
+    assert not (tmp_path / "real" / "AGENTS.codex.md").exists()
+
+
 def test_overlay_report_leaves_a_load_of_a_shared_target_unattributed():
     """A harness that loads AGENTS.md reads the file its AGENTS.claude.md and AGENTS.codex.md aliases name too:
     neither alias is pinned as loaded, and the load is reported as ambiguous."""

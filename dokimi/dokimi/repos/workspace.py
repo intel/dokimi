@@ -545,12 +545,13 @@ def _workspace_files(ws: Path, env: dict[str, str]) -> list[str]:
     return sorted({p for p in listed if p and os.path.lexists(ws / p)})
 
 
-def _link_hits(link: Path, gone: set[Path]) -> bool:
-    """Whether resolving the symbolic link ``link`` passes through one of the canonical paths ``gone``. Each path
-    component is checked before it is resolved, so a removed directory link named in the middle of the path is a
-    hit as well; a link is followed hop by hop, and a cycle ends the walk."""
-    resolved = Path(os.path.realpath(link.parent))
-    todo = [link.name]
+def _path_hits(ws: Path, rel: str, gone: set[Path]) -> bool:
+    """Whether the workspace path ``rel`` runs through one of the canonical paths ``gone``, a link or a plain name.
+    Walked from the workspace root: each name is checked before it is resolved, so a removed directory link named in
+    the middle of the path is a hit (the path would not exist once it is removed); a link is followed hop by hop,
+    and a cycle ends the walk."""
+    resolved = Path(os.path.realpath(ws))
+    todo = rel.split("/")
     hops = 0
     while todo:
         part = todo.pop(0)
@@ -577,6 +578,17 @@ def _link_hits(link: Path, gone: set[Path]) -> bool:
     return False
 
 
+def _overlay_targets(ws: Path, listed: list[str]) -> list[str]:
+    """The overlays of other agents to remove, one name per file: a directory the index lists that a setup patch made
+    a link to another directory names the same file twice, and the first name in order stands for it."""
+    names: dict[Path, str] = {}
+    for rel in listed:  # a setup patch may have made a directory of the index a link out of the workspace
+        if not _canon(ws / rel).parent.is_relative_to(ws.resolve()):
+            raise PrepError(f"guidance:overlay: {rel} is under a path that resolves outside the workspace")
+        names.setdefault(_canon(ws / rel), rel)
+    return sorted(names.values())
+
+
 def _apply_overlay(ws: Path, tracked: list[str], own: str) -> tuple[list[str], dict[str, Any]]:
     """Remove the overlays of other agents, keeping ``AGENTS.md`` and the ``own`` overlay; refused without one."""
     kept = sorted(p for p in tracked if overlay_of(p) == own)
@@ -586,15 +598,14 @@ def _apply_overlay(ws: Path, tracked: list[str], own: str) -> tuple[list[str], d
         real = Path(os.path.realpath(ws / rel))
         if not real.is_file() or not real.is_relative_to(ws.resolve()):
             raise PrepError(f"guidance:overlay: {rel} does not resolve to a usable file in the workspace")
-    removed = sorted(p for p in tracked if overlay_of(p) not in (None, own))
-    for rel in removed:  # a setup patch may have made a directory of the index a link out of the workspace
-        if not _canon(ws / rel).parent.is_relative_to(ws.resolve()):
-            raise PrepError(f"guidance:overlay: {rel} is under a path that resolves outside the workspace")
+    listed = [p for p in tracked if overlay_of(p) not in (None, own)]
+    removed = _overlay_targets(ws, listed)
     gone = {_canon(ws / rel) for rel in removed}
-    removed_set = set(removed)
+    listed_set = set(listed)
     for rel in tracked:
-        if rel not in removed_set and (ws / rel).is_symlink() and _link_hits(ws / rel, gone):
-            raise PrepError(f"guidance:overlay: {rel} links to an overlay the arm removes; the base would dangle")
+        if rel not in listed_set and _path_hits(ws, rel, gone):
+            raise PrepError(f"guidance:overlay: {rel} resolves through an overlay the arm removes; "
+                            "the base would dangle")
     for rel in removed:
         if (ws / rel).is_dir() and not (ws / rel).is_symlink():
             raise PrepError(f"guidance:overlay: {rel} is a directory, not an overlay file")
