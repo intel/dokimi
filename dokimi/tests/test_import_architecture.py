@@ -417,21 +417,25 @@ _EXIT_CALLS = {("sys", "exit"), ("os", "_exit"), ("builtins", "exit"), ("builtin
 _EXIT_MODULES = {m for m, _ in _EXIT_CALLS}
 
 
-def _exit_imports(tree: ast.Module) -> tuple[dict[str, str], dict[str, tuple[str, str]]]:
-    """Local names bound to an exit module (``import sys as s``) and to its exit callables (``from sys import exit as bye``)."""
-    module_aliases = {"sys": "sys", "os": "os"}
+def _exit_imports(tree: ast.Module) -> tuple[dict[str, set[str]], dict[str, tuple[str, str]]]:
+    """Local names bound to exit modules (``import sys as s``; a name may be bound to several) and to exit callables (``from sys import exit as bye``)."""
+    module_aliases: dict[str, set[str]] = {"sys": {"sys"}, "os": {"os"}}
     name_aliases: dict[str, tuple[str, str]] = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for a in node.names:
                 if a.name in _EXIT_MODULES:
-                    module_aliases[a.asname or a.name] = a.name
-        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+                    module_aliases.setdefault(a.asname or a.name, set()).add(a.name)
+        elif isinstance(node, ast.ImportFrom):
+            # ``from .exit_codes import x`` and ``from . import exit_codes`` name dokimi.exit_codes
+            module = node.module
+            if node.level:
+                module = {"exit_codes": EXIT_HELPER, None: "dokimi"}.get(node.module)
             for a in node.names:
-                if (node.module, a.name) in _EXIT_CALLS:
-                    name_aliases[a.asname or a.name] = (node.module, a.name)
-                elif f"{node.module}.{a.name}" in _EXIT_MODULES:
-                    module_aliases[a.asname or a.name] = f"{node.module}.{a.name}"
+                if (module, a.name) in _EXIT_CALLS:
+                    name_aliases[a.asname or a.name] = (module, a.name)
+                elif f"{module}.{a.name}" in _EXIT_MODULES:
+                    module_aliases.setdefault(a.asname or a.name, set()).add(f"{module}.{a.name}")
     return module_aliases, name_aliases
 
 
@@ -476,7 +480,8 @@ def exit_sites(tree: ast.Module) -> list[int]:
             if isinstance(func, ast.Name) and (func.id in ("exit", "quit") or func.id in name_aliases):
                 lines.append(node.lineno)
             elif (isinstance(func, ast.Attribute)
-                    and (module_aliases.get(ast.unparse(func.value)), func.attr) in _EXIT_CALLS):
+                    and any((m, func.attr) in _EXIT_CALLS
+                            for m in module_aliases.get(ast.unparse(func.value), ()))):
                 lines.append(node.lineno)
     return sorted(lines)
 
@@ -678,6 +683,17 @@ def test_an_exit_through_the_helper_or_a_bound_raise_outside_the_frontend_fails(
                                                 "dokimi.f", "dokimi.g", "dokimi.h", "dokimi.i"]
     assert [p.split(" at lines ")[1].split(";")[0] for p in problems] == ["[2]", "[2]", "[2]", "[3]", "[2]",
                                                                          "[2]", "[2]", "[3]", "[3]"]
+
+
+def test_relative_helper_imports_and_a_reused_module_alias_are_counted(tmp_path):
+    imports = _package(tmp_path, {
+        "dokimi/a.py": "from .exit_codes import usage_exit\nusage_exit('x')\n",
+        "dokimi/b.py": "from . import exit_codes as ec\nec.usage_exit('x')\n",
+        "dokimi/c.py": "def f():\n    import sys as s\n    s.exit(2)\n\ndef g():\n    import os as s\n",
+    })
+    assert exit_sites(imports.trees["dokimi.a"]) == [2]
+    assert exit_sites(imports.trees["dokimi.b"]) == [2]
+    assert exit_sites(imports.trees["dokimi.c"]) == [3]
 
 
 def test_imported_callable_aliases_count_each_launch_once(tmp_path):
