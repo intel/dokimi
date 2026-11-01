@@ -195,6 +195,16 @@ def test_a_cut_import_of_a_counted_rule_does_not_warn(tmp_path):
     assert payload["warnings"] == []
 
 
+def test_a_cut_import_of_a_scoped_rule_warns(tmp_path):
+    # a scoped rule loads only when a matching file is read, so the cut import is still named
+    files = {"CLAUDE.md": "@c1.md\n", "c1.md": "@c2.md\n", "c2.md": "@c3.md\n", "c3.md": "@c4.md\n",
+             "c4.md": "@.claude/rules/r.md\n", ".claude/rules/r.md": "---\npaths: src/**\n---\nrule\n"}
+    payload = budget(_tree(tmp_path, files), NAMES, import_max_depth=4, rules=True)
+    assert _by_path(payload)[(".claude/rules/r.md", "rule")]["when"] == "lazy"
+    assert len(payload["warnings"]) == 1
+    assert "c4.md: import of .claude/rules/r.md" in payload["warnings"][0]
+
+
 def test_a_linked_rules_directory_is_named_not_silently_skipped(tmp_path):
     (tmp_path / "shared").mkdir()
     (tmp_path / "shared/style.md").write_text("style\n", encoding="utf-8")
