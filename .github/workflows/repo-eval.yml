@@ -125,12 +125,40 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      # The setup action, at dokimi-ref (the commit the caller pins in `uses:`), sparse to actions/.
+      # The setup action's commit, resolved before anything is checked out. A tag and a branch can share
+      # a name, and actions/checkout takes the branch for a bare name, so the ref is passed as a commit:
+      # a 40-digit SHA as it is, a tag as the commit its peeled ls-remote line names. Anything else (a branch)
+      # is refused here, before any code of the action repository runs.
+      - name: Resolve the setup action commit
+        id: action-ref
+        shell: bash
+        env:
+          REF: ${{ inputs.dokimi-ref }}
+          ACTION_REPO: ${{ inputs.dokimi-action-repository }}
+        run: |
+          if ! [[ "$ACTION_REPO" =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ ]]; then
+            echo "::error title=dokimi-action-repository::dokimi-action-repository is not owner/name"
+            exit 1
+          fi
+          sha=
+          if [[ "$REF" =~ ^[0-9a-f]{40}$ ]]; then
+            sha=$REF
+          elif [[ "$REF" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+            sha=$(git ls-remote --tags "https://github.com/$ACTION_REPO" \
+                  | awk -v t="refs/tags/$REF" '$2 == t "^{}" { p = $1 } $2 == t { l = $1 } END { print (p != "" ? p : l) }')
+          fi
+          if ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error title=dokimi-ref::dokimi-ref is neither a 40-digit commit SHA nor a tag of $ACTION_REPO"
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      # The setup action, at the commit resolved above (sparse to actions/).
       - name: Check out the setup action
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           repository: ${{ inputs.dokimi-action-repository }}
-          ref: ${{ inputs.dokimi-ref }}
+          ref: ${{ steps.action-ref.outputs.sha }}
           path: .dokimi-action
           sparse-checkout: /actions/
           sparse-checkout-cone-mode: false
