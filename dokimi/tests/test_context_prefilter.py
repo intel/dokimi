@@ -361,13 +361,15 @@ def test_a_shell_command_that_writes_a_named_directory_counts_as_acting():
     assert _row(_report([session], rule), "Keep")["acted"] == 1
 
 
-@pytest.mark.parametrize("command", ["echo 'make ci-local'", "grep -F 'make ci-local' AGENTS.md", "# make ci-local"])
+@pytest.mark.parametrize("command", ["echo 'make ci-local'", "grep -F 'make ci-local' AGENTS.md", "# make ci-local",
+                                     "echo 'a; make ci-local'", "ls # x; make ci-local"])
 def test_a_mention_of_the_command_is_not_an_action(command):
     session = _session(_prompt("push the branch now"), _tool("Bash", command=command))
     assert _row(_report([session]), CI)["acted"] == 0
 
 
-@pytest.mark.parametrize("command", ["make ci-local", "uv run make ci-local", "cd x && make ci-local"])
+@pytest.mark.parametrize("command", ["make ci-local", "uv run make ci-local", "cd x && make ci-local",
+                                     "make lint & make ci-local", "timeout 600 make ci-local", "make  ci-local"])
 def test_a_command_run_directly_after_a_runner_or_in_a_chain_is_an_action(command):
     session = _session(_prompt("push the branch now"), _tool("Bash", command=command))
     assert _row(_report([session]), CI)["acted"] == 1

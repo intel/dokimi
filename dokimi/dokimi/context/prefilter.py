@@ -42,8 +42,10 @@ _BACKTICK = re.compile(r"`([^`\n]+)`")
 _WORD = re.compile(r"[a-z][a-z0-9_-]{2,}")
 _PATH = re.compile(r"[/\\]|\.[A-Za-z0-9]{1,6}$")
 # a shell command's runner words before the command it runs (``uv run pytest``, ``sudo make``, ``A=1 make``)
-_RUNNER = r"(?:(?:[A-Za-z_]\w*=\S*|sudo|env|time|nohup|exec|npx|uv\s+run|poetry\s+run)\s+)*"
-_SEGMENT = re.compile(r"&&|\|\||[;|\n]")
+_RUNNER = r"(?:(?:[A-Za-z_]\w*=\S*|sudo|env|time|nohup|exec|npx|uv\s+run|poetry\s+run|timeout\s+\d+)\s+)*"
+_QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")  # a quoted argument is text, not a command
+_COMMENT = re.compile(r"(?m)(?:^|\s)#.*$")
+_SEGMENT = re.compile(r"&&|\|\||[;|&()\n]")
 _CUE = re.compile(r"\b(no|not|don't|do not|stop|instead|wrong|forgot|should have|revert|undo|why did you)\b", re.I)
 _STOP = frozenset("""
 able about above after again against all also always and any are because been before being below
@@ -131,16 +133,18 @@ def _invokes(key: str, command: str) -> bool:
     if not words:
         return False
     run = re.compile(rf"{_RUNNER}{re.escape(words)}(?![\w-])")
-    return any(run.match(seg.strip()) for seg in _SEGMENT.split(command) if not seg.strip().startswith("#"))
+    bare = _COMMENT.sub("", _QUOTED.sub("''", command))
+    segments = (" ".join(seg.split()) for seg in _SEGMENT.split(bare))
+    return any(run.match(seg) for seg in segments if seg)
 
 
 def _triggers(claim: Claim, event: Event) -> bool:
     """Half the claim's keywords (rounded up) in the event: one word of a two-word rule is enough.
 
-    A rule with no prose keywords (only named commands or paths, or a protection) triggers on the event naming one.
+    A rule with no prose keywords triggers on a prompt that names one.
     """
     if not claim.keywords:
-        return _mentions(claim, event)
+        return event.kind == "prompt" and _named(claim, event.text)
     return len(claim.keywords & _stems(event.text)) >= (len(claim.keywords) + 1) // 2
 
 
@@ -162,11 +166,9 @@ def _path_named(claim: Claim, texts: tuple[str, ...]) -> bool:
     return any(_at_path(k, t) for k in claim.paths for t in texts)
 
 
-def _mentions(claim: Claim, event: Event) -> bool:
-    """Whether an event names one of the claim's commands or paths (the trigger of a rule with no keywords)."""
-    if event.kind == "tool":
-        return any(_invokes(k, event.command) for k in claim.commands) or _path_named(claim, (*event.paths, event.command))
-    return any(_names(k, event.text) for k in claim.commands) or _path_named(claim, (event.text,))
+def _named(claim: Claim, text: str) -> bool:
+    """Whether a prompt's text names one of the claim's commands or paths."""
+    return any(_names(k, text) for k in claim.commands) or _path_named(claim, (text,))
 
 
 def _acts(claim: Claim, event: Event) -> bool:

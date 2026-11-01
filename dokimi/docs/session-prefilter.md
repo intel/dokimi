@@ -33,14 +33,14 @@ model is called; every match is lexical.
   typed, or a tool call's inputs (command, paths, search patterns, description),
   share at least half of the rule's keywords (stemmed, stop words dropped,
   rounded up). A rule with no prose keywords (only backticked commands or paths, or a
-  protection tag) triggers on a prompt that names one of them, or a tool call that runs one.
+  protection tag) triggers on a prompt that names one of them.
   Repeats within the window after a trigger are the same episode.
 - **Acted.** Within `--window` events either side of the trigger, a tool call
   ran a command or touched a path the rule names in backticks (`` `make ci-local` ``,
   `` `changelog.d/` ``). A command counts when it runs the named command at the start of
   a shell segment (after `uv run`, `sudo` or environment assignments), so an `echo`, a
   `grep` argument or a `#` comment that names it does not. A path counts when a tool call
-  names it or a shell command writes into it; a Windows path matches with backslashes too.
+  names it, a shell command included; a Windows path matches with backslashes too.
   A rule that names neither is not measurable here: its
   `acted` is `null` and it carries the flag `acted_not_measurable`.
 - **Corrected.** Within `--window` events after the trigger, the user's next
