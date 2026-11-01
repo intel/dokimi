@@ -331,19 +331,23 @@ REPLAY = "dokimi:review_replay"
 def load_hits(batch_dir: Path) -> dict[str, Any]:
     """``repo report --hits``: each credited pair of the batch's ``dokimi:review_replay`` cells, from their
     ``grade.json`` ``details.matches``, by task, arm, model and rep. ``replay_cells`` counts the cells whose
-    ``grade.json`` names that grader; ``without_matches`` those graded before ``matches`` was recorded."""
+    ``grade.json`` names that grader; ``without_matches`` those graded before ``matches`` was recorded;
+    ``grader_failures`` those ``result.json`` calls a grader failure. ``cells`` lists the cells whose ``matches``
+    was read, a credited pair or none, with their ``n_threads`` and ``recall`` from ``grade.json``."""
     cells, _ = load_cells(batch_dir)
     bad = next((r for r in cells if not isinstance(r.get("rep"), int)), None)  # load_cells checks the rest of the key
     if bad is not None:
         raise CellFileError(f"{batch_dir / bad['cell'] / 'result.json'} has no usable `rep`")
     hits: list[dict[str, Any]] = []
-    replay = without = 0
+    read: list[dict[str, Any]] = []
+    replay = without = failed = 0
     for rec in sorted(cells, key=lambda r: (r["task"], r["arm"], r["model"], r["rep"])):
         grade = _grade_doc(batch_dir / rec["cell"])
         if grade.get("grader") != REPLAY:
             continue
         replay += 1
         if rec["grade"]["status"] == "grader_failure":  # the table scores this cell 0: no hit is credited to it
+            failed += 1
             continue
         details = grade.get("details")
         details = details if isinstance(details, dict) else {}
@@ -351,9 +355,13 @@ def load_hits(batch_dir: Path) -> dict[str, Any]:
         if not isinstance(matches, list):  # a parse error or a grader error credits no thread: nothing is missing
             without += "threads_hit" in details
             continue
-        hits += [{**m, "task": rec["task"], "arm": rec["arm"], "model": rec["model"], "rep": rec["rep"],
-                  "cell": rec["cell"]} for m in matches if isinstance(m, dict)]  # result.json's key wins over a match's
-    return {"batch": str(batch_dir), "replay_cells": replay, "without_matches": without, "hits": hits}
+        key = {"task": rec["task"], "arm": rec["arm"], "model": rec["model"], "rep": rec["rep"], "cell": rec["cell"]}
+        metrics = grade.get("metrics")
+        metrics = metrics if isinstance(metrics, dict) else {}
+        read.append({**key, "n_threads": metrics.get("n_threads"), "recall": metrics.get("recall")})
+        hits += [{**m, **key} for m in matches if isinstance(m, dict)]  # result.json's key wins over a match's
+    return {"batch": str(batch_dir), "replay_cells": replay, "without_matches": without,
+            "grader_failures": failed, "cells": read, "hits": hits}
 
 
 def format_hits(found: dict[str, Any], width: int = 100) -> str:

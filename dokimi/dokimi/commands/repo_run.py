@@ -522,3 +522,7 @@ def register(repo_sub, positive_int, source_help: str, cache_help: str) -> None:
                            help="Also compare path_distance: how much the tool paths of a task's cells differ")
     compare_p.add_argument("--json", action="store_true", help="Print the comparison as JSON")
     compare_p.set_defaults(func=cmd_repo_compare)
+
+    from . import repo_hits
+
+    repo_hits.register(repo_sub, positive_int, _usd)

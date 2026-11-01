@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/repo_hits_judged.v1.json",
+  "title": "Judged replay hits of one cell v1",
+  "description": "`<cell>/hits_judged.json`, written by `repo hits judge` (docs/repo-evaluation-contract.md §4.5, §9): a judge model's label of each credited (thread, finding) pair of one `dokimi:review_replay` cell, read with the thread's full comment from the task's gold file and the finding's full text from the cell's `answer.txt`. Only credited pairs are rescored, so `recall_judged` <= `recall`. The grade is not changed.",
+  "type": "object",
+  "required": ["schema_version", "cell", "task", "arm", "model", "rep", "judge", "pairs", "counts", "n_threads", "recall", "recall_judged"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "repo_hits_judged.v1"},
+    "cell": {"type": "string", "description": "The cell's directory name in the batch."},
+    "task": {"type": "string"},
+    "arm": {"type": "string"},
+    "model": {"type": "string", "description": "The cell's answer model, as `result.json` records it."},
+    "rep": {"type": "integer"},
+    "judge": {
+      "type": "object",
+      "required": ["provider", "model"],
+      "additionalProperties": false,
+      "properties": {
+        "provider": {"type": "string"},
+        "model": {"type": "string"}
+      }
+    },
+    "pairs": {
+      "type": "array",
+      "description": "One entry per credited pair of `grade.json` `details.matches`, in its order.",
+      "items": {
+        "type": "object",
+        "required": ["thread", "finding", "label", "reason"],
+        "additionalProperties": false,
+        "properties": {
+          "thread": {"description": "The gold thread's `id` (a string or an integer), as the match records it."},
+          "finding": {"description": "The finding's index among the answer's objects, as the match records it."},
+          "label": {"enum": ["same point", "related", "unrelated", null], "description": "`null`: unjudged, `error` says why."},
+          "reason": {"type": ["string", "null"], "description": "The judge's one sentence; `null` when unjudged."},
+          "error": {"type": "string", "description": "Why the pair is unjudged: its full text was not found, or no judge reply parsed."}
+        }
+      }
+    },
+    "counts": {
+      "type": "object",
+      "required": ["same point", "related", "unrelated", "unjudged"],
+      "additionalProperties": false,
+      "properties": {
+        "same point": {"type": "integer", "minimum": 0},
+        "related": {"type": "integer", "minimum": 0},
+        "unrelated": {"type": "integer", "minimum": 0},
+        "unjudged": {"type": "integer", "minimum": 0}
+      },
+      "description": "The pairs per label; `unjudged` counts the pairs with `label` null."
+    },
+    "n_threads": {"type": ["integer", "null"], "minimum": 0, "description": "The task's gold threads, from `grade.json` `metrics.n_threads`; `null` when it records none."},
+    "recall": {"type": ["number", "null"], "description": "The grader's `recall` (credited threads over `n_threads`)."},
+    "recall_judged": {"type": ["number", "null"], "minimum": 0, "maximum": 1, "description": "`same point` pairs over `n_threads`, rounded to 3 places; `null` when `n_threads` is 0 or `null`."}
+  }
+}
