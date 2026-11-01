@@ -57,6 +57,7 @@ def build_subject_scorecard(
                 "model": cell.get("model"),
                 "provider": cell.get("provider"),
                 "harness": cell.get("harness"),
+                "baseline_arm": cell.get("baseline_arm"),
                 "plugin_set": cell.get("plugin_set"),
                 "summary": cell.get("summary", {}),
                 "cost_summary": cell.get("cost_summary", {}),

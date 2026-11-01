@@ -12896,6 +12896,7 @@
                 "'repo_environment'",
                 "'repo_readiness'",
                 "'result'",
+                "'skill_evidence'",
                 "'subject_scorecard'",
                 "'task_inspect'",
                 "'task_runs'",
@@ -13016,6 +13017,62 @@
       "path": "dokimi subjects",
       "subcommand_required": true,
       "subcommands": {
+        "evidence": {
+          "allow_abbrev": true,
+          "params": [
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "scorecard",
+              "kind": "argument",
+              "nargs": null,
+              "position": 0,
+              "required": true,
+              "type": null
+            },
+            {
+              "action": "_HelpAction",
+              "choices": null,
+              "const": null,
+              "default": "==SUPPRESS==",
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": true,
+              "key": "--help/-h",
+              "kind": "option",
+              "nargs": 0,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--out",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": null
+            }
+          ],
+          "path": "dokimi subjects evidence",
+          "subcommand_required": null,
+          "subcommands": {}
+        },
         "list": {
           "allow_abbrev": true,
           "params": [

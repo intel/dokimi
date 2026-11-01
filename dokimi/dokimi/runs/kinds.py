@@ -45,6 +45,8 @@ FIELDS: dict[str, KindFields] = {
     "plugin_delta": KindFields(subject=("library_name",), model=("model",), counts=("arms",)),
     "subject_scorecard": KindFields(subject=("subject.id",), time=("generated_at",),
                                     counts=("cells",)),
+    "skill_evidence": KindFields(subject=("subject.id",), time=("generated_at",),
+                                 counts=("results", "warnings")),
     "novelty": KindFields(subject=("artifact.ref",), model=("model",), time=("generated_at",),
                           counts=("conflicts", "warnings")),
     "task_runs": KindFields(model=("model",), time=("generated_at",),

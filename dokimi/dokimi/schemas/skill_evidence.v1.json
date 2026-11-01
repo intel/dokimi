@@ -1,0 +1,249 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/skill_evidence.v1.json",
+  "title": "Skill evidence document v1",
+  "description": "Experimental until the agentskills evidence proposal settles. Measured effect of a skill against a baseline, keyed by the digest a .well-known/agent-skills index carries for it. Rendered from a subject scorecard; no value is filled in that the scorecard does not hold. Every statistic in a result is the paired test's: n is the number of paired questions behind delta, ci and p_value.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "subject",
+    "results"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "skill_evidence.v1"
+    },
+    "generated_at": {
+      "type": "string"
+    },
+    "producer": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+    "subject": {
+      "type": "object",
+      "required": [
+        "digest"
+      ],
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "digest": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "sha256 of the served SKILL.md bytes, as in the index entry; null when it cannot be derived"
+        },
+        "content_digest": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "eval_set": {
+      "type": "object",
+      "properties": {
+        "products": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "digest": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "baseline": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "measured_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "arm",
+          "metric",
+          "delta",
+          "verdict"
+        ],
+        "properties": {
+          "product": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "matrix_cell": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "model as configured for the cell, not a resolved provider id"
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "harness": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "effort": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "arm": {
+            "type": "string"
+          },
+          "metric": {
+            "type": "string",
+            "description": "dokimi's mean judge aggregate score per answer (higher is better); delta is arm minus baseline"
+          },
+          "n": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "delta": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "ci": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "lo": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "hi": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "confidence": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "method": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "p_value": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "p_correction": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "verdict": {
+            "enum": [
+              "improved",
+              "regressed",
+              "inconclusive"
+            ]
+          }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

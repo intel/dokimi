@@ -99,6 +99,7 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("subjects", "list"), FREE),
     Leaf(("subjects", "show"), FREE),
     Leaf(("subjects", "run"), PAID),
+    Leaf(("subjects", "evidence"), FREE),
     Leaf(("tasks", "list"), FREE),
     Leaf(("tasks", "inspect"), FREE),
     Leaf(("tasks", "harnesses"), FREE),

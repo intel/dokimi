@@ -166,6 +166,29 @@ def cmd_subjects_run(args: argparse.Namespace) -> None:
     print(f"OK Saved subject report:    {out_md}")
 
 
+def cmd_subjects_evidence(args: argparse.Namespace) -> None:
+    """Render a saved subject scorecard as a skill_evidence.v1 document; no model calls."""
+    from dokimi.artifacts import ArtifactValidationError, load_artifact, save_artifact
+    from dokimi.subjects.evidence import build_skill_evidence
+
+    try:
+        scorecard = load_artifact("subject_scorecard", Path(args.scorecard))
+    except (OSError, ValueError, ArtifactValidationError) as exc:
+        usage_exit(f"cannot read subject scorecard {args.scorecard}: {exc}")
+    evidence = build_skill_evidence(scorecard, source=str(args.scorecard))
+    if not evidence["results"]:
+        usage_exit(f"{args.scorecard} holds no awareness arm with a baseline to compare against: "
+                   "nothing to publish")
+    out = Path(args.out) if args.out else Path(args.scorecard).with_name("skill-evidence.json")
+    if out.resolve() == Path(args.scorecard).resolve():
+        usage_exit("--out names the scorecard itself; pick another file")
+    with exit_on_unwritable(out):
+        save_artifact("skill_evidence", evidence, out)
+    for warning in evidence["warnings"]:
+        print(f"WARN {warning}", file=sys.stderr)
+    print(f"OK Saved skill evidence: {out} ({len(evidence['results'])} results)")
+
+
 def register(sub, positive_int) -> None:
     """Add the `subjects` subcommand group."""
     subjects_p = sub.add_parser(
@@ -263,6 +286,15 @@ def register(sub, positive_int) -> None:
         help="Skip suite.tasks even when the subject descriptor declares them.",
     )
     run_p.set_defaults(func=cmd_subjects_run)
+
+    evidence_p = subjects_sub.add_parser(
+        "evidence",
+        help="Render a subject scorecard as a skill_evidence.v1 document (no model calls)",
+    )
+    evidence_p.add_argument("scorecard", help="subject_scorecard JSON written by `subjects run`")
+    evidence_p.add_argument("--out", default=None,
+                            help="Output file (default: skill-evidence.json next to the scorecard)")
+    evidence_p.set_defaults(func=cmd_subjects_evidence)
 
 
 def _run_plan(descriptor, args: argparse.Namespace) -> tuple[Path, str, list[str]]:

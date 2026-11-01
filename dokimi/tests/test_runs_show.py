@@ -36,6 +36,7 @@ CONTENTS = {
     "repo_readiness.v1": {"files": 2, "claims": 52},
     "result.v1": {"cells": 6},
     "subject_scorecard.v2": {"cells": 0},
+    "skill_evidence.v1": {"results": 2, "warnings": 0},
     "cli_routes.v1": {"roots": 2, "leaves": 2, "tombstones": 1},
     "task_inspect.v1": {"items": 4},
     "task_runs.v1": {"tasks": 6, "harnesses": 2, "results": 24},
