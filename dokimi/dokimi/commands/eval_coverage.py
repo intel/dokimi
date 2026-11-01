@@ -33,8 +33,12 @@ def _below(report: dict, floors: list[tuple[str, float]]) -> list[str]:
     from dokimi.eval_coverage import exact_shares
 
     exact = exact_shares(report)
-    return [f"{metric} coverage {exact[metric]:.6f} < {floor:.6f}" for metric, floor in floors
-            if exact[metric] is not None and exact[metric] < floor]
+    out = []
+    for metric, floor in floors:
+        share = exact[metric]
+        if share is not None and share < floor:
+            out.append(f"{metric} coverage {share:.6f} < {floor:.6f}")
+    return out
 
 
 def cmd_eval_coverage(args: argparse.Namespace) -> None:
@@ -60,7 +64,11 @@ def cmd_eval_coverage(args: argparse.Namespace) -> None:
         sys.exit(EXIT_USAGE)
     report = coverage_report(graph, evals, str(root))
     if args.out:
-        report = save_artifact("eval_coverage", report, Path(args.out))
+        try:
+            report = save_artifact("eval_coverage", report, Path(args.out))
+        except OSError as exc:
+            print(f"Error: cannot write {args.out}: {exc.strerror or exc}", file=sys.stderr)
+            sys.exit(EXIT_USAGE)
     print(render_markdown(report))
     if report["problems"]:
         print(f"Error: {len(report['problems'])} problem(s) with the evals' needs labels",

@@ -218,6 +218,11 @@ def _problem(p: dict) -> str:
     return f"- {p['eval']} ({p['source']}): {what}"
 
 
+def _cell(text: str) -> str:
+    """A Markdown table cell: pipes escaped, line breaks flattened so the row stays one line."""
+    return " ".join(text.replace("|", "\\|").splitlines())
+
+
 def render_markdown(report: dict) -> str:
     """The report as Markdown, for a suite's README or the PR that changes the suite."""
     g, c = report["graph"], report["coverage"]
@@ -231,7 +236,7 @@ def render_markdown(report: dict) -> str:
         "| Eval | Source | Needs | Relevance |",
         "|---|---|---|---|",
     ]
-    lines += [f"| {e['id']} | {e['source']} | {', '.join(e['needs']) or '-'} | {e['relevance']} |"
+    lines += [f"| {_cell(e['id'])} | {_cell(e['source'])} | {_cell(', '.join(e['needs']) or '-')} | {e['relevance']} |"
               for e in report["evals"]]
     lines += ["", "Gaps (core and rare_critical nodes no eval names):"]
     lines += [f"- {n['id']} [{n['path_class']}, {n['confirmed_by']}] {n['text']}"

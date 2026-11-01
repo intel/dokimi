@@ -313,3 +313,19 @@ def test_a_floor_is_judged_on_the_unrounded_share(tmp_path, capsys, covered, flo
     res = _run(capsys, str(skill), "--graph", str(graph), "--min", f"core_rare_critical={floor}")
 
     assert res.returncode == code, res.stderr
+
+
+def test_markdown_table_cells_escape_pipes_and_newlines(tmp_path, capsys):
+    rows = [{"id": "save|load", "needs": ["n1"]}, {"id": "two\nlines", "needs": ["n2", "n3"]}]
+    res = _run(capsys, str(_skill(tmp_path, rows)), "--graph", str(_graph(tmp_path)))
+
+    assert res.returncode == 0, res.stderr
+    assert "| save\\|load | evals.json | n1 | " in res.stdout
+    assert "| two lines | evals.json | n2, n3 | " in res.stdout
+
+
+def test_out_on_a_directory_is_a_controlled_error(tmp_path, capsys):
+    res = _run(capsys, str(_skill(tmp_path, ROWS)), "--graph", str(_graph(tmp_path)), "--out", str(tmp_path))
+
+    assert res.returncode == 2
+    assert "Error: cannot write" in res.stderr and "Traceback" not in res.stderr
