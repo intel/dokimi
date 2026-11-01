@@ -308,7 +308,7 @@ def _hops(path: Path, root: Path, root_real: Path) -> list[tuple[str, ...]]:
         if os.path.isabs(target):
             for anchor in (root_real, root):  # written as the resolved or the given spelling of the repository
                 try:
-                    pending = [*Path(os.path.normpath(target)).relative_to(anchor).parts, *pending]
+                    pending = [*Path(target).relative_to(anchor).parts, *pending]
                     break
                 except ValueError:
                     continue

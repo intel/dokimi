@@ -67,6 +67,30 @@ def test_retargeting_a_link_to_a_suite_file_that_is_missing_there_moves_the_suit
 
 
 @pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_a_dotdot_after_a_link_in_an_absolute_target_keeps_that_link_in_reach(tmp_path):
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: evaluation/q.json\n"
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": body,
+        "skills/a/SKILL.md": "# a\n",
+        "one/q.json": "[]\n",
+        "one/sub/keep": "x\n",
+        "two/q.json": "[]\n",
+        "two/sub/keep": "x\n",
+    })
+    os.makedirs(root / "evaluation")
+    os.makedirs(root / "shared")
+    os.symlink("../one/sub", root / "shared" / "current")
+    os.symlink(root / "shared" / "current" / ".." / "q.json", root / "evaluation" / "q.json")
+    before = _subjects(root)["skill/a"].suite_hash
+    (root / "shared" / "current").unlink()
+    os.symlink("../two/sub", root / "shared" / "current")
+    assert _subjects(root)["skill/a"].suite_hash != before
+    impact = load_repo_config(root).subjects_for_changed(["shared/current"])
+    assert impact.suites == {"skill/a": ["shared/current"]}
+    assert impact.unclaimed == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
 def test_deleting_the_file_a_linked_literal_suite_names_still_claims_it(tmp_path):
     body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: evaluation/current/task.json\n"
     root = _tree(tmp_path / "repo", {
