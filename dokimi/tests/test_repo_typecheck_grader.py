@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -236,3 +237,49 @@ def test_a_blocking_error_in_an_imported_module_fails_the_listed_file(tmp_path):
     result = typecheck.grade(_task(), tmp_path, "", run)
     assert result["pass"] is False
     assert result["n_errors"] >= 1
+
+
+def test_an_external_mypypath_cannot_supply_a_module_the_image_lacks(tmp_path, monkeypatch):
+    stubs = tmp_path / "stubs"  # outside the workspace, as an image's or the environment's MYPYPATH would be
+    stubs.mkdir()
+    (stubs / "unavailable.pyi").write_text("def value() -> int: ...\n", encoding="utf-8")
+    monkeypatch.setenv("MYPYPATH", str(stubs))
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": "from unavailable import value\n"}, _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is False
+    assert any("unavailable" in error for error in result["errors"])
+    assert os.environ["MYPYPATH"] == str(stubs)  # restored for the caller
+
+
+@pytest.mark.parametrize("linked", ["file", "directory", "workspace"])
+def test_the_oracle_refuses_to_write_through_a_symbolic_link(tmp_path, linked):
+    outside = tmp_path / "outside"
+    (outside / "pkg").mkdir(parents=True)
+    sentinel = outside / "pkg" / "api.py"
+    sentinel.write_text("ORIGINAL", encoding="utf-8")
+    task_dir = tmp_path / "task"
+    (task_dir / "reference" / "pkg").mkdir(parents=True)
+    (task_dir / "reference" / "pkg" / "api.py").write_text("REFERENCE", encoding="utf-8")
+    run = tmp_path / "run"
+    run.mkdir()
+    workspace = run / "workspace"
+    if linked == "file":
+        (workspace / "pkg").mkdir(parents=True)
+        (workspace / "pkg" / "api.py").symlink_to(sentinel)
+    elif linked == "directory":
+        workspace.mkdir()
+        (workspace / "pkg").symlink_to(outside / "pkg", target_is_directory=True)
+    else:
+        workspace.symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ValueError, match="symbolic link"):
+        typecheck.oracle(_task(), task_dir, run)
+    assert sentinel.read_text(encoding="utf-8") == "ORIGINAL"
+
+
+def test_the_oracle_copies_the_reference_when_no_link_is_on_the_way(tmp_path):
+    task_dir = tmp_path / "task"
+    (task_dir / "reference" / "pkg").mkdir(parents=True)
+    (task_dir / "reference" / "pkg" / "api.py").write_text(CLEAN, encoding="utf-8")
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": WRONG}, _task())
+    typecheck.oracle(_task(), task_dir, run)
+    assert (run / "workspace" / "pkg" / "api.py").read_text(encoding="utf-8") == CLEAN

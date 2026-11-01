@@ -104,6 +104,9 @@ def grade(task: dict[str, Any], task_dir: Path, answer: str, run_dir: Path | Non
         cache = tempfile.mkdtemp(prefix="dokimi-mypy-")
         neutral = tempfile.mkdtemp(prefix="dokimi-mypy-cfg-")
         limit = sys.getrecursionlimit()  # mypy's main raises it for the whole process
+        # mypy reads MYPYPATH ahead of mypy_path, so an externally supplied stub directory could stand in for a
+        # module the image lacks: it is out of the run, and restored afterwards.
+        mypypath = os.environ.pop("MYPYPATH", None)
         try:
             # Neutral config: the subject's mypy.ini, pyproject.toml and the host's user config are not read.
             # mypy_path is the workspace and each regular package's source root (src/ for src/pkg/__init__.py).
@@ -114,6 +117,8 @@ def grade(task: dict[str, Any], task_dir: Path, answer: str, run_dir: Path | Non
                                               "--explicit-package-bases", *[str(workspace / p) for p in present]])
         finally:
             sys.setrecursionlimit(limit)
+            if mypypath is not None:
+                os.environ["MYPYPATH"] = mypypath
             shutil.rmtree(cache, ignore_errors=True)
             shutil.rmtree(neutral, ignore_errors=True)
         # 2 is also what mypy gives for a blocking source error (a syntax error, a duplicate module): those
@@ -132,12 +137,33 @@ def grade(task: dict[str, Any], task_dir: Path, answer: str, run_dir: Path | Non
             "tool": TOOL, "tool_version": mypy.version.__version__}
 
 
+def _linked_on_the_way(workspace: Path, dest: Path) -> bool:
+    """True when the workspace root, a directory on the way to ``dest``, or ``dest`` itself is a symbolic link:
+    a copy would then write to the link's target, which can lie outside the workspace."""
+    if workspace.is_symlink():
+        return True
+    current = workspace
+    for part in dest.relative_to(workspace).parts:
+        current = current / part
+        if current.is_symlink():
+            return True
+    return False
+
+
 def oracle(task: dict[str, Any], task_dir: Path, run_dir: Path | None = None) -> str:
     """No reference answer: the grade reads the workspace only. A task with a ``reference/`` directory
-    has its files copied over the workspace first, so the reference repair is what gets graded."""
+    has its files copied over the workspace first, so the reference repair is what gets graded. A destination
+    reached through a symbolic link in the workspace is refused before anything is copied."""
     reference = task_dir / REFERENCE_DIR
     if reference.is_dir() and run_dir is not None:
-        shutil.copytree(reference, Path(run_dir) / "workspace", dirs_exist_ok=True)
+        workspace = Path(run_dir) / "workspace"
+        for source in reference.rglob("*"):
+            if source.is_file():
+                dest = workspace / source.relative_to(reference)
+                if _linked_on_the_way(workspace, dest):
+                    raise ValueError(f"{dest.relative_to(workspace).as_posix()} would be written through a "
+                                     "symbolic link in the workspace")
+        shutil.copytree(reference, workspace, dirs_exist_ok=True)
     return ""
 
 
