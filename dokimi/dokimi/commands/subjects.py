@@ -183,8 +183,17 @@ def cmd_subjects_evidence(args: argparse.Namespace) -> None:
         usage_exit(f"{args.scorecard} holds no awareness arm with a baseline to compare against: "
                    "nothing to publish")
     out = Path(args.out) if args.out else Path(args.scorecard).with_name("skill-evidence.json")
-    if out.resolve() == Path(args.scorecard).resolve():
+    try:
+        out_real = out.resolve()
+        # save_artifact keeps and removes "<out>.rejected"; that sibling must not be the scorecard.
+        stale_real = out.with_name(out.name + ".rejected").resolve()
+        card_real = Path(args.scorecard).resolve()
+    except (OSError, RuntimeError) as exc:  # a symlink loop raises RuntimeError before Python 3.13
+        usage_exit(f"cannot resolve --out {out}: {exc}")
+    if out_real == card_real:
         usage_exit("--out names the scorecard itself; pick another file")
+    if stale_real == card_real:
+        usage_exit(f"{out}.rejected is the scorecard; a save to {out} would delete or overwrite it; pick another --out")
     try:
         with exit_on_unwritable(out):
             save_artifact("skill_evidence", evidence, out)

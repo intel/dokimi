@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -138,6 +139,34 @@ def test_subjects_evidence_refuses_a_nested_statistic_the_evidence_schema_reject
         main()
     assert exc.value.code == 2
     assert not (tmp_path / "skill-evidence.json").exists()
+
+
+def test_subjects_evidence_refuses_an_out_whose_rejected_sibling_is_the_scorecard(tmp_path: Path, monkeypatch):
+    # save_artifact removes "<out>.rejected" on a valid save; here that would delete the scorecard.
+    from dokimi.cli import main
+
+    card = tmp_path / "sc.json.rejected"
+    card.write_text(json.dumps(_scorecard()), encoding="utf-8")
+    before = card.read_bytes()
+    monkeypatch.setattr("sys.argv", ["dokimi", "subjects", "evidence", str(card), "--out", str(tmp_path / "sc.json")])
+    with pytest.raises(SystemExit) as exc:
+        main()
+    assert exc.value.code == 2
+    assert card.read_bytes() == before
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="symlinks need privileges on Windows")
+def test_subjects_evidence_refuses_an_out_that_is_a_symlink_loop(tmp_path: Path, monkeypatch):
+    # resolve() raises RuntimeError on a symlink loop before Python 3.13; that must be a diagnostic.
+    from dokimi.cli import main
+
+    bad = tmp_path / "sc.json"
+    bad.write_text(json.dumps(_scorecard()), encoding="utf-8")
+    (tmp_path / "loop").symlink_to(tmp_path / "loop")
+    monkeypatch.setattr("sys.argv", ["dokimi", "subjects", "evidence", str(bad), "--out", str(tmp_path / "loop")])
+    with pytest.raises(SystemExit) as exc:
+        main()
+    assert exc.value.code == 2
 
 
 def test_n_and_delta_are_the_paired_tests_not_the_arms_own_counts():
