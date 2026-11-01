@@ -454,3 +454,14 @@ def test_a_blocking_type_comment_is_a_failing_fence_not_a_tool_failure(tmp_path)
     [claim] = _fence_claims(scan_repo(tree, parse_manifest(MANIFEST), typecheck=Check("mypy", sys.executable)))
     assert claim["status"] == "fail"
     assert "type comment" in claim["why"]
+
+
+def test_a_linked_guidance_file_has_its_fences_checked_and_counted_once(tmp_path):
+    root = tmp_path / "r"
+    root.mkdir()
+    (root / "AGENTS.md").write_text(f"{FENCE}python\nimport json\n\njson.nosuch()\n{FENCE}\n", encoding="utf-8")
+    (root / "CLAUDE.md").symlink_to("AGENTS.md")
+    manifest = parse_manifest(dict(MANIFEST, guidance={"globs": ["AGENTS.md", "CLAUDE.md"]}))
+    payload = scan_repo(WorkTree(root), manifest, typecheck=Check("mypy", sys.executable))
+    assert len(_fence_claims(payload)) == 1
+    assert payload["typecheck"]["fences"] == 1
