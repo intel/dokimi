@@ -92,6 +92,7 @@
 --judges
 --keep
 --kind
+--labels  # repo hits judge (#291) adds it: a person's labels have no registry concept yet; a F1b migration names it
 --large-bytes
 --lexical-only
 --libraries
@@ -138,6 +139,7 @@
 --pairwise
 --pass-k  # repo compare (#155) adds it: no registry concept yet; a F1b migration names it
 --path-stability  # repo compare (#155) adds it: no registry concept yet; a F1b migration names it
+--per-arm  # repo hits sheet (#291) adds it: a sample size has no registry concept yet; a F1b migration names it
 --personas
 --personas-count
 --placebo-text

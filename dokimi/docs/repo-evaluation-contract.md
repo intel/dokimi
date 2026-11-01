@@ -652,6 +652,19 @@ review thread of a merged PR, anchored on a line of the reviewed revision.
   (repository-relative), `line` (as read for matching), `severity` and
   `message`, and their `distance` in lines; `comment`, `severity` and
   `message` are cut to 200 characters. `repo report --hits` lists them (§9).
+- Judged recall (`repo hits judge`, §9) is an optional, paid step after
+  grading; the grader stays deterministic and `grade.json` is not rewritten.
+  A judge model labels each credited pair `same point`, `related` or
+  `unrelated`, reading the thread's full `comment` from the gold file and the
+  finding's full `message` (with its `rule` and `evidence`) from the cell's
+  `answer.txt` at index `finding`; `matches` gives the pairing only.
+  `recall_judged` is the `same point` pairs over `n_threads`. Only credited
+  pairs are rescored: a thread no finding was credited with stays missed, and
+  a finding outside the window is not judged, so `recall_judged` is at most
+  `recall`. It is a judge's reading, not a verdict: quote a figure only next to
+  a person's labels for a sample of the pairs (`repo hits sheet`, then
+  `--labels`), whose agreement with the judge and Cohen's kappa per arm the
+  command reports; without them it says the figure is uncalibrated.
 - `recall_addressed` counts only threads with `addressed: true` (the code
   changed in response), `recall_by_kind` groups by `kind`, and
   `precision_proxy` is the share of findings within the window of any
@@ -1381,6 +1394,9 @@ python cli.py repo tasks replay ~/dpnp --threads threads.json --out ~/dpnp/.agen
 python cli.py repo run ~/dpnp --task review_replay_pr3107 --arm guidance:none,guidance:raw \
     --model claude-sonnet-5-5 --batch replay --agent-network host
 python cli.py repo compare repo-runs/replay --baseline guidance:none --metric recall_addressed
+# judged recall (§4.5): a sample for a person to label (no LLM), then the judge (paid)
+python cli.py repo hits sheet repo-runs/replay --out labels.json
+python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels labels.json --max-usd 5
 ```
 
 - Each cell holds the §4 inputs plus `agent.stdout` (the raw trace) and
@@ -1446,11 +1462,51 @@ python cli.py repo compare repo-runs/replay --baseline guidance:none --metric re
   `parse_errors` on every row. `repo report --hits` prints, instead of the table, each credited pair of
   the `dokimi:review_replay` cells (`details.matches`, §4.5) by task, arm,
   model and rep: the thread and its comment, then the finding that hit it.
-  `--hits --json` gives `{batch, replay_cells, without_matches, hits}`, one
+  `--hits --json` gives `{batch, replay_cells, without_matches, grader_failures, cells, hits}`, one
   record in `hits` per pair (`task`, `arm`, `model`, `rep`, `cell` and the
   match's fields; the first five come from the cell's `result.json`, and a
-  match key of the same name does not replace them). A cell graded before `matches` was recorded is counted
-  (`N cell(s) graded without hit details`), not listed.
+  match key of the same name does not replace them), and one in `cells` per
+  cell whose `matches` was read, with or without a pair (those five, and
+  `n_threads` and `recall` from `grade.json`). A cell graded before `matches` was recorded is counted
+  (`N cell(s) graded without hit details`), not listed, and so is a cell whose
+  `result.json` says `grader_failure` (`grader_failures`).
+- `repo hits judge <batch> --judge PROVIDER/MODEL` (§4.5) labels each credited
+  pair of the batch's `dokimi:review_replay` cells, one judge call per pair
+  (up to 3 draws when a reply does not parse; the response cache replays
+  them), and writes `<cell>/hits_judged.json` (`repo_hits_judged.v1`): the
+  judge, each pair's `thread`, `finding`, `label` and `reason`, the counts of
+  `same point`, `related`, `unrelated` and `unjudged`, `n_threads` (from
+  `grade.json` `metrics`), the grader's `recall`, and `recall_judged`. A rerun
+  rewrites it. The command prints, per (arm, model), the cells written, their
+  pairs and label counts, and the mean `recall` and `recall_judged` of those
+  cells (`--json`: the same as JSON). Before any call it refuses, with exit 2,
+  a judge that runs the model of any answer of the batch (`meta.json` or
+  `result.json` `model`; a CLI alias counts as its family's full id, the rule
+  of `novelty`), and a `--labels` entry that names no credited pair of the
+  batch or has a label other than the three. A cell graded without `matches`
+  and a grader-failure cell are counted, not judged. A pair whose full text is
+  not found (no single task directory or no such thread under
+  `<batch>/_eval/content`, no finding at its index in `answer.txt`, or a file
+  other than the one `matches` names) and a pair whose reply never parses are
+  `unjudged`, with `error` saying why, and never count as `same point`.
+  `--dry-run` counts the pairs and prints their cost at list price (one call
+  each; prompt characters over 4, 100 reply tokens) and makes no call.
+  `--max-usd X` starts no new call once X is spent (a call with no known
+  price counts as 0, as in `repo run`): a cell not fully judged gets no
+  `hits_judged.json` (one an earlier run wrote is removed), and the command
+  exits 1. With `--labels FILE` it reports, per arm, the pairs both the
+  person and the judge labelled, the share with equal labels, and Cohen's
+  kappa over the three labels; without it, a line says `recall_judged` is
+  uncalibrated.
+- `repo hits sheet <batch> --out FILE` makes no call. It writes a JSON list of
+  credited pairs for a person to label: each with its `cell`, `task`, `arm`,
+  `model`, `rep`, `thread`, `finding`, their files and lines, the full
+  `comment` and `finding_text`, and `label: null`. It takes `--per-arm N`
+  pairs of each arm (default 25; all of an arm's pairs when it has fewer),
+  drawn with `random.Random(seed)` for `--seed N` (default 0), so a seed gives
+  one sheet; a pair whose full text is not found is left out. Set each
+  `label` to one of the three (`null` leaves the pair unlabelled) and pass the
+  file to `repo hits judge --labels`.
 - `repo compare` reduces cells to one value per (task, arm, model) first:
   repetitions share a task's difficulty and are not paired across arms, so the
   task is the unit. Per treatment arm, model and measure (gate share, score,

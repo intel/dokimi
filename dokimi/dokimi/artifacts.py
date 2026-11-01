@@ -12,8 +12,9 @@ checks), ``tool_preference`` (which of two equal tools a model picks, and
 what moves it), ``repo_environment`` (static inspection of what a
 repository offers an agent), ``plan`` (the cells a run promises to measure),
 ``result`` (one status per planned cell), ``repo_budget`` (what a repository puts
-into an agent's context) and ``task_inspect`` (which eval-task format each
-path under a tree is). This module stamps each with a
+into an agent's context), ``task_inspect`` (which eval-task format each
+path under a tree is) and ``repo_hits_judged`` (a judge's labels of one replay
+cell's credited pairs). This module stamps each with a
 ``schema_version`` and validates it against the JSON Schema in
 ``dokimi/schemas/`` on save and load, so fixtures and baselines stay
 forward-compatible and self-describing.
@@ -58,6 +59,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "repo_budget": "repo_budget.v1",
     "task_inspect": "task_inspect.v1",
     "cli_routes": "cli_routes.v1",
+    "repo_hits_judged": "repo_hits_judged.v1",
 }
 
 # kind -> superseded versions still accepted on *load*, newest first. An artifact written under an
