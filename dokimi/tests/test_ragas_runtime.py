@@ -76,7 +76,7 @@ def test_ragas_without_the_extra_exits_with_the_install_command(monkeypatch, tmp
     monkeypatch.setitem(sys.modules, "ragas.llms", None)
     with pytest.raises(SystemExit) as exc:
         _run_ragas_eval([], tmp_path / "answers.json", object())
-    assert "pip install 'dokimi[ragas]'" in str(exc.value.code)
+    assert "pip install 'dokimi[ragas]'" in str(exc.value)
     assert not (tmp_path / "answers_ragas.json").exists()
 
 
@@ -91,4 +91,4 @@ def test_ragas_commands_exit_before_any_work_without_the_extra(monkeypatch, tmp_
     run = cmd_eval_ragas if command == "eval_ragas" else cmd_answers_generate
     with pytest.raises(SystemExit) as exc:
         run(args)
-    assert "pip install 'dokimi[ragas]'" in str(exc.value.code)
+    assert "pip install 'dokimi[ragas]'" in str(exc.value)

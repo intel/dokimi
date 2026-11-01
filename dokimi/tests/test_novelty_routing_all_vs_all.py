@@ -241,13 +241,13 @@ def test_all_vs_all_takes_no_artifact(tmp_path):
     queries = _write_queries(tmp_path, {"linux-perf": ["q"]})
     args = _parse("novelty", "routing", "--all-vs-all", "--artifact", "skill:/x",
                   "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
-    with pytest.raises(SystemExit, match="takes no --artifact"):
+    with pytest.raises(InputError, match="takes no --artifact"):
         args.func(args)
 
 
 def test_a_single_routing_run_still_needs_an_artifact(tmp_path):
     args = _parse("novelty", "routing", "--out", str(tmp_path / "o.json"))
-    with pytest.raises(SystemExit, match="--all-vs-all for the whole field"):
+    with pytest.raises(InputError, match="--all-vs-all for the whole field"):
         args.func(args)
 
 
@@ -563,7 +563,7 @@ def test_all_vs_all_refuses_the_single_artifact_query_flags(tmp_path, flag):
     queries = _write_queries(tmp_path, {"perf": ["profile"]})
     args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(tmp_path),
                   "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"), *flag)
-    with pytest.raises(SystemExit, match="takes --queries-by-skill, not --queries"):
+    with pytest.raises(InputError, match="takes --queries-by-skill, not --queries"):
         args.func(args)
 
 
@@ -581,7 +581,7 @@ def test_all_vs_all_refuses_repeats_it_would_not_make(tmp_path, monkeypatch):
     args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
                   "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"),
                   "--model", "m", "--repeats", "3")
-    with pytest.raises(SystemExit, match="takes no --repeats"):
+    with pytest.raises(InputError, match="takes no --repeats"):
         args.func(args)
     assert calls == [] and not (tmp_path / "o.json").exists()
 

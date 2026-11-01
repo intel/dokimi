@@ -19,9 +19,10 @@ import shlex
 from pathlib import Path
 
 import pytest
-from test_novelty_analyze import SKILL, _scripted
+from tests.test_novelty_analyze import SKILL, _scripted
 
 from dokimi.cli import build_parser
+from dokimi.utils import InputError
 from dokimi.novelty import client as client_mod
 
 
@@ -186,10 +187,60 @@ def test_probing_atoms_from_a_changed_artifact_is_refused(tmp_path, skill, stub_
     _run("novelty", "atoms", "--artifact", f"skill:{skill}", "--include-resources",
          "--extract-model", "extractor-m", "--out", str(atoms_out))
     (skill / "references" / "new.md").write_text("Another reference.\n", encoding="utf-8")
-    with pytest.raises(SystemExit, match="files changed"):
+    with pytest.raises(InputError, match="files changed"):
         _run("novelty", "probe", "--artifact", f"skill:{skill}", "--atoms", str(atoms_out),
              "--model", "model-a", "--judge-model", "judge-m",
              "--out", str(tmp_path / "p.json"))
+
+
+@pytest.mark.parametrize("command", ["analyze", "probe"])
+def test_a_judge_that_is_the_answering_model_is_refused_with_exit_2(command, tmp_path, skill, stub_models,
+                                                                    monkeypatch, capsys):
+    atoms_out = tmp_path / "atoms.json"
+    _run("novelty", "atoms", "--artifact", f"skill:{skill}", "--extract-model", "extractor-m",
+         "--out", str(atoms_out))
+    # Count the prompts from here on: the refusal must come before any extraction or paraphrase call.
+    prompts = []
+    scripted = client_mod.LLMClient
+
+    def recording_client(**kwargs):
+        def transport(prompt, system):
+            prompts.append(prompt)
+            return stub_models(prompt, system)
+        return scripted(**{**kwargs, "transport": transport})
+
+    monkeypatch.setattr(client_mod, "LLMClient", recording_client)
+    extra = ["--atoms", str(atoms_out), "--out", str(tmp_path / "p.json")] if command == "probe" else \
+        ["--out-dir", str(tmp_path / "out")]
+    with pytest.raises(InputError) as exc:
+        _run("novelty", command, "--artifact", f"skill:{skill}", "--model", "model-a",
+             "--judge-model", "model-a", *extra)
+    assert "is the answering model" in str(exc.value)
+    assert prompts == [], "a model was called before the self-judge check refused"
+
+
+def test_probe_refuses_an_unknown_arm_before_any_model_call(tmp_path, skill, stub_models, monkeypatch, capsys):
+    atoms_out = tmp_path / "atoms.json"
+    _run("novelty", "atoms", "--artifact", f"skill:{skill}", "--extract-model", "extractor-m",
+         "--out", str(atoms_out))
+    # Count the prompts the probe sends from here on: the atoms step above is not part of the refusal.
+    prompts = []
+    scripted = client_mod.LLMClient  # the factory stub_models installed
+
+    def recording_client(**kwargs):
+        def transport(prompt, system):
+            prompts.append(prompt)
+            return stub_models(prompt, system)
+        return scripted(**{**kwargs, "transport": transport})
+
+    monkeypatch.setattr(client_mod, "LLMClient", recording_client)
+    with pytest.raises(SystemExit) as exc:
+        _run("novelty", "probe", "--artifact", f"skill:{skill}", "--atoms", str(atoms_out),
+             "--model", "model-a", "--judge-model", "judge-m", "--arms", "no_artifact,full,no-such-arm",
+             "--out", str(tmp_path / "p.json"))
+    assert exc.value.code == 2
+    assert "unknown novelty arms" in capsys.readouterr().err
+    assert prompts == [], "a model was called before the arm check refused"
 
 
 @pytest.mark.outcome("cjm-novelty-remeasure")

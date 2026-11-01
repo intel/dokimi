@@ -150,6 +150,7 @@ def _run(
         check=True,
         capture_output=True,
         text=True,
+        env={**os.environ, "TMPDIR": str(tmp_path), "TMP": str(tmp_path), "TEMP": str(tmp_path)},
     )
     return json.loads(out.stdout)
 

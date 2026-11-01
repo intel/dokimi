@@ -222,7 +222,7 @@ def test_report_eval_names_the_sidecar_when_it_cannot_be_written(tmp_path, monke
     )
     with pytest.raises(SystemExit) as exc:
         cli.main()
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     err = capsys.readouterr().err
     assert str(tmp_path / "r.qa.json") in err and f"cannot write {out}" not in err
 

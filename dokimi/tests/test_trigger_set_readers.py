@@ -196,3 +196,14 @@ def test_task_formats_name_the_reader_as_consumer(tmp_path, queries):
     for path in (reach, sc):
         report = detect(path)
         assert report.consumers == ["catalog trigger-set"], report
+
+
+def test_a_trigger_set_with_no_labels_is_valid_while_a_questions_typo_is_refused(catalog):
+    """A --trigger-set file has no labels to find, but its rule is still @expected_skill."""
+    unlabelled = [{"id": "u", "text": "save this array to disk"}]
+    qs = ts.build_trigger_set([(unlabelled, "@expected_skill")], discover_skills(catalog),
+                              specs=[None])
+    assert [q.labelled for q in qs] == [False]
+    with pytest.raises(ts.TriggerSetInputError, match="resolves for none"):
+        ts.build_trigger_set([(unlabelled, "@expected_skill")], discover_skills(catalog),
+                             specs=["typo.json=@expected_skill"])

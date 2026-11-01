@@ -11,6 +11,8 @@ import math
 import sys
 from pathlib import Path
 
+from dokimi.exit_codes import EXIT_USAGE
+from dokimi.metrics.example_runner import ExecutionRefused
 from dokimi.report.json_report import write_json
 from dokimi.report.markdown_report import write_compare_report, write_run_report
 from dokimi.runner.compare import CompareInputError, compare_snapshots
@@ -19,33 +21,34 @@ from dokimi.runner.spec import DocSelectionError
 
 
 def _run_or_exit(root: Path, spec_path: Path) -> dict:
-    """Run the benchmark; a bad spec or doc selection exits 2, an unreadable doc exits 1.
+    """Run the benchmark; a bad spec, an unreadable doc, a doc selection it refuses or
+    example limits the host cannot apply exit 2.
 
-    Exit 1 is also the verdict code of --strict, and an unwritable output exits 1 too (see _write_outputs).
+    Exit 1 is the verdict code of --strict (see cmd_run).
     """
     try:
         load_benchmark_spec(spec_path)  # fail on a spec that cannot be read, parsed or validated, before the run
     except (RuntimeError, ValueError) as exc:
         print(f"Error: {spec_path}: {exc}", file=sys.stderr)
-        sys.exit(2)
+        sys.exit(EXIT_USAGE)
     try:
         return run_benchmark(root, spec_path)
     except DocLoadError as exc:
         print(f"❌ {exc}", file=sys.stderr)
-        sys.exit(1)
-    except DocSelectionError as exc:  # e.g. fewer documents than the manifest's min_docs
+        sys.exit(EXIT_USAGE)
+    except (DocSelectionError, ExecutionRefused) as exc:  # e.g. fewer docs than min_docs, a cap the host lacks
         print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(2)
+        sys.exit(EXIT_USAGE)
 
 
 def _write_outputs(writes) -> None:
-    """Run each (writer, data, path); an unwritable path exits 1 naming it."""
+    """Run each (writer, data, path); an unwritable path exits 2 naming it."""
     for writer, data, path in writes:
         try:
             writer(data, path)
         except OSError as exc:
             print(f"Error: cannot write {path}: {exc}", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(EXIT_USAGE)
 
 
 def cmd_run(args: argparse.Namespace) -> None:
@@ -144,7 +147,7 @@ def cmd_compare(args: argparse.Namespace) -> None:
         result = compare_snapshots(base, cand, spec=spec_data)
     except CompareInputError as exc:
         print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(2)
+        sys.exit(EXIT_USAGE)
     _write_outputs(((write_json, result, out_json), (write_compare_report, result, out_md)))
     print(json.dumps(result["diff"], indent=2))
 

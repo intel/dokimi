@@ -67,7 +67,8 @@ def default_judge_model(provider: str) -> str | None:
     Pairing a provider with another provider's model (``openai/claude-sonnet-5-5``)
     fails at the first call, so a command with no default here asks for ``--judge-model``.
     """
-    if provider == DEFAULT_JUDGE_PROVIDER or (provider == "amazon-bedrock"
+    # claude-cli takes Anthropic's model ids, as the anthropic provider does.
+    if provider in (DEFAULT_JUDGE_PROVIDER, "claude-cli") or (provider == "amazon-bedrock"
                                               and DEFAULT_JUDGE_MODEL in BEDROCK_MODEL_IDS):
         return DEFAULT_JUDGE_MODEL
     if provider == DEFAULT_GENERATOR_PROVIDER:
@@ -84,7 +85,7 @@ class _JudgeModelForProvider(str):
 #: ``dokimi.cli.parse_args`` reads it as ``DEFAULT_JUDGE_MODEL``.
 JUDGE_MODEL_FOR_PROVIDER = _JudgeModelForProvider(DEFAULT_JUDGE_MODEL)
 JUDGE_MODEL_HELP = (f"Judge model (default: the default judge for --judge-provider: "
-                    f"{DEFAULT_JUDGE_MODEL} on {DEFAULT_JUDGE_PROVIDER} and amazon-bedrock, "
+                    f"{DEFAULT_JUDGE_MODEL} on {DEFAULT_JUDGE_PROVIDER}, amazon-bedrock and claude-cli, "
                     f"{DEFAULT_GENERATOR_MODEL} on {DEFAULT_GENERATOR_PROVIDER}; other providers "
                     f"need this flag)")
 

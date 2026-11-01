@@ -9,9 +9,11 @@ import inspect
 import json
 import os
 import re
+import sys
 
 import pytest
 
+from dokimi import cli
 from dokimi.cli import build_parser
 from dokimi.utils import InputError
 from dokimi.commands import novelty as novelty_cmd
@@ -81,13 +83,27 @@ def test_a_judge_provider_alone_takes_the_generator_when_the_judge_is_measured()
     ("--model", f"us.anthropic.{DEFAULT_JUDGE_MODEL}", "--provider", "amazon-bedrock",
      "--judge-provider", "amazon-bedrock"),
     ("--model", DEFAULT_JUDGE_MODEL, "--provider", "anthropic", "--judge-provider", "anthropic"),
+    # A CLI alias is its family's full id: refused here, not after the paid extraction.
+    ("--model", "sonnet", "--provider", "claude-cli", "--judge-provider", "anthropic"),
+    ("--model", "sonnet", "--provider", "claude-cli", "--judge-provider", "amazon-bedrock"),
     # The default answerer is the generator, so openai has no default judge left either.
     ("--judge-provider", "openai"),
 ])
 def test_a_judge_provider_with_no_default_judge_there_exits(argv):
     args = _parse("novelty", "analyze", "--artifact", "skill:x", *argv)
-    with pytest.raises(SystemExit, match="--judge-model"):
+    with pytest.raises(InputError, match="--judge-model"):
         novelty_cmd._clients(args)
+
+
+@pytest.mark.parametrize("model", ["sonnet", "opus", "haiku", "claude-opus-5-5"])
+def test_a_cli_answerer_with_no_judge_flags_is_judged_on_the_cli_by_another_family(model):
+    from dokimi.llm_cli import same_model
+
+    args = _parse("novelty", "analyze", "--artifact", "skill:x", "--model", model,
+                  "--provider", "claude-cli")
+    _extractor, _answerer, judge = novelty_cmd._clients(args)
+    assert judge.provider == "claude-cli"
+    assert not same_model("claude-cli", judge.model, "claude-cli", model)
 
 
 def test_a_named_judge_without_a_provider_runs_on_the_answer_provider():
@@ -119,7 +135,7 @@ def test_dropping_the_baseline_arm_is_refused(tmp_path):
                                        encoding="utf-8")
     args = _parse("novelty", "analyze", "--artifact", f"skill:{tmp_path}", "--estimate-only",
                   "--arms", "full")
-    with pytest.raises(SystemExit, match="^--arms must include no_artifact: the 2x2"):
+    with pytest.raises(InputError, match="^--arms must include no_artifact: the 2x2"):
         args.func(args)
 
 
@@ -472,7 +488,7 @@ def test_probe_refuses_a_stale_answer_key_before_building_a_client(tmp_path):
     (root / "references" / "tuning.md").write_text("Never exceed 128 threads.\n",
                                                    encoding="utf-8")
     args = _parse("novelty", "probe", "--artifact", f"skill:{root}", "--atoms", str(atoms))
-    with pytest.raises(SystemExit, match="files changed"):
+    with pytest.raises(InputError, match="files changed"):
         args.func(args)
 
 
@@ -522,7 +538,7 @@ def test_shorten_exits_with_a_message_on_a_bundle_block_it_cannot_slice(tmp_path
     atoms.write_text(json.dumps(saved), encoding="utf-8")
     args = _parse("novelty", "shorten", "--artifact", f"skill:{root}", "--atoms", str(atoms),
                   "--lexical-only")
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(InputError) as exc:
         args.func(args)
     assert str(exc.value) == f"{atoms}: the atoms record no span range for SKILL.md"
 
@@ -531,7 +547,7 @@ def test_item_analysis_refuses_a_file_that_carries_no_probe_runs(tmp_path):
     path = tmp_path / "novelty.json"
     path.write_text(json.dumps({"model": "m", "paired": {}}), encoding="utf-8")
     args = _parse("novelty", "items", "--probes", str(path))
-    with pytest.raises(SystemExit, match="no probe runs"):
+    with pytest.raises(InputError, match="no probe runs"):
         args.func(args)
 
 
@@ -546,7 +562,7 @@ def test_item_analysis_exits_with_a_message_on_an_unreadable_probes_file(tmp_pat
     elif content is not None:
         path.write_bytes(content)
     args = _parse("novelty", "items", "--probes", str(path))
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(InputError) as exc:
         args.func(args)
     assert str(exc.value).startswith(str(path))  # 3.14 parses deep nesting, then refuses the list
 
@@ -567,7 +583,7 @@ def test_item_analysis_refuses_a_probe_field_that_is_not_a_string(tmp_path, top,
                                     "verdict": "correct", **run}], **top}
     path.write_text(json.dumps(body), encoding="utf-8")
     args = _parse("novelty", "items", "--probes", str(path))
-    with pytest.raises(SystemExit, match="not a string"):
+    with pytest.raises(InputError, match="not a string"):
         args.func(args)
 
 
@@ -660,7 +676,7 @@ def test_items_refuses_runs_of_different_artifacts(tmp_path, field):
              "response": "r", "verdict": "correct_complete"}]}), encoding="utf-8")
         files.append(str(path))
     args = _parse("novelty", "items", "--probes", *files)
-    with pytest.raises(SystemExit, match=f"different texts \\({field}"):
+    with pytest.raises(InputError, match=f"different texts \\({field}"):
         args.func(args)
 
 
@@ -956,3 +972,14 @@ def test_item_analysis_accepts_a_probe_file_that_records_no_digest(tmp_path):
         encoding="utf-8")
     cells, _ = load_probe_cells([str(path)])
     assert (cells[0]["artifact"], cells[0]["ref_digest"]) == ("skill:x", None)
+
+
+def test_items_bad_probes_file_exits_2_through_cli_main(tmp_path, monkeypatch, capsys):
+    # The command raises InputError; cli.main prints it and exits 2, the code for bad input.
+    path = tmp_path / "novelty.json"
+    path.write_text(json.dumps({"model": "m", "paired": {}}), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["dokimi", "novelty", "items", "--probes", str(path)])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    assert "no probe runs" in capsys.readouterr().err

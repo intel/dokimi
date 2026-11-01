@@ -3,10 +3,11 @@
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Tuple, Dict, Any
 
-from dokimi.defaults import BEDROCK_MODEL_IDS, bedrock_profile
+from dokimi.defaults import bedrock_profile
 
 
 def parse_frontmatter(text: str) -> "Tuple[Dict[str, Any], str]":
@@ -113,15 +114,99 @@ def retry_writable(func: Any, path: str, _exc: Any) -> None:
         pass
 
 
-def normalize_model_ref(provider: str, model: str) -> str:
-    """Normalize provider and model names for comparison.
+# Bedrock cross-region inference profiles: the same model served from another region. They are dropped
+# from any provider's name, not only Bedrock's: no non-Bedrock id is known to start with one of them.
+_REGION_PROFILES = ("us-gov.", "global.", "apac.", "us.", "eu.", "jp.", "au.", "ca.")
 
-    On Bedrock a bare known name and its inference profile are the same model.
+
+# Leading segments that name a route (provider or gateway: ``anthropic/``, ``openrouter/``), not a model; any other
+# segment (an HF org such as ``meta-llama/``) is part of the id. Holds ``llm.ANSWER_PROVIDERS`` (test-pinned) + litellm routes.
+_ROUTES = frozenset({
+    "openai", "openai-codex", "anthropic", "google", "gemini", "google-vertex", "openrouter", "amazon-bedrock",
+    "bedrock", "converse", "vertex_ai", "azure", "azure_ai", "models", "groq", "ollama", "mistral", "deepseek",
+    "together_ai", "fireworks_ai", "xai", "cohere", "huggingface", "claude-cli",
+})
+
+
+# Vendors whose Bedrock ids start with ``vendor.`` (``anthropic.claude-...``, ``zai.glm-4.7``, ``xai.grok-4.6``).
+_VENDORS = frozenset({
+    "ai21", "amazon", "anthropic", "cohere", "deepseek", "google", "luma", "meta", "minimax", "mistral",
+    "moonshotai", "nvidia", "openai", "qwen", "stability", "twelvelabs", "writer", "xai", "zai",
+})
+_VENDOR_SLUGS = {"z-ai": "zai", "x-ai": "xai", "mistralai": "mistral"}  # OpenRouter's spelling of a vendor
+_BEDROCK_ARN = re.compile(r"(?:^|/)arn:aws[a-z-]*:bedrock:[a-z0-9-]*:\d*:(?:inference-profile|foundation-model)/")
+
+
+def _model_core(model: str) -> tuple[str, str | None]:
+    """A model name reduced to ``(id, snapshot date or None)``. A snapshot is ``-YYYYMMDD`` or OpenAI's ``-YYYY-MM-DD``.
+
+    The route goes (``openrouter/anthropic/``, ``bedrock/``, ``vertex_ai/``, an ARN's
+    ``inference-profile/``), and so do the case, the region profile (``eu.``) and a Bedrock
+    revision (``-v1:0`` or ``-1:0``). Vertex's ``@20250929`` is the snapshot ``-20250929``. The organization of an
+    ``org/name`` id stays, so a re-upload under another organization is another model; a known vendor
+    (``qwen/``, ``z-ai/``) goes, as its Bedrock ``vendor.`` prefix does, unless a ``huggingface/`` route precedes it.
     """
-    prov, name = (provider or "").strip().lower(), (model or "").strip()
-    if prov == "amazon-bedrock":
-        name = BEDROCK_MODEL_IDS.get(name, name)
-    return f"{prov}/{name.lower()}"
+    name = (model or "").strip().lower()
+    arn = _BEDROCK_ARN.search(name)  # only a Bedrock ARN's tail: ``foundation-model/X`` alone is an org/name id
+    if arn:
+        name = name[arn.end():]
+    parts = name.split("/")
+    hub = False
+    while len(parts) > 1 and parts[0] in _ROUTES:
+        hub = parts.pop(0) == "huggingface"
+        if hub:  # a Hub id: the route goes, its organization stays, even behind another route
+            break
+    if not hub and len(parts) > 1 and _VENDOR_SLUGS.get(parts[0], parts[0]) in _VENDORS:
+        parts.pop(0)  # OpenRouter's ``qwen/X`` is Bedrock's ``qwen.X``: the vendor, not an organization
+    name = "/".join(parts)
+    name = re.sub(r"-v?\d+:\d+$", "", name)
+    for prefix in _REGION_PROFILES:
+        if name.startswith(prefix):
+            name = name[len(prefix):]
+            break
+    name = re.sub(r"@(?=\d{8}$)", "-", name)
+    snapshot = re.search(r"-(\d{8}|\d{4}-\d{2}-\d{2})$", name)
+    return (name[:snapshot.start()], snapshot.group(1).replace("-", "")) if snapshot else (name, None)
+
+
+def model_identity(model: str) -> tuple[str | None, str | None]:
+    """``(id, snapshot date or None)`` of a model name with its route, region profile and vendor prefix dropped;
+    the id is ``None`` for a name with no id. Two names with equal identities are one model and one snapshot."""
+    base, date = _model_core(model)
+    if not base:
+        return None, date
+    # a known vendor before the first dot (``anthropic.``, ``openai.``, as in Bedrock ids) is dropped; any other
+    # dotted name is part of the id (``alice.model``), and so is a dot after a digit or a dash (``gpt-4.1``)
+    head, dot, rest = base.partition(".")
+    ident = rest if dot and head in _VENDORS else base
+    return (ident if re.search(r"[a-z0-9]", ident) else None), date  # separators alone name no model
+
+
+def same_model(a: str, b: str) -> bool:
+    """Whether two model names are one model.
+
+    The same id matches, and so does a dated snapshot and its undated alias (the alias runs
+    some snapshot of it), or the same id behind another route or region profile. Two dated
+    ids match only on the same date, and a bare family name (``haiku``) is not a full id.
+
+    The provider is not part of the identity: the same weights on Bedrock and on the direct
+    API are still one model for the self-judge warning and for a baseline's model check.
+    """
+    (base_a, date_a), (base_b, date_b) = model_identity(a), model_identity(b)
+    if base_a is None or base_b is None or (date_a and date_b and date_a != date_b):
+        return False
+    return base_a == base_b
+
+
+def same_evaluator(answer_provider: str, answer_model: str, judge_provider: str, judge_model: str) -> bool:
+    """Whether the answer and judge are one model, for the independence warning and its stored flag.
+
+    The model-name rule, or the CLI alias rule when a logged-in CLI route is involved.
+    """
+    from dokimi import llm_cli
+
+    return (same_model(answer_model, judge_model)
+            or llm_cli.same_model(answer_provider, answer_model, judge_provider, judge_model))
 
 
 def _read_key(value: str) -> str:
@@ -161,8 +246,11 @@ def get_llm(provider: str, model: str, api_key: str | None = None,
     ``max_tokens=2000``, Bedrock reads only its bearer token) and its cache keys,
     until the judge, generator and validator move to ``LLM``.
     """
-    from dokimi.llm import _GetLLMCompat, _Invoker
+    from dokimi import llm_cli
+    from dokimi.llm import LLM, _GetLLMCompat, _Invoker
 
+    if llm_cli.backend(provider) is not None:  # a logged-in CLI: no route, no key
+        return _Invoker(LLM(model, provider, temperature=temperature, seed=seed))
     api_key = _read_key(api_key) if api_key else api_key
     max_tokens: int | None = None
     key: str | None

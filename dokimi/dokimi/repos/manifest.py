@@ -21,7 +21,6 @@ repository's grader and are not read.
 from __future__ import annotations
 
 import json
-import math
 import re
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
@@ -30,6 +29,7 @@ from typing import Any, Callable
 import yaml
 
 from dokimi.artifacts import schema_errors
+from dokimi.measure import SCORE_BOUND, as_float, is_finite
 
 from .graders import DATA_FILES, NAMES as BUILTIN_NAMES, PREFIX as BUILTIN_PREFIX
 from .host_spec import HostSpecError, parse_host
@@ -222,6 +222,8 @@ class RepoCheckReport:
 
 def load_manifest(tree: RepoTree, path: str = DEFAULT_MANIFEST_PATH) -> RepoManifest:
     """Read and validate the manifest at ``path`` inside ``tree``."""
+    from .source import SourceError
+
     if not tree.is_file(path):
         raise ManifestError(path, [f"manifest not found in {tree.label}"])
     try:
@@ -230,6 +232,10 @@ def load_manifest(tree: RepoTree, path: str = DEFAULT_MANIFEST_PATH) -> RepoMani
         raise ManifestError(path, [f"not valid YAML: {exc}"]) from exc
     except (OSError, UnicodeDecodeError, RecursionError) as exc:  # unreadable, not UTF-8, deeply nested `[`
         raise ManifestError(path, [f"cannot read: {exc}"]) from exc
+    except SourceError:
+        raise  # a failed read (git show) or a path that leaves the tree: SourceError is a ValueError
+    except ValueError as exc:  # a date PyYAML cannot build, such as 2026-99-99: not a YAML syntax error
+        raise ManifestError(path, [f"not valid YAML: {exc}"]) from exc
     return parse_manifest(raw, path)
 
 
@@ -536,7 +542,7 @@ def _check_task(tree: RepoTree, task_dir: str, report: RepoCheckReport) -> None:
     if score is not None and not (
         isinstance(score, dict) and set(score) == {"metric", "max"}
         and isinstance(score["metric"], str) and score["metric"]
-        and _is_number(score["max"])
+        and as_float(score["max"], SCORE_BOUND) is not None  # `repo report` refuses a cell past the bound
     ):
         problems.append("score must be {\"metric\": <name>, \"max\": <number>}")
     egress = raw.get("egress", [])
@@ -571,20 +577,18 @@ def _parse_gate(gate: Any) -> tuple[tuple[str, ...], str | None]:
         if isinstance(entry, str) and entry:
             out.append(entry)
         elif (isinstance(entry, dict) and set(entry) == {"metric", "min"}
-              and isinstance(entry["metric"], str) and entry["metric"] and _is_number(entry["min"])):
+              and isinstance(entry["metric"], str) and entry["metric"] and is_finite(entry["min"])):
             out.append(f"{entry['metric']}>={entry['min']}")
         else:
             return ("pass",), problem
     return tuple(out), None
 
 
-def _is_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
-
-
 def _positive(value: Any) -> bool:
-    """A finite number > 0: JSON ``NaN`` passes ``<= 0`` checks and would disable a cap."""
-    return _is_number(value) and math.isfinite(value) and value > 0
+    """A finite number > 0: JSON ``NaN`` passes ``<= 0`` checks and would disable a cap; an int past the
+    float range is no number a cap can hold."""
+    num = as_float(value)
+    return num is not None and num > 0
 
 
 def _builtin_problems(tree: RepoTree, task_dir: str, raw: dict[str, Any], name: str) -> list[str]:

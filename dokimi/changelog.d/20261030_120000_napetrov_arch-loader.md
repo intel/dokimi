@@ -11,8 +11,10 @@
   names the file and the reason; for a refused field it names the skill or option at fault.
   Exit 1 stays the verdict of the gates
   (`--strict`, `eval judge-validity`), so a script that branches on the code must
-  treat 2 as "fix the input". The same exit and `Error:` line now come from any input
-  file the loaders reject. Two `report model-compare` messages changed wording:
+  treat 2 as "fix the input". The same exit and `Error:` line now come from the input
+  files those commands reject; `subjects run --novelty-artifact` still prints its own
+  message and exits 1. `novelty view` also checks the `bundle` of an atoms file, so a
+  malformed bundle is refused with exit 2. Two `report model-compare` messages changed wording:
   `File not found: <file>` is now `cannot read <file>: No such file or directory`, and
   `Invalid JSON in <file>` is now `<file> is not valid JSON`. An invalid artifact named by
   `novelty view` says which part is wrong: `is not valid JSON`, `is not UTF-8 text`,

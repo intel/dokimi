@@ -11,6 +11,7 @@ import json
 import sys
 from pathlib import Path
 
+from dokimi.llm import ANSWER_PROVIDERS
 from dokimi.defaults import (
     DEFAULT_CONCURRENCY,
     DEFAULT_JUDGE_MODEL,
@@ -21,7 +22,8 @@ from dokimi.defaults import (
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY, NoUsablePairs
 from dokimi.commands._output import write_text_or_exit
-from dokimi.utils import normalize_model_ref
+from dokimi.exit_codes import EXIT_USAGE
+from dokimi.utils import same_evaluator
 
 
 def _warn_judge_independence(
@@ -31,13 +33,13 @@ def _warn_judge_independence(
     judge_model: str,
     context: str = "run",
 ) -> bool:
-    """Emit a non-fatal warning when answer and judge use the same model/provider."""
-    same = normalize_model_ref(answer_provider, answer_model) == normalize_model_ref(judge_provider, judge_model)
+    """Emit a non-fatal warning when answer and judge are the same model (on any provider route)."""
+    same = same_evaluator(answer_provider, answer_model, judge_provider, judge_model)
     if same:
         print(
             "⚠ Evaluator independence warning "
             f"({context}): answer model equals judge model "
-            f"[{answer_provider}/{answer_model}] — potential self-referential bias.",
+            f"[{answer_provider}/{answer_model}] and [{judge_provider}/{judge_model}] — potential self-referential bias.",
             file=sys.stderr,
         )
     return same
@@ -50,7 +52,7 @@ def _load_answers(path: str):
     return load(path, section="answers")
 
 
-def _write_json_or_exit(path: Path, payload: dict, code: int = 1) -> None:
+def _write_json_or_exit(path: Path, payload: dict, code: int = EXIT_USAGE) -> None:
     """Write ``payload`` as JSON to ``path``, or exit ``code`` naming ``path`` when it cannot be written."""
     write_text_or_exit(path, json.dumps(payload, indent=2), code)
 
@@ -107,11 +109,11 @@ def cmd_eval_panel_score(args: argparse.Namespace) -> None:
                     f"Error: --judge-configs entry '{entry}' must be 'role:model:provider'.",
                     file=sys.stderr,
                 )
-                sys.exit(1)
+                sys.exit(EXIT_USAGE)
             role, model, provider = parts
             if role not in JUDGE_ROLES:
                 print(f"Error: unknown role '{role}'. Valid: {list(JUDGE_ROLES)}", file=sys.stderr)
-                sys.exit(1)
+                sys.exit(EXIT_USAGE)
             judges.append(JudgeConfig(role=role.strip(), model=model.strip(), provider=provider.strip(),
                                       temperature=args.judge_temperature))
         roles = [j.role for j in judges]
@@ -120,7 +122,7 @@ def cmd_eval_panel_score(args: argparse.Namespace) -> None:
         unknown = [r for r in roles if r not in JUDGE_ROLES]
         if unknown:
             print(f"Error: unknown roles: {unknown}. Valid: {list(JUDGE_ROLES)}", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(EXIT_USAGE)
         judges = [JudgeConfig(role=r, model=args.model, provider=args.provider,
                               temperature=args.judge_temperature) for r in roles]
 
@@ -568,7 +570,7 @@ def register(sub, positive_int) -> None:
     panel_p.add_argument("--product", required=True, help="Product name (e.g., oneTBB)")
     panel_p.add_argument("--output", default=None, help="Output file (default: eval/{product}_panel.json)")
     panel_p.add_argument("--model", default=DEFAULT_JUDGE_MODEL, help="Default LLM model for all judges")
-    panel_p.add_argument("--provider", default=DEFAULT_JUDGE_PROVIDER, choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
+    panel_p.add_argument("--provider", default=DEFAULT_JUDGE_PROVIDER, choices=ANSWER_PROVIDERS)
     panel_p.add_argument("--roles", default=None,
                          help="Comma-separated judge roles (default: technical_expert,developer_advocate,doc_reviewer)")
     panel_p.add_argument(

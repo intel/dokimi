@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
-from dokimi.commands.inputs import placebo_text_for_arms_or_exit, read_text_or_exit
+from dokimi.commands.inputs import placebo_text_for_arms_or_exit
 from dokimi.commands.novelty_routing_inputs import load_all_vs_all_field, load_routing_field
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
@@ -29,12 +29,11 @@ from dokimi.defaults import (
     DEFAULT_JUDGE_MODEL,
     DEFAULT_JUDGE_PROVIDER,
 )
+from dokimi.llm import ANSWER_PROVIDERS as PROVIDERS
 from dokimi.utils import InputError
 
 if TYPE_CHECKING:
     from dokimi.novelty.tiers import RunSettings
-
-PROVIDERS = ["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"]
 
 
 def cmd_novelty_analyze(args: argparse.Namespace) -> None:
@@ -120,8 +119,10 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
         result = analyze(artifact_bundle.text, config,
                          extractor=extractor, answerer=answerer, judge=judge,
                          artifact_bundle=artifact_bundle)
-    except (SelfJudgeError, ExtractionError, ValueError) as exc:
-        raise SystemExit(str(exc)) from None
+    except SelfJudgeError as exc:  # the judge is the answering model: the flags contradict
+        raise InputError(str(exc)) from exc
+    except (ExtractionError, ValueError) as exc:  # a model failure under way
+        raise InputError(str(exc)) from None
 
     out_dir = Path(args.out_dir) if args.out_dir else _default_dir(args.artifact)
     out_json = Path(args.out_json) if args.out_json else out_dir / "novelty.json"
@@ -156,7 +157,7 @@ def cmd_novelty_atoms(args: argparse.Namespace) -> None:
     try:
         atoms = extract_atoms(spans, client=extractor, cap=cap, report=extraction)
     except ExtractionError as exc:
-        raise SystemExit(str(exc)) from None
+        raise InputError(str(exc)) from None
     # The cap warning analyze records; probe and shorten, which read atoms.json, do not repeat it.
     reach = [cap_warning(cap, extraction.reached)] if extraction.reached else []
     for warning in extraction.warnings(len(spans)) + reach:
@@ -174,7 +175,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
     """Run the paired probes against a saved atom set and print the 2×2."""
     from dokimi.novelty.atoms import load_atoms_record
     from dokimi.novelty.bundle import check_answer_key
-    from dokimi.novelty.measure import SelfJudgeError, run_measurement
+    from dokimi.novelty.measure import SelfJudgeError, check_self_judge, run_measurement
     from dokimi.novelty.probes import build_probe_set
     from dokimi.novelty.report import build_probe_record
 
@@ -184,16 +185,20 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
     if not verdict.ok:
         if verdict.problem == "unloadable":  # the artifact cannot be read: bad input, exit 2
             raise InputError(verdict.message)
-        raise SystemExit(verdict.message)
+        raise InputError(verdict.message)
     for note in verdict.notes:
         print(note, file=sys.stderr)
     settings = _settings(args)
-    placebo_text = read_text_or_exit(args.placebo_text, "--placebo-text")
+    placebo_text = placebo_text_for_arms_or_exit(args.placebo_text, _arms(args.arms))
     extractor, answerer, judge = _clients(args)
     if saved.get("extractor") == answerer.model:
         print(f"WARNING: {answerer.model} extracted these atoms, so the model under measurement "
               "wrote its own answer key; extract with a different --extract-model",
               file=sys.stderr)
+    try:  # before the paraphrase calls below, which are paid
+        check_self_judge(judge, answerer, args.allow_self_judge)
+    except SelfJudgeError as exc:
+        raise InputError(str(exc)) from exc
     paraphrases, reversals = settings.values["paraphrases"], settings.values["reversals"]
     probe_set = build_probe_set(
         atoms, client=extractor if paraphrases or reversals else None,
@@ -212,8 +217,8 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
             allow_self_judge=args.allow_self_judge, seed=args.seed,
             placebo_text=placebo_text,
         )
-    except (SelfJudgeError, ValueError) as exc:
-        raise SystemExit(str(exc)) from None
+    except ValueError as exc:  # a model failure under way
+        raise InputError(str(exc)) from None
 
     payload = build_probe_record(
         artifact_ref=args.artifact, model=answerer.model, judge_model=judge.model,
@@ -240,7 +245,7 @@ def cmd_novelty_items(args: argparse.Namespace) -> None:
     try:
         cells, warnings = load_probe_cells(args.probes)
     except ProbeFileError as exc:
-        raise SystemExit(str(exc)) from None
+        raise InputError(str(exc)) from exc
     for warning in warnings:
         print(f"WARNING: {warning}", file=sys.stderr)
 
@@ -342,18 +347,16 @@ def _field_record(args: argparse.Namespace, competitors: list, left_out: list[st
 def _check_all_vs_all_args(args: argparse.Namespace) -> None:
     """Refuse the flag combinations ``--all-vs-all`` cannot run with."""
     if args.artifact:
-        raise SystemExit("--all-vs-all takes no --artifact: every skill in the field is the "
-                         "gold in turn")
+        raise InputError("--all-vs-all takes no --artifact: every skill in the field is the gold in turn")
     if args.queries or args.queries_from_headings:
-        raise SystemExit("--all-vs-all takes --queries-by-skill, not --queries or "
-                         "--queries-from-headings")
+        raise InputError("--all-vs-all takes --queries-by-skill, not --queries or --queries-from-headings")
     if args.repeats > 1:
-        raise SystemExit("--all-vs-all takes no --repeats: it makes one call per query")
+        raise InputError("--all-vs-all takes no --repeats: it makes one call per query")
     if not args.queries_by_skill:
-        raise SystemExit("--all-vs-all needs --queries-by-skill <file>: a JSON object of skill "
-                         "name to the requests that should select it")
+        raise InputError("--all-vs-all needs --queries-by-skill <file>: a JSON object of skill "
+                   "name to the requests that should select it")
     if not args.out:
-        raise SystemExit("--all-vs-all needs --out <file>")
+        raise InputError("--all-vs-all needs --out <file>")
 
 
 def _warn_blind_skills(result: dict, queries_by_skill: dict[str, list[str]]) -> None:
@@ -399,10 +402,7 @@ def _print_attractors(result: dict) -> None:
 def cmd_novelty_routing(args: argparse.Namespace) -> None:
     """Can this artifact be selected against its competitors? Lexical floor, model on top."""
     if args.repeats > 1 and not args.model:
-        raise SystemExit(
-            "--repeats needs --model: the lexical floor is deterministic, so repeating it "
-            "measures nothing"
-        )
+        raise InputError("--repeats needs --model: the lexical floor is deterministic, so repeating it measures nothing")
     from dokimi.novelty.routing import (
         check_field,
         headings_as_queries,
@@ -414,7 +414,7 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
     if args.all_vs_all:
         return _cmd_routing_all_vs_all(args)
     if not args.artifact:
-        raise SystemExit("pass --artifact <skill:path>, or --all-vs-all for the whole field")
+        raise InputError("pass --artifact <skill:path>, or --all-vs-all for the whole field")
     gold, body, competitors, left_out = load_routing_field(args)
     # Checked before the query file is read, so the message is about the real problem.
     check_field(gold, competitors)
@@ -429,10 +429,8 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
               "defines both the problem scope and its own relevance, so this is triage, not "
               "a routing rate", file=sys.stderr)
     else:
-        raise SystemExit(
-            "pass --queries <file> with requests written independently of the artifact, or "
-            "--queries-from-headings for a self-derived triage run"
-        )
+        raise InputError("pass --queries <file> with requests written independently of the artifact, or "
+                   "--queries-from-headings for a self-derived triage run")
     candidates = [gold, *competitors]
     lexical = dict(lexical_routing(candidates, queries, gold=0),
                    queries_self_derived=self_derived)
@@ -533,9 +531,8 @@ def _refuse_no_queries(args: argparse.Namespace, queries: list[str], self_derive
                                "reason": reason, "queries_self_derived": self_derived,
                                "n_candidates": n_candidates}, indent=2),
                    encoding="utf-8")
-    raise SystemExit(f"no usable queries: {reason}. Pass --queries <file> with requests "
-                     f"written independently of the artifact, one per line or a JSON "
-                     f"list. Wrote {out} with status no_queries")
+    raise InputError(f"no usable queries: {reason}. Pass --queries <file> with requests written independently "
+               f"of the artifact, one per line or a JSON list. Wrote {out} with status no_queries")
 
 
 def cmd_novelty_shorten(args: argparse.Namespace) -> None:
@@ -551,7 +548,7 @@ def cmd_novelty_shorten(args: argparse.Namespace) -> None:
     try:
         spans, atoms, note = entry_point_only(saved.get("bundle"), spans, atoms)
     except ValueError as exc:
-        raise SystemExit(f"{args.atoms}: {exc}") from None
+        raise InputError(f"{args.atoms}: {exc}") from exc
     if note:
         print(note, file=sys.stderr)
     _warn_unread(spans, "every candidate keeps them, since what they carry is unknown")
@@ -917,10 +914,8 @@ def _role_models(args: argparse.Namespace) -> dict[str, tuple[str, str]]:
     if args.judge_model:
         judge_model, judge_provider = args.judge_model, args.judge_provider or args.provider
     else:
-        try:
-            judge_model, judge_provider = default_judge(args.model, args.judge_provider)
-        except ValueError as exc:
-            raise SystemExit(str(exc)) from None
+        # a CLI answerer with no judge provider judges on the same CLI, another family
+        judge_model, judge_provider = default_judge(args.model, args.judge_provider, args.provider)
     extract_model = args.extract_model or judge_model
     extract_provider = args.extract_provider or judge_provider
     return {
@@ -944,7 +939,7 @@ def _estimate_usd(
 
     try:
         models = _role_models(args)
-    except SystemExit as exc:
+    except ValueError as exc:
         print(f"The USD estimate is unavailable: {exc}", file=sys.stderr)
         return None
     usd = estimate_usd(by_role, n_tokens, models, tier, context_share)
@@ -964,7 +959,10 @@ def _estimate_usd(
 
 def _clients(args: argparse.Namespace):
     """Build the three role clients, defaulting so roles never silently collapse."""
-    models = _role_models(args)
+    try:
+        models = _role_models(args)
+    except ValueError as exc:
+        raise InputError(str(exc)) from exc
     return (
         _client(*models["extractor"], "extractor", args),
         _client(*models["answerer"], "answerer", args),
@@ -1039,7 +1037,7 @@ def _arms(spec: str) -> tuple[str, ...]:
     try:
         return parse_arms(spec)
     except ValueError as exc:
-        raise SystemExit(str(exc)) from None
+        raise InputError(str(exc)) from exc
 
 
 def _default_dir(ref: str) -> Path:

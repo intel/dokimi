@@ -167,7 +167,7 @@ def test_hits_refuse_a_cell_with_no_rep_as_the_table_refuses_a_malformed_cell(tm
     path.write_text(json.dumps(rec))
     with pytest.raises(SystemExit) as stopped:
         _cli(capsys, str(batch), "--hits")
-    assert stopped.value.code == 1
+    assert stopped.value.code == 2  # an input refusal exits 2 (the exit-code audit)
     assert capsys.readouterr().err.strip() == f"✗ {path} has no usable `rep`"
 
 

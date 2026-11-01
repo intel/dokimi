@@ -8,10 +8,12 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from dokimi.utils import normalize_model_ref
+from dokimi.utils import model_identity, same_model
+from dokimi.exit_codes import EXIT_USAGE
 
 BASELINES_DIR = Path("baselines/eval")
 
@@ -37,7 +39,7 @@ def _read_json_object(path: Path, code: int) -> Dict[str, Any]:
     return data
 
 
-def _baseline_manifest(code: int = 1) -> Dict[str, Any]:
+def _baseline_manifest(code: int = EXIT_USAGE) -> Dict[str, Any]:
     """Load or create the baseline manifest; a corrupt one exits ``code``."""
     manifest_path = BASELINES_DIR / "manifest.json"
     if not manifest_path.exists():
@@ -88,8 +90,9 @@ def _recorded_models(eval_data: Dict[str, Any]) -> Dict[str, Optional[Tuple[str,
 
     The judge is top-level (``judge_provider``/``judge_model``); the answerer is in
     ``run_metadata``. A panel (``judge_model: "panel(N)"``) records its judges only in
-    ``panel_config.models``; it maps to ``("panel", <sorted, normalized models>)``. A role
-    the artifact does not record maps to ``None``.
+    ``panel_config.models``; it maps to ``("panel", <the judges' raw "provider/model" strings,
+    sorted and comma-joined>)``, which ``_recorded_verdict`` splits and compares. A role the
+    artifact does not record maps to ``None``.
     """
     meta = eval_data.get("run_metadata")
     if not isinstance(meta, dict):
@@ -97,6 +100,8 @@ def _recorded_models(eval_data: Dict[str, Any]) -> Dict[str, Optional[Tuple[str,
 
     def pair(provider: Any, model: Any) -> Optional[Tuple[str, str]]:
         if not provider or not model or "unknown" in (provider, model):
+            return None
+        if model_identity(str(model))[0] is None:  # a route with no id after it ("anthropic/") names no model
             return None
         return str(provider), str(model)
 
@@ -106,8 +111,7 @@ def _recorded_models(eval_data: Dict[str, Any]) -> Dict[str, Optional[Tuple[str,
         models = panel.get("models") if isinstance(panel, dict) else None
         if not (isinstance(models, list) and all(isinstance(m, str) for m in models)):
             models = []
-        judge = ("panel", ",".join(sorted(
-            normalize_model_ref(*m.split("/", 1)) if "/" in m else m for m in models))) if models else None
+        judge = ("panel", ",".join(sorted(models))) if models else None
     else:
         judge = pair(eval_data.get("judge_provider") or meta.get("judge_provider"), judge_model)
     return {
@@ -119,9 +123,11 @@ def _recorded_models(eval_data: Dict[str, Any]) -> Dict[str, Optional[Tuple[str,
 def _model_mismatches(baseline_data: Dict[str, Any],
                       eval_data: Dict[str, Any]) -> Tuple[List[str], List[str]]:
     """Per role (answer, judge): lines for a recorded model that differs between the two
-    runs, and the roles that could not be compared because a side does not record them.
+    runs, and the roles that cannot be verified: a side does not record them, or they are a dated
+    snapshot against an undated alias (see ``_recorded_verdict``).
 
-    A Bedrock alias and its inference profile count as one model.
+    Two model names with the same id, snapshot and route (a Bedrock alias and its profile, one model
+    behind another route) count as one model.
     """
     base, cur = _recorded_models(baseline_data), _recorded_models(eval_data)
     lines, unverified = [], []
@@ -129,9 +135,62 @@ def _model_mismatches(baseline_data: Dict[str, Any],
         b, c = base[role], cur[role]
         if not (b and c):
             unverified.append(role)
-        elif normalize_model_ref(*b) != normalize_model_ref(*c):
+            continue
+        verdict = _recorded_verdict(b, c)
+        if verdict == "mismatch":
             lines.append(f"{role} model: baseline {b[0]}/{b[1]}, current {c[0]}/{c[1]}")
+        elif verdict == "unverified":
+            unverified.append(role)
     return lines, unverified
+
+
+def _same_identity(x: str, y: str) -> bool:
+    """Whether two model names have the same id, snapshot date and route-free identity (``model_identity``)."""
+    ix = model_identity(x)
+    return bool(ix[0]) and ix == model_identity(y)
+
+
+def _pairs_up(xs: List[str], ys: List[str]) -> bool:
+    """Whether every name in ``xs`` can be paired with a different name in ``ys`` that ``same_model`` matches.
+    ``same_model`` is not transitive (a snapshot matches its alias, two snapshots do not match each other),
+    so the pairing uses augmenting paths rather than greedy first-match."""
+    partner: dict[int, int] = {}  # index in ys -> index in xs
+
+    def place(i: int, tried: set[int]) -> bool:
+        for j, y in enumerate(ys):
+            if j in tried or not same_model(xs[i], y):
+                continue
+            tried.add(j)
+            if j not in partner or place(partner[j], tried):
+                partner[j] = i
+                return True
+        return False
+
+    return all(place(i, set()) for i in range(len(xs)))
+
+
+def _recorded_verdict(b: Tuple[str, str], c: Tuple[str, str]) -> str:
+    """How two recorded (provider, model) pairs compare: ``"match"``, ``"unverified"`` or ``"mismatch"``.
+
+    ``match``: the same id and snapshot (a panel: the same number of judges, and the same multiset of
+    identities). ``unverified``: ``same_model`` links them, but they are not exactly equal: a dated snapshot
+    against its undated alias, which does not record which snapshot answered, so ``--strict`` cannot
+    verify it. Anything else is a ``mismatch``.
+    """
+    if (b[0] == "panel") != (c[0] == "panel"):
+        return "mismatch"
+    if b[0] != "panel":
+        if _same_identity(b[1], c[1]):
+            return "match"
+        return "unverified" if same_model(b[1], c[1]) else "mismatch"
+    xs, ys = b[1].split(","), c[1].split(",")
+    if len(xs) != len(ys):
+        return "mismatch"
+    if not all(model_identity(x)[0] for x in xs + ys):  # a judge with no id is no model: no pair of them is the same
+        return "mismatch"
+    if Counter(model_identity(x) for x in xs) == Counter(model_identity(y) for y in ys):
+        return "match"
+    return "unverified" if _pairs_up(xs, ys) else "mismatch"
 
 
 def cmd_baseline_save(args: argparse.Namespace) -> None:
@@ -140,7 +199,7 @@ def cmd_baseline_save(args: argparse.Namespace) -> None:
 
     eval_path = Path(args.from_eval)
     manifest = _baseline_manifest()  # first: a corrupt manifest fails fast and leaves no orphan file
-    eval_data = _read_json_object(eval_path, 1)
+    eval_data = _read_json_object(eval_path, EXIT_USAGE)
     product = args.product or eval_data.get("product", "unknown")
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
     name = args.name or f"{product}-{timestamp}"
@@ -151,13 +210,13 @@ def cmd_baseline_save(args: argparse.Namespace) -> None:
         summary = _compute_summary(eval_data)
     except RecordError as exc:
         print(f"❌ {eval_path}: {exc}", file=sys.stderr)
-        raise SystemExit(1) from exc
+        raise SystemExit(EXIT_USAGE) from exc
 
     BASELINES_DIR.mkdir(parents=True, exist_ok=True)
     dest = BASELINES_DIR / f"{name}.json"
     if dest.exists():
         print(f"❌ Baseline already exists: {dest} (choose a different --name)", file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(EXIT_USAGE)
     dest.write_text(json.dumps(eval_data, indent=2), encoding="utf-8")
 
     manifest["baselines"].append({
@@ -205,7 +264,7 @@ def _pick_entry(args: argparse.Namespace, baselines: list, eval_data: dict) -> d
         entry = next((b for b in baselines if b["name"] == args.baseline), None)
         if not entry:
             print(f"❌ Baseline '{args.baseline}' not found.")
-            raise SystemExit(1)
+            raise SystemExit(EXIT_USAGE)
     else:
         product = args.product or eval_data.get("product")
         candidates = [b for b in baselines if b.get("product") == product] if product else baselines
@@ -218,9 +277,14 @@ def _pick_entry(args: argparse.Namespace, baselines: list, eval_data: dict) -> d
 def _report_model_checks(args: argparse.Namespace, entry: dict, baseline_data: dict, eval_data: dict) -> None:
     mismatches, unverified = _model_mismatches(baseline_data, eval_data)
     strict = getattr(args, "strict", False)
+    base_rec, cur_rec = _recorded_models(baseline_data), _recorded_models(eval_data)
     for role in unverified:
-        sides = [name for name, data in (("baseline", baseline_data), ("current eval", eval_data))
-                 if _recorded_models(data)[role] is None]
+        b, c = base_rec[role], cur_rec[role]
+        if b and c:
+            print(f"⚠ {role} model not verified: baseline {b[0]}/{b[1]}, current {c[0]}/{c[1]} "
+                  f"(an undated alias does not say which snapshot answered)", file=sys.stderr)
+            continue
+        sides = [name for name, rec in (("baseline", base_rec), ("current eval", cur_rec)) if rec[role] is None]
         print(f"⚠ {role} model not recorded in {' and '.join(sides)}; not compared", file=sys.stderr)
     if unverified and strict:
         print(f"❌ --strict cannot verify the {' and '.join(unverified)} model against "
@@ -260,7 +324,7 @@ def cmd_baseline_compare(args: argparse.Namespace) -> None:
     if not baselines:
         print("No baselines found. Save one first:")
         print("  dokimi baseline save --from-eval eval/oneTBB.json --product oneTBB")
-        raise SystemExit(1)
+        raise SystemExit(EXIT_USAGE)
 
     entry = _pick_entry(args, baselines, eval_data)
     baseline_data = _read_json_object(Path(entry["path"]), 2)

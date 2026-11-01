@@ -172,6 +172,12 @@ def test_missing_and_non_yaml_manifest(tmp_path):
         ({"budget_usd": True}, "budget_usd"),
         ({"budget_usd": float("nan")}, "budget_usd"),  # JSON NaN passes `<= 0`
         ({"timeout_s": float("inf")}, "timeout_s"),
+        ({"timeout_s": 10**400}, "timeout_s"),  # an int past the float range is a problem, not a crash
+        ({"gate": [{"metric": "m", "min": float("nan")}]}, "gate"),  # NaN minimum would pass every metric
+        ({"gate": [{"metric": "m", "min": float("inf")}]}, "gate"),
+        ({"score": {"metric": "recall", "max": float("nan")}}, "score must be"),
+        ({"score": {"metric": "recall", "max": 10**400}}, "score must be"),
+        ({"score": {"metric": "recall", "max": 1e200}}, "score must be"),  # `repo report` refuses past SCORE_BOUND
         ({"egress": "pypi.org"}, "egress must be a list"),
         ({"egress": ["https://pypi.org/simple"]}, "egress must be a list"),
         ({"egress": ["*"]}, "egress must be a list"),
@@ -464,7 +470,7 @@ def test_repo_validate_out_writes_the_report(tmp_path, capsys):
 
     with pytest.raises(SystemExit) as exc:
         _run_cli([*argv[:-1], str(tmp_path / "no" / "dir" / "v.json")])
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert "cannot write" in capsys.readouterr().err
 
 
@@ -646,7 +652,7 @@ def test_a_mistyped_manifest_path_is_an_error_not_a_default_scan(tmp_path, capsy
     args = build_parser().parse_args(["repo", "scan", str(root), "--manifest", ".agent-eval/repo-evel.yaml"])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1
+    assert exc.value.code == 2
     assert "manifest not found" in capsys.readouterr().err
 
 

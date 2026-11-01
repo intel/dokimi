@@ -284,7 +284,7 @@ def test_routing_without_a_query_source_is_refused(tmp_path):
     args = _parse("novelty", "routing",
                   "--artifact", _skill(tmp_path, "a", "profile a binary"),
                   "--competitors", _skill(tmp_path, "b", "tune a database"))
-    with pytest.raises(SystemExit, match="--queries"):
+    with pytest.raises(InputError, match="--queries"):
         args.func(args)
 
 
@@ -690,7 +690,7 @@ def test_repeats_without_a_model_are_refused_on_the_cli(tmp_path, repeats):
                   "--artifact", _skill(tmp_path, "a", "profile a binary"),
                   "--competitors", _skill(tmp_path, "b", "tune a database"),
                   "--queries", str(queries), "--repeats", repeats, "--out", str(out))
-    with pytest.raises(SystemExit, match="needs --model"):
+    with pytest.raises(InputError, match="needs --model"):
         args.func(args)
     assert not out.exists()
 
@@ -810,7 +810,7 @@ def test_headings_inside_code_only_refuse_the_run_and_say_why(tmp_path):
                                        body="```\n## only in code\n```\n"),
                   "--competitors", _skill(tmp_path, "b", "tune a database"),
                   "--queries-from-headings", "--out", str(out))
-    with pytest.raises(SystemExit, match="code fences.*--queries"):
+    with pytest.raises(InputError, match="code fences.*--queries"):
         args.func(args)
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["status"] == "no_queries"
@@ -825,7 +825,7 @@ def test_a_query_file_with_nothing_in_it_refuses_the_run(tmp_path):
                   "--artifact", _skill(tmp_path, "a", "profile a binary"),
                   "--competitors", _skill(tmp_path, "b", "tune a database"),
                   "--queries", str(queries), "--out", str(out))
-    with pytest.raises(SystemExit, match="no non-blank query"):
+    with pytest.raises(InputError, match="no non-blank query"):
         args.func(args)
     assert json.loads(out.read_text(encoding="utf-8"))["status"] == "no_queries"
 
@@ -837,7 +837,7 @@ def test_queries_without_a_content_word_refuse_the_run(tmp_path):
                   "--artifact", _skill(tmp_path, "a", "profile a binary"),
                   "--competitors", _skill(tmp_path, "b", "tune a database"),
                   "--queries", str(queries), "--out", str(tmp_path / "routing.json"))
-    with pytest.raises(SystemExit, match="has a content word"):
+    with pytest.raises(InputError, match="has a content word"):
         args.func(args)
 
 
@@ -937,7 +937,7 @@ def test_the_model_row_says_its_query_count_is_of_all_given(tmp_path, monkeypatc
 
 def test_a_run_with_no_scorable_query_makes_no_model_call(tmp_path, monkeypatch):
     args, calls = _routing_with_model(tmp_path, monkeypatch, "the of a\nhow do I\n")
-    with pytest.raises(SystemExit, match="no usable queries"):
+    with pytest.raises(InputError, match="no usable queries"):
         args.func(args)
     assert calls == []
     assert json.loads((tmp_path / "routing.json").read_text())["status"] == "no_queries"

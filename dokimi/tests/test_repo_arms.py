@@ -474,7 +474,7 @@ def test_repo_run_with_duplicate_arms_yields_one_cell_per_unique_arm(toy):
     assert pinned1.rev_sha == pinned2.rev_sha
 
     # When passed to _pin_arms, duplicates should be removed
-    from dokimi.commands.repo_run import _pin_arms
+    from dokimi.repos.batch_ledger import pin_arms as _pin_arms
     pinned = _pin_arms([arm1, arm2, arm1], git_dir, str(toy["root"]))
     assert len(pinned) == 1
 
@@ -500,14 +500,14 @@ def test_repo_run_pins_duplicate_arms_once(toy):
     assert pinned_short.rev_sha == pinned_full.rev_sha
 
     # When passed to _pin_arms (which removes duplicates), we get 2 arms instead of 3
-    from dokimi.commands.repo_run import _pin_arms
+    from dokimi.repos.batch_ledger import pin_arms as _pin_arms
     pinned = _pin_arms([arm_rev_short, arm_rev_full, arm_raw], git_dir, str(toy["root"]))
     assert len(pinned) == 2
 
 
 
 def test_pin_arms_resolves_head_in_the_linked_worktree_the_source_names(toy):
-    from dokimi.commands.repo_run import _pin_arms
+    from dokimi.repos.batch_ledger import pin_arms as _pin_arms
 
     wt = toy["tmp"] / "linked"
     git(toy["root"], "worktree", "add", "-q", str(wt), "pr")  # its HEAD is the pr commit, the main worktree's is not
@@ -519,7 +519,7 @@ def test_pin_arms_resolves_head_in_the_linked_worktree_the_source_names(toy):
 
 
 def test_pin_arms_fetches_a_remote_branch_before_pinning_it(toy):
-    from dokimi.commands.repo_run import _pin_arms
+    from dokimi.repos.batch_ledger import pin_arms as _pin_arms
 
     cached = toy["tmp"] / "cached.git"  # a clone made before the branch moved
     subprocess.run(["git", "clone", "-q", "--bare", str(toy["root"]), str(cached)], check=True)
@@ -530,7 +530,7 @@ def test_pin_arms_fetches_a_remote_branch_before_pinning_it(toy):
 
 
 def test_pin_arms_shares_one_cell_for_two_paths_to_the_same_patch(toy, capsys):
-    from dokimi.commands.repo_run import _pin_arms
+    from dokimi.repos.batch_ledger import pin_arms as _pin_arms
 
     a = toy["tmp"] / "a.diff"
     (toy["tmp"] / "sub").mkdir()

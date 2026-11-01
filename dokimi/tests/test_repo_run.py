@@ -15,7 +15,8 @@ import yaml
 
 from dokimi.cli import build_parser
 from dokimi.repos.container import CONTENT_DIR, HARNESS_DIR, RUN_DIR, SOURCE_DIR, WORKSPACE
-from dokimi.repos.report import format_report, model_matches, summarize, wilson
+from dokimi.repos.report import format_report, summarize, wilson
+from dokimi.utils import same_model
 from repo_eval_fixture import FakeRunner, fake_harness, git, make_repo
 
 
@@ -835,7 +836,7 @@ def test_report_warns_when_another_model_answered(setup, capsys):
     ("m-v1:0", "m-v3:0", True), ("gpt-4.1", "gpt-4.2", False), ("us.anthropic.claude-x", "eu.anthropic.claude-y", False),
     ("vertex_ai/claude-x", "claude-x", True), ("claude-sonnet-4-5", "claude-sonnet-4-5-1", False)])
 def test_a_provider_prefix_is_not_another_model(requested, resolved, same):
-    assert model_matches(requested, resolved) is same
+    assert same_model(requested, resolved) is same
 
 
 @pytest.mark.parametrize("key, value", [("budget_usd", float("nan")), ("timeout_s", float("inf")),

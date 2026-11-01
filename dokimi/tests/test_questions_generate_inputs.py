@@ -21,11 +21,11 @@ def _generate(monkeypatch, *extra):
 
 @pytest.mark.parametrize("content", [None, "{not json", "[1, 2]", '{"personas": "dev"}', "{}"],
                          ids=["missing", "malformed", "not-an-object", "personas-not-a-list", "no-personas"])
-def test_generate_exits_1_on_an_unusable_personas_file(tmp_path, monkeypatch, capsys, content):
+def test_generate_exits_2_on_an_unusable_personas_file(tmp_path, monkeypatch, capsys, content):
     bad = tmp_path / "personas.json"
     if content is not None:
         bad.write_text(content, encoding="utf-8")
-    assert _generate(monkeypatch, "--personas", str(bad)) == 1
+    assert _generate(monkeypatch, "--personas", str(bad)) == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: ") and str(bad) in err
 
@@ -35,33 +35,33 @@ def test_generate_exits_1_on_an_unusable_personas_file(tmp_path, monkeypatch, ca
     [[1, "x"], [{"id": "p1", "name": "dev"}], [{"name": "dev", "skill_level": "beginner"}],
      [{"id": "p1", "skill_level": "beginner"}]],
     ids=["items-not-objects", "missing-skill-level", "missing-id", "missing-name"])
-def test_generate_exits_1_on_personas_missing_required_fields(tmp_path, monkeypatch, capsys, personas):
+def test_generate_exits_2_on_personas_missing_required_fields(tmp_path, monkeypatch, capsys, personas):
     bad = tmp_path / "personas.json"
     bad.write_text(json.dumps({"personas": personas}), encoding="utf-8")
-    assert _generate(monkeypatch, "--personas", str(bad)) == 1
+    assert _generate(monkeypatch, "--personas", str(bad)) == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: ") and str(bad) in err and "skill_level" in err
 
 
 @pytest.mark.parametrize("content", ["5", '{"a": 1}'], ids=["number", "object"])
-def test_generate_exits_1_when_topics_is_not_a_list(tmp_path, monkeypatch, capsys, content):
+def test_generate_exits_2_when_topics_is_not_a_list(tmp_path, monkeypatch, capsys, content):
     personas = tmp_path / "personas.json"
     personas.write_text(json.dumps(GOOD_PERSONAS), encoding="utf-8")
     bad = tmp_path / "topics.json"
     bad.write_text(content, encoding="utf-8")
-    assert _generate(monkeypatch, "--personas", str(personas), "--topics", str(bad)) == 1
+    assert _generate(monkeypatch, "--personas", str(personas), "--topics", str(bad)) == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: ") and str(bad) in err and "list" in err
 
 
 @pytest.mark.parametrize("content", [None, "{not json"], ids=["missing", "malformed"])
-def test_generate_exits_1_on_an_unreadable_topics_file(tmp_path, monkeypatch, capsys, content):
+def test_generate_exits_2_on_an_unreadable_topics_file(tmp_path, monkeypatch, capsys, content):
     personas = tmp_path / "personas.json"
     personas.write_text(json.dumps(GOOD_PERSONAS), encoding="utf-8")
     bad = tmp_path / "topics.json"
     if content is not None:
         bad.write_text(content, encoding="utf-8")
-    assert _generate(monkeypatch, "--personas", str(personas), "--topics", str(bad)) == 1
+    assert _generate(monkeypatch, "--personas", str(personas), "--topics", str(bad)) == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: ") and str(bad) in err
 
@@ -87,7 +87,7 @@ def _unwritable_outputs(tmp_path):
 
 
 @pytest.mark.parametrize("which", [0, 1], ids=["under-a-file", "is-a-directory"])
-def test_generate_exits_1_when_the_output_cannot_be_written(tmp_path, monkeypatch, capsys, which):
+def test_generate_exits_2_when_the_output_cannot_be_written(tmp_path, monkeypatch, capsys, which):
     personas = tmp_path / "personas.json"
     personas.write_text(json.dumps(GOOD_PERSONAS), encoding="utf-8")
     topics = tmp_path / "topics.json"
@@ -96,7 +96,7 @@ def test_generate_exits_1_when_the_output_cannot_be_written(tmp_path, monkeypatc
     monkeypatch.setattr("dokimi.commands.answers._load_runtime_config", dict)
     monkeypatch.setattr("dokimi.questions.QuestionGenerator", _FakeGenerator)
     assert _generate(monkeypatch, "--personas", str(personas), "--topics", str(topics),
-                     "--output", str(out)) == 1
+                     "--output", str(out)) == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: cannot write ") and str(out) in err
 

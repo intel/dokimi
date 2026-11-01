@@ -179,7 +179,7 @@ def test_task_refuses_an_id_no_cell_has(tmp_path, capsys):
     args = build_parser().parse_args(["repo", "compare", str(b), "--baseline", "guidance:none", "--task", "t9"])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1 and "no finished cell of the compared batches has --task t9" in capsys.readouterr().err
+    assert exc.value.code == 2 and "no finished cell of the compared batches has --task t9" in capsys.readouterr().err
 
 
 def test_min_detectable_effect_arithmetic():

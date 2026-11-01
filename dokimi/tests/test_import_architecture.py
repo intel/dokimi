@@ -51,8 +51,8 @@ LAYERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "dokimi.config_check", "dokimi.context", "dokimi.coverage", "dokimi.dashboard",
         "dokimi.datasets_export", "dokimi.explore", "dokimi.external", "dokimi.harnesses",
         "dokimi.novelty", "dokimi.orchestrator", "dokimi.report", "dokimi.repos",
-        "dokimi.runner", "dokimi.schema_check", "dokimi.schema_compat", "dokimi.subjects",
-        "dokimi.task_formats", "dokimi.tool_preference",
+        "dokimi.runner", "dokimi.runs", "dokimi.schema_check", "dokimi.schema_compat",
+        "dokimi.subjects", "dokimi.task_formats", "dokimi.tool_preference",
     )),
     # The LLM evaluation engine: answering, judging, panels, arms, questions, personas.
     ("evaluation", (
@@ -68,10 +68,11 @@ LAYERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     # What everything shares: defaults, registries, artifact and record I/O, the LLM and
     # process chokepoints, console output.
     ("foundation", (
-        "dokimi", "dokimi._version", "dokimi.artifacts", "dokimi.caching", "dokimi.cli_flags",
+        "dokimi", "dokimi._version", "dokimi.artifacts", "dokimi.caching", "dokimi.cli_flags", "dokimi.exit_codes",
         "dokimi.config", "dokimi.console", "dokimi.container_policy", "dokimi.defaults",
-        "dokimi.intents", "dokimi.llm", "dokimi.llm_pricing",
-        "dokimi.process", "dokimi.records", "dokimi.registry", "dokimi.utils",
+        "dokimi.intents", "dokimi.judged", "dokimi.llm", "dokimi.llm_cli", "dokimi.llm_json",
+        "dokimi.llm_pricing", "dokimi.measure", "dokimi.process", "dokimi.process_io",
+        "dokimi.records", "dokimi.registry", "dokimi.utils",
         # Token/cost record the LLM chokepoint fills; it lives under metrics/ but
         # depends on nothing and is read by every LLM caller.
         "dokimi.metrics.usage",
@@ -448,14 +449,23 @@ def exit_sites(tree: ast.Module) -> list[int]:
     bound = {t.id for n in ast.walk(tree) if isinstance(n, ast.Assign) and isinstance(n.value, ast.Call)
              and isinstance(n.value.func, ast.Name) and n.value.func.id == "SystemExit"
              for t in n.targets if isinstance(t, ast.Name)}
+    # ``SystemExit`` under another name: ``from builtins import SystemExit as Stop`` or ``builtins.SystemExit``.
+    exc_names = {a.asname or a.name for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module == "builtins"
+                 and not n.level for a in n.names if a.name == "SystemExit"}
+    builtins_names = {a.asname or a.name for n in ast.walk(tree) if isinstance(n, ast.Import)
+                      for a in n.names if a.name == "builtins"}
     lines: list[int] = []
+    raised: set[int] = set()  # the call of a raise is counted once, by the raise
     for node in ast.walk(tree):
-        if id(node) in guarded:
+        if id(node) in guarded or id(node) in raised:
             continue
         if isinstance(node, ast.Raise) and node.exc is not None:
             exc = node.exc.func if isinstance(node.exc, ast.Call) else node.exc
-            if isinstance(exc, ast.Name) and (exc.id == "SystemExit" or exc.id in bound):
+            if ((isinstance(exc, ast.Name) and (exc.id == "SystemExit" or exc.id in bound or exc.id in exc_names))
+                    or (isinstance(exc, ast.Attribute) and exc.attr == "SystemExit"
+                        and ast.unparse(exc.value) in builtins_names)):
                 lines.append(node.lineno)
+                raised.add(id(node.exc))
         elif isinstance(node, ast.Call):
             func = node.func
             if isinstance(func, ast.Name) and (func.id in ("exit", "quit") or func.id in name_aliases):
@@ -653,10 +663,14 @@ def test_an_exit_through_the_helper_or_a_bound_raise_outside_the_frontend_fails(
         "dokimi/c.py": "from dokimi import exit_codes as ec\nec.usage_exit('x')\n",
         "dokimi/d.py": "def f():\n    e = SystemExit(2)\n    raise e\n",
         "dokimi/e.py": "import builtins\nbuiltins.exit(1)\n",
+        "dokimi/f.py": "import builtins\nraise builtins.SystemExit(2)\n",
+        "dokimi/g.py": "from builtins import SystemExit as Stop\nraise Stop(2)\n",
     })
     problems = exit_problems(imports, {})
-    assert [p.split()[0] for p in problems] == ["dokimi.a", "dokimi.b", "dokimi.c", "dokimi.d", "dokimi.e"]
-    assert [p.split(" at lines ")[1].split(";")[0] for p in problems] == ["[2]", "[2]", "[2]", "[3]", "[2]"]
+    assert [p.split()[0] for p in problems] == ["dokimi.a", "dokimi.b", "dokimi.c", "dokimi.d", "dokimi.e",
+                                                "dokimi.f", "dokimi.g"]
+    assert [p.split(" at lines ")[1].split(";")[0] for p in problems] == ["[2]", "[2]", "[2]", "[3]", "[2]",
+                                                                         "[2]", "[2]"]
 
 
 def test_imported_callable_aliases_count_each_launch_once(tmp_path):

@@ -70,7 +70,7 @@ points up:
 | Layer | Modules |
 | --- | --- |
 | front end | `cli`, `commands`, `__main__` (the argparse front end; no layer below imports it) |
-| tracks | `runner`, `report`, `subjects`, `novelty`, `harnesses`, `context`, `repos`, `explore`, `tool_preference`, `external`, `dashboard`, `orchestrator`, `datasets_export`, `coverage`, `task_formats`, and the checkers `config_check`, `schema_check`, `schema_compat` |
+| tracks | `runner`, `runs`, `report`, `subjects`, `novelty`, `harnesses`, `context`, `repos`, `explore`, `tool_preference`, `external`, `dashboard`, `orchestrator`, `datasets_export`, `coverage`, `task_formats`, and the checkers `config_check`, `schema_check`, `schema_compat` |
 | evaluation | `eval`, `personas`, `questions`, `treatments`, `plugins` |
 | components | `ingest`, `metrics`, `gate`, `mcp`, `skills`, `agent_profiles` |
 | foundation | `__init__` (the `dokimi` package itself), `_version`, `artifacts`, `records`, `llm`, `process`, `container_policy`, `caching`, `config`, `registry`, `intents`, `defaults`, `console`, `utils`, `metrics/usage.py` |
@@ -284,8 +284,10 @@ next release.
   it can see. A file comes back `loaded`, `truncated` (one token — the file was
   cut), `fetched` (seen only after the agent read it), `not_loaded`, or `error`
   (no usable answer). Harness behaviour is data, not code:
-  `dokimi/repos/profiles/claude-code.yaml` is a `harness_profile.v1`
-  file and any other harness is another YAML.
+  `dokimi/repos/profiles/` holds `harness_profile.v1` files for Claude
+  Code, the Codex CLI (`codex`, and its native review mode `codex-review`) and
+  the Copilot CLI (`copilot`, and `copilot-review`, a `/review`-prefixed prompt variant of it); any
+  other harness is another YAML.
 - `dokimi/repos/budget.py` — `repo budget`: what the tree puts into an
   agent's context when it starts at the root, in characters, with no LLM call.
   Root CLAUDE.md files and their `@` imports, the root AGENTS.md files and their `@` imports, and
@@ -312,7 +314,9 @@ next release.
 - `dokimi/repos/bases.py` — checks that need every task base: each
   `base` must resolve, and the guidance globs are evaluated at each base.
 - `dokimi/repos/events.py` — converts a harness trace to the
-  `events.jsonl` run trace.
+  `events.jsonl` run trace; `dokimi/repos/cli_traces.py` holds the Codex and
+  Copilot JSON converters, and `dokimi/repos/answers.py` the `answer_format`
+  conversions that turn a native review answer into a findings block.
 - `dokimi/repos/l0/` — `repo scan` (L0): checks the links, paths,
   identifiers, commands and build labels the guidance names against the same
   tree (`repo_readiness.v1`), with no LLM call.
@@ -409,7 +413,12 @@ Guide: [run-consistency.md](run-consistency.md).
   read as UTF-8, a captured stream keeps at most 1 MiB in memory (its first and
   last half, `truncated` set; `stdout_to`/`stderr_to` write a whole stream to a
   file; git output is kept whole), and every call states its environment policy (`Env.inherit` or
-  an `Env.only` allow-list). `FakeRunner` is its test adapter: code that spawns
+  an `Env.only` allow-list). `Limits` the platform cannot apply raise `ValueError` before the
+  child starts (any limit on Windows, a memory limit on macOS), a `setrlimit` the kernel
+  rejects raises `subprocess.SubprocessError` before the command runs, and a hard limit the
+  process inherited that is lower than the request stays in force. `dokimi/process_io.py`
+  decides who owns each pipe, so an interrupted launch closes its streams exactly once
+  and Windows reader threads close theirs at EOF. `FakeRunner` is its test adapter: code that spawns
   takes a `runner` argument.
 - Bad input: a library loader raises `dokimi.utils.InputError`, naming the file, and
   never ends the process. `cli.main` prints `Error: <message>` and exits 2; exit 1 stays
@@ -420,6 +429,10 @@ Guide: [run-consistency.md](run-consistency.md).
   adapter seam: `LiteLLMAdapter` in production, `FakeAdapter` in tests (the
   `fake_llm` fixture). `ask_parsed` is the redraw-until-it-parses loop.
   `llm_call`, `chat_completion` and `utils.get_llm` delegate to `LLM`.
+  `dokimi/llm_cli.py` serves the CLI providers (`claude-cli`): `LiteLLMAdapter`
+  hands their requests to it, and it runs the logged-in CLI through `process.run`
+  ([subscription-backends.md](subscription-backends.md)). `dokimi/llm_json.py`
+  holds the JSON extraction helpers `llm.py` re-exports.
 - `dokimi/caching.py` — the two caches that hang off `llm.py`: provider prompt
   caching (the stable part of a prompt goes first, so the provider can reuse it)
   and an opt-in response cache for byte-identical single-shot requests

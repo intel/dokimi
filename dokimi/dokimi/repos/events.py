@@ -20,25 +20,21 @@ subagent made carries ``agent``: the id of the parent's tool call that started i
 
 Token counts cover the same scope as ``cost_usd``: summed over ``modelUsage``
 (parent, subagents and helper models) when the result has it, else the parent's
-``usage``; ``usage_scope`` says which (``tree`` or ``main``). ``first_prompt_tokens`` is
-the prompt of the first main-thread model call, everything start-up loaded plus the
-task, read as :mod:`dokimi.context.trace` reads it (one call per message id).
+``usage``; ``usage_scope`` says which (``tree`` or ``main``).
 """
 
 from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from pathlib import PurePosixPath, PureWindowsPath
+from datetime import datetime
 from typing import Any
 
 from dokimi.context.trace import parse_trace
 
-TRACE_FORMATS = ("claude-stream-json", "text")
-OUTPUT_LIMIT = 8192
-OUTPUT_KEEP = 4096
+from .transcript import Transcript, _parse_time, clip_output, relative_path
+
+TRACE_FORMATS = ("claude-stream-json", "codex-json", "copilot-json", "text")
 
 _COMMAND_TOOLS = {"Bash", "PowerShell"}
 _READ_TOOLS = {"Read"}
@@ -47,51 +43,19 @@ _AGENT_TOOLS = {"Agent", "Task"}
 _HOOK_DENIAL = re.compile(r"\s*PreToolUse:\w+ hook error")
 
 
-@dataclass
-class Transcript:
-    """What one harness run produced, in harness-independent form."""
+def convert(fmt: str, raw: str, workdir: str | None = None, cwd: str = "") -> Transcript:
+    """Convert a raw harness stdout in format ``fmt`` to a :class:`Transcript`.
 
-    answer: str = ""
-    events: list[dict[str, Any]] = field(default_factory=list)
-    cost_usd: float | None = None
-    num_turns: int | None = None
-    result_seen: bool = False  # the harness wrote its final result record, so the agent started
-    input_tokens: int | None = None
-    output_tokens: int | None = None
-    cache_read_tokens: int | None = None
-    cache_write_tokens: int | None = None
-    usage_scope: str | None = None  # "tree": tokens include subagents and helper models; "main": parent only
-    first_prompt_tokens: int | None = None  # the first main-thread call's prompt; None for a format without usage
-    subagent_calls: int | None = None  # counted once the harness's result record is seen
-    is_error: bool = False
-    harness_version: str | None = None
-    result_subtype: str | None = None
-    plugins: list[str] = field(default_factory=list)  # loaders the harness reported at start-up
-    errors: list[str] = field(default_factory=list)
-    init_model: str | None = None  # the model the harness says it starts with (``system``/``init``)
-    answered_by: set[str] = field(default_factory=set)  # ``message.model`` of the main thread's replies
-
-    def model_resolved(self) -> str | list[str] | None:
-        """The model that answered: one name, a sorted list when several did, ``None`` when the trace cannot tell.
-
-        The replies' own ``message.model`` wins; the harness's ``init`` model stands in for a run with no reply.
-        """
-        found = sorted(self.answered_by) or ([self.init_model] if self.init_model else [])
-        return (found[0] if len(found) == 1 else found) if found else None
-
-    def reads(self) -> set[str]:
-        return {e["path"] for e in self.events if e["kind"] == "read" and e.get("path")}
-
-    def events_jsonl(self) -> str:
-        return "".join(json.dumps(e, sort_keys=True) + "\n" for e in self.events)
-
-
-def convert(fmt: str, raw: str, workdir: str | None = None) -> Transcript:
-    """Convert a raw harness stdout in format ``fmt`` to a :class:`Transcript`."""
+    ``cwd`` is the directory the harness started in, relative to ``workdir``: a shell command's relative
+    paths (Codex, Copilot) are read from there."""
     if fmt == "text":
         return Transcript(answer=raw.strip())
     if fmt == "claude-stream-json":
         return _claude_stream_json(raw, workdir)
+    if fmt in ("codex-json", "copilot-json"):
+        from .cli_traces import codex_json, copilot_json
+
+        return (codex_json if fmt == "codex-json" else copilot_json)(raw, workdir, cwd)
     raise ValueError(f"unknown trace format {fmt!r} (known: {', '.join(TRACE_FORMATS)})")
 
 
@@ -99,7 +63,7 @@ def _claude_stream_json(raw: str, workdir: str | None) -> Transcript:
     out = Transcript()
     start: datetime | None = None
     by_id: dict[str, dict[str, Any]] = {}  # tool_use id -> its event
-    for n, line in enumerate(raw.splitlines(), 1):
+    for n, line in enumerate(raw.split("\n"), 1):  # not splitlines: a JSON string may hold U+2028 or U+0085
         if not line.strip():
             continue
         try:
@@ -208,24 +172,12 @@ def _tool_event(block: dict[str, Any], t: float | None, workdir: str | None) -> 
         event.update(kind="command", text=str(args.get("command", "")), rc=None)
     elif name in _READ_TOOLS | _EDIT_TOOLS:
         path = args.get("file_path") or args.get("notebook_path") or ""
-        event.update(kind="read" if name in _READ_TOOLS else "edit", path=_relative(str(path), workdir))
+        event.update(kind="read" if name in _READ_TOOLS else "edit", path=relative_path(str(path), workdir))
     else:
         event.update(kind="tool", name=name)
         if name == "Skill":  # Claude Code names the skill in `skill`; older versions in `command`
             event["skill"] = str(args.get("skill") or args.get("command") or "")
     return event
-
-
-def clip_output(text: str) -> tuple[str, bool]:
-    """``text`` kept whole up to :data:`OUTPUT_LIMIT` UTF-8 bytes, else its head and tail."""
-    data = text.encode("utf-8")
-    if len(data) <= OUTPUT_LIMIT:
-        return text, False
-    head = data[:OUTPUT_KEEP].decode("utf-8", "ignore")
-    tail = data[-OUTPUT_KEEP:].decode("utf-8", "ignore")
-    # A character cut at either end is dropped whole, so count what was really left out.
-    omitted = len(data) - len(head.encode("utf-8")) - len(tail.encode("utf-8"))
-    return f"{head}\n[... {omitted} bytes omitted ...]\n{tail}", True
 
 
 def _result_text(content: Any) -> str | None:
@@ -237,27 +189,6 @@ def _result_text(content: Any) -> str | None:
     return None
 
 
-def _relative(path: str, workdir: str | None) -> str:
-    """``path`` relative to ``workdir`` in POSIX form; POSIX and Windows paths both work."""
-    if not workdir:
-        return path
-    for flavour in (PurePosixPath, PureWindowsPath):
-        target, base = flavour(path), flavour(workdir)
-        if target.is_absolute() and target.is_relative_to(base):
-            return target.relative_to(base).as_posix()
-    return path
-
-
 def _content(rec: dict[str, Any]) -> list[dict[str, Any]]:
     content = (rec.get("message") or {}).get("content")
     return [b for b in content if isinstance(b, dict)] if isinstance(content, list) else []
-
-
-def _parse_time(value: Any) -> datetime | None:
-    if not isinstance(value, str):
-        return None
-    try:
-        stamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return stamp if stamp.tzinfo else stamp.replace(tzinfo=timezone.utc)

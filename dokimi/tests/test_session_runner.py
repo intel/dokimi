@@ -513,3 +513,39 @@ def test_a_session_artifact_is_refused_by_every_judge_command(cmd, fake_llm, tmp
         cli.main()
     assert exc.value.code == 2 and "measurement-only" in capsys.readouterr().err
     assert len(fake_llm.requests) == 4  # the answers only: no judge call
+
+
+# A session question that cannot run is a refused input (exit 2), so it is refused in setup,
+# before any sampling probe, client or answer: the same for `arms run` and `arms matrix-run`.
+@pytest.mark.parametrize("bad", [
+    {"id": "q9", "question": "Q?"},
+    {"id": "q9", "question": "Q?", "follow_ups": "Why?"},
+    {"id": "q9", "question": "Q?", "follow_ups": ["ok", "   "]},
+])
+def test_prepare_arms_refuses_a_session_question_that_cannot_run(fake_llm, monkeypatch, bad):
+    import dokimi.eval.arms_run as arms_run
+
+    monkeypatch.setattr(arms_run, "check_sampling_support", lambda config: None)
+    config = arms_run.ArmsRunConfig(product="oneTBB", session_turns=2)
+
+    with pytest.raises(ValueError, match="q9"):
+        arms_run.prepare_arms(config, ["baseline"], [SESSION_Q, bad])
+    assert fake_llm.requests == []
+
+
+def test_arms_run_exits_2_on_a_session_question_without_follow_ups(fake_llm, monkeypatch, tmp_path):
+    import json
+
+    import dokimi.eval.arms_run as arms_run
+    from dokimi.cli import build_parser
+
+    monkeypatch.setattr(arms_run, "check_sampling_support", lambda config: None)
+    questions = tmp_path / "questions.json"
+    questions.write_text(json.dumps({"questions": [{"id": "q1", "question": "How?"}]}), encoding="utf-8")
+    args = build_parser().parse_args(["arms", "run", "--product", "oneTBB", "--questions", str(questions),
+                                      "--arms", "baseline", "--session-turns", "2"])
+
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2
+    assert fake_llm.requests == []

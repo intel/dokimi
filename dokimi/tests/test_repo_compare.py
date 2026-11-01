@@ -560,7 +560,7 @@ def test_a_metric_no_cell_reports_is_refused(tmp_path, capsys):
     args = build_parser().parse_args(["repo", "compare", str(b), "--baseline", "guidance:none", "--metric", "typo"])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1 and "--metric typo" in capsys.readouterr().err
+    assert exc.value.code == 2 and "--metric typo" in capsys.readouterr().err
 
 
 def test_a_task_lacking_a_metric_is_listed_as_unpaired_for_that_metric(tmp_path):
@@ -698,7 +698,7 @@ def test_cli_passes_model_and_metric_and_refuses_a_missing_dir(tmp_path, capsys)
     args = build_parser().parse_args(["repo", "compare", str(tmp_path / "nope"), "--baseline", "guidance:none"])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1 and "not a directory" in capsys.readouterr().err
+    assert exc.value.code == 2 and "not a directory" in capsys.readouterr().err
 
 
 def test_cli_exits_on_a_bad_baseline(tmp_path, capsys):
@@ -707,7 +707,7 @@ def test_cli_exits_on_a_bad_baseline(tmp_path, capsys):
     args = build_parser().parse_args(["repo", "compare", str(b), "--baseline", "guidance:raw"])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1 and "no finished cell matches the baseline" in capsys.readouterr().err
+    assert exc.value.code == 2 and "no finished cell matches the baseline" in capsys.readouterr().err
 
 
 def test_a_repeated_treatment_or_metric_is_one_comparison(tmp_path):
@@ -732,7 +732,7 @@ def test_an_empty_arm_list_is_refused_not_an_empty_comparison(tmp_path, capsys, 
     args = build_parser().parse_args(["repo", "compare", str(b), "--baseline", "guidance:none", "--arm", spec])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
-    assert exc.value.code == 1 and "no treatment arms" in capsys.readouterr().err
+    assert exc.value.code == 2 and "no treatment arms" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("bad", [float("inf"), float("-inf"), float("nan")])
@@ -755,7 +755,7 @@ def test_an_unusable_cost_rejects_the_cell_naming_it(tmp_path, capsys, bad):
     with pytest.raises(SystemExit) as exc:
         args.func(args)
     err = capsys.readouterr().err
-    assert exc.value.code == 1 and "has no usable `agent`" in err and "Traceback" not in err
+    assert exc.value.code == 2 and "has no usable `agent`" in err and "Traceback" not in err
     assert "fix_0__guidance-none__m-1__r1" in err and "guidance-raw" not in err
 
 
@@ -884,7 +884,7 @@ def test_model_warnings_follow_the_selected_model(tmp_path):
 
 
 @pytest.mark.outcome("cjm-model-answered")
-def test_model_matches_equivalence_does_not_warn(tmp_path):
+def test_same_model_equivalence_does_not_warn(tmp_path):
     """Equivalent model IDs (Bedrock provider-prefix variants) do not trigger a warning."""
     b = tmp_path / "b1"
     # Request: Bedrock-prefixed, baseline resolve: shorter form, treatment resolve: base form without version
@@ -893,7 +893,7 @@ def test_model_matches_equivalence_does_not_warn(tmp_path):
     _cell(b, "fix_a", "guidance:raw", 1, model="us.anthropic.claude-haiku-4-5-20251001-v1:0",
           model_resolved="claude-haiku-4-5-20251001")
     s = compare([b], "guidance:none")
-    # No warning about different resolved models—they are equivalent under model_matches()
+    # No warning about different resolved models—they are equivalent under same_model()
     assert [w for w in s["warnings"]
             if "was answered by" in w and "baseline" in w and "treatment" in w] == []
     # But cells mismatch still warns (the actual mismatch, not the compare mismatch)
@@ -922,7 +922,7 @@ def test_compare_models_equivalent_pins_symmetric_coverage(tmp_path):
     m = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
     # Baseline: full Bedrock-prefixed model
     _cell(b, "fix_a", "guidance:none", 1, model=m, model_resolved="us.anthropic.claude-haiku-4-5-20251001-v1:0")
-    # Treatment: shorter form (treated as equivalent by model_matches)
+    # Treatment: shorter form (treated as equivalent by same_model)
     _cell(b, "fix_a", "guidance:raw", 1, model=m, model_resolved="claude-haiku-4-5-20251001")
     # No warning because both forms are equivalent
     assert [w for w in compare([b], "guidance:none")["warnings"] if "was answered by" in w] == []

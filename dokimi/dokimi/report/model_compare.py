@@ -93,7 +93,7 @@ def normalize_difficulty(difficulty: Any) -> str:
 
 
 def _section(run_data: dict, section: str) -> list[Record]:
-    """The ``answers`` or ``evaluations`` records of *run_data*, or a clean exit."""
+    """The ``answers`` or ``evaluations`` records of *run_data*; a RecordError (an InputError) if malformed."""
     return records(run_data.get(section) or [], source=section, kind=section)
 
 

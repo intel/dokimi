@@ -1494,7 +1494,7 @@ def test_parse_yes_no_needs_one_verdict(reply, expected):
 
 def test_a_reply_naming_two_verdicts_is_redrawn_not_read_as_the_first():
     replies = iter(["Neither A nor B is wrong, so TIE", "TIE"])
-    verdict, raw = pw.ask_parsed(lambda p, **_: next(replies), "p", pw.parse_choice)
+    verdict, raw = pw.judged_reply(lambda p, **_: next(replies), "p", pw.parse_choice, pinned=False)
     assert (verdict, raw) == ("TIE", "TIE")
     judge = pw.PairwiseJudge(ask=lambda p, **_: "A or B?")
     with pytest.raises(pw.UnparseableVerdict):

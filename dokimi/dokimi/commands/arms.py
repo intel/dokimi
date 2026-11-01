@@ -7,11 +7,14 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
+import os
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from dokimi.utils import question_id
+from dokimi.exit_codes import EXIT_FAILURE, EXIT_USAGE
+from dokimi.llm import ANSWER_PROVIDERS
+from dokimi.utils import InputError, question_id
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
@@ -53,21 +56,32 @@ def judge_panel_roles(value: str) -> str:
 
 def cmd_arms_run(args: argparse.Namespace) -> None:
     """Run an N-arm treatment comparison and optionally judge it."""
-    from dokimi.eval.arms_run import LibraryIdError, run_arms
+    from dokimi.eval.arms_run import LibraryIdError, ProbeError, prepare_arms, run_prepared
 
+    # Setup (inputs, arms, plugins, sampling, judge) exits 2; a failed sampling probe is a run failure (1).
     try:
         specs = _parse_arm_specs(args.arms)
         questions = _load_questions(args.questions)
         config = _with_named_cell(run_config_from_args(args), args.matrix_cells, args.matrix_cell)
-        output = run_arms(config, specs, questions)
+        prepared = prepare_arms(config, specs, questions)
     except EmptyQuestionError:
         raise  # a bad input record, not an arm setup error: cli.main reports it (exit 2)
+    except ProbeError as exc:
+        print(f"Error running arms: {exc}", file=sys.stderr)
+        sys.exit(EXIT_FAILURE)
     except LibraryIdError as exc:
         print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
     except (ValueError, OSError, RecursionError) as exc:
         print(f"Error building arms/plugins: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
+    try:
+        output = run_prepared(prepared, config, questions)
+    except EmptyQuestionError:
+        raise  # a bad input record, not a run error: cli.main reports it (exit 2)
+    except (ValueError, OSError, RecursionError) as exc:
+        print(f"Error running arms: {exc}", file=sys.stderr)
+        sys.exit(EXIT_FAILURE)
 
     out_json = Path(args.out_json) if args.out_json else Path(f"results/arms/{args.product}.json")
     out_md = Path(args.out_md) if args.out_md else Path(f"results/arms/{args.product}.md")
@@ -96,6 +110,53 @@ def cmd_arms_matrix_run(args: argparse.Namespace) -> None:
     )
 
 
+def _load_matrix_inputs(config: ArmsRunConfig, arms: str, questions: str, matrix_cells: str):
+    """The arms, questions and cells of a matrix run, checked before any cell is set up. A refused
+    input exits 2 (a CLI cell refusal is an ``InputError``, reported by cli.main); a failed
+    sampling probe, a real call, exits 1."""
+    from dokimi.eval import arms_run
+    from dokimi.eval.cells import load_matrix_cells
+
+    try:
+        specs = _parse_arm_specs(arms)
+        loaded_questions = _load_questions(questions)
+        cells = load_matrix_cells(matrix_cells)
+        _validate_unique_cell_filenames(cells)
+        arms_run.check_matrix(config, cells, specs)
+    except (EmptyQuestionError, InputError):
+        raise  # a bad input record or a refused cell: cli.main reports it (exit 2)
+    except arms_run.ProbeError as exc:
+        print(f"Error loading matrix run inputs: {exc}", file=sys.stderr)
+        sys.exit(EXIT_FAILURE)
+    except (ValueError, OSError, RecursionError) as exc:
+        print(f"Error loading matrix run inputs: {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+    return specs, loaded_questions, cells
+
+
+def _check_cells_dir(cells_dir: Path) -> None:
+    """Exit 2 when *cells_dir* cannot be made: the nearest existing ancestor must be a directory
+    the process can write to. Creates nothing."""
+    # A dangling symlink exists as a link but not as a target: it is the nearest entry, and it is refused.
+    existing = next((p for p in (cells_dir, *cells_dir.parents) if p.exists() or p.is_symlink()), None)
+    if existing is None:  # no ancestor exists at all (an unmounted drive): nothing can be made
+        print(f"Error: cannot write {cells_dir}: no existing directory above it", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+    if not existing.is_dir() or not os.access(existing, os.W_OK | os.X_OK):
+        print(f"Error: cannot write {cells_dir}: {existing} is not a writable directory", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+
+
+def _make_cells_dir(cells_dir: Path) -> None:
+    """Make *cells_dir*, or exit 2. The walk above predicts mkdir lexically, so a '..' after a
+    missing component passes it; making the dir before the first answer is exact."""
+    try:
+        cells_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        print(f"Error: cannot write {cells_dir}: {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+
+
 def run_matrix(config: ArmsRunConfig, *, arms: str, questions: str, matrix_cells: str,
                out_dir: Path, out_json: Path | None = None, out_md: Path | None = None,
                plugin_deltas: bool = True) -> None:
@@ -106,27 +167,16 @@ def run_matrix(config: ArmsRunConfig, *, arms: str, questions: str, matrix_cells
     ``.md`` suffix.
     """
     from dokimi.eval import arms_run
-    from dokimi.eval.cells import load_matrix_cells
     from dokimi.eval.matrix_rollup import build_matrix_rollup, strip_internal_payloads
     from dokimi.report.matrix_rollup_report import render_matrix_rollup_report
     from dokimi.report.plugin_delta_report import render_plugin_delta_report
 
-    try:
-        specs = _parse_arm_specs(arms)
-        loaded_questions = _load_questions(questions)
-        cells = load_matrix_cells(matrix_cells)
-        _validate_unique_cell_filenames(cells)
-        arms_run.check_matrix(config, cells)
-    except (ValueError, OSError, RecursionError) as exc:
-        print(f"Error loading matrix run inputs: {exc}", file=sys.stderr)
-        sys.exit(1)
+    specs, loaded_questions, cells = _load_matrix_inputs(config, arms, questions, matrix_cells)
 
+    # The cells dir is made once every cell is set up, so a cell refused in setup writes nothing.
+    # An uncreatable one is refused here and again by the mkdir, before any answer is paid for.
     cells_dir = out_dir / "cells"
-    try:
-        cells_dir.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        print(f"Error: cannot write {cells_dir}: {exc}", file=sys.stderr)
-        sys.exit(1)
+    _check_cells_dir(cells_dir)
     cell_artifacts = []
 
     def save_cell(cell, output: dict) -> None:
@@ -136,15 +186,17 @@ def run_matrix(config: ArmsRunConfig, *, arms: str, questions: str, matrix_cells
         cell_artifacts.append((cell.name, cell_json, output))
 
     try:
-        arms_run.run_matrix(config, cells, specs, loaded_questions, on_cell=save_cell)
+        arms_run.run_matrix(config, cells, specs, loaded_questions, on_cell=save_cell,
+                            before_run=lambda: _make_cells_dir(cells_dir))
     except EmptyQuestionError:
         raise  # a bad input record, not a cell error: cli.main reports it (exit 2)
     except arms_run.LibraryIdError as exc:
         print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
     except arms_run.MatrixCellError as exc:
-        print(f"Error running matrix cell {exc.cell!r}: {exc}", file=sys.stderr)
-        sys.exit(1)
+        verb = "building" if exc.usage else "running"
+        print(f"Error {verb} matrix cell {exc.cell!r}: {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE if exc.usage else EXIT_FAILURE)
 
     rollup = build_matrix_rollup(
         library_name=config.product,
@@ -186,7 +238,7 @@ def cmd_arms_plugin_delta(args: argparse.Namespace) -> None:
         output = compare_plugin_runs(baseline, plugin)
     except (PluginDeltaError, ValueError, OSError, RecursionError) as exc:
         print(f"Error computing plugin delta: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
 
     out_json = Path(args.out_json) if args.out_json else Path("results/arms/plugin_delta.json")
     _save_artifact_or_exit("plugin_delta", output, out_json)
@@ -228,7 +280,7 @@ def register(sub, positive_int) -> None:
     )
     arms_run_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL, help="LLM for answering")
     arms_run_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER,
-                            choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
+                            choices=ANSWER_PROVIDERS)
     arms_run_p.add_argument("--harness", default="arms-runner",
                             help="Execution harness label stamped into output (default: arms-runner)")
     arms_run_p.add_argument("--plugins", default="",
@@ -343,7 +395,7 @@ def _add_common_run_args(parser, positive_int, *, matrix_required: bool = False)
     )
     parser.add_argument("--model", default=DEFAULT_ANSWER_MODEL, help="LLM for answering")
     parser.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER,
-                        choices=["openai", "anthropic", "amazon-bedrock", "google-vertex", "openrouter", "openai-codex"])
+                        choices=ANSWER_PROVIDERS)
     parser.add_argument("--harness", default="arms-runner",
                         help="Execution harness label stamped into output (default: arms-runner)")
     parser.add_argument("--plugins", default="",
@@ -477,7 +529,10 @@ def _with_named_cell(config: ArmsRunConfig, matrix_cells: str | None,
         return config
     if not matrix_cells or not matrix_cell:
         raise ValueError("--matrix-cells and --matrix-cell must be passed together")
+    from dokimi.eval.arms_refusals import refuse_cli_cell_model
+
     cell = select_matrix_cell(load_matrix_cells(matrix_cells), matrix_cell)
+    refuse_cli_cell_model(cell)  # the parse-time model gate read only --model, not the cell's
     validate_supported_matrix_harnesses([cell])
     return cell_config(config, cell)
 
@@ -489,7 +544,7 @@ def _write_report(path: Path, text: str) -> None:
         path.write_text(text, encoding="utf-8")
     except OSError as exc:
         print(f"Error: cannot write {path}: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
 
 
 def _save_artifact_or_exit(kind: str, payload: dict, path: Path) -> None:
@@ -500,7 +555,7 @@ def _save_artifact_or_exit(kind: str, payload: dict, path: Path) -> None:
         save_artifact(kind, payload, path)
     except OSError as exc:
         print(f"Error: cannot write {path}: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
 
 
 def _save_arms_output(output: dict, out_json: Path, out_md: Path) -> None:
@@ -511,7 +566,7 @@ def _save_arms_output(output: dict, out_json: Path, out_md: Path) -> None:
         ArmRunner.save(output, out_json)
     except OSError as exc:
         print(f"Error: cannot write {out_json}: {exc}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
     print(f"OK Saved arms comparison: {out_json}")
     _write_report(out_md, render_arms_report(output))
     print(f"OK Saved arms report:     {out_md}")
