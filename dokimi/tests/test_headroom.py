@@ -247,8 +247,8 @@ def test_the_table_lists_the_control_arm_once():
     ({"floor": -0.1}, r"floor must be in \[0, ceiling\), not -0\.1"),
     ({"min_reps": 0}, r"min_reps must be at least 1, not 0"),
     ({"min_reps": -1}, r"min_reps must be at least 1, not -1"),
-    ({"ceiling": 0.005}, r"ceiling must be at least 0\.01, not 0\.005"),
-    ({"floor": 0.005}, r"floor must be 0 or at least 0\.01, not 0\.005"),
+    ({"ceiling": 1e-7}, r"ceiling must be at least 1e-06, not 1e-07"),
+    ({"floor": 1e-7}, r"floor must be 0 or at least 1e-06, not 1e-07"),
 ])
 def test_unusable_thresholds_are_refused(kwargs, message):
     run = _run([("1", {"baseline": 50, "skill": 50})])
@@ -316,7 +316,7 @@ def test_runs_that_declare_different_baselines_need_an_explicit_arm():
 def test_table_notes_the_arms_no_run_scored():
     run = _run([("1", {"baseline": 40, "skill": 60, "other": None}), ("2", {"baseline": 40, "skill": 60})])
     table = format_table(headroom([run], min_reps=1))
-    assert "no run scored" in table and "other in 1 item" in table
+    assert "no run scored" in table and "other in 2 items" in table
 
 
 def test_table_names_each_flagged_item():
@@ -367,12 +367,33 @@ def _arms_file(path, scores, baseline="baseline"):
     return path
 
 
-def test_command_exits_2_on_a_positive_threshold_below_one_score_step(tmp_path, capsys):
-    path = _arms_file(tmp_path / "arms.json", {"1": {"baseline": 99, "skill": 99}})
-    with pytest.raises(SystemExit) as exc:
-        cmd_eval_headroom(_args([path], floor=0.005))
-    assert exc.value.code == 2
-    assert "floor must be 0 or at least 0.01, not 0.005" in capsys.readouterr().err
+def test_command_accepts_a_threshold_below_one_score_step(tmp_path):
+    # Aggregates 0.4 and 0.6 are 0.004 and 0.006 on 0-1: a floor of 0.005 tells them apart.
+    path = _arms_file(tmp_path / "arms.json", {"1": {"baseline": 0.4, "skill": 0.4}, "2": {"baseline": 0.6, "skill": 0.4}})
+    out = tmp_path / "headroom.json"
+    cmd_eval_headroom(_args([path], floor=0.005, min_reps=1, output=out))
+    flags = {i["question_id"]: i["flag"] for i in json.loads(out.read_text(encoding="utf-8"))["items"]}
+    assert flags == {"1": FLOOR, "2": None}
+
+
+def test_a_threshold_below_one_score_step_splits_scores_the_table_shows_exactly():
+    # 0.9049 is below a ceiling of 0.905 and must show as such; a value shown as 0.90 would read as above it.
+    run = _run([("1", {"baseline": 90.5, "skill": 90.5}), ("2", {"baseline": 90.49, "skill": 90.49}),
+                ("3", {"baseline": 0.004, "skill": 0.004})])
+    result = headroom([run], ceiling=0.905, min_reps=9)
+    assert _flags(result) == {"1": CEILING, "2": None, "3": None}
+    table = format_table(result)
+    assert "0.905 " in table and "0.9049" in table and "0.00004" in table
+
+
+def test_an_arm_the_run_declares_but_an_item_lacks_is_unscored_for_that_item():
+    payload = {"baseline_arm": "baseline", "arms": ["baseline", "skill", "other"],
+               "answers": [{"question_id": "1", "question_text": "q",
+                            "arms": {"baseline": {"answer": "x"}, "skill": {"answer": "x"}}}],
+               "evaluations": [{"question_id": "1",
+                                "scores": {"baseline": {"aggregate": 0}, "skill": {"aggregate": 0}}}]}
+    item = headroom([records.read(payload, source="test")], min_reps=1)["items"][0]
+    assert item["unscored_arms"] == ["other"] and item["flag"] == FLOOR
 
 
 def test_command_refuses_an_unknown_no_skill_arm_and_lists_the_arms(tmp_path, capsys):
@@ -751,3 +772,82 @@ def test_command_pools_partial_runs_that_share_ids_for_the_same_question(tmp_pat
     assert "Error" not in capsys.readouterr().err
     items = {i["question_id"]: i["reps"] for i in json.loads(out.read_text(encoding="utf-8"))["items"]}
     assert items == {"1": 2, "2": 1}  # id 1 pooled over both runs, id 2 kept from the partial one
+
+
+def test_a_copy_with_an_integral_score_written_as_a_float_counts_once(tmp_path, capsys):
+    arms = _arms_file(tmp_path / "run1.json", {"1": {"baseline": 95, "skill": 40}})
+    copy = tmp_path / "copy.json"
+    copy.write_text(arms.read_text(encoding="utf-8").replace('"aggregate": 95', '"aggregate": 95.0'), encoding="utf-8")
+    assert copy.read_text(encoding="utf-8") != arms.read_text(encoding="utf-8")
+    out = tmp_path / "headroom.json"
+    cmd_eval_headroom(_args([arms, copy], output=out))
+    assert json.loads(out.read_text(encoding="utf-8"))["runs"] == 1
+    assert "counted once" in capsys.readouterr().err
+
+
+def test_canonical_digests_keep_booleans_and_strings_apart_from_numbers():
+    from dokimi.commands.headroom import _canonical
+
+    assert json.dumps(_canonical({"a": 1.0, "b": True, "c": "1.0", "d": [2.0, 2.5]}), sort_keys=True) == \
+        '{"a": 1, "b": true, "c": "1.0", "d": [2, 2.5]}'
+
+
+def _stamped_file(path, *, digest=None, reference=False, grounded=None, ground_truth=None):
+    """An arms file with a ``skill`` arm; ``digest`` stamps its profile prompt, ``ground_truth`` its question."""
+    skill = {"answer": "x", **({"metadata": {"profile_prompt_sha256": digest}} if digest else {})}
+    question = {"question_id": "1", "question_text": "q", "arms": {"baseline": {"answer": "x"}, "skill": skill}}
+    if ground_truth:
+        question["ground_truth_chunk"] = ground_truth
+    payload = {"baseline_arm": "baseline", "answers": [question],
+               "evaluations": [{"question_id": "1", "scores": {"baseline": {"aggregate": 50},
+                                                               "skill": {"aggregate": 50}}}]}
+    if reference:
+        payload["reference_scoring"] = {"scorer": "reference"}
+    if grounded is not None:
+        payload["grounded_questions"] = grounded
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+def test_command_refuses_a_reference_scored_file_pooled_with_a_judged_one(tmp_path, capsys):
+    judged = _stamped_file(tmp_path / "judged.json")
+    rescored = _stamped_file(tmp_path / "rescored.json", reference=True)
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_headroom(_args([judged, rescored]))
+    assert exc.value.code == 2
+    assert f"{rescored} was scored by the reference and {judged} by the judge" in capsys.readouterr().err
+
+
+def test_command_refuses_a_profile_prompt_that_changed_under_the_same_arm_name(tmp_path, capsys):
+    before = _stamped_file(tmp_path / "before.json", digest="a" * 64)
+    after = _stamped_file(tmp_path / "after.json", digest="b" * 64)
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_headroom(_args([before, after]))
+    assert exc.value.code == 2
+    assert "arm 'skill' ran with a different profile prompt" in capsys.readouterr().err
+
+
+def test_command_pools_runs_whose_profile_prompt_digests_agree(tmp_path):
+    one = _stamped_file(tmp_path / "one.json", digest="a" * 64)
+    two = tmp_path / "two.json"  # another run: its own score, so the content is not the same run again
+    two.write_text(one.read_text(encoding="utf-8").replace('"aggregate": 50', '"aggregate": 40'), encoding="utf-8")
+    out = tmp_path / "headroom.json"
+    cmd_eval_headroom(_args([one, two], output=out))
+    assert json.loads(out.read_text(encoding="utf-8"))["runs"] == 2
+
+
+def test_command_refuses_a_grounded_question_judged_ungrounded_in_another_run(tmp_path, capsys):
+    grounded = _stamped_file(tmp_path / "grounded.json", grounded=1, ground_truth="the chunk")
+    ungrounded = _stamped_file(tmp_path / "ungrounded.json", grounded=0)
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_headroom(_args([grounded, ungrounded]))
+    assert exc.value.code == 2
+    assert f"is ungrounded in {ungrounded} but grounded in {grounded}" in capsys.readouterr().err
+
+
+def test_a_legacy_run_without_a_grounding_count_is_not_compared_for_grounding(tmp_path):
+    grounded = _stamped_file(tmp_path / "grounded.json", grounded=1, ground_truth="the chunk")
+    legacy = _stamped_file(tmp_path / "legacy.json")
+    out = tmp_path / "headroom.json"
+    cmd_eval_headroom(_args([grounded, legacy], output=out))
+    assert json.loads(out.read_text(encoding="utf-8"))["runs"] == 2

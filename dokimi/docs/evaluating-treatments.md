@@ -748,20 +748,24 @@ python cli.py eval headroom run1/arms.json run2/arms.json run3/arms.json \
 
 A run is one file. A file repeated on the command line, or holding the same JSON content as
 an earlier one (whitespace and key order do not count), is skipped with a note, so it does
-not add a rep. A question id repeated within one
+not add a rep. Numbers are compared as numbers: `95.0` and `95` are the same content. A question id repeated within one
 file is an error (exit 2): it would count as two runs.
 
 The table always goes to stdout: the flagged and provisional items, with the no-skill arm
 in its own column, a note naming any arm no run scored, and the counts. The JSON goes to
 `--out` only, as a `headroom.v1` artifact with every item; if that file cannot be written the
 command prints `Error: cannot write ...` on stderr and exits 2, after the table. Scores are compared unrounded
-and shown rounded down, so 0.89996 prints as 0.89. Without `--baseline-arm`, the runs must
+and shown rounded down to six decimals, so 0.89996 prints as 0.89996 and a value just under a threshold never
+prints as the threshold. Without `--baseline-arm`, the runs must
 declare the same baseline; the default is that baseline. The runs must also be repetitions of one
 configuration: a file whose model, judge, run config (the seed aside), harness, arms or library
-differs from the first file's exits 2. With `--baseline-arm`, the arm must
+differs from the first file's exits 2. So does a file scored by `eval reference` next to a judged one, an arm whose
+recorded profile prompt digest differs between files (an edited profile keeps its name), and a question
+id judged grounded in one file and ungrounded in another (a file with no `grounded_questions` count is not
+compared). With `--baseline-arm`, the arm must
 be one the runs list (exit 2 otherwise, naming the arms that exist), and the declared
-baselines are not checked. A threshold out of range exits 2: `--ceiling` in [0.01, 1],
-`--floor` 0 or in [0.01, ceiling), `--min-reps` at least 1. It also exits 2 when no run scored the
+baselines are not checked. A threshold out of range exits 2: `--ceiling` in (0, 1],
+`--floor` 0 or in (0, ceiling), `--min-reps` at least 1. A positive threshold may be finer than one score step. It also exits 2 when no run scored the
 no-skill arm, or when `--out` is one of the input files (or its `.rejected` sibling), or names a directory or a path ending in a separator. Scores are read as the 0-100
 aggregate divided by 100 and are not range-checked. Only arms runs are read. The flags are descriptive: they do not
 change any score or any gate.

@@ -38,8 +38,9 @@ DEFAULT_FLOOR = 0.0
 DEFAULT_MIN_REPS = 3
 
 _EPS = 1e-9  # float error bound for a threshold comparison on a mean of 0-1 scores
-# One score step (scores are read to 0.01): a positive threshold below it cannot tell two scores apart.
-_MIN_THRESHOLD = 0.01
+# The smallest positive threshold: far below a score step (tenths of a point on 0-100 is 0.001) and
+# far above the float tolerance _EPS, so a threshold this small still compares what it is given.
+_MIN_THRESHOLD = 1e-6
 
 CEILING = "ceiling"
 FLOOR = "floor"
@@ -74,9 +75,9 @@ def check_thresholds(ceiling: float, floor: float, min_reps: int) -> None:
     if not 0.0 <= floor < ceiling:
         raise ValueError(f"floor must be in [0, ceiling), not {floor!r} (ceiling {ceiling!r})")
     if ceiling < _MIN_THRESHOLD:
-        raise ValueError(f"ceiling must be at least {_MIN_THRESHOLD}, not {ceiling!r}")
+        raise ValueError(f"ceiling must be at least {_MIN_THRESHOLD:g}, not {ceiling!r}")
     if 0.0 < floor < _MIN_THRESHOLD:
-        raise ValueError(f"floor must be 0 or at least {_MIN_THRESHOLD}, not {floor!r}")
+        raise ValueError(f"floor must be 0 or at least {_MIN_THRESHOLD:g}, not {floor!r}")
     if min_reps < 1:
         raise ValueError(f"min_reps must be at least 1, not {min_reps!r}")
 
@@ -216,9 +217,10 @@ def _collect(runs: Sequence[Run]) -> Tuple[Dict[str, Dict[str, List[float]]], Di
             raise ValueError(
                 f"run {index} lists question_id {dupes[0]!r} more than once; "
                 "a run holds each question once (a repeat would count as a second run)")
+        declared = set(run.conditions)  # an arm the run declares but this item lacks is unscored, not missing
         for rec in run:
             names = _listed_arms(rec) | set(rec.scores)
-            arms_of.setdefault(rec.key, set()).update(names)
+            arms_of.setdefault(rec.key, set()).update(names | declared)
             per_arm = scores.setdefault(rec.key, {})
             for arm in names:
                 value = rec.score(arm)
@@ -275,8 +277,12 @@ def format_table(result: Dict[str, Any]) -> str:
 
 
 def _fmt(value: Optional[float]) -> str:
-    # Rounded down, with the flag's tolerance: 0.89996 shows 0.89, an exact 0.9 shows 0.90.
-    return "-" if value is None else f"{math.floor((value + _EPS) * 100) / 100:.2f}"
+    # Floored, never up, to six decimals with the flag's tolerance, so a value under a threshold never
+    # reads as the threshold: 0.89996 shows 0.89996, an exact 0.9 shows 0.90, 0.00004 shows 0.00004.
+    if value is None:
+        return "-"
+    whole, _, frac = f"{math.floor((value + _EPS) * 1e6) / 1e6:.6f}".partition(".")
+    return f"{whole}.{frac.rstrip('0').ljust(2, '0')}"
 
 
 def _line(cells: List[str], widths: List[int]) -> str:

@@ -17,16 +17,34 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 from dokimi import records
 from dokimi.commands._output import exit_on_unwritable
 from dokimi.eval.judge_context import PROTOCOL_MIXED
 
 
-def _content_digest(path) -> str:
-    """Digest of the parsed JSON, so one run re-serialized (whitespace, key order) counts once."""
-    data = json.loads(Path(path).read_text(encoding="utf-8"))  # records.load has parsed it already
-    return hashlib.sha256(json.dumps(data, sort_keys=True).encode("utf-8")).hexdigest()
+def _read_json(path) -> Any:
+    return json.loads(Path(path).read_text(encoding="utf-8"))  # records.load has parsed it already
+
+
+def _canonical(value: Any) -> Any:
+    """``value`` with each integral float written as the int it equals (95.0 becomes 95). Booleans and
+    strings are left as they are, so ``true`` and ``"95"`` never equal a number."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, dict):
+        return {key: _canonical(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_canonical(item) for item in value]
+    return value
+
+
+def _content_digest(data: Any) -> str:
+    """Digest of the parsed JSON, so one run re-serialized (whitespace, key order, 95 vs 95.0) counts once."""
+    return hashlib.sha256(json.dumps(_canonical(data), sort_keys=True).encode("utf-8")).hexdigest()
 
 
 def _same_file(a, b) -> bool:
@@ -72,6 +90,57 @@ def _exit_unless_replicates(runs, inputs) -> None:
         print(f"Error: {odd} is not a repetition of {inputs[0]}: the model, judge, judge context, run config, "
               "harness, arms or library differ, and runs of different configurations are not pooled", file=sys.stderr)
         sys.exit(2)
+
+
+def _exit_on_mixed_scoring(runs, inputs) -> None:
+    """Exit 2 when some inputs were scored by ``eval reference`` and others by the judge. A rescored file keeps
+    the judge's metadata, so it passes the replicate check, yet its scores are a different measurement."""
+    kinds = ["reference" if "reference_scoring" in run.meta else "judge" for run in runs]
+    odd = next((i for i, kind in enumerate(kinds) if kind != kinds[0]), None)
+    if odd is not None:
+        print(f"Error: {inputs[odd]} was scored by the {kinds[odd]} and {inputs[0]} by the {kinds[0]}: "
+              "the two scorings are different measurements, and are not pooled", file=sys.stderr)
+        sys.exit(2)
+
+
+def _exit_on_mixed_grounding(runs, inputs) -> None:
+    """Exit 2 when one question id is grounded (judged against its ground truth chunk) in one input and not in
+    another: the judge uses different prompts and weights for the two. A run states its grounding in
+    ``grounded_questions``; a run without that count (a legacy file) has unknown grounding and is not compared."""
+    where = {True: "grounded", False: "ungrounded"}
+    seen: dict[str, tuple[bool, str]] = {}  # question id -> (grounded, first input)
+    for run, path in zip(runs, inputs, strict=True):
+        if "grounded_questions" not in run.meta:
+            continue
+        for rec in run:
+            grounded = bool(rec.ground_truth)
+            first = seen.setdefault(rec.key, (grounded, path))
+            if first[0] != grounded:
+                print(f"Error: question_id {rec.key!r} is {where[grounded]} in {path} but {where[first[0]]} in "
+                      f"{first[1]}: the judge scores the two differently, so the runs are not pooled", file=sys.stderr)
+                sys.exit(2)
+
+
+def _prompt_pins(data: Any, run) -> dict[str, set[str]]:
+    """Per arm of ``run``, the profile prompt digests its records stamp (none for an arm without a profile)."""
+    from dokimi.report.model_compare import prompt_digests
+
+    return {arm: prompt_digests(data, arm) for arm in run.conditions}
+
+
+def _exit_on_conflicting_prompts(pins, inputs) -> None:
+    """Exit 2 when an arm's recorded profile prompt digest differs between inputs, or within one. An edited profile
+    keeps its frontmatter id, so the arm name alone would pool two different treatments and hide a floor or ceiling."""
+    seen: dict[str, tuple[str, str]] = {}  # arm -> (digest, first input)
+    for pinned, path in zip(pins, inputs, strict=True):
+        for arm, digests in pinned.items():
+            for digest in sorted(digests):
+                first = seen.setdefault(arm, (digest, path))
+                if first[0] != digest:
+                    print(f"Error: arm {arm!r} ran with a different profile prompt in {path} than in {first[1]} "
+                          f"(profile_prompt_sha256 {digest[:12]} vs {first[0][:12]}): the profile was edited, "
+                          "and the two treatments are not pooled", file=sys.stderr)
+                    sys.exit(2)
 
 
 def _exit_on_conflicting_questions(runs, inputs) -> None:
@@ -131,11 +200,13 @@ def cmd_eval_headroom(args: argparse.Namespace) -> None:
         sys.exit(2)
     runs: list[records.Run] = []
     inputs: list[str] = []
+    pins: list[dict[str, set[str]]] = []
     first_seen: dict[str, str] = {}
     for path in args.arms:
         try:
             run = records.load(path)
-            digest = _content_digest(path)
+            data = _read_json(path)
+            digest = _content_digest(data)
         except (records.RecordError, OSError, RecursionError) as e:  # RecursionError: nesting too deep for json
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(2)
@@ -151,7 +222,11 @@ def cmd_eval_headroom(args: argparse.Namespace) -> None:
         first_seen[digest] = str(path)
         runs.append(run)
         inputs.append(str(path))
+        pins.append(_prompt_pins(data, run))
     _exit_unless_replicates(runs, inputs)
+    _exit_on_mixed_scoring(runs, inputs)
+    _exit_on_mixed_grounding(runs, inputs)
+    _exit_on_conflicting_prompts(pins, inputs)
     _exit_on_conflicting_questions(runs, inputs)
     try:
         result = headroom(runs, no_skill_arm=args.no_skill_arm, ceiling=args.ceiling,
