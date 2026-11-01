@@ -31,18 +31,15 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from itertools import permutations
 from typing import Any, Mapping, Optional
 
-from dokimi.eval.reference_checks import Ask, _number, check_values, grade, grade_check
+from dokimi.eval.reference_checks import Ask, _number, check_values, grade, grade_check, squad_normalize
 from dokimi.eval.reference_run import grading_by_id
 
 ATTACKS = ("canary", "wrong", "empty", "hedge")
 EXPECTED = {"canary": True, "wrong": False, "empty": False, "hedge": False}
 # Planted wrong answers, tried in order; the first that no positive literal check accepts is used.
 WRONG_CANDIDATES = ("PLANTED-WRONG-ANSWER-7731", "QZX-BOGUS-REPLY-4096", "ZKV-MISMATCH-2508", "XJQ-NONSENSE-6349")
-# JSON decoys for a json check with contains, which reads the first JSON object or array in the text.
-JSON_DECOYS = ('{"planted": "wrong"}', '{"planted": "other"}')
 HEDGE = ("I am not certain. It could be several things, depending on the setup, "
          "and I cannot say which one applies here.")
 BLOCKED, PASS, INCONCLUSIVE = "blocked", "pass", "inconclusive"
@@ -62,6 +59,11 @@ def canary_for(grading: Mapping[str, Any]) -> Optional[str]:
     mode, location = str(check.get("mode", "any")), str(check.get("location", "end"))
     if not values or (len(values) > 1 and mode == "all"):
         return None
+    if kind == "exact":
+        # The exact matcher rejects a target that normalizes to nothing (a lone article, say), so the canary
+        # is the first alias it can match; when none can, no canary is built.
+        usable = [str(v) for v in values if squad_normalize(str(v))]
+        return usable[0] if usable else None
     text = str(values[0])
     if kind == "match" and check.get("numeric") and (number := _number(text)) is not None:
         # The numeric matcher reads a number from the answer with a digit before the point, so "-.5"
@@ -80,77 +82,6 @@ def canary_for(grading: Mapping[str, Any]) -> Optional[str]:
     return f"The answer is {text}."
 
 
-def _whole_answer(check: Mapping[str, Any]) -> bool:
-    """Whether the check compares the whole answer, so a listed value never equals it."""
-    kind = check.get("type")
-    return kind in ("exact", "json") or (kind == "match" and str(check.get("location", "end")) == "exact")
-
-
-def _reads_first_json(check: Mapping[str, Any]) -> bool:
-    """Whether a json check with ``contains`` reads the first JSON in the answer, not the whole answer."""
-    return check.get("type") == "json" and bool(check.get("contains"))
-
-
-def stuffed_for(grading: Mapping[str, Any]) -> Optional[str]:
-    """The block's one literal check's values, listed with no sentence around them; None when not built.
-
-    Not an attack: no probe uses it. It is a self-check of ``grade_check`` that the unit tests assert.
-
-    A positive check needs two or more values and must accept any one of them (mode ``any``): a block
-    that needs every value, or several checks, is satisfied by the stuffed answer by design, so
-    accepting it is not a violation. A single positive value listed alone is the right answer itself,
-    not stuffing. The list is an attack only where the check does not read it:
-
-    - a check on the whole answer (``exact``, ``json`` without ``contains``, ``match`` at ``exact``): the bare list;
-    - a ``match`` at ``begin`` or ``end``: the list between two decoys the check rejects, so no accepted
-      value is at the place the check reads;
-    - a ``json`` check with ``contains`` reads the first JSON in the text, so the list goes after two JSON
-      decoys the check rejects: a bare list would start with a listed value and be accepted;
-    - ``match`` at ``any``, a numeric ``match`` and ``fuzzy`` find a listed value wherever it is, so the
-      grader is right to accept it and no probe is built.
-
-    A negated check is stuffed with its one or more values: the stuffed answer carries the forbidden
-    value, so it must fail, unless the check compares the whole answer (see ``_whole_answer``), which the
-    listed values never equal, or is ``mode: all``, which the stuffed answer can pass by its location
-    (the skip is kept for every such check, for simplicity), and the list is built only where the same
-    check without ``negate`` accepts it, so a value the grader reads as another one is no attack.
-    A choice check is left out: its answer is a bare letter.
-    """
-    checks = grading.get("checks", [])
-    if len(checks) != 1 or checks[0].get("type") not in _LITERAL - {"choice"}:
-        return None
-    check = checks[0]
-    values = [str(v) for v in check_values(check)]
-    mode = str(check.get("mode", "any"))
-    if check.get("negate"):
-        bare = " ".join(values)
-        built = bool(values) and not _whole_answer(check) and mode != "all"
-        # Built only when the grader reads the value out of the list, as the positive check does.
-        carries = grade_check({**check, "negate": False}, "", bare, None).passed
-        return bare if built and carries else None
-    if len(values) < 2 or mode == "all":
-        return None
-    if _whole_answer(check) and not _reads_first_json(check):
-        bare = " ".join(values)
-        # The list is no attack where the grader's own rules accept it (``b a`` is ``b`` once the article goes).
-        return None if grade_check(check, "", bare, None).passed else bare
-    candidates: tuple[str, ...]
-    if _reads_first_json(check):
-        candidates = JSON_DECOYS
-    elif check.get("type") != "match" or check.get("numeric") or str(check.get("location", "end")) == "any":
-        return None
-    else:
-        candidates = WRONG_CANDIDATES
-    decoys = [w for w in candidates if not grade_check(check, "", w, None).passed]
-    # Each decoy is rejected alone, but the whole answer can still end (or begin) with a value: the first
-    # decoy pair whose complete answer the check rejects is used, and none is built when no pair is.
-    for before, after in permutations(decoys, 2):
-        stuffed = f"{before} {' '.join(values)} {after}"
-        if not grade_check(check, "", stuffed, None).passed:
-            return stuffed
-    return None
-
-
 def _positive_checks(grading: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     return [c for c in grading.get("checks", []) if not c.get("negate")]
 
@@ -162,8 +93,9 @@ def negated_only(grading: Mapping[str, Any]) -> bool:
 
 
 def _accepts(grading: Mapping[str, Any], text: str) -> bool:
-    """Whether a non-negated literal check of the block accepts the text on its own, by the grader's rules."""
-    return any(grade_check(c, "", text, None).passed for c in _positive_checks(grading) if c.get("type") in _LITERAL)
+    """Whether a counted (weight above 0) non-negated literal check of the block accepts the text, by the grader's rules."""
+    counted = [c for c in _positive_checks(grading) if c.get("type") in _LITERAL and float(c.get("weight", 1.0)) > 0]
+    return any(grade_check(c, "", text, None).passed for c in counted)
 
 
 def wrong_for(grading: Mapping[str, Any]) -> Optional[str]:

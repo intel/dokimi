@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import argparse
 import json
+from itertools import permutations
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, Mapping, Optional
 
 import pytest
 import regex
@@ -19,7 +21,83 @@ import regex
 from dokimi.commands.redteam import cmd_eval_redteam
 from dokimi.eval import redteam
 from dokimi.eval.redteam import canary_for, format_table, run
-from dokimi.eval.reference_checks import CheckResult, Grade
+from dokimi.eval.redteam import _LITERAL
+from dokimi.eval.reference_checks import CheckResult, Grade, check_values, grade_check
+
+
+# The self-check of grade_check that stuffed_for is (not an attack, so it lives with the tests).
+JSON_DECOYS = ('{"planted": "wrong"}', '{"planted": "other"}')
+
+
+def _whole_answer(check: Mapping[str, Any]) -> bool:
+    """Whether the check compares the whole answer, so a listed value never equals it."""
+    kind = check.get("type")
+    return kind in ("exact", "json") or (kind == "match" and str(check.get("location", "end")) == "exact")
+
+
+def _reads_first_json(check: Mapping[str, Any]) -> bool:
+    """Whether a json check with ``contains`` reads the first JSON in the answer, not the whole answer."""
+    return check.get("type") == "json" and bool(check.get("contains"))
+
+
+def stuffed_for(grading: Mapping[str, Any]) -> Optional[str]:
+    """The block's one literal check's values, listed with no sentence around them; None when not built.
+
+    Not an attack: no probe uses it. It is a self-check of ``grade_check`` that the unit tests assert.
+
+    A positive check needs two or more values and must accept any one of them (mode ``any``): a block
+    that needs every value, or several checks, is satisfied by the stuffed answer by design, so
+    accepting it is not a violation. A single positive value listed alone is the right answer itself,
+    not stuffing. The list is an attack only where the check does not read it:
+
+    - a check on the whole answer (``exact``, ``json`` without ``contains``, ``match`` at ``exact``): the bare list;
+    - a ``match`` at ``begin`` or ``end``: the list between two decoys the check rejects, so no accepted
+      value is at the place the check reads;
+    - a ``json`` check with ``contains`` reads the first JSON in the text, so the list goes after two JSON
+      decoys the check rejects: a bare list would start with a listed value and be accepted;
+    - ``match`` at ``any``, a numeric ``match`` and ``fuzzy`` find a listed value wherever it is, so the
+      grader is right to accept it and no probe is built.
+
+    A negated check is stuffed with its one or more values: the stuffed answer carries the forbidden
+    value, so it must fail, unless the check compares the whole answer (see ``_whole_answer``), which the
+    listed values never equal, or is ``mode: all``, which the stuffed answer can pass by its location
+    (the skip is kept for every such check, for simplicity), and the list is built only where the same
+    check without ``negate`` accepts it, so a value the grader reads as another one is no attack.
+    A choice check is left out: its answer is a bare letter.
+    """
+    checks = grading.get("checks", [])
+    if len(checks) != 1 or checks[0].get("type") not in _LITERAL - {"choice"}:
+        return None
+    check = checks[0]
+    values = [str(v) for v in check_values(check)]
+    mode = str(check.get("mode", "any"))
+    if check.get("negate"):
+        bare = " ".join(values)
+        built = bool(values) and not _whole_answer(check) and mode != "all"
+        # Built only when the grader reads the value out of the list, as the positive check does.
+        carries = grade_check({**check, "negate": False}, "", bare, None).passed
+        return bare if built and carries else None
+    if len(values) < 2 or mode == "all":
+        return None
+    if _whole_answer(check) and not _reads_first_json(check):
+        bare = " ".join(values)
+        # The list is no attack where the grader's own rules accept it (``b a`` is ``b`` once the article goes).
+        return None if grade_check(check, "", bare, None).passed else bare
+    candidates: tuple[str, ...]
+    if _reads_first_json(check):
+        candidates = JSON_DECOYS
+    elif check.get("type") != "match" or check.get("numeric") or str(check.get("location", "end")) == "any":
+        return None
+    else:
+        candidates = redteam.WRONG_CANDIDATES
+    decoys = [w for w in candidates if not grade_check(check, "", w, None).passed]
+    # Each decoy is rejected alone, but the whole answer can still end (or begin) with a value: the first
+    # decoy pair whose complete answer the check rejects is used, and none is built when no pair is.
+    for before, after in permutations(decoys, 2):
+        stuffed = f"{before} {' '.join(values)} {after}"
+        if not grade_check(check, "", stuffed, None).passed:
+            return stuffed
+    return None
 
 
 def _q(qid, grading, text="What is the capital of France?"):
@@ -82,18 +160,18 @@ def test_a_correct_grader_with_aliases_passes_the_red_team(check):
 
 def test_the_stuffed_answer_buries_the_aliases_between_decoys_for_an_end_or_begin_check():
     # stuffed_for is a self-check of grade_check: its answer is what grade_check must reject, not a probe.
-    stuffed = redteam.stuffed_for(_match("Paris", "Lyon"))
+    stuffed = stuffed_for(_match("Paris", "Lyon"))
     middle = stuffed.split()
     assert middle[1:3] == ["Paris", "Lyon"] and len(middle) == 4
     assert not stuffed.endswith(("Paris", "Lyon")) and not stuffed.startswith(("Paris", "Lyon"))
-    assert redteam.stuffed_for({"checks": [{"type": "match", "values": ["a", "b"], "location": "any"}]}) is None
+    assert stuffed_for({"checks": [{"type": "match", "values": ["a", "b"], "location": "any"}]}) is None
 
 
 def test_a_json_contains_check_with_list_values_is_stuffed_after_a_decoy_the_grader_rejects():
     # contains reads the first JSON in the text: the bare list "[1, 2] [3, 4]" starts with the value [1, 2],
     # which a correct grader accepts, so the list goes after a JSON decoy that is not one of the values.
     grading = {"checks": [{"type": "json", "values": [[1, 2], [3, 4]], "contains": True}]}
-    stuffed = redteam.stuffed_for(grading)
+    stuffed = stuffed_for(grading)
     assert stuffed is not None and stuffed.startswith('{"planted"')
     assert redteam.grade(grading, "", stuffed).checks[0].passed is False
     result = run([_q("1", grading)])
@@ -191,12 +269,12 @@ def test_stuffing_is_not_built_for_a_block_that_needs_every_value():
     # "Paris Lyon" satisfies a block that requires both values, so the grader is right to accept it.
     result = run([_q("1", _match("Paris", "Lyon", mode="all"))])
     assert result["status"] == "pass"
-    assert redteam.stuffed_for(_match("Paris", "Lyon", mode="all")) is None
+    assert stuffed_for(_match("Paris", "Lyon", mode="all")) is None
 
 
 def test_stuffing_is_not_built_for_several_checks_that_each_accept_a_value():
     grading = {"checks": [{"type": "match", "values": ["Paris"]}, {"type": "match", "values": ["Lyon"]}]}
-    assert redteam.stuffed_for(grading) is None
+    assert stuffed_for(grading) is None
 
 
 @pytest.mark.parametrize("grading", [
@@ -213,14 +291,14 @@ def test_a_stuffed_answer_never_ends_in_a_decoy_the_check_accepts():
     # QZX is a value, so a stuffed answer that ends in it is accepted by a correct grader; the decoy
     # is dropped and the answer ends in one the check rejects.
     grading = _match("Lyon", "QZX-BOGUS-REPLY-4096")
-    stuffed = redteam.stuffed_for(grading)
+    stuffed = stuffed_for(grading)
     assert stuffed is not None and not stuffed.endswith("QZX-BOGUS-REPLY-4096")
     assert redteam.grade(grading, "", stuffed).checks[0].passed is False
 
 
 def test_a_stuffed_answer_needs_two_decoys_the_check_rejects():
     grading = _match("PLANTED-WRONG-ANSWER-7731", "QZX-BOGUS-REPLY-4096", "ZKV-MISMATCH-2508")
-    assert redteam.stuffed_for(grading) is None
+    assert stuffed_for(grading) is None
 
 
 def test_a_question_with_one_scored_probe_is_measured_when_another_probe_is_not():
@@ -337,7 +415,7 @@ def test_a_check_value_that_occurs_in_the_hedge_skips_the_hedge_probe(value):
 
 def test_a_negated_check_fails_the_list_that_carries_its_value_so_the_list_is_a_self_check_only():
     grading = {"checks": [{"type": "match", "values": ["Paris", "Lyon"], "negate": True}]}
-    assert redteam.stuffed_for(grading) == "Paris Lyon"
+    assert stuffed_for(grading) == "Paris Lyon"
     assert redteam.grade(grading, "Q?", "Paris Lyon").checks[0].passed is False
     assert "stuffed" not in redteam.probe(grading, "Q?")
 
@@ -374,7 +452,7 @@ def test_a_block_of_only_negated_checks_runs_no_wrong_empty_or_hedge_probe_and_r
 
 def test_a_negated_single_value_is_built_as_that_value_and_fails_the_self_check():
     grading = {"checks": [{"type": "match", "values": ["Paris"], "negate": True}]}
-    assert redteam.stuffed_for(grading) == "Paris"
+    assert stuffed_for(grading) == "Paris"
     assert redteam.grade(grading, "Capital of France?", "Paris").checks[0].passed is False
     assert redteam.probe(grading, "Capital of France?") == {}
 
@@ -387,7 +465,7 @@ def test_a_negated_single_value_is_built_as_that_value_and_fails_the_self_check(
 def test_a_negated_whole_answer_check_is_not_stuffed(check):
     # "Paris Lyon" is neither "Paris" nor "Lyon", so the negated check passes it: that is not an attack.
     grading = {"checks": [check]}
-    assert redteam.stuffed_for(grading) is None
+    assert stuffed_for(grading) is None
     result = run([_q("1", grading)])
     assert result["violations"] == [] and result["questions"][0]["probes"] == {}
 
@@ -400,7 +478,7 @@ def test_a_negated_all_mode_check_is_not_stuffed(check):
     # "Paris Lyon" ends with only one value, so the "all" match is false and the negated check passes
     # it: a correct grader would be blamed for accepting it. The positive rule skips mode all alike.
     grading = {"checks": [check]}
-    assert redteam.stuffed_for(grading) is None
+    assert stuffed_for(grading) is None
     result = run([_q("1", grading)])
     assert result["violations"] == [] and result["questions"][0]["probes"] == {}
 
@@ -708,7 +786,7 @@ def test_an_inconclusive_run_still_writes_the_artifact(tmp_path, monkeypatch):
 ])
 def test_aliases_of_a_whole_answer_check_are_stuffed_bare_and_the_grader_rejects_the_list(check):
     # The list equals none of the values, so a grader that accepts it is wrong; the real one does not.
-    assert redteam.stuffed_for({"checks": [check]}) == "Paris Lyon"
+    assert stuffed_for({"checks": [check]}) == "Paris Lyon"
     assert redteam.grade({"checks": [check]}, "", "Paris Lyon").checks[0].passed is False
     assert run([_q("1", {"checks": [check]})])["status"] == "pass"
 
@@ -729,7 +807,7 @@ def test_a_numeric_target_with_no_digit_before_the_point_gets_a_canary_the_numer
     {"type": "fuzzy", "values": ["Paris", "Lyon"]},
 ])
 def test_a_list_the_grader_accepts_as_a_value_is_no_stuffing_attack(check):
-    assert redteam.stuffed_for({"checks": [check]}) is None
+    assert stuffed_for({"checks": [check]}) is None
     result = run([_q("1", {"checks": [check]})])
     assert result["status"] == "pass" and result["violations"] == []
 
@@ -739,7 +817,7 @@ def test_a_stuffed_list_at_the_end_picks_decoys_that_do_not_complete_a_value(str
     # Each decoy alone is rejected, but "Paris QZX-BOGUS-REPLY-4096" ends the answer and is a value.
     check = {"type": "match", "values": ["Paris QZX-BOGUS-REPLY-4096", "Paris"], "strip": strip}
     grading = {"checks": [check]}
-    assert redteam.grade(grading, "", redteam.stuffed_for(grading)).checks[0].passed is False
+    assert redteam.grade(grading, "", stuffed_for(grading)).checks[0].passed is False
     assert run([_q("1", grading)])["status"] == "pass"
 
 
@@ -749,13 +827,13 @@ def test_a_negated_numeric_value_the_matcher_reads_as_another_number_is_not_stuf
     # grader should: no probe is built, and a correct grader is not blocked.
     grading = {"checks": [{"type": "match", "value": value, "numeric": True, "negate": True,
                            "location": location}]}
-    assert redteam.stuffed_for(grading) is None
+    assert stuffed_for(grading) is None
     assert run([{"id": "1", "question": "Q?", "grading": grading}])["status"] == "inconclusive"
 
 
 def test_a_negated_numeric_value_the_matcher_reads_is_still_stuffed():
     grading = {"checks": [{"type": "match", "value": "7731", "numeric": True, "negate": True}]}
-    assert redteam.stuffed_for(grading) == "7731"
+    assert stuffed_for(grading) == "7731"
 
 
 def test_judge_takes_a_provider_model_reference_and_a_bad_one_is_a_usage_error(capsys):
@@ -775,3 +853,33 @@ def test_docs_name_the_redteam_output_flag_as_out():
     doc = (Path(__file__).resolve().parents[1] / "docs" / "answer-formats.md").read_text(encoding="utf-8")
     assert "unwritable `--out`" in doc
     assert "unwritable `-o`" not in doc
+
+
+def test_an_exact_canary_skips_an_alias_that_normalizes_to_nothing():
+    # "a" is an article: the exact matcher drops it and rejects an empty target, so "b" is the canary.
+    from dokimi.eval.reference_checks import grade
+
+    grading = {"checks": [{"type": "exact", "values": ["a", "b"]}]}
+    assert canary_for(grading) == "b"
+    assert grade(grading, "Q?", canary_for(grading)).passed is True
+    assert canary_for({"checks": [{"type": "exact", "values": ["a", "the"]}]}) is None
+
+
+def test_a_correct_grader_with_an_article_alias_is_not_blamed_for_its_canary():
+    questions = [{"id": "1", "question": "Q?", "grading": {"checks": [{"type": "exact", "values": ["a", "b"]}]}}]
+    result = run(questions)
+    assert [v for v in result["violations"] if v["attack"] == "canary"] == []
+
+
+def test_a_zero_weight_check_does_not_stop_a_wrong_answer_from_being_probed():
+    # The only counted check (the regex) accepts every non-empty answer. The "-" and "certain" match is
+    # weight 0, so it is not counted and cannot clash with a planted answer: the wrong answer is probed,
+    # the regex accepts it, and the block is blocked. Before, every planted answer clashed with "-",
+    # only the empty probe ran and failed, and the block passed.
+    grading = {"checks": [
+        {"type": "regex", "value": ".+"},
+        {"type": "match", "values": ["-", "certain"], "location": "any", "ignore_punctuation": False, "weight": 0},
+    ]}
+    result = run([{"id": "1", "question": "Q?", "grading": grading}])
+    assert result["status"] == "blocked"
+    assert "wrong" in [v["attack"] for v in result["violations"]]
