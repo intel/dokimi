@@ -67,12 +67,21 @@ def _three_arm_run(path):
     return path
 
 
+def _three_arm_legacy_run(path):
+    """The same arms in the legacy per-answer format: no top-level ``evaluations`` key."""
+    answers = [{"question_id": f"q{i}", "question_text": "q", "arms": {
+        "baseline": {"answer": "b"}, "docs": {"answer": "d"}, "skill": {"answer": "s"}}} for i in range(3)]
+    path.write_text(json.dumps({"baseline_arm": "baseline", "answers": answers}), encoding="utf-8")
+    return path
+
+
+@pytest.mark.parametrize("writer", [_three_arm_run, _three_arm_legacy_run])
 @pytest.mark.parametrize("extra, message", [
     ([], "multiple non-baseline arms"),
     (["--treatment-arm", "missing"], "'missing' not found"),
 ])
-def test_treatment_arm_refusals_exit_2_through_cli_main(extra, message, tmp_path, monkeypatch, capsys):
-    run = _three_arm_run(tmp_path / "run.json")
+def test_treatment_arm_refusals_exit_2_through_cli_main(writer, extra, message, tmp_path, monkeypatch, capsys):
+    run = writer(tmp_path / "run.json")
     out = tmp_path / "report.md"
     monkeypatch.setattr(sys, "argv", ["dokimi", "report", "model-compare", "--regular-runs", str(run),
                                       "--run-ids", "a", "--out", str(out), *extra])
