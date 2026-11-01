@@ -3,6 +3,8 @@
 
 """Tests for failure diagnoser."""
 
+from unittest.mock import MagicMock
+
 import pytest
 from dokimi import records
 from dokimi.records import CONTEXT
@@ -16,15 +18,18 @@ from dokimi.eval.diagnoser import (
     KNOWLEDGE_SUFFICIENT,
     INSUFFICIENT_DATA,
 )
+from dokimi.eval.judge import Judge
 
 
-def _make_answer(doc_source="context7", retrieved_docs=None):
+def _make_answer(doc_source="context7", retrieved_docs=None, error=None):
     """The context-arm answer of an answers.v1 record, as the judge hands it to diagnose()."""
+    with_docs = {"answer": "an answer", "doc_source": doc_source, "retrieved_docs": retrieved_docs or []}
+    if error:
+        with_docs["error"] = error
     data = artifact_fixture("answers", {"answers": [{
         "question_id": "q1",
         "question_text": "How?",
-        "with_docs": {"answer": "an answer", "doc_source": doc_source,
-                      "retrieved_docs": retrieved_docs or []},
+        "with_docs": with_docs,
         "without_docs": {"answer": "some answer"},
     }]})
     return records.read(data).records[0].answer(CONTEXT)
@@ -51,6 +56,57 @@ def test_empty_retrieval_no_docs():
     answer = _make_answer(doc_source="fallback_none", retrieved_docs=[])
     result = diagnose(answer, -3.0)
     assert result["label"] == EMPTY_RETRIEVAL
+
+
+def test_unjudged_retrieval_miss_is_an_empty_retrieval_not_insufficient_data():
+    """The judge leaves the no-document placeholder unjudged, so its delta is None."""
+    answer = _make_answer(doc_source="fallback_none", retrieved_docs=[])
+    result = diagnose(answer, None)
+    assert result["label"] == EMPTY_RETRIEVAL
+    assert result["evidence"]["doc_source"] == "fallback_none"
+
+
+def test_unjudged_none_source_is_an_empty_retrieval():
+    answer = _make_answer(doc_source="none", retrieved_docs=[])
+    result = diagnose(answer, None)
+    assert result["label"] == EMPTY_RETRIEVAL
+    assert result["evidence"]["doc_source"] == "none"
+
+
+def test_judged_placeholder_with_no_baseline_is_insufficient_data():
+    """With judge_placeholder the context is scored; a missing baseline is the reason there is no delta."""
+    answer = _make_answer(doc_source="fallback_none", retrieved_docs=[])
+    result = diagnose(answer, None, context_scored=True)
+    assert result["label"] == INSUFFICIENT_DATA
+
+
+def test_judge_diagnoses_a_judged_placeholder_without_a_baseline_as_insufficient_data():
+    """Through Judge: the context arm was scored, so the missing baseline is why there is no delta."""
+    judge = Judge.__new__(Judge)
+    judge._accumulate_usage = lambda usage: None
+    judge.temperature = judge.seed = None
+    judge.judge_placeholder = True
+    judge.llm = MagicMock()
+    judge.llm.invoke.return_value = MagicMock(content=(
+        '{"correctness": 60, "completeness": 60, "specificity": 60, '
+        '"code_quality": 60, "actionability": 60, "aggregate": 0}'
+    ))
+    row = judge._evaluate_answer_pair("L", {
+        "question_id": "q1",
+        "question_text": "How?",
+        "with_docs": {"answer": "[FALLBACK: No relevant documentation found]",
+                      "doc_source": "fallback_none", "retrieved_docs": []},
+    })
+    assert row["with_docs"] is not None
+    assert row["without_docs"] is None
+    assert row["diagnosis"]["label"] == INSUFFICIENT_DATA
+
+
+def test_errored_placeholder_answer_stays_insufficient_data():
+    """An errored answer is missing, not a retrieval miss, whatever its doc source."""
+    answer = _make_answer(doc_source="fallback_none", retrieved_docs=[], error="timeout")
+    result = diagnose(answer, None)
+    assert result["label"] == INSUFFICIENT_DATA
 
 
 def test_empty_retrieval_no_mcp_client():
