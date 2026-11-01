@@ -189,6 +189,28 @@ def test_convert_answer_leaves_a_failed_run_as_is():
     assert convert_answer("codex-review", "No issues.").endswith("```json\n[]\n```\n")
 
 
+@pytest.mark.parametrize("messages", [["Unable to review because the repository is unavailable."],
+                                      ["Review finished."], ["I will inspect the commit first.", "Done."]])
+def test_convert_answer_without_a_finding_or_a_clean_verdict_gets_no_block(messages):
+    # an empty block says the review found nothing: a refusal or a bare summary is a missing review
+    assert convert_answer("codex-review", messages[-1], "/w", messages=messages) == messages[-1]
+
+
+@pytest.mark.parametrize("answer", ["I did not find any issues in this change.", "Looks good to me.",
+                                    "I found no bugs.", "Checked the diff. No regressions."])
+def test_convert_answer_a_clean_verdict_gets_an_empty_block(answer):
+    assert _block(convert_answer("codex-review", answer, "/w")) == []
+
+
+def test_convert_answer_block_round_trips_a_fenced_sample_in_a_body():
+    from dokimi.repos.graders.review import findings_of
+
+    fence = "`" * 3
+    text = f"- [P1] Leak \u2014 /w/a.py:3\n  Use this:\n\n  {fence}python\n  x = 1\n  {fence}\n"
+    found = findings_of(convert_answer("codex-review", text, "/w"))
+    assert [f["message"] for f in found] == [f"Use this: {fence}python x = 1 {fence}"]
+
+
 def test_convert_answer_leaves_an_empty_answer_empty():
     # a failed or timed-out run must not read as a clean review (an empty findings block)
     assert convert_answer("codex-review", "") == ""
