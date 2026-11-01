@@ -263,9 +263,8 @@ def test_report_eval_with_no_complete_pair_says_so_instead_of_a_zero_delta(tmp_p
 
 
 def test_breakdown_tables_and_agreement_say_no_pair_instead_of_a_zero_delta(tmp_path):
-    # The static set (onetbb-Q*) has two questions, each scored in one arm only: no complete pair.
-    # The dynamic set has a complete pair. The breakdown rows and the agreement bullet must not
-    # print a zero delta for the static set, nor claim it agrees with the dynamic one.
+    # The static set (onetbb-Q*) has no complete pair, so its rows and the agreement bullet print no
+    # zero delta and no agreement with the dynamic set, which has one.
     evaluations = [
         {"question_id": "q1", "question_text": "How do I pin threads?", "difficulty": "easy",
          "with_docs": {"aggregate": 80.0}, "without_docs": {"aggregate": 60.0}, "delta": 20.0},
@@ -289,3 +288,22 @@ def test_breakdown_tables_and_agreement_say_no_pair_instead_of_a_zero_delta(tmp_
     assert "**+20.0**" in easy_row
     assert "Dynamic vs Static agreement:** none" in text
     assert "Dynamic vs Static agreement:** +" not in text
+
+
+def test_an_all_miss_run_prints_no_zero_mean_delta_or_conclusion(tmp_path):
+    # The context arm was never judged (a no-retrieval placeholder), so no question is a complete pair.
+    data = {"judge_model": "m", "evaluations": [
+        {"question_id": "q1", "question_text": "How do I pin threads?", "with_docs": None,
+         "without_docs": {"aggregate": 60.0}, "delta": None},
+        {"question_id": "q2", "question_text": "How do I size a pool?", "with_docs": None,
+         "without_docs": {"aggregate": 40.0}, "delta": None},
+    ]}
+    md = ReportGenerator().generate_report(data, {"questions": []}, "markdown")
+    stats = json.loads(ReportGenerator().generate_report(data, {"questions": []}, "json"))["stats"]
+
+    assert stats["paired_questions"] == 0
+    assert stats["delta"] == {"avg": None, "min": None, "max": None}
+    assert "minimal impact" not in md
+    assert "no complete pairs" in md
+    average = next(line for line in md.splitlines() if line.startswith("| Average |"))
+    assert average == "| Average | — | — | **—** |"
