@@ -101,6 +101,18 @@ def check_saved_reach(reach: dict[str, Any], repo_id: str, harness_name: str, tr
         raise ReachError(f"reach.json was probed at {probed[:12]}, the source is at {tree_sha[:12]}")
 
 
+def check_receipt_provenance(reach: dict[str, Any], tree_sha: str | None) -> None:
+    """Refuse a receipt rebuilt from a saved probe unless both sides are at a commit. The digests and expectations
+    are read from the source now, so they describe the probed text only when that text is pinned: a working tree
+    may have changed since the probe, and a probe of a working tree has no commit to check the source against."""
+    if not tree_sha:
+        raise ReachError("--format receipt needs a pinned source: a working tree can change after the probe, so give "
+                         "the repository at a revision (<path>@<rev>)")
+    if not reach["repo"].get("sha"):
+        raise ReachError("reach.json was probed from a working tree (repo.sha is null), so its receipt cannot be "
+                         "tied to a commit; probe a pinned source to get a receipt")
+
+
 def source_digests(tree: RepoTree, paths: list[str]) -> dict[str, str | None]:
     """sha256 of the text dokimi reads for each path (LF line endings: the text the probe seeds); None if unreadable."""
     out: dict[str, str | None] = {}

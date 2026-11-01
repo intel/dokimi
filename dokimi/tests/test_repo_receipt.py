@@ -7,13 +7,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 
 import pytest
 
 from dokimi.artifacts import ArtifactValidationError, validate_artifact
 from dokimi.cli import build_parser
 from dokimi.repos import WorkTree
-from dokimi.repos.receipt import build_receipt, check_saved_reach, source_digests
+from dokimi.repos.receipt import build_receipt, check_receipt_provenance, check_saved_reach, source_digests
 from dokimi.repos.reach import ReachError, format_matrix, load_reach
 from tests.test_repo_reach import _profile, _repo
 
@@ -239,8 +240,17 @@ def _saved(tmp_path) -> str:
     return str(tmp_path / "out" / "reach.json")
 
 
+def _pinned(live: list[str]) -> list[str]:
+    """The same argv with its source committed and pinned to HEAD: a receipt needs a commit on both sides."""
+    root = live[2]
+    for args in (["init", "-q"], ["add", "-A"],
+                 ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--no-gpg-sign", "-m", "x"]):
+        subprocess.run(["git", "-C", root, *args], check=True, capture_output=True)
+    return [live[0], live[1], f"{root}@HEAD", *live[3:]]
+
+
 def test_from_a_saved_reach_gives_the_receipt_of_the_live_run(tmp_path, monkeypatch, capsys):
-    live = _end_to_end_args(tmp_path, monkeypatch, "--format", "receipt")
+    live = _pinned(_end_to_end_args(tmp_path, monkeypatch, "--format", "receipt"))
     args = build_parser().parse_args(live)
     args.func(args)
     live_receipt = json.loads(capsys.readouterr().out)
@@ -324,6 +334,56 @@ def test_a_saved_probe_must_match_the_commit_it_is_read_against(tmp_path):
     check_saved_reach(reach, "toy", "claude-code", None)  # a tree without a commit cannot be compared
     with pytest.raises(ReachError, match="probed at aaaaaaaaaaaa, the source is at bbbbbbbbbbbb"):
         check_saved_reach(reach, "toy", "claude-code", "b" * 40)
+
+
+def test_a_receipt_needs_a_pinned_probe_and_a_pinned_source(tmp_path):
+    reach = _reach([_record("AGENTS.md", "cwd=.", "loaded")], [ROOT_ROW])
+    reach["repo"]["sha"] = "a" * 40
+    check_receipt_provenance(reach, "a" * 40)  # both at the same commit: the digests describe the probed text
+    with pytest.raises(ReachError, match="pinned"):  # a working tree can change after the probe
+        check_receipt_provenance(reach, None)
+    reach["repo"]["sha"] = None  # probed from a working tree: its observations have no commit to check against
+    with pytest.raises(ReachError, match="pinned"):
+        check_receipt_provenance(reach, "a" * 40)
+
+
+def test_from_a_receipt_refuses_a_pinned_probe_read_against_a_working_tree(tmp_path, monkeypatch, capsys):
+    live = _pinned(_end_to_end_args(tmp_path, monkeypatch))
+    build_parser().parse_args(live).func(build_parser().parse_args(live))  # probed at HEAD: repo.sha is set
+    capsys.readouterr()
+    working = _from_argv(live, "--from", _saved(tmp_path), "--format", "receipt")
+    working[2] = str(tmp_path / "repo")  # the same directory, read as a working tree (no revision)
+    args = build_parser().parse_args(working)
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2 and "--format receipt needs a pinned source" in capsys.readouterr().err
+
+
+def test_from_a_receipt_refuses_an_unpinned_source_where_the_matrix_runs(tmp_path, monkeypatch, capsys):
+    live = _end_to_end_args(tmp_path, monkeypatch)
+    build_parser().parse_args(live).func(build_parser().parse_args(live))  # an unpinned probe: repo.sha is null
+    capsys.readouterr()
+    args = build_parser().parse_args(_from_argv(live, "--from", _saved(tmp_path), "--format", "receipt"))
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    err = capsys.readouterr().err
+    assert exc.value.code == 2 and "--format receipt needs a pinned source" in err
+    assert not (tmp_path / "out" / "effective_instructions.json").exists()
+    args = build_parser().parse_args(_from_argv(live, "--from", _saved(tmp_path)))  # the matrix needs no commit
+    args.func(args)
+    assert capsys.readouterr().out == format_matrix(load_reach(tmp_path / "out" / "reach.json")) + "\n"
+
+
+def test_from_a_receipt_refuses_an_unpinned_probe_read_against_a_pinned_source(tmp_path, monkeypatch, capsys):
+    live = _end_to_end_args(tmp_path, monkeypatch)
+    build_parser().parse_args(live).func(build_parser().parse_args(live))  # probed from a working tree: repo.sha null
+    capsys.readouterr()
+    pinned = _pinned(live)  # the same repository, committed, now read at HEAD
+    args = build_parser().parse_args(_from_argv(pinned, "--from", _saved(tmp_path), "--format", "receipt"))
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    err = capsys.readouterr().err
+    assert exc.value.code == 2 and "probed from a working tree (repo.sha is null)" in err
 
 
 def test_a_lazy_guidance_is_expected_only_in_the_subtree_it_activates(tmp_path):

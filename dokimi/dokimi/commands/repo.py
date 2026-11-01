@@ -276,7 +276,7 @@ def _reach_from_saved(args: argparse.Namespace) -> None:
     """The matrix or the receipt of a saved reach.json, checked against the source; no harness runs."""
     from dokimi.repos import ManifestError, RepoSource, SourceError, open_source
     from dokimi.repos.harness_profile import ProfileError, load_profile
-    from dokimi.repos.receipt import check_saved_reach
+    from dokimi.repos.receipt import check_receipt_provenance, check_saved_reach
     from dokimi.repos.reach import ReachError, format_matrix, load_reach, saved_gaps
     from dokimi.repos.source import SourceArgumentError
 
@@ -304,6 +304,8 @@ def _reach_from_saved(args: argparse.Namespace) -> None:
     try:  # the manifest and the file's provenance: a usage error; a failed git read is a fetch failure (1)
         manifest = _load_manifest(tree, args, guidance_default=True)
         check_saved_reach(reach, manifest.id, profile.name, getattr(tree, "sha", None))
+        if args.format == "receipt":
+            check_receipt_provenance(reach, getattr(tree, "sha", None))
     except (SourceError, ManifestError, ReachError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(_tree_read_exit_code(exc))

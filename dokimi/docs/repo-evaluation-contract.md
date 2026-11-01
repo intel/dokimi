@@ -1058,10 +1058,16 @@ start-up chain of `repo budget` (`repos/budget.py`). It makes no
 LLM call. `repo reach --from <reach.json> --format receipt` builds the same
 receipt from a saved probe without running the harness. The source is read
 again: the file must be for the same repository, harness and commit (a
-different one is a usage error, exit 2), and `sha256` and the expectations are
-computed from the source as it is at conversion time. So the two receipts are
-the same only for unchanged source contents and harness configuration. The
-receipt is written beside the saved file. The probe-only flags (`--model`,
+different one is a usage error, exit 2). A receipt also needs a pinned source
+(`<path>@<rev>`) and a saved probe made at a commit: a working tree, or a probe
+of one (`repo.sha` null), is a usage error (exit 2), because `sha256` and the
+expectations are computed from the source as it is at conversion time and a
+working tree can change after the probe. The matrix (without `--format
+receipt`) still accepts an unpinned source. The harness configuration is not
+pinned: `expected` comes from the harness profile as it is at conversion time,
+and its guidance names and import depth are not compared with the probe's, so
+a receipt is the same only for an unchanged profile. The receipt is written
+beside the saved file. The probe-only flags (`--model`,
 `--budget`, `--scenarios`, `--only` and the rest) cannot be combined with
 `--from`. The schema is `schemas/effective_instructions.v1.json`; the code is
 `repos/receipt.py`.
