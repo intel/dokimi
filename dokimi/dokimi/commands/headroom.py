@@ -80,10 +80,12 @@ def _clobbers_an_input(output, inputs) -> bool:
 def _exit_unless_replicates(runs, inputs) -> None:
     """Exit 2 on the first input that is not a repetition of the first one's configuration (models,
     judge, run_config but the seed, harness, plugins, cell, arms: report.model_compare.replicate_key)
-    or library: averaging such runs per question id would mix different measurements."""
+    or library: averaging such runs per question id would mix different measurements. A run that does not
+    list its arms at the top level is compared by the arms its records show instead."""
     from dokimi.report.model_compare import replicate_key
 
-    keys = [(replicate_key(dict(run.meta)), run.meta.get("library_name"), run.meta.get("judge_context"))
+    keys = [(replicate_key(dict(run.meta)), run.meta.get("library_name"), run.meta.get("judge_context"),
+             None if run.meta.get("arms") is not None else tuple(sorted(run.conditions)))
             for run in runs]
     odd = next((path for key, path in zip(keys[1:], inputs[1:], strict=True) if key != keys[0]), None)
     if odd is not None:
@@ -92,15 +94,38 @@ def _exit_unless_replicates(runs, inputs) -> None:
         sys.exit(2)
 
 
+# The per-run tallies of a reference scoring: they count this run's answers, so repetitions differ in them.
+_RUN_TALLIES = ("summary", "ungraded_questions")
+
+
+def _grading_identity(meta) -> Any:
+    """What a reference scoring graded against (its scorer and questions file, say), without the tallies."""
+    scoring = meta.get("reference_scoring")
+    if isinstance(scoring, dict):
+        scoring = {key: value for key, value in scoring.items() if key not in _RUN_TALLIES}
+    return _canonical(scoring)
+
+
 def _exit_on_mixed_scoring(runs, inputs) -> None:
-    """Exit 2 when some inputs were scored by ``eval reference`` and others by the judge. A rescored file keeps
-    the judge's metadata, so it passes the replicate check, yet its scores are a different measurement."""
+    """Exit 2 when some inputs were scored by ``eval reference`` and others by the judge, or two reference
+    scorings graded differently. A rescored file keeps the judge's metadata, so it passes the replicate check,
+    yet its scores are a different measurement."""
     kinds = ["reference" if "reference_scoring" in run.meta else "judge" for run in runs]
     odd = next((i for i, kind in enumerate(kinds) if kind != kinds[0]), None)
     if odd is not None:
         print(f"Error: {inputs[odd]} was scored by the {kinds[odd]} and {inputs[0]} by the {kinds[0]}: "
               "the two scorings are different measurements, and are not pooled", file=sys.stderr)
         sys.exit(2)
+    references = [i for i, kind in enumerate(kinds) if kind == "reference"]
+    if references:
+        first = references[0]
+        odd = next((i for i in references[1:] if _grading_identity(runs[i].meta) != _grading_identity(runs[first].meta)),
+                   None)
+        if odd is not None:
+            print(f"Error: {inputs[odd]} was scored by eval reference against different grading than {inputs[first]} "
+                  "(its scorer or questions file differ): the two scorings are different measurements, and are not pooled",
+                  file=sys.stderr)
+            sys.exit(2)
 
 
 def _exit_on_mixed_grounding(runs, inputs) -> None:
@@ -166,6 +191,29 @@ def _exit_on_conflicting_questions(runs, inputs) -> None:
 _METADATA_SHAPES = (("run_config", dict, "object"), ("arms", list, "array"))
 
 
+def _exit_unless_pinnable(data, run, path) -> None:
+    """Exit 2 when the profile-prompt check cannot read the file: its top level is not an object (a bare record
+    list has none of the arms.v1 fields), or an answer's metadata, or its treatments, is not the shape it reads."""
+    if not isinstance(data, dict):
+        print(f"Error: {path}: expected a JSON object with the arms.v1 fields, not a {type(data).__name__}",
+              file=sys.stderr)
+        sys.exit(2)
+    for rec in run:
+        for answer in rec.answers.values():
+            metadata = answer.raw.get("metadata")
+            if not metadata:
+                continue
+            if not isinstance(metadata, dict):
+                print(f"Error: {path}: answer metadata must be a JSON object, not {type(metadata).__name__}",
+                      file=sys.stderr)
+                sys.exit(2)
+            treatments = metadata.get("treatments")
+            if treatments and not isinstance(treatments, list):
+                print(f"Error: {path}: metadata.treatments must be a JSON array, not {type(treatments).__name__}",
+                      file=sys.stderr)
+                sys.exit(2)
+
+
 def _exit_unless_metadata_shaped(run, path) -> None:
     """Exit 2 when a top-level field replicate_key reads is not the JSON shape it needs (absent or null
     is fine), or the run mixed judge protocols, naming the file and the field."""
@@ -211,6 +259,7 @@ def cmd_eval_headroom(args: argparse.Namespace) -> None:
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(2)
         _exit_unless_metadata_shaped(run, path)
+        _exit_unless_pinnable(data, run, path)
         if digest in first_seen:
             print(f"note: skipped {path}: same content as {first_seen[digest]}, counted once", file=sys.stderr)
             continue

@@ -19,7 +19,7 @@ from dokimi import records
 from dokimi.cli import build_parser
 from dokimi.commands.headroom import cmd_eval_headroom
 from dokimi.eval.headroom import (
-    CEILING, DEFAULT_CEILING, DEFAULT_FLOOR, DEFAULT_MIN_REPS, FLOOR, format_table, headroom,
+    CEILING, DEFAULT_CEILING, DEFAULT_FLOOR, DEFAULT_MIN_REPS, FLOOR, check_thresholds, format_table, headroom,
 )
 
 
@@ -850,4 +850,116 @@ def test_a_legacy_run_without_a_grounding_count_is_not_compared_for_grounding(tm
     legacy = _stamped_file(tmp_path / "legacy.json")
     out = tmp_path / "headroom.json"
     cmd_eval_headroom(_args([grounded, legacy], output=out))
+    assert json.loads(out.read_text(encoding="utf-8"))["runs"] == 2
+
+
+def test_a_mean_just_above_the_floor_is_not_shown_as_the_floor():
+    # 30.00004 on 0-100 is 0.3000004: above a floor of 0.3, so unflagged, and shown with the digits that set it apart.
+    run = _run([("1", {"baseline": 30.00004, "skill": 30.00004})])
+    result = headroom([run], floor=0.3, min_reps=2)
+    assert _flags(result) == {"1": None}
+    assert "0.3000004" in format_table(result)
+
+
+def test_the_minimum_positive_threshold_is_accepted_and_just_below_it_refused():
+    check_thresholds(1e-6, 0.0, 1)
+    check_thresholds(1.0, 1e-6, 1)
+    with pytest.raises(ValueError, match="ceiling must be at least 1e-06"):
+        check_thresholds(1e-7, 0.0, 1)
+    with pytest.raises(ValueError, match="floor must be 0 or at least 1e-06"):
+        check_thresholds(1.0, 5e-7, 1)
+
+
+def test_command_exits_2_on_a_bare_record_list_instead_of_a_traceback(tmp_path, capsys):
+    path = tmp_path / "bare.json"
+    path.write_text(json.dumps([{"question_id": "1", "scores": {"baseline": {"aggregate": 100},
+                                                                "skill": {"aggregate": 100}}}]), encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_headroom(_args([path]))
+    assert exc.value.code == 2
+    assert f"Error: {path}: expected a JSON object" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(("metadata", "message"), [
+    (["a"], "answer metadata must be a JSON object"),
+    ("zz", "answer metadata must be a JSON object"),
+    ({"treatments": 5}, "metadata.treatments must be a JSON array"),
+])
+def test_command_exits_2_when_an_answers_metadata_has_the_wrong_shape(tmp_path, capsys, metadata, message):
+    path = _stamped_file(tmp_path / "run.json")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data["answers"][0]["arms"]["skill"]["metadata"] = metadata
+    path.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_headroom(_args([path]))
+    assert exc.value.code == 2
+    assert f"Error: {path}: {message}" in capsys.readouterr().err
+
+
+def test_command_refuses_a_profile_prompt_that_changes_between_two_questions_of_one_file(tmp_path, capsys):
+    path = _arms_file(tmp_path / "run.json", {"1": {"baseline": 50, "skill": 50}, "2": {"baseline": 50, "skill": 50}})
+    data = json.loads(path.read_text(encoding="utf-8"))
+    for answer, digest in zip(data["answers"], ("a" * 64, "b" * 64), strict=True):
+        answer["arms"]["skill"]["metadata"] = {"profile_prompt_sha256": digest}
+    path.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_headroom(_args([path]))
+    assert exc.value.code == 2
+    assert "arm 'skill' ran with a different profile prompt" in capsys.readouterr().err
+
+
+def test_command_exits_1_when_the_payload_fails_the_artifact_schema(tmp_path, monkeypatch, capsys):
+    from dokimi import artifacts
+
+    def refuse(kind, data, path):
+        raise artifacts.ArtifactValidationError("headroom.v1: items: refused by the schema")
+
+    monkeypatch.setattr(artifacts, "save_artifact", refuse)
+    path = _arms_file(tmp_path / "arms.json", {"1": {"baseline": 95}})
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_headroom(_args([path], output=tmp_path / "headroom.json"))
+    assert exc.value.code == 1
+    assert "Error: headroom.v1: items: refused by the schema" in capsys.readouterr().err
+
+
+def test_command_refuses_legacy_runs_without_a_top_level_arms_list_whose_arms_differ(tmp_path, capsys):
+    one = _arms_file(tmp_path / "one.json", {"1": {"baseline": 100, "skill:a": 100}})
+    two = _arms_file(tmp_path / "two.json", {"1": {"baseline": 50, "skill:b": 50}})
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_headroom(_args([one, two]))
+    assert exc.value.code == 2
+    assert f"{two} is not a repetition of {one}" in capsys.readouterr().err
+
+
+def test_command_pools_legacy_runs_without_a_top_level_arms_list_whose_arms_agree(tmp_path):
+    one = _arms_file(tmp_path / "one.json", {"1": {"baseline": 100, "skill": 100}})
+    two = _arms_file(tmp_path / "two.json", {"1": {"baseline": 50, "skill": 50}})
+    out = tmp_path / "headroom.json"
+    cmd_eval_headroom(_args([one, two], output=out))
+    assert json.loads(out.read_text(encoding="utf-8"))["runs"] == 2
+
+
+def _reference_file(path, questions, scores):
+    """An arms file rescored by ``eval reference`` against ``questions``: a summary per run, as the real artifact has."""
+    data = json.loads(_arms_file(path, {"1": {"baseline": scores, "skill": scores}}).read_text(encoding="utf-8"))
+    data["reference_scoring"] = {"scorer": "reference", "questions": questions,
+                                 "summary": {"baseline": {"correct": int(scores >= 50)}}, "ungraded_questions": 0}
+    path.write_text(json.dumps(data), encoding="utf-8")
+    return path
+
+
+def test_command_refuses_reference_scored_runs_graded_against_different_question_files(tmp_path, capsys):
+    first = _reference_file(tmp_path / "first.json", "x1.json", 90)
+    second = _reference_file(tmp_path / "second.json", "x2.json", 10)
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_headroom(_args([first, second]))
+    assert exc.value.code == 2
+    assert f"{second} was scored by eval reference against different grading than {first}" in capsys.readouterr().err
+
+
+def test_command_pools_reference_scored_runs_that_share_their_grading_and_differ_in_tallies(tmp_path):
+    first = _reference_file(tmp_path / "first.json", "x1.json", 90)
+    second = _reference_file(tmp_path / "second.json", "x1.json", 10)
+    out = tmp_path / "headroom.json"
+    cmd_eval_headroom(_args([first, second], output=out))
     assert json.loads(out.read_text(encoding="utf-8"))["runs"] == 2
