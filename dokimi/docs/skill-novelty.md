@@ -915,10 +915,15 @@ it yields M atoms, more than the cap n, the run probes the atoms at indices
 `floor((i + 0.5) * M / n)` for `i` in `0..n-1` of the extracted list sorted by the earliest span
 each atom cites (`spread_sample` in `dokimi/novelty/atoms.py`): every (M/n)-th atom in document
 order, starting in the middle of the first stride, so the sample estimates the per-atom rate an
-uncapped run reports. The sort is needed because the extractor's reply lists a batch's atoms in
-its own order; it is stable, so atoms citing the same span keep that order, and with M ≤ n
-nothing is sorted and every atom is probed in extraction order. A stride needs no seed: the
-same extracted atom list gives the same sample. A fresh extraction is new model calls, so the
+uncapped run reports. Like any fixed stride, it can fall in step with a repeated structure: with
+M = 100 and n = 25 it always takes atoms 2, 6, ..., 98 (from 0), so an input of four-atom
+sections of the same shape, each with its new fact in the same place, can give a sampled rate
+far from the whole input's, and re-extracting the same atoms gives the same sample, so it cannot
+show the gap. For an artifact of repeated, same-shaped sections (a template per item), or a
+rate that decides something, pass `--all-atoms`. The sort is needed because the extractor's
+reply lists a batch's atoms in its own order; it is stable, so atoms citing the same span keep
+that order, and with M ≤ n nothing is sorted and every atom is probed in extraction order. A
+stride needs no seed: the same extracted atom list gives the same sample. A fresh extraction is new model calls, so the
 same text can give other atoms and so another sample; to probe identical atoms across runs or
 models, extract once with `novelty atoms` and pass its `atoms.json` to `novelty probe --atoms`
 (and `novelty shorten --atoms`), which probe the saved atoms without sampling again. The input

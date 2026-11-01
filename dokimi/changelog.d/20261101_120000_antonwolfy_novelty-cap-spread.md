@@ -8,10 +8,12 @@
   span each atom cites (on a `--include-resources` run, across the files in
   file order, so a file with few atoms may get no probe), so a capped rate
   estimates the whole input's per-atom rate instead of describing its opening.
-  The selection takes no seed: the same extracted atom list gives the same
-  sample. `novelty analyze` and `novelty atoms` (whose `atoms.json` `probe` and
-  `shorten` read) probe the same atoms. A cap below 1 is refused before any
-  call. New runs record `atoms.sampling` as `cap-spread:<n>` and
+  Like any fixed stride it can fall in step with repeated, same-shaped
+  sections and miss or over-count what each one adds; for such an artifact, or
+  a rate that decides something, pass `--all-atoms`. The selection takes no
+  seed: the same extracted atom list gives the same sample. `novelty analyze`
+  and `novelty atoms` (whose `atoms.json` `probe` and `shorten` read) probe the
+  same atoms. A cap below 1 is refused before any call. New runs record `atoms.sampling` as `cap-spread:<n>` and
   `extraction.reached` `null`; `extraction.sampled` is `{"atoms", "of", "rule"}`
   when the cap leaves atoms out, and `null` when it keeps every atom (M ≤ n).
   Only a cap that leaves atoms out sets `spans.capped_atom_set` and brings the
