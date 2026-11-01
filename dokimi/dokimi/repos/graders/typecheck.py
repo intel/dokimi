@@ -26,6 +26,7 @@ from typing import Any
 # Bump when a result for the same inputs changes (a metric or ``pass``).
 VERSION = "1"
 TOOL = "mypy"
+REFERENCE_DIR = "reference"  # task dir: the files of a reference repair, copied over the workspace by oracle
 MAX_ERRORS = 50  # reported in details; the count is in the metrics
 _ERROR = re.compile(r"^(?P<file>.+?)(?::(?P<line>\d+))?(?::\d+)?: error: (?P<message>.*?)(?:\s+\[(?P<code>[\w-]+)\])?$")
 
@@ -49,8 +50,9 @@ def task_problems(raw: dict[str, Any]) -> list[str]:
     return problems
 
 
-def _errors(stdout: str, listed: set[str], root: str) -> list[dict[str, Any]]:
-    """The error lines of mypy's output on a listed file, in output order; ``root`` is stripped from the names."""
+def _errors(stdout: str, listed: set[str] | None, root: str) -> list[dict[str, Any]]:
+    """The error lines of mypy's output on a listed file (any file when ``listed`` is None), in output
+    order; ``root`` is stripped from the names."""
     out = []
     for line in stdout.splitlines():
         m = _ERROR.match(line)
@@ -58,7 +60,7 @@ def _errors(stdout: str, listed: set[str], root: str) -> list[dict[str, Any]]:
             continue
         name = m.group("file")
         name = posixpath.normpath(name[len(root):] if name.startswith(root) else name)
-        if name in listed:
+        if listed is None or name in listed:
             out.append({"file": name, "line": int(m.group("line") or 0),
                         "code": m.group("code") or "", "message": m.group("message")})
     return out
@@ -75,35 +77,46 @@ def grade(task: dict[str, Any], task_dir: Path, answer: str, run_dir: Path | Non
 
     if mypy.version.__version__ != task["version"]:
         raise ValueError(f"the image's mypy is {mypy.version.__version__}, the task pins {task['version']}")
-    workspace = Path(run_dir or "/eval/run") / "workspace"
+    workspace = (Path(run_dir or "/eval/run") / "workspace").resolve()  # absolute: mypy gets these paths
     paths = [posixpath.normpath(p) for p in task["paths"]]
     missing = [p for p in paths if not (workspace / p).is_file()]
     present = [p for p in paths if p not in missing]
     errors: list[dict[str, Any]] = []
     if present:
         cache = tempfile.mkdtemp(prefix="dokimi-mypy-")
-        neutral = tempfile.mkdtemp(prefix="dokimi-mypy-cwd-")  # no config here: the subject's mypy.ini is not read
-        cwd = os.getcwd()
+        neutral = tempfile.mkdtemp(prefix="dokimi-mypy-cfg-")
         try:
-            os.chdir(neutral)
-            stdout, stderr, status = api.run(["--no-incremental", f"--cache-dir={cache}",
+            # An explicit neutral config: the subject's mypy.ini, pyproject.toml and the host's user config are
+            # not read. mypy_path keeps the workspace root on the import path, so a namespace package resolves.
+            config = Path(neutral, "mypy.ini")
+            config.write_text(f"[mypy]\nmypy_path = {workspace}\n", encoding="utf-8")
+            stdout, stderr, status = api.run(["--no-incremental", f"--cache-dir={cache}", f"--config-file={config}",
                                               *[str(workspace / p) for p in present]])
         finally:
-            os.chdir(cwd)
             shutil.rmtree(cache, ignore_errors=True)
             shutil.rmtree(neutral, ignore_errors=True)
-        if status not in (0, 1):  # 2: mypy itself failed (a bad config, a crash)
+        # 2 is also what mypy gives for a blocking source error (a syntax error, a duplicate module): those
+        # are diagnostics like any other. A 2 with no diagnostic line is mypy itself failing.
+        if status not in (0, 1) and not any(": error: " in line for line in stdout.splitlines()):
             raise RuntimeError(f"mypy exited {status}: {stderr[-300:]}")
-        errors = _errors(stdout, set(present), str(workspace) + os.sep)
+        root = str(workspace) + os.sep
+        errors = _errors(stdout, set(present), root)
+        if status == 2 and not errors:
+            # mypy stopped at a blocking error in a file it did not reach ("errors prevented further
+            # checking"): the listed files were not checked, so that error is the grade's
+            errors = _errors(stdout, None, root)
     shown = [f"{e['file']}:{e['line']}: {e['message']}" + (f" [{e['code']}]" if e["code"] else "") for e in errors]
     return {"pass": not errors and not missing, "n_errors": len(errors), "n_missing": len(missing),
             "n_files": len(paths), "errors": shown[:MAX_ERRORS], "missing": missing,
             "tool": TOOL, "tool_version": mypy.version.__version__}
 
 
-def oracle(task: dict[str, Any], task_dir: Path) -> str:
-    """No reference answer: the grade reads the workspace only."""
-    del task, task_dir
+def oracle(task: dict[str, Any], task_dir: Path, run_dir: Path | None = None) -> str:
+    """No reference answer: the grade reads the workspace only. A task with a ``reference/`` directory
+    has its files copied over the workspace first, so the reference repair is what gets graded."""
+    reference = task_dir / REFERENCE_DIR
+    if reference.is_dir() and run_dir is not None:
+        shutil.copytree(reference, Path(run_dir) / "workspace", dirs_exist_ok=True)
     return ""
 
 

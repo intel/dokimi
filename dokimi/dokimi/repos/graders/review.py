@@ -211,7 +211,7 @@ def grade_seeds(task, task_dir, answer, run_dir=None):
     return out
 
 
-def oracle_seeds(task, task_dir):
+def oracle_seeds(task, task_dir, run_dir=None):
     """The reference answer: ``oracle.json`` (a list of findings) in a fence."""
     with open(str(task_dir / task.get("oracle_answer", "oracle.json")), encoding="utf-8") as fh:
         # ``` can only sit in a JSON string: escape it as oracle_replay does, or it closes the fence
@@ -276,7 +276,7 @@ def grade_replay(task, task_dir, answer, run_dir=None):
             "precision_proxy": _ratio(near, len(findings)), "decoys_flagged": []}
 
 
-def oracle_replay(task, task_dir):
+def oracle_replay(task, task_dir, run_dir=None):
     """The reference answer: one finding per gold thread, at its anchor."""
     gold = _read_json(task_dir, task.get("gold", "gold.json"))
     ans = [{"file": g["file"], "line": g["line"], "severity": "minor", "rule": g.get("kind", ""),

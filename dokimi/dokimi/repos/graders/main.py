@@ -93,7 +93,7 @@ def grade(name, task_dir, run_dir):
 
 def oracle(name, task_dir, run_dir):
     """Write the reference answer to ``run_dir/answer.txt``; returns it."""
-    text = ORACLES[name](_read_task(run_dir), task_dir)
+    text = ORACLES[name](_read_task(run_dir), task_dir, run_dir)
     if text:
         (run_dir / "answer.txt").write_text(text, encoding="utf-8")
     return text

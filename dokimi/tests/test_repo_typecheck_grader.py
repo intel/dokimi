@@ -151,3 +151,67 @@ def test_a_listed_path_with_a_colon_is_matched():
 def test_a_line_less_error_on_a_listed_file_is_counted():
     out = typecheck._errors("pkg/a.py: error: Duplicate module named 'a'", {"pkg/a.py"}, "")
     assert [(e["file"], e["line"]) for e in out] == [("pkg/a.py", 0)]
+
+
+NAMESPACE_API = "from pkg.other import broken\n\ndef use() -> int:\n    return broken()\n"
+NAMESPACE_OTHER = "def broken() -> int:\n    return 1\n"
+
+
+def test_a_relative_run_directory_is_graded(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": CLEAN}, _task())
+    result = typecheck.grade(_task(), tmp_path, "", Path("run"))
+    assert result["pass"] is True
+    assert result["missing"] == []
+
+
+def test_a_namespace_package_resolves_from_the_workspace_root(tmp_path):
+    run = _run(tmp_path, {"pkg/api.py": NAMESPACE_API, "pkg/other.py": NAMESPACE_OTHER}, _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is True, result["errors"]
+
+
+def test_a_blocking_syntax_error_in_a_listed_file_fails_the_grade(tmp_path):
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": "def broken(:\n    pass\n"}, _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is False
+    assert result["n_errors"] >= 1
+    assert result["errors"][0].startswith("pkg/api.py:1:")
+
+
+def test_mypy_failing_without_a_diagnostic_is_a_grader_error(tmp_path, monkeypatch):
+    run = _run(tmp_path, {"pkg/api.py": CLEAN}, _task())
+    import mypy.api
+
+    monkeypatch.setattr(mypy.api, "run", lambda args: ("", "cannot start", 2))
+    with pytest.raises(RuntimeError, match="mypy exited 2"):
+        typecheck.grade(_task(), tmp_path, "", run)
+
+
+def test_the_reference_directory_repairs_the_workspace_before_grading(tmp_path):
+    task_dir = tmp_path / "task"
+    (task_dir / "reference" / "pkg").mkdir(parents=True)
+    (task_dir / "reference" / "pkg" / "api.py").write_text(CLEAN, encoding="utf-8")
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": WRONG}, _task())
+    assert typecheck.grade(_task(), tmp_path, "", run)["pass"] is False
+    assert typecheck.oracle(_task(), task_dir, run) == ""
+    assert typecheck.grade(_task(), tmp_path, "", run)["pass"] is True
+
+
+def test_the_entry_point_oracle_repairs_the_workspace_too(tmp_path):
+    task_dir = tmp_path / "task"
+    (task_dir / "reference" / "pkg").mkdir(parents=True)
+    (task_dir / "reference" / "pkg" / "api.py").write_text(CLEAN, encoding="utf-8")
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": WRONG}, _task())
+    main.oracle("typecheck", task_dir, run)
+    assert main.grade("typecheck", task_dir, run)["pass"] is True
+
+
+def test_a_blocking_error_in_an_imported_module_fails_the_listed_file(tmp_path):
+    # mypy stops at the syntax error and never reaches api.py, so the listed file is not checked
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/other.py": "def broken(:\n    pass\n",
+                          "pkg/api.py": "from pkg.other import broken\n\ndef use() -> int:\n    return 'x'\n"},
+               _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is False
+    assert result["n_errors"] >= 1
