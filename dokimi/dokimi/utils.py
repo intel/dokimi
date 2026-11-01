@@ -95,6 +95,17 @@ def digest_text(text: str) -> str:
     return "sha256:" + hashlib.sha256((text or "").encode("utf-8", errors="surrogatepass")).hexdigest()
 
 
+def _plain_path(text: str) -> str:
+    r"""A Windows absolute path without its extended-length prefix. os.readlink gives an absolute link target as
+    \\?\C:\... (or \\?\UNC\...), while the anchors are plain: the two read as different drives.
+    Any other text is returned unchanged."""
+    if text.startswith("\\\\?\\UNC\\"):
+        return "\\\\" + text[len("\\\\?\\UNC\\"):]
+    if text.startswith("\\\\?\\"):
+        return text[len("\\\\?\\"):]
+    return text
+
+
 def link_text(link: Path, root: Path) -> str:
     """A symlink's target as the digests hold it: as written, except an absolute target inside ``root``, which is
     written relative to the link. So a tree digests the same at another checkout path (the link's text is the same).
@@ -102,6 +113,9 @@ def link_text(link: Path, root: Path) -> str:
     collapsing it lexically would hash two different files alike."""
     target = os.readlink(link)
     if not os.path.isabs(target):
+        return target
+    target = _plain_path(target)
+    if link == root:  # the root is hashed by its target, not walked: kept as written, so a loop through it stays a loop
         return target
     # the tree may be named by a path with links in it: match the target under the name as given and as resolved
     # (a link that is the root itself is not resolved, or its own target would count as inside it)
@@ -112,8 +126,6 @@ def link_text(link: Path, root: Path) -> str:
         except ValueError:  # different drives, or a relative path mixed in
             continue
         if inside:
-            if link == root and target == anchor:
-                return target  # the root links to itself, a loop: "." would read as a link to its own directory
             rest = [part for part in target[len(anchor):].split(os.sep) if part not in ("", ".")]
             depth = len(link.relative_to(root).parent.parts)  # the link's directory, as the text is read from there
             slash = "/" if target.endswith((os.sep, os.sep + ".")) else ""  # "x/" and "x/." need a directory

@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from dokimi.repo_config import ConfigError, load_repo_config
+from dokimi.repo_config import ConfigError, _walk, load_repo_config
 
 HEADER = "schema_version: dokimi_config.v1\n"
 
@@ -181,3 +181,65 @@ def test_a_link_inside_a_suite_reached_through_another_link_is_not_a_skill_link(
     impact = load_repo_config(root).subjects_for_changed(["skills/a/evals/alias"])
     assert impact.skills == {}
     assert impact.suites == {"skill/a": ["skills/a/evals/alias"]}
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_deleting_one_file_a_wildcard_suite_matches_among_others_still_claims_it(tmp_path):
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: evaluation/current/*.json\n"
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": body,
+        "skills/a/SKILL.md": "# a\n",
+        "one/task.json": "[]\n",
+        "one/keep.json": "[]\n",
+    })
+    os.makedirs(root / "evaluation")
+    os.symlink("../one", root / "evaluation" / "current")
+    before = _subjects(root)["skill/a"].suite_hash
+    (root / "one" / "task.json").unlink()
+    assert _subjects(root)["skill/a"].suite_hash != before
+    impact = load_repo_config(root).subjects_for_changed(["one/task.json"])
+    assert impact.suites == {"skill/a": ["one/task.json"]}
+    assert impact.unclaimed == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_a_link_inside_a_suite_under_a_linked_skill_is_not_a_skill_link(tmp_path):
+    # skills/a -> vendor/a: the suite is spelled under skills/a but its files live under vendor/a. The eval link
+    # is in the suite, so skill_sha leaves it out, whichever spelling the walk reached it by
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: skills/a/evals/**\n"
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": body,
+        "vendor/a/SKILL.md": "# a\n",
+        "x/one.md": "same\n",
+        "x/two.md": "same\n",
+    })
+    os.makedirs(root / "skills")
+    os.symlink("../vendor/a", root / "skills" / "a")
+    os.makedirs(root / "vendor" / "a" / "evals")
+    os.symlink("../../../x/one.md", root / "vendor" / "a" / "evals" / "q.json")
+    before = _subjects(root)["skill/a"]
+    (root / "vendor" / "a" / "evals" / "q.json").unlink()
+    os.symlink("../../../x/two.md", root / "vendor" / "a" / "evals" / "q.json")
+    after = _subjects(root)["skill/a"]
+    assert after.skill_sha == before.skill_sha and after.suite_hash != before.suite_hash
+    impact = load_repo_config(root).subjects_for_changed(["vendor/a/evals/q.json"])
+    assert impact.skills == {}
+    assert impact.suites == {"skill/a": ["vendor/a/evals/q.json"]}
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_mixed_case_directory_aliases_are_walked_in_code_point_order_on_every_os(tmp_path):
+    # Path ordering folds case on Windows, where "a" sorts before "B"; POSIX sorts "B" first. The walk takes the first
+    # alias of a shared directory it meets, so the suite must name the same alias on every OS: children by name
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: evaluation\n"
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": body,
+        "skills/a/SKILL.md": "# a\n",
+        "shared/q.json": "[]\n",
+    })
+    os.makedirs(root / "evaluation")
+    os.symlink("../shared", root / "evaluation" / "B")
+    os.symlink("../shared", root / "evaluation" / "a")
+    names = [name for name, _ in _walk(root / "evaluation", "evaluation")]
+    assert "evaluation/B/q.json" in names
+    assert "evaluation/a/q.json" not in names

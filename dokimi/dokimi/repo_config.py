@@ -346,10 +346,11 @@ def _reach(subject: Subject, root: Path) -> Reach:
             suites.append(real_manifest)
         links.extend(_hops(root / subject.manifest, root, root_real))
     matches = _suite_files(root, subject.suite_globs)
+    named = {**matches, **_resolved_spellings(matches, root_real)}  # each match by its spelling, and as it resolves
     for rel, path in matches.items():
         for _, entry in _walk(path, rel, dirs=True):
-            _suite_entry(entry, root, root_real, real_skill, suites, links, skill_links, matches)
-    globs = (*globs, *_unnamed_literals(subject.suite_globs, matches, root, root_real, real_skill,
+            _suite_entry(entry, root, root_real, real_skill, suites, links, skill_links, named)
+    globs = (*globs, *_unnamed_literals(subject.suite_globs, named, root, root_real, real_skill,
                                         suites, links, skill_links))
     return Reach(skills, suites, links, skill_links, globs)
 
@@ -359,16 +360,17 @@ def _unnamed_literals(literals: tuple[str, ...], matches: dict[str, Path], root:
                       links: list[tuple[str, ...]], skill_links: list[tuple[str, ...]]) -> tuple[str, ...]:
     """A literal suite path that names nothing now (its file deleted, or a link on the way retargeted where the file
     is absent) still claims the links on its way and the place it resolves to, so the change maps to the suite.
-    A glob that matches nothing claims the links on the way to its literal prefix, and its own pattern under the
-    place the prefix resolves to. Returns the escaped glob of each such place that resolves inside the repo."""
+    A glob claims the links on the way to its literal prefix and its own pattern under the place the prefix resolves
+    to, whether or not it still matches files (deleting one of several matches moves the suite too).
+    Returns the escaped glob of each such place that resolves inside the repo."""
     globs: list[str] = []
     for literal in literals:
         if literal in matches:
             continue
         segs = literal.split("/")
         wild = next((i for i, s in enumerate(segs) if any(c in s for c in "*?[")), None)
-        if wild is not None:  # a glob that matches nothing claims the links on the way to its literal prefix
-            if wild == 0 or _glob_paths(root, literal):
+        if wild is not None:  # a glob claims the links on the way to its literal prefix
+            if wild == 0:
                 continue
             prefix = root.joinpath(*segs[:wild])
             links.extend(_hops(prefix, root, root_real))
@@ -384,12 +386,24 @@ def _unnamed_literals(literals: tuple[str, ...], matches: dict[str, Path], root:
     return tuple(globs)
 
 
+def _resolved_spellings(matches: dict[str, Path], root_real: Path) -> dict[str, Path]:
+    """Each match again, spelled by where its directory resolves: a suite reached through a linked skill is matched
+    under the link's spelling, and its files are hashed where they live."""
+    spelled: dict[str, Path] = {}
+    for path in matches.values():
+        segs = _inside(path.parent, root_real)
+        if segs is not None:
+            spelled["/".join((*segs, path.name))] = path
+    return spelled
+
+
 def _suite_entry(entry: Path, root: Path, root_real: Path, real_skill: tuple[str, ...] | None,
                  suites: list[tuple[str, ...]], links: list[tuple[str, ...]],
                  skill_links: list[tuple[str, ...]], matches: dict[str, Path]) -> None:
     """Add one suite file's claims: its own location and the links on the way to it, and a link inside the skill
     that the suite reaches through (skill_sha covers it, so the skill claims it too). A link the suite matches is
-    left out of skill_sha, so it is not a skill link; ``matches`` holds the suite's matched paths."""
+    left out of skill_sha, so it is not a skill link; ``matches`` holds the suite's matched paths, under their
+    declared and their resolved spellings."""
     declared_links = set(_declared_links(entry, root))
     for hop in _hops(entry, root, root_real):
         links.append(hop)

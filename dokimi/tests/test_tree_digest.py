@@ -26,6 +26,11 @@ def _write(root: Path, files: dict[str, str]) -> Path:
     return root
 
 
+def _track_executable(root: Path, rel: str) -> None:
+    """Record ``rel`` as 100755 in the index whatever the disk says (chmod sets no exec bit on Windows)."""
+    subprocess.run(["git", "-C", str(root), "update-index", "--chmod=+x", "--", rel], check=True)
+
+
 def test_the_same_content_at_another_path_digests_the_same(tmp_path):
     a = _write(tmp_path / "a", {"SKILL.md": "x\n", "scripts/run.py": "print(1)\n"})
     b = _write(tmp_path / "b", {"SKILL.md": "x\n", "scripts/run.py": "print(1)\n"})
@@ -124,6 +129,7 @@ def test_the_executable_bit_is_the_one_git_records_not_the_disk_one(tmp_path):
     (root / "run.sh").chmod(0o755)
     subprocess.run(["git", "init", "-q", str(root)], check=True)
     subprocess.run(["git", "-C", str(root), "add", "run.sh"], check=True)
+    _track_executable(root, "run.sh")  # chmod does not set the bit on Windows: the index must say 100755 on every OS
     before = tree_digest(root)
     (root / "run.sh").chmod(0o644)  # a Windows checkout has no exec bit on disk; git still records 100755
     assert tree_digest(root) == before
@@ -175,12 +181,44 @@ def test_a_root_link_to_itself_digests_differently_from_a_link_to_dot(tmp_path):
     assert tree_digest(loop) != tree_digest(dot)
 
 
+@symlinks
+def test_a_root_link_to_a_descendant_of_itself_digests_differently_from_a_relative_one(tmp_path):
+    # root -> root/child loops through the root; root -> child is the sibling directory. Both would read "child"
+    root = tmp_path / "link"
+    os.symlink(root / "child", root)
+    looping = tree_digest(root)
+    root.unlink()
+    os.symlink("child", root)
+    assert tree_digest(root) != looping
+
+
+def test_a_windows_extended_path_prefix_is_read_as_the_plain_path():
+    # os.readlink on Windows returns the \\?\ form of an absolute link target; the containment check needs the plain one
+    from dokimi.utils import _plain_path
+
+    assert _plain_path("\\\\?\\C:\\checkout\\tree\\q.json") == "C:\\checkout\\tree\\q.json"
+    assert _plain_path("\\\\?\\UNC\\srv\\share\\q.json") == "\\\\srv\\share\\q.json"
+    assert _plain_path("C:\\checkout\\tree\\q.json") == "C:\\checkout\\tree\\q.json"
+    assert _plain_path("q.json") == "q.json"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="the extended-path prefix is what Windows reads an absolute link back as")
+@symlinks
+def test_an_absolute_link_inside_the_tree_digests_the_same_at_another_path_on_windows(tmp_path):
+    a = _write(tmp_path / "a", {"q.json": "[]\n"})
+    b = _write(tmp_path / "b", {"q.json": "[]\n"})
+    os.symlink(a / "q.json", a / "current")
+    os.symlink(b / "q.json", b / "current")
+    assert tree_digest(a) == tree_digest(b)
+
+
 def test_a_tracked_file_whose_name_has_brackets_takes_its_mode_from_the_index(tmp_path):
     # ls-files reads the name as a glob unless it is literal: [1] would match nothing and the disk bit would count
     root = _write(tmp_path / "t", {"question[1].json": "[]\n"})
     (root / "question[1].json").chmod(0o755)
     subprocess.run(["git", "init", "-q", str(root)], check=True)
     subprocess.run(["git", "-C", str(root), "add", "question[1].json"], check=True)
+    _track_executable(root, "question[1].json")
     before = tree_digest(root / "question[1].json")  # a file root: git is asked for its name as the pathspec
     (root / "question[1].json").chmod(0o644)
     assert tree_digest(root / "question[1].json") == before
@@ -195,6 +233,7 @@ def test_a_tracked_mode_past_the_capture_limit_still_comes_from_the_index(tmp_pa
     (root / target).chmod(0o755)
     subprocess.run(["git", "init", "-q", str(root)], check=True)
     subprocess.run(["git", "-C", str(root), "add", "."], check=True)
+    _track_executable(root, target)
     before = tree_digest(root)
     (root / target).chmod(0o644)
     assert tree_digest(root) == before
