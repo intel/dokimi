@@ -588,8 +588,9 @@ def _apply_overlay(ws: Path, tracked: list[str], own: str) -> tuple[list[str], d
             raise PrepError(f"guidance:overlay: {rel} does not resolve to a usable file in the workspace")
     removed = sorted(p for p in tracked if overlay_of(p) not in (None, own))
     gone = {_canon(ws / rel) for rel in removed}
+    removed_set = set(removed)
     for rel in tracked:
-        if rel not in removed and _link_hits(ws / rel, gone):
+        if rel not in removed_set and (ws / rel).is_symlink() and _link_hits(ws / rel, gone):
             raise PrepError(f"guidance:overlay: {rel} links to an overlay the arm removes; the base would dangle")
     for rel in removed:
         if (ws / rel).is_dir() and not (ws / rel).is_symlink():
