@@ -145,13 +145,13 @@ def parse_stream(stream: str) -> Dict[str, Any]:
     # share message.id. Subagent events (parent_tool_use_id set) are not the choice.
     by_turn: Dict[str, List[str]] = {}
     other_tools: List[str] = []
-    failed_ids: set = set()  # tool_use ids whose tool_result is an error
+    ok_ids: set = set()  # tool_use ids whose tool_result arrived and is not an error
     calls: List[tuple] = []  # (tool_use id, raw skill name) of top-level Skill calls
     for n, ev in enumerate(_events(stream)):
         if ev.get("type") == "user":
             for c in (ev.get("message") or {}).get("content") or []:
-                if isinstance(c, dict) and c.get("type") == "tool_result" and c.get("is_error"):
-                    failed_ids.add(c.get("tool_use_id"))
+                if isinstance(c, dict) and c.get("type") == "tool_result" and not c.get("is_error"):
+                    ok_ids.add(c.get("tool_use_id"))
         if ev.get("type") == "system" and ev.get("subtype") == "init":
             listed = [str(s) for s in ev.get("skills") or []]
             version = ev.get("claude_code_version")
@@ -175,8 +175,9 @@ def parse_stream(stream: str) -> Dict[str, Any]:
         "selected": first[0] if first else None,
         "first_turn_loaded": first,
         "loaded": [s for t in turns for s in t],
-        # Raw names (plugin namespace kept) of Skill calls whose result was not an error.
-        "loaded_ok": [name for tid, name in calls if tid is None or tid not in failed_ids],
+        # Raw names (plugin namespace kept) of Skill calls with an observed result that was not an error.
+        # A call whose result never arrived (a hang, a kill) did not load anything.
+        "loaded_ok": [name for tid, name in calls if tid is not None and tid in ok_ids],
         "tools_before_choice": other_tools,
         "claude_code_version": version,
     }
@@ -229,9 +230,10 @@ def known_positive(skill: str, catalog: Path, cfg: ProbeConfig, *, runner: proce
     except (OSError, RuntimeError) as exc:
         return {"skill": skill, "query": query, "passed": False, "loaded": [], "listed": [], "cost_usd": None,
                 "claude_code_version": None, "error": f"{type(exc).__name__}: {exc}"}
-    # The guard passes on a successful call of exactly this skill (a `plugin:skill` is another one);
-    # ``listed`` records whether the harness showed it. A failure is reported even after a Skill call.
-    passed = skill in r["skill"]["loaded_ok"]
+    # The guard passes on an observed, successful call of exactly this skill (a `plugin:skill` is another
+    # one) in a run that then ended without a terminal error; ``listed`` records whether the harness showed
+    # it. A terminal failure is reported even after the skill loaded.
+    passed = skill in r["skill"]["loaded_ok"] and r["terminal_error"] is None
     return {"skill": skill, "query": query, "passed": passed,
             "loaded": r["skill"]["loaded"], "listed": r["skill"]["listed"], "cost_usd": r["cost_usd"],
             "claude_code_version": r["skill"]["claude_code_version"],

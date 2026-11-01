@@ -605,7 +605,8 @@ exits 1; a leftover `<out>.partial` is removed. A skill call that returned an er
 `plugin:skill` of another plugin, does not count as a load. If that run ended in an error, `status` is `error: known-positive run failed` instead. An empty catalog is
 refused (exit 2) before the guard runs, unless `--no-known-positive` is passed. This
 known-positive check is what separates "the model did not pick the skill" from "the
-harness never showed it"; `--no-known-positive` skips it, and `status` is then `unchecked`.
+harness never showed it"; `--no-known-positive` skips it, and `status` is then `unchecked` (`invalid: skill not listed` still applies
+when a catalog skill is never listed).
 Records are kept in `<out>.partial` while the probe runs:
 
 ```bash

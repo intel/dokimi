@@ -10,4 +10,5 @@
   not count as a load. So a skill the harness never shows cannot read as a 0% trigger rate. A guard run
   that ended in an error writes `"status": "error: known-positive run failed"` instead. An
   empty `--catalog` is refused (exit 2) before the guard runs. Pass
-  `--no-known-positive` to skip the check; the output then says `"status": "unchecked"`.
+  `--no-known-positive` to skip the check; the output then says `"status": "unchecked"` (or `invalid: skill not listed` when a
+  catalog skill is never listed).

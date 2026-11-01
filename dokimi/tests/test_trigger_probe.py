@@ -35,10 +35,13 @@ def _stream(*skills_per_turn, other: str = "", version: str = "2.1.304") -> str:
     if other:
         lines.append({"type": "assistant", "message": {"content": [
             {"type": "tool_use", "name": other, "input": {}}]}})
-    for turn in skills_per_turn:
-        lines.append({"type": "assistant", "message": {"content": [
-            {"type": "text", "text": "ok"}] + [
-            {"type": "tool_use", "name": "Skill", "input": {"skill": s}} for s in turn]}})
+    for t, turn in enumerate(skills_per_turn):
+        uses = [{"type": "tool_use", "id": f"t{t}-{i}", "name": "Skill", "input": {"skill": s}}
+                for i, s in enumerate(turn)]
+        lines.append({"type": "assistant", "message": {"content": [{"type": "text", "text": "ok"}] + uses}})
+        if uses:  # each call got its result back, not an error
+            lines.append({"type": "user", "message": {"content": [
+                {"type": "tool_result", "tool_use_id": u["id"], "is_error": False, "content": "x"} for u in uses]}})
     lines.append({"type": "result", "subtype": "success", "is_error": False,
                   "total_cost_usd": 0.01, "num_turns": 2})
     return "\n".join(json.dumps(x) for x in lines) + "\n"
@@ -459,13 +462,16 @@ def test_known_positive_passes_only_when_the_explicit_request_loads_the_skill(tm
     assert r["passed"] is passed and r["error"] is None
 
 
-def _skill_stream(name, *, is_error=False, result=True):
+def _skill_stream(name, *, is_error=False, result=True, answered=True, final=None):
     events = [{"type": "system", "subtype": "init", "skills": ["sum-fast"], "claude_code_version": "2.1.304"},
               {"type": "assistant", "message": {"id": "m1", "content": [
-                  {"type": "tool_use", "id": "tu1", "name": "Skill", "input": {"skill": name}}]}},
-              {"type": "user", "message": {"content": [
-                  {"type": "tool_result", "tool_use_id": "tu1", "is_error": is_error, "content": "x"}]}}]
-    if result:
+                  {"type": "tool_use", "id": "tu1", "name": "Skill", "input": {"skill": name}}]}}]
+    if answered:
+        events.append({"type": "user", "message": {"content": [
+            {"type": "tool_result", "tool_use_id": "tu1", "is_error": is_error, "content": "x"}]}})
+    if final is not None:
+        events.append(final)
+    elif result:
         events.append({"type": "result", "subtype": "success", "is_error": False, "total_cost_usd": 0.01, "num_turns": 2})
     return "\n".join(json.dumps(e) for e in events) + "\n"
 
@@ -491,6 +497,18 @@ def test_known_positive_needs_the_exact_skill_loaded_without_error(tmp_path, nam
 def test_known_positive_keeps_the_timeout_when_another_skill_was_called_first(tmp_path):
     r = _known(tmp_path, _skill_stream("io-read", result=False), timed_out=True)
     assert r["passed"] is False and r["error"] == "timeout"
+
+
+def test_known_positive_fails_when_the_target_call_timed_out_before_its_result(tmp_path):
+    # The target was called, but its result never arrived: nothing shows it loaded.
+    r = _known(tmp_path, _skill_stream("sum-fast", answered=False, result=False), timed_out=True)
+    assert r["passed"] is False and r["error"] == "timeout" and r["loaded"] == ["sum-fast"]
+
+
+def test_known_positive_keeps_a_terminal_error_after_the_target_loaded(tmp_path):
+    final = {"type": "result", "subtype": "error_during_execution", "is_error": True, "num_turns": 2}
+    r = _known(tmp_path, _skill_stream("sum-fast", final=final))
+    assert r["passed"] is False and r["error"] == "error_during_execution"
 
 
 def test_known_positive_that_cannot_run_fails_without_raising(tmp_path):
