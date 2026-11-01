@@ -618,7 +618,7 @@ A catalog that holds the same `SKILL.md` under two paths (a plugin copy of its `
 tree) counts it once: the copy nearest the catalog root stands for the card, and the
 others are named on stderr.
 
-`--estimate-only` prints, as JSON, the calls, input and output tokens and the list-price `usd` the
+`--estimate-only` prints, as JSON, the calls, input and output tokens and the list-price `expected_usd` the
 `--model` arm would make, and makes no model call. Without `--model` the run is lexical and the bill
 is zero. Input is the selection prompt sized at chars / 4, so it is a projection, not a count.
 

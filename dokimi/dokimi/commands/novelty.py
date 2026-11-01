@@ -822,7 +822,7 @@ def register(sub, positive_int) -> None:
                                 "run-to-run noise floor. Needs --model; costs N times the calls")
     routing_p.add_argument("--estimate-only", action="store_true", dest="estimate_only",
                            help="Print the calls, input and output tokens and the list-price "
-                                "USD that --model would make, as JSON, and make no model call. "
+                                "expected_usd that --model would make, as JSON, and make no model call. "
                                 "Without --model the run is lexical and the bill is zero")
     routing_p.add_argument("--out", default=None)
     _add_spend_cap(routing_p)

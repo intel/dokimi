@@ -5,7 +5,7 @@ SPDX-License-Identifier: Apache-2.0
 
 ### Added
 
-- **`novelty routing --estimate-only`** prints, as JSON, the calls, input and output tokens and the list-price `usd` that `--model` would make, from the same selection prompt the run sends, and makes no model call. Without `--model` the bill is zero. `--all-vs-all` has no estimate yet; its stderr line still says how many calls the model arm makes.
+- **`novelty routing --estimate-only`** prints, as JSON, the calls, input and output tokens and the list-price `expected_usd` that `--model` would make, from the same selection prompt the run sends, and makes no model call. Without `--model` the bill is zero. `--all-vs-all` has no estimate yet; its stderr line still says how many calls the model arm makes.
 - **`novelty routing --all-vs-all --repeats N`** asks each query N times, as a single-artifact run does, and prints and writes the `noise` block (agreement per query, the rate of each repeat, `half_range`). The model arm's counts are then calls. `--repeats` still needs `--model`.
 - **`novelty routing --all-vs-all --model`** writes the same `cost` block as the single-artifact run, on stdout and in the result file.
 
