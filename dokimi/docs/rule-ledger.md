@@ -72,7 +72,7 @@ Schema cannot).
       "rule": "Revert edits to files the change does not need.",
       "source": "AGENTS.md#commits-and-pull-requests",
       "hypothesis": "With the rule, agents stop touching unrelated files on the replayed PRs.",
-      "arm": "guidance:rules",
+      "arm": "guidance:raw",
       "baseline": "guidance:none",
       "cases": ["review_replay_pr3580", "review_replay_pr3659", "fix_df_extratrees_reg"],
       "reviewed": "2026-10-01"
@@ -124,9 +124,11 @@ The text output keeps the ordinary comparison and adds a `rule ledger` section.
 A ledger that does not validate, or a default `--baseline` the batches do not have,
 exits 2 with a `✗` line naming the file (and the rule, where the error is the rule's).
 A rule whose own `baseline` or `arm` has no cell among its cases is `not measured` for
-that rule, and the command still exits 0. The
-ordinary comparison's flags (`--arm`, `--task`, `--metric`, ...) do not change the
-ledger, which uses the rules' own cases and arms.
+that rule, and the command still exits 0. The ordinary comparison runs first, so a
+`--task` or `--arm` it rejects (no cell matches) exits 2 before any ledger is evaluated.
+Once it succeeds, its `--arm`, `--task` and `--metric` filters do not change the ledger,
+which uses the rules' own cases and arms. `--model` does apply: it limits the ledger to
+those models, which changes its Holm family and so its verdicts.
 
 ## Limits
 
