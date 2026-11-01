@@ -576,3 +576,37 @@ def test_an_apostrophe_inside_double_quotes_does_not_hide_the_path_after_it():
     command = "echo \"isn't\"; cat docs/guide.md; echo 'a b'"
     session = _session(_prompt("update the guide behaviour"), _tool("Bash", command=command))
     assert _row(_report([session], rule), "Update")["acted"] == 1
+
+
+@pytest.mark.parametrize("command", ["sudo -n make ci-local", "env -u PYTHONPATH make ci-local",
+                                     "timeout --signal=TERM 600 make ci-local", "timeout -s TERM 600 make ci-local",
+                                     "env A=1 sudo -u root make ci-local", "uv run --frozen make ci-local",
+                                     "make ci-local>results.txt", "make ci-local</dev/null"])
+def test_a_command_run_under_wrapper_options_or_a_redirect_is_an_action(command):
+    session = _session(_prompt("push the branch now"), _tool("Bash", command=command))
+    assert _row(_report([session]), CI)["acted"] == 1
+
+
+@pytest.mark.parametrize("command", [r'echo "say \" ; make ci-local ; \""', "echo \\\nmake ci-local",
+                                     "echo 'a\\\nmake ci-local'", r"echo \; make ci-local"])
+def test_an_escaped_quote_or_a_continued_or_printed_line_is_not_a_run(command):
+    session = _session(_prompt("push the branch now"), _tool("Bash", command=command))
+    assert _row(_report([session]), CI)["acted"] == 0
+
+
+def test_a_line_continuation_joins_the_command_it_splits():
+    session = _session(_prompt("push the branch now"), _tool("Bash", command="make \\\nci-local"))
+    assert _row(_report([session]), CI)["acted"] == 1
+
+
+def test_a_redirect_directly_after_the_named_command_is_an_action():
+    rule = "- Run `pytest` when testing changes.\n"
+    session = _session(_prompt("testing changes"), _tool("Bash", command="pytest>results.txt"))
+    assert _row(_report([session], rule), "Run")["acted"] == 1
+
+
+def test_a_path_in_an_escaped_quote_is_not_a_path_argument():
+    rule = "- Keep `changelog.d/` current.\n"
+    command = r'echo "say \" ; cat changelog.d/x.md ; \""'
+    session = _session(_prompt("keep the changelog current"), _tool("Bash", command=command))
+    assert _row(_report([session], rule), "Keep")["acted"] == 0

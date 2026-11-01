@@ -25,6 +25,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from dokimi.context import shell
 from dokimi.context.session_log import Event, Session
 from dokimi.novelty.spans import segment
 
@@ -41,9 +42,10 @@ _RULE_KINDS = frozenset({"sentence", "list_item", "table_row"})
 _BACKTICK = re.compile(r"`([^`\n]+)`")
 _WORD = re.compile(r"[a-z][a-z0-9_-]{2,}")
 _PATH = re.compile(r"[/\\]|\.[A-Za-z0-9]{1,6}$")
-# a shell command's runner words before the command it runs (``uv run pytest``, ``sudo make``, ``A=1 make``)
-_RUNNER = r"(?:(?:[A-Za-z_]\w*=\S*|sudo|env|time|nohup|exec|npx|uv\s+run|poetry\s+run|timeout\s+\d+)\s+)*"
-_QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")  # a quoted argument is text, not a command
+# a quoted argument is text, not a command; a backslash escapes the next character, also inside double quotes
+_QUOTED = re.compile(r"\\[\s\S]|'[^']*'|\"(?:\\[\s\S]|[^\"\\])*\"")
+# an unquoted backslash-newline is a line continuation: the line goes on, it is not a new command
+_CONTINUATION = re.compile(r"\\\n|\\[\s\S]|'[^']*'|\"(?:\\[\s\S]|[^\"\\])*\"")
 # a heredoc body is data for the command, not commands: from the line after ``<<WORD`` to a line that is WORD alone
 _HEREDOC = re.compile(r"(?m)((?<!<)<<-?[ \t]*['\"]?(\w+)['\"]?[^\n]*\n)(?:.*?\n)??[ \t]*\2[ \t]*$", re.S)
 _COMMENT = re.compile(r"(?m)(?:^|\s)#.*$")
@@ -149,10 +151,14 @@ def _hide_sentence(match: re.Match[str]) -> str:
     return _HIDDEN if any(c.isspace() for c in match.group(0)[1:-1]) else match.group(0)
 
 
+def _join_line(match: re.Match[str]) -> str:
+    return "" if match.group(0) == "\\\n" else match.group(0)
+
+
 def _masked_segments(command: str, *, hide_spaced: bool = False) -> list[str]:
     """The command's segments with their quotes removed, still masked. A heredoc body is dropped; with
     ``hide_spaced`` a quoted argument with a space in it is replaced by a placeholder."""
-    text = _HEREDOC.sub(r"\1", command or "")
+    text = _CONTINUATION.sub(_join_line, _HEREDOC.sub(r"\1", command or ""))
     if hide_spaced:
         text = _QUOTED.sub(_hide_sentence, text)  # the same pairing of quotes as _mask
     masked = _COMMENT.sub("", _QUOTED.sub(_mask, text))
@@ -163,24 +169,24 @@ def _words(seg: str) -> str:
     return " ".join(seg.translate(_FROM_MASK).split())
 
 
-def _segments(command: str) -> list[str]:
-    """The command's segments, each with its quotes removed and its spacing normalized."""
-    return [_words(seg) for seg in _masked_segments(command)]
-
-
 def _invokes(key: str, command: str) -> bool:
-    """Whether a shell command runs ``key``: at the start of one of its command segments (after runner words),
-    so an ``echo``, a ``grep`` argument or a ``#`` comment that names it does not count. The key ends where
-    its last word ends: ``make ci-local`` does not run ``make ci-local.debug``."""
-    words = " ".join(_unquote(key).split())
+    """Whether a shell command runs ``key``: as the program of one of its command segments, after the wrappers
+    (``sudo -n``, ``env -u X``, ``timeout 600``, ``uv run``, ``A=1``), so an ``echo``, a ``grep`` argument or a
+    ``#`` comment that names it does not count. The key ends where its last word ends: ``make ci-local`` does
+    not run ``make ci-local.debug``, while a redirection after it (``make ci-local>log``) still runs it."""
+    words = _unquote(key).split()
     if not words:
         return False
-    run = re.compile(rf"{_RUNNER}{re.escape(words)}(?=\s|$)")
-    return any(run.match(seg) for seg in _segments(command) if seg)
+    return any(shell.strip_wrappers(shell.tokens(seg))[:len(words)] == words for seg in shell.segments(command))
 
 
-# the arguments of echo and printf are printed, not read or written; a redirection target is written
-_PRINTS = re.compile(rf"{_RUNNER}(?:echo|printf)(?=\s|$)")
+def _prints(text: str) -> bool:
+    """Whether a segment is an ``echo`` or ``printf``: its arguments are printed, not read or written."""
+    words = shell.strip_wrappers(text.split())
+    return bool(words) and words[0] in ("echo", "printf")
+
+
+# a redirection target is written
 _REDIRECT = re.compile(r">>?\s*([^\s;&|<>]+)")
 
 
@@ -192,7 +198,7 @@ def _shell_paths(command: str) -> str:
     for seg in _masked_segments(command, hide_spaced=True):
         parts.extend(target.translate(_FROM_MASK) for target in _REDIRECT.findall(seg))
         text = _words(seg)
-        if not _PRINTS.match(text):
+        if not _prints(text):
             parts.append(text)
     return " ".join(parts)
 
