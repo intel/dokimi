@@ -16,8 +16,9 @@
   record and its `retrieval_hit` stay, its diagnosis stays `empty_retrieval`, and the run
   summary says how many questions it left out. Pass `--judge-placeholder` to judge the
   placeholder again (this restores only that part of the old method). The dashboard's arm
-  means and delta leave such a question out too, as `report eval` does; its doc score still
-  counts it as 0. `report eval` and `report generate` show `—` for the arm means and delta when
+  means and delta leave such a question out too, as `report eval` does. Its doc score counts a
+  retrieval miss as 0 only when the baseline has a score and no error touched the pair (neither
+  arm has a judge error); a miss with an error leaves the doc score alone. `report eval` and `report generate` show `—` for the arm means and delta when
   no question is scored in both arms (the `report generate --format json` `stats` block carries
   `null` for `avg`, `min` and `max`), and the run summary prints no means then. `benchmark run`,
   `evaluate` and `eval score` take the same flag; `benchmark batch` has none and never judges
@@ -34,9 +35,11 @@
   from before this change have no stamp and represent the legacy method (version 1); readers do
   not yet normalize or enforce the version, so it does not yet stop a comparison of mixed methods.
   `eval score` stamps its eval with the version of the answers file it judges, so legacy answers
-  re-judged today stay version 1. An eval artifact also carries `judge_placeholder`, so two files
-  of one version that differ in it are told apart. An absent or null stamp means version 1; any
-  other value must be a positive integer, or `eval score` exits 2 before any judge call.
+  re-judged today stay version 1. An `eval score` artifact also carries `judge_placeholder`, so two
+  files of one version that differ in it are told apart. `eval panel-score` (the JudgePanel path)
+  writes neither stamp yet, so its artifact reads as version 1 whatever answers it judged. An absent
+  or null stamp means version 1; any other value must be a positive integer, or `eval score` exits
+  2 before any judge call.
 
 ### Fixed
 
