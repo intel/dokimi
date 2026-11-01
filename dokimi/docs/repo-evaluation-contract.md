@@ -630,7 +630,11 @@ failed the task, and on a task with `score` that is a failed run with score
 
 `dokimi:typecheck` checks the listed files only. Its pass is "no error on a
 listed file" (an error in a module a listed file imports belongs to that module,
-not to the listed file), and a listed file that is missing fails.
+not to the listed file), and a listed file that is missing fails. The exception
+is a blocking error (a syntax error, a duplicate module) that stops mypy before
+it reaches the listed files: then that error is the grade's, and the grade fails.
+The task's `oracle` copies its `reference/` directory, when it has one, over the
+workspace, so a reference repair is what gets graded; its answer is empty.
 It runs mypy in-process in the grading container, so the image's `python3`
 must import the pinned mypy: a `version` other than the installed one is a
 grader failure, not a fail. It is not "no new errors against the base": the
@@ -1348,8 +1352,9 @@ finding is an error.
 
 ### 8.2 Python fences (`repo scan --typecheck`)
 
-`--typecheck [mypy|basedpyright]` (bare: mypy) type-checks every fence tagged
-`python`, `py` or `python3` in the guidance files. Each fence that parses is one
+`--typecheck` type-checks every fence tagged
+`python`, `py` or `python3` in the guidance files, with `--typecheck-tool mypy|basedpyright`
+(default mypy). Each fence that parses is one
 `python_fence` claim, so the report and `--fail-on-fail` treat it like any other
 claim:
 
@@ -1370,7 +1375,10 @@ host's pinned copy; basedpyright must be on `PATH` and is recorded with the
 version it reports, not pinned by dokimi. The report's `typecheck` block names
 the tool, its version, the interpreter (`null`: unknown) and the counts
 (`fences`, `checked`, `fail`, `unknown`, `syntax`); it is `null` without the
-flag. `--python-env` needs `--typecheck`. The tools run on the host through
+flag. `--python-env` and `--typecheck-tool` need `--typecheck`. The fences are parsed with the
+grammar of the repository interpreter's version, and mypy runs with that
+`--python-version` and an explicit empty config, so the subject's and the host's
+mypy settings do not apply. The tools run on the host through
 `dokimi.process`; one run covers every fence of the repository.
 
 ```bash

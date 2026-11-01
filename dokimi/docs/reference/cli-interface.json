@@ -11710,20 +11710,36 @@
               "type": null
             },
             {
+              "action": "_StoreTrueAction",
+              "choices": null,
+              "const": true,
+              "default": false,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": true,
+              "key": "--typecheck",
+              "kind": "option",
+              "nargs": 0,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
               "action": "_StoreAction",
               "choices": [
                 "'basedpyright'",
                 "'mypy'"
               ],
-              "const": "mypy",
+              "const": null,
               "default": null,
               "group_key": null,
               "group_required": null,
               "hidden": false,
               "is_flag": false,
-              "key": "--typecheck",
+              "key": "--typecheck-tool",
               "kind": "option",
-              "nargs": "?",
+              "nargs": null,
               "position": null,
               "required": false,
               "type": null

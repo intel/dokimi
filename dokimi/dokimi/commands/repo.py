@@ -128,19 +128,23 @@ def _typecheck_or_exit(args: argparse.Namespace):
     """The ``--typecheck`` check, or None; ``--python-env`` needs it and must name an interpreter."""
     from dokimi.repos.l0 import Check
 
-    if args.typecheck is None:
+    if not args.typecheck:
         if args.python_env is not None:
             print("✗ --python-env needs --typecheck", file=sys.stderr)
             sys.exit(EXIT_USAGE)
+        if args.typecheck_tool is not None:
+            print("✗ --typecheck-tool needs --typecheck", file=sys.stderr)
+            sys.exit(EXIT_USAGE)
         return None
+    tool = args.typecheck_tool or "mypy"
     if args.python_env is not None and not os.access(args.python_env, os.X_OK):
         print(f"✗ --python-env {args.python_env}: not an executable interpreter", file=sys.stderr)
         sys.exit(EXIT_USAGE)
-    if args.typecheck != "mypy" and shutil.which(args.typecheck) is None:
-        print(f"✗ --typecheck {args.typecheck}: not on PATH", file=sys.stderr)
+    if tool != "mypy" and shutil.which(tool) is None:
+        print(f"✗ --typecheck {tool}: not on PATH", file=sys.stderr)
         sys.exit(EXIT_USAGE)
     python = os.path.abspath(args.python_env) if args.python_env is not None else None  # the tool runs elsewhere
-    return Check(args.typecheck, python)
+    return Check(tool, python)
 
 
 def cmd_repo_scan(args: argparse.Namespace) -> None:
@@ -512,10 +516,13 @@ def register(sub, positive_int) -> None:
                         "the report, its claims replacing the framework's on the same file, line and text. "
                         "A file that cannot be read or is not JSON exits 2; a schema-invalid document is "
                         "reported and makes the command exit 1")
-    scan_p.add_argument("--typecheck", nargs="?", const="mypy", default=None, choices=("mypy", "basedpyright"),
+    scan_p.add_argument("--typecheck", action="store_true", default=False,
                         help="Type-check each Python fence of the guidance (§8.2): one claim per fence, fail when the "
-                        "tool reports an error. mypy is the host's pinned copy; basedpyright must be on PATH. Without "
-                        "--python-env the fences are unknown (unresolved), not checked. Bare --typecheck means mypy")
+                        "tool reports an error. The tool is mypy (the host's pinned copy) unless --typecheck-tool names "
+                        "basedpyright, which must be on PATH. Without --python-env the fences are unknown (unresolved), "
+                        "not checked")
+    scan_p.add_argument("--typecheck-tool", default=None, dest="typecheck_tool", choices=("mypy", "basedpyright"),
+                        help="The tool --typecheck runs (default mypy). Needs --typecheck")
     scan_p.add_argument("--python-env", default=None, dest="python_env", metavar="PYTHON",
                         help="The repository's interpreter (a venv with its pinned dependencies installed); the fences "
                         "are checked against its site-packages. Needs --typecheck")
