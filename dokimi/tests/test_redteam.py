@@ -871,10 +871,8 @@ def test_a_correct_grader_with_an_article_alias_is_not_blamed_for_its_canary():
 
 
 def test_a_zero_weight_check_does_not_stop_a_wrong_answer_from_being_probed():
-    # The only counted check (the regex) accepts every non-empty answer. The "-" and "certain" match is
-    # weight 0, so it is not counted and cannot clash with a planted answer: the wrong answer is probed,
-    # the regex accepts it, and the block is blocked. Before, every planted answer clashed with "-",
-    # only the empty probe ran and failed, and the block passed.
+    # The only counted check (the regex) accepts every non-empty answer, so the wrong answer is probed.
+    # Before, the zero-weight "-" match clashed with the planted answer and the block passed.
     grading = {"checks": [
         {"type": "regex", "value": ".+"},
         {"type": "match", "values": ["-", "certain"], "location": "any", "ignore_punctuation": False, "weight": 0},
@@ -882,3 +880,59 @@ def test_a_zero_weight_check_does_not_stop_a_wrong_answer_from_being_probed():
     result = run([{"id": "1", "question": "Q?", "grading": grading}])
     assert result["status"] == "blocked"
     assert "wrong" in [v["attack"] for v in result["violations"]]
+
+
+def test_a_zero_weight_judge_without_a_judge_does_not_leave_the_wrong_answer_unscored():
+    grading = {"checks": [
+        {"type": "regex", "value": ".+"},
+        {"type": "judge", "criterion": "names Paris", "weight": 0},
+    ]}
+    result = run([{"id": "1", "question": "Q?", "grading": grading}])
+    assert result["status"] == "blocked"
+    assert "wrong" in [v["attack"] for v in result["violations"]]
+
+
+def test_a_zero_weight_judge_under_a_threshold_does_not_make_a_blocked_run_inconclusive():
+    grading = {"threshold": 0.5, "checks": [
+        {"type": "regex", "value": ".*"},
+        {"type": "judge", "criterion": "names Paris", "weight": 0},
+    ]}
+    result = run([{"id": "1", "question": "Q?", "grading": grading}])
+    assert result["status"] == "blocked"
+
+
+def test_a_zero_weight_positive_check_does_not_give_a_negated_block_the_wrong_answer_probe():
+    # Only the negated match counts, and it passes any answer without "Paris" by design.
+    grading = {"checks": [
+        {"type": "exact", "values": ["Berlin"], "weight": 0},
+        {"type": "match", "values": ["Paris"], "negate": True},
+    ]}
+    result = run([{"id": "1", "question": "Q?", "grading": grading}])
+    assert result["violations"] == []
+    # No attack applies: the positive check has no weight, so the canary is not built and no probe runs.
+    assert result["status"] == "inconclusive"
+
+
+def test_a_zero_weight_regex_past_its_timeout_does_not_leave_the_wrong_answer_unscored(regex_past_its_timeout):
+    grading = {"checks": [{"type": "regex", "value": ".+"}, {"type": "regex", "values": [SLOW], "weight": 0}]}
+    result = run([{"id": "1", "question": "Q?", "grading": grading}])
+    assert result["status"] == "blocked"
+    assert "wrong" in [v["attack"] for v in result["violations"]]
+
+
+def test_a_lone_zero_weight_exact_check_is_not_a_rejected_canary():
+    result = run([{"id": "1", "question": "Q?", "grading": {"checks": [{"type": "exact", "values": ["a"], "weight": 0}]}}])
+    assert result["violations"] == []
+    assert result["status"] == "inconclusive"
+
+
+def test_a_fuzzy_canary_is_the_bare_value_so_the_grader_accepts_it():
+    result = run([{"id": "1", "question": "Q?", "grading": {"checks": [{"type": "fuzzy", "value": "a"}]}}])
+    assert result["questions"][0]["probes"]["canary"]["passed"] is True
+
+
+def test_an_exact_check_whose_values_all_normalize_to_nothing_is_a_rejected_canary_not_a_pass():
+    # The grader rejects every answer, the reference answer included, so the block cannot be certified.
+    result = run([{"id": "1", "question": "Q?", "grading": {"checks": [{"type": "exact", "values": ["a"]}]}}])
+    assert result["status"] == "blocked"
+    assert [v["attack"] for v in result["violations"]] == ["canary"]

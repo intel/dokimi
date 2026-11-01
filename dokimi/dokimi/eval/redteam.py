@@ -73,7 +73,8 @@ def canary_for(grading: Mapping[str, Any]) -> Optional[str]:
         return "ANSWER: " + ", ".join(sorted(str(v).strip().upper() for v in values))
     if kind == "json":
         return json.dumps(values[0])
-    if kind == "exact" or (kind == "match" and location == "exact"):
+    # A fuzzy value is normalized as the answer is, so the bare value matches itself ("The answer is a." would not).
+    if kind in ("exact", "fuzzy") or (kind == "match" and location == "exact"):
         return text
     if kind == "match" and location == "begin":
         return f"{text} is the answer."
@@ -92,6 +93,17 @@ def negated_only(grading: Mapping[str, Any]) -> bool:
     return bool(checks) and all(c.get("negate") for c in checks)
 
 
+def unusable_exact(grading: Mapping[str, Any]) -> bool:
+    """Whether the block is one counted exact check whose values all normalize to nothing, so it rejects every answer."""
+    checks = grading.get("checks", [])
+    if len(checks) != 1 or checks[0].get("type") != "exact" or checks[0].get("negate"):
+        return False
+    if float(checks[0].get("weight", 1.0)) <= 0:
+        return False
+    values = check_values(checks[0])
+    return bool(values) and not any(squad_normalize(str(v)) for v in values)
+
+
 def _accepts(grading: Mapping[str, Any], text: str) -> bool:
     """Whether a counted (weight above 0) non-negated literal check of the block accepts the text, by the grader's rules."""
     counted = [c for c in _positive_checks(grading) if c.get("type") in _LITERAL and float(c.get("weight", 1.0)) > 0]
@@ -106,14 +118,15 @@ def wrong_for(grading: Mapping[str, Any]) -> Optional[str]:
 def attacks(grading: Mapping[str, Any]) -> dict[str, Optional[str]]:
     """The synthetic answer for each attack; None where the attack does not apply to the block.
 
-    The wrong, empty and hedge answers apply when the block has a non-negated check, and are graded
-    against the whole block as written. A block of only negated checks gets none of the three, so it
-    has no attack at all. The planted wrong answer is chosen per block so that no positive check
-    accepts it, and the hedge is fixed text, so it is skipped when a positive check accepts it (each is
-    asked with the grader's own rules, so a numeric match that reads a number out of the planted answer,
-    or a short value the check does not find in the hedge, are judged as the grader judges them).
+    The wrong, empty and hedge answers apply when the block has a non-negated check with a weight above 0,
+    and are graded against the whole block as written. A block with no such check (only negated checks,
+    or only zero-weight ones) gets none of the three, so it has no attack at all. The planted wrong answer
+    is chosen per block so that no positive check accepts it, and the hedge is fixed text, so it is skipped
+    when a positive check accepts it (each is asked with the grader's own rules, so a numeric match that
+    reads a number out of the planted answer, or a short value the check does not find in the hedge, are
+    judged as the grader judges them).
     """
-    applies = bool(_positive_checks(grading))
+    applies = any(float(c.get("weight", 1.0)) > 0 for c in _positive_checks(grading))
     clashes = _accepts(grading, HEDGE)
     return {"canary": canary_for(grading),
             "wrong": wrong_for(grading) if applies else None,
@@ -147,11 +160,14 @@ def probe(grading: Mapping[str, Any], question: str, ask: Optional[Ask] = None) 
         if answer is None:
             continue
         g = grade(grading, question, answer, ask)
-        # A check left unrun (no judge, or a regex past its timeout) makes a pass on the rest no measurement;
-        # with a threshold it is no result either, so the score is taken over the counted checks alone.
-        partial = bool(g.unjudged or g.unrun)
+        # A counted check left unrun (no judge, or a regex past its timeout) makes a pass on the rest no
+        # measurement; with a threshold it is no result either. A zero-weight check does not count.
+        partial = any(c.weight > 0 for c in (*g.unjudged, *g.unrun))
         passed = None if partial and (g.passed or g.threshold is not None) else g.passed
         out[name] = Probe(name, passed, _detail(g))
+    if unusable_exact(grading):
+        # Every value normalizes to nothing, so the grader rejects the right answer too: a rejected canary.
+        out["canary"] = Probe("canary", False, "every value normalizes to nothing")
     return out
 
 
