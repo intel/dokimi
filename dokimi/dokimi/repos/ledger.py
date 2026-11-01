@@ -17,6 +17,7 @@ Holm-adjusted p below alpha), ``review`` (the baseline beats it at that level), 
 from __future__ import annotations
 
 import json
+import math
 from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -75,7 +76,10 @@ def load_ledger(path: Path) -> Ledger:
         seen.add(rule.id)
         rules.append(rule)
     policy = raw.get("policy", {})
-    return Ledger(tuple(rules), float(policy.get("alpha", ALPHA)),
+    alpha = float(policy.get("alpha", ALPHA))
+    if not math.isfinite(alpha):  # json.loads reads NaN; it would make every verdict insufficient-evidence
+        raise LedgerError(f"{path}: policy.alpha must be a finite number, not {alpha}")
+    return Ledger(tuple(rules), alpha,
                   int(policy.get("review_within_days", DEFAULT_REVIEW_DAYS)))
 
 

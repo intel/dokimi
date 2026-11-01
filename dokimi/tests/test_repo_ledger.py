@@ -387,3 +387,14 @@ def test_a_mixed_rule_takes_no_slot_in_the_holm_family(tmp_path):
     mixed = [e for e in result["rules"] if e["rule"] == "A"]
     assert mixed and all(e["verdict"] == INSUFFICIENT and e["p_holm"] is None and "Holm family" in e["reason"]
                          for e in mixed)
+
+
+@pytest.mark.parametrize("alpha", ["NaN", "Infinity"])
+def test_a_non_finite_alpha_is_refused(tmp_path, alpha):
+    # json.loads accepts NaN and Infinity; NaN compares false with every p, so it would turn any rule insufficient
+    path = tmp_path / "ledger.json"
+    path.write_text('{"schema_version":"repo_ledger.v1","policy":{"alpha":%s},"rules":[{"id":"R1",'
+                    '"hypothesis":"h","arm":"guidance:rules","cases":["t1"],"reviewed":"2026-10-30"}]}' % alpha,
+                    encoding="utf-8")
+    with pytest.raises(LedgerError, match="alpha"):
+        load_ledger(path)
