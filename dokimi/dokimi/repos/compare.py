@@ -537,7 +537,7 @@ def paired_summary(pairs: list[dict[str, Any]], measure: str = "gate", seed: int
         "n_tasks": len(pairs),
         "baseline_mean": _round(_mean([p["baseline"] for p in pairs])),
         "treatment_mean": _round(_mean([p["treatment"] for p in pairs])),
-        "delta": {"mean": ci["mean"], "lo": lo, "hi": hi},
+        "delta": {"mean": sum(deltas) / len(deltas), "lo": lo, "hi": hi},  # unrounded: a verdict reads its sign
         "p": p,
         "p_holm": None,
         "p_holm_floor": None,
@@ -569,10 +569,10 @@ def sign_flip_p(deltas: list[float], seed: int = 0, n_resamples: int = N_RESAMPL
     if len(d) <= EXACT_MAX:
         hits = sum(abs(sum(s * x for s, x in zip(signs, d, strict=True))) >= observed
                    for signs in itertools.product((1, -1), repeat=len(d)))
-        return round(hits / 2 ** len(d), 6)
+        return hits / 2 ** len(d)
     rng = random.Random(seed)
     hits = sum(abs(sum(x if rng.random() < 0.5 else -x for x in d)) >= observed for _ in range(n_resamples))
-    return round((hits + 1) / (n_resamples + 1), 6)
+    return (hits + 1) / (n_resamples + 1)
 
 
 def format_compare(summary: dict[str, Any]) -> str:

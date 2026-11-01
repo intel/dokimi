@@ -139,11 +139,12 @@ def _rule_entries(rule: Rule, batch_dirs: list[Path], default_baseline: str, mod
     present = [c for c in rule.cases if c in known]
     base = rule.baseline or default_baseline
     head = _head(rule, base, len(rule.cases), missing)
-    if not present:
-        return [{**head, "error": "no linked case has a finished cell"}]
+    requested = list(dict.fromkeys(models)) if models else [None]  # a repeated --model is one comparison
+    if not present:  # the requested models stay named, one result each
+        return [{**head, "model": model, "error": "no linked case has a finished cell"} for model in requested]
     entries: list[dict[str, Any]] = []
     # One comparison per --model: a model with no cell among this rule's cases fails only its own comparison.
-    for model in dict.fromkeys(models) if models else [None]:  # a repeated --model is one comparison
+    for model in requested:
         entries += _compared(rule, head, batch_dirs, base, [model] if model else None, present, seed, warnings)
     per_model = Counter(e["model"] for e in entries if not e["error"] and e["measure"] in PRIMARY)
     for entry in entries:
@@ -160,11 +161,12 @@ def _compared(rule: Rule, head: dict[str, Any], batch_dirs: list[Path], base: st
         return [{**head, "model": models[0] if models else None, "error": str(exc)}]
     model = models[0] if models else None
     warnings.extend(summary["warnings"])
-    linked = [u for u in summary["unpaired"] if u["task"] in present]
+    # Only a linked case whose outcome (the gate or score, or the whole task) did not pair counts: a missing
+    # cost or turn count is metadata, and does not weaken the verdict.
+    linked = [u for u in summary["unpaired"] if u["task"] in present and u["measure"] in (None, *PRIMARY)]
     rows = [r for r in summary["comparisons"] if r["measure"] in PRIMARY]
     if not rows:
-        reasons = sorted({u["reason"] for u in linked})
-        return [{**head, "model": model, "error": "; ".join(reasons) or "no linked case has cells in both arms"}]
+        return _unmeasured(head, linked, model)
     out = [_entry(head, r) for r in rows]
     for entry in out:
         own = [u for u in linked if u["model"] == entry["model"]]
@@ -174,6 +176,17 @@ def _compared(rule: Rule, head: dict[str, Any], batch_dirs: list[Path], base: st
     for unpaired in sorted({u["model"] for u in linked} - {r["model"] for r in rows}):  # not measured, and named
         reasons = sorted({u["reason"] for u in linked if u["model"] == unpaired})
         out.append({**head, "model": unpaired, "error": "; ".join(reasons)})
+    return out
+
+
+def _unmeasured(head: dict[str, Any], linked: list[dict[str, Any]], model: str | None) -> list[dict[str, Any]]:
+    """The results of a comparison with no gate or score row: one per model its unpaired linked cases name,
+    so that models with no pair keep their identity, each with its own reason."""
+    named = list(dict.fromkeys(u["model"] for u in linked)) or [model]
+    out = []
+    for name in named:
+        reasons = sorted({u["reason"] for u in linked if u["model"] == name})
+        out.append({**head, "model": name, "error": "; ".join(reasons) or "no linked case has cells in both arms"})
     return out
 
 
@@ -232,7 +245,8 @@ def format_ledger(result: dict[str, Any]) -> str:
         if e["paired"]:
             d = e["delta"]
             ci = "-" if d["lo"] is None else f"[{d['lo']:+.3f}, {d['hi']:+.3f}]"
-            lines.append(f"  paired {e['paired']} of {e['linked']} linked: pass rate {_num(e['baseline_mean'])} -> "
+            label = "mean score" if e["measure"] == "score" else "pass rate"  # a score is not a success rate
+            lines.append(f"  paired {e['paired']} of {e['linked']} linked: {label} {_num(e['baseline_mean'])} -> "
                          f"{_num(e['treatment_mean'])}, delta {d['mean']:+.3f} {ci}, p {_p(e['p'])}, "
                          f"p_holm {_p(e['p_holm'])}, up/down/tied {e['up']}/{e['down']}/{e['tied']}")
         lines.append(f"  {e['reason']}")
