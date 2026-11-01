@@ -16,7 +16,7 @@ from dokimi.context.consistency import Run, order_distance, pass_hat
 
 from .process_counts import as_measure, process_lists
 from .report import reading_cells
-from .useful import useful_task_values
+from .useful import useful_kind, useful_task_counts, useful_task_values
 
 
 def finite_values(values: list[Any]) -> list[float]:
@@ -68,6 +68,7 @@ def task_values(
             else 1.0
         )
         n = {measure: len(v) for measure, v in nums.items()}
+        n.update(useful_task_counts(recs))  # the cells behind each aggregate, not the one aggregate
         values = {measure: (sum(v) / len(v) if v else None) for measure, v in nums.items()}
         if pass_k and not score_task:
             gates = nums["gate"]
@@ -83,6 +84,7 @@ def task_values(
             "kind": "score" if score_task else "gate",
             "grader_failed": grader_failed,
             "top": top,
+            "useful_kind": useful_kind(recs),
             "n": n,
             "values": values,
         }

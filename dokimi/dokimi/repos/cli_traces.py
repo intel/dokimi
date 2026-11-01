@@ -531,13 +531,16 @@ def codex_json(raw: str, workdir: str | None, cwd: str = "") -> Transcript:
         try:
             rec = json.loads(line)
         except json.JSONDecodeError:
+            out.dropped_lines += 1
             out.errors.append(f"line {n}: not JSON")
             continue
         if not isinstance(rec, dict):
+            out.dropped_lines += 1
             continue
         try:
             _codex_apply(out, rec, messages, workdir, by_id, cwd, event_reads)
         except (AttributeError, TypeError, ValueError) as exc:
+            out.dropped_lines += 1
             out.errors.append(f"line {n}: unexpected shape ({exc})")
     out.answer = messages[-1].strip() if messages else ""
     out.agent_messages = messages
@@ -712,14 +715,17 @@ def copilot_json(raw: str, workdir: str | None, cwd: str = "") -> Transcript:
         try:
             rec = json.loads(line)
         except json.JSONDecodeError:
+            out.dropped_lines += 1
             out.errors.append(f"line {n}: not JSON")
             continue
         if not isinstance(rec, dict):
+            out.dropped_lines += 1
             continue
         t = run.offset(rec)
         try:
             run.apply(out, rec, t, workdir, cwd)
         except (AttributeError, TypeError, ValueError) as exc:
+            out.dropped_lines += 1
             out.errors.append(f"line {n}: unexpected shape ({exc})")
     out.answer = (run.final or run.last).strip()
     out.num_turns = run.turns or None

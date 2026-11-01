@@ -17,6 +17,8 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
 from .manifest import match_glob
+from .process_counts import as_measure
+from .process_metrics import _workspace_path
 from .useful_spec import Useful
 
 #: The ``repo compare`` measures of the first useful result, one value per task (see :func:`useful_task_values`).
@@ -31,9 +33,13 @@ def hits(useful: Useful, event: Mapping[str, Any]) -> bool:
         text = str(event.get("text") or "")
         matched = bool(useful.command and useful.command.search(text))
         return event.get("kind") == "command" and event.get("rc") == 0 and matched
-    path = str(event.get("path") or "")
+    path = _workspace_path(
+        str(event.get("path") or "")
+    )  # outside the workspace, or not a path: no target
     failed = event.get("rc") == 1  # an edit whose tool result is an error changed nothing
-    return event.get("kind") == "edit" and not failed and any(match_glob(g, path) for g in useful.globs)
+    if path is None or event.get("kind") != "edit" or failed:
+        return False
+    return any(match_glob(g, path) for g in useful.globs)
 
 
 def first_useful(
@@ -66,7 +72,8 @@ def _declared(recs: Iterable[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
 
 
 def _nums(values: Iterable[Any]) -> list[float]:
-    return [float(v) for v in values if isinstance(v, (int, float)) and not isinstance(v, bool)]
+    """The stored numbers that are measures: finite and within the report bound (a NaN or a 10**400 is no measure)."""
+    return [num for v in values if (num := as_measure(v)) is not None]
 
 
 def _median(values: list[float]) -> float | None:
@@ -92,15 +99,38 @@ def useful_summary(recs: Sequence[Mapping[str, Any]]) -> dict[str, Any] | None:
     }
 
 
+def useful_kind(recs: Sequence[Mapping[str, Any]]) -> str | None:
+    """The kind the declared cells of ``recs`` define: ``command`` or ``edit``; ``mixed`` when they name both; None
+    when none declares one."""
+    kinds = {u["kind"] for u in _declared(recs)}
+    if not kinds:
+        return None
+    return kinds.pop() if len(kinds) == 1 else "mixed"
+
+
 def useful_task_values(recs: Sequence[Mapping[str, Any]]) -> dict[str, list[float | None]]:
     """``repo compare``'s per-task values: the medians over the cells that observed it, and the share of the declared
-    cells that did (None if no cell declares it). The medians alone see only the observed cells."""
+    cells that did (None if no cell declares it). The medians alone see only the observed cells. Cells that name two
+    kinds have no value: a command's timing and an edit's are not one measure."""
     have = _declared(recs)
+    if useful_kind(recs) == "mixed":
+        return {measure: [None] for measure in USEFUL_MEASURES}
     observed = _nums(u.get("steps") for u in have)
     return {
         "first_useful_s": [_median(_nums(u.get("issued_s") for u in have))],
         "first_useful_steps": [_median(observed)],
         "first_useful_rate": [len(observed) / len(have) if have else None],
+    }
+
+
+def useful_task_counts(recs: Sequence[Mapping[str, Any]]) -> dict[str, int]:
+    """The cells behind each :func:`useful_task_values` measure: the timed hits for seconds, the observed hits for
+    steps, and the declared cells for the rate (a median of one value is not one cell)."""
+    have = _declared(recs)
+    return {
+        "first_useful_s": len(_nums(u.get("issued_s") for u in have)),
+        "first_useful_steps": len(_nums(u.get("steps") for u in have)),
+        "first_useful_rate": len(have),
     }
 
 

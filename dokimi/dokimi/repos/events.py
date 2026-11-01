@@ -69,9 +69,11 @@ def _claude_stream_json(raw: str, workdir: str | None) -> Transcript:
         try:
             rec = json.loads(line)
         except json.JSONDecodeError:
+            out.dropped_lines += 1
             out.errors.append(f"line {n}: not JSON")
             continue
         if not isinstance(rec, dict):
+            out.dropped_lines += 1
             continue
         t = None
         stamp = _parse_time(rec.get("timestamp"))
@@ -81,6 +83,7 @@ def _claude_stream_json(raw: str, workdir: str | None) -> Transcript:
         try:
             _apply(out, rec, t, by_id, workdir)
         except (AttributeError, TypeError) as exc:  # valid JSON of an unexpected shape
+            out.dropped_lines += 1
             out.errors.append(f"line {n}: unexpected shape ({exc})")
     main = parse_trace(raw).main_calls()
     out.first_prompt_tokens = main[0]["prompt_tokens"] if main else None

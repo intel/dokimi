@@ -201,7 +201,7 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
                 *USEFUL_MEASURES, *(f"metric:{m}" for m in metrics)]
     base_cells = [c for c in cells if selector_matches(base_sel, c)]
     base_vals = task_values(base_cells, metrics, pass_k, path_stability)
-    useful = {baseline: useful_counts(base_cells)}
+    useful = {baseline: useful_counts(_in_models(base_cells, models))}
     rows: list[dict[str, Any]] = []
     unpaired: list[dict[str, Any]] = []
     one_arm: list[str] = []
@@ -209,7 +209,7 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
     for text in treatments:
         treat_cells = [c for c in cells if selector_matches(parse_selector(text), c)]
         treat_vals = task_values(treat_cells, metrics, pass_k, path_stability)
-        useful[text] = useful_counts(treat_cells)
+        useful[text] = useful_counts(_in_models(treat_cells, models))
         unpaired += _one_arm_models(text, base_vals, treat_vals, models)
         shared_models = sorted({m for m, _ in base_vals} & {m for m, _ in treat_vals})
         for model in [m for m in shared_models if not models or m in models]:
@@ -366,6 +366,11 @@ def _holm(rows: list[dict[str, Any]]) -> None:
             row["mde"] = row["mde"] if reachable else None
 
 
+def _in_models(cells: list[dict[str, Any]], models: list[str] | None) -> list[dict[str, Any]]:
+    """The cells of the models compared (all of them without ``--model``)."""
+    return [c for c in cells if not models or c["model"] in models]
+
+
 def _compare_model(treatment: str, model: str, base_vals: dict[tuple[str, str], dict[str, Any]],
                    treat_vals: dict[tuple[str, str], dict[str, Any]], measures: list[str], seed: int,
                    rows: list[dict[str, Any]], unpaired: list[dict[str, Any]]) -> list[str]:
@@ -379,20 +384,28 @@ def _compare_model(treatment: str, model: str, base_vals: dict[tuple[str, str], 
         unpaired.append(_unpaired(treatment, model, task, None,
                                   "no cells in " + ("treatment" if task in base_tasks else "baseline")))
     shared = sorted(base_tasks & treat_tasks)
+    useful_ok = []  # the tasks whose first useful results pair: one kind in both arms, or a declaration in one
     for task in shared:
         b, t = base_vals[(model, task)]["kind"], treat_vals[(model, task)]["kind"]
         if b != t:  # batches of different eval trees: the primary result of this task has no pair
             unpaired.append(_unpaired(treatment, model, task, None, f"{b} task in baseline, {t} in treatment"))
+        bk, tk = base_vals[(model, task)]["useful_kind"], treat_vals[(model, task)]["useful_kind"]
+        if (bk and tk and bk != tk) or "mixed" in (bk, tk):  # a command's timing and an edit's are not one measure
+            unpaired.append(_unpaired(treatment, model, task, None,
+                                      f"first useful kinds differ: {bk} in baseline, {tk} in treatment"))
+        else:
+            useful_ok.append(task)
     skipped = []
     for measure in measures:
+        tasks = useful_ok if measure.startswith("first_useful") else shared
         if measure.startswith(REPORTED):
-            has = [any(vals[(model, t)]["values"].get(measure) is not None for t in shared)
+            has = [any(vals[(model, t)]["values"].get(measure) is not None for t in tasks)
                    for vals in (base_vals, treat_vals)]
             if not all(has):  # an arm that reports none of it at all (an older batch) leaves no task out of a pair
                 if any(has):
                     skipped.append(measure)
                 continue
-        row = _compare_measure(treatment, model, measure, shared, base_vals, treat_vals, seed, unpaired)
+        row = _compare_measure(treatment, model, measure, tasks, base_vals, treat_vals, seed, unpaired)
         if row is not None:
             rows.append(row)
     return skipped
@@ -412,6 +425,9 @@ def _measure_pairs(treatment: str, model: str, shared: list[str], base_vals: dic
             continue  # a task of the other kind, or one listed above
         if measure.startswith("pass^") and "score" in (base["kind"], treat["kind"]):
             continue  # pass^K is a gate measure: a score task has none to lack
+        if measure.startswith("first_useful") and base["values"].get(measure) is None \
+                and treat["values"].get(measure) is None:
+            continue  # a task neither arm declares a first useful result for: no pair, and no warning
         pair = _pair(task, base, treat, measure)
         if pair is not None:
             pairs.append(pair)
@@ -521,8 +537,11 @@ def _pair(task: str, base: dict[str, Any], treat: dict[str, Any], measure: str) 
     bv, tv = base["values"].get(measure), treat["values"].get(measure)
     if bv is None or tv is None:
         return None
-    return {"task": task, "baseline": bv, "treatment": tv, "delta": tv - bv,
-            "n_baseline": base["n"][measure], "n_treatment": treat["n"][measure]}
+    out = {"task": task, "baseline": bv, "treatment": tv, "delta": tv - bv,
+           "n_baseline": base["n"][measure], "n_treatment": treat["n"][measure]}
+    if measure.startswith("first_useful"):  # a compared task has one kind: the row shows which
+        out["useful_kind"] = base["useful_kind"]
+    return out
 
 
 def paired_summary(pairs: list[dict[str, Any]], measure: str = "gate", seed: int = 0) -> dict[str, Any]:

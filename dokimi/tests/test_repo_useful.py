@@ -15,10 +15,13 @@ from dokimi.repos.host import validate_tasks
 from dokimi.repos.report import format_report, summarize
 from dokimi.repos.useful import (
     first_useful,
+    hits,
     useful_arms_line,
     useful_counts,
+    useful_kind,
     useful_line,
     useful_summary,
+    useful_task_counts,
     useful_task_values,
 )
 from dokimi.repos.useful_spec import UsefulSpecError, parse_useful
@@ -59,7 +62,10 @@ def test_the_two_kinds_parse_to_their_pattern_and_globs():
         ({"command": ""}, "useful must be"),
         ({"command": "("}, "not a valid regex"),
         ({"command": "(" * 2000 + ")" * 2000}, "not a valid regex"),  # overflows, not re.error
-        ({"command": "a{99999999999}"}, "not a valid regex"),  # a repeat count too large for the parser
+        (
+            {"command": "a{99999999999}"},
+            "not a valid regex",
+        ),  # a repeat count too large for the parser
         ({"edit": []}, "useful must be"),
         ({"edit": ["src/a.py", ""]}, "useful must be"),
         ({"edit": 3}, "useful must be"),
@@ -242,13 +248,25 @@ def test_the_hit_is_timed_from_the_claude_stream_it_came_from():
 
 def test_a_failed_edit_changed_nothing_so_the_next_successful_one_is_the_first_useful_result():
     failed = {"t": 4.0, "kind": "edit", "path": "src/foo.py"}
-    _apply_result({"tool_use_id": "u1", "is_error": True, "content": "String to replace not found in file."},
-                  {"u1": failed})
+    _apply_result(
+        {"tool_use_id": "u1", "is_error": True, "content": "String to replace not found in file."},
+        {"u1": failed},
+    )
     ok = {"t": 5.0, "kind": "edit", "path": "src/foo.py"}
     _apply_result({"tool_use_id": "u2", "is_error": False, "content": "edited"}, {"u2": ok})
     u = parse_useful({"edit": "src/*.py"})
-    assert first_useful(u, [failed]) == {"kind": "edit", "reason": "never", "issued_s": None, "steps": None}
-    assert first_useful(u, [failed, ok]) == {"kind": "edit", "reason": None, "issued_s": 5.0, "steps": 2}
+    assert first_useful(u, [failed]) == {
+        "kind": "edit",
+        "reason": "never",
+        "issued_s": None,
+        "steps": None,
+    }
+    assert first_useful(u, [failed, ok]) == {
+        "kind": "edit",
+        "reason": None,
+        "issued_s": 5.0,
+        "steps": 2,
+    }
 
 
 def _timed(batch: Path, task: str, arm: str, rep: int, useful: dict | None) -> None:
@@ -448,3 +466,137 @@ def test_repo_run_refuses_a_malformed_definition_before_any_cell_runs(setup):  #
     assert not list(
         (setup["out"] / "b1").glob("fix_add__*")
     )  # refused by validate_tasks: no cell was made
+
+
+# -- review of #332: the counts behind a value, the kinds, the paths, the models -------------------------------
+
+
+def _set_useful(batch: Path, name: str, useful: dict) -> None:
+    path = batch / name / "result.json"
+    rec = json.loads(path.read_text())
+    rec["first_useful"] = useful
+    path.write_text(json.dumps(rec))
+
+
+def test_the_counts_behind_each_useful_value_are_the_cells_not_the_one_aggregate():
+    recs = [
+        {"first_useful": _hit(10.0, 4)},
+        {"first_useful": _hit(30.0, 8)},
+        {"first_useful": {"kind": "command", "reason": "untimed", "issued_s": None, "steps": 6}},
+    ]
+    assert useful_task_counts(recs) == {
+        "first_useful_s": 2,
+        "first_useful_steps": 3,
+        "first_useful_rate": 3,
+    }
+    assert useful_task_values(recs)["first_useful_rate"] == [1.0]
+
+
+def test_a_task_whose_cells_name_two_kinds_has_no_useful_value():
+    recs = [
+        {"first_useful": _hit(10.0, 4)},
+        {"first_useful": {"kind": "edit", "reason": None, "issued_s": 5.0, "steps": 2}},
+    ]
+    assert useful_kind(recs) == "mixed"
+    assert useful_task_values(recs) == {
+        "first_useful_s": [None],
+        "first_useful_steps": [None],
+        "first_useful_rate": [None],
+    }
+    assert useful_kind([{"first_useful": _hit(1.0, 1)}]) == "command"
+    assert useful_kind([{}]) is None
+
+
+def test_an_edit_path_is_matched_after_normalization_and_one_outside_the_workspace_never_hits():
+    assert hits(parse_useful({"edit": "src/*.py"}), _edit("./src/x.py"))
+    assert hits(parse_useful({"edit": "src/*.py"}), _edit("src/../src/x.py"))
+    assert not hits(parse_useful({"edit": "**/*.py"}), _edit("/tmp/x.py"))
+    assert not hits(parse_useful({"edit": "**/*.py"}), _edit("../x.py"))
+    assert not hits(parse_useful({"edit": "**/*.py"}), _edit("src/../../x.py"))
+
+
+@pytest.mark.parametrize("steps", [float("nan"), 10**400])
+def test_a_stored_non_finite_or_huge_number_is_no_measure(steps):
+    recs = [{"first_useful": {"kind": "edit", "reason": None, "issued_s": 1.0, "steps": steps}}]
+    assert useful_task_values(recs)["first_useful_steps"] == [None]
+    assert useful_task_values(recs)["first_useful_rate"] == [0.0]
+    assert useful_counts(recs) == {"observed": 0, "declared": 1}
+
+
+def test_a_command_regex_that_overflows_the_parser_is_a_task_error_not_a_crash():
+    with pytest.raises(UsefulSpecError):
+        parse_useful({"command": "a{" + "9" * 5000 + "}"})
+
+
+def test_a_trace_line_that_does_not_parse_marks_the_trace_incomplete():
+    assert convert("claude-stream-json", "{not json\n", None).dropped_lines == 1
+    assert convert("claude-stream-json", "[1]\n", None).dropped_lines == 1  # valid JSON, not an object
+    assert convert("claude-stream-json", "", None).dropped_lines == 0
+
+
+def test_the_compare_counts_are_the_cells_behind_each_value(tmp_path):
+    batch = tmp_path / "b"
+    _timed(batch, "t1", "guidance:none", 1, _hit(10.0, 4))
+    _timed(batch, "t1", "guidance:none", 2, _hit(30.0, 8))
+    _timed(
+        batch,
+        "t1",
+        "guidance:none",
+        3,
+        {"kind": "command", "reason": "untimed", "issued_s": None, "steps": 6},
+    )
+    _timed(batch, "t1", "guidance:raw", 1, _hit(20.0, 5))
+    s = compare([batch], "guidance:none")
+    assert _row(s, "first_useful_s")["tasks"][0]["n_baseline"] == 2
+    rate = _row(s, "first_useful_rate")["tasks"][0]
+    assert (rate["n_baseline"], rate["n_treatment"]) == (3, 1)
+
+
+def test_the_header_counts_only_the_models_compared(tmp_path):
+    batch = tmp_path / "b"
+    for arm, rep_model in (
+        ("guidance:none", "m1"),
+        ("guidance:none", "m2"),
+        ("guidance:raw", "m1"),
+    ):
+        _cell(batch, "t1", arm, 1, model=rep_model)
+    _set_useful(
+        batch,
+        "t1__guidance-none__m1__r1",
+        {"kind": "command", "reason": "never", "issued_s": None, "steps": None},
+    )
+    _set_useful(batch, "t1__guidance-none__m2__r1", _hit(5.0, 3))
+    _set_useful(batch, "t1__guidance-raw__m1__r1", _hit(9.0, 4))
+    s = compare([batch], "guidance:none", models=["m1"])
+    assert s["first_useful"]["guidance:none"] == {"observed": 0, "declared": 1}
+
+
+def test_a_task_whose_arms_define_different_kinds_of_first_useful_result_is_unpaired(tmp_path):
+    batch = tmp_path / "b"
+    _timed(batch, "t1", "guidance:none", 1, _hit(10.0, 4))
+    _timed(
+        batch,
+        "t1",
+        "guidance:raw",
+        1,
+        {"kind": "edit", "reason": None, "issued_s": 40.0, "steps": 9},
+    )
+    s = compare([batch], "guidance:none")
+    assert not [r for r in s["comparisons"] if r["measure"].startswith("first_useful")]
+    assert any(
+        u["task"] == "t1" and "first useful kinds differ" in u["reason"] for u in s["unpaired"]
+    )
+
+
+def test_a_review_task_with_no_definition_in_either_arm_is_not_reported_unpaired(tmp_path):
+    batch = tmp_path / "b"
+    _timed(batch, "t1", "guidance:none", 1, _hit(10.0, 4))
+    _timed(batch, "t1", "guidance:raw", 1, _hit(20.0, 6))
+    _timed(batch, "t2", "guidance:none", 1, None)
+    _timed(batch, "t2", "guidance:raw", 1, None)
+    s = compare([batch], "guidance:none")
+    assert not [
+        u
+        for u in s["unpaired"]
+        if u["task"] == "t2" and (u["measure"] or "").startswith("first_useful")
+    ]

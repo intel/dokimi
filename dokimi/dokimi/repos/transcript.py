@@ -41,6 +41,7 @@ class Transcript:
     result_subtype: str | None = None
     plugins: list[str] = field(default_factory=list)  # loaders the harness reported at start-up
     errors: list[str] = field(default_factory=list)
+    dropped_lines: int = 0  # trace lines that did not parse or were of no known shape: their events are missing
     init_model: str | None = None  # the model the harness says it starts with (``system``/``init``)
     answered_by: set[str] = field(default_factory=set)  # ``message.model`` of the main thread's replies
 
