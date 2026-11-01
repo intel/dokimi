@@ -175,9 +175,10 @@ documented in `dokimi/repos/code_index/index.py`.
   `root_prefix` to map them to repository paths.
 - Enclosing scopes need an indexer that writes enclosing ranges (scip-python
   does, scip-clang 0.4 does not).
-- `bases()` returns a truncated ancestor graph, not declared direct bases.
-  scip-python lists direct bases, so its result is those. scip-clang lists
-  every ancestor, which the reader reduces to a minimal set of bases that
+- `bases()` returns the bases the index lists; on an index that lists every
+  ancestor (scip-clang) it returns a truncated ancestor graph, not declared
+  direct bases. scip-python lists direct bases, so its result is those.
+  scip-clang lists every ancestor, which the reader reduces to a minimal set of bases that
   still reaches each ancestor (`C : B, A` with `B : A` gives `B` alone). An
   inherited base can therefore be absent. The reader knows both tools by
   name; for another tool it decides from the relationships themselves.

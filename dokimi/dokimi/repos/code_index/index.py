@@ -103,7 +103,8 @@ class CodeIndex:
         return best
 
     def bases(self, symbol: str) -> tuple[str, ...]:
-        """The bases of ``symbol``: a truncated ancestor graph, not its declared direct bases.
+        """The bases of ``symbol`` the index lists; on an index that lists every ancestor (scip-clang) a truncated
+        ancestor graph, not its declared direct bases.
 
         Read from SCIP ``is_implementation`` relationships. scip-python lists direct bases only, so the result is
         those. scip-clang lists every ancestor; on an index that does (:attr:`lists_ancestors`) a listed symbol that
