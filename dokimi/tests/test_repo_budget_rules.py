@@ -119,10 +119,29 @@ def test_rules_are_counted_only_for_a_harness_that_reads_them(tmp_path):
     assert load_profile("claude-code").reads_claude_rules
 
 
+def test_a_profile_that_does_not_read_rules_still_counts_a_rules_file_as_guidance_and_imports(tmp_path):
+    # Without rules, .claude/rules/AGENTS.md is an ordinary guidance file, and an @import through a
+    # .claude/rules file is followed (the rule exclusions apply only to a harness that reads rules).
+    from dokimi.repos.harness_profile import load_profile
+
+    profile = load_profile("codex")
+    tree = _tree(tmp_path, {
+        "AGENTS.md": "root @.claude/rules/mid.md\n",
+        ".claude/rules/AGENTS.md": "nested guidance\n",
+        ".claude/rules/mid.md": "mid @deep.md\n",
+        ".claude/rules/deep.md": "deep body\n",
+    })
+    got = _by_path(budget(tree, profile.guidance_names, profile.import_max_depth, False))
+    assert ((".claude/rules/AGENTS.md", "guidance") in got)
+    assert ((".claude/rules/mid.md", "import") in got)
+    assert ((".claude/rules/deep.md", "import") in got)
+
+
 @pytest.mark.parametrize(("front", "when"), [
     ('paths:\n  - "src/**"\n', "lazy"),
     ("paths: src/**, lib/**\n", "lazy"),
     ('paths: "src/**"\nfoo: [unclosed\n', "lazy"),  # measured: the key is read line by line
+    ('paths: [\n"src/**"]\nunused: [unclosed\n', "lazy"),  # an unindented continuation of an open flow list
     ("foo: [unclosed\n", "start"),  # measured: no paths, so it loads at start
     ("paths: []\n", "start"),  # measured: an empty list scopes nothing
     ('paths: ""\n', "start"),

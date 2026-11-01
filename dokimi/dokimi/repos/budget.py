@@ -74,8 +74,9 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
            rules: bool = False) -> dict[str, Any]:
     files = tree.files()
     names = set(guidance_names)
-    # a file under .claude/rules is a rule whatever its name (a rules/CLAUDE.md is not guidance)
-    every = [f for f in files if f.rsplit("/", 1)[-1] in names and not RULE_GLOB.match(f)]
+    # under .claude/rules a file is a rule whatever its name (a rules/CLAUDE.md is not guidance), when
+    # the harness reads rules; otherwise it is an ordinary file of the profile's guidance names
+    every = [f for f in files if f.rsplit("/", 1)[-1] in names and not (rules and RULE_GLOB.match(f))]
     guidance = _unaliased(tree, every)
     groups: dict[str, list[str]] = {}
     for f in every:
@@ -88,16 +89,16 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
     # resolve (not dangling/out-of-tree) count; unreadable UTF-8 still counts.
     root_claude_for_off = [f for f in root_claude if _is_resolvable(tree, f)]
     # A root CLAUDE.md's imports load at start; a nested one's when the agent reaches its subtree.
-    at_start, cut_start = _imports(tree, root_claude_for_off, import_max_depth)
-    lazy_all, cut_lazy = _imports(tree, [f for f in claude if f not in root_claude], import_max_depth)
+    at_start, cut_start = _imports(tree, root_claude_for_off, import_max_depth, rules)
+    lazy_all, cut_lazy = _imports(tree, [f for f in claude if f not in root_claude], import_max_depth, rules)
 
     # An AGENTS.md Claude reads on its own expands its @imports from hop 0: root ones at start, nested
     # ones when the agent reaches their subtree. One a root CLAUDE* displaces is read only through an
     # import, whose chain already follows it at its real hop count, unless it is a root CLAUDE* alias.
     agents = [f for f in every if f.rsplit("/", 1)[-1] == "AGENTS.md" and _is_resolvable(tree, f)
               and (not root_claude_for_off or any(a in root_claude for a in groups.get(_target(tree, f), [f])))]
-    agents_at_start, cut_agents_start = _imports(tree, [f for f in agents if _is_root(f)], import_max_depth)
-    agents_lazy, cut_agents_lazy = _imports(tree, [f for f in agents if not _is_root(f)], import_max_depth)
+    agents_at_start, cut_agents_start = _imports(tree, [f for f in agents if _is_root(f)], import_max_depth, rules)
+    agents_lazy, cut_agents_lazy = _imports(tree, [f for f in agents if not _is_root(f)], import_max_depth, rules)
     at_start |= agents_at_start
     lazy_all |= agents_lazy
     cut_start = cut_start + cut_agents_start
@@ -360,9 +361,11 @@ def _paths_block(frontmatter: str) -> list[str] | None:
     for i, line in enumerate(lines):
         if _PATHS_LINE.match(line):
             block = [line]
+            depth = line.count("[") - line.count("]")  # a flow list open on the key runs on, unindented or not
             for item in lines[i + 1:]:
-                if not item.strip() or item[:1] in (" ", "\t", "-", "#"):
+                if depth > 0 or not item.strip() or item[:1] in (" ", "\t", "-", "#"):
                     block.append(item)
+                    depth += item.count("[") - item.count("]")
                 else:
                     break
             return block
@@ -385,7 +388,8 @@ def _without_comment(text: str) -> str:
     return text
 
 
-def _imports(tree: RepoTree, roots: list[str], max_depth: int | None = None) -> tuple[set[str], list[tuple[str, str]]]:
+def _imports(tree: RepoTree, roots: list[str], max_depth: int | None = None,
+             rules: bool = False) -> tuple[set[str], list[tuple[str, str]]]:
     """Files the CLAUDE.md ``roots`` ``@import``, transitively (relative to the importing file).
 
     Breadth first, so a file is placed at its shortest hop count. With ``max_depth``, imports of
@@ -402,7 +406,7 @@ def _imports(tree: RepoTree, roots: list[str], max_depth: int | None = None) -> 
     while level:
         nxt: list[str] = []
         for f in level:
-            if RULE_GLOB.match(f):
+            if rules and RULE_GLOB.match(f):
                 continue  # an @ path in a rule is not followed (docs/repo-evaluation-contract.md)
             try:
                 text = tree.read_text(f)
