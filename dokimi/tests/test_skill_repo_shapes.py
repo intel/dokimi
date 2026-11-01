@@ -188,6 +188,9 @@ def test_a_mirror_is_listed_by_scan_but_counted_once_in_the_field(shape_paths, t
     rows = json.loads(out)["skills"]
     assert len(rows) == 3
     assert sum(r["duplicate_of"] is not None for r in rows) == 1
+    copy = next(r for r in rows if r["duplicate_of"])
+    assert copy["path"].endswith("plugins/kit/skills/widget-polish")
+    assert copy["duplicate_of"] == "skills/widget-polish"
     code, payload, _ = _routing(root, artifact, queries, tmp_path, capsys)
     assert code == 0 and payload["n_candidates"] == 3  # the artifact and two competitors
 
