@@ -29,6 +29,9 @@ class QuestionResult:
     # Per-dimension scores
     with_docs_dimensions: Dict[str, float] = field(default_factory=dict)
     without_docs_dimensions: Dict[str, float] = field(default_factory=dict)
+    # True when the context score is the 0.0 of a retrieval miss the judge never saw (no judged score).
+    # It counts in the doc health score, not in the paired means.
+    unjudged_miss: bool = False
 
 
 @dataclass
@@ -46,10 +49,14 @@ class ProductSnapshot:
     source_file: Optional[str] = None
     # Breakdown by question source
     by_source: Dict[str, Dict] = field(default_factory=dict)  # {"persona": {...}, "chunk": {...}}
+    # Mean context score over every question, a retrieval miss counted as 0 (the doc health number).
+    doc_health: Optional[float] = None
 
     @property
     def doc_score(self) -> Optional[float]:
-        """Primary score: avg with_docs (or without_docs if no docs run)."""
+        """Primary score: the doc health (or avg with_docs, or without_docs if no docs run)."""
+        if self.doc_health is not None:
+            return self.doc_health
         return self.avg_with_docs if self.avg_with_docs is not None else self.avg_without_docs
 
     @property
@@ -159,7 +166,8 @@ class ResultsAggregator:
             without_eval: Mapping[str, Any] = without_s.raw if without_s is not None else {}
 
             without_score = _as_float(ev.score(BASELINE))
-            with_score = _context_score(ev, with_s, _as_float(ev.score(CONTEXT)), without_score)
+            judged_with = _as_float(ev.score(CONTEXT))
+            with_score = _context_score(ev, with_s, judged_with, without_score)
             delta = _as_float(ev.delta)
 
             q_source = ev.raw.get("question_source", "persona")
@@ -177,6 +185,7 @@ class ResultsAggregator:
                                       if isinstance(v, (int, float)) and k != "aggregate"},
                 without_docs_dimensions={k: v for k, v in without_eval.items()
                                          if isinstance(v, (int, float)) and k != "aggregate"},
+                unjudged_miss=judged_with is None and with_score is not None,
             ))
 
         by_source = _compute_by_source(questions)
@@ -194,6 +203,7 @@ class ResultsAggregator:
             questions=sorted(questions, key=lambda q: (q.with_docs_score or 0)),  # worst first
             source_file=str(path),
             by_source=by_source,
+            doc_health=_doc_health(questions),
         )
 
 
@@ -203,6 +213,12 @@ def _context_score(ev: Any, with_s: Any, with_score: Optional[float], without_sc
             and ev.error is None and (with_s is None or with_s.error is None)):
         return 0.0  # the docs did not help
     return with_score
+
+
+def _doc_health(questions: "List[QuestionResult]") -> Optional[float]:
+    """Mean context score over every question with one; a retrieval miss is its 0.0."""
+    vals = [q.with_docs_score for q in questions if q.with_docs_score is not None]
+    return round(sum(vals) / len(vals), 1) if vals else None
 
 
 def _compute_by_source(questions: "List[QuestionResult]") -> "Dict[str, Dict]":
@@ -228,13 +244,15 @@ def _arm_means(questions: "List[QuestionResult]") -> "Dict[str, Optional[float]]
 
     The questions scored in both arms, the ones :func:`dokimi.eval.stats.paired_summary`
     averages for ``report generate``, so the delta is the difference of the two means.
-    With no pair there is no delta: an arm keeps its mean over its own scores when the
-    other arm scored nothing (a baseline-only run), and otherwise neither mean is given,
-    so two means over different questions never stand side by side.
+    An unjudged retrieval miss is no measurement (its 0.0 is only the doc health), so it
+    is left out of both arms. With no pair there is no delta: an arm keeps its mean over
+    its own scores when the other arm scored nothing (a baseline-only run), and otherwise
+    neither mean is given, so two means over different questions never stand side by side.
     """
-    with_s = [q.with_docs_score for q in questions if q.with_docs_score is not None]
-    without_s = [q.without_docs_score for q in questions if q.without_docs_score is not None]
-    pairs = [(q.with_docs_score, q.without_docs_score) for q in questions
+    measured = [q for q in questions if not q.unjudged_miss]
+    with_s = [q.with_docs_score for q in measured if q.with_docs_score is not None]
+    without_s = [q.without_docs_score for q in measured if q.without_docs_score is not None]
+    pairs = [(q.with_docs_score, q.without_docs_score) for q in measured
              if q.with_docs_score is not None and q.without_docs_score is not None]
     if pairs:
         with_s, without_s = [w for w, _ in pairs], [wo for _, wo in pairs]

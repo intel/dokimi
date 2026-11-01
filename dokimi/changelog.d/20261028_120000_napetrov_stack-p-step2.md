@@ -15,7 +15,9 @@
   its `[FALLBACK: ...]` placeholder by default, so it drops out of the paired statistics; the
   record and its `retrieval_hit` stay, its diagnosis stays `empty_retrieval`, and the run
   summary says how many questions it left out. Pass `--judge-placeholder` to judge the
-  placeholder again (this restores only that part of the old method). `benchmark run`,
+  placeholder again (this restores only that part of the old method). The dashboard's arm
+  means and delta leave such a question out too, as `report eval` does; its doc score still
+  counts it as 0. `benchmark run`,
   `evaluate` and `eval score` take the same flag; `benchmark batch` has none and never judges
   the placeholder. Scores from before this change are not comparable with new ones.
 - **Trust gate** — `retrieval_hit_rate` counts every evaluation's recorded retrieval outcome,

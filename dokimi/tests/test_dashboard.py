@@ -249,14 +249,19 @@ def _miss(q_id, without_score):
             "without_docs": {"aggregate": without_score, "correctness": without_score}, "delta": None}
 
 
-def test_a_retrieval_miss_with_a_baseline_score_counts_as_context_zero(tmp_path):
+def test_a_retrieval_miss_with_a_baseline_score_counts_as_context_zero_in_the_doc_score_only(tmp_path):
     _make_eval_file(tmp_path, "oneTBB", [_ev("q1", "Q?", 80, 60), _miss("q2", 60)])
     p = ResultsAggregator(tmp_path).aggregate().products[0]
-    assert (p.avg_with_docs, p.avg_without_docs, p.doc_score) == (40.0, 60.0, 40.0)
+    # The miss is no judged measurement: the arms and the delta are over the one complete pair.
+    assert (p.avg_with_docs, p.avg_without_docs, p.avg_delta) == (80.0, 60.0, 20.0)
+    assert p.by_source["persona"]["avg_delta"] == 20.0
+    # The doc health number, which the dashboard shows, still counts the miss as 0.
+    assert (p.doc_health, p.doc_score) == (40.0, 40.0)
     assert p.status == "poor"
 
 
-def test_a_run_with_no_retrieval_hits_scores_its_misses_as_zero(tmp_path):
+def test_an_all_miss_run_scores_its_misses_as_zero_with_no_delta(tmp_path):
     _make_eval_file(tmp_path, "oneTBB", [_miss("q1", 60), _miss("q2", 60)])
     p = ResultsAggregator(tmp_path).aggregate().products[0]
-    assert (p.avg_with_docs, p.doc_score, p.status) == (0.0, 0.0, "poor")
+    assert (p.avg_with_docs, p.avg_without_docs, p.avg_delta) == (None, None, None)
+    assert (p.doc_health, p.doc_score, p.status) == (0.0, 0.0, "poor")
