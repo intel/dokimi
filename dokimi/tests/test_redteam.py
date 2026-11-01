@@ -20,8 +20,7 @@ import regex
 
 from dokimi.commands.redteam import cmd_eval_redteam
 from dokimi.eval import redteam
-from dokimi.eval.redteam import canary_for, format_table, run
-from dokimi.eval.redteam import _LITERAL
+from dokimi.eval.redteam import _LITERAL, canary_for, format_table, run
 from dokimi.eval.reference_checks import CheckResult, Grade, check_values, grade_check
 
 
