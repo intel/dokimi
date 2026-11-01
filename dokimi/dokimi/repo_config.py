@@ -230,6 +230,13 @@ def _own_path(config: RepoConfig) -> list[str]:
             found.append(glob.escape(path.relative_to(root).as_posix()))
         except ValueError:
             pass
+    # and every link on the way to it, as written: retargeting an intermediate link moves the config too
+    root_real = _real(config.root)
+    try:
+        hops = _hops(config.path, config.root, root_real) if root_real is not None else []
+    except ValueError:  # the config is not under its root as written
+        hops = []
+    found.extend(glob.escape("/".join(hop)) for hop in hops)
     return list(dict.fromkeys(found))
 
 
@@ -338,21 +345,45 @@ def _reach(subject: Subject, root: Path) -> Reach:
         if real_manifest is not None:
             suites.append(real_manifest)
         links.extend(_hops(root / subject.manifest, root, root_real))
-    for rel, path in _suite_files(root, subject.suite_globs).items():
+    matches = _suite_files(root, subject.suite_globs)
+    for rel, path in matches.items():
         for _, entry in _walk(path, rel, dirs=True):
-            _suite_entry(entry, root, root_real, real_skill, suites, links, skill_links)
+            _suite_entry(entry, root, root_real, real_skill, suites, links, skill_links, matches)
+    globs = (*globs, *_unnamed_literals(subject.suite_globs, matches, root, root_real, real_skill,
+                                        suites, links, skill_links))
     return Reach(skills, suites, links, skill_links, globs)
+
+
+def _unnamed_literals(literals: tuple[str, ...], matches: dict[str, Path], root: Path, root_real: Path,
+                      real_skill: tuple[str, ...] | None, suites: list[tuple[str, ...]],
+                      links: list[tuple[str, ...]], skill_links: list[tuple[str, ...]]) -> tuple[str, ...]:
+    """A literal suite path that names nothing now (its file deleted, or a link on the way retargeted where the file
+    is absent) still claims the links on its way and the place it resolves to, so the change maps to the suite.
+    Returns the escaped glob of each such place that resolves inside the repo."""
+    globs: list[str] = []
+    for literal in literals:
+        if literal in matches or any(c in literal for c in "*?["):
+            continue
+        entry = root.joinpath(*literal.split("/"))
+        _suite_entry(entry, root, root_real, real_skill, suites, links, skill_links, matches)
+        real = _inside(entry, root_real)
+        if real is not None:
+            globs.append(glob.escape("/".join(real)))
+    return tuple(globs)
 
 
 def _suite_entry(entry: Path, root: Path, root_real: Path, real_skill: tuple[str, ...] | None,
                  suites: list[tuple[str, ...]], links: list[tuple[str, ...]],
-                 skill_links: list[tuple[str, ...]]) -> None:
+                 skill_links: list[tuple[str, ...]], matches: dict[str, Path]) -> None:
     """Add one suite file's claims: its own location and the links on the way to it, and a link inside the skill
-    that the suite reaches through (skill_sha covers it, so the skill claims it too)."""
+    that the suite reaches through (skill_sha covers it, so the skill claims it too). A link the suite matches is
+    left out of skill_sha, so it is not a skill link; ``matches`` holds the suite's matched paths."""
     declared_links = set(_declared_links(entry, root))
     for hop in _hops(entry, root, root_real):
         links.append(hop)
-        if real_skill is not None and _under(hop, real_skill) and hop not in declared_links:
+        rel = "/".join(hop)
+        in_suite = any(_within(rel, m) for m in matches)
+        if real_skill is not None and _under(hop, real_skill) and hop not in declared_links and not in_suite:
             skill_links.append(hop)
     real = _inside(entry, root_real)
     if real is not None:
@@ -438,9 +469,10 @@ def _resolve(data: dict[str, Any], root: Path) -> list[Subject]:
 
 
 def _check_nesting(subjects: list[Subject], root: Path) -> None:
-    """A skill whose resolved directory lies inside another skill's, but whose declared path does not, is refused: the
-    outer skill's hash covers it, and a change to it could not be attributed to one owner. Skills that alias one
-    directory are both owners, so they are allowed."""
+    """A skill whose resolved directory lies inside another skill's is refused unless its declared path lies inside the
+    other's declared path and resolves to the same place inside it: the outer skill's hash covers the inner's resolved
+    directory, and a change to it could not be attributed to one owner. Skills that alias one directory are both owners,
+    so they are allowed."""
     real = {s.id: _real(root / s.path) for s in subjects if s.kind == "skill"}
     for s in subjects:
         s_real = real.get(s.id) if s.kind == "skill" else None
@@ -450,7 +482,12 @@ def _check_nesting(subjects: list[Subject], root: Path) -> None:
             t_real = real.get(t.id) if t.kind == "skill" and t is not s else None
             if t_real is None or t_real == s_real:
                 continue
-            if s_real.is_relative_to(t_real) and not _within(s.path, t.path):
+            if not s_real.is_relative_to(t_real):
+                continue
+            # the outer hash leaves out the inner's declared directory only, so the inner must resolve to that same
+            # place inside the outer (a link inside the outer that the inner reaches would stay in the outer's hash)
+            declared = s.path[len(t.path) + 1:] if _within(s.path, t.path) else None
+            if declared is None or s_real.relative_to(t_real).as_posix() != declared:
                 raise ConfigError(
                     f"subject {s.id}: its directory {s.path} is inside the skill {t.path} through a link; "
                     "a skill reached by a link into another skill is not supported"

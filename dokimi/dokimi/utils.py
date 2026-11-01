@@ -97,23 +97,28 @@ def digest_text(text: str) -> str:
 
 def link_text(link: Path, root: Path) -> str:
     """A symlink's target as the digests hold it: as written, except an absolute target inside ``root``, which is
-    written relative to the link. So a tree digests the same at another checkout path (the link's text is the same)."""
+    written relative to the link. So a tree digests the same at another checkout path (the link's text is the same).
+    A ``..`` in such a target is kept as written: after a link the kernel resolves it from the link's target, so
+    collapsing it lexically would hash two different files alike."""
     target = os.readlink(link)
     if not os.path.isabs(target):
         return target
-    target = os.path.normpath(target)
     # the tree may be named by a path with links in it: match the target under the name as given and as resolved
     # (a link that is the root itself is not resolved, or its own target would count as inside it)
     anchors = [os.fspath(root)] if root.is_symlink() else [os.fspath(root), os.path.realpath(root)]
     for anchor in anchors:
         try:
-            inside = os.path.commonpath([target, anchor]) == anchor
+            inside = os.path.commonpath([target, anchor]) == anchor and target.startswith(anchor)
         except ValueError:  # different drives, or a relative path mixed in
             continue
         if inside:
-            here = os.path.join(anchor, os.path.dirname(link.relative_to(root)))
-            return os.path.relpath(target, here).replace(os.sep, "/")
-    return target
+            rest = [part for part in target[len(anchor):].split(os.sep) if part not in ("", ".")]
+            depth = len(link.relative_to(root).parent.parts)  # the link's directory, as the text is read from there
+            if ".." in rest:
+                return "/".join([".."] * depth + rest) or "."
+            here = os.path.join(anchor, *link.relative_to(root).parent.parts)
+            return os.path.relpath(os.path.join(anchor, *rest), here).replace(os.sep, "/")
+    return target  # outside the tree: as written
 
 
 def _tracked_modes(base: Path, spec: str) -> dict[str, bool]:
@@ -124,7 +129,9 @@ def _tracked_modes(base: Path, spec: str) -> dict[str, bool]:
     # GIT_* variables (a hook's GIT_DIR or GIT_INDEX_FILE) would point git at some other repository's index
     env = Env.only(allow=[k for k in os.environ if not k.startswith("GIT_")])
     try:
-        done = run(["git", "-C", os.fspath(base), "ls-files", "--stage", "-z", "--", spec], timeout=60, env=env)
+        # literal: the name is a path, not a pattern; no capture limit: a large tree's listing must be read whole
+        done = run(["git", "--literal-pathspecs", "-C", os.fspath(base), "ls-files", "--stage", "-z", "--", spec],
+                   timeout=60, env=env, capture_limit=None)
     except OSError:
         return {}
     if not done.ok:
@@ -151,7 +158,10 @@ def tree_digest(root: Path, *, exclude: Iterable[str] = ()) -> str:
     ``link_text``); one pointing outside ``root`` is hashed as written.
     """
     skip = tuple(e.strip("/") for e in exclude)
-    entries = [root] if root.is_symlink() or root.is_file() else sorted(root.rglob("*"))
+    # sorted by the parts of the relative path, compared as code points: the same order on every OS (Path
+    # ordering folds case on Windows)
+    entries = ([root] if root.is_symlink() or root.is_file()
+               else sorted(root.rglob("*"), key=lambda p: p.relative_to(root).parts))
     base, spec = (root.parent, root.name) if root.is_file() else (root, ".")
     tracked = _tracked_modes(base, spec) if any(p.is_file() and not p.is_symlink() for p in entries) else {}
     h = hashlib.sha256()

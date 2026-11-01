@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import subprocess
@@ -139,3 +140,55 @@ def test_an_absolute_link_inside_the_tree_digests_the_same_at_another_path(tmp_p
     (a / "current").unlink()
     os.symlink(a / "other.json", a / "current")
     assert tree_digest(a) != before
+
+
+@symlinks
+def test_a_dotdot_after_a_link_is_kept_so_retargeting_through_it_moves_the_digest(tmp_path):
+    # root/hop/../x reaches /outside/x when hop is a link; collapsing the ".." would make it root/x
+    root = _write(tmp_path / "repo", {"x": "x\n"})
+    outside = tmp_path / "outside" / "sub"
+    outside.mkdir(parents=True)
+    os.symlink(outside, root / "hop")
+    os.symlink(root / "hop" / ".." / "x", root / "current")
+    before = tree_digest(root)
+    (root / "current").unlink()
+    os.symlink(root / "x", root / "current")
+    assert tree_digest(root) != before
+
+
+def test_a_tracked_file_whose_name_has_brackets_takes_its_mode_from_the_index(tmp_path):
+    # ls-files reads the name as a glob unless it is literal: [1] would match nothing and the disk bit would count
+    root = _write(tmp_path / "t", {"question[1].json": "[]\n"})
+    (root / "question[1].json").chmod(0o755)
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    subprocess.run(["git", "-C", str(root), "add", "question[1].json"], check=True)
+    before = tree_digest(root / "question[1].json")  # a file root: git is asked for its name as the pathspec
+    (root / "question[1].json").chmod(0o644)
+    assert tree_digest(root / "question[1].json") == before
+
+
+def test_a_tracked_mode_past_the_capture_limit_still_comes_from_the_index(tmp_path):
+    # git's listing of a large tree passes 1 MiB; the middle of it was replaced by a marker, so entries there
+    # fell back to the disk bit
+    names = [f"f{i:05d}-" + "x" * 200 for i in range(7000)]
+    root = _write(tmp_path / "t", {name: "a\n" for name in names})
+    target = names[3500]
+    (root / target).chmod(0o755)
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    subprocess.run(["git", "-C", str(root), "add", "."], check=True)
+    before = tree_digest(root)
+    (root / target).chmod(0o644)
+    assert tree_digest(root) == before
+
+
+def test_mixed_case_names_are_ordered_by_code_point_on_every_os(tmp_path):
+    # Path sorting folds case on Windows, so "a.txt" sorted before "B.txt" there and after it on POSIX
+    root = _write(tmp_path / "t", {"B.txt": "2\n", "a.txt": "1\n", "a/nested.txt": "3\n"})
+    expected = hashlib.sha256()
+    for rel in sorted(["B.txt", "a.txt", "a", "a/nested.txt"], key=lambda r: tuple(r.split("/"))):
+        if (root / rel).is_dir():
+            expected.update(b"D " + rel.encode() + b"\0")
+            continue
+        expected.update(b"F " + rel.encode() + b"\0" + b"0\0")
+        expected.update(hashlib.sha256((root / rel).read_bytes()).digest())
+    assert tree_digest(root) == expected.hexdigest()
