@@ -49,6 +49,7 @@ _RULES_ENTRY = re.compile(r"^(?:.+/)?\.claude/rules(?:/.+)?$")
 _FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n(.*?)^---[ \t]*(?:\r?\n|\Z)", re.S | re.M)
 # The `paths:` key of frontmatter that does not parse: its line, read on its own (see _paths_block).
 _PATHS_LINE = re.compile(r"^paths[ \t]*:(.*)$")
+_INDENTED_KEY = re.compile(r"^[ \t]+[A-Za-z0-9_][^:#]*:(?:[ \t]|$)")  # `  unused: ...`: a key, not a paths continuation
 MCP_FILE = ".mcp.json"
 # Claude Code truncates description + when_to_use at 1,536 characters in the listing (docs: Skills).
 LISTING_TEXT_CAP = 1536
@@ -363,6 +364,8 @@ def _paths_block(frontmatter: str) -> list[str] | None:
             block = [line]
             depth = _flow_depth(line)  # a flow list open on the key runs on, unindented or not
             for item in lines[i + 1:]:
+                if depth == 0 and _INDENTED_KEY.match(item):  # an indented field of another key ends the block
+                    break
                 if depth > 0 or not item.strip() or item[:1] in (" ", "\t", "-", "#"):
                     block.append(item)
                     depth += _flow_depth(item)

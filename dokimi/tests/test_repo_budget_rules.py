@@ -175,6 +175,11 @@ def test_a_profile_that_does_not_read_rules_still_counts_a_rules_file_as_guidanc
     # a bracket in a comment is not part of the flow list, so the next key is not pulled into the paths block
     pytest.param("paths: [] # [optional\nunused: [unclosed\n", "start", id="unparsed-bracket-in-comment"),
     pytest.param("paths: []\n# see [docs\nunused: [unclosed\n", "start", id="unparsed-comment-line-with-bracket"),
+    # an indented field of another key is not a continuation of the paths value, after a complete value or a list
+    pytest.param("paths: []\n  unused: [unclosed\n", "start", id="unparsed-indented-field-after-empty-value"),
+    pytest.param("paths: null\n  unused: [unclosed\n", "start", id="unparsed-indented-field-after-null"),
+    pytest.param("paths: src/**\n  unused: [unclosed\n", "lazy", id="unparsed-indented-field-after-pattern"),
+    pytest.param('paths:\n  - "src/**"\n  unused: [unclosed\n', "lazy", id="unparsed-indented-field-after-list"),
 ])
 def test_only_a_paths_value_that_names_a_pattern_scopes_a_rule(tmp_path, front, when):
     payload = budget(_tree(tmp_path, {".claude/rules/r.md": f"---\n{front}---\nbody\n"}), NAMES, rules=True)
