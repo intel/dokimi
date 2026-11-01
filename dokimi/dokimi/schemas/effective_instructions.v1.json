@@ -74,7 +74,7 @@
         "expected": {"$ref": "#/$defs/tristate", "description": "Budget's start-up rules: true for start, false for off, true for a lazy file whose subtree the run works in. unknown without Claude Code's rules."},
         "observed": {"enum": ["loaded", "fetched", "not_loaded", "unknown"]},
         "observation_method": {"enum": ["runtime_event", "prompt_capture", "hook", "unknown"], "description": "The thread vocabulary's method; unknown for every source, since no runtime event backs the probe."},
-        "dokimi_method": {"enum": ["marker_self_report", null], "description": "Set when the probe saw a marker token for the source; null for a source it did not probe."},
+        "dokimi_method": {"enum": ["marker_self_report", null], "description": "Set when the probe recorded the source in this run, whether or not a marker token came back; null for a source it did not probe."},
         "states": {
           "type": "object",
           "required": ["accessed", "selected", "loaded", "followed"],
