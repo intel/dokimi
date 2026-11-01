@@ -93,6 +93,8 @@ runs:
         out=${OUT:-$RUNNER_TEMP/dokimi-out}
         # Refused before mkdir, so a newline name is never created.
         if [[ "$out" == *$'\n'* ]]; then echo "::error title=out-dir::out-dir has a newline"; exit 1; fi
+        # A relative path gets ./ so that a lone - is the directory, not cd's OLDPWD shorthand.
+        [[ "$out" == /* ]] || out=./$out
         mkdir -p -- "$out"
         # The x keeps a newline at the end of $PWD from being stripped by the command substitution.
         dir=$(cd -- "$out" && printf '%sx' "$PWD"); dir=${dir%x}

@@ -31,7 +31,7 @@ def test_setup_python_runs_without_a_cache() -> None:
     assert "cache" not in yaml.safe_load(ACTION.read_text(encoding="utf-8"))["inputs"]
 
 
-def _run_out_step(tmp_path: Path, out_dir: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+def _run_out_step(tmp_path: Path, out_dir: str, cwd: Path | None = None, prelude: str = "") -> subprocess.CompletedProcess[str]:
     # Runs the output step's script the way the runner does: bash -e -o pipefail, with the
     # runner's env files and RUNNER_TEMP pointed at tmp_path.
     script = next(s["run"] for s in _steps() if s.get("id") == "out")
@@ -46,7 +46,7 @@ def _run_out_step(tmp_path: Path, out_dir: str, cwd: Path | None = None) -> subp
     for name in ("output", "env"):
         (tmp_path / name).touch()
     return subprocess.run(
-        ["bash", "--noprofile", "--norc", "-e", "-o", "pipefail", "-c", script],
+        ["bash", "--noprofile", "--norc", "-e", "-o", "pipefail", "-c", prelude + script],
         env=env, capture_output=True, text=True, check=False, cwd=cwd or tmp_path,
     )
 
@@ -64,6 +64,21 @@ def test_out_dir_starting_with_a_dash_is_a_path_not_an_option(tmp_path: Path) ->
     assert result.returncode == 0, result.stderr
     expected = (tmp_path / "-reports").resolve()
     assert (tmp_path / "output").read_text(encoding="utf-8") == f"dir={expected}\n"
+
+
+def test_out_dir_of_a_lone_dash_is_the_directory_not_oldpwd(tmp_path: Path) -> None:
+    result = _run_out_step(tmp_path, "-")
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "output").read_text(encoding="utf-8") == f"dir={(tmp_path / '-').resolve()}\n"
+
+
+def test_out_dir_of_a_lone_dash_with_oldpwd_set(tmp_path: Path) -> None:
+    # OLDPWD is set by a leading cd in the script, as it would be after any earlier cd.
+    script_cwd = tmp_path / "work"
+    script_cwd.mkdir()
+    result = _run_out_step(tmp_path, "-", cwd=script_cwd, prelude="cd /tmp\ncd -- \"$OLDPWD\"\n")
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "output").read_text(encoding="utf-8") == f"dir={(script_cwd / '-').resolve()}\n"
 
 
 def test_a_cwd_ending_in_a_newline_is_refused(tmp_path: Path) -> None:
