@@ -361,15 +361,21 @@ def _paths_block(frontmatter: str) -> list[str] | None:
     for i, line in enumerate(lines):
         if _PATHS_LINE.match(line):
             block = [line]
-            depth = line.count("[") - line.count("]")  # a flow list open on the key runs on, unindented or not
+            depth = _flow_depth(line)  # a flow list open on the key runs on, unindented or not
             for item in lines[i + 1:]:
                 if depth > 0 or not item.strip() or item[:1] in (" ", "\t", "-", "#"):
                     block.append(item)
-                    depth += item.count("[") - item.count("]")
+                    depth += _flow_depth(item)
                 else:
                     break
             return block
     return None
+
+
+def _flow_depth(line: str) -> int:
+    """Open minus closed brackets on a line, a YAML comment left out (``paths: [] # [x`` is closed)."""
+    text = _without_comment(line)
+    return text.count("[") - text.count("]")
 
 
 def _without_comment(text: str) -> str:
@@ -406,8 +412,8 @@ def _imports(tree: RepoTree, roots: list[str], max_depth: int | None = None,
     while level:
         nxt: list[str] = []
         for f in level:
-            if rules and RULE_GLOB.match(f):
-                continue  # an @ path in a rule is not followed (docs/repo-evaluation-contract.md)
+            if rules and (RULE_GLOB.match(f) or RULE_GLOB.match(_target(tree, f))):
+                continue  # an @ path in a rule, or in an alias that links to one, is not followed (docs/repo-evaluation-contract.md)
             try:
                 text = tree.read_text(f)
             except (OSError, ValueError, RuntimeError):  # RuntimeError: a link loop before Python 3.13

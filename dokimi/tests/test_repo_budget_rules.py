@@ -172,6 +172,9 @@ def test_a_profile_that_does_not_read_rules_still_counts_a_rules_file_as_guidanc
     pytest.param("paths: 5\nunused: [unclosed\n", "start", id="unparsed-integer-unrelated-malformed"),
     pytest.param('paths: [\n  "src/**"]\nunused: [unclosed\n', "lazy", id="unparsed-flow-list-over-lines"),
     pytest.param('paths: [\n  ""]\nunused: [unclosed\n', "start", id="unparsed-flow-list-empty-over-lines"),
+    # a bracket in a comment is not part of the flow list, so the next key is not pulled into the paths block
+    pytest.param("paths: [] # [optional\nunused: [unclosed\n", "start", id="unparsed-bracket-in-comment"),
+    pytest.param("paths: []\n# see [docs\nunused: [unclosed\n", "start", id="unparsed-comment-line-with-bracket"),
 ])
 def test_only_a_paths_value_that_names_a_pattern_scopes_a_rule(tmp_path, front, when):
     payload = budget(_tree(tmp_path, {".claude/rules/r.md": f"---\n{front}---\nbody\n"}), NAMES, rules=True)
@@ -315,3 +318,19 @@ def test_a_dangling_link_to_a_markdown_rule_is_named_and_counted_as_zero(tmp_pat
     assert _by_path(payload)[(".claude/rules/api.md", "rule")]["chars"] == 0
     assert payload["warnings"] == [".claude/rules/api.md: not readable (not found, broken link, or outside tree), "
                                    "counted as 0"]
+
+
+def test_an_alias_of_a_rule_is_not_followed_as_an_import(tmp_path):
+    # CLAUDE.md imports an alias that links to a rule. The rule's @ imports are not followed, so extra.md is not counted
+    tree = _tree(tmp_path, {"CLAUDE.md": "@docs/memory/alias.md\n", "extra.md": "extra\n",
+                            ".claude/rules/r.md": "rule @../../extra.md\n"})
+    (tmp_path / "docs/memory").mkdir(parents=True)
+    try:
+        (tmp_path / "docs/memory/alias.md").symlink_to(tmp_path / ".claude/rules/r.md")
+    except OSError:
+        pytest.skip("symlinks unavailable")
+
+    payload = budget(tree, NAMES, rules=True)
+
+    assert all(e["path"] != "extra.md" for e in payload["entries"])
+    assert _by_path(payload)[(".claude/rules/r.md", "rule")]["when"] == "start"
