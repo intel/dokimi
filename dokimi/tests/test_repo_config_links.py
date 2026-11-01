@@ -67,6 +67,44 @@ def test_retargeting_a_link_to_a_suite_file_that_is_missing_there_moves_the_suit
 
 
 @pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_retargeting_a_link_to_a_wildcard_suite_that_matches_nothing_there_moves_the_suite(tmp_path):
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: evaluation/current/*.json\n"
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": body,
+        "skills/a/SKILL.md": "# a\n",
+        "one/task.json": "[]\n",
+        "two/other.md": "x\n",  # no JSON here: the suite is empty after the retarget
+    })
+    os.makedirs(root / "evaluation")
+    os.symlink("../one", root / "evaluation" / "current")
+    before = _subjects(root)["skill/a"].suite_hash
+    (root / "evaluation" / "current").unlink()
+    os.symlink("../two", root / "evaluation" / "current")
+    assert _subjects(root)["skill/a"].suite_hash != before
+    impact = load_repo_config(root).subjects_for_changed(["evaluation/current"])
+    assert impact.suites == {"skill/a": ["evaluation/current"]}
+    assert impact.unclaimed == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_deleting_the_only_file_a_wildcard_suite_matches_still_claims_it(tmp_path):
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: evaluation/current/*.json\n"
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": body,
+        "skills/a/SKILL.md": "# a\n",
+        "one/task.json": "[]\n",
+    })
+    os.makedirs(root / "evaluation")
+    os.symlink("../one", root / "evaluation" / "current")
+    before = _subjects(root)["skill/a"].suite_hash
+    (root / "one" / "task.json").unlink()
+    assert _subjects(root)["skill/a"].suite_hash != before
+    impact = load_repo_config(root).subjects_for_changed(["one/task.json"])
+    assert impact.suites == {"skill/a": ["one/task.json"]}
+    assert impact.unclaimed == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
 def test_a_dotdot_after_a_link_in_an_absolute_target_keeps_that_link_in_reach(tmp_path):
     body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: evaluation/q.json\n"
     root = _tree(tmp_path / "repo", {

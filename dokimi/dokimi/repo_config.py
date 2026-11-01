@@ -359,12 +359,24 @@ def _unnamed_literals(literals: tuple[str, ...], matches: dict[str, Path], root:
                       links: list[tuple[str, ...]], skill_links: list[tuple[str, ...]]) -> tuple[str, ...]:
     """A literal suite path that names nothing now (its file deleted, or a link on the way retargeted where the file
     is absent) still claims the links on its way and the place it resolves to, so the change maps to the suite.
-    Returns the escaped glob of each such place that resolves inside the repo."""
+    A glob that matches nothing claims the links on the way to its literal prefix, and its own pattern under the
+    place the prefix resolves to. Returns the escaped glob of each such place that resolves inside the repo."""
     globs: list[str] = []
     for literal in literals:
-        if literal in matches or any(c in literal for c in "*?["):
+        if literal in matches:
             continue
-        entry = root.joinpath(*literal.split("/"))
+        segs = literal.split("/")
+        wild = next((i for i, s in enumerate(segs) if any(c in s for c in "*?[")), None)
+        if wild is not None:  # a glob that matches nothing claims the links on the way to its literal prefix
+            if wild == 0 or _glob_paths(root, literal):
+                continue
+            prefix = root.joinpath(*segs[:wild])
+            links.extend(_hops(prefix, root, root_real))
+            real = _inside(prefix, root_real)
+            if real is not None:
+                globs.append("/".join([glob.escape("/".join(real)), *segs[wild:]]))
+            continue
+        entry = root.joinpath(*segs)
         _suite_entry(entry, root, root_real, real_skill, suites, links, skill_links, matches)
         real = _inside(entry, root_real)
         if real is not None:
