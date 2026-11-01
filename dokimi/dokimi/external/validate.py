@@ -94,9 +94,7 @@ REF_DEF_RE = re.compile(
     r"""^ {0,3}\[(?!\^)[^\]]+\]:[ \t]*(<[^>\n]*>|\S+)"""
     r"""(?:[ \t]+(?:"[^"]*"|'[^']*'|\([^)]*\)))?[ \t]*$"""
 )
-# RFC 3986 scheme: letters, digits, ``+``, ``-`` and ``.`` (``z39.50r:``). A dotted scheme is
-# still read as a path when what follows the colon is a line number or a symbol, the
-# ``README.md:42`` and ``run.py:main`` file references.
+# RFC 3986 scheme, dots included; a dotted one with a line or symbol after it is a file (_file_ref).
 URI_SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+\-.]*:")
 FILE_SUFFIX_RE = re.compile(r"\d+|[A-Za-z_]\w*")
 CODE_SPAN_RE = re.compile(r"`([^`\n]+)`")
