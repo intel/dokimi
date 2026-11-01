@@ -49,7 +49,7 @@ _RULES_ENTRY = re.compile(r"^(?:.+/)?\.claude/rules(?:/.+)?$")
 _FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n(.*?)^---[ \t]*(?:\r?\n|\Z)", re.S | re.M)
 # The `paths:` key of frontmatter that does not parse: its line, read on its own (see _paths_block).
 _PATHS_LINE = re.compile(r"^paths[ \t]*:(.*)$")
-_INDENTED_KEY = re.compile(r"^[ \t]+[A-Za-z0-9_][^:#]*:(?:[ \t]|$)")  # `  unused: ...`: a key, not a paths continuation
+_INDENTED_KEY = re.compile(r"^[ \t]+(?:[A-Za-z0-9_][^:#]*|\"[^\"]*\"|'[^']*'):(?:[ \t]|$)")  # `  unused: ...`: a key, not a paths continuation
 MCP_FILE = ".mcp.json"
 # Claude Code truncates description + when_to_use at 1,536 characters in the listing (docs: Skills).
 LISTING_TEXT_CAP = 1536
