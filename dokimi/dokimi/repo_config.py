@@ -666,7 +666,7 @@ def _walk(path: Path, rel: str, *, dirs: bool = False) -> list[tuple[str, Path]]
             if real is None or real in seen:
                 return
             seen.add(real)
-            for child in sorted(entry.iterdir()):
+            for child in sorted(entry.iterdir(), key=lambda p: p.name):
                 visit(child, f"{name}/{child.name}")
         elif entry.is_file() and not entry.is_symlink():
             found.append((name, entry))
