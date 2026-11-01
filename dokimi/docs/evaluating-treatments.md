@@ -764,8 +764,8 @@ recorded profile prompt digest differs between files (an edited profile keeps it
 id judged grounded in one file and ungrounded in another (a file with no `grounded_questions` count is not
 compared). With `--baseline-arm`, the arm must
 be one the runs list (exit 2 otherwise, naming the arms that exist), and the declared
-baselines are not checked. A threshold out of range exits 2: `--ceiling` in (0, 1],
-`--floor` 0 or in (0, ceiling), `--min-reps` at least 1. A positive threshold may be finer than one score step. It also exits 2 when no run scored the
+baselines are not checked. A threshold out of range exits 2: `--ceiling` in [1e-6, 1],
+`--floor` 0 or in [1e-6, ceiling), `--min-reps` at least 1. A positive threshold may be finer than one score step. It also exits 2 when no run scored the
 no-skill arm, or when `--out` is one of the input files (or its `.rejected` sibling), or names a directory or a path ending in a separator. Scores are read as the 0-100
 aggregate divided by 100 and are not range-checked. Only arms runs are read. The flags are descriptive: they do not
 change any score or any gate.
