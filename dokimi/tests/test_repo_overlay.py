@@ -8,6 +8,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
+import shutil
 from pathlib import Path
 
 import pytest
@@ -392,6 +393,29 @@ def test_overlay_arm_reads_the_workspace_after_setup_patches_not_the_index(tmp_p
     removed, _ = _apply_arm(ws, env, tmp_path, None, parse_arm(OVERLAY_ARM), None, "claude")
     assert removed == ["AGENTS.codex.md"]
     assert not (ws / "AGENTS.codex.md").exists() and (ws / "AGENTS.claude.md").exists()
+
+
+def test_overlay_arm_does_not_unlink_through_a_setup_patch_that_made_a_directory_a_link(tmp_path):
+    """A setup patch replaces the tracked directory sub/ with a link to a host directory. The index still lists
+    sub/AGENTS.codex.md and it now resolves outside the workspace: the arm must refuse, not delete the host file."""
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    host = tmp_path / "host"
+    host.mkdir()
+    (host / "AGENTS.codex.md").write_text("host\n", encoding="utf-8")
+    (ws / "AGENTS.md").write_text("base\n", encoding="utf-8")
+    (ws / "AGENTS.claude.md").write_text("claude\n", encoding="utf-8")
+    (ws / "sub").mkdir()
+    (ws / "sub" / "AGENTS.codex.md").write_text("codex\n", encoding="utf-8")
+    git(ws, "init", "-q")
+    git(ws, "add", "-A")
+    git(ws, "commit", "-q", "-m", "base")
+    shutil.rmtree(ws / "sub")  # the setup patch, applied without the index
+    (ws / "sub").symlink_to(host, target_is_directory=True)
+    env = _git_env(SNAPSHOT_AUTHOR)
+    with pytest.raises(PrepError, match="resolves outside the workspace"):
+        _apply_arm(ws, env, tmp_path, None, parse_arm(OVERLAY_ARM), None, "claude")
+    assert (host / "AGENTS.codex.md").read_text(encoding="utf-8") == "host\n"
 
 
 def test_overlay_report_leaves_a_load_of_a_shared_target_unattributed():

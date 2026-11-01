@@ -587,6 +587,9 @@ def _apply_overlay(ws: Path, tracked: list[str], own: str) -> tuple[list[str], d
         if not real.is_file() or not real.is_relative_to(ws.resolve()):
             raise PrepError(f"guidance:overlay: {rel} does not resolve to a usable file in the workspace")
     removed = sorted(p for p in tracked if overlay_of(p) not in (None, own))
+    for rel in removed:  # a setup patch may have made a directory of the index a link out of the workspace
+        if not _canon(ws / rel).parent.is_relative_to(ws.resolve()):
+            raise PrepError(f"guidance:overlay: {rel} is under a path that resolves outside the workspace")
     gone = {_canon(ws / rel) for rel in removed}
     removed_set = set(removed)
     for rel in tracked:
