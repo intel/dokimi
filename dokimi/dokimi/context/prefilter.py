@@ -296,7 +296,7 @@ def _acts(claim: Claim, event: Event) -> bool:
         return False
     shell_text = _shell_paths(event.command)
     return (any(_invokes(k, event.command) for k in claim.commands)
-            or any(_file_named(k, event.paths) for k in claim.commands)
+            or any(_file_named(k, event.paths) for k in claim.commands if _is_bare_file(k))
             or _path_named(claim, (*event.paths, shell_text))
             or any(_at_path(k, shell_text) for k in claim.commands if _is_bare_file(k)))
 

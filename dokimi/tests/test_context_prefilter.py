@@ -676,6 +676,13 @@ def test_a_printed_bare_file_name_key_is_not_an_action():
     assert _row(_report([session], rule), "Edit")["acted"] == 0
 
 
+@pytest.mark.parametrize("name", ["pytest", "make"])
+def test_an_edit_of_a_file_named_like_a_lowercase_command_key_is_not_an_action(name):
+    rule = f"- Run `{name}` before pushing a branch.\n"
+    session = _session(_prompt("push the branch now"), _tool("Edit", file_path=f"/repo/{name}"))
+    assert _row(_report([session], rule), "Run")["acted"] == 0
+
+
 def test_an_action_before_the_trigger_inside_the_window_counts():
     session = _session(_tool("Bash", command="make ci-local"), _prompt("push the branch now"))
     assert _row(_report([session], window=2), CI)["acted"] == 1
