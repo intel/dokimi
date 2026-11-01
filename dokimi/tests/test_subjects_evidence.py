@@ -124,6 +124,22 @@ def test_subjects_evidence_refuses_a_scorecard_with_a_wrong_typed_cell(tmp_path:
     assert exc.value.code == 2
 
 
+def test_subjects_evidence_refuses_a_nested_statistic_the_evidence_schema_rejects(tmp_path: Path, monkeypatch):
+    # The scorecard schema accepts a string n and rendering copies it through; only the evidence
+    # schema rejects it at save time. That must be an input diagnostic (exit 2), not a traceback.
+    from dokimi.cli import main
+
+    card = _scorecard()
+    card["cells"][0]["summary"]["per_arm"]["skill:s"]["significance"]["n"] = "6"
+    bad = tmp_path / "x.json"
+    bad.write_text(json.dumps(card), encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["dokimi", "subjects", "evidence", str(bad)])
+    with pytest.raises(SystemExit) as exc:
+        main()
+    assert exc.value.code == 2
+    assert not (tmp_path / "skill-evidence.json").exists()
+
+
 def test_n_and_delta_are_the_paired_tests_not_the_arms_own_counts():
     scorecard = _scorecard()
     row = scorecard["cells"][0]["summary"]["per_arm"]["skill:s"]

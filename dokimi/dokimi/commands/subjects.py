@@ -185,8 +185,11 @@ def cmd_subjects_evidence(args: argparse.Namespace) -> None:
     out = Path(args.out) if args.out else Path(args.scorecard).with_name("skill-evidence.json")
     if out.resolve() == Path(args.scorecard).resolve():
         usage_exit("--out names the scorecard itself; pick another file")
-    with exit_on_unwritable(out):
-        save_artifact("skill_evidence", evidence, out)
+    try:
+        with exit_on_unwritable(out):
+            save_artifact("skill_evidence", evidence, out)
+    except ArtifactValidationError as exc:
+        usage_exit(f"{args.scorecard} holds a value the evidence schema rejects: {exc}")
     for warning in evidence["warnings"]:
         print(f"WARN {warning}", file=sys.stderr)
     print(f"OK Saved skill evidence: {out} ({len(evidence['results'])} results)")
