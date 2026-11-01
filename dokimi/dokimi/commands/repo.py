@@ -277,7 +277,7 @@ def _reach_from_saved(args: argparse.Namespace) -> None:
     from dokimi.repos import ManifestError, RepoSource, SourceError, open_source
     from dokimi.repos.harness_profile import ProfileError, load_profile
     from dokimi.repos.receipt import check_saved_reach
-    from dokimi.repos.reach import ReachError, format_matrix, load_reach
+    from dokimi.repos.reach import ReachError, format_matrix, load_reach, saved_gaps
     from dokimi.repos.source import SourceArgumentError
 
     try:  # the arguments and the saved file as typed: a usage error
@@ -287,6 +287,9 @@ def _reach_from_saved(args: argparse.Namespace) -> None:
         profile = load_profile(args.harness)
         source = RepoSource.parse(args.source)
         reach = load_reach(Path(args.from_file))
+        gaps = saved_gaps(reach, args.format)
+        if gaps:
+            raise ReachError(f"{args.from_file} has no {', '.join(gaps)}, which --format {args.format} needs")
     except (SourceError, ProfileError, ReachError, OSError, ValueError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)

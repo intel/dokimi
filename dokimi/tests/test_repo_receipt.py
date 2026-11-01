@@ -172,6 +172,9 @@ def test_digests_are_of_the_text_read_and_none_when_unreadable(tmp_path):
     ("~alice/toy", "toy"),
     ("https://example.com/org/toy.git@4ff761e2d943", "https://example.com/org/toy.git@4ff761e2d943"),
     ("toy@4ff761e2d943", "toy@4ff761e2d943"),
+    ("/home/alice@corp/src/toy", "toy"),
+    ("/home/alice@corp.com/toy@4ff761e2d943", "toy@4ff761e2d943"),
+    ("C:\\Users\\alice@corp\\toy", "toy"),
 ])
 def test_the_tree_label_keeps_no_local_directory(tmp_path, label, shared):
     tree = _tree(tmp_path, {"AGENTS.md": "a\n"})
@@ -321,3 +324,56 @@ def test_a_saved_probe_must_match_the_commit_it_is_read_against(tmp_path):
     check_saved_reach(reach, "toy", "claude-code", None)  # a tree without a commit cannot be compared
     with pytest.raises(ReachError, match="probed at aaaaaaaaaaaa, the source is at bbbbbbbbbbbb"):
         check_saved_reach(reach, "toy", "claude-code", "b" * 40)
+
+
+def test_a_lazy_guidance_is_expected_only_in_the_subtree_it_activates(tmp_path):
+    tree = _tree(tmp_path, {"shared.md": "x\n", "sub/AGENTS.md": "s\n"})
+    records = [_record(f, s, "not_loaded") for f in ("shared.md", "sub/AGENTS.md") for s in ("cwd=.", "read=sub")]
+    files = [{"path": "shared.md", "head": "RC000001", "tail": "RC000002", "aliases": ["sub/CLAUDE.md"]},
+             {"path": "sub/AGENTS.md", "head": "RC000005", "tail": "RC000006"}]
+    budget = {"entries": [  # sub/CLAUDE.md is a link to shared.md: budget's lazy is the link's activation, not shared.md's
+        {"path": "sub/CLAUDE.md", "kind": "guidance", "when": "lazy", "chars": 10},
+        {"path": "sub/AGENTS.md", "kind": "guidance", "when": "lazy", "chars": 10}]}
+    receipt = build_receipt(_reach(records, [ROOT_ROW, SUB_ROW], files=files), budget, tree)
+    root, sub = _sources(receipt, "cwd=."), _sources(receipt, "read=sub")
+    assert root["sub/CLAUDE.md"]["expected"] == "unknown" and sub["sub/CLAUDE.md"]["expected"] == "unknown"
+    assert root["shared.md"]["expected"] == "unknown" and sub["shared.md"]["expected"] == "unknown"
+    assert root["sub/AGENTS.md"]["expected"] is False and sub["sub/AGENTS.md"]["expected"] is True
+
+
+def test_a_start_up_skill_listing_is_a_source_and_its_body_is_not(tmp_path):
+    tree = _tree(tmp_path, {"CLAUDE.md": "c\n", ".claude/skills/fmt/SKILL.md": "---\nname: fmt\n---\n"})
+    budget = {"entries": [
+        {"path": "CLAUDE.md", "kind": "guidance", "when": "start", "chars": 10},
+        {"path": ".claude/skills/fmt/SKILL.md", "kind": "skill listing", "when": "start", "chars": 10},
+        {"path": ".claude/skills/fmt/SKILL.md", "kind": "skill body", "when": "on demand", "chars": 10}]}
+    files = [{"path": "CLAUDE.md", "head": "RC000003", "tail": "RC000004"}]
+    receipt = build_receipt(_reach([_record("CLAUDE.md", "cwd=.", "loaded")], [ROOT_ROW], files=files), budget, tree)
+    sources = receipt["receipts"][0]["sources"]
+    skill = [s for s in sources if s["path"] == ".claude/skills/fmt/SKILL.md"]
+    assert len(skill) == 1 and skill[0]["expected"] is True and skill[0]["observed"] == "unknown"
+    assert skill[0]["sha256"] is not None
+
+
+@pytest.mark.parametrize("fmt, drop, key", [
+    ("receipt", "salt", "salt"),
+    ("receipt", "generated_at", "generated_at"),
+    ("matrix", "matrix", "summary.matrix"),
+])
+def test_a_schema_valid_probe_without_what_its_format_needs_is_a_usage_error(tmp_path, monkeypatch, capsys,
+                                                                            fmt, drop, key):
+    live = _end_to_end_args(tmp_path, monkeypatch)
+    build_parser().parse_args(live).func(build_parser().parse_args(live))
+    data = json.loads((tmp_path / "out" / "reach.json").read_text(encoding="utf-8"))
+    if drop == "matrix":
+        del data["summary"]["matrix"]
+    else:
+        del data[drop]
+    bad = tmp_path / "partial.json"
+    bad.write_text(json.dumps(data), encoding="utf-8")
+    argv = _from_argv(live, "--from", str(bad), *(["--format", "receipt"] if fmt == "receipt" else []))
+    args = build_parser().parse_args(argv)
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    err = capsys.readouterr().err
+    assert exc.value.code == 2 and key in err and "Traceback" not in err

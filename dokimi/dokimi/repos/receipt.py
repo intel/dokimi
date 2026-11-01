@@ -13,6 +13,7 @@ and its limits.
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass
 from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any
@@ -35,7 +36,8 @@ _STATE: dict[str | None, str] = {"loaded": "loaded", "fetched": "fetched", "not_
 _LOADED: dict[str | None, bool] = {"loaded": True, "not_loaded": False}
 DETAIL = ("the model is asked to report the marker tokens it can see; the request sent to the provider is not "
           "captured, so a reported token is evidence of loading, not a copy of the bytes it received")
-NOT_PROBED = "start-up imports and skills from repo_budget are not probed by reach; their observed state is unknown"
+NOT_PROBED = ("start-up imports and skill listings from repo_budget are not probed by reach; their observed state is "
+              "unknown, and skill bodies (loaded on demand) are not listed")
 
 
 @dataclass(frozen=True)
@@ -43,6 +45,7 @@ class _Run:
     row: dict[str, Any]  # the reach scenario row
     records: dict[tuple[str, str], dict[str, Any]]  # (file, scenario id) -> record
     when_of: dict[str, str]  # canonical path -> budget's when
+    own: frozenset[str]  # guidance files budget lists under their own path (not a link to another file)
     digests: dict[str, str | None]
     workdir: str  # the directory the run works in
     rules: bool  # budget's rules apply (Claude Code)
@@ -53,13 +56,14 @@ def build_receipt(reach: dict[str, Any], budget: dict[str, Any], tree: RepoTree)
     harness = reach["harness"]
     rules = harness["name"] == "claude-code"  # budget's start-up rules are Claude Code's
     when_of = _budget_when(reach, budget) if rules else {}
+    own = _own_guidance(reach, budget)
     start_up = [p for p, when in when_of.items() if when in ("start", "off") and p not in _known(reach)]
     digests = source_digests(tree, [p for p, _ in _probed(reach)] + start_up)
     records = {(r["file"], r["scenario"]): r for r in reach["records"]}
     runtime = {"name": harness["name"], "version": harness["version"]}
     receipts = []
     for row in reach["scenarios"]:
-        run = _Run(row, records, when_of, digests, _workdir(row), rules)
+        run = _Run(row, records, when_of, own, digests, _workdir(row), rules)
         receipts.append(_receipt(reach, run, runtime, start_up))
     return {
         "schema_version": SCHEMA_VERSION,
@@ -73,14 +77,17 @@ def build_receipt(reach: dict[str, Any], budget: dict[str, Any], tree: RepoTree)
     }
 
 
+_REV_SUFFIX = re.compile(r"@[0-9a-f]{7,40}$")  # the pinned revision a git source's label ends with
+
+
 def _shareable_tree(label: str) -> str:
-    """The tree label with a local directory cut to its last component, so no home path reaches a shared receipt."""
-    name, at, sha = label.rpartition("@")
-    if not at:
-        name, sha = label, ""
+    """The tree label with a local directory cut to its last component, so no home path reaches a shared receipt.
+    The revision is the label's own hex suffix, so an ``@`` in a parent directory is part of the path."""
+    match = _REV_SUFFIX.search(label)
+    name, rev = (label[: match.start()], match.group()) if match else (label, "")
     if not (PureWindowsPath(name).drive or PurePosixPath(name).is_absolute() or name.startswith("~")):
         return label
-    return (PurePosixPath(name.replace("\\", "/")).name or "tree") + at + sha
+    return (PurePosixPath(name.replace("\\", "/")).name or "tree") + rev
 
 
 def check_saved_reach(reach: dict[str, Any], repo_id: str, harness_name: str, tree_sha: str | None) -> None:
@@ -122,7 +129,13 @@ def _budget_when(reach: dict[str, Any], budget: dict[str, Any]) -> dict[str, str
     """budget's ``when`` of each guidance file and import, keyed by the file the path resolves to."""
     target_of = {alias: item["path"] for item in reach["files"] for alias in item.get("aliases", [])}
     return {target_of.get(e["path"], e["path"]): e["when"]
-            for e in budget["entries"] if e["kind"] in ("guidance", "import")}
+            for e in budget["entries"] if e["kind"] in ("guidance", "import", "skill listing")}
+
+
+def _own_guidance(reach: dict[str, Any], budget: dict[str, Any]) -> frozenset[str]:
+    """Guidance files budget lists under their own path: a link or an import has no subtree of its own."""
+    aliases = {alias for item in reach["files"] for alias in item.get("aliases", [])}
+    return frozenset(e["path"] for e in budget["entries"] if e["kind"] == "guidance" and e["path"] not in aliases)
 
 
 def _dir(path: str) -> str:
@@ -192,8 +205,10 @@ def _expected(target: str, when: str | None, run: _Run) -> bool | str:
         return UNKNOWN
     if when in ("start", "off"):
         return when == "start"
-    if when == "lazy":
+    if when == "lazy":  # budget's flattened when cannot say where a link or an import is activated: only a subtree file
         d = _dir(target)
+        if target not in run.own or not d or target.rsplit("/", 1)[-1] not in SUBTREE_NAMES:
+            return UNKNOWN
         return run.workdir == d or run.workdir.startswith(d + "/")
     return UNKNOWN
 
@@ -234,7 +249,8 @@ def _global_unknowns(name: str, rules: bool) -> list[str]:
     out = [
         "followed is not observed: no marker shows what the model did with a loaded source",
         "observation_method is unknown: no prompt is captured; dokimi_method names the marker self-report instead",
-        "accessed is observed only for the Read tool; a read through a shell (cat, rg, grep) is not seen",
+        "accessed is observed only where the harness reports a read event; "
+        "a shell read it does not normalise is not seen",
         "sha256 is over the LF-normalised UTF-8 text dokimi reads, which the probe seeds; a CRLF file's bytes differ",
         "no load timestamps: the probe does not record when a source entered the request",
         "the order in which sources entered the request is not observed; precedence_observed lists displacements only",

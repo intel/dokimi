@@ -405,6 +405,13 @@ def _matrix(records: list[dict[str, Any]]) -> dict[str, dict[str, str]]:
     return matrix
 
 
+def saved_gaps(payload: dict[str, Any], fmt: str) -> list[str]:
+    """The fields a saved probe must carry to be rendered as ``fmt``: the schema leaves them optional."""
+    if fmt == "receipt":
+        return [key for key in ("salt", "generated_at") if key not in payload]
+    return [] if "matrix" in payload["summary"] else ["summary.matrix"]
+
+
 def format_matrix(payload: dict[str, Any]) -> str:
     """A plain-text table: one row per guidance file, one column per scenario."""
     short = {"loaded": "L", "truncated": "T", "fetched": "F", "not_loaded": ".", "error": "E"}
