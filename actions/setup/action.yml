@@ -28,12 +28,6 @@ inputs:
       whole directory as an artifact.
     required: false
     default: ''
-  cache:
-    description: >-
-      `true` restores and saves pip's download cache. The key is the resolved commit, so a
-      changed lock is a new commit and a new key.
-    required: false
-    default: 'false'
 
 outputs:
   sha:
@@ -73,22 +67,12 @@ runs:
         echo "sha=$sha" >> "$GITHUB_OUTPUT"
         echo "dokimi $DOKIMI_REPO@$REF -> $sha"
 
-    # The pip cache key is a file that names the commit: setup-python hashes it. It sits in
-    # the workspace, since setup-python's hashFiles only sees files under GITHUB_WORKSPACE.
-    - name: Key for the pip cache
-      shell: bash
-      env:
-        SHA: ${{ steps.ref.outputs.sha }}
-      run: |
-        mkdir -p "$GITHUB_WORKSPACE/.dokimi-setup"
-        echo "dokimi $SHA" > "$GITHUB_WORKSPACE/.dokimi-setup/pip-key.txt"
-
+    # No pip cache: a cache restored in a run that checks out the caller's dokimi-ref
+    # is the poisoning path CodeQL flags (actions/cache-poisoning/poisonable-step).
     - name: Set up Python
       uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
       with:
         python-version: ${{ inputs.python-version }}
-        cache: ${{ inputs.cache == 'true' && 'pip' || '' }}
-        cache-dependency-path: ${{ github.workspace }}/.dokimi-setup/pip-key.txt
 
     - name: Install dokimi
       shell: bash
@@ -107,8 +91,11 @@ runs:
         OUT: ${{ inputs.out-dir }}
       run: | # zizmor: ignore[github-env] -- intended: the only value written to GITHUB_ENV is the constant CI=true
         out=${OUT:-$RUNNER_TEMP/dokimi-out}
+        # Refused before mkdir, so a newline name is never created.
+        if [[ "$out" == *$'\n'* ]]; then echo "::error title=out-dir::out-dir has a newline"; exit 1; fi
         mkdir -p "$out"
-        dir=$(cd "$out" && pwd)
+        # The x keeps a trailing newline from being stripped by the command substitution.
+        dir=$(cd "$out" && pwd && printf x); dir=${dir%x}
         # The path written to GITHUB_OUTPUT is checked here: a newline would add an output.
         if [[ "$dir" == *$'\n'* ]]; then echo "::error title=out-dir::out-dir has a newline"; exit 1; fi
         echo "dir=$dir" >> "$GITHUB_OUTPUT"

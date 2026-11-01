@@ -49,11 +49,20 @@ def test_every_action_checkout_takes_its_repository_from_dokimi_action_repositor
         assert with_["repository"] == "${{ inputs.dokimi-action-repository }}", job_id
 
 
-def test_every_action_checkout_is_at_dokimi_ref() -> None:
-    checkouts = _action_checkouts(_load(REPO_EVAL))
-    assert len(checkouts) == 3, checkouts
-    for job_id, with_ in checkouts:
-        assert with_["ref"] == "${{ inputs.dokimi-ref }}", job_id
+def test_validate_checks_the_action_out_at_dokimi_ref_and_records_its_commit() -> None:
+    workflow = _load(REPO_EVAL)
+    checkouts = dict(_action_checkouts(workflow))
+    assert checkouts["validate"]["ref"] == "${{ inputs.dokimi-ref }}"
+    assert "action-sha" in workflow["jobs"]["validate"]["outputs"]
+    recorder = [s for s in workflow["jobs"]["validate"]["steps"] if s.get("id") == "action"]
+    assert recorder and "rev-parse HEAD" in recorder[0]["run"]
+
+
+def test_downstream_jobs_check_the_action_out_at_the_commit_validate_recorded() -> None:
+    # A tag in dokimi-ref may move while validate runs; the package SHA does not name the action.
+    checkouts = dict(_action_checkouts(_load(REPO_EVAL)))
+    for job_id in ("scan", "tasks-check"):
+        assert checkouts[job_id]["ref"] == "${{ needs.validate.outputs.action-sha }}", job_id
 
 
 def test_job_workflow_sha_is_not_used() -> None:

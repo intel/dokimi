@@ -115,6 +115,7 @@ jobs:
       contents: read
     outputs:
       dokimi-sha: ${{ steps.dokimi.outputs.sha }}
+      action-sha: ${{ steps.action.outputs.sha }}
       id: ${{ steps.select.outputs.id }}
       tasks: ${{ steps.select.outputs.tasks }}
     steps:
@@ -134,6 +135,12 @@ jobs:
           sparse-checkout: /actions/
           sparse-checkout-cone-mode: false
           persist-credentials: false
+      # The commit the setup action was checked out at. The downstream jobs check the action out at
+      # this SHA: a tag in dokimi-ref may move after this job, and the package SHA does not name the action.
+      - name: Record the setup action commit
+        id: action
+        shell: bash
+        run: echo "sha=$(git -C .dokimi-action rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       # Resolves dokimi-ref to a commit (the validate outputs pass it on) and installs dokimi.
       - name: Set up dokimi
         id: dokimi
@@ -287,7 +294,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           repository: ${{ inputs.dokimi-action-repository }}
-          ref: ${{ inputs.dokimi-ref }}
+          ref: ${{ needs.validate.outputs.action-sha }}
           path: .dokimi-action
           sparse-checkout: /actions/
           sparse-checkout-cone-mode: false
@@ -359,7 +366,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           repository: ${{ inputs.dokimi-action-repository }}
-          ref: ${{ inputs.dokimi-ref }}
+          ref: ${{ needs.validate.outputs.action-sha }}
           path: .dokimi-action
           sparse-checkout: /actions/
           sparse-checkout-cone-mode: false
