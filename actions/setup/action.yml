@@ -93,9 +93,9 @@ runs:
         out=${OUT:-$RUNNER_TEMP/dokimi-out}
         # Refused before mkdir, so a newline name is never created.
         if [[ "$out" == *$'\n'* ]]; then echo "::error title=out-dir::out-dir has a newline"; exit 1; fi
-        mkdir -p "$out"
+        mkdir -p -- "$out"
         # The x keeps a newline at the end of $PWD from being stripped by the command substitution.
-        dir=$(cd "$out" && printf '%sx' "$PWD"); dir=${dir%x}
+        dir=$(cd -- "$out" && printf '%sx' "$PWD"); dir=${dir%x}
         if [[ "$dir" == *$'\n'* ]]; then echo "::error title=out-dir::out-dir has a newline"; exit 1; fi
         echo "dir=$dir" >> "$GITHUB_OUTPUT"
         echo "CI=true" >> "$GITHUB_ENV"

@@ -59,6 +59,13 @@ def test_out_dir_default_is_written_as_a_clean_path(tmp_path: Path) -> None:
     assert output == f"dir={expected}\n"
 
 
+def test_out_dir_starting_with_a_dash_is_a_path_not_an_option(tmp_path: Path) -> None:
+    result = _run_out_step(tmp_path, "-reports")
+    assert result.returncode == 0, result.stderr
+    expected = (tmp_path / "-reports").resolve()
+    assert (tmp_path / "output").read_text(encoding="utf-8") == f"dir={expected}\n"
+
+
 def test_a_cwd_ending_in_a_newline_is_refused(tmp_path: Path) -> None:
     # The path that reaches GITHUB_OUTPUT must not lose a newline at its end.
     cwd = tmp_path / "work\n"
