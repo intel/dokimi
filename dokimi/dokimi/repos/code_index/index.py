@@ -103,11 +103,13 @@ class CodeIndex:
         return best
 
     def bases(self, symbol: str) -> tuple[str, ...]:
-        """The symbols ``symbol`` directly implements or extends.
+        """The bases of ``symbol``: a truncated ancestor graph, not its declared direct bases.
 
-        Read from SCIP ``is_implementation`` relationships. scip-python lists direct bases only; scip-clang lists
-        every ancestor. On an index that lists ancestors (:attr:`lists_ancestors`), a listed symbol that is a base
-        of another listed one is dropped (both stay when each lists the other)."""
+        Read from SCIP ``is_implementation`` relationships. scip-python lists direct bases only, so the result is
+        those. scip-clang lists every ancestor; on an index that does (:attr:`lists_ancestors`) a listed symbol that
+        is a base of another listed one is dropped, leaving a minimal set that still reaches every ancestor
+        (``C : B, A`` with ``B : A`` gives ``(B,)``). So an inherited base can be absent. Both stay when each lists
+        the other."""
         _refuse_local(symbol)
         listed = self._bases.get(symbol, ())
         if len(listed) < 2 or not self.lists_ancestors:

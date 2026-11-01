@@ -550,3 +550,28 @@ def test_descriptor_name_reads_the_last_defining_descriptor(symbol, name):
 ])
 def test_malformed_or_local_symbols_have_no_name(symbol):
     assert descriptor_name(symbol) is None
+
+
+def test_a_definition_with_extra_role_bits_is_still_a_definition():
+    # roles 9 is Definition | ReadAccess: the definition bit is tested alone, not the whole mask
+    ix = _index(index(document("a.py", (occurrence([1, 2, 5], SYM, roles=9, enclosing=[1, 0, 9, 0]),))))
+    (occ,) = ix.occurrences("a.py")
+    assert occ.is_definition
+    assert ix.definitions(SYM) == (occ,)
+    assert ix.references(SYM) == ()
+    assert ix.enclosing("a.py", 3) is occ
+
+
+def test_a_typed_multi_line_enclosing_range_keeps_its_end_column():
+    # field 11 is a MultiLineRange: its end column (5) must not be lost, or line 6 drops out of the scope
+    ix = _index(index(document("a.py", (occurrence([2, 1, 2, 3], SYM, roles=1, extra=typed(11, 2, 1, 6, 5)),))))
+    (occ,) = ix.occurrences("a.py")
+    assert occ.enclosing_span == (2, 1, 6, 5)
+    assert ix.enclosing("a.py", 6) is occ
+
+
+def test_the_same_symbol_record_in_two_documents_gives_each_base_once():
+    # a header seen from two translation units: the same SymbolInformation in both documents
+    info = symbol_info(C_SYM, (B_SYM,))
+    ix = _index(index(document("a.py", symbols=info), document("b.py", symbols=info)))
+    assert ix.bases(C_SYM) == (B_SYM,)
