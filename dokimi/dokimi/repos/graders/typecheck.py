@@ -103,10 +103,8 @@ def grade(task: dict[str, Any], task_dir: Path, answer: str, run_dir: Path | Non
         cache = tempfile.mkdtemp(prefix="dokimi-mypy-")
         neutral = tempfile.mkdtemp(prefix="dokimi-mypy-cfg-")
         try:
-            # An explicit neutral config: the subject's mypy.ini, pyproject.toml and the host's user config are
-            # not read. Explicit package bases name a listed file the way an import of it does: relative to the
-            # root it is imported from (pkg.other, not other). So the roots are on mypy_path: the workspace, and
-            # the source root of each regular package (src/ for src/pkg/__init__.py).
+            # Neutral config: the subject's mypy.ini, pyproject.toml and the host's user config are not read.
+            # mypy_path is the workspace and each regular package's source root (src/ for src/pkg/__init__.py).
             roots = [*_package_roots(workspace, present), workspace]
             config = Path(neutral, "mypy.ini")
             config.write_text(f"[mypy]\nmypy_path = {':'.join(str(r) for r in roots)}\n", encoding="utf-8")
