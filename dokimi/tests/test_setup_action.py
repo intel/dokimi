@@ -170,3 +170,4 @@ def test_the_install_step_installs_the_resolved_commit_with_its_locked_dependenc
     assert install["env"]["SHA"] == "${{ steps.ref.outputs.sha }}"
     assert "pip install --require-hashes -r" in install["run"]
     assert 'pip install --no-deps "dokimi @ git+' in install["run"]
+    assert "@$SHA#subdirectory=dokimi" in install["run"]

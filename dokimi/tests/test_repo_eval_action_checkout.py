@@ -27,6 +27,10 @@ def _load(path: Path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
+def _as_list(needs: str | list) -> list:
+    return [needs] if isinstance(needs, str) else needs
+
+
 def _action_checkouts(workflow: dict) -> list[tuple[str, dict]]:
     found = []
     for job_id, job in workflow["jobs"].items():
@@ -134,6 +138,7 @@ def test_scan_and_tasks_check_install_the_package_commit_validate_gated() -> Non
     for job_id in ("scan", "tasks-check"):
         setup = [s for s in workflow["jobs"][job_id]["steps"] if s.get("uses") == f"./{CHECKOUT_PATH}/actions/setup"]
         assert len(setup) == 1, job_id
+        assert "validate" in _as_list(workflow["jobs"][job_id]["needs"]), job_id
         assert setup[0]["with"]["dokimi-ref"] == "${{ needs.validate.outputs.dokimi-sha }}", job_id
         assert setup[0]["with"]["dokimi-repository"] == "${{ inputs.dokimi-repository }}", job_id
 
