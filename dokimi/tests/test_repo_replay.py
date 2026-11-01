@@ -254,6 +254,32 @@ def test_a_merged_pr_becomes_a_task_with_gold_from_the_reviewers_line_threads(hi
     assert "1 task(s) written, 0 kept, 0 pull request(s) skipped" in printed
 
 
+def _timed_pr7(h, t1, t2):
+    """PR 7 with two gold threads opened at ``t1`` and ``t2``, and two left out with earlier times."""
+    rev = h["rev"]
+    return _pr(7, h["r2"], h["merge7"], [
+        _t("src/long.py", 10, rev, created=t1), _t("src/long.py", 22, rev, created=t2),
+        _t("AGENTS.md", 2, rev, created="2026-08-01T00:00:00Z"),  # left out by _gold: a guidance file
+        _t("src/long.py", 3, rev, "copilot-pull-request-reviewer", typename="Bot", created="2026-07-01T00:00:00Z"),
+    ])
+
+
+def test_public_at_is_the_earliest_gold_threads_first_comment_compared_as_times(hist, tmp_path):
+    out = tmp_path / "tasks"
+    # 20:00+09:00 is 11:00Z, before 12:00Z, though it sorts after it as a string
+    _replay(hist["root"], _pages(_timed_pr7(hist, "2026-10-02T12:00:00Z", "2026-10-02T20:00:00+09:00")), out)
+    task, gold, _ = _load(out, 7)
+    assert [g["id"] for g in gold] == ["pr7-t1", "pr7-t2"]
+    assert task["public_at"] == "2026-10-02T20:00:00+09:00"
+
+
+def test_a_task_whose_gold_threads_have_no_time_has_no_public_at(hist, tmp_path):
+    out = tmp_path / "tasks"
+    _replay(hist["root"], _pages(_timed_pr7(hist, None, "yesterday")), out)
+    task, gold, _ = _load(out, 7)
+    assert [g["id"] for g in gold] == ["pr7-t1", "pr7-t2"] and "public_at" not in task
+
+
 def test_addressed_counts_only_the_prs_own_commits_not_main_merged_in(hist, tmp_path):
     """t2: main changed line 21 and the PR merged main in. The diff from the reviewed revision to
     the merge commit has that change next to the thread; the PR's own commits do not."""

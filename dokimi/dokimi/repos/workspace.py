@@ -51,6 +51,7 @@ from dokimi import process
 
 from .arms import ArmError, Skill, resolve_skills, tree_sha256
 from .errors import PrepError
+from .guidance_history import arm_rev_history
 from .harness_profile import HarnessProfile
 from .manifest import RepoManifest, _is_within, match_glob
 from .source import GitTree, RepoSource, RepoTree, SourceError, cache_path, default_cache_dir, resolve_rev
@@ -469,7 +470,7 @@ def _apply_rev(ws: Path, git_dir: Path, manifest: RepoManifest, arm: Arm,
                removed: list[str]) -> tuple[list[str], dict[str, Any]]:
     """The guidance files of ``arm.rev_sha`` into ``ws``, whose own were ``removed``."""
     assert arm.rev_sha is not None
-    written, links = _guidance_at(git_dir, manifest, arm.rev_sha)
+    written, links, chains = _guidance_at(git_dir, manifest, arm.rev_sha)
     files = [p for p in written if p not in links]
     if files:  # checked out as files, as in step 1: no object of the source is copied
         _checkout_tree(git_dir, arm.rev_sha, ws, paths=files)
@@ -504,8 +505,9 @@ def _apply_rev(ws: Path, git_dir: Path, manifest: RepoManifest, arm: Arm,
         if mode == "100755":
             dest_path.chmod(dest_path.stat().st_mode | 0o111)
     # arm_files: the files it wrote and the base's guidance it deleted (contract §3 meta.json)
+    history = arm_rev_history(git_dir, manifest.guidance_globs, arm.rev_sha, written, chains)
     return sorted(set(written) | set(removed)), {"arm_rev": {"rev": arm.rev, "sha": arm.rev_sha,
-                                                             "removed": sorted(set(removed) - set(written))}}
+                                                             "removed": sorted(set(removed) - set(written)), **history}}
 
 
 def _apply_bridge(ws: Path, matched: list[str], bridge: dict[str, str]) -> tuple[list[str], dict[str, Any]]:
@@ -522,10 +524,11 @@ def _apply_bridge(ws: Path, matched: list[str], bridge: dict[str, str]) -> tuple
     return written, ({"bridge_skipped": skipped} if skipped else {})
 
 
-def _guidance_at(git_dir: Path, manifest: RepoManifest, sha: str) -> tuple[list[str], dict[str, str]]:
+def _guidance_at(git_dir: Path, manifest: RepoManifest,
+                 sha: str) -> tuple[list[str], dict[str, str], dict[str, list[str]]]:
     """The files of commit ``sha`` the guidance globs match, outside ``eval_dir`` (step 2 deletes it), and for each
-    one that is a symbolic link the file it resolves to in that commit. A link out of the tree, into ``eval_dir``
-    or to nothing is refused."""
+    one that is a symbolic link the file it resolves to in that commit and every path its resolution goes through
+    (:func:`_link_chain`). A link out of the tree, into ``eval_dir`` or to nothing is refused."""
     eval_dir = manifest.run_paths()[0]
     listing = _run(["git", "-C", str(git_dir), "ls-tree", "-r", "-z", "--full-tree", sha], env=_git_env(SNAPSHOT_AUTHOR))
     entries = {}
@@ -536,32 +539,33 @@ def _guidance_at(git_dir: Path, manifest: RepoManifest, sha: str) -> tuple[list[
             entries[path] = (mode, oid)
     found = sorted(p for p in entries if not _is_within(p, eval_dir)
                    and any(match_glob(g, p) for g in manifest.guidance_globs))
-    links = {}
+    links, chains = {}, {}
     for path in found:
-        target = path
-        for _ in range(8):  # a chain of links; a loop runs out
-            mode, oid = entries.get(target, ("", ""))
-            if mode != "120000":
-                break
-            dest = _run(["git", "-C", str(git_dir), "cat-file", "blob", oid], env=_git_env(SNAPSHOT_AUTHOR))
-            target = posixpath.normpath(posixpath.join(posixpath.dirname(target), dest))
-            if dest.startswith("/") or target == ".." or target.startswith("../"):
-                raise PrepError(f"guidance {path} at {sha[:12]} links out of the tree ({dest})")
-            if _is_within(target, eval_dir):
-                raise PrepError(f"guidance {path} at {sha[:12]} links into eval_dir {eval_dir}")
-        # Always validate the final entry's mode, even if target == path (cyclic link)
-        final_mode = entries.get(target, ("",))[0]
-        if final_mode not in ("", "120000"):
-            # Normal case: target is a file (mode is a file blob mode)
-            if target != path:
-                links[path] = target
-        elif final_mode == "120000":
-            # Cyclic link: target is still a symlink after loop
-            raise PrepError(f"guidance {path} at {sha[:12]} links to {target}, which is not a file there")
-        else:
-            # Target doesn't exist
-            raise PrepError(f"guidance {path} at {sha[:12]} links to {target}, which is not a file there")
-    return found, links
+        if chain := _link_chain(git_dir, entries, path, sha, eval_dir):
+            links[path], chains[path] = chain[-1], chain
+    return found, links, chains
+
+
+def _link_chain(git_dir: Path, entries: dict[str, tuple[str, str]], path: str, sha: str, eval_dir: str) -> list[str]:
+    """The paths guidance ``path`` resolves through in commit ``sha`` (``entries``: its blobs' mode and id): each
+    link after ``path`` and, last, the file it resolves to; empty when ``path`` is a file."""
+    chain: list[str] = []
+    target = path
+    for _ in range(8):  # a chain of links; a loop runs out
+        mode, oid = entries.get(target, ("", ""))
+        if mode != "120000":
+            break
+        dest = _run(["git", "-C", str(git_dir), "cat-file", "blob", oid], env=_git_env(SNAPSHOT_AUTHOR))
+        target = posixpath.normpath(posixpath.join(posixpath.dirname(target), dest))
+        if dest.startswith("/") or target == ".." or target.startswith("../"):
+            raise PrepError(f"guidance {path} at {sha[:12]} links out of the tree ({dest})")
+        if _is_within(target, eval_dir):
+            raise PrepError(f"guidance {path} at {sha[:12]} links into eval_dir {eval_dir}")
+        chain.append(target)
+    # the final entry is a file: still a link after the loop is a cycle, no entry a dangling link
+    if entries.get(target, ("",))[0] in ("", "120000"):
+        raise PrepError(f"guidance {path} at {sha[:12]} links to {target}, which is not a file there")
+    return chain
 
 
 def _apply_patch(ws: Path, env: dict[str, str], manifest: RepoManifest, arm: Arm) -> tuple[list[str], dict[str, Any]]:

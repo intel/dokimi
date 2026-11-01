@@ -363,7 +363,23 @@ commit and is not in the workspace, because step 3 starts a new history; a
 grader diffs the agent's changes from `start_sha`. With the arm come
 `arm_files`, the files it deleted, wrote or changed; for `guidance:rev:` an
 `arm_rev` object (`rev` as given, its `sha`, and `removed`: the base's guidance
-files with no counterpart at `<rev>`); for `patch:` an `arm_patch` object (the
+files with no counterpart at `<rev>`), which also records the guidance history
+of `<rev>` (`dokimi/repos/guidance_history.py`): `guidance_latest`, for
+each guidance file the arm wrote, the commit reachable from `<rev>` that last
+touched it, or for a link it or any path its resolution goes through (each
+intermediate link and the file it resolves to), by committer date;
+`guidance_commits`, the commits reachable from `<rev>` that touch a path the
+guidance globs match or a path a guidance link resolves through, newest first by committer
+date, at most 200, each with its `subject`; and `guidance_commits_truncated`,
+`true` when that cap cut the list. Each commit has its `sha`, `authored` and
+`committed` (strict ISO 8601, `%aI` and `%cI`). A merge commit counts for a
+path when its result differs there from every parent: a conflict resolution,
+an edit made in the merge, or a clean merge of its parents' edits to
+different parts of one file; a merge that takes the path as one parent has
+it does not, and the commits it merged count. A reader can compare `committed` with a replay task's
+`public_at` (§4.6) to see whether a guidance commit came after the task's
+answer was public; the author date alone cannot show it, as an amend or a
+rebase keeps it. For `patch:` an `arm_patch` object (the
 file's absolute `path` and full `sha256`, `added`: the files the patch added
 that neither the guidance globs nor `.mcp.json` match, and `mcp_servers`: the servers
 the patch added to the `.mcp.json` at the root, read before the agent runs). `args_if_present` lists the profile's
@@ -731,8 +747,12 @@ by a reviewer: it has no line and is never gold.
   `score: {metric: recall, max: 1.0}`, `review_patch`, `gold`, `window`
   (`--window`, default 5) and the prompt (`--prompt-file` replaces the default,
   which asks for the findings JSON of §4.5). For the reader it adds
-  `source_pr`, `source_url`, `reviewed_commit`, `merge_commit` and
-  `left_out_files`.
+  `source_pr`, `source_url`, `reviewed_commit`, `merge_commit`,
+  `left_out_files` and `public_at`: the earliest `createdAt` of a gold
+  thread's first comment, as the threads file gives it, the time the task's
+  answer was public (absent when no gold thread has a time). Against the
+  `committed` dates a `guidance:rev:` arm records (§3), it shows whether a
+  guidance commit came after it.
 - `gold.json` holds `{id, file, line, kind, comment, addressed, reply, url}`
   per thread. `id` is `pr<number>-t<n>`, `n` being the thread's position among
   all the PR's threads, so ids stay the same when a thread is dropped. `kind`
