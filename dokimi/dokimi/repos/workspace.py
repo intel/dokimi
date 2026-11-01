@@ -51,6 +51,7 @@ from dokimi import process
 
 from .arms import ArmError, Skill, resolve_skills, tree_sha256
 from .errors import PrepError
+from .guidance_history import arm_rev_history
 from .harness_profile import HarnessProfile
 from .manifest import RepoManifest, _is_within, match_glob
 from .source import GitTree, RepoSource, RepoTree, SourceError, cache_path, default_cache_dir, resolve_rev
@@ -504,8 +505,9 @@ def _apply_rev(ws: Path, git_dir: Path, manifest: RepoManifest, arm: Arm,
         if mode == "100755":
             dest_path.chmod(dest_path.stat().st_mode | 0o111)
     # arm_files: the files it wrote and the base's guidance it deleted (contract §3 meta.json)
+    history = arm_rev_history(git_dir, manifest.guidance_globs, arm.rev_sha, written)
     return sorted(set(written) | set(removed)), {"arm_rev": {"rev": arm.rev, "sha": arm.rev_sha,
-                                                             "removed": sorted(set(removed) - set(written))}}
+                                                             "removed": sorted(set(removed) - set(written)), **history}}
 
 
 def _apply_bridge(ws: Path, matched: list[str], bridge: dict[str, str]) -> tuple[list[str], dict[str, Any]]:
