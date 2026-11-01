@@ -66,7 +66,7 @@ class ProbeConfig:
 
 
 #: Prefix of each run's temp root. Claude Code shows the model its working directory,
-#: so the name must not say what the run is (``AgentWorkspace.create`` uses ``dokimi-run-``).
+#: so the name must not say what the run is (``AgentWorkspace.create`` uses a plain ``mkdtemp`` name).
 WORKSPACE_PREFIX = "project-"
 
 

@@ -10,7 +10,8 @@ from pathlib import Path
 import dokimi.eval.agent_runner as ar_mod
 from dokimi.eval.agent_runner import run_agent_loop
 from dokimi.harnesses import load_task
-from dokimi.harnesses.docker_solver import DockerSolverHarness
+from dokimi.harnesses.agent_sandbox import AgentWorkspace
+from dokimi.harnesses.docker_solver import _CONTAINER_PLUGIN, DockerSolverHarness
 from dokimi.harnesses.payload_audit import added_framing, audit_payload, markers_for, new_leaks
 from dokimi.harnesses.skill_treatment import TREATMENT_NOTICE, Treatment
 from dokimi.skills import load_skill
@@ -124,6 +125,26 @@ def test_docker_claude_discover_prompt_is_task_framing_only(tmp_path):
         prompt = argv[argv.index("-p") + 1]
         prompts[notice] = added_framing(prompt, task.instruction)
         assert audit_payload(prompt, markers_for(paths=[str(task.path)])) == []
-    # Discover keeps dokimi's task framing but drops the notice that names the skill.
-    assert "sum-fast" not in prompts[False] and prompts[False].startswith("Solve this coding task.")
+    # Discover adds nothing to the task instruction; the skill arm adds only the notice.
+    assert prompts[False] == ""
     assert prompts[True].startswith(TREATMENT_NOTICE.format(skill_id=treatment.skill_id).strip())
+
+
+def test_docker_claude_arms_send_no_harness_artifacts(tmp_path):
+    # The whole argv (plugin dir, tools, prompt) and the agent's cwd, as the solver sees them.
+    task = load_task(_task(tmp_path))
+    treatment = Treatment(name="sum-fast", plugin="sum-fast")
+    out = tmp_path / "out"
+    out.mkdir()
+    markers = markers_for(paths=[str(task.path), str(tmp_path)])
+    allowed = [task.instruction, TREATMENT_NOTICE.format(skill_id=treatment.skill_id)]
+    for notice in (True, False):
+        h = DockerSolverHarness(harness_id="docker-claude", mode="claude", skill_notice=notice)
+        argv = h._claude_args(task, treatment, _CONTAINER_PLUGIN, "haiku", out)
+        assert _CONTAINER_PLUGIN in argv and "abskill" not in " ".join(argv)
+        assert audit_payload(argv, markers, allowed=allowed) == []
+    ws = AgentWorkspace.create()
+    try:
+        assert audit_payload({"cwd": str(ws.work), "root": ws.root.name}, markers) == []
+    finally:
+        ws.cleanup()

@@ -404,10 +404,10 @@ def test_container_skill_arm_installs_a_plugin_outside_app(tmp_path, cli, docker
     def at(pred):
         return next(i for i, c in enumerate(docker_calls) if pred(c))
 
-    mkdir = at(lambda c: c[-3:] == ["mkdir", "-p", "/opt/abskill"])
-    cp_plugin = at(lambda c: c[0] == "cp" and c[-1].endswith(":/opt/abskill"))
-    chmod = at(lambda c: c[-4:] == ["chmod", "-R", "u=rwX,go=rX", "/opt/abskill"])
-    rm_plugin = at(lambda c: c[-3:] == ["rm", "-rf", "/opt/abskill"])
+    mkdir = at(lambda c: c[-3:] == ["mkdir", "-p", "/opt/claude-plugins"])
+    cp_plugin = at(lambda c: c[0] == "cp" and c[-1].endswith(":/opt/claude-plugins"))
+    chmod = at(lambda c: c[-4:] == ["chmod", "-R", "u=rwX,go=rX", "/opt/claude-plugins"])
+    rm_plugin = at(lambda c: c[-3:] == ["rm", "-rf", "/opt/claude-plugins"])
     # Copy the plugin's contents into a target that exists, so it never nests.
     assert docker_calls[cp_plugin][1].endswith("/plugin/.")
     assert mkdir < cp_plugin < chmod < rm_plugin
@@ -415,7 +415,7 @@ def test_container_skill_arm_installs_a_plugin_outside_app(tmp_path, cli, docker
     tests_in = [i for i, c in enumerate(docker_calls) if c[0] == "cp" and c[-1].endswith(":/tests")]
     assert all(rm_plugin < i for i in tests_in)
     argv = seen["argv"]
-    assert argv[argv.index("--plugin-dir") + 1] == "/opt/abskill"
+    assert argv[argv.index("--plugin-dir") + 1] == "/opt/claude-plugins"
     prompt = argv[argv.index("-p") + 1]
     assert prompt.startswith("A skill named `demo-skill:demo-skill` is installed.")
     assert "/app/.skill" not in " ".join(" ".join(c) for c in docker_calls)
@@ -476,7 +476,7 @@ def test_container_discover_arm_is_the_skill_arm_without_the_notice(
         runs[arm] = (seen["argv"], result.metrics)
     (skill_argv, skill_m), (disc_argv, disc_m) = runs["skill"], runs["skill-discover"]
     prompt = disc_argv[disc_argv.index("-p") + 1]
-    assert prompt.startswith("Solve this coding task.") and "demo-skill" not in prompt
+    assert prompt == task.instruction and "demo-skill" not in prompt
     # Same claude argv otherwise: plugin dir, tools, settings; only the prompt differs.
 
     def claude_argv(argv):
@@ -484,7 +484,7 @@ def test_container_discover_arm_is_the_skill_arm_without_the_notice(
         return argv[:argv.index("-p") + 1] + argv[argv.index("-p") + 2:]
 
     assert claude_argv(skill_argv) == claude_argv(disc_argv)
-    assert disc_argv[disc_argv.index("--plugin-dir") + 1] == "/opt/abskill"
+    assert disc_argv[disc_argv.index("--plugin-dir") + 1] == "/opt/claude-plugins"
     assert skill_m["skill_notice"] is True and disc_m["skill_notice"] is False
     assert disc_m["treatment"] == skill_m["treatment"]
     assert disc_m["n_skill_invocations"] == 1 and "solver_error" not in disc_m
@@ -555,7 +555,7 @@ def test_a_bad_skill_fails_before_any_docker_step(tmp_path, cli, docker_calls, m
 def test_a_failed_plugin_copy_leaves_no_staged_plugin(tmp_path, cli, docker_calls, monkeypatch):
     skill = _demo_skill(tmp_path)
     cli.answer = lambda call: (reply(stderr="docker cp failed", returncode=1)
-                               if call.argv[1] == "cp" and call.argv[-1].endswith(":/opt/abskill") else None)
+                               if call.argv[1] == "cp" and call.argv[-1].endswith(":/opt/claude-plugins") else None)
     _fake_claude(cli, {})
     out = tmp_path / "out"
     harness = create_harness(f"docker-claude-skill:{skill}", runner=cli)
@@ -572,7 +572,7 @@ def test_container_baseline_gets_no_plugin_and_no_notice(tmp_path, cli, docker_c
     create_harness("docker-claude", runner=cli).run(task, model="haiku", output_dir=tmp_path / "out")
     argv = seen["argv"]
     assert "--plugin-dir" not in argv
-    assert argv[argv.index("-p") + 1].startswith("Solve this coding task.")
+    assert argv[argv.index("-p") + 1] == task.instruction
     assert "Skill" in argv[argv.index("--tools") + 1].split(",")
 
 
@@ -1044,7 +1044,7 @@ def test_container_skill_arm_ships_the_skill_with_links_followed(tmp_path, cli, 
 
     def record(call):
         args = call.argv[1:]
-        if args[0] == "cp" and args[-1].endswith(":/opt/abskill"):
+        if args[0] == "cp" and args[-1].endswith(":/opt/claude-plugins"):
             links = [p for p in Path(args[1].rstrip(".")).rglob("*") if p.is_symlink()]
             refs = list(Path(args[1].rstrip(".")).rglob("references/a.md"))
             staged.update(links=links, ref=refs[0].read_text(encoding="utf-8") if refs else None)
@@ -1214,7 +1214,7 @@ def test_the_plugin_modes_are_reset_not_widened(tmp_path, monkeypatch):
     harness._install_plugin_in_container("c1", tmp_path / "out", io.StringIO(), {})
     chmod = next(c for c in cli.args if "chmod" in c)
     # a+rX would keep a setuid or world-writable file from the source as it is.
-    assert chmod == ["exec", "-u", "root", "c1", "chmod", "-R", "u=rwX,go=rX", "/opt/abskill"]
+    assert chmod == ["exec", "-u", "root", "c1", "chmod", "-R", "u=rwX,go=rX", "/opt/claude-plugins"]
 
 
 def test_an_announced_arm_does_not_warn_and_the_notice_is_on_by_default(

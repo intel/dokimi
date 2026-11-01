@@ -158,7 +158,10 @@ def solver_cli_flags() -> list[str]:
 
 @dataclass
 class AgentWorkspace:
-    """A scratch root ``<tmp>/dokimi-run-*/{work,home,config}`` for one solve.
+    """A scratch root ``<tmp>/<random>/{work,home,config}`` for one solve.
+
+    The name is the one ``mktemp`` gives any tool: the agent's cwd must not say it
+    is under a harness (see :mod:`payload_audit`).
 
     ``forbidden`` lists host paths the agent should not be able to read (the
     task's grader files, a skill the arm does not offer, the operator's
@@ -170,7 +173,7 @@ class AgentWorkspace:
 
     @classmethod
     def create(cls, *, forbidden: Optional[dict[str, list[Path]]] = None) -> "AgentWorkspace":
-        root = Path(tempfile.mkdtemp(prefix="dokimi-run-"))
+        root = Path(tempfile.mkdtemp())
         for sub in ("work", "home", "config"):
             (root / sub).mkdir()
         return cls(root=root, forbidden=forbidden or {})
