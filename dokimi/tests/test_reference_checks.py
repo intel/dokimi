@@ -492,6 +492,15 @@ def test_eval_reference_counts_a_judge_failure_as_an_error_for_every_arm():
         assert (cell["passed"], cell["aggregate"], cell["error"]) == (None, None, "judge: TimeoutError")
 
 
+def test_the_failed_judge_check_names_its_error_in_the_cell_and_the_graded_check_has_none():
+    data = {"baseline_arm": "baseline", "arms": ["baseline"], "answers": [
+        {"question_id": "q1", "question_text": "Capital?", "arms": {"baseline": {"answer": "Paris"}}}]}
+    result = score(data, [{"id": "q1", "question": "Capital?", "grading": _MIXED}], ask=_judge_raises)
+    match, judge = result.evaluations[0]["scores"]["baseline"]["checks"]
+    assert (judge["type"], judge["error"]) == ("judge", "judge: TimeoutError")
+    assert match == {"type": "match", "passed": True, "score": 1.0}
+
+
 def test_a_reference_cell_carries_its_answer_error_as_an_arm_cell_does(tmp_path):
     data = {"baseline_arm": "baseline", "arms": ["baseline", "skill"], "answers": [
         {"question_id": "q1", "question_text": "Capital?",
