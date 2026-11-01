@@ -496,7 +496,9 @@ def _assignment_bindings(tree: ast.Module, owner: dict[int, ast.AST], table: Exi
 
 
 def _exit_table(tree: ast.Module, owner: dict[int, ast.AST]) -> ExitTable:
-    assigned = {id(t) for n in ast.walk(tree) if isinstance(n, (ast.Assign, ast.AnnAssign))
+    # the targets of an assignment with a value; ``x: int`` alone binds x (local to its function) as any other name
+    assigned = {id(t) for n in ast.walk(tree)
+                if isinstance(n, ast.Assign) or (isinstance(n, ast.AnnAssign) and n.value is not None)
                 for t in (n.targets if isinstance(n, ast.Assign) else [n.target]) if isinstance(t, ast.Name)}
     table: ExitTable = {}
     _shadowing_bindings(tree, owner, table, assigned)
@@ -579,7 +581,6 @@ def exit_sites(tree: ast.Module) -> list[int]:
         elif isinstance(node, ast.Call) and _calls_exit(node, owner[id(node)], table, owner):
             lines.append(node.lineno)
     return sorted(lines)
-
 
 
 def exit_problems(imports: Imports, baseline: Mapping[str, tuple[int, str]],
@@ -849,6 +850,13 @@ def test_a_name_in_one_scope_does_not_change_what_another_scope_means(tmp_path):
     assert exit_sites(imports.trees["dokimi.b"]) == [3]
     assert exit_sites(imports.trees["dokimi.c"]) == [7]
     assert exit_sites(imports.trees["dokimi.d"]) == [7]
+
+
+def test_an_annotation_alone_makes_a_name_local_to_its_function(tmp_path):
+    imports = _package(tmp_path, {
+        "dokimi/a.py": "error = SystemExit(2)\n\ndef f():\n    error: int\n    raise error\n",
+    })
+    assert exit_sites(imports.trees["dokimi.a"]) == []
 
 
 def test_a_stale_layer_or_banned_baseline_entry_is_reported():
