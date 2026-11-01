@@ -56,7 +56,15 @@ def _read(batch_dir: Path, args: argparse.Namespace) -> tuple[dict[str, Any], li
 def cmd_repo_hits_judge(args: argparse.Namespace) -> None:
     """Label each credited replay pair with a judge model; write each cell's hits_judged.json."""
     from dokimi.repos.hits_calibration import calibrate
-    from dokimi.repos.hits_judge import estimate, format_estimate, format_summary, judge_cells, summary
+    from dokimi.repos.hits_judge import (
+        HITS_JUDGED,
+        HitsWriteError,
+        estimate,
+        format_estimate,
+        format_summary,
+        judge_cells,
+        summary,
+    )
 
     batch_dir = _batch(args)
     found, pairs, labels = _read(batch_dir, args)
@@ -64,7 +72,13 @@ def cmd_repo_hits_judge(args: argparse.Namespace) -> None:
         planned = estimate(found, pairs, args.judge)
         print(json.dumps(planned, indent=2) if args.json else format_estimate(planned))
         return
-    done = judge_cells(batch_dir, found, pairs, args.judge, args.max_usd)
+    try:
+        done = judge_cells(batch_dir, found, pairs, args.judge, args.max_usd)
+    except HitsWriteError as exc:  # an output write, as `sheet`'s: exit 2
+        meter = exc.done.meter
+        print(f"✗ {exc}; stopped there after {meter.calls} judge call(s), ${meter.spent_usd:.4f}; "
+              f"the {len(exc.done.docs)} cell(s) written before keep their {HITS_JUDGED}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
     calibration = calibrate(labels, done.labels(), pairs) if labels is not None else None
     result = summary(found, pairs, args.judge, done, calibration)
     print(json.dumps(result, indent=2) if args.json else format_summary(result))

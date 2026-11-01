@@ -1500,8 +1500,12 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   `--max-usd X` starts no new call once X is spent (a call with no known
   price counts as 0, as in `repo run`): a cell not fully judged gets no
   `hits_judged.json` (one an earlier run wrote is removed), and the command
-  exits 1. With `--labels FILE` it reports, per arm, the pairs both the
-  person and the judge labelled, the share with equal labels, and Cohen's
+  exits 1. A `hits_judged.json` that cannot be written, or an earlier one
+  that cannot be removed (a read-only batch, a directory in its place), stops
+  the run there with no further call: a `✗` line names the path and the
+  error, the judge calls made and their cost, and says the cells written
+  before keep their files; the command exits 2. With `--labels FILE` it
+  reports, per arm, the pairs both the person and the judge labelled, the share with equal labels, and Cohen's
   kappa over the three labels. Without it, or when no pair carries both the
   person's and the judge's label (a sheet left `null`, `[]`, labels only on
   pairs the judge left `unjudged`), a line says `recall_judged` is

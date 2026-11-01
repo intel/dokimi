@@ -339,10 +339,21 @@ class Judged:
         return {pair_key(d["cell"], p["thread"]): p["label"] for d in self.docs for p in d["pairs"] if p["label"]}
 
 
+class HitsWriteError(Exception):
+    """A cell's ``hits_judged.json`` could not be written, or an earlier one removed: :func:`judge_cells` stopped
+    there. ``done`` is what it did before (the files written stay), ``error`` the ``OSError``."""
+
+    def __init__(self, action: str, path: Path, error: OSError, done: Judged):
+        super().__init__(f"cannot {action} {path}: {error.strerror or error}")
+        self.path, self.error, self.done = path, error, done
+
+
 def judge_cells(batch_dir: Path, found: dict[str, Any], pairs: list[Pair], judge: tuple[str, str],
                 max_usd: Optional[float] = None) -> Judged:
     """Judge every pair, one call each through :func:`dokimi.judged.judged_reply`, and write each fully judged
-    cell's ``hits_judged.json``. A cell the budget stopped gets no file (one left by an earlier run goes)."""
+    cell's ``hits_judged.json``. A cell the budget stopped gets no file (one left by an earlier run goes).
+
+    Raises :class:`HitsWriteError` at the first file it cannot write or remove, before any further call."""
     by_cell: dict[str, list[Pair]] = defaultdict(list)
     for pair in pairs:
         by_cell[pair.cell].append(pair)
@@ -350,13 +361,19 @@ def judge_cells(batch_dir: Path, found: dict[str, Any], pairs: list[Pair], judge
     ask = done.meter.asking(LLM(judge[1], judge[0]))
     for cell in found["cells"]:
         path = batch_dir / cell["cell"] / HITS_JUDGED
+        judged: Optional[list[dict[str, Any]]]
         try:
             judged = [judge_pair(ask, p) for p in by_cell.get(cell["cell"], [])]
         except BudgetSpent:
             done.stopped.append(cell["cell"])
-            path.unlink(missing_ok=True)
-            continue
-        done.docs.append(save_artifact("repo_hits_judged", cell_doc(cell, judge, judged), path))
+            judged = None
+        try:
+            if judged is None:
+                path.unlink(missing_ok=True)
+            else:
+                done.docs.append(save_artifact("repo_hits_judged", cell_doc(cell, judge, judged), path))
+        except OSError as exc:  # no paid call follows a file that cannot be kept in step with the run
+            raise HitsWriteError("write" if judged is not None else "remove", path, exc, done) from exc
     return done
 
 

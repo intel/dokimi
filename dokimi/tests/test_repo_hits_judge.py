@@ -229,6 +229,43 @@ def test_max_usd_starts_no_call_once_spent_and_a_cell_left_gets_no_file(tmp_path
             f"{TASK}__guidance-raw__{MODEL}__r1") in out.splitlines()
 
 
+def test_a_file_that_cannot_be_written_stops_the_run_with_exit_2_and_no_later_call(tmp_path, capsys, judge_llm):
+    batch = _batch(tmp_path)
+    _put(batch, "guidance:raw", 3, [_f(30, "mul adds")])  # one more pair, judged after the failing cell
+    blocked = _judged(batch, "guidance:raw", 1)
+    blocked.mkdir()  # a directory where the file goes: the save fails
+    code, out, err = _run(capsys, "judge", str(batch), "--judge", JUDGE)
+    assert (code, out) == (2, "")
+    assert len(judge_llm.requests) == 4  # none r1 and raw r1; raw r3's call never starts
+    assert err.startswith(f"✗ cannot write {blocked}: ")
+    assert err.rstrip().endswith(f"stopped there after 4 judge call(s), $1.6000; "
+                                 f"the 1 cell(s) written before keep their {HITS_JUDGED}")
+    assert _judged(batch, "guidance:none", 1).is_file() and blocked.is_dir()
+    assert not _judged(batch, "guidance:raw", 3).exists()
+
+
+def test_an_earlier_file_that_cannot_be_removed_stops_the_run_with_exit_2(tmp_path, capsys, judge_llm, monkeypatch):
+    batch = _batch(tmp_path)
+    _put(batch, "guidance:raw", 3, [_f(100, "far from every thread")])  # no pair: written unless the run stopped
+    stale = _judged(batch, "guidance:raw", 1)
+    stale.write_text("{}")
+    unlink = Path.unlink
+
+    def refuse(self, missing_ok=False):
+        if self.name == HITS_JUDGED:
+            raise PermissionError(13, "Permission denied")
+        return unlink(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", refuse)
+    code, out, err = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--max-usd", "1")
+    assert (code, out) == (2, "")
+    assert len(judge_llm.requests) == 3  # the budget stops raw r1 at its second pair
+    assert err.startswith(f"✗ cannot remove {stale}: Permission denied; stopped there after 3 judge call(s), "
+                          f"$1.2000; the 1 cell(s) written before keep their {HITS_JUDGED}")
+    assert _judged(batch, "guidance:none", 1).is_file() and stale.read_text() == "{}"
+    assert not _judged(batch, "guidance:raw", 3).exists()
+
+
 def test_a_pair_whose_full_text_is_missing_is_reported_and_not_judged(tmp_path, capsys, judge_llm):
     batch = _batch(tmp_path)
     (batch / f"{TASK}__guidance-raw__{MODEL}__r1" / "answer.txt").write_text("no findings any more")
