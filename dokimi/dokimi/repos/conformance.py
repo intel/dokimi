@@ -281,7 +281,7 @@ def render_markdown(matrix: Mapping[str, Any], summaries: Mapping[str, str] | No
     """The matrix as a markdown page: the runs, then one table per fixture with a column per harness version."""
     summaries = summaries or {}
     counts = matrix["summary"]
-    columns = sorted({(r["harness"], r["version"]) for r in matrix["runs"] if r["status"] != "skipped"})
+    columns = sorted({(r["harness"], r["version"]) for r in matrix["runs"] if r["status"] not in ("skipped", "failed")})
     lines = [
         "# Reach matrix", "",
         f"Generated {matrix['generated_at']}. Observed states are what each run's model reported seeing "
