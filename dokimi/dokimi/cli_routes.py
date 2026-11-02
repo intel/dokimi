@@ -143,6 +143,7 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("eval", "score"), PAID),
     Leaf(("eval", "ragas"), PAID),
     Leaf(("eval", "grounding"), FREE),
+    Leaf(("eval", "coverage"), FREE),
     Leaf(("eval", "judge-validity"), PAID),
     Leaf(("eval", "checklist"), PAID),
     Leaf(("eval", "judge-wording"), PAID),

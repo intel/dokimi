@@ -142,37 +142,35 @@ def _digest_values(values: tuple[str, ...]) -> str:
     return "sha256:" + h.hexdigest()
 
 
-#: A URI scheme (``context7:``, ``https:``). Two characters or more: a Windows drive letter is not a scheme.
-_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]+:")
-
-
 def distribution_digest(ref: str | None, *, base: Path) -> str | None:
     """The digest a ``.well-known/agent-skills`` index would publish for *ref*, or None.
 
     That index (agentskills PR #254) hashes the bytes it serves: one ``SKILL.md`` for a
     ``skill-md`` entry, the archive for an ``archive`` entry. Only the first can be derived
-    from a checkout: a ``SKILL.md`` file ref is hashed as is, and a directory whose only file is
-    ``SKILL.md`` is hashed as that file. A directory with resources is served as an archive,
-    whose bytes depend on how it was packed, so it gets None rather than a digest no index
-    carries. So does a ref that is not a local path. ``ref_digest`` stays a content digest
-    of the tree.
+    from a checkout. A ``SKILL.md`` is hashed as is when its directory holds nothing else,
+    whether the ref names the file or the directory. A skill whose directory holds resources
+    is served as an archive, whose bytes depend on how it was packed, so it gets None rather
+    than a digest no index carries, under either spelling of its ref. So does a ref that is
+    not a local path. ``ref_digest`` stays a content digest of the tree.
     """
     if not ref:
         return None
-    local = ref.removeprefix("local:")
-    if _SCHEME.match(local):  # a non-local reference names no file here, even one that has its name
+    if re.match(r"[A-Za-z][A-Za-z0-9+.-]+:", ref) and not ref.startswith("local:"):
         return None
-    path = Path(local)
+    path = Path(ref.removeprefix("local:"))
     if not path.is_absolute():
         path = base / path
     if path.is_dir():
-        # Any other entry makes it an archive; one stray file is enough, so stop at the second.
-        if [p.name for _, p in zip(range(2), path.iterdir(), strict=False)] != ["SKILL.md"]:
-            return None
-        path = path / "SKILL.md"
-    if path.name != "SKILL.md" or not path.is_file():
+        skill_dir = path
+    elif path.name == "SKILL.md" and path.is_file():
+        skill_dir = path.parent
+    else:
         return None
-    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+    skill = skill_dir / "SKILL.md"
+    # Any other entry makes it an archive; one stray file is enough, so stop at the second.
+    if [p.name for _, p in zip(range(2), skill_dir.iterdir(), strict=False)] != ["SKILL.md"] or not skill.is_file():
+        return None
+    return "sha256:" + hashlib.sha256(skill.read_bytes()).hexdigest()
 
 
 def _digest_ref(ref: str | None, *, base: Path) -> str | None:

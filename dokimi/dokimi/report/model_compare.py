@@ -996,10 +996,9 @@ def _adjusted_significance(
     for sig, (p_adj, adj_significant) in zip(tested, decided, strict=True):
         sig["p_adjusted"] = p_adj
         # Same conjunction as the raw verdict, with the adjusted verdict in place of the raw one.
-        sig["significant_adjusted"] = bool(
-            adj_significant
-            and (sig["p_wilcoxon"] is None or sig["p_wilcoxon"] < arm_stats.ALPHA)
-        )
+        sig["significant_adjusted"] = bool(adj_significant and (
+            sig["p_wilcoxon"] is None or sig["p_wilcoxon"] < arm_stats.ALPHA))
+    arm_stats.set_exact_p_adjusted(tested, method=correction)
     # Correct on the exact p-values, then round: 3 * round(0.016666, 4) is 0.0501.
     return {rid: sig and arm_stats._finalize(sig) for rid, sig in sigs.items()}, len(tested)
 
