@@ -93,6 +93,7 @@ class RepoConfig:
             _check_nesting(resolved, self.root)
             for subject in resolved:
                 _check_suite(subject, self.root)
+                _check_links_v1(subject, self.root)
             if not hashes:
                 return resolved
             modes = _tracked_modes(self.root, ".")  # the index is read once for every subject's suite files
@@ -414,6 +415,7 @@ def _map_one(rel: str, subjects: list[Subject], reach: dict[str, Reach], shared:
     skills = [
         s for s in _skill_owners(subjects, reach, segs)
         if not _in_suite(s, segs, reach[s.id], gone) or segs in reach[s.id].skill_links
+        or _gone_above_suite(reach[s.id], segs, gone)
     ]
     if is_shared:
         impact.shared.append(rel)
@@ -423,6 +425,12 @@ def _map_one(rel: str, subjects: list[Subject], reach: dict[str, Reach], shared:
         impact.skills.setdefault(skill.id, []).append(rel)
     if not (is_shared or suites or skills):
         impact.unclaimed.append(rel)
+
+
+def _gone_above_suite(reach: Reach, segs: tuple[str, ...], gone: bool) -> bool:
+    """A deleted path above a suite's glob that is not itself a suite path: it may have been a link inside the skill,
+    which skill_sha hashed, so the skill keeps the change as well as the suite (the glob's own matches stay the suite's)."""
+    return gone and any(_ancestor_of(g, segs) and not _claims(g, segs) for g in reach.globs)
 
 
 def _skill_owners(subjects: list[Subject], reach: dict[str, Reach], segs: tuple[str, ...]) -> list[Subject]:
@@ -602,7 +610,20 @@ def _file_modes(target: Path, root_real: Path, modes: Mapping[str, bool] | None)
         key = target.relative_to(root_real).as_posix()
     except ValueError:
         return {}
-    return {target.name: modes[key]} if key in modes else {}
+    if key in modes:
+        return {target.name: modes[key]}
+    # the outer index does not hold a file of a nested checkout: its own repository records the bit, so git is asked
+    return None if _in_nested_repo(target, root_real) else {}
+
+
+def _in_nested_repo(target: Path, root_real: Path) -> bool:
+    """True when a directory between ``target`` and the repository root holds a ``.git`` of its own."""
+    for parent in target.parents:
+        if parent == root_real or not parent.is_relative_to(root_real):
+            return False
+        if (parent / ".git").exists():
+            return True
+    return False
 
 
 def _check_suite(subject: Subject, root: Path) -> None:
@@ -620,6 +641,58 @@ def _check_suite(subject: Subject, root: Path) -> None:
     for rel, path in matches.items():
         _check_match(subject, rel, path, real_skill, root)
     _check_claims(subject, matches, real_skill)
+
+
+def _check_links_v1(subject: Subject, root: Path) -> None:
+    """The v1 link rule: the only link a subject may hold is its own skill directory, when that links to a place
+    inside the repository. Any other link on the way to the skill, inside it, on the way to a suite match or inside one
+    is a ConfigError, so the impact map never has to attribute a link (a link's retargeting or deletion is not
+    attributed beyond the paths it names). Widening the rule later is free; narrowing it would break configs."""
+    root_real = _real(root)
+    if root_real is None:
+        return
+    own_way = _check_skill_links(subject, root, root_real) if subject.kind == "skill" else set()
+    _check_suite_links(subject, root, root_real, own_way)
+
+
+def _check_skill_links(subject: Subject, root: Path, root_real: Path) -> set[tuple[str, ...]]:
+    """The links on the way to the skill and inside it; returns the skill's own hop, the only one allowed."""
+    segs = tuple(subject.path.split("/"))
+    hops = _hops(root / subject.path, root, root_real)
+    for hop in hops:
+        if hop != segs:
+            raise ConfigError(
+                f"subject {subject.id}: {subject.path} is reached through the link {'/'.join(hop)}; "
+                "only the skill directory itself may be a link, and only to a place inside the repository"
+            )
+    if segs in hops and _inside(root / subject.path, root_real) is None:
+        raise ConfigError(f"subject {subject.id}: its skill directory {subject.path} links outside the repository")
+    for name, entry in _walk(root / subject.path, subject.path):
+        if entry.is_symlink() and name != subject.path:
+            raise ConfigError(f"subject {subject.id}: {name} is a link inside its skill; a skill holds real files in v1")
+    return {segs}
+
+
+def _check_suite_links(subject: Subject, root: Path, root_real: Path, own_way: set[tuple[str, ...]]) -> None:
+    """The links on the way to a suite and inside its matches; only the skill's own hop may be on the way. Every link
+    a glob's walk reads through is checked, matched or not, so a link is refused whether or not the suite has a match."""
+    for pattern in subject.suite_globs:
+        for link, _rest in _glob_links(root, pattern):
+            _check_way(subject, pattern, _hops(link, root, root_real), own_way)
+    for rel, path in _suite_files(root, subject.suite_globs).items():
+        _check_way(subject, rel, _hops(path, root, root_real), own_way)
+        for name, entry in _walk(path, rel):
+            if entry.is_symlink():
+                raise ConfigError(f"subject {subject.id}: its suite holds {name}, a link; a suite holds real files in v1")
+
+
+def _check_way(subject: Subject, rel: str, hops: list[tuple[str, ...]], own_way: set[tuple[str, ...]]) -> None:
+    for hop in hops:
+        if hop not in own_way:
+            raise ConfigError(
+                f"subject {subject.id}: its suite {rel} is reached through the link {'/'.join(hop)}; "
+                "a suite holds real files and directories in v1"
+            )
 
 
 def _into_skill(path: Path, real_skill: Path) -> bool:
