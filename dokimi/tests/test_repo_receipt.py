@@ -82,6 +82,20 @@ def test_each_reach_class_maps_to_its_observed_and_thread_states(tmp_path, cls):
     assert src["states"]["followed"] == "unknown"
 
 
+def test_a_start_up_rule_imported_by_claude_md_is_a_receipt_source_under_claude_code(tmp_path):
+    # with rules read, budget counts the import as a rule (not an import): the receipt must still list it
+    from dokimi.repos.budget import budget
+
+    tree = _tree(tmp_path, {"CLAUDE.md": "@.claude/rules/r.md\n", ".claude/rules/r.md": "body\n"})
+    payload = budget(tree, ("CLAUDE.md", "AGENTS.md"), None, True)
+    assert [(e["path"], e["kind"], e["when"]) for e in payload["entries"] if e["path"].endswith("r.md")] == [
+        (".claude/rules/r.md", "rule", "start")]
+    reach = _reach([_record("CLAUDE.md", "cwd=.", "loaded")], [ROOT_ROW])
+    src = _sources(build_receipt(reach, payload, tree), "cwd=.")
+    assert src[".claude/rules/r.md"]["expected"] is True
+    assert src[".claude/rules/r.md"]["sha256"] is not None
+
+
 def test_a_source_the_probe_did_not_record_has_no_dokimi_method(tmp_path):
     tree = _tree(tmp_path, {"AGENTS.md": "a\n", "CLAUDE.md": "c\n", "docs/style.md": "d\n"})
     reach = _reach([_record("AGENTS.md", "cwd=.", "loaded")], [ROOT_ROW])

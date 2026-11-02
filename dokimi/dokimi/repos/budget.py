@@ -77,16 +77,18 @@ def _nested_unscoped(tree: RepoTree, files) -> set:
             if RULE_GLOB.match(f) and not f.startswith(".claude/rules/") and not _rule(tree, f)[1]}
 
 
-def _cut_is_quiet(tree: RepoTree, f: str, target: str, loaded, cut_lazy_set: set, cut_start_set: set,
+def _cut_is_quiet(tree: RepoTree, target: str, root: str, loaded, pair_lazy: bool, pair_start: bool,
                   nested_unscoped: set) -> bool:
     """True when a cut import needs no warning: another chain loaded its target, or it is a cut lazy import of an
     unscoped nested rule from guidance in that rule's subtree (the rule loads with that guidance anyway).
 
-    The second exemption does not cover a pair the start chain cut too: that rule does not load at start."""
+    ``root`` is the guidance file the chain of the cut import starts from: that guidance, not the importing file,
+    decides whether the rule loads with it. The second exemption does not cover a pair the start chain cut too:
+    that rule does not load at start."""
     if _target(tree, target) in loaded:
         return True  # another chain did load it, possibly through a link
-    return (f, target) in cut_lazy_set and (f, target) not in cut_start_set and any(
-        _target(tree, target) == t and f.startswith(sub) for t, sub in nested_unscoped)
+    return pair_lazy and not pair_start and any(
+        _target(tree, target) == t and root.startswith(sub) for t, sub in nested_unscoped)
 
 
 def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: int | None = None,
@@ -171,10 +173,14 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
     # An unscoped nested rule loads for any work in its subtree, so a cut import of it there skips nothing.
     # A path-scoped rule, or one imported from outside its subtree, does not load with its importer: still named.
     nested_unscoped = _nested_unscoped(tree, files) if rules else set()
-    cut_lazy_set = set(cut_lazy)
-    cut_start_set = set(cut_start)
-    for f, target in sorted(set(cut_start + cut_lazy)):
-        if _cut_is_quiet(tree, f, target, loaded, cut_lazy_set, cut_start_set, nested_unscoped):
+    cut_lazy_set = {(f, p) for f, p, _ in cut_lazy}
+    cut_start_set = {(f, p) for f, p, _ in cut_start}
+    roots_of: dict[tuple[str, str], set[str]] = {}  # a cut pair names every guidance file whose chain cuts it
+    for f, target, root in cut_start + cut_lazy:
+        roots_of.setdefault((f, target), set()).add(root)
+    for (f, target), roots in sorted(roots_of.items()):
+        if all(_cut_is_quiet(tree, target, root, loaded, (f, target) in cut_lazy_set, (f, target) in cut_start_set,
+                             nested_unscoped) for root in roots):
             continue
         if not _is_resolvable(tree, target):
             continue  # nothing to load, as with a missing import within the limit
@@ -477,13 +483,14 @@ def _without_comment(text: str) -> str:
 
 
 def _imports(tree: RepoTree, roots: list[str], max_depth: int | None = None,
-             rules: bool = False) -> tuple[set[str], list[tuple[str, str]]]:
+             rules: bool = False) -> tuple[set[str], list[tuple[str, str, str]]]:
     """Files the CLAUDE.md ``roots`` ``@import``, transitively (relative to the importing file).
 
     Breadth first, so a file is placed at its shortest hop count. A rule an import reaches is followed like any
     other file (its @ paths are imports only because a CLAUDE.md imports the rule: a rule that no CLAUDE.md imports
     is never read here). With ``max_depth``, imports of files already ``max_depth`` hops from a root are not
-    followed; those left unreached come back as ``(importing file, target)`` pairs.
+    followed; those left unreached come back as ``(importing file, target, root)``, the root being the guidance
+    file the chain reached the importing file from.
     """
     seen: set[str] = set()
     # Also by the file a path resolves to, so an alias (CLAUDE.md -> .) is not walked again under a longer path.
@@ -491,7 +498,8 @@ def _imports(tree: RepoTree, roots: list[str], max_depth: int | None = None,
     reached = {_target(tree, r) for r in roots}
     reached_by_rule: set[str] = set()
     level = list(roots)
-    cut: list[tuple[str, str]] = []
+    origin = {r: r for r in roots}  # the guidance file each reached file was reached from
+    cut: list[tuple[str, str, str]] = []
     depth = 0
     while level:
         nxt: list[str] = []
@@ -514,14 +522,15 @@ def _imports(tree: RepoTree, roots: list[str], max_depth: int | None = None,
                 if t in done:
                     continue
                 if max_depth is not None and depth >= max_depth:
-                    cut.append((f, path))
+                    cut.append((f, path, origin[f]))
                     continue
                 seen.add(path)
+                origin[path] = origin[f]
                 done.add(t)
                 nxt.append(path)
         level = nxt
         depth += 1
-    return seen, [(f, p) for f, p in cut if p not in seen]
+    return seen, [(f, p, r) for f, p, r in cut if p not in seen]
 
 
 def _normalize(path: str) -> str:

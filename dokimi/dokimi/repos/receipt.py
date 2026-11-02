@@ -158,10 +158,10 @@ def _known(reach: dict[str, Any]) -> set[str]:
 
 
 def _budget_when(reach: dict[str, Any], budget: dict[str, Any]) -> dict[str, str]:
-    """budget's ``when`` of each guidance file and import, keyed by the file the path resolves to."""
+    """budget's ``when`` of each guidance file, import and rule, keyed by the file the path resolves to."""
     target_of = {alias: item["path"] for item in reach["files"] for alias in item.get("aliases", [])}
     return {target_of.get(e["path"], e["path"]): e["when"]
-            for e in budget["entries"] if e["kind"] in ("guidance", "import", "skill listing")}
+            for e in budget["entries"] if e["kind"] in ("guidance", "import", "rule", "skill listing")}
 
 
 def _own_guidance(reach: dict[str, Any], budget: dict[str, Any], tree: RepoTree) -> frozenset[str]:
