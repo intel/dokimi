@@ -410,3 +410,9 @@ def test_tasks_inspect_of_a_missing_path_exits_with_an_error_prefix(tmp_path):
     with pytest.raises(SystemExit) as excinfo:
         args.func(args)
     assert str(excinfo.value).startswith("Error:")
+
+
+def test_a_harness_id_with_characters_windows_refuses_makes_a_valid_cell_directory_name():
+    from dokimi.harnesses.runner import _safe_id
+
+    assert _safe_id(r'command:"C:\py\python.exe" -c "a|b<c>?*"') == "command__C__py_python.exe__-c__a_b_c____"

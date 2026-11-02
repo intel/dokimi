@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -565,4 +566,4 @@ def _error_result(harness_id: str, task: TaskSpec, output_dir: Path, exc: Except
 
 
 def _safe_id(value: str) -> str:
-    return value.replace("/", "_").replace(":", "_").replace(" ", "_")
+    return re.sub(r'[/\\:<>"|?* ]', "_", value)
