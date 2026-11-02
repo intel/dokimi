@@ -1636,8 +1636,14 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   and a grader-failure cell are counted, not judged. A pair whose full text is
   not found (no single task directory or no such thread under
   `<batch>/_eval/content`, no finding at its index in `answer.txt`, or a file
-  other than the one `matches` names) and a pair whose reply never parses are
-  `unjudged`, with `error` saying why, and never count as `same point`. A
+  other than the one `matches` names), a pair whose reply never parses, and a
+  pair whose judge call fails (a provider error past the client's retries:
+  `error` is `judge call failed: <type>: <message>`) are
+  `unjudged`, with `error` saying why, and never count as `same point`. When
+  3 judge calls in a row fail with one error (an auth error, a missing key),
+  the run stops there: a `✗` line gives the error, the judge calls made and
+  their cost, and says the cells written before keep their files; the cell
+  in progress gets none (an earlier one is removed), and the command exits 1. A
   cell with an unjudged pair is written with `recall_judged` null and left out
   of the mean `recall_judged`; a line counts and names those cells
   (`unjudged cells: N`; `--json`: `unjudged_cells`).

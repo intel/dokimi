@@ -192,6 +192,52 @@ def test_a_reply_that_never_parses_leaves_the_pair_unjudged(tmp_path, capsys, mo
     assert none["recall_judged"] is None  # an unjudged pair is not measured: no figure, not a 0
 
 
+def _failing(fail) -> llm.FakeAdapter:
+    """A judge whose call raises ``fail(n)`` on its n-th call (from 1) when that is an exception, else replies."""
+    calls = []
+
+    def reply(request):
+        calls.append(request)
+        error = fail(len(calls))
+        if error is not None:
+            raise error
+        return _reply(request)
+
+    return llm.FakeAdapter(respond=reply, usage=UsageRecord(prompt_tokens=10, completion_tokens=5, total_tokens=15,
+                                                            cost_usd=0.4))
+
+
+def test_a_judge_call_that_fails_leaves_its_pair_unjudged_and_the_run_goes_on(tmp_path, capsys, monkeypatch):
+    monkeypatch.delenv(caching.RESPONSE_CACHE_ENV, raising=False)
+    batch = _batch(tmp_path)
+    with llm.use_adapter(_failing(lambda n: RuntimeError("provider said 500") if n == 3 else None)) as fake:
+        code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--json")
+    assert (code, len(fake.requests)) == (0, 4)  # the failed call is not retried by the run: one per pair
+    raw = load_artifact("repo_hits_judged", _judged(batch, "guidance:raw", 1))
+    failed = [p for p in raw["pairs"] if p["label"] is None]
+    assert [p["error"] for p in failed] == ["judge call failed: RuntimeError: provider said 500"]
+    assert (raw["counts"]["unjudged"], raw["recall_judged"]) == (1, None)
+    result = json.loads(out)
+    assert result["unjudged_cells"] == [f"{TASK}__guidance-raw__{MODEL}__r1"] and result["calls"] == 3
+
+
+def test_the_same_judge_error_three_calls_in_a_row_stops_the_run_with_exit_1(tmp_path, capsys, monkeypatch):
+    monkeypatch.delenv(caching.RESPONSE_CACHE_ENV, raising=False)
+    batch = _batch(tmp_path)
+    _put(batch, "guidance:raw", 3, [_f(30, "mul adds")])  # one more pair, after the stop
+    stale = _judged(batch, "guidance:raw", 1)
+    stale.write_text("{}")  # the cell in progress keeps no earlier run's file
+    with llm.use_adapter(_failing(lambda n: RuntimeError("invalid api key") if n > 1 else None)) as fake:
+        code, out, err = _run(capsys, "judge", str(batch), "--judge", JUDGE)
+    assert (code, out, len(fake.requests)) == (1, "", 4)  # none r1's 2 pairs, then raw r1's 2: the third failure
+    assert err.strip() == ("✗ the judge call failed 3 times in a row (RuntimeError: invalid api key); stopped there "
+                           f"after 1 judge call(s), $0.4000; the 1 cell(s) written before keep their {HITS_JUDGED}, "
+                           "and the cell in progress gets none")
+    none = load_artifact("repo_hits_judged", _judged(batch, "guidance:none", 1))
+    assert (none["counts"]["unjudged"], none["recall_judged"]) == (1, None)
+    assert not stale.exists() and not _judged(batch, "guidance:raw", 3).exists()
+
+
 @pytest.mark.parametrize("judge", [f"anthropic/{MODEL}", "claude-cli/sonnet", "claude-cli/haiku"])
 def test_a_judge_that_runs_an_answer_model_is_refused_before_any_call(tmp_path, capsys, judge):
     batch = _batch(tmp_path)

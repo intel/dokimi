@@ -11,7 +11,7 @@ import json
 import sys
 from collections import Counter
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, NoReturn
 
 from dokimi.exit_codes import EXIT_FAILURE, EXIT_USAGE
 
@@ -53,12 +53,21 @@ def _read(batch_dir: Path, args: argparse.Namespace) -> tuple[dict[str, Any], li
     return found, pairs, labels
 
 
+def _stopped(exc: Exception, done: Any, code: int, more: str = "") -> NoReturn:
+    """A ``✗`` line for a run :func:`.hits_judge.judge_cells` stopped: the calls made, their cost, what stays."""
+    from dokimi.repos.hits_judge import HITS_JUDGED
+
+    print(f"✗ {exc}; stopped there after {done.meter.calls} judge call(s), {done.meter.spend()}; "
+          f"the {len(done.docs)} cell(s) written before keep their {HITS_JUDGED}{more}", file=sys.stderr)
+    sys.exit(code)
+
+
 def cmd_repo_hits_judge(args: argparse.Namespace) -> None:
     """Label each credited replay pair with a judge model; write each cell's hits_judged.json."""
     from dokimi.repos.hits_calibration import calibrate
     from dokimi.repos.hits_judge import (
-        HITS_JUDGED,
         HitsWriteError,
+        JudgeFailing,
         estimate,
         format_estimate,
         format_summary,
@@ -75,10 +84,9 @@ def cmd_repo_hits_judge(args: argparse.Namespace) -> None:
     try:
         done = judge_cells(batch_dir, found, pairs, args.judge, args.max_usd)
     except HitsWriteError as exc:  # an output write, as `sheet`'s: exit 2
-        meter = exc.done.meter
-        print(f"✗ {exc}; stopped there after {meter.calls} judge call(s), {meter.spend()}; "
-              f"the {len(exc.done.docs)} cell(s) written before keep their {HITS_JUDGED}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        _stopped(exc, exc.done, EXIT_USAGE)
+    except JudgeFailing as exc:  # the provider refuses every call (an auth error, a missing key): exit 1
+        _stopped(exc, exc.done, EXIT_FAILURE, ", and the cell in progress gets none")
     calibration = calibrate(labels, done.labels(), pairs) if labels is not None else None
     result = summary(found, pairs, args.judge, done, calibration)
     print(json.dumps(result, indent=2) if args.json else format_summary(result))

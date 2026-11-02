@@ -40,6 +40,9 @@ UNJUDGED = "unjudged"
 HITS_JUDGED = "hits_judged.json"
 #: The reply's tokens in the dry-run estimate: one short JSON object.
 OUTPUT_TOKENS = 100
+#: Judge calls failing in a row with one error that stop the run: an auth error or a missing key fails them all.
+FAILING = 3
+CALL_FAILED = "judge call failed"
 
 PROMPT = """\
 A pull request was reviewed twice: by a human reviewer, and later by an automated reviewer. A grader
@@ -279,13 +282,20 @@ class Meter:
 
     A response-cache replay is free and not counted. A live call with no known price counts as 0 in
     ``spent_usd`` and in ``unpriced``; with ``max_usd`` it also stops the run after that call, as ``novelty``'s
-    spend cap does: the cap cannot be enforced on spend it cannot see. ``stop`` says why no new call starts."""
+    spend cap does: the cap cannot be enforced on spend it cannot see. ``stop`` says why no new call starts.
+    ``failing`` holds the errors of the calls that failed since the last reply (not in ``calls``)."""
 
     max_usd: Optional[float] = None
     spent_usd: float = 0.0
     calls: int = 0
     unpriced: int = 0
     stop: Optional[str] = None
+    failing: list[str] = field(default_factory=list)
+
+    def repeated_failure(self) -> Optional[str]:
+        """The error of the last :data:`FAILING` calls when they all failed with it (an auth error, a missing key)."""
+        last = self.failing[-FAILING:]
+        return last[0] if len(last) == FAILING and len(set(last)) == 1 else None
 
     def asking(self, llm: LLM) -> Ask:
         def ask(prompt: str, *, draw: int = 0, cache_if: Optional[Callable[[str], bool]] = None) -> str:
@@ -294,7 +304,12 @@ class Meter:
                     self.stop = self.stop or "--max-usd spent"
                 if self.stop:
                     raise BudgetSpent()
-            reply = llm.complete(prompt, draw=draw, cache_if=cache_if)
+            try:
+                reply = llm.complete(prompt, draw=draw, cache_if=cache_if)
+            except Exception as exc:
+                self.failing.append(f"{type(exc).__name__}: {exc}")
+                raise
+            self.failing.clear()
             if not reply.usage.replayed:
                 self.calls += 1
                 self.spent_usd += reply.usage.cost_usd or 0.0
@@ -317,7 +332,8 @@ def spend_text(spent_usd: float, unpriced: int) -> str:
 
 
 def judge_pair(ask: Ask, pair: Pair) -> dict[str, Any]:
-    """The pair's record in ``hits_judged.json``; ``label`` null when its texts were not found or no reply parsed."""
+    """The pair's record in ``hits_judged.json``; ``label`` null when its texts were not found, no reply parsed,
+    or the judge call failed (a provider error past the client's retries). :class:`BudgetSpent` propagates."""
     out: dict[str, Any] = {"thread": pair.hit.get("thread"), "finding": pair.hit.get("finding"),
                            "label": None, "reason": None}
     if pair.problem is not None:
@@ -326,6 +342,10 @@ def judge_pair(ask: Ask, pair: Pair) -> dict[str, Any]:
         (label, reason), _ = judged_reply(ask, prompt_for(pair), parse_label, pinned=False, label="hits judge")
     except Unparseable as exc:
         return {**out, "error": f"no reply parsed: {exc}"}
+    except BudgetSpent:
+        raise
+    except Exception as exc:  # a 5xx or 429 past the retries, an auth error: this pair is unjudged, the run goes on
+        return {**out, "error": f"{CALL_FAILED}: {type(exc).__name__}: {exc}"}
     return {**out, "label": label, "reason": reason}
 
 
@@ -376,21 +396,20 @@ class HitsWriteError(Exception):
         self.path, self.error, self.done = path, error, done
 
 
-def judge_cells(batch_dir: Path, found: dict[str, Any], pairs: list[Pair], judge: tuple[str, str],
-                max_usd: Optional[float] = None) -> Judged:
-    """Judge every pair, one call each through :func:`dokimi.judged.judged_reply`, and write each fully judged
-    cell's ``hits_judged.json``. A cell the budget stopped gets no file (one left by an earlier run goes).
+class JudgeFailing(Exception):
+    """The judge call failed :data:`FAILING` times in a row with one error: :func:`judge_cells` stopped there.
+    ``done`` is what it did before (the files written stay; the cell in progress gets none)."""
 
-    First, before any call, it removes the ``hits_judged.json`` an earlier run left in every other finished cell
-    of the batch (:func:`.report.load_cells`): one regraded since into a state ``found["cells"]`` leaves out (a
-    grader failure, a grade with no ``matches`` that is not a parse error, another grader). ``Judged.stale``
-    names those cells.
+    def __init__(self, error: str, done: Judged):
+        super().__init__(f"the judge call failed {FAILING} times in a row ({error})")
+        self.error, self.done = error, done
 
-    Raises :class:`HitsWriteError` at the first file it cannot write or remove, before any further call."""
-    by_cell: dict[str, list[Pair]] = defaultdict(list)
-    for pair in pairs:
-        by_cell[pair.cell].append(pair)
-    done = Judged(meter=Meter(max_usd))
+
+class _Failing(Exception):
+    pass
+
+
+def _remove_stale(batch_dir: Path, found: dict[str, Any], done: Judged) -> None:
     read = {cell["cell"] for cell in found["cells"]}
     for rec in load_cells(batch_dir)[0]:
         path = batch_dir / rec["cell"] / HITS_JUDGED
@@ -401,22 +420,59 @@ def judge_cells(batch_dir: Path, found: dict[str, Any], pairs: list[Pair], judge
         except OSError as exc:
             raise HitsWriteError("remove", path, exc, done) from exc
         done.stale.append(rec["cell"])
+
+
+def _judge_cell(ask: Ask, meter: Meter, pairs: list[Pair]) -> list[dict[str, Any]]:
+    judged = []
+    for pair in pairs:
+        judged.append(judge_pair(ask, pair))
+        if meter.repeated_failure():
+            raise _Failing()
+    return judged
+
+
+def _keep(path: Path, doc: Optional[dict[str, Any]], done: Judged) -> None:
+    """Write the cell's file, or remove an earlier one when the cell was not fully judged (``doc`` None)."""
+    try:
+        if doc is None:
+            path.unlink(missing_ok=True)
+        else:
+            done.docs.append(save_artifact("repo_hits_judged", doc, path))
+    except OSError as exc:  # no paid call follows a file that cannot be kept in step with the run
+        raise HitsWriteError("write" if doc is not None else "remove", path, exc, done) from exc
+
+
+def judge_cells(batch_dir: Path, found: dict[str, Any], pairs: list[Pair], judge: tuple[str, str],
+                max_usd: Optional[float] = None) -> Judged:
+    """Judge every pair, one call each through :func:`dokimi.judged.judged_reply`, and write each fully judged
+    cell's ``hits_judged.json``. A cell the budget stopped gets no file (one left by an earlier run goes).
+
+    First, before any call, it removes the ``hits_judged.json`` an earlier run left in every other finished cell
+    of the batch (:func:`.report.load_cells`): one regraded since into a state ``found["cells"]`` leaves out (a
+    grader failure, a grade with no ``matches`` that is not a parse error, another grader). ``Judged.stale``
+    names those cells.
+
+    Raises :class:`HitsWriteError` at the first file it cannot write or remove, before any further call, and
+    :class:`JudgeFailing` once :data:`FAILING` calls in a row failed with one error (the cell in progress gets
+    no file, and an earlier one goes)."""
+    by_cell: dict[str, list[Pair]] = defaultdict(list)
+    for pair in pairs:
+        by_cell[pair.cell].append(pair)
+    done = Judged(meter=Meter(max_usd))
+    _remove_stale(batch_dir, found, done)
     ask = done.meter.asking(LLM(judge[1], judge[0]))
     for cell in found["cells"]:
-        path = batch_dir / cell["cell"] / HITS_JUDGED
-        judged: Optional[list[dict[str, Any]]]
+        doc: Optional[dict[str, Any]] = None
+        failing: Optional[str] = None
         try:
-            judged = [judge_pair(ask, p) for p in by_cell.get(cell["cell"], [])]
+            doc = cell_doc(cell, judge, _judge_cell(ask, done.meter, by_cell.get(cell["cell"], [])))
         except BudgetSpent:
             done.stopped.append(cell["cell"])
-            judged = None
-        try:
-            if judged is None:
-                path.unlink(missing_ok=True)
-            else:
-                done.docs.append(save_artifact("repo_hits_judged", cell_doc(cell, judge, judged), path))
-        except OSError as exc:  # no paid call follows a file that cannot be kept in step with the run
-            raise HitsWriteError("write" if judged is not None else "remove", path, exc, done) from exc
+        except _Failing:
+            failing = done.meter.repeated_failure()
+        _keep(batch_dir / cell["cell"] / HITS_JUDGED, doc, done)
+        if failing:
+            raise JudgeFailing(failing, done)
     return done
 
 

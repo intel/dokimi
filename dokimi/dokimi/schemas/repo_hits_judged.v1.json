@@ -34,7 +34,7 @@
           "finding": {"description": "The finding's index among the answer's objects, as the match records it."},
           "label": {"enum": ["same point", "related", "unrelated", null], "description": "`null`: unjudged, `error` says why."},
           "reason": {"type": ["string", "null"], "description": "The judge's one sentence; `null` when unjudged."},
-          "error": {"type": "string", "description": "Why the pair is unjudged: its full text was not found, or no judge reply parsed."}
+          "error": {"type": "string", "description": "Why the pair is unjudged: its full text was not found, no judge reply parsed, or the judge call failed."}
         }
       }
     },
