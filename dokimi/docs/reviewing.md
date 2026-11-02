@@ -183,29 +183,34 @@ these, in order, before writing what it showed (the fields:
 [§9](repo-evaluation-contract.md#9-running) of the contract).
 
 - **Delivery first.** Say what the cells started with before crediting any
-  file. Compare the `first_prompt_tokens` row of `repo compare` with each
-  guidance file's size in tokens: a delta the size of the root file means only
-  the root file was in the start context. A nested `AGENTS.md` loads later if
-  at all; reach (step 2) shows what loads it (`cwd=<dir>`, `read=<dir>`).
-  `process:guidance_read` counts Read-tool reads only, so 0 from an agent that
-  used Bash is not "never read": look for a `cat` or `grep` of a guidance file
-  in `events.jsonl` or `agent.stdout`, or add a `process_metrics` counter.
-  Name what was delivered as what was tested ("the root `AGENTS.md`", not "the
-  guidance"), and credit no hit to a rule in a file the cell neither started
-  with nor read.
+  file. The `first_prompt_tokens` delta of `repo compare` is evidence, not
+  proof: a mean over tasks and cells of a total, it names no file. A delta the
+  size of the root file points at that file alone; confirm with reach (step 2)
+  under the cells' harness and version, and where a credit turns on it with
+  the cells' traces. A nested `AGENTS.md` loads later if at all (reach's
+  `cwd=<dir>`, `read=<dir>` show what loads it). `process:guidance_read`
+  counts Read-tool reads only: 0 from an agent that used Bash is not "never
+  read"; look for a `cat` or `grep` of a guidance file in `events.jsonl` or
+  `agent.stdout`, or add a `process_metrics` counter. Name what was delivered
+  as what was tested ("the root `AGENTS.md`", not "the guidance").
 - **A leakage cut.** A task is out of sample for a guidance revision only when
   no guidance commit in it could have been written from the task's review; a
   date split is not that cut. List the revision's guidance commits
-  (`git log -p --format='%h %cI %B' <rev> -- <guidance files>`) and flag the
-  tasks whose PR a commit names (`task.json` `source_pr`) or whose threads
-  (`createdAt` in the threads file) predate a commit that changed the rule
-  they raise. Read the gain without them (`repo compare --task` on the rest).
-  Leakage can only favour the guidance arm: it weakens a gain, not a null.
+  (`git log -p --format='%h %cI %B' <rev> -- <paths>`). Guidance is read with
+  symlinks followed, so the paths are each guidance file, every link on the
+  way and the file it resolves to (`AGENTS.md -> docs/GUIDE.md`: both), or a
+  commit that changed only the target is missed. Flag the tasks whose PR a
+  commit names (`task.json` `source_pr`) or whose threads (`createdAt` in the
+  threads file) predate a commit that changed the rule they raise. Flagged
+  tasks can inflate a gain or mask a loss on the others, so read a gain, a
+  null and a loss alike without them (`repo compare --task` on the rest).
 - **Inconclusive, with the `mde`.** A gate or score row whose interval
   includes 0 is inconclusive, not "no effect". Quote the interval and the
   note's `mde`, and say what the data rules out: a gain above the interval's
   upper end. A smaller `target` needs about `n_tasks * (mde / target)^2`
   tasks. Where the note says no effect can reach p < 0.05 here, say that.
+  Where the interval includes 0 but `p_holm` is below 0.05, compare prints
+  the disagreement note instead, with no `mde`: read `p_holm` there.
 - **No suggestion rests on a descriptive p.** Cost, turns,
   `first_prompt_tokens`, every `--metric` row (`n_findings`, `n_severe`,
   `recall_addressed`) and the `process` rows are descriptive: their p is
@@ -217,10 +222,14 @@ these, in order, before writing what it showed (the fields:
   comes from reading.
 - **Read the hits before citing one.** Replay credits a finding by place, not
   content: the same file, within `window` lines of a thread, with no judge.
-  Run `dokimi repo report <batch> --hits` and read each pair you cite, the
-  thread's comment and then the finding; cite only pairs that make the same
-  point, and say how many credited pairs you read and how many held. Check
-  that the finding's `rule` (in the cell's `answer.txt`) is in a delivered file.
+  `dokimi repo report <batch> --hits` finds the pairs but cuts each comment
+  and finding to 100 characters (200 with `--json`): read each pair you cite
+  in full, the thread's `comment` in the task's `gold.json` (or at its `url`),
+  then the finding in the cell's `answer.txt`. Cite only pairs that make the
+  same point; say how many credited pairs you read and how many held. To
+  attribute a hit to a guidance rule, check that the rule is in a file the
+  cell started with or read (above): a finding's `rule` is the agent's own
+  label. A hit cited without attribution (a `guidance:none` one) needs none.
 - **Totals from command output.** Copy counts, costs and turns from
   `repo report --json` (`total_cost_usd`, a row's `n`, `cost_usd`, `turns`),
   `repo compare --json` (`n_tasks`, `delta`, `mde`) and `grade.json` `metrics`
