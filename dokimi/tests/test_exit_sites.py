@@ -224,3 +224,45 @@ def test_eager_bodies_read_enclosing_names_by_position(tmp_path):
     assert exit_sites(imports.trees["dokimi.d"]) == [4]
     assert exit_sites(imports.trees["dokimi.e"]) == [5]
     assert exit_sites(imports.trees["dokimi.f"]) == [1]
+
+
+def test_a_function_local_del_or_cleared_except_target_is_unbound_not_the_builtin(tmp_path):
+    imports = _package(tmp_path, {
+        "dokimi/a.py": "def f():\n    SystemExit = ValueError\n    del SystemExit\n    raise SystemExit(2)\n",
+        "dokimi/b.py": "def f():\n    try:\n        1 / 0\n    except Exception as SystemExit:\n        pass\n    raise SystemExit(2)\n",
+        "dokimi/c.py": "def f():\n    exit = 1\n    del exit\n    exit(2)\n",
+    })
+    assert exit_sites(imports.trees["dokimi.a"]) == []
+    assert exit_sites(imports.trees["dokimi.b"]) == []
+    assert exit_sites(imports.trees["dokimi.c"]) == []
+
+
+def test_postponed_annotations_are_not_run_but_defaults_and_decorators_are(tmp_path):
+    imports = _package(tmp_path, {
+        "dokimi/a.py": "from __future__ import annotations\nimport sys\ndef f(x: sys.exit(2)) -> sys.exit(3):\n    pass\n",
+        "dokimi/b.py": "import sys\ndef f(x: sys.exit(2)):\n    pass\n",
+        "dokimi/c.py": "from __future__ import annotations\nimport sys\ndef f(x=sys.exit(2)):\n    pass\n",
+        "dokimi/d.py": "from __future__ import annotations\nimport sys\n@sys.exit(2)\ndef f():\n    pass\n",
+    })
+    assert exit_sites(imports.trees["dokimi.a"]) == []
+    assert exit_sites(imports.trees["dokimi.b"]) == [2]
+    assert exit_sites(imports.trees["dokimi.c"]) == [3]
+    assert exit_sites(imports.trees["dokimi.d"]) == [3]
+
+
+def test_a_nonlocal_binder_skips_the_class_body_between_it_and_the_function(tmp_path):
+    imports = _package(tmp_path, {
+        "dokimi/a.py": ("import sys\ndef outer():\n    x = None\n    class C:\n        x = None\n"
+                        "        def set_exit(self):\n            nonlocal x\n            x = sys.exit\n"
+                        "    def run():\n        x(2)\n    C().set_exit()\n    run()\nouter()\n"),
+    })
+    assert exit_sites(imports.trees["dokimi.a"]) == [10]
+
+
+def test_an_alias_rebound_after_a_call_still_names_the_exit_its_function_made(tmp_path):
+    imports = _package(tmp_path, {
+        "dokimi/a.py": "import sys as s\ndef f():\n    s.exit(2)\nf()\nimport os as s\n",
+        "dokimi/b.py": "import os\nimport sys\nstop = sys.exit\ndef f():\n    stop(2)\nstop = os\n",
+    })
+    assert exit_sites(imports.trees["dokimi.a"]) == [3]
+    assert exit_sites(imports.trees["dokimi.b"]) == [5]

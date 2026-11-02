@@ -187,7 +187,7 @@ def _value_binding(expr: ast.expr, scope: ast.AST, pos: tuple[int, int], table: 
     if _is_sysexit_expr(expr, scope, pos, table, owner):
         return "sysexit", None
     if isinstance(expr, ast.Name):  # ``stop = exit_alias`` copies the binding it names
-        b = _resolve(expr.id, scope, pos, table, owner)
+        b = _candidates(expr.id, scope, pos, table, owner)[-1]  # the latest of the bindings it may denote
         if b is None and expr.id in ("exit", "quit"):  # the builtins, where nothing binds the name
             return "fn", ("builtins", expr.id)
         if b is not None and b[1] in ("fn", "mod"):
@@ -286,10 +286,11 @@ def _declared_scopes(tree: ast.Module, owner: dict[int, ast.AST], table: ExitTab
 def _binder_above(scope: ast.AST, name: str, table: ExitTable, owner: dict[int, ast.AST], assigns: set) -> ast.AST | None:
     outer = owner.get(id(scope))
     while outer is not None:
+        # a class body is no binder for nonlocal: the functions inside it do not see its names
         # a scope that only declares the name (global or nonlocal) binds nothing: its bindings went elsewhere
         found = table.get((id(outer), name), [])
-        if any(b[1] not in ("global", "nonlocal") for b in found) or (
-                (id(outer), name) in assigns and not any(b[1] in ("global", "nonlocal") for b in found)):
+        if not isinstance(outer, ast.ClassDef) and (any(b[1] not in ("global", "nonlocal") for b in found) or (
+                (id(outer), name) in assigns and not any(b[1] in ("global", "nonlocal") for b in found))):
             return outer
         outer = owner.get(id(outer))
     return None
@@ -319,20 +320,26 @@ def _exit_table(tree: ast.Module, owner: dict[int, ast.AST]) -> ExitTable:
     return table
 
 
-def _live(b):
-    """The binding, or None when it is a ``del``: the name is then unbound and reads as the builtin."""
-    return None if b[1] == "del" else b
+def _live(b, scope: ast.AST):
+    """The binding a lookup reads, or None (the builtin) for a ``del`` at module or class level.
+
+    A ``del`` in a function leaves its local unbound: reading it raises, so it is never the builtin.
+    """
+    if b[1] != "del":
+        return b
+    return (b[0], "other", None) if isinstance(scope, _FUNC_NODES) else None
 
 
-def _resolve(name: str, use: ast.AST, pos: tuple[int, int], table: ExitTable, owner: dict[int, ast.AST]):
-    """The binding that ``name`` denotes at ``pos`` in scope ``use``, or None when no scope binds it.
+def _candidates(name: str, use: ast.AST, pos: tuple[int, int], table: ExitTable, owner: dict[int, ast.AST]) -> list:
+    """The bindings that ``name`` may denote at ``pos`` in scope ``use``; a None in the list is the builtin.
 
     Python's scoping: the innermost scope that binds the name wins, unless it declares the name ``global`` or
     ``nonlocal``, which sends the lookup to the scope that binds it. In the use's own scope the last binding at
     or before ``pos`` decides, and a binding only after it leaves the name local and unbound there; a class body
     then reads the enclosing names, by position, as does a comprehension. Beyond a function, lambda or generator
-    an enclosing scope is read as its last exit-kind binding: it may run after any rebinding. A class body is seen only from its own statements, not from the functions inside it.
-    A module-level name read before its first binding is read as the builtin of that name, since it is then unbound.
+    an enclosing scope may run after any rebinding, so every exit-kind binding of it is a candidate. A class body
+    is seen only from its own statements, not from the functions inside it. A module-level name read before its
+    first binding is the builtin of that name, since it is then unbound.
     """
     scope, here = use, True
     while True:
@@ -342,31 +349,31 @@ def _resolve(name: str, use: ast.AST, pos: tuple[int, int], table: ExitTable, ow
             if declared and declared[-1][2] is not scope:
                 scope, here = declared[-1][2], False
                 continue
-            if found and not here:  # a function may run later: its exit-kind binding counts
+            if found and not here:  # a function may run later: each exit-kind binding it can see counts
                 exits = [b for b in found if b[1] != "other"] or found
-                return _live(sorted(exits, key=lambda b: b[0])[-1])
+                return [_live(b, scope) for b in sorted(exits, key=lambda b: b[0])]
             if found:
                 before = [b for b in found if b[0] <= pos]
                 if before:
-                    return _live(sorted(before, key=lambda b: b[0])[-1])
+                    return [_live(sorted(before, key=lambda b: b[0])[-1], scope)]
                 if scope is use and isinstance(use, _FUNC_NODES + _COMPREHENSIONS):  # a function's local, not bound yet
-                    return (pos, "other", None)
+                    return [(pos, "other", None)]
         if id(scope) not in owner:  # the module: no enclosing scope
-            return None
+            return [None]
         # a class body and a list, set or dict comprehension run in place, so the enclosing scope is read by position
         here = here and isinstance(scope, (ast.ClassDef, ast.ListComp, ast.SetComp, ast.DictComp))
         scope = owner[id(scope)]
 
 
 def _modules(text: str, scope: ast.AST, pos: tuple[int, int], table: ExitTable, owner: dict[int, ast.AST]) -> set[str]:
-    """The modules a dotted name stands for at this use: an import binding, or sys and os when nothing binds them."""
+    """The modules a dotted name may stand for at this use: its import bindings, or sys and os when nothing binds them."""
     root, _, rest = text.partition(".")
-    b = _resolve(root, scope, pos, table, owner)
-    if b is None:
-        return {text} if text in ("sys", "os") else set()
-    if b[1] != "mod":
-        return set()
-    mods = {f"{m}.{rest}" if rest else m for m in b[2]}
+    mods: set[str] = set()
+    for b in _candidates(root, scope, pos, table, owner):
+        if b is None:
+            mods |= {text} if text in ("sys", "os") else set()
+        elif b[1] == "mod":
+            mods |= {f"{m}.{rest}" if rest else m for m in b[2]}
     return mods & _EXIT_MODULES if rest else mods  # ``sys.exit`` is an attribute, not a module
 
 
@@ -375,8 +382,8 @@ def _is_sysexit_expr(expr: ast.expr, scope: ast.AST, pos: tuple[int, int], table
     if isinstance(expr, ast.Call):
         return _is_sysexit_expr(expr.func, scope, pos, table, owner)
     if isinstance(expr, ast.Name):
-        b = _resolve(expr.id, scope, pos, table, owner)
-        return expr.id == "SystemExit" if b is None else b[1] == "sysexit"
+        return any(expr.id == "SystemExit" if b is None else b[1] == "sysexit"
+                   for b in _candidates(expr.id, scope, pos, table, owner))
     if isinstance(expr, ast.Attribute):  # builtins.SystemExit, with ``import builtins``
         return expr.attr == "SystemExit" and "builtins" in _modules(ast.unparse(expr.value), scope, pos, table, owner)
     return False
@@ -386,27 +393,49 @@ def _calls_exit(node: ast.Call, scope: ast.AST, table: ExitTable, owner: dict[in
     func = node.func
     pos = _at(node)
     if isinstance(func, ast.Name):  # exit(), quit(), or a name bound to sys.exit and the like
-        b = _resolve(func.id, scope, pos, table, owner)
-        return func.id in ("exit", "quit") if b is None else b[1] == "fn" and b[2] in _EXIT_CALLS
+        return any(func.id in ("exit", "quit") if b is None else b[1] == "fn" and b[2] in _EXIT_CALLS
+                   for b in _candidates(func.id, scope, pos, table, owner))
     return isinstance(func, ast.Attribute) and any(
         (m, func.attr) in _EXIT_CALLS for m in _modules(ast.unparse(func.value), scope, pos, table, owner))
+
+
+def _postponed(tree: ast.Module) -> set[int]:
+    """Ids of the annotations that ``from __future__ import annotations`` keeps as strings: Python never runs them."""
+    future = any(isinstance(s, ast.ImportFrom) and s.module == "__future__" and any(a.name == "annotations" for a in s.names)
+                 for s in tree.body)
+    if not future:
+        return set()
+    roots: list[ast.AST] = []
+    for n in ast.walk(tree):
+        if isinstance(n, _FUNC_NODES):
+            args = n.args
+            roots += [a.annotation for a in [*args.posonlyargs, *args.args, *args.kwonlyargs, args.vararg, args.kwarg]
+                      if a is not None and a.annotation is not None]
+            if getattr(n, "returns", None) is not None:
+                roots.append(n.returns)
+        elif isinstance(n, ast.AnnAssign):
+            roots.append(n.annotation)
+    return {id(d) for r in roots for d in ast.walk(r)}
 
 
 def exit_sites(tree: ast.Module) -> list[int]:
     """Lines that end the process: an exit call (by module attribute, through an alias, or builtin name) or a raise of SystemExit.
 
     The ``if __name__ == '__main__':`` block of a script is the process boundary of ``python -m``, so it is
-    not counted. Each name resolves by scope and by source position (see ``_resolve``): an import, a parameter or
-    an assignment in one function does not change what another function's name means, a method does not see the
-    names of its class body, and a binding that follows a use on the same line does not count for it. Linear, not
-    control-flow aware: ``if c: e = SystemExit(2)`` then ``else: e = ValueError()`` is read as the else binding.
+    not counted, and neither is an annotation that ``from __future__ import annotations`` postpones. Each name
+    resolves by scope and by source position (see ``_candidates``): an import, a parameter or an assignment in one
+    function does not change what another function's name means, a method does not see the names of its class
+    body, and a binding that follows a use on the same line does not count for it. Linear, not control-flow aware:
+    ``if c: e = SystemExit(2)`` then ``else: e = ValueError()`` is read as the else binding.
 
-    Known gap, where a real exit is missed: a module-level import followed by a later rebinding such as
-    ``except ImportError: sys = None`` is read as the rebinding by the code after it.
+    Known gaps, where a real exit is missed: a module-level import followed by a later rebinding such as
+    ``except ImportError: sys = None`` is read as the rebinding by the code after it; a subclass of SystemExit
+    (``class E(SystemExit): pass``) is not known as an exit class.
     """
     guarded = {id(n) for stmt in tree.body
                if isinstance(stmt, ast.If) and ast.unparse(stmt.test) == "__name__ == '__main__'"
                for body_stmt in stmt.body for n in ast.walk(body_stmt)}
+    guarded |= _postponed(tree)
     owner = _scope_owners(tree)
     table = _exit_table(tree, owner)
     lines: list[int] = []
