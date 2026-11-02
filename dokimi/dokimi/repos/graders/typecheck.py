@@ -110,6 +110,19 @@ def _package_roots(workspace: Path, paths: list[str]) -> list[Path]:
     return roots
 
 
+def _links_outside(workspace: Path) -> list[str]:
+    """The symbolic links under the (resolved) workspace, a link to a directory included, whose target lies outside
+    it. mypy follows an import through a link, so a link to a file this run cannot see (a hidden repair) would be read
+    as the agent's own code, unlisted modules included. A link whose target stays inside is read as the file it names."""
+    found = []
+    for dirpath, dirnames, filenames in os.walk(workspace):
+        for name in (*dirnames, *filenames):
+            path = Path(dirpath, name)
+            if path.is_symlink() and not path.resolve().is_relative_to(workspace):
+                found.append(path.relative_to(workspace).as_posix())
+    return found
+
+
 def grade(task: dict[str, Any], task_dir: Path, answer: str, run_dir: Path | None = None) -> dict[str, Any]:
     """Type-check the listed files in the workspace of ``run_dir``; the grader's result dict."""
     del task_dir, answer  # the answer is not read: the workspace is the subject
@@ -131,6 +144,10 @@ def grade(task: dict[str, Any], task_dir: Path, answer: str, run_dir: Path | Non
     present = [p for p in paths if p not in missing]
     errors: list[dict[str, Any]] = []
     if present:
+        outside = _links_outside(workspace)
+        if outside:  # refused, not missing: the import of an unlisted module through it would be graded
+            raise ValueError(f"{outside[0]} is a symbolic link to a file outside the workspace; mypy would follow it "
+                             "to content this run cannot see")
         cache = tempfile.mkdtemp(prefix="dokimi-mypy-")
         neutral = tempfile.mkdtemp(prefix="dokimi-mypy-cfg-")
         limit = sys.getrecursionlimit()  # mypy's main raises it for the whole process

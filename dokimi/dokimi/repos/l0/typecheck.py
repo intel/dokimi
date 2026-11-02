@@ -186,8 +186,10 @@ def _run(check: Check, codes: list[str],
                     "--output", "json", *names]
         else:
             # The project is explicit and empty: a pyrightconfig.json above the temporary directory is not read.
+            # the target version is set here: --pythonpath gives the import paths, not the version checked against
+            settings = {} if target is None else {"pythonVersion": f"{target[0]}.{target[1]}"}
             project = os.path.join(tmp, "pyrightconfig.json")
-            Path(project).write_text("{}\n", encoding="utf-8")
+            Path(project).write_text(json.dumps(settings) + "\n", encoding="utf-8")
             argv = [check.tool, "--project", project, "--pythonpath", str(check.python), "--outputjson", *names]
         done = _run_tool(argv, tmp)
     # 1: the tool found errors. mypy's 2: it stopped on a blocking one ("errors prevented further checking"),

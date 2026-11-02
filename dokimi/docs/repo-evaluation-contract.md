@@ -659,7 +659,9 @@ failed the task, and on a task with `score` that is a failed run with score
 
 `dokimi:typecheck` checks the listed files only. Its pass is "no error on a
 listed file" (an error in a module a listed file imports belongs to that module,
-not to the listed file), and a listed file that is missing fails. The exception
+not to the listed file), and a listed file that is missing fails. A symbolic link in the workspace whose target
+lies outside it refuses the whole grade (a grader error, not a pass), listed or not: mypy follows an import through a
+link, so an unlisted module could supply what a listed file imports. The exception
 is a blocking error (a syntax error, a duplicate module) that stops mypy before
 it reaches the listed files: then that error is the grade's, and the grade fails.
 `reference/` is optional. The task's `oracle` copies its `reference/` directory, when it has one, over the
@@ -1507,7 +1509,8 @@ the tool, its version, the interpreter (`null`: unknown) and the counts
 flag. `--python-env` and `--typecheck-tool` need `--typecheck`. The fences are parsed with the
 grammar of the repository interpreter's version, and mypy runs with that
 `--python-version` and an explicit empty config, so the subject's and the host's
-mypy settings do not apply. The tools run on the host through
+mypy settings do not apply. basedpyright gets the same version as `pythonVersion`
+in its explicit project file, since `--pythonpath` alone sets the import paths. The tools run on the host through
 `dokimi.process`; one run covers every fence of the repository.
 
 ```bash

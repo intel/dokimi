@@ -410,6 +410,20 @@ def test_a_tool_that_exits_two_with_no_fence_report_is_an_error_not_a_pass(monke
         l0_typecheck._run(Check("mypy", sys.executable), ["x: int = 1\n"])
 
 
+def test_basedpyright_is_told_the_repository_interpreters_version(monkeypatch):
+    from dokimi.repos.l0 import typecheck as l0_typecheck
+
+    seen = {}
+
+    def fake(argv, cwd, stdin=None):
+        seen["config"] = json.loads(Path(argv[argv.index("--project") + 1]).read_text(encoding="utf-8"))
+        return _completed(returncode=0, stdout='{"generalDiagnostics": []}')
+
+    monkeypatch.setattr(l0_typecheck, "_run_tool", fake)
+    l0_typecheck._run(Check("basedpyright", sys.executable), ["x: int = 1\n"], (3, 11))
+    assert seen["config"] == {"pythonVersion": "3.11"}  # not the interpreter's own version: the target
+
+
 def test_basedpyright_is_given_an_empty_project_so_no_config_above_the_run_applies(monkeypatch):
     from dokimi.repos.l0 import typecheck as l0_typecheck
 

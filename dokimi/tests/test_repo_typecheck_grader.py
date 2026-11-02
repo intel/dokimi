@@ -289,6 +289,19 @@ def test_an_external_mypypath_cannot_supply_a_module_the_image_lacks(tmp_path, m
     assert os.environ["MYPYPATH"] == str(stubs)  # restored for the caller
 
 
+def test_a_listed_file_importing_an_unlisted_link_to_a_hidden_repair_is_refused(tmp_path):
+    # api.py stays a regular file and imports pkg.repair, which is not listed and is a link to a clean repair outside
+    # the workspace: mypy follows the import through the link and would pass api.py on a module this run cannot see
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "repair.py").write_text(CLEAN, encoding="utf-8")
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": "from pkg.repair import add\nassert add(1, 2) == 3\n"},
+               _task())
+    (run / "workspace" / "pkg" / "repair.py").symlink_to(outside / "repair.py")
+    with pytest.raises(ValueError, match="pkg/repair.py is a symbolic link to a file outside the workspace"):
+        typecheck.grade(_task(), tmp_path, "", run)
+
+
 @pytest.mark.parametrize("linked", ["file", "directory", "workspace"])
 def test_a_listed_path_reached_through_a_link_is_missing_not_graded(tmp_path, linked):
     # The agent links the listed file (or its directory, or the workspace) to a clean repair outside the workspace:
