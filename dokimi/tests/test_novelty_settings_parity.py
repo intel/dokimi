@@ -190,8 +190,9 @@ def _capture(name: str, tmp_path: Path) -> list[dict[str, Any]]:
                     args.func(args)
                 except SystemExit as exc:
                     status = exc.code if isinstance(exc.code, int) else str(exc.code)
-                except InputError as exc:  # usage_exit's shape: the message is the status
-                    status = str(exc)
+                except InputError as exc:  # cli.main's shape: exit 2, the message on stderr
+                    status = 2
+                    err.write(f"{exc}\n")
             steps.append({
                 "status": status,
                 "stdout": (_without_coverage_headline(out.getvalue())
@@ -276,8 +277,6 @@ def test_no_setting_bill_or_tier_record_differs_from_main(name, tmp_path):
     golden = json.loads(json.dumps(json.loads(GOLDEN.read_text(encoding="utf-8")))
                         .replace(CAP_FORFEIT_ON_MAIN, CAP_FORFEIT))
     steps = _capture(name, tmp_path)
-    if name in ARMS_REFUSALS:
-        steps = [_refusal_as_exit_2(step) for step in steps]
     coverage = [step.pop("coverage") for step in steps]
     for step_coverage in coverage:
         if step_coverage is not None:

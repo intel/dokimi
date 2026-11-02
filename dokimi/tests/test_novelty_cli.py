@@ -9,6 +9,8 @@ import inspect
 import json
 import os
 import re
+import subprocess
+import sys
 
 import pytest
 
@@ -970,3 +972,10 @@ def test_item_analysis_accepts_a_probe_file_that_records_no_digest(tmp_path):
         encoding="utf-8")
     cells, _ = load_probe_cells([str(path)])
     assert (cells[0]["artifact"], cells[0]["ref_digest"]) == ("skill:x", None)
+
+
+def test_importing_the_cli_does_not_load_the_novelty_package():
+    # the CLI imports the novelty command at start-up: the package itself loads only when a novelty command runs
+    code = "import sys, dokimi.cli; print([m for m in sys.modules if m.startswith('dokimi.novelty')])"
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True).stdout
+    assert out.strip() == "[]"

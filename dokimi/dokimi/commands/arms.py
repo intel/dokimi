@@ -123,7 +123,7 @@ def _load_matrix_inputs(config: ArmsRunConfig, arms: str, questions: str, matrix
         cells = load_matrix_cells(matrix_cells)
         _validate_unique_cell_filenames(cells)
         arms_run.check_matrix(config, cells, specs)
-    except (EmptyQuestionError, InputError):
+    except InputError:  # EmptyQuestionError is one
         raise  # a bad input record or a refused cell: cli.main reports it (exit 2)
     except arms_run.ProbeError as exc:
         print(f"Error loading matrix run inputs: {exc}", file=sys.stderr)

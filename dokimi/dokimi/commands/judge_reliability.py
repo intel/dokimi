@@ -51,7 +51,7 @@ def _judge_name(doc: dict, path: str) -> str:
 
 
 def _result_measure(path: str, key: str, kind: type, build):
-    """The measure an `eval pairwise` or `eval checklist` file gives, or exit 2 naming the file.
+    """The measure an `eval pairwise` or `eval checklist` file gives, or an InputError naming the file.
 
     *build* is ``(doc, name) -> Measure``; it raises ValueError on an entry of the wrong shape.
     """
@@ -71,7 +71,7 @@ def _load_answers(path: str):
 
 
 def _load_points(path: str):
-    """question_id -> required points from a questions file, or exit 2 naming the file."""
+    """question_id -> required points from a questions file, or an InputError naming the file."""
     from dokimi.eval.checklist import load_points
 
     try:

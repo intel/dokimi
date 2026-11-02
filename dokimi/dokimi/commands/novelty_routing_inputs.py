@@ -7,9 +7,12 @@ from __future__ import annotations
 
 import argparse
 import sys
+from typing import TYPE_CHECKING
 
-from dokimi.novelty.routing import Candidate
 from dokimi.utils import InputError
+
+if TYPE_CHECKING:
+    from dokimi.novelty.routing import Candidate
 
 
 def routing_card(ref: str) -> tuple[Candidate, str]:
