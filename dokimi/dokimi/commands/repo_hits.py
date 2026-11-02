@@ -162,7 +162,7 @@ def register(repo_sub, positive_int, usd: Callable[[str], float]) -> None:
                          "per arm between the person and the judge")
     judge_p.add_argument("--max-usd", type=usd, default=None, dest="max_usd", metavar="X",
                          help="Start no new judge call once this much has been spent (exit 1 if a cell was left); "
-                         "a judge reply with no known price stops the run after that call, since the cap cannot "
+                         "after a judge reply with no known price no further call starts, since the cap cannot "
                          "be enforced (drop --max-usd to run unmetered)")
     judge_p.add_argument("--dry-run", action="store_true", dest="dry_run",
                          help="Count the pairs and estimate the cost at list price; make no call")

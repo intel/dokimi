@@ -1665,10 +1665,15 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   call. `--dry-run` writes nothing and takes no lock.
   `--max-usd X` starts no new call once X is spent: a cell not fully judged
   gets no `hits_judged.json` (one an earlier run wrote is removed), and the
-  command exits 1. A judge reply with no known price stops such a run after
-  that call the same way, as `novelty`'s spend cap does: the cap cannot be
-  enforced on spend it cannot see, and the line naming the cells left says
-  so (`--json`: `budget_stop`; drop `--max-usd` to run unmetered). Without
+  command exits 1. After a live judge reply with no known price, such a run
+  starts no further live call, as `novelty`'s spend cap does: the cap cannot
+  be enforced on spend it cannot see. That reply still labels its pair when
+  it parses (a redraw would be a further call), and pairs replayed from the
+  response cache still finish; when
+  pairs are left, the cells they are in get no file, the line naming those
+  cells says why (`--json`: `budget_stop`; drop `--max-usd` to run
+  unmetered), and the command exits 1. When none is left, the run ends as
+  one with no cap does (exit 0, `budget_stop` null). Without
   `--max-usd` an unpriced call counts as 0, and the spend line says how many
   calls had no price and that the spend is not known (`--json`:
   `unpriced_calls`). A reply replayed from the response cache is free. A
