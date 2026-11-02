@@ -201,7 +201,8 @@ def test_time_runs_a_cd_and_eval_or_source_loses_the_directory_within_a_call(com
 
 
 @pytest.mark.parametrize("command", ["source env.sh & cat AGENTS.md", 'eval "$CMD" | cat; cat AGENTS.md',
-                                     'cd "$X" & cat AGENTS.md'])
+                                     'cd "$X" & cat AGENTS.md', "source env.sh & false || cat AGENTS.md",
+                                     "source env.sh | false || cat AGENTS.md"])
 def test_a_source_eval_or_computed_cd_in_a_job_or_a_pipeline_keeps_the_calls_later_read(command):
     events = _events(_call("a", command), _result("a"), _call("b", "cat README.md"), _result("b"))
     assert _reads(events) == ["AGENTS.md", "README.md"]

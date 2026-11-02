@@ -89,7 +89,7 @@ def shell_reads(script: str, cwd: str = "") -> list[str]:
     relative path is joined to it and normalised (no ``.`` or ``..``). The directory is unknown (a
     relative read is not recorded) after ``cd -``, a bare ``cd``, a ``cd`` to a computed path, a
     ``pushd`` / ``popd``, an ``eval``, ``source`` or ``.`` (it may run a ``cd``; none of these when backgrounded or
-    piped, as it then ran in a subshell: ``source env.sh & cat a`` reads a), ``env -C`` / ``--chdir`` (the
+    piped, as it then ran in a subshell: ``source env.sh & false || cat a`` reads a), ``env -C`` / ``--chdir`` (the
     command's reads, but absolute ones), a ``cd`` after ``if`` / ``then`` / ``do`` / ``else`` (it may not run), a
     ``cd`` after ``&&`` / ``||`` once the chain holding it ends with ``;``, ``&`` or a newline (it may have been
     skipped), or a glob or brace expansion (the files are not known). A subshell ``( ... )`` or `` `...` `` records
@@ -141,32 +141,42 @@ def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
     return out, walk
 
 
+_Spot = tuple[str | None, bool, bool]  # (here, shell_moved, moved): what the end of a subshell restores
+
+
 class _Walk:
     """Where ``shell_reads`` is in the script: the directory (``None``: unknown), whether a ``cd`` was seen, whether
     the script's own shell may have moved, and the open brace groups."""
 
     def __init__(self, here: str | None) -> None:
         self.here = here
-        self.moved = False  # a cd was seen: after ||, the directory is not known
+        self.moved = False  # a cd was seen in this shell: after ||, the directory is not known
         self.shell_moved = False  # a directory builtin ran in the script's shell, not in a subshell
         self.gated = False  # a cd after && or || was seen in this chain: it may not have run for the next chain
-        # the open brace groups: ((here, shell_moved) before it, in a pipeline, index in the reads where it began,
-        # the enclosing && / || list's (list_start, listed), which the group's own separators do not end)
-        self.groups: list[tuple[tuple[str | None, bool], bool, int, tuple[tuple[str | None, bool], bool]]] = []
-        self.list_start: tuple[str | None, bool] = (here, False)  # (here, shell_moved) where the && / || list began
+        # the open brace groups: the spot before it, in a pipeline, index in the reads where it began, the
+        # enclosing && / || list's (list_start, listed), which the group's own separators do not end
+        self.groups: list[tuple[_Spot, bool, int, tuple[_Spot, bool]]] = []
+        self.list_start: _Spot = (here, False, False)  # the spot where the && / || list began
         self.listed = False  # that list has more than one command
         self.function = 0  # the brace depth inside a function definition
         self.operands: int | None = None  # how many files the last printing command named
+
+    def spot(self) -> _Spot:
+        return self.here, self.shell_moved, self.moved
+
+    def back(self, spot: _Spot) -> None:
+        """Back to ``spot`` after a subshell: what ran in it moved neither this shell nor its ``||`` fallbacks."""
+        self.here, self.shell_moved, self.moved = spot
 
     def chain(self, op: str, chained: bool) -> None:
         """A list of more than one command ended by ``&`` ran in a subshell, so this shell did not move: ``cd sub &&
         cat f & cat g`` reads sub/f and g (a lone ``cd x &`` and a ``{ ...; } &`` group are handled where they end)."""
         if op == "&" and self.listed:
-            self.here, self.shell_moved = self.list_start
+            self.back(self.list_start)
         if chained:
             self.listed = True
         else:
-            self.list_start, self.listed = (self.here, self.shell_moved), False
+            self.list_start, self.listed = self.spot(), False
 
     def in_function(self, bare: str) -> bool:
         """Whether ``bare`` is part of a function definition (``f() { cd x; cat a; }``): its body is skipped, as
@@ -178,10 +188,9 @@ class _Walk:
 
     def lose(self, own_shell: bool = True) -> None:
         """A directory builtin went where it is not known. Not ``own_shell`` (backgrounded, or a pipeline stage):
-        it ran in a subshell, so this shell's directory stays known (``source env.sh & cat a`` reads a)."""
-        self.moved = True
+        it ran in a subshell, so this shell's directory stays known (``source env.sh & false || cat a`` reads a)."""
         if own_shell:
-            self.here, self.shell_moved = None, True
+            self.here, self.shell_moved, self.moved = None, True, True
 
     def track_groups(self, bare: str, after: str, out: list[str]) -> None:
         """A brace group opening or closing in ``bare``; one that ran in a subshell restores the directory. A group is
@@ -197,7 +206,7 @@ class _Walk:
 
     def open_group(self, before_brace: str, mark: int) -> None:
         piped = bool(_PIPE.search(before_brace))
-        self.groups.append(((self.here, self.shell_moved), piped, mark, (self.list_start, self.listed)))
+        self.groups.append((self.spot(), piped, mark, (self.list_start, self.listed)))
         if piped:  # the group runs in a pipeline's subshell: where it ends up is not tracked
             self.here = None
 
@@ -206,7 +215,7 @@ class _Walk:
         if _PIPE.search(after_close) or _STDOUT_FILE.search(redirects) or _STDOUT_AFTER_STDERR.search(redirects):
             del out[mark:]
         if piped or _PIPE.search(after_close) or after == "&":  # the group ran in a pipeline's or a job's subshell
-            self.here, self.shell_moved = before
+            self.back(before)
 
     def words(self, part: str, after: str = "") -> list[str]:
         """The words of ``part``; none when it cannot be split or is computed (a computed ``cd`` loses the directory,
@@ -241,10 +250,9 @@ class _Walk:
         if name in _DIR_LOST or (conditional and name == "cd"):
             self.lose(after != "&")
         elif name == "cd":
-            self.moved = True
             self.gated |= chained
             if after != "&":  # a backgrounded cd runs in a subshell: this shell stays where it was
-                self.here, self.shell_moved = _cd(self.here, words[1:]), True
+                self.here, self.shell_moved, self.moved = _cd(self.here, words[1:]), True, True
         elif name in _PRINTERS:
             if _asks_for_help(words[1:]):  # ``cat --help AGENTS.md`` prints the help and opens no file
                 return []

@@ -217,6 +217,23 @@ def test_a_directory_builtin_in_a_job_or_a_pipeline_keeps_the_directory(command)
     assert shell_reads(command, "sub") == ["sub/AGENTS.md"]
 
 
+@pytest.mark.parametrize("command, reads", [
+    ("source env.sh & false || cat AGENTS.md", ["sub/AGENTS.md"]),
+    ("source env.sh | false || cat AGENTS.md", ["sub/AGENTS.md"]),
+    ('eval "$X" & false || cat AGENTS.md', ["sub/AGENTS.md"]), (". env.sh & false || cat AGENTS.md", ["sub/AGENTS.md"]),
+    ("pushd x & false || cat AGENTS.md", ["sub/AGENTS.md"]), ("cd x & false || cat AGENTS.md", ["sub/AGENTS.md"]),
+    ('cd "$X" | false || cat AGENTS.md', ["sub/AGENTS.md"]), ("cd $(pwd) & false || cat AGENTS.md", ["sub/AGENTS.md"]),
+    ("{ cd x; } & false || cat AGENTS.md", ["sub/AGENTS.md"]),
+    ("{ cd x; } | cat; false || cat AGENTS.md", ["sub/AGENTS.md"]),
+    ("cd x && make & false || cat AGENTS.md", ["sub/AGENTS.md"]),
+    ("source env.sh; false || cat AGENTS.md", []), ("cd x; false || cat AGENTS.md", []),
+    ("{ cd x; }; false || cat AGENTS.md", []), ("cd x; source env.sh & false || cat AGENTS.md", []),
+])
+def test_only_a_directory_builtin_in_this_shell_loses_the_directory_after_a_later_or(command, reads):
+    # the || branch runs where a failed cd left this shell; one in a job or a pipe left it alone
+    assert shell_reads(command, "sub") == reads
+
+
 def test_shell_reads_start_in_the_given_directory():
     assert shell_reads("cat AGENTS.md", "sub") == ["sub/AGENTS.md"]
     assert shell_reads("cd inner && cat ../x", "sub") == ["sub/x"]
