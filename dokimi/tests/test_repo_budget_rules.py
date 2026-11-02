@@ -510,3 +510,127 @@ def test_an_off_agents_md_with_an_ordinary_import_keeps_its_full_count(tmp_path,
     payload = budget(tree, NAMES, rules=True)
 
     assert _by_path(payload)[("AGENTS.md", "guidance")]["chars"] == len(agents)
+
+
+@pytest.mark.parametrize("claude_md", ["@.claude/rules/r.md\n@shared/r.md\n", "@shared/r.md\n@.claude/rules/r.md\n"])
+def test_an_ordinary_import_of_a_rule_behind_a_linked_rules_directory_keeps_its_frontmatter(tmp_path, claude_md):
+    # .claude/rules is a link to a directory, so no rule entry is made for shared/r.md. The rule-path import loads
+    # the file without its frontmatter, the ordinary import loads it whole: the start total counts it whole.
+    text = "---\npaths: []\n---\nbody\n"
+    tree = _tree(tmp_path, {"CLAUDE.md": claude_md, "shared/r.md": text})
+    (tmp_path / ".claude").mkdir()
+    try:
+        (tmp_path / ".claude/rules").symlink_to(tmp_path / "shared", target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks unavailable")
+
+    payload = budget(tree, NAMES, rules=True)
+
+    assert _by_path(payload)[("shared/r.md", "import")] == {
+        "path": "shared/r.md", "kind": "import", "when": "start", "chars": len(text)}
+    assert payload["totals"]["start"] == len(claude_md) + len(text)
+    assert payload["warnings"] == [".claude/rules: a link to a directory; the rules behind it are not counted"]
+
+
+def test_an_explicit_import_of_a_rule_behind_a_linked_rules_directory_drops_its_frontmatter(tmp_path):
+    tree = _tree(tmp_path, {"CLAUDE.md": "@.claude/rules/r.md\n", "shared/r.md": "---\npaths: src/**\n---\nbody\n"})
+    (tmp_path / ".claude").mkdir()
+    try:
+        (tmp_path / ".claude/rules").symlink_to(tmp_path / "shared", target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks unavailable")
+
+    payload = budget(tree, NAMES, rules=True)
+
+    assert _by_path(payload)[(".claude/rules/r.md", "import")]["chars"] == len("body\n")
+
+
+def test_a_root_cut_of_a_nested_rule_is_named_when_a_nested_claude_md_cuts_the_same_import(tmp_path):
+    # the root chain cuts sub/mid.md's import of the rule at hop 1: the rule does not load at start. A nested
+    # sub/CLAUDE.md reaches the same cut lazily, and that must not silence the start-time warning.
+    files = {"CLAUDE.md": "@sub/mid.md\n", "sub/mid.md": "@.claude/rules/r.md\n", "sub/.claude/rules/r.md": "rule\n",
+             "sub/CLAUDE.md": "@mid.md\n"}
+    payload = budget(_tree(tmp_path, files), NAMES, import_max_depth=1, rules=True)
+    assert payload["warnings"] == [
+        "sub/mid.md: import of sub/.claude/rules/r.md is past the harness's 1-hop import limit, not followed"]
+
+
+@pytest.mark.parametrize(("importer", "link"), [
+    ("sub/CLAUDE.md", "@../.claude/rules/r.md\n"),
+    ("sub/AGENTS.md", "@../.claude/rules/r.md\n"),
+    ("AGENTS.md", "@.claude/rules/r.md\n"),
+])
+def test_a_rule_imported_by_guidance_does_not_import_what_its_frontmatter_names(tmp_path, importer, link):
+    # a rule's frontmatter is removed before it loads, so an @path in it is not an import, whichever guidance file imports the rule
+    files = {importer: link, ".claude/rules/r.md": "---\npaths: []\nnote: see @../../extra.md\n---\nbody\n", "extra.md": "x\n"}
+    payload = budget(_tree(tmp_path, files), NAMES, rules=True)
+    assert not [e for e in payload["entries"] if e["path"] == "extra.md"]
+    assert payload["warnings"] == []
+
+
+def test_a_root_claude_md_linked_to_a_rule_reads_its_frontmatter_as_memory(tmp_path):
+    # the root CLAUDE.md is memory, read whole: an @ path in its frontmatter is an import, not a rule's stripped text
+    tree = _tree(tmp_path, {"extra.md": "x\n", ".claude/rules/shared.md": "---\npaths: []\nnote: see @extra.md\n---\nshared\n"})
+    try:
+        (tmp_path / "CLAUDE.md").symlink_to(tmp_path / ".claude/rules/shared.md")
+    except OSError:
+        pytest.skip("symlinks unavailable")
+
+    payload = budget(tree, NAMES, rules=True)
+
+    assert _by_path(payload)[("extra.md", "import")]["when"] == "start"
+
+
+def test_a_nested_import_of_a_file_a_root_rule_links_to_keeps_the_rule_at_start(tmp_path):
+    # the root rule loads the file at start (body only); the nested CLAUDE.md's import of it must not relabel that entry lazy
+    shared = "---\npaths: []\n---\nshared\n"
+    tree = _tree(tmp_path, {"sub/CLAUDE.md": "@../shared.md\n", "shared.md": shared})
+    (tmp_path / ".claude/rules").mkdir(parents=True)
+    try:
+        (tmp_path / ".claude/rules/r.md").symlink_to(tmp_path / "shared.md")
+    except OSError:
+        pytest.skip("symlinks unavailable")
+
+    payload = budget(tree, NAMES, rules=True)
+
+    assert _by_path(payload)[(".claude/rules/r.md", "rule")] == {
+        "path": ".claude/rules/r.md", "kind": "rule", "when": "start", "chars": len("shared\n")}
+    assert payload["totals"]["lazy"] == len("@../shared.md\n")  # the nested CLAUDE.md itself, and nothing else
+
+
+@pytest.mark.parametrize("rules", [True, False])
+def test_a_cut_start_import_of_a_nested_rule_warns_even_when_a_nested_claude_md_also_cuts_it(tmp_path, rules):
+    # sub/notes.md is imported at start and cuts the rule import; sub/CLAUDE.md imports notes.md and cuts it lazily
+    files = {"CLAUDE.md": "@sub/notes.md\n", "sub/notes.md": "@.claude/rules/r.md\n", "sub/CLAUDE.md": "@notes.md\n",
+             "sub/.claude/rules/r.md": "rule\n"}
+    payload = budget(_tree(tmp_path, files), NAMES, import_max_depth=1, rules=rules)
+    assert payload["warnings"] == [
+        "sub/notes.md: import of sub/.claude/rules/r.md is past the harness's 1-hop import limit, not followed"]
+
+
+def test_the_receipt_budget_reads_rules_as_repo_budget_does(tmp_path, monkeypatch, capsys):
+    # antonwolfy's tree: AGENTS.md is off, and loads only through the rule link; the receipt must not disagree
+    from types import SimpleNamespace
+
+    from dokimi.commands import repo as repo_cmd
+    from dokimi.repos import receipt as receipt_module
+
+    _tree(tmp_path, {"CLAUDE.md": "root\n", "AGENTS.md": "agents guidance\n"})
+    (tmp_path / ".claude/rules").mkdir(parents=True)
+    try:
+        (tmp_path / ".claude/rules/agents.md").symlink_to(tmp_path / "AGENTS.md")
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    seen = {}
+
+    def fake_build_receipt(reach, budget_payload, tree):
+        seen["budget"] = budget_payload
+        return {}
+
+    monkeypatch.setattr(receipt_module, "build_receipt", fake_build_receipt)
+    monkeypatch.setattr("dokimi.artifacts.save_artifact", lambda name, data, path: {"path": str(path)})
+    profile = SimpleNamespace(guidance_names=NAMES, import_max_depth=None, reads_claude_rules=True)
+
+    repo_cmd._print_receipt(WorkTree(tmp_path), profile, {}, tmp_path)
+
+    assert _by_path(seen["budget"])[("AGENTS.md", "guidance")]["when"] == "start"

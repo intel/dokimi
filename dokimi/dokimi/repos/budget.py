@@ -77,12 +77,15 @@ def _nested_unscoped(tree: RepoTree, files) -> set:
             if RULE_GLOB.match(f) and not f.startswith(".claude/rules/") and not _rule(tree, f)[1]}
 
 
-def _cut_is_quiet(tree: RepoTree, f: str, target: str, loaded, cut_lazy_set: set, nested_unscoped: set) -> bool:
+def _cut_is_quiet(tree: RepoTree, f: str, target: str, loaded, cut_lazy_set: set, cut_start_set: set,
+                  nested_unscoped: set) -> bool:
     """True when a cut import needs no warning: another chain loaded its target, or it is a cut lazy import of an
-    unscoped nested rule from guidance in that rule's subtree (the rule loads with that guidance anyway)."""
+    unscoped nested rule from guidance in that rule's subtree (the rule loads with that guidance anyway).
+
+    The second exemption does not cover a pair the start chain cut too: that rule does not load at start."""
     if _target(tree, target) in loaded:
         return True  # another chain did load it, possibly through a link
-    return (f, target) in cut_lazy_set and any(
+    return (f, target) in cut_lazy_set and (f, target) not in cut_start_set and any(
         _target(tree, target) == t and f.startswith(sub) for t, sub in nested_unscoped)
 
 
@@ -169,8 +172,9 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
     # A path-scoped rule, or one imported from outside its subtree, does not load with its importer: still named.
     nested_unscoped = _nested_unscoped(tree, files) if rules else set()
     cut_lazy_set = set(cut_lazy)
+    cut_start_set = set(cut_start)
     for f, target in sorted(set(cut_start + cut_lazy)):
-        if _cut_is_quiet(tree, f, target, loaded, cut_lazy_set, nested_unscoped):
+        if _cut_is_quiet(tree, f, target, loaded, cut_lazy_set, cut_start_set, nested_unscoped):
             continue
         if not _is_resolvable(tree, target):
             continue  # nothing to load, as with a missing import within the limit
@@ -228,7 +232,12 @@ def _import_entries(tree: RepoTree, at_start: set[str], lazily: set[str], guidan
             unreadable_warnings.append(warning)
         elif rules and (RULE_GLOB.match(f) or RULE_GLOB.match(t)):
             chars = len(_without_frontmatter(tree.read_text(f)))
-        entries.append({"path": f, "kind": "import", "when": when, "chars": chars})
+        entry = {"path": f, "kind": "import", "when": when, "chars": chars}
+        entries.append(entry)
+        if rules and not warning and (RULE_GLOB.match(f) or RULE_GLOB.match(t)):
+            # a rule-path import whose rules dir is a link is not a rule entry, but its count is body-only too:
+            # an ordinary import of the same file, later in the loop, replaces it (as it replaces a rule entry)
+            rule_entries[t] = entry
 
 
 def _own_targets(tree: RepoTree, guidance: list[str], groups: dict[str, list[str]], claude: list[str],
