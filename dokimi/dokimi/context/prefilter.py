@@ -63,7 +63,8 @@ _COMMENT_OR_QUOTED = re.compile(r"(?m)(\\[\s\S]|'[^']*'|\"(?:\\[\s\S]|[^\"\\])*\
 _REDIRECT_OP = re.compile(r"\d*(?:<<<|<<-?|>>|>&|<&|>\||[<>])")
 # a here-string's payload is the text fed to stdin, not a file the command opens; a quoted piece is skipped as text
 # so a ``<<<`` inside quotes is not a payload, and the payload may be quoted (``<<< "some text"``)
-_HERE_STRING = re.compile(r"(?P<quoted>\\[\s\S]|'[^']*'|\"(?:\\[\s\S]|[^\"\\])*\")"
+_HERE_STRING = re.compile(r"(?m)(?P<quoted>\\[\s\S]|'[^']*'|\"(?:\\[\s\S]|[^\"\\])*\")"
+                          r"|(?P<comment>(?:^|(?<=[\s;&|()]))#.*$)"  # a comment's apostrophes open no quote
                           r"|<<<\s*(?:\\[\s\S]|'[^']*'|\"(?:\\[\s\S]|[^\"\\])*\"|[^\s;&|<>()'\"\\])+")
 _SEGMENT = re.compile(r"&&|\|\||(?<![<>])[|&]|[;()\n]")  # ``>|``, ``>&``, ``<&`` are operators
 _CUE = re.compile(r"\b(no|not|don't|do not|stop|instead|wrong|forgot|should have|revert|undo|why did you)\b", re.I)
@@ -140,8 +141,9 @@ def claims_from_guidance(text: str) -> list[Claim]:
         if span.kind not in _RULE_KINDS:
             continue
         keywords = _stems(_BACKTICK.sub(" ", span.text))
-        keys = [k.strip() for k in _BACKTICK.findall(span.text) if k.strip() and _matchable(k.strip())]
-        if not (keywords or keys or span.protection):  # a rule with nothing to match on is no claim
+        named = [k.strip() for k in _BACKTICK.findall(span.text) if k.strip()]
+        keys = [k for k in named if _matchable(k)]  # an unmatchable key stays a claim, not measurable
+        if not (keywords or named or span.protection):  # a rule with nothing to match on is no claim
             continue
         claims.append(Claim(
             id=span.id, text=span.text.strip(), heading=" > ".join(span.heading_path), keywords=keywords,
@@ -154,8 +156,9 @@ def claims_from_guidance(text: str) -> list[Claim]:
 def _matchable(key: str) -> bool:
     """Whether a guidance key names one thing a session can be matched on. A glob (``tests/*.json``, ``[ab].md``)
     names a set of files and a ``~`` path names a home directory; neither is expanded here, so neither is a key:
-    a rule that has only such keys is not measurable (``acted`` is null), instead of reading as a measured zero."""
-    return not (_GLOB.search(key) or key.startswith("~"))
+    a rule that has only such keys is not measurable (``acted`` is null), instead of reading as a measured zero.
+    A quoted or escaped bracket is literal in a shell (``pip install '.[dev]'``), so it is no glob."""
+    return not (_GLOB.search(_QUOTED.sub(" ", key)) or key.startswith("~"))
 
 
 def _names(key: str, text: str) -> bool:
@@ -290,7 +293,8 @@ def _executable(command: str) -> str:
 def _without_here_strings(text: str) -> str:
     """The text with each here-string payload replaced by a space. Done before quoted sentences are hidden, so the
     words after a payload keep their shell boundaries (``<<< "x y" docs/a.md`` reads ``docs/a.md``)."""
-    return _HERE_STRING.sub(lambda m: m.group(0) if m.group("quoted") else " ", text)
+    return _HERE_STRING.sub(lambda m: " " if m.group("quoted") is None and m.group("comment") is None else m.group(0),
+                            text)
 
 
 def _masked_segments(command: str, *, hide_spaced: bool = False) -> list[str]:
