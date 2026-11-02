@@ -169,6 +169,23 @@ def test_a_listed_path_with_a_colon_is_matched():
     assert [(e["file"], e["line"]) for e in out] == [("a:b.py", 3)]
 
 
+def test_a_listed_path_containing_the_error_separator_is_matched():
+    # the name itself holds ": error: "; the first separator in the line is not the end of the name
+    out = typecheck._errors("pkg/a: error: b.py:2: error: incompatible return value  [return-value]",
+                            {"pkg/a: error: b.py"}, "")
+    assert [(e["file"], e["line"], e["code"]) for e in out] == [("pkg/a: error: b.py", 2, "return-value")]
+
+
+def test_a_listed_name_that_is_a_prefix_of_another_does_not_take_its_errors():
+    out = typecheck._errors("pkg/a: error: b.py:2: error: boom", {"pkg/a", "pkg/a: error: b.py"}, "")
+    assert [(e["file"], e["line"]) for e in out] == [("pkg/a: error: b.py", 2)]
+
+
+def test_a_mypy_spelling_of_a_listed_file_is_normalised_before_matching():
+    out = typecheck._errors("./pkg//a.py:3: error: boom  [misc]", {"pkg/a.py"}, "")
+    assert [(e["file"], e["line"]) for e in out] == [("pkg/a.py", 3)]
+
+
 def test_a_line_less_error_on_a_listed_file_is_counted():
     out = typecheck._errors("pkg/a.py: error: Duplicate module named 'a'", {"pkg/a.py"}, "")
     assert [(e["file"], e["line"]) for e in out] == [("pkg/a.py", 0)]

@@ -30,6 +30,7 @@ TOOL = "mypy"
 REFERENCE_DIR = "reference"  # task dir: the files of a reference repair, copied over the workspace by oracle
 MAX_ERRORS = 50  # reported in details; the count is in the metrics
 _ERROR = re.compile(r"^(?P<file>.+?)(?::(?P<line>\d+))?(?::\d+)?: error: (?P<message>.*?)(?:\s+\[(?P<code>[\w-]+)\])?$")
+_TAIL = re.compile(r"^(?::(?P<line>\d+))?(?::\d+)?: error: (?P<message>.*?)(?:\s+\[(?P<code>[\w-]+)\])?$")
 
 
 def _safe_path(path: object) -> bool:
@@ -53,16 +54,39 @@ def task_problems(raw: dict[str, Any]) -> list[str]:
     return problems
 
 
+def _split(line: str, listed: set[str] | None, root: str) -> tuple[str, re.Match[str]] | None:
+    """The file a mypy line is about, and the match of the diagnostic after it; None for a line that is not one.
+
+    With ``listed``, the file is a listed name, normalised as the names are: a name may hold ": error: " itself, so
+    the first separator in the line is not always the end of the name. Each separator is tried as the end of the
+    name, and the last one that gives a listed name is taken (the longest name)."""
+    if listed is None:
+        m = _ERROR.match(line)
+        if m is None:
+            return None
+        name = m.group("file")
+        return posixpath.normpath(name[len(root):] if name.startswith(root) else name), m
+    text = line[len(root):] if line.startswith(root) else line
+    best: tuple[str, re.Match[str]] | None = None
+    for k, ch in enumerate(text):
+        if ch != ":":
+            continue
+        tail = _TAIL.match(text[k:])
+        name = posixpath.normpath(text[:k])
+        if tail is not None and name in listed:
+            best = (name, tail)
+    return best
+
+
 def _errors(stdout: str, listed: set[str] | None, root: str) -> list[dict[str, Any]]:
     """The error lines of mypy's output on a listed file (any file when ``listed`` is None), in output
     order; ``root`` is stripped from the names."""
     out = []
     for line in stdout.splitlines():
-        m = _ERROR.match(line)
-        if not m:
+        hit = _split(line, listed, root)
+        if hit is None:
             continue
-        name = m.group("file")
-        name = posixpath.normpath(name[len(root):] if name.startswith(root) else name)
+        name, m = hit
         if listed is None or name in listed:
             out.append({"file": name, "line": int(m.group("line") or 0),
                         "code": m.group("code") or "", "message": m.group("message")})
