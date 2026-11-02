@@ -47,7 +47,7 @@ def _glob_walk(base: Path, segs: tuple[str, ...], i: int, found: set[Path], *, s
     seg = segs[i]
     more = i + 1 < len(segs)  # a link is read through only when a segment follows it
     if seg == "**":
-        if more or not base.is_file():  # ** matches directories only: a file is not a zero-directory match
+        if more or base.is_dir():  # terminal ** matches directories only
             _glob_walk(base, segs, i + 1, found, strict=strict, links=links)
         for name, is_dir, is_link in _listing(base, strict=strict):
             if is_link and more:

@@ -63,6 +63,15 @@ def test_a_regular_file_followed_by_a_double_star_is_not_a_match(tmp_path):
     assert glob_paths(tmp_path, "evaluation/**") == [tmp_path / "evaluation"]
 
 
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs POSIX special files")
+def test_a_fifo_followed_by_a_double_star_is_not_a_match(tmp_path):
+    from dokimi.repo_glob import glob_paths
+
+    (tmp_path / "evaluation").mkdir()
+    os.mkfifo(tmp_path / "evaluation" / "q")
+    assert glob_paths(tmp_path, "evaluation/q/**") == []
+
+
 @pytest.mark.skipif(os.name == "nt" or os.geteuid() == 0, reason="needs POSIX permissions and a non-root user")
 def test_an_unreadable_directory_inside_a_skill_is_a_config_error_not_left_out_of_skill_sha(tmp_path):
     # Path.rglob suppresses permission errors, so edits behind the directory would not move skill_sha
