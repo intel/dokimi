@@ -28,7 +28,12 @@ def _write(root: Path, files: dict[str, str]) -> Path:
 
 def _track_executable(root: Path, rel: str) -> None:
     """Record ``rel`` as 100755 in the index whatever the disk says (chmod sets no exec bit on Windows)."""
-    subprocess.run(["git", "-C", str(root), "update-index", "--chmod=+x", "--", rel], check=True)
+    _index_mode(root, rel, "+x")
+
+
+def _index_mode(root: Path, rel: str, change: str) -> None:
+    """Set the index's executable bit for ``rel`` (``+x`` or ``-x``) and leave the disk alone."""
+    subprocess.run(["git", "-C", str(root), "update-index", f"--chmod={change}", "--", rel], check=True)
 
 
 def test_the_same_content_at_another_path_digests_the_same(tmp_path):
@@ -126,13 +131,15 @@ def test_an_undecodable_name_and_link_target_digest_without_error(tmp_path):
 @pytest.mark.skipif(shutil.which("git") is None, reason="the mode bit comes from git's index; needs git")
 def test_the_executable_bit_is_the_one_git_records_not_the_disk_one(tmp_path):
     root = _write(tmp_path / "t", {"run.sh": "echo\n"})
-    (root / "run.sh").chmod(0o755)
+    (root / "run.sh").chmod(0o644)  # the disk bit stays put: a change to the index alone must move the digest
     subprocess.run(["git", "init", "-q", str(root)], check=True)
     subprocess.run(["git", "-C", str(root), "add", "run.sh"], check=True)
     _track_executable(root, "run.sh")  # chmod does not set the bit on Windows: the index must say 100755 on every OS
-    before = tree_digest(root)
-    (root / "run.sh").chmod(0o644)  # a Windows checkout has no exec bit on disk; git still records 100755
-    assert tree_digest(root) == before
+    before = tree_digest(root, exclude=[".git"])  # .git holds the index itself, which changes with it
+    (root / "run.sh").chmod(0o755)  # a Windows checkout has no exec bit on disk; git still records 100755
+    assert tree_digest(root, exclude=[".git"]) == before
+    _index_mode(root, "run.sh", "-x")
+    assert tree_digest(root, exclude=[".git"]) != before
 
 
 @symlinks
@@ -217,13 +224,15 @@ def test_an_absolute_link_inside_the_tree_digests_the_same_at_another_path_on_wi
 def test_a_tracked_file_whose_name_has_brackets_takes_its_mode_from_the_index(tmp_path):
     # ls-files reads the name as a glob unless it is literal: [1] would match nothing and the disk bit would count
     root = _write(tmp_path / "t", {"question[1].json": "[]\n"})
-    (root / "question[1].json").chmod(0o755)
+    (root / "question[1].json").chmod(0o644)  # the disk bit stays put, so only the index can tell the modes apart
     subprocess.run(["git", "init", "-q", str(root)], check=True)
     subprocess.run(["git", "-C", str(root), "add", "question[1].json"], check=True)
     _track_executable(root, "question[1].json")
     before = tree_digest(root / "question[1].json")  # a file root: git is asked for its name as the pathspec
-    (root / "question[1].json").chmod(0o644)
+    (root / "question[1].json").chmod(0o755)
     assert tree_digest(root / "question[1].json") == before
+    _index_mode(root, "question[1].json", "-x")
+    assert tree_digest(root / "question[1].json") != before
 
 
 def test_a_tracked_mode_past_the_capture_limit_still_comes_from_the_index(tmp_path):
@@ -232,13 +241,15 @@ def test_a_tracked_mode_past_the_capture_limit_still_comes_from_the_index(tmp_pa
     names = [f"f{i:05d}-" + "x" * 200 for i in range(7000)]
     root = _write(tmp_path / "t", {name: "a\n" for name in names})
     target = names[3500]
-    (root / target).chmod(0o755)
+    (root / target).chmod(0o644)  # the disk bit stays put: the index alone decides the digest
     subprocess.run(["git", "init", "-q", str(root)], check=True)
     subprocess.run(["git", "-C", str(root), "add", "."], check=True)
     _track_executable(root, target)
-    before = tree_digest(root)
-    (root / target).chmod(0o644)
-    assert tree_digest(root) == before
+    before = tree_digest(root, exclude=[".git"])
+    (root / target).chmod(0o755)
+    assert tree_digest(root, exclude=[".git"]) == before
+    _index_mode(root, target, "-x")
+    assert tree_digest(root, exclude=[".git"]) != before
 
 
 def test_mixed_case_names_are_ordered_by_code_point_on_every_os(tmp_path):
@@ -252,3 +263,28 @@ def test_mixed_case_names_are_ordered_by_code_point_on_every_os(tmp_path):
         expected.update(b"F " + rel.encode() + b"\0" + b"0\0")
         expected.update(hashlib.sha256((root / rel).read_bytes()).digest())
     assert tree_digest(root) == expected.hexdigest()
+
+
+@symlinks
+def test_an_absolute_link_whose_dotdot_leaves_the_tree_is_hashed_as_written(tmp_path):
+    # /one/tree/../external names /one/external; written relative, the link would read the same in a copy at /two
+    # and hide that its target lies elsewhere
+    roots = {}
+    for name in ("one", "two"):
+        root = _write(tmp_path / name / "tree", {"SKILL.md": "x\n"})
+        _write(tmp_path / name / "external", {"q.json": "[]\n"})
+        os.symlink(f"{root}/../external/q.json", root / "link.json")
+        roots[name] = root
+    assert tree_digest(roots["one"]) != tree_digest(roots["two"])
+
+
+@pytest.mark.skipif(os.name != "nt", reason="drive letters and directory names fold case on Windows only")
+def test_an_absolute_link_inside_the_tree_matches_whatever_the_case_of_its_target(tmp_path):
+    a = _write(tmp_path / "a", {"q.json": "[]\n"})
+    b = _write(tmp_path / "b", {"q.json": "[]\n"})
+    try:
+        os.symlink(str(a / "q.json").lower(), a / "current")  # the same file, spelled in another case
+        os.symlink(b / "q.json", b / "current")
+    except OSError:
+        pytest.skip("creating symlinks needs privileges on Windows")
+    assert tree_digest(a) == tree_digest(b)

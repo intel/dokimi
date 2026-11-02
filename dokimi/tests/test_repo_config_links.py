@@ -243,3 +243,49 @@ def test_mixed_case_directory_aliases_are_walked_in_code_point_order_on_every_os
     names = [name for name, _ in _walk(root / "evaluation", "evaluation")]
     assert "evaluation/B/q.json" in names
     assert "evaluation/a/q.json" not in names
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_a_link_met_by_a_wildcard_suite_still_claims_it_after_its_target_loses_the_match(tmp_path):
+    # evaluation/**/task.json walks through evaluation/link; retargeting the link to a directory without task.json
+    # leaves the glob with no match, so only the walk that met the link can still claim it
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: evaluation/**/task.json\n"
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": body,
+        "skills/a/SKILL.md": "# a\n",
+        "one/task.json": "[]\n",
+        "two/readme.md": "x\n",
+    })
+    os.makedirs(root / "evaluation")
+    os.symlink("../one", root / "evaluation" / "link")
+    os.remove(root / "evaluation" / "link")
+    os.symlink("../two", root / "evaluation" / "link")
+    impact = load_repo_config(root).subjects_for_changed(["evaluation/link"])
+    assert impact.unclaimed == []
+    assert impact.suites == {"skill/a": ["evaluation/link"]}
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_a_skill_linked_to_the_repository_root_is_a_config_error(tmp_path):
+    # its hash would cover the whole repository, and no change to a file could be traced back to the skill
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n"
+    root = _tree(tmp_path / "repo", {".github/dokimi/config.yaml": body, "README.md": "x\n"})
+    os.makedirs(root / "skills")
+    os.symlink("..", root / "skills" / "a")
+    with pytest.raises(ConfigError, match="repository root"):
+        load_repo_config(root).subjects()
+
+
+def test_a_link_target_with_the_windows_extended_prefix_is_matched_as_the_plain_path(tmp_path, monkeypatch):
+    # os.readlink returns \\?\ paths for absolute links on Windows; the hop must still be found inside the repository
+    from dokimi import repo_config
+
+    root = _tree(tmp_path / "repo", {"shared/v1/q.json": "[]\n"})
+    os.symlink(root / "shared" / "v1", root / "mid")
+    os.symlink(root / "mid", root / "current")  # its target is absolute, and a link on the way to a file in the repo
+    real_readlink = os.readlink
+    monkeypatch.setattr(
+        os, "readlink",
+        lambda p: "\\\\?\\" + real_readlink(p) if os.fspath(p).endswith("current") else real_readlink(p),
+    )
+    assert repo_config._hops(root / "current" / "q.json", root, root) == [("current",), ("mid",)]

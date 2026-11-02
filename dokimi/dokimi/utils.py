@@ -121,8 +121,11 @@ def link_text(link: Path, root: Path) -> str:
     # (a link that is the root itself is not resolved, or its own target would count as inside it)
     anchors = [os.fspath(root)] if root.is_symlink() else [os.fspath(root), os.path.realpath(root)]
     for anchor in anchors:
+        # Windows folds case in paths (and drive letters), so the comparison is on the normalized spelling; the target
+        # keeps its own spelling in the text it returns
+        key, key_anchor = os.path.normcase(target), os.path.normcase(anchor)
         try:
-            inside = os.path.commonpath([target, anchor]) == anchor and target.startswith(anchor)
+            inside = os.path.commonpath([key, key_anchor]) == key_anchor and key.startswith(key_anchor)
         except ValueError:  # different drives, or a relative path mixed in
             continue
         if inside:
@@ -130,6 +133,11 @@ def link_text(link: Path, root: Path) -> str:
             depth = len(link.relative_to(root).parent.parts)  # the link's directory, as the text is read from there
             slash = "/" if target.endswith((os.sep, os.sep + ".")) else ""  # "x/" and "x/." need a directory
             if ".." in rest:
+                # a target whose ".." leads out of the tree (and does not come back in) is external: hashed as written,
+                # so two trees whose external targets differ do not digest alike
+                lexical = os.path.normcase(os.path.normpath(target))
+                if lexical != key_anchor and not lexical.startswith(key_anchor.rstrip(os.sep) + os.sep):
+                    return target
                 return "/".join([".."] * depth + rest) + slash or "."
             here = os.path.join(anchor, *link.relative_to(root).parent.parts)
             return os.path.relpath(os.path.join(anchor, *rest), here).replace(os.sep, "/") + slash

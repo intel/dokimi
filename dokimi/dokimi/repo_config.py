@@ -29,7 +29,8 @@ from typing import Any, Iterable
 import yaml
 
 from dokimi.artifacts import ArtifactValidationError, validate_artifact
-from dokimi.utils import link_text, tree_digest
+from dokimi.repo_glob import glob_links as _glob_links, glob_paths as _glob_paths
+from dokimi.utils import _plain_path, link_text, tree_digest
 
 KIND = "dokimi_config"
 CONFIG_CANDIDATES = (".github/dokimi/config.yaml", ".dokimi/config.yaml")
@@ -191,8 +192,9 @@ def load_repo_config(start: Path | None = None, *, explicit: Path | None = None)
 
 
 def _norm(value: str) -> str | None:
-    """A repository-relative POSIX path or glob, or None when it is empty, absolute or climbs out."""
-    norm = PurePosixPath(value.replace("\\", "/")).as_posix()
+    """A repository-relative POSIX path or glob, or None when it is empty, absolute or climbs out. git names changed
+    files with "/" on every OS; a backslash is a separator only on Windows, and an ordinary name character elsewhere."""
+    norm = PurePosixPath(value.replace("\\", "/") if os.sep == "\\" else value).as_posix()
     # A drive (C:, C:skill) makes Path join discard the root on Windows, so it is refused like an absolute path.
     if norm in ("", ".") or norm.startswith("/") or DRIVE.match(norm) or ".." in norm.split("/"):
         return None
@@ -304,7 +306,7 @@ def _hops(path: Path, root: Path, root_real: Path) -> list[tuple[str, ...]]:
         if hops > 256:
             break
         found[(*here, part)] = None
-        target = os.readlink(link)
+        target = _plain_path(os.readlink(link))  # Windows reads an absolute target back as \\?\C:\...
         if os.path.isabs(target):
             for anchor in (root_real, root):  # written as the resolved or the given spelling of the repository
                 try:
@@ -369,11 +371,12 @@ def _unnamed_literals(literals: tuple[str, ...], matches: dict[str, Path], root:
             continue
         segs = literal.split("/")
         wild = next((i for i, s in enumerate(segs) if any(c in s for c in "*?[")), None)
-        if wild is not None:  # a glob claims the links on the way to its literal prefix
+        if wild is not None:  # a glob claims each link its walk reads through, and its own pattern where its prefix resolves
+            for link in _glob_links(root, literal):
+                links.extend(_hops(link, root, root_real))
             if wild == 0:
                 continue
             prefix = root.joinpath(*segs[:wild])
-            links.extend(_hops(prefix, root, root_real))
             real = _inside(prefix, root_real)
             if real is not None:
                 globs.append("/".join([glob.escape("/".join(real)), *segs[wild:]]))
@@ -578,58 +581,12 @@ def _unreadable(exc: OSError) -> ConfigError:
     return ConfigError(f"cannot read {exc.filename or 'part of the repository'}: {exc.strerror or exc}")
 
 
-def _listing(base: Path) -> list[tuple[str, bool, bool]]:
-    """(name, is_dir, is_symlink) of each entry of ``base`` that can be read; an unreadable one is left out."""
-    out: list[tuple[str, bool, bool]] = []
-    try:
-        with os.scandir(base) as it:
-            for entry in it:
-                try:
-                    out.append((entry.name, entry.is_dir(), entry.is_symlink()))
-                except OSError:
-                    continue
-    except OSError:
-        pass
-    return out
-
-
-def _glob_walk(base: Path, segs: tuple[str, ...], i: int, found: set[Path]) -> None:
-    if i == len(segs):
-        found.add(base)
-        return
-    seg = segs[i]
-    if seg == "**":
-        _glob_walk(base, segs, i + 1, found)
-        for name, is_dir, is_link in _listing(base):
-            if is_dir:  # follows symlinks: a linked directory is matched, but not descended
-                _glob_walk(base / name, segs, i + 1 if is_link else i, found)
-        return
-    wild = any(c in seg for c in "*?[")  # matched by exact name against the listing: case-sensitive everywhere
-    for name, _, _ in _listing(base):
-        if fnmatch.fnmatchcase(name, seg) if wild else name == seg:
-            _glob_walk(base / name, segs, i + 1, found)
-
-
-def _glob_paths(root: Path, pattern: str) -> list[Path]:
-    """The paths ``pattern`` matches under ``root``. Every segment, literal ones included, is matched against the names
-    in the directory listing, case-sensitively on every platform: ``Path.glob`` folds case on Windows, and 3.11 has no
-    ``case_sensitive`` switch, so a suite would differ between OSes and from impact. ``**`` is a whole segment matching
-    zero or more directories. It does not recurse through a symlinked directory: the link counts as one directory for the
-    segments after it, so ``**/x`` reaches ``link/x`` but not ``link/sub/x``; a second ``**`` placed after a link can still
-    descend it, so ``**/**/x`` is not guaranteed to match as ``**/x`` does. Unlike ``Path.glob`` on some versions, a
-    linked directory is matched by ``**`` itself on every version. A directory that cannot be listed contributes no
-    matches."""
-    found: set[Path] = set()
-    _glob_walk(root, tuple(pattern.split("/")), 0, found)
-    return sorted(found)
-
-
 def _suite_files(root: Path, globs: tuple[str, ...]) -> dict[str, Path]:
     """The suite's matches by repository-relative path. A match under another match is left out: that match's walk
     already covers it, so ``{skill}/evals/**`` hashes the same whether ``**`` yields files too (3.13+) or not (3.11/3.12)."""
     found: dict[str, Path] = {}
     for pattern in globs:
-        for match in _glob_paths(root, pattern):
+        for match in _glob_paths(root, pattern, strict=True):
             found.setdefault(match.relative_to(root).as_posix(), match)
     return {rel: path for rel, path in found.items() if not any(other != rel and _within(rel, other) for other in found)}
 
@@ -703,6 +660,9 @@ def _check_suite(subject: Subject, root: Path) -> None:
     real_skill = _real(root / subject.path)
     if real_skill is None:
         raise ConfigError(f"subject {subject.id}: {subject.path} is a link that does not resolve")
+    real_root = _real(root)
+    if real_root is not None and os.path.normcase(os.fspath(real_skill)) == os.path.normcase(os.fspath(real_root)):
+        raise ConfigError(f"subject {subject.id}: {subject.path} resolves to the repository root; a skill is a directory inside it")
     for rel, path in matches.items():
         _check_match(subject, rel, path, real_skill)
     _check_claims(subject, matches, real_skill)
