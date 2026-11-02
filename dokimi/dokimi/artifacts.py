@@ -12,7 +12,8 @@ checks), ``tool_preference`` (which of two equal tools a model picks, and
 what moves it), ``repo_environment`` (static inspection of what a
 repository offers an agent), ``plan`` (the cells a run promises to measure),
 ``result`` (one status per planned cell), ``repo_budget`` (what a repository puts
-into an agent's context), ``need_graph`` and ``eval_coverage`` (a frozen need graph and an
+into an agent's context), ``effective_instructions`` (the effective-instructions/v0
+receipt of a reach probe), ``need_graph`` and ``eval_coverage`` (a frozen need graph and an
 eval set's coverage of it) and ``task_inspect`` (which eval-task format each
 path under a tree is). This module stamps each with a
 ``schema_version`` and validates it against the JSON Schema in
@@ -47,6 +48,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "matrix_rollup": "matrix_rollup.v1",
     "plugin_delta": "plugin_delta.v1",
     "subject_scorecard": "subject_scorecard.v2",
+    "skill_evidence": "skill_evidence.v1",
     "novelty": "novelty.v1",
     "task_runs": "task_runs.v1",
     "explore_runs": "explore_runs.v1",
@@ -57,8 +59,10 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "plan": "plan.v1",
     "result": "result.v1",
     "repo_budget": "repo_budget.v1",
+    "effective_instructions": "effective_instructions.v1",
     "task_inspect": "task_inspect.v1",
     "headroom": "headroom.v1",
+    "redteam": "redteam.v1",
     "cli_routes": "cli_routes.v1",
     "need_graph": "need_graph.v1",
     "eval_coverage": "eval_coverage.v1",
