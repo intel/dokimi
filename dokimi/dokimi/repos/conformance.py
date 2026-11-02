@@ -11,6 +11,8 @@ harness that cannot run here (no model, credential or CLI) gets a ``skipped`` ru
 
 from __future__ import annotations
 
+import hashlib
+import json
 import shutil
 import sys
 from collections import Counter
@@ -80,6 +82,12 @@ def load_expectations(path: Path) -> dict[str, Any]:
     if errors:
         raise ConformanceError(f"{path}: " + "; ".join(errors))
     return data
+
+
+def expectations_digest(expect: Mapping[str, Any]) -> str:
+    """The sha256 of the expectations as canonical JSON: matrices built from different documented states differ in it."""
+    text = json.dumps(expect, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def check_expectations(expect: Mapping[str, Any], fixtures: Path) -> list[str]:
@@ -162,13 +170,14 @@ def summary(runs: Sequence[Mapping[str, Any]], cells: Sequence[Mapping[str, Any]
     return {**{a: counts.get(a, 0) for a in AGREEMENTS}, "runs": {s: status.get(s, 0) for s in RUN_STATUSES}}
 
 
-def build_matrix(runs: Sequence[Mapping[str, Any]], cells: Sequence[Mapping[str, Any]],
+def build_matrix(runs: Sequence[Mapping[str, Any]], cells: Sequence[Mapping[str, Any]], digest: str,
                  generated_at: str | None = None) -> dict[str, Any]:
     """The ``reach_matrix.v1`` payload: runs and cells in a stable order, with the counts."""
     return {
         "schema_version": "reach_matrix.v1",
         "generated_at": generated_at or datetime.now(timezone.utc).isoformat(),
         "expectations": SCHEMA_EXPECTATIONS,
+        "expectations_digest": digest,
         "runs": sorted((dict(r) for r in runs), key=lambda r: (r["case"], r["harness"], r["version"])),
         "cells": sorted((dict(c) for c in cells),
                         key=lambda c: (c["case"], c["harness"], c["version"], c["path"], c["scenario"])),
@@ -222,25 +231,33 @@ def run_harness(harness: Harness, model: str, fixtures: Path, expect: Mapping[st
                                  timeout=timeout, budget=budget)
         runs.append(record)
         cells += found
-    return build_matrix(runs, cells)
+    return build_matrix(runs, cells, expectations_digest(expect))
 
 
 def merge(matrices: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    """One matrix from several: the runs and cells of each, and no run of the same harness version twice."""
+    """One matrix from several: the runs and cells of each, and no run of the same known harness version twice.
+
+    The matrices must come from one revision of the expectations, else their documented states differ."""
     if not matrices:
         raise ConformanceError("nothing to merge")
+    digests = sorted({m["expectations_digest"] for m in matrices})
+    if len(digests) > 1:
+        raise ConformanceError(f"the matrices come from {len(digests)} revisions of the expectations: "
+                               + ", ".join(d[:12] for d in digests))
     runs: list[dict[str, Any]] = []
     cells: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str]] = set()
     for matrix in matrices:
         for run in matrix["runs"]:
+            if run["version"] == UNKNOWN:  # a failed or skipped run names no version, so a rerun of one is not a repeat
+                continue
             key = (run["harness"], run["version"], run["case"])
             if key in seen:
                 raise ConformanceError(f"two matrices hold {run['harness']} {run['version']} on {run['case']}")
             seen.add(key)
         runs += matrix["runs"]
         cells += matrix["cells"]
-    return build_matrix(runs, cells, generated_at=max(m["generated_at"] for m in matrices))
+    return build_matrix(runs, cells, digests[0], generated_at=max(m["generated_at"] for m in matrices))
 
 
 def write_matrix(matrix: Mapping[str, Any], path: Path) -> None:

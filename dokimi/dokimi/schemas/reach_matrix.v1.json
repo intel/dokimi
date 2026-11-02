@@ -4,11 +4,12 @@
   "title": "Reach conformance matrix v1",
   "description": "The matrix of the reach conformance suite (docs/reach-matrix.md): for each harness run over each fixture repository, the state each guidance file was observed in, per reach scenario, next to what the harness's vendor documentation says (reach_conformance.v1). One matrix is written per harness and several are merged into one. A `skipped` run has no cells; a cell whose documented state is `unknown` makes no claim.",
   "type": "object",
-  "required": ["schema_version", "generated_at", "expectations", "runs", "cells", "summary"],
+  "required": ["schema_version", "generated_at", "expectations", "expectations_digest", "runs", "cells", "summary"],
   "properties": {
     "schema_version": {"const": "reach_matrix.v1"},
     "generated_at": {"type": "string"},
     "expectations": {"const": "reach_conformance.v1", "description": "The schema of the expectations file the documented states come from."},
+    "expectations_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "The sha256 of the expectations file's content as canonical JSON (sorted keys, no spaces); matrices with different digests are not merged."},
     "runs": {
       "type": "array",
       "items": {

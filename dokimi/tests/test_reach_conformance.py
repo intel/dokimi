@@ -60,8 +60,11 @@ def _cell(**fields) -> dict:
     return {**base, **fields}
 
 
-def _matrix(runs=None, cells=None, generated_at="2026-10-31T00:00:00+00:00") -> dict:
-    return cf.build_matrix(runs or [_run()], cells or [_cell()], generated_at=generated_at)
+DIGEST = "a" * 64
+
+
+def _matrix(runs=None, cells=None, generated_at="2026-10-31T00:00:00+00:00", digest=DIGEST) -> dict:
+    return cf.build_matrix(runs or [_run()], cells or [_cell()], digest, generated_at=generated_at)
 
 
 def test_unavailable_names_the_missing_piece():
@@ -134,7 +137,7 @@ def test_build_matrix_counts_and_validates_against_the_schema():
     runs = [_run(), _run(harness="copilot", status="skipped", reason="no key", version="unknown")]
     cells = [_cell(), _cell(agreement="disagrees", observed="not_loaded", documented="loaded", path="CLAUDE.md"),
              _cell(agreement="alias", path="LINK.md", alias_of="AGENTS.md")]
-    matrix = cf.build_matrix(runs, cells, generated_at="2026-10-31T00:00:00+00:00")
+    matrix = cf.build_matrix(runs, cells, DIGEST, generated_at="2026-10-31T00:00:00+00:00")
     assert matrix["summary"] == {"agrees": 1, "disagrees": 1, "inconclusive": 0, "no_claim": 0, "alias": 1,
                                  "runs": {"ran": 1, "errors": 0, "failed": 0, "skipped": 1}}
     assert schema_errors("reach_matrix.v1", matrix) == []
@@ -248,6 +251,27 @@ def test_merge_refuses_a_harness_version_on_one_fixture_twice():
         cf.merge([_matrix(), _matrix()])
 
 
+def test_merge_refuses_matrices_from_two_revisions_of_the_expectations():
+    second = _matrix(runs=[_run(harness="claude-code")], cells=[_cell(harness="claude-code")], digest="b" * 64)
+    with pytest.raises(cf.ConformanceError, match="2 revisions of the expectations"):
+        cf.merge([_matrix(), second])
+
+
+def test_expectations_digest_follows_the_content_not_the_key_order():
+    expect = cf.load_expectations(FIXTURES / "expectations.yaml")
+    reordered = dict(reversed(list(expect.items())))
+    assert cf.expectations_digest(reordered) == cf.expectations_digest(expect)
+    assert cf.expectations_digest({**expect, "note": "edited"}) != cf.expectations_digest(expect)
+    matrix = cf.run_harness(CODEX, "", FIXTURES, expect, Path("unused"), env={}, which=_found)
+    assert matrix["expectations_digest"] == cf.expectations_digest(expect)
+
+
+def test_merge_keeps_two_failed_runs_of_one_harness():
+    failed = _run(status="failed", reason="timed out", version="unknown", scenarios=0)
+    merged = cf.merge([_matrix(runs=[failed], cells=[]), _matrix(runs=[failed], cells=[])])
+    assert [r["status"] for r in merged["runs"]] == ["failed", "failed"]
+
+
 def test_merge_refuses_nothing():
     with pytest.raises(cf.ConformanceError, match="nothing to merge"):
         cf.merge([])
@@ -313,11 +337,21 @@ def test_cli_run_rejects_an_unknown_harness(tmp_path):
 
 
 def test_cli_merge_writes_json_and_markdown(tmp_path):
+    digest = cf.expectations_digest(cf.load_expectations(FIXTURES / "expectations.yaml"))
     left, right = tmp_path / "left.json", tmp_path / "right.json"
-    cf.write_matrix(_matrix(), left)
+    cf.write_matrix(_matrix(digest=digest), left)
     cf.write_matrix(_matrix(runs=[_run(harness="claude-code", version="2.1.0")],
-                            cells=[_cell(harness="claude-code", version="2.1.0")]), right)
+                            cells=[_cell(harness="claude-code", version="2.1.0")], digest=digest), right)
     out, md = tmp_path / "reach-matrix.json", tmp_path / "reach-matrix.md"
     assert cli.main(["merge", str(left), str(right), "--out", str(out), "--md", str(md)]) == 0
     assert load_artifact("reach_matrix", out)["summary"]["agrees"] == 2
     assert md.read_text(encoding="utf-8").startswith("# Reach matrix")
+
+
+def test_cli_merge_refuses_matrices_from_another_revision_of_the_expectations(tmp_path, capsys):
+    left = tmp_path / "left.json"
+    cf.write_matrix(_matrix(), left)
+    out, md = tmp_path / "reach-matrix.json", tmp_path / "reach-matrix.md"
+    assert cli.main(["merge", str(left), "--out", str(out), "--md", str(md)]) == 1
+    assert "another revision" in capsys.readouterr().err
+    assert not out.exists() and not md.exists()

@@ -69,6 +69,9 @@ def cmd_merge(args: argparse.Namespace) -> int:
     expect = _expectations(args.expectations)
     matrices = [load_artifact("reach_matrix", path) for path in args.inputs]
     merged = cf.merge(matrices)
+    if merged["expectations_digest"] != cf.expectations_digest(expect):
+        print(f"✗ the matrices were built from another revision of {args.expectations}", file=sys.stderr)
+        return 1
     cf.write_matrix(merged, args.out)
     summaries = {case: block["summary"] for case, block in expect["cases"].items()}
     args.md.write_text(cf.render_markdown(merged, summaries), encoding="utf-8")
