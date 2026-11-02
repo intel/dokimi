@@ -126,7 +126,9 @@ class Shadow:
             return False
         try:
             return self.tree is None or not self.tree.is_dir(path)
-        except SourceError:  # the path leads out of the tree (a link git ignores, so not in files()): not free
+        # A link git ignores, so not in files(), that leads out of the tree or loops (RuntimeError before
+        # Python 3.13, as WorkTree.resolve maps it): not free.
+        except (SourceError, RuntimeError, OSError):
             return False
 
 

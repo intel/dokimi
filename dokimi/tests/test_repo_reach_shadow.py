@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from tests.test_repo_reach import _write
+from tests.test_repo_reach import _can_symlink, _write
 
 from dokimi.artifacts import ArtifactValidationError, validate_artifact
 from dokimi.cli import build_parser
@@ -176,12 +176,61 @@ def test_an_empty_directory_at_the_shadow_path_skips_that_scenario(tmp_path, hel
     assert ids == [i for i in ["shadow=.", "shadow=sub"] if i != skipped]
 
 
-def test_a_shadow_path_the_tree_cannot_resolve_is_not_free():
-    class OutOfTree:
+@pytest.mark.parametrize("error", [
+    SourceArgumentError("path escapes the repository: CLAUDE.local.md"),
+    RuntimeError("Symlink loop from 'CLAUDE.local.md'"),  # Path.resolve on a link loop before Python 3.13
+    OSError(40, "Too many levels of symbolic links"),
+])
+def test_a_shadow_path_the_tree_cannot_resolve_is_not_free(error):
+    class Unresolvable:
         def is_dir(self, path):
-            raise SourceArgumentError(f"path escapes the repository: {path}")
+            raise error
 
-    assert not Shadow("CLAUDE.local.md", frozenset(), OutOfTree()).free("CLAUDE.local.md")
+    assert not Shadow("CLAUDE.local.md", frozenset(), Unresolvable()).free("CLAUDE.local.md")
+
+
+@pytest.fixture(params=["this-python", "before-3.13"])
+def looping_link_tree(tmp_path, monkeypatch, request) -> tuple[Path, bool]:
+    """A git working tree whose ``CLAUDE.local.md`` is an ignored link to itself, so in no file list; and whether
+    resolving it raises. Python before 3.13 raises RuntimeError; 3.13 hands back the link, which is no directory.
+    ``before-3.13`` makes ``Path.resolve`` raise as it did there, on any Python."""
+    root = _tree(tmp_path)
+    if not _can_symlink(tmp_path):
+        pytest.skip("this OS refuses an unprivileged symlink")
+    subprocess.run(["git", "init", "-q", str(root)], check=True, capture_output=True)
+    (root / ".gitignore").write_text("CLAUDE.local.md\n", encoding="utf-8")
+    (root / "CLAUDE.local.md").symlink_to("CLAUDE.local.md")
+    assert "CLAUDE.local.md" not in WorkTree(root).files()
+    if request.param == "before-3.13":
+        resolve = Path.resolve
+
+        def looping(self, strict=False):
+            out = resolve(self, strict=strict)
+            if out.is_symlink():  # a resolve that ends on a link stopped at a loop
+                raise RuntimeError(f"Symlink loop from {str(self)!r}")
+            return out
+
+        monkeypatch.setattr(Path, "resolve", looping)
+    try:
+        (root / "CLAUDE.local.md").resolve()
+    except (RuntimeError, OSError):
+        return root, True
+    return root, False
+
+
+def test_an_ignored_looping_link_at_the_shadow_path_is_no_traceback(tmp_path, looping_link_tree):
+    root, raises = looping_link_tree
+    shadow = shadow_for(load_profile(_profile(tmp_path, shadow_file="CLAUDE.local.md")), WorkTree(root), ("shadow",))
+    ids = [s.id for s in scenarios(["AGENTS.md", "sub/AGENTS.md"], ("shadow",), shadow=shadow)]
+    assert ids == (["shadow=sub"] if raises else ["shadow=.", "shadow=sub"])  # a loop it cannot follow is not free
+
+
+def test_repo_reach_dry_run_over_an_ignored_looping_link_exits_cleanly(tmp_path, capsys, looping_link_tree):
+    _, raises = looping_link_tree
+    args = build_parser().parse_args(_cli(tmp_path, "--scenarios", "shadow", shadow_file="CLAUDE.local.md"))
+    assert args.func(args) in (None, 0)
+    ids = [r["scenario"] for r in json.loads(capsys.readouterr().out)["runs"]]
+    assert ids == (["shadow=sub"] if raises else ["shadow=.", "shadow=sub"])
 
 
 def test_shadow_for_refuses_a_profile_without_one_and_an_unsafe_path(tmp_path):

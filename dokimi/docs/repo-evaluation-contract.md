@@ -1045,9 +1045,10 @@ Protocol:
       not named `CLAUDE*` (an `AGENTS.md`-class file) and runs as
       `read=<dir>`. A directory where the tree already has a file or a
       directory (an empty one included) at that path, or a file where the
-      path needs a directory (the tree's paths compared ignoring case),
-      gets no shadow
-      scenario. A shadow path that would replace or go under a file of the
+      path needs a directory, gets no shadow scenario. The tree's files are
+      compared ignoring case, as they would collide in the workspace on a
+      case-insensitive disk; an empty directory is found by the disk's own
+      lookup. A shadow path that would replace or go under a file of the
       probe's own (a `REACH_PROBE.txt`, a seeded file or a link) stops the
       run with an error, before anything is written. The file is not
       committed, and it is removed when its scenario ends, after an error or
