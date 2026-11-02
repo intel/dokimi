@@ -230,7 +230,7 @@ def _task(inputs: Inputs, path: Path, owners: dict, declared: dict, actual: set[
     except FileNotFoundError as exc:
         problems.append(finding("task-load", str(exc), relative))
         return
-    except (ValueError, OSError, UnicodeError, RecursionError) as exc:
+    except (ValueError, OSError, UnicodeError, RecursionError, TypeError) as exc:
         raise ValueError(f"cannot load task at {path}: {exc}") from exc
     actual.add(spec.name)
     owner = spec.metadata.get("skill")

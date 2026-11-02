@@ -255,3 +255,39 @@ def test_configured_git_filters_are_refused_not_run(tmp_path):
     assert done.returncode == 2
     assert "content filters" in done.stderr
     assert not marker.exists()
+
+
+def test_submodule_checkout_is_refused_before_git_inspects_it(tmp_path):
+    root = _catalog(tmp_path)
+    _commit(root)
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    _git(sub, "init", "-q")
+    _git(sub, "config", "user.name", "T")
+    _git(sub, "config", "user.email", "t@example.invalid")
+    (sub / "f").write_text("x")
+    _git(sub, "add", ".")
+    _git(sub, "commit", "-qm", "s")
+    _git(root, "-c", "protocol.file.allow=always", "submodule", "add", "-q", str(sub), "vendor/sub")
+    done = _run(root, tmp_path / "out")
+    assert done.returncode == 2
+    assert "submodules" in done.stderr
+
+
+def test_task_loader_type_error_replaces_earlier_receipts_with_an_error(tmp_path, monkeypatch):
+    root = _catalog(tmp_path)
+    out = tmp_path / "out"
+    assert _run(root, out).returncode == 0
+    task = root / "evaluation/harbor/tasks/t1"
+    task.mkdir(parents=True)
+    (task / "task.toml").write_text('[metadata]\nskill = "alpha"\n')
+    (task / "instruction.md").write_text("Read.")
+
+    def boom(path):
+        raise TypeError("unhashable type: 'dict'")
+
+    monkeypatch.setattr("dokimi.external.catalog_eval_inventory.load_task", boom)
+    done = _run(root, out)
+    assert done.returncode == 2
+    assert not (out / "result.json").exists()
+    assert "t1" in (out / "report.md").read_text()

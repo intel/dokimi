@@ -43,11 +43,14 @@ def source_and_changes(root: Path, base: str | None, out: Path) -> tuple[dict[st
                          + ", ".join(sorted({line.split(".")[1] for line in filters.stdout.splitlines()})))
     if filters.returncode != 1:
         raise ValueError(f"cannot read git config: {process.git_failure(filters)}")
+    gitlinks = _git(root, "ls-files", "-z", "--stage", "--", ".")
+    if gitlinks.returncode == 0 and any(entry.startswith(b"160000 ") for entry in gitlinks.stdout_bytes.split(b"\0")):
+        raise ValueError("the checkout contains git submodules, whose filters cannot be ruled out")
     head = _git(root, "rev-parse", "--verify", "HEAD^{commit}")
     source: dict[str, Any] = {"commit": None, "dirty": None}
     if head.returncode == 0:
         source["commit"] = head.stdout.strip()
-        status = _git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--", ".")
+        status = _git(root, "status", "--porcelain=v1", "-z", "--ignore-submodules=all", "--untracked-files=all", "--", ".")
         if status.returncode:
             raise ValueError(f"cannot read source state: {process.git_failure(status)}")
         source["dirty"] = bool(status.stdout_bytes)
@@ -56,7 +59,7 @@ def source_and_changes(root: Path, base: str | None, out: Path) -> tuple[dict[st
     resolved = _git(root, "rev-parse", "--verify", "--end-of-options", f"{base}^{{commit}}")
     if resolved.returncode:
         return source, None, f"Base {base!r} unavailable; conservatively checking every skill."
-    tracked = _git(root, "diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z",
+    tracked = _git(root, "diff", "--ignore-submodules=all", "--no-ext-diff", "--no-textconv", "--name-only", "-z",
                    "--no-renames", "--relative", resolved.stdout.strip(), "--", ".")
     untracked = _git(root, "ls-files", "--others", "--exclude-standard", "-z", "--", ".")
     paths = sorted(set(_paths(tracked) + _paths(untracked)))
