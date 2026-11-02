@@ -30,11 +30,31 @@ counting them twice inflates routing and coverage numbers.
 ``disable-model-invocation: true`` is not a finding: the model is never offered
 that skill, so it is reported as a flag (the same reading as the skill arm's
 check in :mod:`dokimi.harnesses.skill_treatment`).
+
+Bundle links: a relative Markdown link in ``SKILL.md`` whose file does not exist is a
+``warn`` (``link-missing``), inline or reference-style (``[label]: target``), with an
+optional ``<...>`` destination, and URI destinations (``tel:``, ``urn:``, ``mailto:``) are
+not files. A note is added when the file exists from the catalog root
+instead (a wrong base). Example links such as ``[Title](URL)`` are common, so this is not
+an error and does not fail ``--strict``. A link to a file outside the skill directory is a ``warn``
+(``link-escapes-skill``): it breaks when the skill is installed alone. A ``../`` code span
+naming such a file is ``path-escapes-skill``. Code spans that name no file are not checked,
+and neither are code fences: those are usually examples or paths in the user's own project.
+
+Descriptions: one with no "when" clause is a ``warn`` (``description-no-when``),
+and so is one whose tokens overlap another skill's at a Jaccard similarity of at least
+:data:`NEAR_DUPLICATE_JACCARD` (``description-near-duplicate``). Skills with
+``disable-model-invocation: true`` are exempt from both, as the model never chooses them.
+
+Mirror drift: two skills in different paths with the same directory name but different
+``SKILL.md`` text are a ``warn`` on both (``mirror-drift``), naming the other copies: the
+same skill has probably been edited in one place and not the other.
 """
 
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
@@ -50,6 +70,44 @@ from .catalog import SkillCatalogEntry, _within
 NAME_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 NAME_MAX = 64
 DESCRIPTION_MAX = 1024
+NEAR_DUPLICATE_JACCARD = 0.5
+
+# A "when" clause of any subject and verb ("run migrations when deploying"), or a use phrase: the model
+# chooses a skill from its description alone.
+WHEN_RE = re.compile(
+    r"\b(?:when\s+\w|use for\b|use this skill\b|trigger(?:s|ed)?\s*(?:on\b|:)|invoke only\b|activate\b|"
+    r"invoke this\b|use (?:it |this |these )?(?:when|if|before|after|whenever|proactively|anytime)\b|"
+    r"whenever\b)",
+    re.I,
+)
+# Words that say nothing about what a skill is for; left out of the description overlap.
+STOP_WORDS = frozenset(
+    """a an the and or of to in on for with by from as at is are be been being this that
+    these those it its it's you your we our use used using when with without into than then
+    also any all each skill skills claude user users make makes do does not no yes can will
+    should must may might if else only other such via per about over under more most very
+    just""".split()
+)
+# An inline link target: balanced parentheses (``guide(v2).md``) or ``<in angle brackets>`` with spaces;
+# an optional title follows the target.
+_TARGET_TITLE = r"""(?:\s+(?:"[^"]*"|'[^']*'|\([^()]*\)))?"""
+LINK_RE = re.compile(rf"\]\(\s*(<[^<>\n]*>|(?:[^()\s]|\([^()\s]*\))+){_TARGET_TITLE}\s*\)")
+# A reference-style link definition, ``[label]: destination``, the destination on this line or the
+# next (footnotes ``[^n]:`` excluded). Matched over the whole body, not line by line.
+REF_DEF_RE = re.compile(
+    r"""^ {0,3}\[(?!\^)[^\]\n]+\]:[ \t]*(?:\n[ \t]*)?(<[^>\n]*>|\S+)"""
+    r"""(?:[ \t]+(?:"[^"]*"|'[^']*'|\([^)]*\)))?[ \t]*$""",
+    re.MULTILINE,
+)
+FENCE_OPEN_RE = re.compile(r"\ {0,3}(`{3,}|~{3,})(.*)$")
+FENCE_CLOSE_RE = re.compile(r"\ {0,3}(`{3,}|~{3,})[ \t]*$")
+# RFC 3986 scheme, dots included; a dotted one with a line or symbol after it is a file (_file_ref).
+URI_SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+\-.]*:")
+# After a file, a line or a symbol (``run.py:42``, ``run.py:10-20``, ``run.py:main``): read as the file's name.
+FILE_SUFFIX_RE = re.compile(r"\d+(?:[-:]\d+)?|[A-Za-z_]\w*")
+LOCATION_SUFFIX_RE = re.compile(r":(?:\d+(?:[-:]\d+)?|[A-Za-z_]\w*)$")
+CODE_SPAN_RE = re.compile(r"`([^`\n]+)`")
+SKILL_DIR_VAR = "${CLAUDE_SKILL_DIR}/"
 
 
 @dataclass
@@ -100,7 +158,7 @@ def _frontmatter_findings(skill: Skill, *, at_root: bool = False) -> tuple[list[
     meta, parse_error = _strict_meta(skill.path.read_text(encoding="utf-8"))
     if parse_error is not None:
         return [parse_error], False
-    dir_name = skill.path.parent.name
+    dir_name = _dir_name_of(skill.path.parent)
     findings: list[Finding] = []
     declared = str(meta.get("name") or "").strip()
     if not declared:
@@ -184,15 +242,261 @@ def _relative_to_root(path: Path, root: Path) -> str:
     return path.as_posix()
 
 
+def _counterpart(other: tuple[SkillCatalogEntry, Skill, SkillReview], entry: SkillCatalogEntry) -> str:
+    """The other skill's directory relative to its root, qualified by that root when it is another checkout."""
+    o_entry, o_skill, _ = other
+    where = _relative_to_root(o_skill.path.parent, o_entry.source_root)
+    if o_entry.source_root.resolve() == entry.source_root.resolve():
+        return where
+    return f"{where} in {o_entry.source_root.as_posix()}"
+
+
+def _outside_fences(body: str) -> list[str]:
+    """The lines of ``body`` that are not inside a fenced code block.
+
+    A block closes only at a line of the same marker (backticks or tildes) that is at least as long
+    as the opening run, as in CommonMark.
+    """
+    lines: list[str] = []
+    fence = ""  # the run that opened the current block; "" outside one
+    for line in body.splitlines():
+        if fence:
+            close = FENCE_CLOSE_RE.match(line)
+            if close and close.group(1)[0] == fence[0] and len(close.group(1)) >= len(fence):
+                fence = ""
+                lines.append("")  # a blank line keeps a definition above the block from reaching below it
+            continue
+        opened = FENCE_OPEN_RE.match(line)
+        # a backtick info string may not hold a backtick: "```x```" is an inline code span, not a fence
+        if opened and not (opened.group(1)[0] == "`" and "`" in opened.group(2)):
+            fence = opened.group(1)
+            lines.append("")
+        else:
+            lines.append(line)
+    return lines
+
+
+def _file_ref(raw: str, link: bool = False) -> Optional[str]:
+    """The skill-relative file a reference names, or None if it names no file to check.
+
+    None for a URL or any other URI (``tel:``, ``urn:``, ``MAILTO:``), a bare anchor, an
+    absolute path, or a template with a variable other than ``${CLAUDE_SKILL_DIR}``. A
+    ``<...>`` destination (CommonMark) is read as the path inside the brackets. A link
+    destination (``link``) is a URL: its ``?query`` is not part of the path.
+    """
+    text = raw.strip()
+    if text.startswith("<") and text.endswith(">"):
+        text = text[1:-1].strip()
+    text = text.split("#", 1)[0].strip()
+    if link:
+        text = text.split("?", 1)[0].strip()
+    if not text or "://" in text or text.startswith("/"):
+        return None
+    scheme = URI_SCHEME_RE.match(text)
+    if scheme and not ("." in scheme.group() and FILE_SUFFIX_RE.fullmatch(text[scheme.end() :])):
+        return None
+    text = LOCATION_SUFFIX_RE.sub("", text)  # the file is named before its line or symbol suffix
+    if not text:
+        return None
+    if text.startswith(SKILL_DIR_VAR):
+        text = text[len(SKILL_DIR_VAR) :]
+        if not text:
+            return None
+    if any(c in text for c in "${}<>*"):
+        return None
+    return text
+
+
+def _resolved(path: Path) -> Optional[Path]:
+    """``path`` resolved, or None when the OS refuses the name (a NUL byte, a symlink loop)."""
+    try:
+        return path.resolve()
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+
+def _exists(path: Path) -> bool:
+    """``path.exists()``, where a name the OS refuses (over 255 bytes in one part, say) is absent."""
+    try:
+        return path.exists()
+    except (OSError, ValueError):
+        return False
+
+
+def _bundle_findings(skill: Skill, source_root: Path) -> list[Finding]:
+    """Link and path checks on the body of ``skill``: missing targets, or targets outside it."""
+    skill_dir = skill.path.parent
+    real_dir = skill_dir.resolve()
+    lines = _outside_fences(skill.body)
+    links = dict.fromkeys(
+        [m for line in lines for m in LINK_RE.findall(line)]
+        + REF_DEF_RE.findall("\n".join(lines))
+    )
+    spans = dict.fromkeys(
+        s.strip()
+        for line in lines
+        for s in CODE_SPAN_RE.findall(line)
+        if s.strip().startswith("../")
+    )
+    findings: list[Finding] = []
+    for raw in links:
+        text = _file_ref(raw, link=True)
+        if text is None:
+            continue
+        target = _resolved(skill_dir / text)
+        if target is not None and _exists(target):
+            if not target.is_relative_to(real_dir):
+                findings.append(
+                    Finding(
+                        "warn",
+                        "link-escapes-skill",
+                        f"link {raw!r} points outside the skill directory; it breaks when "
+                        "the skill is installed alone",
+                    )
+                )
+            continue
+        from_root = ""
+        if _exists(source_root / text):
+            from_root = " (it exists from the catalog root: the base is wrong)"
+        findings.append(
+            Finding(
+                "warn",
+                "link-missing",
+                f"link {raw!r} names no file relative to the skill directory{from_root}",
+            )
+        )
+    for raw in spans:
+        text = _file_ref(raw)
+        if text is None:
+            continue
+        target = _resolved(skill_dir / text)
+        if target is not None and _exists(target) and not target.is_relative_to(real_dir):
+            findings.append(
+                Finding(
+                    "warn",
+                    "path-escapes-skill",
+                    f"{raw!r} points outside the skill directory; it breaks when the skill "
+                    "is installed alone",
+                )
+            )
+    return findings
+
+
+def _description_findings(skill: Skill) -> list[Finding]:
+    """A ``warn`` when the description has no "when" clause."""
+    if not WHEN_RE.search(" ".join(skill.description.split())):
+        return [
+            Finding(
+                "warn",
+                "description-no-when",
+                "description has no 'when' clause (e.g. 'use when ...'); the model chooses "
+                "the skill from the description alone",
+            )
+        ]
+    return []
+
+
+def _tokens(description: str) -> frozenset[str]:
+    """The lowercase words of three or more letters, in any script, less the stop words."""
+    words = re.findall(r"[^\W\d_]{3,}", description.lower())
+    return frozenset(w for w in words if w not in STOP_WORDS)
+
+
+def _jaccard(a: frozenset[str], b: frozenset[str]) -> float:
+    return len(a & b) / len(a | b) if a and b else 0.0
+
+
+def _dir_name_of(directory: Path) -> str:
+    """The name of ``directory`` with its ``..`` parts taken away lexically: ``alpha/sub/..`` is ``alpha``.
+
+    Lexical, not resolved, so a symlinked skill directory keeps the name it is listed under.
+    """
+    return Path(os.path.normpath(directory)).name
+
+
+def _dir_name(item: tuple[SkillCatalogEntry, Skill, SkillReview]) -> Optional[str]:
+    """The directory name that can make a skill a mirror of another, None for the root skill.
+
+    The root ``SKILL.md`` is named by the checkout's directory, not by the skill, so it has no
+    name to match (as ``_frontmatter_findings`` treats it with ``at_root``).
+    """
+    entry, skill, _ = item
+    if skill.path.parent.resolve() == entry.source_root.resolve():
+        return None
+    return _dir_name_of(skill.path.parent)
+
+
+def _mirror_drift(loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]]) -> None:
+    """``mirror-drift`` on each skill that shares its directory name with a differing copy."""
+    by_dir_name: dict[str, list[tuple[SkillCatalogEntry, Skill, SkillReview]]] = {}
+    for item in loaded:
+        name = _dir_name(item)
+        if name is not None:
+            by_dir_name.setdefault(name, []).append(item)
+    for group in by_dir_name.values():
+        for entry, _, review in group:
+            others = [
+                _counterpart(item, entry)
+                for item in group
+                if item[2].content_sha256 != review.content_sha256
+            ]
+            if others:
+                review.findings.append(
+                    Finding(
+                        "warn",
+                        "mirror-drift",
+                        f"SKILL.md differs from {', '.join(others)} (the same skill name in "
+                        "another path); the copies may have drifted apart",
+                    )
+                )
+
+
+def _near_duplicates(loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]]) -> None:
+    """``description-near-duplicate`` on both skills of each pair whose descriptions overlap."""
+    shown = [item for item in loaded if not item[2].disable_model_invocation]
+    tokens = [_tokens(" ".join(item[1].description.split())) for item in shown]
+    names = [_dir_name(item) for item in shown]
+    by_token: dict[str, list[int]] = {}
+    for index, words in enumerate(tokens):
+        for word in words:
+            by_token.setdefault(word, []).append(index)
+    for i, (entry, _, review) in enumerate(shown):
+        # only a pair that shares a word can overlap
+        for j in sorted({k for word in tokens[i] for k in by_token[word] if k > i}):
+            o_entry, _, o_review = shown[j]
+            if o_review.content_sha256 == review.content_sha256:
+                continue  # an identical SKILL.md: already a duplicate
+            if names[i] is not None and names[i] == names[j]:
+                continue  # the same skill in another path: already a mirror-drift
+            similarity = _jaccard(tokens[i], tokens[j])
+            if similarity >= NEAR_DUPLICATE_JACCARD:
+                pairs = (
+                    (review, _counterpart(shown[j], entry)),
+                    (o_review, _counterpart(shown[i], o_entry)),
+                )
+                for side, other in pairs:
+                    side.findings.append(
+                        Finding(
+                            "warn",
+                            "description-near-duplicate",
+                            f"description overlaps {other} (word overlap {similarity:.0%}); "
+                            "the model may pick either",
+                        )
+                    )
+
+
 def review_skills(entries: Sequence[SkillCatalogEntry]) -> list[Optional[SkillReview]]:
     """One :class:`SkillReview` per entry, in order.
 
     None for an entry that did not load, unless its frontmatter is broken YAML: then its
     review carries the ``frontmatter-parse`` error. Of each identical ``SKILL.md``, the
     copy nearest the root is the original; every other copy names it in ``duplicate_of``.
+    Mirror drift and near-duplicate descriptions are checked across all the loaded skills,
+    and a skill with ``disable-model-invocation`` set is left out of the description checks.
     """
     reviews: list[Optional[SkillReview]] = []
     copies: list[tuple[SkillReview, str, str]] = []  # (review, skill directory, digest) per loaded skill
+    loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]] = []
     for entry in entries:
         if not entry.loaded or entry.skill is None:
             reviews.append(_unloaded_review(entry))
@@ -202,10 +506,14 @@ def review_skills(entries: Sequence[SkillCatalogEntry]) -> list[Optional[SkillRe
             skill, at_root=skill.path.parent.resolve() == entry.source_root.resolve()
         )
         review = SkillReview(findings=findings, disable_model_invocation=hidden)
+        review.findings += _bundle_findings(skill, entry.source_root)
+        if not hidden:
+            review.findings += _description_findings(skill)
         review.content_sha256 = _skill_digest(skill)
         where = _relative_to_root(skill.path.parent, entry.source_root)
         copies.append((review, where, review.content_sha256))
         reviews.append(review)
+        loaded.append((entry, skill, review))
 
     original_of: dict[str, tuple[SkillReview, str]] = {}
     for copy, where, digest in sorted(copies, key=lambda c: (len(PurePosixPath(c[1]).parts), c[1])):
@@ -222,4 +530,6 @@ def review_skills(entries: Sequence[SkillCatalogEntry]) -> list[Optional[SkillRe
                 f"SKILL.md is identical to {where}; the same skill is counted twice",
             )
         )
+    _mirror_drift(loaded)
+    _near_duplicates(loaded)
     return reviews
