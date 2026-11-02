@@ -242,6 +242,15 @@ def _relative_to_root(path: Path, root: Path) -> str:
     return path.as_posix()
 
 
+def _counterpart(other: tuple[SkillCatalogEntry, Skill, SkillReview], entry: SkillCatalogEntry) -> str:
+    """The other skill's directory relative to its root, qualified by that root when it is another checkout."""
+    o_entry, o_skill, _ = other
+    where = _relative_to_root(o_skill.path.parent, o_entry.source_root)
+    if o_entry.source_root.resolve() == entry.source_root.resolve():
+        return where
+    return f"{where} in {o_entry.source_root.as_posix()}"
+
+
 def _outside_fences(body: str) -> list[str]:
     """The lines of ``body`` that are not inside a fenced code block.
 
@@ -425,11 +434,11 @@ def _mirror_drift(loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]]) ->
         if name is not None:
             by_dir_name.setdefault(name, []).append(item)
     for group in by_dir_name.values():
-        for _, _, review in group:
+        for entry, _, review in group:
             others = [
-                _relative_to_root(o_skill.path.parent, o_entry.source_root)
-                for o_entry, o_skill, o_review in group
-                if o_review.content_sha256 != review.content_sha256
+                _counterpart(item, entry)
+                for item in group
+                if item[2].content_sha256 != review.content_sha256
             ]
             if others:
                 review.findings.append(
@@ -451,10 +460,10 @@ def _near_duplicates(loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]])
     for index, words in enumerate(tokens):
         for word in words:
             by_token.setdefault(word, []).append(index)
-    for i, (entry, skill, review) in enumerate(shown):
+    for i, (entry, _, review) in enumerate(shown):
         # only a pair that shares a word can overlap
         for j in sorted({k for word in tokens[i] for k in by_token[word] if k > i}):
-            o_entry, o_skill, o_review = shown[j]
+            o_entry, _, o_review = shown[j]
             if o_review.content_sha256 == review.content_sha256:
                 continue  # an identical SKILL.md: already a duplicate
             if names[i] is not None and names[i] == names[j]:
@@ -462,8 +471,8 @@ def _near_duplicates(loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]])
             similarity = _jaccard(tokens[i], tokens[j])
             if similarity >= NEAR_DUPLICATE_JACCARD:
                 pairs = (
-                    (review, _relative_to_root(o_skill.path.parent, o_entry.source_root)),
-                    (o_review, _relative_to_root(skill.path.parent, entry.source_root)),
+                    (review, _counterpart(shown[j], entry)),
+                    (o_review, _counterpart(shown[i], o_entry)),
                 )
                 for side, other in pairs:
                     side.findings.append(

@@ -896,6 +896,20 @@ def test_root_skills_of_two_checkouts_are_near_duplicates_not_mirror_drift(tmp_p
 
     reviews = review_skills(entries)
     assert [_codes(r) for r in reviews] == [["description-near-duplicate"]] * 2
+    for review, other in zip(reviews, ("b/repo", "a/repo"), strict=True):
+        assert str((tmp_path / other).as_posix()) in review.findings[0].message
+
+
+def test_mirror_drift_names_the_checkout_of_the_other_copy(tmp_path):
+    entries = []
+    for checkout, text in (("a", "one"), ("b", "two")):
+        root = tmp_path / checkout
+        _skill(root, "same", name="same", description=f"Use for {text}.")
+        entries.extend(read_skill_manifest(root))
+
+    reviews = review_skills(entries)
+    for review, other in zip(reviews, ("b", "a"), strict=True):
+        assert (tmp_path / other).as_posix() in review.findings[0].message
 
 
 def test_near_duplicate_check_reads_non_ascii_description_words(tmp_path):
