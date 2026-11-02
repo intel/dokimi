@@ -53,10 +53,11 @@ match = re.search(r"run `cat ([^`]+)`", prompt)
 if match and tools == "Bash":
     probe = Path(shlex.split(match.group(1))[0])
     bash(1, f"cat {match.group(1)}", (root / probe).read_text())
+    guidance = shlex.quote((probe.parent / "AGENTS.md").as_posix())  # not str(): a Windows path has backslashes
     if mode == "fetch":
-        bash(2, f"cat {probe.parent}/AGENTS.md", (root / probe.parent / "AGENTS.md").read_text())
+        bash(2, f"cat {guidance}", (root / probe.parent / "AGENTS.md").read_text())
     if mode in REFUSALS:  # the cat of the guidance file is refused; the file was loaded lazily all the same
-        bash(2, f"cat {probe.parent}/AGENTS.md", REFUSALS[mode], True)
+        bash(2, f"cat {guidance}", REFUSALS[mode], True)
     if mode != "none":
         context.append(root / probe.parent / "AGENTS.md")
 text = "".join(p.read_text() for p in context)
