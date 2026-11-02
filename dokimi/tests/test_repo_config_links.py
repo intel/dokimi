@@ -444,7 +444,8 @@ def test_a_case_that_differs_only_from_the_name_on_disk_is_the_declared_suite_pl
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="the executable bits come from git's index; needs git")
-def test_a_suite_of_many_files_reads_the_git_index_once(tmp_path, monkeypatch):
+@pytest.mark.parametrize("added", [True, False], ids=["tracked", "untracked"])
+def test_a_suite_of_many_files_reads_the_git_index_once(tmp_path, monkeypatch, added):
     # each eval file used to start its own git ls-files: one per file, for every subject's suite hash
     from dokimi import repo_config, utils
 
@@ -463,6 +464,7 @@ def test_a_suite_of_many_files_reads_the_git_index_once(tmp_path, monkeypatch):
         **files,
     })
     subprocess.run(["git", "init", "-q", str(root)], check=True)
-    subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
+    if added:
+        subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
     subjects = load_repo_config(root).subjects()
     assert subjects[0].suite_hash and len(calls) <= 2  # the skill's own tree and the index, once each

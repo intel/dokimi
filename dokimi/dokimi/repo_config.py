@@ -593,14 +593,16 @@ def _digest_files(files: dict[str, Path], root: Path, modes: Mapping[str, bool] 
 
 def _file_modes(target: Path, root_real: Path, modes: Mapping[str, bool] | None) -> dict[str, bool] | None:
     """The index's executable bit for one file, keyed as tree_digest keys a file it digests by itself. None when the
-    index was not read, or the file is not in the repository's index (a submodule's, say): git is asked about it then."""
+    index was not read (tree_digest then asks git). A file the index does not hold (untracked, outside the repository)
+    gives no bit and digests by its disk bit, as tree_digest does for an untracked file; asking git for each one is
+    the per-file process this avoids."""
     if modes is None:
         return None
     try:
         key = target.relative_to(root_real).as_posix()
     except ValueError:
-        return None
-    return {target.name: modes[key]} if key in modes else None
+        return {}
+    return {target.name: modes[key]} if key in modes else {}
 
 
 def _check_suite(subject: Subject, root: Path) -> None:
