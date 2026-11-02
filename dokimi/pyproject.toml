@@ -142,6 +142,9 @@ optional_dependencies_dev_groups = ["dev"]
 DEP001 = ["audit_mocks"]
 # Declared only to cap the version ragas resolves (see the comment in the ragas extra).
 DEP002 = ["langchain-community"]
+# repos/graders/typecheck.py imports mypy inside the grading image, where it is installed
+# for the grader; the wheel does not ship it. The host never imports it (the L0 check runs it as a tool).
+DEP004 = ["mypy"]
 
 [tool.ruff]
 # The width `ruff format` wraps to, if someone runs it: neither CI nor

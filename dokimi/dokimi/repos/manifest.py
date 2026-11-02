@@ -31,7 +31,7 @@ import yaml
 from dokimi.artifacts import schema_errors
 from dokimi.measure import SCORE_BOUND, as_float, is_finite
 
-from .graders import DATA_FILES, NAMES as BUILTIN_NAMES, PREFIX as BUILTIN_PREFIX
+from .graders import DATA_FILES, NAMES as BUILTIN_NAMES, PREFIX as BUILTIN_PREFIX, TASK_PROBLEMS
 from .host_spec import HostSpecError, parse_host
 from .process_metrics import Counter, parse_counter
 from .source import RepoTree
@@ -596,6 +596,8 @@ def _builtin_problems(tree: RepoTree, task_dir: str, raw: dict[str, Any], name: 
     if name not in BUILTIN_NAMES:
         return [f"unknown built-in grader {BUILTIN_PREFIX + name!r}; known: "
                 + ", ".join(BUILTIN_PREFIX + n for n in BUILTIN_NAMES)]
+    if name in TASK_PROBLEMS:
+        return TASK_PROBLEMS[name](raw)
     key, default = DATA_FILES[name]
     path = raw.get(key, default)
     if not isinstance(path, str):

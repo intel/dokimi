@@ -552,7 +552,8 @@ measure the patch's text, such as a guidance line, not the tool.
 For every task, before any paid run:
 
 - the null workspace (prepared, untouched) must fail the gate
-- the workspace after `oracle` must pass the gate
+- the workspace after `oracle` must pass the gate (a `dokimi:typecheck` task with no `reference/`
+  has no oracle step: its null step alone must fail, §4.5)
 - for score-only tasks, the oracle must reach `score.max` on `score.metric`
 - the agent container must not be able to read any file under `tasks` or
   `{source_dir}` (§1.1)
@@ -654,6 +655,23 @@ failed the task, and on a task with `score` that is a failed run with score
 |---|---|---|---|---|
 | `dokimi:review_seeds` | `manifest.json` (`manifest`); oracle answer `oracle.json` (`oracle_answer`), a list of findings | `null`; for a manifest with no seeds (a clean-diff control), `true` when no finding is `blocker` or `major` | `n_findings`, `n_severe`, `n_decoys`, `unmatched`, `recall` (`null` with no seeds) | `seeds_hit`, `decoys_flagged`, `recall_by_class` (`"hit/total"`) |
 | `dokimi:review_replay` | `gold.json` (`gold`); `task.json` `window`, default 5 | `null` (score-only) | `n_findings`, `n_severe`, `n_threads`, `recall` (= `recall_all`), `recall_addressed`, `precision_proxy` | `threads_hit`, `matches`, `recall_by_kind`, `decoys_flagged` (always `[]`) |
+| `dokimi:typecheck` | none: the task's own fields `tool` (`mypy`), `version` (the image's mypy, exactly), `paths` (workspace-relative files) | `true` when no error is reported on a listed file and every listed file exists, else `false` | `n_errors`, `n_missing`, `n_files` | `errors` (first 50, `file:line: message [code]`), `missing`, `tool`, `tool_version` |
+
+`dokimi:typecheck` checks the listed files only. Its pass is "no error on a
+listed file" (an error in a module a listed file imports belongs to that module,
+not to the listed file), and a listed file that is missing fails. The exception
+is a blocking error (a syntax error, a duplicate module) that stops mypy before
+it reaches the listed files: then that error is the grade's, and the grade fails.
+`reference/` is optional. The task's `oracle` copies its `reference/` directory, when it has one, over the
+workspace, so a reference repair is what gets graded; its answer is empty. Without `reference/` the grade
+reads the listed files as they are, and the self-check (§4.3) runs the null step only: the untouched
+listed files must fail, since there is no reference repair for the oracle step to pass.
+It runs mypy in-process in the grading container, so the image's `python3`
+must import the pinned mypy: a `version` other than the installed one is a
+grader failure, not a fail. It is not "no new errors against the base": the
+grader is stdlib-only and cannot run `git` to read the base, and it does not
+start basedpyright (the L0 check, §8.2, runs mypy or basedpyright on the host, as `--typecheck-tool` selects). A repository that
+needs that comparison writes it in its own `grade` entry point.
 
 `manifest.json` is `{"seeds": [{id, class, file, lines, kw}], "decoys":
 [{id, file, lines, kw}]}`; `file` `"*"` matches any file, and `kw` is a
@@ -1460,6 +1478,45 @@ tree and is listed under `not_observed`. A stage is `blocked` by an error,
 pass, CI secrets and the agent's network. `risk` is the worst of the launch
 observations. There is no overall score. `--fail-on-error` exits 1 when any
 finding is an error.
+
+### 8.2 Python fences (`repo scan --typecheck`)
+
+`--typecheck` type-checks every fence tagged
+`python`, `py` or `python3` in the guidance files, with `--typecheck-tool mypy|basedpyright`
+(default mypy). Each fence that parses is one
+`python_fence` claim, so the report and `--fail-on-fail` treat it like any other
+claim:
+
+- `ok`: the tool reports no error in the fence.
+- `fail`: a stale-API candidate. The claim's line is the error's line in the
+  guidance file, and its `why` names the first error (`mypy: line N: message`).
+- `unresolved`: the fence is not valid Python (a placeholder such as `f(<arg>)`),
+  is too deeply nested for the parser, or no `--python-env` was given, so nothing
+  was checked. The reason says which.
+
+`--python-env PYTHON` names the repository's interpreter, a virtualenv with its
+pinned dependencies installed (and the repository itself, if its fences import
+it). The fences are checked against that site-packages with imports followed
+silently (`--follow-imports=silent`), so only errors in the fence count. A
+module the environment does not have is a `fail`: a fence that imports an
+uninstalled package is a fence the pinned environment cannot run. mypy is the
+host's pinned copy; basedpyright must be on `PATH` and is recorded with the
+version it reports, not pinned by dokimi. The report's `typecheck` block names
+the tool, its version, the interpreter (`null`: unknown) and the counts
+(`fences`, `checked`, `fail`, `unknown`, `syntax`); it is `null` without the
+flag. `--python-env` and `--typecheck-tool` need `--typecheck`. The fences are parsed with the
+grammar of the repository interpreter's version, and mypy runs with that
+`--python-version` and an explicit empty config, so the subject's and the host's
+mypy settings do not apply. The tools run on the host through
+`dokimi.process`; one run covers every fence of the repository.
+
+```bash
+python cli.py repo scan <source> --manifest <path> --typecheck --python-env <repo-venv>/bin/python
+```
+
+A guidance note under test can be scored the same way as any other content:
+feed the note as a `patch:<file>` arm (see §3) and grade the arm's workspace with
+the `dokimi:typecheck` grader above.
 
 ## 9. Running
 

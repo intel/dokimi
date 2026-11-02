@@ -31,6 +31,8 @@ from pathlib import Path
 from typing import Any
 
 from .container import CONTENT_DIR, RUN_DIR, SOURCE_DIR, ContainerError, ContainerSpec, docker_network
+from .graders import builtin_name
+from .graders.typecheck import REFERENCE_DIR
 from .grading import EvalContext, outcome, run_entry
 from .host import probe_host, shortfall_kinds, unmet, validate_tasks
 from .runner import agent_layout, container_name
@@ -82,7 +84,8 @@ def check_task(ctx: EvalContext, task: Task, work_dir: Path, warm: bool = False,
     reason, unsupported_by, facts = _host_reason(ctx, task, work_dir, host)
     # Only what the hardware decides is skipped: the null check (it passes where the bug cannot show) and,
     # unless the miss is CPUs alone, the oracle. Preparing the workspace and isolation hold anywhere.
-    run_oracle = not reason or (unsupported_by == "host" and shortfall_kinds(task, facts) <= {"cpus"})
+    run_oracle = _oracle_applies(task) and (
+        not reason or (unsupported_by == "host" and shortfall_kinds(task, facts) <= {"cpus"}))
     for kind, run_it in (("null", not reason), ("oracle", run_oracle)):
         _check_step(ctx, task, work_dir / f"{task.id}__{kind}", kind, run_it, net, res)
     if not res["problems"]:
@@ -93,6 +96,15 @@ def check_task(ctx: EvalContext, task: Task, work_dir: Path, warm: bool = False,
     else:
         res["verdict"] = "broken" if res["problems"] else "ok"
     return res
+
+
+def _oracle_applies(task: Task) -> bool:
+    """False for a built-in ``dokimi:typecheck`` task with no ``reference/``: its oracle has no repair to apply
+    (the grade reads the workspace as it is), so the self-check runs the null step only, and the untouched
+    listed files must fail the gate."""
+    if builtin_name(task.raw.get("grader")) != "typecheck":
+        return True
+    return (task.dir / REFERENCE_DIR).is_dir()
 
 
 def _host_reason(ctx: EvalContext, task: Task, work_dir: Path,
