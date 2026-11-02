@@ -1,6 +1,0 @@
-# Copyright (C) 2026 Intel Corporation
-# SPDX-License-Identifier: Apache-2.0
-
-# Vendored upstream task-format fixtures (#210): not our code, not reviewed here.
-exclude_paths:
-  - dokimi/tests/fixtures/task_formats/**
