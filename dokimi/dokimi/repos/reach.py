@@ -405,9 +405,34 @@ def _matrix(records: list[dict[str, Any]]) -> dict[str, dict[str, str]]:
     return matrix
 
 
+def saved_gaps(payload: dict[str, Any], fmt: str) -> list[str]:
+    """The fields a saved probe must carry to be rendered as ``fmt``: the schema leaves them optional."""
+    if fmt == "receipt":
+        return [key for key in ("salt", "generated_at") if key not in payload]
+    return [] if "matrix" in payload["summary"] else ["summary.matrix"]
+
+
+_SHORT = {"loaded": "L", "truncated": "T", "fetched": "F", "not_loaded": ".", "error": "E"}  # a cell -> its letter
+
+
+def saved_matrix_problem(payload: dict[str, Any]) -> str | None:
+    """What keeps a saved ``summary.matrix`` from rendering: a row that is not an object, or a cell that is not one of
+    the classes the table shows (format_matrix would raise on either). None when every cell can be shown."""
+    matrix = payload["summary"]["matrix"]
+    if not isinstance(matrix, dict):
+        return "summary.matrix is not an object"
+    for path, row in matrix.items():
+        if not isinstance(row, dict):
+            return f"summary.matrix[{path!r}] is not an object"
+        for scenario, cell in row.items():
+            if not isinstance(cell, str) or cell not in _SHORT:
+                return f"summary.matrix[{path!r}][{scenario!r}] is {cell!r}, not a reach class"
+    return None
+
+
 def format_matrix(payload: dict[str, Any]) -> str:
     """A plain-text table: one row per guidance file, one column per scenario."""
-    short = {"loaded": "L", "truncated": "T", "fetched": "F", "not_loaded": ".", "error": "E"}
+    short = _SHORT
     ids = [s["id"] for s in payload["scenarios"]]
     label = {f["path"]: " = ".join([f["path"], ", ".join(f["aliases"])]) if f.get("aliases") else f["path"]
              for f in payload["files"]}
@@ -431,7 +456,7 @@ def format_matrix(payload: dict[str, Any]) -> str:
         if (s.get("prose") or 0) > PROSE_LIMIT:
             lines.append(f"warning: {s['id']} answered with {s['prose']} words besides tokens; "
                          "read its trace before trusting its not_loaded cells")
-        if s["unknown"]:
+        if s.get("unknown"):  # schema-optional: a scenario saved without it reports no unknown tokens
             lines.append(f"unknown tokens in {s['id']}: {', '.join(s['unknown'])}")
     return "\n".join(lines)
 
