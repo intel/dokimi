@@ -182,6 +182,7 @@ def test_the_install_step_installs_the_resolved_commit_with_its_locked_dependenc
     # Without the resolved SHA a moved tag installs another commit; without --require-hashes the lock is not verified.
     install = next(s for s in _steps() if s.get("name") == "Install dokimi")
     assert install["env"]["SHA"] == "${{ steps.ref.outputs.sha }}"
-    assert "pip install --require-hashes -r" in install["run"]
+    assert ('pip install --require-hashes -r "https://raw.githubusercontent.com/$DOKIMI_REPO/$SHA/'
+            'dokimi/requirements.lock.txt"') in install["run"]
     assert 'pip install --no-deps "dokimi @ git+' in install["run"]
     assert "@$SHA#subdirectory=dokimi" in install["run"]

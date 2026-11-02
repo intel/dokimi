@@ -141,6 +141,8 @@ def test_scan_and_tasks_check_install_the_package_commit_validate_gated() -> Non
         assert "validate" in _as_list(workflow["jobs"][job_id]["needs"]), job_id
         assert setup[0]["with"]["dokimi-ref"] == "${{ needs.validate.outputs.dokimi-sha }}", job_id
         assert setup[0]["with"]["dokimi-repository"] == "${{ inputs.dokimi-repository }}", job_id
+    # The output they read is what validate resolved and gated, not the raw input (a tag would move).
+    assert workflow["jobs"]["validate"]["outputs"]["dokimi-sha"] == "${{ steps.dokimi.outputs.sha }}"
 
 
 def test_every_checkout_in_repo_eval_keeps_no_credentials() -> None:
