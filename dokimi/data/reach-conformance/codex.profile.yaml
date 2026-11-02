@@ -1,8 +1,8 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-# profiles/codex.yaml plus a provider that reads CODEX_API_KEY: `codex exec` sends no bearer for the built-in one
-# (401). Keep both files in step; the provider is the vendor endpoint, so OPENAI_BASE_URL does not change it.
+# The codex profile of the reach suite: profiles/codex.yaml plus a provider that reads CODEX_API_KEY, because the
+# built-in one sends no bearer (401 Missing bearer). Keep the two in step; the rest is in intel/dokimi#364.
 schema: harness_profile.v1
 name: codex
 bin: codex  # npm's codex is a node launcher; mount the native one (.../vendor/<triple>/bin/codex) with --bin
