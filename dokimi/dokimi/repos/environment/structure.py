@@ -112,7 +112,7 @@ def same_tree(a: str, b: str) -> bool:
 
 
 def mentioned(module: str, text: str) -> bool:
-    """Whether ``text`` names the module: its path as a token, or its name between ``/`` or backticks."""
+    """Whether ``text`` names the module: its path as a token, or its name between backticks."""
     name = module.rsplit("/", 1)[-1]
     if module == "." or name not in text:  # the substring test spares the regexes on most modules
         return False
