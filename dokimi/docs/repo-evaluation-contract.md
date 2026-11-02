@@ -1506,10 +1506,11 @@ pinned dependencies installed (and the repository itself, if its fences import
 it). The fences are checked against that site-packages with imports followed
 silently (`--follow-imports=silent`), so only errors in the fence count. A
 module the environment does not have is a `fail`: a fence that imports an
-uninstalled package is a fence the pinned environment cannot run. mypy is the
-host's pinned copy; basedpyright must be on `PATH` and is recorded with the
-version it reports, not pinned by dokimi. The report's `typecheck` block names
-the tool, its version, the interpreter (`null`: unknown) and the counts
+uninstalled package is a fence the pinned environment cannot run. `pip install
+dokimi` does not install mypy: the tested pin is `requirements-test.txt`
+(`mypy==2.4.0`), and a missing mypy exits 2. basedpyright must be on `PATH` and
+is recorded with the version it reports, not pinned by dokimi. The report's
+`typecheck` block names the tool, its version, the interpreter (`null`: unknown) and the counts
 (`fences`, `checked`, `fail`, `unknown`, `syntax`); it is `null` without the
 flag. `--python-env` and `--typecheck-tool` need `--typecheck`. The fences are parsed with the
 grammar of the repository interpreter's version, and mypy runs with that

@@ -677,8 +677,9 @@ def register(sub, positive_int) -> None:
                         "reported and makes the command exit 1")
     scan_p.add_argument("--typecheck", action="store_true", default=False,
                         help="Type-check each Python fence of the guidance (§8.2): one claim per fence, fail when the "
-                        "tool reports an error. The tool is mypy (the host's pinned copy) unless --typecheck-tool names "
-                        "basedpyright, which must be on PATH. Without --python-env the fences are unknown (unresolved), "
+                        "tool reports an error. The tool is mypy unless --typecheck-tool names basedpyright (on PATH). "
+                        "mypy is not installed by pip install dokimi: the tested pin is requirements-test.txt "
+                        "(mypy==2.4.0); a missing mypy exits 2. Without --python-env the fences are unknown (unresolved), "
                         "not checked")
     scan_p.add_argument("--typecheck-tool", default=None, dest="typecheck_tool", choices=("mypy", "basedpyright"),
                         help="The tool --typecheck runs (default mypy). Needs --typecheck")
