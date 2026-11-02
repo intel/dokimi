@@ -306,7 +306,8 @@ class Meter:
     A response-cache replay is free and not counted. A live call with no known price counts as 0 in
     ``spent_usd`` and in ``unpriced``; with ``max_usd`` it also stops the run after that call, as ``novelty``'s
     spend cap does: the cap cannot be enforced on spend it cannot see. ``stop`` says why no new call starts.
-    ``failing`` holds the errors of the calls that failed since the last reply (not in ``calls``)."""
+    ``failing`` holds the errors of the calls that failed since the last reply (not in ``calls``); a response-cache
+    miss of the replay-only probe before a live call (:class:`dokimi.caching.CacheMiss`) is not a failed call."""
 
     max_usd: Optional[float] = None
     spent_usd: float = 0.0
@@ -329,6 +330,8 @@ class Meter:
                     raise BudgetSpent()
             try:
                 reply = llm.complete(prompt, draw=draw, cache_if=cache_if)
+            except caching.CacheMiss:  # a replay-only probe before the live call (first_replayed): no call failed
+                raise
             except Exception as exc:
                 self.failing.append(f"{type(exc).__name__}: {exc}")
                 raise

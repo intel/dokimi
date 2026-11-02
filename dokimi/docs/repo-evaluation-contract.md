@@ -1647,7 +1647,8 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   pair whose judge call fails (a provider error past the client's retries:
   `error` is `judge call failed: <type>: <message>`) are
   `unjudged`, with `error` saying why, and never count as `same point`. When
-  3 judge calls in a row fail with one error (an auth error, a missing key),
+  3 judge calls in a row fail with one error (an auth error, a missing key;
+  a response-cache miss before a live call is not a failed call),
   the run stops there: a `✗` line gives the error, the judge calls made and
   their cost, and says the cells written before keep their files; the cell
   in progress gets none (an earlier one is removed), and the command exits 1. A

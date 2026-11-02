@@ -254,6 +254,19 @@ def test_the_same_judge_error_three_calls_in_a_row_stops_the_run_with_exit_1(tmp
     assert not stale.exists() and not _judged(batch, "guidance:raw", 3).exists()
 
 
+def test_cache_misses_before_each_live_call_do_not_hide_a_repeated_judge_error(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv(caching.RESPONSE_CACHE_ENV, str(tmp_path / "cache"))  # on and empty: each pair probes first
+    batch = _batch(tmp_path)
+    _put(batch, "guidance:raw", 3, [_f(30, "mul adds")])  # one more pair, after the stop
+    with llm.use_adapter(_failing(lambda n: RuntimeError("invalid api key"))) as fake:
+        code, out, err = _run(capsys, "judge", str(batch), "--judge", JUDGE)
+    assert (code, out, len(fake.requests)) == (1, "", 3)  # the probes' misses are not failed calls: 3 pairs, then stop
+    assert err.strip() == ("✗ the judge call failed 3 times in a row (RuntimeError: invalid api key); stopped there "
+                           f"after 0 judge call(s), $0.0000; the 1 cell(s) written before keep their {HITS_JUDGED}, "
+                           "and the cell in progress gets none")
+    assert not _judged(batch, "guidance:raw", 1).exists() and not _judged(batch, "guidance:raw", 3).exists()
+
+
 @pytest.mark.parametrize("judge", [f"anthropic/{MODEL}", "claude-cli/sonnet", "claude-cli/haiku"])
 def test_a_judge_that_runs_an_answer_model_is_refused_before_any_call(tmp_path, capsys, judge):
     batch = _batch(tmp_path)
