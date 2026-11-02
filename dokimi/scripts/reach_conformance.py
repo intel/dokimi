@@ -8,7 +8,8 @@
     python scripts/reach_conformance.py merge DIR/*.matrix.json --out DIR/reach-matrix.json --md DIR/reach-matrix.md
 
 ``run`` makes paid model calls for every harness that has a model, a credential and a CLI here; the rest are
-written as skipped runs. Run it from the dokimi project directory (``python -m dokimi`` must resolve).
+written as skipped runs. Run it from the dokimi project directory with ``PYTHONPATH=.``: a script's own directory,
+not the project, is on the import path, and ``make dev`` does not install the package.
 """
 
 from __future__ import annotations

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,7 @@ import pytest
 from dokimi import process
 from dokimi.artifacts import load_artifact, save_artifact, schema_errors
 from dokimi.repos import conformance as cf
+from dokimi.repos.harness_profile import load_profile
 from dokimi.repos.receipt import build_receipt
 from tests.test_repo_receipt import BUDGET, ROOT_ROW, _record, _reach, _tree
 
@@ -173,7 +175,7 @@ def test_run_case_reads_the_receipt_the_run_wrote(tmp_path, monkeypatch):
     calls = _fake_reach(monkeypatch, receipt)
     expect = _expect(**{"claude-code": {"why": "docs", "files": {"AGENTS.md": {"cwd=.": "loaded"}}}})
     record, cells = cf.run_case(CLAUDE, "m", fixture, tmp_path / "guidance.yaml", tmp_path / "out", expect,
-                                timeout=30, budget=0.5)
+                                timeout=30, budget=0.5, env={})
     assert record == _run(harness="claude-code", version="2.1.0", model="m", status="ran",
                           scenarios=len(receipt["receipts"]))
     assert any(c["path"] == "AGENTS.md" and c["agreement"] == "agrees" for c in cells)
@@ -185,7 +187,7 @@ def test_run_case_marks_a_run_with_a_failing_scenario_as_errors(tmp_path, monkey
     fixture, receipt = _toy_fixture(tmp_path)
     _fake_reach(monkeypatch, receipt, returncode=1)
     record, cells = cf.run_case(CODEX, "m", fixture, tmp_path / "g.yaml", tmp_path / "out", _expect(),
-                                timeout=30, budget=0.5)
+                                timeout=30, budget=0.5, env={})
     assert (record["status"], record["reason"]) == ("errors", "exit 1: boom")
     assert cells
 
@@ -198,7 +200,7 @@ def test_run_case_without_a_receipt_is_failed(tmp_path, monkeypatch, kwargs, rea
     fixture, receipt = _toy_fixture(tmp_path)
     _fake_reach(monkeypatch, receipt, **kwargs)
     record, cells = cf.run_case(CODEX, "m", fixture, tmp_path / "g.yaml", tmp_path / "out", _expect(),
-                                timeout=30, budget=0.5)
+                                timeout=30, budget=0.5, env={})
     assert record["status"] == "failed" and reason in record["reason"]
     assert cells == []
 
@@ -219,7 +221,7 @@ def test_run_case_with_a_malformed_receipt_is_failed_not_fatal(tmp_path, monkeyp
 
     monkeypatch.setattr(cf.process, "run", fake_run)
     record, cells = cf.run_case(CODEX, "m", fixture, tmp_path / "g.yaml", tmp_path / "out", _expect(),
-                                timeout=30, budget=0.5)
+                                timeout=30, budget=0.5, env={})
     assert record["status"] == "failed" and record["reason"].startswith("invalid receipt")
     assert cells == []
 
@@ -406,7 +408,7 @@ def test_run_case_does_not_read_a_receipt_an_earlier_run_left(tmp_path, monkeypa
     save_artifact("effective_instructions", receipt, out / cf.RECEIPT_NAME)
     _fake_reach(monkeypatch, receipt, write=False)
     record, cells = cf.run_case(CODEX, "m", fixture, tmp_path / "g.yaml", out, _expect(),
-                                timeout=30, budget=0.5)
+                                timeout=30, budget=0.5, env={})
     assert record["status"] == "failed" and cells == []
 
 
@@ -454,3 +456,76 @@ def test_cli_reports_unusable_inputs_without_a_traceback(tmp_path, capsys):
         assert cli.main(argv) == 1
         err = capsys.readouterr().err
         assert text in err and "Traceback" not in err
+
+
+def test_run_case_hands_codex_the_suite_profile_with_its_provider(tmp_path, monkeypatch):
+    fixture, receipt = _toy_fixture(tmp_path)
+    calls = _fake_reach(monkeypatch, receipt)
+    cf.run_case(CODEX, "m", fixture, tmp_path / "g.yaml", tmp_path / "out", _expect(), timeout=30, budget=0.5, env={})
+    argv = calls[0]
+    assert argv[argv.index("--harness") + 1] == str(cf.CODEX_PROFILE)
+
+
+def test_the_codex_suite_profile_authenticates_with_the_key_it_forwards(tmp_path):
+    suite = load_profile(CODEX.profile_ref)
+    builtin = load_profile("codex")
+    assert "CODEX_API_KEY" in suite.env_allow
+    assert (suite.invoke, suite.env_allow, suite.egress) == (builtin.invoke, builtin.env_allow, builtin.egress)
+    suite.write_config(tmp_path, {"config_dir": tmp_path.as_posix(), "support_dir": tmp_path.as_posix()})
+    config = tomllib.loads((tmp_path / "config.toml").read_text(encoding="utf-8"))
+    provider = config["model_providers"][config["model_provider"]]  # the provider the run selects
+    assert provider["env_key"] == "CODEX_API_KEY"
+    assert provider["base_url"] == "https://api.openai.com/v1"
+
+
+def test_run_harness_gives_each_run_exactly_the_environment_it_is_given(tmp_path, monkeypatch):
+    fixture, _receipt = _toy_fixture(tmp_path)
+    seen: list[dict[str, str]] = []
+
+    def fake_run(argv, *, timeout, env, **_):
+        seen.append(env.resolve())
+        return process.Completed(argv=tuple(argv), returncode=1)
+
+    monkeypatch.setattr(cf.process, "run", fake_run)
+    given = {"CODEX_API_KEY": "k", "PATH": "/usr/bin"}
+    matrix = cf.run_harness(CODEX, "gpt", tmp_path, _expect(), tmp_path / "runs", env=given, which=_found)
+    assert seen == [given]
+    assert [r["status"] for r in matrix["runs"]] == ["failed"]
+
+
+def test_run_case_fails_when_an_earlier_receipt_cannot_be_cleared(tmp_path, monkeypatch):
+    fixture, receipt = _toy_fixture(tmp_path)
+    out = tmp_path / "out"
+    save_artifact("effective_instructions", receipt, out / cf.RECEIPT_NAME)
+    calls = _fake_reach(monkeypatch, receipt)
+
+    def refuse(path, *args, **kwargs):
+        raise PermissionError(13, "Permission denied", str(path))
+
+    monkeypatch.setattr(cf.shutil, "rmtree", refuse)
+    record, cells = cf.run_case(CODEX, "m", fixture, tmp_path / "g.yaml", out, _expect(),
+                                timeout=30, budget=0.5, env={})
+    assert record["status"] == "failed" and "cannot clear" in record["reason"]
+    assert cells == [] and calls == []  # the old receipt is never read, and no probe runs
+
+
+def test_merge_orders_matrices_by_the_instant_they_name_not_their_text():
+    # 10:00 at +02:00 is 08:00 UTC, an hour before 09:00 UTC, though its text sorts higher
+    earlier = _matrix(generated_at="2026-11-02T10:00:00+02:00")
+    later = _matrix(runs=[_run(harness="claude-code", version="2.1.0")],
+                    cells=[_cell(harness="claude-code", version="2.1.0")], generated_at="2026-11-02T09:00:00+00:00")
+    assert cf.merge([earlier, later])["generated_at"] == "2026-11-02T09:00:00+00:00"
+
+
+@pytest.mark.parametrize("stamp", ["2026-11-02 10:00", "not a time"])
+def test_merge_refuses_a_timestamp_it_cannot_order(stamp):
+    with pytest.raises(cf.ConformanceError, match="generated_at"):
+        cf.merge([_matrix(generated_at=stamp)])
+
+
+def test_render_markdown_escapes_every_table_field_not_only_the_reason():
+    matrix = _matrix(runs=[_run(model="provider|model")], cells=[_cell(path="A|B.md", scenario="cwd=x|y")])
+    lines = cf.render_markdown(matrix).splitlines()
+    assert "| toy | codex | 0.166.0 | provider\\|model | ran | - |" in lines
+    assert "| file | scenario | codex 0.166.0 |" in lines
+    assert "| A\\|B.md | cwd=x\\|y | loaded |" in lines

@@ -73,24 +73,30 @@ on any drift, and `run` refuses to start while there is drift.
 
 ## Running it
 
-From the dokimi project directory, with the dependencies installed (`make dev`), and a harness CLI on `PATH`:
+From the dokimi project directory, with the dependencies installed (`make dev`), and a harness CLI on `PATH`. Set
+`PYTHONPATH=.`: `make dev` installs the dependencies, not the package, and a script's own directory is what Python
+puts on the import path.
 
 ```sh
-python scripts/reach_conformance.py check
-python scripts/reach_conformance.py run --harness codex=<model> --out reach-out
-python scripts/reach_conformance.py merge reach-out/*.matrix.json --out reach-matrix.json --md reach-matrix.md
+PYTHONPATH=. python scripts/reach_conformance.py check
+PYTHONPATH=. python scripts/reach_conformance.py run --harness codex=<model> --out reach-out
+PYTHONPATH=. python scripts/reach_conformance.py merge reach-out/*.matrix.json --out reach-matrix.json --md reach-matrix.md
 ```
 
 `--harness NAME[=MODEL]` is repeatable: `claude-code`, `codex` and `copilot` are known. A harness without a model
 is skipped, as is one without its credential or its CLI (`unavailable` in `dokimi/repos/conformance.py`
 names which). `run` writes `<harness>.matrix.json` to `--out`, and the per-fixture receipts under
 `<harness>-runs/`. Each scenario is capped by `--timeout` (seconds per scenario, default 300). `--budget` (USD,
-default 0.10) is passed to Claude Code as `--max-budget-usd` only: Codex and Copilot have no budget flag, so for
-them the timeout is the only cap. `run` exits 1 only when a run is `failed`.
+per scenario, default 0.10) is passed to Claude Code as `--max-budget-usd` only: Codex and Copilot have no budget
+flag, so for them the timeout is the only cap. `run` exits 1 only when a run is `failed`. `run` gives each
+`repo reach` process exactly the environment it was started with, and each harness gets only what its profile
+forwards from that.
 
 Credentials are the names the harness profile forwards (`dokimi/repos/profiles/*.yaml`, `env_allow`):
 `ANTHROPIC_API_KEY` or `AWS_BEARER_TOKEN_BEDROCK` for Claude Code, `CODEX_API_KEY` for Codex (`OPENAI_API_KEY` is
-not forwarded), `COPILOT_GITHUB_TOKEN` for Copilot. For Bedrock, also set `CLAUDE_CODE_USE_BEDROCK=1` and
+not forwarded), `COPILOT_GITHUB_TOKEN` for Copilot. Codex runs with `data/reach-conformance/codex.profile.yaml`,
+which defines a provider that reads `CODEX_API_KEY` (`codex exec` sends no bearer without one), so the key is what
+authenticates the run. For Bedrock, also set `CLAUDE_CODE_USE_BEDROCK=1` and
 `AWS_REGION`: Claude Code does not select Bedrock from the token alone.
 
 `merge` joins matrices from several harnesses or runs. It refuses a second run of the same harness version on the
@@ -111,8 +117,9 @@ calls a model.
 - **Unknown is not false.** `unknown` in the documented column means the docs are silent, not that the file is
   not loaded.
 - **One version per run.** The version is the one the harness reports; a matrix shows the versions that ran.
-- **Cost.** Each scenario makes at least one model call. Claude Code runs are capped at `--budget`; Codex and
-  Copilot runs are bounded only by `--timeout`. The nightly run covers every scenario of every fixture for each
+- **Cost.** Each scenario makes at least one model call. Each Claude Code scenario is capped at `--budget`, not
+  the whole fixture or suite (a fixture with three scenarios can spend three times the cap); Codex and Copilot
+  scenarios are bounded only by `--timeout`. The nightly run covers every scenario of every fixture for each
   harness that has a model, a credential and a CLI.
 
 ## Nightly workflow

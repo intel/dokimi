@@ -41,17 +41,26 @@ class ConformanceError(RuntimeError):
 
 @dataclass(frozen=True)
 class Harness:
-    """A harness the suite knows: its CLI, and the variables one of which must be set for a run."""
+    """A harness the suite knows: its CLI, the variables one of which must be set for a run, and the profile
+    ``repo reach`` runs it with (a built-in name, or a profile YAML path; the harness name when ``profile`` is empty)."""
 
     name: str
     bin: str
     credentials: tuple[str, ...]
+    profile: str = ""
 
+    @property
+    def profile_ref(self) -> str:
+        return self.profile or self.name
+
+
+# The codex profile with a provider that reads CODEX_API_KEY: the built-in profile sends no bearer (see the file).
+CODEX_PROFILE = Path(__file__).resolve().parents[2] / "data" / "reach-conformance" / "codex.profile.yaml"
 
 # Credentials are the names the profile forwards (repos/profiles/*.yaml env_allow), so a key set here is one the run gets.
 HARNESSES: dict[str, Harness] = {h.name: h for h in (
     Harness("claude-code", "claude", ("ANTHROPIC_API_KEY", "AWS_BEARER_TOKEN_BEDROCK")),
-    Harness("codex", "codex", ("CODEX_API_KEY",)),
+    Harness("codex", "codex", ("CODEX_API_KEY",), profile=str(CODEX_PROFILE)),
     Harness("copilot", "copilot", ("COPILOT_GITHUB_TOKEN",)),
 )}
 
@@ -193,14 +202,21 @@ def _reason(proc: process.Completed) -> str:
 
 
 def run_case(harness: Harness, model: str, fixture: Path, guidance: Path, out: Path,
-             expect: Mapping[str, Any], *, timeout: int, budget: float) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Run ``repo reach`` over one fixture; its run record and cells. The receipt is read from ``out``."""
+             expect: Mapping[str, Any], *, timeout: int, budget: float,
+             env: Mapping[str, str]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Run ``repo reach`` over one fixture with exactly ``env`` as its environment; its run record and cells.
+    The receipt is read from ``out``."""
     case = fixture.name
-    shutil.rmtree(out, ignore_errors=True)  # a receipt left by an earlier run is not this run's
+    try:
+        shutil.rmtree(out)  # a receipt left by an earlier run is not this run's
+    except FileNotFoundError:
+        pass
+    except OSError as exc:  # a receipt that stays would be read as this run's: fail the run instead
+        return run_record(harness.name, case, "failed", f"cannot clear {out}: {exc}", UNKNOWN, model, 0), []
     argv = [sys.executable, "-m", "dokimi", "repo", "reach", str(fixture), "--manifest-file", str(guidance),
-            "--harness", harness.name, "--model", model, "--out", str(out), "--format", "receipt",
+            "--harness", harness.profile_ref, "--model", model, "--out", str(out), "--format", "receipt",
             "--timeout", str(timeout), "--budget", f"{budget:g}"]
-    proc = process.run(argv, timeout=timeout * 16 + 300, env=process.Env.inherit())
+    proc = process.run(argv, timeout=timeout * 16 + 300, env=process.Env.only((), env))
     receipt_path = out / RECEIPT_NAME
     if proc.timed_out or not receipt_path.is_file():
         return run_record(harness.name, case, "failed", _reason(proc), UNKNOWN, model, 0), []
@@ -220,7 +236,7 @@ def run_harness(harness: Harness, model: str, fixtures: Path, expect: Mapping[st
                 env: Mapping[str, str], which: Callable[[str], str | None] = shutil.which) -> dict[str, Any]:
     """One harness over every fixture, as a matrix. A harness that cannot run here gets a skipped run per fixture.
 
-    ``env`` only decides availability; each run inherits the process environment."""
+    ``env`` decides availability and is the whole environment each run gets (nothing else is inherited)."""
     reason = unavailable(harness, model, env, which)
     guidance = fixtures / "guidance.yaml"
     runs: list[dict[str, Any]] = []
@@ -230,7 +246,7 @@ def run_harness(harness: Harness, model: str, fixtures: Path, expect: Mapping[st
             runs.append(run_record(harness.name, case, "skipped", reason, UNKNOWN, model, 0))
             continue
         record, found = run_case(harness, model, fixtures / case, guidance, out_dir / case, expect,
-                                 timeout=timeout, budget=budget)
+                                 timeout=timeout, budget=budget, env=env)
         runs.append(record)
         cells += found
     return build_matrix(runs, cells, expectations_digest(expect))
@@ -259,7 +275,19 @@ def merge(matrices: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             seen.add(key)
         runs += matrix["runs"]
         cells += matrix["cells"]
-    return build_matrix(runs, cells, digests[0], generated_at=max(m["generated_at"] for m in matrices))
+    latest = max((m["generated_at"] for m in matrices), key=_instant)
+    return build_matrix(runs, cells, digests[0], generated_at=latest)
+
+
+def _instant(text: str) -> datetime:
+    """The moment a ``generated_at`` names: offsets differ between matrices, so text does not order them."""
+    try:
+        when = datetime.fromisoformat(text)
+    except ValueError as exc:
+        raise ConformanceError(f"generated_at {text!r} is not an ISO 8601 timestamp") from exc
+    if when.tzinfo is None:
+        raise ConformanceError(f"generated_at {text!r} has no time zone")
+    return when
 
 
 def write_matrix(matrix: Mapping[str, Any], path: Path) -> None:
@@ -287,6 +315,7 @@ def render_markdown(matrix: Mapping[str, Any], summaries: Mapping[str, str] | No
     summaries = summaries or {}
     counts = matrix["summary"]
     columns = sorted({(r["harness"], r["version"]) for r in matrix["runs"] if r["status"] not in ("skipped", "failed")})
+    # every dynamic table field goes through _table_text: a pipe or newline in any of them breaks the row
     lines = [
         "# Reach matrix", "",
         f"Generated {matrix['generated_at']}. Observed states are what each run's model reported seeing "
@@ -298,8 +327,9 @@ def render_markdown(matrix: Mapping[str, Any], summaries: Mapping[str, str] | No
         f"{counts['runs']['failed']} failed, {counts['runs']['skipped']} skipped.", "",
         "## Runs", "", "| fixture | harness | version | model | status | reason |", "|---|---|---|---|---|---|",
     ]
-    lines += [f"| {r['case']} | {r['harness']} | {r['version']} | {r['model'] or '-'} | {r['status']} | "
-              f"{_table_text(r['reason'] or '-')} |" for r in matrix["runs"]]
+    lines += [f"| {_table_text(r['case'])} | {_table_text(r['harness'])} | {_table_text(r['version'])} | "
+              f"{_table_text(r['model'] or '-')} | {_table_text(r['status'])} | {_table_text(r['reason'] or '-')} |"
+              for r in matrix["runs"]]
     lines += ["", "Cell legend: `loaded` or `not_loaded` as observed; `fetched` is read with a tool first; "
               "`unknown` is no usable answer. `(docs: X)` marks a disagreement with the documentation; a "
               "cell with no `(docs: ...)` agrees, or the documentation makes no claim.", ""]
@@ -312,10 +342,10 @@ def _case_section(matrix: Mapping[str, Any], case: str, columns: list[tuple[str,
     cells = [c for c in matrix["cells"] if c["case"] == case]
     index = {(c["harness"], c["version"], c["path"], c["scenario"]): c for c in cells}
     rows = sorted({(c["path"], c["scenario"]) for c in cells})
-    header = ["file", "scenario"] + [f"{h} {v}" for h, v in columns]
+    header = ["file", "scenario"] + [_table_text(f"{h} {v}") for h, v in columns]
     out = [f"## {case}", ""] + ([summary_text, ""] if summary_text else [])
     out += ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
     for path, scenario in rows:
         texts = [_cell_text(index.get((h, v, path, scenario))) for h, v in columns]
-        out.append("| " + " | ".join([path, scenario, *texts]) + " |")
+        out.append("| " + " | ".join([_table_text(path), _table_text(scenario), *texts]) + " |")
     return out + [""]
