@@ -19,7 +19,7 @@ from dokimi import records
 from dokimi.cli import build_parser
 from dokimi.commands.headroom import cmd_eval_headroom
 from dokimi.eval.headroom import (
-    CEILING, DEFAULT_CEILING, DEFAULT_FLOOR, DEFAULT_MIN_REPS, FLOOR, check_thresholds, format_table,
+    CEILING, DEFAULT_CEILING, DEFAULT_FLOOR, DEFAULT_MIN_REPS, FLOOR, _fmt, check_thresholds, format_table,
     headroom,
 )
 from tests.headroom_fixtures import _flags, _run
@@ -685,7 +685,9 @@ def test_command_checks_every_reference_scored_file_not_only_the_second(tmp_path
 def test_a_baseline_a_hair_below_the_ceiling_at_any_score_precision_is_not_a_ceiling():
     # 89.99999999995 on 0-100 is exactly 5e-13 below 0.9; the reader keeps the score, so it is not a ceiling.
     run = _run([("1", {"baseline": 89.99999999995, "skill": 95})])
-    assert _flags(headroom([run], min_reps=1)) == {"1": None}
+    result = headroom([run], min_reps=1)
+    assert _flags(result) == {"1": None}
+    assert _fmt(result["items"][0]["no_skill"]) == "0.899999999"
 
 
 def test_arms_a_hair_above_zero_at_any_score_precision_are_not_the_floor():

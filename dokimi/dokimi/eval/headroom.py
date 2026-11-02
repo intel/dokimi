@@ -27,8 +27,8 @@ statistics of a comparison stay in :mod:`dokimi.eval.stats`.
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
+from decimal import ROUND_FLOOR, Decimal
 from fractions import Fraction
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
@@ -278,10 +278,12 @@ def format_table(result: Dict[str, Any]) -> str:
 
 def _fmt(value: Optional[float]) -> str:
     # Floored, never up, to nine decimals, so a value never reads as the threshold it sits just below.
-    # The 1e-12 offset only absorbs float error in the division (0.9 shows 0.90, 0.89996 shows 0.89996).
+    # Floored from the shortest decimal that names the float (repr), not from a scaled binary value:
+    # 0.8999999999995 shows 0.899999999, and a mean of exactly 0.9 (85 and 95) shows 0.90.
     if value is None:
         return "-"
-    whole, _, frac = f"{math.floor((value + 1e-12) * 1e9) / 1e9:.9f}".partition(".")
+    text = format(Decimal(repr(float(value))).quantize(Decimal("1e-9"), rounding=ROUND_FLOOR), "f")
+    whole, _, frac = text.partition(".")
     return f"{whole}.{frac.rstrip('0').ljust(2, '0')}"
 
 
