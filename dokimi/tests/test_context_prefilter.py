@@ -701,6 +701,7 @@ def test_a_glob_path_with_brackets_under_home_is_read_as_the_literal_file(tmp_pa
     from dokimi.commands.context import _read_sessions
 
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))  # os.path.expanduser reads this on Windows
     logs = tmp_path / "logs"
     logs.mkdir()
     literal = _write(logs / "session[1].jsonl", [_prompt("one")])
@@ -713,6 +714,7 @@ def test_a_home_relative_literal_path_is_read_when_only_that_file_exists(tmp_pat
     from dokimi.commands.context import _read_sessions
 
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))  # os.path.expanduser reads this on Windows
     logs = tmp_path / "logs"
     logs.mkdir()
     literal = _write(logs / "session[1].jsonl", [_prompt("one")])
@@ -731,6 +733,8 @@ def test_a_home_relative_literal_path_is_read_when_only_that_file_exists(tmp_pat
     ("echo $((1<<2))\nmake ci-local", 1),                       # an arithmetic shift opens no heredoc
     ("# <<EOF\nmake ci-local", 1),                              # a comment that names a heredoc opens none
     ("true # <<EOF\nmake ci-local", 1),
+    ("# don't\ncat <<EOF\nnotes\nEOF\nmake ci-local", 1),       # an apostrophe in a comment opens no quote, so the header counts
+    ('git commit -m "Title\n\nread a <<EOF heredoc"\nmake ci-local', 1),  # a quote opened on an earlier line hides the <<
     ("true;# ignored; make ci-local", 0),                       # a comment starts after a control operator too
 ])
 def test_heredoc_delimiters_comments_and_arithmetic_are_read_as_the_shell_reads_them(command, acted):
@@ -799,6 +803,7 @@ def test_a_home_glob_reads_every_match(tmp_path, monkeypatch):
     from dokimi.commands.context import _read_sessions
 
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))  # os.path.expanduser reads this on Windows
     logs = tmp_path / "logs"
     logs.mkdir()
     first = _write(logs / "a.jsonl", [_prompt("one")])
@@ -898,3 +903,69 @@ def test_leading_and_noclobber_redirections_of_a_printing_command(command, acted
     rule = "- Keep `changelog.d/` current.\n"
     session = _session(_prompt("keep the changelog current"), _tool("Bash", command=command))
     assert _row(_report([session], rule), "Keep")["acted"] == acted
+
+
+# --- review of PR 334: keyword functions, here-strings, stems, dotfiles, compaction, wrapped rules ----------
+
+@pytest.mark.parametrize("command", ["function check_ci {\nmake ci-local\n}", "function check_ci() {\nmake ci-local\n}",
+                                     "function check_ci { make ci-local; }"])
+def test_a_keyword_function_body_that_is_only_defined_is_not_an_action(command):
+    session = _session(_prompt("push the branch now"), _tool("Bash", command=command))
+    assert _row(_report([session]), CI)["acted"] == 0
+
+
+def test_a_path_in_an_uncalled_keyword_function_is_not_touched():
+    rule = "- Keep `changelog.d/` current.\n"
+    session = _session(_prompt("keep the changelog current"),
+                       _tool("Bash", command="function write_note {\ncat changelog.d/x.md\n}"))
+    assert _row(_report([session], rule), "Keep")["acted"] == 0
+
+
+@pytest.mark.parametrize(("command", "acted"), [
+    ("cat <<< docs/guide.md", 0),                       # the payload is stdin: no file is opened
+    ('cat <<< "docs/guide.md"', 0),
+    ("cat < docs/guide.md", 1),                         # a positive control: a real input redirection
+])
+def test_a_here_string_payload_is_not_a_file_the_command_touched(command, acted):
+    rule = "- Update `docs/guide.md` when behaviour changes.\n"
+    session = _session(_prompt("update behaviour changes"), _tool("Bash", command=command))
+    assert _row(_report([session], rule), "Update")["acted"] == acted
+
+
+def test_a_here_string_payload_that_is_a_bare_file_name_is_not_acted_on():
+    rule = "- Edit `Makefile` carefully.\n"
+    session = _session(_prompt("edit it carefully"), _tool("Bash", command="cat <<< Makefile"))
+    assert _row(_report([session], rule), "Edit")["acted"] == 0
+
+
+def test_a_rule_word_matches_its_inflected_prompt_word_when_the_rule_has_the_base_form():
+    session = _session(_prompt("I rebased and merged it"))
+    assert _row(_report([session], "- Rebase before merge.\n"), "Rebase")["episodes"] == 1
+
+
+def test_a_stop_word_is_not_a_keyword_in_any_inflection():
+    claim = claims_from_guidance("- Each merge needs a changelog fragment.\n")[0]
+    assert "need" not in claim.keywords and "merg" in claim.keywords
+
+
+@pytest.mark.parametrize("key", [".gitignore", ".agent-eval"])
+def test_a_dotfile_key_is_a_path_and_an_edit_of_it_is_an_action(key):
+    rule = f"- Never edit `{key}` without asking.\n"
+    session = _session(_prompt("never edit that"), _tool("Edit", file_path=f"/r/{key}"))
+    assert _row(_report([session], rule), "Never")["acted"] == 1
+
+
+def test_a_compaction_summary_and_a_bash_output_are_not_prompts():
+    session = _session(
+        _prompt("This session is being continued from a previous conversation. Keep the changelog.",
+                isCompactSummary=True),
+        _prompt("<bash-stdout>a.txt</bash-stdout><bash-stderr></bash-stderr>"),
+        _prompt("please ship it"),
+    )
+    assert [e.text for e in session.events] == ["please ship it"]
+
+
+def test_the_table_prints_a_rule_that_wraps_over_lines_on_one_row():
+    guide = "- Run `make ci-local` before pushing\n  a branch and keep it green.\n"
+    table = render_table(_report([_session(_prompt("push the branch now"))], guide))
+    assert "pushing a branch and keep it green." in table

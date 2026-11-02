@@ -41,7 +41,7 @@ NOTE = ("Candidates for ablation, not verdicts: a candidate is a rule the sessio
 _RULE_KINDS = frozenset({"sentence", "list_item", "table_row"})
 _BACKTICK = re.compile(r"`([^`\n]+)`")
 _WORD = re.compile(r"[a-z][a-z0-9_-]{2,}")
-_PATH = re.compile(r"[/\\]|\.[A-Za-z0-9]{1,6}$")
+_PATH = re.compile(r"[/\\]|\.[A-Za-z0-9]{1,6}$|^\.[A-Za-z][\w-]*$")  # a bare dotfile (``.gitignore``) is a path too
 # a quoted argument is text, not a command; a backslash escapes the next character, also inside double quotes
 _QUOTED = re.compile(r"\\[\s\S]|'[^']*'|\"(?:\\[\s\S]|[^\"\\])*\"")
 # an unquoted backslash-newline is a line continuation: the line goes on, it is not a new command
@@ -59,6 +59,8 @@ _ARITHMETIC = re.compile(r"\$\(\([\s\S]*?\)\)")
 _COMMENT_OR_QUOTED = re.compile(r"(?m)(\\[\s\S]|'[^']*'|\"(?:\\[\s\S]|[^\"\\])*\")|(?:^|(?<=[\s;&|()]))#.*$")
 # a redirection operator at the start of a word (``>``, ``>>``, ``2>``, ``<``); a bare one takes the next word
 _REDIRECT_OP = re.compile(r"\d*(?:<<<|<<-?|>>|>&|<&|>\||[<>])")
+# a here-string's payload is the text fed to stdin, not a file the command opens
+_HERE_STRING = re.compile(r"<<<\s*[^\s;&|<>()]+")
 _SEGMENT = re.compile(r"&&|\|\||(?<![<>])[|&]|[;()\n]")  # ``>|``, ``>&``, ``<&`` are operators
 _CUE = re.compile(r"\b(no|not|don't|do not|stop|instead|wrong|forgot|should have|revert|undo|why did you)\b", re.I)
 _STOP = frozenset("""
@@ -102,13 +104,19 @@ class Tally:
 def _stem(word: str) -> str:
     for suffix in ("ing", "ed", "es", "s"):
         if word.endswith(suffix) and len(word) - len(suffix) >= 4:
-            return word[: -len(suffix)]
-    return word
+            word = word[: -len(suffix)]
+            break
+    # a final e goes too, so change, changes and changed meet on one stem
+    return word[:-1] if word.endswith("e") and len(word) > 4 else word
 
 
-@functools.lru_cache(maxsize=8192)  # every claim is matched against the same event texts
+_STOP_STEMS = frozenset(_stem(w) for w in _STOP)
+
+
 def _stems(text: str) -> frozenset[str]:
-    return frozenset(_stem(w) for w in _WORD.findall(text.lower()) if w not in _STOP)
+    """The content stems of a text. A stop word is dropped as written and by its stem (``needs`` is ``need``)."""
+    return frozenset(s for s in (_stem(w) for w in _WORD.findall(text.lower()) if w not in _STOP)
+                     if s not in _STOP_STEMS)
 
 
 def _is_path(key: str) -> bool:
@@ -188,10 +196,12 @@ def _blank(match: re.Match[str]) -> str:
     return "_" * len(match.group(0))  # same length: positions in the line are kept
 
 
-def _heredoc_words(line: str) -> list[tuple[str, bool]]:
-    """The heredocs a line opens, as (WORD, whether ``<<-`` strips tabs). A ``<<`` inside quotes, in a comment or
-    in arithmetic is text and opens none."""
-    masked = _COMMENT.sub(_blank, _ARITHMETIC.sub(_blank, _QUOTED.sub(_blank, line)))
+def _heredoc_words(text: str) -> list[tuple[str, bool]]:
+    """The heredocs the last line of ``text`` opens, as (WORD, whether ``<<-`` strips tabs). ``text`` is the command
+    up to and including that line, so a quote that opens on an earlier line still hides a ``<<`` on this one. A
+    ``<<`` inside quotes, in a comment or in arithmetic is text and opens none."""
+    line = text.rsplit("\n", 1)[-1]
+    masked = _ARITHMETIC.sub(_blank, _COMMENT_OR_QUOTED.sub(_blank, text)[len(text) - len(line):])
     opened_words = []
     for opened in _HEREDOC_OPEN.finditer(masked):
         word = _HEREDOC_WORD.match(line, opened.end())
@@ -204,6 +214,8 @@ def _heredoc_words(line: str) -> list[tuple[str, bool]]:
 def _without_heredoc_bodies(command: str) -> str:
     """The command with each heredoc body dropped: the lines after its header up to a line that is its WORD
     alone. Body lines are read as data, so their quotes do not pair with the rest of the command."""
+    if "<<" not in command:
+        return command
     out: list[str] = []
     pending: list[tuple[str, bool]] = []  # the WORDs of the bodies still to skip, in order
     for line in command.split("\n"):
@@ -214,7 +226,7 @@ def _without_heredoc_bodies(command: str) -> str:
                 pending.pop(0)
             continue
         out.append(line)
-        pending.extend(_heredoc_words(line))
+        pending.extend(_heredoc_words("\n".join(out)))
     return "\n".join(out)
 
 
@@ -237,9 +249,10 @@ def _function_end(text: str, open_brace: int) -> int:
     return -1
 
 
-# quoted text and comments are matched first, so a function head inside them is text; a head is ``name() {``
+# quoted text and comments are matched first, so a function head inside them is text; a head is ``name() {``,
+# ``name {``, or the keyword form ``function name {`` (with or without ``()``)
 _SCAN = re.compile(r"(?m)(?P<text>\\[\s\S]|'[^']*'|\"(?:\\[\s\S]|[^\"\\])*\"|(?:^|(?<=[\s;&|()]))#.*$)"
-                   r"|(?P<head>\b[A-Za-z_][\w-]*\s*\(\s*\)\s*\{)")
+                   r"|(?P<head>\bfunction\s+[A-Za-z_][\w-]*(?:\s*\(\s*\))?\s*\{|\b[A-Za-z_][\w-]*\s*\(\s*\)\s*\{)")
 
 
 def _without_functions(text: str) -> str:
@@ -312,17 +325,23 @@ def _key_words(key: str) -> list[str]:
     return shell.strip_wrappers(words) or words
 
 
-def _invokes(key: str, command: str) -> bool:
+def _command_words(command: str) -> tuple[tuple[str, ...], ...]:
+    """Each simple command of a shell line as its words, wrappers stripped and redirections left out."""
+    return tuple(tuple(shell.strip_wrappers(_without_redirections(_words_of(seg))))
+                 for seg in _command_segments(command))
+
+
+def _invokes(key: str, commands: tuple[tuple[str, ...], ...]) -> bool:
     """Whether a shell command runs ``key``: as the program of one of its pipeline stages, after the wrappers
     (``sudo -n``, ``env -u X``, ``timeout 600``, ``uv run``, ``A=1``), so an ``echo``, a ``grep`` argument or a
     ``#`` comment that names it does not count. The key and the command are read the same way, so a quoted
     argument with a space is one word on both sides. The key ends where its last word ends: ``make ci-local``
-    does not run ``make ci-local.debug``, while a redirection after it (``make ci-local>log``) still runs it."""
-    words = _key_words(key)
+    does not run ``make ci-local.debug``, while a redirection after it (``make ci-local>log``) still runs it.
+    ``commands`` is the command's ``_command_words``."""
+    words = tuple(_key_words(key))
     if not words:
         return False
-    return any(shell.strip_wrappers(_without_redirections(_words_of(seg)))[:len(words)] == words
-               for seg in _command_segments(command))
+    return any(command[:len(words)] == words for command in commands)
 
 
 def _prints(text: str) -> bool:
@@ -336,28 +355,45 @@ def _prints(text: str) -> bool:
 _REDIRECT = re.compile(r"(?<!<)<(?![<&(])\s*([^\s;&|<>()]+)|>(?:>|[|&])?\s*([^\s;&|<>()]+)")
 
 
-@functools.lru_cache(maxsize=8192)  # every claim is matched against the same tool calls
 def _shell_paths(command: str) -> str:
     """The text of a shell command that can name a file it reads or writes: its redirection targets and the
-    segments that are not printing commands. Comments, heredoc bodies, printed text and quoted sentences are
-    left out; a redirection sign inside quotes is not a redirection."""
+    segments that are not printing commands. Comments, heredoc bodies, printed text, here-string payloads and
+    quoted sentences are left out; a redirection sign inside quotes is not a redirection."""
     parts: list[str] = []
     for seg in _masked_segments(command, hide_spaced=True):
         parts.extend((m.group(1) or m.group(2)).translate(_FROM_MASK) for m in _REDIRECT.finditer(seg))
-        text = _words(seg)
+        text = _words(_HERE_STRING.sub(" ", seg))
         if not _prints(text):
             parts.append(text)
     return " ".join(parts)
 
 
-def _triggers(claim: Claim, event: Event) -> bool:
+class _Read:
+    """An event with what every claim is matched on, read once for the whole corpus: its keyword stems, and the text
+    that can name a file and its simple commands for a shell call. Each claim walks the whole corpus, so the shell
+    reading is done on first use and kept, not once per claim and window."""
+
+    def __init__(self, event: Event) -> None:
+        self.event = event
+        self.stems = _stems(event.text)
+
+    @functools.cached_property
+    def shell_text(self) -> str:
+        return _shell_paths(self.event.command) if self.event.kind == "tool" else ""
+
+    @functools.cached_property
+    def commands(self) -> tuple[tuple[str, ...], ...]:
+        return _command_words(self.event.command) if self.event.kind == "tool" else ()
+
+
+def _triggers(claim: Claim, read: _Read) -> bool:
     """Half the claim's keywords (rounded up) in the event: one word of a two-word rule is enough.
 
     A rule with no prose keywords triggers on a prompt that names one.
     """
     if not claim.keywords:
-        return event.kind == "prompt" and _named(claim, event.text)
-    return len(claim.keywords & _stems(event.text)) >= (len(claim.keywords) + 1) // 2
+        return read.event.kind == "prompt" and _named(claim, read.event.text)
+    return len(claim.keywords & read.stems) >= (len(claim.keywords) + 1) // 2
 
 
 def _slashes(text: str) -> str:
@@ -383,14 +419,14 @@ def _named(claim: Claim, text: str) -> bool:
     return any(_names(k, text) for k in claim.commands) or _path_named(claim, (text,))
 
 
-def _acts(claim: Claim, event: Event) -> bool:
+def _acts(claim: Claim, read: _Read) -> bool:
+    event = read.event
     if event.kind != "tool":
         return False
-    shell_text = _shell_paths(event.command)
-    return (any(_invokes(k, event.command) for k in claim.commands)
+    return (any(_invokes(k, read.commands) for k in claim.commands)
             or any(_file_named(k, event.paths) for k in claim.commands if _is_bare_file(k))
-            or _path_named(claim, (*event.paths, shell_text))
-            or any(_at_path(k, shell_text) for k in claim.commands if _is_bare_file(k)))
+            or _path_named(claim, (*event.paths, read.shell_text))
+            or any(_at_path(k, read.shell_text) for k in claim.commands if _is_bare_file(k)))
 
 
 # a capitalised bare name (Makefile, LICENSE) is a file; a lowercase one (pytest) is a command, and its argument
@@ -408,36 +444,37 @@ def _file_named(key: str, paths: tuple[str, ...]) -> bool:
     return any(_slashes(p).rsplit("/", 1)[-1] == key for p in paths)
 
 
-def _corrects(claim: Claim, event: Event) -> bool:
-    if event.kind != "prompt" or not _CUE.search(event.text):
+def _corrects(claim: Claim, read: _Read) -> bool:
+    text = read.event.text
+    if read.event.kind != "prompt" or not _CUE.search(text):
         return False
-    return (bool(claim.keywords & _stems(event.text))
-            or any(_names(k, event.text) for k in claim.commands)
-            or any(_at_path(k, event.text) for k in claim.paths))
+    return (bool(claim.keywords & read.stems)
+            or any(_names(k, text) for k in claim.commands)
+            or any(_at_path(k, text) for k in claim.paths))
 
 
-def _scan(claim: Claim, events: list[Event], window: int) -> tuple[int, int, int]:
+def _scan(claim: Claim, reads: list[_Read], window: int) -> tuple[int, int, int]:
     """Episodes, acted and corrected counts of one session; one episode spans its trigger's window."""
     episodes = acted = corrected = 0
     i = 0
-    while i < len(events):
-        if not _triggers(claim, events[i]):
+    while i < len(reads):
+        if not _triggers(claim, reads[i]):
             i += 1
             continue
         episodes += 1
-        around = events[max(0, i - window): i + window + 1]
-        after = events[i + 1: i + window + 1]
-        acted += int(claim.has_keys and any(_acts(claim, e) for e in around))
-        next_prompt = next((e for e in after if e.kind == "prompt"), None)  # the user's next word, only
+        around = reads[max(0, i - window): i + window + 1]
+        after = reads[i + 1: i + window + 1]
+        acted += int(claim.has_keys and any(_acts(claim, r) for r in around))
+        next_prompt = next((r for r in after if r.event.kind == "prompt"), None)  # the user's next word, only
         corrected += int(next_prompt is not None and _corrects(claim, next_prompt))
         i += window + 1
     return episodes, acted, corrected
 
 
-def tally(claim: Claim, sessions: list[Session], window: int) -> Tally:
+def tally(claim: Claim, sessions: list[list[_Read]], window: int) -> Tally:
     out = Tally()
-    for session in sessions:
-        episodes, acted, corrected = _scan(claim, session.events, window)
+    for reads in sessions:
+        episodes, acted, corrected = _scan(claim, reads, window)
         out.episodes += episodes
         out.acted += acted
         out.corrected += corrected
@@ -504,9 +541,10 @@ def build_report(guidance_name: str, guidance_text: str, sessions: list[Session]
                  min_sessions: int, rare_max: int, in_use_rate: float) -> dict[str, Any]:
     """The prefilter report: every claim with its status, the candidates ranked first."""
     total = len(sessions)
+    reads = [[_Read(e) for e in s.events] for s in sessions]
     rows = []
     for claim in claims_from_guidance(guidance_text):
-        t = tally(claim, sessions, window)
+        t = tally(claim, reads, window)
         status = status_of(claim, t, total, min_sessions=min_sessions, rare_max=rare_max, in_use_rate=in_use_rate)
         rows.append(_row(claim, t, status, total))
     candidates = sorted((r for r in rows if r["status"] == CANDIDATE), key=_rank_key)
@@ -533,7 +571,7 @@ def render_table(report: dict[str, Any]) -> str:
         rank = "-" if row["rank"] is None else str(row["rank"])
         trig = f"{row['sessions_triggered']}/{report['sessions']}"
         lines.append(f"{rank:>4}  {row['status']:<20} {trig:>10} {row['episodes']:>8} {acted:>7} "
-                     f"{row['corrected']:>6}  {row['text'][:70]}")
+                     f"{row['corrected']:>6}  {' '.join(row['text'].split())[:70]}")
     counts = {s: sum(1 for r in report["claims"] if r["status"] == s) for s in STATUSES}
     lines.append("")
     lines.append(f"{report['sessions']} session(s), {len(report['claims'])} claim(s): "

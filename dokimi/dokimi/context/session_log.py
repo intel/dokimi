@@ -6,7 +6,8 @@
 One JSON object per line. A prompt the user typed is a ``user`` record with text content.
 A tool call is a ``tool_use`` block of an ``assistant`` record; its ``tool_result`` comes back
 in a ``user`` record this reader skips. Records Claude Code injects itself (``isMeta``, such as
-CLAUDE.md echoed into the context) are not prompts. A subagent's brief (a ``user`` record with
+CLAUDE.md echoed into the context) are not prompts, nor is the summary Claude Code writes after a
+compaction (``isCompactSummary``). A subagent's brief (a ``user`` record with
 ``isSidechain``) is the parent agent's words, not the user's, so it is not a prompt either; the
 subagent's own tool calls still count as the agent acting.
 
@@ -27,7 +28,9 @@ _CONTENT_KEYS = frozenset({"old_string", "new_string", "content", "new_source", 
                            "file_text", "old_str", "new_str"})  # the last three: Goose's editor tools
 _PATH_KEYS = ("file_path", "path", "notebook_path")
 # Markup a harness wraps around text it injects into a user turn; not the user's words.
-_INJECTED = re.compile(r"<(system-reminder|command-[a-z-]+|local-command-[a-z-]+)>.*?</\1>", re.S)
+# ``bash-stdout`` and ``bash-stderr`` hold what a ``!`` shell turn printed: output, not the user's words.
+_INJECTED = re.compile(r"<(system-reminder|command-[a-z-]+|local-command-[a-z-]+|bash-stdout|bash-stderr)>.*?</\1>",
+                       re.S)
 _ERROR_LIMIT = 20
 
 
@@ -113,7 +116,7 @@ def _shape_problem(rec: dict[str, Any]) -> str | None:
 
 
 def _events_of(rec: dict[str, Any]) -> list[Event]:
-    if rec.get("isMeta"):
+    if rec.get("isMeta") or rec.get("isCompactSummary"):  # the summary after a compaction retells the session
         return []
     message = rec.get("message")
     content = message.get("content") if isinstance(message, dict) else None
