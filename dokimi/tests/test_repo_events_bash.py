@@ -57,13 +57,16 @@ def test_a_failed_cat_of_one_file_is_no_read():
 
 @pytest.mark.parametrize("command", ["cd sub && cat AGENTS.md", "cd sub; cat AGENTS.md", "cd a && cd b && cat AGENTS.md",
                                      "cd $(git rev-parse --show-toplevel) && cat /ws/AGENTS.md",
-                                     "cd /ws/sub || cat /ws/AGENTS.md", "cd sub & cat AGENTS.md"])  # the exit is the cat's
+                                     "cd /ws/sub || cat /ws/AGENTS.md", "cd sub & cat AGENTS.md",  # the exit is the cat's
+                                     "time cd sub && cat AGENTS.md", "command cd sub && cat AGENTS.md",
+                                     "builtin cd sub && cat AGENTS.md", "X=1 cd sub && cat AGENTS.md"])
 def test_a_failed_cd_then_cat_of_one_file_is_no_read(command):
     events = _events(_call("a", command), _result("a", "cat: AGENTS.md: No such file or directory", True))
     assert [(e["kind"], e["rc"]) for e in events] == [("command", 1)]
 
 
-@pytest.mark.parametrize("command", ["cat AGENTS.md && cd sub", "make && cat AGENTS.md", "(cd sub) && cat AGENTS.md"])
+@pytest.mark.parametrize("command", ["cat AGENTS.md && cd sub", "make && cat AGENTS.md", "(cd sub) && cat AGENTS.md",
+                                     "env cd sub && cat AGENTS.md"])  # ``env cd`` runs no builtin: some program failed
 def test_a_failed_list_whose_other_part_is_not_a_cd_keeps_the_read(command):
     # the failure may be the other part's: the file may have been shown
     events = _events(_call("a", command), _result("a", "error", True))

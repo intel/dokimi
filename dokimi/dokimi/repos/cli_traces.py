@@ -681,7 +681,13 @@ def _failed_read(script: str, reads: list[Any], rc: Any) -> bool:
     exits 1), so the reads are kept.
     """
     return rc not in (None, 0) and len(reads) == 1 and all(  # each part before the last is a ``cd``
-        part.split()[:1] == ["cd"] for part, _, _ in _split_script(script)[:-1])
+        _is_cd(part) for part, _, _ in _split_script(script)[:-1])
+
+
+def _is_cd(part: str) -> bool:
+    """Whether ``part`` runs the ``cd`` builtin, past what the walker skips (``time cd``, ``X=1 cd``; not ``env cd``)."""
+    words, via_env, _ = _command_words(part.split())
+    return words[:1] == ["cd"] and not via_env
 
 
 class _CopilotRun:
