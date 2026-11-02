@@ -604,17 +604,17 @@ def _assignment_bindings(tree: ast.Module, owner: dict[int, ast.AST], table: Exi
         entries = fresh
 
 
-def _declared_scopes(tree: ast.Module, owner: dict[int, ast.AST], table: ExitTable) -> None:
+def _declared_scopes(tree: ast.Module, owner: dict[int, ast.AST], table: ExitTable, kind: str) -> None:
     """``global x`` declares x in the module and ``nonlocal x`` in the nearest enclosing scope that binds it.
 
     The bindings made in the declaring scope move to that scope, where they run when the function is called. The
-    declaration stays in the scope, so that its own uses resolve there.
+    declaration stays in the scope, so that its own uses resolve there. ``kind`` is ``global`` or ``nonlocal``: a
+    nonlocal binder can be an assignment, so those declarations come after the assignments are bound.
     """
     for n in ast.walk(tree):
-        if not isinstance(n, (ast.Global, ast.Nonlocal)):
+        if not isinstance(n, (ast.Global, ast.Nonlocal)) or (kind == "global") != isinstance(n, ast.Global):
             continue
         scope = owner[id(n)]
-        kind = "global" if isinstance(n, ast.Global) else "nonlocal"
         for name in n.names:
             target = tree if kind == "global" else _binder_above(scope, name, table, owner)
             if target is None or target is scope:
@@ -646,8 +646,9 @@ def _exit_table(tree: ast.Module, owner: dict[int, ast.AST]) -> ExitTable:
         assigned |= {id(t) for t in targets if isinstance(t, ast.Name)}
     table: ExitTable = {}
     _shadowing_bindings(tree, owner, table, assigned)
-    _declared_scopes(tree, owner, table)
+    _declared_scopes(tree, owner, table, "global")
     _assignment_bindings(tree, owner, table)
+    _declared_scopes(tree, owner, table, "nonlocal")
     return table
 
 
@@ -1016,6 +1017,8 @@ def test_tie_between_equal_size_subsets_is_stable():
     ("import sys; stop = sys.exit; stop(2); stop = None\n", [1]),
     ("import sys; E = SystemExit; raise E(3); E = None\n", [1]),
     ("import sys; s = sys; s.exit(2); s = None\n", [1]),
+    # a nonlocal name bound by a plain assignment in the enclosing scope: the sibling's alias reaches the exit
+    ("import sys\ndef outer():\n    x = None\n    def inner():\n        nonlocal x\n        x = sys.exit\n    def other():\n        x(2)\n    return other\n", [8]),
     # a global rebinding made in a function runs only when it is called: module-level sys.exit is still a site
     ("import sys\ndef f():\n    global sys\n    sys = None\nsys.exit(1)\n", [5]),
 ])
