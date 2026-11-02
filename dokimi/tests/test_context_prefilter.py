@@ -805,3 +805,41 @@ def test_a_home_glob_reads_every_match(tmp_path, monkeypatch):
     second = _write(logs / "b.jsonl", [_prompt("two")])
     loaded, failed = _read_sessions(["~/logs/*.jsonl"])
     assert not failed and sorted(s.name for s in loaded) == sorted([str(first), str(second)])
+
+
+# --- round 9: a quoted brace in a function body, a comment with an apostrophe, redirections among the words ----
+@pytest.mark.parametrize("command", ["check_ci() { echo '}'; make ci-local; }",
+                                     "check_ci() { echo \"}\"; make ci-local; }",
+                                     "check_ci() { if true; then { echo x; }; fi; make ci-local; }"])
+def test_a_function_body_with_a_quoted_or_nested_brace_is_defined_not_run(command):
+    session = _session(_prompt("push the branch now"), _tool("Bash", command=command))
+    assert _row(_report([session]), CI)["acted"] == 0
+
+
+def test_a_quoted_brace_in_a_function_body_hides_no_path_after_it():
+    rule = "- Keep `changelog.d/` current.\n"
+    command = "check() { echo '}'; cat changelog.d/x.md; }"
+    session = _session(_prompt("keep the changelog current"), _tool("Bash", command=command))
+    assert _row(_report([session], rule), "Keep")["acted"] == 0
+
+
+@pytest.mark.parametrize("command", ["# don't skip CI\nmake ci-local\n# user's request",
+                                     "# it's a note\nmake ci-local # won't mean this\n"])
+def test_an_apostrophe_in_a_comment_does_not_hide_the_command_after_it(command):
+    session = _session(_prompt("push the branch now"), _tool("Bash", command=command))
+    assert _row(_report([session]), CI)["acted"] == 1
+
+
+def test_an_apostrophe_in_a_comment_does_not_hide_a_path_after_it():
+    rule = "- Keep `changelog.d/` current.\n"
+    command = "# don't\ncat changelog.d/x.md\n# it's"
+    session = _session(_prompt("keep the changelog current"), _tool("Bash", command=command))
+    assert _row(_report([session], rule), "Keep")["acted"] == 1
+
+
+@pytest.mark.parametrize("command", [">results.txt make ci-local", "> results.txt make ci-local",
+                                     "make >results.txt ci-local", "make ci-local 2>&1 >results.txt",
+                                     "2>/dev/null make ci-local"])
+def test_a_redirection_among_the_words_of_a_command_does_not_hide_it(command):
+    session = _session(_prompt("push the branch now"), _tool("Bash", command=command))
+    assert _row(_report([session]), CI)["acted"] == 1

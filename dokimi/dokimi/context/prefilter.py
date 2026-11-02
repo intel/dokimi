@@ -54,8 +54,13 @@ _HEREDOC_WORD = re.compile(r"(-?)[ \t]*(?:'([^'\n]+)'|\"([^\"\n]+)\"|([^\s;&|<>(
 _COMMENT = re.compile(r"(?m)(?:^|(?<=[\s;&|()]))#.*$")
 # ``$((1<<2))`` is arithmetic, not a heredoc
 _ARITHMETIC = re.compile(r"\$\(\([\s\S]*?\)\)")
-# a shell function definition: its body is defined, not run (a call of it is not followed)
-_FUNCTION = re.compile(r"(?s)\b[A-Za-z_][\w-]*\s*\(\s*\)\s*\{.*?\}")
+# the head of a shell function definition: its body is defined, not run (a call of it is not followed)
+_FUNCTION_HEAD = re.compile(r"\b[A-Za-z_][\w-]*\s*\(\s*\)\s*\{")
+# a comment, or a quoted piece of shell text (group 1). Scanned left to right, so an apostrophe inside a comment
+# opens no quote, and a ``#`` inside quotes is text
+_COMMENT_OR_QUOTED = re.compile(r"(?m)(\\[\s\S]|'[^']*'|\"(?:\\[\s\S]|[^\"\\])*\")|(?:^|(?<=[\s;&|()]))#.*$")
+# a redirection operator at the start of a word (``>``, ``>>``, ``2>``, ``<``); a bare one takes the next word
+_REDIRECT_OP = re.compile(r"\d*[<>]")
 _SEGMENT = re.compile(r"&&|\|\||[;|&()\n]")
 _CUE = re.compile(r"\b(no|not|don't|do not|stop|instead|wrong|forgot|should have|revert|undo|why did you)\b", re.I)
 _STOP = frozenset("""
@@ -164,13 +169,17 @@ _FROM_MASK = str.maketrans("".join(chr(0xE000 + i) for i in range(len(_SPECIAL))
 _HIDDEN = " "  # stands in for a quoted sentence in a path text: none of its words count as a path
 
 
-def _mask(match: re.Match[str]) -> str:
-    return match.group(0).translate(_TO_MASK)
-
-
-def _hide_sentence(match: re.Match[str]) -> str:
-    """A quoted argument with a space in it is a sentence, not a path; one word is kept."""
-    return _HIDDEN if any(c.isspace() for c in match.group(0)[1:-1]) else match.group(0)
+def _strip_comments(text: str, *, hide_spaced: bool = False) -> str:
+    """The text with its comments removed and its quoted pieces masked. With ``hide_spaced`` a quoted argument with
+    a space in it is a sentence, not a path, and is replaced by a placeholder (one word is kept)."""
+    def piece(match: re.Match[str]) -> str:
+        quoted = match.group(1)
+        if quoted is None:
+            return ""
+        if hide_spaced and quoted[0] in "'\"" and any(c.isspace() for c in quoted[1:-1]):
+            return _HIDDEN
+        return quoted.translate(_TO_MASK)
+    return _COMMENT_OR_QUOTED.sub(piece, text)
 
 
 def _join_line(match: re.Match[str]) -> str:
@@ -211,19 +220,44 @@ def _without_heredoc_bodies(command: str) -> str:
     return "\n".join(out)
 
 
+def _function_end(text: str, open_brace: int) -> int:
+    """The index just past the ``}`` that closes the ``{`` at ``open_brace``. Quoted text is skipped, so a brace in
+    quotes does not count, and nested groups are counted. A body that never closes runs to the end of the text."""
+    depth, i = 0, open_brace
+    while i < len(text):
+        quoted = _QUOTED.match(text, i)
+        if quoted:
+            i = quoted.end()
+            continue
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return len(text)
+
+
+def _without_functions(text: str) -> str:
+    """The text with each shell function definition replaced by a space: its body is defined, not run."""
+    out, pos = [], 0
+    while head := _FUNCTION_HEAD.search(text, pos):
+        out += [text[pos:head.start()], " "]
+        pos = _function_end(text, head.end() - 1)
+    return "".join(out) + text[pos:]
+
+
 def _executable(command: str) -> str:
     """The lines a shell would run: heredoc bodies, line continuations and function definitions left out."""
     text = _CONTINUATION.sub(_join_line, _without_heredoc_bodies(command or ""))
-    return _FUNCTION.sub(" ", text)
+    return _without_functions(text)
 
 
 def _masked_segments(command: str, *, hide_spaced: bool = False) -> list[str]:
     """The command's segments with their quotes removed, still masked. A heredoc body is dropped; with
     ``hide_spaced`` a quoted argument with a space in it is replaced by a placeholder."""
-    text = _executable(command)
-    if hide_spaced:
-        text = _QUOTED.sub(_hide_sentence, text)  # the same pairing of quotes as _mask
-    masked = _COMMENT.sub("", _QUOTED.sub(_mask, text))
+    masked = _strip_comments(_executable(command), hide_spaced=hide_spaced)
     return [_dequote(seg) for seg in _SEGMENT.split(masked)]
 
 
@@ -235,13 +269,31 @@ def _command_segments(command: str) -> list[str]:
     """The simple commands of a shell line, quotes kept: split at separators and pipes outside quotes, with
     heredoc bodies, line continuations and comments left out. Read here, not by ``shell.segments``, because that
     walker cuts a heredoc at a ``<<`` inside quotes and would hide the command after it."""
-    masked = _COMMENT.sub("", _QUOTED.sub(_mask, _executable(command)))
+    masked = _strip_comments(_executable(command))
     return [seg.translate(_FROM_MASK) for seg in _SEGMENT.split(masked)]
 
 
 def _words_of(segment: str) -> list[str]:
     """A simple command as shell words, past its compound-command syntax (``then``, ``do``, ``(``)."""
     return shell.tokens(shell.clean(segment))
+
+
+def _without_redirections(words: list[str]) -> list[str]:
+    """The words of a command with its redirections left out: ``>log``, ``2>&1``, ``2 >log`` and ``> log`` are not
+    arguments. The tokenizer splits a descriptor (``2``) from its operator, so a number before one is dropped too."""
+    out: list[str] = []
+    i = 0
+    while i < len(words):
+        word, i = words[i], i + 1
+        if word.isdigit() and i < len(words) and _REDIRECT_OP.match(words[i]):
+            continue
+        op = _REDIRECT_OP.match(word)
+        if op:
+            if op.end() == len(word):  # a bare operator: the next word is its target
+                i += 1
+            continue
+        out.append(word)
+    return out
 
 
 def _key_words(key: str) -> list[str]:
@@ -260,7 +312,8 @@ def _invokes(key: str, command: str) -> bool:
     words = _key_words(key)
     if not words:
         return False
-    return any(shell.strip_wrappers(_words_of(seg))[:len(words)] == words for seg in _command_segments(command))
+    return any(shell.strip_wrappers(_without_redirections(_words_of(seg)))[:len(words)] == words
+               for seg in _command_segments(command))
 
 
 def _prints(text: str) -> bool:

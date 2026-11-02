@@ -47,7 +47,8 @@ model is called; every match is lexical.
   argument with a space in it is text, so `git commit -m "update docs/guide.md"` does not act on
   the file, while `cat "docs/guide.md"` does. A quoted path that itself contains a space is read as a
   sentence and does not count. A `>` inside quotes is text, not a redirection. A `<` reads its file, and a
-  shell function's body counts only as defined, not run: a call of the function is not followed.
+  shell function's definition does not count as acting: its body is ignored (up to the brace that closes it,
+  quotes and nested groups counted), and calls of the function are not followed.
   A capitalised bare file name in backticks (`` `Makefile` ``) matches an edit of that file, or a
   shell command that names it as an argument (`cat Makefile`); an `echo` of it does not. A lowercase bare word
   (`` `pytest` ``) is a command, so an argument naming it (`grep pytest`) does not count. A path with a
