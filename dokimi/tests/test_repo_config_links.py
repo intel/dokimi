@@ -6,10 +6,13 @@
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
 
+from dokimi import repo_config, repo_links
 from dokimi.repo_config import ConfigError, _walk, load_repo_config
 
 HEADER = "schema_version: dokimi_config.v1\n"
@@ -326,3 +329,140 @@ def test_a_self_referential_link_a_suite_names_is_a_config_error_not_dropped(tmp
     os.symlink("loop", root / "evaluation" / "loop")
     with pytest.raises(ConfigError, match="loop"):
         load_repo_config(root).subjects()
+
+
+SKILL_A = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: {suite}\n"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_a_link_on_the_way_to_a_skill_inside_its_suite_moves_the_skill_too(tmp_path):
+    # skills/a/refs/current -> common/one: skill_sha covers the link (the suite matches only the tasks under it)
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": SKILL_A.format(suite="skills/a/refs/current/tasks"),
+        "skills/a/SKILL.md": "a\n",
+        "common/one/tasks/q.json": "[]\n",
+        "common/two/tasks/q.json": "[]\n",
+    })
+    os.makedirs(root / "skills" / "a" / "refs")
+    os.symlink("../../../common/one", root / "skills" / "a" / "refs" / "current")
+    before = _subjects(root)["skill/a"]
+    (root / "skills" / "a" / "refs" / "current").unlink()
+    os.symlink("../../../common/two", root / "skills" / "a" / "refs" / "current")
+    after = _subjects(root)["skill/a"]
+    assert after.skill_sha != before.skill_sha and after.suite_hash != before.suite_hash
+    impact = load_repo_config(root).subjects_for_changed(["skills/a/refs/current"])
+    assert impact.skills == {"skill/a": ["skills/a/refs/current"]}
+    assert impact.suites == {"skill/a": ["skills/a/refs/current"]}
+    assert impact.unclaimed == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_retargeting_a_linked_skill_outside_the_repository_claims_the_skill(tmp_path):
+    ext = tmp_path / "ext"
+    for name in ("one", "two"):
+        (ext / name / "a").mkdir(parents=True)
+        (ext / name / "a" / "SKILL.md").write_text(f"{name}\n", encoding="utf-8")
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": HEADER + "subjects:\n  - id: skill/a\n    path: linked/a\n    suite: evaluation/*.json\n",
+        "evaluation/x.json": "[]\n",
+    })
+    os.symlink(ext / "one", root / "linked")
+    before = _subjects(root)["skill/a"]
+    (root / "linked").unlink()
+    os.symlink(ext / "two", root / "linked")
+    after = _subjects(root)["skill/a"]
+    assert after.skill_sha != before.skill_sha
+    impact = load_repo_config(root).subjects_for_changed(["linked"])
+    assert impact.skills == {"skill/a": ["linked"]} and impact.unclaimed == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+@pytest.mark.parametrize("suite", ["evaluation/current/task.json", "evaluation/current/*.json", "evaluation/*/task.json"])
+def test_a_deleted_link_on_the_way_to_a_suite_still_claims_the_suite(tmp_path, suite):
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": SKILL_A.format(suite=suite),
+        "skills/a/SKILL.md": "a\n",
+        "one/task.json": "[]\n",
+    })
+    os.makedirs(root / "evaluation")
+    os.symlink("../one", root / "evaluation" / "current")
+    assert _subjects(root)["skill/a"].suite_hash
+    (root / "evaluation" / "current").unlink()
+    impact = load_repo_config(root).subjects_for_changed(["evaluation/current"])
+    assert impact.suites == {"skill/a": ["evaluation/current"]}
+    assert impact.unclaimed == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_retargeting_a_link_between_empty_directories_moves_the_suite_hash(tmp_path):
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": SKILL_A.format(suite="evaluation/current/tasks"),
+        "skills/a/SKILL.md": "a\n",
+    })
+    os.makedirs(root / "one" / "tasks")  # empty: the match is a directory with no file under it
+    os.makedirs(root / "two" / "tasks")
+    os.makedirs(root / "evaluation")
+    os.symlink("../one", root / "evaluation" / "current")
+    before = _subjects(root)["skill/a"].suite_hash
+    (root / "evaluation" / "current").unlink()
+    os.symlink("../two", root / "evaluation" / "current")
+    assert _subjects(root)["skill/a"].suite_hash != before
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_a_suite_reached_through_a_link_into_its_own_skill_is_refused(tmp_path):
+    # skills/a/evals -> actual, and the suite is skills/a/evals/tasks: the tasks are the skill's own files
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": SKILL_A.format(suite="skills/a/evals/tasks"),
+        "skills/a/SKILL.md": "a\n",
+        "skills/a/actual/tasks/q.json": "[]\n",
+    })
+    os.symlink("actual", root / "skills" / "a" / "evals")
+    with pytest.raises(ConfigError, match=r"skill/a.*skills/a/evals/tasks.*skills/a/evals"):
+        load_repo_config(root).subjects(hashes=False)
+
+
+def test_a_case_that_differs_only_from_the_name_on_disk_is_the_declared_suite_place(tmp_path, monkeypatch):
+    # a case-folding filesystem (Windows) resolves skills/a/evals to skills/a/EVALS; the suite is still the declared place
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n",
+        "skills/a/SKILL.md": "a\n",
+        "skills/a/EVALS/q.json": "[]\n",
+    })
+    expected = load_repo_config(root).subjects_for_changed(["skills/a/EVALS/q.json"])
+    expected_hashes = {s.id: s.suite_hash for s in load_repo_config(root).subjects()}
+    real = repo_links._real
+
+    def folded(path):  # what Windows returns for the declared name: the spelling on disk
+        return real(path.parent / "EVALS") if path.name == "evals" else real(path)
+
+    monkeypatch.setattr(repo_links, "_real", folded)
+    monkeypatch.setattr(repo_config, "_real", folded)
+    assert load_repo_config(root).subjects_for_changed(["skills/a/EVALS/q.json"]) == expected
+    assert {s.id: s.suite_hash for s in load_repo_config(root).subjects()} == expected_hashes
+    assert expected.skills == {"skill/a": ["skills/a/EVALS/q.json"]} and expected.suites == {}
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="the executable bits come from git's index; needs git")
+def test_a_suite_of_many_files_reads_the_git_index_once(tmp_path, monkeypatch):
+    # each eval file used to start its own git ls-files: one per file, for every subject's suite hash
+    from dokimi import repo_config, utils
+
+    calls: list[Path] = []
+    read = utils._tracked_modes
+
+    def counting(base, spec):
+        calls.append(base)
+        return read(base, spec)
+
+    monkeypatch.setattr(utils, "_tracked_modes", counting)
+    monkeypatch.setattr(repo_config, "_tracked_modes", counting)
+    files = {"skills/a/SKILL.md": "a\n", **{f"evaluation/t{i}/q.json": "[]\n" for i in range(30)}}
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: evaluation/*/q.json\n",
+        **files,
+    })
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
+    subjects = load_repo_config(root).subjects()
+    assert subjects[0].suite_hash and len(calls) <= 2  # the skill's own tree and the index, once each

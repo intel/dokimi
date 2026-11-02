@@ -7,7 +7,7 @@ import os
 import re
 import stat
 from pathlib import Path
-from typing import Iterable, Tuple, Dict, Any
+from typing import Any, Dict, Iterable, Mapping, Tuple
 
 from dokimi.defaults import bedrock_profile
 from dokimi.exit_codes import EXIT_USAGE
@@ -188,7 +188,8 @@ def _entries(root: Path, skip: tuple[str, ...], *, strict: bool) -> list[Path]:
     return found
 
 
-def tree_digest(root: Path, *, exclude: Iterable[str] = (), strict: bool = False) -> str:
+def tree_digest(root: Path, *, exclude: Iterable[str] = (), strict: bool = False,
+                tracked: Mapping[str, bool] | None = None) -> str:
     """sha256 (bare hex) over every path, mode bit and byte under ``root``; a link by its target.
 
     A file ``root`` digests as itself (its path is ``.``), and so does a symlink ``root``
@@ -202,14 +203,23 @@ def tree_digest(root: Path, *, exclude: Iterable[str] = (), strict: bool = False
     ``link_text``); one pointing outside ``root`` is hashed as written.
 
     ``strict``: a directory under ``root`` that cannot be read raises its OSError (the default skips it silently).
+    ``tracked``: the executable bits git records, keyed by path relative to ``root`` (to its parent for a file root),
+    as :func:`_tracked_modes` returns them; None reads them from git. A caller digesting many files reads them once.
     """
     skip = tuple(e.strip("/") for e in exclude)
+    # a symlink is never looked through here: its target may be unreadable (or gone), and it digests by its text
+    is_link = root.is_symlink()
+    as_file = not is_link and root.is_file()
     # sorted by the parts of the relative path, compared as code points: the same order on every OS (Path
     # ordering folds case on Windows)
-    entries = ([root] if root.is_symlink() or root.is_file()
+    entries = ([root] if is_link or as_file
                else sorted(_entries(root, skip, strict=strict), key=lambda p: p.relative_to(root).parts))
-    base, spec = (root.parent, root.name) if root.is_file() else (root, ".")
-    tracked = _tracked_modes(base, spec) if any(p.is_file() and not p.is_symlink() for p in entries) else {}
+    base, spec = (root.parent, root.name) if as_file else (root, ".")
+    modes: Mapping[str, bool]
+    if tracked is None:
+        modes = _tracked_modes(base, spec) if any(not p.is_symlink() and p.is_file() for p in entries) else {}
+    else:  # the caller read the index already: keyed as below, by the path relative to ``base``
+        modes = tracked
     h = hashlib.sha256()
     for path in entries:
         rel = "." if path == root else path.relative_to(root).as_posix()
@@ -221,8 +231,8 @@ def tree_digest(root: Path, *, exclude: Iterable[str] = (), strict: bool = False
             h.update(b"L " + name + b"\0" + os.fsencode(link_text(path, root)) + b"\0")
         elif path.is_file():
             key = path.relative_to(base).as_posix()
-            if key in tracked:
-                executable = tracked[key]
+            if key in modes:
+                executable = modes[key]
             else:
                 executable = bool(os.lstat(path).st_mode & stat.S_IXUSR)
             h.update(b"F " + name + f"\0{int(executable)}\0".encode())

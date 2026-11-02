@@ -290,3 +290,21 @@ def test_an_absolute_link_inside_the_tree_matches_whatever_the_case_of_its_targe
     except OSError:
         pytest.skip("creating symlinks needs privileges on Windows")
     assert tree_digest(a) == tree_digest(b)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="a directory's mode bits do not stop reads on Windows")
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0, reason="root reads any directory: the test cannot fail there")
+def test_a_readable_link_to_an_unreadable_target_digests_by_its_text(tmp_path):
+    # the link is readable, but its target's directory has no search permission: the link is hashed by its text, not read
+    private = tmp_path / "private"
+    private.mkdir()
+    (private / "q.json").write_text("[]\n", encoding="utf-8")
+    root = _write(tmp_path / "t", {"x.json": "[]\n"})
+    os.symlink(private / "q.json", root / "link.json")
+    os.chmod(private, 0)
+    try:
+        assert tree_digest(root / "link.json")
+        assert tree_digest(root)
+    finally:
+        os.chmod(private, 0o755)
+
