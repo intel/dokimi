@@ -474,7 +474,7 @@ parent's and subagents' together, so a grader need not:
 A cell of an arm that installs skills also has a `skills` object in
 `result.json`: `measured`, `skills_installed` (the installed skill names),
 `skills_used` (the installed skills the agent called with the `Skill` tool or
-whose `SKILL.md` it read, the read neither denied nor failed, in order of first use), `expected_skill` (the task's,
+whose `SKILL.md` it read, the call or read neither denied nor failed, in order of first use), `expected_skill` (the task's,
 or `null`), `skill_invoked` (the expected skill was used; any installed skill
 when the task names none) and `skill_selected_correct` (the expected skill was
 the first one used; `null` when the task names none). When the trace could not
@@ -488,7 +488,7 @@ For a `patch:` arm with `added` files or `mcp_servers`, `result.json` has an
 command events that name an added file as a workspace path (`tools/fmt`,
 `./tools/fmt`, `/eval/run/workspace/tools/fmt`, not `cd tools && ./fmt`; a file
 with no `/` only as `./name`, under the workspace path or after an interpreter (a bare `name` resolves through `PATH`), so
-`npm run lint` does not name a `lint` file), `reads` the read events of one (a
+`npm run lint` does not name a `lint` file), `reads` the read events of one that did not fail (a
 read of an added script counts as use), `mcp_calls` the calls of the servers' tools
 (`mcp__<server>__<tool>`), none of them a call the harness denied; `used`
 is whether any is non-zero, and `measured` is
