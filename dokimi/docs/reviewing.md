@@ -185,9 +185,15 @@ these, in order, before writing what it showed (the fields:
 - **Delivery first.** Say what the cells started with before crediting any
   file. The `first_prompt_tokens` delta of `repo compare` is evidence, not
   proof: a mean over tasks and cells of a total, it names no file. A delta the
-  size of the root file points at that file alone; confirm with reach (step 2)
-  under the cells' harness and version, and where a credit turns on it with
-  the cells' traces. A nested `AGENTS.md` loads later if at all (reach's
+  size of the root file points at that file alone. Confirm with reach (step 2)
+  on a cell's start commit (`meta.json` `start_sha`: the task's base with its
+  arm applied; `guidance:rev:` writes each link as a plain file), with the
+  run's manifest (the cell has no `eval_dir`), the cells' `--harness` and a
+  `--bin` of their `harness_version`:
+  `dokimi repo reach <cell>/workspace@<start_sha> --manifest-file <manifest> --model <id>`.
+  Reach on the checkout or on `<repo>@<sha>` (links kept, no base) checks
+  that tree, not the cells'. Where a credit turns on it, read the cells'
+  traces too. A nested `AGENTS.md` loads later if at all (reach's
   `cwd=<dir>`, `read=<dir>` show what loads it). `process:guidance_read`
   counts Read-tool reads only: 0 from an agent that used Bash is not "never
   read"; look for a `cat` or `grep` of a guidance file in `events.jsonl` or
