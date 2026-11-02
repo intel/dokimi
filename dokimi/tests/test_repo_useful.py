@@ -830,3 +830,33 @@ def test_a_pattern_past_its_search_budget_is_a_timeout_reason_and_the_trace_is_n
     assert first_useful(parse_useful({"command": "(a|a)+$"}), events) == {
         "kind": "command", "reason": "timeout", "issued_s": None, "steps": None}
     assert len(searched) == 1
+
+
+def test_an_assistant_record_with_a_plain_string_content_is_a_dropped_line():
+    line = {"type": "assistant", "message": {"content": "unexpected shape"}}
+    assert convert("claude-stream-json", json.dumps(line), "/ws").dropped_lines == 1
+
+
+def _copilot_lines(name, arguments):
+    return "\n".join(json.dumps(x) for x in [
+        {"type": "tool.execution_start", "data": {"toolCallId": "e", "toolName": name, "arguments": arguments}},
+        {"type": "tool.execution_complete", "data": {"toolCallId": "e", "success": True}},
+        {"type": "result", "exitCode": 0},
+    ])
+
+
+@pytest.mark.parametrize("arguments", [42, None])
+@pytest.mark.parametrize("name", ["edit", "create", "view", "bash", "powershell"])
+def test_a_copilot_call_with_non_object_arguments_is_a_dropped_line(name, arguments):
+    assert convert("copilot-json", _copilot_lines(name, arguments), "/ws").dropped_lines == 1
+
+
+def test_a_copilot_apply_patch_given_as_a_string_is_not_dropped():
+    patch = "*** Update File: /ws/a.py\n"
+    assert convert("copilot-json", _copilot_lines("apply_patch", patch), "/ws").dropped_lines == 0
+
+
+def test_a_copilot_edit_with_non_object_arguments_is_unobserved_not_never():
+    transcript = convert("copilot-json", _copilot_lines("edit", 42), "/ws")
+    events = None if transcript.dropped_lines else transcript.events
+    assert first_useful(parse_useful({"edit": "**"}), events)["reason"] == "unobserved"

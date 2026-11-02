@@ -745,13 +745,15 @@ def copilot_json(raw: str, workdir: str | None, cwd: str = "") -> Transcript:
 def _copilot_tool(data: dict[str, Any], t: float | None, workdir: str | None, cwd: str = "") -> list[dict[str, Any]]:
     name = str(data.get("toolName") or "")
     args = data.get("arguments")
+    if name in _COPILOT_SHELL | _COPILOT_READ | _COPILOT_EDIT and not isinstance(args, dict):
+        raise TypeError(f"{name} arguments are not an object")  # counted as a dropped line by the caller
     if name in _COPILOT_SHELL:
-        command = str((args or {}).get("command", "")) if isinstance(args, dict) else ""
+        command = str(args.get("command", ""))
         # only bash is a POSIX script; a PowerShell command is not parsed for the files it reads
         scripts = shell_reads(command, cwd) if name == "bash" else []
         reads = [{"t": t, "kind": "read", "path": relative_path(p, workdir)} for p in scripts]
         return [*reads, {"t": t, "kind": "command", "text": command, "rc": None}]
-    if name in _COPILOT_READ | _COPILOT_EDIT and isinstance(args, dict):
+    if name in _COPILOT_READ | _COPILOT_EDIT:
         path = str(args.get("path") or args.get("file_path") or "")
         if not path:  # a call without a path names no file
             return []

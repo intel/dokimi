@@ -221,7 +221,7 @@ def _result_text(content: Any) -> str | None:
 def _content(rec: dict[str, Any], out: Transcript) -> list[dict[str, Any]]:
     """The object blocks of a message; a record with a block or a content of another shape counts as dropped."""
     content = (rec.get("message") or {}).get("content")
-    if isinstance(content, str) or (content is None and rec.get("type") == "user"):  # a user's prompt is a plain string: no block, nothing lost
+    if rec.get("type") == "user" and (isinstance(content, str) or content is None):  # a user's prompt is a plain string: nothing lost
         return []
     if not isinstance(content, list):
         out.dropped_lines += 1
