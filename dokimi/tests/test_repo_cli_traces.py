@@ -563,7 +563,8 @@ def test_copilot_command_exit_code_falls_back_to_success(done, rc):
     ("cat AGENTS.md", {"success": False}, set()),
     ("cat AGENTS.md", {"shellExecution": {"exitCode": 0}}, {"AGENTS.md"}),
     ("cat a; cat b", {"shellExecution": {"exitCode": 1}}, {"a", "b"}),  # which part failed is not known
-], ids=["exit-1", "success-false", "exit-0", "compound"])
+    ("cd sub && cat AGENTS.md", {"shellExecution": {"exitCode": 1}}, set()),  # the cd or the cat failed
+], ids=["exit-1", "success-false", "exit-0", "compound", "cd-then-cat"])
 def test_copilot_failed_bash_read_is_not_a_read(command, done, reads):
     raw = _jsonl(
         {"type": "tool.execution_start",

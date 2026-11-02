@@ -667,12 +667,14 @@ def _codex_command_unstarted(out: Transcript, item: dict[str, Any], script: str,
 
 
 def _failed_read(script: str, reads: list[Any], rc: Any) -> bool:
-    """A non-zero exit of a command that is one part naming one file: that file was not read.
+    """A non-zero exit of a command that is one part naming one file, alone or after ``cd`` parts
+    (``cd sub && cat AGENTS.md``: the cd or the cat failed): that file was not read.
 
     Otherwise the exit code does not say which read failed (``cat a missing`` prints ``a`` and
     exits 1), so the reads are kept.
     """
-    return rc not in (None, 0) and len(reads) == 1 and len(_split_script(script)) == 1
+    return rc not in (None, 0) and len(reads) == 1 and all(  # each part before the last is a ``cd``
+        part.split()[:1] == ["cd"] for part, _, _ in _split_script(script)[:-1])
 
 
 class _CopilotRun:
