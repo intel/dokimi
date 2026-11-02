@@ -109,6 +109,17 @@ def test_a_refused_cd_moves_no_shell(refusal, reads):
     assert [e["kind"] for e in events] == ["command", *(["read"] if reads else []), "command"]
 
 
+@pytest.mark.parametrize("refusal", [
+    lambda: _result("b", "PreToolUse:Bash hook error: no", True),
+    lambda: _denials("b"),
+])
+def test_a_refused_relative_read_after_a_cd_stays_denied(refusal):
+    events = _events(_call("a", "cd sub"), _result("a"), _call("b", "cat AGENTS.md"), refusal())
+    assert [(e["kind"], e.get("denied")) for e in events] == [("command", None), ("read", True), ("command", True)]
+    got = process_metrics(events, lambda p: p.endswith("AGENTS.md"))
+    assert got["tool_calls"] == 3 and got["guidance_read"] == []
+
+
 @pytest.mark.parametrize("command", ["cat AGENTS.md | head", "grep -n rule AGENTS.md", "cat AGENTS.md > copy.md"])
 def test_a_pipe_a_search_or_a_redirect_is_no_read(command):
     assert _reads(_events(_call("a", command), _result("a"))) == []
