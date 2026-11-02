@@ -314,6 +314,25 @@ def test_useful_summary_is_the_observed_cells_medians_and_why_the_rest_are_not()
     assert useful_line(None, 4) == []
 
 
+def test_useful_summary_of_mixed_kinds_names_no_kind_and_no_median():
+    # a command hit and an edit hit in one row: their seconds and steps are no one measure
+    recs = [
+        {"first_useful": _hit(10.0, 4)},
+        {"first_useful": {"kind": "edit", "reason": None, "issued_s": 40.0, "steps": 9}},
+    ]
+    assert useful_summary(recs) == {
+        "kind": "mixed",
+        "n": 2,
+        "observed": 2,
+        "median_s": None,
+        "median_steps": None,
+        "reasons": {},
+    }
+    assert useful_line(useful_summary(recs), 4) == [
+        " " * 8 + "first useful (mixed): 2 of 2 observed"
+    ]
+
+
 def test_a_task_value_is_the_median_of_the_cells_that_observed_it():
     recs = [
         {"first_useful": _hit(10.0, 4)},
@@ -644,6 +663,25 @@ def test_a_claude_trace_with_a_malformed_content_block_is_unobserved_not_never()
     transcript = convert("claude-stream-json", "\n".join(json.dumps(x) for x in lines), "/ws")
     assert transcript.dropped_lines == 1
     # the runner reports the uptake as unobserved when a line was dropped, as it would for a trace it could not read
+    events = None if transcript.dropped_lines else transcript.events
+    assert first_useful(parse_useful({"edit": "src/*.py"}), events)["reason"] == "unobserved"
+
+
+@pytest.mark.parametrize("result_id", [None, 7, "", "missing"])
+def test_a_claude_tool_result_with_no_usable_id_is_a_dropped_line_not_a_silent_miss(result_id):
+    # the Edit's completion names no call, so it cannot be matched: the trace is unreadable, not "never"
+    result = {"type": "tool_result", "is_error": False, "content": "ok"}
+    if result_id != "missing":
+        result["tool_use_id"] = result_id
+    lines = [
+        {"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "e", "name": "Edit",
+                                                       "input": {"file_path": "/ws/src/x.py"}}]}},
+        {"type": "user", "message": {"content": [result]}},
+        {"type": "result", "subtype": "success", "is_error": False, "num_turns": 2, "result": "done",
+         "usage": {"input_tokens": 1, "output_tokens": 1}},
+    ]
+    transcript = convert("claude-stream-json", "\n".join(json.dumps(x) for x in lines), "/ws")
+    assert transcript.dropped_lines == 1
     events = None if transcript.dropped_lines else transcript.events
     assert first_useful(parse_useful({"edit": "src/*.py"}), events)["reason"] == "unobserved"
 

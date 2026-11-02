@@ -131,6 +131,9 @@ def _apply(out: Transcript, rec: dict[str, Any], t: float | None,
     elif kind == "user":
         for block in _content(rec, out):
             if block.get("type") == "tool_result":
+                if not _well_formed_tool_result(block):  # a result that names no call is lost: a dropped line
+                    out.dropped_lines += 1
+                    continue
                 _apply_result(block, by_id)
     elif kind == "result":
         _apply_final(out, rec, by_id)
@@ -190,6 +193,11 @@ def _well_formed_tool_use(block: dict[str, Any]) -> bool:
     return (isinstance(block.get("id"), str) and bool(block["id"])
             and isinstance(block.get("name"), str) and bool(block["name"])
             and isinstance(block.get("input"), dict))
+
+
+def _well_formed_tool_result(block: dict[str, Any]) -> bool:
+    """A tool result names the call it answers by a non-empty string id."""
+    return isinstance(block.get("tool_use_id"), str) and bool(block["tool_use_id"])
 
 
 def _tool_event(block: dict[str, Any], t: float | None, workdir: str | None) -> dict[str, Any]:

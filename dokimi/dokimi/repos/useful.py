@@ -113,12 +113,14 @@ def useful_summary(recs: Sequence[Mapping[str, Any]]) -> dict[str, Any] | None:
         return None
     seconds = _nums(u.get("issued_s") for u in _observed(have))
     steps = _nums(u.get("steps") for u in have)
+    kind = useful_kind(recs)  # "mixed" when the cells name both kinds: no median of those is one measure
+    mixed = kind == "mixed"
     return {
-        "kind": have[0]["kind"],
+        "kind": kind,
         "n": len(have),
         "observed": len(steps),
-        "median_s": _median(seconds),
-        "median_steps": _median(steps),
+        "median_s": None if mixed else _median(seconds),
+        "median_steps": None if mixed else _median(steps),
         "reasons": dict(Counter(u["reason"] for u in have if u.get("reason"))),
     }
 
