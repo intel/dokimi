@@ -53,6 +53,7 @@ _KEYWORDS = {"if", "then", "else", "elif", "do", "while", "until", "!"}
 # after these builtins the directory is not known: a directory stack, or a script that may run a ``cd``
 _DIR_LOST = {"pushd", "popd", "eval", "source", "."}
 _DIRS = {"cd"} | _DIR_LOST  # the builtins that change, or may change, the directory
+_PREFIXES = {"builtin", "command", "time"}  # each runs the directory builtin named after it in this shell
 _PIPE = re.compile(r"(?<!\|)\|(?!\|)")  # a pipe, not ||
 _GROUP_OPEN = re.compile(r"(?:^|[\s;&|(])\{(?=\s|$)")  # a brace group opens: ``{`` as a word
 _GROUP_CLOSE = re.compile(r"(?:^|\s)\}(?=\s|$|[;&|])")
@@ -89,7 +90,8 @@ def shell_reads(script: str, cwd: str = "") -> list[str]:
     relative path is joined to it and normalised (no ``.`` or ``..``). The directory is unknown (a
     relative read is not recorded) after ``cd -``, a bare ``cd``, a ``cd`` to a computed path, a
     ``pushd`` / ``popd``, an ``eval``, ``source`` or ``.`` (it may run a ``cd``; none of these when backgrounded or
-    piped, as it then ran in a subshell: ``source env.sh & false || cat a`` reads a), ``env -C`` / ``--chdir`` (the
+    piped, as it then ran in a subshell: ``source env.sh & false || cat a`` reads a), a part the walker does not
+    follow that names one of these (``time -p cd sub``, ``X="a b" cd "$D"``: :func:`_may_run_dir`), ``env -C`` / ``--chdir`` (the
     command's reads, but absolute ones), a ``cd`` after ``if`` / ``then`` / ``do`` / ``else`` (it may not run), a
     ``cd`` after ``&&`` / ``||`` once the chain holding it ends with ``;``, ``&`` or a newline (it may have been
     skipped), or a glob or brace expansion (the files are not known). A subshell ``( ... )`` or `` `...` `` records
@@ -247,7 +249,7 @@ class _Walk:
         name = _run_name(words[0], via_env)
         if name is None:
             return []
-        if name in _DIR_LOST or (conditional and name == "cd"):
+        if name in _DIR_LOST or (conditional and name == "cd") or _may_run_dir(words):
             self.lose(after != "&")
         elif name == "cd":
             self.gated |= chained
@@ -293,13 +295,24 @@ def _cd(here: str | None, args: list[str]) -> str | None:
 
 
 def _runs_dir(outer: str) -> bool:
-    """Whether the outer text of a part (:class:`~dokimi.repos.shell_split.Part`) runs a directory builtin, as
-    ``cd $(...)`` does (a subshell ``(cd x; ...)`` has no such text, so it changes nothing outside itself)."""
-    words = outer.split()
-    while words and (words[0] in _KEYWORDS or words[0] == "{"):  # a quoted ``"if"`` is no keyword: skipped unquoted
+    """Whether a part's text, or its outer text (:class:`~dokimi.repos.shell_split.Part`), runs a directory builtin, as
+    ``cd $(...)`` and ``X="a b" cd "$D"`` do, or may (:func:`_may_run_dir`); a subshell ``(cd x; ...)`` has no such
+    text, so it changes nothing outside itself. Text shlex cannot split is not understood: any builtin's name in it counts."""
+    try:
+        words = shlex.split(outer)
+    except ValueError:
+        return any(w in _DIRS for w in _unquoted(outer.split()))
+    while words and (words[0] in _KEYWORDS or words[0] == "{"):
         words = words[1:]
-    words, via_env, _ = _command_words(_unquoted(words))
-    return bool(words) and words[0] in _DIRS and not via_env
+    words, via_env, _ = _command_words(words)
+    return bool(words) and not via_env and (words[0] in _DIRS or _may_run_dir(words))
+
+
+def _may_run_dir(words: list[str]) -> bool:
+    """The rule for a part the walker does not fully follow: its unquoted ``words``, from the name on, start with a
+    ``builtin``, ``command`` or ``time`` that :func:`_command_words` did not skip, as an option comes first (``time -p
+    cd sub``, ``command -p cd``, ``builtin -- cd``), and a later word names a directory builtin: the shell may move."""
+    return bool(words) and words[0] in _PREFIXES and any(w in _DIRS for w in words[1:])
 
 
 def _in_own_shell(outer: str, after: str) -> bool:
@@ -482,7 +495,7 @@ def _command_words(words: list[str]) -> tuple[list[str], bool, bool]:
     while words:
         if _ASSIGN.match(words[0]):
             words = words[1:]
-        elif words[0] in ("builtin", "command", "time") and len(words) > 1 and words[1] in _DIRS:  # ``./command`` is a program
+        elif words[0] in _PREFIXES and len(words) > 1 and words[1] in _DIRS:  # ``./command`` is a program
             words = words[1:]
         elif _program(words[0]) == "env":
             words, via_env = words[1:], True
@@ -630,7 +643,9 @@ def _failed_read(script: str, reads: list[Any], rc: Any) -> bool:
     (``cd sub && cat AGENTS.md``: the cd or the cat failed): that file was not read.
 
     Otherwise the exit code does not say which read failed (``cat a missing`` prints ``a`` and
-    exits 1), so the reads are kept: also when only one of the files is known (``cd -; cat missing /ws/a``).
+    exits 1), so the reads are kept: also when only one of the files is known (``cd -; cat missing /ws/a``). A part
+    before it that is not surely a ``cd`` (``X="a b" cd sub``, ``time -p cd sub``) keeps them too: its exit may be
+    the one that failed, and a read is dropped only when that file surely was not printed.
     """
     if rc in (None, 0) or not reads or not all(_is_cd(part.text) for part in split_script(script)[:-1]):
         return False

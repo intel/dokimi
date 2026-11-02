@@ -1188,7 +1188,11 @@ observations of that run. It cannot show:
   relative reads of both (this only drops reads; no real trace was checked);
 - a `cd` inside a shell function the agent defined and then called: the call
   is not followed, so a later relative read is taken from the directory
-  before it (an `eval`, `source` or `.` is taken as moving the shell);
+  before it (an `eval`, `source` or `.` is taken as moving the shell). A
+  command the parser does not fully follow that names a directory builtin
+  (`X="a b" cd "$D"`, `time -p cd sub`, `command -p cd`) counts as moving the
+  shell; the forms that only drop a read are listed in
+  [#374](https://github.com/intel/dokimi/issues/374);
 - when a source entered the request, or in what order (no timestamps);
 - start-up imports and skill listings from budget, which reach does not probe:
   they appear with `observed: unknown`. A skill body is loaded on demand, so it

@@ -174,6 +174,9 @@ def test_a_call_that_moves_no_shell_keeps_the_next_relative_read(first):
     ("{ cd $(pwd); }", True), ("{ { cd sub; }; }", True),
     ('"source" "$ENV"', True), ("'cd' \"$D\"", True), (r'\eval "$X"', True), ('"." env.sh', True),  # quoted names
     ('"cd" "$D" &', False), ('"source" "$E" | cat', False), ('"env" cd "$D"', False), ("'\\cd' \"$D\"", False),
+    ('X="a b" cd "$D"', True), ("time -p cd sub", True), ("command -p cd sub", True), ("builtin -- cd sub", True),
+    ("time -p cd sub &", False), ('X="a b" cd "$D" | cat', False), ("time -p make", False),  # not followed: may move
+    ('time -p cd "$D', True),  # shlex cannot split it: any builtin's name counts
 ])
 def test_only_a_directory_builtin_in_the_calls_own_shell_moves_it(command, moves):
     assert shell_reads_moved(command)[1] is moves
@@ -211,6 +214,23 @@ def test_time_runs_a_cd_and_eval_or_source_loses_the_directory_within_a_call(com
 def test_a_source_eval_or_computed_cd_in_a_job_or_a_pipeline_keeps_the_calls_later_read(command):
     events = _events(_call("a", command), _result("a"), _call("b", "cat README.md"), _result("b"))
     assert _reads(events) == ["AGENTS.md", "README.md"]
+
+
+_UNFOLLOWED = ['X="a b" cd "$D"', "time -p cd sub", "command -p cd sub", "builtin -- cd sub"]
+
+
+@pytest.mark.parametrize("first", _UNFOLLOWED)
+def test_a_directory_builtin_the_parser_does_not_follow_moves_the_shell(first):
+    # an assignment with a blank, or an option before the builtin: the shell may have moved, so no relative read
+    assert _reads(_events(_call("a", f"{first} && cat AGENTS.md"), _result("a"))) == []
+    events = _events(_call("a", first), _result("a"), _call("b", "cat AGENTS.md"), _result("b"))
+    assert _reads(events) == []
+
+
+def test_a_failed_read_after_a_part_not_surely_a_cd_keeps_its_read():
+    # ``_is_cd`` splits at blanks: ``X="a b" cd sub`` is not surely a cd, so the exit may be its own
+    events = _events(_call("a", 'X="a b" cd sub && cat AGENTS.md'), _result("a", "error", True))
+    assert [(e["kind"], e.get("path"), e["rc"]) for e in events] == [("read", "sub/AGENTS.md", 0), ("command", None, 1)]
 
 
 def test_a_parents_cd_drops_a_subagents_later_relative_read():

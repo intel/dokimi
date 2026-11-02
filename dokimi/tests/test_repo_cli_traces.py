@@ -219,6 +219,22 @@ def test_a_quoted_or_escaped_directory_builtin_loses_the_directory(command):
 
 
 @pytest.mark.parametrize("command", [
+    'X="a b" cd "$D"; cat AGENTS.md', "time -p cd sub; cat AGENTS.md", "command -p cd sub && cat AGENTS.md",
+    "builtin -- cd sub; cat AGENTS.md", 'time -p "cd" sub; cat AGENTS.md', 'X="a b" source "$E"; cat AGENTS.md',
+    "time -p pushd sub; cat AGENTS.md", "command -p cd $(pwd); cat AGENTS.md",
+])
+def test_a_directory_builtin_the_walker_does_not_follow_loses_the_directory(command):
+    # an assignment with a blank before it, or an option after ``time`` / ``command`` / ``builtin``: it may move
+    assert shell_reads(command, "sub") == []
+
+
+@pytest.mark.parametrize("command", ["time -p cd sub & cat AGENTS.md", 'X="a b" cd "$D" | cat; cat AGENTS.md',
+                                     "time -p make; cat AGENTS.md", "command -v git; cat AGENTS.md"])
+def test_an_unfollowed_builtin_in_a_job_or_a_pipe_or_none_keeps_the_directory(command):
+    assert shell_reads(command, "sub") == ["sub/AGENTS.md"]
+
+
+@pytest.mark.parametrize("command", [
     '"env" cd "$D"; cat AGENTS.md', "'\\cd' \"$D\"; cat AGENTS.md", '"./cd" "$D"; cat AGENTS.md',
     '"source" "$E" & cat AGENTS.md', '"cd" "$D" | cat; cat AGENTS.md',
 ])
