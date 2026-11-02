@@ -411,6 +411,8 @@ def spawn_problems(imports: Imports, baseline: Mapping[str, tuple[int, str]],
 #: Modules that end the process (sys.exit, os._exit, exit, quit, raise SystemExit): only the frontend may.
 #: A library raises InputError and cli.main exits 2. Empty: nothing outside the frontend exits.
 EXIT_BASELINE: dict[str, tuple[int, str]] = {}
+
+
 def exit_problems(imports: Imports, baseline: Mapping[str, tuple[int, str]],
                   helper: str = EXIT_HELPER) -> list[str]:
     counts = {m: exit_sites(t) for m, t in imports.trees.items()
@@ -692,6 +694,25 @@ def test_tie_between_equal_size_subsets_is_stable():
     ("import sys\ndef outer():\n    x = None\n    def mid():\n        nonlocal x\n        def inner():\n            nonlocal x\n            x = sys.exit\n        inner()\n    def other():\n        x(2)\n    mid()\n    return other\n", [11]),
     # a global rebinding made in a function runs only when it is called: module-level sys.exit is still a site
     ("import sys\ndef f():\n    global sys\n    sys = None\nsys.exit(1)\n", [5]),
+    # a pattern capture, a loop, augmented or with target binds after the value that is evaluated first
+    ("import sys\ndef f(value):\n    match value:\n        case sys:\n            sys.exit(2)\n", []),
+    ("import sys\nfor sys in sys.exit(2):\n    pass\n", [2]),
+    ("import sys\nsys += sys.exit(2)\n", [2]),
+    ("import sys\nwith sys.exit(2) as sys:\n    pass\n", [2]),
+    # in a function the loop target makes sys local, so the iterable reads an unbound name
+    ("import sys\nasync def f():\n    async for sys in sys.exit(2):\n        pass\n", []),
+    ("import sys\ndef f(value):\n    match value:\n        case [*sys]:\n            sys.exit(2)\n", []),
+    ("import sys\ndef f(value):\n    match value:\n        case {**sys}:\n            sys.exit(2)\n", []),
+    # arity mismatch and a starred target keep the names as other bindings
+    ("import sys\na, b = (sys.exit,)\nb(2)\n", []),
+    ("import sys\na, *b = sys.exit, 1\nb(2)\na(2)\n", []),
+    # an exit callable or SystemExit unpacked from a literal of the same shape, nested too
+    ("import sys\nstop, = (sys.exit,)\nstop(2)\n", [3]),
+    ("import sys\na, (b, c) = 1, (sys.exit, 2)\nb(2)\n", [3]),
+    # a module-level name is read as builtin until its own assignment runs; a function's local is unbound before it
+    ("raise SystemExit(2)\nSystemExit = ValueError\n", [1]),
+    ("exit(2)\nexit = print\nquit(2)\nquit = print\n", [1, 3]),
+    ("import sys\ndef f():\n    exit(2)\n    exit = print\n", []),
 ])
 def test_exit_sites_resolves_names_by_scope_and_source_order(source, lines):
     assert exit_sites(ast.parse(source)) == lines

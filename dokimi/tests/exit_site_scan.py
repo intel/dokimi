@@ -120,9 +120,38 @@ def _params(args: ast.arguments) -> list[str]:
     return [a.arg for a in named if a is not None]
 
 
+def _late_targets(tree: ast.Module) -> dict[int, tuple[int, int]]:
+    """``id(name) -> pos`` for the names a for, with or augmented assignment binds: after the iterable, context or value."""
+    late: dict[int, tuple[int, int]] = {}
+
+    def mark(target: ast.AST, pos: tuple[int, int]) -> None:
+        late.update((id(m), pos) for m in ast.walk(target) if isinstance(m, ast.Name))
+
+    for n in ast.walk(tree):
+        if isinstance(n, (ast.For, ast.AsyncFor)):
+            mark(n.target, _after(n.iter))
+        elif isinstance(n, (ast.With, ast.AsyncWith)):
+            for item in n.items:
+                if item.optional_vars is not None:
+                    mark(item.optional_vars, _after(item.context_expr))
+        elif isinstance(n, ast.AugAssign):
+            mark(n.target, _after(n.value))
+    return late
+
+
+def _capture_bindings(tree: ast.Module, owner: dict[int, ast.AST], table: ExitTable) -> None:
+    """``case x:``, ``case [*x]:`` and ``case {**x}:`` bind x once the pattern has matched."""
+    for n in ast.walk(tree):
+        if isinstance(n, (ast.MatchAs, ast.MatchStar, ast.MatchMapping)):
+            name = n.rest if isinstance(n, ast.MatchMapping) else n.name
+            if name:
+                _bind(table, owner[id(n)], name, _after(n), "other")
+
+
 def _shadowing_bindings(tree: ast.Module, owner: dict[int, ast.AST], table: ExitTable, assigned: set[int]) -> None:
     """Every binding that is not a plain assignment of one name: imports, defs, parameters, loop, with and except targets."""
     bare = {id(n.target) for n in ast.walk(tree) if isinstance(n, ast.AnnAssign) and n.value is None}
+    late = _late_targets(tree)
     for n in ast.walk(tree):
         if isinstance(n, (ast.Import, ast.ImportFrom)):
             _import_bindings(n, owner[id(n)], table)
@@ -134,7 +163,7 @@ def _shadowing_bindings(tree: ast.Module, owner: dict[int, ast.AST], table: Exit
         elif isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store) and id(n) not in assigned:
             # ``x: int`` binds nothing at run time outside a function, where it makes x local
             if id(n) not in bare or isinstance(owner[id(n)], _FUNC_NODES):
-                _bind(table, owner[id(n)], n.id, _after(n), "other")
+                _bind(table, owner[id(n)], n.id, late.get(id(n), _after(n)), "other")
         if isinstance(n, _FUNC_NODES):  # a parameter is local to its function, bound on entry
             for name in _params(n.args):
                 _bind(table, n, name, _at(n), "other")
@@ -169,6 +198,20 @@ def _value_binding(expr: ast.expr, scope: ast.AST, pos: tuple[int, int], table: 
     return "other", None
 
 
+def _pairs(target: ast.expr, value: ast.expr) -> list[tuple[ast.Name, ast.expr]]:
+    """The (name, value) pairs of ``target = value`` where both unpack literally: ``a, (b, c) = x, (y, z)``.
+
+    A target that does not unpack against a literal of the same shape gives no pairs; its names bind as other names.
+    """
+    if isinstance(target, ast.Name):
+        return [(target, value)]
+    if not (isinstance(target, (ast.Tuple, ast.List)) and isinstance(value, (ast.Tuple, ast.List))):
+        return []
+    if len(target.elts) != len(value.elts) or any(isinstance(e, ast.Starred) for e in [*target.elts, *value.elts]):
+        return []
+    return [pair for t, v in zip(target.elts, value.elts, strict=True) for pair in _pairs(t, v)]
+
+
 def _assigned(assigns: list[tuple[ast.AST, list[ast.expr]]], owner: dict[int, ast.AST], table: ExitTable):
     """The ``(key, entry)`` each assignment makes against ``table``, in source order."""
     out = []
@@ -177,12 +220,12 @@ def _assigned(assigns: list[tuple[ast.AST, list[ast.expr]]], owner: dict[int, as
         if isinstance(n, ast.NamedExpr):  # a walrus binds in the nearest enclosing def, lambda, class or module
             while isinstance(scope, _COMPREHENSIONS):
                 scope = owner[id(scope)]
-        kind, payload = _value_binding(n.value, owner[id(n)], _at(n.value), table, owner)
         for t in targets:
-            if isinstance(t, ast.Name):
-                target = _target_scope(scope, t.id, table)
+            for name, expr in _pairs(t, n.value):
+                kind, payload = _value_binding(expr, owner[id(n)], _at(expr), table, owner)
+                target = _target_scope(scope, name.id, table)
                 pos = _after(n) if target is scope else _LATER
-                out.append(((id(target), t.id), (pos, kind, payload)))
+                out.append(((id(target), name.id), (pos, kind, payload)))
     return out
 
 
@@ -254,9 +297,11 @@ def _exit_table(tree: ast.Module, owner: dict[int, ast.AST]) -> ExitTable:
             targets = [n.target]
         else:
             continue
-        assigned |= {id(t) for t in targets if isinstance(t, ast.Name)}
+        value = n.value
+        assigned |= {id(name) for t in targets for name, _ in _pairs(t, value)}
     table: ExitTable = {}
     _shadowing_bindings(tree, owner, table, assigned)
+    _capture_bindings(tree, owner, table)
     _declared_scopes(tree, owner, table, "global")
     _assignment_bindings(tree, owner, table)
     _declared_scopes(tree, owner, table, "nonlocal")
@@ -271,6 +316,7 @@ def _resolve(name: str, use: ast.AST, pos: tuple[int, int], table: ExitTable, ow
     or before ``pos`` decides, and a binding only after it leaves the name local and unbound there; a class body
     then reads the enclosing names. An enclosing scope is read as its last exit-kind binding: a function may run
     after any rebinding. A class body is seen only from its own statements, not from the functions inside it.
+    A module-level name read before its first binding is read as the builtin of that name, since it is then unbound.
     """
     scope, here = use, True
     while True:
@@ -287,7 +333,7 @@ def _resolve(name: str, use: ast.AST, pos: tuple[int, int], table: ExitTable, ow
                 before = [b for b in found if b[0] <= pos]
                 if before:
                     return sorted(before, key=lambda b: b[0])[-1]
-                if not isinstance(use, ast.ClassDef):  # a function's local, not bound yet
+                if isinstance(use, _FUNC_NODES + _COMPREHENSIONS):  # a function's local, not bound yet
                     return (pos, "other", None)
         if id(scope) not in owner:  # the module: no enclosing scope
             return None
