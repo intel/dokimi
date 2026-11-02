@@ -159,6 +159,9 @@ def test_a_call_that_moves_no_shell_keeps_the_next_relative_read(first):
     ("cd $(pwd) | cat", False), ("cd $(pwd) &", False), ("cd `pwd` | cat", False), ("cd $(echo a | tr a b)", True),
     ('eval "cd sub"', True), ('eval "$CMD"', True), ("source env.sh", True), (". env.sh", True),  # may run a cd
     ("time cd sub", True), ("command cd sub", True), ('eval "cd sub" &', False), ("env source env.sh", False),
+    ("{ cd $(pwd); } | cat", False), ("{ cd $(pwd); } &", False), ("{ cd `pwd`; } | cat", False),
+    ("{ source $(x); } &", False), ("{ { cd $(pwd); }; } | cat", False), ("(true; cd sub)", False),
+    ("{ cd $(pwd); }", True), ("{ { cd sub; }; }", True),
 ])
 def test_only_a_directory_builtin_in_the_calls_own_shell_moves_it(command, moves):
     assert shell_reads_moved(command)[1] is moves
@@ -167,7 +170,7 @@ def test_only_a_directory_builtin_in_the_calls_own_shell_moves_it(command, moves
 @pytest.mark.parametrize("first", ["cd sub &", "{ cd sub; } | cat", "{ cd sub; } &", "cd sub && make &",
                                    "cd sub && { echo a; echo b; } &", "cd sub && { cd x; cat a; } &",
                                    'cd "$X" &', 'cd "$X" | cat', "cd sub | cat", "echo | cd sub",
-                                   "cd $(pwd) | cat", "cd $(pwd) &"])
+                                   "cd $(pwd) | cat", "cd $(pwd) &", "{ cd $(pwd); } | cat", "{ cd $(pwd); } &"])
 def test_a_cd_in_a_job_or_a_pipeline_keeps_the_next_calls_relative_read(first):
     events = _events(_call("a", first), _result("a"), _call("b", "cat AGENTS.md"), _result("b"))
     assert _reads(events) == ["AGENTS.md"]

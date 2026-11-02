@@ -26,6 +26,7 @@ import shlex
 from datetime import datetime
 from typing import Any
 
+from .shell_split import split_script
 from .transcript import Transcript, _parse_time, clip_output, relative_path
 
 _BASH_WRAP = re.compile(r"^(?:/\S*/)?(?:ba|z)?sh -lc (.+)$", re.S)
@@ -91,7 +92,8 @@ def shell_reads(script: str, cwd: str = "") -> list[str]:
     command's reads, but absolute ones), a ``cd`` after ``if`` / ``then`` / ``do`` / ``else`` (it may not run), a
     ``cd`` after ``&&`` / ``||`` once the chain holding it ends with ``;``, ``&`` or a newline (it may have been
     skipped), or a glob or brace expansion (the files are not known). A subshell ``( ... )`` or `` `...` `` records
-    no reads: its directory is not kept. A brace group or an ``&&`` / ``||`` list that is backgrounded, or a piped
+    no reads, and a ``cd`` in it moves nothing here. A brace group (``{ cd $(pwd); }``, ``{ { cd x; }; }`` too) or an
+    ``&&`` / ``||`` list that is backgrounded, or a piped
     group, runs in a subshell, so the directory is restored after it; the reads of a
     group whose output feeds a pipe after it is dropped, as a pipeline is not a read here; a group whose stdout is
     redirected to a file or /dev/null is dropped, as that output is not shown to the agent. ``--help`` and
@@ -104,7 +106,7 @@ def shell_reads_moved(script: str, cwd: str = "") -> tuple[list[str], bool]:
     """:func:`shell_reads`, and whether the script may leave its shell in another directory: it ran a ``cd``,
     ``pushd``, ``popd``, ``eval``, ``source`` or ``.`` in that shell, not in a subshell (``( ... )``, a pipeline
     or a backgrounded command, list or group: ``cd sub &``, ``{ cd sub; } | cat``, ``cd sub && make &``,
-    ``cd "$X" &``, ``cd sub | cat``)."""
+    ``cd "$X" &``, ``cd sub | cat``, ``{ cd $(pwd); } &``)."""
     reads, walk = _walk_script(script, cwd)
     return reads, walk.shell_moved
 
@@ -116,7 +118,7 @@ def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
     # a line continuation is removed, not made a space (``cat AGENTS\<newline>.md`` reads AGENTS.md); a heredoc body
     # is input, not commands
     script = _HEREDOC.sub(lambda m: m.group(3), _CONTINUATION.sub("", script))
-    for part, after, in_subshell in _split_script(script):
+    for part, after, in_subshell, outer in split_script(script):
         op, previous = previous, after
         chained = op in ("&&", "||")
         if not chained and walk.gated:  # a cd after && or || may not have run: the next chain starts in no known directory
@@ -127,11 +129,11 @@ def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
             continue
         if op == "||" and walk.moved:
             walk.here = None
+        walk.track_groups(_bare(outer), after, out)  # ``{ cd $(pwd); } | cat``: the group is in this shell
         if in_subshell:  # a subshell: its reads are not tracked
-            if _runs_dir_before_parens(part):  # ``cd $(dirname f)``: the cd is outside the parentheses
-                walk.lose(_in_own_shell(part, after))
+            if _runs_dir(outer):  # ``cd $(dirname f)``: the cd is outside the parentheses
+                walk.lose(_in_own_shell(outer, after))
             continue
-        walk.track_groups(_bare(part), after, out)
         words = walk.words(part, after)
         if words:
             out.extend(walk.command(words, after, chained))
@@ -181,22 +183,27 @@ class _Walk:
     def track_groups(self, bare: str, after: str, out: list[str]) -> None:
         """A brace group opening or closing in ``bare``; one that ran in a subshell restores the directory. A group is
         one command of the list around it: ``cd sub && { a; b; } &`` backgrounds the whole list. The reads of a group
-        whose output feeds a pipe after it, or a file, are dropped from ``out``: its output is not the agent's."""
-        opened = _GROUP_OPEN.search(bare)
-        if opened:
-            piped = bool(_PIPE.search(bare[:opened.start()]))
-            self.groups.append(((self.here, self.shell_moved), piped, len(out), (self.list_start, self.listed)))
-            if piped:  # the group runs in a pipeline's subshell: where it ends up is not tracked
-                self.here = None
-        closed = _GROUP_CLOSE.search(bare)
-        if closed and self.groups:
-            before, piped, mark, (self.list_start, self.listed) = self.groups.pop()
-            after_close = bare[closed.start():]
-            redirects = bare[closed.end():]
-            if _PIPE.search(after_close) or _STDOUT_FILE.search(redirects) or _STDOUT_AFTER_STDERR.search(redirects):
-                del out[mark:]
-            if piped or _PIPE.search(after_close) or after == "&":  # the group ran in a pipeline's or a job's subshell
-                self.here, self.shell_moved = before
+        whose output feeds a pipe after it, or a file, are dropped from ``out``: its output is not the agent's. Each
+        brace of ``bare`` counts, in order (``{ { cd x``, ``} | { cat a``)."""
+        braces = [(m.end() - 1, m) for m in _GROUP_OPEN.finditer(bare)] + [(m.end(), m) for m in _GROUP_CLOSE.finditer(bare)]
+        for _, m in sorted(braces, key=lambda b: b[0]):
+            if m.re is _GROUP_OPEN:
+                self.open_group(bare[:m.end() - 1], len(out))
+            elif self.groups:
+                self.close_group(bare[m.start():], bare[m.end():], after, out)
+
+    def open_group(self, before_brace: str, mark: int) -> None:
+        piped = bool(_PIPE.search(before_brace))
+        self.groups.append(((self.here, self.shell_moved), piped, mark, (self.list_start, self.listed)))
+        if piped:  # the group runs in a pipeline's subshell: where it ends up is not tracked
+            self.here = None
+
+    def close_group(self, after_close: str, redirects: str, after: str, out: list[str]) -> None:
+        before, piped, mark, (self.list_start, self.listed) = self.groups.pop()
+        if _PIPE.search(after_close) or _STDOUT_FILE.search(redirects) or _STDOUT_AFTER_STDERR.search(redirects):
+            del out[mark:]
+        if piped or _PIPE.search(after_close) or after == "&":  # the group ran in a pipeline's or a job's subshell
+            self.here, self.shell_moved = before
 
     def words(self, part: str, after: str = "") -> list[str]:
         """The words of ``part``; none when it cannot be split or is computed (a computed ``cd`` loses the directory,
@@ -209,10 +216,12 @@ class _Walk:
         except ValueError:
             return []
         if words is None:
-            if _runs_dir_before_parens(part):  # ``builtin cd "$D"``: where it went is not known
+            if _runs_dir(part):  # ``builtin cd "$D"``: where it went is not known
                 self.lose(_in_own_shell(part, after))
             return []
-        return words[1:] if words[:1] == ["{"] else words  # a brace group runs in this shell: its cd and reads count
+        while words[:1] == ["{"]:  # a brace group runs in this shell: its cd and reads count
+            words = words[1:]
+        return words
 
     def command(self, words: list[str], after: str, chained: bool = False) -> list[str]:
         """Move the directory for a ``cd``; the files a printing command reads. ``chained``: the command follows
@@ -271,23 +280,20 @@ def _cd(here: str | None, args: list[str]) -> str | None:
     return None if here is None else posixpath.normpath(posixpath.join(here, target))
 
 
-def _runs_dir_before_parens(part: str) -> bool:
-    """Whether the command text before its first parenthesis runs a directory builtin, as ``cd $(...)`` does
-    (a subshell ``(cd x; ...)`` has no such text, so it changes nothing outside itself)."""
-    words = re.split(r"[()`]", part, maxsplit=1)[0].split()
+def _runs_dir(outer: str) -> bool:
+    """Whether the outer text of a part (:class:`~dokimi.repos.shell_split.Part`) runs a directory builtin, as
+    ``cd $(...)`` does (a subshell ``(cd x; ...)`` has no such text, so it changes nothing outside itself)."""
+    words = outer.split()
     while words and (words[0] in _KEYWORDS or words[0] == "{"):
         words = words[1:]
     words, via_env, _ = _command_words(words)
     return bool(words) and words[0] in _DIRS and not via_env
 
 
-def _in_own_shell(part: str, after: str) -> bool:
-    """Whether ``part`` runs in the script's shell: not backgrounded by ``after``, nor a pipeline stage (a pipe
-    in quotes, escaped, ``\\|``, or in ``$( ... )`` or backticks is not one of ``part``'s)."""
-    text = re.sub(r"\\.", "", _bare(part))
-    for _ in range(text.count("(") + 1):  # the innermost ``( ... )`` first, then the ones around it
-        text = re.sub(r"\([^()]*\)|`[^`]*`", "", text)
-    return after != "&" and not _PIPE.search(text)
+def _in_own_shell(outer: str, after: str) -> bool:
+    """Whether the part with this outer text runs in the script's shell: not backgrounded by ``after``, nor a
+    pipeline stage (a pipe in quotes or escaped, ``\\|``, is not one)."""
+    return after != "&" and not _PIPE.search(re.sub(r"\\.", "", _bare(outer)))
 
 
 def _computed(part: str) -> bool:
@@ -462,87 +468,6 @@ def _command_words(words: list[str]) -> tuple[list[str], bool, bool]:
     return words, via_env, chdir
 
 
-def _split_script(script: str) -> list[tuple[str, str, bool]]:
-    """``(part, operator after it, in a subshell)`` for each part of ``script`` split at unquoted ``&&``,
-    ``||``, ``;``, ``&`` and newlines (the operator is ``""`` after the last part). A ``#`` that starts a
-    word begins a comment, which runs to the end of the line and is dropped. A part inside ``( ... )``,
-    or holding a parenthesis, is in a subshell."""
-    splitter = _Splitter(script)
-    i = 0
-    while i < len(script):
-        i = splitter.step(i)
-    splitter.flush("")
-    return splitter.parts
-
-
-class _Splitter:
-    """The state of ``_split_script``: the parts so far, the one being built, the open quote and parentheses."""
-
-    def __init__(self, script: str) -> None:
-        self.script = script
-        self.parts: list[tuple[str, str, bool]] = []
-        self.cur: list[str] = []
-        self.quote = ""
-        self.depth = 0  # open parentheses
-        self.paren = False  # the part being built holds a parenthesis
-        self.tick = False  # inside a backtick substitution, a subshell as ``$( )`` is
-
-    def flush(self, op: str) -> None:
-        """End the part being built at ``op``."""
-        text = "".join(self.cur).strip()
-        if text:
-            self.parts.append((text, op if op != "\n" else ";", self.paren or self.depth > 0 or self.tick))
-        self.cur = []
-        self.paren = self.depth > 0 or self.tick
-
-    def step(self, i: int) -> int:
-        """Take the text at ``i``; the index to continue at."""
-        script, c = self.script, self.script[i]
-        if self.quote:
-            return self._quoted(i)
-        if c in "'\"":
-            self.quote = c
-            self.cur.append(c)
-        elif c == "\\" and i + 1 < len(script):
-            self.cur.append(c + script[i + 1])
-            return i + 2
-        elif c == "#" and (i == 0 or script[i - 1] in " \t\n;&|()"):
-            end = script.find("\n", i)  # the comment ends at the newline, which still splits
-            return len(script) if end < 0 else end
-        elif c == "`":
-            self.paren, self.tick = True, not self.tick
-            self.cur.append(c)
-        elif c in "()":
-            self.paren = True
-            self.depth = max(0, self.depth + (1 if c == "(" else -1))
-            self.cur.append(c)
-        else:
-            return self._operator(i)
-        return i + 1
-
-    def _quoted(self, i: int) -> int:
-        script, c = self.script, self.script[i]
-        self.cur.append(c)
-        if c == "\\" and self.quote == '"' and i + 1 < len(script):
-            i += 1
-            self.cur.append(script[i])
-        elif c == self.quote:
-            self.quote = ""
-        return i + 1
-
-    def _operator(self, i: int) -> int:
-        script, c = self.script, self.script[i]
-        two = script[i:i + 2]
-        op = two if two in ("&&", "||") else c if c in ";\n" else ""
-        if c == "&" and not op and script[i - 1:i] not in (">", "<") and script[i + 1:i + 2] != ">":
-            op = "&"
-        if not op:
-            self.cur.append(c)
-            return i + 1
-        self.flush(op)
-        return i + len(op)
-
-
 def codex_json(raw: str, workdir: str | None, cwd: str = "") -> Transcript:
     out = Transcript()
     messages: list[str] = []
@@ -681,7 +606,7 @@ def _failed_read(script: str, reads: list[Any], rc: Any) -> bool:
     exits 1), so the reads are kept.
     """
     return rc not in (None, 0) and len(reads) == 1 and all(  # each part before the last is a ``cd``
-        _is_cd(part) for part, _, _ in _split_script(script)[:-1])
+        _is_cd(part.text) for part in split_script(script)[:-1])
 
 
 def _is_cd(part: str) -> bool:

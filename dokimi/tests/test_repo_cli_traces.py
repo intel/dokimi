@@ -221,10 +221,21 @@ def test_shell_reads_joins_a_line_continuation_without_a_space(command, reads):
 
 
 @pytest.mark.parametrize(("command", "reads"), [
-    ("echo `true; cd sub; pwd`; cat AGENTS.md", []),  # as with $( ): a cd inside it is not this shell's
+    ("echo `true; cd sub; pwd`; cat AGENTS.md", ["AGENTS.md"]),  # as with $( ): a cd inside it is not this shell's
     ("echo `pwd`; cat AGENTS.md", ["AGENTS.md"]), ("cd `dirname a/b`; cat AGENTS.md", []),
     ("echo \\`; cd sub; cat AGENTS.md", ["sub/AGENTS.md"])])  # an escaped backtick opens nothing
 def test_shell_reads_a_backtick_substitution_is_a_subshell(command, reads):
+    assert shell_reads(command) == reads
+
+
+@pytest.mark.parametrize(("command", "reads"), [
+    ("echo $(true; cd sub; pwd); cat AGENTS.md", ["AGENTS.md"]), ("(true; cd sub); cat AGENTS.md", ["AGENTS.md"]),
+    ("{ cd $(pwd); } | cat; cat AGENTS.md", ["AGENTS.md"]), ("{ cd `pwd`; } & cat AGENTS.md", ["AGENTS.md"]),
+    ("{ (cd x); cd y; } | cat; cat AGENTS.md", ["AGENTS.md"]), ("{ cd $(pwd); }; cat AGENTS.md", []),
+    ("{ cd sub; } | grep $(echo x); cat AGENTS.md", ["AGENTS.md"]),
+    ("{ { cd sub; }; }; cat a", ["sub/a"]), ("{ { cat a; }; }", ["a"]), ("{ cat a; } | { cat b; }; cat c", ["c"])])
+def test_shell_reads_tracks_a_group_past_its_substitutions_and_the_groups_in_it(command, reads):
+    # a part holding $( ) or a nested { is still in this shell outside them: its braces open and close groups
     assert shell_reads(command) == reads
 
 
