@@ -466,7 +466,7 @@ parent's and subagents' together, so a grader need not:
 | `commands` | `command` events |
 | `failed_commands` | commands not denied whose `rc` is neither `0` nor `null` |
 | `denied_commands` | commands with `denied: true` (a hook or the harness's permissions refused them) |
-| `guidance_read` | sorted, distinct workspace paths (normalized: `./a`, `a/../b`; not `~`) of `read` events, neither denied nor failed (`rc` 1: the file does not exist), that `guidance.globs` match. A read event is a read tool's (Claude Code's Read, Copilot's `view`) or a shell read: a Claude Code Bash call, Codex command or Copilot `bash` command that only prints files, as §7 lists (a bare `cat`, `head`, `tail`, `nl` or `sed -n`; `cd <dir>; cat AGENTS.md` reads `<dir>/AGENTS.md`). A command that is one such read of one file and fails is no read. Guidance seen through a pipe, `grep` or `rg` is not counted, nor a relative read after an earlier Claude Code Bash call of the same agent ran a `cd`, `pushd` or `popd` in its own shell, not in a subshell, pipeline or background job (the shell keeps its directory between calls, so the file is not known); to count those, add a `process_metrics` counter on the command text (§2), which also counts denied commands, unlike this row |
+| `guidance_read` | sorted, distinct workspace paths (normalized: `./a`, `a/../b`; not `~`) of `read` events, neither denied nor failed (`rc` 1: the file does not exist), that `guidance.globs` match. A read event is a read tool's (Claude Code's Read, Copilot's `view`) or a shell read: a Claude Code Bash call, Codex command or Copilot `bash` command that only prints files, as §7 lists (a bare `cat`, `head`, `tail`, `nl` or `sed -n`; `cd <dir>; cat AGENTS.md` reads `<dir>/AGENTS.md`). A command that is one such read of one file and fails is no read. Guidance seen through a pipe, `grep` or `rg` is not counted, nor a relative read after an earlier Claude Code Bash call of the same agent ran a `cd`, `pushd` or `popd` in its own shell, not in a subshell, pipeline or background job (the shell keeps its directory between calls, so the file is not known; a call a hook or the permissions refused ran nothing and moves nothing); to count those, add a `process_metrics` counter on the command text (§2), which also counts denied commands, unlike this row |
 | `counters` | each `process_metrics` name (§2) and its count |
 
 `process` is `null` when the trace could not be read, the agent left none (no event and no result record), or computing the metrics failed (the error is in `agent.trace_errors`).
@@ -1076,8 +1076,8 @@ per scenario).
       `cat a missing` does not say which file failed, so both stay reads). A read
       through a pipe, `grep` or `rg` is not seen, nor, under Claude Code, a relative
       read after an earlier Bash call of the same agent ran a `cd` in its own
-      shell (not in a subshell, pipeline or background job), so such a file can be
-      classed `loaded`;
+      shell (not in a subshell, pipeline or background job, and not refused), so
+      such a file can be classed `loaded`;
     - `not_loaded`;
     - `error`: the scenario produced no usable answer: no answer, a non-zero
       exit, or an error result.

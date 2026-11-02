@@ -70,6 +70,30 @@ def test_a_refused_bash_call_marks_its_reads_denied(refusal):
     assert process_metrics(events, lambda p: p.endswith("AGENTS.md"))["guidance_read"] == []
 
 
+def _denials(*tool_ids: str) -> dict:
+    return {"type": "result", "result": "ok",
+            "permission_denials": [{"tool_name": "Bash", "tool_use_id": i} for i in tool_ids]}
+
+
+def test_a_permission_error_then_its_denial_keeps_the_read_denied_in_place():
+    events = _events(_call("a", "cat AGENTS.md"), _result("a", "Permission to use Bash has been denied", True),
+                     _call("b", "cat README.md"), _result("b"), _denials("a"))
+    assert [(e["kind"], e.get("path"), e.get("denied")) for e in events] == [
+        ("read", "AGENTS.md", True), ("command", None, True), ("read", "README.md", None), ("command", None, None)]
+    assert process_metrics(events, lambda p: p.endswith("AGENTS.md"))["tool_calls"] == 4
+
+
+@pytest.mark.parametrize("refusal, reads", [
+    ("hook", ["AGENTS.md"]), ("permissions", ["AGENTS.md"]), (None, []),  # None: the cd ran
+])
+def test_a_refused_cd_moves_no_shell(refusal, reads):
+    text = {"hook": "PreToolUse:Bash hook error: no cd", "permissions": "Permission to use Bash has been denied"}
+    events = _events(_call("a", "cd sub"), _result("a", text.get(refusal, ""), bool(refusal)),
+                     _call("b", "cat AGENTS.md"), _result("b"), _denials("a") if refusal == "permissions" else {})
+    assert _reads(events) == reads
+    assert [e["kind"] for e in events] == ["command", *(["read"] if reads else []), "command"]
+
+
 @pytest.mark.parametrize("command", ["cat AGENTS.md | head", "grep -n rule AGENTS.md", "cat AGENTS.md > copy.md"])
 def test_a_pipe_a_search_or_a_redirect_is_no_read(command):
     assert _reads(_events(_call("a", command), _result("a"))) == []
