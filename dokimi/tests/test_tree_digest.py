@@ -221,6 +221,7 @@ def test_an_absolute_link_inside_the_tree_digests_the_same_at_another_path_on_wi
     assert tree_digest(a) == tree_digest(b)
 
 
+@pytest.mark.skipif(shutil.which("git") is None, reason="the mode bit comes from git's index; needs git")
 def test_a_tracked_file_whose_name_has_brackets_takes_its_mode_from_the_index(tmp_path):
     # ls-files reads the name as a glob unless it is literal: [1] would match nothing and the disk bit would count
     root = _write(tmp_path / "t", {"question[1].json": "[]\n"})
@@ -235,6 +236,7 @@ def test_a_tracked_file_whose_name_has_brackets_takes_its_mode_from_the_index(tm
     assert tree_digest(root / "question[1].json") != before
 
 
+@pytest.mark.skipif(shutil.which("git") is None, reason="the mode bit comes from git's index; needs git")
 def test_a_tracked_mode_past_the_capture_limit_still_comes_from_the_index(tmp_path):
     # git's listing of a large tree passes 1 MiB; the middle of it was replaced by a marker, so entries there
     # fell back to the disk bit
