@@ -474,7 +474,7 @@ parent's and subagents' together, so a grader need not:
 A cell of an arm that installs skills also has a `skills` object in
 `result.json`: `measured`, `skills_installed` (the installed skill names),
 `skills_used` (the installed skills the agent called with the `Skill` tool or
-whose `SKILL.md` it read, in order of first use), `expected_skill` (the task's,
+whose `SKILL.md` it read, the read neither denied nor failed, in order of first use), `expected_skill` (the task's,
 or `null`), `skill_invoked` (the expected skill was used; any installed skill
 when the task names none) and `skill_selected_correct` (the expected skill was
 the first one used; `null` when the task names none). When the trace could not
@@ -1069,7 +1069,8 @@ per scenario).
 - `class` is one of:
     - `loaded`: both tokens reported;
     - `truncated`: one token reported;
-    - `fetched`: reported only after the agent read the file with a tool. For the
+    - `fetched`: reported only after the agent read the file with a tool (a
+      read that was denied or failed is none). For the
       Claude Code (its Bash tool), Codex and Copilot profiles a shell read counts
       only as a bare `cat`, `head`, `tail`, `nl` or `sed -n`; a command that is one
       such read of one file and exits non-zero is not a read (the exit code of
@@ -1132,7 +1133,7 @@ Each source carries:
 | `observed` | reach class | `loaded` → loaded, `fetched` → fetched, `not_loaded` → not_loaded, `truncated` and `error` → unknown |
 | `observation_method` | | `unknown` for every source: the thread vocabulary's method, since no runtime event, prompt capture or hook backs the probe |
 | `dokimi_method` | | `marker_self_report` for a source the probe recorded; null for a start-up file budget found and reach did not probe |
-| `states.accessed` | the harness's read events | `true` if the trace has a read event of the file (a read tool, or a shell read §7 lists, under all three harnesses); for a probed source `false` with tools off, else `unknown`; always `unknown` for a start-up file budget found and reach did not probe |
+| `states.accessed` | the harness's read events | `true` if the trace has a read event of the file, neither denied nor failed (a read tool, or a shell read §7 lists, under all three harnesses); for a probed source `false` with tools off, else `unknown`; always `unknown` for a start-up file budget found and reach did not probe |
 | `states.selected` | the class | `true` for loaded or fetched (the source entered the request, by the harness or a read), else `unknown` |
 | `states.loaded` | the class | `true` for loaded, `false` for not_loaded, `unknown` for fetched, truncated and error: a tool read is not proof that start-up loading did not happen |
 | `states.followed` | | always `unknown` (the schema's `const`) |

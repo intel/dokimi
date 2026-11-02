@@ -5,7 +5,8 @@
 
 The fake harness prints Claude stream-json. With its Bash tool on and a prompt that names a ``cat``, it runs that
 ``cat`` as a Bash call; ``FAKE_MODE`` says what follows: ``lazy`` loads the file's directory's AGENTS.md as context,
-``fetch`` also cats that AGENTS.md itself, ``none`` loads nothing more.
+``fetch`` also cats that AGENTS.md itself, ``none`` loads nothing more; ``hook`` and ``permissions`` load it as
+``lazy`` does, after a ``cat`` of it that a hook or the permissions refuse.
 """
 
 from __future__ import annotations
@@ -40,22 +41,26 @@ tools = args[args.index("--tools") + 1]
 root = Path.cwd()
 context = [root / "AGENTS.md"]
 events = [{"type": "system", "subtype": "init", "claude_code_version": "9.8.7"}]
-def bash(n, command, output):
+REFUSALS = {"hook": "PreToolUse:Bash hook error: no", "permissions": "Permission to use Bash has been denied"}
+def bash(n, command, output, error=False):
     events.append({"type": "assistant", "message": {"content": [
         {"type": "tool_use", "id": f"b{n}", "name": "Bash", "input": {"command": command}}]}})
     events.append({"type": "user", "message": {"content": [
-        {"type": "tool_result", "tool_use_id": f"b{n}", "is_error": False, "content": output}]}})
+        {"type": "tool_result", "tool_use_id": f"b{n}", "is_error": error, "content": output}]}})
 match = re.search(r"run `cat (\S+)`", prompt)
 if match and tools == "Bash":
     probe = Path(match.group(1))
     bash(1, f"cat {probe}", (root / probe).read_text())
     if mode == "fetch":
         bash(2, f"cat {probe.parent}/AGENTS.md", (root / probe.parent / "AGENTS.md").read_text())
-    if mode in ("lazy", "fetch"):
+    if mode in REFUSALS:  # the cat of the guidance file is refused; the file was loaded lazily all the same
+        bash(2, f"cat {probe.parent}/AGENTS.md", REFUSALS[mode], True)
+    if mode != "none":
         context.append(root / probe.parent / "AGENTS.md")
 text = "".join(p.read_text() for p in context)
 answer = "\n".join(dict.fromkeys(re.findall(r"RC[0-9A-F]{6}", text))) or "NONE"
-events.append({"type": "result", "subtype": "success", "is_error": False, "result": answer,
+denials = [{"tool_name": "Bash", "tool_use_id": "b2"}] if mode == "permissions" else []
+events.append({"type": "result", "subtype": "success", "is_error": False, "result": answer, "permission_denials": denials,
                "total_cost_usd": 0.001, "num_turns": 2, "usage": {"input_tokens": 10, "output_tokens": 5}})
 for e in events:
     print(json.dumps(e))
@@ -149,6 +154,16 @@ def test_a_bash_read_of_the_probe_shows_whether_the_directory_guidance_loads(tmp
     assert payload["summary"]["matrix"] == {"AGENTS.md": {"bash=sub": "loaded"}, "sub/AGENTS.md": {"bash=sub": cls}}
     events = [json.loads(x) for x in (tmp_path / "out/traces/00-bash_sub.events.jsonl").read_text().splitlines()]
     assert events[0] == {"t": None, "kind": "read", "path": "sub/REACH_PROBE.txt", "rc": 0}
+
+
+@pytest.mark.parametrize("mode", ["hook", "permissions"])
+def test_a_refused_bash_read_of_the_guidance_is_no_fetch(tmp_path, monkeypatch, mode):
+    payload = _probe(tmp_path, monkeypatch, mode)
+    assert payload["summary"]["matrix"]["sub/AGENTS.md"] == {"bash=sub": "loaded"}
+    events = [json.loads(x) for x in (tmp_path / "out/traces/00-bash_sub.events.jsonl").read_text().splitlines()]
+    assert [e.get("denied") for e in events if e.get("path") == "sub/AGENTS.md"] == [True]  # kept for audit
+    receipt = build_receipt(payload, BUDGET, WorkTree(tmp_path / "repo"))
+    assert _sources(receipt, "bash=sub")["sub/AGENTS.md"]["states"]["accessed"] == "unknown"
 
 
 def test_a_bash_scenario_receipt_expects_the_lazy_file_and_sees_the_shell_read(tmp_path):

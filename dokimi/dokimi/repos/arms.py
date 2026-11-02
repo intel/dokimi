@@ -29,6 +29,8 @@ import yaml
 
 from dokimi import process
 
+from .transcript import shown_read
+
 SKILL_KINDS = ("skill", "skill-catalog")
 SKILLS_DIR = ".claude/skills"
 
@@ -254,7 +256,8 @@ def skill_unmeasured(installed: list[str], expected: str | None) -> dict[str, An
 
 
 def skill_usage(events: list[dict[str, Any]], installed: list[str], expected: str | None) -> dict[str, Any]:
-    """Which installed skills the agent used: a ``Skill`` tool call naming it, or a read of its ``SKILL.md``.
+    """Which installed skills the agent used: a ``Skill`` tool call naming it, or a read of its ``SKILL.md`` that was
+    neither refused nor failed.
 
     ``skill_invoked``: the expected skill was used (any installed one when the task names none);
     ``skill_selected_correct``: the expected skill was the first one used, ``None`` without one.
@@ -264,7 +267,7 @@ def skill_usage(events: list[dict[str, Any]], installed: list[str], expected: st
         name = None
         if e.get("kind") == "tool" and e.get("name") == "Skill":
             name = str(e.get("skill") or "").split(":")[-1]  # a plugin skill is plugin:name
-        elif e.get("kind") == "read":
+        elif shown_read(e):  # a refused or failed read of a SKILL.md showed nothing of the skill
             parts = PurePosixPath(str(e.get("path") or "")).parts
             if len(parts) == 4 and "/".join(parts[:2]) == SKILLS_DIR and parts[3] == "SKILL.md":
                 name = parts[2]
