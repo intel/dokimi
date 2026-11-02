@@ -54,14 +54,12 @@ _HEREDOC_WORD = re.compile(r"(-?)[ \t]*(?:'([^'\n]+)'|\"([^\"\n]+)\"|([^\s;&|<>(
 _COMMENT = re.compile(r"(?m)(?:^|(?<=[\s;&|()]))#.*$")
 # ``$((1<<2))`` is arithmetic, not a heredoc
 _ARITHMETIC = re.compile(r"\$\(\([\s\S]*?\)\)")
-# the head of a shell function definition: its body is defined, not run (a call of it is not followed)
-_FUNCTION_HEAD = re.compile(r"\b[A-Za-z_][\w-]*\s*\(\s*\)\s*\{")
-# a comment, or a quoted piece of shell text (group 1). Scanned left to right, so an apostrophe inside a comment
-# opens no quote, and a ``#`` inside quotes is text
+# a comment, or a quoted piece of shell text (group 1), scanned left to right: an apostrophe in a comment opens no quote
+# and a ``#`` in quotes is text
 _COMMENT_OR_QUOTED = re.compile(r"(?m)(\\[\s\S]|'[^']*'|\"(?:\\[\s\S]|[^\"\\])*\")|(?:^|(?<=[\s;&|()]))#.*$")
 # a redirection operator at the start of a word (``>``, ``>>``, ``2>``, ``<``); a bare one takes the next word
-_REDIRECT_OP = re.compile(r"\d*[<>]")
-_SEGMENT = re.compile(r"&&|\|\||[;|&()\n]")
+_REDIRECT_OP = re.compile(r"\d*(?:<<<|<<-?|>>|>&|<&|>\||[<>])")
+_SEGMENT = re.compile(r"&&|\|\||(?<![<>])[|&]|[;()\n]")  # ``>|``, ``>&``, ``<&`` are operators
 _CUE = re.compile(r"\b(no|not|don't|do not|stop|instead|wrong|forgot|should have|revert|undo|why did you)\b", re.I)
 _STOP = frozenset("""
 able about above after again against all also always and any are because been before being below
@@ -221,8 +219,8 @@ def _without_heredoc_bodies(command: str) -> str:
 
 
 def _function_end(text: str, open_brace: int) -> int:
-    """The index just past the ``}`` that closes the ``{`` at ``open_brace``. Quoted text is skipped, so a brace in
-    quotes does not count, and nested groups are counted. A body that never closes runs to the end of the text."""
+    """The index just past the ``}`` that closes the ``{`` at ``open_brace``, or -1 when the body never closes. Quoted
+    text is skipped, so a brace in quotes does not count, and nested groups are counted."""
     depth, i = 0, open_brace
     while i < len(text):
         quoted = _QUOTED.match(text, i)
@@ -236,15 +234,26 @@ def _function_end(text: str, open_brace: int) -> int:
             if depth == 0:
                 return i + 1
         i += 1
-    return len(text)
+    return -1
+
+
+# quoted text and comments are matched first, so a function head inside them is text; a head is ``name() {``
+_SCAN = re.compile(r"(?m)(?P<text>\\[\s\S]|'[^']*'|\"(?:\\[\s\S]|[^\"\\])*\"|(?:^|(?<=[\s;&|()]))#.*$)"
+                   r"|(?P<head>\b[A-Za-z_][\w-]*\s*\(\s*\)\s*\{)")
 
 
 def _without_functions(text: str) -> str:
-    """The text with each shell function definition replaced by a space: its body is defined, not run."""
+    """The text with each shell function definition replaced by a space: its body is defined, not run. A head in
+    quotes or a comment is text. A body that never closes is not a definition, so the text after it still runs."""
     out, pos = [], 0
-    while head := _FUNCTION_HEAD.search(text, pos):
-        out += [text[pos:head.start()], " "]
-        pos = _function_end(text, head.end() - 1)
+    for match in _SCAN.finditer(text):
+        if match.group("head") is None or match.start() < pos:
+            continue
+        end = _function_end(text, match.end() - 1)
+        if end < 0:
+            continue
+        out += [text[pos:match.start()], " "]
+        pos = end
     return "".join(out) + text[pos:]
 
 

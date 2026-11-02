@@ -843,3 +843,30 @@ def test_an_apostrophe_in_a_comment_does_not_hide_a_path_after_it():
 def test_a_redirection_among_the_words_of_a_command_does_not_hide_it(command):
     session = _session(_prompt("push the branch now"), _tool("Bash", command=command))
     assert _row(_report([session]), CI)["acted"] == 1
+
+
+@pytest.mark.parametrize("command", ['git commit -m "add f() {"; make ci-local',
+                                     "echo 'g() {'; make ci-local",
+                                     'git commit -m "x" && git log -- "a() {" ; make ci-local'])
+def test_a_function_head_inside_quotes_does_not_hide_the_command_after_it(command):
+    session = _session(_prompt("push the branch now"), _tool("Bash", command=command))
+    assert _row(_report([session]), CI)["acted"] == 1
+
+
+@pytest.mark.parametrize("command", ["# note f() {\nmake ci-local", "echo ok # g() {\nmake ci-local"])
+def test_a_function_head_in_a_comment_does_not_hide_the_command_after_it(command):
+    session = _session(_prompt("push the branch now"), _tool("Bash", command=command))
+    assert _row(_report([session]), CI)["acted"] == 1
+
+
+def test_a_function_body_that_never_closes_does_not_hide_the_rest_of_the_line():
+    session = _session(_prompt("push the branch now"), _tool("Bash", command="check_ci() { echo x; make ci-local"))
+    assert _row(_report([session]), CI)["acted"] == 1
+
+
+@pytest.mark.parametrize("command", ["make >> results.txt ci-local", "make 2>> results.txt ci-local",
+                                     "make >| results.txt ci-local", "make >& results.txt ci-local",
+                                     "make <<< word ci-local", "make 2>&1 >> results.txt ci-local"])
+def test_a_multi_character_redirection_takes_its_target_out_of_the_words(command):
+    session = _session(_prompt("push the branch now"), _tool("Bash", command=command))
+    assert _row(_report([session]), CI)["acted"] == 1
