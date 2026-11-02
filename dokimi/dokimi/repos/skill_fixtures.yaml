@@ -1,24 +1,8 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-# Skill-discovery fixture catalogue for `dokimi repo skill-reach` (skill_discovery.v1).
-#
-# Each case is one SKILL.md. `at` is where its directory goes:
-#   project:<path>  under the workspace (a one-commit git repository)
-#   home:<path>     under the per-run HOME
-#   config:<path>   under the per-run config dir (CLAUDE_CONFIG_DIR, CODEX_HOME, ...)
-# and may use {client_project} / {client_user}, the harness profile's own
-# skill directories (`skills.project_dirs[0]`, `skills.user_dirs[0]`). A case
-# whose placeholder the profile does not declare is skipped, not failed.
-#
-# Optional fields:
-#   name         frontmatter `name` (default: the case id)
-#   dirname      the skill's directory name (default: name)
-#   description  single | folded | literal | quoted | long | missing (default: single)
-#   eol          lf | crlf (default: lf)
-#   link         symlink: the skill directory is a link to a target outside the workspace
-#   collision    a group id; the cases sharing it have the same `name`
-#   cwd          also start the harness in this workspace subdirectory (a scenario of its own)
+# Skill-discovery fixtures for `dokimi repo skill-reach` (skill_discovery.v1).
+# The field reference is "Catalogue fields" in the module docstring of repos/skill_reach.py.
 schema: skill_fixtures.v1
 cases:
   # --- locations -------------------------------------------------------------

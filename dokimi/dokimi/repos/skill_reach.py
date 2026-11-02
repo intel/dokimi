@@ -26,6 +26,25 @@ group's verdict is ``one`` (a single copy listed: the record names it),
 
 Scenarios: ``cwd=.`` (started at the workspace root) and ``cwd=<dir>`` for
 each ``cwd`` a case names. Every case is classified in every scenario.
+
+Catalogue fields (``skill_fixtures.v1``, one case per SKILL.md):
+
+- ``at`` is where the skill's directory goes: ``project:<path>`` under the
+  workspace (a one-commit git repository), ``home:<path>`` under the per-run
+  HOME, or ``config:<path>`` under the per-run config dir (CLAUDE_CONFIG_DIR,
+  CODEX_HOME, ...). It may use ``{client_project}`` and ``{client_user}``, the
+  harness profile's own skill directories (``skills.project_dirs[0]``,
+  ``skills.user_dirs[0]``). A case whose placeholder the profile does not
+  declare is skipped, not failed.
+- ``name``: frontmatter ``name`` (default: the case id). ``dirname``: the
+  skill's directory name (default: name).
+- ``description``: single | folded | literal | quoted | long | missing
+  (default single). ``eol``: lf | crlf (default lf).
+- ``link: symlink``: the skill directory is a link to a target outside the
+  workspace.
+- ``collision``: a group id; the cases sharing it have the same ``name``.
+- ``cwd``: also start the harness in this workspace subdirectory (a scenario
+  of its own).
 """
 
 from __future__ import annotations
@@ -292,7 +311,7 @@ def collisions(fixture: Fixture, records: list[dict[str, Any]]) -> list[dict[str
             if "error" in classes:
                 verdict, listed = "error", []
             else:
-                listed = [m for m, c in zip(members, classes) if c in ("listed", "fetched")]
+                listed = [m for m, c in zip(members, classes, strict=True) if c in ("listed", "fetched")]
                 verdict = ("none" if not listed else "all" if len(listed) == len(members)
                            else "one" if len(listed) == 1 else "some")
             out.append({"group": group, "scenario": scenario, "members": members, "listed": listed,

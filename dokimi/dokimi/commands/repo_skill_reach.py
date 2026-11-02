@@ -66,61 +66,6 @@ def cmd_repo_skill_reach(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
-def _print_reach_output(tree, profile, payload: dict, out_dir: Path, path: Path, receipt: bool) -> None:
-    """The matrix on stdout; with ``receipt``, the effective-instructions receipt on stdout and the note on stderr."""
-    from dokimi.repos.reach import format_matrix
-
-    if receipt:
-        _print_receipt(tree, profile, payload, out_dir)
-        print(f"wrote {path}", file=sys.stderr)
-    else:
-        print(format_matrix(payload))
-        print(f"wrote {path}")
-
-
-RECEIPT_NAME = "effective_instructions.json"
-
-
-def _receipt_path(from_file: str) -> Path:
-    return Path(from_file).parent / RECEIPT_NAME
-
-
-def _strict_resolve(path: Path) -> Path:
-    """``path`` with every link resolved, a missing or dangling last component included. Non-strict resolve() of a link
-    loop raises RuntimeError before Python 3.13 and returns the looping path from 3.13 on; strict resolve raises
-    OSError on a loop on every version."""
-    try:
-        return path.resolve(strict=True)
-    except FileNotFoundError:
-        return path.resolve()
-
-
-def _receipt_would_overwrite(probe: Path, receipt: Path) -> bool:
-    """A receipt written at the probe's path, directly or through a link, would replace the probe it is built from.
-    A link loop cannot be resolved (OSError, or RuntimeError before Python 3.13): a usage error, not a traceback."""
-    from dokimi.repos.reach import ReachError
-
-    try:
-        return _strict_resolve(probe) == _strict_resolve(receipt)
-    except (OSError, RuntimeError) as exc:
-        raise ReachError(f"cannot resolve {receipt}: {exc}") from exc
-
-
-def _print_receipt(tree, profile, payload: dict, out_dir: Path) -> None:
-    """The effective-instructions receipt of a probe: budget's start-up chain, reach's observed states."""
-    from dokimi.artifacts import save_artifact
-    from dokimi.repos.budget import budget
-    from dokimi.repos.receipt import build_receipt
-
-    receipt = build_receipt(payload, budget(tree, profile.guidance_names, profile.import_max_depth), tree)
-    try:  # a directory that is not writable, or one already named effective_instructions.json: a runtime failure
-        written = save_artifact("effective_instructions", receipt, out_dir / RECEIPT_NAME)
-    except OSError as exc:
-        print(f"✗ cannot write {out_dir / RECEIPT_NAME}: {exc}", file=sys.stderr)
-        sys.exit(1)
-    print(json.dumps(written, indent=2))
-
-
 def add_skill_reach_parser(repo_sub, positive_int) -> None:
     skill_p = repo_sub.add_parser(
         "skill-reach",
