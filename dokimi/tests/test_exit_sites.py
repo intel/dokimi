@@ -207,7 +207,7 @@ def test_eager_bodies_read_enclosing_names_by_position(tmp_path):
         "dokimi/c.py": "import sys\ns = sys.exit\ns = print\nxs = [s(2) for _ in 'a']\n",
         "dokimi/d.py": "import sys\ns = print\ns = sys.exit\nxs = [s(2) for _ in 'a']\n",
         "dokimi/e.py": "E = SystemExit\nE = ValueError\ndef f():\n    class C:\n        raise E(2)\n",
-        "dokimi/f.py": "xs = [SystemExit(2) for _ in 'a']\nSystemExit = ValueError\n",
+        "dokimi/f.py": "xs = [exit(2) for _ in 'a']\nexit = print\n",
     })
     assert exit_sites(imports.trees["dokimi.a"]) == []
     assert exit_sites(imports.trees["dokimi.b"]) == [4]
