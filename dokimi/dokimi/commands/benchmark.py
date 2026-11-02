@@ -27,9 +27,20 @@ from dokimi.defaults import (
 )
 from dokimi.commands.library import _load_registry
 from dokimi.exit_codes import EXIT_USAGE
+from dokimi.llm_cli import SamplingError, check_sampling
 
 
-def _run_single_library(entry, output_dir: str, model: str, provider: str, judge_model: str, judge_provider: str = DEFAULT_JUDGE_PROVIDER, doc_source_override=None, max_tokens_per_question: int = DEFAULT_MAX_TOKENS_PER_QUESTION, force_regen: bool = False, concurrency: int = DEFAULT_CONCURRENCY, questions_from=None, questions_root=None) -> dict:
+def _refuse_judge_sampling(args: argparse.Namespace) -> None:
+    """Exit 2 before any answer is paid for when a CLI judge is given a temperature (the judge would refuse later)."""
+    try:
+        check_sampling(getattr(args, "judge_provider", DEFAULT_JUDGE_PROVIDER),
+                       getattr(args, "judge_temperature", None), None)
+    except SamplingError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+
+
+def _run_single_library(entry, output_dir: str, model: str, provider: str, judge_model: str, judge_provider: str = DEFAULT_JUDGE_PROVIDER, doc_source_override=None, max_tokens_per_question: int = DEFAULT_MAX_TOKENS_PER_QUESTION, force_regen: bool = False, concurrency: int = DEFAULT_CONCURRENCY, questions_from=None, questions_root=None, judge_temperature=None, judge_placeholder=False, registry=None) -> dict:
     """Run full evaluation pipeline for one ProductEntry. Returns result dict."""
     from dokimi.orchestrator import EvaluationPipeline
     from pathlib import Path as _Path
@@ -60,12 +71,15 @@ def _run_single_library(entry, output_dir: str, model: str, provider: str, judge
         provider=provider,
         judge_model=judge_model,
         judge_provider=judge_provider,
+        judge_temperature=judge_temperature,
+        judge_placeholder=judge_placeholder,
         context7_id=entry.context7_id,
         doc_source=doc_source,
         max_tokens_per_question=max_tokens_per_question,
         force_regen=force_regen,
         questions_from=questions_from,
         product_key=entry.key,
+        registry=registry,
         questions_root=_Path(questions_root) if questions_root else None,
     )
     result = pipeline.run(concurrency=concurrency)
@@ -301,6 +315,7 @@ def cmd_benchmark_preflight(args: argparse.Namespace) -> None:
 def cmd_benchmark_run(args: argparse.Namespace) -> None:
     """Run full evaluation pipeline for a single registered library."""
     import statistics as _stats
+    _refuse_judge_sampling(args)
     registry = _load_registry(args)
     try:
         entry = registry.get(args.library)
@@ -334,6 +349,9 @@ def cmd_benchmark_run(args: argparse.Namespace) -> None:
             concurrency=concurrency,
             questions_from=questions_from,
             questions_root=questions_root,
+            judge_temperature=getattr(args, "judge_temperature", None),
+            judge_placeholder=getattr(args, "judge_placeholder", False),
+            registry=registry,
         )
     else:
         print(f"\n🔁 Multi-run mode: {n_runs} evaluation passes")
@@ -356,6 +374,9 @@ def cmd_benchmark_run(args: argparse.Namespace) -> None:
                 concurrency=concurrency,
                 questions_from=qfrom,
                 questions_root=questions_root,
+                judge_temperature=getattr(args, "judge_temperature", None),
+                judge_placeholder=getattr(args, "judge_placeholder", False),
+                registry=registry,
             )
             try:
                 eval_summary = r["result"]["steps"]["evaluation"]["summary"]
@@ -375,6 +396,7 @@ def cmd_benchmark_run(args: argparse.Namespace) -> None:
 
 def cmd_benchmark_batch(args: argparse.Namespace) -> None:
     """Run evaluation pipeline for multiple registered libraries."""
+    _refuse_judge_sampling(args)
     registry = _load_registry(args)
 
     if args.all_libraries or not args.libraries:
@@ -410,6 +432,7 @@ def cmd_benchmark_batch(args: argparse.Namespace) -> None:
                 force_regen=getattr(args, "force_regen", False),
                 concurrency=getattr(args, "concurrency", DEFAULT_CONCURRENCY),
                 questions_root=getattr(args, "questions_root", None),
+                registry=registry,
             )
             results.append(r)
         except Exception as exc:
@@ -456,6 +479,10 @@ def register(sub, positive_int) -> None:
                              help=JUDGE_MODEL_HELP)
     bench_run_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider",
                              choices=JUDGE_PROVIDERS)
+    bench_run_p.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
+                             help="Judge sampling temperature, recorded as judge_temperature in the eval output (default: provider default)")
+    bench_run_p.add_argument("--judge-placeholder", action="store_true", dest="judge_placeholder",
+                             help="Judge the no-retrieval placeholder answers too (default: they are not scored)")
     bench_run_p.add_argument("--registry", default=None, help="Path to custom products.yaml")
     bench_run_p.add_argument("--max-tokens", type=positive_int, default=DEFAULT_MAX_TOKENS_PER_QUESTION, dest="max_tokens",
                              help="Max tokens to retrieve per question from doc source (default: 4000)")

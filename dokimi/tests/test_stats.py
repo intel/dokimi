@@ -633,7 +633,7 @@ def test_mean_ci_forwards_the_confidence_and_the_seed_to_the_bootstrap_fallback(
     monkeypatch.setattr(stats, "HAS_SCIPY", False)
     monkeypatch.setattr(stats, "bootstrap_ci", fake)
     stats.mean_ci([1.0, 2.0, 3.0], confidence=0.8, seed=7)
-    assert seen == {"seed": 7, "confidence": 0.8}
+    assert seen == {"seed": 7, "confidence": 0.8, "ndigits": 4}
 
 
 def test_bootstrap_ci_defaults_are_pinned():
