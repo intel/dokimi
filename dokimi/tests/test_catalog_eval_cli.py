@@ -151,6 +151,7 @@ def test_output_cannot_replace_catalog_inputs(tmp_path, output):
     assert not (root / "plan.json").exists()
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows file names cannot hold control characters")
 def test_changed_paths_are_nul_delimited_and_never_shell_executed(tmp_path):
     root = _catalog(tmp_path)
     sha = _commit(root)
@@ -212,3 +213,45 @@ def test_report_lists_each_finding_once(tmp_path):
     out = tmp_path / "out"
     assert _run(root, out).returncode == 1
     assert (out / "report.md").read_text().count("duplicate-skill") == 1
+
+
+@pytest.mark.parametrize("receipt", ["report.md", "plan.json"])
+def test_output_dir_with_a_directory_named_like_a_receipt_is_preserved(tmp_path, receipt):
+    root = _catalog(tmp_path)
+    out = tmp_path / "out"
+    (out / receipt).mkdir(parents=True)
+    (out / receipt / "keep.txt").write_text("valuable")
+    done = _run(root, out)
+    assert done.returncode == 2
+    assert (out / receipt / "keep.txt").read_text() == "valuable"
+
+
+def test_looping_symlink_paths_are_usage_errors(tmp_path):
+    root = _catalog(tmp_path)
+    loop = tmp_path / "loop"
+    loop.symlink_to(loop)
+    assert _run(loop, tmp_path / "out").returncode == 2
+    assert _run(root, loop).returncode == 2
+
+
+def test_unresolvable_paths_raising_runtime_error_are_usage_errors(tmp_path, monkeypatch):
+    root = _catalog(tmp_path)
+
+    def loop(self, strict=False):
+        raise RuntimeError("Symlink loop")
+
+    monkeypatch.setattr(Path, "resolve", loop)
+    assert _run(root, tmp_path / "out").returncode == 2
+
+
+def test_configured_git_filters_are_refused_not_run(tmp_path):
+    root = _catalog(tmp_path)
+    (root / ".gitattributes").write_text("skills/alpha/* filter=payload\n")
+    _commit(root)
+    marker = tmp_path / "EXECUTED"
+    _git(root, "config", "filter.payload.clean", f"touch {marker}; cat")
+    (root / "skills/alpha/SKILL.md").write_text("---\nname: alpha\ndescription: Use for alpha tasks.\n---\nchanged\n")
+    done = _run(root, tmp_path / "out")
+    assert done.returncode == 2
+    assert "content filters" in done.stderr
+    assert not marker.exists()

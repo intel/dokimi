@@ -12,7 +12,7 @@ from typing import Any
 import yaml
 
 from dokimi.harnesses.tasks import load_task, read_task_config
-from dokimi.skills.loader import TEMPLATE_DIR_NAMES
+from dokimi.skills.loader import TEMPLATE_DIR_NAMES, walk_skill_files
 
 from .catalog import DEFAULT_SUITES_MANIFEST, DEFAULT_TASKS_SUBDIR, SkillCatalogEntry, read_skill_manifest
 from .catalog_eval_inputs import Inputs, UnsafePath, checked_path, finding, relative_path
@@ -31,9 +31,8 @@ def _skill_specs(inputs: Inputs) -> list[dict]:
     checked_path(inputs.root, path)
     if not path.exists():
         return [{"name": file.parent.name, "catalog_path": file.parent.relative_to(inputs.root).as_posix()}
-                for file in inputs.files(inputs.root)
-                if file.name == "SKILL.md"
-                and not TEMPLATE_DIR_NAMES.intersection(file.relative_to(inputs.root).parts[:-1])]
+                for file in walk_skill_files(inputs.root)
+                if not TEMPLATE_DIR_NAMES.intersection(file.relative_to(inputs.root).parts[:-1])]
     data = _yaml(inputs, path) or {}
     if isinstance(data, dict):
         data = data.get("skills") or []
@@ -48,6 +47,7 @@ def _skill_path(item: dict) -> str:
         return relative_path(item["catalog_path"])
     if not isinstance(name, str) or not name.strip():
         raise UnsafePath(f"skill name must be a nonempty string: {name!r}")
+    name = name.strip()
     if relative_path(name) != name or "/" in name or name == ".":
         raise UnsafePath(f"skill name is not a directory name: {name!r}")
     return f"skills/{name}"
@@ -68,7 +68,7 @@ def _imported(item: dict, problems: list[dict]) -> bool:
 
 
 def _row(item: dict, path: str, bundle: str | None, findings: list[dict]) -> dict:
-    return {"name": str(item.get("name") or PurePosixPath(path).name or "?"), "path": path, "bundle_digest": bundle,
+    return {"name": str(item.get("name") or "").strip() or PurePosixPath(path).name or "?", "path": path, "bundle_digest": bundle,
             "checks": {"status": "pass", "findings": findings}, "evaluation": "no_tasks",
             "evaluated_here": True, "tasks": [], "planned_tasks": []}
 
@@ -95,7 +95,7 @@ def inventory_skills(inputs: Inputs, problems: list[dict]) -> list[dict]:
         rows.append(result)
     if safe:
         entries = read_skill_manifest(inputs.root)
-        _review(entries, rows, fallback=not (inputs.root / "skills.yaml").exists())
+        _review(entries, specs, rows, fallback=not (inputs.root / "skills.yaml").exists())
     else:
         for item in rows:
             item["checks"]["findings"].append(finding(
@@ -109,8 +109,8 @@ def inventory_skills(inputs: Inputs, problems: list[dict]) -> list[dict]:
     return rows
 
 
-def _review(entries: list[SkillCatalogEntry], rows: list[dict], *, fallback: bool) -> None:
-    for entry, review, row in zip(entries, review_skills(entries), rows, strict=True):
+def _review(entries: list[SkillCatalogEntry], specs: list[dict], rows: list[dict], *, fallback: bool) -> None:
+    for entry, review, spec, row in zip(entries, review_skills(entries), specs, rows, strict=True):
         if fallback:
             row["name"] = entry.name
         findings = row["checks"]["findings"]
@@ -118,7 +118,8 @@ def _review(entries: list[SkillCatalogEntry], rows: list[dict], *, fallback: boo
             findings.append(finding("skill-load", entry.error, row["path"]))
         if review:
             findings.extend(finding(f.code, f.message, row["path"], f.level) for f in review.findings)
-        if entry.skill and entry.skill.name != entry.name:
+        declared = str(spec.get("name") or "").strip()
+        if entry.skill and declared and entry.skill.name != entry.name:
             findings.append(finding("skill-identity", "manifest and frontmatter skill names differ", row["path"]))
 
 

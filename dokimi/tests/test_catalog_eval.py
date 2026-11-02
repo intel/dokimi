@@ -563,3 +563,72 @@ def test_root_skill_owns_readme_and_docs_resources(tmp_path, resource):
     assert after["selection"]["selected"] == ["alpha"]
     assert after["selection"]["reasons"]["alpha"] == [f"owned input changed: {resource}"]
     assert after["selection"]["unclaimed"] == []
+
+
+def test_discovered_skills_keep_the_loader_order_for_prefixed_names(tmp_path):
+    for name in ("alpha", "alpha-beta"):
+        d = tmp_path / "skills" / name
+        d.mkdir(parents=True)
+        (d / "SKILL.md").write_text(f"---\nname: {name}\ndescription: Use to inspect {name} inputs.\n---\nbody\n")
+    report = evaluate(tmp_path)
+    assert {r["name"]: r["path"] for r in report["skills"]} == {"alpha": "skills/alpha", "alpha-beta": "skills/alpha-beta"}
+
+
+def test_skill_md_directory_is_a_failed_row_not_a_crash(tmp_path):
+    skill(tmp_path)
+    (tmp_path / "skills.yaml").unlink()
+    (tmp_path / "skills/beta/SKILL.md").mkdir(parents=True)
+    report = evaluate(tmp_path)
+    assert report["status"] == "fail"
+    assert row(report, "beta")["checks"]["status"] == "fail"
+
+
+def test_padded_manifest_name_is_normalised_before_hashing(tmp_path):
+    skill(tmp_path / "plain")
+    expected = row(evaluate(tmp_path / "plain"))["bundle_digest"]
+    skill(tmp_path)
+    (tmp_path / "skills.yaml").write_text("- name: ' alpha '\n", encoding="utf-8")
+    report = evaluate(tmp_path)
+    assert report["status"] == "pass"
+    assert row(report)["bundle_digest"] == expected
+
+
+def test_padded_manifest_name_still_refuses_a_linked_skill_md(tmp_path):
+    outside = tmp_path / "outside.md"
+    outside.write_text("---\nname: alpha\ndescription: Use to inspect alpha inputs.\n---\nbody\n")
+    path = skill(tmp_path)
+    (path / "SKILL.md").unlink()
+    (path / "SKILL.md").symlink_to(outside)
+    (tmp_path / "skills.yaml").write_text("- name: ' alpha '\n", encoding="utf-8")
+    assert "unsafe-path" in codes(evaluate(tmp_path))
+
+
+def test_nameless_skill_md_file_reference_has_no_identity_conflict(tmp_path):
+    skill(tmp_path)
+    (tmp_path / "skills.yaml").write_text("skills:\n  - catalog_path: skills/alpha/SKILL.md\n", encoding="utf-8")
+    report = evaluate(tmp_path)
+    assert "skill-identity" not in codes(report)
+    assert report["status"] == "pass"
+
+
+def test_reread_with_different_bytes_is_rejected_even_after_first_hash(tmp_path):
+    from dokimi.external.catalog_eval_inputs import Inputs
+
+    f = tmp_path / "a.txt"
+    f.write_text("one")
+    inputs = Inputs(tmp_path)
+    inputs.read(f)
+    f.write_text("two")
+    with pytest.raises(ValueError, match="changed while checking"):
+        inputs.read(f)
+
+
+def test_windows_reparse_point_counts_as_a_redirect(tmp_path, monkeypatch):
+    from dokimi.external import catalog_eval_inputs as inputs
+
+    class Stat:
+        st_mode = 0o040000
+        st_file_attributes = 0x400
+
+    monkeypatch.setattr(Path, "lstat", lambda self: Stat())
+    assert inputs.redirected(tmp_path)

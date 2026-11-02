@@ -37,6 +37,12 @@ def source_and_changes(root: Path, base: str | None, out: Path) -> tuple[dict[st
     Tracked edits/deletions and untracked files are included, so the receipt describes
     the bytes checked even before the caller commits them. Output files are excluded.
     """
+    filters = _git(root, "config", "--includes", "--get-regexp", r"^filter\..*\.(clean|smudge|process)$")
+    if filters.returncode == 0:
+        raise ValueError("the checkout configures git content filters, which would run on inspection: "
+                         + ", ".join(sorted({line.split(".")[1] for line in filters.stdout.splitlines()})))
+    if filters.returncode != 1:
+        raise ValueError(f"cannot read git config: {process.git_failure(filters)}")
     head = _git(root, "rev-parse", "--verify", "HEAD^{commit}")
     source: dict[str, Any] = {"commit": None, "dirty": None}
     if head.returncode == 0:

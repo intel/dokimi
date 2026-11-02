@@ -29,11 +29,21 @@ def relative_path(value: object) -> str:
     return posix.as_posix()
 
 
+def redirected(path: Path) -> bool:
+    """A symlink, or a Windows junction/reparse point, which ``is_symlink`` does not report."""
+    if path.is_symlink():
+        return True
+    try:
+        return bool(getattr(path.lstat(), "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT)
+    except OSError:
+        return False
+
+
 def checked_root(root: Path) -> Path:
     """Refuse a linked root; linked ancestors resolve once and everything below is checked."""
     candidate = Path(root).absolute()
     try:
-        if candidate.is_symlink():
+        if redirected(candidate):
             raise ValueError(f"catalog root is a symlink: {candidate}")
         if not candidate.is_dir():
             raise ValueError(f"catalog root is not a directory: {candidate}")
@@ -51,7 +61,7 @@ def checked_path(root: Path, path: Path) -> None:
     for part in (path, *path.parents):
         if part == root:
             break
-        if part.is_symlink():
+        if redirected(part):
             raise UnsafePath(f"symlink is not a catalog input: {part.relative_to(root)}")
 
 
@@ -81,7 +91,9 @@ class Inputs:
             content = path.read_bytes()
         except OSError as exc:
             raise ValueError(f"cannot read {path}: {exc}") from exc
-        self.hashes[path.relative_to(self.root).as_posix()] = hashlib.sha256(content).hexdigest()
+        relative, current = path.relative_to(self.root).as_posix(), hashlib.sha256(content).hexdigest()
+        if self.hashes.setdefault(relative, current) != current:
+            raise ValueError(f"catalog input changed while checking: {relative}")
         return content
 
     def text(self, path: Path) -> str:
@@ -120,8 +132,5 @@ class Inputs:
 
     def verify(self) -> None:
         """A loader must have evaluated the same bytes this receipt identifies."""
-        before = dict(self.hashes)
-        for relative, expected in before.items():
+        for relative in list(self.hashes):
             self.read(self.root / relative)
-            if self.hashes[relative] != expected:
-                raise ValueError(f"catalog input changed while checking: {relative}")

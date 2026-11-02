@@ -24,8 +24,15 @@ def _output(root: Path, out: Path) -> None:
     """Require a dedicated output directory outside all catalog input trees."""
     if root.is_relative_to(out) or out.is_relative_to(root):
         raise ValueError("--out-dir must be outside the entire catalog checkout and its ancestors")
-    if out.exists() and (not out.is_dir() or any(p.name not in _OUTPUTS for p in out.iterdir())):
+    if out.exists() and (not out.is_dir() or any(p.name not in _OUTPUTS or p.is_symlink() or not p.is_file() for p in out.iterdir())):
         raise ValueError("--out-dir must be an empty directory or contain only earlier catalog evaluation receipts")
+
+
+def _resolve(path: Path) -> Path:
+    try:
+        return path.resolve()
+    except (OSError, RuntimeError) as exc:
+        raise ValueError(f"cannot resolve {path}: {exc}") from exc
 
 
 def _write(out: Path, report: dict[str, Any], plan: dict[str, Any], result: dict[str, Any]) -> None:
@@ -88,9 +95,10 @@ def cmd_catalog_eval(args: argparse.Namespace) -> None:
     from dokimi.external.catalog_eval_inputs import checked_root
 
     supplied_root = Path(args.catalog_root).absolute()
-    root, out = supplied_root.resolve(), Path(args.out_dir).resolve()
+    out = Path(args.out_dir).absolute()
     output_valid = False
     try:
+        root, out = _resolve(supplied_root), _resolve(out)
         _output(root, out)
         output_valid = True
         root = checked_root(supplied_root)
