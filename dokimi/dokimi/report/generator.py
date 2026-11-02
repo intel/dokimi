@@ -158,11 +158,9 @@ class ReportGenerator:
             "total_questions": s.total,
             "paired_questions": s.paired,
             "unpaired_questions": s.unpaired,
-            "with_docs": {"avg": round(s.with_mean, 1), "min": round(s.with_min, 1), "max": round(s.with_max, 1)},
-            "without_docs": {
-                "avg": round(s.without_mean, 1), "min": round(s.without_min, 1), "max": round(s.without_max, 1),
-            },
-            "delta": {"avg": round(s.delta_mean, 1), "min": round(s.delta_min, 1), "max": round(s.delta_max, 1)},
+            "with_docs": _stat_block(s, s.with_mean, s.with_min, s.with_max),
+            "without_docs": _stat_block(s, s.without_mean, s.without_min, s.without_max),
+            "delta": _stat_block(s, s.delta_mean, s.delta_min, s.delta_max),
             "doc_improvements": s.improvements,
             "doc_degradations": s.degradations,
         }
@@ -253,7 +251,7 @@ class ReportGenerator:
             clusters.append({"topic": topic, **_arm_means(evals)})
         
         # Sort by delta (worst first)
-        clusters.sort(key=lambda x: x["delta_avg"])
+        clusters.sort(key=lambda x: (x["delta_avg"] is None, x["delta_avg"] or 0.0))
         
         return clusters
     
@@ -309,9 +307,12 @@ class ReportGenerator:
             "",
             "| Metric | Context Arm | Baseline | Delta |",
             "|--------|-----------|--------------|-------|",
-            f"| Average | {stats['with_docs']['avg']} | {stats['without_docs']['avg']} | **{stats['delta']['avg']:+.1f}** |",
-            f"| Min | {stats['with_docs']['min']} | {stats['without_docs']['min']} | {stats['delta']['min']:+.1f} |",
-            f"| Max | {stats['with_docs']['max']} | {stats['without_docs']['max']} | {stats['delta']['max']:+.1f} |",
+            f"| Average | {_shown(stats['with_docs']['avg'])} | {_shown(stats['without_docs']['avg'])} "
+            f"| **{_shown(stats['delta']['avg'], signed=True)}** |",
+            f"| Min | {_shown(stats['with_docs']['min'])} | {_shown(stats['without_docs']['min'])} "
+            f"| {_shown(stats['delta']['min'], signed=True)} |",
+            f"| Max | {_shown(stats['with_docs']['max'])} | {_shown(stats['without_docs']['max'])} "
+            f"| {_shown(stats['delta']['max'], signed=True)} |",
             "",
         ]
         lines += _unpaired_note(stats)
@@ -409,8 +410,8 @@ class ReportGenerator:
         for cluster in clusters:
             lines.append(
                 f"| {cluster['topic']} | {_count_cell(cluster)} | "
-                f"{cluster['with_avg']:.1f} | {cluster['without_avg']:.1f} | "
-                f"**{cluster['delta_avg']:+.1f}** |"
+                f"{_shown(cluster['with_avg'])} | {_shown(cluster['without_avg'])} | "
+                f"**{_shown(cluster['delta_avg'], signed=True)}** |"
             )
             
         # ── Source Breakdown ─────────────────────────────────────────────
@@ -427,8 +428,8 @@ class ReportGenerator:
             for src in sources_summary:
                 lines.append(
                     f"| {src['source_type']} | {_count_cell(src)} | "
-                    f"{src['with_avg']:.1f} | {src['without_avg']:.1f} | "
-                    f"**{src['delta_avg']:+.1f}** |"
+                    f"{_shown(src['with_avg'])} | {_shown(src['without_avg'])} | "
+                    f"**{_shown(src['delta_avg'], signed=True)}** |"
                 )
         
         # ── Failure Analysis section ─────────────────────────────────────
@@ -485,24 +486,12 @@ class ReportGenerator:
         ])
         
         # Add recommendations based on data
-        if stats["delta"]["avg"] < 0:
-            lines.append("⚠️ **Overall:** Documentation is hurting answer quality. Consider:")
-            lines.append("- Improving retrieval relevance")
-            lines.append("- Adding more specific examples to docs")
-            lines.append("- Removing outdated/misleading content")
-        elif stats["delta"]["avg"] > 2:
-            lines.append("✅ **Overall:** Documentation is significantly helping. Continue:")
-            lines.append("- Maintaining doc quality")
-            lines.append("- Expanding coverage for low-performing topics")
-        else:
-            lines.append("⚪ **Overall:** Documentation has minimal impact. Consider:")
-            lines.append("- Improving doc discoverability")
-            lines.append("- Adding more practical examples")
+        lines.extend(_overall_advice(stats))
         
         lines.append("")
         
         # Identify worst clusters
-        worst_clusters = [c for c in clusters if c["delta_avg"] < -1]
+        worst_clusters = [c for c in clusters if c["delta_avg"] is not None and c["delta_avg"] < -1]
         if worst_clusters:
             lines.append("### Topics Needing Doc Improvements:")
             lines.append("")
@@ -512,15 +501,47 @@ class ReportGenerator:
         return "\n".join(lines)
 
 
+def _stat_block(s: Any, mean: float, low: float, high: float) -> Dict[str, Optional[float]]:
+    """avg, min and max of one statistic, rounded; all None when no question is a complete pair."""
+    if not s.paired:
+        return {"avg": None, "min": None, "max": None}  # no complete pair: no value, not a zero
+    return {"avg": round(mean, 1), "min": round(low, 1), "max": round(high, 1)}
+
+
+def _shown(value: Optional[float], signed: bool = False) -> str:
+    """A statistic for the page: an em dash where no complete pair gives it a value."""
+    if value is None:
+        return "—"
+    return f"{value:+.1f}" if signed else f"{value:.1f}"
+
+
+def _overall_advice(stats: Dict[str, Any]) -> List[str]:
+    """The Overall recommendation lines; no conclusion is drawn without a complete pair."""
+    if not stats["paired_questions"]:
+        return ["⚪ **Overall:** no complete pairs, so no conclusion can be drawn."]
+    if stats["delta"]["avg"] < 0:
+        return ["⚠️ **Overall:** Documentation is hurting answer quality. Consider:",
+                "- Improving retrieval relevance",
+                "- Adding more specific examples to docs",
+                "- Removing outdated/misleading content"]
+    if stats["delta"]["avg"] > 2:
+        return ["✅ **Overall:** Documentation is significantly helping. Continue:",
+                "- Maintaining doc quality",
+                "- Expanding coverage for low-performing topics"]
+    return ["⚪ **Overall:** Documentation has minimal impact. Consider:",
+            "- Improving doc discoverability",
+            "- Adding more practical examples"]
+
+
 def _arm_means(evaluations: Sequence[Record]) -> Dict[str, Any]:
-    """The arms, delta and unpaired count of one group, rounded for display."""
+    """The arms, delta and unpaired count of one group, rounded for display; None without a complete pair."""
     s = paired_summary(evaluations)
     return {
         "count": s.total,
         "unpaired": s.unpaired,
-        "with_avg": round(s.with_mean, 1),
-        "without_avg": round(s.without_mean, 1),
-        "delta_avg": round(s.delta_mean, 1),
+        "with_avg": None if not s.paired else round(s.with_mean, 1),
+        "without_avg": None if not s.paired else round(s.without_mean, 1),
+        "delta_avg": None if not s.paired else round(s.delta_mean, 1),
     }
 
 
@@ -538,6 +559,9 @@ def _unpaired_note(stats: Dict[str, Any]) -> List[str]:
     """A line saying what the overall means leave out; nothing when every question is paired."""
     if not stats["unpaired_questions"]:
         return []
+    if not stats["paired_questions"]:
+        return [f"_No complete pairs: {stats['unpaired_questions']} unpaired questions, "
+                "so no arm mean or delta is given._", ""]
     return [
         f"_Averages, min/max, delta and the top/bottom tables are over the {stats['paired_questions']} complete pairs; "
         f"{stats['unpaired_questions']} unpaired (scored in one arm only) left out._",

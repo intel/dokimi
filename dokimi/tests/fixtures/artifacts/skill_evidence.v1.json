@@ -1,0 +1,77 @@
+{
+  "baseline": "baseline",
+  "eval_set": {
+    "digest": "sha256:7b0379b853ffc6170161dede74ec099e8819110188311444256faab6eea2d06e",
+    "products": [
+      "oneTBB"
+    ],
+    "questions": [
+      "questions.json"
+    ]
+  },
+  "generated_at": "2026-10-31T10:05:00Z",
+  "measured_at": "2026-10-04T17:47:19.175356Z",
+  "producer": {
+    "name": "dokimi",
+    "version": "0.0.0"
+  },
+  "results": [
+    {
+      "arm": "skill:s",
+      "ci": {
+        "confidence": 0.95,
+        "hi": 13.5,
+        "lo": 10.5,
+        "method": "student_t"
+      },
+      "delta": 12.0,
+      "effort": null,
+      "judge_model": null,
+      "harness": "arms-runner",
+      "matrix_cell": "c1",
+      "metric": "avg_aggregate",
+      "model": "m",
+      "n": 6,
+      "p_correction": "holm",
+      "p_value": 0.001,
+      "product": "oneTBB",
+      "provider": "p",
+      "verdict": "improved"
+    },
+    {
+      "arm": "placebo",
+      "ci": {
+        "confidence": 0.95,
+        "hi": 2.5,
+        "lo": -0.5,
+        "method": "student_t"
+      },
+      "delta": 1.0,
+      "effort": null,
+      "judge_model": null,
+      "harness": "arms-runner",
+      "matrix_cell": "c1",
+      "metric": "avg_aggregate",
+      "model": "m",
+      "n": 6,
+      "p_correction": "holm",
+      "p_value": 0.4,
+      "product": "oneTBB",
+      "provider": "p",
+      "verdict": "inconclusive"
+    }
+  ],
+  "schema_version": "skill_evidence.v1",
+  "source": {
+    "kind": "subject_scorecard.v2",
+    "path": "subject-scorecard.json"
+  },
+  "subject": {
+    "content_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "id": "s",
+    "kind": "skill",
+    "ref": "skills/s"
+  },
+  "warnings": []
+}

@@ -74,6 +74,12 @@
           },
           "cost_summary": {
             "type": "object"
+          },
+          "baseline_arm": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "additionalProperties": true

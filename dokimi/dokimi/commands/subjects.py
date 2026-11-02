@@ -166,6 +166,45 @@ def cmd_subjects_run(args: argparse.Namespace) -> None:
     print(f"OK Saved subject report:    {out_md}")
 
 
+def cmd_subjects_evidence(args: argparse.Namespace) -> None:
+    """Render a saved subject scorecard as a skill_evidence.v1 document; no model calls."""
+    from dokimi.artifacts import ArtifactValidationError, load_artifact, save_artifact
+    from dokimi.subjects.evidence import build_skill_evidence
+
+    try:
+        scorecard = load_artifact("subject_scorecard", Path(args.scorecard))
+    except (OSError, ValueError, ArtifactValidationError) as exc:
+        usage_exit(f"cannot read subject scorecard {args.scorecard}: {exc}")
+    try:
+        evidence = build_skill_evidence(scorecard, source=str(args.scorecard))
+    except (AttributeError, TypeError) as exc:
+        usage_exit(f"{args.scorecard} is not a well-formed subject scorecard: {exc}")
+    if not evidence["results"]:
+        usage_exit(f"{args.scorecard} holds no awareness arm with a baseline to compare against: "
+                   "nothing to publish")
+    out = Path(args.out) if args.out else Path(args.scorecard).with_name("skill-evidence.json")
+    try:
+        out_real = out.resolve()
+        # save_artifact keeps and removes "<out>.rejected"; that sibling must not be the scorecard.
+        stale_real = out.with_name(out.name + ".rejected").resolve()
+        card_real = Path(args.scorecard).resolve()
+    # A symlink loop raises RuntimeError before Python 3.13; "." or "/" has no name, so with_name raises ValueError.
+    except (OSError, RuntimeError, ValueError) as exc:
+        usage_exit(f"cannot resolve --out {out}: {exc}")
+    if out_real == card_real:
+        usage_exit("--out names the scorecard itself; pick another file")
+    if stale_real == card_real:
+        usage_exit(f"{out}.rejected is the scorecard; a save to {out} would delete or overwrite it; pick another --out")
+    try:
+        with exit_on_unwritable(out):
+            save_artifact("skill_evidence", evidence, out)
+    except ArtifactValidationError as exc:
+        usage_exit(f"{args.scorecard} holds a value the evidence schema rejects: {exc}")
+    for warning in evidence["warnings"]:
+        print(f"WARN {warning}", file=sys.stderr)
+    print(f"OK Saved skill evidence: {out} ({len(evidence['results'])} results)")
+
+
 def register(sub, positive_int) -> None:
     """Add the `subjects` subcommand group."""
     subjects_p = sub.add_parser(
@@ -263,6 +302,15 @@ def register(sub, positive_int) -> None:
         help="Skip suite.tasks even when the subject descriptor declares them.",
     )
     run_p.set_defaults(func=cmd_subjects_run)
+
+    evidence_p = subjects_sub.add_parser(
+        "evidence",
+        help="Render a subject scorecard as a skill_evidence.v1 document (no model calls)",
+    )
+    evidence_p.add_argument("scorecard", help="subject_scorecard JSON written by `subjects run`")
+    evidence_p.add_argument("--out", default=None,
+                            help="Output file (default: skill-evidence.json next to the scorecard)")
+    evidence_p.set_defaults(func=cmd_subjects_evidence)
 
 
 def _run_plan(descriptor, args: argparse.Namespace) -> tuple[Path, str, list[str]]:
