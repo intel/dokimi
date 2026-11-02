@@ -443,6 +443,23 @@ def test_an_earlier_file_of_a_regraded_cell_that_cannot_be_removed_stops_the_run
     assert stale.is_dir() and kept.is_file()
 
 
+def test_a_batch_another_run_holds_is_refused_with_exit_2_and_a_dry_run_takes_no_lock(tmp_path, capsys, judge_llm):
+    from dokimi.repos.runner import batch_lock
+
+    batch = _batch(tmp_path)
+    with batch_lock(batch):  # a `repo run` resuming the batch: it rewrites _eval/content and regrades cells
+        code, out, err = _run(capsys, "judge", str(batch), "--judge", JUDGE)
+        assert (code, out, judge_llm.requests) == (2, "", [])
+        assert err.strip() == f"✗ batch {batch} is in use by another `repo run`; wait for it or use another --batch"
+        assert not list(batch.glob(f"*/{HITS_JUDGED}"))
+        assert _run(capsys, "judge", str(batch), "--judge", JUDGE, "--dry-run")[0] == 0  # it writes nothing
+    assert _run(capsys, "judge", str(batch), "--judge", JUDGE)[0] == 0 and len(judge_llm.requests) == 4  # released
+    (batch / "_eval" / "lock").unlink()
+    (batch / "_eval" / "lock").mkdir()  # a lock that cannot be taken: refused as an output that cannot be written
+    code, _, err = _run(capsys, "judge", str(batch), "--judge", JUDGE)
+    assert (code, len(judge_llm.requests)) == (2, 4) and err.startswith(f"✗ cannot lock {batch / '_eval' / 'lock'}: ")
+
+
 def test_dry_run_removes_no_earlier_file(tmp_path, capsys, judge_llm):
     batch = _batch(tmp_path)
     assert _run(capsys, "judge", str(batch), "--judge", JUDGE)[0] == 0

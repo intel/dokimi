@@ -7,9 +7,11 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import sys
 from collections import Counter
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Callable, NoReturn
 
@@ -62,25 +64,43 @@ def _stopped(exc: Exception, done: Any, code: int, more: str = "") -> NoReturn:
     sys.exit(code)
 
 
+@contextlib.contextmanager
+def _locked(batch_dir: Path) -> Iterator[None]:
+    """``repo run``'s :func:`.runner.batch_lock` while the run reads and writes the cells; exit 2 when another
+    holds it (``repo run`` rewrites ``_eval/content`` and regrades cells) or it cannot be taken."""
+    from dokimi.repos.runner import BatchBusy, batch_lock
+
+    with contextlib.ExitStack() as stack:
+        try:
+            stack.enter_context(batch_lock(batch_dir))
+        except BatchBusy as exc:
+            print(f"✗ {exc}", file=sys.stderr)
+            sys.exit(EXIT_USAGE)
+        except OSError as exc:  # a read-only batch: an output that cannot be written, as `sheet`'s
+            print(f"✗ cannot lock {batch_dir / '_eval' / 'lock'}: {exc.strerror or exc}", file=sys.stderr)
+            sys.exit(EXIT_USAGE)
+        yield
+
+
 def cmd_repo_hits_judge(args: argparse.Namespace) -> None:
     """Label each credited replay pair with a judge model; write each cell's hits_judged.json."""
-    from dokimi.repos.hits_calibration import calibrate
-    from dokimi.repos.hits_judge import (
-        HitsWriteError,
-        JudgeFailing,
-        estimate,
-        format_estimate,
-        format_summary,
-        judge_cells,
-        summary,
-    )
+    from dokimi.repos.hits_judge import estimate, format_estimate
 
     batch_dir = _batch(args)
-    found, pairs, labels = _read(batch_dir, args)
-    if args.dry_run:
+    if args.dry_run:  # writes nothing: no lock
+        found, pairs, _ = _read(batch_dir, args)
         planned = estimate(found, pairs, args.judge)
         print(json.dumps(planned, indent=2) if args.json else format_estimate(planned))
         return
+    with _locked(batch_dir):  # before the pairs are read, so a `repo run` cannot change them mid-run
+        _judge(batch_dir, args)
+
+
+def _judge(batch_dir: Path, args: argparse.Namespace) -> None:
+    from dokimi.repos.hits_calibration import calibrate
+    from dokimi.repos.hits_judge import HitsWriteError, JudgeFailing, format_summary, judge_cells, summary
+
+    found, pairs, labels = _read(batch_dir, args)
     try:
         done = judge_cells(batch_dir, found, pairs, args.judge, args.max_usd)
     except HitsWriteError as exc:  # an output write, as `sheet`'s: exit 2
