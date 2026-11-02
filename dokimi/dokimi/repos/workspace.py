@@ -54,7 +54,7 @@ from .errors import PrepError
 from .guidance_history import arm_rev_history
 from .harness_profile import HarnessProfile
 from .manifest import RepoManifest, _is_within, match_glob
-from .source import GitTree, RepoSource, RepoTree, SourceError, cache_path, default_cache_dir, resolve_rev
+from .source import GitTree, RepoSource, RepoTree, SourceError, cache_path, default_cache_dir, isolated_git_env, resolve_rev
 from .uptake import MCP_CONFIG, base_servers, mcp_servers
 
 ARMS = ("guidance:none", "guidance:raw", "guidance:bridge")  # the guidance parts
@@ -647,11 +647,9 @@ def _has_object(git_dir: Path, rev: str) -> bool:
 
 
 def _git_env(author: tuple[str, str]) -> dict[str, str]:
-    """git with no user or system configuration (hooks, signing, templates) and a fixed identity and date."""
+    """git with no user or system configuration (:func:`~.source.isolated_git_env`) and a fixed identity and date."""
     name, email = author
-    keep = {k: v for k, v in os.environ.items() if k in ("PATH", "LANG", "TMPDIR", "SYSTEMROOT")}
-    return {**keep, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_TERMINAL_PROMPT": "0",
-            "HOME": os.devnull, "GIT_AUTHOR_NAME": name, "GIT_AUTHOR_EMAIL": email, "GIT_COMMITTER_NAME": name,
+    return {**isolated_git_env(), "GIT_AUTHOR_NAME": name, "GIT_AUTHOR_EMAIL": email, "GIT_COMMITTER_NAME": name,
             "GIT_COMMITTER_EMAIL": email, "GIT_AUTHOR_DATE": FIXED_DATE, "GIT_COMMITTER_DATE": FIXED_DATE}
 
 

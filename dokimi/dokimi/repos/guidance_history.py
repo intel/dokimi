@@ -38,7 +38,6 @@ one parent has it does not: the commits it merged count.
 
 from __future__ import annotations
 
-import os
 import re
 import threading
 from collections.abc import Iterator
@@ -52,6 +51,7 @@ from dokimi import process
 
 from .errors import PrepError
 from .manifest import _is_within, match_glob
+from .source import SourceError, is_shallow, isolated_git_env
 
 #: At most this many commits in ``guidance_commits``; ``guidance_latest`` is not capped
 GUIDANCE_COMMITS_CAP = 200
@@ -170,7 +170,11 @@ def _utc_as_z(date: str) -> str:
 
 
 def _refuse_shallow(git_dir: Path) -> None:
-    if _git(git_dir, "rev-parse", "rev-parse", "--is-shallow-repository").strip() == b"true":
+    try:  # in the log's own environment: a caller's GIT_DIR would answer for another repository
+        shallow = is_shallow(git_dir, _env())
+    except SourceError as exc:
+        raise PrepError(str(exc)) from exc
+    if shallow:
         raise PrepError(f"{git_dir} is a shallow clone: the guidance history of a guidance:rev: arm needs its full "
                         "history (git fetch --unshallow)")
 
@@ -184,12 +188,14 @@ def _git_log(git_dir: Path, sha: str) -> bytes:
 
 def _git(git_dir: Path, what: str, *args: str) -> bytes:
     """The stdout of ``git -C git_dir *args`` as bytes, with no system or global config; ``what`` names it in an error."""
-    keep = ("PATH", "LANG", "TMPDIR", "SYSTEMROOT")
-    env = process.Env.only(keep, {"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, "HOME": os.devnull,
-                                  "GIT_TERMINAL_PROMPT": "0"})
-    done = process.git("-C", str(git_dir), *args, timeout=_GIT_TIMEOUT_S, env=env)
+    done = process.git("-C", str(git_dir), *args, timeout=_GIT_TIMEOUT_S, env=_env())
     if done.timed_out:
         raise PrepError(f"git {what}: timed out after {_GIT_TIMEOUT_S:.0f} seconds")
     if done.returncode:
         raise PrepError(f"git {what} exited {done.returncode}: {process.git_failure(done)}")
     return done.stdout_bytes
+
+
+def _env() -> process.Env:
+    """git's environment for the history: :func:`~.source.isolated_git_env`, as the arm's own reads have it."""
+    return process.Env.only((), isolated_git_env())

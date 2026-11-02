@@ -264,6 +264,13 @@ def test_a_shallow_git_dir_is_refused_and_a_full_clone_gives_the_whole_history(t
     assert [c["subject"] for c in rev["guidance_commits"]] == ["guidance v2", "guidance v1"]
 
 
+def test_a_git_dir_git_cannot_read_is_a_prep_error(tmp_path):
+    """The shallow check runs first; its failure fails the cell's preparation, not the run."""
+    (tmp_path / "not-a-repo").mkdir()
+    with pytest.raises(PrepError, match="git rev-parse failed"):
+        guidance_history.arm_rev_history(tmp_path / "not-a-repo", ("AGENTS.md",), ".agent-eval", "a" * 40, [], {})
+
+
 def test_a_blobless_clone_gives_the_history_without_fetching_a_blob(tmp_path):
     """``log --raw`` compares object ids only, also for a merge: the clone's origin is gone when it is read."""
     root, shas = _three_commits(tmp_path)
