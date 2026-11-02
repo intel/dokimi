@@ -6,27 +6,41 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
 
+from dokimi import process
 from dokimi.artifacts import validate_artifact
 from dokimi.cli import build_parser
+from dokimi.exit_codes import EXIT_USAGE
 from dokimi.repos.harness_profile import load_profile
+from dokimi.repos.reach import ReachError
 from dokimi.repos.skill_reach import (
+    Case,
+    Fixture,
+    Placed,
     SkillReachError,
+    build_fixture,
+    collisions,
+    format_table,
     load_catalogue,
+    resolve_at,
     run_skill_reach,
     save_skill_reach,
     scenario_ids,
 )
+from dokimi.repos.skill_reach import check_skill_ancestors as real_check_skill_ancestors
 
 # Lists the top-level skills of .fake/skills (project) and $FAKE_CONFIG_DIR/skills (user); a user skill
 # hides a project skill of the same name. It ignores .agents/skills and nested dirs, like Claude Code.
 FAKE_HARNESS = r'''
-import json, os, re, sys
+import json, os, re, sys, time
 from pathlib import Path
 
 args = sys.argv[1:]
@@ -35,6 +49,8 @@ if args == ["--version"]:
 mode = os.environ.get("FAKE_MODE", "ok")
 if mode == "crash":
     print("boom", file=sys.stderr); sys.exit(2)
+if mode == "hang":
+    time.sleep(120)
 assert os.environ["HOME"] != os.environ.get("REAL_HOME"), "HOME not isolated"
 cwd = Path.cwd().resolve()
 root = next(p for p in [cwd, *cwd.parents] if (p / ".git").exists())
@@ -100,7 +116,20 @@ def _run(tmp_path: Path, only=ONLY, **kw):
     work = tmp_path / "work"
     work.mkdir()
     return run_skill_reach(profile=profile, model="m", out_dir=tmp_path / "out", cases=cases,
-                           work_dir=work, salt="s", timeout_s=60, **kw)
+                           work_dir=work, **{"salt": "s", "timeout_s": 60, **kw})
+
+
+def _edit_profile(tmp_path: Path, name: str, **changes) -> Path:
+    """The fake profile with some keys replaced; a None value removes the key."""
+    raw = yaml.safe_load(_profile(tmp_path).read_text(encoding="utf-8"))
+    for key, value in changes.items():
+        if value is None:
+            del raw[key]
+        else:
+            raw[key] = value
+    path = tmp_path / name
+    path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+    return path
 
 
 def test_catalogue_loads_and_scenarios_follow_cwd():
@@ -159,3 +188,276 @@ def test_cli_dry_run_and_unknown_case(tmp_path, capsys):
     with pytest.raises(SystemExit) as exc:
         args.func(args)
     assert exc.value.code == 2 and "nope" in capsys.readouterr().err
+
+
+def _cli(*argv: str) -> None:
+    args = build_parser().parse_args(["repo", "skill-reach", "--model", "m", *argv])
+    args.func(args)
+
+
+@pytest.mark.parametrize("budget", ["0", "-1", "nan"])
+def test_cli_refuses_a_budget_that_is_not_a_positive_number(tmp_path, capsys, budget):
+    with pytest.raises(SystemExit) as exc:
+        _cli("--harness", str(_profile(tmp_path)), "--budget", budget)
+    assert exc.value.code == EXIT_USAGE
+    assert "--budget must be > 0" in capsys.readouterr().err
+
+
+def test_cli_run_writes_the_artifact_and_the_table(tmp_path, capsys):
+    work = tmp_path / "work"
+    work.mkdir()
+    _cli("--harness", str(_profile(tmp_path)), "--only", "project-client",
+         "--out", str(tmp_path / "out"), "--work-dir", str(work))
+    captured = capsys.readouterr()
+    assert "1 cases, 1 scenarios, at most $0.1 each" in captured.err
+    assert "fake 1.2.3  model=m" in captured.out and "wrote " in captured.out
+    validate_artifact("skill_discovery", json.loads((tmp_path / "out" / "skill-discovery.json").read_text(
+        encoding="utf-8")))
+
+
+def test_cli_run_exits_1_when_a_scenario_errors(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("FAKE_MODE", "crash")
+    work = tmp_path / "work"
+    work.mkdir()
+    with pytest.raises(SystemExit) as exc:
+        _cli("--harness", str(_profile(tmp_path)), "--only", "project-client",
+             "--out", str(tmp_path / "out"), "--work-dir", str(work))
+    assert exc.value.code == 1
+    out = capsys.readouterr().out
+    assert "error in cwd=.: exit 2 (no answer): boom" in out and "wrote " in out
+
+
+def test_cli_run_refuses_a_profile_without_a_skills_block(tmp_path, capsys):
+    profile = _edit_profile(tmp_path, "noskills.yaml", skills=None)
+    with pytest.raises(SystemExit) as exc:
+        _cli("--harness", str(profile), "--out", str(tmp_path / "out"))
+    assert exc.value.code == 1
+    assert "declares no `skills` block" in capsys.readouterr().err
+
+
+CATALOGUE_HEAD = "schema: skill_fixtures.v1\ncases:\n"
+
+
+def _catalogue(*items: str) -> str:
+    return CATALOGUE_HEAD + "".join(f"  - {item}\n" for item in items)
+
+
+BAD_CATALOGUES = [
+    pytest.param("schema: [unclosed\n", "cannot read the catalogue", id="not-yaml"),
+    pytest.param("schema: other.v1\ncases: []\n", "not a skill_fixtures.v1", id="wrong-schema"),
+    pytest.param("schema: skill_fixtures.v1\ncases: 3\n", "not a skill_fixtures.v1", id="no-cases-list"),
+    pytest.param(_catalogue("{id: a, at: 'project:x'}", "{id: a, at: 'project:y'}"), "appears twice",
+                 id="duplicate-id"),
+    pytest.param(_catalogue("{at: 'project:x'}"), "needs `id` and `at`", id="no-id"),
+    pytest.param(_catalogue("{id: a, at: 'project:x', colour: red}"), "unknown field", id="unknown-field"),
+    pytest.param(_catalogue("{id: a, at: 'project:x', description: fancy}"), "description must be one of",
+                 id="bad-description"),
+    pytest.param(_catalogue("{id: a, at: 'project:x', eol: cr}"), "eol is lf|crlf", id="bad-eol"),
+    pytest.param(_catalogue("{id: a, at: 'project:x', link: hard}"), "eol is lf|crlf", id="bad-link"),
+    pytest.param(_catalogue("{id: a, at: 'project:x', dirname: '../escape'}"), "inside the fixture",
+                 id="dirname-escapes"),
+    pytest.param(_catalogue("{id: a, at: 'project:x', cwd: /etc}"), "inside the fixture", id="cwd-absolute"),
+    pytest.param(_catalogue("{id: a, at: 'project:x', name: one, collision: g}",
+                            "{id: b, at: 'project:x', name: two, collision: g}"),
+                 "mixes names", id="collision-mixes-names"),
+]
+
+
+@pytest.mark.parametrize("text, message", BAD_CATALOGUES)
+def test_a_bad_catalogue_is_refused(tmp_path, text, message):
+    path = tmp_path / "cat.yaml"
+    path.write_text(text, encoding="utf-8")
+    with pytest.raises(SkillReachError, match=re.escape(message)):
+        load_catalogue(path)
+
+
+def test_a_missing_catalogue_is_refused(tmp_path):
+    with pytest.raises(SkillReachError, match="cannot read the catalogue"):
+        load_catalogue(tmp_path / "missing.yaml")
+
+
+def _placed(cid: str, collision: str | None = None) -> Placed:
+    case = Case(id=cid, at="project:x", name=cid, dirname=cid, collision=collision)
+    return Placed(case, "project", cid, "SK000001", "SB000001")
+
+
+def _rec(case: str, cls: str, scenario: str = "cwd=.") -> dict:
+    return {"case": case, "scenario": scenario, "class": cls}
+
+
+def test_a_collision_verdict_counts_only_the_listed_copies():
+    fixture = Fixture(placed=[_placed("a", "g"), _placed("b", "g"), _placed("c", "g"), _placed("solo", "s")])
+    records = [_rec("a", "listed"), _rec("b", "not_listed"), _rec("c", "fetched"), _rec("solo", "listed")]
+    (verdict,) = collisions(fixture, records)  # a one-member group is not a collision
+    assert verdict == {"group": "g", "scenario": "cwd=.", "members": ["a", "b", "c"],
+                       "listed": ["a", "c"], "verdict": "some"}
+
+
+@pytest.mark.parametrize("classes, verdict", [
+    (("listed", "listed"), "all"),
+    (("not_listed", "not_listed"), "none"),
+    (("listed", "not_listed"), "one"),
+    (("listed", "error"), "error"),  # an errored copy makes the group's verdict unknown
+])
+def test_collision_verdicts(classes, verdict):
+    fixture = Fixture(placed=[_placed("a", "g"), _placed("b", "g")])
+    (result,) = collisions(fixture, [_rec("a", classes[0]), _rec("b", classes[1])])
+    assert result["verdict"] == verdict
+
+
+def test_resolve_at_uses_the_profile_dirs_and_refuses_a_bad_location():
+    dirs = {"client_project": ".fake/skills", "client_user": "config:skills"}
+
+    def case(at: str) -> Case:
+        return Case(id="c", at=at, name="c", dirname="c")
+
+    assert resolve_at(case("project:{client_project}"), dirs) == ("project", ".fake/skills")
+    assert resolve_at(case("{client_user}/extra"), dirs) == ("config", "skills/extra")
+    assert resolve_at(case("project:{client_project}"), {}) is None
+    assert resolve_at(case("{client_user}"), {}) is None
+    with pytest.raises(SkillReachError, match="must be"):
+        resolve_at(case("cloud:skills"), dirs)
+
+
+def test_build_fixture_links_a_symlink_case_and_skips_an_undeclared_dir(tmp_path):
+    profile = load_profile(str(_edit_profile(tmp_path, "project-only.yaml",
+                                             skills={"project_dirs": [".fake/skills"]})))
+    cases = [c for c in load_catalogue() if c.id in ("symlink-client", "user-client")]
+    roots = {scope: tmp_path / scope for scope in ("project", "home", "config")}
+    for root in roots.values():
+        root.mkdir()
+    fixture = build_fixture(cases, profile, roots, tmp_path / "outside", "s")
+    assert [(p.case.id, p.link_kind) for p in fixture.placed] == [("symlink-client", "symlink")]
+    assert (roots["project"] / ".fake/skills/symlink-client/SKILL.md").is_file()
+    assert [s["case"] for s in fixture.skipped] == ["user-client"]
+    assert "declares no skill dir" in fixture.skipped[0]["reason"]
+
+
+def test_build_fixture_reports_a_symlink_the_os_refuses(tmp_path, monkeypatch):
+    def refuse(*args, **kwargs):
+        raise OSError("a symlink needs developer mode")
+
+    monkeypatch.setattr(os, "symlink", refuse)
+    profile = load_profile(str(_profile(tmp_path)))
+    cases = [c for c in load_catalogue() if c.id == "symlink-client"]
+    roots = {scope: tmp_path / scope for scope in ("project", "home", "config")}
+    for root in roots.values():
+        root.mkdir()
+    fixture = build_fixture(cases, profile, roots, tmp_path / "outside", "s")
+    assert fixture.placed == []
+    assert fixture.skipped[0]["reason"].startswith("this OS refused a symlink")
+
+
+def test_a_skill_dir_above_the_workspace_is_refused(tmp_path):
+    (tmp_path / ".claude" / "skills").mkdir(parents=True)
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    with pytest.raises(ReachError, match="is above the fixture"):
+        real_check_skill_ancestors(workspace)
+
+
+def test_a_native_prompt_profile_is_refused(tmp_path):
+    script = tmp_path / "fake_harness.py"
+    profile = _edit_profile(tmp_path, "native.yaml", native_prompt=True,
+                            invoke=["{bin}", str(script), "--model", "{model}", "{tools}"])
+    with pytest.raises(SkillReachError, match="native_prompt"):
+        run_skill_reach(profile=load_profile(str(profile)), model="m", out_dir=tmp_path / "o", cases=[])
+
+
+def test_a_profile_without_a_skills_tool_mode_is_refused(tmp_path):
+    profile = _edit_profile(tmp_path, "notools.yaml", tools={"none": ["--tools", ""], "read": ["--tools", "Read"]})
+    with pytest.raises(SkillReachError, match="tool mode"):
+        run_skill_reach(profile=load_profile(str(profile)), model="m", out_dir=tmp_path / "o", cases=[])
+
+
+def test_only_places_the_named_cases(tmp_path):
+    payload = run_skill_reach(profile=load_profile(str(_profile(tmp_path))), model="m", out_dir=tmp_path / "o",
+                              cases=load_catalogue(), only=("project-client",), salt="s", timeout_s=60,
+                              work_dir=tmp_path)
+    assert [c["id"] for c in payload["cases"]] == ["project-client"]
+
+
+def test_an_unknown_only_case_is_refused(tmp_path):
+    with pytest.raises(SkillReachError, match="matches no case"):
+        run_skill_reach(profile=load_profile(str(_profile(tmp_path))), model="m", out_dir=tmp_path / "o",
+                        cases=load_catalogue(), only=("nope",))
+
+
+def test_a_profile_that_places_no_case_is_refused(tmp_path):
+    profile = _edit_profile(tmp_path, "project-only.yaml", skills={"project_dirs": [".fake/skills"]})
+    cases = [c for c in load_catalogue() if c.id == "user-client"]
+    work = tmp_path / "work"
+    work.mkdir()
+    with pytest.raises(SkillReachError, match="no case could be placed"):
+        run_skill_reach(profile=load_profile(str(profile)), model="m", out_dir=tmp_path / "o", cases=cases,
+                        work_dir=work)
+
+
+def test_a_new_run_clears_the_traces_of_an_earlier_one(tmp_path):
+    trace = tmp_path / "out" / "traces"
+    trace.mkdir(parents=True)
+    (trace / "07-stale.stdout").write_text("old", encoding="utf-8")
+    (trace / "07-stale.events.jsonl").write_text("old", encoding="utf-8")
+    (trace / "notes.txt").write_text("keep", encoding="utf-8")
+    _run(tmp_path, only=("project-client",))
+    assert not (trace / "07-stale.stdout").exists()
+    assert not (trace / "07-stale.events.jsonl").exists()
+    assert (trace / "notes.txt").read_text(encoding="utf-8") == "keep"
+
+
+def test_a_failed_git_init_stops_the_run(tmp_path, monkeypatch):
+    def failing(argv, **kwargs):
+        return SimpleNamespace(returncode=128, stderr="fatal: no", stdout="")
+
+    monkeypatch.setattr(process, "run", failing)
+    with pytest.raises(SkillReachError, match="git init -q failed: fatal: no"):
+        _run(tmp_path, only=("project-client",))
+
+
+def test_a_harness_that_times_out_is_an_error_not_not_listed(tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_MODE", "hang")
+    payload = _run(tmp_path, only=("project-client",), timeout_s=1)
+    assert {r["class"] for r in payload["records"]} == {"error"}
+    assert "timed out after 1 seconds" in payload["scenarios"][0]["error"]
+
+
+def test_a_harness_that_cannot_start_is_an_error(tmp_path):
+    profile = _edit_profile(tmp_path, "missing-exe.yaml",
+                            invoke=["/nonexistent/fake-harness", "-p", "{prompt}", "--model", "{model}", "{tools}"])
+    work = tmp_path / "work"
+    work.mkdir()
+    cases = [c for c in load_catalogue() if c.id == "project-client"]
+    payload = run_skill_reach(profile=load_profile(str(profile)), model="m", out_dir=tmp_path / "out",
+                              cases=cases, work_dir=work, salt="s", timeout_s=60)
+    assert {r["class"] for r in payload["records"]} == {"error"}
+    assert "FileNotFoundError" in payload["scenarios"][0]["error"]
+
+
+def test_the_table_shows_the_collision_verdict_and_legend(tmp_path):
+    text = format_table(_run(tmp_path))
+    assert "collision project-vs-user [cwd=.]: one: dup-user-client" in text
+    assert "L listed" in text
+
+
+def test_the_table_flags_skipped_and_looked_scenarios(tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_MODE", "look")
+    profile = _edit_profile(tmp_path, "project-only.yaml", skills={"project_dirs": [".fake/skills"]})
+    cases = [c for c in load_catalogue() if c.id in ("project-client", "user-client")]
+    work = tmp_path / "work"
+    work.mkdir()
+    payload = run_skill_reach(profile=load_profile(str(profile)), model="m", out_dir=tmp_path / "out",
+                              cases=cases, work_dir=work, salt="s", timeout_s=60)
+    text = format_table(payload)
+    assert "skipped user-client: fake declares no skill dir for {client_user}" in text
+    assert "warning: cwd=.: the agent ran a command or read a file" in text
+
+
+def test_the_table_names_a_scenario_that_errored(tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_MODE", "crash")
+    assert "error in cwd=.: exit 2 (no answer): boom" in format_table(_run(tmp_path, only=("project-client",)))
+
+
+def test_the_table_names_a_token_the_harness_invented(tmp_path):
+    payload = _run(tmp_path, only=("project-client",))
+    payload["scenarios"][0]["unknown"] = ["SK0BAD00"]
+    assert "unknown tokens in cwd=.: SK0BAD00" in format_table(payload)
