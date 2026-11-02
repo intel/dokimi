@@ -110,14 +110,19 @@ class Inputs:
         if path.is_file():
             return [path]
         result: list[Path] = []
-        try:
-            children = sorted(path.iterdir())
-        except OSError as exc:
-            raise ValueError(f"cannot inspect {path}: {exc}") from exc
-        for child in children:
-            checked_path(self.root, child)
-            if child.name not in VENDORED_DIR_NAMES:
-                result.extend(self.files(child))
+        pending = [path]
+        while pending:
+            current = pending.pop()
+            if current.is_file():
+                result.append(current)
+                continue
+            try:
+                children = sorted(current.iterdir())
+            except OSError as exc:
+                raise ValueError(f"cannot inspect {current}: {exc}") from exc
+            for child in children:
+                checked_path(self.root, child)
+            pending.extend(reversed([c for c in children if c.name not in VENDORED_DIR_NAMES or not c.is_dir()]))
         return result
 
     def bundle(self, path: Path) -> str:

@@ -6,11 +6,14 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
 import os
 import platform
+import shutil
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -63,7 +66,7 @@ def _write(out: Path, report: dict[str, Any], plan: dict[str, Any], result: dict
     from dokimi.external.catalog_receipts import render
 
     out.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix=".catalog-eval-", dir=out.parent) as work:
+    with _workdir(out.parent) as work:
         staged = Path(work) / "new"
         staged.mkdir()
         for kind, payload in (("catalog_eval", report), ("plan", plan), ("result", result)):
@@ -73,21 +76,41 @@ def _write(out: Path, report: dict[str, Any], plan: dict[str, Any], result: dict
         _replace_output(out, staged, Path(work) / "old")
 
 
+class _RollbackFailed(OSError):
+    """The previous output could not be put back; its copy is kept for recovery."""
+
+
+@contextlib.contextmanager
+def _workdir(parent: Path) -> Iterator[Path]:
+    work = Path(tempfile.mkdtemp(prefix=".catalog-eval-", dir=parent))
+    try:
+        yield work
+    except _RollbackFailed:
+        raise
+    except BaseException:
+        shutil.rmtree(work, ignore_errors=True)
+        raise
+    shutil.rmtree(work, ignore_errors=True)
+
+
 def _replace_output(out: Path, staged: Path, backup: Path) -> None:
     if out.exists():
         os.replace(out, backup)
     try:
         os.replace(staged, out)
-    except OSError:
+    except OSError as exc:
         if backup.exists():
-            os.replace(backup, out)
+            try:
+                os.replace(backup, out)
+            except OSError as restore:
+                raise _RollbackFailed(f"cannot restore previous receipts, kept at {backup}: {restore}") from exc
         raise
 
 
 def _write_error(out: Path, error: Exception) -> None:
     """Invalidate earlier success after an input error without inventing a measured plan."""
     out.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix=".catalog-eval-", dir=out.parent) as work:
+    with _workdir(out.parent) as work:
         staged = Path(work) / "new"
         staged.mkdir()
         message = str(error).replace("<", "&lt;").replace(">", "&gt;")

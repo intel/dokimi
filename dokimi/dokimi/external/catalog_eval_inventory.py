@@ -26,12 +26,16 @@ def _yaml(inputs: Inputs, path: Path) -> Any:
         raise ValueError(f"invalid YAML at {path}: {exc}") from exc
 
 
+def _walk_failed(exc: OSError) -> None:
+    raise ValueError(f"cannot inspect {exc.filename}: {exc}") from exc
+
+
 def _skill_specs(inputs: Inputs) -> list[dict]:
     path = inputs.root / "skills.yaml"
     checked_path(inputs.root, path)
     if not path.exists():
         return [{"name": file.parent.name, "catalog_path": file.parent.relative_to(inputs.root).as_posix()}
-                for file in walk_skill_files(inputs.root)
+                for file in walk_skill_files(inputs.root, onerror=_walk_failed)
                 if not TEMPLATE_DIR_NAMES.intersection(file.relative_to(inputs.root).parts[:-1])]
     data = _yaml(inputs, path) or {}
     if isinstance(data, dict):
