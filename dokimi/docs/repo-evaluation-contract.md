@@ -435,7 +435,8 @@ reads the upstream base (`base_sha`) and the workspace start commit
   8 KB keeps its first and last 4 KB around a `[... N bytes omitted ...]`
   line, and `output_truncated` is `true`; build errors are usually at the end.
 - `rc` is what the harness reports. Where it reports only success or failure
-  (Claude Code), `rc` is `0` or `1`. It is `null` when no result came back,
+  (Claude Code), `rc` is `0` or `1`; a Claude Code `Skill` tool event carries it
+  too (`1`: the skill was not loaded). It is `null` when no result came back,
   for example when the run stopped at its turn or budget limit; a grader
   must not count `null` as a failure.
 - `agent` is present on an event a subagent made: the id of the parent's

@@ -135,8 +135,8 @@ def _apply_result(out: Transcript, block: dict[str, Any], stream: _Stream) -> No
         _deny(stream, tool_id)
     elif id(result_of) in stream.bash:
         stream.bash[id(result_of)].result = "error" if block.get("is_error") else "ok"
-    if result_of["kind"] == "read" and not denied:
-        # A read that failed (the file does not exist) shows nothing of the file.
+    if (result_of["kind"] == "read" or result_of.get("name") == "Skill") and not denied:
+        # A read that failed (the file does not exist) shows nothing of the file; a failed Skill call, no skill.
         result_of["rc"] = 1 if block.get("is_error") else 0
     if result_of["kind"] == "command":
         # Claude Code reports success or failure only, with stdout and stderr merged into one text.
