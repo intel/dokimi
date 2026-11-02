@@ -13,6 +13,9 @@ token it can see:
 - ``cwd=<dir>``: started in each directory that holds guidance, tools disabled
 - ``read=<dir>``: started at the root, told to read one file in ``<dir>`` with
   the read tool and then list tokens (finds lazy, subtree-triggered loading)
+- ``bash=<dir>``: as ``read=<dir>``, but the file is printed with ``cat`` through
+  the Bash tool (whether a shell read triggers that loading); only when asked for,
+  and only for a profile with a ``bash`` tool mode
 
 A file is ``loaded`` when both tokens are reported, ``truncated`` when only
 one is, ``fetched`` when it was reported only after the agent read the file
@@ -73,10 +76,20 @@ ASK = ("This is a configuration check run by the owner of this repository. Your 
        "and nothing else. Report only what is already in your context; do not search for "
        "files. If there are none, answer NONE.")
 ASK_AFTER_READ = "First use the Read tool to read the file {path}, and read no other file. Then: "
+ASK_AFTER_BASH = "First use the Bash tool to run `cat {path}`, and run no other command. Then: "
+KINDS = ("root", "cwd", "read", "bash")  # the scenario kinds; bash only when asked for
+DEFAULT_KINDS = ("root", "cwd", "read")
 
 
 class ReachError(RuntimeError):
     """The probe cannot run safely (for example a guidance file above the workspace)."""
+
+
+def check_kinds(profile: HarnessProfile, kinds: tuple[str, ...]) -> None:
+    """Refuse a ``bash`` scenario for a profile without a ``bash`` tool mode, before any scenario runs."""
+    if "bash" in kinds and "bash" not in profile.tools:
+        raise ReachError(f"profile {profile.name} has no `bash` tool mode, so it cannot run the bash scenarios "
+                         f"(its tool modes: {', '.join(sorted(profile.tools))})")
 
 
 @dataclass(frozen=True)
@@ -93,11 +106,13 @@ class Scenario:
     id: str
     cwd: str  # relative to the workspace root; "" is the root
     tools: str
-    read: str | None = None  # file the agent is told to read first
+    read: str | None = None  # file the agent is told to read first (with ``cat`` in the bash tool mode)
 
     @property
     def prompt(self) -> str:
-        return (ASK_AFTER_READ.format(path=self.read) if self.read else "") + ASK
+        if not self.read:
+            return ASK
+        return (ASK_AFTER_BASH if self.tools == "bash" else ASK_AFTER_READ).format(path=self.read) + ASK
 
 
 def token(salt: str, path: str, position: str) -> str:
@@ -116,7 +131,7 @@ def probe_files(tree: RepoTree, manifest: RepoManifest, profile: HarnessProfile)
     return sorted(p for p in declared | native if not manifest.in_eval_dir(p))
 
 
-def scenarios(files: list[str], kinds: tuple[str, ...] = ("root", "cwd", "read"),
+def scenarios(files: list[str], kinds: tuple[str, ...] = DEFAULT_KINDS,
               only: tuple[str, ...] = ()) -> list[Scenario]:
     dirs = sorted({str(PurePosixPath(f).parent) for f in files} - {"."})
     out: list[Scenario] = []
@@ -124,8 +139,9 @@ def scenarios(files: list[str], kinds: tuple[str, ...] = ("root", "cwd", "read")
         out.append(Scenario("cwd=.", "", "none"))
     if "cwd" in kinds:
         out.extend(Scenario(f"cwd={d}", d, "none") for d in dirs)
-    if "read" in kinds:
-        out.extend(Scenario(f"read={d}", "", "read", read=f"{d}/{PROBE_FILE}") for d in dirs)
+    for kind in ("read", "bash"):  # started at the root, told to read the probe file of each directory
+        if kind in kinds:
+            out.extend(Scenario(f"{kind}={d}", "", kind, read=f"{d}/{PROBE_FILE}") for d in dirs)
     return [s for s in out if s.id in only] if only else out
 
 
@@ -285,7 +301,7 @@ def run_reach(
     out_dir: Path,
     bin_path: str | None = None,
     work_dir: Path | None = None,
-    kinds: tuple[str, ...] = ("root", "cwd", "read"),
+    kinds: tuple[str, ...] = DEFAULT_KINDS,
     only: tuple[str, ...] = (),
     salt: str | None = None,
     max_turns: int = 4,
@@ -294,6 +310,7 @@ def run_reach(
     keep: bool = False,
 ) -> dict[str, Any]:
     """Run every scenario once and return the guidance_reach.v1 payload (unsaved)."""
+    check_kinds(profile, kinds)
     files = probe_files(tree, manifest, profile)
     if not files:
         raise ReachError("no guidance files to probe: the manifest's globs and the "

@@ -102,7 +102,7 @@ The full path with reading notes: [skill-novelty-walkthrough.md](skill-novelty-w
 | Step | Command | Cost |
 |---|---|---|
 | 1. Do the paths, links and commands named in the guidance exist? | `dokimi repo scan <repo>` | free |
-| 2. Which guidance files does the harness actually load? | `dokimi repo reach <repo> --model <id> --dry-run`, then a few `--only <scenario>` with `--budget` | capped by `--budget` (default $0.10) per scenario; needs the `claude` binary and `ANTHROPIC_API_KEY`, or `AWS_BEARER_TOKEN_BEDROCK` with `AWS_REGION` and `CLAUDE_CODE_USE_BEDROCK` |
+| 2. Which guidance files does the harness actually load? | `dokimi repo reach <repo> --model <id> --dry-run`, then a few `--only <scenario>` with `--budget`; to see whether a Bash read of a nested file loads its directory's guidance (agents that read with `cat`), `--scenarios bash` (or `--scenarios bash --only bash=<dir>`) | capped by `--budget` (default $0.10) per scenario; needs the `claude` binary and `ANTHROPIC_API_KEY`, or `AWS_BEARER_TOKEN_BEDROCK` with `AWS_REGION` and `CLAUDE_CODE_USE_BEDROCK` |
 | 3. What does the root guidance add? | `dokimi novelty analyze --artifact text:<repo>/AGENTS.md --tier triage …` | ~100 calls |
 | 4. Does the guidance change task outcomes? | `dokimi repo run <repo> --manifest-file … --model <id> --batch <name> --arm guidance:none,guidance:raw --agent-network host --budget <usd> --max-batch-usd <usd>` | needs the repository's own tasks, Docker, `claude` binary on PATH (or `--bin`); `--budget` defaults to $2.00 per agent run with no batch cap unless you pass `--max-batch-usd` |
 

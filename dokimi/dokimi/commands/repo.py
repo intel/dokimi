@@ -242,12 +242,12 @@ def cmd_repo_fetch(args: argparse.Namespace) -> None:
 
 def _check_reach_flags(args: argparse.Namespace, kinds: tuple[str, ...]) -> None:
     """Refuse a flag that would drop a scenario kind silently, or spend a budget that is not one."""
-    from dokimi.repos.reach import ReachError
+    from dokimi.repos.reach import KINDS, ReachError
 
     # A typo would otherwise drop a scenario kind silently and still spend the budget.
-    unknown_kinds = sorted(set(kinds) - {"root", "cwd", "read"})
+    unknown_kinds = sorted(set(kinds) - set(KINDS))
     if unknown_kinds:
-        raise ReachError(f"unknown --scenarios kind(s) {', '.join(unknown_kinds)} (known: root, cwd, read)")
+        raise ReachError(f"unknown --scenarios kind(s) {', '.join(unknown_kinds)} (known: {', '.join(KINDS)})")
     if not math.isfinite(args.budget) or args.budget <= 0:
         raise ReachError(f"--budget must be > 0, got {args.budget:g}")
     if args.model is None:
@@ -373,6 +373,7 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
     from dokimi.repos.source import SourceArgumentError
     from dokimi.repos.reach import (
         ReachError,
+        check_kinds,
         planned,
         probe_files,
         run_reach,
@@ -385,6 +386,7 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
     try:  # the arguments as typed: a usage error
         _check_reach_flags(args, kinds)
         profile = load_profile(args.harness)
+        check_kinds(profile, kinds)
         source = RepoSource.parse(args.source)
     except (SourceError, ProfileError, ReachError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
@@ -686,7 +688,8 @@ def register(sub, positive_int) -> None:
     reach_p.add_argument("--bin", default=None, help="Harness executable (default: the profile's `bin`)")
     reach_p.add_argument("--out", default=None, help="Output directory: reach.json and traces/ (default: reach-out)")
     reach_p.add_argument("--scenarios", default=None,
-                         help="Comma list of scenario kinds: root, cwd, read (default: all)")
+                         help="Comma list of scenario kinds: root, cwd, read, bash (default: root,cwd,read; bash "
+                         "cats each probe file through the Bash tool, for a profile with a bash tool mode)")
     reach_p.add_argument("--only", action="append", default=None, metavar="SCENARIO",
                          help="Run only this scenario id (for example read=cpp); repeatable")
     reach_p.add_argument("--work-dir", default=None, dest="work_dir",

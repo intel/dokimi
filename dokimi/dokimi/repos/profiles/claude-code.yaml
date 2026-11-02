@@ -28,6 +28,7 @@ invoke:
 tools:
   none: ["--tools", ""]
   read: ["--tools", "Read"]
+  bash: ["--tools", "Bash"]  # repo reach --scenarios bash: what a shell read of a nested file loads
   all: ["--disallowedTools", "WebFetch", "WebSearch"]
 # --delegation none: the same tools without the ones that start subagents (Agent/Task, Workflow).
 delegation:

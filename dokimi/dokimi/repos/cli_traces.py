@@ -96,6 +96,17 @@ def shell_reads(script: str, cwd: str = "") -> list[str]:
     redirected to a file or /dev/null is dropped, as that output is not shown to the agent. ``--help`` and
     ``--version`` print and open no file. A function definition is skipped whole. Absolute paths are kept.
     """
+    return _walk_script(script, cwd)[0]
+
+
+def shell_reads_moved(script: str, cwd: str = "") -> tuple[list[str], bool]:
+    """:func:`shell_reads`, and whether the script may leave its shell in another directory: it ran a ``cd``,
+    ``pushd`` or ``popd`` outside a subshell, or a ``cd`` whose target is not known."""
+    reads, walk = _walk_script(script, cwd)
+    return reads, walk.moved
+
+
+def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
     out: list[str] = []
     walk = _Walk(posixpath.normpath(cwd) if cwd else "")
     previous = ""
@@ -121,7 +132,7 @@ def shell_reads(script: str, cwd: str = "") -> list[str]:
         words = walk.words(part)
         if words:
             out.extend(walk.command(words, after, chained))
-    return out
+    return out, walk
 
 
 class _Walk:

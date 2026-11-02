@@ -18,6 +18,11 @@ A command event carries ``output`` when the harness returned one: over
 bytes, and ``output_truncated`` says whether that happened. An event a
 subagent made carries ``agent``: the id of the parent's tool call that started it.
 
+A shell command that only prints files (:func:`~dokimi.repos.cli_traces.shell_reads`) also gives a
+``read`` event per file, before its ``command`` event: a Codex or Copilot shell command, and
+Claude Code's ``Bash`` tool. Claude Code keeps the shell's directory from one ``Bash`` call to the
+next, so once a call of an agent ran a ``cd``, that agent's later relative reads are not recorded.
+
 Token counts cover the same scope as ``cost_usd``: summed over ``modelUsage``
 (parent, subagents and helper models) when the result has it, else the parent's
 ``usage``; ``usage_scope`` says which (``tree`` or ``main``).
@@ -27,16 +32,19 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
 from dokimi.context.trace import parse_trace
 
+from .cli_traces import _failed_read, codex_json, copilot_json, shell_reads_moved
 from .transcript import Transcript, _parse_time, clip_output, relative_path
 
 TRACE_FORMATS = ("claude-stream-json", "codex-json", "copilot-json", "text")
 
-_COMMAND_TOOLS = {"Bash", "PowerShell"}
+_SHELL_TOOL = "Bash"  # a POSIX shell: its command is parsed for the files it prints (not PowerShell's)
+_COMMAND_TOOLS = {_SHELL_TOOL, "PowerShell"}
 _READ_TOOLS = {"Read"}
 _EDIT_TOOLS = {"Edit", "MultiEdit", "Write", "NotebookEdit"}
 _AGENT_TOOLS = {"Agent", "Task"}
@@ -47,22 +55,32 @@ def convert(fmt: str, raw: str, workdir: str | None = None, cwd: str = "") -> Tr
     """Convert a raw harness stdout in format ``fmt`` to a :class:`Transcript`.
 
     ``cwd`` is the directory the harness started in, relative to ``workdir``: a shell command's relative
-    paths (Codex, Copilot) are read from there."""
+    paths are read from there (in Claude Code, every agent's first ``Bash`` call starts there)."""
     if fmt == "text":
         return Transcript(answer=raw.strip())
     if fmt == "claude-stream-json":
-        return _claude_stream_json(raw, workdir)
+        return _claude_stream_json(raw, workdir, cwd)
     if fmt in ("codex-json", "copilot-json"):
-        from .cli_traces import codex_json, copilot_json
-
         return (codex_json if fmt == "codex-json" else copilot_json)(raw, workdir, cwd)
     raise ValueError(f"unknown trace format {fmt!r} (known: {', '.join(TRACE_FORMATS)})")
 
 
-def _claude_stream_json(raw: str, workdir: str | None) -> Transcript:
+@dataclass
+class _Stream:
+    """What a Claude stream-json trace carries from line to line."""
+
+    workdir: str | None
+    cwd: str  # where each agent's shell starts, relative to workdir
+    by_id: dict[str, dict[str, Any]] = field(default_factory=dict)  # tool_use id -> its event
+    # tool_use id of a Bash call -> the read events derived from it, and the files its command names
+    shell_reads: dict[str, tuple[list[dict[str, Any]], list[str]]] = field(default_factory=dict)
+    moved: set[str] = field(default_factory=set)  # agents ("" the parent) whose shell may have left cwd
+
+
+def _claude_stream_json(raw: str, workdir: str | None, cwd: str = "") -> Transcript:
     out = Transcript()
     start: datetime | None = None
-    by_id: dict[str, dict[str, Any]] = {}  # tool_use id -> its event
+    stream = _Stream(workdir, cwd)
     for n, line in enumerate(raw.split("\n"), 1):  # not splitlines: a JSON string may hold U+2028 or U+0085
         if not line.strip():
             continue
@@ -79,7 +97,7 @@ def _claude_stream_json(raw: str, workdir: str | None) -> Transcript:
             start = start or stamp
             t = round((stamp - start).total_seconds(), 3)
         try:
-            _apply(out, rec, t, by_id, workdir)
+            _apply(out, rec, t, stream)
         except (AttributeError, TypeError) as exc:  # valid JSON of an unexpected shape
             out.errors.append(f"line {n}: unexpected shape ({exc})")
     main = parse_trace(raw).main_calls()
@@ -87,9 +105,10 @@ def _claude_stream_json(raw: str, workdir: str | None) -> Transcript:
     return out
 
 
-def _apply_result(block: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> None:
+def _apply_result(out: Transcript, block: dict[str, Any], stream: _Stream) -> None:
     """Attach one tool_result to the event of its tool_use."""
-    result_of = by_id.get(block.get("tool_use_id", ""))
+    tool_id = block.get("tool_use_id", "")
+    result_of = stream.by_id.get(tool_id)
     if result_of is None:
         return
     output = _result_text(block.get("content"))
@@ -97,7 +116,9 @@ def _apply_result(block: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> No
     # naming the hook; the command never ran, so it has no rc.
     denied = bool(block.get("is_error")) and bool(_HOOK_DENIAL.match(output or ""))
     if denied:
-        result_of["denied"] = True
+        _deny(stream, tool_id)
+    else:
+        _settle_shell_reads(out, stream, tool_id, bool(block.get("is_error")))
     if result_of["kind"] == "read" and not denied:
         # A read that failed (the file does not exist) shows nothing of the file.
         result_of["rc"] = 1 if block.get("is_error") else 0
@@ -115,8 +136,51 @@ def _set_num_turns(out: Transcript, turns: Any) -> None:
         out.errors.append(f"result num_turns {str(turns)[:50]!r} is not an integer; recorded as null")
 
 
-def _apply(out: Transcript, rec: dict[str, Any], t: float | None,
-           by_id: dict[str, dict[str, Any]], workdir: str | None) -> None:
+def _deny(stream: _Stream, tool_id: Any) -> None:
+    """A refused call: its event and the reads derived from it, which never ran."""
+    stream.by_id[tool_id]["denied"] = True
+    for read in stream.shell_reads.get(tool_id, ([], []))[0]:
+        read["denied"] = True
+
+
+def _settle_shell_reads(out: Transcript, stream: _Stream, tool_id: Any, is_error: bool) -> None:
+    """The reads of a Bash call that ran: dropped when it failed and was one read of one file (``cat AGENTS.md`` of
+    a missing file), else ``rc`` 0, since a failure does not say which file failed (``cat a missing``)."""
+    reads, named = stream.shell_reads.get(tool_id, ([], []))
+    if is_error and _failed_read(str(stream.by_id[tool_id].get("text", "")), named, 1):
+        dropped = {id(e) for e in reads}
+        out.events[:] = [e for e in out.events if id(e) not in dropped]
+        return
+    for read in reads:
+        read["rc"] = 0
+
+
+def _tool_use(out: Transcript, block: dict[str, Any], t: float | None, agent: str, stream: _Stream) -> None:
+    """The events of one tool_use block: a Bash call's derived reads, then its own event."""
+    event = _tool_event(block, t, stream.workdir)
+    reads, named = _bash_reads(event, agent, stream) if block.get("name") == _SHELL_TOOL else ([], [])
+    if agent:
+        for e in (*reads, event):
+            e["agent"] = agent
+    if block.get("name") in _AGENT_TOOLS:
+        out.subagent_calls = (out.subagent_calls or 0) + 1
+    out.events.extend([*reads, event])
+    if block.get("id"):
+        stream.by_id[block["id"]] = event
+        stream.shell_reads[block["id"]] = (reads, named)
+
+
+def _bash_reads(event: dict[str, Any], agent: str, stream: _Stream) -> tuple[list[dict[str, Any]], list[str]]:
+    """The read events of a Bash command and the files it names. Once an earlier call of the same agent may have
+    left the start directory, a relative path names no known file: only absolute ones are kept."""
+    named, moves = shell_reads_moved(str(event["text"]), stream.cwd)
+    known = [p for p in named if p.startswith("/")] if agent in stream.moved else named
+    if moves:
+        stream.moved.add(agent)
+    return [{"t": event["t"], "kind": "read", "path": relative_path(p, stream.workdir)} for p in known], named
+
+
+def _apply(out: Transcript, rec: dict[str, Any], t: float | None, stream: _Stream) -> None:
     kind = rec.get("type")
     if kind == "system" and rec.get("subtype") == "init":
         out.harness_version = rec.get("claude_code_version")
@@ -127,14 +191,7 @@ def _apply(out: Transcript, rec: dict[str, Any], t: float | None,
     elif kind == "assistant":
         for block in _content(rec):
             if block.get("type") == "tool_use":
-                event = _tool_event(block, t, workdir)
-                if rec.get("parent_tool_use_id"):
-                    event["agent"] = str(rec["parent_tool_use_id"])
-                if block.get("name") in _AGENT_TOOLS:
-                    out.subagent_calls = (out.subagent_calls or 0) + 1
-                out.events.append(event)
-                if block.get("id"):
-                    by_id[block["id"]] = event
+                _tool_use(out, block, t, str(rec.get("parent_tool_use_id") or ""), stream)
         model = (rec.get("message") or {}).get("model")
         # A subagent's model is its definition's, not the run's; "<synthetic>" marks a reply Claude Code wrote itself.
         if model and model != "<synthetic>" and rec.get("parent_tool_use_id") is None:
@@ -142,7 +199,7 @@ def _apply(out: Transcript, rec: dict[str, Any], t: float | None,
     elif kind == "user":
         for block in _content(rec):
             if block.get("type") == "tool_result":
-                _apply_result(block, by_id)
+                _apply_result(out, block, stream)
     elif kind == "result":
         out.answer = str(rec.get("result") or "").strip()
         out.cost_usd = rec.get("total_cost_usd")
@@ -159,8 +216,8 @@ def _apply(out: Transcript, rec: dict[str, Any], t: float | None,
             out.usage_scope, (out.input_tokens, out.output_tokens, out.cache_read_tokens,
                               out.cache_write_tokens) = counts
         for denial in rec.get("permission_denials") or []:
-            if isinstance(denial, dict) and denial.get("tool_use_id") in by_id:
-                by_id[denial["tool_use_id"]]["denied"] = True
+            if isinstance(denial, dict) and denial.get("tool_use_id") in stream.by_id:
+                _deny(stream, denial["tool_use_id"])
 
 
 def _tool_event(block: dict[str, Any], t: float | None, workdir: str | None) -> dict[str, Any]:

@@ -19,6 +19,7 @@
       "properties": {
         "none": {"type": "array", "items": {"type": "string"}},
         "read": {"type": "array", "items": {"type": "string"}},
+        "bash": {"type": "array", "items": {"type": "string"}, "description": "The shell tool alone: `repo reach --scenarios bash`. A profile whose shell commands already give its read events (Codex, Copilot) needs none."},
         "all": {"type": "array", "items": {"type": "string"}}
       }
     },
