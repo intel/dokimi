@@ -86,6 +86,9 @@ tail"""
     ("paragraph\n2. ```\n   ```\n# Real\n", []),  # a numbered marker other than 1 cannot interrupt a paragraph
     ("- a\n2. x\n  ```\n# Real\n", []),  # 2. x starts a new list (the item is not continued), so the fence is top-level
     ("- a\n\n      code\noutside\n  ```\n# not a heading\n", []),  # indented code is not paragraph text
+    ("- > quoted\nlazy\n  ```\n# Real\n", ["Real"]),  # a lazy line continues the quoted paragraph in the item
+    ("> quoted\nlazy\n  ```\n# Real\n", []),  # the same at top level: the fence opens and holds Real
+    ("- > # H\nlazy\n  ```\n# x\n", []),  # a quoted heading is no paragraph: the lazy line ends the item
 ])
 def test_a_fence_opened_by_a_list_item_holds_body_text_only_inside_the_item(text, sections):
     assert re.findall(r'title="([^"]*)"', to_format(text, "xml")) == sections

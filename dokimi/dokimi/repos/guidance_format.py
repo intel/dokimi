@@ -25,6 +25,7 @@ _ITEM = re.compile(r" *(?:[-*+]|(\d{1,9})[.)])(?: {1,4}(?=\S)|(?=\s*$))")  # a l
 _RULE = re.compile(r" *([-*_])(?: *\1){2,} *$")  # a thematic break: no list item, though ``- - -`` looks like two
 _OPENER = re.compile(r" {0,3}(`{3,}|~{3,})(.*)$")  # up to three spaces, then a run that opens a fence
 _BLOCK = re.compile(r" *(?:#{1,6}(?: |$)|>|([-*_])( *\1){2,} *$)")  # a heading, quote or rule: a line that starts a block
+_QUOTE_MARK = re.compile(r" *> ?")  # one ``>`` of a block quote, and the space after it
 _OPEN = re.compile(r'^<section level="([1-6])" title="([^"]*)">$')
 _ESCAPES = {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}
 _UNESCAPES = {v: k for k, v in _ESCAPES.items()}
@@ -120,13 +121,23 @@ def _closes(fence: tuple[str, int], line: str) -> bool:
                 and not match.group(3).strip() and len(match.group(1)) <= column + 3)
 
 
+def _quoted_paragraph(text: str) -> bool:
+    """Whether a block quote's content is paragraph text: after its ``>`` markers it is not a heading, rule, fence or
+    list item. Such a quote is paragraph text too, so a following line that continues it lazily stays in its item."""
+    inner, quoted = text, False
+    while (mark := _QUOTE_MARK.match(inner)) is not None:
+        inner, quoted = inner[mark.end():], True
+    return (quoted and bool(inner.strip()) and not _BLOCK.match(inner) and not _OPENER.match(inner)
+            and _ITEM.match(inner) is None)
+
+
 def _advance(fence: tuple[str, int] | None, items: tuple[int, ...], line: str, para: bool = False,
              empty: bool = False) -> tuple[tuple[str, int] | None, tuple[int, ...], bool, bool]:
-    """The fence open after a line, the list items open after it, whether the line is paragraph text (which a
-    following less indented line may continue lazily), and whether it is an empty list item. A line indented less than
-    the column of the item that opened the fence ends the item, and the fence with it; the line is then read as any
-    other line. An indented code block is not paragraph text. A blank line ends an empty item (CommonMark: an item
-    begins with at most one blank line)."""
+    """The fence open after a line, the list items open after it, whether the line is paragraph text (a block quote's
+    paragraph too, which a following less indented line may continue lazily), and whether it is an empty list item.
+    A line indented less than the column of the item that opened the fence ends the item, and the fence with it; the
+    line is then read as any other line. An indented code block is not paragraph text. A blank line ends an empty item
+    (CommonMark: an item begins with at most one blank line)."""
     if fence is not None:
         expanded = line.expandtabs(4)  # a tab is indentation up to the next multiple of four
         if not (line.strip() and len(expanded) - len(expanded.lstrip(" ")) < fence[1]):
@@ -140,7 +151,8 @@ def _advance(fence: tuple[str, int] | None, items: tuple[int, ...], line: str, p
     text = expanded[markers[-1]:].strip() if markers else expanded.strip()
     indent = len(expanded) - len(expanded.lstrip(" "))
     code = not para and indent - (items[-1] if items else 0) >= 4  # four columns past the content column: code
-    return (opened, items, opened is None and bool(text) and not _BLOCK.match(text) and not code,
+    return (opened, items, opened is None and bool(text) and (not _BLOCK.match(text) or _quoted_paragraph(text))
+            and not code,
             bool(markers) and not text)
 
 
