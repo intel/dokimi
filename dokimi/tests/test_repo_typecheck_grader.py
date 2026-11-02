@@ -221,6 +221,16 @@ def test_a_src_layout_package_resolves_when_both_files_are_listed(tmp_path):
     assert result["pass"] is True, result["errors"]
 
 
+@pytest.mark.parametrize("sep", [",", ":"])
+def test_a_source_root_with_a_mypy_path_delimiter_is_a_task_error(tmp_path, sep):
+    files = {f"src{sep}lib/pkg/__init__.py": "", f"src{sep}lib/pkg/x.py": "val: int = 1\n",
+             f"src{sep}lib/pkg/y.py": "from pkg.x import val\n\nprint(val + 1)\n"}
+    task = _task(paths=[f"src{sep}lib/pkg/x.py", f"src{sep}lib/pkg/y.py"])
+    run = _run(tmp_path, files, task)
+    with pytest.raises(ValueError, match="mypy_path"):
+        typecheck.grade(task, tmp_path, "", run)
+
+
 def test_a_blocking_syntax_error_in_a_listed_file_fails_the_grade(tmp_path):
     run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": "def broken(:\n    pass\n"}, _task())
     result = typecheck.grade(_task(), tmp_path, "", run)

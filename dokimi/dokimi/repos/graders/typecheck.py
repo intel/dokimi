@@ -137,6 +137,9 @@ def grade(task: dict[str, Any], task_dir: Path, answer: str, run_dir: Path | Non
             # Neutral config: the subject's mypy.ini, pyproject.toml and the host's user config are not read.
             # mypy_path is the workspace and each regular package's source root (src/ for src/pkg/__init__.py).
             roots = [*_package_roots(workspace, present), workspace]
+            bad = [str(r) for r in roots if re.search("[,:]", os.path.splitdrive(str(r))[1])]
+            if bad:  # mypy splits mypy_path on , and :, so such a root would be read as two
+                raise ValueError(f"a source root has , or : in its name, which mypy_path cannot hold: {bad[0]}")
             config = Path(neutral, "mypy.ini")
             config.write_text(f"[mypy]\nmypy_path = {':'.join(str(r) for r in roots)}\n", encoding="utf-8")
             # plain lines: the image's MYPY_FORCE_COLOR would put escapes around the file name and the marker

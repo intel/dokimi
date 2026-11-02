@@ -324,6 +324,7 @@ def test_a_host_mypypath_cannot_supply_a_module_the_pinned_environment_lacks(tmp
     assert claim["status"] == "fail"
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="the stand-in interpreter is a POSIX shell script")
 def test_a_python_env_that_reports_no_version_is_a_usage_error_not_a_traceback(tmp_path, capsys):
     silent = tmp_path / "silent-python"
     silent.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
