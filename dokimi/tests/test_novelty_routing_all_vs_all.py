@@ -596,7 +596,8 @@ def test_a_single_artifact_routing_run_records_the_field_rule_too(tmp_path):
                   "--out", str(out))
     args.func(args)
     field = json.loads(out.read_text(encoding="utf-8"))["field"]
-    assert field == {"include_disabled": True, "competitors": ["db"], "left_out": []}
+    assert field == {"include_disabled": True, "include_invalid": False,
+                     "competitors": ["db"], "left_out": []}
 
 
 def test_console_says_how_many_tied_and_unscored_queries_are_not_counted_as_picks(

@@ -27,6 +27,10 @@ files differ (a plugin copy with an extra ``agents/`` folder is still a mirror).
 Mirrors are common (one skill checked in under two plugin directories), and
 counting them twice inflates routing and coverage numbers.
 
+Same name, different content: a skill whose ``name`` another listed skill shares, with other bytes, is a
+``warn`` (``name-conflict``) naming the other path. A listed skill is one a harness offers (no
+``disable-model-invocation``, no spec error). Routing leaves that name out of the field rather than aborting.
+
 ``disable-model-invocation: true`` is not a finding: the model is never offered
 that skill, so it is reported as a flag (the same reading as the skill arm's
 check in :mod:`dokimi.harnesses.skill_treatment`).
@@ -193,6 +197,7 @@ def review_skills(entries: Sequence[SkillCatalogEntry]) -> list[Optional[SkillRe
     """
     reviews: list[Optional[SkillReview]] = []
     copies: list[tuple[SkillReview, str, str]] = []  # (review, skill directory, digest) per loaded skill
+    by_name: dict[str, list[tuple[SkillReview, str, str]]] = {}
     for entry in entries:
         if not entry.loaded or entry.skill is None:
             reviews.append(_unloaded_review(entry))
@@ -205,6 +210,7 @@ def review_skills(entries: Sequence[SkillCatalogEntry]) -> list[Optional[SkillRe
         review.content_sha256 = _skill_digest(skill)
         where = _relative_to_root(skill.path.parent, entry.source_root)
         copies.append((review, where, review.content_sha256))
+        by_name.setdefault(skill.name, []).append((review, where, review.content_sha256))
         reviews.append(review)
 
     original_of: dict[str, tuple[SkillReview, str]] = {}
@@ -222,4 +228,31 @@ def review_skills(entries: Sequence[SkillCatalogEntry]) -> list[Optional[SkillRe
                 f"SKILL.md is identical to {where}; the same skill is counted twice",
             )
         )
+    _name_conflicts(by_name)
     return reviews
+
+
+def _name_conflicts(by_name: dict[str, list[tuple[SkillReview, str, str]]]) -> None:
+    """A warning on each listed skill that shares its name with a listed skill of different content.
+
+    Listed means a harness offers it: a skill with ``disable-model-invocation`` or a spec error is
+    left out of the routing field by default, so its copy is no conflict. Identical copies are not
+    a conflict (they are the duplicate above). The routing field skips such a name, so the scan
+    names both paths to say which skills are affected.
+    """
+    for name, group in by_name.items():
+        group = [entry for entry in group
+                 if not entry[0].disable_model_invocation and entry[0].state != "error"]
+        for review, _, digest in group:
+            others = sorted({other for _, other, other_digest in group if other_digest != digest})
+            if not others:
+                continue
+            review.findings.append(
+                Finding(
+                    "warn",
+                    "name-conflict",
+                    f"name {name!r} is also used by {', '.join(others)}, with different content; "
+                    "`novelty routing --catalog` leaves this name out of the field "
+                    "until one is renamed or removed",
+                )
+            )

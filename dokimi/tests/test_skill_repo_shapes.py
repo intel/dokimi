@@ -20,9 +20,6 @@ from dokimi.cli import build_parser
 from dokimi.novelty.client import LLMClient
 from tests.skill_repo_shapes import PROBE_QUERIES, SHAPES, build_shape, probe_artifact
 
-FIXED_BY_CATALOG = "fixed by fix/rescan-catalog"
-FIXED_BY_ROUTING = "fixed by fix/rescan-routing"
-
 
 @dataclass(frozen=True)
 class Expect:
@@ -52,17 +49,6 @@ EXPECT: dict[str, Expect] = {
     "title_case_name": Expect(frozenset({0}), frozenset({1}), 0, ("door-check",)),
     "links_escape": _ok(*_TWO),
     "no_usable_headings": _ok(*_TWO),
-}
-
-# Shape -> (the dimensions a bug still breaks on intel/main, the fix that will change them).
-# Dimensions: scan, strict, routing, field. Only those dimensions are expected failures.
-OPEN_BUGS = {
-    "drifted_mirror": (("routing",), FIXED_BY_CATALOG),
-    "same_name_distinct_dirs": (("routing",), FIXED_BY_CATALOG),
-    "zero_skill": (("scan", "strict"), FIXED_BY_CATALOG),
-    "description_too_long": (("field",), FIXED_BY_ROUTING),
-    "name_not_dir": (("field",), FIXED_BY_ROUTING),
-    "title_case_name": (("field",), FIXED_BY_ROUTING),
 }
 
 
@@ -159,26 +145,10 @@ def _holds(shape: str, observed: dict) -> dict[str, bool]:
 
 @pytest.mark.parametrize("shape", sorted(SHAPES))
 def test_every_shape_gets_its_expected_status(shape, shape_paths, tmp_path, capsys, fake_selector):
-    # Every dimension is strict except the one a bug in another PR still breaks (OPEN_BUGS).
     observed = _observe(shape, shape_paths, tmp_path, capsys)
     holds = _holds(shape, observed)
-    open_dims = OPEN_BUGS[shape][0] if shape in OPEN_BUGS else ()
-    failed = [dim for dim, ok in holds.items() if not ok and dim not in open_dims]
+    failed = [dim for dim, ok in holds.items() if not ok]
     assert not failed, f"{shape}: {failed} off expectation; observed {observed}"
-
-
-@pytest.mark.parametrize("shape", [
-    pytest.param(shape, id=shape,
-                 marks=pytest.mark.xfail(strict=True, raises=AssertionError, reason=reason))
-    for shape, (_, reason) in sorted(OPEN_BUGS.items())
-])
-def test_open_bug_dimension_meets_its_expectation(shape, shape_paths, tmp_path, capsys,
-                                                 fake_selector):
-    # Strict xfail on the open dimensions only: when that fix lands, this XPASSes and the mark comes off.
-    observed = _observe(shape, shape_paths, tmp_path, capsys)
-    holds = _holds(shape, observed)
-    for dim in OPEN_BUGS[shape][0]:
-        assert holds[dim], f"{shape}.{dim}: observed {observed}"
 
 
 def test_a_mirror_is_listed_by_scan_but_counted_once_in_the_field(shape_paths, tmp_path, capsys,
