@@ -325,7 +325,7 @@ def extract_atoms(
             affordable; too large and the model starts skipping spans.
         cap: Keep this many atoms, spread over the extracted atoms in document order
             (:func:`spread_sample`); every span is extracted either way. At least 1: a
-            smaller cap raises ``ValueError`` before any call. Recorded in the artifact as
+            smaller cap raises ``ValueError`` before any call or change to ``spans``. Recorded in the artifact as
             the sampling rule, so a capped run is never quoted as a full sweep.
         report: Filled in place with what could not be read and what re-asking cost,
             and what a binding cap kept (``sampled``). Spans no call could read are also
@@ -339,6 +339,7 @@ def extract_atoms(
     """
     from dokimi.llm import extract_json_array
 
+    _check_cap(cap)  # before any call, and before the spans' unread marks are reset
     report = report if report is not None else ExtractionReport()
     valid_ids = {span.id for span in spans}
 
@@ -360,7 +361,6 @@ def extract_atoms(
         (spans[start:start + batch_spans], False)
         for start in range(0, len(spans), batch_spans)
     ]
-    _check_cap(cap)  # before any call
     while pending:
         batch, is_half = pending.pop(0)
         if not is_half:

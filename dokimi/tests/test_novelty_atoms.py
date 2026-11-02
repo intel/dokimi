@@ -266,16 +266,19 @@ def test_a_binding_cap_strides_in_document_order_whatever_the_reply_s_order(repl
     assert [atom.span_ids for atom in atoms] == probed
 
 
-def test_a_cap_below_one_is_refused_before_any_call():
+def test_a_cap_below_one_is_refused_before_any_call_or_change_to_the_spans():
     calls: list[str] = []
 
     def counted(prompt, system):
         calls.append(prompt)
         return _three_per_span(prompt, system)
 
+    spans = segment(DOC)
+    spans[0].unread = True  # the caller's marks, which a refused cap must leave as they were
     with pytest.raises(ValueError, match="the atom cap must be at least 1"):
-        extract_atoms(segment(DOC), client=LLMClient(model="x", transport=counted), cap=0)
+        extract_atoms(spans, client=LLMClient(model="x", transport=counted), cap=0)
     assert calls == []
+    assert [span.unread for span in spans] == [True] + [False] * (len(spans) - 1)
 
 
 def test_a_binding_cap_over_a_partly_read_input_makes_no_whole_input_claim():
