@@ -72,6 +72,10 @@ tail"""
     ("- Example:\ncontinued text\n  ```\n  code\n# Real\n", ["Real"]),  # a lazy paragraph line keeps the item open
     ("- a\nlazy\n```\n# not\n```\n# Real\n", ["Real"]),  # a fence at column 0 is a block start, not a lazy line
     ("- a\nlazy\n# Real\n", ["Real"]),  # a heading is a block start too
+    ("- a\n> quote\n  ```\n# Real\n", []),  # a block quote is a block start: the item ends, the fence opens at top level
+    ("- a\n---\n  ```\n# x\n", []),  # a rule is a block start, not a lazy line
+    ("- a\n# H\n  ```\n# x\n", ["H"]),  # a heading ends the item too: only H is a section, the fence holds x
+    ("- a\n\nlazy\n  ```\n# x\n", []),  # a blank line ends the item: the next line is not a lazy continuation
 ])
 def test_a_fence_opened_by_a_list_item_holds_body_text_only_inside_the_item(text, sections):
     assert re.findall(r'title="([^"]*)"', to_format(text, "xml")) == sections
