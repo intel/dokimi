@@ -619,15 +619,20 @@ def _declared_scopes(tree: ast.Module, owner: dict[int, ast.AST], table: ExitTab
             target = tree if kind == "global" else _binder_above(scope, name, table, owner)
             if target is None or target is scope:
                 continue
-            moved = table.pop((id(scope), name), [])
-            table.setdefault((id(target), name), []).extend((_LATER, k, p) for _, k, p in moved)
-            table.setdefault((id(scope), name), []).append((_at(n), kind, target))
+            # the declarations already in the scope stay there; only the bindings made in it move to the target
+            held = table.pop((id(scope), name), [])
+            table.setdefault((id(target), name), []).extend(
+                (_LATER, k, p) for _, k, p in held if k not in ("global", "nonlocal"))
+            table.setdefault((id(scope), name), []).extend(
+                b for b in held if b[1] in ("global", "nonlocal"))
+            table[(id(scope), name)].append((_at(n), kind, target))
 
 
 def _binder_above(scope: ast.AST, name: str, table: ExitTable, owner: dict[int, ast.AST]) -> ast.AST | None:
     outer = owner.get(id(scope))
     while outer is not None:
-        if (id(outer), name) in table:
+        # a scope that only declares the name (global or nonlocal) binds nothing: its bindings went elsewhere
+        if any(b[1] not in ("global", "nonlocal") for b in table.get((id(outer), name), [])):
             return outer
         outer = owner.get(id(outer))
     return None
@@ -666,7 +671,7 @@ def _resolve(name: str, use: ast.AST, pos: tuple[int, int], table: ExitTable, ow
         if here or not isinstance(scope, ast.ClassDef):
             found = table.get((id(scope), name), [])
             declared = [b for b in found if b[1] in ("global", "nonlocal")]
-            if declared:
+            if declared and declared[-1][2] is not scope:
                 scope, here = declared[-1][2], False
                 continue
             if found and not here:  # a function may run later: its exit-kind binding counts
@@ -1019,6 +1024,10 @@ def test_tie_between_equal_size_subsets_is_stable():
     ("import sys; s = sys; s.exit(2); s = None\n", [1]),
     # a nonlocal name bound by a plain assignment in the enclosing scope: the sibling's alias reaches the exit
     ("import sys\ndef outer():\n    x = None\n    def inner():\n        nonlocal x\n        x = sys.exit\n    def other():\n        x(2)\n    return other\n", [8]),
+    # a name declared twice in one function: both declarations redirect to the module, and the lookup ends there
+    ("import sys\ndef f():\n    global sys\n    global sys\n    sys.exit(2)\n", [5]),
+    # a chain of nonlocal declarations: the middle scope only declares x, so the binder is the outer one
+    ("import sys\ndef outer():\n    x = None\n    def mid():\n        nonlocal x\n        def inner():\n            nonlocal x\n            x = sys.exit\n        inner()\n    def other():\n        x(2)\n    mid()\n    return other\n", [11]),
     # a global rebinding made in a function runs only when it is called: module-level sys.exit is still a site
     ("import sys\ndef f():\n    global sys\n    sys = None\nsys.exit(1)\n", [5]),
 ])
