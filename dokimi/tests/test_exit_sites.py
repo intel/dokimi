@@ -6,7 +6,8 @@
 Kept apart from test_import_architecture.py, which the growth ratchet caps at 1000 lines.
 """
 
-from tests.test_import_architecture import _package, exit_problems, exit_sites
+from tests.exit_site_scan import exit_sites
+from tests.test_import_architecture import _package, exit_problems
 
 
 def test_a_process_exit_outside_the_frontend_fails(tmp_path):
