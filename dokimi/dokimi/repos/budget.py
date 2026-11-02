@@ -125,7 +125,7 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
 
     entries: list[dict[str, Any]] = []
     unreadable_warnings: list[str] = []
-    own_t = _own_targets(tree, guidance, groups, claude, bool(root_claude_for_off))
+    own_t = _own_targets(tree, guidance, groups, claude, bool(root_claude_for_off), at_start, lazily)
     for f in guidance:
         t = _target(tree, f)
         aliases = groups.get(t, [f])
@@ -232,13 +232,18 @@ def _import_entries(tree: RepoTree, at_start: set[str], lazily: set[str], guidan
 
 
 def _own_targets(tree: RepoTree, guidance: list[str], groups: dict[str, list[str]], claude: list[str],
-                 displaced: bool) -> set[str]:
-    """The guidance files read on their own, not only through an import (a displaced AGENTS.md is read by import only)."""
+                 displaced: bool, at_start: set[str], lazily: set[str]) -> set[str]:
+    """The guidance files read on their own, or through an ordinary import (not only a rule link)."""
     own = set()
+    start_t = {_target(tree, p) for p in at_start}
     for f in guidance:
         t = _target(tree, f)
         aliases = groups.get(t, [f])
         if any(a in claude for a in aliases) or not (displaced and f.rsplit("/", 1)[-1] == "AGENTS.md"):
+            own.add(t)
+    for p in at_start | lazily:
+        t = _target(tree, p)
+        if not (RULE_GLOB.match(p) or RULE_GLOB.match(t)) and (p in at_start or t not in start_t):
             own.add(t)
     return own
 

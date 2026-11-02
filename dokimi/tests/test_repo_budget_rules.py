@@ -495,3 +495,18 @@ def test_an_off_agents_md_reached_only_through_a_rule_link_is_charged_its_body(t
 
     assert _by_path(payload)[("AGENTS.md", "guidance")] == {
         "path": "AGENTS.md", "kind": "guidance", "when": "start", "chars": len("agents\n")}
+
+
+@pytest.mark.parametrize("claude_md", ["@AGENTS.md\n@.claude/rules/agents.md\n", "@.claude/rules/agents.md\n@AGENTS.md\n"])
+def test_an_off_agents_md_with_an_ordinary_import_keeps_its_full_count(tmp_path, claude_md):
+    agents = "---\npaths: []\n---\nagents\n"
+    tree = _tree(tmp_path, {"CLAUDE.md": claude_md, "AGENTS.md": agents})
+    (tmp_path / ".claude/rules").mkdir(parents=True)
+    try:
+        (tmp_path / ".claude/rules/agents.md").symlink_to(tmp_path / "AGENTS.md")
+    except OSError:
+        pytest.skip("symlinks unavailable")
+
+    payload = budget(tree, NAMES, rules=True)
+
+    assert _by_path(payload)[("AGENTS.md", "guidance")]["chars"] == len(agents)
