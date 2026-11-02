@@ -47,6 +47,7 @@ EXPECTED: dict[str, tuple[dict, str | None, str | None, str | None]] = {
     "plan.v1": ({}, "skill:onetbb", "claude-sonnet-4-6", "2026-10-21T00:00:00Z"),
     "result.v1": ({}, None, None, "2026-10-21T01:00:00Z"),
     "repo_budget.v1": ({}, "toy", None, None),
+    "effective_instructions.v1": ({}, "toy", "m", "2026-10-31T00:00:00+00:00"),
     "task_inspect.v1": ({}, "tests/fixtures/task_formats", None, None),
     "cli_routes.v1": ({}, None, None, None),
     "dokimi_config.v1": ({}, "skill/onetbb, repo", None, None),

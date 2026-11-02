@@ -12,7 +12,8 @@ checks), ``tool_preference`` (which of two equal tools a model picks, and
 what moves it), ``repo_environment`` (static inspection of what a
 repository offers an agent), ``plan`` (the cells a run promises to measure),
 ``result`` (one status per planned cell), ``repo_budget`` (what a repository puts
-into an agent's context), ``need_graph`` and ``eval_coverage`` (a frozen need graph and an
+into an agent's context), ``effective_instructions`` (the effective-instructions/v0
+receipt of a reach probe), ``need_graph`` and ``eval_coverage`` (a frozen need graph and an
 eval set's coverage of it), ``task_inspect`` (which eval-task format each
 path under a tree is) and ``dokimi_config`` (a repository's subjects and where
 their evals are). This module stamps each with a
@@ -59,6 +60,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "plan": "plan.v1",
     "result": "result.v1",
     "repo_budget": "repo_budget.v1",
+    "effective_instructions": "effective_instructions.v1",
     "task_inspect": "task_inspect.v1",
     "redteam": "redteam.v1",
     "cli_routes": "cli_routes.v1",
