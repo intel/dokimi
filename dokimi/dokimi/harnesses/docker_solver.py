@@ -97,7 +97,9 @@ from .tasks import (  # noqa: F401  (timeouts re-exported)
 # C tasks (missing-restrict) use gcc, C++ tasks use g++.
 _RECOMPILE_RE = re.compile(r"(g\+\+|gcc) [^`\n]*-o /app/[^ `\n]*")
 _DEFAULT_SOLVE_TIMEOUT = 600.0
-_CONTAINER_PLUGIN = "/opt/abskill"
+# Root-owned, outside /app and the agent's HOME. The skill is loaded with --plugin-dir: a
+# skill in $CLAUDE_CONFIG_DIR/skills is not offered under the launch's --setting-sources "".
+_CONTAINER_PLUGIN = "/opt/claude-plugins"
 # The only tree a docker-* agent edits: the host agent's snapshot and copy-back,
 # the in-container agent's chown and `-w`. Anything else (an exported
 # SkillsBench task works in WORKDIR /root) would hand it root's home: .profile
@@ -509,14 +511,14 @@ class DockerSolverHarness:
                 treatment = build_plugin(skill_dir, workspace.root / "plugin")
                 if extra_metrics is not None:
                     self._record_treatment(treatment, skill_dir, extra_metrics, log)
-        except BaseException:  # also Ctrl-C: don't leave the dokimi-run-* snapshot behind
+        except BaseException:  # also Ctrl-C: don't leave the snapshot behind
             workspace.cleanup()
             raise
         return workspace, treatment
 
     def _install_plugin_in_container(self, container: str, output_dir: Path, log,
                                      extra_metrics: dict[str, Any]) -> Optional[Treatment]:
-        """Copy the arm's skill, as a plugin, to ``/opt/abskill`` (outside ``/app``)."""
+        """Copy the arm's skill, as a plugin, to ``_CONTAINER_PLUGIN`` (outside ``/app``)."""
         skill_dir = self._resolve_skill_dir()
         if skill_dir is None:
             return None
@@ -556,12 +558,8 @@ class DockerSolverHarness:
                      plugin_dir: Optional[str], model: Optional[str],
                      output_dir: Path) -> list[str]:
         """``claude`` argv after the executable; the prompt is also saved as ``prompt.txt``."""
-        prompt = (
-            f"{treatment_notice(treatment) if self.skill_notice else ''}"
-            "Solve this coding task. Edit files in the current directory only. "
-            "When done, leave the optimized source and any required outputs in place.\n\n"
-            f"{task.instruction}"
-        )
+        # The task instruction as the user wrote it, behind the treatment notice only.
+        prompt = f"{treatment_notice(treatment) if self.skill_notice else ''}{task.instruction}"
         (output_dir / "prompt.txt").write_text(prompt, encoding="utf-8")
         args = ["-p", prompt, "--output-format", "stream-json", "--verbose", *solver_cli_flags()]
         args += ["--plugin-dir", plugin_dir] if plugin_dir else []

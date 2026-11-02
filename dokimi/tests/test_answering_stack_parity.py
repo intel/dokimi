@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import pytest
 
@@ -55,15 +55,14 @@ DIFFERENCES = {f"D{i}" for i in range(1, 10)}
 PINNED: Tuple[Tuple[str, str, Any, Any], ...] = (
     # shared: the two stacks agree today
     ("shared", "retrieval.count", 6, 6),
-    ("shared", "judge.calls", 12, 12),
     ("shared", "reranker.calls", 5, 5),
     ("shared", "answer.roles", ("user",), ("user",)),
     ("shared", "answer.system", None, None),
     ("shared", "answer.cache_blocks", False, False),
     # D1 retrieval request
-    ("D1", "retrieval.passed", ("max_tokens",), ("max_results",)),
-    # what each side asked for, not what came back: both get 4 docs; P keeps 3, A keeps 3
-    ("D1", "retrieval.max_results", 5, 3),
+    ("D1", "retrieval.passed", ("max_results", "max_tokens"), ("max_results",)),
+    # what each side asked for, not what came back: both get 4 docs; both ask for top_k=3
+    ("D1", "retrieval.max_results", 3, 3),
     ("D1", "retrieval.max_tokens", 4000, 8000),
     # D2 no docs found
     ("D2", "empty.answer_kinds", ("plain",), ("plain", "plain")),
@@ -102,31 +101,35 @@ PINNED: Tuple[Tuple[str, str, Any, Any], ...] = (
         "(No documentation provided)",
         "(No documentation retrieved)",
     ),
-    # D6 judge temperature (CLI: P = benchmark run, A = arms run; benchmark run has no such flag)
-    ("D6", "cli.judge_temperature_flag", False, True),
+    # D6 judge temperature (CLI: P = benchmark run, A = arms run)
+    ("D6", "cli.judge_temperature_flag", True, True),
     # D7 --max-tokens (CLI defaults; where the configured value lands)
     ("D7", "cli.max_tokens_default", 4000, None),
     ("D7", "max_tokens.lands_in", "retrieval", "answer"),
     # D8 library id: EvaluationPipeline with no context7_id (the `orchestrate` path without
     # --context7-id). `benchmark run` passes the registry's context7_id, so it is not this row.
-    ("D8", "library_id", "client/resolved", "registry/lib"),
-    # D9 statistics. The delta also moves with D3: P's q-rerank is judged with no docs
-    # (delta 0), A's falls back to raw docs (delta 20), so a D3 fix flips this row too.
-    ("D9", "stats.delta_mean", 13.33, 16.67),
-    ("D9", "significance.n", 6, 6),
+    ("D8", "library_id", "registry/lib", "registry/lib"),
+    # D2 judge calls: P no longer judges the placeholder with-docs answers of q-empty and
+    # q-rerank (D2, D3), so 2 of the 12 calls are gone. A still judges all 12.
+    ("D2", "judge.calls", 10, 12),
+    # D9 statistics. P's paired deltas are q-docs, q-docs-2, q-docs-3, q-gt: 4 pairs, below
+    # MIN_PAIRS_FOR_TEST (6), so P has no significance test. A has 6 pairs.
+    ("D9", "stats.delta_mean", 20.0, 16.67),
+    ("D9", "stats.pairs", 4, 6),
+    ("D9", "significance.n", None, 6),
     ("D9", "significance.correction", None, "holm"),
-    ("D9", "significance.significant", False, False),
+    ("D9", "significance.significant", None, False),
     # what the judge sees per case: no docs (D2), reranker raises (D3), ground-truth chunk (D5)
     (
         "D2",
         "judge.contexts.q-empty",
-        ("(No documentation provided)", "(No documentation retrieved)"),
+        ("(No documentation provided)",),
         ("(No documentation retrieved)",),
     ),
     (
         "D3",
         "judge.contexts.q-rerank",
-        ("(No documentation provided)", "(No documentation retrieved)"),
+        ("(No documentation provided)",),
         ("(No documentation retrieved)", ("docs", "Passage", 3, True)),
     ),
     (
@@ -138,8 +141,8 @@ PINNED: Tuple[Tuple[str, str, Any, Any], ...] = (
     # what the judge is handed as ground truth: the q-gt chunk on both stacks, None on the rest
     ("shared", "judge.ground_truth.q-gt", (GROUND_TRUTH_CHUNK,), (GROUND_TRUTH_CHUNK,)),
     ("shared", "judge.ground_truth.others", (None,), (None,)),
-    # the per-question deltas that feed D9's statistics (P: stored "delta"; A: "docs" vs "baseline").
-    # q-rerank is the one that moves with D3: P judges it with no docs (0), A with the raw docs (20).
+    # Per-question deltas feeding D9's statistics. q-empty and q-rerank have no P delta (no with-docs judgement, D2/D3);
+    # A's q-empty is 0 and its q-rerank falls back to the raw docs (20).
     (
         "D9",
         "delta.per_question",
@@ -147,9 +150,9 @@ PINNED: Tuple[Tuple[str, str, Any, Any], ...] = (
             ("q-docs", 20.0),
             ("q-docs-2", 20.0),
             ("q-docs-3", 20.0),
-            ("q-empty", 0.0),
+            ("q-empty", None),
             ("q-gt", 20.0),
-            ("q-rerank", 0.0),
+            ("q-rerank", None),
         ),
         (
             ("q-docs", 20.0),
@@ -164,6 +167,8 @@ PINNED: Tuple[Tuple[str, str, Any, Any], ...] = (
     ("only", "record.shape", "with_docs/without_docs", "arms"),
     ("only", "answer.token_usage.context_chars", True, False),
     ("only", "artifact.cost_summary", False, True),
+    # #228 step 2 stamp: the answers artifact carries method_version; the arms artifact does not
+    ("only", "artifact.method_version", 2, None),
 )
 
 
@@ -253,15 +258,6 @@ def _where_4000_lands(obs: Observed) -> str:
 
 
 def _observe(tmp_path: Path, provider_calls) -> Dict[str, Tuple[Any, Any]]:
-    with pytest.MonkeyPatch.context() as mp:
-        p = run_stack_p(mp, tmp_path / "p", provider_calls)
-    with pytest.MonkeyPatch.context() as mp:
-        a = run_stack_a(mp, tmp_path / "a", provider_calls)
-    with pytest.MonkeyPatch.context() as mp:
-        p_noid = run_stack_p(
-            mp, tmp_path / "p-noid", provider_calls, context7_id=None, questions=QUESTIONS[:1]
-        )
-
     from dokimi.eval.arms_run import resolve_doc_library_id
     from dokimi.registry import ProductRegistry
     from dokimi.treatments.arms import DocTreatment
@@ -272,6 +268,22 @@ def _observe(tmp_path: Path, provider_calls) -> Dict[str, Tuple[Any, Any]]:
         f"    description: fixture\n    context7_id: {REGISTRY_ID}\n",
         encoding="utf-8",
     )
+    registry = ProductRegistry(registry_path)
+
+    with pytest.MonkeyPatch.context() as mp:
+        p = run_stack_p(mp, tmp_path / "p", provider_calls)
+    with pytest.MonkeyPatch.context() as mp:
+        a = run_stack_a(mp, tmp_path / "a", provider_calls)
+    with pytest.MonkeyPatch.context() as mp:
+        p_noid = run_stack_p(
+            mp,
+            tmp_path / "p-noid",
+            provider_calls,
+            context7_id=None,
+            questions=QUESTIONS[:1],
+            registry=registry,
+        )
+
     a_lib = resolve_doc_library_id(
         [DocTreatment(a.client, name="docs", top_k=3, reranker=a.reranker)],
         PRODUCT,
@@ -303,6 +315,7 @@ def _observe(tmp_path: Path, provider_calls) -> Dict[str, Tuple[Any, Any]]:
 
     sig_p = _significance_p(p)
     sig_a = a.artifact["summary"]["per_arm"]["docs"]["significance"]
+    paired_p = _paired_deltas(p)
 
     return {
         "retrieval.count": (len(p.client.calls), len(a.client.calls)),
@@ -311,7 +324,8 @@ def _observe(tmp_path: Path, provider_calls) -> Dict[str, Tuple[Any, Any]]:
         "answer.roles": (sampling(p_all, "roles"), sampling(a_all, "roles")),
         "answer.system": (sampling(p_all, "system"), sampling(a_all, "system")),
         "answer.cache_blocks": (sampling(p_all, "cache_blocks"), sampling(a_all, "cache_blocks")),
-        "stats.delta_mean": (sig_p["delta_mean"], sig_a["delta_mean"]),
+        "stats.delta_mean": (round(sum(paired_p) / len(paired_p), 2), sig_a["delta_mean"]),
+        "stats.pairs": (len(paired_p), sig_a["n"]),
         "retrieval.passed": (
             distinct([c["passed"] for c in p.client.calls]),
             distinct([c["passed"] for c in a.client.calls]),
@@ -365,15 +379,23 @@ def _observe(tmp_path: Path, provider_calls) -> Dict[str, Tuple[Any, Any]]:
         ),
         "max_tokens.lands_in": (_where_4000_lands(p), _where_4000_lands(a)),
         "library_id": (p_noid.client.calls[0]["library_id"], a_lib),
-        "significance.n": (sig_p["n"], sig_a["n"]),
-        "significance.correction": (sig_p.get("correction"), sig_a.get("correction")),
-        "significance.significant": (sig_p["significant"], sig_a["significant"]),
+        # None: the paired test does not run below MIN_PAIRS_FOR_TEST pairs (P has 4 here)
+        "significance.n": (sig_p["n"] if sig_p else None, sig_a["n"]),
+        "significance.correction": (
+            sig_p.get("correction") if sig_p else None,
+            sig_a.get("correction"),
+        ),
+        "significance.significant": (
+            sig_p["significant"] if sig_p else None,
+            sig_a["significant"],
+        ),
         "record.shape": (_record_shape(p_rec_empty), _record_shape(a_rec_empty)),
         "answer.token_usage.context_chars": (
             "context_chars" in docs_block(p, p_rec_docs)["token_usage"],
             "context_chars" in docs_block(a, a_rec_docs)["token_usage"],
         ),
         "artifact.cost_summary": ("cost_summary" in p.artifact, "cost_summary" in a.artifact),
+        "artifact.method_version": (p.artifact.get("method_version"), a.artifact.get("method_version")),
         "judge.contexts.q-empty": (_context_kinds(p, EMPTY_QUERY), _context_kinds(a, EMPTY_QUERY)),
         "judge.contexts.q-rerank": (
             _context_kinds(p, RERANK_QUERY),
@@ -403,12 +425,16 @@ def _observe(tmp_path: Path, provider_calls) -> Dict[str, Tuple[Any, Any]]:
     }
 
 
-def _significance_p(obs: Observed) -> Dict[str, Any]:
+def _significance_p(obs: Observed) -> Optional[Dict[str, Any]]:
+    """Stack P's paired test; None when it does not run (fewer pairs than MIN_PAIRS_FOR_TEST)."""
     from dokimi.report.eval_report import significance_test
 
-    result = significance_test(obs.evaluations)
-    assert result is not None, "P paired test did not run on the fixture"
-    return result
+    return significance_test(obs.evaluations)
+
+
+def _paired_deltas(obs: Observed) -> List[float]:
+    """The deltas of the questions both arms were judged on."""
+    return [e["delta"] for e in obs.evaluations if e.get("delta") is not None]
 
 
 def _record_shape(rec: Dict[str, Any]) -> str:

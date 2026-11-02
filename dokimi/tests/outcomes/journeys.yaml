@@ -314,7 +314,14 @@ criteria:
   AC-J07-006:
     delivery: proposed
   AC-J07-007:
-    delivery: proposed
+    delivery: partial
+    enforce: true
+    capability: eval-coverage
+    surfaces: ["eval coverage --graph"]
+    evidence:
+      - {id: cjm-eval-coverage-gaps, kind: unit, stubs: []}
+    gaps:
+      - "the need graph is built by a model and read as given: building, interviewing and drafting labels are not commands yet (#331)"
 
   # ---------------------------------------------------------------- J11
   AC-J11-001:

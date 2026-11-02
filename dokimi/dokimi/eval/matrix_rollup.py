@@ -30,6 +30,7 @@ def build_matrix_rollup(
             "harness": data.get("harness"),
             "plugin_set": data.get("plugin_set", "none"),
             "plugin_set_id": data.get("plugin_set_id"),
+            "baseline_arm": data.get("baseline_arm"),
             "summary": data.get("summary", {}),
             "cost_summary": data.get("cost_summary", {}),
         }
