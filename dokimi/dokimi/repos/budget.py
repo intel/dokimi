@@ -150,7 +150,7 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
     guidance_loaded = {_target(tree, e["path"]) for e in entries if e["when"] != "off"}
     counted = {_target(tree, f) for f in guidance}
     entries += _rules(tree, files if rules else [], counted, start_t, unreadable_warnings, entries)
-    _import_entries(tree, at_start, lazily, guidance, counted, entries, unreadable_warnings)
+    _import_entries(tree, at_start, lazily, guidance, counted, entries, unreadable_warnings, rules)
 
     skills = _skills(tree, [f for f in files if SKILL_GLOB.match(f)])
     for s in skills:
@@ -202,7 +202,7 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
 
 
 def _import_entries(tree: RepoTree, at_start: set[str], lazily: set[str], guidance: list[str], counted: set[str],
-                    entries: list[dict[str, Any]], unreadable_warnings: list[str]) -> None:
+                    entries: list[dict[str, Any]], unreadable_warnings: list[str], rules: bool = False) -> None:
     """Add an entry for each import that is neither guidance nor a rule of its own (``counted`` grows with them)."""
     rule_entries = {_target(tree, e["path"]): e for e in entries if e["kind"] == "rule"}
     for f in sorted((at_start | lazily) - set(guidance), key=lambda p: (p not in at_start, p)):
@@ -225,6 +225,8 @@ def _import_entries(tree: RepoTree, at_start: set[str], lazily: set[str], guidan
         chars, warning = _chars(tree, f)
         if warning:
             unreadable_warnings.append(warning)
+        elif rules and (RULE_GLOB.match(f) or RULE_GLOB.match(t)):
+            chars = len(_without_frontmatter(tree.read_text(f)))
         entries.append({"path": f, "kind": "import", "when": when, "chars": chars})
 
 
