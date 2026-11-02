@@ -101,9 +101,10 @@ def shell_reads(script: str, cwd: str = "") -> list[str]:
 
 def shell_reads_moved(script: str, cwd: str = "") -> tuple[list[str], bool]:
     """:func:`shell_reads`, and whether the script may leave its shell in another directory: it ran a ``cd``,
-    ``pushd`` or ``popd`` outside a subshell, or a ``cd`` whose target is not known."""
+    ``pushd`` or ``popd`` in that shell, not in a subshell (``( ... )``, a pipeline or a backgrounded command, list
+    or group: ``cd sub &``, ``{ cd sub; } | cat``, ``cd sub && make &``)."""
     reads, walk = _walk_script(script, cwd)
-    return reads, walk.moved
+    return reads, walk.shell_moved
 
 
 def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
@@ -117,7 +118,7 @@ def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
         op, previous = previous, after
         chained = op in ("&&", "||")
         if not chained and walk.gated:  # a cd after && or || may not have run: the next chain starts in no known directory
-            walk.lose()
+            walk.lose(False)
             walk.gated = False
         walk.chain(op, chained)
         if walk.in_function(_bare(part)):  # a definition runs nothing
@@ -126,26 +127,28 @@ def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
             walk.here = None
         if in_subshell:  # a subshell: its reads are not tracked
             if _runs_dir_before_parens(part):  # ``cd $(dirname f)``: the cd is outside the parentheses
-                walk.lose()
+                walk.lose(after != "&")
             continue
         walk.track_groups(_bare(part), after, out)
         words = walk.words(part)
         if words:
             out.extend(walk.command(words, after, chained))
+    walk.chain(previous, False)  # a list backgrounded at the end (``cd sub && make &``) ran in a subshell too
     return out, walk
 
 
 class _Walk:
-    """Where ``shell_reads`` is in the script: the directory (``None``: unknown), whether a ``cd`` was seen, and
-    the open brace groups as (directory before it, in a pipeline)."""
+    """Where ``shell_reads`` is in the script: the directory (``None``: unknown), whether a ``cd`` was seen, whether
+    the script's own shell may have moved, and the open brace groups."""
 
     def __init__(self, here: str | None) -> None:
         self.here = here
         self.moved = False  # a cd was seen: after ||, the directory is not known
+        self.shell_moved = False  # a directory builtin ran in the script's shell, not in a subshell
         self.gated = False  # a cd after && or || was seen in this chain: it may not have run for the next chain
-        # the open brace groups: (directory before it, in a pipeline, index in the reads where it began)
-        self.groups: list[tuple[str | None, bool, int]] = []
-        self.list_start: str | None = here  # the directory where the current && / || list began
+        # the open brace groups: ((here, shell_moved) before it, in a pipeline, index in the reads where it began)
+        self.groups: list[tuple[tuple[str | None, bool], bool, int]] = []
+        self.list_start: tuple[str | None, bool] = (here, False)  # (here, shell_moved) where the && / || list began
         self.listed = False  # that list has more than one command
         self.function = 0  # the brace depth inside a function definition
 
@@ -153,11 +156,11 @@ class _Walk:
         """A list of more than one command ended by ``&`` ran in a subshell, so this shell did not move: ``cd sub &&
         cat f & cat g`` reads sub/f and g (a lone ``cd x &`` and a ``{ ...; } &`` group are handled where they end)."""
         if op == "&" and self.listed:
-            self.here = self.list_start
+            self.here, self.shell_moved = self.list_start
         if chained:
             self.listed = True
         else:
-            self.list_start, self.listed = self.here, False
+            self.list_start, self.listed = (self.here, self.shell_moved), False
 
     def in_function(self, bare: str) -> bool:
         """Whether ``bare`` is part of a function definition (``f() { cd x; cat a; }``): its body is skipped, as
@@ -167,8 +170,10 @@ class _Walk:
         self.function = max(self.function + len(_GROUP_OPEN.findall(bare)) - len(_GROUP_CLOSE.findall(bare)), 0)
         return True
 
-    def lose(self) -> None:
+    def lose(self, shell: bool = True) -> None:
+        """The directory is no longer known; ``shell``: because this shell may have moved (not a subshell's cd)."""
         self.here, self.moved = None, True
+        self.shell_moved |= shell
 
     def track_groups(self, bare: str, after: str, out: list[str]) -> None:
         """A brace group opening or closing in ``bare``; one that ran in a subshell restores the directory. The
@@ -177,7 +182,7 @@ class _Walk:
         opened = _GROUP_OPEN.search(bare)
         if opened:
             piped = bool(_PIPE.search(bare[:opened.start()]))
-            self.groups.append((self.here, piped, len(out)))
+            self.groups.append(((self.here, self.shell_moved), piped, len(out)))
             if piped:  # the group runs in a pipeline's subshell: where it ends up is not tracked
                 self.here = None
         closed = _GROUP_CLOSE.search(bare)
@@ -187,10 +192,8 @@ class _Walk:
             redirects = bare[closed.end():]
             if _PIPE.search(after_close) or _STDOUT_FILE.search(redirects) or _STDOUT_AFTER_STDERR.search(redirects):
                 del out[mark:]
-            if piped or _PIPE.search(after_close):  # the group ran in a pipeline's subshell
-                self.here = before
-            elif after == "&":  # the group ran in a subshell
-                self.here = before
+            if piped or _PIPE.search(after_close) or after == "&":  # the group ran in a pipeline's or a job's subshell
+                self.here, self.shell_moved = before
 
     def words(self, part: str) -> list[str]:
         """The words of ``part``; none when it cannot be split or is computed (a computed ``cd`` loses the directory)."""
@@ -224,12 +227,12 @@ class _Walk:
         if name is None:
             return []
         if name in _DIR_STACK or (conditional and name == "cd"):
-            self.lose()
+            self.lose(after != "&")
         elif name == "cd":
             self.moved = True
             self.gated |= chained
             if after != "&":  # a backgrounded cd runs in a subshell: this shell stays where it was
-                self.here = _cd(self.here, words[1:])
+                self.here, self.shell_moved = _cd(self.here, words[1:]), True
         elif name in _PRINTERS:
             if _asks_for_help(words[1:]):  # ``cat --help AGENTS.md`` prints the help and opens no file
                 return []

@@ -21,7 +21,8 @@ subagent made carries ``agent``: the id of the parent's tool call that started i
 A shell command that only prints files (:func:`~dokimi.repos.cli_traces.shell_reads`) also gives a
 ``read`` event per file, before its ``command`` event: a Codex or Copilot shell command, and
 Claude Code's ``Bash`` tool. Claude Code keeps the shell's directory from one ``Bash`` call to the
-next, so once a call of an agent ran a ``cd``, that agent's later relative reads are not recorded.
+next, so once a call of an agent ran a ``cd`` in that shell (not in a subshell, a pipeline or a
+background job), that agent's later relative reads are not recorded.
 
 Token counts cover the same scope as ``cost_usd``: summed over ``modelUsage``
 (parent, subagents and helper models) when the result has it, else the parent's
