@@ -8,5 +8,7 @@
   `guidance_commits` (the commits that touch a guidance path or a path a link
   resolves through, a merge when its own result changes one, newest first by committer
   date, at most 200) and `guidance_commits_truncated`, each commit with its
-  author and committer date, so a reader can see whether a guidance commit
-  came after a task's review was public.
+  author and committer date (a UTC date as `Z`), so a reader can see whether
+  a guidance commit came after a task's review was public. A `guidance:rev:`
+  cell whose source is a shallow clone fails its preparation: the history
+  needs the full one (`git fetch --unshallow`).

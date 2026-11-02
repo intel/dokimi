@@ -400,7 +400,10 @@ intermediate link and the file it resolves to), by committer date;
 guidance globs match or a path a guidance link resolves through, newest first by committer
 date, at most 200, each with its `subject`; and `guidance_commits_truncated`,
 `true` when that cap cut the list. Each commit has its `sha`, `authored` and
-`committed` (strict ISO 8601, `%aI` and `%cI`). A merge commit counts for a
+`committed` (strict ISO 8601, `%aI` and `%cI`; a UTC date is written `Z`,
+whichever form the git that read the history prints). The history needs the whole of it: a shallow
+git dir (a local checkout cloned with `--depth`) fails the cell's preparation
+(`git fetch --unshallow`), as its history stops at the boundary commit. A merge commit counts for a
 path when its result differs there from every parent: a conflict resolution,
 an edit made in the merge, or a clean merge of its parents' edits to
 different parts of one file; a merge that takes the path as one parent has

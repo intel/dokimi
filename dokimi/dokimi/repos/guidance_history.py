@@ -12,10 +12,15 @@ path, each with its author and committer date. The flag reads the committer date
 The history is one ``git log -z --raw`` over the revision, filtered with :func:`~.manifest.match_glob`.
 ``-z`` ends every field with a NUL, and each file the commit touched is a ``:``-led status record
 followed by its one path, so a subject or a path, whatever it holds, cannot pass for the other.
-Git cuts a subject at a NUL (``git commit`` refuses one), so a subject is one field. The history is
-read once per git dir, revision, globs and links in a process, also when cells of the arm prepare at
-once: every cell asks the same. A key of the repository's own config that changes what the log
-prints (as checked with git 2.51) is overridden by a flag (:data:`_PINNED`).
+Git cuts a subject at a NUL (``git commit`` refuses one), so a subject is one field. The output is
+split on NUL as bytes and each field then decoded as UTF-8 (``--encoding=UTF-8``; a byte that is not
+UTF-8 becomes U+FFFD, as :mod:`dokimi.process` decodes), so a ``\\r`` in a subject or a path stays one.
+A date is git's ``%aI`` / ``%cI`` with a UTC offset written ``Z``, which git 2.51 prints and older git
+(2.43) prints as ``+00:00``. The history is read once per git dir, revision, globs and links in a
+process, also when cells of the arm prepare at once: every cell asks the same. A key of the
+repository's own config that changes what the log prints (as checked with git 2.51) is overridden by
+a flag (:data:`_PINNED`). A shallow git dir is refused: its history stops at the boundary commit, so
+it would name a later commit as the last to touch a file.
 
 The arm installs a guidance link (``AGENTS.md -> docs/current -> GUIDE.md``) as the bytes of the file
 it resolves to, so a commit that touches any path of its chain, an intermediate link or that file,
@@ -110,6 +115,7 @@ def _read_guidance_commits(git_dir: Path, sha: str, globs: tuple[str, ...], link
     for link, chain in links:
         for path in chain:
             linked.setdefault(path, []).append(link)
+    _refuse_shallow(git_dir)
     found = []
     for (commit, authored, committed, subject), touched in _parse_log(_git_log(git_dir, sha)):
         paths = tuple(dict.fromkeys(g for p in touched for g in _counts_for(p, globs, linked)))
@@ -124,12 +130,13 @@ def _counts_for(path: str, globs: tuple[str, ...], linked: dict[str, list[str]])
     return ([path] if any(match_glob(g, path) for g in globs) else []) + linked.get(path, [])
 
 
-def _parse_log(out: str) -> list[tuple[tuple[str, str, str, str], list[str]]]:
+def _parse_log(out: bytes) -> list[tuple[tuple[str, str, str, str], list[str]]]:
     """Each commit of :func:`_git_log`'s output as ``((sha, authored, committed, subject), paths)``.
     A field that starts with ``:`` (after the newline that ends a header) is a status record, and the
     field after it is its path; a path is never read as a header. Any other non-empty field starts a
-    header of four fields; an empty one ends a merge's header, and the output."""
-    fields = iter(out.split("\0"))
+    header of four fields; an empty one ends a merge's header, and the output. Each field is decoded
+    on its own, after the split: no ``\\r`` is turned into a newline."""
+    fields = (field.decode("utf-8", "replace") for field in out.split(b"\0"))
     commits: list[tuple[tuple[str, str, str, str], list[str]]] = []
     for field in fields:
         if field.lstrip("\n").startswith(":") and commits:
@@ -143,19 +150,35 @@ def _header(sha: str, fields: Iterator[str]) -> tuple[str, str, str, str]:
     authored, committed, subject = next(fields, ""), next(fields, ""), next(fields, "")
     if not _COMMIT_ID.fullmatch(sha):
         raise PrepError(f"git log: a commit starts with {sha[:60]!r}, not a commit id")
-    return sha, authored, committed, subject
+    return sha, _utc_as_z(authored), _utc_as_z(committed), subject
 
 
-def _git_log(git_dir: Path, sha: str) -> str:
+def _utc_as_z(date: str) -> str:
+    """A strict ISO 8601 date of git's with a UTC offset as ``Z``, whichever form the git that printed it uses."""
+    return date.removesuffix("+00:00") + "Z" if date.endswith("+00:00") else date
+
+
+def _refuse_shallow(git_dir: Path) -> None:
+    if _git(git_dir, "rev-parse", "rev-parse", "--is-shallow-repository").strip() == b"true":
+        raise PrepError(f"{git_dir} is a shallow clone: the guidance history of a guidance:rev: arm needs its full "
+                        "history (git fetch --unshallow)")
+
+
+def _git_log(git_dir: Path, sha: str) -> bytes:
     """Every commit reachable from ``sha`` with its dates, subject and the paths it touched; a merge
     with the paths its result changes against every parent."""
+    return _git(git_dir, f"log {sha[:12]}", "log", "-z", "--raw", "--no-abbrev", "--no-renames",
+                "--diff-merges=dense-combined", *_PINNED, _FORMAT, sha, "--")
+
+
+def _git(git_dir: Path, what: str, *args: str) -> bytes:
+    """The stdout of ``git -C git_dir *args`` as bytes, with no system or global config; ``what`` names it in an error."""
     keep = ("PATH", "LANG", "TMPDIR", "SYSTEMROOT")
     env = process.Env.only(keep, {"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, "HOME": os.devnull,
                                   "GIT_TERMINAL_PROMPT": "0"})
-    done = process.git("-C", str(git_dir), "log", "-z", "--raw", "--no-abbrev", "--no-renames",
-                       "--diff-merges=dense-combined", *_PINNED, _FORMAT, sha, "--", timeout=_GIT_TIMEOUT_S, env=env)
+    done = process.git("-C", str(git_dir), *args, timeout=_GIT_TIMEOUT_S, env=env)
     if done.timed_out:
-        raise PrepError(f"git log {sha[:12]}: timed out after {_GIT_TIMEOUT_S:.0f} seconds")
+        raise PrepError(f"git {what}: timed out after {_GIT_TIMEOUT_S:.0f} seconds")
     if done.returncode:
-        raise PrepError(f"git log {sha[:12]} exited {done.returncode}: {process.git_failure(done)}")
-    return done.stdout
+        raise PrepError(f"git {what} exited {done.returncode}: {process.git_failure(done)}")
+    return done.stdout_bytes

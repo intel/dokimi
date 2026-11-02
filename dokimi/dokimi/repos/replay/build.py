@@ -208,7 +208,8 @@ def _where(t: Thread) -> str:
 
 def _public_at(threads: list[Thread], gold: set[str]) -> str | None:
     """The earliest first-comment ``createdAt`` of the threads whose id is in ``gold``, as the input gives it;
-    a time that is not ISO 8601 with an offset (GitHub writes ``Z``) counts as none. ``None`` when none has one."""
+    a time that is not ISO 8601 or has no offset counts as none. GitHub's ``Z`` is an offset, UTC, and counts.
+    ``None`` when none has one."""
     times = []
     for t in (t for t in threads if t.id in gold):
         try:

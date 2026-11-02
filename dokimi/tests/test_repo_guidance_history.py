@@ -189,7 +189,79 @@ def test_a_subject_or_a_path_that_holds_a_separator_or_looks_like_a_header_stays
 
 def test_a_log_field_that_should_start_a_commit_but_is_no_commit_id_is_a_prep_error():
     with pytest.raises(PrepError, match="'edit', not a commit id"):  # not a ValueError out of prepare_workspace
-        guidance_history._parse_log("edit\x002030-01-01T00:00:00Z\x002030-01-01T00:00:00Z\x00guidance\x00")
+        guidance_history._parse_log(b"edit\x002030-01-01T00:00:00Z\x002030-01-01T00:00:00Z\x00guidance\x00")
+
+
+def test_a_utc_date_is_recorded_with_z_whichever_form_git_prints():
+    """git 2.51 prints ``Z`` for a UTC ``%aI`` / ``%cI``, older git (2.43) ``+00:00``: the record is one form."""
+    to_z = guidance_history._utc_as_z
+    assert to_z("2030-01-01T00:00:00+00:00") == to_z("2030-01-01T00:00:00Z") == "2030-01-01T00:00:00Z"
+    assert to_z("2030-01-01T00:00:00+05:30") == "2030-01-01T00:00:00+05:30"
+    assert to_z("2030-01-01T00:00:00-04:00") == "2030-01-01T00:00:00-04:00"
+    sha = "a" * 40
+    log = f"{sha}\0002030-01-01T00:00:00+00:00\0002030-02-01T00:00:00+00:00\0g\0\n:000000 100644 A\0AGENTS.md\0"
+    assert guidance_history._parse_log(log.encode()) == [
+        ((sha, "2030-01-01T00:00:00Z", "2030-02-01T00:00:00Z", "g"), ["AGENTS.md"])]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="a carriage return in a file name")
+def test_a_carriage_return_in_a_guidance_path_or_a_subject_is_kept(hist):
+    """``process.git``'s text turns ``\\r`` into a newline: the log is split as bytes, then decoded."""
+    cr = _commit_at(hist["root"], {"a\rb/AGENTS.md": "# cr\n"}, "guidance\redit", "2030-05-01T00:00:00+00:00",
+                    "2030-05-01T00:00:00+00:00")
+    rev = guidance_history.arm_rev_history(hist["git_dir"], hist["manifest"].guidance_globs, cr,
+                                           ["AGENTS.md", "a\rb/AGENTS.md"], {})
+    assert rev["guidance_latest"]["a\rb/AGENTS.md"] == {
+        "sha": cr, "authored": "2030-05-01T00:00:00Z", "committed": "2030-05-01T00:00:00Z"}
+    assert rev["guidance_commits"][0] == {"sha": cr, "authored": "2030-05-01T00:00:00Z",
+                                          "committed": "2030-05-01T00:00:00Z", "subject": "guidance\redit"}
+
+
+def _three_commits(tmp: Path) -> tuple[Path, dict[str, str]]:
+    """guidance v1, guidance v2, then a code-only commit, in a repository of its own."""
+    root = tmp / "three"
+    root.mkdir()
+    git(root, "init", "-q")
+    return root, {
+        "v1": _commit_at(root, {"AGENTS.md": "# v1\n"}, "guidance v1", "2030-01-01T00:00:00+00:00",
+                         "2030-01-01T00:00:00+00:00"),
+        "v2": _commit_at(root, {"AGENTS.md": "# v2\n"}, "guidance v2", "2030-02-01T00:00:00+00:00",
+                         "2030-02-01T00:00:00+00:00"),
+        "code": _commit_at(root, {"src/calc.py": "# code\n"}, "code only", "2030-03-01T00:00:00+00:00",
+                           "2030-03-01T00:00:00+00:00"),
+    }
+
+
+def _clone(tmp: Path, src: Path, name: str, *opts: str) -> Path:
+    subprocess.run(["git", "clone", "-q", *opts, f"file://{src}", str(tmp / name)], check=True, capture_output=True)
+    return tmp / name
+
+
+def test_a_shallow_git_dir_is_refused_and_a_full_clone_gives_the_whole_history(tmp_path):
+    """A shallow clone's history stops at its boundary commit, which then looks like the last to touch AGENTS.md."""
+    root, shas = _three_commits(tmp_path)
+    shallow = _clone(tmp_path, root, "shallow", "--depth", "1")
+    with pytest.raises(PrepError, match=r"shallow/\.git is a shallow clone:.*full history \(git fetch --unshallow\)"):
+        guidance_history.arm_rev_history(shallow / ".git", ("AGENTS.md",), shas["code"], ["AGENTS.md"], {})
+    full = _clone(tmp_path, root, "full")
+    rev = guidance_history.arm_rev_history(full / ".git", ("AGENTS.md",), shas["code"], ["AGENTS.md"], {})
+    assert rev["guidance_latest"]["AGENTS.md"]["sha"] == shas["v2"]
+    assert [c["subject"] for c in rev["guidance_commits"]] == ["guidance v2", "guidance v1"]
+
+
+def test_a_blobless_clone_gives_the_history_without_fetching_a_blob(tmp_path):
+    """``log --raw`` compares object ids only, also for a merge: the clone's origin is gone when it is read."""
+    root, shas = _three_commits(tmp_path)
+    side = _branch_commit(root, "side", {"AGENTS.md": "# side\n"}, "side guidance", "2030-04-01T00:00:00+00:00")
+    merge = _merge_at(root, "side", {"AGENTS.md": "# resolved\n"}, "Merge side", "2030-05-01T00:00:00+00:00",
+                      "2030-05-01T00:00:00+00:00")
+    git(root, "config", "uploadpack.allowFilter", "true")
+    blobless = _clone(tmp_path, root, "blobless.git", "--bare", "--filter=blob:none")
+    assert git(blobless, "config", "remote.origin.promisor") == "true"
+    git(blobless, "remote", "set-url", "origin", str(tmp_path / "gone"))  # a blob it needed could not be fetched
+    rev = guidance_history.arm_rev_history(blobless, ("AGENTS.md",), merge, ["AGENTS.md"], {})
+    assert [c["sha"] for c in rev["guidance_commits"]] == [merge, side, shas["v2"], shas["v1"]]
+    assert rev["guidance_latest"]["AGENTS.md"]["sha"] == merge
 
 
 def _branch_commit(root: Path, branch: str, files: dict[str, str], subject: str, date: str) -> str:
