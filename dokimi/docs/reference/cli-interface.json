@@ -1592,7 +1592,7 @@
               "nargs": null,
               "position": null,
               "required": false,
-              "type": "dokimi.commands.baseline_regression.threshold#83cba01472d6"
+              "type": "dokimi.commands.baseline_regression.threshold#477b3adc7612"
             },
             {
               "action": "_StoreAction",
@@ -1608,7 +1608,7 @@
               "nargs": null,
               "position": null,
               "required": false,
-              "type": "dokimi.commands.baseline_regression.threshold#83cba01472d6"
+              "type": "dokimi.commands.baseline_regression.threshold#477b3adc7612"
             },
             {
               "action": "_StoreAction",
