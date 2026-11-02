@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import sys
 from collections import Counter
@@ -55,7 +56,8 @@ class Harness:
 
 
 # The codex profile with a provider that reads CODEX_API_KEY: the built-in profile sends no bearer (see the file).
-CODEX_PROFILE = Path(__file__).resolve().parents[2] / "data" / "reach-conformance" / "codex.profile.yaml"
+# Package data, so an installed wheel finds it next to this module.
+CODEX_PROFILE = Path(__file__).resolve().parent / "conformance_profiles" / "codex.yaml"
 
 # Credentials are the names the profile forwards (repos/profiles/*.yaml env_allow), so a key set here is one the run gets.
 HARNESSES: dict[str, Harness] = {h.name: h for h in (
@@ -65,14 +67,19 @@ HARNESSES: dict[str, Harness] = {h.name: h for h in (
 )}
 
 
+def _which_on(cmd: str, search: str) -> str | None:
+    """``cmd`` on ``search``, a PATH value: the search a run's child process makes, not this process's."""
+    return shutil.which(cmd, path=search)
+
+
 def unavailable(harness: Harness, model: str, env: Mapping[str, str],
-                which: Callable[[str], str | None] = shutil.which) -> str | None:
-    """Why ``harness`` cannot run here, or None when it can."""
+                which: Callable[[str, str], str | None] = _which_on) -> str | None:
+    """Why ``harness`` cannot run here, or None when it can. The CLI is looked up on the PATH of ``env``."""
     if not model:
         return "no model configured for this harness"
     if not any(env.get(name) for name in harness.credentials):
         return f"none of {', '.join(harness.credentials)} is set"
-    if which(harness.bin) is None:
+    if which(harness.bin, env.get("PATH", os.defpath)) is None:
         return f"{harness.bin} is not on PATH"
     return None
 
@@ -233,7 +240,7 @@ def run_case(harness: Harness, model: str, fixture: Path, guidance: Path, out: P
 
 def run_harness(harness: Harness, model: str, fixtures: Path, expect: Mapping[str, Any], out_dir: Path, *,
                 timeout: int = DEFAULT_TIMEOUT_S, budget: float = DEFAULT_BUDGET_USD,
-                env: Mapping[str, str], which: Callable[[str], str | None] = shutil.which) -> dict[str, Any]:
+                env: Mapping[str, str], which: Callable[[str, str], str | None] = _which_on) -> dict[str, Any]:
     """One harness over every fixture, as a matrix. A harness that cannot run here gets a skipped run per fixture.
 
     ``env`` decides availability and is the whole environment each run gets (nothing else is inherited)."""

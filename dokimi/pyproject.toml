@@ -102,6 +102,7 @@ dokimi = [
   "runner/spec.schema.json",
   "schemas/*.json",
   "repos/profiles/*.yaml",
+  "repos/conformance_profiles/*.yaml",
   "repos/support/*.py",
   "harnesses/swebench_specs.json",
 ]

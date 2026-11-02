@@ -6,6 +6,7 @@ the matrix and its markdown page, and the fixtures against their expectations. H
 
 from __future__ import annotations
 
+import importlib.resources
 import importlib.util
 import os
 import tomllib
@@ -32,11 +33,11 @@ def _expect(**blocks: dict) -> dict:
     return {"schema": "reach_conformance.v1", "cases": {"toy": {"summary": "toy case", **blocks}}}
 
 
-def _found(name: str) -> str:
+def _found(name: str, search: str) -> str:
     return f"/usr/bin/{name}"
 
 
-def _missing(name: str) -> None:
+def _missing(name: str, search: str) -> None:
     return None
 
 
@@ -76,6 +77,21 @@ def test_unavailable_names_the_missing_piece():
     assert "no model" in cf.unavailable(CODEX, "", env, which=_found)
     assert "CODEX_API_KEY" in cf.unavailable(CODEX, "gpt", {}, which=_found)
     assert "not on PATH" in cf.unavailable(CODEX, "gpt", env, which=_missing)
+
+
+def test_unavailable_looks_for_the_cli_on_the_path_the_run_gets(tmp_path, monkeypatch):
+    run_bin, parent_bin = tmp_path / "run", tmp_path / "parent"
+    for folder in (run_bin, parent_bin):
+        folder.mkdir()
+        (folder / "codex").write_text("#!/bin/sh\n", encoding="utf-8")
+        (folder / "codex").chmod(0o755)
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    monkeypatch.setenv("PATH", str(parent_bin))  # this process's PATH has a codex; the run's does not
+    assert "not on PATH" in cf.unavailable(CODEX, "gpt", {"CODEX_API_KEY": "k", "PATH": str(empty)})
+    assert cf.unavailable(CODEX, "gpt", {"CODEX_API_KEY": "k", "PATH": str(run_bin)}) is None
+    monkeypatch.setenv("PATH", str(empty))  # the other way round: the run's PATH has the codex, this process's has none
+    assert cf.unavailable(CODEX, "gpt", {"CODEX_API_KEY": "k", "PATH": str(run_bin)}) is None
 
 
 def test_unavailable_forwards_only_the_credentials_the_profile_forwards():
@@ -476,6 +492,14 @@ def test_the_codex_suite_profile_authenticates_with_the_key_it_forwards(tmp_path
     provider = config["model_providers"][config["model_provider"]]  # the provider the run selects
     assert provider["env_key"] == "CODEX_API_KEY"
     assert provider["base_url"] == "https://api.openai.com/v1"
+
+
+def test_the_codex_suite_profile_loads_through_the_package_resources():
+    # The installed-wheel case: the file is found through the package, not through the source tree.
+    shipped = importlib.resources.files("dokimi.repos") / "conformance_profiles" / "codex.yaml"
+    with importlib.resources.as_file(shipped) as path:
+        assert load_profile(path).name == "codex"
+        assert path.read_bytes() == cf.CODEX_PROFILE.read_bytes()
 
 
 def test_run_harness_gives_each_run_exactly_the_environment_it_is_given(tmp_path, monkeypatch):

@@ -94,7 +94,7 @@ forwards from that.
 
 Credentials are the names the harness profile forwards (`dokimi/repos/profiles/*.yaml`, `env_allow`):
 `ANTHROPIC_API_KEY` or `AWS_BEARER_TOKEN_BEDROCK` for Claude Code, `CODEX_API_KEY` for Codex (`OPENAI_API_KEY` is
-not forwarded), `COPILOT_GITHUB_TOKEN` for Copilot. Codex runs with `data/reach-conformance/codex.profile.yaml`,
+not forwarded), `COPILOT_GITHUB_TOKEN` for Copilot. Codex runs with `dokimi/repos/conformance_profiles/codex.yaml`,
 which defines a provider that reads `CODEX_API_KEY` (`codex exec` sends no bearer without one), so the key is what
 authenticates the run. For Bedrock, also set `CLAUDE_CODE_USE_BEDROCK=1` and
 `AWS_REGION`: Claude Code does not select Bedrock from the token alone.
