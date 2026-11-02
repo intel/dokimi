@@ -105,11 +105,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    if args.command == "run":
-        return cmd_run(args)
-    if args.command == "merge":
-        return cmd_merge(args)
-    return cmd_check(args)
+    commands = {"run": cmd_run, "merge": cmd_merge, "check": cmd_check}
+    try:
+        return commands[args.command](args)
+    except (cf.ConformanceError, OSError, ValueError) as exc:  # an input the suite cannot use: say so, no traceback
+        print(f"✗ {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

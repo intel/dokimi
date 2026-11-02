@@ -314,7 +314,7 @@ def test_check_expectations_reports_each_kind_of_drift(tmp_path):
     (fixtures / "extra").mkdir()
     expect = {"schema": "reach_conformance.v1", "cases": {
         "toy": {"summary": "s", "codex": {"why": "w", "files": {
-            "CLAUDE.md": {"cwd=.": "loaded"}, "AGENTS.md": {"cwd=nope": "loaded"}}}},
+            "CLAUDE.md": {"cwd=.": "loaded"}, "AGENTS.md": {"cwd=nope": "loaded", "cwd": "loaded"}}}},
         "gone": {"summary": "s"},
     }}
     problems = "\n".join(cf.check_expectations(expect, fixtures))
@@ -322,6 +322,7 @@ def test_check_expectations_reports_each_kind_of_drift(tmp_path):
     assert "expectations name no fixture gone" in problems
     assert "codex names CLAUDE.md, which the fixture does not hold" in problems
     assert "codex names scenario cwd=nope" in problems
+    assert "codex names scenario cwd, which" in problems  # no "=": the empty directory is the fixture root, not a scenario
 
 
 def test_load_expectations_rejects_another_schema(tmp_path):
@@ -363,3 +364,93 @@ def test_cli_merge_refuses_matrices_from_another_revision_of_the_expectations(tm
     assert cli.main(["merge", str(left), "--out", str(out), "--md", str(md)]) == 1
     assert "another revision" in capsys.readouterr().err
     assert not out.exists() and not md.exists()
+
+
+def test_merge_accepts_one_harness_version_on_two_fixtures():
+    merged = cf.merge([_matrix(), _matrix(runs=[_run(case="other")], cells=[_cell(case="other")])])
+    assert sorted(r["case"] for r in merged["runs"]) == ["other", "toy"]
+
+
+def test_merge_accepts_two_versions_of_one_harness_on_one_fixture():
+    merged = cf.merge([_matrix(), _matrix(runs=[_run(version="0.167.0")], cells=[_cell(version="0.167.0")])])
+    assert sorted(r["version"] for r in merged["runs"]) == ["0.166.0", "0.167.0"]
+
+
+def test_merge_refuses_two_errors_runs_of_one_harness_version():
+    errors = _run(status="errors", reason="exit 1")
+    with pytest.raises(cf.ConformanceError, match="codex 0.166.0 on toy"):
+        cf.merge([_matrix(runs=[errors]), _matrix(runs=[errors])])
+
+
+def test_merge_accepts_a_skipped_run_beside_a_ran_run_of_one_version():
+    skipped = _run(status="skipped", reason="no model configured for this harness", scenarios=0)
+    merged = cf.merge([_matrix(runs=[skipped], cells=[]), _matrix(runs=[_run()], cells=[_cell()])])
+    assert sorted(r["status"] for r in merged["runs"]) == ["ran", "skipped"]
+
+
+def test_render_markdown_keeps_a_multiline_reason_on_one_row():
+    matrix = _matrix(runs=[_run(status="errors", reason="exit 1: a\nb | c")], cells=[])
+    lines = cf.render_markdown(matrix).splitlines()
+    assert "| toy | codex | 0.166.0 | m | errors | exit 1: a b \\| c |" in lines
+
+
+def test_render_markdown_adds_no_column_for_a_failed_run():
+    matrix = _matrix(runs=[_run(), _run(status="failed", version="unknown", reason="timed out", scenarios=0)])
+    header = [line for line in cf.render_markdown(matrix).splitlines() if line.startswith("| file | scenario")]
+    assert header == ["| file | scenario | codex 0.166.0 |"]
+
+
+def test_run_case_does_not_read_a_receipt_an_earlier_run_left(tmp_path, monkeypatch):
+    fixture, receipt = _toy_fixture(tmp_path)
+    out = tmp_path / "out"
+    save_artifact("effective_instructions", receipt, out / cf.RECEIPT_NAME)
+    _fake_reach(monkeypatch, receipt, write=False)
+    record, cells = cf.run_case(CODEX, "m", fixture, tmp_path / "g.yaml", out, _expect(),
+                                timeout=30, budget=0.5)
+    assert record["status"] == "failed" and cells == []
+
+
+def test_cli_run_refuses_a_harness_given_twice_before_any_call(tmp_path, monkeypatch, capsys):
+    def no_call(*args, **kwargs):
+        raise AssertionError("run_harness must not be called")
+
+    monkeypatch.setattr(cli.cf, "run_harness", no_call)
+    out = tmp_path / "out"
+    assert cli.main(["run", "--harness", "codex=a", "--harness", "codex=b", "--out", str(out)]) == 1
+    assert "may be given once" in capsys.readouterr().err
+    assert not out.exists()
+
+
+@pytest.mark.parametrize(("status", "exit_code"), [("failed", 1), ("errors", 0)])
+def test_cli_run_exits_1_only_when_a_run_failed(tmp_path, monkeypatch, status, exit_code):
+    run = _run(status=status, reason="exit 1", version="unknown" if status == "failed" else "0.166.0",
+               scenarios=0 if status == "failed" else 1)
+    monkeypatch.setattr(cli.cf, "run_harness", lambda *args, **kwargs: cf.build_matrix([run], [], DIGEST))
+    assert cli.main(["run", "--harness", "codex=m", "--out", str(tmp_path)]) == exit_code
+    assert (tmp_path / "codex.matrix.json").is_file()
+
+
+def test_cli_merge_creates_both_output_directories_when_missing(tmp_path):
+    digest = cf.expectations_digest(cf.load_expectations(FIXTURES / "expectations.yaml"))
+    left = tmp_path / "left.json"
+    cf.write_matrix(_matrix(digest=digest), left)
+    out, md = tmp_path / "a" / "b" / "reach-matrix.json", tmp_path / "c" / "reach-matrix.md"
+    assert cli.main(["merge", str(left), "--out", str(out), "--md", str(md)]) == 0
+    assert out.is_file() and md.is_file()
+
+
+def test_cli_reports_unusable_inputs_without_a_traceback(tmp_path, capsys):
+    digest = cf.expectations_digest(cf.load_expectations(FIXTURES / "expectations.yaml"))
+    left, bad = tmp_path / "left.json", tmp_path / "bad.json"
+    cf.write_matrix(_matrix(digest=digest), left)
+    bad.write_text("{}", encoding="utf-8")
+    out, md = tmp_path / "reach-matrix.json", tmp_path / "reach-matrix.md"
+    cases = [
+        (["--expectations", str(tmp_path / "missing.yaml"), "check"], "missing.yaml"),
+        (["merge", str(left), str(left), "--out", str(out), "--md", str(md)], "two matrices hold codex"),
+        (["merge", str(bad), "--out", str(out), "--md", str(md)], "reach_matrix"),
+    ]
+    for argv, text in cases:
+        assert cli.main(argv) == 1
+        err = capsys.readouterr().err
+        assert text in err and "Traceback" not in err

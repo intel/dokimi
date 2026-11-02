@@ -12,6 +12,10 @@ on:
 
 permissions: {}
 
+defaults:
+  run:
+    shell: bash
+
 concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: false
@@ -29,18 +33,27 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: '3.13'
+          cache: pip
+          cache-dependency-path: dokimi/requirements.lock.txt
       - name: Install dokimi
         working-directory: dokimi
         run: pip install --require-hashes -r requirements.lock.txt
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
+        with:
+          node-version: '22'
       - name: Check the credential
         id: creds
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           AWS_BEARER_TOKEN_BEDROCK: ${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}
         run: |
-          if [ -n "$ANTHROPIC_API_KEY$AWS_BEARER_TOKEN_BEDROCK" ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; fi
+          if [ -n "$ANTHROPIC_API_KEY" ]; then backend=anthropic
+          elif [ -n "$AWS_BEARER_TOKEN_BEDROCK" ]; then backend=bedrock
+          else backend=none; fi
+          echo "backend=$backend" >> "$GITHUB_OUTPUT"
+          if [ "$backend" = none ]; then echo "present=false" >> "$GITHUB_OUTPUT"; else echo "present=true" >> "$GITHUB_OUTPUT"; fi
       - name: Install the CLI
-        if: steps.creds.outputs.present == 'true'
+        if: steps.creds.outputs.present == 'true' && vars.REACH_MODEL_CLAUDE_CODE != ''
         run: npm install -g @anthropic-ai/claude-code@2.1.316
       - name: Run reach over the fixtures
         working-directory: dokimi
@@ -49,6 +62,8 @@ jobs:
           REACH_MODEL: ${{ vars.REACH_MODEL_CLAUDE_CODE }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           AWS_BEARER_TOKEN_BEDROCK: ${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}
+          CLAUDE_CODE_USE_BEDROCK: ${{ steps.creds.outputs.backend == 'bedrock' && '1' || '' }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
         run: python scripts/reach_conformance.py run --harness "claude-code=$REACH_MODEL" --out reach-out
       - name: Upload the matrix
         if: always()
@@ -71,9 +86,14 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: '3.13'
+          cache: pip
+          cache-dependency-path: dokimi/requirements.lock.txt
       - name: Install dokimi
         working-directory: dokimi
         run: pip install --require-hashes -r requirements.lock.txt
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
+        with:
+          node-version: '22'
       - name: Check the credential
         id: creds
         env:
@@ -81,7 +101,7 @@ jobs:
         run: |
           if [ -n "$CODEX_API_KEY" ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; fi
       - name: Install the CLI
-        if: steps.creds.outputs.present == 'true'
+        if: steps.creds.outputs.present == 'true' && vars.REACH_MODEL_CODEX != ''
         run: npm install -g @openai/codex@0.166.0
       - name: Run reach over the fixtures
         working-directory: dokimi
@@ -111,9 +131,14 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: '3.13'
+          cache: pip
+          cache-dependency-path: dokimi/requirements.lock.txt
       - name: Install dokimi
         working-directory: dokimi
         run: pip install --require-hashes -r requirements.lock.txt
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
+        with:
+          node-version: '22'
       - name: Check the credential
         id: creds
         env:
@@ -121,7 +146,7 @@ jobs:
         run: |
           if [ -n "$COPILOT_GITHUB_TOKEN" ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; fi
       - name: Install the CLI
-        if: steps.creds.outputs.present == 'true'
+        if: steps.creds.outputs.present == 'true' && vars.REACH_MODEL_COPILOT != ''
         run: npm install -g @github/copilot@1.0.105
       - name: Run reach over the fixtures
         working-directory: dokimi
@@ -153,6 +178,8 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: '3.13'
+          cache: pip
+          cache-dependency-path: dokimi/requirements.lock.txt
       - name: Install dokimi
         working-directory: dokimi
         run: pip install --require-hashes -r requirements.lock.txt
@@ -166,6 +193,14 @@ jobs:
         env:
           PYTHONPATH: .
         run: |
+          missing=0
+          for harness in claude-code codex copilot; do
+            if [ ! -f "reach-in/$harness.matrix.json" ]; then
+              echo "::error::no $harness matrix: its job failed before writing one"
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ] || exit 1
           python scripts/reach_conformance.py merge reach-in/*.matrix.json \
             --out reach-out/reach-matrix.json --md reach-out/reach-matrix.md
           cat reach-out/reach-matrix.md >> "$GITHUB_STEP_SUMMARY"

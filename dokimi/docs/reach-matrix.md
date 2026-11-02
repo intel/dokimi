@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Reach conformance matrix
 
 The reach conformance suite asks, for each agent harness and version, which guidance files it loads in a set of
@@ -79,12 +84,14 @@ python scripts/reach_conformance.py merge reach-out/*.matrix.json --out reach-ma
 `--harness NAME[=MODEL]` is repeatable: `claude-code`, `codex` and `copilot` are known. A harness without a model
 is skipped, as is one without its credential or its CLI (`unavailable` in `dokimi/repos/conformance.py`
 names which). `run` writes `<harness>.matrix.json` to `--out`, and the per-fixture receipts under
-`<harness>-runs/`. Each scenario is capped by `--budget` (USD, default 0.10) and `--timeout` (seconds per
-scenario, default 300). `run` exits 1 only when a run is `failed`.
+`<harness>-runs/`. Each scenario is capped by `--timeout` (seconds per scenario, default 300). `--budget` (USD,
+default 0.10) is passed to Claude Code as `--max-budget-usd` only: Codex and Copilot have no budget flag, so for
+them the timeout is the only cap. `run` exits 1 only when a run is `failed`.
 
 Credentials are the names the harness profile forwards (`dokimi/repos/profiles/*.yaml`, `env_allow`):
 `ANTHROPIC_API_KEY` or `AWS_BEARER_TOKEN_BEDROCK` for Claude Code, `CODEX_API_KEY` for Codex (`OPENAI_API_KEY` is
-not forwarded), `COPILOT_GITHUB_TOKEN` for Copilot.
+not forwarded), `COPILOT_GITHUB_TOKEN` for Copilot. For Bedrock, also set `CLAUDE_CODE_USE_BEDROCK=1` and
+`AWS_REGION`: Claude Code does not select Bedrock from the token alone.
 
 `merge` joins matrices from several harnesses or runs. It refuses a second run of the same harness version on the
 same fixture, so a merge cannot double-count (failed and skipped runs hold no cells and are kept as they are). Each
@@ -97,37 +104,41 @@ calls a model.
 
 ## Limits
 
-- **Prompt capture, not behaviour.** `observed` is what the model reported seeing in its prompt, through marker
+- **Marker self-report, not behaviour.** `observed` is what the model reported seeing in its prompt, through marker
   tokens (see §7). A model can under-report, and a `loaded` cell does not show the instruction was followed.
 - **Links.** A symbolic link is reported as an alias of its target. The receipt cannot show a harness ignoring
   the link's name, so an `alias` cell is not evidence that a harness reads or skips it.
 - **Unknown is not false.** `unknown` in the documented column means the docs are silent, not that the file is
   not loaded.
 - **One version per run.** The version is the one the harness reports; a matrix shows the versions that ran.
-- **Cost.** Each scenario makes at least one model call, capped at `--budget`. The nightly run covers every
-  scenario of every fixture for each harness that has a model, a credential and a CLI.
+- **Cost.** Each scenario makes at least one model call. Claude Code runs are capped at `--budget`; Codex and
+  Copilot runs are bounded only by `--timeout`. The nightly run covers every scenario of every fixture for each
+  harness that has a model, a credential and a CLI.
 
 ## Nightly workflow
 
 `.github/workflows/reach-matrix.yml` runs on a schedule (daily, 04:37 UTC) and on `workflow_dispatch`. It is not a
 pull-request check, and it has no `pull_request` trigger.
 
-- One job per harness. Each checks its credential, installs its CLI only when the credential is present (pinned
-  versions: `@anthropic-ai/claude-code`, `@openai/codex`, `@github/copilot`), and runs `run` with the model from a
-  repository variable (`REACH_MODEL_CLAUDE_CODE`, `REACH_MODEL_CODEX`, `REACH_MODEL_COPILOT`). With no variable,
-  the harness is recorded as skipped.
-- Each job gets only its own secret in its environment.
-- The `matrix` job merges the three artifacts, appends the page to the run summary, and uploads
-  `reach-matrix.json` and `reach-matrix.md` as the `reach-matrix` artifact (90 days). Each harness's matrix is a
-  30-day artifact of its own.
+- One job per harness. Each checks its credential, installs its CLI only when the credential and the model
+  variable are both present (pinned versions: `@anthropic-ai/claude-code`, `@openai/codex`, `@github/copilot`), and
+  runs `run` with the model from a repository variable (`REACH_MODEL_CLAUDE_CODE`, `REACH_MODEL_CODEX`,
+  `REACH_MODEL_COPILOT`). With no variable, the harness is recorded as skipped.
+- Each job gets only its own secret in its environment. The Claude Code job uses the Anthropic key when it is set;
+  otherwise the Bedrock token, with `CLAUDE_CODE_USE_BEDROCK=1` and `AWS_REGION` from the variable of that name.
+- The `matrix` job checks that all three matrices arrived and fails, publishing nothing, when one is missing (its
+  harness job died before writing it). It merges the three artifacts, appends the page to the run summary, and
+  uploads `reach-matrix.json` and `reach-matrix.md` as the `reach-matrix` artifact (90 days). Each harness's matrix
+  is a 30-day artifact of its own.
 - `permissions: {}` at the top; each job has `contents: read`.
 
 To enable a harness, set its model variable and its secret. Nothing is committed: no key, token or model string
 is in the repository.
 
 Secrets: `ANTHROPIC_API_KEY` (or `AWS_BEARER_TOKEN_BEDROCK`), `CODEX_API_KEY`, `COPILOT_GITHUB_TOKEN`. Variables:
-`REACH_MODEL_CLAUDE_CODE`, `REACH_MODEL_CODEX`, `REACH_MODEL_COPILOT`. Runners: `intel-ubuntu-latest` on the Intel
-organisation, `ubuntu-latest` elsewhere; the jobs need `npm` on the runner for the CLI installs.
+`REACH_MODEL_CLAUDE_CODE`, `REACH_MODEL_CODEX`, `REACH_MODEL_COPILOT`, and `AWS_REGION` for the Bedrock path.
+Runners: `intel-ubuntu-latest` on the Intel organisation, `ubuntu-latest` elsewhere; each job sets up Node.js for
+its CLI install.
 
 ## Adding a case or a harness
 
@@ -138,5 +149,6 @@ A harness is a `Harness` in `HARNESSES` (`dokimi/repos/conformance.py`), with it
 names its profile forwards, a profile under `dokimi/repos/profiles/`, its npm pin in the workflow, and a
 job in the workflow. Its documented states go in `expectations.yaml` with the vendor page as `why`.
 
-Both schemas are versioned (`reach_conformance.v1`, `reach_matrix.v1`). A change to a field bumps the version and
-the artifact registry (`dokimi/artifacts.py`).
+Both schemas are versioned (`reach_conformance.v1`, `reach_matrix.v1`). Compatible widening may edit the existing
+version; breaking changes require a new version, updating `SCHEMA_VERSIONS` and retaining the old version in
+`SUPERSEDED_VERSIONS` (`dokimi/artifacts.py`).

@@ -266,6 +266,11 @@ def write_matrix(matrix: Mapping[str, Any], path: Path) -> None:
     save_artifact("reach_matrix", dict(matrix), path)
 
 
+def _table_text(text: str) -> str:
+    """One table cell: a stderr reason can run over several lines, and a pipe would end the cell early."""
+    return " ".join(text.split()).replace("|", "\\|")
+
+
 def _cell_text(cell: Mapping[str, Any] | None) -> str:
     if cell is None:
         return "-"
@@ -274,7 +279,7 @@ def _cell_text(cell: Mapping[str, Any] | None) -> str:
         text = f"link, {text}"
     elif cell["agreement"] == "disagrees":
         text += f" (docs: {cell['documented']})"
-    return text.replace("|", "\\|")
+    return _table_text(text)
 
 
 def render_markdown(matrix: Mapping[str, Any], summaries: Mapping[str, str] | None = None) -> str:
@@ -294,7 +299,7 @@ def render_markdown(matrix: Mapping[str, Any], summaries: Mapping[str, str] | No
         "## Runs", "", "| fixture | harness | version | model | status | reason |", "|---|---|---|---|---|---|",
     ]
     lines += [f"| {r['case']} | {r['harness']} | {r['version']} | {r['model'] or '-'} | {r['status']} | "
-              f"{(r['reason'] or '-').replace('|', chr(92) + '|')} |" for r in matrix["runs"]]
+              f"{_table_text(r['reason'] or '-')} |" for r in matrix["runs"]]
     lines += ["", "Cell legend: `loaded` or `not_loaded` as observed; `fetched` is read with a tool first; "
               "`unknown` is no usable answer. `(docs: X)` marks a disagreement with the documentation; a "
               "cell with no `(docs: ...)` agrees, or the documentation makes no claim.", ""]
