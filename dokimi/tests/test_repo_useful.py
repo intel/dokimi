@@ -1,0 +1,862 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""The first useful result of a run: the task's ``useful`` definition, the event that hits it, and its report/compare rows."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from dokimi.repos.events import _apply_result, convert
+from dokimi.repos.host import validate_tasks
+from dokimi.repos.report import format_report, summarize
+from dokimi.repos.useful import (
+    first_useful,
+    hits,
+    useful_arms_line,
+    useful_counts,
+    useful_kind,
+    useful_line,
+    useful_summary,
+    useful_task_counts,
+    useful_task_values,
+)
+from dokimi.repos.useful_spec import UsefulSpecError, parse_useful
+from dokimi.repos.workspace import Task
+
+from dokimi.repos.compare import compare, format_compare
+from test_repo_compare import _cell, _row
+from test_repo_run import _only_cell, _run, setup  # noqa: F401  # the run fixture, with its helpers
+
+TEST_CMD = r"pytest tests/test_x\.py"
+
+
+def _command(text: str, rc: int | None, t: float | None = None, **extra) -> dict:
+    return {"t": t, "kind": "command", "text": text, "rc": rc, **extra}
+
+
+def _edit(path: str, t: float | None = None, **extra) -> dict:
+    """An edit whose result is a success (rc 0), unless ``extra`` says otherwise."""
+    return {"t": t, "kind": "edit", "path": path, "rc": 0, **extra}
+
+
+# -- the definition ----------------------------------------------------------------------------------------------
+
+
+def test_a_task_without_the_key_names_no_definition():
+    assert parse_useful(None) is None
+
+
+def test_the_two_kinds_parse_to_their_pattern_and_globs():
+    command = parse_useful({"command": TEST_CMD})
+    assert command.kind == "command" and command.command.search("pytest tests/test_x.py -q")
+    assert parse_useful({"edit": "src/a.py"}).globs == ("src/a.py",)
+    assert parse_useful({"edit": ["src/a.py", "**/*.h"]}).globs == ("src/a.py", "**/*.h")
+
+
+@pytest.mark.parametrize(
+    "value,needle",
+    [
+        ({"command": ""}, "useful must be"),
+        ({"command": "("}, "not a valid regex"),
+        ({"command": "(" * 2000 + ")" * 2000}, "not a valid regex"),  # overflows, not re.error
+        (
+            {"command": "a{99999999999}"},
+            "not a valid regex",
+        ),  # a repeat count too large for the parser
+        ({"edit": []}, "useful must be"),
+        ({"edit": ["src/a.py", ""]}, "useful must be"),
+        ({"edit": 3}, "useful must be"),
+        ({"command": "pytest", "edit": "src/a.py"}, "useful must be"),  # one kind per task
+        ("pytest", "useful must be"),
+        ({"test": "pytest"}, "useful must be"),
+    ],
+)
+def test_a_malformed_definition_is_refused(value, needle):
+    with pytest.raises(UsefulSpecError, match=needle):
+        parse_useful(value)
+
+
+def test_validate_tasks_refuses_a_malformed_definition_before_a_run():
+    with pytest.raises(UsefulSpecError, match="useful must be"):
+        validate_tasks([Task("t", {"id": "t", "useful": {"edit": 3}}, Path("."))])
+
+
+# -- the first hit -----------------------------------------------------------------------------------------------
+
+
+def test_a_passing_matching_command_is_the_first_useful_result_counted_in_steps_and_seconds():
+    events = [
+        _command("ls", 0, t=1.0),
+        _command("pytest tests/test_x.py", 1, t=2.0),  # runs, fails: not useful
+        _edit("src/x.py", t=3.0),
+        _command("pytest tests/test_x.py", None, t=4.0),  # no result came back: not useful
+        _command("pytest tests/test_x.py", 0, t=5.0, denied=True),  # refused: never ran
+        _command("pytest tests/test_x.py", 0, t=6.0),
+        _command("pytest tests/test_x.py", 0, t=7.0),
+    ]
+    assert first_useful(parse_useful({"command": TEST_CMD}), events) == {
+        "kind": "command",
+        "reason": None,
+        "issued_s": 6.0,
+        "steps": 6,
+    }
+
+
+def test_the_first_edit_of_a_target_file_counts_steps_across_every_event_kind():
+    events = [
+        _command("cat README.md", 0, t=0.5),
+        _edit("docs/x.md", t=1.0),
+        _edit("src/other.py", t=1.5, denied=True),  # the hook refused the edit
+        _edit("src/sub/lib.cpp", t=2.0),
+        _edit("src/sub/lib.cpp", t=3.0),
+    ]
+    assert first_useful(parse_useful({"edit": ["src/**/*.cpp", "src/x.py"]}), events) == {
+        "kind": "edit",
+        "reason": None,
+        "issued_s": 2.0,
+        "steps": 4,
+    }
+
+
+def test_a_run_with_no_hit_is_never_and_names_no_steps():
+    events = [_command(TEST_CMD, 1, t=1.0), _edit("docs/x.md", t=2.0)]
+    assert first_useful(parse_useful({"command": TEST_CMD}), events) == {
+        "kind": "command",
+        "reason": "never",
+        "issued_s": None,
+        "steps": None,
+    }
+
+
+def test_a_run_whose_trace_was_not_read_is_unobserved_not_never():
+    assert first_useful(parse_useful({"edit": "src/x.py"}), None) == {
+        "kind": "edit",
+        "reason": "unobserved",
+        "issued_s": None,
+        "steps": None,
+    }
+
+
+def test_a_task_without_a_definition_is_not_declared():
+    assert first_useful(None, [_edit("src/x.py", t=1.0)]) == {
+        "kind": None,
+        "reason": "not_declared",
+        "issued_s": None,
+        "steps": None,
+    }
+
+
+def test_a_trace_without_timestamps_keeps_the_steps_and_says_untimed():
+    events = [_edit("docs/x.md"), _edit("src/x.py")]
+    assert first_useful(parse_useful({"edit": "src/x.py"}), events) == {
+        "kind": "edit",
+        "reason": "untimed",
+        "issued_s": None,
+        "steps": 2,
+    }
+
+
+def test_the_hit_is_timed_from_the_claude_stream_it_came_from():
+    lines = [
+        {
+            "type": "assistant",
+            "timestamp": "2026-10-31T10:00:00.000Z",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "a",
+                        "name": "Bash",
+                        "input": {"command": "pytest tests/test_x.py"},
+                    }
+                ]
+            },
+        },
+        {
+            "type": "user",
+            "timestamp": "2026-10-31T10:00:03.000Z",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "a",
+                        "is_error": True,
+                        "content": "1 failed",
+                    }
+                ]
+            },
+        },
+        {
+            "type": "assistant",
+            "timestamp": "2026-10-31T10:00:10.000Z",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "b",
+                        "name": "Edit",
+                        "input": {"file_path": "/ws/src/x.py"},
+                    }
+                ]
+            },
+        },
+        {
+            "type": "user",
+            "timestamp": "2026-10-31T10:00:11.000Z",
+            "message": {
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "b", "is_error": False, "content": "ok"}
+                ]
+            },
+        },
+        {
+            "type": "assistant",
+            "timestamp": "2026-10-31T10:00:42.000Z",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "c",
+                        "name": "Bash",
+                        "input": {"command": "pytest tests/test_x.py"},
+                    }
+                ]
+            },
+        },
+        {
+            "type": "user",
+            "timestamp": "2026-10-31T10:00:45.000Z",
+            "message": {
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "c", "is_error": False, "content": "ok"}
+                ]
+            },
+        },
+    ]
+    raw = "\n".join(json.dumps(x) for x in lines)
+    events = convert("claude-stream-json", raw, "/ws").events
+    assert first_useful(parse_useful({"command": TEST_CMD}), events) == {
+        "kind": "command",
+        "reason": None,
+        "issued_s": 42.0,
+        "steps": 3,
+    }
+    assert first_useful(parse_useful({"edit": "src/*.py"}), events) == {
+        "kind": "edit",
+        "reason": None,
+        "issued_s": 10.0,
+        "steps": 2,
+    }
+
+
+# -- report and compare rows -------------------------------------------------------------------------------------
+
+
+def test_a_failed_edit_changed_nothing_so_the_next_successful_one_is_the_first_useful_result():
+    failed = {"t": 4.0, "kind": "edit", "path": "src/foo.py"}
+    _apply_result(
+        {"tool_use_id": "u1", "is_error": True, "content": "String to replace not found in file."},
+        {"u1": failed},
+    )
+    ok = {"t": 5.0, "kind": "edit", "path": "src/foo.py"}
+    _apply_result({"tool_use_id": "u2", "is_error": False, "content": "edited"}, {"u2": ok})
+    u = parse_useful({"edit": "src/*.py"})
+    assert first_useful(u, [failed]) == {
+        "kind": "edit",
+        "reason": "never",
+        "issued_s": None,
+        "steps": None,
+    }
+    assert first_useful(u, [failed, ok]) == {
+        "kind": "edit",
+        "reason": None,
+        "issued_s": 5.0,
+        "steps": 2,
+    }
+
+
+def _timed(batch: Path, task: str, arm: str, rep: int, useful: dict | None) -> None:
+    """A finished gate cell whose ``result.json`` carries ``useful`` (left out for ``None``: an older batch)."""
+    _cell(batch, task, arm, rep)
+    path = batch / f"{task}__{arm.replace(':', '-')}__m-1__r{rep}" / "result.json"
+    rec = json.loads(path.read_text())
+    if useful is not None:
+        rec["first_useful"] = useful
+    path.write_text(json.dumps(rec))
+
+
+def _hit(seconds: float, steps: int) -> dict:
+    return {"kind": "command", "reason": None, "issued_s": seconds, "steps": steps}
+
+
+def test_useful_summary_is_the_observed_cells_medians_and_why_the_rest_are_not():
+    recs = [
+        {"first_useful": _hit(10.0, 4)},
+        {"first_useful": _hit(20.0, 6)},
+        {"first_useful": {"kind": "command", "reason": "never", "issued_s": None, "steps": None}},
+    ]
+    assert useful_summary(recs) == {
+        "kind": "command",
+        "n": 3,
+        "observed": 2,
+        "median_s": 15.0,
+        "median_steps": 5.0,
+        "reasons": {"never": 1},
+    }
+    assert useful_summary([{}, {"first_useful": None}]) is None  # an older batch declares nothing
+    assert useful_line(useful_summary(recs), 4) == [
+        " " * 8 + "first useful (command): 2 of 3 observed, median 15.0 s, 5 steps, never 1"
+    ]
+    assert useful_line(None, 4) == []
+
+
+def test_a_task_value_is_the_median_of_the_cells_that_observed_it():
+    recs = [
+        {"first_useful": _hit(10.0, 4)},
+        {"first_useful": _hit(30.0, 8)},
+        {"first_useful": _hit(50.0, 6)},
+        {"first_useful": {"kind": "command", "reason": "never", "issued_s": None, "steps": None}},
+    ]
+    assert useful_task_values(recs) == {
+        "first_useful_s": [30.0],
+        "first_useful_steps": [6.0],
+        "first_useful_rate": [0.75],
+    }
+    assert useful_task_values([{}]) == {
+        "first_useful_s": [None],
+        "first_useful_steps": [None],
+        "first_useful_rate": [None],
+    }
+    assert useful_counts(recs) == {"observed": 3, "declared": 4}
+    assert useful_counts([{}]) is None
+    assert (
+        useful_arms_line({"a": {"observed": 1, "declared": 2}, "b": None})
+        == "first useful observed: a 1 of 2"
+    )
+    assert useful_arms_line({"a": None}) is None
+
+
+def test_repo_report_shows_the_first_useful_line_under_its_row_only_for_a_declared_task(tmp_path):
+    batch = tmp_path / "b"
+    _timed(batch, "t1", "guidance:raw", 1, _hit(10.0, 4))
+    _timed(batch, "t1", "guidance:raw", 2, _hit(20.0, 6))
+    _timed(
+        batch,
+        "t1",
+        "guidance:raw",
+        3,
+        {"kind": "command", "reason": "never", "issued_s": None, "steps": None},
+    )
+    _timed(batch, "t2", "guidance:raw", 1, None)
+    summary = summarize(batch)
+    rows = {r["task"]: r for r in summary["rows"]}
+    assert rows["t1"]["first_useful"] == {
+        "kind": "command",
+        "n": 3,
+        "observed": 2,
+        "median_s": 15.0,
+        "median_steps": 5.0,
+        "reasons": {"never": 1},
+    }
+    assert "first_useful" not in rows["t2"]
+    text = format_report(summary)
+    assert "first useful (command): 2 of 3 observed, median 15.0 s, 5 steps, never 1" in text
+    assert text.count("first useful") == 1
+
+
+def test_repo_compare_pairs_the_first_useful_medians_per_task_and_says_so_for_a_partial_batch(
+    tmp_path,
+):
+    batch = tmp_path / "b"
+    base = {"t1": ((10.0, 30.0), (4, 6)), "t2": ((None, None), (None, None))}
+    treat = {"t1": ((40.0, 50.0), (8, 10))}
+    for task, (secs, steps) in base.items():
+        for rep, (s, n) in enumerate(zip(secs, steps, strict=True), 1):
+            _timed(batch, task, "guidance:none", rep, None if s is None else _hit(s, n))
+    for rep, (s, n) in enumerate(zip(*treat["t1"], strict=True), 1):
+        _timed(batch, "t1", "guidance:raw", rep, _hit(s, n))
+    s = compare([batch], "guidance:none")
+    row = _row(s, "first_useful_s")
+    by_task = {t["task"]: t for t in row["tasks"]}
+    assert by_task["t1"]["baseline"] == 20.0 and by_task["t1"]["treatment"] == 45.0
+    assert row["delta"]["mean"] == 25.0
+    assert _row(s, "first_useful_steps")["delta"]["mean"] == 4.0  # medians 5 and 9
+    assert "t2" not in by_task  # no treatment cell of t2 observed one: t2 is left out, and said so
+    assert {"task": "t2", "measure": None, "reason": "no cells in treatment"}.items() <= next(
+        u for u in s["unpaired"] if u["task"] == "t2"
+    ).items()
+
+
+def test_an_older_batch_without_the_field_has_no_first_useful_row(tmp_path):
+    batch = tmp_path / "old"
+    for rep in (1, 2):
+        _timed(batch, "t1", "guidance:none", rep, None)
+        _timed(batch, "t1", "guidance:raw", rep, None)
+    s = compare([batch], "guidance:none")
+    assert not {r["measure"] for r in s["comparisons"]} & {"first_useful_s", "first_useful_steps"}
+    assert not s["unpaired"]
+
+
+def test_the_rate_says_how_many_declared_cells_observed_a_hit_where_the_medians_see_only_those_that_did(
+    tmp_path,
+):
+    batch = tmp_path / "b"
+    never = {"kind": "command", "reason": "never", "issued_s": None, "steps": None}
+    _timed(batch, "t1", "guidance:none", 1, _hit(10.0, 4))
+    _timed(batch, "t1", "guidance:none", 2, never)
+    _timed(batch, "t1", "guidance:raw", 1, _hit(10.0, 4))
+    _timed(batch, "t1", "guidance:raw", 2, _hit(12.0, 5))
+    s = compare([batch], "guidance:none")
+    by_task = {t["task"]: t for t in _row(s, "first_useful_rate")["tasks"]}
+    assert by_task["t1"]["baseline"] == 0.5 and by_task["t1"]["treatment"] == 1.0
+    assert _row(s, "first_useful_rate")["delta"]["mean"] == 0.5
+    assert by_task["t1"]["baseline"] < 1.0  # the medians alone would read this arm as no slower
+    assert _row(s, "first_useful_s")["delta"]["mean"] == 1.0  # medians 10 and 11
+    assert s["first_useful"] == {
+        "guidance:none": {"observed": 1, "declared": 2},
+        "guidance:raw": {"observed": 2, "declared": 2},
+    }
+    assert "first useful observed: guidance:none 1 of 2, guidance:raw 2 of 2" in format_compare(s)
+
+
+# -- the run itself ----------------------------------------------------------------------------------------------
+
+
+def test_result_json_records_the_first_edit_of_a_declared_target(setup):  # noqa: F811
+    task_json = setup["root"] / ".agent-eval/tasks/fix_add/task.json"
+    task = json.loads(task_json.read_text())
+    task["useful"] = {"edit": "src/calc.py"}
+    task_json.write_text(json.dumps(task))
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add", source=str(setup["root"]))
+    # the fake agent's one Edit, with no timestamps: a hit that is untimed, at step 1
+    assert _only_cell(setup)["first_useful"] == {
+        "kind": "edit",
+        "reason": "untimed",
+        "issued_s": None,
+        "steps": 1,
+    }
+
+
+def test_result_json_says_a_definition_that_no_command_hits_is_never(setup, monkeypatch):  # noqa: F811
+    monkeypatch.setenv("FAKE_PROCESS", "1")  # a `bazel build` the fake agent runs and fails
+    task_json = setup["root"] / ".agent-eval/tasks/fix_add/task.json"
+    task = json.loads(task_json.read_text())
+    task["useful"] = {"command": "bazel build"}
+    task_json.write_text(json.dumps(task))
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add", source=str(setup["root"]))
+    assert _only_cell(setup)["first_useful"] == {
+        "kind": "command",
+        "reason": "never",
+        "issued_s": None,
+        "steps": None,
+    }
+
+
+def test_result_json_says_a_task_with_no_definition_is_not_declared(setup):  # noqa: F811
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add", source=str(setup["root"]))
+    assert _only_cell(setup)["first_useful"] == {
+        "kind": None,
+        "reason": "not_declared",
+        "issued_s": None,
+        "steps": None,
+    }
+
+
+def test_repo_run_refuses_a_malformed_definition_before_any_cell_runs(setup):  # noqa: F811
+    task_json = setup["root"] / ".agent-eval/tasks/fix_add/task.json"
+    task = json.loads(task_json.read_text())
+    task["useful"] = {"edit": 3}
+    task_json.write_text(json.dumps(task))
+    with pytest.raises(SystemExit):
+        _run(setup, "--arm", "guidance:raw", "--task", "fix_add", source=str(setup["root"]))
+    assert not list(
+        (setup["out"] / "b1").glob("fix_add__*")
+    )  # refused by validate_tasks: no cell was made
+
+
+# -- review of #332: the counts behind a value, the kinds, the paths, the models -------------------------------
+
+
+def _set_useful(batch: Path, name: str, useful: dict) -> None:
+    path = batch / name / "result.json"
+    rec = json.loads(path.read_text())
+    rec["first_useful"] = useful
+    path.write_text(json.dumps(rec))
+
+
+def test_the_counts_behind_each_useful_value_are_the_cells_not_the_one_aggregate():
+    recs = [
+        {"first_useful": _hit(10.0, 4)},
+        {"first_useful": _hit(30.0, 8)},
+        {"first_useful": {"kind": "command", "reason": "untimed", "issued_s": None, "steps": 6}},
+    ]
+    assert useful_task_counts(recs) == {
+        "first_useful_s": 2,
+        "first_useful_steps": 3,
+        "first_useful_rate": 3,
+    }
+    assert useful_task_values(recs)["first_useful_rate"] == [1.0]
+
+
+def test_a_task_whose_cells_name_two_kinds_has_no_useful_value():
+    recs = [
+        {"first_useful": _hit(10.0, 4)},
+        {"first_useful": {"kind": "edit", "reason": None, "issued_s": 5.0, "steps": 2}},
+    ]
+    assert useful_kind(recs) == "mixed"
+    assert useful_task_values(recs) == {
+        "first_useful_s": [None],
+        "first_useful_steps": [None],
+        "first_useful_rate": [None],
+    }
+    assert useful_kind([{"first_useful": _hit(1.0, 1)}]) == "command"
+    assert useful_kind([{}]) is None
+
+
+def test_an_edit_path_is_matched_after_normalization_and_one_outside_the_workspace_never_hits():
+    assert hits(parse_useful({"edit": "src/*.py"}), _edit("./src/x.py"))
+    assert hits(parse_useful({"edit": "src/*.py"}), _edit("src/../src/x.py"))
+    assert not hits(parse_useful({"edit": "**/*.py"}), _edit("/etc/x.py"))
+    assert not hits(parse_useful({"edit": "**/*.py"}), _edit("../x.py"))
+    assert not hits(parse_useful({"edit": "**/*.py"}), _edit("src/../../x.py"))
+
+
+@pytest.mark.parametrize("steps", [float("nan"), 10**400])
+def test_a_stored_non_finite_or_huge_number_is_no_measure(steps):
+    recs = [{"first_useful": {"kind": "edit", "reason": None, "issued_s": 1.0, "steps": steps}}]
+    assert useful_task_values(recs)["first_useful_steps"] == [None]
+    assert useful_task_values(recs)["first_useful_rate"] == [0.0]
+    assert useful_counts(recs) == {"observed": 0, "declared": 1}
+    # a cell that observed no hit has no timing either: its issued_s is not a timed hit
+    assert useful_task_values(recs)["first_useful_s"] == [None]
+    assert useful_task_counts(recs)["first_useful_s"] == 0
+    assert useful_summary(recs)["median_s"] is None
+
+
+def test_a_command_regex_that_overflows_the_parser_is_a_task_error_not_a_crash():
+    with pytest.raises(UsefulSpecError):
+        parse_useful({"command": "a{" + "9" * 5000 + "}"})
+
+
+def test_a_trace_line_that_does_not_parse_marks_the_trace_incomplete():
+    assert convert("claude-stream-json", "{not json\n", None).dropped_lines == 1
+    assert convert("claude-stream-json", "[1]\n", None).dropped_lines == 1  # valid JSON, not an object
+    assert convert("claude-stream-json", "", None).dropped_lines == 0
+
+
+def test_the_compare_counts_are_the_cells_behind_each_value(tmp_path):
+    batch = tmp_path / "b"
+    _timed(batch, "t1", "guidance:none", 1, _hit(10.0, 4))
+    _timed(batch, "t1", "guidance:none", 2, _hit(30.0, 8))
+    _timed(
+        batch,
+        "t1",
+        "guidance:none",
+        3,
+        {"kind": "command", "reason": "untimed", "issued_s": None, "steps": 6},
+    )
+    _timed(batch, "t1", "guidance:raw", 1, _hit(20.0, 5))
+    s = compare([batch], "guidance:none")
+    assert _row(s, "first_useful_s")["tasks"][0]["n_baseline"] == 2
+    rate = _row(s, "first_useful_rate")["tasks"][0]
+    assert (rate["n_baseline"], rate["n_treatment"]) == (3, 1)
+
+
+def test_the_header_counts_only_the_models_compared(tmp_path):
+    batch = tmp_path / "b"
+    for arm, rep_model in (
+        ("guidance:none", "m1"),
+        ("guidance:none", "m2"),
+        ("guidance:raw", "m1"),
+    ):
+        _cell(batch, "t1", arm, 1, model=rep_model)
+    _set_useful(
+        batch,
+        "t1__guidance-none__m1__r1",
+        {"kind": "command", "reason": "never", "issued_s": None, "steps": None},
+    )
+    _set_useful(batch, "t1__guidance-none__m2__r1", _hit(5.0, 3))
+    _set_useful(batch, "t1__guidance-raw__m1__r1", _hit(9.0, 4))
+    s = compare([batch], "guidance:none", models=["m1"])
+    assert s["first_useful"]["guidance:none"] == {"observed": 0, "declared": 1}
+
+
+def test_a_task_whose_arms_define_different_kinds_of_first_useful_result_is_unpaired(tmp_path):
+    batch = tmp_path / "b"
+    _timed(batch, "t1", "guidance:none", 1, _hit(10.0, 4))
+    _timed(
+        batch,
+        "t1",
+        "guidance:raw",
+        1,
+        {"kind": "edit", "reason": None, "issued_s": 40.0, "steps": 9},
+    )
+    s = compare([batch], "guidance:none")
+    assert not [r for r in s["comparisons"] if r["measure"].startswith("first_useful")]
+    assert any(
+        u["task"] == "t1" and "first useful kinds differ" in u["reason"] for u in s["unpaired"]
+    )
+
+
+def test_a_review_task_with_no_definition_in_either_arm_is_not_reported_unpaired(tmp_path):
+    batch = tmp_path / "b"
+    _timed(batch, "t1", "guidance:none", 1, _hit(10.0, 4))
+    _timed(batch, "t1", "guidance:raw", 1, _hit(20.0, 6))
+    _timed(batch, "t2", "guidance:none", 1, None)
+    _timed(batch, "t2", "guidance:raw", 1, None)
+    s = compare([batch], "guidance:none")
+    assert not [
+        u
+        for u in s["unpaired"]
+        if u["task"] == "t2" and (u["measure"] or "").startswith("first_useful")
+    ]
+
+
+@pytest.mark.parametrize("path", ["C:/tmp/x.py", "c:x.py", "\\\\srv\\share\\x.py", "\\x.py"])
+def test_a_windows_absolute_or_drive_path_outside_the_workspace_never_hits(path):
+    assert not hits(parse_useful({"edit": "**/*.py"}), _edit(path))
+
+
+def test_a_codex_file_change_that_failed_is_no_useful_edit():
+    def change(status: str) -> list[dict]:
+        item = {"id": "1", "type": "file_change", "status": status, "changes": [{"path": "/ws/src/x.py", "kind": "update"}]}
+        return convert("codex-json", json.dumps({"type": "item.completed", "item": item}), "/ws").events
+
+    spec = parse_useful({"edit": "src/*.py"})
+    assert first_useful(spec, change("failed"))["reason"] == "never"
+    assert first_useful(spec, change("completed"))["reason"] == "untimed"  # a hit: the edit landed (no clock here)
+
+
+def test_a_claude_trace_with_a_malformed_content_block_is_unobserved_not_never():
+    lines = [
+        {"type": "assistant", "message": {"content": [42]}},  # a block of no known shape
+        {"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "e", "name": "Edit",
+                                                       "input": {"file_path": "/ws/src/x.py"}}]}},
+        {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "e", "is_error": False,
+                                                   "content": "ok"}]}},
+        {"type": "result", "subtype": "success", "is_error": False, "num_turns": 2, "result": "done",
+         "usage": {"input_tokens": 1, "output_tokens": 1}},
+    ]
+    transcript = convert("claude-stream-json", "\n".join(json.dumps(x) for x in lines), "/ws")
+    assert transcript.dropped_lines == 1
+    # the runner reports the uptake as unobserved when a line was dropped, as it would for a trace it could not read
+    events = None if transcript.dropped_lines else transcript.events
+    assert first_useful(parse_useful({"edit": "src/*.py"}), events)["reason"] == "unobserved"
+
+
+# -- the hit rules, the summary and the dropped lines, pinned -----------------------------------------------------
+
+
+@pytest.mark.parametrize("useful, event", [
+    ({"edit": "src/*.py"}, _edit("src/x.py", t=1.0, rc=None)),  # no tool result: the call never ran (killed)
+    ({"edit": "**"}, _edit("", t=1.0)),  # an Edit with no file_path: no target, not the workspace root
+    ({"edit": "**"}, _edit("./", t=1.0)),
+    ({"edit": "*"}, _edit(".", t=1.0)),
+])
+def test_an_edit_with_no_result_or_no_target_is_never_the_first_useful_result(useful, event):
+    assert first_useful(parse_useful(useful), [event])["reason"] == "never"
+
+
+def test_a_command_pattern_is_searched_anywhere_in_the_command_text():
+    events = [_command("cd x && pytest -q", 0, t=1.0)]
+    assert first_useful(parse_useful({"command": "pytest"}), events) == {
+        "kind": "command", "reason": None, "issued_s": 1.0, "steps": 1}
+
+
+def test_a_read_of_a_matching_path_is_no_edit():
+    events = [{"t": 1.0, "kind": "read", "path": "src/x.py", "rc": 0}, _edit("docs/y.md", t=2.0)]
+    assert first_useful(parse_useful({"edit": "src/*.py"}), events)["reason"] == "never"
+
+
+def test_the_median_is_the_middle_cell_not_the_mean():
+    recs = [{"first_useful": _hit(1.0, 1)}, {"first_useful": _hit(2.0, 2)}, {"first_useful": _hit(10.0, 10)}]
+    summary = useful_summary(recs)
+    assert (summary["median_s"], summary["median_steps"]) == (2.0, 2.0)
+
+
+def test_a_cell_that_names_no_definition_is_not_in_the_summary():
+    recs = [{"first_useful": {"kind": None, "reason": "not_declared", "issued_s": None, "steps": None}},
+            {"first_useful": _hit(5.0, 3)}]
+    assert (useful_summary(recs)["n"], useful_summary(recs)["observed"]) == (1, 1)
+
+
+def test_an_untimed_hit_is_observed_with_steps_but_no_seconds():
+    recs = [{"first_useful": {"kind": "command", "reason": "untimed", "issued_s": None, "steps": 3}}]
+    summary = useful_summary(recs)
+    assert (summary["observed"], summary["median_s"], summary["median_steps"]) == (1, None, 3.0)
+
+
+def test_the_rate_is_over_the_declared_cells_and_its_count_is_the_declared_cells():
+    recs = [{"first_useful": _hit(1.0, 1)},
+            {"first_useful": {"kind": "command", "reason": "never", "issued_s": None, "steps": None}},
+            {"first_useful": _hit(3.0, 2)}]
+    assert useful_task_values(recs)["first_useful_rate"] == [2 / 3]
+    assert useful_task_counts(recs)["first_useful_rate"] == 3
+
+
+@pytest.mark.parametrize("dropped, reason", [(0, None), (1, "unobserved")])
+def test_result_json_says_a_trace_with_a_dropped_line_is_unobserved_not_never(setup, monkeypatch, dropped, reason):  # noqa: F811
+    """The runner's own guard: a dropped line may hold the hit, so the kept events are not used for it."""
+    from dokimi.repos import runner
+
+    real_convert = runner.convert
+
+    def convert_with_a_hit_and_a_drop(trace, raw, workspace):
+        transcript = real_convert(trace, raw, workspace)
+        transcript.dropped_lines = dropped
+        transcript.events.insert(0, {"t": 1.0, "kind": "command", "text": "bazel build //x", "rc": 0})
+        return transcript
+
+    monkeypatch.setattr(runner, "convert", convert_with_a_hit_and_a_drop)
+    task_json = setup["root"] / ".agent-eval/tasks/fix_add/task.json"
+    task = json.loads(task_json.read_text())
+    task["useful"] = {"command": "bazel build"}
+    task_json.write_text(json.dumps(task))
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add", source=str(setup["root"]))
+    first = _only_cell(setup)["first_useful"]
+    assert first["reason"] == reason
+    assert first["steps"] == (None if reason else 1)
+
+
+def test_the_treatment_header_counts_only_the_models_compared(tmp_path):
+    batch = tmp_path / "b"
+    for arm, model in (("guidance:none", "m1"), ("guidance:raw", "m1"), ("guidance:raw", "m2")):
+        _cell(batch, "t1", arm, 1, model=model)
+    _set_useful(batch, "t1__guidance-none__m1__r1", _hit(5.0, 3))
+    _set_useful(batch, "t1__guidance-raw__m1__r1",
+                {"kind": "command", "reason": "never", "issued_s": None, "steps": None})
+    _set_useful(batch, "t1__guidance-raw__m2__r1", _hit(9.0, 4))
+    s = compare([batch], "guidance:none", models=["m1"])
+    assert s["first_useful"]["guidance:raw"] == {"observed": 0, "declared": 1}
+
+
+@pytest.mark.parametrize("content", [[{}], [{"type": 7}], [{"type": None}], [{"text": "no type"}]])
+def test_a_claude_block_without_a_string_type_is_a_dropped_line(content):
+    line = {"type": "assistant", "message": {"content": content}}
+    assert convert("claude-stream-json", json.dumps(line), "/ws").dropped_lines == 1
+
+
+@pytest.mark.parametrize("message", [{"content": None}, {}])
+def test_an_assistant_record_without_content_is_a_dropped_line(message):
+    line = {"type": "assistant", "message": message}
+    assert convert("claude-stream-json", json.dumps(line), "/ws").dropped_lines == 1
+    assert convert("claude-stream-json", json.dumps({"type": "assistant"}), "/ws").dropped_lines == 1
+
+
+def test_a_user_record_without_content_is_not_dropped():
+    line = {"type": "user", "message": {"content": None}}
+    assert convert("claude-stream-json", json.dumps(line), "/ws").dropped_lines == 0
+
+
+def test_a_user_prompt_given_as_a_plain_string_is_not_dropped():
+    line = {"type": "user", "message": {"content": "hi"}}
+    assert convert("claude-stream-json", json.dumps(line), "/ws").dropped_lines == 0
+
+
+@pytest.mark.parametrize("block", [
+    {"type": "tool_use", "id": "e", "name": "Edit", "input": 42},  # the input is not an object
+    {"type": "tool_use", "id": "e", "name": "Edit"},  # no input at all
+    {"type": "tool_use", "name": "Edit", "input": {"file_path": "/ws/src/x.py"}},  # no id: no result can find it
+    {"type": "tool_use", "id": "e", "input": {}},  # no name
+    {"type": "tool_use", "id": [1], "name": "Read", "input": {}},  # an id that is not a string
+])
+def test_a_tool_use_block_that_is_not_a_call_is_a_dropped_line(block):
+    line = {"type": "assistant", "message": {"content": [block]}}
+    assert convert("claude-stream-json", json.dumps(line), "/ws").dropped_lines == 1
+
+
+def test_an_edit_call_with_a_non_object_input_is_unobserved_not_never():
+    # the call's input is not an object, so its path is unreadable: the run must not say the edit never happened
+    lines = [
+        {"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "e", "name": "Edit", "input": 42}]}},
+        {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "e", "is_error": False,
+                                                   "content": "ok"}]}},
+        {"type": "result", "subtype": "success", "is_error": False, "num_turns": 2, "result": "done",
+         "usage": {"input_tokens": 1, "output_tokens": 1}},
+    ]
+    transcript = convert("claude-stream-json", "\n".join(json.dumps(x) for x in lines), "/ws")
+    assert transcript.dropped_lines == 1
+    events = None if transcript.dropped_lines else transcript.events
+    assert first_useful(parse_useful({"edit": "**"}), events)["reason"] == "unobserved"
+
+
+def test_claude_text_and_thinking_blocks_are_not_dropped():
+    line = {"type": "assistant", "message": {"content": [
+        {"type": "text", "text": "hi"}, {"type": "thinking", "thinking": "t", "signature": "s"}]}}
+    assert convert("claude-stream-json", json.dumps(line), "/ws").dropped_lines == 0
+
+
+def test_a_catastrophic_pattern_on_a_long_non_matching_command_does_not_hang():
+    # (a+)+$ is exponential in re, which hung this test run before the regex module. The command text is long and
+    # does not match, so the run is a plain "never" and returns at once.
+    import time
+
+    events = [_command("a" * 40 + "!", 0, t=1.0), _command("pytest tests/test_x.py", 0, t=2.0)]
+    started = time.monotonic()
+    assert first_useful(parse_useful({"command": "(a+)+$"}), events) == {
+        "kind": "command", "reason": "never", "issued_s": None, "steps": None}
+    assert time.monotonic() - started < 5
+
+
+def test_the_command_search_is_bounded_by_the_budget_constant(monkeypatch):
+    # (a|a)+$ is exponential in regex too, so only a search that really gets a timeout ends in "timeout", not "never".
+    from dokimi.repos import useful as useful_module
+
+    monkeypatch.setattr(useful_module, "USEFUL_REGEX_TIMEOUT", 0.05)
+    events = [_command("a" * 40 + "!", 0, t=1.0)]
+    assert first_useful(parse_useful({"command": "(a|a)+$"}), events) == {
+        "kind": "command", "reason": "timeout", "issued_s": None, "steps": None}
+
+
+def test_a_pattern_past_its_search_budget_is_a_timeout_reason_and_the_trace_is_not_searched(monkeypatch):
+    # The engine's own timing is not what is tested here: a search that raises TimeoutError maps to the reason
+    # "timeout", and the events after it are not searched.
+    from dokimi.repos import useful as useful_module
+
+    searched = []
+
+    def slow(useful, event):
+        searched.append(event["text"])
+        if len(searched) == 1:
+            raise TimeoutError
+        return False
+
+    monkeypatch.setattr(useful_module, "hits", slow)
+    events = [_command("a" * 40 + "!", 0, t=1.0), _command("pytest tests/test_x.py", 0, t=2.0)]
+    assert first_useful(parse_useful({"command": "(a|a)+$"}), events) == {
+        "kind": "command", "reason": "timeout", "issued_s": None, "steps": None}
+    assert len(searched) == 1
+
+
+def test_an_assistant_record_with_a_plain_string_content_is_a_dropped_line():
+    line = {"type": "assistant", "message": {"content": "unexpected shape"}}
+    assert convert("claude-stream-json", json.dumps(line), "/ws").dropped_lines == 1
+
+
+def _copilot_lines(name, arguments):
+    return "\n".join(json.dumps(x) for x in [
+        {"type": "tool.execution_start", "data": {"toolCallId": "e", "toolName": name, "arguments": arguments}},
+        {"type": "tool.execution_complete", "data": {"toolCallId": "e", "success": True}},
+        {"type": "result", "exitCode": 0},
+    ])
+
+
+@pytest.mark.parametrize("arguments", [42, None])
+@pytest.mark.parametrize("name", ["edit", "create", "view", "bash", "powershell"])
+def test_a_copilot_call_with_non_object_arguments_is_a_dropped_line(name, arguments):
+    assert convert("copilot-json", _copilot_lines(name, arguments), "/ws").dropped_lines == 1
+
+
+def test_a_copilot_apply_patch_given_as_a_string_is_not_dropped():
+    patch = "*** Update File: /ws/a.py\n"
+    assert convert("copilot-json", _copilot_lines("apply_patch", patch), "/ws").dropped_lines == 0
+
+
+def test_a_copilot_edit_with_non_object_arguments_is_unobserved_not_never():
+    transcript = convert("copilot-json", _copilot_lines("edit", 42), "/ws")
+    events = None if transcript.dropped_lines else transcript.events
+    assert first_useful(parse_useful({"edit": "**"}), events)["reason"] == "unobserved"

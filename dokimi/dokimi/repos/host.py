@@ -33,6 +33,7 @@ from typing import Any
 from .container import ContainerError, ContainerSpec
 from .grading import EvalContext
 from .host_spec import HOST_KEYS, KNOWN_VENDORS, HostRequirements, HostSpecError, parse_host  # noqa: F401
+from .useful_spec import parse_useful
 from .workspace import Task
 
 PROBE_TIMEOUT_S = 120
@@ -136,9 +137,10 @@ def requirements(task: Task) -> HostRequirements | None:
 
 
 def validate_tasks(tasks: list[Task]) -> None:
-    """Refuse a bad ``host`` value before anything runs, not cell by cell."""
+    """Refuse a bad ``host`` or ``useful`` value before anything runs, not cell by cell."""
     for task in tasks:
         requirements(task)
+        parse_useful(task.raw.get("useful"))  # raises UsefulSpecError on a bad shape
 
 
 def cgroup_cpus(raw: dict[str, Any]) -> int | None:

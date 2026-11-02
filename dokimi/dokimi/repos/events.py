@@ -69,9 +69,11 @@ def _claude_stream_json(raw: str, workdir: str | None) -> Transcript:
         try:
             rec = json.loads(line)
         except json.JSONDecodeError:
+            out.dropped_lines += 1
             out.errors.append(f"line {n}: not JSON")
             continue
         if not isinstance(rec, dict):
+            out.dropped_lines += 1
             continue
         t = None
         stamp = _parse_time(rec.get("timestamp"))
@@ -81,6 +83,7 @@ def _claude_stream_json(raw: str, workdir: str | None) -> Transcript:
         try:
             _apply(out, rec, t, by_id, workdir)
         except (AttributeError, TypeError) as exc:  # valid JSON of an unexpected shape
+            out.dropped_lines += 1
             out.errors.append(f"line {n}: unexpected shape ({exc})")
     main = parse_trace(raw).main_calls()
     out.first_prompt_tokens = main[0]["prompt_tokens"] if main else None
@@ -101,6 +104,9 @@ def _apply_result(block: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> No
     if result_of["kind"] == "read" and not denied:
         # A read that failed (the file does not exist) shows nothing of the file.
         result_of["rc"] = 1 if block.get("is_error") else 0
+    if result_of["kind"] == "edit" and not denied:
+        # A failed edit (old_string not found) left the file as it was: rc 1, so it is no useful result.
+        result_of["rc"] = 1 if block.get("is_error") else 0
     if result_of["kind"] == "command":
         # Claude Code reports success or failure only, with stdout and stderr merged into one text.
         if not denied:
@@ -119,48 +125,71 @@ def _apply(out: Transcript, rec: dict[str, Any], t: float | None,
            by_id: dict[str, dict[str, Any]], workdir: str | None) -> None:
     kind = rec.get("type")
     if kind == "system" and rec.get("subtype") == "init":
-        out.harness_version = rec.get("claude_code_version")
-        out.init_model = str(rec["model"]) if rec.get("model") else None
-        # Claude Code loads AGENTS.md through a built-in plugin (cc-plugin-agents-md) on some versions
-        out.plugins = sorted(str(p.get("name")) for p in rec.get("plugins") or []
-                             if isinstance(p, dict) and p.get("name"))
+        _apply_init(out, rec)
     elif kind == "assistant":
-        for block in _content(rec):
-            if block.get("type") == "tool_use":
-                event = _tool_event(block, t, workdir)
-                if rec.get("parent_tool_use_id"):
-                    event["agent"] = str(rec["parent_tool_use_id"])
-                if block.get("name") in _AGENT_TOOLS:
-                    out.subagent_calls = (out.subagent_calls or 0) + 1
-                out.events.append(event)
-                if block.get("id"):
-                    by_id[block["id"]] = event
-        model = (rec.get("message") or {}).get("model")
-        # A subagent's model is its definition's, not the run's; "<synthetic>" marks a reply Claude Code wrote itself.
-        if model and model != "<synthetic>" and rec.get("parent_tool_use_id") is None:
-            out.answered_by.add(str(model))
+        _apply_assistant(out, rec, t, by_id, workdir)
     elif kind == "user":
-        for block in _content(rec):
+        for block in _content(rec, out):
             if block.get("type") == "tool_result":
                 _apply_result(block, by_id)
     elif kind == "result":
-        out.answer = str(rec.get("result") or "").strip()
-        out.cost_usd = rec.get("total_cost_usd")
-        out.result_seen = True
-        _set_num_turns(out, rec.get("num_turns"))
-        out.is_error = bool(rec.get("is_error"))
-        out.result_subtype = rec.get("subtype")
-        out.subagent_calls = out.subagent_calls or 0
-        if not isinstance(rec.get("usage") or {}, dict):
-            raise TypeError("usage is not an object")
-        from dokimi.harnesses.claude_json import token_counts
-        counts = token_counts(rec)
-        if counts is not None:
-            out.usage_scope, (out.input_tokens, out.output_tokens, out.cache_read_tokens,
-                              out.cache_write_tokens) = counts
-        for denial in rec.get("permission_denials") or []:
-            if isinstance(denial, dict) and denial.get("tool_use_id") in by_id:
-                by_id[denial["tool_use_id"]]["denied"] = True
+        _apply_final(out, rec, by_id)
+
+
+def _apply_init(out: Transcript, rec: dict[str, Any]) -> None:
+    out.harness_version = rec.get("claude_code_version")
+    out.init_model = str(rec["model"]) if rec.get("model") else None
+    # Claude Code loads AGENTS.md through a built-in plugin (cc-plugin-agents-md) on some versions
+    out.plugins = sorted(str(p.get("name")) for p in rec.get("plugins") or []
+                         if isinstance(p, dict) and p.get("name"))
+
+
+def _apply_assistant(out: Transcript, rec: dict[str, Any], t: float | None,
+                     by_id: dict[str, dict[str, Any]], workdir: str | None) -> None:
+    for block in _content(rec, out):
+        if block.get("type") == "tool_use":
+            if not _well_formed_tool_use(block):  # an unreadable call is a dropped line, not an empty one
+                out.dropped_lines += 1
+                continue
+            event = _tool_event(block, t, workdir)
+            if rec.get("parent_tool_use_id"):
+                event["agent"] = str(rec["parent_tool_use_id"])
+            if block.get("name") in _AGENT_TOOLS:
+                out.subagent_calls = (out.subagent_calls or 0) + 1
+            out.events.append(event)
+            if block.get("id"):
+                by_id[block["id"]] = event
+    model = (rec.get("message") or {}).get("model")
+    # A subagent's model is its definition's, not the run's; "<synthetic>" marks a reply Claude Code wrote itself.
+    if model and model != "<synthetic>" and rec.get("parent_tool_use_id") is None:
+        out.answered_by.add(str(model))
+
+
+def _apply_final(out: Transcript, rec: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> None:
+    out.answer = str(rec.get("result") or "").strip()
+    out.cost_usd = rec.get("total_cost_usd")
+    out.result_seen = True
+    _set_num_turns(out, rec.get("num_turns"))
+    out.is_error = bool(rec.get("is_error"))
+    out.result_subtype = rec.get("subtype")
+    out.subagent_calls = out.subagent_calls or 0
+    if not isinstance(rec.get("usage") or {}, dict):
+        raise TypeError("usage is not an object")
+    from dokimi.harnesses.claude_json import token_counts
+    counts = token_counts(rec)
+    if counts is not None:
+        out.usage_scope, (out.input_tokens, out.output_tokens, out.cache_read_tokens,
+                          out.cache_write_tokens) = counts
+    for denial in rec.get("permission_denials") or []:
+        if isinstance(denial, dict) and denial.get("tool_use_id") in by_id:
+            by_id[denial["tool_use_id"]]["denied"] = True
+
+
+def _well_formed_tool_use(block: dict[str, Any]) -> bool:
+    """A tool call names itself, has an id its result can find, and has an object of input."""
+    return (isinstance(block.get("id"), str) and bool(block["id"])
+            and isinstance(block.get("name"), str) and bool(block["name"])
+            and isinstance(block.get("input"), dict))
 
 
 def _tool_event(block: dict[str, Any], t: float | None, workdir: str | None) -> dict[str, Any]:
@@ -189,6 +218,15 @@ def _result_text(content: Any) -> str | None:
     return None
 
 
-def _content(rec: dict[str, Any]) -> list[dict[str, Any]]:
+def _content(rec: dict[str, Any], out: Transcript) -> list[dict[str, Any]]:
+    """The object blocks of a message; a record with a block or a content of another shape counts as dropped."""
     content = (rec.get("message") or {}).get("content")
-    return [b for b in content if isinstance(b, dict)] if isinstance(content, list) else []
+    if rec.get("type") == "user" and (isinstance(content, str) or content is None):  # a user's prompt is a plain string: nothing lost
+        return []
+    if not isinstance(content, list):
+        out.dropped_lines += 1
+        return []
+    blocks = [b for b in content if isinstance(b, dict) and isinstance(b.get("type"), str)]  # a block says its type
+    if len(blocks) != len(content):
+        out.dropped_lines += 1
+    return blocks

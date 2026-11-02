@@ -315,6 +315,15 @@ def test_codex_file_change_without_a_usable_path_records_no_edit():
         assert [e for e in convert("codex-json", line, "/ws").events if e["kind"] == "edit"] == [], changes
 
 
+def test_a_codex_file_change_with_a_malformed_entry_is_one_dropped_line_and_no_edits():
+    for changes in (42, [42], [{"path": None, "kind": "update"}], [{"path": "/ws/src/a.c"}, 42],
+                    {}, "", 0, False, [{"path": 42}], [{"path": True}], [{"path": ["/ws/a.c"]}]):
+        line = json.dumps({"type": "item.completed", "item": {"id": "1", "type": "file_change", "changes": changes}})
+        transcript = convert("codex-json", line, "/ws")
+        assert transcript.dropped_lines == 1, changes
+        assert [e for e in transcript.events if e["kind"] == "edit"] == [], changes
+
+
 def test_codex_json_to_events():
     raw = _jsonl(
         {"type": "thread.started", "thread_id": "x"},
@@ -581,6 +590,18 @@ def test_copilot_failed_view_is_not_a_read(success, reads):
         {"type": "tool.execution_complete", "data": done},
     )
     assert convert("copilot-json", raw, "/ws").reads() == reads
+
+
+@pytest.mark.parametrize(("success", "rc"), [(False, 1), (True, 0), (None, None)])
+def test_copilot_edit_rc_is_the_completion_success(success, rc):
+    done = {"toolCallId": "e"} if success is None else {"toolCallId": "e", "success": success}
+    raw = _jsonl(
+        {"type": "tool.execution_start",
+         "data": {"toolCallId": "e", "toolName": "edit", "arguments": {"path": "/ws/src/a.py"}}},
+        {"type": "tool.execution_complete", "data": done},
+    )
+    edits = [e for e in convert("copilot-json", raw, "/ws").events if e["kind"] == "edit"]
+    assert [e.get("rc") for e in edits] == [rc]
 
 
 def test_copilot_result_without_an_exit_code_is_not_an_error():

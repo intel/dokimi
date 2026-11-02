@@ -531,13 +531,16 @@ def codex_json(raw: str, workdir: str | None, cwd: str = "") -> Transcript:
         try:
             rec = json.loads(line)
         except json.JSONDecodeError:
+            out.dropped_lines += 1
             out.errors.append(f"line {n}: not JSON")
             continue
         if not isinstance(rec, dict):
+            out.dropped_lines += 1
             continue
         try:
             _codex_apply(out, rec, messages, workdir, by_id, cwd, event_reads)
         except (AttributeError, TypeError, ValueError) as exc:
+            out.dropped_lines += 1
             out.errors.append(f"line {n}: unexpected shape ({exc})")
     out.answer = messages[-1].strip() if messages else ""
     out.agent_messages = messages
@@ -617,9 +620,18 @@ def _codex_item_completed(out: Transcript, item: dict[str, Any], messages: list[
         else:
             _codex_command_unstarted(out, item, script, workdir, cwd)
     elif itype == "file_change":
-        for change in item.get("changes") or []:
-            if isinstance(change, dict) and change.get("path"):
-                out.events.append({"t": None, "kind": "edit", "path": relative_path(str(change["path"]), workdir)})
+        status = item.get("status")  # a failed patch changed nothing
+        rc = {"completed": 0, "failed": 1}.get(status) if isinstance(status, str) else None
+        changes = [] if item.get("changes") is None else item["changes"]
+        # an entry that is not a change makes the record malformed: it is dropped whole (counted), not read in part
+        if not isinstance(changes, list) or not all(
+                isinstance(c, dict) and isinstance(c.get("path"), str) and c["path"] for c in changes):
+            raise ValueError("file_change with a malformed changes entry")
+        for change in changes:
+            event: dict[str, Any] = {"t": None, "kind": "edit", "path": relative_path(str(change["path"]), workdir)}
+            if rc is not None:
+                event["rc"] = rc
+            out.events.append(event)
     elif itype in ("mcp_tool_call", "web_search"):
         name = f"{item.get('server')}.{item.get('tool')}" if itype == "mcp_tool_call" else "web_search"
         out.events.append({"t": None, "kind": "tool", "name": name})
@@ -712,14 +724,17 @@ def copilot_json(raw: str, workdir: str | None, cwd: str = "") -> Transcript:
         try:
             rec = json.loads(line)
         except json.JSONDecodeError:
+            out.dropped_lines += 1
             out.errors.append(f"line {n}: not JSON")
             continue
         if not isinstance(rec, dict):
+            out.dropped_lines += 1
             continue
         t = run.offset(rec)
         try:
             run.apply(out, rec, t, workdir, cwd)
         except (AttributeError, TypeError, ValueError) as exc:
+            out.dropped_lines += 1
             out.errors.append(f"line {n}: unexpected shape ({exc})")
     out.answer = (run.final or run.last).strip()
     out.num_turns = run.turns or None
@@ -730,13 +745,15 @@ def copilot_json(raw: str, workdir: str | None, cwd: str = "") -> Transcript:
 def _copilot_tool(data: dict[str, Any], t: float | None, workdir: str | None, cwd: str = "") -> list[dict[str, Any]]:
     name = str(data.get("toolName") or "")
     args = data.get("arguments")
+    if name in _COPILOT_SHELL | _COPILOT_READ | _COPILOT_EDIT and not isinstance(args, dict):
+        raise TypeError(f"{name} arguments are not an object")  # counted as a dropped line by the caller
     if name in _COPILOT_SHELL:
-        command = str((args or {}).get("command", "")) if isinstance(args, dict) else ""
+        command = str(args.get("command", ""))
         # only bash is a POSIX script; a PowerShell command is not parsed for the files it reads
         scripts = shell_reads(command, cwd) if name == "bash" else []
         reads = [{"t": t, "kind": "read", "path": relative_path(p, workdir)} for p in scripts]
         return [*reads, {"t": t, "kind": "command", "text": command, "rc": None}]
-    if name in _COPILOT_READ | _COPILOT_EDIT and isinstance(args, dict):
+    if name in _COPILOT_READ | _COPILOT_EDIT:
         path = str(args.get("path") or args.get("file_path") or "")
         if not path:  # a call without a path names no file
             return []
@@ -752,6 +769,9 @@ def _copilot_result(out: Transcript, events: list[dict[str, Any]], data: dict[st
     reads = [e for e in events if e["kind"] == "read"]
     failed = data.get("success") is False
     for event in events:
+        if event["kind"] == "edit" and data.get("success") is not None:
+            # a failed edit changed nothing: rc 1, so it is no useful result
+            event["rc"] = 0 if data.get("success") else 1
         if event["kind"] != "command":
             continue
         shell = data.get("shellExecution") or {}

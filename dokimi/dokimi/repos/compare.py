@@ -15,6 +15,10 @@ cells are first reduced to one value per (task, arm, model):
 - **first_prompt_tokens**: the mean of ``result.json`` ``agent.first_prompt_tokens`` (what the first
   main-thread call was sent: start-up plus the task) over the cells that have it. Like a process count, it is
   compared only when both arms report it for some shared task: a batch run before it was recorded has none;
+- **first_useful_s**, **first_useful_steps**: the median seconds and steps to the first useful result (``first_useful``
+  in ``result.json``, :mod:`.useful`) over the cells that observed it; compared like ``first_prompt_tokens``;
+- **first_useful_rate**: the share of the cells that declare a first useful result and observed one, per task; the
+  header counts observed of declared cells per arm;
 - **metric:<name>**: the mean of ``grade.json`` ``metrics.<name>`` over the
   cells that report it (``true`` is 1), for ``--metric``;
 - **pass^k**: for ``--pass-k K``, the chance that K cells drawn from the
@@ -105,15 +109,17 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from dokimi.context.consistency import Run, order_distance, pass_hat, run_from_events
+from dokimi.context.consistency import Run, run_from_events
 from dokimi.eval.stats import bootstrap_ci, correct_family, mean_ci
 from dokimi.utils import same_model
 
 from .compare_reach import ALPHA, holm_floor, min_detectable
 from .compare_tasks import CompareError, select_tasks
+from .compare_values import finite_values, task_values
 from .process_counts import as_measure, process_order, process_values
-from .report import (load_cells, mismatch_warnings, model_mismatch, reading_cells, resolved_models,
+from .report import (load_cells, mismatch_warnings, model_mismatch, resolved_models,
                      unmeasured_note, uptake_counts)
+from .useful import USEFUL_MEASURES, useful_arms_line, useful_counts
 
 #: Largest number of non-zero deltas whose sign-flip distribution is enumerated (2**16 patterns).
 EXACT_MAX = 16
@@ -124,7 +130,7 @@ EPS = 1e-9
 #: Measures Holm's correction runs over.
 PRIMARY = ("gate", "score")
 #: Descriptive measures compared only when both arms report them for some shared task (an older batch has none).
-REPORTED = ("process:", "counter:", "first_prompt_tokens")
+REPORTED = ("process:", "counter:", "first_prompt_tokens", "first_useful")
 #: Batch stamp keys that must agree between the arms of a comparison; ``tree`` is shown but may differ (another
 #: revision of the repository is a treatment of its own).
 STAMP_KEYS = ("eval_dir", "image", "graders")
@@ -192,15 +198,18 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
     treatments = _treatments(cells, baseline, base_sel, treatments, scope)
     measures = ["gate", "score", *([f"pass^{pass_k}"] if pass_k else []),
                 *(["path_distance"] if path_stability else []), "cost_usd", "turns", "first_prompt_tokens",
-                *(f"metric:{m}" for m in metrics)]
-    base_vals = _task_values([c for c in cells if selector_matches(base_sel, c)], metrics, pass_k, path_stability)
+                *USEFUL_MEASURES, *(f"metric:{m}" for m in metrics)]
+    base_cells = [c for c in cells if selector_matches(base_sel, c)]
+    base_vals = task_values(base_cells, metrics, pass_k, path_stability)
+    useful = {baseline: useful_counts(_in_models(base_cells, models))}
     rows: list[dict[str, Any]] = []
     unpaired: list[dict[str, Any]] = []
     one_arm: list[str] = []
     measures += _process_measures(cells, [baseline, *treatments])
     for text in treatments:
-        treat_vals = _task_values([c for c in cells if selector_matches(parse_selector(text), c)], metrics,
-                                  pass_k, path_stability)
+        treat_cells = [c for c in cells if selector_matches(parse_selector(text), c)]
+        treat_vals = task_values(treat_cells, metrics, pass_k, path_stability)
+        useful[text] = useful_counts(_in_models(treat_cells, models))
         unpaired += _one_arm_models(text, base_vals, treat_vals, models)
         shared_models = sorted({m for m, _ in base_vals} & {m for m, _ in treat_vals})
         for model in [m for m in shared_models if not models or m in models]:
@@ -214,7 +223,7 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
     provenance["warnings"] += one_arm
     return {"batches": [str(d) for d in batch_dirs], "baseline": baseline, "treatments": treatments,
             "task_filter": task_filter, "cells": len(cells), "missing": missing, **provenance,
-            "comparisons": rows, "unpaired": unpaired}
+            "first_useful": useful, "comparisons": rows, "unpaired": unpaired}
 
 
 def _one_arm_models(treatment: str, base_vals: dict[tuple[str, str], dict[str, Any]],
@@ -357,6 +366,11 @@ def _holm(rows: list[dict[str, Any]]) -> None:
             row["mde"] = row["mde"] if reachable else None
 
 
+def _in_models(cells: list[dict[str, Any]], models: list[str] | None) -> list[dict[str, Any]]:
+    """The cells of the models compared (all of them without ``--model``)."""
+    return [c for c in cells if not models or c["model"] in models]
+
+
 def _compare_model(treatment: str, model: str, base_vals: dict[tuple[str, str], dict[str, Any]],
                    treat_vals: dict[tuple[str, str], dict[str, Any]], measures: list[str], seed: int,
                    rows: list[dict[str, Any]], unpaired: list[dict[str, Any]]) -> list[str]:
@@ -370,20 +384,28 @@ def _compare_model(treatment: str, model: str, base_vals: dict[tuple[str, str], 
         unpaired.append(_unpaired(treatment, model, task, None,
                                   "no cells in " + ("treatment" if task in base_tasks else "baseline")))
     shared = sorted(base_tasks & treat_tasks)
+    useful_ok = []  # the tasks whose first useful results pair: one kind in both arms, or a declaration in one
     for task in shared:
         b, t = base_vals[(model, task)]["kind"], treat_vals[(model, task)]["kind"]
         if b != t:  # batches of different eval trees: the primary result of this task has no pair
             unpaired.append(_unpaired(treatment, model, task, None, f"{b} task in baseline, {t} in treatment"))
+        bk, tk = base_vals[(model, task)]["useful_kind"], treat_vals[(model, task)]["useful_kind"]
+        if (bk and tk and bk != tk) or "mixed" in (bk, tk):  # a command's timing and an edit's are not one measure
+            unpaired.append(_unpaired(treatment, model, task, None,
+                                      f"first useful kinds differ: {bk} in baseline, {tk} in treatment"))
+        else:
+            useful_ok.append(task)
     skipped = []
     for measure in measures:
+        tasks = useful_ok if measure.startswith("first_useful") else shared
         if measure.startswith(REPORTED):
-            has = [any(vals[(model, t)]["values"].get(measure) is not None for t in shared)
+            has = [any(vals[(model, t)]["values"].get(measure) is not None for t in tasks)
                    for vals in (base_vals, treat_vals)]
             if not all(has):  # an arm that reports none of it at all (an older batch) leaves no task out of a pair
                 if any(has):
                     skipped.append(measure)
                 continue
-        row = _compare_measure(treatment, model, measure, shared, base_vals, treat_vals, seed, unpaired)
+        row = _compare_measure(treatment, model, measure, tasks, base_vals, treat_vals, seed, unpaired)
         if row is not None:
             rows.append(row)
     return skipped
@@ -403,6 +425,9 @@ def _measure_pairs(treatment: str, model: str, shared: list[str], base_vals: dic
             continue  # a task of the other kind, or one listed above
         if measure.startswith("pass^") and "score" in (base["kind"], treat["kind"]):
             continue  # pass^K is a gate measure: a score task has none to lack
+        if measure.startswith("first_useful") and base["values"].get(measure) is None \
+                and treat["values"].get(measure) is None:
+            continue  # a task neither arm declares a first useful result for: no pair, and no warning
         pair = _pair(task, base, treat, measure)
         if pair is not None:
             pairs.append(pair)
@@ -512,8 +537,11 @@ def _pair(task: str, base: dict[str, Any], treat: dict[str, Any], measure: str) 
     bv, tv = base["values"].get(measure), treat["values"].get(measure)
     if bv is None or tv is None:
         return None
-    return {"task": task, "baseline": bv, "treatment": tv, "delta": tv - bv,
-            "n_baseline": base["n"][measure], "n_treatment": treat["n"][measure]}
+    out = {"task": task, "baseline": bv, "treatment": tv, "delta": tv - bv,
+           "n_baseline": base["n"][measure], "n_treatment": treat["n"][measure]}
+    if measure.startswith("first_useful"):  # a compared task has one kind: the row shows which
+        out["useful_kind"] = base["useful_kind"]
+    return out
 
 
 def paired_summary(pairs: list[dict[str, Any]], measure: str = "gate", seed: int = 0) -> dict[str, Any]:
@@ -676,66 +704,12 @@ def _format_header(summary: dict[str, Any]) -> list[str]:
                          f"{', '.join(summary['task_filter']['dropped_arms'])}")
     for text, batches in summary["sources"].items():
         lines.append(f"  {text}: {', '.join(batches)}")
+    if (useful := useful_arms_line(summary.get("first_useful", {}))):
+        lines.append("  " + useful)
     for name, stamp in summary["stamps"].items():
         shown = [f"{k} {stamp[k][:12] if k in ('eval_dir', 'graders') else stamp[k]}" for k in ("tree", *STAMP_KEYS) if k in stamp]
         lines.append(f"  batch {name}: " + ", ".join([*shown, "harness " + ", ".join(stamp["harness_versions"])]))
     return lines
-
-
-def _task_values(cells: list[dict[str, Any]], metrics: tuple[str, ...], pass_k: int | None = None,
-                 path_stability: bool = False) -> dict[tuple[str, str], dict[str, Any]]:
-    """One value per measure for each (model, task) of one arm."""
-    groups: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
-    for rec in cells:
-        groups[(rec["model"], rec["task"])].append(rec)
-    out = {}
-    for key, recs in groups.items():
-        with reading_cells([f"{r['batch']}/{r['cell']}/result.json" for r in recs]):
-            score_task = any(r["score_task"] for r in recs)
-            found = {"cost_usd": [r["agent"].get("cost_usd") for r in recs],
-                     "turns": [r["agent"].get("num_turns") for r in recs],
-                     "first_prompt_tokens": [r["agent"].get("first_prompt_tokens") for r in recs],
-                     **{f"metric:{name}": [r["metrics"].get(name) for r in recs] for name in metrics}}
-            found.update(_process_lists(recs))
-            if score_task:
-                found["score"] = [0.0 if r["grade"]["status"] == "grader_failure" else (r["grade"]["score"] or 0.0)
-                                  for r in recs]
-            else:
-                found["gate"] = [float(bool(r["grade"]["success"])) for r in recs]
-            # unmeasured: a grader failure, or an agent outage (see _agent_outage); either way its 0 is not a measurement
-            grader_failed = any(r["grade"]["status"] == "grader_failure" or _agent_outage(r) for r in recs)
-        nums = {measure: _finite(vals) for measure, vals in found.items()}
-        score_max_vals = [r.get("score_max") for r in recs]
-        maxes = set(_finite(score_max_vals))  # cells of two eval trees may differ
-        # If any cell has unknown max, or maxes differ, top is None; otherwise take the single value
-        has_unknown_max = any(v is None for v in score_max_vals)
-        top = (maxes.pop() if len(maxes) == 1 and not has_unknown_max else None) if score_task else 1.0
-        n = {measure: len(v) for measure, v in nums.items()}
-        values = {measure: (sum(v) / len(v) if v else None) for measure, v in nums.items()}
-        if pass_k and not score_task:
-            gates = nums["gate"]
-            values[f"pass^{pass_k}"] = pass_hat(len(gates), int(sum(gates)), pass_k) if len(gates) >= pass_k else None
-            n[f"pass^{pass_k}"] = len(gates)
-        if path_stability:
-            runs: list[Run] = [r["path"] for r in recs if r.get("path") is not None]
-            values["path_distance"] = order_distance(runs)
-            n["path_distance"] = len(runs)
-        out[key] = {"kind": "score" if score_task else "gate", "grader_failed": grader_failed,
-                    "top": top, "n": n, "values": values}
-    return out
-
-
-def _agent_outage(rec: dict[str, Any]) -> bool:
-    """A cell whose agent never ran: an error result with no turn count or at most one turn, or a harness that
-    exited non-zero before it reported any turn (no result record, so no ``is_error``) and was not killed for
-    its timeout: an agent killed at its timeout did attempt the task."""
-    agent = rec.get("agent") or {}
-    turns = _finite([agent.get("num_turns")])  # a count that is not a number is no count, as in the turns row
-    if agent.get("is_error") and (not turns or turns[0] <= 1):
-        return True
-    rc = agent.get("rc")
-    crashed = isinstance(rc, int) and not isinstance(rc, bool) and rc != 0
-    return crashed and not turns and not agent.get("timed_out")
 
 
 def _cell_path(path: Path) -> Run | None:
@@ -773,18 +747,8 @@ def _grade_metrics(path: Path, names: tuple[str, ...]) -> dict[str, float]:
     return out
 
 
-def _finite(values: list[Any]) -> list[float]:
-    return [num for v in values if (num := as_measure(v)) is not None]
-
-
-def _process_lists(recs: list[dict[str, Any]]) -> dict[str, list[float | None]]:
-    """Each process measure any of ``recs`` reports, with every cell's value (``None`` where it has none)."""
-    values = [process_values(r) for r in recs]
-    return {name: [v.get(name) for v in values] for name in {k for v in values for k in v}}
-
-
 def _mean(values: list[Any]) -> float | None:
-    nums = _finite(values)
+    nums = finite_values(values)
     return sum(nums) / len(nums) if nums else None
 
 

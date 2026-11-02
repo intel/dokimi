@@ -307,6 +307,7 @@ belongs to the repository's grader and is passed through unread, except `grader`
 | `host` | no | framework | `{"min_cpus": <int>, "cpu_vendors": [<str>], "cpu_flags": [<str>]}`, every key optional: what the hidden test needs to show the bug (a thread race that needs 3+ CPUs, an ISA path). Vendor and flag names are `/proc/cpuinfo`'s (`GenuineIntel`, `avx512f`); both match in any case, and a vendor other than `GenuineIntel`, `AuthenticAMD`, `HygonGenuine`, `CentaurHauls`, `Shanghai` is refused (`repo validate` too). A probe that read neither vendor nor flags from `/proc/cpuinfo` is a probe failure, not a miss They are checked against a probe container started like the grading one: CPUs are its affinity mask capped by its cgroup CPU quota (`docker --cpus`). On a host that misses them the task is unsupported (§4.3), and the probed facts go to `meta.json` `host` of a cell that runs, or to its `unsupported.json` `host` when it does not |
 | `egress` | no | framework | extra hosts (DNS names, optional `:port`; `*` stands for one whole label and the last two labels are literal, so `*.pythonhosted.org` passes and `*` or `*.org` does not) this task's agent and entry points reach through the proxy (§2), for example `["pypi.org", "files.pythonhosted.org"]` |
 | `expected_skill` | no | framework | the name (directory name) of the skill the agent should use; a `skill-catalog:` arm must install it, or the arm is refused before anything runs. `result.json` `skills` records whether the agent used it and whether it used it first |
+| `useful` | no | framework | the definition of the run's first useful result, reported as `first_useful` in `result.json` (§4.1): `{"command": "<regex>"}` for a task whose grade runs the target tests, or `{"edit": "<glob>"}` (or a list of globs) for one that grades an edit to a target file. Omit it when no event is the useful result. A malformed value is refused by `repo validate`, `tasks check` and `repo run` |
 | anything else | — | repository | for example `hidden_files`, `targets`, `regression_targets`, `manifest` |
 
 `setup_patch` (a single string) is accepted as a synonym for a one-element
@@ -470,6 +471,34 @@ parent's and subagents' together, so a grader need not:
 | `counters` | each `process_metrics` name (§2) and its count |
 
 `process` is `null` when the trace could not be read, the agent left none (no event and no result record), or computing the metrics failed (the error is in `agent.trace_errors`).
+
+`result.json` `first_useful` is the run's first useful result: the first event that
+hits the task's `useful` key (§3). The definition depends on the grader:
+
+| Grader | Declare | Hit |
+|---|---|---|
+| test: the grade runs the target tests | `{"command": "<regex>"}` | the first `command` event whose text matches the regex (`regex.search`) and whose `rc` is `0`. `rc` 0 says that command passed, not that every target test did, so the regex should name the target tests |
+| edit or diff: the grade reads a target file | `{"edit": "<glob>"}` or a list | the first `edit` event whose path matches a glob (`match_glob`, as the guidance globs) |
+| review (`dokimi:review_*`) | none | none, so `not_declared`: the answer is the product, so no event is the useful result. A declared key is measured all the same |
+| any other repository grader | either form, or none | none declared, `not_declared` |
+
+A refused event (`denied`) never hits, nor does an `edit` without a success result (`rc` 0): an error result (`rc` 1) means the file was not changed, and no result at all (a killed run) proves nothing. `steps` counts every event up to and
+including the hit, the parent's and subagents' (as `process.tool_calls` does).
+`issued_s` is the hit's `t`: the time the call was issued, since a call's result
+is not timed. `first_useful` is `{"kind": "command"|"edit"|null, "reason": ...,
+"issued_s": number|null, "steps": int|null}`. `reason` is `null` when the hit was
+found and timed; otherwise it says why `issued_s` (and `steps`, with no hit) is
+null: `not_declared` (no definition), `unobserved` (the trace was not read: the
+harness never started, it did not parse, or a line of the trace was dropped), `never` (no event hit), `timeout` (a `command` pattern ran past
+2 s on one event: no verdict, and the rest of the trace is not searched) or `untimed`
+(the trace format has no timestamps, so `steps` is set and `issued_s` is null).
+A cell of an older batch has no `first_useful`. Each cell that declares a definition
+is counted in `repo report`: the row says how many observed a hit, and the medians
+cover only those. `repo compare` pairs `first_useful_rate` per task (the share of its
+declared cells that observed a hit, so a task where most runs never hit it is not read
+through its medians alone) and its header counts observed of declared cells per arm. A
+compared task has one kind, but the mean delta pools the tasks of both kinds: a per-task
+row shows which.
 
 A cell of an arm that installs skills also has a `skills` object in
 `result.json`: `measured`, `skills_installed` (the installed skill names),
@@ -1580,13 +1609,15 @@ python cli.py repo compare repo-runs/replay --baseline guidance:none --metric re
 - `repo compare` reduces cells to one value per (task, arm, model) first:
   repetitions share a task's difficulty and are not paired across arms, so the
   task is the unit. Per treatment arm, model and measure (gate share, score,
-  cost, turns, `first_prompt_tokens`, each `--metric` from `grade.json`, and each `process` count a
+  cost, turns, `first_prompt_tokens`, `first_useful_s` and `first_useful_steps` (the median over a
+  task's cells that observed the first useful result, §4.1), `first_useful_rate` (the share of a task's
+  declared cells that observed one), each `--metric` from `grade.json`, and each `process` count a
   compared cell reports as `process:<key>` or `counter:<name>`) it gives the mean per-task
   delta against the baseline with a 95% interval over tasks (a bootstrap for
   gate and score, a t interval for the descriptive measures, `-` for a single
   task), the tasks up, down and tied, and a two-sided sign-flip permutation p (exact up to 16
   changed tasks; at one cell per task and arm it equals McNemar's exact test).
-  A `process` count or `first_prompt_tokens` only one arm reports for the shared tasks of a
+  A `process` count, `first_prompt_tokens` or `first_useful_*` only one arm reports for the shared tasks of a
   (treatment, model) is not compared; a warning names it. When neither arm
   reports it (a batch run before `repo run` recorded it), the row is absent.
   Holm's correction runs over the gate and score comparisons of one call; the

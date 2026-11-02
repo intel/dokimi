@@ -341,13 +341,13 @@ def test_a_cell_shape_the_checks_miss_exits_2_naming_the_cell(tmp_path, capsys, 
 @pytest.mark.parametrize("exc", [KeyError("k"), TypeError("t"), AttributeError("a"), OverflowError("o"), ValueError("v")],
                          ids=lambda e: type(e).__name__)
 def test_each_cell_shape_error_exits_2_naming_the_cell(tmp_path, capsys, monkeypatch, cmd, exc):
-    from dokimi.repos import compare, report
+    from dokimi.repos import compare_values, report
 
     def boom(recs):
         raise exc
 
     monkeypatch.setattr(report, "process_means", boom)
-    monkeypatch.setattr(compare, "_process_lists", boom)
+    monkeypatch.setattr(compare_values, "process_lists", boom)  # the compare path reads process counts here
     batch = _two_arm_batch(tmp_path, _GOOD)
     with pytest.raises(SystemExit) as raised:
         _run(cmd[0], str(batch), *cmd[1:])
@@ -358,12 +358,12 @@ def test_each_cell_shape_error_exits_2_naming_the_cell(tmp_path, capsys, monkeyp
 
 @pytest.mark.parametrize("target", ["pass_hat", "order_distance"])
 def test_an_error_in_compare_statistics_is_not_reported_as_a_bad_cell(tmp_path, monkeypatch, target):
-    from dokimi.repos import compare
+    from dokimi.repos import compare_values
 
     def boom(*args):
         raise KeyError("a defect, not a cell")
 
-    monkeypatch.setattr(compare, target, boom)
+    monkeypatch.setattr(compare_values, target, boom)
     batch = _two_arm_batch(tmp_path, _GOOD)
     with pytest.raises(KeyError, match="a defect, not a cell"):
         _run("compare", str(batch), "--baseline", "a", "--pass-k", "1", "--path-stability")
