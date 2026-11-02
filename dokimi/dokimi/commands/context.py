@@ -6,7 +6,9 @@
 from __future__ import annotations
 
 import argparse
+import glob
 import json
+import math
 import os
 import sys
 from pathlib import Path
@@ -148,6 +150,76 @@ def cmd_context_consistency(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def cmd_context_prefilter(args: argparse.Namespace) -> None:
+    """Which guidance claims the sessions triggered, acted on, or were corrected on: candidates for ablation."""
+    from dokimi.context.prefilter import build_report, render_table
+
+    guidance = Path(args.guidance)
+    try:
+        text = guidance.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        sys.exit(f"✗ cannot read {guidance}: {exc}")
+
+    sessions, failed = _read_sessions(args.sessions)
+    if not sessions:
+        sys.exit("✗ no session could be read")
+    report = build_report(guidance.name, text, sessions, window=args.window, min_sessions=args.min_sessions,
+                          rare_max=args.rare_max, in_use_rate=args.in_use_rate)
+    if not report["claims"]:
+        print(f"warning: no rules found in {guidance}", file=sys.stderr)
+    print(json.dumps(report, indent=2) if args.json else render_table(report))
+    if failed:
+        sys.exit(1)
+
+
+def _read_sessions(names: list[str]) -> tuple[list, bool]:
+    """Every readable session of ``names``: JSONL logs or Goose stores; a quoted glob expands.
+
+    A file is read once however often it is named (a repeat, a glob that overlaps, a symlink to it).
+    """
+    from dokimi.context.goose_log import is_goose_store, read_goose_store
+    from dokimi.context.session_log import SessionError, read_session
+
+    loaded, failed, seen = [], False, set()
+    for name in names:
+        expanded = os.path.expanduser(name)  # a literal file is checked after ~ is expanded, before any glob
+        matches = [expanded] if os.path.exists(expanded) else sorted(glob.glob(expanded, recursive=True))
+        for path in matches or [expanded]:
+            real = os.path.realpath(path)
+            if real in seen:
+                print(f"warning: {path} given twice; counted once", file=sys.stderr)
+                continue
+            seen.add(real)
+            unreadable: list = []  # Goose sessions of unreadable messages only: not counted, still reported
+            try:
+                source = Path(path)
+                sessions = (read_goose_store(source, unreadable) if is_goose_store(source)
+                            else [read_session(source)])
+            except SessionError as exc:  # report it, and still read the sessions that do
+                print(f"✗ {exc}", file=sys.stderr)
+                failed = True
+                sessions = []
+            for session in [*sessions, *unreadable]:
+                for problem in session.errors:
+                    print(f"warning: {session.name}: {problem}", file=sys.stderr)
+            loaded.extend(sessions)
+    return loaded, failed
+
+
+def _non_negative_int(value: str) -> int:
+    number = int(value)
+    if number < 0:
+        raise argparse.ArgumentTypeError(f"must be 0 or more, not {value}")
+    return number
+
+
+def _unit_rate(value: str) -> float:
+    rate = float(value)
+    if not math.isfinite(rate) or not 0 <= rate <= 1:
+        raise argparse.ArgumentTypeError(f"must be a number from 0 to 1, not {value}")
+    return rate
+
+
 def _unique_traces(label: str, names: list[str]) -> list[str]:
     """Each trace once: a repeated ``--arm`` or overlapping globs must not count one run twice."""
     seen: dict[str, str] = {}
@@ -237,3 +309,24 @@ def register(sub, positive_int) -> None:
                         "count as edits; call: one step per tool call")
     cons_p.add_argument("--json", action="store_true", help="Print the profiles as JSON")
     cons_p.set_defaults(func=cmd_context_consistency)
+
+    pre_p = context_sub.add_parser(
+        "prefilter",
+        help="Which rules of an AGENTS.md or CLAUDE.md the sessions triggered, acted on and were "
+        "corrected on, read from Claude Code session logs: a ranked list of candidates for "
+        "ablation, not verdicts. No LLM call.",
+    )
+    pre_p.add_argument("guidance", help="The guidance file whose rules are measured (AGENTS.md, CLAUDE.md)")
+    pre_p.add_argument("sessions", nargs="+",
+                       help="Claude Code session logs (`~/.claude/projects/<project>/*.jsonl`); a quoted glob expands")
+    pre_p.add_argument("--window", type=positive_int, default=10,
+                       help="Events either side of a trigger that count as acting on it, and after it for a "
+                       "correction (default 10)")
+    pre_p.add_argument("--min-sessions", type=positive_int, default=5,
+                       help="Fewer sessions than this: no candidates are ranked (default 5)")
+    pre_p.add_argument("--rare-max", type=_non_negative_int, default=3,
+                       help="A rule triggered in at most this many sessions is rare: listed, not ranked (default 3)")
+    pre_p.add_argument("--in-use-rate", type=_unit_rate, default=0.2,
+                       help="A rule triggered in at least this share of sessions is in use, not a candidate (default 0.2)")
+    pre_p.add_argument("--json", action="store_true", help="Print the full report as JSON")
+    pre_p.set_defaults(func=cmd_context_prefilter)

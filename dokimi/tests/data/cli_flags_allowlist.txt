@@ -223,5 +223,8 @@
 --work-output-dir
 --work-repeats
 -o
+--min-sessions  # context prefilter threshold: no registry concept yet
+--rare-max  # context prefilter threshold: no registry concept yet
+--in-use-rate  # context prefilter threshold: no registry concept yet
 --graph  # eval coverage: the frozen need graph input, a file no registry concept names yet (#331)
 --min  # eval coverage gate floor, [METRIC=]X like --timeout [PHASE=]SEC (#331)

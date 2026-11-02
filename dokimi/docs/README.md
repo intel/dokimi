@@ -321,6 +321,9 @@ code.
 - [context-window.md](context-window.md) — read a run's context window from
   its Claude Code trace with `cli.py context trace`: start-up load, growth,
   compactions, tool-result weight. No LLM call.
+- [session-prefilter.md](session-prefilter.md) — which AGENTS.md or CLAUDE.md rules
+  the Claude Code session logs triggered, acted on and were corrected on, with
+  `cli.py context prefilter`: candidates for ablation, not verdicts. No LLM call.
 - [run-consistency.md](run-consistency.md) — repeated runs of one task with
   `cli.py context consistency`: result stability (pass^k), path stability
   (tool mix, order, actions, strategies), process-contract conformance.
