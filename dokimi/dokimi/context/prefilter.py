@@ -220,12 +220,12 @@ def _without_heredoc_bodies(command: str) -> str:
 
 def _function_end(text: str, open_brace: int) -> int:
     """The index just past the ``}`` that closes the ``{`` at ``open_brace``, or -1 when the body never closes. Quoted
-    text is skipped, so a brace in quotes does not count, and nested groups are counted."""
+    text and comments are skipped, so a brace in them does not count, and nested groups are counted."""
     depth, i = 0, open_brace
     while i < len(text):
-        quoted = _QUOTED.match(text, i)
-        if quoted:
-            i = quoted.end()
+        skipped = _QUOTED.match(text, i) or _COMMENT.match(text, i)
+        if skipped:
+            i = skipped.end()
             continue
         if text[i] == "{":
             depth += 1
@@ -328,12 +328,12 @@ def _invokes(key: str, command: str) -> bool:
 def _prints(text: str) -> bool:
     """Whether a segment is an ``echo`` or ``printf``: its arguments are printed, not read or written. Compound
     syntax (``then``, ``do``, ``else``) is not the program."""
-    words = shell.strip_wrappers(shell.clean(text).split())
+    words = shell.strip_wrappers(_without_redirections(_words_of(text)))
     return bool(words) and words[0] in ("echo", "printf")
 
 
-# a redirection target is written (``>``, ``>>``) or read (``<``); ``<<`` is a heredoc, ``>&2`` a descriptor
-_REDIRECT = re.compile(r"(?<!<)<(?![<&(])\s*([^\s;&|<>()]+)|>>?\s*([^\s;&|<>()]+)")
+# a redirection target is written (``>``, ``>>``, ``>|``, ``>&``) or read (``<``); ``<<`` is a heredoc
+_REDIRECT = re.compile(r"(?<!<)<(?![<&(])\s*([^\s;&|<>()]+)|>(?:>|[|&])?\s*([^\s;&|<>()]+)")
 
 
 @functools.lru_cache(maxsize=8192)  # every claim is matched against the same tool calls

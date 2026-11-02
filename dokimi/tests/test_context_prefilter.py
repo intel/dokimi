@@ -870,3 +870,31 @@ def test_a_function_body_that_never_closes_does_not_hide_the_rest_of_the_line():
 def test_a_multi_character_redirection_takes_its_target_out_of_the_words(command):
     session = _session(_prompt("push the branch now"), _tool("Bash", command=command))
     assert _row(_report([session]), CI)["acted"] == 1
+
+
+# --- round 10: braces in comments, leading redirections, ``>|`` and ``>&`` targets ---------------------------
+def test_a_brace_in_a_comment_of_a_function_body_does_not_close_it():
+    session = _session(_prompt("push the branch now"), _tool("Bash", command="check_ci() { # }\nmake ci-local\n}"))
+    assert _row(_report([session]), CI)["acted"] == 0
+
+
+def test_a_brace_in_a_comment_of_a_function_body_hides_no_path():
+    rule = "- Keep `changelog.d/` current.\n"
+    command = "write() { # }\ncat changelog.d/x.md\n}"
+    session = _session(_prompt("keep the changelog current"), _tool("Bash", command=command))
+    assert _row(_report([session], rule), "Keep")["acted"] == 0
+
+
+@pytest.mark.parametrize(("command", "acted"), [
+    (">notes.txt echo changelog.d/x.md", 0),
+    ("2>/dev/null printf 'x' changelog.d/x.md", 0),
+    ("> notes.txt echo changelog.d/x.md", 0),
+    (">changelog.d/x.md echo hi", 1),                    # the redirection target is written
+    ("printf 'entry' >| changelog.d/x.md", 1),
+    ("echo entry >& changelog.d/x.md", 1),
+    ("echo entry >|changelog.d/x.md", 1),
+])
+def test_leading_and_noclobber_redirections_of_a_printing_command(command, acted):
+    rule = "- Keep `changelog.d/` current.\n"
+    session = _session(_prompt("keep the changelog current"), _tool("Bash", command=command))
+    assert _row(_report([session], rule), "Keep")["acted"] == acted
