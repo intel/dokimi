@@ -40,6 +40,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import shlex
 import shutil
 import tempfile
 from dataclasses import dataclass
@@ -112,7 +113,15 @@ class Scenario:
     def prompt(self) -> str:
         if not self.read:
             return ASK
-        return (ASK_AFTER_BASH if self.tools == "bash" else ASK_AFTER_READ).format(path=self.read) + ASK
+        if self.tools == "bash":
+            return ASK_AFTER_BASH.format(path=shell_word(self.read)) + ASK
+        return ASK_AFTER_READ.format(path=self.read) + ASK
+
+
+def shell_word(path: str) -> str:
+    """``path`` as one operand of a POSIX command: quoted (a space, ``$`` or ``;`` in a directory name), and with
+    ``./`` before a leading ``-``, which would make it an option."""
+    return shlex.quote(f"./{path}" if path.startswith("-") else path)
 
 
 def token(salt: str, path: str, position: str) -> str:

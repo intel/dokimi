@@ -12,6 +12,7 @@ The fake harness prints Claude stream-json. With its Bash tool on and a prompt t
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -20,15 +21,16 @@ import yaml
 
 from dokimi.cli import build_parser
 from dokimi.repos import WorkTree, load_manifest
+from dokimi.repos.cli_traces import shell_reads
 from dokimi.repos.harness_profile import ProfileError, load_profile
-from dokimi.repos.reach import ASK, ASK_AFTER_BASH, ReachError, run_reach, scenarios
+from dokimi.repos.reach import ASK, ASK_AFTER_BASH, ASK_AFTER_READ, ReachError, run_reach, scenarios
 from dokimi.repos.receipt import build_receipt
 from tests.test_repo_reach import _write
 from tests.test_repo_receipt import BUDGET, _record, _sources, _tree
 from tests.test_repo_receipt import _reach as _saved_reach
 
 BASH_HARNESS = r'''
-import json, os, re, sys
+import json, os, re, shlex, sys
 from pathlib import Path
 
 args = sys.argv[1:]
@@ -47,10 +49,10 @@ def bash(n, command, output, error=False):
         {"type": "tool_use", "id": f"b{n}", "name": "Bash", "input": {"command": command}}]}})
     events.append({"type": "user", "message": {"content": [
         {"type": "tool_result", "tool_use_id": f"b{n}", "is_error": error, "content": output}]}})
-match = re.search(r"run `cat (\S+)`", prompt)
+match = re.search(r"run `cat ([^`]+)`", prompt)
 if match and tools == "Bash":
-    probe = Path(match.group(1))
-    bash(1, f"cat {probe}", (root / probe).read_text())
+    probe = Path(shlex.split(match.group(1))[0])
+    bash(1, f"cat {match.group(1)}", (root / probe).read_text())
     if mode == "fetch":
         bash(2, f"cat {probe.parent}/AGENTS.md", (root / probe.parent / "AGENTS.md").read_text())
     if mode in REFUSALS:  # the cat of the guidance file is refused; the file was loaded lazily all the same
@@ -67,11 +69,11 @@ for e in events:
 '''
 
 
-def _setup(tmp_path: Path) -> tuple[Path, Path]:
+def _setup(tmp_path: Path, sub: str = "sub") -> tuple[Path, Path]:
     """A repository with a root and a nested AGENTS.md, and a fake profile with a ``bash`` tool mode."""
     root = tmp_path / "repo"
     _write(root, "AGENTS.md", "# root\n")
-    _write(root, "sub/AGENTS.md", "# sub\n")
+    _write(root, f"{sub}/AGENTS.md", "# sub\n")
     _write(root, "evals/tasks/.keep", "")
     _write(root, "evals/repo-eval.yaml", yaml.safe_dump({
         "schema": "repo_manifest.v1", "id": "toy", "eval_dir": "evals", "guidance": {"globs": ["**/AGENTS.md"]},
@@ -89,9 +91,9 @@ def _setup(tmp_path: Path) -> tuple[Path, Path]:
     return root, profile
 
 
-def _probe(tmp_path: Path, monkeypatch, mode: str) -> dict:
+def _probe(tmp_path: Path, monkeypatch, mode: str, sub: str = "sub") -> dict:
     monkeypatch.setenv("FAKE_MODE", mode)
-    root, profile = _setup(tmp_path)
+    root, profile = _setup(tmp_path, sub)
     tree = WorkTree(root)
     (tmp_path / "work").mkdir()
     return run_reach(tree=tree, manifest=load_manifest(tree, "evals/repo-eval.yaml"), profile=load_profile(profile),
@@ -107,6 +109,23 @@ def test_bash_scenarios_cat_each_probe_file_from_the_root():
                              "Then: " + ASK)
     assert got[1].prompt == ASK_AFTER_BASH.format(path="sub/REACH_PROBE.txt") + ASK
     assert not [s for s in scenarios(files) if s.tools == "bash"]  # the default kinds run no bash scenario
+
+
+@pytest.mark.parametrize("d", ["my package", "a$b", "a;b", "-x"])
+def test_the_bash_prompt_names_the_probe_as_one_shell_operand(d):
+    got = scenarios([f"{d}/AGENTS.md"], ("bash",))[0]
+    command = re.search(r"run `([^`]+)`", got.prompt).group(1)
+    assert shell_reads(command) == [f"{d}/REACH_PROBE.txt"]
+    assert got.read == f"{d}/REACH_PROBE.txt"  # the raw path, which the Read-tool prompt names as it is
+    read = scenarios([f"{d}/AGENTS.md"], ("read",))[0]
+    assert read.prompt == ASK_AFTER_READ.format(path=f"{d}/REACH_PROBE.txt") + ASK
+
+
+def test_a_fake_bash_run_reads_the_probe_of_a_directory_with_a_space(tmp_path, monkeypatch):
+    payload = _probe(tmp_path, monkeypatch, "lazy", sub="my docs")
+    assert payload["summary"]["matrix"]["my docs/AGENTS.md"] == {"bash=my docs": "loaded"}
+    trace = next((tmp_path / "out/traces").glob("*.events.jsonl"))
+    assert json.loads(trace.read_text().splitlines()[0])["path"] == "my docs/REACH_PROBE.txt"
 
 
 def test_the_claude_code_profile_runs_the_bash_mode_with_the_bash_tool_alone():

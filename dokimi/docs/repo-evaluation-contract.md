@@ -1033,7 +1033,8 @@ Protocol:
       read `<dir>/REACH_PROBE.txt`, then list tokens.
     - `bash=<dir>`: started at the root, the profile's `bash` tool mode (Claude
       Code: the Bash tool alone). The agent is told to run
-      `cat <dir>/REACH_PROBE.txt`, then list tokens: it shows whether a shell
+      `cat <dir>/REACH_PROBE.txt` (the path shell-quoted, `./` before a leading
+      `-`), then list tokens: it shows whether a shell
       read of a file in `<dir>` loads that directory's guidance. Only with `--scenarios bash`
       (the default is `root,cwd,read`); a profile without a `bash` tool mode
       (Codex and Copilot, whose shell commands are already their reads) is a
