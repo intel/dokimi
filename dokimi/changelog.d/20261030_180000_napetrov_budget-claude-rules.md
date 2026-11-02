@@ -12,4 +12,5 @@
   once the agent read a file it covers; a rule's `@extra.md` was not expanded. `start` was too
   low by unscoped root rules before; `repo_budget.v1` widens `kind` with `rule`. Rules are counted
   for a harness profile with the new optional `guidance.claude_rules: true` (`claude-code`
-  only); the Codex and Copilot profiles leave it unset.
+  only); the Codex and Copilot profiles leave it unset. An `@` import of a file keeps its frontmatter
+  (it is counted in full), and a profile that does not read rules strips none from an imported rule file.
