@@ -317,7 +317,7 @@ def test_codex_file_change_without_a_usable_path_records_no_edit():
 
 def test_a_codex_file_change_with_a_malformed_entry_is_one_dropped_line_and_no_edits():
     for changes in (42, [42], [{"path": None, "kind": "update"}], [{"path": "/ws/src/a.c"}, 42],
-                    {}, "", 0, False):
+                    {}, "", 0, False, [{"path": 42}], [{"path": True}], [{"path": ["/ws/a.c"]}]):
         line = json.dumps({"type": "item.completed", "item": {"id": "1", "type": "file_change", "changes": changes}})
         transcript = convert("codex-json", line, "/ws")
         assert transcript.dropped_lines == 1, changes

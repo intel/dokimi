@@ -624,7 +624,8 @@ def _codex_item_completed(out: Transcript, item: dict[str, Any], messages: list[
         rc = {"completed": 0, "failed": 1}.get(status) if isinstance(status, str) else None
         changes = [] if item.get("changes") is None else item["changes"]
         # an entry that is not a change makes the record malformed: it is dropped whole (counted), not read in part
-        if not isinstance(changes, list) or not all(isinstance(c, dict) and c.get("path") for c in changes):
+        if not isinstance(changes, list) or not all(
+                isinstance(c, dict) and isinstance(c.get("path"), str) and c["path"] for c in changes):
             raise ValueError("file_change with a malformed changes entry")
         for change in changes:
             event: dict[str, Any] = {"t": None, "kind": "edit", "path": relative_path(str(change["path"]), workdir)}
