@@ -7,7 +7,7 @@
   `known_positive` holding the guard run, the probe's `max_turns_hit`/`not_listed`/`skill_selection_summary` keys
   at 0, `[]` and `{}`, no answers, no stale `<out>.partial`, prints the same status on stdout, and
   exits 1. A skill call whose result is an error, or another plugin's `plugin:skill`, does
-  not count as a load. So a skill the harness never shows cannot read as a 0% trigger rate. A guard run
+  not count as a load. A pass shows only that the skill can be loaded; listing is diagnosed by `invalid: skill not listed`. A guard run
   that ended in an error writes `"status": "error: known-positive run failed"` instead. An
   empty `--catalog` is refused (exit 2) before the guard runs, unless `--no-known-positive` is passed. Pass
   `--no-known-positive` to skip the check; the output then says `"status": "unchecked"` (or `invalid: skill not listed` when a
