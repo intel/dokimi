@@ -1,0 +1,23 @@
+{
+  "schema_version": "repo_ledger.v1",
+  "policy": {"alpha": 0.05, "review_within_days": 180},
+  "rules": [
+    {
+      "id": "R13",
+      "rule": "Revert edits to files the change does not need.",
+      "source": "AGENTS.md#commits-and-pull-requests",
+      "hypothesis": "With the rule, agents stop touching unrelated files on the replayed PRs.",
+      "arm": "guidance:rules",
+      "baseline": "guidance:none",
+      "cases": ["review_replay_pr3580", "review_replay_pr3659", "fix_df_extratrees_reg"],
+      "reviewed": "2026-10-01"
+    },
+    {
+      "id": "R14",
+      "hypothesis": "With the rule, agents run the touched tests before they report done.",
+      "arm": "guidance:rules",
+      "cases": ["fix_df_extratrees_reg"],
+      "reviewed": "2026-09-15"
+    }
+  ]
+}

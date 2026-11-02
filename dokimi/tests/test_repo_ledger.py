@@ -1,0 +1,511 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""``repo compare --ledger``: rule verdicts over hand-written batch directories. No docker, no LLM."""
+
+from __future__ import annotations
+
+import json
+from datetime import date
+from pathlib import Path
+
+import pytest
+
+from dokimi.cli import build_parser
+from dokimi.repos.ledger import KEEP, REVIEW, INSUFFICIENT, LedgerError, evaluate, format_ledger, load_ledger
+
+TODAY = date(2026, 10, 31)
+BASE, ARM = "guidance:none", "guidance:rules"
+
+
+def _cell(batch: Path, task: str, arm: str, *, success: bool | None = None, score: float | None = None,
+          model: str = "m-1") -> None:
+    rd = batch / f"{task}__{arm.replace(':', '-')}__{model}__r1"
+    rd.mkdir(parents=True)
+    score_task = score is not None
+    grade = {"status": "graded", "pass": None if score_task else success, "success": None if score_task else success,
+             "score": score, "score_only": score_task, "reasons": []}
+    rec = {"task": task, "arm": arm, "model": model, "rep": 1, "score_task": score_task, "grade": grade,
+           "harness_version": "1.0", "score_max": 1.0 if score_task else None, "model_resolved": None,
+           "agent": {"cost_usd": 0.1, "num_turns": 10, "timed_out": False, "is_error": False, "rc": None,
+                     "over_budget": False, "network": "none"}}
+    (rd / "meta.json").write_text("{}")
+    (rd / "result.json").write_text(json.dumps(rec))
+    (rd / "grade.json").write_text(json.dumps({"metrics": {}}))
+
+
+def _gate_batch(root: Path, outcomes: dict[str, tuple[bool, bool]], model: str = "m-1") -> Path:
+    """One batch; ``outcomes`` maps task -> (baseline passes, rules arm passes)."""
+    batch = root / "run"
+    for task, (base, treat) in outcomes.items():
+        _cell(batch, task, BASE, success=base, model=model)
+        _cell(batch, task, ARM, success=treat, model=model)
+    return batch
+
+
+def _ledger(path: Path, rules: list[dict], **policy) -> Path:
+    data: dict = {"schema_version": "repo_ledger.v1", "rules": rules}
+    if policy:
+        data["policy"] = policy
+    path.write_text(json.dumps(data), encoding="utf-8")
+    return path
+
+
+def _rule(rid: str, cases: list[str], reviewed: str = "2026-10-30", **extra) -> dict:
+    return {"id": rid, "hypothesis": f"{rid} changes the answer", "arm": ARM, "cases": cases,
+            "reviewed": reviewed, **extra}
+
+
+def _ids(tasks: str, n: int) -> list[str]:
+    return [f"{tasks}_{i}" for i in range(n)]
+
+
+def _verdicts(result: dict) -> dict[str, str]:
+    return {(e["rule"], e["model"]): e["verdict"] for e in result["rules"]}
+
+
+def test_a_valid_ledger_loads_with_the_policy_defaults(tmp_path):
+    path = _ledger(tmp_path / "ledger.json", [_rule("R1", ["t1"], source="AGENTS.md#commits", rule="Say why.")])
+    ledger = load_ledger(path)
+    assert [r.id for r in ledger.rules] == ["R1"]
+    assert (ledger.alpha, ledger.review_within_days) == (0.05, 180)
+    assert ledger.rules[0].reviewed == date(2026, 10, 30)
+    assert ledger.rules[0].source == "AGENTS.md#commits"
+
+
+@pytest.mark.parametrize("bad", [
+    {"id": "R1", "hypothesis": "h", "arm": ARM, "cases": ["t1"], "reviewed": "2026-02-30"},
+    {"id": "R1", "hypothesis": "h", "arm": "guidance:rules/", "cases": ["t1"], "reviewed": "2026-01-01"},
+    {"id": "R1", "hypothesis": "h", "arm": ARM, "cases": [], "reviewed": "2026-01-01"},
+    {"id": "R1", "hypothesis": "h", "arm": ARM, "cases": ["t1", "t1"], "reviewed": "2026-01-01"},
+    {"id": "R 1", "hypothesis": "h", "arm": ARM, "cases": ["t1"], "reviewed": "2026-01-01"},
+    {"id": "R1", "arm": ARM, "cases": ["t1"], "reviewed": "2026-01-01"},
+    {"id": "R1", "hypothesis": "h", "arm": ARM, "cases": ["t1"], "reviewed": "2026-01-01", "verdict": "cut"},
+], ids=["impossible-date", "bad-selector", "no-cases", "repeated-case", "id-with-space", "no-hypothesis",
+        "unknown-key"])
+def test_a_rule_that_does_not_validate_is_refused(tmp_path, bad):
+    path = _ledger(tmp_path / "ledger.json", [bad])
+    with pytest.raises(LedgerError):
+        load_ledger(path)
+
+
+def test_a_repeated_rule_id_is_refused(tmp_path):
+    path = _ledger(tmp_path / "ledger.json", [_rule("R1", ["t1"]), _rule("R1", ["t2"])])
+    with pytest.raises(LedgerError, match="R1"):
+        load_ledger(path)
+
+
+def test_a_rule_id_with_a_trailing_newline_is_refused_not_a_second_R1(tmp_path):
+    # The schema's `$` matches before a final newline in Python; "R1\n" would otherwise load as its own rule.
+    path = _ledger(tmp_path / "ledger.json", [_rule("R1", ["t1"]), _rule("R1\n", ["t2"])])
+    with pytest.raises(LedgerError, match="R1"):
+        load_ledger(path)
+
+
+def test_an_unreadable_ledger_is_refused(tmp_path):
+    path = tmp_path / "ledger.json"
+    path.write_text("{not json", encoding="utf-8")
+    with pytest.raises(LedgerError, match="cannot read"):
+        load_ledger(path)
+
+
+def test_all_cases_improved_is_keep_and_all_worse_is_review(tmp_path):
+    tasks = _ids("t", 8)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in tasks} | {u: (True, False) for u in _ids("u", 8)})
+    ledger = load_ledger(_ledger(tmp_path / "ledger.json", [_rule("up", tasks), _rule("down", _ids("u", 8))]))
+    result = evaluate(ledger, [batch], BASE, today=TODAY)
+    assert _verdicts(result) == {("up", "m-1"): KEEP, ("down", "m-1"): REVIEW}
+    up = result["rules"][0]
+    assert (up["up"], up["down"], up["paired"]) == (8, 0, 8)
+    assert (up["baseline_mean"], up["treatment_mean"]) == (0.0, 1.0)
+    assert up["p_holm"] == pytest.approx(2 * 2 / 2**8, abs=1e-5)  # Holm over the two rules; p is exact
+
+
+def test_few_changed_cases_are_insufficient_evidence_and_the_reason_says_why(tmp_path):
+    tasks = _ids("t", 3)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in tasks})
+    result = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", tasks)])), [batch], BASE,
+                      today=TODAY)
+    entry = result["rules"][0]
+    assert entry["verdict"] == INSUFFICIENT
+    assert "no outcome reaches p < 0.05" in entry["reason"]
+
+
+def test_holm_corrects_the_rules_together(tmp_path):
+    # each rule alone reaches p = 2/64 = 0.031 (six cases all improved); two rules together give Holm 0.0625
+    first, second = _ids("a", 6), _ids("b", 6)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in first + second})
+    alone = evaluate(load_ledger(_ledger(tmp_path / "one.json", [_rule("A", first)])), [batch], BASE, today=TODAY)
+    both = evaluate(load_ledger(_ledger(tmp_path / "two.json", [_rule("A", first), _rule("B", second)])),
+                    [batch], BASE, today=TODAY)
+    assert alone["rules"][0]["verdict"] == KEEP
+    assert [e["verdict"] for e in both["rules"]] == [INSUFFICIENT, INSUFFICIENT]
+    assert both["rules"][0]["p_holm"] == pytest.approx(2 * alone["rules"][0]["p"])
+    assert both["family"] == 2
+
+
+def test_a_missing_case_is_listed_and_the_rest_are_measured(tmp_path):
+    tasks = _ids("t", 8)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in tasks})
+    rule = _rule("R1", tasks + ["never_ran"])
+    entry = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [rule])), [batch], BASE, today=TODAY)["rules"][0]
+    assert entry["missing"] == ["never_ran"]
+    assert (entry["linked"], entry["paired"], entry["verdict"]) == (9, 8, KEEP)
+
+
+def test_a_rule_with_no_case_that_ran_is_not_measured(tmp_path):
+    batch = _gate_batch(tmp_path, {"t1": (False, True)})
+    entry = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", ["ghost"])])), [batch], BASE,
+                     today=TODAY)["rules"][0]
+    assert entry["verdict"] == INSUFFICIENT
+    assert entry["reason"].startswith("not measured")
+    assert entry["missing"] == ["ghost"]
+
+
+def test_an_arm_with_no_cell_on_the_linked_cases_is_not_measured(tmp_path):
+    batch = _gate_batch(tmp_path, {"t1": (False, True)})
+    _cell(batch, "t2", BASE, success=False)  # the baseline ran t2, the rules arm did not
+    entry = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", ["t2"])])), [batch], BASE,
+                     today=TODAY)["rules"][0]
+    assert entry["verdict"] == INSUFFICIENT
+    assert "not measured" in entry["reason"]
+
+
+def test_a_tie_on_every_linked_case_has_nothing_to_test(tmp_path):
+    tasks = _ids("t", 4)
+    batch = _gate_batch(tmp_path, {t: (True, True) for t in tasks})
+    entry = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", tasks)])), [batch], BASE,
+                     today=TODAY)["rules"][0]
+    assert entry["verdict"] == INSUFFICIENT
+    assert "every linked case ties" in entry["reason"]
+
+
+def test_gate_and_score_cases_in_one_rule_are_refused_as_mixed(tmp_path):
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in _ids("g", 8)})
+    for task in _ids("s", 8):
+        _cell(batch, task, BASE, score=0.2)
+        _cell(batch, task, ARM, score=0.9)
+    rule = _rule("R1", _ids("g", 8) + _ids("s", 8))
+    results = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [rule])), [batch], BASE, today=TODAY)["rules"]
+    assert {e["measure"] for e in results} == {"gate", "score"}
+    assert all(e["verdict"] == INSUFFICIENT and "mix gate and score" in e["reason"] for e in results)
+
+
+def test_a_score_rule_is_measured_on_score(tmp_path):
+    batch = _score_batch(tmp_path)
+    entry = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", _ids("s", 8))])), [batch], BASE,
+                     today=TODAY)["rules"][0]
+    assert entry["measure"] == "score"
+    assert entry["verdict"] == KEEP
+    assert entry["delta"]["mean"] == pytest.approx(0.7)
+
+
+def _score_batch(root: Path) -> Path:
+    batch = root / "run"
+    for task in _ids("s", 8):
+        _cell(batch, task, BASE, score=0.2)
+        _cell(batch, task, ARM, score=0.9)
+    return batch
+
+
+def test_results_are_per_model(tmp_path):
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in _ids("t", 8)}, model="m-1")
+    for task in _ids("t", 8):  # a second model where the rule does nothing
+        _cell(batch, task, BASE, success=True, model="m-2")
+        _cell(batch, task, ARM, success=True, model="m-2")
+    result = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", _ids("t", 8))])), [batch], BASE,
+                      today=TODAY)
+    assert _verdicts(result) == {("R1", "m-1"): KEEP, ("R1", "m-2"): INSUFFICIENT}
+
+
+def test_a_review_older_than_the_policy_is_stale_but_keeps_its_verdict(tmp_path):
+    tasks = _ids("t", 8)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in tasks})
+    path = _ledger(tmp_path / "ledger.json", [_rule("R1", tasks, reviewed="2026-01-01")], review_within_days=180)
+    entry = evaluate(load_ledger(path), [batch], BASE, today=TODAY)["rules"][0]
+    assert entry["stale"] is True
+    assert entry["days_since_review"] == (TODAY - date(2026, 1, 1)).days
+    assert entry["verdict"] == KEEP
+    assert any("re-review" in w for w in entry["warnings"])
+
+
+def test_a_recent_review_is_not_stale(tmp_path):
+    tasks = _ids("t", 8)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in tasks})
+    entry = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", tasks)])), [batch], BASE,
+                     today=TODAY)["rules"][0]
+    assert entry["stale"] is False
+    assert not any("re-review" in w for w in entry["warnings"])
+
+
+def test_a_rule_can_name_its_own_baseline(tmp_path):
+    tasks = _ids("t", 8)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in tasks})
+    _cell(batch, "t_0", "guidance:raw", success=True)  # the rule's baseline has a cell for one of its cases only
+    rule = _rule("R1", tasks, baseline="guidance:raw")
+    entry = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [rule])), [batch], BASE, today=TODAY)["rules"][0]
+    assert entry["baseline"] == "guidance:raw"
+    assert entry["paired"] == 1  # only t_0 has a cell in both arms
+
+
+def test_format_names_the_verdict_the_hypothesis_and_the_stale_review(tmp_path):
+    tasks = _ids("t", 8)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in tasks})
+    path = _ledger(tmp_path / "ledger.json", [_rule("R1", tasks, reviewed="2026-01-01")])
+    text = format_ledger(evaluate(load_ledger(path), [batch], BASE, today=TODAY, ledger_name="ledger.json"))
+    assert "R1: guidance:rules vs guidance:none, model m-1, gate: keep" in text
+    assert "hypothesis: R1 changes the answer" in text
+    assert "re-review" in text
+
+
+def test_compare_with_ledger_adds_the_rule_results_to_the_json(tmp_path, capsys):
+    tasks = _ids("t", 8)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in tasks})
+    path = _ledger(tmp_path / "ledger.json", [_rule("R1", tasks)])
+    args = build_parser().parse_args(["repo", "compare", str(batch), "--baseline", BASE, "--ledger", str(path),
+                                      "--json"])
+    args.func(args)
+    data = json.loads(capsys.readouterr().out)
+    assert data["ledger"]["ledger"] == str(path)
+    assert [(e["rule"], e["verdict"]) for e in data["ledger"]["rules"]] == [("R1", KEEP)]
+
+
+def test_compare_text_prints_the_rule_section(tmp_path, capsys):
+    tasks = _ids("t", 8)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in tasks})
+    path = _ledger(tmp_path / "ledger.json", [_rule("R1", tasks)])
+    args = build_parser().parse_args(["repo", "compare", str(batch), "--baseline", BASE, "--ledger", str(path)])
+    args.func(args)
+    out = capsys.readouterr().out
+    assert "rule ledger" in out
+    assert "R1: guidance:rules vs guidance:none, model m-1, gate: keep" in out
+
+
+def test_a_bad_ledger_exits_with_usage_error(tmp_path, capsys):
+    batch = _gate_batch(tmp_path, {"t1": (False, True)})
+    path = _ledger(tmp_path / "ledger.json", [_rule("R1", ["t1"], reviewed="2026-02-30")])
+    args = build_parser().parse_args(["repo", "compare", str(batch), "--baseline", BASE, "--ledger", str(path)])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2
+    assert "R1" in capsys.readouterr().err
+
+
+def test_a_model_with_no_cell_on_the_rule_does_not_hide_the_others(tmp_path):
+    tasks = _ids("t", 8)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in tasks})
+    _cell(batch, "elsewhere", BASE, success=True, model="m-2")  # m-2 ran a task this rule does not link
+    result = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", tasks)])), [batch], BASE,
+                      models=["m-1", "m-2"], today=TODAY)
+    assert _verdicts(result) == {("R1", "m-1"): KEEP, ("R1", "m-2"): INSUFFICIENT}
+    (other,) = [e for e in result["rules"] if e["model"] == "m-2"]
+    assert "no compared cells for --model m-2" in other["reason"]
+
+
+def test_a_linked_case_that_does_not_pair_is_named_on_the_rule(tmp_path):
+    tasks = _ids("t", 8)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in tasks})
+    _cell(batch, "t_8", BASE, success=False)  # the baseline's kind is gate, the rule's arm's is score
+    _cell(batch, "t_8", ARM, score=0.9)
+    entry = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", tasks + ["t_8"])])), [batch], BASE,
+                     today=TODAY)["rules"][0]
+    assert (entry["paired"], entry["linked"]) == (8, 9)
+    assert any("1 linked case(s) not paired" in w for w in entry["warnings"])
+
+
+def test_an_empty_ledger_path_is_refused_not_ignored(tmp_path, capsys):
+    batch = _gate_batch(tmp_path, {"t1": (False, True)})
+    args = build_parser().parse_args(["repo", "compare", str(batch), "--baseline", BASE, "--ledger", ""])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2
+
+
+def test_a_model_whose_linked_cases_do_not_pair_is_named_when_others_pair(tmp_path):
+    tasks = _ids("t", 8)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in tasks})
+    for task in tasks:  # m-2 has a baseline cell on each linked case, and no arm cell
+        _cell(batch, task, BASE, success=True, model="m-2")
+    result = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", tasks)])), [batch], BASE,
+                      today=TODAY)
+    assert _verdicts(result) == {("R1", "m-1"): KEEP, ("R1", "m-2"): INSUFFICIENT}
+
+
+def test_a_model_error_names_the_model(tmp_path):
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in _ids("t", 8)})
+    _cell(batch, "elsewhere", BASE, success=True, model="m-2")
+    entry = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", _ids("t", 8))])), [batch], BASE,
+                     models=["m-2"], today=TODAY)["rules"][0]
+    assert entry["model"] == "m-2"
+    assert entry["verdict"] == INSUFFICIENT
+
+
+def test_a_stale_review_is_warned_once_per_result(tmp_path):
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in _ids("t", 8)})
+    rule = _rule("R1", _ids("t", 8), reviewed="2026-01-01")
+    results = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [rule])), [batch], BASE, models=["m-2", "m-3"],
+                       today=TODAY)["rules"]
+    assert len(results) == 2
+    for entry in results:
+        assert sum("re-review" in w for w in entry["warnings"]) == 1
+
+
+def test_a_review_dated_after_today_is_stale_with_a_date_warning(tmp_path):
+    tasks = _ids("t", 8)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in tasks})
+    entry = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", tasks, reviewed="2036-10-01")])),
+                     [batch], BASE, today=TODAY)["rules"][0]
+    assert entry["stale"] is True
+    assert any("after 2026-10-31" in w for w in entry["warnings"])
+
+
+def test_a_not_measured_model_does_not_carry_another_models_warning(tmp_path):
+    tasks = _ids("t", 8)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in tasks})
+    _cell(batch, "t_0", BASE, success=True, model="m-2")  # m-2 pairs nothing on this rule: its baseline only
+    result = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", tasks)])), [batch], BASE,
+                      today=TODAY)
+    (other,) = [e for e in result["rules"] if e["model"] == "m-2"]
+    assert other["verdict"] == INSUFFICIENT
+    assert not any("not paired" in w for w in other["warnings"])
+
+
+def test_a_repeated_model_is_compared_once(tmp_path):
+    tasks = _ids("t", 8)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in tasks})
+    result = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", tasks)])), [batch], BASE,
+                      models=["m-1", "m-1"], today=TODAY)
+    assert [(e["model"], e["verdict"]) for e in result["rules"]] == [("m-1", KEEP)]
+
+
+def test_a_mixed_rule_takes_no_slot_in_the_holm_family(tmp_path):
+    # A mixes gate and score (both improve); B is six gate cases, all improved. Alone B reaches p = 2/64.
+    gate_a, score_a, gate_b = _ids("ga", 6), _ids("sa", 6), _ids("gb", 6)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in gate_a + gate_b})
+    for task in score_a:
+        _cell(batch, task, BASE, score=0.2)
+        _cell(batch, task, ARM, score=0.9)
+    rules = [_rule("A", gate_a + score_a), _rule("B", gate_b)]
+    result = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", rules)), [batch], BASE, today=TODAY)
+    verdicts = {e["rule"]: e for e in result["rules"] if e["rule"] == "B"}
+    assert result["family"] == 1
+    assert verdicts["B"]["verdict"] == KEEP
+    assert verdicts["B"]["p_holm"] == pytest.approx(2 / 2**6, abs=1e-5)
+    mixed = [e for e in result["rules"] if e["rule"] == "A"]
+    assert mixed and all(e["verdict"] == INSUFFICIENT and e["p_holm"] is None and "Holm family" in e["reason"]
+                         for e in mixed)
+
+
+@pytest.mark.parametrize("alpha", ["NaN", "Infinity", "-Infinity", "0", "1", "2", "-0.5"])
+def test_an_alpha_outside_the_open_interval_zero_one_is_refused(tmp_path, alpha):
+    # json.loads accepts NaN and Infinity; NaN compares false with every p, so it would turn any rule insufficient
+    path = tmp_path / "ledger.json"
+    path.write_text('{"schema_version":"repo_ledger.v1","policy":{"alpha":%s},"rules":[{"id":"R1",'
+                    '"hypothesis":"h","arm":"guidance:rules","cases":["t1"],"reviewed":"2026-10-30"}]}' % alpha,
+                    encoding="utf-8")
+    with pytest.raises(LedgerError, match="alpha"):
+        load_ledger(path)
+
+
+def test_a_p_on_the_alpha_boundary_is_not_rounded_across_it(tmp_path):
+    # eight uniformly improved gate cases: the exact sign-flip p is 2 / 2**8 = 0.0078125, not 0.007812
+    tasks = _ids("t", 8)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in tasks})
+    rules = [_rule("R1", tasks)]
+    below = evaluate(load_ledger(_ledger(tmp_path / "below.json", rules, alpha=0.0078124)), [batch], BASE, today=TODAY)
+    above = evaluate(load_ledger(_ledger(tmp_path / "above.json", rules, alpha=0.0078126)), [batch], BASE, today=TODAY)
+    assert _verdicts(below) == {("R1", "m-1"): INSUFFICIENT}
+    assert _verdicts(above) == {("R1", "m-1"): KEEP}
+    assert below["rules"][0]["p_holm"] == pytest.approx(2 / 2**8, abs=1e-12)
+
+
+@pytest.mark.parametrize(("arm_score", "verdict"), [(0.20001, KEEP), (0.19999, REVIEW)])
+def test_a_small_score_change_keeps_its_sign_in_the_verdict(tmp_path, arm_score, verdict):
+    # the mean delta is 1e-5: rounded to four places it was 0.0, and the verdict read a tie
+    batch = tmp_path / "run"
+    for task in _ids("s", 8):
+        _cell(batch, task, BASE, score=0.2)
+        _cell(batch, task, ARM, score=arm_score)
+    entry = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", _ids("s", 8))])), [batch], BASE,
+                     today=TODAY)["rules"][0]
+    assert entry["verdict"] == verdict
+    assert entry["delta"]["mean"] == pytest.approx(arm_score - 0.2, abs=1e-12)
+
+
+def test_a_score_rule_is_reported_as_a_mean_score_not_a_pass_rate(tmp_path):
+    result = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", _ids("s", 8))])),
+                      [_score_batch(tmp_path)], BASE, today=TODAY)
+    text = format_ledger(result)
+    assert "mean score 0.200 -> 0.900" in text
+    assert "pass rate" not in text
+
+
+def test_every_model_unpaired_on_the_rule_gets_its_own_result(tmp_path):
+    batch = tmp_path / "run"
+    _cell(batch, "t1", BASE, success=True, model="m-1")  # the baseline ran t1 only on m-1
+    _cell(batch, "t1", ARM, success=True, model="m-2")  # the arm ran it only on m-2
+    entries = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", ["t1"])])), [batch], BASE,
+                       today=TODAY)["rules"]
+    assert sorted(e["model"] for e in entries) == ["m-1", "m-2"]
+    assert all(e["verdict"] == INSUFFICIENT and e["error"] for e in entries)
+
+
+def test_a_rule_with_no_finished_case_names_each_requested_model(tmp_path):
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in _ids("t", 8)})
+    entries = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", ["ghost"])])), [batch], BASE,
+                       models=["m-1", "m-2", "m-1"], today=TODAY)["rules"]
+    assert [e["model"] for e in entries] == ["m-1", "m-2"]
+    assert all(e["verdict"] == INSUFFICIENT and "no linked case has a finished cell" in e["reason"] for e in entries)
+
+
+def test_a_missing_cost_does_not_unpair_a_gate_case(tmp_path):
+    tasks = _ids("t", 8)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in tasks})
+    meta = batch / f"{tasks[0]}__{BASE.replace(':', '-')}__m-1__r1" / "result.json"  # cost gap, outcome paired
+    rec = json.loads(meta.read_text(encoding="utf-8"))
+    rec["agent"]["cost_usd"] = None
+    meta.write_text(json.dumps(rec), encoding="utf-8")
+    entry = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", tasks)])), [batch], BASE,
+                     today=TODAY)["rules"][0]
+    assert entry["verdict"] == KEEP
+    assert entry["paired"] == 8
+    assert not any("not paired" in w for w in entry["warnings"])
+
+
+@pytest.mark.parametrize("absent", ["arm", "baseline"])
+def test_a_rule_whose_arm_or_baseline_is_absent_names_each_model(tmp_path, absent):
+    batch = tmp_path / "run"
+    ran_t1 = BASE if absent == "arm" else ARM  # the side that ran the linked task, for both models
+    other = ARM if absent == "arm" else BASE  # the absent side ran only an unrelated task
+    for model in ("m-1", "m-2"):
+        _cell(batch, "t1", ran_t1, success=True, model=model)
+        _cell(batch, "t9", other, success=True, model=model)
+    entries = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", ["t1"])])), [batch], BASE,
+                       today=TODAY)["rules"]
+    assert sorted(e["model"] for e in entries) == ["m-1", "m-2"]
+    assert all(e["verdict"] == INSUFFICIENT and e["error"] for e in entries)
+
+
+def test_a_p_exactly_on_alpha_is_insufficient_evidence(tmp_path):
+    # eight improved gate cases: the exact sign-flip p is 2 / 2**8, which is exactly representable
+    tasks = _ids("t", 8)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in tasks})
+    result = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", tasks)], alpha=2 / 2**8)),
+                      [batch], BASE, today=TODAY)
+    assert result["rules"][0]["p_holm"] == 2 / 2**8
+    assert _verdicts(result) == {("R1", "m-1"): INSUFFICIENT}
+
+
+def test_compare_with_ledger_and_model_judges_only_that_model(tmp_path, capsys):
+    tasks = _ids("t", 8)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in tasks})  # m-1 improves on every case
+    for t in tasks:  # m-2 does not
+        _cell(batch, t, BASE, success=False, model="m-2")
+        _cell(batch, t, ARM, success=False, model="m-2")
+    path = _ledger(tmp_path / "ledger.json", [_rule("R1", tasks)])
+    args = build_parser().parse_args(["repo", "compare", str(batch), "--baseline", BASE, "--ledger", str(path),
+                                      "--model", "m-1", "--json"])
+    args.func(args)
+    ledger = json.loads(capsys.readouterr().out)["ledger"]
+    assert {e["model"] for e in ledger["rules"]} == {"m-1"}
+    assert ledger["family"] == 1  # the Holm family counts the one model that was asked for

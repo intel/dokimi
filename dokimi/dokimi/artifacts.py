@@ -63,6 +63,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "task_inspect": "task_inspect.v1",
     "redteam": "redteam.v1",
     "cli_routes": "cli_routes.v1",
+    "repo_ledger": "repo_ledger.v1",
     "need_graph": "need_graph.v1",
     "eval_coverage": "eval_coverage.v1",
 }

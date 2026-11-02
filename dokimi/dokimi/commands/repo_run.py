@@ -352,8 +352,10 @@ def cmd_repo_report(args: argparse.Namespace) -> None:
 
 
 def cmd_repo_compare(args: argparse.Namespace) -> None:
-    """Per (treatment, model, measure): per-task deltas against the baseline, 95% CI, sign-flip p."""
+    """Per (treatment, model, measure): per-task deltas against the baseline, 95% CI, sign-flip p; ``--ledger``
+    adds one verdict per guidance rule."""
     from dokimi.repos.compare import CompareError, compare, format_compare
+    from dokimi.repos.ledger import LedgerError, evaluate, format_ledger, load_ledger
     from dokimi.repos.report import CellFileError
 
     dirs = [Path(d) for d in args.batch_dirs]
@@ -365,10 +367,16 @@ def cmd_repo_compare(args: argparse.Namespace) -> None:
     try:
         summary = compare(dirs, args.baseline, arms, args.model, tuple(args.metric or ()),
                           pass_k=args.pass_k, path_stability=args.path_stability, tasks=args.task)
-    except (CompareError, CellFileError) as exc:  # an unusable baseline, arm, metric or cell file: exit 2
+        if args.ledger is not None:
+            summary["ledger"] = evaluate(load_ledger(Path(args.ledger)), dirs, args.baseline, args.model,
+                                         ledger_name=args.ledger)
+    except (CompareError, CellFileError, LedgerError) as exc:  # an unusable baseline, arm, metric, cell or ledger
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
-    print(json.dumps(summary, indent=2) if args.json else format_compare(summary))
+    text = format_compare(summary)
+    if "ledger" in summary:
+        text += "\n\n" + format_ledger(summary["ledger"])
+    print(json.dumps(summary, indent=2) if args.json else text)
 
 
 def _usd(text: str) -> float:
@@ -520,5 +528,8 @@ def register(repo_sub, positive_int, source_help: str, cache_help: str) -> None:
                            help="Also compare pass^K: the chance K cells of a task all pass its gate")
     compare_p.add_argument("--path-stability", action="store_true", dest="path_stability",
                            help="Also compare path_distance: how much the tool paths of a task's cells differ")
+    compare_p.add_argument("--ledger", default=None, metavar="FILE",
+                           help="Also give each guidance rule of this repo_ledger.v1 file a verdict (keep, review or "
+                           "insufficient-evidence) from its linked cases, against its baseline (dokimi/docs/rule-ledger.md)")
     compare_p.add_argument("--json", action="store_true", help="Print the comparison as JSON")
     compare_p.set_defaults(func=cmd_repo_compare)
