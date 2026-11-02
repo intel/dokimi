@@ -24,8 +24,8 @@ from dokimi.cli import build_parser
 from dokimi.repos import WorkTree, load_manifest
 from dokimi.repos import reach
 from dokimi.repos.harness_profile import ProfileError, load_profile, parse_profile
-from dokimi.repos.reach import (ReachError, SeededFile, Shadow, distinct_salt, format_matrix, run_reach, scenarios,
-                                shadow_for, token)
+from dokimi.repos.reach import (ReachError, SeededFile, Shadow, distinct_salt, followable, format_matrix, run_reach,
+                                scenarios, shadow_for, token)
 from dokimi.repos.source import SourceArgumentError
 
 HARNESS = r'''
@@ -428,6 +428,44 @@ def test_repo_reach_dry_run_plans_no_scenario_for_a_link_a_run_drops(tmp_path, c
     with pytest.raises(SystemExit) as exc:  # --only checks against the same list
         args.func(args)
     assert exc.value.code == 2 and "--only read=sub matches no scenario" in capsys.readouterr().err
+
+
+def test_followable_refuses_a_list_of_unfollowable_links_only(tmp_path):
+    if not _can_symlink(tmp_path):
+        pytest.skip("this OS refuses an unprivileged symlink")
+    tree = WorkTree(_tree(tmp_path))
+    (tmp_path / "repo" / "AGENTS.md").unlink()
+    (tmp_path / "repo" / "AGENTS.md").symlink_to("nowhere.md")
+    assert followable(tree, []) == ([], {}, [])  # no file at all is the caller's own check
+    assert followable(tree, ["AGENTS.md", "sub/AGENTS.md"])[:2] == (["sub/AGENTS.md"], {"sub/AGENTS.md": []})
+    with pytest.raises(ReachError, match="^no guidance file to probe: each is a link that cannot be followed: "
+                                         "AGENTS.md links to nothing: nowhere.md$"):
+        followable(tree, ["AGENTS.md"])
+
+
+@pytest.mark.parametrize("extra", [("--scenarios", "shadow", "--only", "shadow=."), ()])
+def test_repo_reach_dry_run_refuses_a_tree_of_unfollowable_links_as_a_run_does(tmp_path, monkeypatch, capsys, extra):
+    monkeypatch.setenv("FAKE_MODE", "ok")
+    (tmp_path / "work").mkdir()
+    argv = _cli(tmp_path, *extra, "--work-dir", str(tmp_path / "work"), "--out", str(tmp_path / "out"),
+                shadow_file="CLAUDE.local.md")
+    if not _can_symlink(tmp_path):
+        pytest.skip("this OS refuses an unprivileged symlink")
+    repo = tmp_path / "repo"
+    (repo / "sub" / "AGENTS.md").unlink()
+    (repo / "AGENTS.md").unlink()
+    (repo / "AGENTS.md").symlink_to("nowhere.md")  # the only guidance: a link a run cannot follow
+    seen = []
+    for run in (argv, [a for a in argv if a != "--dry-run"]):
+        args = build_parser().parse_args(run)
+        with pytest.raises(SystemExit) as exc:
+            args.func(args)
+        out, err = capsys.readouterr()
+        seen.append((exc.value.code, out, err))
+    assert seen[0] == seen[1]  # the dry run fails as the run does, and plans no run
+    assert seen[0] == (1, "", "✗ no guidance file to probe: each is a link that cannot be followed: "
+                              "AGENTS.md links to nothing: nowhere.md\n")
+    assert not (tmp_path / "seen.jsonl").exists()  # no harness call
 
 
 def test_repo_reach_refuses_shadow_for_a_profile_without_a_shadow_file(tmp_path, capsys):

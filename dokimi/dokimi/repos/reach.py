@@ -223,8 +223,12 @@ def resolve_links(tree: RepoTree, files: list[str]) -> tuple[dict[str, list[str]
 
 def followable(tree: RepoTree, files: list[str]) -> tuple[list[str], dict[str, list[str]], list[dict[str, str]]]:
     """``files`` without the links resolve_links cannot follow, then its groups and unresolved links. A run plans its
-    scenarios from that list, so --dry-run does too: an unresolved link's directory gets no scenario."""
+    scenarios from that list, so --dry-run does too: an unresolved link's directory gets no scenario. Refuses
+    ``files`` whose every path is such a link: nothing is left to probe, in a run or a dry run alike."""
     groups, unresolved = resolve_links(tree, files)
+    if files and not groups:
+        raise ReachError("no guidance file to probe: each is a link that cannot be followed: "
+                         + "; ".join(u["reason"] for u in unresolved))
     dropped = {u["path"] for u in unresolved}
     return [p for p in files if p not in dropped], groups, unresolved
 
@@ -447,9 +451,6 @@ def run_reach(
         raise ReachError("no guidance files to probe: the manifest's globs and the "
                          f"{profile.name} guidance names match nothing")
     files, groups, unresolved = followable(tree, files)
-    if not groups:
-        raise ReachError("no guidance file to probe: each is a link that cannot be followed: "
-                         + "; ".join(u["reason"] for u in unresolved))
     plan = scenarios(files, kinds, only, shadow_for(profile, tree, kinds))
     salt = salt or hashlib.sha256(f"{tree.label}\0{datetime.now(timezone.utc).isoformat()}".encode()).hexdigest()[:12]
     # Resolved: a harness reports physical paths (macOS /var is /private/var).

@@ -366,22 +366,52 @@ def _refuse_receipt_over_probe(args: argparse.Namespace, out_dir: Path) -> None:
         sys.exit(EXIT_USAGE)
 
 
+def _reach_plan(args: argparse.Namespace, tree, profile, kinds: tuple[str, ...],
+                only: tuple[str, ...]) -> tuple[Any, list[str], int] | None:
+    """The manifest, the probed files and the count of scenarios a run executes; None once --dry-run printed its plan.
+
+    Exits as the run would: a bad manifest or scenario selection is a usage error and a failed git read a fetch
+    failure (1); a tree whose every guidance file is a link that cannot be followed is run_reach's own refusal (1).
+    """
+    from dokimi.repos import ManifestError, SourceError
+    from dokimi.repos.reach import ReachError, followable, planned, probe_files, scenarios, shadow_for
+
+    try:  # the manifest and the files it selects
+        manifest = _load_manifest(tree, args, guidance_default=True)
+        files = probe_files(tree, manifest, profile)
+    except (SourceError, ManifestError, ReachError) as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(_tree_read_exit_code(exc))
+    try:  # what run_reach plans from, with its guard: no scenario for a link it drops
+        probed = followable(tree, files)[0]
+    except ReachError as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(1)
+    try:  # the scenarios they select: a usage error; a failed git read is a fetch failure (1)
+        shadow = shadow_for(profile, tree, kinds)
+        available = [s.id for s in scenarios(probed, kinds, shadow=shadow)]
+        missing = [o for o in only if o not in available]
+        if missing:
+            raise ReachError(f"--only {', '.join(missing)} matches no scenario (have: {', '.join(available)})")
+        if args.dry_run:
+            runs = planned(probed, profile, args.model, kinds, only, args.bin, args.max_turns, args.budget, shadow)
+            print(json.dumps({"files": files, "runs": runs}, indent=2))
+            return None
+        planned_count = len(scenarios(probed, kinds, only, shadow))
+        if not planned_count:
+            raise ReachError("no scenario selected (check --scenarios and --only)")
+    except (SourceError, ManifestError, ReachError) as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(_tree_read_exit_code(exc))
+    return manifest, files, planned_count
+
+
 def cmd_repo_reach(args: argparse.Namespace) -> None:
     """L1 reach probe: which guidance files one harness/version/model loads."""
-    from dokimi.repos import ManifestError, RepoSource, SourceError, open_source
+    from dokimi.repos import RepoSource, SourceError, open_source
     from dokimi.repos.harness_profile import ProfileError, load_profile
     from dokimi.repos.source import SourceArgumentError
-    from dokimi.repos.reach import (
-        ReachError,
-        check_shadow,
-        followable,
-        planned,
-        probe_files,
-        run_reach,
-        save_reach,
-        scenarios,
-        shadow_for,
-    )
+    from dokimi.repos.reach import ReachError, check_shadow, run_reach, save_reach
 
     kinds = tuple(k.strip() for k in args.scenarios.split(",") if k.strip())
     only = tuple(args.only or ())
@@ -401,25 +431,10 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
     except (SourceError, OSError, ValueError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
-    try:  # the manifest and the scenarios it selects: a usage error; a failed git read is a fetch failure (1)
-        manifest = _load_manifest(tree, args, guidance_default=True)
-        files = probe_files(tree, manifest, profile)
-        probed = followable(tree, files)[0]  # what run_reach plans from: no scenario for a link it drops
-        shadow = shadow_for(profile, tree, kinds)
-        available = [s.id for s in scenarios(probed, kinds, shadow=shadow)]
-        missing = [o for o in only if o not in available]
-        if missing:
-            raise ReachError(f"--only {', '.join(missing)} matches no scenario (have: {', '.join(available)})")
-        if args.dry_run:
-            runs = planned(probed, profile, args.model, kinds, only, args.bin, args.max_turns, args.budget, shadow)
-            print(json.dumps({"files": files, "runs": runs}, indent=2))
-            return
-        planned_count = len(scenarios(probed, kinds, only, shadow))
-        if not planned_count:
-            raise ReachError("no scenario selected (check --scenarios and --only)")
-    except (SourceError, ManifestError, ReachError) as exc:
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(_tree_read_exit_code(exc))
+    plan = _reach_plan(args, tree, profile, kinds, only)
+    if plan is None:  # --dry-run printed it
+        return
+    manifest, files, planned_count = plan
     print(f"{len(files)} guidance files, {planned_count} scenarios, "
           f"at most ${args.budget:g} each", file=sys.stderr)
     out_dir = Path(args.out or "reach-out")

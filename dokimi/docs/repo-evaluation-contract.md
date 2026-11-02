@@ -1025,7 +1025,9 @@ Protocol:
       as a copy of the seeded file, and `alias_kind: copy` says so: a harness
       that skips symlinks would then still show the file loaded.
     - A link that escapes the tree, dangles, loops or names a directory is not
-      seeded. It is listed in `unresolved` with the reason.
+      seeded. It is listed in `unresolved` with the reason. When every guidance
+      file is such a link, nothing is left to probe: `repo reach` stops with
+      exit 1 before any scenario, and `--dry-run` stops the same way.
 2. Seed the workspace. Each guidance file gets a head token, placed after any
    YAML front matter, and a tail token. A token is `RC` plus the first 6 hex
    digits of sha256(salt, path, position).
