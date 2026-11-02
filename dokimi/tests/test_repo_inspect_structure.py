@@ -147,6 +147,9 @@ def test_print_structure_lists_kept_modules_escaped(capsys):
     ("src/utils", "`utils`", True),                     # the bare name counts only between backticks
     ("src/utils", "the utils folder", False),
     ("src/utils", "use `utils/` here", True),
+    ("pkg", "see xpkg here", False),                   # a word character before the path continues the token
+    ("pkg", "see my-pkg", False),                      # a hyphen before it does too
+    ("pkg", "see a.pkg", False),                       # and a dot
 ])
 def test_guidance_mentions_match_the_path_or_a_backticked_name(module, text, expected):
     assert mentioned(module, text) is expected
@@ -161,6 +164,15 @@ def test_one_function_defined_in_two_modules_is_not_ambiguous():
     module_of["lib/alt.py"] = "lib"
     _, _, ambiguous_of = structure._definitions(_index(docs), {doc: doc for doc in docs}, module_of)
     assert ambiguous_of["include"] == {"run"} and ambiguous_of["lib"] == {"run"}
+
+
+def test_a_name_whose_other_symbol_is_defined_in_another_module_is_ambiguous_in_both():
+    # "run" is two functions. The first is defined in a only; the second is defined in a and in b. In a, the second
+    # is a different function of that name defined in another module (b), so a's name is ambiguous.
+    docs = {"a/x.py": [(_sym("run"), True), (_sym("run", "alt"), True)], "b/y.py": [(_sym("run", "alt"), True)]}
+    module_of = {"a/x.py": "a", "b/y.py": "b"}
+    _, _, ambiguous_of = structure._definitions(_index(docs), {doc: doc for doc in docs}, module_of)
+    assert ambiguous_of["a"] == {"run"} and ambiguous_of["b"] == {"run"}
 
 
 def test_a_share_below_the_threshold_that_rounds_up_is_not_a_finding():

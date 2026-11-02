@@ -160,8 +160,9 @@ def _definitions(index: CodeIndex, repo_path: dict[str, str],
                  module_of: dict[str, str]) -> tuple[Modules, Modules, Modules]:
     """Function-like symbol -> modules defining it; module -> its names; module -> its ambiguous names.
 
-    A name is ambiguous for a module when some symbol of that name is not defined there: a function
-    declared in one module and defined in another is one symbol, so it is not ambiguous by itself."""
+    A name is ambiguous for a module when there are two or more symbols of that name and one of them is defined
+    in another module. A function declared in one module and defined in another is one symbol, so it is not
+    ambiguous by itself."""
     defined_in: Modules = defaultdict(set)
     for doc, path in repo_path.items():
         mod = module_of.get(path)
@@ -179,7 +180,9 @@ def _definitions(index: CodeIndex, repo_path: dict[str, str],
     for name, symbols in symbols_of.items():
         for mod in set().union(*(defined_in[s] for s in symbols)):
             names_of[mod].add(name)
-            if any(mod not in defined_in[s] for s in symbols):
+            # Two or more symbols of the name, one of them defined in another module: a different function of
+            # that name is defined there, even when every symbol is also defined here.
+            if len(symbols) > 1 and any(defined_in[s] - {mod} for s in symbols):
                 ambiguous_of[mod].add(name)
     return defined_in, names_of, ambiguous_of
 
