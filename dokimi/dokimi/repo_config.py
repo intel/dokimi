@@ -741,7 +741,8 @@ def _hashed(subject: Subject, root: Path, all_subjects: list[Subject]) -> Subjec
     files = _suite_files(root, subject.suite_globs)
     if subject.kind == "repo":
         assert subject.manifest is not None  # set by _subject for kind repo
-        files.setdefault(subject.manifest, root / subject.manifest)
+        if not any(_within(subject.manifest, rel) for rel in files):  # a suite directory already walks it
+            files.setdefault(subject.manifest, root / subject.manifest)
         return replace(subject, suite_hash=_digest_files(files, root))
     inside = [rel[len(subject.path) + 1:] for rel in files if _within(rel, subject.path) and rel != subject.path]
     # a nested skill is its own subject: its files belong to its own skill_sha, not to the outer one
