@@ -420,6 +420,10 @@ Guide: [run-consistency.md](run-consistency.md).
   decides who owns each pipe, so an interrupted launch closes its streams exactly once
   and Windows reader threads close theirs at EOF. `FakeRunner` is its test adapter: code that spawns
   takes a `runner` argument.
+- Bad input: a library loader raises `dokimi.utils.InputError`, naming the file, and
+  never ends the process. `cli.main` prints `Error: <message>` and exits 2; exit 1 stays
+  the verdict of a gate. `tests/test_import_architecture.py` allows an exit only in the
+  frontend.
 - `dokimi/llm.py` — the entry point for LLM calls. `LLM` (one model at one provider:
   `complete`/`ask`/`chat`, retry, the response cache, usage) sits on one
   adapter seam: `LiteLLMAdapter` in production, `FakeAdapter` in tests (the

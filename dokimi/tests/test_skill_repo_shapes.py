@@ -11,12 +11,13 @@ fixed in another PR is an expected failure, strict, so the mark comes off when t
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 
-from dokimi.cli import build_parser
+from dokimi import cli
 from dokimi.novelty.client import LLMClient
 from tests.skill_repo_shapes import PROBE_QUERIES, SHAPES, build_shape, probe_artifact
 
@@ -67,14 +68,21 @@ OPEN_BUGS = {
 
 
 def _run(argv: list[str], capsys) -> tuple[int, str, str]:
-    """Run one dokimi command in-process; (exit code, stdout, stderr). Crashes propagate."""
-    args = build_parser().parse_args(argv)
+    """Run one dokimi command through ``cli.main`` as the console script does; (exit code, stdout, stderr).
+
+    Bad input is refused inside ``cli.main`` (InputError exits 2), so the command's own
+    exceptions are not seen here. Any other crash propagates.
+    """
+    old_argv = sys.argv
+    sys.argv = ["dokimi", *argv]
     try:
-        args.func(args)
+        cli.main()
     except SystemExit as exc:
         code = 0 if exc.code is None else exc.code
     else:
         code = 0
+    finally:
+        sys.argv = old_argv
     captured = capsys.readouterr()
     return code, captured.out, captured.err
 

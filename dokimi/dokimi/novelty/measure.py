@@ -27,6 +27,7 @@ import random
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
+from dokimi.utils import InputError
 from .atoms import Atom
 from .client import LLMClient, same_client
 from .probes import Probe
@@ -218,9 +219,9 @@ def parse_arms(spec: str) -> tuple[str, ...]:
     if BASELINE_ARM not in arms:
         # Without the baseline there is no pair, and without a pair every outcome is a
         # level -- which is the one thing the judge agreement does not support.
-        raise ValueError("--arms must include no_artifact: the 2x2 is a paired comparison")
+        raise InputError("--arms must include no_artifact: the 2x2 is a paired comparison")
     if "full" not in arms:
-        raise ValueError("--arms must include full: the headline 2x2 pairs it with no_artifact")
+        raise InputError("--arms must include full: the headline 2x2 pairs it with no_artifact")
     return arms
 
 
@@ -234,7 +235,7 @@ def check_arms(arms: tuple[str, ...], placebo_text: str | None) -> None:
     if unknown:
         raise ValueError(f"unknown novelty arms: {unknown}; known: {list(ARMS)}")
     if "full" not in arms:
-        raise ValueError("the arms must include full: the headline 2x2 pairs it with no_artifact")
+        raise InputError("the arms must include full: the headline 2x2 pairs it with no_artifact")
     if "placebo" in arms and not placebo_text:
         raise ValueError("the placebo arm needs --placebo-text (domain-mismatched text)")
 

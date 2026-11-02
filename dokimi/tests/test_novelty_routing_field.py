@@ -9,6 +9,7 @@ import json
 
 import pytest
 
+from dokimi.utils import InputError
 from dokimi.cli import build_parser
 from dokimi.novelty.routing import (
     RoutingInputError,
@@ -79,7 +80,7 @@ def test_a_non_skill_artifact_is_still_refused(tmp_path):
     args = _parse("novelty", "routing", "--artifact", f"skill:{helper}",
                   "--competitors", _skill(tmp_path, "b", "tune a database"),
                   "--queries", "x")
-    with pytest.raises(SystemExit, match="cannot load an artifact"):
+    with pytest.raises(InputError, match="cannot load an artifact"):
         args.func(args)
 
 
@@ -241,7 +242,7 @@ def test_two_catalog_skills_with_one_name_and_different_content_are_refused_by_n
         "--out",
         str(out),
     )
-    with pytest.raises(SystemExit) as refused:
+    with pytest.raises(InputError) as refused:
         args.func(args)
     message = str(refused.value)
     assert message.startswith("catalog has db at ") and "dedupe or rename" in message

@@ -193,15 +193,14 @@ def main() -> None:
         process.install_signal_handlers()  # SIGTERM/SIGHUP: kill the process groups we started, then exit
     tolerate_console_encoding()
     args = parse_args()
-    from dokimi.eval.question_text import EmptyQuestionError
     from dokimi.utils import InputError
 
     try:
         args.func(args)
-    except (EmptyQuestionError, InputError, llm_cli.SamplingError) as exc:  # bad input, not a bug: no traceback
+    except (InputError, llm_cli.SamplingError) as exc:  # bad input, not a bug: no traceback
         print(f"Error: {exc}", file=sys.stderr)
-        # 2, as the commands' other input errors: 1 is the verdict of `eval judge-validity`
-        # and of the --strict gates, and a malformed file must not read as a failed gate.
+        # 2 is the one code for bad input: 1 is the verdict of `eval judge-validity` and of the
+        # --strict gates, and a malformed file must not read as a failed gate.
         sys.exit(2)
 
 

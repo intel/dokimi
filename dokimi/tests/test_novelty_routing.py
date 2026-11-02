@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from dokimi.utils import InputError
 from dokimi.cli import build_parser
 from dokimi.novelty.client import LLMClient
 from dokimi.novelty.routing import (
@@ -219,7 +220,7 @@ def test_routing_against_a_single_candidate_is_refused(tmp_path):
     # Selecting from one candidate measures tool use rather than this artifact winning.
     args = _parse("novelty", "routing", "--artifact", _skill(tmp_path, "a", "d"),
                   "--queries", "x")
-    with pytest.raises(SystemExit, match="needs competitors"):
+    with pytest.raises(InputError, match="needs competitors"):
         args.func(args)
 
 
@@ -267,7 +268,7 @@ def test_an_unreadable_queries_file_exits_with_a_message(tmp_path, content):
         queries.write_bytes(content)
     args = _parse("novelty", "routing", "--artifact", _skill(tmp_path, "a", "d"),
                   "--competitors", _skill(tmp_path, "b", "e"), "--queries", str(queries))
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(InputError) as exc:
         args.func(args)
     assert str(exc.value).startswith(f"cannot read --queries {queries}: ")
 
@@ -275,7 +276,7 @@ def test_an_unreadable_queries_file_exits_with_a_message(tmp_path, content):
 def test_a_catalog_that_is_not_a_directory_is_refused(tmp_path):
     args = _parse("novelty", "routing", "--artifact", _skill(tmp_path, "a", "d"),
                   "--catalog", str(tmp_path / "nope"), "--queries-from-headings")
-    with pytest.raises(SystemExit, match="--catalog is not a directory"):
+    with pytest.raises(InputError, match="--catalog is not a directory"):
         args.func(args)
 
 
@@ -283,7 +284,7 @@ def test_routing_without_a_query_source_is_refused(tmp_path):
     args = _parse("novelty", "routing",
                   "--artifact", _skill(tmp_path, "a", "profile a binary"),
                   "--competitors", _skill(tmp_path, "b", "tune a database"))
-    with pytest.raises(SystemExit, match="--queries"):
+    with pytest.raises(InputError, match="--queries"):
         args.func(args)
 
 
@@ -330,7 +331,7 @@ def test_queries_value_must_be_a_list_of_strings(tmp_path, content):
                   "--artifact", _skill(tmp_path, "a", "profile a binary"),
                   "--competitors", _skill(tmp_path, "b", "tune a database"),
                   "--queries", str(queries))
-    with pytest.raises(SystemExit, match="list of strings"):
+    with pytest.raises(InputError, match="list of strings"):
         args.func(args)
 
 
@@ -341,7 +342,7 @@ def test_duplicate_competitors_are_refused_or_deduped(tmp_path):
     args = _parse("novelty", "routing",
                   "--artifact", _skill(tmp_path, "a", "profile a binary"),
                   "--competitors", competitor, competitor, "--queries", str(queries))
-    with pytest.raises(SystemExit, match="more than once"):
+    with pytest.raises(InputError, match="more than once"):
         args.func(args)
 
 
@@ -385,7 +386,7 @@ def test_the_artifact_cannot_compete_with_itself(tmp_path):
     ref = _skill(tmp_path, "perf", "Profile a binary")
     args = _parse("novelty", "routing", "--artifact", ref, "--competitors", ref,
                   "--queries", "x")
-    with pytest.raises(SystemExit, match="against itself"):
+    with pytest.raises(InputError, match="against itself"):
         args.func(args)
 
 
@@ -689,7 +690,7 @@ def test_repeats_without_a_model_are_refused_on_the_cli(tmp_path, repeats):
                   "--artifact", _skill(tmp_path, "a", "profile a binary"),
                   "--competitors", _skill(tmp_path, "b", "tune a database"),
                   "--queries", str(queries), "--repeats", repeats, "--out", str(out))
-    with pytest.raises(SystemExit, match="needs --model"):
+    with pytest.raises(InputError, match="needs --model"):
         args.func(args)
     assert not out.exists()
 
@@ -809,7 +810,7 @@ def test_headings_inside_code_only_refuse_the_run_and_say_why(tmp_path):
                                        body="```\n## only in code\n```\n"),
                   "--competitors", _skill(tmp_path, "b", "tune a database"),
                   "--queries-from-headings", "--out", str(out))
-    with pytest.raises(SystemExit, match="code fences.*--queries"):
+    with pytest.raises(InputError, match="code fences.*--queries"):
         args.func(args)
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["status"] == "no_queries"
@@ -824,7 +825,7 @@ def test_a_query_file_with_nothing_in_it_refuses_the_run(tmp_path):
                   "--artifact", _skill(tmp_path, "a", "profile a binary"),
                   "--competitors", _skill(tmp_path, "b", "tune a database"),
                   "--queries", str(queries), "--out", str(out))
-    with pytest.raises(SystemExit, match="no non-blank query"):
+    with pytest.raises(InputError, match="no non-blank query"):
         args.func(args)
     assert json.loads(out.read_text(encoding="utf-8"))["status"] == "no_queries"
 
@@ -836,7 +837,7 @@ def test_queries_without_a_content_word_refuse_the_run(tmp_path):
                   "--artifact", _skill(tmp_path, "a", "profile a binary"),
                   "--competitors", _skill(tmp_path, "b", "tune a database"),
                   "--queries", str(queries), "--out", str(tmp_path / "routing.json"))
-    with pytest.raises(SystemExit, match="has a content word"):
+    with pytest.raises(InputError, match="has a content word"):
         args.func(args)
 
 
@@ -936,7 +937,7 @@ def test_the_model_row_says_its_query_count_is_of_all_given(tmp_path, monkeypatc
 
 def test_a_run_with_no_scorable_query_makes_no_model_call(tmp_path, monkeypatch):
     args, calls = _routing_with_model(tmp_path, monkeypatch, "the of a\nhow do I\n")
-    with pytest.raises(SystemExit, match="no usable queries"):
+    with pytest.raises(InputError, match="no usable queries"):
         args.func(args)
     assert calls == []
     assert json.loads((tmp_path / "routing.json").read_text())["status"] == "no_queries"

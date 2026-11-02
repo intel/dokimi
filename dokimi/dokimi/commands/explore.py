@@ -133,7 +133,7 @@ def cmd_explore_run(args: argparse.Namespace) -> None:
 
     if args.out_md:
         from dokimi.report.exploration_report import render_explore_report
-        from dokimi.utils import write_text_or_exit
+        from dokimi.commands._output import write_text_or_exit
 
         write_text_or_exit(Path(args.out_md), render_explore_report(output))
         print(f"Saved exploration report: {args.out_md}")

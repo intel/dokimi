@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 from dokimi.exit_codes import EXIT_FAILURE, EXIT_USAGE
 from dokimi.llm import ANSWER_PROVIDERS
-from dokimi.utils import question_id
+from dokimi.utils import InputError, question_id
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
@@ -123,8 +123,8 @@ def _load_matrix_inputs(config: ArmsRunConfig, arms: str, questions: str, matrix
         cells = load_matrix_cells(matrix_cells)
         _validate_unique_cell_filenames(cells)
         arms_run.check_matrix(config, cells, specs)
-    except EmptyQuestionError:
-        raise  # a bad input record, not a cell error: cli.main reports it (exit 2)
+    except (EmptyQuestionError, InputError):
+        raise  # a bad input record or a refused cell: cli.main reports it (exit 2)
     except arms_run.ProbeError as exc:
         print(f"Error loading matrix run inputs: {exc}", file=sys.stderr)
         sys.exit(EXIT_FAILURE)

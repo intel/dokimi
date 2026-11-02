@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Tuple, Dict, Any
 
 from dokimi.defaults import bedrock_profile
-from dokimi.exit_codes import EXIT_USAGE
 
 
 def parse_frontmatter(text: str) -> "Tuple[Dict[str, Any], str]":
@@ -291,25 +290,33 @@ def question_id(q: Dict[str, Any]) -> Any:
     return None
 
 
-class InputError(Exception):
-    """A user-supplied input file that cannot be used; ``cli.main`` prints it and exits 2."""
+class InputError(ValueError):
+    """A user-supplied input that cannot be used: missing, unreadable, not UTF-8 or JSON, or the wrong shape.
+
+    Library loaders raise it (or a subclass) with a message that names the file, and do not
+    print or exit. ``cli.main`` prints ``Error: <message>`` and exits 2, the code for bad input;
+    exit 1 stays the verdict of ``--strict`` gates and ``eval judge-validity``. A ``ValueError``,
+    so code that already catches bad values keeps catching these.
+    """
 
 
-def read_json_input(path: str | os.PathLike[str], *, flag: str) -> Any:
-    """The parsed JSON at ``path``, or raises :class:`InputError` naming ``flag`` and the file."""
+def read_json_input(path: str | os.PathLike[str], *, flag: str | None = None) -> Any:
+    """The parsed JSON at ``path``, or :class:`InputError` naming the file and the reason.
+
+    Covers a missing or unreadable file, bytes that are not UTF-8, text that is not JSON and
+    JSON nested too deeply to parse. With ``flag`` (the option the file was given to) the
+    message is that option's own, ``<flag> <path>: <reason>``.
+    """
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, ValueError, RecursionError) as exc:  # JSONDecodeError and bad UTF-8 are ValueErrors
-        reason = exc.strerror if isinstance(exc, OSError) and exc.strerror else exc
-        raise InputError(f"{flag} {path}: {reason}") from exc
-
-
-def write_text_or_exit(path: Path, text: str, code: int = EXIT_USAGE) -> None:
-    """Write ``text`` to ``path`` (creating parents), or exit ``code`` naming ``path`` when it cannot be written."""
-    import sys
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
     except OSError as exc:
-        print(f"Error: cannot write {path}: {exc}", file=sys.stderr)
-        sys.exit(code)
+        reason = exc.strerror or exc
+        raise InputError(f"{flag} {path}: {reason}" if flag else f"cannot read {path}: {reason}") from exc
+    except UnicodeDecodeError as exc:
+        raise InputError(f"{flag} {path}: {exc}" if flag else f"{path} is not UTF-8 text: {exc}") from exc
+    except (json.JSONDecodeError, RecursionError) as exc:  # deep nesting is named as bad JSON, as on main
+        raise InputError(f"{flag} {path}: {exc}" if flag else f"{path} is not valid JSON: {exc}") from exc
+    except ValueError as exc:  # e.g. "embedded null byte" in the path: pathlib raises a bare ValueError
+        raise InputError(f"{flag} {path}: {exc}" if flag else f"cannot read {path}: {exc}") from exc
+
+

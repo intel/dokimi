@@ -36,6 +36,8 @@ from typing import Iterable, Mapping
 
 import pytest
 
+from tests.exit_site_scan import EXIT_HELPER, exit_sites
+
 PROJECT = Path(__file__).resolve().parents[1]
 PACKAGE = "dokimi"
 
@@ -406,6 +408,28 @@ def spawn_problems(imports: Imports, baseline: Mapping[str, tuple[int, str]],
     return problems
 
 
+#: Modules that end the process (sys.exit, os._exit, exit, quit, raise SystemExit): only the frontend may.
+#: A library raises InputError and cli.main exits 2. Empty: nothing outside the frontend exits.
+EXIT_BASELINE: dict[str, tuple[int, str]] = {}
+
+
+def exit_problems(imports: Imports, baseline: Mapping[str, tuple[int, str]],
+                  helper: str = EXIT_HELPER) -> list[str]:
+    counts = {m: exit_sites(t) for m, t in imports.trees.items()
+              if layer_of(m) != "frontend" and m != helper}
+    problems = []
+    for mod, lines in sorted(counts.items()):
+        allowed = baseline.get(mod, (0, ""))[0]
+        if len(lines) > allowed:
+            problems.append(f"{mod} ends the process at lines {lines}; raise InputError (dokimi.utils) "
+                            "and let cli.main exit 2")
+    for mod, (allowed, _) in sorted(baseline.items()):
+        now = len(counts.get(mod, []))
+        if now < allowed:
+            problems.append(f"{mod} has {now} exit site(s), baseline {allowed}: lower EXIT_BASELINE")
+    return problems
+
+
 # --- the package ------------------------------------------------------------------
 
 
@@ -446,6 +470,11 @@ def test_llm_provider_sdks_go_through_dokimi_llm(imports):
     assert not stale, f"{stale} no longer import the banned module; delete them from BANNED_BASELINE"
 
 
+def test_only_the_frontend_ends_the_process(imports):
+    problems = exit_problems(imports, EXIT_BASELINE)
+    assert not problems, "\n".join(problems)
+
+
 def test_child_processes_start_through_dokimi_process(imports):
     problems = spawn_problems(imports, SPAWN_BASELINE)
     assert not problems, "\n".join(problems)
@@ -453,10 +482,11 @@ def test_child_processes_start_through_dokimi_process(imports):
 
 def test_baselines_are_explained_and_name_real_modules(imports):
     reasons = [*LAYER_BASELINE.values(), *CYCLE_BASELINE.values(), *BANNED_BASELINE.values(),
-               *(reason for _, reason in SPAWN_BASELINE.values())]
+               *(reason for _, reason in SPAWN_BASELINE.values()),
+               *(reason for _, reason in EXIT_BASELINE.values())]
     assert all(r.strip() for r in reasons), "every baseline entry carries its reason"
     named = {*(m for edge in LAYER_BASELINE for m in edge), *(m for c in CYCLE_BASELINE for m in c),
-             *(m for m, _ in BANNED_BASELINE), *SPAWN_BASELINE}
+             *(m for m, _ in BANNED_BASELINE), *SPAWN_BASELINE, *EXIT_BASELINE}
     assert named <= imports.modules, f"{sorted(named - imports.modules)} name no module"
 
 
@@ -634,3 +664,55 @@ def test_tie_between_equal_size_subsets_is_stable():
     forward = cycle_problems([ab, ac, abc], {ab: "known1", ac: "known2"})
     backward = cycle_problems([ab, ac, abc], {ac: "known2", ab: "known1"})
     assert forward == backward
+
+
+@pytest.mark.parametrize("source, lines", [
+    # a definition's own name does not bind before its header is evaluated (the header runs in the enclosing scope)
+    ("import sys\ndef sys(x=sys.exit(2)):\n    pass\n", [2]),
+    ("import sys\nclass sys(sys.exit(2)):\n    pass\n", [2]),
+    ("import sys\nasync def sys(x=sys.exit(2)):\n    pass\n", [2]),
+    # unshadowed builtins exit and quit, bound to another name
+    ("stop = exit\nstop(2)\n", [2]),
+    ("stop = quit\nstop(2)\n", [2]),
+    ("exit = print\nexit(2)\n", []),
+    # a function's alias of a binding made later at module level: the function runs after that binding
+    ("import sys\ndef f():\n    stop = end\n    stop(2)\nend = sys.exit\nf()\n", [4]),
+    ("import sys\ndef f():\n    e = Stop\n    raise e(2)\nStop = SystemExit\nf()\n", [4]),
+    # assignment expressions bind their target
+    ("import sys\nif (stop := sys.exit):\n    stop(2)\n", [3]),
+    # a global declaration sends the name to the module, past the parameter that shadows it
+    ("import sys\ndef outer(sys):\n    def inner():\n        global sys\n        sys.exit(2)\n    return inner\n", [5]),
+    # a rebinding of the same line is read in source order
+    ("import sys; stop = sys.exit; stop(2); stop = None\n", [1]),
+    ("import sys; E = SystemExit; raise E(3); E = None\n", [1]),
+    ("import sys; s = sys; s.exit(2); s = None\n", [1]),
+    # a nonlocal name bound by a plain assignment in the enclosing scope: the sibling's alias reaches the exit
+    ("import sys\ndef outer():\n    x = None\n    def inner():\n        nonlocal x\n        x = sys.exit\n    def other():\n        x(2)\n    return other\n", [8]),
+    # a name declared twice in one function: both declarations redirect to the module, and the lookup ends there
+    ("import sys\ndef f():\n    global sys\n    global sys\n    sys.exit(2)\n", [5]),
+    # a chain of nonlocal declarations: the middle scope only declares x, so the binder is the outer one
+    ("import sys\ndef outer():\n    x = None\n    def mid():\n        nonlocal x\n        def inner():\n            nonlocal x\n            x = sys.exit\n        inner()\n    def other():\n        x(2)\n    mid()\n    return other\n", [11]),
+    # a global rebinding made in a function runs only when it is called: module-level sys.exit is still a site
+    ("import sys\ndef f():\n    global sys\n    sys = None\nsys.exit(1)\n", [5]),
+    # a pattern capture, a loop, augmented or with target binds after the value that is evaluated first
+    ("import sys\ndef f(value):\n    match value:\n        case sys:\n            sys.exit(2)\n", []),
+    ("import sys\nfor sys in sys.exit(2):\n    pass\n", [2]),
+    ("import sys\nsys += sys.exit(2)\n", [2]),
+    ("import sys\nwith sys.exit(2) as sys:\n    pass\n", [2]),
+    # in a function the loop target makes sys local, so the iterable reads an unbound name
+    ("import sys\nasync def f():\n    async for sys in sys.exit(2):\n        pass\n", []),
+    ("import sys\ndef f(value):\n    match value:\n        case [*sys]:\n            sys.exit(2)\n", []),
+    ("import sys\ndef f(value):\n    match value:\n        case {**sys}:\n            sys.exit(2)\n", []),
+    # arity mismatch and a starred target keep the names as other bindings
+    ("import sys\na, b = (sys.exit,)\nb(2)\n", []),
+    ("import sys\na, *b = sys.exit, 1\nb(2)\na(2)\n", []),
+    # an exit callable or SystemExit unpacked from a literal of the same shape, nested too
+    ("import sys\nstop, = (sys.exit,)\nstop(2)\n", [3]),
+    ("import sys\na, (b, c) = 1, (sys.exit, 2)\nb(2)\n", [3]),
+    # a module-level name is read as builtin until its own assignment runs; a function's local is unbound before it
+    ("raise SystemExit(2)\nSystemExit = ValueError\n", [1]),
+    ("exit(2)\nexit = print\nquit(2)\nquit = print\n", [1, 3]),
+    ("import sys\ndef f():\n    exit(2)\n    exit = print\n", []),
+])
+def test_exit_sites_resolves_names_by_scope_and_source_order(source, lines):
+    assert exit_sites(ast.parse(source)) == lines

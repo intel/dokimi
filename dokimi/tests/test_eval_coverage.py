@@ -17,6 +17,7 @@ from dokimi.eval_coverage import LabelledEval, coverage_report, exact_shares, gr
 from dokimi.novelty.needs import NeedGraph, NeedNode
 from dokimi.novelty.needs import load_graph as novelty_load_graph
 from dokimi.novelty.needs import save_graph
+from dokimi.utils import InputError
 
 NODES = [
     {"id": "n1", "text": "convert with asnumpy before numpy.save", "path_class": "core"},
@@ -142,8 +143,9 @@ def test_graph_with_unknown_path_class_is_rejected(tmp_path):
     path.write_text(json.dumps({"artifact_name": "x", "nodes": [
         {"id": "n1", "text": "t", "path_class": "critical"}]}))
 
-    with pytest.raises(ArtifactValidationError, match="path_class"):
+    with pytest.raises(InputError, match="path_class") as exc:  # load_artifact wraps the schema failure
         load_graph(path)
+    assert isinstance(exc.value.__cause__, ArtifactValidationError)
 
 
 def test_cli_writes_artifact_and_fails_under_floor(tmp_path, capsys):
