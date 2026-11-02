@@ -1101,6 +1101,104 @@ per scenario).
   token was in the request bytes. This settles cells where the model
   under-reports, which is how a small model produces false `truncated` cells.
 
+### 7.1 Effective-instructions receipt (`effective_instructions.v1`)
+
+`repo reach --format receipt` prints, and writes to `effective_instructions.json`
+in `--out`, a receipt in the shape of `effective-instructions/v0`
+(agentsmd/agents.md#213). It is built from the reach payload and from the
+start-up chain of `repo budget` (`repos/budget.py`). It makes no
+LLM call. `repo reach --from <reach.json> --format receipt` builds the same
+receipt from a saved probe without running the harness. The source is read
+again: the file must be for the same repository, harness and commit (a
+different one is a usage error, exit 2). With `--from`, a receipt also needs a
+pinned source (`<path>@<rev>`) and a saved probe made at a commit: a working
+tree, or a probe of one (`repo.sha` null), is a usage error (exit 2), because
+`sha256` and the expectations are computed from the source as it is at
+conversion time and a working tree can change after the probe. A live
+`repo reach --format receipt` run is not held to this: it builds the receipt
+from the source it probes, but it reads `sha256` and the expectations after
+the harness exits. An edit to a guidance file made while the run is in flight
+therefore appears in the receipt next to the observations of the old text;
+the receipt's `unknowns` says so for a working tree, and a pinned source
+(`<path>@<rev>`) has no such window. The matrix (without `--format receipt`)
+still accepts an unpinned source. The harness configuration is not
+pinned: `expected` comes from the harness profile as it is at conversion time,
+and its guidance names and import depth are not compared with the probe's, so
+a receipt is the same only for an unchanged profile. The receipt is written
+beside the saved file; a name that resolves to the saved probe is a usage error
+(exit 2), and a write that fails is a runtime failure (exit 1). The probe-only flags (`--model`,
+`--budget`, `--scenarios`, `--only` and the rest) cannot be combined with
+`--from`. The schema is `schemas/effective_instructions.v1.json`; the code is
+`repos/receipt.py`.
+
+One artifact is written to `effective_instructions.json`, with one entry in its
+`receipts` array per reach scenario and `run_id` `<salt>:<scenario id>`.
+Each source carries:
+
+| Receipt field | From | Meaning |
+|---|---|---|
+| `path`, `alias_of` | reach `files`, `aliases` | a link is `adapter` scope and takes its target's tokens |
+| `sha256` | the text dokimi reads (LF-normalised UTF-8) | null when the file is not readable as text |
+| `scope` | path | `repo` for a root-level file and for `.claude/CLAUDE.md` and `.claude/AGENTS.md` only; `subtree` for a nested AGENTS.md, CLAUDE.md or CLAUDE.local.md (`.claude/CLAUDE.local.md` included); else `unknown` (a skill, for one) |
+| `expected` | budget `when` | see the table below |
+| `observed` | reach class | `loaded` → loaded, `fetched` → fetched, `not_loaded` → not_loaded, `truncated` and `error` → unknown |
+| `observation_method` | | `unknown` for every source: the thread vocabulary's method, since no runtime event, prompt capture or hook backs the probe |
+| `dokimi_method` | | `marker_self_report` for a source the probe recorded; null for a start-up file budget found and reach did not probe |
+| `states.accessed` | the harness's read events | `true` if the harness reported a read of the file (the Read tool; Codex and Copilot also report supported shell reads, §7); for a probed source `false` with tools off, else `unknown`; always `unknown` for a start-up file budget found and reach did not probe |
+| `states.selected` | the class | `true` for loaded or fetched (the source entered the request, by the harness or a read), else `unknown` |
+| `states.loaded` | the class | `true` for loaded, `false` for not_loaded, `unknown` for fetched, truncated and error: a tool read is not proof that start-up loading did not happen |
+| `states.followed` | | always `unknown` (the schema's `const`) |
+
+`runtime` is the harness's name and version, as reach records them. `model` is
+the string passed with `--model`, not the harness's name or a resolved model
+version. `observation.method` is `unknown` and `observation.dokimi_method` is
+`marker_self_report`: the model reports the tokens it can see, and the request
+sent to the provider is not captured. A reported token is evidence of loading,
+not a copy of the bytes received. The name is not `prompt_capture`, because
+dokimi does not capture the prompt.
+
+**Expected state.** budget's start-up rules are Claude Code's, so they apply
+only to `claude-code` runs; for other harnesses every `expected` is `unknown`
+and the receipt says so.
+
+| budget `when` | `expected` | Reason |
+|---|---|---|
+| `start` | `true` | loaded at start-up in every run |
+| `off` | `false` | a root CLAUDE\*.md turns AGENTS.md off |
+| `lazy`, run directory is the file's directory or inside it | `true` | loaded when the work reaches that directory |
+| `lazy`, run directory outside it | `false` | not reached by this run |
+| `lazy` on a link, an import, a root file, or a file another guidance file `@`-imports | `unknown` | budget's flattened `when` does not say which directory activates the file, so only a nested AGENTS/CLAUDE file that budget lists under its own path, and that no guidance file imports, gets a verdict |
+| `on demand` or absent | `unknown` | budget does not say |
+
+**Precedence.** `precedence_observed` lists a displacement only: a root
+CLAUDE\*.md (`CLAUDE.md`, `CLAUDE.local.md`, `.claude/CLAUDE.md`) observed
+loaded in a run, with an `off` AGENTS.md observed not_loaded in that run. It
+does not give an order of entry. The displacement follows budget's rule as
+written (`repos/budget.py`): an AGENTS.md is `off` while a root CLAUDE\*.md
+exists, nested ones included, unless a root CLAUDE\* file aliases it or
+`@`-imports it (`start`), or a nested CLAUDE\* file `@`-imports it (`lazy`). So
+nested AGENTS.md files can appear, and an AGENTS.md at the root is not always
+`off`. If budget's rule changes, the receipt follows it.
+
+**What the marker method can and cannot show.** It shows which tokens were
+reported in a run, so it can support `loaded`, `fetched` and `not_loaded` as
+observations of that run. It cannot show:
+
+- that an instruction was followed (`followed` is always `unknown`);
+- a read through a shell that the harness does not normalise into a read
+  event (`cat`, `rg`, `grep` under Claude Code; Codex and Copilot normalise
+  only the shell commands §7 lists);
+- when a source entered the request, or in what order (no timestamps);
+- start-up imports and skill listings from budget, which reach does not probe:
+  they appear with `observed: unknown`. A skill body is loaded on demand, so it
+  is not listed; the receipt-level unknown says both;
+- anything a model under-reports; a prose-heavy answer is flagged.
+
+Each run lists its own `unknowns` (no usable answer, a source with one token
+reported, prose above the limit, unseeded tokens). The receipt-level `unknowns`
+repeat the limits above and carry the notice that start-up imports and skill
+listings are not probed.
+
 ## 8. L0 scan (`repo_readiness.v1`)
 
 `repo scan <source>` checks every mechanically checkable claim in the guidance
