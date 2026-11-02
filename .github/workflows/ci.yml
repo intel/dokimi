@@ -90,7 +90,7 @@ jobs:
       - name: zizmor
         if: ${{ !cancelled() }}
         working-directory: .
-        run: zizmor --offline --min-severity medium .github/workflows
+        run: zizmor --offline --min-severity medium .github/workflows actions
       # Every tracked file carries the SPDX license header; scope and exceptions
       # are in .github/.licenserc.yaml. A `uses:` step, so `make ci-local` skips
       # it (the config's header comment has the docker command for a local run).
