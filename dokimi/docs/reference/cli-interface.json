@@ -344,7 +344,7 @@
               "nargs": null,
               "position": null,
               "required": false,
-              "type": "int"
+              "type": "dokimi.cli.build_parser.<locals>.positive_int#faf57db5ff9f"
             }
           ],
           "path": "dokimi answers generate",
@@ -2300,6 +2300,22 @@
               "type": null
             },
             {
+              "action": "_StoreTrueAction",
+              "choices": null,
+              "const": true,
+              "default": false,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": true,
+              "key": "--judge-placeholder",
+              "kind": "option",
+              "nargs": 0,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
               "action": "_StoreAction",
               "choices": [
                 "'amazon-bedrock'",
@@ -2322,6 +2338,22 @@
               "position": null,
               "required": false,
               "type": null
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--judge-temperature",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": "float"
             },
             {
               "action": "_StoreAction",
@@ -3978,6 +4010,94 @@
             }
           ],
           "path": "dokimi eval check",
+          "subcommand_required": null,
+          "subcommands": {}
+        },
+        "coverage": {
+          "allow_abbrev": true,
+          "params": [
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "evals",
+              "kind": "argument",
+              "nargs": null,
+              "position": 0,
+              "required": true,
+              "type": null
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--graph",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": true,
+              "type": null
+            },
+            {
+              "action": "_HelpAction",
+              "choices": null,
+              "const": null,
+              "default": "==SUPPRESS==",
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": true,
+              "key": "--help/-h",
+              "kind": "option",
+              "nargs": 0,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
+              "action": "_AppendAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--min",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": "dokimi.commands.eval_coverage._floor#bbd5737352a9"
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--out",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": null
+            }
+          ],
+          "path": "dokimi eval coverage",
           "subcommand_required": null,
           "subcommands": {}
         },
@@ -6190,6 +6310,78 @@
             }
           }
         },
+        "redteam": {
+          "allow_abbrev": true,
+          "params": [
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "questions",
+              "kind": "argument",
+              "nargs": null,
+              "position": 0,
+              "required": true,
+              "type": null
+            },
+            {
+              "action": "_HelpAction",
+              "choices": null,
+              "const": null,
+              "default": "==SUPPRESS==",
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": true,
+              "key": "--help/-h",
+              "kind": "option",
+              "nargs": 0,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--judge",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": "dokimi.commands.redteam._judge_ref#a59ddb60ae31"
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--out",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": null
+            }
+          ],
+          "path": "dokimi eval redteam",
+          "subcommand_required": null,
+          "subcommands": {}
+        },
         "score": {
           "allow_abbrev": true,
           "params": [
@@ -6953,6 +7145,22 @@
                   "type": null
                 },
                 {
+                  "action": "_StoreTrueAction",
+                  "choices": null,
+                  "const": true,
+                  "default": false,
+                  "group_key": null,
+                  "group_required": null,
+                  "hidden": false,
+                  "is_flag": true,
+                  "key": "--judge-placeholder",
+                  "kind": "option",
+                  "nargs": 0,
+                  "position": null,
+                  "required": false,
+                  "type": null
+                },
+                {
                   "action": "_StoreAction",
                   "choices": [
                     "'amazon-bedrock'",
@@ -7657,6 +7865,22 @@
           "key": "--judge-model",
           "kind": "option",
           "nargs": null,
+          "position": null,
+          "required": false,
+          "type": null
+        },
+        {
+          "action": "_StoreTrueAction",
+          "choices": null,
+          "const": true,
+          "default": false,
+          "group_key": null,
+          "group_required": null,
+          "hidden": false,
+          "is_flag": true,
+          "key": "--judge-placeholder",
+          "kind": "option",
+          "nargs": 0,
           "position": null,
           "required": false,
           "type": null
@@ -13097,17 +13321,21 @@
                 "'arms'",
                 "'cli_routes'",
                 "'eval'",
+                "'eval_coverage'",
                 "'explore_runs'",
                 "'guidance_reach'",
                 "'matrix_rollup'",
+                "'need_graph'",
                 "'novelty'",
                 "'plan'",
                 "'plugin_delta'",
                 "'questions'",
+                "'redteam'",
                 "'repo_budget'",
                 "'repo_environment'",
                 "'repo_readiness'",
                 "'result'",
+                "'skill_evidence'",
                 "'subject_scorecard'",
                 "'task_inspect'",
                 "'task_runs'",
@@ -13228,6 +13456,62 @@
       "path": "dokimi subjects",
       "subcommand_required": true,
       "subcommands": {
+        "evidence": {
+          "allow_abbrev": true,
+          "params": [
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "scorecard",
+              "kind": "argument",
+              "nargs": null,
+              "position": 0,
+              "required": true,
+              "type": null
+            },
+            {
+              "action": "_HelpAction",
+              "choices": null,
+              "const": null,
+              "default": "==SUPPRESS==",
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": true,
+              "key": "--help/-h",
+              "kind": "option",
+              "nargs": 0,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--out",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": null
+            }
+          ],
+          "path": "dokimi subjects evidence",
+          "subcommand_required": null,
+          "subcommands": {}
+        },
         "list": {
           "allow_abbrev": true,
           "params": [

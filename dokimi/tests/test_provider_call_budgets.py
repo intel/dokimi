@@ -326,7 +326,7 @@ def test_eval_panel_score_of_1_record_with_3_judges_makes_6_provider_calls(
 class _DocSource:
     """A doc-source client with one relevant chunk per query."""
 
-    def get_library_docs(self, library_id, query, max_tokens):
+    def get_library_docs(self, library_id, query, max_tokens, max_results=5):
         return [{"content": f"{query} Use parallel_for with a blocked_range.", "source": "s"}]
 
 

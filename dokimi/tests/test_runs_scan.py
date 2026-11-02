@@ -34,6 +34,7 @@ EXPECTED: dict[str, tuple[dict, str | None, str | None, str | None]] = {
     "matrix_rollup.v1": ({}, "oneTBB", None, "2026-10-04T17:47:16.294238Z"),
     "plugin_delta.v1": ({}, "oneTBB", "m", None),
     "subject_scorecard.v2": ({}, "docs-subject", None, "2026-10-04T17:47:19.175356Z"),
+    "skill_evidence.v1": ({}, "s", None, "2026-10-31T10:05:00Z"),
     "novelty.v1": ({}, "skill:/tmp/run/accel-tuning/SKILL.md", "answerer-m",
                    "2026-10-04T17:47:16.841483Z"),
     "task_runs.v1": ({}, None, "haiku", "2026-01-01T00:00:00Z"),
@@ -48,6 +49,9 @@ EXPECTED: dict[str, tuple[dict, str | None, str | None, str | None]] = {
     "repo_budget.v1": ({}, "toy", None, None),
     "task_inspect.v1": ({}, "tests/fixtures/task_formats", None, None),
     "cli_routes.v1": ({}, None, None, None),
+    "redteam.v1": ({}, "questions.json", None, None),
+    "need_graph.v1": ({}, "dpnp-io", None, None),
+    "eval_coverage.v1": ({}, "dpnp-io", None, None),
 }
 
 

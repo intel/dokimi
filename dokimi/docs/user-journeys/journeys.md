@@ -492,7 +492,7 @@ down in the PR.
 
 #### UC-J07-004 State coverage gaps
 
-- **AC-J07-007** An eval set's report lists the capabilities or areas it has no task for. *Proposed.*
+- **AC-J07-007** An eval set's report lists the capabilities or areas it has no task for. *Partial: `eval coverage` lists the core and rare_critical nodes of a frozen need graph that no eval's `needs` names; building the graph, the user interview and drafting labels are #331.*
 
 ---
 
