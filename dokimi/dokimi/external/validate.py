@@ -75,9 +75,9 @@ NEAR_DUPLICATE_JACCARD = 0.5
 # A "when" clause of any subject and verb ("run migrations when deploying"), or a use phrase: the model
 # chooses a skill from its description alone.
 WHEN_RE = re.compile(
-    r"\b(?:when\s+\w|use for|use this skill|trigger(?:s|ed)?\s*(?:on|:)|invoke only|activate\b|"
-    r"invoke this|use (?:it |this |these )?(?:when|if|before|after|whenever|proactively|anytime)|"
-    r"whenever)",
+    r"\b(?:when\s+\w|use for\b|use this skill\b|trigger(?:s|ed)?\s*(?:on\b|:)|invoke only\b|activate\b|"
+    r"invoke this\b|use (?:it |this |these )?(?:when|if|before|after|whenever|proactively|anytime)\b|"
+    r"whenever\b)",
     re.I,
 )
 # Words that say nothing about what a skill is for; left out of the description overlap.
@@ -267,17 +267,20 @@ def _outside_fences(body: str) -> list[str]:
     return lines
 
 
-def _file_ref(raw: str) -> Optional[str]:
+def _file_ref(raw: str, link: bool = False) -> Optional[str]:
     """The skill-relative file a reference names, or None if it names no file to check.
 
     None for a URL or any other URI (``tel:``, ``urn:``, ``MAILTO:``), a bare anchor, an
     absolute path, or a template with a variable other than ``${CLAUDE_SKILL_DIR}``. A
-    ``<...>`` destination (CommonMark) is read as the path inside the brackets.
+    ``<...>`` destination (CommonMark) is read as the path inside the brackets. A link
+    destination (``link``) is a URL: its ``?query`` is not part of the path.
     """
     text = raw.strip()
     if text.startswith("<") and text.endswith(">"):
         text = text[1:-1].strip()
     text = text.split("#", 1)[0].strip()
+    if link:
+        text = text.split("?", 1)[0].strip()
     if not text or "://" in text or text.startswith("/"):
         return None
     scheme = URI_SCHEME_RE.match(text)
@@ -328,7 +331,7 @@ def _bundle_findings(skill: Skill, source_root: Path) -> list[Finding]:
     )
     findings: list[Finding] = []
     for raw in links:
-        text = _file_ref(raw)
+        text = _file_ref(raw, link=True)
         if text is None:
             continue
         target = _resolved(skill_dir / text)

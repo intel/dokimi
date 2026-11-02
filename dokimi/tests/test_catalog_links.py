@@ -152,3 +152,23 @@ def test_a_reference_label_before_a_fence_does_not_take_a_destination_after_it(t
 
     [review] = review_skills(read_skill_manifest(tmp_path))
     assert review.findings == []
+
+
+def test_a_link_with_a_query_to_an_existing_file_is_checked_by_its_path(tmp_path):
+    skill_dir = _skill(tmp_path / "skills", "query-link", name="query-link", description="Use for query links.",
+                       body="See [the guide](references/guide.md?raw=1).\n")
+    (skill_dir / "references").mkdir()
+    (skill_dir / "references" / "guide.md").write_text("# Guide\n", encoding="utf-8")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.findings == []
+
+
+def test_a_query_bearing_link_outside_the_skill_still_escapes(tmp_path):
+    (tmp_path / "shared").mkdir()
+    (tmp_path / "shared" / "guide.md").write_text("# Guide\n", encoding="utf-8")
+    _skill(tmp_path / "skills", "query-escape", name="query-escape", description="Use for query escapes.",
+           body="See [the guide](../../shared/guide.md?raw=1#top).\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == ["link-escapes-skill"]

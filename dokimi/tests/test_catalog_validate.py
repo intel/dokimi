@@ -957,3 +957,18 @@ def test_an_escaping_link_with_a_line_suffix_is_named_as_escaping(tmp_path):
 
     [review] = review_skills(read_skill_manifest(tmp_path))
     assert sorted(_codes(review)) == ["link-escapes-skill", "path-escapes-skill"]
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "Use formatting tools to normalize logs.",
+        "Use iframe helpers to inspect embedded pages.",
+        "Use ifs-free helpers to rewrite conditions.",
+    ],
+)
+def test_a_use_phrase_that_only_starts_like_a_trigger_is_still_a_description_warning(tmp_path, description):
+    _skill(tmp_path / "skills", "prefix-only", name="prefix-only", description=description)
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == ["description-no-when"]
