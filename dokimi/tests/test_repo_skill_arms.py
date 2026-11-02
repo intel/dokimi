@@ -473,6 +473,22 @@ def test_a_nested_name_alone_is_not_the_skill_name(tmp_path):
     assert [s.name for s in resolve_skills(parse_arm("skill:skills/lint"), tmp_path)] == ["lint"]
 
 
+@pytest.mark.parametrize("arm", ["guidance:as-skill+skill:skills/toy-guidance", "guidance:as-skill+skill-catalog:skills"])
+def test_an_as_skill_arm_with_a_skill_named_like_its_generated_one_is_refused_before_any_cell(tmp_path, arm):
+    _skill(tmp_path, "skills/toy-guidance", "toy-guidance")
+    with pytest.raises(ArmError, match="generated guidance skill .claude/skills/toy-guidance"):
+        check_arms([parse_arm(arm)], tmp_path, [], None, (), "toy")
+    check_arms([parse_arm(arm)], tmp_path, [], None, (), None)  # without the repo id the name is not known: no check
+
+
+def test_an_as_skill_arm_refuses_a_base_that_ships_its_generated_skill_before_any_cell(tmp_path):
+    _skill(tmp_path / "toy", ".claude/skills/toy-guidance/SKILL.md", "toy-guidance")  # a SKILL.md, no guidance glob
+    root, base = make_repo(tmp_path)
+    task = Task("t", {"base": base}, root)
+    with pytest.raises(ArmError, match="base of task t already has .claude/skills/toy-guidance"):
+        check_arms([parse_arm("guidance:as-skill")], root / ".agent-eval", [task], root / ".git", (), "toy")
+
+
 def test_a_skill_the_task_base_already_ships_is_refused_before_any_cell(tmp_path, capsys, monkeypatch):
     monkeypatch.setattr("dokimi.repos.container.DockerRunner", lambda *a, **k: FakeRunner())
     _skill(tmp_path / "toy", ".claude/skills/lint", "lint")

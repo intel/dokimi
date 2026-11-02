@@ -65,6 +65,9 @@ tail"""
     ("- Example:\n  ```\n  code\n  ```\n# Real\n", ["Real"]),  # closed inside the item: the heading is a section
     ("- Example:\n\n```\n# not\n```\n# Real\n", ["Real"]),  # a column-0 fence after a blank line ends the item
     ("- a\n  - b\n  ```\n  code\n# Real\n", ["Real"]),  # a fence on the outer item's line after a nested item
+    ("-\t```\n    echo hi\n    ```\n# Real\n", ["Real"]),  # a tab after a bullet is four columns: the item's fence
+    ("1.\t```\n    echo hi\n    ```\n# Real\n", ["Real"]),  # the same after an ordered marker
+    ("-\t```\n  echo hi\n  ```\n# Real\n", []),  # 2 spaces is under the item's column 4: the item ends, as in CommonMark
     ("- a\n\t```\n```\n# Real\n", []),  # a tab-indented continuation fence (a pin: the sections match the spaces form)
 ])
 def test_a_fence_opened_by_a_list_item_holds_body_text_only_inside_the_item(text, sections):

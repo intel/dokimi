@@ -193,7 +193,7 @@ def cmd_repo_tasks_check(args: argparse.Namespace) -> None:
         ctx, _ = _context(args, out)
         tasks = load_tasks(ctx.content_dir, ctx.manifest, args.task)
         arms = [a for spec in args.arm or () for a in spec.split(",") if a]
-        check_arms([parse_arm(a) for a in arms], ctx.content_dir, tasks, ctx.git_dir, ctx.manifest.guidance_globs)  # skill paths exist, catalogs hold each expected_skill
+        check_arms([parse_arm(a) for a in arms], ctx.content_dir, tasks, ctx.git_dir, ctx.manifest.guidance_globs, ctx.manifest.id)  # skill paths exist, catalogs hold each expected_skill
         if arms:
             print(f"{len(arms)} arm(s) ok: {', '.join(arms)}", file=sys.stderr)
         print(f"{len(tasks)} task(s), image {ctx.image}{' (warm: with network)' if args.warm else ''}",
@@ -282,7 +282,7 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
         lock.enter_context(batch_lock(batch_dir))  # before _context, which rewrites _eval/content
         ctx, _ = _context(args, batch_dir, pin=True)
         tasks = load_tasks(ctx.content_dir, ctx.manifest, args.task)
-        check_arms(arms, ctx.content_dir, tasks, ctx.git_dir, ctx.manifest.guidance_globs)  # skill paths exist, catalogs hold each expected_skill
+        check_arms(arms, ctx.content_dir, tasks, ctx.git_dir, ctx.manifest.guidance_globs, ctx.manifest.id)  # skill paths exist, catalogs hold each expected_skill
         check_mcp_configs(ctx.git_dir, tasks, profile, args.tools)  # a malformed .mcp.json fails here, not in every cell
         skill_pin = pin_skills(batch_dir, arms, ctx.content_dir)  # a resume may not swap an arm's skills
         validate_tasks(tasks)  # refuse malformed host requirements before containers start

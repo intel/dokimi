@@ -59,7 +59,8 @@ def restore(rendered: str) -> str:
 def _marker_columns(line: str) -> tuple[int, ...]:
     """The content columns of the list markers that start a line, outermost first (``- - x`` gives two)."""
     columns: list[int] = []
-    while (item := _ITEM.match(line, columns[-1] if columns else 0)) is not None:
+    expanded = line.expandtabs(4)  # a tab after a marker is spaces up to the next column, as in _opened
+    while (item := _ITEM.match(expanded, columns[-1] if columns else 0)) is not None:
         columns.append(item.end())
     return tuple(columns)
 

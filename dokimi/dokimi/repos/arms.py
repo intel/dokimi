@@ -181,13 +181,15 @@ def _base_skill_files(git_dir: Path, base: str) -> tuple[list[str], list[str]]:
 
 
 def check_arms(arms: list[Any], content_dir: Path, tasks: list[Any], git_dir: Path | None = None,
-               guidance_globs: tuple[str, ...] | list[str] = ()) -> None:
+               guidance_globs: tuple[str, ...] | list[str] = (), repo_id: str | None = None) -> None:
     """Find the skills of every parsed arm before anything runs; a catalog must hold each task's
     ``expected_skill``. Two arms that would share a name or a result directory are refused, and so is a skill
     the base of a task (in ``git_dir``) already ships, which preparing the workspace would refuse cell by cell.
-    As preparation does, a ``guidance:none`` or pinned-revision arm first drops the base's files that match
-    ``guidance_globs``: only what is left under the skill's directory counts as shipped. A revision arm then
-    writes back its revision's files that match them, so those count as shipped too. The files of a ``patch:``
+    As preparation does, a ``guidance:none``, ``guidance:as-skill`` or pinned-revision arm first drops the base's
+    files that match ``guidance_globs``: only what is left under the skill's directory counts as shipped. A revision
+    arm then writes back its revision's files that match them, so those count as shipped too. A ``guidance:as-skill``
+    arm writes its own skill, ``.claude/skills/<repo_id>-guidance``: a skill of the arm with that name, or a file the
+    base tracks under it, is refused here (``repo_id`` given). The files of a ``patch:``
     arm's patch and of a task's ``setup_patches`` are not read: a skill directory they add is refused only in
     preparation."""
     cells: dict[str, str] = {}  # cell-name slug of an arm -> the arm spec that owns it
@@ -197,6 +199,8 @@ def check_arms(arms: list[Any], content_dir: Path, tasks: list[Any], git_dir: Pa
         if cells.setdefault(cell, arm.spec) != arm.spec:
             raise ArmError(f"arms {cells[cell]!r} and {arm.spec!r} would share one result directory ({cell})")
         skills = resolve_skills(arm, content_dir)
+        if repo_id is not None and arm.patch is None and arm.base == "guidance:as-skill":
+            _check_generated_skill(arm, skills, repo_id, tasks, git_dir)
         drops = arm.patch is None and (arm.base in ("guidance:none", "guidance:as-skill") or arm.rev is not None)
         rev = (arm.rev_sha or arm.rev) if arm.patch is None else None
         if skills and git_dir is not None:
@@ -204,6 +208,21 @@ def check_arms(arms: list[Any], content_dir: Path, tasks: list[Any], git_dir: Pa
                 _check_shipped(arm, skills, task, git_dir, shipped, (drops, rev, guidance_globs))
         if any(kind == "skill-catalog" for kind, _ in arm.skills):
             _check_expected_skills(arm, tasks, {s.name for s in skills})
+
+
+def _check_generated_skill(arm: Any, skills: list[Skill], repo_id: str, tasks: list[Any], git_dir: Path | None) -> None:
+    """Refuse a ``guidance:as-skill`` arm whose generated skill directory is a skill of the arm, or is tracked by the
+    base of a task: preparation writes that directory first, so it would fail cell by cell, not here."""
+    target = f"{SKILLS_DIR}/{slug(f'{repo_id}-guidance')}"
+    for skill in skills:
+        if skill.target == target:
+            raise ArmError(f"arm {arm.spec!r}: its generated guidance skill {target} is also one of its skills")
+    if git_dir is None:
+        return
+    for task in tasks:
+        for path in _base_skill_files(git_dir, task.base)[0]:
+            if path == target or path.startswith(target + "/"):
+                raise ArmError(f"arm {arm.spec!r}: the base of task {task.id} already has {target}")
 
 
 def _check_shipped(arm: Any, skills: list[Skill], task: Any, git_dir: Path,
