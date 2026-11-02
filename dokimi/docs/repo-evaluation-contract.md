@@ -1473,8 +1473,10 @@ the files right in it staying its own. Test files are neither modules nor
 callers. Per module:
 
 - `reference_fanin`: the files outside the module that reference a function or
-  method defined in it. The index records references, not calls, so a type
-  use or a header declaration counts too; this is not a caller count.
+  method defined in it. The index records references, not calls: a reference to
+  a function or method counts, a use of a type does not, and a declaration
+  counts only when the indexer records it as a reference, not as a definition.
+  This is not a caller count.
 - `other_tree_modules`: the modules of another tree (the first two path
   components, `cpp/daal` against `cpp/oneapi`; a module shallower than that is
   of the tree of the modules under it, except the root `.`, which is a tree of

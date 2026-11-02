@@ -9,8 +9,9 @@ subdirectories, the files right in it staying its own. Per module:
 
 * ``files``: the indexed non-test files in it;
 * ``reference_fanin``: the non-test files outside it that reference a function or method defined in it.
-  SCIP records references, not call expressions, so this counts a type use or a header declaration too;
-  it is not a caller count;
+  SCIP records references, not call expressions: a reference to a function or method counts, a use of a
+  type does not, and a declaration counts only when the indexer records it as a reference; it is not a
+  caller count;
 * ``other_tree_modules``: the modules of another tree it shares a reference with, either way. A tree is
   the first two path components (``cpp/daal`` and ``cpp/oneapi`` in oneDAL); a module shallower than
   that is of the same tree as the modules under it;
