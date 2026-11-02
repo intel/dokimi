@@ -848,3 +848,13 @@ def test_tasks_check_refuses_an_as_skill_arm_whose_generated_skill_the_arm_also_
     with pytest.raises(SystemExit):
         args.func(args)
     assert "its generated guidance skill .claude/skills/toy-guidance is also one of its skills" in capsys.readouterr().err
+
+
+def test_repo_run_refuses_an_as_skill_arm_whose_generated_skill_the_arm_also_ships(setup, capsys):
+    _skill(setup["root"], ".agent-eval/skills/toy-guidance", "toy-guidance")
+    git(setup["root"], "add", "-A")
+    git(setup["root"], "commit", "-qm", "generated skill")
+    with pytest.raises(SystemExit):
+        _run(setup, "--arm", "guidance:as-skill+skill:skills/toy-guidance", "--task", "fix_lint")
+    assert "its generated guidance skill .claude/skills/toy-guidance is also one of its skills" in capsys.readouterr().err
+    assert not list((setup["out"] / "b1").glob("*/meta.json"))  # refused before any cell
