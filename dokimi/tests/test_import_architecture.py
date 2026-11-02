@@ -465,10 +465,8 @@ def _scope_owners(tree: ast.Module) -> dict[int, ast.AST]:
     return owner
 
 
-#: ``(id of the scope, name) -> [(pos, kind, payload)]``, ``pos`` the (line, column) where the binding takes effect.
-#: Kinds: ``mod`` (payload: modules), ``fn`` (payload: ``(module, attr)`` of an exit callable), ``sysexit`` (SystemExit,
-#: a name for it, or an instance), ``other`` (any other binding, shadowing outer names), ``global`` / ``nonlocal``
-#: (payload: the scope the name is declared in, where it is bound).
+#: ``(id of the scope, name) -> [(pos, kind, payload)]``; ``pos`` is where the binding takes effect.
+#: The kinds and their payloads are described in the docstring of ``_bind``.
 ExitTable = dict[tuple[int, str], list[tuple[tuple[int, int], str, object]]]
 #: A binding moved to another scope runs when its function is called, after any statement of the module.
 _LATER = (10**9, 0)
@@ -484,6 +482,12 @@ def _after(node: ast.AST) -> tuple[int, int]:
 
 
 def _bind(table: ExitTable, scope: ast.AST, name: str, pos: tuple[int, int], kind: str, payload: object = None) -> None:
+    """Record a binding of ``name`` in ``scope`` at ``pos``.
+
+    Kinds: ``mod`` (payload: modules), ``fn`` (payload: ``(module, attr)`` of an exit callable), ``sysexit``
+    (SystemExit, a name for it, or an instance), ``other`` (any other binding, shadowing outer names), and
+    ``global`` / ``nonlocal`` (payload: the scope the name is declared in, where it is bound).
+    """
     table.setdefault((id(scope), name), []).append((pos, kind, payload))
 
 
