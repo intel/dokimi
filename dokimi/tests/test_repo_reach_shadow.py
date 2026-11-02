@@ -24,7 +24,9 @@ from dokimi.cli import build_parser
 from dokimi.repos import WorkTree, load_manifest
 from dokimi.repos import reach
 from dokimi.repos.harness_profile import ProfileError, load_profile, parse_profile
-from dokimi.repos.reach import ReachError, Shadow, distinct_salt, format_matrix, run_reach, scenarios, shadow_for, token
+from dokimi.repos.reach import (ReachError, SeededFile, Shadow, distinct_salt, format_matrix, run_reach, scenarios,
+                                shadow_for, token)
+from dokimi.repos.source import SourceArgumentError
 
 HARNESS = r'''
 import json, os, re, sys
@@ -158,6 +160,30 @@ def test_a_tree_path_at_the_shadow_path_skips_that_scenario(tmp_path, held, skip
     assert ids == [i for i in ["shadow=.", "shadow=sub"] if i != skipped]
 
 
+def test_a_tree_file_above_the_shadow_path_skips_that_scenario(tmp_path):
+    shadow = shadow_for(load_profile(_profile(tmp_path, shadow_file="AGENTS.md/local.md")), WorkTree(_tree(tmp_path)),
+                        ("shadow",))
+    ids = [s.id for s in scenarios(["AGENTS.md", "sub/AGENTS.md", "x/GEMINI.md"], ("shadow",), shadow=shadow)]
+    assert ids == ["shadow=x"]  # x/AGENTS.md is no tree file, so x/AGENTS.md/local.md is free
+
+
+@pytest.mark.parametrize("held, skipped", [("CLAUDE.local.md", "shadow=."), ("sub/CLAUDE.local.md", "shadow=sub")])
+def test_an_empty_directory_at_the_shadow_path_skips_that_scenario(tmp_path, held, skipped):
+    root = _tree(tmp_path)
+    (root / held).mkdir()  # in no file list: only the disk shows it
+    shadow = shadow_for(load_profile(_profile(tmp_path, shadow_file="CLAUDE.local.md")), WorkTree(root), ("shadow",))
+    ids = [s.id for s in scenarios(["AGENTS.md", "sub/AGENTS.md"], ("shadow",), shadow=shadow)]
+    assert ids == [i for i in ["shadow=.", "shadow=sub"] if i != skipped]
+
+
+def test_a_shadow_path_the_tree_cannot_resolve_is_not_free():
+    class OutOfTree:
+        def is_dir(self, path):
+            raise SourceArgumentError(f"path escapes the repository: {path}")
+
+    assert not Shadow("CLAUDE.local.md", frozenset(), OutOfTree()).free("CLAUDE.local.md")
+
+
 def test_shadow_for_refuses_a_profile_without_one_and_an_unsafe_path(tmp_path):
     tree = WorkTree(_tree(tmp_path))
     bare = load_profile(_profile(tmp_path))
@@ -244,6 +270,50 @@ def test_a_shadow_file_never_replaces_a_probe_file(tmp_path, monkeypatch):
     assert (ws / "REACH_PROBE.txt").read_text(encoding="utf-8") == "probe\n"
 
 
+def _workspace_files(ws: Path) -> dict[str, str]:
+    return {p.relative_to(ws).as_posix(): p.read_text(encoding="utf-8") for p in ws.rglob("*")
+            if p.is_file() and ".git" not in p.relative_to(ws).parts}
+
+
+def test_a_shadow_file_never_goes_under_a_probe_file(tmp_path, monkeypatch):
+    with pytest.raises(ReachError, match="the shadow file REACH_PROBE.txt/x.md needs REACH_PROBE.txt, a file of the "
+                                         "probe workspace, as a directory"):
+        _run(tmp_path, monkeypatch, kinds=("shadow",), shadow_file="REACH_PROBE.txt/x.md")
+    files = _workspace_files(next((tmp_path / "work").iterdir()) / "ws")
+    assert sorted(files) == ["AGENTS.md", "REACH_PROBE.txt", "sub/AGENTS.md", "sub/REACH_PROBE.txt"]
+    assert files["REACH_PROBE.txt"] == "probe\n"
+
+
+@pytest.mark.parametrize("path", ["CLAUDE.local.md", "a/b/CLAUDE.local.md"])
+def test_a_failed_shadow_write_removes_what_it_made(tmp_path, monkeypatch, path):
+    def write_part(self, text, **kw):
+        with open(self, "w", encoding="utf-8") as f:
+            f.write(text[:5])
+        raise OSError(28, "No space left on device")
+
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    monkeypatch.setattr(Path, "write_text", write_part)
+    with pytest.raises(ReachError, match=f"cannot write the shadow file {path} in the probe workspace: .*No space"):
+        with reach._shadowed(ws, SeededFile(path, "RC000001", "RC000002")):
+            pass
+    assert list(ws.iterdir()) == []
+
+
+def test_a_failed_shadow_directory_removes_nothing_it_did_not_make(tmp_path, monkeypatch):
+    def lose_race(self, *a, **kw):  # another writer puts a file where the directory goes
+        self.write_bytes(b"theirs")
+        raise FileExistsError(17, "File exists", str(self))
+
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    monkeypatch.setattr(Path, "mkdir", lose_race)
+    with pytest.raises(ReachError, match="cannot write the shadow file a/CLAUDE.local.md in the probe workspace"):
+        with reach._shadowed(ws, SeededFile("a/CLAUDE.local.md", "RC000001", "RC000002")):
+            pass
+    assert (ws / "a").read_bytes() == b"theirs"
+
+
 def test_the_reach_schema_checks_the_shadow_record(tmp_path, monkeypatch):
     payload = {**_run(tmp_path, monkeypatch, kinds=("shadow",)), "schema_version": "guidance_reach.v1"}
     payload["scenarios"][0]["shadow"]["class"] = "seen"
@@ -277,3 +347,16 @@ def test_repo_reach_refuses_shadow_for_a_profile_without_a_shadow_file(tmp_path,
         args.func(args)
     assert exc.value.code == 2
     assert "--scenarios shadow needs guidance.shadow_file in the harness profile; fake sets none" in capsys.readouterr().err
+
+
+def test_repo_reach_reports_a_shadow_file_the_workspace_refuses(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("FAKE_MODE", "ok")
+    (tmp_path / "work").mkdir()
+    argv = [a for a in _cli(tmp_path, "--scenarios", "shadow", "--work-dir", str(tmp_path / "work"), "--out",
+                            str(tmp_path / "out"), shadow_file="REACH_PROBE.txt/x.md") if a != "--dry-run"]
+    args = build_parser().parse_args(argv)
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 1
+    assert ("✗ the shadow file REACH_PROBE.txt/x.md needs REACH_PROBE.txt, a file of the probe workspace, as a "
+            "directory") in capsys.readouterr().err

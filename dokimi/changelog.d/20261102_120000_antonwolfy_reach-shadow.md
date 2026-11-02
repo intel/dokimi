@@ -11,8 +11,9 @@ SPDX-License-Identifier: Apache-2.0
   built-in `claude-code` profile, and in no other) for one scenario at a time: `shadow=.` at the root, started there
   with tools off, and `shadow=<dir>` in each guidance directory holding a file not named `CLAUDE*`, started at the
   root and told to read a file in `<dir>`. The file carries its own head and tail tokens, is not committed, and is
-  removed when its scenario ends, after an error too; a directory where the tree already has a file at that path
-  gets no shadow scenario. Its result is a `shadow` record on the scenario row of `reach.json`
+  removed when its scenario ends, after an error too; a directory where the tree already has a file or a directory
+  (an empty one included) at that path, or a file above it, gets no shadow scenario, and a shadow path that would
+  replace or go under one of the probe's own files stops the run with an error before anything is written. Its result is a `shadow` record on the scenario row of `reach.json`
   (`guidance_reach.v1`, widened in place) and one line under the matrix, so the matrix keeps one row per tree file.
   `shadow` is not in the default (`root,cwd,read`, which the `--scenarios` help now names instead of "all"), and a
   profile without `guidance.shadow_file` refuses it as a usage error (exit 2). `--dry-run` lists the shadow

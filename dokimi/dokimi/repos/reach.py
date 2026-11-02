@@ -116,10 +116,18 @@ class Shadow:
 
     file: str
     taken: frozenset[str]  # casefolded, as a case-insensitive disk would collide them
+    tree: RepoTree | None = None  # asked for a directory at the path: the file list has no empty one
 
     def free(self, path: str) -> bool:
+        """No tree path at ``path``, under it (a directory) or above it (a file where ``path`` needs a directory)."""
         key = path.casefold()
-        return key not in self.taken and not any(t.startswith(key + "/") for t in self.taken)
+        above = {p.as_posix() for p in PurePosixPath(key).parents} - {"."}
+        if key in self.taken or above & self.taken or any(t.startswith(key + "/") for t in self.taken):
+            return False
+        try:
+            return self.tree is None or not self.tree.is_dir(path)
+        except SourceError:  # the path leads out of the tree (a link git ignores, so not in files()): not free
+            return False
 
 
 def check_shadow(profile: HarnessProfile, kinds: tuple[str, ...]) -> None:
@@ -137,7 +145,7 @@ def shadow_for(profile: HarnessProfile, tree: RepoTree, kinds: tuple[str, ...]) 
         return None
     if not _safe_path(name):
         raise ReachError(f"{profile.path}: guidance.shadow_file {name!r} is not a path inside a directory")
-    return Shadow(name, frozenset(p.casefold() for p in tree.files()))
+    return Shadow(name, frozenset(p.casefold() for p in tree.files()), tree)
 
 
 def token(salt: str, path: str, position: str) -> str:
@@ -343,18 +351,46 @@ def _shadowed(workspace: Path, item: SeededFile | None) -> Iterator[None]:
     if item is None:
         yield
         return
-    target = workspace / item.path
-    if os.path.lexists(target):  # scenarios() skips a tree path; this guards the probe's own files
-        raise ReachError(f"the shadow file {item.path} would replace a file of the probe workspace")
-    created = [p for p in target.parents if not p.exists()]  # nearest first: the last one is the outermost
+    _check_shadow_path(workspace, item.path)
+    dirs: list[Path] = []  # the directories this call made, outermost first
+    written: list[Path] = []  # the file, once this call has begun to write it
     try:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(seed_text(SHADOW_TEXT, item.path, item.head, item.tail), encoding="utf-8")
+        try:
+            _write_shadow(workspace, item, dirs, written)
+        except OSError as exc:
+            raise ReachError(f"cannot write the shadow file {item.path} in the probe workspace: {exc}") from exc
         yield
     finally:
-        target.unlink(missing_ok=True)
-        if created and created[-1].exists():
-            shutil.rmtree(created[-1], onerror=retry_writable)
+        for path in written:
+            path.unlink(missing_ok=True)
+        if dirs and dirs[0].exists():
+            shutil.rmtree(dirs[0], onerror=retry_writable)
+
+
+def _check_shadow_path(workspace: Path, path: str) -> None:
+    """Refuse a shadow path the workspace already holds, or one under a workspace entry that is not a directory (a
+    probe file, a seeded file, a link). scenarios() skips a tree path; this guards the probe's own files."""
+    parts = PurePosixPath(path).parts
+    for n in range(1, len(parts)):
+        above = workspace.joinpath(*parts[:n])
+        if not os.path.lexists(above):
+            break
+        if above.is_symlink() or not above.is_dir():
+            raise ReachError(f"the shadow file {path} needs {'/'.join(parts[:n])}, a file of the probe workspace, "
+                             "as a directory")
+    if os.path.lexists(workspace / path):
+        raise ReachError(f"the shadow file {path} would replace a file of the probe workspace")
+
+
+def _write_shadow(workspace: Path, item: SeededFile, dirs: list[Path], written: list[Path]) -> None:
+    """Make the shadow file's missing directories, each added to ``dirs`` once made, then the file."""
+    target = workspace / item.path
+    for parent in reversed(PurePosixPath(item.path).parents[:-1]):  # outermost first; [-1] is "."
+        if not (workspace / parent).is_dir():
+            (workspace / parent).mkdir()
+            dirs.append(workspace / parent)
+    written.append(target)  # before the write: one that fails part way can leave the file
+    target.write_text(seed_text(SHADOW_TEXT, item.path, item.head, item.tail), encoding="utf-8")
 
 
 def _score_row(row: dict[str, Any], transcript: Transcript | None, known: set[str],

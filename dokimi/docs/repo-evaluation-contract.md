@@ -1043,10 +1043,16 @@ Protocol:
       turns off. `shadow=.` writes it at the root and runs as `cwd=.`;
       `shadow=<dir>` writes it in each guidance directory that holds a file
       not named `CLAUDE*` (an `AGENTS.md`-class file) and runs as
-      `read=<dir>`. A directory where the tree already has a file at that
-      path gets no shadow scenario. The file is not committed, and it is
-      removed when its scenario ends, after an error or a timeout too, so no
-      other scenario sees it.
+      `read=<dir>`. A directory where the tree already has a file or a
+      directory (an empty one included) at that path, or a file where the
+      path needs a directory (the tree's paths compared ignoring case),
+      gets no shadow
+      scenario. A shadow path that would replace or go under a file of the
+      probe's own (a `REACH_PROBE.txt`, a seeded file or a link) stops the
+      run with an error, before anything is written. The file is not
+      committed, and it is removed when its scenario ends, after an error or
+      a timeout too, with the directories it needed that the workspace
+      lacked, so no other scenario sees it.
     - A scenario that runs past `--timeout` is an `error`; its raw stdout up
       to the kill is kept in the trace. Its harness is killed with its process
       group (POSIX) or job object (Windows), and so is anything left in that
