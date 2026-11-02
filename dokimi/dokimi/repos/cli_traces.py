@@ -747,14 +747,15 @@ def _copilot_tool(data: dict[str, Any], t: float | None, workdir: str | None, cw
     args = data.get("arguments")
     if name in _COPILOT_SHELL | _COPILOT_READ | _COPILOT_EDIT and not isinstance(args, dict):
         raise TypeError(f"{name} arguments are not an object")  # counted as a dropped line by the caller
+    obj: dict[str, Any] = args if isinstance(args, dict) else {}
     if name in _COPILOT_SHELL:
-        command = str(args.get("command", ""))
+        command = str(obj.get("command", ""))
         # only bash is a POSIX script; a PowerShell command is not parsed for the files it reads
         scripts = shell_reads(command, cwd) if name == "bash" else []
         reads = [{"t": t, "kind": "read", "path": relative_path(p, workdir)} for p in scripts]
         return [*reads, {"t": t, "kind": "command", "text": command, "rc": None}]
     if name in _COPILOT_READ | _COPILOT_EDIT:
-        path = str(args.get("path") or args.get("file_path") or "")
+        path = str(obj.get("path") or obj.get("file_path") or "")
         if not path:  # a call without a path names no file
             return []
         return [{"t": t, "kind": "read" if name in _COPILOT_READ else "edit", "path": relative_path(path, workdir)}]
