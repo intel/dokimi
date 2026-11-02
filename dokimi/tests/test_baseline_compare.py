@@ -520,7 +520,7 @@ def test_gate_matches_questions_by_id_not_list_position(compare, capsys):
     assert "(2 matched)" in out and "Regression gate: PASS" in out
 
 
-@pytest.mark.parametrize("model", ["unknown/unknown", "openai/ Unknown ", "bare-model"])
+@pytest.mark.parametrize("model", ["unknown/unknown", "openai/ Unknown ", "bare-model", "openai/openai/unknown"])
 def test_regression_gate_refuses_unknown_panel_members(compare, capsys, model):
     with pytest.raises(SystemExit) as exc:
         compare(_panel(model), _panel(model), "--max-context-drop", "0")
@@ -549,3 +549,20 @@ def test_regression_gate_needs_at_least_one_matched_question_by_default(compare,
         compare(_scores(), _scores(), "--max-context-drop", "0")
     assert exc.value.code == 2
     assert "insufficient" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("flag", ["--max-context-drop", "--max-lift-drop"])
+def test_regression_gate_threshold_keeps_every_digit_of_an_equal_drop(compare, capsys, flag):
+    compare(_scores(0.2), _scores(0.09999999999999999), flag, "0.10000000000000001")
+    assert "Regression gate: PASS" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("judge, answer", [
+    (("openai", "openai/unknown"), ("openai", "gpt-6.1-sol")),
+    (("anthropic", "claude-sonnet-5-5"), ("openai", "openai/unknown")),
+])
+def test_regression_gate_refuses_an_unknown_model_behind_a_route(compare, capsys, judge, answer):
+    with pytest.raises(SystemExit) as exc:
+        compare(_eval(answer=answer, judge=judge), _eval(answer=answer, judge=judge), "--max-context-drop", "0")
+    assert exc.value.code == 1
+    assert "cannot verify" in capsys.readouterr().err

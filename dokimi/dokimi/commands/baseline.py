@@ -103,7 +103,7 @@ def _recorded_models(eval_data: Dict[str, Any]) -> Dict[str, Optional[Tuple[str,
         if any(not isinstance(v, str) or not v.strip() or v.strip().lower() == "unknown"
                for v in (provider, model)):
             return None
-        if model_identity(str(model))[0] is None:  # a route with no id after it ("anthropic/") names no model
+        if model_identity(str(model))[0] in (None, "unknown"):  # no id after the route ("anthropic/"), or only "unknown"
             return None
         return str(provider), str(model)
 

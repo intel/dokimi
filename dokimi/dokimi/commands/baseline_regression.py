@@ -7,19 +7,19 @@ from __future__ import annotations
 
 import argparse
 import math
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from dokimi.exit_codes import usage_exit
 from dokimi.records import BASELINE, CONTEXT, Record
 
 
-def threshold(value: str) -> float:
-    """argparse type for a permitted drop in score points."""
+def threshold(value: str) -> Decimal:
+    """argparse type for a permitted drop in score points, kept exact for the Decimal comparison."""
     try:
-        number = float(value)
-        if math.isfinite(number) and number >= 0:
+        number = Decimal(value)
+        if number.is_finite() and number >= 0:
             return number
-    except ValueError:
+    except InvalidOperation:
         pass
     raise argparse.ArgumentTypeError("expected a finite non-negative number")
 
@@ -62,7 +62,7 @@ def check(args: argparse.Namespace, baseline: list[Record], current: list[Record
         if limit is None:
             continue
         drop = sum((base[key][index] - cur[key][index] for key in sorted(matched)), Decimal(0)) / len(matched)
-        failed |= drop > Decimal(str(limit))
+        failed |= drop > limit
         metric = "context score" if index == 0 else "paired lift"
         print(f"{metric}: drop={drop:.12g}, allowed={limit:.12g} ({len(matched)} matched)")
     print("Regression gate: " + ("REGRESSION" if failed else "PASS"))
