@@ -52,6 +52,10 @@ def cmd_run(args: argparse.Namespace) -> int:
     if problems:
         print("\n".join(problems), file=sys.stderr)
         return 1
+    names = [harness.name for harness, _ in args.harness]
+    if len(set(names)) != len(names):
+        print("✗ each --harness may be given once: a second run would overwrite the first's matrix", file=sys.stderr)
+        return 1
     failed = False
     args.out.mkdir(parents=True, exist_ok=True)
     for harness, model in args.harness:
