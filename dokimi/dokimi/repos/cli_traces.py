@@ -129,7 +129,7 @@ def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
             walk.here = None
         if in_subshell:  # a subshell: its reads are not tracked
             if _runs_dir_before_parens(part):  # ``cd $(dirname f)``: the cd is outside the parentheses
-                walk.lose(after != "&")
+                walk.lose(_in_own_shell(part, after))
             continue
         walk.track_groups(_bare(part), after, out)
         words = walk.words(part, after)
@@ -209,12 +209,8 @@ class _Walk:
         except ValueError:
             return []
         if words is None:
-            rough = part.split()
-            while rough and (rough[0] in _KEYWORDS or rough[0] == "{"):
-                rough = rough[1:]
-            rough, via_env, _ = _command_words(rough)
-            if rough[:1] and rough[0] in _DIRS and not via_env:  # ``builtin cd "$D"``: where it went is not known
-                self.lose(after != "&" and not _PIPE.search(re.sub(r"\\.", "", _bare(part))))  # ``\|`` is no pipe
+            if _runs_dir_before_parens(part):  # ``builtin cd "$D"``: where it went is not known
+                self.lose(_in_own_shell(part, after))
             return []
         return words[1:] if words[:1] == ["{"] else words  # a brace group runs in this shell: its cd and reads count
 
@@ -283,6 +279,15 @@ def _runs_dir_before_parens(part: str) -> bool:
         words = words[1:]
     words, via_env, _ = _command_words(words)
     return bool(words) and words[0] in _DIRS and not via_env
+
+
+def _in_own_shell(part: str, after: str) -> bool:
+    """Whether ``part`` runs in the script's shell: not backgrounded by ``after``, nor a pipeline stage (a pipe
+    in quotes, escaped, ``\\|``, or in ``$( ... )`` or backticks is not one of ``part``'s)."""
+    text = re.sub(r"\\.", "", _bare(part))
+    for _ in range(text.count("(") + 1):  # the innermost ``( ... )`` first, then the ones around it
+        text = re.sub(r"\([^()]*\)|`[^`]*`", "", text)
+    return after != "&" and not _PIPE.search(text)
 
 
 def _computed(part: str) -> bool:
