@@ -39,6 +39,7 @@ import os
 import re
 import shutil
 import tempfile
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
@@ -156,6 +157,13 @@ def _loads(records: list[dict[str, Any]], names: dict[str, tuple[str, ...]], lin
                 own_loaded.add(n)
         unpinned.update(n for n in (r["file"], *links.get(r["file"], ())) if n in ambiguous)
     return cross, own_loaded, unpinned
+
+
+def native_in_probe(seeded: list[Any], guidance_names: Iterable[str]) -> set[str]:
+    """The harness-native names (the profile's guidance names) that a probed file or link carries. A native file in
+    the probe can import a link's target; a configured name with no file in the probe cannot."""
+    probed = {PurePosixPath(p).name for s in seeded for p in (s.path, *s.aliases)}
+    return probed & {PurePosixPath(n).name for n in guidance_names}
 
 
 def overlay_report(records: list[dict[str, Any]], own: str | None,
@@ -421,7 +429,7 @@ def run_reach(
         "scenarios": scenario_rows,
         "records": records,
         "overlays": overlay_report(records, profile.overlay, {s.path: s.aliases for s in seeded},
-                                   {PurePosixPath(n).name for n in profile.guidance_names}),
+                                   native_in_probe(seeded, profile.guidance_names)),
         "summary": {
             "cost_usd": round(sum(r.get("cost_usd") or 0 for r in scenario_rows), 6),
             "by_class": by_class,

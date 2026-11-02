@@ -578,15 +578,16 @@ def _path_hits(ws: Path, rel: str, gone: set[Path]) -> bool:
     return False
 
 
-def _overlay_targets(ws: Path, listed: list[str]) -> list[str]:
-    """The overlays of other agents to remove, one name per file: a directory the index lists that a setup patch made
-    a link to another directory names the same file twice, and the first name in order stands for it."""
+def _overlay_targets(ws: Path, listed: list[str]) -> dict[Path, str]:
+    """The overlays of other agents to remove, by canonical path (the directories resolved, so a name under a link
+    is the file it reaches), one name per file: a directory the index lists that a setup patch made a link to another
+    directory names the same file twice, and the first name in order stands for it."""
     names: dict[Path, str] = {}
     for rel in listed:  # a setup patch may have made a directory of the index a link out of the workspace
         if not _canon(ws / rel).parent.is_relative_to(ws.resolve()):
             raise PrepError(f"guidance:overlay: {rel} is under a path that resolves outside the workspace")
         names.setdefault(_canon(ws / rel), rel)
-    return sorted(names.values())
+    return names
 
 
 def _apply_overlay(ws: Path, tracked: list[str], own: str) -> tuple[list[str], dict[str, Any]]:
@@ -599,18 +600,21 @@ def _apply_overlay(ws: Path, tracked: list[str], own: str) -> tuple[list[str], d
         if not real.is_file() or not real.is_relative_to(ws.resolve()):
             raise PrepError(f"guidance:overlay: {rel} does not resolve to a usable file in the workspace")
     listed = [p for p in tracked if overlay_of(p) not in (None, own)]
-    removed = _overlay_targets(ws, listed)
-    gone = {_canon(ws / rel) for rel in removed}
+    targets = _overlay_targets(ws, listed)
+    gone = set(targets)
     listed_set = set(listed)
     for rel in tracked:
         if rel not in listed_set and _path_hits(ws, rel, gone):
             raise PrepError(f"guidance:overlay: {rel} resolves through an overlay the arm removes; "
                             "the base would dangle")
-    for rel in reversed(removed):  # a name under a link sorts after the link: unlink it first, or its path is gone
-        if (ws / rel).is_dir() and not (ws / rel).is_symlink():
+    for canon, rel in targets.items():  # all checks before the first unlink: a refusal leaves the workspace as it was
+        if canon.is_dir() and not canon.is_symlink():
             raise PrepError(f"guidance:overlay: {rel} is a directory, not an overlay file")
-        (ws / rel).unlink()
-    return removed, {"arm_overlay": {"name": own, "kept": kept}}
+    # Each canonical path has real directories only as its parents, so removing one leaves the others valid, whatever
+    # order the aliases sort in (a name under a link is unlinked by its canonical path, not through the link)
+    for canon in targets:
+        canon.unlink()
+    return sorted(targets.values()), {"arm_overlay": {"name": own, "kept": kept}}
 
 
 def _guidance_at(git_dir: Path, manifest: RepoManifest, sha: str) -> tuple[list[str], dict[str, str]]:

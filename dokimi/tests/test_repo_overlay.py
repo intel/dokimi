@@ -10,6 +10,7 @@ import json
 import os
 import shutil
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -17,7 +18,7 @@ import yaml
 from dokimi.repos import RepoSource, load_manifest, open_source
 from dokimi.repos.harness_profile import PROFILE_DIR, ProfileError, load_profile, parse_profile
 from dokimi.repos.overlays import native_names, overlay_of
-from dokimi.repos.reach import format_matrix, overlay_report, probe_files
+from dokimi.repos.reach import format_matrix, native_in_probe, overlay_report, probe_files
 from dokimi.repos.workspace import (
     ARM_FORMS,
     OVERLAY_ARM,
@@ -501,6 +502,33 @@ def test_overlay_arm_removes_a_file_under_a_removed_directory_alias_before_the_a
     assert not os.path.lexists(tmp_path / "AGENTS.codex.md")
     assert not (tmp_path / "real" / "AGENTS.copilot.md").exists()
     assert (tmp_path / "AGENTS.claude.md").is_file()
+
+
+def test_overlay_arm_removes_a_chained_directory_alias_listing_without_failing(tmp_path):
+    """AGENTS.a.md links to AGENTS.z.md, which links to real/: the listed AGENTS.a.md/AGENTS.copilot.md is the same
+    file as real/AGENTS.copilot.md. Removing AGENTS.z.md first would leave AGENTS.a.md dangling before the nested
+    name is unlinked; each file is removed by its canonical path, so the order of the names does not matter."""
+    (tmp_path / "real").mkdir()
+    (tmp_path / "real" / "AGENTS.copilot.md").write_text("copilot\n", encoding="utf-8")
+    (tmp_path / "AGENTS.z.md").symlink_to("real", target_is_directory=True)
+    (tmp_path / "AGENTS.a.md").symlink_to("AGENTS.z.md", target_is_directory=True)
+    (tmp_path / "AGENTS.claude.md").write_text("claude\n", encoding="utf-8")
+    listed = ["AGENTS.a.md", "AGENTS.z.md", "AGENTS.a.md/AGENTS.copilot.md", "real/AGENTS.copilot.md", "AGENTS.claude.md"]
+    removed, _ = _apply_overlay(tmp_path, sorted(listed), "claude")
+    assert removed == ["AGENTS.a.md", "AGENTS.a.md/AGENTS.copilot.md", "AGENTS.z.md"]
+    assert not os.path.lexists(tmp_path / "AGENTS.a.md")
+    assert not os.path.lexists(tmp_path / "AGENTS.z.md")
+    assert not (tmp_path / "real" / "AGENTS.copilot.md").exists()
+    assert (tmp_path / "AGENTS.claude.md").is_file()
+
+
+def test_native_in_probe_counts_only_the_native_names_a_probed_file_or_link_carries():
+    """The profile names CLAUDE.md, but a probe with no CLAUDE.md file or link has no native name to import a target:
+    the configured name alone does not make an alias ambiguous."""
+    shared = SimpleNamespace(path="docs/shared.md", aliases=("AGENTS.codex.md",))
+    assert native_in_probe([shared], ["CLAUDE.md"]) == set()
+    assert native_in_probe([shared, SimpleNamespace(path="sub/CLAUDE.md", aliases=())], ["CLAUDE.md"]) == {"CLAUDE.md"}
+    assert native_in_probe([SimpleNamespace(path="CLAUDE.md", aliases=("AGENTS.codex.md",))], ["CLAUDE.md"]) == {"CLAUDE.md"}
 
 
 def test_overlay_report_leaves_a_load_of_a_shared_target_unattributed():
