@@ -1618,7 +1618,9 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   full id, the rule of `novelty`), and a `--labels` entry that names no
   credited pair of the batch, has no `finding` or names another finding than
   the one the batch credits for its thread (a hand-edit, or a sheet older
-  than a regrade: write a new one), or has a label other than the three. A
+  than a regrade: write a new one), or has a label other than the three, and
+  two entries that give one pair two different labels (the same label twice,
+  or a `null` next to a label, is taken). A
   cell graded without `matches`
   and a grader-failure cell are counted, not judged. A pair whose full text is
   not found (no single task directory or no such thread under
@@ -1627,11 +1629,17 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   `unjudged`, with `error` saying why, and never count as `same point`.
   `--dry-run` counts the pairs and prints their cost at list price (one call
   each; prompt characters over 4, 100 reply tokens) and makes no call.
-  `--max-usd X` starts no new call once X is spent (a call with no known
-  price counts as 0, as in `repo run`): a cell not fully judged gets no
-  `hits_judged.json` (one an earlier run wrote is removed), and the command
-  exits 1. A `hits_judged.json` that cannot be written, or an earlier one
-  that cannot be removed (a read-only batch, a directory in its place), stops
+  `--max-usd X` starts no new call once X is spent: a cell not fully judged
+  gets no `hits_judged.json` (one an earlier run wrote is removed), and the
+  command exits 1. A judge reply with no known price stops such a run after
+  that call the same way, as `novelty`'s spend cap does: the cap cannot be
+  enforced on spend it cannot see, and the line naming the cells left says
+  so (`--json`: `budget_stop`; drop `--max-usd` to run unmetered). Without
+  `--max-usd` an unpriced call counts as 0, and the spend line says how many
+  calls had no price and that the spend is not known (`--json`:
+  `unpriced_calls`). A reply replayed from the response cache is free. A
+  `hits_judged.json` that cannot be written, or an earlier one that cannot
+  be removed (a read-only batch, a directory in its place), stops
   the run there with no further call: a `✗` line names the path and the
   error, the judge calls made and their cost, and says the cells written
   before keep their files; the command exits 2. With `--labels FILE` it
@@ -1650,7 +1658,11 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   drawn with `random.Random(seed)` for `--seed N` (default 0), so a seed gives
   one sheet; a pair whose full text is not found is left out. Set each
   `label` to one of the three (`null` leaves the pair unlabelled) and pass the
-  file to `repo hits judge --labels`.
+  file to `repo hits judge --labels`. When `--out` names a file that holds a
+  JSON list with an entry whose `label` is set, the command refuses with
+  exit 2 before writing, naming the path and the number of labelled entries
+  (move it aside or pass another `--out`); a file with no label set, or that
+  is not a JSON list, is replaced.
 - `repo compare` reduces cells to one value per (task, arm, model) first:
   repetitions share a task's difficulty and are not paired across arms, so the
   task is the unit. Per treatment arm, model and measure (gate share, score,

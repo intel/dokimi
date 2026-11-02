@@ -6,6 +6,7 @@ the real ``dokimi:review_replay`` grader, with the judge a scripted fake LLM."""
 
 from __future__ import annotations
 
+import contextlib
 import json
 from pathlib import Path
 
@@ -17,7 +18,7 @@ from dokimi.cli import build_parser
 from dokimi.metrics.usage import UsageRecord
 from dokimi.repos.graders import main, review
 from dokimi.repos.hits_calibration import calibrate, cohen_kappa, sheet
-from dokimi.repos.hits_judge import HITS_JUDGED, Pair, pair_key, read_pairs
+from dokimi.repos.hits_judge import HITS_JUDGED, BudgetSpent, Meter, Pair, pair_key, read_pairs
 from tests.test_repo_compare import _cell
 
 TASK = "review_replay_pr3098"
@@ -179,7 +180,7 @@ def test_a_judge_that_runs_an_answer_model_is_refused_before_any_call(tmp_path, 
     with llm.use_adapter(llm.FakeAdapter()) as fake:  # an unscripted call fails the test
         code, out, err = _run(capsys, "judge", str(batch), "--judge", judge)
     assert (code, out, fake.requests) == (2, "", [])
-    assert err.startswith(f"✗ judge {judge} runs the same model as the answer model")
+    assert err.startswith(f"✗ judge {judge} runs the model of an answer of this batch")
     assert not list(batch.glob(f"*/{HITS_JUDGED}"))
 
 
@@ -194,13 +195,20 @@ def test_a_judge_that_answered_a_cell_under_another_name_is_refused_before_any_c
     with llm.use_adapter(llm.FakeAdapter()) as fake:  # an unscripted call fails the test
         code, out, err = _run(capsys, "judge", str(batch), "--judge", JUDGE)
     assert (code, out, fake.requests) == (2, "", [])
-    assert err.startswith(f"✗ judge {JUDGE} runs the same model as the answer model 'claude-opus-5-5'")
+    assert err.startswith(f"✗ judge {JUDGE} runs the model of an answer of this batch ('claude-opus-5-5')")
     assert not list(batch.glob(f"*/{HITS_JUDGED}"))
 
 
-def test_a_judge_of_another_family_is_taken(tmp_path, capsys, judge_llm):
-    code, _, _ = _run(capsys, "judge", str(_batch(tmp_path)), "--judge", "anthropic/claude-haiku-5-5")
-    assert code == 0 and len(judge_llm.requests) == 4
+def test_the_refusal_states_the_same_model_rule_the_check_enforces(tmp_path, capsys, judge_llm):
+    batch = _batch(tmp_path)
+    code, _, _ = _run(capsys, "judge", str(batch), "--judge", "anthropic/claude-haiku-5-5")
+    assert code == 0 and len(judge_llm.requests) == 4  # another model of the answer model's family is taken
+    judge_llm.requests.clear()
+    code, out, err = _run(capsys, "judge", str(batch), "--judge", f"anthropic/{MODEL}")
+    assert (code, out, judge_llm.requests) == (2, "", [])
+    assert err.strip() == (f"✗ judge anthropic/{MODEL} runs the model of an answer of this batch ('{MODEL}'); a judge "
+                           "must run another model than every answer (pass another --judge)")
+    assert "family" not in err  # the check is the same-model rule, not a family rule
 
 
 def test_dry_run_counts_the_pairs_and_prices_them_with_no_call(tmp_path, capsys, monkeypatch):
@@ -227,6 +235,44 @@ def test_max_usd_starts_no_call_once_spent_and_a_cell_left_gets_no_file(tmp_path
     assert _judged(batch, "guidance:none", 1).is_file() and not stale.exists()
     assert (f"1 cell(s) not fully judged (--max-usd spent), no {HITS_JUDGED}: "
             f"{TASK}__guidance-raw__{MODEL}__r1") in out.splitlines()
+
+
+UNPRICED_STOP = ("no price is known for claude-opus-5-5, so --max-usd cannot be enforced; stopped after 1 judge "
+                 "call(s). Drop --max-usd to run unmetered")
+
+
+@pytest.mark.parametrize("cost, max_usd, calls, stop", [
+    (None, 0.5, 1, UNPRICED_STOP),  # an unpriced reply under a cap: the run stops after that call
+    (None, None, 5, None),  # no cap: every call, each counted as 0
+    (0.4, 0.5, 2, "--max-usd spent")])  # a priced control: the second call starts at $0.40, the third at $0.80
+def test_meter_stops_an_unpriced_judge_under_max_usd_after_one_call(monkeypatch, cost, max_usd, calls, stop):
+    monkeypatch.delenv(caching.RESPONSE_CACHE_ENV, raising=False)
+    fake = llm.FakeAdapter(respond=lambda _: "{}", usage=UsageRecord(prompt_tokens=1, completion_tokens=1,
+                                                                    total_tokens=2, cost_usd=cost))
+    meter = Meter(max_usd)
+    with llm.use_adapter(fake), contextlib.suppress(BudgetSpent):
+        ask = meter.asking(llm.LLM("claude-opus-5-5", "anthropic"))
+        for i in range(5):
+            ask(f"pair {i}")
+    assert (len(fake.requests), meter.calls, meter.stop) == (calls, calls, stop)
+    assert meter.unpriced == (calls if cost is None else 0)
+
+
+def test_an_unpriced_judge_under_max_usd_stops_the_run_and_says_why(tmp_path, capsys, monkeypatch):
+    monkeypatch.delenv(caching.RESPONSE_CACHE_ENV, raising=False)
+    batch = _batch(tmp_path)
+    with llm.use_adapter(llm.FakeAdapter(respond=_reply)) as fake:  # no cost_usd: the judge has no known price
+        code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--max-usd", "0.5")
+        assert (code, len(fake.requests)) == (1, 1)
+        lines = out.splitlines()
+        assert (f"2 cell(s) not fully judged ({UNPRICED_STOP}), no {HITS_JUDGED}: {TASK}__guidance-none__{MODEL}__r1, "
+                f"{TASK}__guidance-raw__{MODEL}__r1") in lines
+        assert lines[-1] == "1 judge call(s), $0.0000, and 1 call(s) with no known price: the spend is not known"
+        assert not list(batch.glob(f"*/{HITS_JUDGED}"))
+        code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--json")  # no cap: every pair
+    result = json.loads(out)
+    assert (code, len(fake.requests), result["calls"], result["spent_usd"]) == (0, 5, 4, 0.0)
+    assert (result["unpriced_calls"], result["budget_stop"], result["budget_stopped"]) == (4, None, [])
 
 
 def test_a_file_that_cannot_be_written_stops_the_run_with_exit_2_and_no_later_call(tmp_path, capsys, judge_llm):
@@ -434,6 +480,20 @@ def test_a_label_on_another_finding_than_the_credited_one_is_refused_before_any_
                            "sheet with `repo hits sheet`")
 
 
+def test_two_different_labels_for_one_pair_are_refused_before_any_call(tmp_path, capsys, judge_llm):
+    batch = _batch(tmp_path)
+    labels = _sheet(tmp_path, capsys, batch)  # every pair labelled `related`
+    entries = json.loads(labels.read_text())
+    labels.write_text(json.dumps(entries + [{**entries[1], "label": None}, entries[1]]))  # a null, the same label
+    assert _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(labels))[0] == 0
+    judge_llm.requests.clear()
+    labels.write_text(json.dumps(entries + [{**entries[1], "label": None}, {**entries[1], "label": "unrelated"}]))
+    code, out, err = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(labels))
+    assert (code, out, judge_llm.requests) == (2, "", [])
+    assert err.strip() == (f"✗ {labels} entries 1 and {len(entries) + 1} label thread {entries[1]['thread']!r} of cell "
+                           f"{entries[1]['cell']} twice, 'related' and 'unrelated': keep one label per pair")
+
+
 @pytest.mark.parametrize("entry, says", [
     ({"cell": "elsewhere", "thread": "t_op", "finding": 1, "label": "related"}, "cell 'elsewhere' has no credited pair"),
     ({"thread": "t_op", "finding": 1, "label": "related"}, "is not an object with `cell`, `thread`, `finding` and"),
@@ -492,6 +552,30 @@ def test_sheet_command_writes_the_full_texts_for_a_person(tmp_path, capsys):
     assert any(p.comment == LONG for p in pairs) and found["grader_failures"] == 1
 
 
+def test_sheet_refuses_to_replace_a_sheet_with_labels(tmp_path, capsys):
+    batch = _batch(tmp_path)
+    out_file = tmp_path / "sheet.json"
+    assert _run(capsys, "sheet", str(batch), "--out", str(out_file))[0] == 0
+    entries = json.loads(out_file.read_text())
+    out_file.write_text(json.dumps([{**entries[0], "label": "same point"}, *entries[1:]]))
+    before = out_file.read_bytes()
+    code, out, err = _run(capsys, "sheet", str(batch), "--out", str(out_file))
+    assert (code, out, out_file.read_bytes()) == (2, "", before)
+    assert err.strip() == f"✗ {out_file} holds a sheet with 1 labelled entry; move it aside or pass another --out"
+
+
+@pytest.mark.parametrize("earlier", ["a sheet with no label set", "not a JSON list"])
+def test_sheet_replaces_a_file_with_no_label(tmp_path, capsys, earlier):
+    batch = _batch(tmp_path)
+    out_file = tmp_path / "sheet.json"
+    assert _run(capsys, "sheet", str(batch), "--out", str(out_file))[0] == 0
+    fresh = out_file.read_text()
+    stale = [{**e, "comment": "an older text"} for e in json.loads(fresh)]
+    out_file.write_text(json.dumps(stale if earlier.startswith("a sheet") else {"label": "same point"}))
+    code, _, _ = _run(capsys, "sheet", str(batch), "--out", str(out_file))
+    assert (code, out_file.read_text()) == (0, fresh)
+
+
 def test_the_schema_validates_a_written_file_and_rejects_a_fourth_label(tmp_path, capsys, judge_llm):
     batch = _batch(tmp_path)
     assert _run(capsys, "judge", str(batch), "--judge", JUDGE)[0] == 0
@@ -514,6 +598,11 @@ def test_a_rerun_rewrites_the_file_from_the_response_cache(tmp_path, capsys, mon
     assert (len(first.requests), second.requests, code) == (4, [], 0)
     assert _judged(batch, "guidance:none", 1).read_text() == written
     assert out.splitlines()[-1] == "0 judge call(s), $0.0000"
+    _judged(batch, "guidance:none", 1).write_text("{}")
+    with llm.use_adapter(llm.FakeAdapter()) as third:  # a replayed reply is free: no price is missing, no stop
+        code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--max-usd", "0.5")
+    assert (third.requests, code, out.splitlines()[-1]) == ([], 0, "0 judge call(s), $0.0000")
+    assert _judged(batch, "guidance:none", 1).read_text() == written
 
 
 def test_judge_takes_provider_slash_model_only(tmp_path, capsys):

@@ -46,6 +46,16 @@ def _entry(pair: Pair) -> dict[str, Any]:
             "comment": pair.comment, "finding_text": pair.text, "label": None}
 
 
+def labelled_entries(path: Path) -> int:
+    """The entries of an existing sheet at ``path`` whose ``label`` is set; 0 when there is no file or it is not
+    a JSON list (``repo hits sheet`` replaces such a file, and refuses to replace one with labels)."""
+    try:
+        entries = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, RecursionError):
+        return 0
+    return sum(isinstance(e, dict) and e.get("label") is not None for e in entries) if isinstance(entries, list) else 0
+
+
 def _entries(path: Path) -> list[Any]:
     try:
         entries = json.loads(path.read_text(encoding="utf-8"))
@@ -66,11 +76,13 @@ def read_labels(path: Path, pairs: list[Pair]) -> dict[tuple[str, str], str]:
         HitsInputError: the file is unreadable or not a list, or an entry is not an object with ``cell``,
             ``thread`` and ``finding``, names a cell or a thread of no credited pair of the batch, names another
             finding than the one the batch credits for its thread (a hand-edit, or a sheet older than a
-            regrade), or has a label other than the three.
+            regrade), or has a label other than the three; or two entries give one pair two different labels
+            (the same label twice, or a null next to a label, is taken).
     """
     known = {p.key: p for p in pairs}
     cells = {p.cell for p in pairs}
     out: dict[tuple[str, str], str] = {}
+    first: dict[tuple[str, str], int] = {}  # the entry each label of ``out`` came from
     for i, entry in enumerate(_entries(path)):
         where = f"{path} entry {i}"
         if (not isinstance(entry, dict) or not isinstance(entry.get("cell"), str)
@@ -92,7 +104,12 @@ def read_labels(path: Path, pairs: list[Pair]) -> dict[tuple[str, str], str]:
             continue
         if label not in LABELS:
             raise HitsInputError(f"{where}: label {label!r} is not one of " + ", ".join(repr(x) for x in LABELS))
+        if key in out and out[key] != label:
+            raise HitsInputError(
+                f"{path} entries {first[key]} and {i} label thread {entry['thread']!r} of cell {entry['cell']} "
+                f"twice, {out[key]!r} and {label!r}: keep one label per pair")
         out[key] = label
+        first.setdefault(key, i)
     return out
 
 

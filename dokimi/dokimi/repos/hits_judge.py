@@ -251,8 +251,8 @@ def check_judge(judge_ref: tuple[str, str], answered_by: Iterable[str]) -> None:
     for answer in sorted(set(answered_by)):
         if same_client(judge, LLMClient(model=answer, provider=CLAUDE_CLI.name, role="answerer")):
             raise HitsInputError(
-                f"judge {provider}/{model} runs the same model as the answer model {answer!r} of this batch; "
-                "a judge must be of another family than every answer model (pass another --judge)")
+                f"judge {provider}/{model} runs the model of an answer of this batch ({answer!r}); "
+                "a judge must run another model than every answer (pass another --judge)")
 
 
 def prompt_for(pair: Pair) -> str:
@@ -277,23 +277,43 @@ def parse_label(raw: str) -> Optional[tuple[str, str]]:
 class Meter:
     """Live judge calls and their cost; with ``max_usd``, no new live call starts once that much is spent.
 
-    A response-cache replay is free and not counted. A call with no known price counts as 0, as ``repo run``
-    counts it."""
+    A response-cache replay is free and not counted. A live call with no known price counts as 0 in
+    ``spent_usd`` and in ``unpriced``; with ``max_usd`` it also stops the run after that call, as ``novelty``'s
+    spend cap does: the cap cannot be enforced on spend it cannot see. ``stop`` says why no new call starts."""
 
     max_usd: Optional[float] = None
     spent_usd: float = 0.0
     calls: int = 0
+    unpriced: int = 0
+    stop: Optional[str] = None
 
     def asking(self, llm: LLM) -> Ask:
         def ask(prompt: str, *, draw: int = 0, cache_if: Optional[Callable[[str], bool]] = None) -> str:
-            if not caching.replaying_only() and self.max_usd is not None and self.spent_usd >= self.max_usd:
-                raise BudgetSpent()
+            if not caching.replaying_only() and self.max_usd is not None:
+                if self.spent_usd >= self.max_usd:
+                    self.stop = self.stop or "--max-usd spent"
+                if self.stop:
+                    raise BudgetSpent()
             reply = llm.complete(prompt, draw=draw, cache_if=cache_if)
             if not reply.usage.replayed:
                 self.calls += 1
                 self.spent_usd += reply.usage.cost_usd or 0.0
+                if reply.usage.cost_usd is None:
+                    self.unpriced += 1
+                    if self.max_usd is not None:
+                        self.stop = (f"no price is known for {llm.model}, so --max-usd cannot be enforced; stopped "
+                                     f"after {self.calls} judge call(s). Drop --max-usd to run unmetered")
             return reply.text or ""
         return ask
+
+    def spend(self) -> str:
+        return spend_text(self.spent_usd, self.unpriced)
+
+
+def spend_text(spent_usd: float, unpriced: int) -> str:
+    """The spend as ``repo hits judge`` prints it; not known when a live call had no price."""
+    known = f"${spent_usd:.4f}"
+    return known if not unpriced else f"{known}, and {unpriced} call(s) with no known price: the spend is not known"
 
 
 def judge_pair(ask: Ask, pair: Pair) -> dict[str, Any]:
@@ -417,7 +437,9 @@ def summary(found: dict[str, Any], pairs: list[Pair], judge: tuple[str, str], do
 
     ``uncalibrated_arms``: the arms of ``rows`` with no pair labelled by both the person and the judge (every
     arm without ``--labels``), whose ``recall_judged`` no calibration covers. ``stale_removed``: the cells whose
-    earlier ``hits_judged.json`` :func:`judge_cells` removed (``Judged.stale``)."""
+    earlier ``hits_judged.json`` :func:`judge_cells` removed (``Judged.stale``). ``budget_stop``: why no new call
+    started (``Meter.stop``) when ``budget_stopped`` names a cell, else null. ``unpriced_calls``: the live calls
+    with no known price, counted as 0 in ``spent_usd``."""
     table = rows(done.docs)
     calibrated = {c["arm"] for c in calibration or [] if c["labelled"]}
     return {"batch": found["batch"], "judge": {"provider": judge[0], "model": judge[1]},
@@ -425,8 +447,10 @@ def summary(found: dict[str, Any], pairs: list[Pair], judge: tuple[str, str], do
             "grader_failures": found["grader_failures"], "pairs": len(pairs),
             "not_found": [{"cell": p.cell, "thread": p.hit.get("thread"), "problem": p.problem}
                           for p in pairs if p.problem is not None],
-            "rows": table, "written": len(done.docs), "budget_stopped": done.stopped, "stale_removed": done.stale,
-            "calls": done.meter.calls, "spent_usd": round(done.meter.spent_usd, 6), "calibration": calibration,
+            "rows": table, "written": len(done.docs), "budget_stopped": done.stopped,
+            "budget_stop": done.meter.stop if done.stopped else None, "stale_removed": done.stale,
+            "calls": done.meter.calls, "spent_usd": round(done.meter.spent_usd, 6),
+            "unpriced_calls": done.meter.unpriced, "calibration": calibration,
             "uncalibrated_arms": sorted({r["arm"] for r in table} - calibrated)}
 
 
@@ -474,7 +498,7 @@ def format_summary(s: dict[str, Any]) -> str:
     for p in s["not_found"]:
         lines.append(f"not judged, full text not found: {p['cell']} thread {p['thread']!r}: {p['problem']}")
     if s["budget_stopped"]:
-        lines.append(f"{len(s['budget_stopped'])} cell(s) not fully judged (--max-usd spent), no {HITS_JUDGED}: "
+        lines.append(f"{len(s['budget_stopped'])} cell(s) not fully judged ({s['budget_stop']}), no {HITS_JUDGED}: "
                      + ", ".join(s["budget_stopped"]))
     if s["stale_removed"]:
         shown = s["stale_removed"][:10]
@@ -482,7 +506,7 @@ def format_summary(s: dict[str, Any]) -> str:
                      "(a grader failure, a grade without hit details, another grader): " + ", ".join(shown)
                      + (f" and {len(s['stale_removed']) - len(shown)} more" if len(s["stale_removed"]) > 10 else ""))
     lines += _calibration_lines(s["calibration"], s["uncalibrated_arms"])
-    lines.append(f"{s['calls']} judge call(s), ${s['spent_usd']:.4f}")
+    lines.append(f"{s['calls']} judge call(s), {spend_text(s['spent_usd'], s['unpriced_calls'])}")
     return "\n".join(lines)
 
 

@@ -76,7 +76,7 @@ def cmd_repo_hits_judge(args: argparse.Namespace) -> None:
         done = judge_cells(batch_dir, found, pairs, args.judge, args.max_usd)
     except HitsWriteError as exc:  # an output write, as `sheet`'s: exit 2
         meter = exc.done.meter
-        print(f"✗ {exc}; stopped there after {meter.calls} judge call(s), ${meter.spent_usd:.4f}; "
+        print(f"✗ {exc}; stopped there after {meter.calls} judge call(s), {meter.spend()}; "
               f"the {len(exc.done.docs)} cell(s) written before keep their {HITS_JUDGED}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
     calibration = calibrate(labels, done.labels(), pairs) if labels is not None else None
@@ -88,7 +88,7 @@ def cmd_repo_hits_judge(args: argparse.Namespace) -> None:
 
 def cmd_repo_hits_sheet(args: argparse.Namespace) -> None:
     """Sample credited replay pairs, stratified by arm, for a person to label (no LLM)."""
-    from dokimi.repos.hits_calibration import sheet
+    from dokimi.repos.hits_calibration import labelled_entries, sheet
     from dokimi.repos.hits_judge import read_pairs
     from dokimi.repos.report import CellFileError
 
@@ -100,6 +100,11 @@ def cmd_repo_hits_sheet(args: argparse.Namespace) -> None:
         sys.exit(EXIT_USAGE)
     entries = sheet(pairs, args.per_arm, args.seed)
     out = Path(args.out)
+    labelled = labelled_entries(out)
+    if labelled:  # a person's labels are not replaced by a fresh sheet
+        print(f"✗ {out} holds a sheet with {labelled} labelled entr{'y' if labelled == 1 else 'ies'}; move it aside "
+              "or pass another --out", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
     with exit_on_unwritable(out):
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")
@@ -128,7 +133,9 @@ def register(repo_sub, positive_int, usd: Callable[[str], float]) -> None:
                          help="A `repo hits sheet` file with `label` filled in: report agreement and Cohen's kappa "
                          "per arm between the person and the judge")
     judge_p.add_argument("--max-usd", type=usd, default=None, dest="max_usd", metavar="X",
-                         help="Start no new judge call once this much has been spent (exit 1 if a cell was left)")
+                         help="Start no new judge call once this much has been spent (exit 1 if a cell was left); "
+                         "a judge reply with no known price stops the run after that call, since the cap cannot "
+                         "be enforced (drop --max-usd to run unmetered)")
     judge_p.add_argument("--dry-run", action="store_true", dest="dry_run",
                          help="Count the pairs and estimate the cost at list price; make no call")
     judge_p.add_argument("--json", action="store_true", help="Print the summary as JSON")
@@ -138,7 +145,8 @@ def register(repo_sub, positive_int, usd: Callable[[str], float]) -> None:
         "sheet", help="Write a JSON list of credited pairs with their full texts and `label: null` for a person "
         "to label, N per arm (no LLM)")
     sheet_p.add_argument("batch_dir", help="<out>/<batch> of `repo run`")
-    sheet_p.add_argument("--out", required=True, metavar="FILE", help="The sheet to write")
+    sheet_p.add_argument("--out", required=True, metavar="FILE",
+                         help="The sheet to write; refused (exit 2) when FILE holds a sheet with a label set")
     sheet_p.add_argument("--per-arm", type=positive_int, default=25, dest="per_arm", metavar="N",
                          help="Pairs per arm, all of an arm's when it has fewer (default 25)")
     sheet_p.add_argument("--seed", type=int, default=0, metavar="N",
