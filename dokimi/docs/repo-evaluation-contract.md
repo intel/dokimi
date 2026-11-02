@@ -659,9 +659,12 @@ failed the task, and on a task with `score` that is a failed run with score
 
 `dokimi:typecheck` checks the listed files only. Its pass is "no error on a
 listed file" (an error in a module a listed file imports belongs to that module,
-not to the listed file), and a listed file that is missing fails. A symbolic link in the workspace whose target
-lies outside it refuses the whole grade (a grader error, not a pass), listed or not: mypy follows an import through a
-link, so an unlisted module could supply what a listed file imports. The exception
+not to the listed file), and a listed file that is missing fails. A listed path
+reached through a symbolic link is missing, not read. A symbolic link in the workspace whose target
+lies outside it refuses the whole grade (a grader error, not a pass), listed or not, whenever mypy runs, that is
+when some listed file is present: mypy follows an import through a link, so an unlisted module could supply what a
+listed file imports. When every listed file is missing, mypy does not run, and the grade is a failure with
+`n_missing` set, not a grader error, even if a link lies outside. The exception
 is a blocking error (a syntax error, a duplicate module) that stops mypy before
 it reaches the listed files: then that error is the grade's, and the grade fails.
 `reference/` is optional. The task's `oracle` copies its `reference/` directory, when it has one, over the
