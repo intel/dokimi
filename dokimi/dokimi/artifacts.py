@@ -12,7 +12,8 @@ checks), ``tool_preference`` (which of two equal tools a model picks, and
 what moves it), ``repo_environment`` (static inspection of what a
 repository offers an agent), ``plan`` (the cells a run promises to measure),
 ``result`` (one status per planned cell), ``repo_budget`` (what a repository puts
-into an agent's context) and ``task_inspect`` (which eval-task format each
+into an agent's context), ``need_graph`` and ``eval_coverage`` (a frozen need graph and an
+eval set's coverage of it) and ``task_inspect`` (which eval-task format each
 path under a tree is). This module stamps each with a
 ``schema_version`` and validates it against the JSON Schema in
 ``dokimi/schemas/`` on save and load, so fixtures and baselines stay
@@ -46,6 +47,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "matrix_rollup": "matrix_rollup.v1",
     "plugin_delta": "plugin_delta.v1",
     "subject_scorecard": "subject_scorecard.v2",
+    "skill_evidence": "skill_evidence.v1",
     "novelty": "novelty.v1",
     "task_runs": "task_runs.v1",
     "explore_runs": "explore_runs.v1",
@@ -57,8 +59,11 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "result": "result.v1",
     "repo_budget": "repo_budget.v1",
     "task_inspect": "task_inspect.v1",
+    "redteam": "redteam.v1",
     "cli_routes": "cli_routes.v1",
     "repo_ledger": "repo_ledger.v1",
+    "need_graph": "need_graph.v1",
+    "eval_coverage": "eval_coverage.v1",
 }
 
 # kind -> superseded versions still accepted on *load*, newest first. An artifact written under an

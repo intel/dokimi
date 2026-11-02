@@ -45,6 +45,8 @@ FIELDS: dict[str, KindFields] = {
     "plugin_delta": KindFields(subject=("library_name",), model=("model",), counts=("arms",)),
     "subject_scorecard": KindFields(subject=("subject.id",), time=("generated_at",),
                                     counts=("cells",)),
+    "skill_evidence": KindFields(subject=("subject.id",), time=("generated_at",),
+                                 counts=("results", "warnings")),
     "novelty": KindFields(subject=("artifact.ref",), model=("model",), time=("generated_at",),
                           counts=("conflicts", "warnings")),
     "task_runs": KindFields(model=("model",), time=("generated_at",),
@@ -66,6 +68,10 @@ FIELDS: dict[str, KindFields] = {
     "task_inspect": KindFields(subject=("root",), counts=("items",)),
     "cli_routes": KindFields(counts=("roots", "leaves", "tombstones")),
     "repo_ledger": KindFields(counts=("rules",)),
+    "redteam": KindFields(subject=("questions_path",), model=("judge_model",),
+                          counts=("violations", "questions")),
+    "need_graph": KindFields(subject=("artifact_name",), counts=("nodes", "edges")),
+    "eval_coverage": KindFields(subject=("graph.artifact_name",), counts=("gaps", "evals", "problems")),
 }
 
 #: Every schema_version an artifact may carry (current and superseded) -> its kind.
