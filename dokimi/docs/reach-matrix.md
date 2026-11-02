@@ -88,7 +88,9 @@ is skipped, as is one without its credential or its CLI (`unavailable` in `dokim
 names which). `run` writes `<harness>.matrix.json` to `--out`, and the per-fixture receipts under
 `<harness>-runs/`. Each scenario is capped by `--timeout` (seconds per scenario, default 300). `--budget` (USD,
 per scenario, default 0.10) is passed to Claude Code as `--max-budget-usd` only: Codex and Copilot have no budget
-flag, so for them the timeout is the only cap. `run` exits 1 only when a run is `failed`. `run` gives each
+flag, so for them the timeout is the only cap. `run` exits 1 on a preflight or input error (expectations drift, a
+harness given twice, an input that cannot be loaded, before any fixture runs) or when a run is `failed`; errors-only
+and skipped runs exit 0. `run` gives each
 `repo reach` process exactly the environment it was started with, and each harness gets only what its profile
 forwards from that.
 
