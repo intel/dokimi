@@ -40,7 +40,7 @@
     },
     "summary": {
       "type": "object",
-      "required": ["items", "ceiling", "floor", "provisional", "flagged_provisional", "no_flag"],
+      "required": ["items", "ceiling", "floor", "provisional", "flagged_provisional", "no_flag", "unmeasured"],
       "additionalProperties": false,
       "properties": {
         "items": {"type": "integer", "minimum": 0},
@@ -48,7 +48,8 @@
         "floor": {"type": "integer", "minimum": 0},
         "provisional": {"type": "integer", "minimum": 0},
         "flagged_provisional": {"type": "integer", "minimum": 0},
-        "no_flag": {"type": "integer", "minimum": 0}
+        "no_flag": {"type": "integer", "minimum": 0},
+        "unmeasured": {"type": "integer", "minimum": 0}
       }
     }
   }

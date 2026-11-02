@@ -30,6 +30,7 @@
     "floor": 0,
     "provisional": 2,
     "flagged_provisional": 1,
-    "no_flag": 1
+    "no_flag": 1,
+    "unmeasured": 0
   }
 }

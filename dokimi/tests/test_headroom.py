@@ -80,7 +80,7 @@ def test_a_single_run_is_provisional_and_three_runs_are_not():
 def test_provisional_flag_is_kept_next_to_the_ceiling_flag():
     result = headroom([_run([("1", {"baseline": 95, "skill": 95})])])
     assert result["summary"] == {"items": 1, "ceiling": 1, "floor": 0, "provisional": 1,
-                                 "flagged_provisional": 1, "no_flag": 0}
+                                 "flagged_provisional": 1, "no_flag": 0, "unmeasured": 0}
 
 
 def test_summary_counts_each_kind_of_item_apart():
@@ -91,7 +91,14 @@ def test_summary_counts_each_kind_of_item_apart():
     result = headroom([_run(first), _run(steady), _run(steady)])
     assert _flags(result) == {"cp": CEILING, "up": None, "f1": FLOOR, "f2": FLOOR, "ok": None}
     assert result["summary"] == {"items": 5, "ceiling": 1, "floor": 2, "provisional": 2,
-                                 "flagged_provisional": 1, "no_flag": 2}
+                                 "flagged_provisional": 1, "no_flag": 2, "unmeasured": 0}
+
+
+def test_an_item_with_no_no_skill_score_is_unmeasured_not_unflagged():
+    # Item 2 has no baseline score in any run: it is not headroom, so it is counted apart from no_flag.
+    runs = [_run([("1", {"baseline": 50, "skill": 50}), ("2", {"baseline": None, "skill": 50})]) for _ in range(3)]
+    result = headroom(runs, min_reps=1)
+    assert result["summary"]["no_flag"] == 1 and result["summary"]["unmeasured"] == 1
 
 
 def test_items_list_numeric_ids_in_numeric_order_then_the_other_ids():
@@ -263,7 +270,7 @@ def test_a_run_with_no_questions_has_no_items():
     result = headroom([_run([])])
     assert result["items"] == [] and result["runs"] == 1
     assert result["summary"] == {"items": 0, "ceiling": 0, "floor": 0, "provisional": 0,
-                                 "flagged_provisional": 0, "no_flag": 0}
+                                 "flagged_provisional": 0, "no_flag": 0, "unmeasured": 0}
 
 
 def test_a_run_nothing_was_judged_in_is_refused():

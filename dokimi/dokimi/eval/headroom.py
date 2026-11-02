@@ -147,7 +147,9 @@ def headroom(
         "floor": sum(1 for i in items if i.flag == FLOOR),
         "provisional": sum(1 for i in items if i.provisional),
         "flagged_provisional": sum(1 for i in items if i.flag and i.provisional),
-        "no_flag": sum(1 for i in items if i.flag is None),
+        # Not measured is not "no headroom": an item with no no-skill score is counted apart from no_flag.
+        "no_flag": sum(1 for i in items if i.flag is None and i.no_skill is not None),
+        "unmeasured": sum(1 for i in items if i.no_skill is None),
     }
     return {
         "no_skill_arm": control,
@@ -272,7 +274,7 @@ def format_table(result: Dict[str, Any]) -> str:
         f"floor <= {th['floor']:g}, provisional below {th['min_reps']} reps")
     lines.append(
         f"ceiling {s['ceiling']}, floor {s['floor']}, provisional {s['provisional']} "
-        f"({s['flagged_provisional']} of them flagged), unflagged {s['no_flag']}")
+        f"({s['flagged_provisional']} of them flagged), unflagged {s['no_flag']}, unmeasured {s['unmeasured']}")
     return "\n".join(lines)
 
 
