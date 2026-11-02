@@ -50,9 +50,10 @@ SPDX-License-Identifier: Apache-2.0
 > `.claude/rules/**/*.md` files are `rule` entries: at start in the root `.claude/rules/` unless
 > their frontmatter's `paths` names a pattern, lazily then and in a subdirectory's `.claude/rules/`; a rule a root CLAUDE.md or AGENTS.md
 > imports is `start` whatever its `paths`;
-> an `@` path in a rule is not followed. The `start` total is not an upper bound: it is too low by
-> what it does not count (non-`.md` imports, skills behind a linked directory, rules behind one,
-> which warns, nested `.claude/skills/` skills, and
+> an `@` path in a rule is not followed, unless a CLAUDE.md imports the rule: then the rule loads at start and
+> its `@` imports are followed, transitively and within the hop limit. The `start` total is not an upper bound:
+> it is too low by what it does not count (non-`.md` imports, skills behind a linked directory, rules behind a
+> link at or below `.claude/rules` to a directory, which warns, nested `.claude/skills/` skills, and
 > imports past the profile's `guidance.import_max_depth`, four hops for Claude Code, which warns
 > naming what was skipped), and too high by whatever the harness cuts from the skill listing.
 > Usage:

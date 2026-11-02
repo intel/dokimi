@@ -297,12 +297,44 @@ def test_a_dangling_link_under_rules_that_is_not_markdown_is_named(tmp_path):
         ".claude/rules/shared.rules: a link that does not resolve in the tree; any rules behind it are not counted"]
 
 
-def test_a_rule_does_not_expand_its_at_imports_even_when_claude_md_imports_it(tmp_path):
+def test_a_rule_a_claude_md_imports_expands_its_at_imports_transitively(tmp_path):
+    # maintainer decision (intel/dokimi #326): a CLAUDE.md that imports a rule loads it at start, and the @ paths
+    # in it are followed like any import, hop by hop
     files = {"CLAUDE.md": "@.claude/rules/r.md\n", ".claude/rules/r.md": "rule @../../extra.md\n",
-             "extra.md": "extra\n"}
+             "extra.md": "extra @extra2.md\n", "extra2.md": "extra2\n"}
+    payload = budget(_tree(tmp_path, files), NAMES, rules=True)
+    assert _by_path(payload)[(".claude/rules/r.md", "rule")]["when"] == "start"
+    assert _by_path(payload)[("extra.md", "import")]["when"] == "start"
+    assert _by_path(payload)[("extra2.md", "import")]["when"] == "start"
+    assert payload["warnings"] == []
+
+
+def test_a_rule_discovered_as_a_rule_does_not_expand_its_at_imports(tmp_path):
+    # no CLAUDE.md imports the rule: it loads as a rule, and its @ paths are not followed
+    files = {".claude/rules/r.md": "rule @../../extra.md\n", "extra.md": "extra\n"}
     payload = budget(_tree(tmp_path, files), NAMES, rules=True)
     assert _by_path(payload)[(".claude/rules/r.md", "rule")]["when"] == "start"
     assert [e["path"] for e in payload["entries"] if e["path"] == "extra.md"] == []
+
+
+def test_an_at_path_in_a_rules_frontmatter_is_not_an_import(tmp_path):
+    # the frontmatter is not counted (Claude Code removes it before loading the rule), so an @ path in it is no import
+    files = {"CLAUDE.md": "@.claude/rules/r.md\n",
+             ".claude/rules/r.md": "---\ndescription: see @../../team.md\n---\nrule\n", "team.md": "team\n"}
+    payload = budget(_tree(tmp_path, files), NAMES, rules=True)
+    assert _by_path(payload)[(".claude/rules/r.md", "rule")]["when"] == "start"
+    assert [e["path"] for e in payload["entries"] if e["path"] == "team.md"] == []
+
+
+def test_an_import_chain_through_a_rule_counts_toward_the_hop_limit(tmp_path):
+    files = {"CLAUDE.md": "@.claude/rules/r.md\n", ".claude/rules/r.md": "rule @../../extra.md\n",
+             "extra.md": "extra @extra2.md\n", "extra2.md": "extra2\n"}
+    # CLAUDE.md -> rule (hop 1) -> extra.md (hop 2) -> extra2.md (hop 3): a 2-hop limit cuts extra2.md
+    payload = budget(_tree(tmp_path, files), NAMES, import_max_depth=2, rules=True)
+    assert _by_path(payload)[("extra.md", "import")]["when"] == "start"
+    assert [e["path"] for e in payload["entries"] if e["path"] == "extra2.md"] == []
+    assert payload["warnings"] == [
+        "extra.md: import of extra2.md is past the harness's 2-hop import limit, not followed"]
 
 
 def test_a_file_named_claude_md_under_rules_is_a_rule_not_guidance(tmp_path):
@@ -337,8 +369,8 @@ def test_a_dangling_link_to_a_markdown_rule_is_named_and_counted_as_zero(tmp_pat
                                    "counted as 0"]
 
 
-def test_an_alias_of_a_rule_is_not_followed_as_an_import(tmp_path):
-    # CLAUDE.md imports an alias that links to a rule. The rule's @ imports are not followed, so extra.md is not counted
+def test_an_alias_of_a_rule_is_followed_as_an_import(tmp_path):
+    # CLAUDE.md imports an alias that links to a rule: the rule is imported, so its @ imports are followed
     tree = _tree(tmp_path, {"CLAUDE.md": "@docs/memory/alias.md\n", "extra.md": "extra\n",
                             ".claude/rules/r.md": "rule @../../extra.md\n"})
     (tmp_path / "docs/memory").mkdir(parents=True)
@@ -349,8 +381,50 @@ def test_an_alias_of_a_rule_is_not_followed_as_an_import(tmp_path):
 
     payload = budget(tree, NAMES, rules=True)
 
-    assert all(e["path"] != "extra.md" for e in payload["entries"])
+    assert _by_path(payload)[("extra.md", "import")]["when"] == "start"
     assert _by_path(payload)[(".claude/rules/r.md", "rule")]["when"] == "start"
+
+
+@pytest.mark.parametrize("claude_md", ["@.claude/rules/r.md\n@shared.md\n", "@shared.md\n@.claude/rules/r.md\n"])
+def test_the_order_of_imports_does_not_hide_what_a_rule_link_leads_to(tmp_path, claude_md):
+    # .claude/rules/r.md links to shared.md, which imports extra.md. Whichever of the two imports comes first,
+    # shared.md's own route (at the root) still expands extra.md
+    tree = _tree(tmp_path, {"CLAUDE.md": claude_md, "shared.md": "shared @extra.md\n", "extra.md": "extra\n"})
+    (tmp_path / ".claude/rules").mkdir(parents=True)
+    try:
+        (tmp_path / ".claude/rules/r.md").symlink_to(tmp_path / "shared.md")
+    except OSError:
+        pytest.skip("symlinks unavailable")
+
+    payload = budget(tree, NAMES, rules=True)
+
+    assert _by_path(payload)[("extra.md", "import")]["when"] == "start"
+    assert payload["warnings"] == []
+
+
+def test_a_cut_import_of_an_unscoped_nested_rule_does_not_warn(tmp_path):
+    # a nested rule with no paths loads whenever the agent works in sub/, as the cut import in sub/CLAUDE.md would
+    files = {"sub/CLAUDE.md": "@.claude/rules/r.md\n", "sub/.claude/rules/r.md": "rule\n"}
+    payload = budget(_tree(tmp_path, files), NAMES, import_max_depth=0, rules=True)
+    assert _by_path(payload)[("sub/.claude/rules/r.md", "rule")]["when"] == "lazy"
+    assert payload["warnings"] == []
+
+
+def test_a_cut_import_of_an_unscoped_nested_rule_from_outside_its_subtree_still_warns(tmp_path):
+    # other/ does not load sub/'s rule: only the agent working in sub/ does, so the cut import from other/ is named
+    files = {"other/CLAUDE.md": "@../sub/.claude/rules/r.md\n", "sub/.claude/rules/r.md": "rule\n"}
+    payload = budget(_tree(tmp_path, files), NAMES, import_max_depth=0, rules=True)
+    assert payload["warnings"] == [
+        "other/CLAUDE.md: import of sub/.claude/rules/r.md is past the harness's 0-hop import limit, not followed"]
+
+
+def test_a_cut_import_of_a_scoped_nested_rule_still_warns(tmp_path):
+    # a scoped nested rule loads only when the agent reads a matching file, so the cut import is still named
+    files = {"sub/CLAUDE.md": "@.claude/rules/r.md\n", "sub/.claude/rules/r.md": "---\npaths: src/**\n---\nrule\n"}
+    payload = budget(_tree(tmp_path, files), NAMES, import_max_depth=0, rules=True)
+    assert _by_path(payload)[("sub/.claude/rules/r.md", "rule")]["when"] == "lazy"
+    assert payload["warnings"] == [
+        "sub/CLAUDE.md: import of sub/.claude/rules/r.md is past the harness's 0-hop import limit, not followed"]
 
 
 def test_a_root_claude_md_linked_to_a_rule_still_expands_its_imports(tmp_path):
