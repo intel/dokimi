@@ -7,7 +7,8 @@ A replay task's answer is public from its ``public_at`` (§4.6); a guidance comm
 encode that review. :func:`arm_rev_history` records what a reader needs to check that: the commit
 that last touched each guidance file at the revision, and the newest commits that touch a guidance
 path, each with its author and committer date. The flag reads the committer date: ``git commit
---amend`` and a rebase keep the author date (https://github.com/intel/dokimi/issues/290).
+--amend`` and a rebase keep the author date (https://github.com/intel/dokimi/issues/290). A path
+under the manifest's ``eval_dir`` is not guidance, as the arm installs none of them.
 
 The history is one ``git log -z --raw`` over the revision, filtered with :func:`~.manifest.match_glob`.
 ``-z`` ends every field with a NUL, and each file the commit touched is a ``:``-led status record
@@ -47,7 +48,7 @@ from typing import Any
 from dokimi import process
 
 from .errors import PrepError
-from .manifest import match_glob
+from .manifest import _is_within, match_glob
 
 #: At most this many commits in ``guidance_commits``; ``guidance_latest`` is not capped
 GUIDANCE_COMMITS_CAP = 200
@@ -77,13 +78,13 @@ class _Commit:
         return {"sha": self.sha, "authored": self.authored, "committed": self.committed}
 
 
-def arm_rev_history(git_dir: Path, globs: tuple[str, ...], sha: str, files: list[str],
+def arm_rev_history(git_dir: Path, globs: tuple[str, ...], eval_dir: str, sha: str, files: list[str],
                     links: dict[str, list[str]]) -> dict[str, Any]:
     """``guidance_latest`` for each of ``files`` (the guidance at ``sha``; ``links`` maps those that
     are links to every path they resolve through, the file they resolve to last), ``guidance_commits``
     (newest first by committer date, at most :data:`GUIDANCE_COMMITS_CAP`) and
-    ``guidance_commits_truncated``."""
-    commits = _guidance_commits(git_dir, sha, globs, tuple(sorted((k, tuple(v)) for k, v in links.items())))
+    ``guidance_commits_truncated``. A path under ``eval_dir`` is not guidance: the arm installs none."""
+    commits = _guidance_commits(git_dir, sha, globs, eval_dir, tuple(sorted((k, tuple(v)) for k, v in links.items())))
     latest: dict[str, dict[str, str]] = {}
     for c in commits:  # newest first: the first commit naming a file is its latest
         for path in c.paths:
@@ -97,20 +98,22 @@ _key_locks: dict[tuple[Any, ...], threading.Lock] = {}
 _key_locks_guard = threading.Lock()
 
 
-def _guidance_commits(git_dir: Path, sha: str, globs: tuple[str, ...], links: _Links) -> tuple[_Commit, ...]:
+def _guidance_commits(git_dir: Path, sha: str, globs: tuple[str, ...], eval_dir: str,
+                      links: _Links) -> tuple[_Commit, ...]:
     """:func:`_read_guidance_commits`, one thread per key at a time: a cell that asks while another
     cell reads the same history waits for that read and takes its answer from the cache."""
-    key = (git_dir, sha, globs, links)
+    key = (git_dir, sha, globs, eval_dir, links)
     with _key_locks_guard:
         lock = _key_locks.setdefault(key, threading.Lock())
     with lock:
-        return _read_guidance_commits(git_dir, sha, globs, links)
+        return _read_guidance_commits(*key)
 
 
 @lru_cache(maxsize=64)
-def _read_guidance_commits(git_dir: Path, sha: str, globs: tuple[str, ...], links: _Links) -> tuple[_Commit, ...]:
-    """The commits reachable from ``sha`` that touch a path ``globs`` match or a path a link of ``links``
-    resolves through, newest first by committer date."""
+def _read_guidance_commits(git_dir: Path, sha: str, globs: tuple[str, ...], eval_dir: str,
+                           links: _Links) -> tuple[_Commit, ...]:
+    """The commits reachable from ``sha`` that touch a path ``globs`` match outside ``eval_dir`` or a
+    path a link of ``links`` resolves through, newest first by committer date."""
     linked: dict[str, list[str]] = {}
     for link, chain in links:
         for path in chain:
@@ -118,16 +121,19 @@ def _read_guidance_commits(git_dir: Path, sha: str, globs: tuple[str, ...], link
     _refuse_shallow(git_dir)
     found = []
     for (commit, authored, committed, subject), touched in _parse_log(_git_log(git_dir, sha)):
-        paths = tuple(dict.fromkeys(g for p in touched for g in _counts_for(p, globs, linked)))
+        paths = tuple(dict.fromkeys(g for p in touched for g in _counts_for(p, globs, eval_dir, linked)))
         if paths:
             found.append(_Commit(commit, authored, committed, subject, paths))
     # stable: commits with one committer date keep git's order
     return tuple(sorted(found, key=lambda c: datetime.fromisoformat(c.committed), reverse=True))
 
 
-def _counts_for(path: str, globs: tuple[str, ...], linked: dict[str, list[str]]) -> list[str]:
-    """The guidance paths a change to ``path`` counts for: itself when a glob matches it, and each link through it."""
-    return ([path] if any(match_glob(g, path) for g in globs) else []) + linked.get(path, [])
+def _counts_for(path: str, globs: tuple[str, ...], eval_dir: str, linked: dict[str, list[str]]) -> list[str]:
+    """The guidance paths a change to ``path`` counts for: itself when a glob matches it outside ``eval_dir``
+    (as :func:`~.workspace._guidance_at` lists them), and each link through it (no chain reaches into
+    ``eval_dir``: :func:`~.workspace._link_chain` refuses one)."""
+    own = not _is_within(path, eval_dir) and any(match_glob(g, path) for g in globs)
+    return ([path] if own else []) + linked.get(path, [])
 
 
 def _parse_log(out: bytes) -> list[tuple[tuple[str, str, str, str], list[str]]]:

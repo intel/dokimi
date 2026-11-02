@@ -125,6 +125,21 @@ def test_an_older_revision_records_only_its_own_history(hist):
     assert rev["guidance_latest"]["sub/AGENTS.md"]["sha"] == hist["first"]
 
 
+def test_a_commit_that_only_edits_a_guidance_named_file_under_eval_dir_is_not_listed(hist):
+    """``**/AGENTS.md`` matches a task fixture's AGENTS.md too; the arm installs nothing under eval_dir."""
+    eval_dir = hist["manifest"].run_paths()[0]
+    assert eval_dir == ".agent-eval"
+    fixture = _commit_at(hist["root"], {f"{eval_dir}/tasks/x/AGENTS.md": "# a task's fixture\n"}, "task fixture",
+                         "2030-05-01T00:00:00+00:00", "2030-05-01T00:00:00+00:00")
+    root = _commit_at(hist["root"], {"AGENTS.md": "# root guidance\n"}, "root guidance", "2030-05-02T00:00:00+00:00",
+                      "2030-05-02T00:00:00+00:00")
+    rev = _prep(hist, f"guidance:rev:{root}")["arm_rev"]
+    assert [c["sha"] for c in rev["guidance_commits"]][:2] == [root, hist["added"]]
+    assert fixture not in {c["sha"] for c in rev["guidance_commits"]}
+    assert rev["guidance_latest"]["AGENTS.md"]["sha"] == root and not any(p.startswith(eval_dir)
+                                                                         for p in rev["guidance_latest"])
+
+
 def test_raw_and_patch_arms_record_no_guidance_history(hist):
     patch = hist["tmp"] / "tooling.diff"
     patch.write_text(TOOLING_PATCH)
@@ -162,7 +177,7 @@ def test_cells_that_ask_for_one_history_at_once_read_it_once(hist, monkeypatch):
 
     monkeypatch.setattr(guidance_history, "_guidance_commits", asking)
     monkeypatch.setattr(guidance_history, "_git_log", log)
-    args = (hist["git_dir"], hist["manifest"].guidance_globs, hist["added"], ["AGENTS.md"], {})
+    args = (hist["git_dir"], hist["manifest"].guidance_globs, ".agent-eval", hist["added"], ["AGENTS.md"], {})
     with ThreadPoolExecutor(n) as pool:
         results = list(pool.map(lambda _: guidance_history.arm_rev_history(*args), range(n)))
     assert all_asked.is_set() and calls == [(hist["git_dir"], hist["added"])]
@@ -209,7 +224,7 @@ def test_a_carriage_return_in_a_guidance_path_or_a_subject_is_kept(hist):
     """``process.git``'s text turns ``\\r`` into a newline: the log is split as bytes, then decoded."""
     cr = _commit_at(hist["root"], {"a\rb/AGENTS.md": "# cr\n"}, "guidance\redit", "2030-05-01T00:00:00+00:00",
                     "2030-05-01T00:00:00+00:00")
-    rev = guidance_history.arm_rev_history(hist["git_dir"], hist["manifest"].guidance_globs, cr,
+    rev = guidance_history.arm_rev_history(hist["git_dir"], hist["manifest"].guidance_globs, ".agent-eval", cr,
                                            ["AGENTS.md", "a\rb/AGENTS.md"], {})
     assert rev["guidance_latest"]["a\rb/AGENTS.md"] == {
         "sha": cr, "authored": "2030-05-01T00:00:00Z", "committed": "2030-05-01T00:00:00Z"}
@@ -242,9 +257,9 @@ def test_a_shallow_git_dir_is_refused_and_a_full_clone_gives_the_whole_history(t
     root, shas = _three_commits(tmp_path)
     shallow = _clone(tmp_path, root, "shallow", "--depth", "1")
     with pytest.raises(PrepError, match=r"shallow/\.git is a shallow clone:.*full history \(git fetch --unshallow\)"):
-        guidance_history.arm_rev_history(shallow / ".git", ("AGENTS.md",), shas["code"], ["AGENTS.md"], {})
+        guidance_history.arm_rev_history(shallow / ".git", ("AGENTS.md",), ".agent-eval", shas["code"], ["AGENTS.md"], {})
     full = _clone(tmp_path, root, "full")
-    rev = guidance_history.arm_rev_history(full / ".git", ("AGENTS.md",), shas["code"], ["AGENTS.md"], {})
+    rev = guidance_history.arm_rev_history(full / ".git", ("AGENTS.md",), ".agent-eval", shas["code"], ["AGENTS.md"], {})
     assert rev["guidance_latest"]["AGENTS.md"]["sha"] == shas["v2"]
     assert [c["subject"] for c in rev["guidance_commits"]] == ["guidance v2", "guidance v1"]
 
@@ -259,7 +274,7 @@ def test_a_blobless_clone_gives_the_history_without_fetching_a_blob(tmp_path):
     blobless = _clone(tmp_path, root, "blobless.git", "--bare", "--filter=blob:none")
     assert git(blobless, "config", "remote.origin.promisor") == "true"
     git(blobless, "remote", "set-url", "origin", str(tmp_path / "gone"))  # a blob it needed could not be fetched
-    rev = guidance_history.arm_rev_history(blobless, ("AGENTS.md",), merge, ["AGENTS.md"], {})
+    rev = guidance_history.arm_rev_history(blobless, ("AGENTS.md",), ".agent-eval", merge, ["AGENTS.md"], {})
     assert [c["sha"] for c in rev["guidance_commits"]] == [merge, side, shas["v2"], shas["v1"]]
     assert rev["guidance_latest"]["AGENTS.md"]["sha"] == merge
 

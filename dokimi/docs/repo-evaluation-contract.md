@@ -397,7 +397,8 @@ each guidance file the arm wrote, the commit reachable from `<rev>` that last
 touched it, or for a link it or any path its resolution goes through (each
 intermediate link and the file it resolves to), by committer date;
 `guidance_commits`, the commits reachable from `<rev>` that touch a path the
-guidance globs match or a path a guidance link resolves through, newest first by committer
+guidance globs match outside `eval_dir` (which the arm leaves out, as it does
+the files) or a path a guidance link resolves through, newest first by committer
 date, at most 200, each with its `subject`; and `guidance_commits_truncated`,
 `true` when that cap cut the list. Each commit has its `sha`, `authored` and
 `committed` (strict ISO 8601, `%aI` and `%cI`; a UTC date is written `Z`,

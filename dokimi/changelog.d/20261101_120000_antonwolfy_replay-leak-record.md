@@ -6,7 +6,8 @@
   a gold thread has no time with an offset. A `guidance:rev:<rev>` cell's
   `meta.json` `arm_rev` adds `guidance_latest` (the last commit to touch each
   guidance file at `<rev>`, or a path a guidance link resolves through),
-  `guidance_commits` (the commits that touch a guidance path or a path a link
+  `guidance_commits` (the commits that touch a guidance path outside
+  `eval_dir` or a path a link
   resolves through, a merge when its own result changes one, newest first by committer
   date, at most 200) and `guidance_commits_truncated`, each commit with its
   author and committer date (a UTC date as `Z`), so a reader can see whether
