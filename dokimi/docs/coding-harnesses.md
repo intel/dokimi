@@ -608,7 +608,7 @@ Both now land as errored cells.
 A `command:` harness (including a `--command-template` that wraps `harbor`)
 keeps its own rule: a `reward.txt` / `reward.json` under the run dir, else (no
 reward file) a `reward: x` on its output, else exit code 0 is a pass. Exit 126 or 127, a
-signal exit, or a reward file with no reward in it is no verdict: the cell is
+signal exit, a Windows crash status (an NTSTATUS error code such as `0xC0000409`), or a reward file with no reward in it is no verdict: the cell is
 errored (`metrics.solver_error`). Only a reward file with a reward in it outranks such an
 exit; a `reward: x` on the output does not.
 

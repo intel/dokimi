@@ -325,7 +325,7 @@ def test_a_command_template_scores_its_exit_code_when_it_prints_no_reward(tmp_pa
 
 
 @pytest.mark.parametrize("stdout, stderr", [("", ""), ("reward: 1", ""), ("", "reward: 1"), ("1", "reward: 1")])
-@pytest.mark.parametrize("returncode", [126, 127, 137, -9])
+@pytest.mark.parametrize("returncode", [126, 127, 137, -9, 3221225477, 3221225786, 3221226505])
 def test_a_command_that_never_ran_or_was_killed_has_no_verdict(tmp_path, returncode, stdout, stderr):
     """Nor from a reward marker on its output: only a reward file outranks such an exit."""
     task = load_task(_fixture_task(tmp_path / "tasks"))

@@ -393,16 +393,21 @@ def _task_prompt(task: TaskSpec) -> str:
     )
 
 
+# Windows reports a crash or Ctrl-C as an NTSTATUS error code (0xC0000005, 0xC000013A, 0xC0000409).
+_NTSTATUS_ERROR = 0xC0000000
+
+
 def _exit_code_reward(returncode: int, output_dir: Path | None) -> float | None:
     """1.0 or 0.0 from an exit code; None when the command never ran (126, 127), was killed by a
-    signal, or left a reward file that could not be read."""
+    signal or a Windows crash status, or left a reward file with no reward in it."""
     if _never_finished(returncode) or _has_reward_file(output_dir):
         return None
     return 1.0 if returncode == 0 else 0.0
 
 
 def _never_finished(returncode: int) -> bool:
-    return returncode < 0 or returncode in (126, 127) or 128 < returncode <= 192
+    return (returncode < 0 or returncode in (126, 127) or 128 < returncode <= 192
+            or returncode >= _NTSTATUS_ERROR)
 
 
 def _no_verdict(reward: float | None, returncode: int, output_dir: Path | None) -> dict[str, Any]:
