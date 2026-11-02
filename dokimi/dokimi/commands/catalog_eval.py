@@ -18,23 +18,27 @@ from dokimi import __version__
 from dokimi.artifacts import save_artifact
 from dokimi.exit_codes import usage_exit
 
-_OUTPUTS = {"catalog.json": "catalog_eval.", "plan.json": "plan.", "result.json": "result.", "report.md": None}
+_OUTPUTS = ("catalog.json", "plan.json", "result.json", "report.md")
 _REPORT_HEADER = "# Catalog static evaluation"
+_RESULT_DETAIL = "Deterministic checks only"
 
 
 def _is_receipt(path: Path) -> bool:
-    """A regular file this command wrote: its own report header or schema_version."""
+    """A regular file this command wrote: its report header or catalog-static payload."""
     if path.name not in _OUTPUTS or path.is_symlink() or not path.is_file():
         return False
     try:
-        head = path.read_text(encoding="utf-8")
-        prefix = _OUTPUTS[path.name]
-        if prefix is None:
-            return head.startswith(_REPORT_HEADER)
-        version = json.loads(head).get("schema_version")
-    except (OSError, ValueError, AttributeError):
+        text = path.read_text(encoding="utf-8")
+        if path.name == "report.md":
+            return text.startswith(_REPORT_HEADER)
+        payload = json.loads(text)
+        if path.name == "plan.json":
+            return payload["harnesses"] == ["catalog-static"]
+        if path.name == "result.json":
+            return all(str(c["detail"]).startswith(_RESULT_DETAIL) for c in payload["cells"])
+        return str(payload["schema_version"]).startswith("catalog_eval.")
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, RecursionError):
         return False
-    return isinstance(version, str) and version.startswith(prefix)
 
 
 def _output(root: Path, out: Path) -> None:

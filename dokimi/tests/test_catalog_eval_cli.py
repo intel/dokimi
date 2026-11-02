@@ -293,7 +293,8 @@ def test_task_loader_type_error_replaces_earlier_receipts_with_an_error(tmp_path
     assert "t1" in (out / "report.md").read_text()
 
 
-@pytest.mark.parametrize("name,content", [("report.md", "my notes"), ("plan.json", "{}"), ("result.json", "[1]"), ("catalog.json", "not json")])
+@pytest.mark.parametrize("name,content", [("report.md", "my notes"), ("plan.json", "{}"), ("result.json", "[1]"), ("catalog.json", "not json"),
+                                          ("plan.json", "[" * 2000 + "0" + "]" * 2000)])
 def test_unrelated_file_named_like_a_receipt_is_preserved(tmp_path, name, content):
     root = _catalog(tmp_path)
     out = tmp_path / "out"
@@ -301,3 +302,15 @@ def test_unrelated_file_named_like_a_receipt_is_preserved(tmp_path, name, conten
     (out / name).write_text(content)
     assert _run(root, out).returncode == 2
     assert (out / name).read_text() == content
+
+
+@pytest.mark.parametrize("name", ["plan.v1.json", "result.v1.json"])
+def test_shared_format_artifact_from_another_run_is_preserved(tmp_path, name):
+    root = _catalog(tmp_path)
+    out = tmp_path / "out"
+    out.mkdir()
+    fixture = Path(__file__).parent / "fixtures" / "artifacts" / name
+    target = out / name.replace(".v1", "")
+    target.write_bytes(fixture.read_bytes())
+    assert _run(root, out).returncode == 2
+    assert target.read_bytes() == fixture.read_bytes()
