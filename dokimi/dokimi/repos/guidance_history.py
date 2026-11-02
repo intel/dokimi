@@ -17,8 +17,11 @@ Git cuts a subject at a NUL (``git commit`` refuses one), so a subject is one fi
 split on NUL as bytes and each field then decoded as UTF-8 (``--encoding=UTF-8``; a byte that is not
 UTF-8 becomes U+FFFD, as :mod:`dokimi.process` decodes), so a ``\\r`` in a subject or a path stays one.
 A date is git's ``%aI`` / ``%cI`` with a UTC offset written ``Z``, which git 2.51 prints and older git
-(2.43) prints as ``+00:00``. The history is read once per git dir, revision, globs and links in a
-process, also when cells of the arm prepare at once: every cell asks the same. A key of the
+(2.43) prints as ``+00:00``. The history is read once per git dir, revision, globs, ``eval_dir`` and
+links in a process, also when cells of the arm prepare at once: every cell asks the same. The read
+covers every commit reachable from the revision and every path each one touched, so its cost grows
+with the history: for 42,000 commits, about a second of ``git log`` (some 20-30 MB) and a fraction of
+one to parse it, the globs matched once per distinct path; the other cells of the arm wait. A key of the
 repository's own config that changes what the log prints (as checked with git 2.51) is overridden by
 a flag (:data:`_PINNED`). A shallow git dir is refused: its history stops at the boundary commit, so
 it would name a later commit as the last to touch a file.
@@ -41,7 +44,7 @@ import threading
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
-from functools import lru_cache
+from functools import cache, lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -120,8 +123,10 @@ def _read_guidance_commits(git_dir: Path, sha: str, globs: tuple[str, ...], eval
             linked.setdefault(path, []).append(link)
     _refuse_shallow(git_dir)
     found = []
+    # once per distinct path: a path recurs in many commits, and match_glob builds its pattern on every call
+    counts_for = cache(lambda p: _counts_for(p, globs, eval_dir, linked))
     for (commit, authored, committed, subject), touched in _parse_log(_git_log(git_dir, sha)):
-        paths = tuple(dict.fromkeys(g for p in touched for g in _counts_for(p, globs, eval_dir, linked)))
+        paths = tuple(dict.fromkeys(g for p in touched for g in counts_for(p)))
         if paths:
             found.append(_Commit(commit, authored, committed, subject, paths))
     # stable: commits with one committer date keep git's order
