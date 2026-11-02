@@ -15,6 +15,7 @@ repository. A changed file maps to a suite, to a skill, to the ``shared`` list, 
 
 from __future__ import annotations
 
+import errno
 import fnmatch
 import glob
 import hashlib
@@ -372,8 +373,11 @@ def _unnamed_literals(literals: tuple[str, ...], matches: dict[str, Path], root:
         segs = literal.split("/")
         wild = next((i for i, s in enumerate(segs) if any(c in s for c in "*?[")), None)
         if wild is not None:  # a glob claims each link its walk reads through, and its own pattern where its prefix resolves
-            for link in _glob_links(root, literal):
+            for link, rest in _glob_links(root, literal):
                 links.extend(_hops(link, root, root_real))
+                real_link = _inside(link, root_real)  # the rest of the pattern, under the place the link resolves to
+                if real_link is not None and rest:
+                    globs.append("/".join([glob.escape("/".join(real_link)), *rest]))
             if wild == 0:
                 continue
             prefix = root.joinpath(*segs[:wild])
@@ -613,11 +617,18 @@ def _digest_files(files: dict[str, Path], root: Path) -> str:
 
 
 def _real(path: Path) -> Path | None:
-    """The resolved path, or None when it cannot be resolved: a symlink loop (3.11 and 3.12 raise RuntimeError for it)."""
+    """The resolved path, or None when it cannot be resolved: a symlink loop (3.11 and 3.12 raise RuntimeError for it;
+    3.13 and later resolve it to itself, so the loop is told apart by stat, which fails with ELOOP)."""
     try:
-        return path.resolve()
+        real = path.resolve()
     except (OSError, RuntimeError):
         return None
+    try:
+        path.stat()
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            return None
+    return real
 
 
 def _walk(path: Path, rel: str, *, dirs: bool = False) -> list[tuple[str, Path]]:
@@ -740,5 +751,5 @@ def _hashed(subject: Subject, root: Path, all_subjects: list[Subject]) -> Subjec
         if s.kind == "skill" and s.path != subject.path and _within(s.path, subject.path)
     ]
     # A skill directory that is a symlink is its target's content (a suite match is hashed by its link instead).
-    skill_sha = "sha256:" + tree_digest((root / subject.path).resolve(), exclude=[*inside, *nested])
+    skill_sha = "sha256:" + tree_digest((root / subject.path).resolve(), exclude=[*inside, *nested], strict=True)
     return replace(subject, skill_sha=skill_sha, suite_hash=_digest_files(files, root))

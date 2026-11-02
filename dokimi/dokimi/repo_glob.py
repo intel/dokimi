@@ -26,7 +26,9 @@ def _listing(base: Path, *, strict: bool = False) -> list[tuple[str, bool, bool]
                 try:
                     out.append((entry.name, entry.is_dir(), entry.is_symlink()))
                 except OSError as exc:
-                    if strict and exc.errno not in _MISSING:
+                    if exc.errno == errno.ELOOP:  # a link that loops: still an entry, so a suite refuses it
+                        out.append((entry.name, False, True))
+                    elif strict and exc.errno not in _MISSING:
                         raise
     except OSError as exc:
         if strict and exc.errno not in _MISSING:
@@ -35,19 +37,21 @@ def _listing(base: Path, *, strict: bool = False) -> list[tuple[str, bool, bool]
 
 
 def _glob_walk(base: Path, segs: tuple[str, ...], i: int, found: set[Path], *, strict: bool,
-               links: set[Path]) -> None:
+               links: set[tuple[Path, tuple[str, ...]]]) -> None:
     """Match ``segs[i:]`` under ``base``, adding each match to ``found`` and each symbolic link a segment must read
-    through to ``links`` (matched or not: a retargeted link may leave the pattern nothing to match)."""
+    through to ``links``, with the segments left to match under the link's target (matched or not: a retargeted
+    link may leave the pattern nothing to match)."""
     if i == len(segs):
         found.add(base)
         return
     seg = segs[i]
     more = i + 1 < len(segs)  # a link is read through only when a segment follows it
     if seg == "**":
-        _glob_walk(base, segs, i + 1, found, strict=strict, links=links)
+        if more or not base.is_file():  # ** matches directories only: a file is not a zero-directory match
+            _glob_walk(base, segs, i + 1, found, strict=strict, links=links)
         for name, is_dir, is_link in _listing(base, strict=strict):
             if is_link and more:
-                links.add(base / name)
+                links.add((base / name, segs[i + 1:]))
             if is_dir:  # follows symlinks: a linked directory is matched, but not descended
                 _glob_walk(base / name, segs, i + 1 if is_link else i, found, strict=strict, links=links)
         return
@@ -55,13 +59,14 @@ def _glob_walk(base: Path, segs: tuple[str, ...], i: int, found: set[Path], *, s
     for name, _, is_link in _listing(base, strict=strict):
         if fnmatch.fnmatchcase(name, seg) if wild else name == seg:
             if is_link and more:
-                links.add(base / name)
+                links.add((base / name, segs[i + 1:]))
             _glob_walk(base / name, segs, i + 1, found, strict=strict, links=links)
 
 
-def glob_links(root: Path, pattern: str) -> list[Path]:
-    """The symbolic links a walk of ``pattern`` reads through, matched or not, unreadable directories raising."""
-    links: set[Path] = set()
+def glob_links(root: Path, pattern: str) -> list[tuple[Path, tuple[str, ...]]]:
+    """The symbolic links a walk of ``pattern`` reads through, matched or not, unreadable directories raising, each
+    with the segments the pattern still has under its target (a link met by the last segment has none)."""
+    links: set[tuple[Path, tuple[str, ...]]] = set()
     _glob_walk(root, tuple(pattern.split("/")), 0, set(), strict=True, links=links)
     return sorted(links)
 

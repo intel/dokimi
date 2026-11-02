@@ -167,7 +167,28 @@ def _tracked_modes(base: Path, spec: str) -> dict[str, bool]:
     return modes
 
 
-def tree_digest(root: Path, *, exclude: Iterable[str] = ()) -> str:
+def _entries(root: Path, skip: tuple[str, ...], *, strict: bool) -> list[Path]:
+    """Every entry under ``root``, directories included, a symlink as itself and never descended into. Entries under
+    a ``skip`` prefix are not read. Non-strict is ``rglob``, which skips a directory it cannot read (and the files
+    behind it); strict raises that error, so a digest cannot leave out what it could not read."""
+    if not strict:
+        return list(root.rglob("*"))
+    found: list[Path] = []
+    pending = [root]
+    while pending:
+        with os.scandir(pending.pop()) as it:
+            for entry in it:
+                path = Path(entry.path)
+                rel = path.relative_to(root).as_posix()
+                if any(rel == e or rel.startswith(e + "/") for e in skip):
+                    continue
+                found.append(path)
+                if entry.is_dir(follow_symlinks=False):
+                    pending.append(path)
+    return found
+
+
+def tree_digest(root: Path, *, exclude: Iterable[str] = (), strict: bool = False) -> str:
     """sha256 (bare hex) over every path, mode bit and byte under ``root``; a link by its target.
 
     A file ``root`` digests as itself (its path is ``.``), and so does a symlink ``root``
@@ -179,12 +200,14 @@ def tree_digest(root: Path, *, exclude: Iterable[str] = ()) -> str:
     Windows checkout with no exec bit still matches), and an untracked file takes its owner's exec bit
     from the disk. A link inside ``root`` with an absolute target is hashed by a relative target (see
     ``link_text``); one pointing outside ``root`` is hashed as written.
+
+    ``strict``: a directory under ``root`` that cannot be read raises its OSError (the default skips it silently).
     """
     skip = tuple(e.strip("/") for e in exclude)
     # sorted by the parts of the relative path, compared as code points: the same order on every OS (Path
     # ordering folds case on Windows)
     entries = ([root] if root.is_symlink() or root.is_file()
-               else sorted(root.rglob("*"), key=lambda p: p.relative_to(root).parts))
+               else sorted(_entries(root, skip, strict=strict), key=lambda p: p.relative_to(root).parts))
     base, spec = (root.parent, root.name) if root.is_file() else (root, ".")
     tracked = _tracked_modes(base, spec) if any(p.is_file() and not p.is_symlink() for p in entries) else {}
     h = hashlib.sha256()

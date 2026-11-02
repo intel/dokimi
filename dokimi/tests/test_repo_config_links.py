@@ -276,6 +276,7 @@ def test_a_skill_linked_to_the_repository_root_is_a_config_error(tmp_path):
         load_repo_config(root).subjects()
 
 
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
 def test_a_link_target_with_the_windows_extended_prefix_is_matched_as_the_plain_path(tmp_path, monkeypatch):
     # os.readlink returns \\?\ paths for absolute links on Windows; the hop must still be found inside the repository
     from dokimi import repo_config
@@ -289,3 +290,39 @@ def test_a_link_target_with_the_windows_extended_prefix_is_matched_as_the_plain_
         lambda p: "\\\\?\\" + real_readlink(p) if os.fspath(p).endswith("current") else real_readlink(p),
     )
     assert repo_config._hops(root / "current" / "q.json", root, root) == [("current",), ("mid",)]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+@pytest.mark.parametrize("glob", ["evaluation/*/task.json", "evaluation/**/task.json"])
+def test_deleting_the_file_a_link_met_by_a_wildcard_suite_led_to_still_claims_it(tmp_path, glob):
+    # the walk met evaluation/current and matched one/task.json through it; the file is gone now, so only the
+    # remaining pattern at the link's target (one/task.json) can still claim the deletion
+    body = HEADER + f"subjects:\n  - id: skill/a\n    path: skills/a\n    suite: {glob}\n"
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": body,
+        "skills/a/SKILL.md": "# a\n",
+        "one/task.json": "[]\n",
+        "one/readme.md": "x\n",
+    })
+    os.makedirs(root / "evaluation")
+    os.symlink("../one", root / "evaluation" / "current")
+    os.remove(root / "one" / "task.json")
+    impact = load_repo_config(root).subjects_for_changed(["one/task.json"])
+    assert impact.unclaimed == []
+    assert "skill/a" in impact.suites
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+@pytest.mark.parametrize("suite", ["evaluation/*", "evaluation/loop"])
+def test_a_self_referential_link_a_suite_names_is_a_config_error_not_dropped(tmp_path, suite):
+    # entry.is_dir() raises ELOOP for evaluation/loop -> loop; the entry must still be listed, so the suite
+    # validation refuses it rather than accepting an empty suite
+    body = HEADER + f"subjects:\n  - id: skill/a\n    path: skills/a\n    suite: {suite}\n"
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": body,
+        "skills/a/SKILL.md": "# a\n",
+    })
+    os.makedirs(root / "evaluation")
+    os.symlink("loop", root / "evaluation" / "loop")
+    with pytest.raises(ConfigError, match="loop"):
+        load_repo_config(root).subjects()
