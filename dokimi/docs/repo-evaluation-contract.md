@@ -1014,7 +1014,9 @@ Protocol:
     - Loading depends on paths and names, not on the rest of the tree. A
       skeleton also keeps a blob-less clone from fetching every blob.
     - The probe refuses to run if any ancestor of the workspace holds a
-      guidance file.
+      guidance file: a name some harness loads by convention, one of the
+      profile's `guidance.names`, or, when a shadow scenario is planned, the
+      file name (last path part) of its `guidance.shadow_file`.
     - It also refuses a tree path with a `\`, a `:`, or a `.`, `..` or `.git`
       component, which would be written outside the workspace or into its git
       directory.

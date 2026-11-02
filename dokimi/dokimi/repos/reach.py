@@ -538,12 +538,19 @@ def _prepare(tree: RepoTree, profile: HarnessProfile, groups: dict[str, list[str
     salt = distinct_salt(tree, list(groups), salt, shadows=tuple(s.shadow for s in plan if s.shadow))  # the tree only
     try:
         workspace.mkdir()
-        check_ancestors(workspace, tuple(dict.fromkeys(ANCESTOR_GUARD + profile.guidance_names)))
+        check_ancestors(workspace, _guarded(profile, plan))
         seeded = build_workspace(tree, list(groups), workspace, salt, groups)
     except OSError as exc:
         raise ReachError(f"cannot build the probe workspace {workspace}: {exc}") from exc
     _check_shadow_paths(workspace, plan)
     return salt, seeded
+
+
+def _guarded(profile: HarnessProfile, plan: list[Scenario]) -> tuple[str, ...]:
+    """The names check_ancestors looks for: ANCESTOR_GUARD, the profile's guidance names and, when a shadow scenario is
+    planned, the name of its shadow file (the last part of a path checked by shadow_for), which the harness loads too."""
+    shadow = tuple(PurePosixPath(s.shadow).name for s in plan if s.shadow)
+    return tuple(dict.fromkeys(ANCESTOR_GUARD + profile.guidance_names + shadow))
 
 
 def _run_one(profile: HarnessProfile, scenario: Scenario, model: str, workspace: Path,
