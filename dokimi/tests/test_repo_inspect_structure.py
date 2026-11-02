@@ -181,6 +181,7 @@ def test_kept_modules_are_ordered_by_fan_in_then_name():
         docs[f"lib/r{r}.py"] = [(syms[m], False) for m, n in fan_in.items() if r <= n]
     modules = analyze(_index(docs), list(docs), "", limit=3)["modules"]  # one module per src directory
     assert [m["module"] for m in modules if m["kept"]] == ["src/b", "src/c", "src/a"]
+    assert {m["module"]: m["reference_fanin"] for m in modules if m["kept"]} == {"src/a": 3, "src/b": 5, "src/c": 4}
 
 
 def test_ambiguity_is_the_share_of_names_another_module_defines():
