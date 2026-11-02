@@ -112,6 +112,8 @@ def test_the_entry_point_writes_the_metrics_that_the_gate_reads(tmp_path):
     {"paths": ["/etc/passwd"]},
     {"paths": ["../outside.py"]},
     {"paths": "pkg/api.py"},
+    {"paths": ["odd\nname/api.py"]},  # a line separator splits the name in mypy's output
+    {"paths": ["odd\u2028name/api.py"]},
 ])
 def test_task_problems_refuse_bad_fields(over):
     task = _task()
@@ -148,6 +150,15 @@ def test_the_grader_script_loads_its_siblings_by_name(monkeypatch):
 def test_the_subjects_mypy_ini_cannot_suppress_a_listed_file(tmp_path):
     run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": WRONG,
                           "mypy.ini": "[mypy-pkg.api]\nignore_errors = True\n"}, _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is False
+    assert result["n_errors"] == 1
+
+
+def test_a_colored_mypy_image_still_fails_a_listed_file_with_a_type_error(tmp_path, monkeypatch):
+    # the image's env is kept for the grade: MYPY_FORCE_COLOR puts ANSI escapes around the file name and the marker
+    monkeypatch.setenv("MYPY_FORCE_COLOR", "1")
+    run = _run(tmp_path, {"pkg/api.py": WRONG}, _task())
     result = typecheck.grade(_task(), tmp_path, "", run)
     assert result["pass"] is False
     assert result["n_errors"] == 1
@@ -363,6 +374,26 @@ def test_check_task_runs_no_oracle_step_for_a_typecheck_task_without_reference(t
     res = selfcheck.check_task(ctx, Task("t", raw, bare), tmp_path / "work")
     assert ran == [("null", True), ("oracle", False)]
     assert res["verdict"] == "ok"
+
+
+def test_check_task_runs_the_oracle_step_for_a_typecheck_task_with_reference(tmp_path, monkeypatch):
+    # the mirror of the test above: a `False and (...)` gate would skip the oracle of a task that has a repair
+    from types import SimpleNamespace
+
+    from dokimi.repos import selfcheck
+    from dokimi.repos.workspace import Task
+
+    with_reference = tmp_path / "with"
+    (with_reference / "reference").mkdir(parents=True)
+    raw = {"grader": "dokimi:typecheck", "tool": "mypy", "version": "1", "paths": ["pkg/api.py"]}
+    ran = []
+    monkeypatch.setattr(selfcheck, "_host_reason", lambda ctx, task, work_dir, host: (None, None, None))
+    monkeypatch.setattr(selfcheck, "_check_step",
+                        lambda ctx, task, rd, kind, run_it, net, res: ran.append((kind, run_it)))
+    monkeypatch.setattr(selfcheck, "isolation_probe", lambda *args, **kwargs: [])
+    ctx = SimpleNamespace(manifest=SimpleNamespace(image=None))
+    selfcheck.check_task(ctx, Task("t", raw, with_reference), tmp_path / "work")
+    assert ran == [("null", True), ("oracle", True)]
 
 
 def test_a_typecheck_task_without_reference_runs_no_oracle_step(tmp_path):

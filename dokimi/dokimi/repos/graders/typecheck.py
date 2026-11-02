@@ -33,8 +33,10 @@ _ERROR = re.compile(r"^(?P<file>.+?)(?::(?P<line>\d+))?(?::\d+)?: error: (?P<mes
 
 
 def _safe_path(path: object) -> bool:
-    """A workspace-relative path: no leading slash, no ``..`` segment, not empty."""
-    return isinstance(path, str) and bool(path) and not path.startswith("/") and ".." not in path.split("/")
+    """A workspace-relative path: no leading slash, no ``..`` segment, not empty, and one line: a line separator in
+    a name would split it in mypy's output, so the error on that file would not be matched to it."""
+    return (isinstance(path, str) and bool(path) and not path.startswith("/") and ".." not in path.split("/")
+            and path.splitlines() == [path])
 
 
 def task_problems(raw: dict[str, Any]) -> list[str]:
@@ -113,8 +115,10 @@ def grade(task: dict[str, Any], task_dir: Path, answer: str, run_dir: Path | Non
             roots = [*_package_roots(workspace, present), workspace]
             config = Path(neutral, "mypy.ini")
             config.write_text(f"[mypy]\nmypy_path = {':'.join(str(r) for r in roots)}\n", encoding="utf-8")
-            stdout, stderr, status = api.run(["--no-incremental", f"--cache-dir={cache}", f"--config-file={config}",
-                                              "--explicit-package-bases", *[str(workspace / p) for p in present]])
+            # plain lines: the image's MYPY_FORCE_COLOR would put escapes around the file name and the marker
+            stdout, stderr, status = api.run(["--no-incremental", "--no-color-output", f"--cache-dir={cache}",
+                                              f"--config-file={config}", "--explicit-package-bases",
+                                              *[str(workspace / p) for p in present]])
         finally:
             sys.setrecursionlimit(limit)
             if mypypath is not None:
