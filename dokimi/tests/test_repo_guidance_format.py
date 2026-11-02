@@ -76,6 +76,16 @@ tail"""
     ("- a\n---\n  ```\n# x\n", []),  # a rule is a block start, not a lazy line
     ("- a\n# H\n  ```\n# x\n", ["H"]),  # a heading ends the item too: only H is a section, the fence holds x
     ("- a\n\nlazy\n  ```\n# x\n", []),  # a blank line ends the item: the next line is not a lazy continuation
+    ("-\n  ```\n# Real\n", ["Real"]),  # an empty bullet is an item: its fence is at the content column 2
+    ("1.\n   ```\n# Real\n", ["Real"]),  # an empty ordered item: its content column is 3
+    ("-\n   ```\n```\n# Real\n", []),  # the column-0 fence ends the empty item; the hash line is code
+    ("-\n  ```\n# H\n```\n# Real\n", ["H"]),  # H ends the item and its fence; the fence at column 0 holds Real
+    ("-\n\n   ```\n# Real\n", []),  # an empty item ends at a blank line: the indented fence is top-level
+    ("- - -\n  ```\n# not a heading\n  ```\n", []),  # a thematic break is no list item
+    ("* * *\n  ```\n# not a heading\n  ```\n", []),  # the same with asterisks
+    ("paragraph\n2. ```\n   ```\n# Real\n", []),  # a numbered marker other than 1 cannot interrupt a paragraph
+    ("- a\n2. x\n  ```\n# Real\n", []),  # 2. x starts a new list (the item is not continued), so the fence is top-level
+    ("- a\n\n      code\noutside\n  ```\n# not a heading\n", []),  # indented code is not paragraph text
 ])
 def test_a_fence_opened_by_a_list_item_holds_body_text_only_inside_the_item(text, sections):
     assert re.findall(r'title="([^"]*)"', to_format(text, "xml")) == sections

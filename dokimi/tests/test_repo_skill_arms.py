@@ -804,3 +804,47 @@ def test_the_as_skill_arm_removes_the_base_skill_it_packages_so_it_is_not_refuse
     check_arms([parse_arm("guidance:as-skill+skill:skills/lint")], content, tasks, root / ".git", globs)
     with pytest.raises(ArmError, match="already has .claude/skills/lint"):  # the same base under guidance:raw
         check_arms([parse_arm("guidance:raw+skill:skills/lint")], content, tasks, root / ".git", globs)
+
+
+def test_a_catalog_arm_with_as_skill_accepts_an_expected_skill_naming_the_generated_skill(tmp_path):
+    _skill(tmp_path, "skills/lint", "lint")  # the catalog holds lint only; preparation installs toy-guidance beside it
+    task = Task("t", {"expected_skill": "toy-guidance"}, tmp_path)
+    check_arms([parse_arm("guidance:as-skill+skill-catalog:skills")], tmp_path, [task], None, (), "toy")
+
+
+def test_a_skill_named_like_the_generated_one_is_accepted_when_the_arm_is_not_as_skill(tmp_path):
+    _skill(tmp_path, "skills/toy-guidance", "toy-guidance")
+    check_arms([parse_arm("guidance:none+skill:skills/toy-guidance")], tmp_path, [], None, (), "toy")
+
+
+def test_an_as_skill_arm_refuses_a_base_that_tracks_a_plain_file_at_its_generated_skill(tmp_path):
+    write(tmp_path / "toy", ".claude/skills/toy-guidance", "not a skill\n")
+    root, base = make_repo(tmp_path)
+    task = Task("t", {"base": base}, root)
+    with pytest.raises(ArmError, match="base of task t already has .claude/skills/toy-guidance"):
+        check_arms([parse_arm("guidance:as-skill")], root / ".agent-eval", [task], root / ".git", (), "toy")
+
+
+def test_an_as_skill_arm_accepts_a_base_skill_whose_name_only_starts_with_the_generated_one(tmp_path):
+    _skill(tmp_path / "toy", ".claude/skills/toy-guidance2", "toy-guidance2")
+    root, base = make_repo(tmp_path)
+    task = Task("t", {"base": base}, root)
+    check_arms([parse_arm("guidance:as-skill")], root / ".agent-eval", [task], root / ".git", (), "toy")
+
+
+def test_the_generated_skill_name_is_the_slug_of_the_repo_id(tmp_path):
+    _skill(tmp_path, "skills/my_repo-guidance", "my_repo-guidance")
+    with pytest.raises(ArmError, match="generated guidance skill .claude/skills/my_repo-guidance"):
+        check_arms([parse_arm("guidance:as-skill+skill:skills/my_repo-guidance")], tmp_path, [], None, (), "my repo")
+
+
+def test_tasks_check_refuses_an_as_skill_arm_whose_generated_skill_the_arm_also_ships(setup, capsys):
+    _skill(setup["root"], ".agent-eval/skills/toy-guidance", "toy-guidance")
+    git(setup["root"], "add", "-A")
+    git(setup["root"], "commit", "-qm", "generated skill")
+    argv = ["repo", "tasks", "check", f"{setup['root']}@HEAD", "--out", str(setup["out"] / "chk"),
+            "--cache-root", str(setup["out"] / "caches"), "--arm", "guidance:as-skill+skill:skills/toy-guidance"]
+    args = build_parser().parse_args(argv)
+    with pytest.raises(SystemExit):
+        args.func(args)
+    assert "its generated guidance skill .claude/skills/toy-guidance is also one of its skills" in capsys.readouterr().err
