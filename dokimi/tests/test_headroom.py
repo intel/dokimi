@@ -996,3 +996,28 @@ def test_command_checks_every_reference_scored_file_not_only_the_second(tmp_path
         cmd_eval_headroom(_args([first, second, third]))
     assert exc.value.code == 2
     assert f"{third} was scored by eval reference against different grading than {first}" in capsys.readouterr().err
+
+
+def test_a_baseline_a_hair_below_the_ceiling_at_any_score_precision_is_not_a_ceiling():
+    # 89.99999999995 on 0-100 is exactly 5e-13 below 0.9; the reader keeps the score, so it is not a ceiling.
+    run = _run([("1", {"baseline": 89.99999999995, "skill": 95})])
+    assert _flags(headroom([run], min_reps=1)) == {"1": None}
+
+
+def test_arms_a_hair_above_zero_at_any_score_precision_are_not_the_floor():
+    # 0.00000000005 on 0-100 is 5e-13 above a floor of 0 for every arm, so it is not the floor.
+    run = _run([("1", {"baseline": 0.00000000005, "skill": 0.00000000005})])
+    assert _flags(headroom([run], min_reps=1)) == {"1": None}
+
+
+def test_command_refuses_legacy_runs_whose_empty_top_level_arms_list_hides_different_arms(tmp_path, capsys):
+    one = _arms_file(tmp_path / "one.json", {"1": {"baseline": 100, "skill:a": 100}})
+    two = _arms_file(tmp_path / "two.json", {"1": {"baseline": 50, "skill:b": 50}})
+    for path in (one, two):
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["arms"] = []  # an empty list is absent to replicate_key, so the arms the records show must count
+        path.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        cmd_eval_headroom(_args([one, two]))
+    assert exc.value.code == 2
+    assert f"{two} is not a repetition of {one}" in capsys.readouterr().err

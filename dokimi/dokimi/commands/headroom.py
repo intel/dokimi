@@ -80,12 +80,12 @@ def _clobbers_an_input(output, inputs) -> bool:
 def _exit_unless_replicates(runs, inputs) -> None:
     """Exit 2 on the first input that is not a repetition of the first one's configuration (models,
     judge, run_config but the seed, harness, plugins, cell, arms: report.model_compare.replicate_key)
-    or library: averaging such runs per question id would mix different measurements. A run that does not
-    list its arms at the top level is compared by the arms its records show instead."""
+    or library: averaging such runs per question id would mix different measurements. A run that lists no
+    arms at the top level (absent or empty, as replicate_key reads it) is compared by the arms its records show."""
     from dokimi.report.model_compare import replicate_key
 
     keys = [(replicate_key(dict(run.meta)), run.meta.get("library_name"), run.meta.get("judge_context"),
-             None if run.meta.get("arms") is not None else tuple(sorted(run.conditions)))
+             None if run.meta.get("arms") else tuple(sorted(run.conditions)))
             for run in runs]
     odd = next((path for key, path in zip(keys[1:], inputs[1:], strict=True) if key != keys[0]), None)
     if odd is not None:

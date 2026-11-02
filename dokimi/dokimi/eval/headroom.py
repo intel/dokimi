@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from fractions import Fraction
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from dokimi.records import Record, Run
@@ -37,11 +38,8 @@ DEFAULT_CEILING = 0.9
 DEFAULT_FLOOR = 0.0
 DEFAULT_MIN_REPS = 3
 
-# Float error bound for a threshold comparison on a mean of 0-1 scores. _mean rounds its sum once (math.fsum),
-# so the mean is within a few ulps of the exact one; 1e-12 is far below any real score difference.
-_EPS = 1e-12
-# The smallest positive threshold: far below a score step (tenths of a point on 0-100 is 0.001) and
-# far above the float tolerance _EPS, so a threshold this small still compares what it is given.
+# The smallest positive threshold: far below a score step (tenths of a point on 0-100 is 0.001), so a
+# threshold this small still compares what it is given. Comparisons are exact (Fraction), so no tolerance.
 _MIN_THRESHOLD = 1e-6
 
 CEILING = "ceiling"
@@ -84,21 +82,20 @@ def check_thresholds(ceiling: float, floor: float, min_reps: int) -> None:
         raise ValueError(f"min_reps must be at least 1, not {min_reps!r}")
 
 
-def _mean(values: List[float]) -> Optional[float]:
-    # Unrounded: the thresholds compare the exact mean (a 89.996 item is not a ceiling).
-    return math.fsum(values) / len(values) if values else None
+def _mean(values: List[Fraction]) -> Optional[Fraction]:
+    # Exact, not a float: a mean of 90 is exactly the 0.9 ceiling, and 89.99999999995 is exactly below it.
+    return sum(values, Fraction(0)) / len(values) if values else None
 
 
 def _flag(
-    no_skill: Optional[float], arms: Dict[str, Optional[float]], control: str, ceiling: float, floor: float,
+    no_skill: Optional[Fraction], arms: Dict[str, Optional[Fraction]], control: str,
+    ceiling: Fraction, floor: Fraction,
 ) -> Optional[str]:
-    # A mean exactly at the threshold can land a few ulps off it; the tolerance is far below one
-    # score step (0.01 at the finest), so it absorbs only that float error.
-    if no_skill is not None and no_skill >= ceiling - _EPS:
+    if no_skill is not None and no_skill >= ceiling:
         return CEILING
     scored = {arm: v for arm, v in arms.items() if v is not None}
     # An unscored no-skill arm cannot show the item is unanswerable: its judge may just have failed.
-    if no_skill is not None and any(arm != control for arm in scored) and all(v <= floor + _EPS for v in scored.values()):
+    if no_skill is not None and any(arm != control for arm in scored) and all(v <= floor for v in scored.values()):
         return FLOOR
     return None
 
@@ -130,7 +127,8 @@ def headroom(
     items: List[ItemHeadroom] = []
     for qid in sorted(scores, key=_sort_key):
         per_arm = scores[qid]
-        arms = {arm: _mean(per_arm.get(arm, [])) for arm in sorted(arms_of[qid])}
+        exact = {arm: _mean(per_arm.get(arm, [])) for arm in sorted(arms_of[qid])}
+        arms = {arm: None if value is None else float(value) for arm, value in exact.items()}
         reps = len(per_arm.get(control, []))
         no_skill = arms.get(control)
         items.append(ItemHeadroom(
@@ -140,7 +138,7 @@ def headroom(
             no_skill=no_skill,
             arms=arms,
             unscored_arms=[arm for arm, value in arms.items() if value is None],
-            flag=_flag(no_skill, arms, control, ceiling, floor),
+            flag=_flag(exact.get(control), exact, control, Fraction(str(ceiling)), Fraction(str(floor))),
         ))
 
     summary = {
@@ -209,9 +207,9 @@ def repeated_ids(run: Run) -> List[str]:
     return repeated
 
 
-def _collect(runs: Sequence[Run]) -> Tuple[Dict[str, Dict[str, List[float]]], Dict[str, Set[str]]]:
-    """Question id -> arm -> the per-run scores (0-1), and question id -> the arms it listed."""
-    scores: Dict[str, Dict[str, List[float]]] = {}
+def _collect(runs: Sequence[Run]) -> Tuple[Dict[str, Dict[str, List[Fraction]]], Dict[str, Set[str]]]:
+    """Question id -> arm -> the per-run scores (0-1, exact), and question id -> the arms it listed."""
+    scores: Dict[str, Dict[str, List[Fraction]]] = {}
     arms_of: Dict[str, Set[str]] = {}
     for index, run in enumerate(runs, start=1):
         dupes = repeated_ids(run)
@@ -227,7 +225,7 @@ def _collect(runs: Sequence[Run]) -> Tuple[Dict[str, Dict[str, List[float]]], Di
             for arm in names:
                 value = rec.score(arm)
                 if value is not None:
-                    per_arm.setdefault(arm, []).append(float(value) / 100.0)
+                    per_arm.setdefault(arm, []).append(Fraction(str(value)) / 100)
     return scores, arms_of
 
 
