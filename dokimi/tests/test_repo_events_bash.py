@@ -145,16 +145,21 @@ def test_a_pushd_in_an_earlier_call_also_loses_the_directory():
     assert _reads(events) == []
 
 
-def test_each_agent_keeps_its_own_shell_directory():
-    events = _events(
-        _call("a", "cd sub"), _result("a"),
-        _call("s1", "cat AGENTS.md", agent="t1"), _result("s1"),  # a subagent's shell starts at the root
-        _call("p2", "cat AGENTS.md"), _result("p2"),  # the parent's shell is in sub: not recorded
-        _call("s3", "cat AGENTS.md", agent="t1"), _result("s3"),  # the parent's cd did not move the subagent
-        _call("s4", "cd x", agent="t1"), _result("s4"),
-        _call("s5", "cat AGENTS.md", agent="t1"), _result("s5"))
+def test_a_parents_cd_drops_a_subagents_later_relative_read():
+    # a subagent may share the parent's shell, so its relative read after the parent's cd is not known
+    events = _events(_call("s1", "cat AGENTS.md", agent="t1"), _result("s1"),
+                     _call("a", "cd sub"), _result("a"),
+                     _call("s2", "cat AGENTS.md", agent="t1"), _result("s2"),
+                     _call("s3", "cat /ws/sub/AGENTS.md", agent="t1"), _result("s3"))
     assert [(e["path"], e.get("agent")) for e in events if e["kind"] == "read"] == [
-        ("AGENTS.md", "t1"), ("AGENTS.md", "t1")]
+        ("AGENTS.md", "t1"), ("sub/AGENTS.md", "t1")]
+
+
+def test_a_subagents_cd_drops_the_parents_later_relative_read():
+    events = _events(_call("p1", "cat AGENTS.md"), _result("p1"),
+                     _call("s1", "cd sub", agent="t1"), _result("s1"),
+                     _call("p2", "cat AGENTS.md"), _result("p2"))
+    assert [(e["path"], e.get("agent")) for e in events if e["kind"] == "read"] == [("AGENTS.md", None)]
 
 
 def test_a_subagent_bash_read_carries_the_agent():

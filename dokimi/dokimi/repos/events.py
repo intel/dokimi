@@ -21,8 +21,9 @@ subagent made carries ``agent``: the id of the parent's tool call that started i
 A shell command that only prints files (:func:`~dokimi.repos.cli_traces.shell_reads`) also gives a
 ``read`` event per file, before its ``command`` event: a Codex or Copilot shell command, and
 Claude Code's ``Bash`` tool. Claude Code keeps the shell's directory from one ``Bash`` call to the
-next, so once a call of an agent ran a ``cd`` in that shell (not in a subshell, a pipeline or a
-background job), that agent's later relative reads are not recorded. A refused call ran nothing:
+next, so once any call ran a ``cd`` in that shell (not in a subshell, a pipeline or a background
+job), later relative reads are not recorded, the parent's and every subagent's alike: subagents may
+share the parent's shell, and dropping a read is the safe side either way. A refused call ran nothing:
 it moves no shell, and its reads stay, ``denied``. The reads are settled when the trace ends,
 since a ``permission_denials`` entry comes only in the final result.
 
@@ -59,7 +60,7 @@ def convert(fmt: str, raw: str, workdir: str | None = None, cwd: str = "") -> Tr
     """Convert a raw harness stdout in format ``fmt`` to a :class:`Transcript`.
 
     ``cwd`` is the directory the harness started in, relative to ``workdir``: a shell command's relative
-    paths are read from there (in Claude Code, every agent's first ``Bash`` call starts there)."""
+    paths are read from there (in Claude Code, the first ``Bash`` call starts there)."""
     if fmt == "text":
         return Transcript(answer=raw.strip())
     if fmt == "claude-stream-json":
@@ -73,9 +74,8 @@ def convert(fmt: str, raw: str, workdir: str | None = None, cwd: str = "") -> Tr
 class _BashCall:
     """A Bash call, settled when the trace ends: what came back for it decides its reads."""
 
-    agent: str  # "" the parent
     text: str
-    named: list[str]  # the files its command prints, from the agent's start directory
+    named: list[str]  # the files its command prints, from the start directory
     reads: list[dict[str, Any]]  # their read events, in place before the command event
     moves: bool  # the command may leave its shell in another directory
     result: str | None = None  # "ok", "error" or "denied"; None while nothing came back
@@ -86,7 +86,7 @@ class _Stream:
     """What a Claude stream-json trace carries from line to line."""
 
     workdir: str | None
-    cwd: str  # where each agent's shell starts, relative to workdir
+    cwd: str  # where the Bash shell starts, relative to workdir
     by_id: dict[str, dict[str, Any]] = field(default_factory=dict)  # tool_use id -> its event
     bash: dict[int, _BashCall] = field(default_factory=dict)  # id() of a Bash call's command event -> the call
 
@@ -160,26 +160,26 @@ def _deny(stream: _Stream, tool_id: Any) -> None:
 
 
 def _settle_bash(out: Transcript, calls: Iterable[_BashCall]) -> None:
-    """Each Bash call's reads, once every result and denial is in. In each agent's order:
+    """Each Bash call's reads, once every result and denial is in. In the trace's order:
 
     - a denied call ran nothing: it moves no shell, and its reads stay, ``denied``;
     - a call that failed and was one read of one file (``cat AGENTS.md`` of a missing file) drops its reads;
-    - after a call that was not denied and may have moved the agent's shell, only absolute reads are known;
+    - after a call that was not denied and may have moved its shell, only absolute reads are known, in
+      every agent: a subagent may share the parent's shell;
     - else the reads get ``rc`` 0, since a failure does not say which file failed (``cat a missing``).
     """
-    moved: set[str] = set()  # agents ("" the parent) whose shell may have left its start directory
+    moved = False  # the shell may have left its start directory
     dropped: set[int] = set()
     for call in calls:
         failed = call.result == "error" and _failed_read(call.text, call.named, 1)
         for read, path in zip(call.reads, call.named, strict=True):
-            if failed or (call.agent in moved and not path.startswith("/")):
+            if failed or (moved and not path.startswith("/")):
                 dropped.add(id(read))
             elif call.result == "denied":
                 read["denied"] = True
             elif call.result:
                 read["rc"] = 0
-        if call.moves and call.result != "denied":
-            moved.add(call.agent)
+        moved |= call.moves and call.result != "denied"
     if dropped:
         out.events[:] = [e for e in out.events if id(e) not in dropped]
 
@@ -187,7 +187,7 @@ def _settle_bash(out: Transcript, calls: Iterable[_BashCall]) -> None:
 def _tool_use(out: Transcript, block: dict[str, Any], t: float | None, agent: str, stream: _Stream) -> None:
     """The events of one tool_use block: a Bash call's derived reads, then its own event."""
     event = _tool_event(block, t, stream.workdir)
-    reads = _bash_call(event, agent, stream).reads if block.get("name") == _SHELL_TOOL else []
+    reads = _bash_call(event, stream).reads if block.get("name") == _SHELL_TOOL else []
     if agent:
         for e in (*reads, event):
             e["agent"] = agent
@@ -198,11 +198,11 @@ def _tool_use(out: Transcript, block: dict[str, Any], t: float | None, agent: st
         stream.by_id[block["id"]] = event
 
 
-def _bash_call(event: dict[str, Any], agent: str, stream: _Stream) -> _BashCall:
+def _bash_call(event: dict[str, Any], stream: _Stream) -> _BashCall:
     """A Bash command's call, with a read event for each file it names; :func:`_settle_bash` keeps or drops them."""
     named, moves = shell_reads_moved(str(event["text"]), stream.cwd)
     reads = [{"t": event["t"], "kind": "read", "path": relative_path(p, stream.workdir)} for p in named]
-    stream.bash[id(event)] = call = _BashCall(agent, str(event["text"]), named, reads, moves)
+    stream.bash[id(event)] = call = _BashCall(str(event["text"]), named, reads, moves)
     return call
 
 
