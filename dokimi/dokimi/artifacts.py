@@ -14,8 +14,9 @@ repository offers an agent), ``plan`` (the cells a run promises to measure),
 ``result`` (one status per planned cell), ``repo_budget`` (what a repository puts
 into an agent's context), ``effective_instructions`` (the effective-instructions/v0
 receipt of a reach probe), ``need_graph`` and ``eval_coverage`` (a frozen need graph and an
-eval set's coverage of it) and ``task_inspect`` (which eval-task format each
-path under a tree is). This module stamps each with a
+eval set's coverage of it), ``task_inspect`` (which eval-task format each
+path under a tree is) and ``dokimi_config`` (a repository's subjects and where
+their evals are). This module stamps each with a
 ``schema_version`` and validates it against the JSON Schema in
 ``dokimi/schemas/`` on save and load, so fixtures and baselines stay
 forward-compatible and self-describing.
@@ -63,6 +64,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "task_inspect": "task_inspect.v1",
     "redteam": "redteam.v1",
     "cli_routes": "cli_routes.v1",
+    "dokimi_config": "dokimi_config.v1",
     "need_graph": "need_graph.v1",
     "eval_coverage": "eval_coverage.v1",
 }

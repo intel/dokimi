@@ -50,6 +50,7 @@ EXPECTED: dict[str, tuple[dict, str | None, str | None, str | None]] = {
     "effective_instructions.v1": ({}, "toy", "m", "2026-10-31T00:00:00+00:00"),
     "task_inspect.v1": ({}, "tests/fixtures/task_formats", None, None),
     "cli_routes.v1": ({}, None, None, None),
+    "dokimi_config.v1": ({}, "skill/onetbb, repo", None, None),
     "redteam.v1": ({}, "questions.json", None, None),
     "need_graph.v1": ({}, "dpnp-io", None, None),
     "eval_coverage.v1": ({}, "dpnp-io", None, None),

@@ -1,0 +1,13 @@
+{
+  "schema_version": "dokimi_config.v1",
+  "defaults": {"skills": "skills/*", "suite": "{skill}/evals"},
+  "subjects": [
+    {"id": "skill/onetbb", "path": "skills/onetbb",
+     "suite": {"harbor": "evaluation/harbor/tasks/onetbb-*"}},
+    {"id": "repo", "kind": "repo", "manifest": ".github/dokimi/repo.yaml"}
+  ],
+  "shared": ["scripts/harness/**"],
+  "plan": {"models": ["sonnet"], "reps": 3, "arms": ["none", "approved", "candidate"]},
+  "budget": {"pr_max_usd": 5, "record_max_usd": 30},
+  "baseline": {"store": "branch:dokimi-baselines"}
+}

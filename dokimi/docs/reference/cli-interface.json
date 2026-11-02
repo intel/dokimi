@@ -13143,6 +13143,7 @@
                 "'answers'",
                 "'arms'",
                 "'cli_routes'",
+                "'dokimi_config'",
                 "'effective_instructions'",
                 "'eval'",
                 "'eval_coverage'",

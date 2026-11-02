@@ -1,11 +1,13 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
+import hashlib
 import json
 import os
 import re
+import stat
 from pathlib import Path
-from typing import Tuple, Dict, Any
+from typing import Iterable, Tuple, Dict, Any
 
 from dokimi.defaults import bedrock_profile
 from dokimi.exit_codes import EXIT_USAGE
@@ -91,6 +93,143 @@ def digest_text(text: str) -> str:
     import hashlib
 
     return "sha256:" + hashlib.sha256((text or "").encode("utf-8", errors="surrogatepass")).hexdigest()
+
+
+def _plain_path(text: str) -> str:
+    r"""A Windows absolute path without its extended-length prefix. os.readlink gives an absolute link target as
+    \\?\C:\... (or \\?\UNC\...), while the anchors are plain: the two read as different drives.
+    Any other text is returned unchanged."""
+    if text.startswith("\\\\?\\UNC\\"):
+        return "\\\\" + text[len("\\\\?\\UNC\\"):]
+    if text.startswith("\\\\?\\"):
+        return text[len("\\\\?\\"):]
+    return text
+
+
+def link_text(link: Path, root: Path) -> str:
+    """A symlink's target as the digests hold it: as written, except an absolute target inside ``root``, which is
+    written relative to the link. So a tree digests the same at another checkout path (the link's text is the same).
+    A ``..`` in such a target is kept as written: after a link the kernel resolves it from the link's target, so
+    collapsing it lexically would hash two different files alike."""
+    target = os.readlink(link)
+    if not os.path.isabs(target):
+        return target
+    target = _plain_path(target)
+    if link == root:  # the root is hashed by its target, not walked: kept as written, so a loop through it stays a loop
+        return target
+    # the tree may be named by a path with links in it: match the target under the name as given and as resolved
+    # (a link that is the root itself is not resolved, or its own target would count as inside it)
+    anchors = [os.fspath(root)] if root.is_symlink() else [os.fspath(root), os.path.realpath(root)]
+    for anchor in anchors:
+        # Windows folds case in paths (and drive letters), so the comparison is on the normalized spelling; the target
+        # keeps its own spelling in the text it returns
+        key, key_anchor = os.path.normcase(target), os.path.normcase(anchor)
+        try:
+            inside = os.path.commonpath([key, key_anchor]) == key_anchor and key.startswith(key_anchor)
+        except ValueError:  # different drives, or a relative path mixed in
+            continue
+        if inside:
+            rest = [part for part in target[len(anchor):].split(os.sep) if part not in ("", ".")]
+            depth = len(link.relative_to(root).parent.parts)  # the link's directory, as the text is read from there
+            slash = "/" if target.endswith((os.sep, os.sep + ".")) else ""  # "x/" and "x/." need a directory
+            if ".." in rest:
+                # a target whose ".." leads out of the tree (and does not come back in) is external: hashed as written,
+                # so two trees whose external targets differ do not digest alike
+                lexical = os.path.normcase(os.path.normpath(target))
+                if lexical != key_anchor and not lexical.startswith(key_anchor.rstrip(os.sep) + os.sep):
+                    return target
+                return "/".join([".."] * depth + rest) + slash or "."
+            here = os.path.join(anchor, *link.relative_to(root).parent.parts)
+            return os.path.relpath(os.path.join(anchor, *rest), here).replace(os.sep, "/") + slash
+    return target  # outside the tree: as written
+
+
+def _tracked_modes(base: Path, spec: str) -> dict[str, bool]:
+    """The executable bit git records (mode 100755) for each file ``spec`` names under ``base``, keyed by the path
+    relative to ``base``. Empty when git cannot say (no git, or ``base`` is not in a repository)."""
+    from dokimi.process import Env, run
+
+    # GIT_* variables (a hook's GIT_DIR or GIT_INDEX_FILE) would point git at some other repository's index
+    env = Env.only(allow=[k for k in os.environ if not k.startswith("GIT_")])
+    try:
+        # literal: the name is a path, not a pattern; no capture limit: a large tree's listing must be read whole
+        done = run(["git", "--literal-pathspecs", "-C", os.fspath(base), "ls-files", "--stage", "-z", "--", spec],
+                   timeout=60, env=env, capture_limit=None)
+    except OSError:
+        return {}
+    if not done.ok:
+        return {}
+    modes: dict[str, bool] = {}
+    for record in done.stdout_bytes.split(b"\0"):
+        meta, tab, name = record.partition(b"\t")
+        if tab:
+            modes[os.fsdecode(name)] = meta.split()[0] == b"100755"
+    return modes
+
+
+def _entries(root: Path, skip: tuple[str, ...], *, strict: bool) -> list[Path]:
+    """Every entry under ``root``, directories included, a symlink as itself and never descended into. Entries under
+    a ``skip`` prefix are not read. Non-strict is ``rglob``, which skips a directory it cannot read (and the files
+    behind it); strict raises that error, so a digest cannot leave out what it could not read."""
+    if not strict:
+        return list(root.rglob("*"))
+    found: list[Path] = []
+    pending = [root]
+    while pending:
+        with os.scandir(pending.pop()) as it:
+            for entry in it:
+                path = Path(entry.path)
+                rel = path.relative_to(root).as_posix()
+                if any(rel == e or rel.startswith(e + "/") for e in skip):
+                    continue
+                found.append(path)
+                if entry.is_dir(follow_symlinks=False):
+                    pending.append(path)
+    return found
+
+
+def tree_digest(root: Path, *, exclude: Iterable[str] = (), strict: bool = False) -> str:
+    """sha256 (bare hex) over every path, mode bit and byte under ``root``; a link by its target.
+
+    A file ``root`` digests as itself (its path is ``.``), and so does a symlink ``root``
+    (by its target, dangling or not; it is not walked). Entries whose path, relative to
+    ``root``, equals one of ``exclude`` or sits under it are left out, so a skill's digest can
+    leave its eval directory out. Output is deterministic: sorted walk, no timestamps.
+
+    The same tree digests the same on every OS: a file's mode bit is the one git records (the index, so a
+    Windows checkout with no exec bit still matches), and an untracked file takes its owner's exec bit
+    from the disk. A link inside ``root`` with an absolute target is hashed by a relative target (see
+    ``link_text``); one pointing outside ``root`` is hashed as written.
+
+    ``strict``: a directory under ``root`` that cannot be read raises its OSError (the default skips it silently).
+    """
+    skip = tuple(e.strip("/") for e in exclude)
+    # sorted by the parts of the relative path, compared as code points: the same order on every OS (Path
+    # ordering folds case on Windows)
+    entries = ([root] if root.is_symlink() or root.is_file()
+               else sorted(_entries(root, skip, strict=strict), key=lambda p: p.relative_to(root).parts))
+    base, spec = (root.parent, root.name) if root.is_file() else (root, ".")
+    tracked = _tracked_modes(base, spec) if any(p.is_file() and not p.is_symlink() for p in entries) else {}
+    h = hashlib.sha256()
+    for path in entries:
+        rel = "." if path == root else path.relative_to(root).as_posix()
+        if any(rel == e or rel.startswith(e + "/") for e in skip):
+            continue
+        # names and link targets are bytes on POSIX and may hold undecodable bytes: encode them as the OS does
+        name = os.fsencode(rel)
+        if path.is_symlink():
+            h.update(b"L " + name + b"\0" + os.fsencode(link_text(path, root)) + b"\0")
+        elif path.is_file():
+            key = path.relative_to(base).as_posix()
+            if key in tracked:
+                executable = tracked[key]
+            else:
+                executable = bool(os.lstat(path).st_mode & stat.S_IXUSR)
+            h.update(b"F " + name + f"\0{int(executable)}\0".encode())
+            h.update(hashlib.sha256(path.read_bytes()).digest())
+        elif path.is_dir():
+            h.update(b"D " + name + b"\0")
+    return h.hexdigest()
 
 
 def retry_writable(func: Any, path: str, _exc: Any) -> None:
