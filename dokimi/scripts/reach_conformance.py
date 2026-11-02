@@ -74,6 +74,7 @@ def cmd_merge(args: argparse.Namespace) -> int:
         return 1
     cf.write_matrix(merged, args.out)
     summaries = {case: block["summary"] for case, block in expect["cases"].items()}
+    args.md.parent.mkdir(parents=True, exist_ok=True)
     args.md.write_text(cf.render_markdown(merged, summaries), encoding="utf-8")
     print(f"merged {len(matrices)} matrices: {len(merged['runs'])} runs, {len(merged['cells'])} cells")
     return 0
