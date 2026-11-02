@@ -19,17 +19,14 @@ from dokimi.exit_codes import usage_exit
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from dokimi.novelty.routing import Candidate
 
-
-def routing_queries(args: argparse.Namespace, body: str,
-                    gold: Candidate) -> tuple[list[str], bool, str | None]:
+def routing_queries(args: argparse.Namespace, body: str) -> tuple[list[str], bool, str | None]:
     """The queries of one routing run: ``(queries, self_derived, queries_source)``.
 
-    ``--queries`` is read as written. ``--queries-from-headings`` derives them from the artifact
-    itself and names the source: ``headings``, ``description``, or ``none`` when neither gives any.
+    ``--queries`` is read as written. ``--queries-from-headings`` derives them from the artifact's
+    own headings; ``queries_source`` is ``headings``, or ``none`` when no heading gives any.
     """
-    from dokimi.novelty.routing import RoutingInputError, load_queries, self_derived_queries
+    from dokimi.novelty.routing import RoutingInputError, headings_as_queries, load_queries
 
     if args.queries:
         try:
@@ -39,15 +36,14 @@ def routing_queries(args: argparse.Namespace, body: str,
     if not args.queries_from_headings:
         usage_exit("pass --queries <file> with requests written independently of the artifact, or "
                    "--queries-from-headings for a self-derived triage run")
-    queries, source = self_derived_queries(body, gold.description)
-    if source == "none":
+    queries = headings_as_queries(body)
+    if not queries:
         # Nothing was derived, so there is nothing to label; the refusal that follows says why.
-        return queries, True, source
-    print(f"WARNING: queries derived from the artifact's own "
-          f"{'headings' if source == 'headings' else 'description'}. The artifact "
+        return queries, True, "none"
+    print("WARNING: queries derived from the artifact's own headings. The artifact "
           "then defines both the problem scope and its own relevance, so this is triage, "
           "not a routing rate", file=sys.stderr)
-    return queries, True, source
+    return queries, True, "headings"
 
 
 def estimate_routing_usd(model: str, provider: str, prompts: list[int],
@@ -73,9 +69,8 @@ def estimate_routing_usd(model: str, provider: str, prompts: list[int],
 def no_queries_reason(args: argparse.Namespace, queries: list[str], self_derived: bool) -> str:
     """Why a routing run has no query to score."""
     if not queries and self_derived:
-        return (f"no section heading or description sentence of two or more words in "
-                f"{args.artifact} outside code fences; headings inside fenced code are not "
-                "requests")
+        return (f"no section heading of two or more words outside code fences in "
+                f"{args.artifact}; headings inside fenced code are not requests")
     if not queries:
         return f"--queries {args.queries} holds no non-blank query"
     return (f"none of the {len(queries)} queries has a content word, since words "

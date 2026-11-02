@@ -425,49 +425,6 @@ def headings_as_queries(body: str, *, limit: int = 40) -> list[str]:
     return [h for h in headings if len(tokenize(h)) >= 2][:limit]
 
 
-_SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
-# A period that ends an abbreviation, not a sentence: "e.g.", "i.e.", "vs.", "cf.". It may follow
-# an opening bracket or quote: "(e.g."
-_ABBREVIATION_END = re.compile(r"(?:^|[\s(\[{\"'])(?:e\.g|i\.e|vs|cf)\.$", re.IGNORECASE)
-
-
-def _sentences(text: str) -> list[str]:
-    """``text`` split after each sentence-ending period, not after an abbreviation's."""
-    sentences, start = [], 0
-    for match in _SENTENCE_END.finditer(text):
-        if _ABBREVIATION_END.search(text[start:match.start()]):
-            continue
-        sentences.append(text[start:match.start()])
-        start = match.end()
-    sentences.append(text[start:])
-    return sentences
-
-
-def description_as_queries(description: str, *, limit: int = 40) -> list[str]:
-    """Sentences of a description, for triage when the artifact has no usable heading.
-
-    A skill whose body is a ``#`` title and no ``##`` heading of two or more words still says
-    what it is for in its description. Each sentence with two or more content words is
-    offered, as :func:`headings_as_queries` offers headings. The same self-derived stamp applies.
-    """
-    sentences = _sentences(" ".join(description.split()))
-    return [s for s in sentences if len(tokenize(s)) >= 2][:limit]
-
-
-def self_derived_queries(body: str, description: str) -> tuple[list[str], str]:
-    """The triage queries of an artifact and where they came from.
-
-    Headings are preferred; the description's sentences are the fallback. Returns
-    ``(queries, source)`` with ``source`` ``"headings"``, ``"description"``, or ``"none"`` when
-    neither gives a query of two or more content words.
-    """
-    headings = headings_as_queries(body)
-    if headings:
-        return headings, "headings"
-    sentences = description_as_queries(description)
-    return sentences, "description" if sentences else "none"
-
-
 # A selection reply is one JSON object, ``{"pick": N}``: a few tokens.
 PICK_REPLY_TOKENS = 10
 

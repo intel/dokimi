@@ -12,8 +12,7 @@ SPDX-License-Identifier: Apache-2.0
 ### Fixed
 
 - **A query that names a skill left out for `disable-model-invocation` says so.** `--all-vs-all` refused it as "not in the field" with no hint of why; the message now names each such skill and points to `--include-disabled`.
-- **`--queries-from-headings` no longer gives up on a skill with no usable heading.** Only `##` and `###` headings of two or more content words were offered, so a skill whose headings were one word each, or a `#` title alone, had no queries (24 of 144 real skills). Its description's sentences are now the fallback, still stamped as self-derived triage, and the result records `queries_source`. A skill with neither still exits non-zero with the reason.
+- **`--queries-from-headings` names its source.** The result records `queries_source` (`headings`, or `none` when no heading gives a query). A skill with no usable heading still exits non-zero with the reason; its description is not used as a query.
 - **`--estimate-only` without `--model` reports no query sent** (`n_queries_sent` 0), as it makes no call.
 - **A failed model call's message says what it leaves out.** Failed calls are left out of the model arm's scoring; a query with a failed repeat is also left out of the repeat-noise rates. The partial result keeps the calls that succeeded.
-- **A description with a parenthesised abbreviation is one query.** `(e.g. …)` and `(i.e. …)` no longer split the description after the abbreviation's period.
 - **`--seed` help says what it fixes.** It seeds the card order only; it does not make the model's answers repeatable, which is what `--repeats` measures. The help no longer calls the run reproducible.

@@ -25,23 +25,6 @@ def _skill(tmp_path, name, description, body="# B\n\n## A section here\n"):
     return f"skill:{root}"
 
 
-def test_a_skill_with_no_usable_heading_is_queried_by_its_description_sentences(tmp_path, capsys):
-    out = tmp_path / "routing.json"
-    args = _parse("novelty", "routing",
-                  "--artifact", _skill(tmp_path, "grill", "Grill the user about a plan. "
-                                       "Use when stress-testing a design.",
-                                       body="# Grill\n\n## Steps\n"),
-                  "--competitors", _skill(tmp_path, "b", "tune a database"),
-                  "--queries-from-headings", "--out", str(out))
-    args.func(args)
-    payload = json.loads(out.read_text(encoding="utf-8"))
-    assert payload["status"] == "ok"
-    assert payload["queries_self_derived"] is True     # still triage, still stamped
-    assert payload["queries_source"] == "description"
-    assert payload["lexical"]["n_queries_given"] == 2
-    assert "description" in capsys.readouterr().err
-
-
 def test_attractor_line_counts_calls_when_the_model_arm_repeats(capsys):
     from dokimi.commands.novelty_routing_report import print_attractors
 
@@ -49,6 +32,23 @@ def test_attractor_line_counts_calls_when_the_model_arm_repeats(capsys):
     print_attractors({"tied_groups": [], "model": {"attractors": [row], "confusion": {},
                                                    "n_unscored": {}, "repeats": 3}})
     assert "picked for 3 of 6 sibling calls" in capsys.readouterr().out
+
+
+def test_a_skill_with_no_usable_heading_is_refused_even_with_a_description(tmp_path, capsys):
+    # The description is not a fallback: only headings are triage queries.
+    out = tmp_path / "routing.json"
+    args = _parse("novelty", "routing",
+                  "--artifact", _skill(tmp_path, "grill", "Grill the user about a plan. "
+                                       "Use when stress-testing a design.",
+                                       body="# Grill\n\n## Steps\n"),
+                  "--competitors", _skill(tmp_path, "b", "tune a database"),
+                  "--queries-from-headings", "--out", str(out))
+    with pytest.raises(SystemExit):
+        args.func(args)
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["status"] == "no_queries"
+    assert payload["queries_source"] == "none"
+    assert "no section heading" in payload["reason"]
 
 
 def test_no_derived_queries_refuses_without_claiming_a_derivation(tmp_path, capsys):
@@ -62,25 +62,6 @@ def test_no_derived_queries_refuses_without_claiming_a_derivation(tmp_path, caps
     err = capsys.readouterr().err
     assert "derived from the artifact" not in err
     assert json.loads(out.read_text(encoding="utf-8"))["status"] == "no_queries"
-
-
-def test_description_sentences_are_queries_only_with_two_content_words():
-    from dokimi.novelty.routing import description_as_queries
-
-    assert description_as_queries(
-        "Stop. Grill the user about a plan. Use when stress-testing\na design!"
-    ) == ["Grill the user about a plan.", "Use when stress-testing a design!"]
-
-
-def test_headings_are_preferred_to_the_description_when_both_give_queries():
-    from dokimi.novelty.routing import self_derived_queries
-
-    body = "# Title\n\n## Profile a binary\n"
-    assert self_derived_queries(body, "Tune a database. Index a table.") == (
-        ["Profile a binary"], "headings")
-    assert self_derived_queries("# Title only\n", "Tune a database.") == (
-        ["Tune a database."], "description")
-    assert self_derived_queries("# Title only\n", "Stop.") == ([], "none")
 
 
 def test_the_seed_help_says_what_it_fixes_and_does_not_call_the_run_reproducible(capsys):
@@ -203,20 +184,6 @@ def test_estimate_only_refuses_the_run_the_real_run_refuses(tmp_path, capsys, qu
         args.func(args)
     assert "no usable queries" in capsys.readouterr().err
     assert not out.exists()
-
-
-def test_a_sentence_with_e_g_or_i_e_is_one_description_query():
-    from dokimi.novelty.routing import description_as_queries
-
-    assert description_as_queries(
-        "Profile code, e.g. PyTorch training loops, and report hotspots.") == [
-        "Profile code, e.g. PyTorch training loops, and report hotspots."]
-    assert description_as_queries(
-        "Tune kernels, i.e. hot loops. Report vs. baseline timings.") == [
-        "Tune kernels, i.e. hot loops.", "Report vs. baseline timings."]
-    assert description_as_queries(
-        "Profile code (e.g. PyTorch training loops) and report hotspots.") == [
-        "Profile code (e.g. PyTorch training loops) and report hotspots."]
 
 
 def test_the_estimate_counts_the_prompts_the_run_sends():

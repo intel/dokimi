@@ -501,7 +501,7 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
     except RoutingInputError as exc:
         usage_exit(str(exc))
 
-    queries, self_derived, queries_source = routing_queries(args, body, gold)
+    queries, self_derived, queries_source = routing_queries(args, body)
     candidates = [gold, *competitors]
     if args.estimate_only:
         refuse_estimate_without_queries(args, queries, self_derived)
@@ -801,11 +801,9 @@ def register(sub, positive_int) -> None:
                                 "should select this artifact, written independently of it")
     routing_p.add_argument("--queries-from-headings", action="store_true",
                            dest="queries_from_headings",
-                           help="Derive queries from the artifact's own ## and ### headings of "
-                                "two or more words, or, when it has none, from the sentences of "
-                                "its description. Triage only: the artifact then defines both "
-                                "the problem scope and its own relevance, and the result is "
-                                "stamped as such")
+                           help="Derive queries from the artifact's own headings. Triage "
+                                "only: the artifact then defines both the problem scope and "
+                                "its own relevance, and the result is stamped as such")
     routing_p.add_argument("--model", default=None,
                            help="Also ask this model to pick from the same cards. Optional: "
                                 "without it only the free lexical floor is computed")
