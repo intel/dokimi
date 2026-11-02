@@ -157,8 +157,9 @@ def _shadowing_bindings(tree: ast.Module, owner: dict[int, ast.AST], table: Exit
         if isinstance(n, (ast.Import, ast.ImportFrom)):
             _import_bindings(n, owner[id(n)], table)
         elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            # the name binds after the header (decorators, defaults, bases), which the body follows
-            _bind(table, owner[id(n)], n.name, _at(n.body[0]), "other")
+            # a def binds after its header, which the body follows; a class binds after its body has run
+            at = _after(n) if isinstance(n, ast.ClassDef) else _at(n.body[0])
+            _bind(table, owner[id(n)], n.name, at, "other")
         elif isinstance(n, ast.ExceptHandler) and n.name:
             _bind(table, owner[id(n)], n.name, _at(n.body[0]), "other")
             _bind(table, owner[id(n)], n.name, _after(n), "del")  # Python clears the target when the handler ends

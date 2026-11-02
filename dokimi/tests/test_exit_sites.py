@@ -144,6 +144,15 @@ def test_a_class_body_reads_enclosing_names_until_it_assigns_them(tmp_path):
     assert exit_sites(imports.trees["dokimi.c"]) == [4]
 
 
+def test_a_class_name_binds_after_its_body_has_run(tmp_path):
+    imports = _package(tmp_path, {
+        "dokimi/a.py": "import sys\nclass sys:\n    sys.exit(2)\n",
+        "dokimi/b.py": "E = SystemExit\nclass E:\n    raise E(2)\n",
+    })
+    assert exit_sites(imports.trees["dokimi.a"]) == [3]
+    assert exit_sites(imports.trees["dokimi.b"]) == [3]
+
+
 def test_an_assigned_exit_callable_or_module_keeps_its_meaning(tmp_path):
     imports = _package(tmp_path, {
         "dokimi/a.py": "import sys\nstop = sys.exit\nstop(2)\n",
