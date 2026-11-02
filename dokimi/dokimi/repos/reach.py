@@ -128,9 +128,9 @@ def _pinned_names(links: dict[str, tuple[str, ...]],
     for target, aliases in links.items():
         group = (target, *aliases)
         overlay_names = [n for n in group if overlay_of(n) is not None]
-        # a native name anywhere in the group cannot tell which file a harness read, and neither can two overlay
-        # names (own or foreign): a harness that reads one of them reads the same file under every other one
-        if aliases and (any(PurePosixPath(n).name in native for n in group) or len(overlay_names) > 1):
+        # a native file in the probe can import the target (CLAUDE.md with @docs/shared.md): the load is not the alias's;
+        # two overlay names name one file, so either could have been read
+        if aliases and (native or len(overlay_names) > 1):
             ambiguous.update((*aliases, *overlay_names))
             names[target] = ()
         else:
@@ -475,8 +475,12 @@ def _own_overlay_note(payload: dict[str, Any], overlays: dict[str, Any]) -> str:
     group = {f["path"]: (f["path"], *f.get("aliases", ())) for f in payload["files"]}
     own = set(overlays["own_files"])
     seen = {r["class"] for r in payload["records"] if own & set(group.get(r["file"], (r["file"],)))}
+    # a scenario that errored, or answered with prose (a refusal), says nothing about what it loaded
+    usable = {s["id"] for s in payload["scenarios"] if not s.get("error") and (s.get("prose") or 0) <= PROSE_LIMIT}
+    negative = {r["class"] for r in payload["records"]
+                if r["scenario"] in usable and own & set(group.get(r["file"], (r["file"],)))}
     files = ", ".join(overlays["own_files"])
-    if "not_loaded" in seen and "error" not in seen:
+    if "not_loaded" in negative and "error" not in seen:
         return f"note: no {overlays['own']} overlay ({files}) was loaded in any scenario"
     return f"note: could not determine whether the {overlays['own']} overlay ({files}) was loaded"
 
@@ -525,7 +529,8 @@ def format_matrix(payload: dict[str, Any]) -> str:
     for path, seen in (overlays.get("cross_loaded") or {}).items():
         where = ", ".join(f"{sid} ({cls})" for sid, cls in seen.items())
         lines.append(f"finding: {path}, an overlay for another agent, was loaded by {payload['harness']['name']} in {where}")
-    if overlays.get("own_files") and not overlays.get("own_loaded") and not overlays.get("ambiguous"):
+    own_ambiguous = set(overlays.get("own_files") or ()) & set(overlays.get("ambiguous") or ())
+    if overlays.get("own_files") and not overlays.get("own_loaded") and not own_ambiguous:
         lines.append(_own_overlay_note(payload, overlays))
     if any(f.get("alias_kind") == "copy" for f in payload["files"]):
         lines.append("note: the paths after = are copies, not links (this OS refused a symlink); "

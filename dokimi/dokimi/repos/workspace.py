@@ -606,7 +606,7 @@ def _apply_overlay(ws: Path, tracked: list[str], own: str) -> tuple[list[str], d
         if rel not in listed_set and _path_hits(ws, rel, gone):
             raise PrepError(f"guidance:overlay: {rel} resolves through an overlay the arm removes; "
                             "the base would dangle")
-    for rel in removed:
+    for rel in reversed(removed):  # a name under a link sorts after the link: unlink it first, or its path is gone
         if (ws / rel).is_dir() and not (ws / rel).is_symlink():
             raise PrepError(f"guidance:overlay: {rel} is a directory, not an overlay file")
         (ws / rel).unlink()

@@ -16,7 +16,7 @@ import yaml
 
 from dokimi.repos import RepoSource, load_manifest, open_source
 from dokimi.repos.harness_profile import PROFILE_DIR, ProfileError, load_profile, parse_profile
-from dokimi.repos.overlays import overlay_of
+from dokimi.repos.overlays import native_names, overlay_of
 from dokimi.repos.reach import format_matrix, overlay_report, probe_files
 from dokimi.repos.workspace import (
     ARM_FORMS,
@@ -305,6 +305,46 @@ def test_text_report_keeps_the_ambiguous_load_out_of_the_own_overlay_note():
     assert "note:" not in format_matrix(payload)
 
 
+def test_overlay_of_reads_the_bundled_profiles_not_a_same_named_file_in_the_cwd(tmp_path, monkeypatch):
+    """A file named like a bundled profile, in the working directory, is not parsed as that profile."""
+    (tmp_path / "codex").write_text("not: [a profile\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    native_names.cache_clear()
+    try:
+        assert overlay_of("AGENTS.claude.md") == "claude"
+        assert native_names()
+    finally:
+        native_names.cache_clear()
+
+
+def test_overlay_report_leaves_a_link_load_unattributed_when_a_native_file_may_import_it():
+    """CLAUDE.md can import docs/shared.md, so a load of that file is not a load of its AGENTS.codex.md alias."""
+    records = [{"file": "docs/shared.md", "scenario": "cwd=.", "class": "loaded"}]
+    links = {"CLAUDE.md": (), "docs/shared.md": ("AGENTS.codex.md",)}
+    report = overlay_report(records, "claude", links, native={"CLAUDE.md"})
+    assert report["cross_loaded"] == {}
+    assert report["ambiguous"] == ["AGENTS.codex.md"]
+
+
+def test_text_report_still_says_not_loaded_for_an_own_overlay_next_to_an_unrelated_ambiguous_load():
+    records = [{"file": "AGENTS.claude.md", "scenario": "cwd=.", "class": "not_loaded"},
+               {"file": "AGENTS.codex.md", "scenario": "cwd=.", "class": "loaded"}]
+    payload = _payload(records, "claude", {"AGENTS.claude.md": (), "AGENTS.codex.md": ("CLAUDE.md",)},
+                       native={"CLAUDE.md"})
+    assert payload["overlays"]["ambiguous"] == ["AGENTS.codex.md", "CLAUDE.md"]
+    assert "note: no claude overlay (AGENTS.claude.md) was loaded in any scenario" in format_matrix(payload)
+
+
+def test_text_report_does_not_claim_not_loaded_from_a_refusal():
+    """A scenario that answered with prose (a refusal) gives no usable negative record."""
+    records = [{"file": "AGENTS.claude.md", "scenario": "read=sub", "class": "not_loaded"}]
+    payload = _payload(records, "claude", {"AGENTS.claude.md": ()}, scenarios=("read=sub",))
+    payload["scenarios"][0]["prose"] = 40
+    text = format_matrix(payload)
+    assert "was loaded in any scenario" not in text
+    assert "could not determine whether the claude overlay (AGENTS.claude.md) was loaded" in text
+
+
 def test_overlay_report_leaves_a_load_of_two_foreign_aliases_unattributed():
     """A harness reading one of two foreign alias names of docs/shared.md reads the same file under both."""
     records = [{"file": "docs/shared.md", "scenario": "cwd=.", "class": "loaded"}]
@@ -444,6 +484,23 @@ def test_overlay_arm_removes_a_file_a_directory_alias_lists_twice_once(tmp_path,
     removed, _ = _apply_overlay(tmp_path, tracked, "claude")
     assert len(removed) == 1
     assert not (tmp_path / "real" / "AGENTS.codex.md").exists()
+
+
+@pytest.mark.parametrize("listed", [
+    ["AGENTS.claude.md", "AGENTS.codex.md", "AGENTS.codex.md/AGENTS.copilot.md", "real/AGENTS.copilot.md"],
+    ["AGENTS.claude.md", "AGENTS.codex.md", "real/AGENTS.copilot.md"],
+])
+def test_overlay_arm_removes_a_file_under_a_removed_directory_alias_before_the_alias(tmp_path, listed):
+    """AGENTS.codex.md is a link to real/ and the index also lists a file under it: the file goes before the link,
+    or its unlink finds no path. Either listing names the same file, so it is removed once."""
+    (tmp_path / "real").mkdir()
+    (tmp_path / "real" / "AGENTS.copilot.md").write_text("copilot\n", encoding="utf-8")
+    (tmp_path / "AGENTS.codex.md").symlink_to("real", target_is_directory=True)
+    (tmp_path / "AGENTS.claude.md").write_text("claude\n", encoding="utf-8")
+    _apply_overlay(tmp_path, sorted(listed), "claude")
+    assert not os.path.lexists(tmp_path / "AGENTS.codex.md")
+    assert not (tmp_path / "real" / "AGENTS.copilot.md").exists()
+    assert (tmp_path / "AGENTS.claude.md").is_file()
 
 
 def test_overlay_report_leaves_a_load_of_a_shared_target_unattributed():
