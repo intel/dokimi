@@ -450,6 +450,16 @@ def test_a_cut_import_of_an_unscoped_nested_rule_from_a_chain_rooted_outside_its
         "sub/notes.md: import of sub/.claude/rules/x.md is past the harness's 1-hop import limit, not followed"]
 
 
+def test_a_cut_import_stays_named_for_every_root_that_reaches_it_through_a_shared_file(tmp_path):
+    # sub/CLAUDE.md reaches sub/notes.md first and zother/CLAUDE.md reaches the same file later: the rule
+    # loads for the work in sub/ only, so zother/'s route to the cut import must still be named
+    files = {"sub/CLAUDE.md": "@notes.md\n", "zother/CLAUDE.md": "@../sub/notes.md\n",
+             "sub/notes.md": "@.claude/rules/x.md\n", "sub/.claude/rules/x.md": "rule\n"}
+    payload = budget(_tree(tmp_path, files), NAMES, import_max_depth=1, rules=True)
+    assert payload["warnings"] == [
+        "sub/notes.md: import of sub/.claude/rules/x.md is past the harness's 1-hop import limit, not followed"]
+
+
 def test_a_cut_import_of_a_scoped_nested_rule_still_warns(tmp_path):
     # a scoped nested rule loads only when the agent reads a matching file, so the cut import is still named
     files = {"sub/CLAUDE.md": "@.claude/rules/r.md\n", "sub/.claude/rules/r.md": "---\npaths: src/**\n---\nrule\n"}
