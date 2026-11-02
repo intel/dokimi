@@ -131,6 +131,7 @@ PAID_PATHS = {
     ("eval", "cross-judge"),
     ("eval", "pairwise"),
     ("eval", "reference"),
+    ("eval", "redteam"),
     ("eval", "panel-score"),
     ("tools", "preference"),
 }
