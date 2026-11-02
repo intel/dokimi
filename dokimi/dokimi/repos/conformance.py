@@ -110,7 +110,7 @@ def _case_problems(case: str, block: Mapping[str, Any], root: Path) -> list[str]
                 out.append(f"{case}: {harness} names {path}, which the fixture does not hold")
             for scenario in states:
                 kind, _, where = scenario.partition("=")
-                if kind not in ("cwd", "read") or not (root / where).is_dir():
+                if kind not in ("cwd", "read") or not where or not (root / where).is_dir():
                     out.append(f"{case}: {harness} names scenario {scenario}, which the fixture does not have")
     return out
 
