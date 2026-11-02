@@ -24,4 +24,4 @@ build
 # build with --no-isolation, so setuptools comes from this lock, hashed, not from PyPI.
 setuptools
 twine
-uv==0.13.4
+uv==0.13.5
