@@ -309,9 +309,8 @@ def test_an_explicit_spec_error_competitor_is_skipped_with_a_warning(tmp_path, c
 
 
 def test_the_spelling_of_an_explicit_competitor_does_not_change_its_verdict(tmp_path, monkeypatch):
-    # ``skill:SKILL.md`` and ``skill:.`` (relative, from inside the skill) must get the verdict of
-    # the absolute reference. A SKILL.md with no ``skills/`` parent is a root skill, as the catalog
-    # reads it, so the directory name ("checkout") does not decide whether the field keeps ``db``.
+    # A SKILL.md with no ``skills/`` parent is a root skill, as the catalog reads it, so its directory
+    # name ("checkout") must not decide the name check; ``skill:SKILL.md`` and ``skill:.`` match the absolute reference.
     skill_dir = tmp_path / "checkout"
     skill_dir.mkdir()
     (skill_dir / "SKILL.md").write_text(
