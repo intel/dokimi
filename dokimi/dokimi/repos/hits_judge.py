@@ -9,8 +9,8 @@ This step reads each credited pair (:func:`.report.load_hits`) with its full tex
 ``comment`` from the task's gold file and the finding from the cell's ``answer.txt`` at index ``finding``
 (``matches`` cuts both to 200 characters and is used for the pairing only). A judge labels the pair
 ``same point``, ``related`` or ``unrelated``, and each fully judged cell gets ``hits_judged.json``
-(``repo_hits_judged.v1``) with ``recall_judged``: the ``same point`` pairs over the task's threads.
-Only credited pairs are rescored, so ``recall_judged <= recall``. The grade is not touched.
+(``repo_hits_judged.v1``) with ``recall_judged``: the ``same point`` pairs over the task's threads, null
+when a pair is unjudged. Only credited pairs are rescored, so ``recall_judged <= recall``. The grade is not touched.
 
 The judge may not run the model of any answer of the batch (:func:`check_judge`), and a figure is
 uncalibrated until a person's labels are compared with the judge's (:mod:`.hits_calibration`).
@@ -334,7 +334,10 @@ def _count(value: Any) -> Optional[int]:
 
 
 def cell_doc(cell: dict[str, Any], judge: tuple[str, str], judged: list[dict[str, Any]]) -> dict[str, Any]:
-    """The ``repo_hits_judged.v1`` document of one cell of :func:`.report.load_hits` ``cells``."""
+    """The ``repo_hits_judged.v1`` document of one cell of :func:`.report.load_hits` ``cells``.
+
+    ``recall_judged`` is null when a pair is unjudged: a pair the judge never labelled is not measured, so it
+    is not counted as another point than the thread's."""
     counts = {label: 0 for label in (*LABELS, UNJUDGED)}
     for record in judged:
         counts[record["label"] or UNJUDGED] += 1
@@ -344,7 +347,8 @@ def cell_doc(cell: dict[str, Any], judge: tuple[str, str], judged: list[dict[str
             "rep": cell["rep"], "judge": {"provider": judge[0], "model": judge[1]}, "pairs": judged,
             "counts": counts, "n_threads": n_threads,
             "recall": recall if isinstance(recall, (int, float)) and not isinstance(recall, bool) else None,
-            "recall_judged": round(counts["same point"] / n_threads, 3) if n_threads else None}
+            "recall_judged": round(counts["same point"] / n_threads, 3) if n_threads and not counts[UNJUDGED]
+            else None}
 
 
 @dataclass
@@ -420,7 +424,8 @@ def _mean(values: list[Any]) -> Optional[float]:
 
 
 def rows(docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Per (arm, model): cells, pairs, label counts, mean ``recall`` and mean ``recall_judged`` of the written cells."""
+    """Per (arm, model): cells, pairs, label counts, mean ``recall`` of the written cells, and mean
+    ``recall_judged`` of those whose ``recall_judged`` is not null (a cell with an unjudged pair is left out)."""
     groups: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for doc in docs:
         groups[(doc["arm"], doc["model"])].append(doc)
@@ -439,7 +444,8 @@ def summary(found: dict[str, Any], pairs: list[Pair], judge: tuple[str, str], do
     arm without ``--labels``), whose ``recall_judged`` no calibration covers. ``stale_removed``: the cells whose
     earlier ``hits_judged.json`` :func:`judge_cells` removed (``Judged.stale``). ``budget_stop``: why no new call
     started (``Meter.stop``) when ``budget_stopped`` names a cell, else null. ``unpriced_calls``: the live calls
-    with no known price, counted as 0 in ``spent_usd``."""
+    with no known price, counted as 0 in ``spent_usd``. ``unjudged_cells``: the cells written with an unjudged
+    pair, whose ``recall_judged`` is null and left out of the means of ``rows``."""
     table = rows(done.docs)
     calibrated = {c["arm"] for c in calibration or [] if c["labelled"]}
     return {"batch": found["batch"], "judge": {"provider": judge[0], "model": judge[1]},
@@ -447,7 +453,8 @@ def summary(found: dict[str, Any], pairs: list[Pair], judge: tuple[str, str], do
             "grader_failures": found["grader_failures"], "pairs": len(pairs),
             "not_found": [{"cell": p.cell, "thread": p.hit.get("thread"), "problem": p.problem}
                           for p in pairs if p.problem is not None],
-            "rows": table, "written": len(done.docs), "budget_stopped": done.stopped,
+            "rows": table, "written": len(done.docs),
+            "unjudged_cells": [d["cell"] for d in done.docs if d["counts"][UNJUDGED]], "budget_stopped": done.stopped,
             "budget_stop": done.meter.stop if done.stopped else None, "stale_removed": done.stale,
             "calls": done.meter.calls, "spent_usd": round(done.meter.spent_usd, 6),
             "unpriced_calls": done.meter.unpriced, "calibration": calibration,
@@ -488,6 +495,10 @@ def _calibration_lines(calibration: Optional[list[dict[str, Any]]], uncalibrated
     return lines
 
 
+def _named(cells: list[str], shown: int = 10) -> str:
+    return ", ".join(cells[:shown]) + (f" and {len(cells) - shown} more" if len(cells) > shown else "")
+
+
 def format_summary(s: dict[str, Any]) -> str:
     judge = f"{s['judge']['provider']}/{s['judge']['model']}"
     lines = [f"{s['batch']}: {s['pairs']} credited pair(s) in {s['replay_cells']} {REPLAY} cell(s), judge {judge}; "
@@ -497,14 +508,15 @@ def format_summary(s: dict[str, Any]) -> str:
                      f"{s['grader_failures']} grader failure(s)")
     for p in s["not_found"]:
         lines.append(f"not judged, full text not found: {p['cell']} thread {p['thread']!r}: {p['problem']}")
+    if s["unjudged_cells"]:
+        lines.append(f"unjudged cells: {len(s['unjudged_cells'])} (a pair not judged: recall_judged null, left out "
+                     "of the means): " + _named(s["unjudged_cells"]))
     if s["budget_stopped"]:
         lines.append(f"{len(s['budget_stopped'])} cell(s) not fully judged ({s['budget_stop']}), no {HITS_JUDGED}: "
                      + ", ".join(s["budget_stopped"]))
     if s["stale_removed"]:
-        shown = s["stale_removed"][:10]
         lines.append(f"removed the earlier {HITS_JUDGED} of {len(s['stale_removed'])} cell(s) not judged now "
-                     "(a grader failure, a grade without hit details, another grader): " + ", ".join(shown)
-                     + (f" and {len(s['stale_removed']) - len(shown)} more" if len(s["stale_removed"]) > 10 else ""))
+                     "(a grader failure, a grade without hit details, another grader): " + _named(s["stale_removed"]))
     lines += _calibration_lines(s["calibration"], s["uncalibrated_arms"])
     lines.append(f"{s['calls']} judge call(s), {spend_text(s['spent_usd'], s['unpriced_calls'])}")
     return "\n".join(lines)

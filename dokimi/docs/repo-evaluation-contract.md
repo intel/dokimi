@@ -686,7 +686,8 @@ review thread of a merged PR, anchored on a line of the reviewed revision.
   `unrelated`, reading the thread's full `comment` from the gold file and the
   finding's full `message` (with its `rule` and `evidence`) from the cell's
   `answer.txt` at index `finding`; `matches` gives the pairing only.
-  `recall_judged` is the `same point` pairs over `n_threads`. Only credited
+  `recall_judged` is the `same point` pairs over `n_threads`, and null when
+  a pair of the cell is unjudged (not measured, so not a 0). Only credited
   pairs are rescored: a thread no finding was credited with stays missed, and
   a finding outside the window is not judged, so `recall_judged` is at most
   `recall`. It is a judge's reading, not a verdict: quote a figure only next to
@@ -1610,8 +1611,9 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   cell of the batch, one regraded since into a grader failure, a grade
   without `matches` or another grader, and a line names those cells
   (`--json`: `stale_removed`). The command prints, per (arm, model), the cells written, their
-  pairs and label counts, and the mean `recall` and `recall_judged` of those
-  cells (`--json`: the same as JSON). Before any call it refuses, with exit 2,
+  pairs and label counts, the mean `recall` of those cells and the mean
+  `recall_judged` of those whose `recall_judged` is not null (`--json`: the
+  same as JSON). Before any call it refuses, with exit 2,
   a judge that runs the model of any answer of the batch (`meta.json` or
   `result.json` `model`, the model asked for, and `model_resolved`, the
   model or models the trace says answered; a CLI alias counts as its family's
@@ -1630,7 +1632,10 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   not found (no single task directory or no such thread under
   `<batch>/_eval/content`, no finding at its index in `answer.txt`, or a file
   other than the one `matches` names) and a pair whose reply never parses are
-  `unjudged`, with `error` saying why, and never count as `same point`.
+  `unjudged`, with `error` saying why, and never count as `same point`. A
+  cell with an unjudged pair is written with `recall_judged` null and left out
+  of the mean `recall_judged`; a line counts and names those cells
+  (`unjudged cells: N`; `--json`: `unjudged_cells`).
   `--dry-run` counts the pairs and prints their cost at list price (one call
   each; prompt characters over 4, 100 reply tokens) and makes no call.
   `--max-usd X` starts no new call once X is spent: a cell not fully judged

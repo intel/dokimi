@@ -169,7 +169,7 @@ def test_a_reply_that_never_parses_leaves_the_pair_unjudged(tmp_path, capsys, mo
     assert none["counts"] == {"same point": 0, "related": 0, "unrelated": 1, "unjudged": 1}
     unparsed = next(p for p in none["pairs"] if p["thread"] == "t_op")
     assert (unparsed["label"], unparsed["reason"]) == (None, None) and unparsed["error"].startswith("no reply parsed")
-    assert none["recall_judged"] == 0.0  # an unjudged pair is not counted as the same point
+    assert none["recall_judged"] is None  # an unjudged pair is not measured: no figure, not a 0
 
 
 @pytest.mark.parametrize("judge", [f"anthropic/{MODEL}", "claude-cli/sonnet", "claude-cli/haiku"])
@@ -371,13 +371,21 @@ def test_dry_run_removes_no_earlier_file(tmp_path, capsys, judge_llm):
 
 def test_a_pair_whose_full_text_is_missing_is_reported_and_not_judged(tmp_path, capsys, judge_llm):
     batch = _batch(tmp_path)
+    _put(batch, "guidance:raw", 3, [_f(30, "mul adds")])  # a judged cell of the same arm, for its mean
     (batch / f"{TASK}__guidance-raw__{MODEL}__r1" / "answer.txt").write_text("no findings any more")
     code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE)
-    assert code == 0 and len(judge_llm.requests) == 2
+    assert code == 0 and len(judge_llm.requests) == 3
     raw = json.loads(_judged(batch, "guidance:raw", 1).read_text())
-    assert raw["counts"]["unjudged"] == 2 and raw["recall_judged"] == 0.0
+    assert raw["counts"]["unjudged"] == 2 and raw["recall_judged"] is None  # not measured: no figure, not a 0
     assert raw["pairs"][0]["error"].startswith("not judged: ") and "holds no findings JSON" in raw["pairs"][0]["error"]
-    assert sum(line.startswith("not judged, full text not found: ") for line in out.splitlines()) == 2
+    lines = out.splitlines()
+    assert sum(line.startswith("not judged, full text not found: ") for line in lines) == 2
+    assert (f"unjudged cells: 1 (a pair not judged: recall_judged null, left out of the means): "
+            f"{TASK}__guidance-raw__{MODEL}__r1") in lines
+    result = json.loads(_run(capsys, "judge", str(batch), "--judge", JUDGE, "--json")[1])
+    assert result["unjudged_cells"] == [f"{TASK}__guidance-raw__{MODEL}__r1"]
+    row = next(r for r in result["rows"] if r["arm"] == "guidance:raw")
+    assert (row["cells"], row["recall"], row["recall_judged"]) == (2, 0.5, 0.333)  # r3 alone: 1 same point of 3
 
 
 def test_kappa_and_agreement_on_a_known_table():
