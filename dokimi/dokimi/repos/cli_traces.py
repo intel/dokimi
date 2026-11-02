@@ -88,7 +88,8 @@ def shell_reads(script: str, cwd: str = "") -> list[str]:
     script starts in, relative to the workspace root. ``cd`` moves it for the parts that follow: a
     relative path is joined to it and normalised (no ``.`` or ``..``). The directory is unknown (a
     relative read is not recorded) after ``cd -``, a bare ``cd``, a ``cd`` to a computed path, a
-    ``pushd`` / ``popd``, an ``eval``, ``source`` or ``.`` (it may run a ``cd``), ``env -C`` / ``--chdir`` (the
+    ``pushd`` / ``popd``, an ``eval``, ``source`` or ``.`` (it may run a ``cd``; none of these when backgrounded or
+    piped, as it then ran in a subshell: ``source env.sh & cat a`` reads a), ``env -C`` / ``--chdir`` (the
     command's reads, but absolute ones), a ``cd`` after ``if`` / ``then`` / ``do`` / ``else`` (it may not run), a
     ``cd`` after ``&&`` / ``||`` once the chain holding it ends with ``;``, ``&`` or a newline (it may have been
     skipped), or a glob or brace expansion (the files are not known). A subshell ``( ... )`` or `` `...` `` records
@@ -122,8 +123,7 @@ def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
         op, previous = previous, after
         chained = op in ("&&", "||")
         if not chained and walk.gated:  # a cd after && or || may not have run: the next chain starts in no known directory
-            walk.lose(False)
-            walk.gated = False
+            walk.here, walk.gated = None, False
         walk.chain(op, chained)
         if walk.in_function(_bare(part)):  # a definition runs nothing
             continue
@@ -175,10 +175,12 @@ class _Walk:
         self.function = max(self.function + len(_GROUP_OPEN.findall(bare)) - len(_GROUP_CLOSE.findall(bare)), 0)
         return True
 
-    def lose(self, shell: bool = True) -> None:
-        """The directory is no longer known; ``shell``: because this shell may have moved (not a subshell's cd)."""
-        self.here, self.moved = None, True
-        self.shell_moved |= shell
+    def lose(self, own_shell: bool = True) -> None:
+        """A directory builtin went where it is not known. Not ``own_shell`` (backgrounded, or a pipeline stage):
+        it ran in a subshell, so this shell's directory stays known (``source env.sh & cat a`` reads a)."""
+        self.moved = True
+        if own_shell:
+            self.here, self.shell_moved = None, True
 
     def track_groups(self, bare: str, after: str, out: list[str]) -> None:
         """A brace group opening or closing in ``bare``; one that ran in a subshell restores the directory. A group is

@@ -170,7 +170,8 @@ def test_only_a_directory_builtin_in_the_calls_own_shell_moves_it(command, moves
 @pytest.mark.parametrize("first", ["cd sub &", "{ cd sub; } | cat", "{ cd sub; } &", "cd sub && make &",
                                    "cd sub && { echo a; echo b; } &", "cd sub && { cd x; cat a; } &",
                                    'cd "$X" &', 'cd "$X" | cat', "cd sub | cat", "echo | cd sub",
-                                   "cd $(pwd) | cat", "cd $(pwd) &", "{ cd $(pwd); } | cat", "{ cd $(pwd); } &"])
+                                   "cd $(pwd) | cat", "cd $(pwd) &", "{ cd $(pwd); } | cat", "{ cd $(pwd); } &",
+                                   "source env.sh &", 'eval "$CMD" | cat', ". env.sh &", "pushd sub &"])
 def test_a_cd_in_a_job_or_a_pipeline_keeps_the_next_calls_relative_read(first):
     events = _events(_call("a", first), _result("a"), _call("b", "cat AGENTS.md"), _result("b"))
     assert _reads(events) == ["AGENTS.md"]
@@ -189,6 +190,13 @@ def test_a_pushd_eval_or_source_in_an_earlier_call_also_loses_the_directory(firs
 ])
 def test_time_runs_a_cd_and_eval_or_source_loses_the_directory_within_a_call(command, reads):
     assert _reads(_events(_call("a", command), _result("a"))) == reads
+
+
+@pytest.mark.parametrize("command", ["source env.sh & cat AGENTS.md", 'eval "$CMD" | cat; cat AGENTS.md',
+                                     'cd "$X" & cat AGENTS.md'])
+def test_a_source_eval_or_computed_cd_in_a_job_or_a_pipeline_keeps_the_calls_later_read(command):
+    events = _events(_call("a", command), _result("a"), _call("b", "cat README.md"), _result("b"))
+    assert _reads(events) == ["AGENTS.md", "README.md"]
 
 
 def test_a_parents_cd_drops_a_subagents_later_relative_read():

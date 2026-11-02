@@ -207,6 +207,16 @@ def test_a_computed_directory_change_in_a_group_or_a_stack_loses_the_directory(c
     assert shell_reads(command, "sub") == []
 
 
+@pytest.mark.parametrize("command", [
+    "source env.sh & cat AGENTS.md", 'eval "$CMD" & cat AGENTS.md', ". env.sh & cat AGENTS.md",
+    "source env.sh | cat; cat AGENTS.md", "pushd sub & cat AGENTS.md", 'cd "$X" & cat AGENTS.md',
+    "cd x | cat; cat AGENTS.md", "cd $(pwd) | cat; cat AGENTS.md", "cd `pwd` & cat AGENTS.md",
+])
+def test_a_directory_builtin_in_a_job_or_a_pipeline_keeps_the_directory(command):
+    # it runs in a subshell: the cat after it is still in sub
+    assert shell_reads(command, "sub") == ["sub/AGENTS.md"]
+
+
 def test_shell_reads_start_in_the_given_directory():
     assert shell_reads("cat AGENTS.md", "sub") == ["sub/AGENTS.md"]
     assert shell_reads("cd inner && cat ../x", "sub") == ["sub/x"]
