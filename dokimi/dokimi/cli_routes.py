@@ -112,6 +112,7 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("library", "show"), FREE),
     Leaf(("library", "intents"), FREE),
     Leaf(("catalog", "scan"), FREE),
+    Leaf(("catalog", "eval"), FREE),
     Leaf(("catalog", "formats"), FREE),
     Leaf(("catalog", "trigger-set"), PAID),
     Leaf(("catalog", "trigger-probe"), PAID),

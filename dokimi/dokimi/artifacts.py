@@ -65,6 +65,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "cli_routes": "cli_routes.v1",
     "need_graph": "need_graph.v1",
     "eval_coverage": "eval_coverage.v1",
+    "catalog_eval": "catalog_eval.v1",
 }
 
 # kind -> superseded versions still accepted on *load*, newest first. An artifact written under an

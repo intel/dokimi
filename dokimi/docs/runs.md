@@ -10,6 +10,11 @@ SPDX-License-Identifier: Apache-2.0
 
 # The runs root: `runs list` and `runs show`
 
+Catalog static receipts (`catalog_eval.v1`) are supported too: the subject is the
+catalog root, and `runs show` counts skill rows and findings. Point `DOKIMI_RUNS_DIR`
+at the dedicated `catalog eval` output directory to inspect those receipts. Their
+static pass does not establish a skill's runtime outcome.
+
 Most commands that run an evaluation write their artifacts under `results/` by
 default (a few write elsewhere, listed below). `runs list` shows what is there
 and `runs show` opens one artifact. Both only read files: no model call, no

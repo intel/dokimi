@@ -323,6 +323,10 @@ def register(sub, positive_int) -> None:
     )
     catalog_sub = catalog_p.add_subparsers(dest="catalog_cmd", required=True)
 
+    from dokimi.commands import catalog_eval
+
+    catalog_eval.register(catalog_sub)
+
     scan_p = catalog_sub.add_parser(
         "scan", help="Report which skills/tasks under --root load cleanly"
     )
