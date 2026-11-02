@@ -1,11 +1,8 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-# The codex profile the reach conformance suite runs (dokimi/repos/conformance.py). It is profiles/codex.yaml plus
-# one provider in config_files: `codex exec` sends no bearer for the built-in profile (401 Missing bearer), so the
-# suite selects a provider that reads its key from CODEX_API_KEY, which the profile forwards. Keep the two files in
-# step; tests/test_reach_conformance.py reads this one. The provider is the vendor endpoint, so OPENAI_BASE_URL does
-# not change it, and the egress list below is the same host.
+# profiles/codex.yaml plus a provider that reads CODEX_API_KEY: `codex exec` sends no bearer for the built-in one
+# (401). Keep both files in step; the provider is the vendor endpoint, so OPENAI_BASE_URL does not change it.
 schema: harness_profile.v1
 name: codex
 bin: codex  # npm's codex is a node launcher; mount the native one (.../vendor/<triple>/bin/codex) with --bin
