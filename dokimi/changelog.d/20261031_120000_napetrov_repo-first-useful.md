@@ -6,8 +6,9 @@
   file. The first non-denied event with `rc` 0 that hits it (a command whose text matches, or an
   edit whose path matches) is recorded in `result.json` `first_useful` with its `issued_s` (the
   event's issue time) and `steps` (events up to and including it). A run with no hit says
-  why (`never`, `unobserved`, `untimed`, or `timeout`: a `command` pattern, searched with the `regex` module, ran past
-  2 s on one event, so the run has no verdict); a task with no declaration is `not_declared`.
+  why (`never`, `unobserved`, or `timeout`: a `command` pattern, searched with the `regex` module, ran past
+  2 s on one event, so the run has no verdict); a task with no declaration is `not_declared`. A hit in a trace
+  without timestamps is `untimed`: it keeps its `steps` and counts as observed, with no seconds.
   `repo report` shows a row's observed count, medians and reasons under the row, and
   `repo compare` pairs the per-task medians as `first_useful_s` and `first_useful_steps`, and
   the share of declared cells that observed a hit as `first_useful_rate`; its header counts

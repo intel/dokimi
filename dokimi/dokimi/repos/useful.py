@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""The first useful result of a run, for ``result.json`` ``useful`` (contract §4.1).
+"""The first useful result of a run, for ``result.json`` ``first_useful`` (contract §4.1).
 
 The first event of the run that hits the task's definition (:mod:`.useful_spec`): a ``command`` event whose text
 matches and whose ``rc`` is 0, or an ``edit`` event whose path matches a glob. A refused event (``denied``) never
@@ -59,7 +59,7 @@ def hits(useful: Useful, event: Mapping[str, Any]) -> bool:
 def first_useful(
     useful: Useful | None, events: Sequence[Mapping[str, Any]] | None
 ) -> dict[str, Any]:
-    """``result.json`` ``useful`` of one run; ``events`` is None when its trace could not be read."""
+    """``result.json`` ``first_useful`` of one run; ``events`` is None when its trace could not be read."""
     if useful is None:
         return _record(None, "not_declared")
     if events is None:
@@ -85,8 +85,14 @@ def _record(
 
 
 def _declared(recs: Iterable[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
-    """The ``useful`` objects of the cells that record a definition: an older batch has none."""
+    """The ``first_useful`` objects of the cells that record a definition: an older batch has none."""
     return [u for r in recs if isinstance(u := r.get("first_useful"), dict) and u.get("kind")]
+
+
+def _observed(have: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """The cells with a measurable ``steps``: the ones that observed a hit. Their ``issued_s`` is the only timing
+    that goes with a hit; a cell that observed none has no seconds, even when a stored ``issued_s`` is a number."""
+    return [u for u in have if as_measure(u.get("steps")) is not None]
 
 
 def _nums(values: Iterable[Any]) -> list[float]:
@@ -105,7 +111,7 @@ def useful_summary(recs: Sequence[Mapping[str, Any]]) -> dict[str, Any] | None:
     have = _declared(recs)
     if not have:
         return None
-    seconds = _nums(u.get("issued_s") for u in have)
+    seconds = _nums(u.get("issued_s") for u in _observed(have))
     steps = _nums(u.get("steps") for u in have)
     return {
         "kind": have[0]["kind"],
@@ -135,7 +141,7 @@ def useful_task_values(recs: Sequence[Mapping[str, Any]]) -> dict[str, list[floa
         return {measure: [None] for measure in USEFUL_MEASURES}
     observed = _nums(u.get("steps") for u in have)
     return {
-        "first_useful_s": [_median(_nums(u.get("issued_s") for u in have))],
+        "first_useful_s": [_median(_nums(u.get("issued_s") for u in _observed(have)))],
         "first_useful_steps": [_median(observed)],
         "first_useful_rate": [len(observed) / len(have) if have else None],
     }
@@ -146,7 +152,7 @@ def useful_task_counts(recs: Sequence[Mapping[str, Any]]) -> dict[str, int]:
     steps, and the declared cells for the rate (a median of one value is not one cell)."""
     have = _declared(recs)
     return {
-        "first_useful_s": len(_nums(u.get("issued_s") for u in have)),
+        "first_useful_s": len(_nums(u.get("issued_s") for u in _observed(have))),
         "first_useful_steps": len(_nums(u.get("steps") for u in have)),
         "first_useful_rate": len(have),
     }

@@ -133,6 +133,9 @@ def _apply(out: Transcript, rec: dict[str, Any], t: float | None,
     elif kind == "assistant":
         for block in _content(rec, out):
             if block.get("type") == "tool_use":
+                if not _well_formed_tool_use(block):  # an unreadable call is a dropped line, not an empty one
+                    out.dropped_lines += 1
+                    continue
                 event = _tool_event(block, t, workdir)
                 if rec.get("parent_tool_use_id"):
                     event["agent"] = str(rec["parent_tool_use_id"])
@@ -167,6 +170,13 @@ def _apply(out: Transcript, rec: dict[str, Any], t: float | None,
         for denial in rec.get("permission_denials") or []:
             if isinstance(denial, dict) and denial.get("tool_use_id") in by_id:
                 by_id[denial["tool_use_id"]]["denied"] = True
+
+
+def _well_formed_tool_use(block: dict[str, Any]) -> bool:
+    """A tool call names itself, has an id its result can find, and has an object of input."""
+    return (isinstance(block.get("id"), str) and bool(block["id"])
+            and isinstance(block.get("name"), str) and bool(block["name"])
+            and isinstance(block.get("input"), dict))
 
 
 def _tool_event(block: dict[str, Any], t: float | None, workdir: str | None) -> dict[str, Any]:

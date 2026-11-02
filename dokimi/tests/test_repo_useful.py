@@ -531,6 +531,10 @@ def test_a_stored_non_finite_or_huge_number_is_no_measure(steps):
     assert useful_task_values(recs)["first_useful_steps"] == [None]
     assert useful_task_values(recs)["first_useful_rate"] == [0.0]
     assert useful_counts(recs) == {"observed": 0, "declared": 1}
+    # a cell that observed no hit has no timing either: its issued_s is not a timed hit
+    assert useful_task_values(recs)["first_useful_s"] == [None]
+    assert useful_task_counts(recs)["first_useful_s"] == 0
+    assert useful_summary(recs)["median_s"] is None
 
 
 def test_a_command_regex_that_overflows_the_parser_is_a_task_error_not_a_crash():
@@ -746,6 +750,38 @@ def test_an_assistant_record_without_content_is_a_dropped_line(message):
 def test_a_user_record_without_content_is_not_dropped():
     line = {"type": "user", "message": {"content": None}}
     assert convert("claude-stream-json", json.dumps(line), "/ws").dropped_lines == 0
+
+
+def test_a_user_prompt_given_as_a_plain_string_is_not_dropped():
+    line = {"type": "user", "message": {"content": "hi"}}
+    assert convert("claude-stream-json", json.dumps(line), "/ws").dropped_lines == 0
+
+
+@pytest.mark.parametrize("block", [
+    {"type": "tool_use", "id": "e", "name": "Edit", "input": 42},  # the input is not an object
+    {"type": "tool_use", "id": "e", "name": "Edit"},  # no input at all
+    {"type": "tool_use", "name": "Edit", "input": {"file_path": "/ws/src/x.py"}},  # no id: no result can find it
+    {"type": "tool_use", "id": "e", "input": {}},  # no name
+    {"type": "tool_use", "id": [1], "name": "Read", "input": {}},  # an id that is not a string
+])
+def test_a_tool_use_block_that_is_not_a_call_is_a_dropped_line(block):
+    line = {"type": "assistant", "message": {"content": [block]}}
+    assert convert("claude-stream-json", json.dumps(line), "/ws").dropped_lines == 1
+
+
+def test_an_edit_call_with_a_non_object_input_is_unobserved_not_never():
+    # the call's input is not an object, so its path is unreadable: the run must not say the edit never happened
+    lines = [
+        {"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "e", "name": "Edit", "input": 42}]}},
+        {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "e", "is_error": False,
+                                                   "content": "ok"}]}},
+        {"type": "result", "subtype": "success", "is_error": False, "num_turns": 2, "result": "done",
+         "usage": {"input_tokens": 1, "output_tokens": 1}},
+    ]
+    transcript = convert("claude-stream-json", "\n".join(json.dumps(x) for x in lines), "/ws")
+    assert transcript.dropped_lines == 1
+    events = None if transcript.dropped_lines else transcript.events
+    assert first_useful(parse_useful({"edit": "**"}), events)["reason"] == "unobserved"
 
 
 def test_claude_text_and_thinking_blocks_are_not_dropped():
