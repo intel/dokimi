@@ -45,6 +45,12 @@
             "null"
           ]
         },
+        "distribution_digest": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "members": {
           "type": "array"
         }
