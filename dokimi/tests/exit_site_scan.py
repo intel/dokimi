@@ -182,25 +182,49 @@ def _target_scope(scope: ast.AST, name: str, table: ExitTable) -> ast.AST:
     return scope
 
 
-def _value_binding(expr: ast.expr, scope: ast.AST, pos: tuple[int, int], table: ExitTable, owner: dict[int, ast.AST]):
-    """The (kind, payload) that ``x = expr`` gives x: SystemExit, an exit callable, a module, or other."""
-    if _is_sysexit_expr(expr, scope, pos, table, owner):
-        return "sysexit", None
-    if isinstance(expr, ast.Name):  # ``stop = exit_alias`` copies the binding it names
-        b = _candidates(expr.id, scope, pos, table, owner)[-1]  # the latest of the bindings it may denote
-        if b is None and expr.id in ("exit", "quit"):  # the builtins, where nothing binds the name
-            return "fn", ("builtins", expr.id)
-        if b is not None and b[1] in ("fn", "mod"):
-            return b[1], b[2]
-    if isinstance(expr, (ast.Name, ast.Attribute)):  # ``s = sys`` or ``ec = dokimi.exit_codes``
-        mods = _modules(ast.unparse(expr), scope, pos, table, owner)
+#: What a name that nothing binds means: the builtin SystemExit, exit or quit, or the module sys or os.
+_BUILTIN_NAMES = {
+    "SystemExit": ("sysexit", None),
+    "exit": ("fn", ("builtins", "exit")),
+    "quit": ("fn", ("builtins", "quit")),
+    "sys": ("mod", frozenset({"sys"})),
+    "os": ("mod", frozenset({"os"})),
+}
+
+
+def _name_bindings(name: str, scope: ast.AST, pos: tuple[int, int], table: ExitTable,
+                   owner: dict[int, ast.AST]) -> list[tuple[str, object]]:
+    """The entries of ``x = name``: one for each binding that ``name`` may denote at ``pos``."""
+    out: list[tuple[str, object]] = []
+    for b in _candidates(name, scope, pos, table, owner):
+        if b is None:  # the builtin of that name, where nothing binds it
+            out.append(_BUILTIN_NAMES.get(name, ("other", None)))
+        elif b[1] in ("sysexit", "fn", "mod"):
+            out.append((b[1], b[2]))
+        else:
+            out.append(("other", None))
+    return out
+
+
+def _value_bindings(expr: ast.expr, scope: ast.AST, pos: tuple[int, int], table: ExitTable,
+                    owner: dict[int, ast.AST]) -> list[tuple[str, object]]:
+    """The (kind, payload) entries that ``x = expr`` gives x, one for each thing the value may be.
+
+    SystemExit, an exit callable, a module, or other. A name may denote several bindings at once (a
+    function reads an alias after any later rebinding of its source), so each one it may denote is kept.
+    """
+    if isinstance(expr, ast.Name):  # ``stop = exit_alias`` copies every binding the name may denote
+        out = _name_bindings(expr.id, scope, pos, table, owner)
+    else:
+        out = [("sysexit", None)] if _is_sysexit_expr(expr, scope, pos, table, owner) else []
+    if isinstance(expr, ast.Attribute):
+        mods = _modules(ast.unparse(expr), scope, pos, table, owner)  # ``ec = dokimi.exit_codes``
         if mods:
-            return "mod", frozenset(mods)
-    if isinstance(expr, ast.Attribute):  # ``stop = sys.exit``
-        for m in _modules(ast.unparse(expr.value), scope, pos, table, owner):
+            out.append(("mod", frozenset(mods)))
+        for m in _modules(ast.unparse(expr.value), scope, pos, table, owner):  # ``stop = sys.exit``
             if (m, expr.attr) in _EXIT_CALLS:
-                return "fn", (m, expr.attr)
-    return "other", None
+                out.append(("fn", (m, expr.attr)))
+    return out or [("other", None)]
 
 
 def _pairs(target: ast.expr, value: ast.expr) -> list[tuple[ast.Name, ast.expr]]:
@@ -227,10 +251,10 @@ def _assigned(assigns: list[tuple[ast.AST, list[ast.expr]]], owner: dict[int, as
                 scope = owner[id(scope)]
         for t in targets:
             for name, expr in _pairs(t, n.value):
-                kind, payload = _value_binding(expr, owner[id(n)], _at(expr), table, owner)
                 target = _target_scope(scope, name.id, table)
                 pos = _after(n) if target is scope else _LATER
-                out.append(((id(target), name.id), (pos, kind, payload)))
+                for kind, payload in _value_bindings(expr, owner[id(n)], _at(expr), table, owner):
+                    out.append(((id(target), name.id), (pos, kind, payload)))
     return out
 
 
@@ -354,8 +378,9 @@ def _candidates(name: str, use: ast.AST, pos: tuple[int, int], table: ExitTable,
                 return [_live(b, scope) for b in sorted(exits, key=lambda b: b[0])]
             if found:
                 before = [b for b in found if b[0] <= pos]
-                if before:
-                    return [_live(sorted(before, key=lambda b: b[0])[-1], scope)]
+                if before:  # every binding of the last statement that bound it: an alias may copy several
+                    last = max(b[0] for b in before)
+                    return [_live(b, scope) for b in before if b[0] == last]
                 if scope is use and isinstance(use, _FUNC_NODES + _COMPREHENSIONS):  # a function's local, not bound yet
                     return [(pos, "other", None)]
         if id(scope) not in owner:  # the module: no enclosing scope

@@ -266,3 +266,12 @@ def test_an_alias_rebound_after_a_call_still_names_the_exit_its_function_made(tm
     })
     assert exit_sites(imports.trees["dokimi.a"]) == [3]
     assert exit_sites(imports.trees["dokimi.b"]) == [5]
+
+
+def test_an_alias_copied_in_a_function_keeps_every_binding_its_source_may_have(tmp_path):
+    imports = _package(tmp_path, {
+        "dokimi/a.py": "import sys\nimport os\nx = sys.exit\ndef f():\n    stop = x\n    stop(2)\nf()\nx = os\n",
+        "dokimi/b.py": "import sys\nx = SystemExit\nx = sys.exit\ndef f():\n    stop = x\n    stop(2)\nf()\n",
+    })
+    assert exit_sites(imports.trees["dokimi.a"]) == [6]
+    assert exit_sites(imports.trees["dokimi.b"]) == [6]
