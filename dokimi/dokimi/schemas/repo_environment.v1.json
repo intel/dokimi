@@ -204,7 +204,7 @@
               "files": {"type": "integer", "minimum": 1},
               "reference_fanin": {"type": "integer", "minimum": 0},
               "other_tree_modules": {"type": "integer", "minimum": 0},
-              "ambiguity": {"type": "number", "minimum": 0, "maximum": 1},
+              "ambiguity": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
               "names": {"type": "integer", "minimum": 0},
               "in_guidance": {"type": "boolean"},
               "kept": {"type": "boolean"}

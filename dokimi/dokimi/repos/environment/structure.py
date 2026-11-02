@@ -15,8 +15,9 @@ subdirectories, the files right in it staying its own. Per module:
   the first two path components (``cpp/daal`` and ``cpp/oneapi`` in oneDAL); a module shallower than
   that is of the same tree as the modules under it;
 * ``ambiguity``: the share of its function and method names that a different function of that name is
-  defined in another module;
-* ``in_guidance``: whether an instruction file names its path as a token, or its name between backticks.
+  defined in another module, dunder names aside; ``None`` when it has no function names;
+* ``in_guidance``: whether an instruction file names its path as a token, or its name between backticks; the
+  root ``.`` is in guidance when a root instruction file exists.
 
 These are hypotheses about where an agent may lose its way, not measured effects: the findings drawn
 from them are ``info`` with ``low`` confidence.
@@ -121,15 +122,22 @@ def mentioned(module: str, text: str) -> bool:
     return path or re.search(rf"`{re.escape(name)}/?`", text) is not None
 
 
+def _is_dunder(name: str) -> bool:
+    # Protocol methods such as __init__ and __repr__: most classes define them and nobody looks them up by name.
+    return len(name) > 4 and name.startswith("__") and name.endswith("__")
+
+
 def _function_like(symbol: str) -> bool:
     # scip-clang and scip-python both end a function or method symbol with `).`
     return symbol.endswith(").") and not is_local(symbol)
 
 
-def analyze(index: CodeIndex, tree_files: Iterable[str], guidance: str, limit: int | None = None) -> dict[str, Any]:
+def analyze(index: CodeIndex, tree_files: Iterable[str], guidance: str, limit: int | None = None,
+            *, root_guidance: bool = False) -> dict[str, Any]:
     """The ``structure`` section for an index read with no root prefix, against the tree's file list.
 
-    ``limit`` overrides :func:`module_limit` (the most files a module holds before it is split)."""
+    ``limit`` overrides :func:`module_limit` (the most files a module holds before it is split).
+    ``root_guidance`` says a root instruction file exists: it puts the root ``.`` in guidance."""
     tree_files = list(tree_files)
     documents = index.files()
     prefix, _ = detect_prefix(documents, tree_files)
@@ -142,7 +150,8 @@ def analyze(index: CodeIndex, tree_files: Iterable[str], guidance: str, limit: i
     defined_in, names_of, ambiguous_of = _definitions(index, repo_path, module_of)
     fanin, edges = _references(index, repo_path, module_of, defined_in)
     members: dict[str, int] = Counter(module_of.values())
-    modules = [_row(mod, members[mod], names_of[mod], ambiguous_of[mod], fanin[mod], edges[mod], guidance)
+    modules = [_row(mod, members[mod], names_of[mod], ambiguous_of[mod], fanin[mod], edges[mod], guidance,
+                    root_guidance=root_guidance)
                for mod in sorted(members)]
     modules.sort(key=lambda m: (-m["reference_fanin"], m["module"]))
     return {
@@ -160,6 +169,7 @@ def _definitions(index: CodeIndex, repo_path: dict[str, str],
                  module_of: dict[str, str]) -> tuple[Modules, Modules, Modules]:
     """Function-like symbol -> modules defining it; module -> its names; module -> its ambiguous names.
 
+    Dunder names are neither (see :func:`_is_dunder`).
     A name is ambiguous for a module when there are two or more symbols of that name and one of them is defined
     in another module. A function declared in one module and defined in another is one symbol, so it is not
     ambiguous by itself."""
@@ -175,6 +185,7 @@ def _definitions(index: CodeIndex, repo_path: dict[str, str],
     for symbol in defined_in:
         symbols_of[descriptor_name(symbol) or ""].add(symbol)
     symbols_of.pop("", None)
+    symbols_of = {name: symbols for name, symbols in symbols_of.items() if not _is_dunder(name)}
     names_of: Modules = defaultdict(set)
     ambiguous_of: Modules = defaultdict(set)
     for name, symbols in symbols_of.items():
@@ -207,12 +218,13 @@ def _references(index: CodeIndex, repo_path: dict[str, str], module_of: dict[str
 
 
 def _row(mod: str, files: int, names: set[str], ambiguous: set[str], fanin: set[str], edges: set[str],
-         guidance: str) -> dict[str, Any]:
-    share = len(ambiguous) / len(names) if names else 0.0  # exact: the finding compares it, rounding is for display
+         guidance: str, *, root_guidance: bool = False) -> dict[str, Any]:
+    # exact: the finding compares it, rounding is for display; no names means no share, not a share of zero
+    share = len(ambiguous) / len(names) if names else None
     return {
         "module": mod, "files": files, "reference_fanin": len(fanin),
         "other_tree_modules": sum(not same_tree(other, mod) for other in edges),
         "ambiguity": share, "names": len(names),
-        "in_guidance": mentioned(mod, guidance),
+        "in_guidance": mentioned(mod, guidance) or (mod == "." and root_guidance),
         "kept": files >= MIN_FILES and len(fanin) >= MIN_FANIN,
     }

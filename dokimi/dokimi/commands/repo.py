@@ -198,8 +198,9 @@ def _print_structure(section: dict[str, Any] | None) -> None:
     print(f"  structure: {section['index']['documents_in_tree']}/{section['index']['documents']} index documents "
           f"in the tree, {len(section['modules'])} modules, {len(kept)} kept" + ("; top reference fan-in:" if kept else ""))
     for m in kept[:5]:
+        share = "n/a" if m["ambiguity"] is None else f"{m['ambiguity']:.2f}"
         print(f"    {_normalize_whitespace(m['module'], max_len=None)}: fan-in {m['reference_fanin']}, "
-              f"other-tree modules {m['other_tree_modules']}, ambiguity {m['ambiguity']:.2f}"
+              f"other-tree modules {m['other_tree_modules']}, ambiguity {share}"
               + ("" if m["in_guidance"] else ", not in guidance"))
 
 

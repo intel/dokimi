@@ -205,7 +205,32 @@ def test_ambiguity_is_the_share_of_names_another_module_defines():
     by = {m["module"]: m for m in analyze(_index(one_of_three), list(DOCS), "", limit=2)["modules"]}
     assert by["src/core"]["ambiguity"] == 0.25  # run, of run, parse, a and b
     assert structure._row("m", 3, {"a", "b", "c"}, {"a"}, set(), set(), "")["ambiguity"] == pytest.approx(1 / 3)
-    assert by["src/cli"]["names"] == 0 and by["src/cli"]["ambiguity"] == 0.0
+    assert by["src/cli"]["names"] == 0 and by["src/cli"]["ambiguity"] is None
+
+
+def test_dunder_names_are_neither_counted_nor_ambiguous():
+    # Two classes each define __init__ from their own package: a protocol method, not a name anyone looks up.
+    docs = {"a/x.py": [(_sym("__init__", "a"), True)], "b/y.py": [(_sym("__init__", "b"), True)]}
+    module_of = {"a/x.py": "a", "b/y.py": "b"}
+    _, names_of, ambiguous_of = structure._definitions(_index(docs), {doc: doc for doc in docs}, module_of)
+    assert "__init__" not in names_of["a"] and ambiguous_of["a"] == set() and ambiguous_of["b"] == set()
+    assert structure._is_dunder("__init__") and not structure._is_dunder("__") and not structure._is_dunder("_x_")
+
+
+def test_a_module_without_function_names_has_no_ambiguity_share(capsys):
+    from dokimi.repos.environment import _structure_findings
+    row = structure._row("m", 3, set(), set(), {"x", "y", "z"}, set(), "")
+    assert row["ambiguity"] is None and row["names"] == 0
+    row["kept"] = True
+    assert not [f for f in _structure_findings({"modules": [row]}) if f["rule"] == "structure.name_ambiguity"]
+    _print_structure({"index": {"documents_in_tree": 1, "documents": 1}, "modules": [row]})
+    assert "ambiguity n/a" in capsys.readouterr().out
+
+
+def test_the_root_is_in_guidance_when_a_root_instruction_file_exists():
+    assert structure._row(".", 3, set(), set(), set(), set(), "")["in_guidance"] is False
+    assert structure._row(".", 3, set(), set(), set(), set(), "", root_guidance=True)["in_guidance"] is True
+    assert structure._row("src", 3, set(), set(), set(), set(), "", root_guidance=True)["in_guidance"] is False
 
 
 def test_a_large_directory_is_split_into_its_subdirectories():

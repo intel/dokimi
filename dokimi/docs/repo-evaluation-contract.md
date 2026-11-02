@@ -1477,12 +1477,19 @@ callers. Per module:
   use or a header declaration counts too; this is not a caller count.
 - `other_tree_modules`: the modules of another tree (the first two path
   components, `cpp/daal` against `cpp/oneapi`; a module shallower than that is
-  of the tree of the modules under it) it shares a reference with, either way.
+  of the tree of the modules under it, except the root `.`, which is a tree of
+  its own, so every module it shares a reference with counts as another tree's)
+  it shares a reference with, either way.
 - `ambiguity`: the share of its function and method names that a different
   function of the same name is defined in another module. A function declared
   in one module and defined in another is one symbol and does not count.
+  Dunder names (`__init__`, `__repr__`, …) are neither counted nor ambiguous.
+  It is `null` when the module has no function names: no names is not a share
+  of zero.
 - `in_guidance`: whether an instruction file names the module's path as a token
   (no word, hyphen or extension continues it), or its name between backticks.
+  The root `.` is in guidance when a root instruction file exists, since no
+  path names it.
 
 A module is `kept` with at least 3 files and a fan-in of 3. Of the ten kept
 modules with most fan-in, one with an ambiguity of 0.5 or more gets a

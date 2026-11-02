@@ -129,7 +129,7 @@ def _structure_findings(section: dict[str, Any] | None) -> list[dict[str, Any]]:
     hotspots = [m for m in (section or {}).get("modules", ()) if m["kept"]][:S.HOTSPOTS]
     out = []
     for m in hotspots:
-        if m["ambiguity"] >= S.AMBIGUOUS:
+        if m["ambiguity"] is not None and m["ambiguity"] >= S.AMBIGUOUS:
             out.append(_finding("structure.name_ambiguity", f"{m['ambiguity']:.0%} of its {m['names']} function names "
                                 f"are defined in another module too; reference fan-in {m['reference_fanin']}",
                                 m["module"], "low"))
@@ -230,8 +230,9 @@ def inspect_repo(tree: RepoTree, large: int = LARGE_BYTES, index: CodeIndex | No
         findings.append(_finding("files.large", f"{f['bytes']} bytes", f["path"]))
     for path in files["minified"]:
         findings.append(_finding("files.minified", "minified bundle", path))
-    section = None if index is None else S.analyze(index, scan.files, "\n".join(
-        scan.text(p) for p in sorted({i.path for i in instructions})))
+    section = None if index is None else S.analyze(
+        index, scan.files, "\n".join(scan.text(p) for p in sorted({i.path for i in instructions})),
+        root_guidance=any(i.scope == "root" for i in instructions))
     findings.extend(_structure_findings(section))
     findings.sort(key=lambda f: (-SEVERITY_RANK[f["severity"]], f["rule"], f["path"] or "", f["id"]))
 
