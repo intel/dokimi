@@ -254,6 +254,12 @@ def test_two_catalog_skills_with_one_name_and_different_content_are_skipped_with
     assert [c.name for c in field] == ["cache"]
     assert "WARNING: " + notes[0] in capsys.readouterr().err
     assert left_out == notes
+    # the whole command saves the field with the same note, and does not refuse the run
+    args.func(args)
+    saved = json.loads((tmp_path / "routing.json").read_text(encoding="utf-8"))
+    assert saved["status"] == "ok"
+    assert saved["field"]["competitors"] == ["cache"]
+    assert saved["field"]["left_out"] == notes
 
 
 def test_a_spec_error_copy_is_no_conflict_with_a_valid_copy_of_the_name(tmp_path):
@@ -336,6 +342,21 @@ def test_a_skill_under_a_skills_directory_keeps_the_directory_name_check(tmp_pat
     for ref in (f"skill:{path}/SKILL.md", f"skill:{path}"):
         verdict = competitor_left_out(ref, include_disabled=False, include_invalid=False)
         assert verdict is not None and "not the directory name 'checkout'" in verdict, ref
+
+
+def test_a_relative_reference_under_a_skills_directory_keeps_the_name_check(tmp_path, monkeypatch):
+    # from the skills/ directory a relative reference must get the same verdict as the absolute one:
+    # without the abspath, "checkout/SKILL.md" would read as a root skill and skip the name check
+    path = tmp_path / "skills" / "checkout"
+    path.mkdir(parents=True)
+    (path / "SKILL.md").write_text(
+        "---\nname: db\ndescription: tune a database query\n---\n\n# B\n\n## A section\n",
+        encoding="utf-8")
+    absolute = competitor_left_out(f"skill:{path}/SKILL.md", include_disabled=False, include_invalid=False)
+    assert absolute is not None and "not the directory name 'checkout'" in absolute
+    monkeypatch.chdir(path.parent)
+    for ref in ("skill:checkout/SKILL.md", "skill:checkout"):
+        assert competitor_left_out(ref, include_disabled=False, include_invalid=False) == absolute, ref
 
 
 def _db_with_a_hidden_copy(tmp_path):
