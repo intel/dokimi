@@ -277,9 +277,8 @@ def format_table(result: Dict[str, Any]) -> str:
 
 
 def _fmt(value: Optional[float]) -> str:
-    # Floored, never up, to nine decimals, so a value never reads as the threshold it sits just below.
-    # Floored from the shortest decimal that names the float (repr), not from a scaled binary value:
-    # 0.8999999999995 shows 0.899999999, and a mean of exactly 0.9 (85 and 95) shows 0.90.
+    # Floored, never up, to nine decimals: a value must never read as the threshold just above it.
+    # Floored from the shortest repr, not a scaled binary value, so a mean of exactly 0.9 shows 0.90.
     if value is None:
         return "-"
     text = format(Decimal(repr(float(value))).quantize(Decimal("1e-9"), rounding=ROUND_FLOOR), "f")
