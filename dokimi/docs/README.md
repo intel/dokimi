@@ -66,7 +66,11 @@ checks the eval set itself: that it parses, that each task's grader fails an
 untouched workspace and passes the reference solution, and that an LLM judge
 scores degraded answers lower.
 
-![Three checks of an eval set: valid (dokimi repo validate), graded right (dokimi eval check), judge checked (dokimi eval judge validate)](assets/readme/eval-checks.png)
+The three checks, each a command:
+
+- valid: `dokimi repo validate`
+- graded right: `dokimi eval check`
+- judge checked: `dokimi eval judge validate`
 
 **Where it is going:** mapping each claim in a skill to the tasks that
 exercise it, so the claims no eval tests are listed next to the score.

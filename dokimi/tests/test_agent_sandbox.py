@@ -392,9 +392,8 @@ def test_claude_solve_runs_in_scratch_with_sealed_env(tmp_path, monkeypatch, arm
     prompt = seen["cmd"][seen["cmd"].index("-p") + 1]
     # The discovery arm installs the same plugin and only drops the notice.
     notice = arm == "skill"
-    assert prompt.startswith("A skill named `demo:demo` is installed." if notice
-                             else "Solve this coding task.")
-    assert ("demo" in prompt.split("Solve this coding task.")[0]) is notice
+    assert prompt.startswith("A skill named `demo:demo` is installed.") is notice
+    assert ("A skill named" in prompt) is notice
     assert result.metrics["skill_notice"] is notice
     assert seen["cmd"][seen["cmd"].index("--output-format") + 1] == "stream-json"
     # stream-json under -p exits 1 with "requires --verbose" without it.
