@@ -1504,7 +1504,8 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
 ```bash
 # review tasks from the threads of merged PRs (§4.6): no LLM, no docker, no GitHub call
 python cli.py repo tasks replay ~/dpnp --threads threads.json --out ~/dpnp/.agent-eval/tasks
-python cli.py repo run ~/dpnp --task review_replay_pr3107 --arm guidance:none,guidance:raw \
+# a task starts from its PR's base: guidance:rev:<sha> runs the guidance under review there
+python cli.py repo run ~/dpnp --task review_replay_pr3107 --arm guidance:none,guidance:rev:<sha> \
     --model claude-sonnet-5-5 --batch replay --agent-network host
 python cli.py repo compare repo-runs/replay --baseline guidance:none --metric recall_addressed
 ```

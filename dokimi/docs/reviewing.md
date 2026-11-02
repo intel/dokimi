@@ -104,7 +104,7 @@ The full path with reading notes: [skill-novelty-walkthrough.md](skill-novelty-w
 | 1. Do the paths, links and commands named in the guidance exist? | `dokimi repo scan <repo>` | free |
 | 2. Which guidance files does the harness actually load? | `dokimi repo reach <repo> --model <id> --dry-run`, then a few `--only <scenario>` with `--budget` | capped by `--budget` (default $0.10) per scenario; needs the `claude` binary and `ANTHROPIC_API_KEY`, or `AWS_BEARER_TOKEN_BEDROCK` with `AWS_REGION` and `CLAUDE_CODE_USE_BEDROCK` |
 | 3. What does the root guidance add? | `dokimi novelty analyze --artifact text:<repo>/AGENTS.md --tier triage …` | ~100 calls |
-| 4. Does the guidance change task outcomes? | `dokimi repo run <repo> --manifest-file … --model <id> --batch <name> --arm guidance:none,guidance:raw --agent-network host --budget <usd> --max-batch-usd <usd>` | needs the repository's own tasks, Docker, `claude` binary on PATH (or `--bin`); `--budget` defaults to $2.00 per agent run with no batch cap unless you pass `--max-batch-usd` |
+| 4. Does the guidance change task outcomes? | `dokimi repo run <repo> --manifest-file … --model <id> --batch <name> --arm guidance:none,guidance:raw --agent-network host --budget <usd> --max-batch-usd <usd>`; a replay batch passes `guidance:rev:<sha>` instead of `guidance:raw` (see Past review comments below) | needs the repository's own tasks, Docker, `claude` binary on PATH (or `--bin`); `--budget` defaults to $2.00 per agent run with no batch cap unless you pass `--max-batch-usd` |
 
 With no `repo-eval.yaml` in the repository, steps 1 and 2 check the default
 guidance globs (`<repo>/**/AGENTS.md`, `<repo>/**/CLAUDE.md`,
@@ -162,7 +162,10 @@ A review also says which of its points come from reading rather than from a comm
   ([preparing-a-repository.md](preparing-a-repository.md#6-review-rules-learned-from-past-reviews)),
   while the count asks what the guidance would have caught. To measure it
   instead, replay the merged pull requests as `dokimi:review_replay` tasks
-  and compare `guidance:none` with `guidance:raw` in step 4.
+  and compare `guidance:none` with `guidance:rev:<sha>` of the guidance under
+  review (the PR's head, or `main`) in step 4. Not `guidance:raw`: each task
+  starts from its PR's base, so `raw` gives it the guidance of that time,
+  another set per task, or none before the guidance was added.
 - **A rule the review proposes:** read every file it names; that the name
   exists is not enough (a workflow that calls another one holds no matrix of
   its own). Check it against the existing guidance: a nested `AGENTS.md` may
