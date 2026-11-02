@@ -208,6 +208,25 @@ def test_a_computed_directory_change_in_a_group_or_a_stack_loses_the_directory(c
 
 
 @pytest.mark.parametrize("command", [
+    '"source" "$ENV"; cat AGENTS.md', "'cd' \"$D\" && cat AGENTS.md", r'\eval "$X"; cat AGENTS.md',
+    '"." env.sh; cat AGENTS.md', 'c"d" "$D"; cat AGENTS.md', '"pushd" "$D"; cat AGENTS.md',
+    '"builtin" cd "$D"; cat AGENTS.md', 'builtin "cd" "$D"; cat AGENTS.md', '"cd" $(pwd); cat AGENTS.md',
+    "'cd' `pwd`; cat AGENTS.md", r'\pushd sub; cat AGENTS.md',
+])
+def test_a_quoted_or_escaped_directory_builtin_loses_the_directory(command):
+    # quoting or escaping a builtin's name still runs the builtin; nothing in it is expanded to see that
+    assert shell_reads(command, "sub") == []
+
+
+@pytest.mark.parametrize("command", [
+    '"env" cd "$D"; cat AGENTS.md', "'\\cd' \"$D\"; cat AGENTS.md", '"./cd" "$D"; cat AGENTS.md',
+    '"source" "$E" & cat AGENTS.md', '"cd" "$D" | cat; cat AGENTS.md',
+])
+def test_a_quoted_name_that_runs_no_builtin_in_this_shell_keeps_the_directory(command):
+    assert shell_reads(command, "sub") == ["sub/AGENTS.md"]
+
+
+@pytest.mark.parametrize("command", [
     "source env.sh & cat AGENTS.md", 'eval "$CMD" & cat AGENTS.md', ". env.sh & cat AGENTS.md",
     "source env.sh | cat; cat AGENTS.md", "pushd sub & cat AGENTS.md", 'cd "$X" & cat AGENTS.md',
     "cd x | cat; cat AGENTS.md", "cd $(pwd) | cat; cat AGENTS.md", "cd `pwd` & cat AGENTS.md",

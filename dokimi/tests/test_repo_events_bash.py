@@ -59,7 +59,9 @@ def test_a_failed_cat_of_one_file_is_no_read():
                                      "cd $(git rev-parse --show-toplevel) && cat /ws/AGENTS.md",
                                      "cd /ws/sub || cat /ws/AGENTS.md", "cd sub & cat AGENTS.md",  # the exit is the cat's
                                      "time cd sub && cat AGENTS.md", "command cd sub && cat AGENTS.md",
-                                     "builtin cd sub && cat AGENTS.md", "X=1 cd sub && cat AGENTS.md"])
+                                     "builtin cd sub && cat AGENTS.md", "X=1 cd sub && cat AGENTS.md",
+                                     '"cd" sub && cat AGENTS.md', r"\cd sub && cat AGENTS.md",
+                                     "builtin 'cd' sub && cat AGENTS.md"])  # a quoted or escaped name is the builtin
 def test_a_failed_cd_then_cat_of_one_file_is_no_read(command):
     events = _events(_call("a", command), _result("a", "cat: AGENTS.md: No such file or directory", True))
     assert [(e["kind"], e["rc"]) for e in events] == [("command", 1)]
@@ -170,6 +172,8 @@ def test_a_call_that_moves_no_shell_keeps_the_next_relative_read(first):
     ("{ cd $(pwd); } | cat", False), ("{ cd $(pwd); } &", False), ("{ cd `pwd`; } | cat", False),
     ("{ source $(x); } &", False), ("{ { cd $(pwd); }; } | cat", False), ("(true; cd sub)", False),
     ("{ cd $(pwd); }", True), ("{ { cd sub; }; }", True),
+    ('"source" "$ENV"', True), ("'cd' \"$D\"", True), (r'\eval "$X"', True), ('"." env.sh', True),  # quoted names
+    ('"cd" "$D" &', False), ('"source" "$E" | cat', False), ('"env" cd "$D"', False), ("'\\cd' \"$D\"", False),
 ])
 def test_only_a_directory_builtin_in_the_calls_own_shell_moves_it(command, moves):
     assert shell_reads_moved(command)[1] is moves
@@ -186,7 +190,8 @@ def test_a_cd_in_a_job_or_a_pipeline_keeps_the_next_calls_relative_read(first):
 
 
 @pytest.mark.parametrize("first", ["pushd sub", 'eval "cd sub"', "source .venv/bin/activate", ". env.sh",
-                                   "time cd sub"])
+                                   "time cd sub", '"source" "$ENV"', "'cd' \"$D\"", r'\eval "$X"', '"." env.sh',
+                                   'c"d" "$D"', '"pushd" "$D"', 'builtin "cd" "$D"', '"cd" $(pwd)'])
 def test_a_pushd_eval_or_source_in_an_earlier_call_also_loses_the_directory(first):
     events = _events(_call("a", first), _result("a"), _call("b", "cat AGENTS.md"), _result("b"))
     assert _reads(events) == []

@@ -296,9 +296,9 @@ def _runs_dir(outer: str) -> bool:
     """Whether the outer text of a part (:class:`~dokimi.repos.shell_split.Part`) runs a directory builtin, as
     ``cd $(...)`` does (a subshell ``(cd x; ...)`` has no such text, so it changes nothing outside itself)."""
     words = outer.split()
-    while words and (words[0] in _KEYWORDS or words[0] == "{"):
+    while words and (words[0] in _KEYWORDS or words[0] == "{"):  # a quoted ``"if"`` is no keyword: skipped unquoted
         words = words[1:]
-    words, via_env, _ = _command_words(words)
+    words, via_env, _ = _command_words(_unquoted(words))
     return bool(words) and words[0] in _DIRS and not via_env
 
 
@@ -459,10 +459,25 @@ def _program(word: str) -> str:
     return posixpath.basename(word) if posixpath.dirname(word) in ("", *_SYSTEM_BIN) else ""
 
 
+def _unquoted(words: list[str]) -> list[str]:
+    """Words split at blanks, each with its quotes and backslash escapes removed and nothing expanded (``"cd"``,
+    ``'cd'``, ``\\cd`` and ``c"d"`` are ``cd``; ``"$D"`` is ``$D``), as ``shlex.split`` gives them; a word
+    whose quotes do not close here (``"a b"`` split at its blank) stays as it is."""
+    out = []
+    for word in words:
+        try:
+            split = shlex.split(word)
+        except ValueError:
+            split = []
+        out.append(split[0] if len(split) == 1 else word)
+    return out
+
+
 def _command_words(words: list[str]) -> tuple[list[str], bool, bool]:
     """The words from the command's name on; whether ``env`` runs it; and whether that ``env`` changes
     directory (``-C`` / ``--chdir``). ``NAME=value`` words, ``builtin``, ``command`` or ``time`` before a
-    directory builtin (which runs it), and ``env`` with its options and assignments come before the name and are skipped."""
+    directory builtin (which runs it), and ``env`` with its options and assignments come before the name and are skipped.
+    ``words`` are unquoted: ``shlex.split``'s, or :func:`_unquoted`'s for a part shlex does not split."""
     via_env = chdir = False
     while words:
         if _ASSIGN.match(words[0]):
@@ -623,8 +638,8 @@ def _failed_read(script: str, reads: list[Any], rc: Any) -> bool:
 
 
 def _is_cd(part: str) -> bool:
-    """Whether ``part`` runs the ``cd`` builtin, past what the walker skips (``time cd``, ``X=1 cd``; not ``env cd``)."""
-    words, via_env, _ = _command_words(part.split())
+    """Whether ``part`` runs the ``cd`` builtin, past what the walker skips (``time cd``, ``X=1 cd``, ``"cd"``; not ``env cd``)."""
+    words, via_env, _ = _command_words(_unquoted(part.split()))
     return words[:1] == ["cd"] and not via_env
 
 
