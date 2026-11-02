@@ -363,6 +363,19 @@ def test_a_failed_shadow_directory_removes_nothing_it_did_not_make(tmp_path, mon
     assert (ws / "a").read_bytes() == b"theirs"
 
 
+def test_a_bad_shadow_path_is_refused_before_any_harness_call(tmp_path, monkeypatch):
+    real, calls = reach._run_one, []
+
+    def run_one(*args):
+        calls.append(args[1].id)
+        return real(*args)
+
+    monkeypatch.setattr(reach, "_run_one", run_one)
+    with pytest.raises(ReachError, match="the shadow file REACH_PROBE.txt/x.md needs REACH_PROBE.txt"):
+        _run(tmp_path, monkeypatch, kinds=("root", "cwd", "read", "shadow"), shadow_file="REACH_PROBE.txt/x.md")
+    assert calls == [] and not (tmp_path / "seen.jsonl").exists()  # no scenario ran, so none was billed
+
+
 def test_the_receipt_leaves_the_shadow_scenarios_out(tmp_path, monkeypatch):
     from dokimi.repos.budget import budget
     from dokimi.repos.receipt import build_receipt

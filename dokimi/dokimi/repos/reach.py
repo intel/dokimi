@@ -369,6 +369,14 @@ def _shadowed(workspace: Path, item: SeededFile | None) -> Iterator[None]:
             shutil.rmtree(dirs[0], onerror=retry_writable)
 
 
+def _check_shadow_paths(workspace: Path, plan: list[Scenario]) -> None:
+    """Check every planned shadow path once the workspace is built, before any scenario runs: the workspace is the same
+    in every scenario, so a refusal found late would only come after scenarios that ran and were billed."""
+    for scenario in plan:
+        if scenario.shadow:
+            _check_shadow_path(workspace, scenario.shadow)
+
+
 def _check_shadow_path(workspace: Path, path: str) -> None:
     """Refuse a shadow path the workspace already holds, or one under a workspace entry that is not a directory (a
     probe file, a seeded file, a link). scenarios() skips a tree path; this guards the probe's own files."""
@@ -445,6 +453,7 @@ def run_reach(
         check_ancestors(workspace, tuple(dict.fromkeys(ANCESTOR_GUARD + profile.guidance_names)))
         salt = distinct_salt(tree, list(groups), salt, shadows=tuple(s.shadow for s in plan if s.shadow))
         seeded = build_workspace(tree, list(groups), workspace, salt, groups)
+        _check_shadow_paths(workspace, plan)
         version_env = profile.env(base / "cfg-version")
         version = profile.version(version_env, bin_path)
         trace_dir = out_dir / "traces"

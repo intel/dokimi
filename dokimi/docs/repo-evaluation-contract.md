@@ -1050,7 +1050,8 @@ Protocol:
       case-insensitive disk; an empty directory is found by the disk's own
       lookup. A shadow path that would replace or go under a file of the
       probe's own (a `REACH_PROBE.txt`, a seeded file or a link) stops the
-      run with an error, before anything is written. The file is not
+      run with an error once the workspace is built, before any scenario
+      runs and before anything is written. The file is not
       committed, and it is removed when its scenario ends, after an error or
       a timeout too, with the directories it needed that the workspace
       lacked, so no other scenario sees it.
