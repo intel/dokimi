@@ -1595,8 +1595,10 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   record in `hits` per pair (`task`, `arm`, `model`, `rep`, `cell` and the
   match's fields; the first five come from the cell's `result.json`, and a
   match key of the same name does not replace them), and one in `cells` per
-  cell whose `matches` was read, with or without a pair (those five, and
-  `n_threads` and `recall` from `grade.json`). A cell graded before `matches` was recorded is counted
+  cell whose `matches` was read, with or without a pair, and per cell whose
+  answer had no findings JSON (a `parse_error` grade: no pair, `recall` 0)
+  (those five, `n_threads` and `recall` from `grade.json`, and
+  `parse_error`). A cell graded before `matches` was recorded is counted
   (`N cell(s) graded without hit details`), not listed, and so is a cell whose
   `result.json` says `grader_failure` (`grader_failures`).
 - `repo hits judge <batch> --judge PROVIDER/MODEL` (§4.5) labels each credited
@@ -1605,11 +1607,14 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   them), and writes `<cell>/hits_judged.json` (`repo_hits_judged.v1`): the
   judge, each pair's `thread`, `finding`, `label` and `reason`, the counts of
   `same point`, `related`, `unrelated` and `unjudged`, `n_threads` (from
-  `grade.json` `metrics`), the grader's `recall`, and `recall_judged`. A rerun
+  `grade.json` `metrics`), the grader's `recall`, and `recall_judged`. A cell
+  whose answer had no findings JSON is written with no pair and its
+  `recall_judged` is the grader's `recall` (0), so it counts in its arm's
+  means. A rerun
   rewrites it. Before its first call, a run that judges (not `--dry-run`)
   removes the `hits_judged.json` an earlier run left in every other finished
   cell of the batch, one regraded since into a grader failure, a grade
-  without `matches` or another grader, and a line names those cells
+  without `matches` that is not a parse error, or another grader, and a line names those cells
   (`--json`: `stale_removed`). The command prints, per (arm, model), the cells written, their
   pairs and label counts, the mean `recall` of those cells and the mean
   `recall_judged` of those whose `recall_judged` is not null (`--json`: the

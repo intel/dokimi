@@ -337,18 +337,19 @@ def cell_doc(cell: dict[str, Any], judge: tuple[str, str], judged: list[dict[str
     """The ``repo_hits_judged.v1`` document of one cell of :func:`.report.load_hits` ``cells``.
 
     ``recall_judged`` is null when a pair is unjudged: a pair the judge never labelled is not measured, so it
-    is not counted as another point than the thread's."""
+    is not counted as another point than the thread's. A cell whose answer had no findings JSON
+    (``parse_error``) has no pair and keeps the grader's ``recall`` (0) as its ``recall_judged``."""
     counts = {label: 0 for label in (*LABELS, UNJUDGED)}
     for record in judged:
         counts[record["label"] or UNJUDGED] += 1
     n_threads = _count(cell.get("n_threads"))
     recall = cell.get("recall")
+    recall = recall if isinstance(recall, (int, float)) and not isinstance(recall, bool) else None
+    rescored = round(counts["same point"] / n_threads, 3) if n_threads and not counts[UNJUDGED] else None
     return {"cell": cell["cell"], "task": cell["task"], "arm": cell["arm"], "model": cell["model"],
             "rep": cell["rep"], "judge": {"provider": judge[0], "model": judge[1]}, "pairs": judged,
-            "counts": counts, "n_threads": n_threads,
-            "recall": recall if isinstance(recall, (int, float)) and not isinstance(recall, bool) else None,
-            "recall_judged": round(counts["same point"] / n_threads, 3) if n_threads and not counts[UNJUDGED]
-            else None}
+            "counts": counts, "n_threads": n_threads, "recall": recall,
+            "recall_judged": recall if cell.get("parse_error") else rescored}
 
 
 @dataclass
@@ -382,7 +383,8 @@ def judge_cells(batch_dir: Path, found: dict[str, Any], pairs: list[Pair], judge
 
     First, before any call, it removes the ``hits_judged.json`` an earlier run left in every other finished cell
     of the batch (:func:`.report.load_cells`): one regraded since into a state ``found["cells"]`` leaves out (a
-    grader failure, a grade with no ``matches``, another grader). ``Judged.stale`` names those cells.
+    grader failure, a grade with no ``matches`` that is not a parse error, another grader). ``Judged.stale``
+    names those cells.
 
     Raises :class:`HitsWriteError` at the first file it cannot write or remove, before any further call."""
     by_cell: dict[str, list[Pair]] = defaultdict(list)

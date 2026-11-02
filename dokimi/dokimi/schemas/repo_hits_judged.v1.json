@@ -52,6 +52,6 @@
     },
     "n_threads": {"type": ["integer", "null"], "minimum": 0, "description": "The task's gold threads, from `grade.json` `metrics.n_threads`; `null` when it records none."},
     "recall": {"type": ["number", "null"], "description": "The grader's `recall` (credited threads over `n_threads`)."},
-    "recall_judged": {"type": ["number", "null"], "minimum": 0, "maximum": 1, "description": "`same point` pairs over `n_threads`, rounded to 3 places; `null` when `n_threads` is 0 or `null`, or when a pair is unjudged (not measured, so not counted as another point)."}
+    "recall_judged": {"type": ["number", "null"], "minimum": 0, "maximum": 1, "description": "`same point` pairs over `n_threads`, rounded to 3 places; `null` when `n_threads` is 0 or `null`, or when a pair is unjudged (not measured, so not counted as another point). A cell whose answer had no findings JSON (a parse error) has no pair, and its `recall_judged` is the grader's `recall` (0)."}
   }
 }

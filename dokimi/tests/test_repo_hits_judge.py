@@ -142,6 +142,26 @@ def test_a_cell_with_no_credited_pair_is_written_and_counted_in_the_means(tmp_pa
     assert (raw["cells"], raw["pairs"], raw["recall"], raw["recall_judged"]) == (2, 2, 0.3335, 0.1665)
 
 
+def test_a_cell_whose_answer_has_no_findings_json_counts_as_0_in_the_means(tmp_path, capsys, judge_llm):
+    batch = _batch(tmp_path)
+    rd = _put(batch, "guidance:raw", 3, [])
+    answer = "I could not finish the review."  # the grader's parse error: recall 0, no `matches`
+    metrics, details = main.split_result(review.grade_replay(json.loads((rd / "task.json").read_text()),
+                                                             batch / "_eval" / "content" / "tasks" / TASK, answer))
+    (rd / "answer.txt").write_text(answer)
+    grade = json.loads((rd / "grade.json").read_text())
+    (rd / "grade.json").write_text(json.dumps({**grade, "metrics": metrics, "details": details}))
+    assert metrics["parse_error"] is True and "matches" not in details
+    code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--json")
+    result = json.loads(out)
+    assert (code, len(judge_llm.requests), result["replay_cells"], result["written"]) == (0, 4, 5, 3)
+    raw = next(r for r in result["rows"] if r["arm"] == "guidance:raw")
+    assert (raw["cells"], raw["pairs"], raw["recall"], raw["recall_judged"]) == (2, 2, 0.3335, 0.1665)
+    unparsed = load_artifact("repo_hits_judged", _judged(batch, "guidance:raw", 3))
+    assert (unparsed["pairs"], unparsed["recall"], unparsed["recall_judged"]) == ([], 0.0, 0.0)  # measured, not null
+    assert result["unjudged_cells"] == []
+
+
 def test_cells_without_matches_and_grader_failures_are_counted_not_judged(tmp_path, capsys, judge_llm):
     batch = _batch(tmp_path)
     code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE)

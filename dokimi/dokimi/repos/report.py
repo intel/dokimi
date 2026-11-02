@@ -333,7 +333,8 @@ def load_hits(batch_dir: Path) -> dict[str, Any]:
     ``grade.json`` ``details.matches``, by task, arm, model and rep. ``replay_cells`` counts the cells whose
     ``grade.json`` names that grader; ``without_matches`` those graded before ``matches`` was recorded;
     ``grader_failures`` those ``result.json`` calls a grader failure. ``cells`` lists the cells whose ``matches``
-    was read, a credited pair or none, with their ``n_threads`` and ``recall`` from ``grade.json``."""
+    was read, a credited pair or none, and those whose answer had no findings JSON (``parse_error``: no pair,
+    recall 0), with their ``n_threads`` and ``recall`` from ``grade.json``."""
     cells, _ = load_cells(batch_dir)
     bad = next((r for r in cells if not isinstance(r.get("rep"), int)), None)  # load_cells checks the rest of the key
     if bad is not None:
@@ -352,13 +353,16 @@ def load_hits(batch_dir: Path) -> dict[str, Any]:
         details = grade.get("details")
         details = details if isinstance(details, dict) else {}
         matches = details.get("matches")
-        if not isinstance(matches, list):  # a parse error or a grader error credits no thread: nothing is missing
+        metrics = grade.get("metrics")
+        metrics = metrics if isinstance(metrics, dict) else {}
+        unparsed = metrics.get("parse_error") is True  # no findings JSON: a measured 0 that the arm's mean keeps
+        if not isinstance(matches, list) and not unparsed:  # a grader error credits no thread: nothing is missing
             without += "threads_hit" in details
             continue
         key = {"task": rec["task"], "arm": rec["arm"], "model": rec["model"], "rep": rec["rep"], "cell": rec["cell"]}
-        metrics = grade.get("metrics")
-        metrics = metrics if isinstance(metrics, dict) else {}
-        read.append({**key, "n_threads": metrics.get("n_threads"), "recall": metrics.get("recall")})
+        read.append({**key, "n_threads": metrics.get("n_threads"), "recall": metrics.get("recall"),
+                     "parse_error": unparsed})
+        matches = matches if isinstance(matches, list) else []
         hits += [{**m, **key} for m in matches if isinstance(m, dict)]  # result.json's key wins over a match's
     return {"batch": str(batch_dir), "replay_cells": replay, "without_matches": without,
             "grader_failures": failed, "cells": read, "hits": hits}
