@@ -468,8 +468,11 @@ def competitor_left_out(ref: str, *, include_disabled: bool, include_invalid: bo
     if include_invalid:
         return None
     skill = load_skill(path)
+    # A SKILL.md with no ``skills/`` parent is a root skill, as the catalog reads one at its scan root:
+    # its directory name says nothing about the skill, so the name check is skipped for it.
+    root = path.parent.parent if path.parent.parent.name == "skills" else path.parent
     entry = SkillCatalogEntry(name=skill.name, status=None, path=path.parent,
-                              source_root=path.parent.parent, skill=skill)
+                              source_root=root, skill=skill)
     review = review_skills([entry])[0]
     if review is None or review.state != "error":
         return None
