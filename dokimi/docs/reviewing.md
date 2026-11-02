@@ -147,7 +147,8 @@ How to read the results:
   the docs is a finding. `reach` probes the tree as it is: with no
   `CLAUDE.md` in the tree, it does not show what one would turn off.
 - **Step 4:** without tasks there is no outcome measurement. The review
-  should say so rather than infer one from steps 1–3.
+  should say so rather than infer one from steps 1–3. A batch of replayed
+  reviews is read as [Reading a replay batch](#reading-a-replay-batch) says.
 
 A review also says which of its points come from reading rather than from a command:
 
@@ -167,5 +168,62 @@ A review also says which of its points come from reading rather than from a comm
   its own). Check it against the existing guidance: a nested `AGENTS.md` may
   keep old code on purpose. Put what applies to one directory in that
   directory's file.
+- **A replacement line the review proposes** for a stale claim: check it the
+  way you checked the claim, every file and name it states, in every place it
+  speaks for (all the workflows, not the first one found).
+
+### Reading a replay batch
+
+A step 4 batch of `dokimi:review_replay` tasks is easy to over-read. Check
+these, in order, before writing what it showed (the fields:
+[§4.5](repo-evaluation-contract.md#45-built-in-graders) and
+[§9](repo-evaluation-contract.md#9-running) of the contract).
+
+- **Delivery first.** Say what the cells started with before crediting any
+  file. Compare the `first_prompt_tokens` row of `repo compare` with each
+  guidance file's size in tokens: a delta the size of the root file means only
+  the root file was in the start context. A nested `AGENTS.md` loads later if
+  at all; reach (step 2) shows what loads it (`cwd=<dir>`, `read=<dir>`).
+  `process:guidance_read` counts Read-tool reads only, so 0 from an agent that
+  used Bash is not "never read": look for a `cat` or `grep` of a guidance file
+  in `events.jsonl` or `agent.stdout`, or add a `process_metrics` counter.
+  Name what was delivered as what was tested ("the root `AGENTS.md`", not "the
+  guidance"), and credit no hit to a rule in a file the cell neither started
+  with nor read.
+- **A leakage cut.** A task is out of sample for a guidance revision only when
+  no guidance commit in it could have been written from the task's review; a
+  date split is not that cut. List the revision's guidance commits
+  (`git log -p --format='%h %cI %B' <rev> -- <guidance files>`) and flag the
+  tasks whose PR a commit names (`task.json` `source_pr`) or whose threads
+  (`createdAt` in the threads file) predate a commit that changed the rule
+  they raise. Read the gain without them (`repo compare --task` on the rest).
+  Leakage can only favour the guidance arm: it weakens a gain, not a null.
+- **Inconclusive, with the `mde`.** A gate or score row whose interval
+  includes 0 is inconclusive, not "no effect". Quote the interval and the
+  note's `mde`, and say what the data rules out: a gain above the interval's
+  upper end. A smaller `target` needs about `n_tasks * (mde / target)^2`
+  tasks. Where the note says no effect can reach p < 0.05 here, say that.
+- **No suggestion rests on a descriptive p.** Cost, turns,
+  `first_prompt_tokens`, every `--metric` row (`n_findings`, `n_severe`,
+  `recall_addressed`) and the `process` rows are descriptive: their p is
+  uncorrected and outside Holm's family (the line under the comparison names
+  those below 0.05). Report them as descriptions. A suggestion to change the
+  guidance needs a gate or score row read at `p_holm`, also where its interval
+  disagrees; one about a section or a rule needs an arm that removes or
+  changes it (a `guidance:rev:` of that edit). Without one, say the suggestion
+  comes from reading.
+- **Read the hits before citing one.** Replay credits a finding by place, not
+  content: the same file, within `window` lines of a thread, with no judge.
+  Run `dokimi repo report <batch> --hits` and read each pair you cite, the
+  thread's comment and then the finding; cite only pairs that make the same
+  point, and say how many credited pairs you read and how many held. Check
+  that the finding's `rule` (in the cell's `answer.txt`) is in a delivered file.
+- **Totals from command output.** Copy counts, costs and turns from
+  `repo report --json` (`total_cost_usd`, a row's `n`, `cost_usd`, `turns`),
+  `repo compare --json` (`n_tasks`, `delta`, `mde`) and `grade.json` `metrics`
+  (`n_threads`, `n_findings`, `n_severe`). A total no command prints, such as
+  the gold threads (`n_threads`, once per task), is summed by a script over
+  those files, not by hand. A range is the lowest and highest per-cell value
+  (`result.json` `agent.num_turns`), not of row means.
 
 The contract a repository codes against: [repo-evaluation-contract.md](repo-evaluation-contract.md).
