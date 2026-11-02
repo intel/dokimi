@@ -27,15 +27,25 @@ from typing import Any
 
 import yaml
 
+from dokimi.skills.formats import SPEC_NAME_MAX
+
 from dokimi import process
 
 SKILL_KINDS = ("skill", "skill-catalog")
 SKILLS_DIR = ".claude/skills"
+GUIDANCE_SUFFIX = "-guidance"
 
 
 def slug(text: str) -> str:
     """``text`` as a file-system-safe name: the result directory of a cell, the cell name."""
     return re.sub(r"[^A-Za-z0-9._-]+", "_", text).strip("_") or "x"
+
+
+def guidance_skill_name(repo_id: str) -> str:
+    """The name of the skill ``guidance:as-skill`` writes for a repository: the Agent Skills name rule (lowercase
+    letters, digits and single hyphens, at most ``SPEC_NAME_MAX``), so ``numpy.dev`` gives ``numpy-dev-guidance``."""
+    words = re.sub(r"[^a-z0-9]+", "-", repo_id.lower()).strip("-")[:SPEC_NAME_MAX - len(GUIDANCE_SUFFIX)]
+    return f"{words.rstrip('-') or 'repo'}{GUIDANCE_SUFFIX}"
 
 
 class ArmError(ValueError):
@@ -201,8 +211,8 @@ def check_arms(arms: list[Any], content_dir: Path, tasks: list[Any], git_dir: Pa
         skills = resolve_skills(arm, content_dir)
         names = {s.name for s in skills}
         if repo_id is not None and arm.patch is None and arm.base == "guidance:as-skill":
-            _check_generated_skill(arm, skills, repo_id, tasks, git_dir)
-            names.add(slug(f"{repo_id}-guidance"))  # the skill preparation installs beside the catalog's
+            _check_generated_skill(arm, skills, repo_id, tasks, git_dir, shipped)
+            names.add(guidance_skill_name(repo_id))  # the skill preparation installs beside the catalog's
         drops = arm.patch is None and (arm.base in ("guidance:none", "guidance:as-skill") or arm.rev is not None)
         rev = (arm.rev_sha or arm.rev) if arm.patch is None else None
         if skills and git_dir is not None:
@@ -212,19 +222,25 @@ def check_arms(arms: list[Any], content_dir: Path, tasks: list[Any], git_dir: Pa
             _check_expected_skills(arm, tasks, names)
 
 
-def _check_generated_skill(arm: Any, skills: list[Skill], repo_id: str, tasks: list[Any], git_dir: Path | None) -> None:
+def _check_generated_skill(arm: Any, skills: list[Skill], repo_id: str, tasks: list[Any], git_dir: Path | None,
+                           shipped: dict[str, tuple[list[str], list[str]]]) -> None:
     """Refuse a ``guidance:as-skill`` arm whose generated skill directory is a skill of the arm, or is tracked by the
-    base of a task: preparation writes that directory first, so it would fail cell by cell, not here."""
-    target = f"{SKILLS_DIR}/{slug(f'{repo_id}-guidance')}"
+    base of a task, or whose base links ``.claude`` or ``.claude/skills`` (preparation installs through both): it
+    would fail cell by cell, not here. A ``shipped`` cache entry holds the base's files and links."""
+    target = f"{SKILLS_DIR}/{guidance_skill_name(repo_id)}"
     for skill in skills:
         if skill.target == target:
             raise ArmError(f"arm {arm.spec!r}: its generated guidance skill {target} is also one of its skills")
     if git_dir is None:
         return
     for task in tasks:
-        for path in _base_skill_files(git_dir, task.base)[0]:
+        files, links = _cached_shipped(git_dir, task.base, shipped)
+        for path in files:
             if path == target or path.startswith(target + "/"):
                 raise ArmError(f"arm {arm.spec!r}: the base of task {task.id} already has {target}")
+        for link in links:
+            raise ArmError(f"arm {arm.spec!r}: the base of task {task.id} tracks {link} as a symlink; "
+                           f"refusing to install {target} through it")
 
 
 def _check_shipped(arm: Any, skills: list[Skill], task: Any, git_dir: Path,
@@ -235,19 +251,26 @@ def _check_shipped(arm: Any, skills: list[Skill], task: Any, git_dir: Path,
     from dokimi.repos.manifest import match_glob
 
     drops, rev, guidance_globs = dropping
-    for commit in (task.base, rev):
-        if commit is not None and commit not in shipped:
-            shipped[commit] = _base_skill_files(git_dir, commit)
-    left = [p for p in shipped[task.base][0]
-            if not (drops and any(match_glob(g, p) for g in guidance_globs))]
-    written = [p for p in shipped[rev][0] if any(match_glob(g, p) for g in guidance_globs)] if rev else []
-    for link in shipped[task.base][1]:  # preparation refuses to install through a link, cell by cell
+    base_files, base_links = _cached_shipped(git_dir, task.base, shipped)
+    if rev is not None:
+        rev_files = _cached_shipped(git_dir, rev, shipped)[0]
+    left = [p for p in base_files if not (drops and any(match_glob(g, p) for g in guidance_globs))]
+    written = [p for p in rev_files if any(match_glob(g, p) for g in guidance_globs)] if rev else []
+    for link in base_links:  # preparation refuses to install through a link, cell by cell
         raise ArmError(f"arm {arm.spec!r}: the base of task {task.id} tracks {link} as a symlink; "
                        f"refusing to install {skills[0].name} through it")
     for skill in skills:
         for where, files in ((f"the base of task {task.id}", left), (f"guidance revision {rev}", written)):
             if any(p.startswith(skill.target.rstrip("/") + "/") or p == skill.target for p in files):
                 raise ArmError(f"arm {arm.spec!r}: {where} already has {skill.target}")
+
+
+def _cached_shipped(git_dir: Path, commit: str,
+                    shipped: dict[str, tuple[list[str], list[str]]]) -> tuple[list[str], list[str]]:
+    """``_base_skill_files`` of a commit, one ``git ls-tree`` per commit for the whole check."""
+    if commit not in shipped:
+        shipped[commit] = _base_skill_files(git_dir, commit)
+    return shipped[commit]
 
 
 def _check_expected_skills(arm: Any, tasks: list[Any], names: set[str]) -> None:

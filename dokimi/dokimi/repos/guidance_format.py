@@ -8,7 +8,8 @@
 above. No other line changes, and :func:`restore` undoes the wrapping exactly. :func:`to_format`
 refuses a file whose rendering does not restore to it (a body line that looks like one of the
 tags, a heading the restore could not rebuild), so the arm never measures altered content.
-Headings inside code fences are body text.
+Headings inside code fences and HTML comment blocks are body text. A leading YAML front matter block
+(``---`` to ``---``) stays verbatim above ``<guidance>``, where the harness that reads it still finds it.
 """
 
 from __future__ import annotations
@@ -27,6 +28,8 @@ _OPENER = re.compile(r" {0,3}(`{3,}|~{3,})(.*)$")  # up to three spaces, then a 
 _BLOCK = re.compile(r" *(?:#{1,6}(?: |$)|>|([-*_])( *\1){2,} *$)")  # a heading, quote or rule: a line that starts a block
 _QUOTE_MARK = re.compile(r" *> ?")  # one ``>`` of a block quote, and the space after it
 _OPEN = re.compile(r'^<section level="([1-6])" title="([^"]*)">$')
+_COMMENT = re.compile(r" {0,3}<!--")  # an HTML comment block starts a line (it can run on to a later line)
+_FRONT = "---"  # the delimiter of a YAML front matter block, which stays verbatim above the root element
 _ESCAPES = {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}
 _UNESCAPES = {v: k for k, v in _ESCAPES.items()}
 
@@ -48,15 +51,17 @@ def to_format(text: str, fmt: str) -> str:
 def restore(rendered: str) -> str:
     """The Markdown a rendering came from: the wrapper lines removed, each section tag back to its heading."""
     lines = rendered.split("\n")
-    if len(lines) < 2 or lines[0] != _ROOT or lines[-1] != _ROOT_CLOSE:
+    end = _front_matter_end(lines)
+    head, body = lines[:end + 1], lines[end + 1:]
+    if len(body) < 2 or body[0] != _ROOT or body[-1] != _ROOT_CLOSE:
         raise FormatError("not a guidance rendering: the root element is missing")
     out = []
-    for line in lines[1:-1]:
+    for line in body[1:-1]:
         if line == _CLOSE:
             continue
         match = _OPEN.match(line)
         out.append(f"{'#' * int(match.group(1))} {_unescape(match.group(2))}" if match else line)
-    return "\n".join(out)
+    return "\n".join(head + out)
 
 
 def _marker_columns(line: str, para: bool = False) -> tuple[int, ...]:
@@ -121,12 +126,15 @@ def _closes(fence: tuple[str, int], line: str) -> bool:
                 and not match.group(3).strip() and len(match.group(1)) <= column + 3)
 
 
-def _quoted_paragraph(text: str) -> bool:
+def _quoted_paragraph(text: str, para: bool) -> bool:
     """Whether a block quote's content is paragraph text: after its ``>`` markers it is not a heading, rule, fence or
-    list item. Such a quote is paragraph text too, so a following line that continues it lazily stays in its item."""
+    list item, nor indented code (four columns, unless a paragraph is already open: it continues). Such a quote is
+    paragraph text too, so a following line that continues it lazily stays in its item."""
     inner, quoted = text, False
     while (mark := _QUOTE_MARK.match(inner)) is not None:
         inner, quoted = inner[mark.end():], True
+    if not para and len(inner) - len(inner.lstrip(" ")) >= 4:
+        return False
     return (quoted and bool(inner.strip()) and not _BLOCK.match(inner) and not _OPENER.match(inner)
             and _ITEM.match(inner) is None)
 
@@ -151,22 +159,39 @@ def _advance(fence: tuple[str, int] | None, items: tuple[int, ...], line: str, p
     text = expanded[markers[-1]:].strip() if markers else expanded.strip()
     indent = len(expanded) - len(expanded.lstrip(" "))
     code = not para and indent - (items[-1] if items else 0) >= 4  # four columns past the content column: code
-    return (opened, items, opened is None and bool(text) and (not _BLOCK.match(text) or _quoted_paragraph(text))
+    return (opened, items, opened is None and bool(text) and (not _BLOCK.match(text) or _quoted_paragraph(text, para and not markers))  # a new list item does not continue the paragraph
             and not code,
             bool(markers) and not text)
 
 
+def _front_matter_end(lines: list[str]) -> int:
+    """The index of the line that closes a leading YAML front matter block (``---`` to ``---``), or -1 if none."""
+    if lines and lines[0] == _FRONT:
+        for index in range(1, len(lines)):
+            if lines[index] == _FRONT:
+                return index
+    return -1
+
+
 def _render_xml(text: str) -> str:
-    out = [_ROOT]
+    lines = text.split("\n")
+    end = _front_matter_end(lines)
+    out = lines[:end + 1] + [_ROOT]  # the front matter stays verbatim above the root, where its reader finds it
     fence: tuple[str, int] | None = None
     items: tuple[int, ...] = ()
-    para = empty = False
+    para = empty = comment = False
     open_levels: list[int] = []
-    for line in text.split("\n"):
+    for line in lines[end + 1:]:
+        if comment:  # inside an HTML comment block: body text up to the line that closes it
+            comment = "-->" not in line
+            out.append(line)
+            continue
         fence, items, para, empty = _advance(fence, items, line, para, empty)
         heading = _HEADING.match(line) if fence is None else None  # a line of a fence is body text
         if heading is None:
             out.append(line)
+            if fence is None and _COMMENT.match(line) and "-->" not in line:
+                comment, para, empty = True, False, False  # a comment block is not paragraph text
             continue
         level = len(heading.group(1))
         while open_levels and open_levels[-1] >= level:

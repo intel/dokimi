@@ -175,6 +175,9 @@ def _add_arm_use(record: dict[str, Any], meta: dict[str, Any], task: Task, skill
     if meta.get("skills"):  # without a trace the usage is unmeasured, not zero
         record["skills"] = skills if skills is not None else skill_unmeasured(
             [s["name"] for s in meta["skills"]], task.expected_skill)
+    if meta.get("guidance_skill"):  # apart from the catalog's usage: it is not in the names the catalog's usage counts
+        record["guidance_skill_loaded"] = (None if events is None else
+                                           bool(skill_usage(events, [meta["guidance_skill"]["name"]], None)["skills_used"]))
     if any(uptake_of):  # an arm that added something to use: did the agent use it (#41 D4)
         record["uptake"] = arm_uptake(events, *uptake_of, WORKSPACE)
 

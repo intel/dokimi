@@ -50,7 +50,7 @@ from typing import Any
 
 from dokimi import process
 
-from .arms import SKILLS_DIR, ArmError, Skill, resolve_skills, slug, tree_sha256
+from .arms import SKILLS_DIR, ArmError, Skill, guidance_skill_name, resolve_skills, tree_sha256
 from .errors import PrepError
 from .guidance_format import FORMATS, FormatError, to_format
 from .harness_profile import HarnessProfile
@@ -397,9 +397,7 @@ def prepare_workspace(git_dir: Path, manifest: RepoManifest, task: Task, arm: st
         arm_files, arm_meta = _apply_arm(ws, env, git_dir, manifest, arm, bridge)            # 5
     except PrepError as exc:
         raise PrepError(f"task {task.id}: {exc}") from exc
-    installed = _install_skills(ws, task, skills)
-    if "guidance_skill" in arm_meta:  # packaged by guidance:as-skill: usage is measured on it like any skill
-        installed.append(arm_meta.pop("guidance_skill"))
+    installed = _install_skills(ws, task, skills)  # the catalog's skills; a guidance:as-skill skill is in arm_meta
     _git(ws, env, "add", "-A")                                                                # 6
     _git(ws, env, "commit", "-q", "--no-gpg-sign", "--no-verify", "--amend", "--allow-empty", "-m", "snapshot")
     _apply_review_patch(ws, task, patches)                                                    # 7
@@ -532,7 +530,7 @@ def _apply_as_skill(ws: Path, manifest: RepoManifest, matched: list[str]) -> tup
     ``.claude/skills/<repo>-guidance/SKILL.md``: each file under a ``## File: <path>`` line, its text verbatim."""
     if not matched:
         raise PrepError("guidance:as-skill: the base has no guidance file to package")
-    name = slug(f"{manifest.id}-guidance")
+    name = guidance_skill_name(manifest.id)
     skill_dir = ws / SKILLS_DIR / name
     for part in (ws / ".claude", ws / SKILLS_DIR):  # a repository link would write to the host
         if part.is_symlink():

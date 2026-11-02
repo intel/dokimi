@@ -117,6 +117,37 @@ def test_a_quoted_frontmatter_name_is_the_directory_name(tmp_path):
         assert [s.name for s in resolve_skills(parse_arm("skill:skills/lint"), tmp_path)] == ["lint"]
 
 
+def test_a_base_that_links_claude_refuses_a_plain_as_skill_arm_before_any_cell(tmp_path):
+    root, base = make_repo(tmp_path)
+    os.symlink("elsewhere", root / ".claude")  # tracked as a link: preparation cannot install through it
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "link .claude")
+    task = Task("t", {"base": git(root, "rev-parse", "HEAD")}, root)
+    with pytest.raises(ArmError, match="tracks .claude as a symlink"):
+        check_arms([parse_arm("guidance:as-skill")], root / ".agent-eval", [task], root / ".git", (), "toy")
+
+
+@pytest.mark.parametrize("repo_id, name", [("toy", "toy-guidance"), ("numpy.dev", "numpy-dev-guidance"),
+                                           ("My_Repo", "my-repo-guidance")])
+def test_the_generated_guidance_skill_name_follows_the_agent_skills_name_rule(repo_id, name):
+    from dokimi.repos.arms import guidance_skill_name
+    from dokimi.skills.formats import SPEC_NAME_MAX, _SPEC_NAME
+    assert guidance_skill_name(repo_id) == name
+    long_name = guidance_skill_name("r" * 80 + ".x")
+    assert len(long_name) <= SPEC_NAME_MAX and long_name.endswith("-guidance") and _SPEC_NAME.match(long_name)
+
+
+def test_the_generated_guidance_skill_is_measured_apart_from_the_catalog():
+    from dokimi.repos.runner import _add_arm_use
+    events = [{"kind": "tool", "name": "Skill", "skill": "toy-guidance"}]
+    record: dict = {}
+    _add_arm_use(record, {"guidance_skill": {"name": "toy-guidance"}}, None, None, ([], []), events)
+    assert record == {"guidance_skill_loaded": True}  # no catalog skills: no `skills` record for the guidance skill
+    loaded_none: dict = {}
+    _add_arm_use(loaded_none, {"guidance_skill": {"name": "toy-guidance"}}, None, None, ([], []), None)
+    assert loaded_none == {"guidance_skill_loaded": None}  # no trace: unmeasured, not "not loaded"
+
+
 def test_a_task_without_expected_skill_reports_no_selection(setup, monkeypatch):
     monkeypatch.setenv("FAKE_SKILLS", "lint")
     _run(setup, "--arm", "skill:skills/lint", "--task", "fix_add")  # fix_add names no expected_skill
@@ -832,10 +863,10 @@ def test_an_as_skill_arm_accepts_a_base_skill_whose_name_only_starts_with_the_ge
     check_arms([parse_arm("guidance:as-skill")], root / ".agent-eval", [task], root / ".git", (), "toy")
 
 
-def test_the_generated_skill_name_is_the_slug_of_the_repo_id(tmp_path):
-    _skill(tmp_path, "skills/my_repo-guidance", "my_repo-guidance")
-    with pytest.raises(ArmError, match="generated guidance skill .claude/skills/my_repo-guidance"):
-        check_arms([parse_arm("guidance:as-skill+skill:skills/my_repo-guidance")], tmp_path, [], None, (), "my repo")
+def test_the_generated_skill_name_follows_the_name_rule_of_the_repo_id(tmp_path):
+    _skill(tmp_path, "skills/my-repo-guidance", "my-repo-guidance")
+    with pytest.raises(ArmError, match="generated guidance skill .claude/skills/my-repo-guidance"):
+        check_arms([parse_arm("guidance:as-skill+skill:skills/my-repo-guidance")], tmp_path, [], None, (), "my repo")
 
 
 def test_tasks_check_refuses_an_as_skill_arm_whose_generated_skill_the_arm_also_ships(setup, capsys):

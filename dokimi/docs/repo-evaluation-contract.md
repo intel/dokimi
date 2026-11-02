@@ -397,7 +397,9 @@ grader diffs the agent's changes from `start_sha`. With the arm come
 files with no counterpart at `<rev>`); for `patch:` an `arm_patch` object (the
 file's absolute `path` and full `sha256`, `added`: the files the patch added
 that neither the guidance globs nor `.mcp.json` match, and `mcp_servers`: the servers
-the patch added to the `.mcp.json` at the root, read before the agent runs). `args_if_present` lists the profile's
+the patch added to the `.mcp.json` at the root, read before the agent runs); for `guidance:format=` a
+`guidance_links_kept` list of the guidance links that keep their raw bytes; for `guidance:as-skill` a
+`guidance_skill` object (`name`, `path`, `sha256`) that is not in `skills`. `args_if_present` lists the profile's
 `args_if_present` files the cell's command line carries (§6): `[]` when the
 workspace has none of them, and always outside the `all` tool mode.
 
@@ -484,6 +486,9 @@ the first one used; `null` when the task names none). When the trace could not
 be read (the harness never started), `measured` is `false` and `skill_invoked`
 and `skill_selected_correct` are `null`: the usage is unknown, not "did not use
 the skill". `repo report` leaves such cells out of its skill counts.
+A `guidance:as-skill` cell has no `skills` object for its generated skill: its
+usage is `guidance_skill_loaded` (`true` when the agent called that skill or read
+its `SKILL.md`, `false` when not, `null` when the trace could not be read).
 
 For a `patch:` arm with `added` files or `mcp_servers`, `result.json` has an
 `uptake` object: whether the agent used what the arm added. `files` and

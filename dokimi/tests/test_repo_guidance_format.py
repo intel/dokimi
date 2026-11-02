@@ -12,7 +12,7 @@ import pytest
 import yaml
 
 from dokimi.repos import RepoSource, load_manifest, open_source
-from dokimi.repos.arms import slug, tree_sha256
+from dokimi.repos.arms import guidance_skill_name, tree_sha256
 from dokimi.repos.guidance_format import FormatError, restore, to_format
 from dokimi.repos.workspace import (
     GUIDANCE_SKILL_DESCRIPTION,
@@ -89,6 +89,9 @@ tail"""
     ("- > quoted\nlazy\n  ```\n# Real\n", ["Real"]),  # a lazy line continues the quoted paragraph in the item
     ("> quoted\nlazy\n  ```\n# Real\n", []),  # the same at top level: the fence opens and holds Real
     ("- > # H\nlazy\n  ```\n# x\n", []),  # a quoted heading is no paragraph: the lazy line ends the item
+    ("- >     code\nlazy\n  ```\n# Real\n", []),  # indented code in the quote is no paragraph: lazy ends the item
+    ("para\n- >     code\nlazy\n  ```\n# Real\n", []),  # a new item after a paragraph: the same, no lazy continuation
+    ("- > a\n  >     more\nlazy\n  ```\n# Real\n", ["Real"]),  # an open quoted paragraph takes an indented line too
 ])
 def test_a_fence_opened_by_a_list_item_holds_body_text_only_inside_the_item(text, sections):
     assert re.findall(r'title="([^"]*)"', to_format(text, "xml")) == sections
@@ -106,6 +109,10 @@ def test_a_fence_opened_by_a_list_item_holds_body_text_only_inside_the_item(text
     "# trailing spaces  \r\nbody\r\n",
     "# Title with </section> and \"quotes\" & <tags>\nbody\n",
     "~~~\n# fenced with tildes\n~~~\n# real\n",
+    "---\npaths:\n  - src/**\n# a yaml comment\n---\n# Rules\n",
+    "---\n---\n# Rules\n",
+    "---\nunclosed\n# Rules\n",
+    "<!--\n# commented out\n-->\n# Real\n",
 ])
 def test_xml_round_trips_the_markdown_exactly(text):
     assert restore(to_format(text, "xml")) == text
@@ -118,6 +125,28 @@ def test_xml_wraps_each_heading_in_a_section_closed_before_its_peer():
         '<section level="2" title="B">\nmore\n</section>\n'
         "</section>\n"
         '<section level="1" title="C">\n\n'
+        "</section>\n"
+        "</guidance>"
+    )
+
+
+@pytest.mark.parametrize("text, sections", [
+    ("<!--\n# commented out\n-->\n# Real\n", ["Real"]),  # a comment block spans lines: its heading is body text
+    ("<!-- # one line -->\n# Real\n", ["Real"]),  # closed on its own line: nothing after it is in the comment
+    ("  <!--\n# a\n  -->\n# Real\n", ["Real"]),  # up to three spaces of indentation
+    ("<!--\n# a\n", []),  # unclosed: the rest of the file is the comment
+    ("text <!--\n# Real\n-->\n", ["Real"]),  # a comment inside a paragraph line is no block: the heading is a section
+])
+def test_a_heading_inside_an_html_comment_block_is_body_text(text, sections):
+    assert re.findall(r'title="([^"]*)"', to_format(text, "xml")) == sections
+
+
+def test_a_yaml_front_matter_block_stays_verbatim_above_the_root():
+    text = "---\npaths:\n  - src/**\n# a yaml comment\n---\n# Rules\n"
+    assert to_format(text, "xml") == (
+        "---\npaths:\n  - src/**\n# a yaml comment\n---\n"
+        "<guidance>\n"
+        '<section level="1" title="Rules">\n\n'
         "</section>\n"
         "</guidance>"
     )
@@ -200,14 +229,14 @@ def test_a_format_arm_renders_every_guidance_file_of_the_workspace(tmp_path):
 def test_an_as_skill_arm_moves_the_guidance_into_one_skill(tmp_path):
     toy = _toy_files(tmp_path)
     meta, ws = _prep(toy, "guidance:as-skill")
-    name = slug(f"{toy['manifest'].id}-guidance")
+    name = guidance_skill_name(toy["manifest"].id)
     assert not (ws / "AGENTS.md").exists() and not (ws / "sub/AGENTS.md").exists()
     skill = (ws / ".claude/skills" / name / "SKILL.md").read_text()
     assert skill.startswith(f"---\nname: {name}\ndescription: {GUIDANCE_SKILL_DESCRIPTION}\n---\n")
     assert "## File: AGENTS.md\n\n# guidance\n" in skill and "## File: sub/AGENTS.md\n\n# sub guidance\n" in skill
-    assert meta["skills"] == [{"name": name, "path": f".claude/skills/{name}",
-                               "sha256": tree_sha256(ws / ".claude/skills" / name)}]
-    assert "guidance_skill" not in meta
+    assert "skills" not in meta  # the packaged skill is apart from the catalog's skills (its usage is measured apart)
+    assert meta["guidance_skill"] == {"name": name, "path": f".claude/skills/{name}",
+                                      "sha256": tree_sha256(ws / ".claude/skills" / name)}
     assert sorted(meta["arm_files"]) == ["AGENTS.md", "sub/AGENTS.md"]
 
 
