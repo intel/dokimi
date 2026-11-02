@@ -848,7 +848,9 @@ def _copilot_lines(name, arguments):
 
 
 @pytest.mark.parametrize("arguments", [42, None])
-@pytest.mark.parametrize("name", ["edit", "create", "view", "bash", "powershell"])
+@pytest.mark.parametrize(
+    "name", ["edit", "create", "write", "str_replace_editor", "view", "bash", "powershell"]
+)
 def test_a_copilot_call_with_non_object_arguments_is_a_dropped_line(name, arguments):
     assert convert("copilot-json", _copilot_lines(name, arguments), "/ws").dropped_lines == 1
 
