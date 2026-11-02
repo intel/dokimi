@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/redteam.v1.json",
+  "title": "Verifier red team v1",
+  "description": "Whether a question set's grading blocks reject the synthetic wrong, empty and hedged answers they should, and accept a canary right answer. Written by `eval redteam`; status is blocked when any attack is accepted or a canary is rejected, and inconclusive when nothing was graded or a graded question was not measured (judge checks without a judge, or only negated checks).",
+  "type": "object",
+  "required": ["schema_version", "status", "questions_path", "judge_model", "judge_provider", "attacks", "violations", "questions", "summary"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "redteam.v1"},
+    "status": {"enum": ["pass", "blocked", "inconclusive"]},
+    "questions_path": {"type": "string"},
+    "judge_model": {"type": ["string", "null"], "description": "The judge model that graded the judge checks; null without --judge, when they were left unscored."},
+    "judge_provider": {"type": ["string", "null"], "description": "The provider of the judge model; null without --judge."},
+    "attacks": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["expected", "scored", "accepted", "rate"],
+        "additionalProperties": false,
+        "properties": {
+          "expected": {"enum": ["pass", "fail"], "description": "What the grader must do with this attack."},
+          "scored": {"type": "integer", "minimum": 0},
+          "accepted": {"type": "integer", "minimum": 0, "description": "Probes the grader passed."},
+          "rate": {"type": ["number", "null"], "minimum": 0, "maximum": 1, "description": "accepted / scored; null when nothing was scored."}
+        }
+      }
+    },
+    "violations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["question_id", "attack", "passed"],
+        "additionalProperties": false,
+        "properties": {
+          "question_id": {"type": "string"},
+          "attack": {"enum": ["canary", "wrong", "empty", "hedge"]},
+          "passed": {"type": "boolean"}
+        }
+      }
+    },
+    "questions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["question_id", "canary", "negated_only", "probes"],
+        "additionalProperties": false,
+        "properties": {
+          "question_id": {"type": "string"},
+          "canary": {"type": "boolean", "description": "True when a right answer could be built from the grading block."},
+          "negated_only": {"type": "boolean", "description": "True when every check is negated: no wrong, empty or hedged probe is run."},
+          "probes": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "required": ["passed", "expected", "violation", "detail"],
+              "additionalProperties": false,
+              "properties": {
+                "passed": {"type": ["boolean", "null"], "description": "Null when the grader could not score the probe."},
+                "expected": {"type": "boolean"},
+                "violation": {"type": "boolean"},
+                "detail": {"type": "string"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["questions", "probed", "unprobed", "no_canary", "negated_only", "unscored", "violations"],
+      "additionalProperties": false,
+      "properties": {
+        "questions": {"type": "integer", "minimum": 0},
+        "probed": {"type": "integer", "minimum": 0},
+        "unprobed": {"type": "integer", "minimum": 0},
+        "no_canary": {"type": "integer", "minimum": 0},
+        "negated_only": {"type": "integer", "minimum": 0},
+        "unscored": {"type": "integer", "minimum": 0},
+        "violations": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}
