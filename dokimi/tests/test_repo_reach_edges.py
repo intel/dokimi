@@ -39,6 +39,23 @@ def test_prose_counts_words_not_formatting():
     assert prose_words("I will not list these tokens.") == 5
 
 
+LEAD_IN = "Now I'll list all verification tokens found in my context:"
+HAIKU_TOKENS = "RC1A2B3C\nRC4D5E6F\nRC0A1B2C\nRC3D4E5F"
+
+
+@pytest.mark.parametrize("answer, words", [
+    (f"{LEAD_IN}\n{HAIKU_TOKENS}", 0),  # Haiku's answer on IntelPython/dpnp#3099
+    (f"\n{LEAD_IN}\n\n{HAIKU_TOKENS}\n", 0),
+    (LEAD_IN, 10),
+    (f"{LEAD_IN}\nNONE", 10),
+    (f"{LEAD_IN}\n{HAIKU_TOKENS}\nThese are all the tokens.", 5),
+    (f"{LEAD_IN.rstrip(':')}.\n{HAIKU_TOKENS}", 10),
+    (f"RC1A2B3C\n{LEAD_IN}\nRC4D5E6F", 10),
+])
+def test_prose_skips_only_a_lead_in_before_tokens(answer, words):
+    assert prose_words(answer) == words
+
+
 def test_unreadable_guidance_is_a_reach_error(tmp_path, monkeypatch):
     original = WorkTree.read_text
 

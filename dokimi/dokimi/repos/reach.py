@@ -254,8 +254,13 @@ def seed_text(text: str, path: str, head: str, tail: str) -> str:
 
 
 def prose_words(answer: str) -> int:
-    """Words in the answer besides tokens and NONE. A long tail usually means the
-    model explained or refused instead of listing, so its not_loaded cells are suspect."""
+    """Words in the answer besides tokens and NONE, not counting a first non-empty line
+    that ends in ':' when a later line holds a token (a lead-in such as "Tokens found:").
+    A long tail usually means the model explained or refused instead of listing, so its
+    not_loaded cells are suspect."""
+    lines = [line for line in answer.splitlines() if line.strip()]
+    if lines and lines[0].rstrip().endswith(":") and any(TOKEN_RE.search(line) for line in lines[1:]):
+        answer = "\n".join(lines[1:])
     words = re.findall(r"[A-Za-z]{2,}", TOKEN_RE.sub(" ", answer))
     return len([w for w in words if w != "NONE"])
 
