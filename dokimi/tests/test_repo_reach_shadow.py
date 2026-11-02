@@ -363,6 +363,17 @@ def test_a_failed_shadow_directory_removes_nothing_it_did_not_make(tmp_path, mon
     assert (ws / "a").read_bytes() == b"theirs"
 
 
+def test_the_receipt_leaves_the_shadow_scenarios_out(tmp_path, monkeypatch):
+    from dokimi.repos.budget import budget
+    from dokimi.repos.receipt import build_receipt
+
+    payload = _run(tmp_path, monkeypatch, kinds=("root", "shadow"))
+    assert [s["id"] for s in payload["scenarios"]] == ["cwd=.", "shadow=.", "shadow=sub"]
+    tree = WorkTree(tmp_path / "repo")
+    receipt = build_receipt(payload, budget(tree, tuple(NAMES), 5), tree)
+    assert [r["run_id"] for r in receipt["receipts"]] == ["s:cwd=."]  # the tree as committed, no shadow file
+
+
 def test_the_reach_schema_checks_the_shadow_record(tmp_path, monkeypatch):
     payload = {**_run(tmp_path, monkeypatch, kinds=("shadow",)), "schema_version": "guidance_reach.v1"}
     payload["scenarios"][0]["shadow"]["class"] = "seen"

@@ -1139,7 +1139,9 @@ beside the saved file; a name that resolves to the saved probe is a usage error
 
 One artifact is written to `effective_instructions.json`, with one entry in its
 `receipts` array per reach scenario and `run_id` `<salt>:<scenario id>`.
-Each source carries:
+The shadow scenarios (§7) get no entry: they run with a file the tree does not
+hold, and the receipt describes the tree as committed. Their results stay in
+`reach.json` and the matrix. Each source carries:
 
 | Receipt field | From | Meaning |
 |---|---|---|

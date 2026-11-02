@@ -15,6 +15,6 @@ SPDX-License-Identifier: Apache-2.0
   (an empty one included) at that path, or a file above it, gets no shadow scenario, and a shadow path that would
   replace or go under one of the probe's own files stops the run with an error before anything is written. Its result is a `shadow` record on the scenario row of `reach.json`
   (`guidance_reach.v1`, widened in place) and one line under the matrix, so the matrix keeps one row per tree file.
-  `shadow` is not in the default (`root,cwd,read`, which the `--scenarios` help now names instead of "all"), and a
+  `--format receipt` leaves the shadow scenarios out: the receipt describes the tree as committed. `shadow` is not in the default (`root,cwd,read`, which the `--scenarios` help now names instead of "all"), and a
   profile without `guidance.shadow_file` refuses it as a usage error (exit 2). `--dry-run` lists the shadow
   scenarios with the file each writes.

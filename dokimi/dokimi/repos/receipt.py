@@ -53,7 +53,8 @@ class _Run:
 
 
 def build_receipt(reach: dict[str, Any], budget: dict[str, Any], tree: RepoTree) -> dict[str, Any]:
-    """The ``effective_instructions.v1`` artifact: one ``effective-instructions/v0`` receipt per reach scenario."""
+    """The ``effective_instructions.v1`` artifact: one ``effective-instructions/v0`` receipt per reach scenario, the
+    shadow scenarios left out."""
     harness = reach["harness"]
     rules = harness["name"] == "claude-code"  # budget's start-up rules are Claude Code's
     when_of = _budget_when(reach, budget) if rules else {}
@@ -64,6 +65,8 @@ def build_receipt(reach: dict[str, Any], budget: dict[str, Any], tree: RepoTree)
     runtime = {"name": harness["name"], "version": harness["version"]}
     receipts = []
     for row in reach["scenarios"]:
+        if row.get("shadow"):  # run with a file the tree lacks: the receipt describes the tree as committed
+            continue
         run = _Run(row, records, when_of, own, digests, _workdir(row), rules)
         receipts.append(_receipt(reach, run, runtime, start_up))
     return {
