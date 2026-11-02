@@ -635,6 +635,16 @@ decisions land in `metrics.network.verify_egress`). Later sources win:
    `--network solve=allowlist:pypi.org,files.pythonhosted.org` lets every
    arm install packages.
 
+Under `allowlist`, HTTPS goes through the sidecar's CONNECT proxy. A bare
+allowlist entry is `host:443`, so a plain-HTTP request to that host (port 80) is
+refused with a 403, "not on the allowlist". A plain-HTTP apt or pip mirror needs
+its port-80 entry too, for example `--network verify=allowlist:mirror.corp,mirror.corp:80`,
+and, behind a host proxy, its host in the host's `NO_PROXY`: plain HTTP is never
+chained through the host's proxy, and a request that would be is refused with a 403.
+If the mirror cannot be allowlisted that way, a verifier that runs `apt-get` needs
+`--network verify=public` (or `allow_internet = true` in `task.toml`, Harbor's
+deprecated flag).
+
 A skill that needs the network at solve time declares it in its `SKILL.md`
 frontmatter as `metadata.network` (`allowlist:host,...` or `public`), with
 the reason for people in `compatibility`, the Agent Skills spec's field for
