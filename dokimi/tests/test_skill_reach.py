@@ -47,7 +47,11 @@ for base in (root / ".fake/skills", Path(os.environ["FAKE_CONFIG_DIR"]) / "skill
         if name and tok:
             seen[name.group(1)] = tok.group(0)
 answer = "\n".join(f"{n} {t}" for n, t in seen.items()) or "NONE"
-events = [{"type": "system", "subtype": "init", "claude_code_version": "1.2.3"},
+events = [{"type": "system", "subtype": "init", "claude_code_version": "1.2.3"}]
+if mode == "look":  # read a file before answering: what it reports then is fetched, not listed
+    events.append({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "id": "t1", "name": "Read", "input": {"file_path": str(root / "x")}}]}})
+events += [
           {"type": "result", "subtype": "success", "is_error": False, "result": answer,
            "total_cost_usd": 0.001, "num_turns": 1, "usage": {}, "permission_denials": []}]
 for e in events:
@@ -117,6 +121,7 @@ def test_classes_and_collision(tmp_path):
     assert by[("subdir-client", "cwd=.")] == "not_listed"
     (col,) = [c for c in payload["collisions"] if c["scenario"] == "cwd=."]
     assert col["verdict"] == "one" and col["listed"] == ["dup-user-client"]
+    assert len(payload["catalogue_sha256"]) == 64
     path = save_skill_reach(payload, tmp_path / "out")
     validate_artifact("skill_discovery", json.loads(path.read_text(encoding="utf-8")))
 
@@ -126,6 +131,14 @@ def test_crash_is_error_not_not_listed(tmp_path, monkeypatch):
     payload = _run(tmp_path, only=("project-client",))
     assert {r["class"] for r in payload["records"]} == {"error"}
     assert payload["scenarios"][0]["error"]
+
+
+def test_a_look_before_answering_is_fetched(tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_MODE", "look")
+    payload = _run(tmp_path, only=("project-client", "project-agents"))
+    by = {r["case"]: r["class"] for r in payload["records"]}
+    assert by == {"project-client": "fetched", "project-agents": "not_listed"}
+    assert payload["scenarios"][0]["looked"] is True
 
 
 def test_profile_without_skills_block_is_refused(tmp_path):

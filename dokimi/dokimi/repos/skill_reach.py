@@ -392,6 +392,7 @@ def run_skill_reach(
         "salt": salt,
         "ask": ASK,
         "catalogue": str(catalogue or CATALOGUE),
+        "catalogue_sha256": hashlib.sha256((catalogue or CATALOGUE).read_bytes()).hexdigest(),
         "workspace": str(base) if keep else None,
         "cases": [{"id": p.case.id, "scope": p.scope, "path": p.path, "name": p.case.name,
                    "description": p.case.description, "eol": p.case.eol, "token": p.token,

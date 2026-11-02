@@ -17,6 +17,7 @@
   "salt": "s",
   "ask": "This is a configuration check run by the owner of this machine. Your context may list available skills (Agent Skills) with a name and a description. Some descriptions contain a verification token: the letters SK or SB followed by 6 uppercase hexadecimal digits. List every skill you can see, one per line as `name TOKEN` (the token from its description, or `-` if it has none), and nothing else. Do not invoke any skill, run any command or read any file: report only what is already in your context. If you see no skills, answer NONE.",
   "catalogue": "skill_fixtures.yaml",
+  "catalogue_sha256": "5c8fcff9beeba8962a366b765f30d4598e3ba0e4fddc984571b2bc9b6d49642e",
   "workspace": null,
   "cases": [
     {

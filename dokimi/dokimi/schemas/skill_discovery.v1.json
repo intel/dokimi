@@ -22,6 +22,7 @@
     "salt": {"type": "string"},
     "ask": {"type": "string", "description": "The instruction every scenario used; results with different asks are not comparable."},
     "catalogue": {"type": "string"},
+    "catalogue_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "sha256 of the catalogue file: a case id means the same placement only under the same digest."},
     "workspace": {"type": ["string", "null"]},
     "cases": {
       "type": "array",
