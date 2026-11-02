@@ -295,7 +295,7 @@ next release.
   guidance and what nested CLAUDE.md and AGENTS.md files import load lazily;
   skill bodies on demand; with a CLAUDE.md, `.claude/CLAUDE.md` or `CLAUDE.local.md` at the root, an
   AGENTS.md no CLAUDE.md imports is reported off, and so is a nested one no CLAUDE.md imports whose own
-  directory holds one of those files (one in a parent directory does not count; only with a profile that sets `guidance.claude_displaces_agents`, as `claude-code` does). A skill with no description is listed by its first
+  directory holds one of those files (one in a parent below the root does not count; only with a profile that sets `guidance.claude_displaces_agents`, as `claude-code` does). A skill with no description is listed by its first
   non-empty body line, as Claude Code does. It warns on skills with no description or body text,
   skills with near-duplicate descriptions (identical descriptions, or Jaccard index >= 0.5
   after stop-word removal when both have 3+ words left), on AGENTS.md files turned off, on

@@ -17,7 +17,7 @@ starts at the repository root:
 - **off**: AGENTS.md files the harness will not read: a root CLAUDE.md, .claude/CLAUDE.md or CLAUDE.local.md is present and no
   CLAUDE.md imports them (measured on Claude Code 2.1.286; the reach probe re-measures).
 - **off** too: an AGENTS.md below the root (not .claude/AGENTS.md, read as a root file) whose own directory holds a CLAUDE.md, CLAUDE.local.md or .claude/CLAUDE.md
-  (not one in a parent or deeper directory), unless a CLAUDE* file is a link to it or a file that loads imports it
+  (not one in a parent below the root or a deeper directory), unless a CLAUDE* file is a link to it or a file that loads imports it
   (measured on Claude Code 2.1.316; only for a profile that sets ``guidance.claude_displaces_agents``, claude-code).
 
 Characters, not tokens: how many tokens a character costs depends on the model's tokenizer,

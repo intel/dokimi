@@ -47,7 +47,7 @@ SPDX-License-Identifier: Apache-2.0
 > start (AGENTS.md files and their imports too, unless a root CLAUDE*, `.claude/CLAUDE.md` or
 > `CLAUDE.local.md` turns them off), nested guidance lazily, skill bodies on demand, and AGENTS.md
 > files a root CLAUDE* turns off, or a CLAUDE.md, `CLAUDE.local.md` or `.claude/CLAUDE.md` in the
-> AGENTS.md file's own directory (not a parent's; with a profile that sets
+> AGENTS.md file's own directory (not one in a parent below the root; with a profile that sets
 > `guidance.claude_displaces_agents`, as `claude-code` does). The `start` total is not an upper bound: it is too low by what it does
 > not count (`.claude/rules/*.md` files, non-`.md` imports, skills behind a linked directory, nested
 > `.claude/skills/` skills, and
