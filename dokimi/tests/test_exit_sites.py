@@ -159,3 +159,59 @@ def test_an_assigned_exit_callable_or_module_keeps_its_meaning(tmp_path):
     assert exit_sites(imports.trees["dokimi.d"]) == [4]
     assert exit_sites(imports.trees["dokimi.e"]) == [3]
     assert exit_sites(imports.trees["dokimi.f"]) == [6]
+
+
+def test_a_dotted_import_resolves_through_the_binding_of_its_root(tmp_path):
+    imports = _package(tmp_path, {
+        "dokimi/a.py": "import dokimi.exit_codes\ndef f(dokimi):\n    dokimi.exit_codes.usage_exit('x')\n",
+        "dokimi/b.py": "import dokimi.exit_codes\ndokimi = None\ndokimi.exit_codes.usage_exit('x')\n",
+        "dokimi/c.py": "import dokimi.exit_codes\ndokimi.exit_codes.usage_exit('x')\n",
+        "dokimi/d.py": "import os.path\nos._exit(1)\n",
+    })
+    assert exit_sites(imports.trees["dokimi.a"]) == []
+    assert exit_sites(imports.trees["dokimi.b"]) == []
+    assert exit_sites(imports.trees["dokimi.c"]) == [2]
+    assert exit_sites(imports.trees["dokimi.d"]) == [2]
+
+
+def test_a_deleted_binding_or_a_cleared_except_target_leaves_the_builtin(tmp_path):
+    imports = _package(tmp_path, {
+        "dokimi/a.py": "SystemExit = ValueError\ndel SystemExit\nraise SystemExit(2)\n",
+        "dokimi/b.py": "try:\n    1 / 0\nexcept Exception as SystemExit:\n    pass\nraise SystemExit(2)\n",
+        "dokimi/c.py": "SystemExit = ValueError\nraise SystemExit(2)\n",
+        "dokimi/d.py": "try:\n    1 / 0\nexcept Exception as SystemExit:\n    raise SystemExit(2)\n",
+    })
+    assert exit_sites(imports.trees["dokimi.a"]) == [3]
+    assert exit_sites(imports.trees["dokimi.b"]) == [5]
+    assert exit_sites(imports.trees["dokimi.c"]) == []
+    assert exit_sites(imports.trees["dokimi.d"]) == []
+
+
+def test_a_nonlocal_assignment_reaches_the_aliases_read_in_a_sibling(tmp_path):
+    imports = _package(tmp_path, {
+        "dokimi/a.py": ("import sys\ndef outer():\n    x = None\n    def set_exit():\n        nonlocal x\n"
+                        "        x = sys.exit\n    def run():\n        stop = x\n        stop(2)\n"
+                        "    set_exit()\n    run()\nouter()\n"),
+        "dokimi/b.py": ("def outer():\n    x = None\n    def set_exit():\n        nonlocal x\n"
+                        "        x = SystemExit\n    def run():\n        stop = x\n        raise stop(2)\n"
+                        "    set_exit()\n    run()\nouter()\n"),
+    })
+    assert exit_sites(imports.trees["dokimi.a"]) == [9]
+    assert exit_sites(imports.trees["dokimi.b"]) == [8]
+
+
+def test_eager_bodies_read_enclosing_names_by_position(tmp_path):
+    imports = _package(tmp_path, {
+        "dokimi/a.py": "E = SystemExit\nE = ValueError\nclass C:\n    raise E(2)\n",
+        "dokimi/b.py": "E = ValueError\nE = SystemExit\nclass C:\n    raise E(2)\n",
+        "dokimi/c.py": "import sys\ns = sys.exit\ns = print\nxs = [s(2) for _ in 'a']\n",
+        "dokimi/d.py": "import sys\ns = print\ns = sys.exit\nxs = [s(2) for _ in 'a']\n",
+        "dokimi/e.py": "E = SystemExit\nE = ValueError\ndef f():\n    class C:\n        raise E(2)\n",
+        "dokimi/f.py": "xs = [SystemExit(2) for _ in 'a']\nSystemExit = ValueError\n",
+    })
+    assert exit_sites(imports.trees["dokimi.a"]) == []
+    assert exit_sites(imports.trees["dokimi.b"]) == [4]
+    assert exit_sites(imports.trees["dokimi.c"]) == []
+    assert exit_sites(imports.trees["dokimi.d"]) == [4]
+    assert exit_sites(imports.trees["dokimi.e"]) == [5]
+    assert exit_sites(imports.trees["dokimi.f"]) == [1]

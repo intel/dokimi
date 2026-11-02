@@ -86,7 +86,7 @@ def _after(node: ast.AST) -> tuple[int, int]:
 def _bind(table: ExitTable, scope: ast.AST, name: str, pos: tuple[int, int], kind: str, payload: object = None) -> None:
     """Record a binding of ``name`` in ``scope`` at ``pos``.
 
-    Kinds: ``mod`` (payload: modules), ``fn`` (payload: ``(module, attr)`` of an exit callable), ``sysexit``
+    Kinds: ``mod`` (payload: modules), ``del`` (the name is unbound again), ``fn`` (payload: ``(module, attr)`` of an exit callable), ``sysexit``
     (SystemExit, a name for it, or an instance), ``other`` (any other binding, shadowing outer names), and
     ``global`` / ``nonlocal`` (payload: the scope the name is declared in, where it is bound).
     """
@@ -95,9 +95,10 @@ def _bind(table: ExitTable, scope: ast.AST, name: str, pos: tuple[int, int], kin
 
 def _import_bindings(node: ast.Import | ast.ImportFrom, scope: ast.AST, table: ExitTable) -> None:
     pos = _after(node)
-    if isinstance(node, ast.Import):  # ``import sys as s`` binds s; ``import dokimi.exit_codes`` binds that dotted name
+    if isinstance(node, ast.Import):  # ``import sys as s`` binds s; ``import dokimi.exit_codes`` binds the root dokimi
         for a in node.names:
-            _bind(table, scope, a.asname or a.name, pos, "mod", frozenset({a.name}))
+            name, module = (a.asname, a.name) if a.asname else (a.name.split(".")[0],) * 2
+            _bind(table, scope, name, pos, "mod", frozenset({module}))
         return
     # ``from .exit_codes import x`` and ``from . import exit_codes`` name dokimi.exit_codes
     module = node.module
@@ -160,6 +161,9 @@ def _shadowing_bindings(tree: ast.Module, owner: dict[int, ast.AST], table: Exit
             _bind(table, owner[id(n)], n.name, _at(n.body[0]), "other")
         elif isinstance(n, ast.ExceptHandler) and n.name:
             _bind(table, owner[id(n)], n.name, _at(n.body[0]), "other")
+            _bind(table, owner[id(n)], n.name, _after(n), "del")  # Python clears the target when the handler ends
+        elif isinstance(n, ast.Name) and isinstance(n.ctx, ast.Del):
+            _bind(table, owner[id(n)], n.id, _after(n), "del")
         elif isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store) and id(n) not in assigned:
             # ``x: int`` binds nothing at run time outside a function, where it makes x local
             if id(n) not in bare or isinstance(owner[id(n)], _FUNC_NODES):
@@ -253,19 +257,20 @@ def _assignment_bindings(tree: ast.Module, owner: dict[int, ast.AST], table: Exi
         entries = fresh
 
 
-def _declared_scopes(tree: ast.Module, owner: dict[int, ast.AST], table: ExitTable, kind: str) -> None:
+def _declared_scopes(tree: ast.Module, owner: dict[int, ast.AST], table: ExitTable, kind: str,
+                     assigns: frozenset | set = frozenset()) -> None:
     """``global x`` declares x in the module and ``nonlocal x`` in the nearest enclosing scope that binds it.
 
     The bindings made in the declaring scope move to that scope, where they run when the function is called. The
-    declaration stays in the scope, so that its own uses resolve there. ``kind`` is ``global`` or ``nonlocal``: a
-    nonlocal binder can be an assignment, so those declarations come after the assignments are bound.
+    declaration stays in the scope, so that its own uses resolve there. ``kind`` is ``global`` or ``nonlocal``;
+    ``assigns`` holds the ``(scope id, name)`` that assignments bind, which also make a nonlocal binder.
     """
     for n in ast.walk(tree):
         if not isinstance(n, (ast.Global, ast.Nonlocal)) or (kind == "global") != isinstance(n, ast.Global):
             continue
         scope = owner[id(n)]
         for name in n.names:
-            target = tree if kind == "global" else _binder_above(scope, name, table, owner)
+            target = tree if kind == "global" else _binder_above(scope, name, table, owner, assigns)
             if target is None or target is scope:
                 continue
             # the declarations already in the scope stay there; only the bindings made in it move to the target
@@ -277,11 +282,13 @@ def _declared_scopes(tree: ast.Module, owner: dict[int, ast.AST], table: ExitTab
             table[(id(scope), name)].append((_at(n), kind, target))
 
 
-def _binder_above(scope: ast.AST, name: str, table: ExitTable, owner: dict[int, ast.AST]) -> ast.AST | None:
+def _binder_above(scope: ast.AST, name: str, table: ExitTable, owner: dict[int, ast.AST], assigns: set) -> ast.AST | None:
     outer = owner.get(id(scope))
     while outer is not None:
         # a scope that only declares the name (global or nonlocal) binds nothing: its bindings went elsewhere
-        if any(b[1] not in ("global", "nonlocal") for b in table.get((id(outer), name), [])):
+        found = table.get((id(outer), name), [])
+        if any(b[1] not in ("global", "nonlocal") for b in found) or (
+                (id(outer), name) in assigns and not any(b[1] in ("global", "nonlocal") for b in found)):
             return outer
         outer = owner.get(id(outer))
     return None
@@ -290,6 +297,7 @@ def _binder_above(scope: ast.AST, name: str, table: ExitTable, owner: dict[int, 
 def _exit_table(tree: ast.Module, owner: dict[int, ast.AST]) -> ExitTable:
     # the targets of an assignment with a value; ``x: int`` alone binds x (local to its function) as any other name
     assigned: set[int] = set()
+    assigned_names: list[ast.Name] = []
     for n in ast.walk(tree):
         if isinstance(n, ast.Assign):
             targets = n.targets
@@ -298,14 +306,21 @@ def _exit_table(tree: ast.Module, owner: dict[int, ast.AST]) -> ExitTable:
         else:
             continue
         value = n.value
-        assigned |= {id(name) for t in targets for name, _ in _pairs(t, value)}
+        pairs = [name for t in targets for name, _ in _pairs(t, value)]
+        assigned |= {id(name) for name in pairs}
+        assigned_names += pairs
     table: ExitTable = {}
     _shadowing_bindings(tree, owner, table, assigned)
     _capture_bindings(tree, owner, table)
     _declared_scopes(tree, owner, table, "global")
+    _declared_scopes(tree, owner, table, "nonlocal", {(id(owner[id(name)]), name.id) for name in assigned_names})
     _assignment_bindings(tree, owner, table)
-    _declared_scopes(tree, owner, table, "nonlocal")
     return table
+
+
+def _live(b):
+    """The binding, or None when it is a ``del``: the name is then unbound and reads as the builtin."""
+    return None if b[1] == "del" else b
 
 
 def _resolve(name: str, use: ast.AST, pos: tuple[int, int], table: ExitTable, owner: dict[int, ast.AST]):
@@ -314,13 +329,13 @@ def _resolve(name: str, use: ast.AST, pos: tuple[int, int], table: ExitTable, ow
     Python's scoping: the innermost scope that binds the name wins, unless it declares the name ``global`` or
     ``nonlocal``, which sends the lookup to the scope that binds it. In the use's own scope the last binding at
     or before ``pos`` decides, and a binding only after it leaves the name local and unbound there; a class body
-    then reads the enclosing names. An enclosing scope is read as its last exit-kind binding: a function may run
-    after any rebinding. A class body is seen only from its own statements, not from the functions inside it.
+    then reads the enclosing names, by position, as does a comprehension. Beyond a function, lambda or generator
+    an enclosing scope is read as its last exit-kind binding: it may run after any rebinding. A class body is seen only from its own statements, not from the functions inside it.
     A module-level name read before its first binding is read as the builtin of that name, since it is then unbound.
     """
     scope, here = use, True
     while True:
-        if here or not isinstance(scope, ast.ClassDef):
+        if scope is use or not isinstance(scope, ast.ClassDef):
             found = table.get((id(scope), name), [])
             declared = [b for b in found if b[1] in ("global", "nonlocal")]
             if declared and declared[-1][2] is not scope:
@@ -328,24 +343,30 @@ def _resolve(name: str, use: ast.AST, pos: tuple[int, int], table: ExitTable, ow
                 continue
             if found and not here:  # a function may run later: its exit-kind binding counts
                 exits = [b for b in found if b[1] != "other"] or found
-                return sorted(exits, key=lambda b: b[0])[-1]
+                return _live(sorted(exits, key=lambda b: b[0])[-1])
             if found:
                 before = [b for b in found if b[0] <= pos]
                 if before:
-                    return sorted(before, key=lambda b: b[0])[-1]
-                if isinstance(use, _FUNC_NODES + _COMPREHENSIONS):  # a function's local, not bound yet
+                    return _live(sorted(before, key=lambda b: b[0])[-1])
+                if scope is use and isinstance(use, _FUNC_NODES + _COMPREHENSIONS):  # a function's local, not bound yet
                     return (pos, "other", None)
         if id(scope) not in owner:  # the module: no enclosing scope
             return None
-        scope, here = owner[id(scope)], False
+        # a class body and a list, set or dict comprehension run in place, so the enclosing scope is read by position
+        here = here and isinstance(scope, (ast.ClassDef, ast.ListComp, ast.SetComp, ast.DictComp))
+        scope = owner[id(scope)]
 
 
 def _modules(text: str, scope: ast.AST, pos: tuple[int, int], table: ExitTable, owner: dict[int, ast.AST]) -> set[str]:
     """The modules a dotted name stands for at this use: an import binding, or sys and os when nothing binds them."""
-    b = _resolve(text, scope, pos, table, owner)
+    root, _, rest = text.partition(".")
+    b = _resolve(root, scope, pos, table, owner)
     if b is None:
         return {text} if text in ("sys", "os") else set()
-    return set(b[2]) if b[1] == "mod" else set()
+    if b[1] != "mod":
+        return set()
+    mods = {f"{m}.{rest}" if rest else m for m in b[2]}
+    return mods & _EXIT_MODULES if rest else mods  # ``sys.exit`` is an attribute, not a module
 
 
 def _is_sysexit_expr(expr: ast.expr, scope: ast.AST, pos: tuple[int, int], table: ExitTable, owner: dict[int, ast.AST]) -> bool:
