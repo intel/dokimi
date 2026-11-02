@@ -192,6 +192,26 @@ def test_a_top_level_fence_after_a_list_item_is_not_closed_by_an_indented_marker
     assert "'also-missing.md'" in review.findings[0].message
 
 
+def test_a_top_level_fence_after_a_list_item_in_a_quote_is_not_read_as_in_the_item(tmp_path):
+    # the quote ends before the fence: its two-space indent is top level, so the unindented link is outside it
+    _skill(tmp_path / "skills", "quoted-item", name="quoted-item", description="Use for quoted items.",
+           body="> - item\n>\n  ```\n[example](missing.md)\n  ```\n\n[real](also-missing.md)\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == ["link-missing"]
+    assert "'also-missing.md'" in review.findings[0].message
+
+
+def test_a_tab_indented_fence_under_a_list_item_is_inside_the_item(tmp_path):
+    # a tab advances to the next four-column stop: the fence is at column 4, inside the item at column 2
+    _skill(tmp_path / "skills", "tab-fence", name="tab-fence", description="Use for tab fences.",
+           body="- item\n\t```\n\t[example](missing.md)\n\t```\n\n[real](also-missing.md)\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == ["link-missing"]
+    assert "'also-missing.md'" in review.findings[0].message
+
+
 def test_a_deeper_quote_marker_inside_a_quoted_fence_is_code_not_a_closing_marker(tmp_path):
     _skill(tmp_path / "skills", "deep-quote", name="deep-quote", description="Use for deep quotes.",
            body="> ```\n> > ```\n> [example](missing.md)\n> ```\n[real](also-missing.md)\n")

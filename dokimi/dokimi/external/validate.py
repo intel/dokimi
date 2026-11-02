@@ -273,7 +273,8 @@ def _outside_fences(body: str) -> list[str]:
     fence = ""  # the run that opened the current block; "" outside one
     depth = 0  # the blockquote depth of the opener
     col = 0  # the content column of the list item the opener sits in; 0 for a fence outside any item
-    item = 0  # the content column of the last list item; 0 once a line is indented less than it
+    item = 0  # the content column of the last list item; 0 once a line is indented less than it, or its quote ended
+    item_depth = 0  # the blockquote depth of that list item
     for line in body.splitlines():
         if fence:
             rest, count = _unquote(line, depth)
@@ -286,6 +287,8 @@ def _outside_fences(body: str) -> list[str]:
                 continue
             fence = ""  # the container ended before a closing marker: this line is outside the block
         rest, count = _unquote(line)
+        if count < item_depth:
+            item = 0  # the quote the item sits in has ended, so its indent no longer belongs to the item
         deep = bool(item) and _indent(rest) >= item
         opened = (DEEP_FENCE_OPEN_RE if deep else FENCE_OPEN_RE).match(rest)
         # a backtick info string may not hold a backtick: "```x```" is an inline code span, not a fence
@@ -295,7 +298,7 @@ def _outside_fences(body: str) -> list[str]:
             continue
         bullet = LIST_ITEM_RE.match(rest)
         if bullet:
-            item = bullet.end()
+            item, item_depth = _width(rest[:bullet.end()]), count
         elif rest.strip() and _indent(rest) < item:
             item = 0
         lines.append(line)
@@ -314,9 +317,17 @@ def _unquote(line: str, depth: int | None = None) -> tuple[str, int]:
     return line, count
 
 
+def _width(text: str) -> int:
+    """The column just past ``text``, where a tab advances to the next multiple of four, as in CommonMark."""
+    col = 0
+    for ch in text:
+        col = (col // 4 + 1) * 4 if ch == "\t" else col + 1
+    return col
+
+
 def _indent(line: str) -> int:
-    """The number of leading spaces and tabs of ``line``."""
-    return len(line) - len(line.lstrip(" \t"))
+    """The column where the text of ``line`` starts, after its leading spaces and tabs."""
+    return _width(line[:len(line) - len(line.lstrip(" \t"))])
 
 
 def _destination_stop(line: str, start: int) -> Optional[int]:
