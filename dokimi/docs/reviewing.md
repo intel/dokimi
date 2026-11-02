@@ -195,11 +195,13 @@ these, in order, before writing what it showed (the fields:
   as what was tested ("the root `AGENTS.md`", not "the guidance").
 - **A leakage cut.** A task is out of sample for a guidance revision only when
   no guidance commit in it could have been written from the task's review; a
-  date split is not that cut. List the revision's guidance commits
-  (`git log -p --format='%h %cI %B' <rev> -- <paths>`). Guidance is read with
-  symlinks followed, so the paths are each guidance file, every link on the
-  way and the file it resolves to (`AGENTS.md -> docs/GUIDE.md`: both), or a
-  commit that changed only the target is missed. Flag the tasks whose PR a
+  date split is not that cut. List the commits of each guidance file on its
+  own, through its renames (`--follow` takes one path; without it a commit
+  made before a rename is missed):
+  `git log --follow -p --format='%h %cI %B' <rev> -- <path>`. Guidance is read
+  with symlinks followed, so log every link on the way, the file it resolves
+  to (`AGENTS.md -> docs/GUIDE.md`: both) and each file a link pointed to
+  before (`git log -p -- <link>` shows them). Flag the tasks whose PR a
   commit names (`task.json` `source_pr`) or whose threads (`createdAt` in the
   threads file) predate a commit that changed the rule they raise. Flagged
   tasks can inflate a gain or mask a loss on the others, so read a gain, a
