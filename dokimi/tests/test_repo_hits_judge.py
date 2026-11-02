@@ -480,6 +480,61 @@ def test_a_label_on_another_finding_than_the_credited_one_is_refused_before_any_
                            "sheet with `repo hits sheet`")
 
 
+STALE = ("is not the text the sheet labelled (a sheet older than a change to answer.txt or the gold file, or a "
+         "hand-edit); write a new sheet with `repo hits sheet`")
+
+
+@pytest.mark.parametrize("changed", ["finding_text", "comment"])
+def test_a_label_on_a_pair_whose_text_changed_since_the_sheet_is_refused_before_any_call(tmp_path, capsys, judge_llm,
+                                                                                         changed):
+    batch = _batch(tmp_path)
+    labels = _sheet(tmp_path, capsys, batch)
+    assert _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(labels))[0] == 0  # unchanged: taken
+    judge_llm.requests.clear()
+    entries = json.loads(labels.read_text())
+    i = next(i for i, e in enumerate(entries) if (e["arm"], e["thread"]) == ("guidance:none", "t_op"))
+    if changed == "finding_text":  # another message at the same place, regraded: the batch credits the same index
+        rd, answer = _judged(batch, "guidance:none", 1).parent, _answer([_f(11, "The TODO is repeated five times"),
+                                                                         _f(30, "mul adds, see #12")])
+        (rd / "answer.txt").write_text(answer)
+        spec = json.loads((rd / "task.json").read_text())
+        metrics, details = main.split_result(review.grade_replay(spec, batch / "_eval" / "content" / "tasks" / TASK,
+                                                                 answer))
+        grade = json.loads((rd / "grade.json").read_text())
+        (rd / "grade.json").write_text(json.dumps({**grade, "metrics": metrics, "details": details}))
+    else:
+        gold = batch / "_eval" / "content" / "tasks" / TASK / "gold.json"
+        gold.write_text(json.dumps([{**g, "comment": "mul should multiply"} if g["id"] == "t_op" else g for g in GOLD]))
+    now = next(p for p in read_pairs(batch)[1] if p.key == pair_key(entries[i]["cell"], "t_op"))
+    assert (now.hit["finding"], now.problem) == (entries[i]["finding"], None)
+    code, out, err = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(labels))
+    assert (code, out, judge_llm.requests) == (2, "", [])
+    what = "the finding's text" if changed == "finding_text" else "the thread's comment"
+    assert err.strip() == f"✗ {labels} entry {i}: {what} of thread 't_op' of cell {entries[i]['cell']} {STALE}"
+
+
+def test_only_a_labelled_entry_needs_the_texts_and_its_pair_found(tmp_path, capsys, judge_llm):
+    batch = _batch(tmp_path)
+    labels = _sheet(tmp_path, capsys, batch, label=lambda e: None if e["arm"] == "guidance:raw" else "related")
+    entries = json.loads(labels.read_text())
+    raw = next(i for i, e in enumerate(entries) if e["arm"] == "guidance:raw")
+    labels.write_text(json.dumps([e if i != raw else {**e, "comment": "edited"} for i, e in enumerate(entries)]))
+    assert _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(labels))[0] == 0  # null: not checked
+    judge_llm.requests.clear()
+    labels.write_text(json.dumps([{k: v for k, v in entries[0].items() if k != "finding_text"}]))
+    code, _, err = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(labels))
+    assert (code, judge_llm.requests) == (2, [])
+    assert err.strip() == (f"✗ {labels} entry 0 is labelled but has no `comment` or no `finding_text` to check the "
+                           "label against; `repo hits sheet` writes both")
+    (batch / f"{TASK}__guidance-raw__{MODEL}__r1" / "answer.txt").write_text("no findings any more")
+    labels.write_text(json.dumps([{**entries[raw], "label": "related"}]))
+    code, _, err = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(labels))
+    assert (code, judge_llm.requests) == (2, [])
+    assert err.startswith(f"✗ {labels} entry 0: the full texts of thread {entries[raw]['thread']!r} of cell "
+                          f"{entries[raw]['cell']} are not found now (")
+    assert "holds no findings JSON" in err and "write a new sheet with `repo hits sheet`" in err
+
+
 def test_two_different_labels_for_one_pair_are_refused_before_any_call(tmp_path, capsys, judge_llm):
     batch = _batch(tmp_path)
     labels = _sheet(tmp_path, capsys, batch)  # every pair labelled `related`

@@ -76,8 +76,11 @@ def read_labels(path: Path, pairs: list[Pair]) -> dict[tuple[str, str], str]:
         HitsInputError: the file is unreadable or not a list, or an entry is not an object with ``cell``,
             ``thread`` and ``finding``, names a cell or a thread of no credited pair of the batch, names another
             finding than the one the batch credits for its thread (a hand-edit, or a sheet older than a
-            regrade), or has a label other than the three; or two entries give one pair two different labels
-            (the same label twice, or a null next to a label, is taken).
+            regrade), or has a label other than the three; a labelled entry has no ``comment`` or no
+            ``finding_text``, or either is not, exactly, the pair's text now (the thread's full comment in the
+            gold file, the finding's full text in ``answer.txt``), or the pair's texts are not found now; or two
+            entries give one pair two different labels (the same label twice, or a null next to a label, is
+            taken).
     """
     known = {p.key: p for p in pairs}
     cells = {p.cell for p in pairs}
@@ -104,6 +107,7 @@ def read_labels(path: Path, pairs: list[Pair]) -> dict[tuple[str, str], str]:
             continue
         if label not in LABELS:
             raise HitsInputError(f"{where}: label {label!r} is not one of " + ", ".join(repr(x) for x in LABELS))
+        _check_texts(where, entry, known[key])
         if key in out and out[key] != label:
             raise HitsInputError(
                 f"{path} entries {first[key]} and {i} label thread {entry['thread']!r} of cell {entry['cell']} "
@@ -111,6 +115,24 @@ def read_labels(path: Path, pairs: list[Pair]) -> dict[tuple[str, str], str]:
         out[key] = label
         first.setdefault(key, i)
     return out
+
+
+def _check_texts(where: str, entry: dict[str, Any], pair: Pair) -> None:
+    """A labelled entry's ``comment`` and ``finding_text`` are, character for character, the pair's texts now."""
+    if "comment" not in entry or "finding_text" not in entry:
+        raise HitsInputError(f"{where} is labelled but has no `comment` or no `finding_text` to check the label "
+                             "against; `repo hits sheet` writes both")
+    named = f"thread {entry['thread']!r} of cell {entry['cell']}"
+    if pair.problem is not None:
+        raise HitsInputError(f"{where}: the full texts of {named} are not found now ({pair.problem}), so the label "
+                             "cannot be checked against them; write a new sheet with `repo hits sheet`")
+    changed = [what for what, key, now in (("the thread's comment", "comment", pair.comment),
+                                           ("the finding's text", "finding_text", pair.text))
+               if not isinstance(entry[key], str) or entry[key] != now]
+    if changed:
+        raise HitsInputError(
+            f"{where}: {' and '.join(changed)} of {named} is not the text the sheet labelled (a sheet older than a "
+            "change to answer.txt or the gold file, or a hand-edit); write a new sheet with `repo hits sheet`")
 
 
 def cohen_kappa(a: Sequence[str], b: Sequence[str]) -> Optional[float]:

@@ -1618,7 +1618,11 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   full id, the rule of `novelty`), and a `--labels` entry that names no
   credited pair of the batch, has no `finding` or names another finding than
   the one the batch credits for its thread (a hand-edit, or a sheet older
-  than a regrade: write a new one), or has a label other than the three, and
+  than a regrade: write a new one), or has a label other than the three, a
+  labelled entry whose `comment` or `finding_text` is missing or is not the
+  pair's text now (the thread's full comment in the gold file, the finding's
+  full text in `answer.txt`, compared exactly, with no normalisation), or whose
+  pair's texts are not found now (write a new sheet), and
   two entries that give one pair two different labels (the same label twice,
   or a `null` next to a label, is taken). A
   cell graded without `matches`
