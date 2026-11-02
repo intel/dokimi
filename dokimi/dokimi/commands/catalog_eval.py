@@ -35,7 +35,9 @@ def _is_receipt(path: Path) -> bool:
         if path.name == "plan.json":
             return payload["harnesses"] == ["catalog-static"]
         if path.name == "result.json":
-            return all(str(c["detail"]).startswith(_RESULT_DETAIL) for c in payload["cells"])
+            cells = payload["cells"]
+            return isinstance(cells, list) and bool(cells) and all(
+                str(c["detail"]).startswith(_RESULT_DETAIL) for c in cells)
         return str(payload["schema_version"]).startswith("catalog_eval.")
     except (OSError, ValueError, KeyError, TypeError, AttributeError, RecursionError):
         return False

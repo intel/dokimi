@@ -11,7 +11,7 @@ from typing import Any
 
 import yaml
 
-from dokimi.harnesses.tasks import load_task, read_task_config
+from dokimi.harnesses.tasks import load_task, not_a_task, read_task_config
 from dokimi.skills.loader import TEMPLATE_DIR_NAMES, walk_skill_files
 
 from .catalog import DEFAULT_SUITES_MANIFEST, DEFAULT_TASKS_SUBDIR, SkillCatalogEntry, read_skill_manifest
@@ -111,14 +111,14 @@ def inventory_skills(inputs: Inputs, problems: list[dict]) -> list[dict]:
 
 def _review(entries: list[SkillCatalogEntry], specs: list[dict], rows: list[dict], *, fallback: bool) -> None:
     for entry, review, spec, row in zip(entries, review_skills(entries), specs, rows, strict=True):
-        if fallback:
-            row["name"] = entry.name
         findings = row["checks"]["findings"]
         if entry.error:
             findings.append(finding("skill-load", entry.error, row["path"]))
         if review:
             findings.extend(finding(f.code, f.message, row["path"], f.level) for f in review.findings)
         declared = str(spec.get("name") or "").strip()
+        if fallback or not declared:
+            row["name"] = entry.skill.name if entry.skill else entry.name
         if entry.skill and declared and entry.skill.name != entry.name:
             findings.append(finding("skill-identity", "manifest and frontmatter skill names differ", row["path"]))
 
@@ -221,6 +221,8 @@ def _task(inputs: Inputs, path: Path, owners: dict, declared: dict, actual: set[
     relative = path.relative_to(inputs.root).as_posix()
     try:
         bundle = inputs.bundle(path)
+        if not_a_task(path):
+            return
         config = read_task_config(path)
         _task_paths(config)
         spec = load_task(path)
@@ -230,7 +232,7 @@ def _task(inputs: Inputs, path: Path, owners: dict, declared: dict, actual: set[
     except FileNotFoundError as exc:
         problems.append(finding("task-load", str(exc), relative))
         return
-    except (ValueError, OSError, UnicodeError, RecursionError, TypeError) as exc:
+    except (ValueError, OSError, UnicodeError, RecursionError, TypeError, OverflowError) as exc:
         raise ValueError(f"cannot load task at {path}: {exc}") from exc
     actual.add(spec.name)
     owner = spec.metadata.get("skill")

@@ -294,6 +294,7 @@ def test_task_loader_type_error_replaces_earlier_receipts_with_an_error(tmp_path
 
 
 @pytest.mark.parametrize("name,content", [("report.md", "my notes"), ("plan.json", "{}"), ("result.json", "[1]"), ("catalog.json", "not json"),
+                                          ("result.json", '{"cells": []}'),
                                           ("plan.json", "[" * 2000 + "0" + "]" * 2000)])
 def test_unrelated_file_named_like_a_receipt_is_preserved(tmp_path, name, content):
     root = _catalog(tmp_path)
@@ -314,3 +315,22 @@ def test_shared_format_artifact_from_another_run_is_preserved(tmp_path, name):
     target.write_bytes(fixture.read_bytes())
     assert _run(root, out).returncode == 2
     assert target.read_bytes() == fixture.read_bytes()
+
+
+def test_overflowing_task_limit_replaces_earlier_receipts_with_an_input_error(tmp_path, monkeypatch):
+    root = _catalog(tmp_path)
+    out = tmp_path / "out"
+    assert _run(root, out).returncode == 0
+    task = root / "evaluation" / "harbor" / "tasks" / "t1"
+    task.mkdir(parents=True)
+    (task / "task.toml").write_text('[metadata]\nskill = "alpha"\n')
+    (task / "instruction.md").write_text("Read.")
+
+    def boom(path):
+        raise OverflowError("cannot convert float infinity to integer")
+
+    monkeypatch.setattr("dokimi.external.catalog_eval_inventory.load_task", boom)
+    done = _run(root, out)
+    assert done.returncode == 2
+    assert not (out / "result.json").exists()
+    assert "t1" in (out / "report.md").read_text()

@@ -611,6 +611,31 @@ def test_nameless_skill_md_file_reference_has_no_identity_conflict(tmp_path):
     assert report["status"] == "pass"
 
 
+@pytest.mark.parametrize("ref", ["SKILL.md", "."])
+def test_nameless_root_skill_takes_its_loaded_name_and_owns_tasks(tmp_path, ref):
+    (tmp_path / "SKILL.md").write_text(
+        "---\nname: alpha\ndescription: Use to inspect alpha inputs.\n---\nInspect safely.\n", encoding="utf-8")
+    (tmp_path / "skills.yaml").write_text(f"skills:\n  - catalog_path: {ref}\n", encoding="utf-8")
+    task(tmp_path)
+    report = evaluate(tmp_path)
+    assert [item["name"] for item in report["skills"]] == ["alpha"]
+    assert row(report)["tasks"][0]["name"] == "unrelated-name"
+    assert "task-owner" not in codes(report)
+
+
+def test_planning_notes_and_foreign_task_yaml_are_not_tasks(tmp_path):
+    skill(tmp_path)
+    notes = tmp_path / TASKS / "later"
+    notes.mkdir(parents=True)
+    (notes / "task.md").write_text("# planning notes\n", encoding="utf-8")
+    other = tmp_path / TASKS / "other"
+    other.mkdir()
+    (other / "task.yaml").write_text("name: x\n", encoding="utf-8")
+    report = evaluate(tmp_path)
+    assert report["status"] == "pass"
+    assert row(report)["tasks"] == []
+
+
 def test_reread_with_different_bytes_is_rejected_even_after_first_hash(tmp_path):
     from dokimi.external.catalog_eval_inputs import Inputs
 
