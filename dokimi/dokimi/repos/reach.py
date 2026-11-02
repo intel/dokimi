@@ -13,6 +13,10 @@ token it can see:
 - ``cwd=<dir>``: started in each directory that holds guidance, tools disabled
 - ``read=<dir>``: started at the root, told to read one file in ``<dir>`` with
   the read tool and then list tokens (finds lazy, subtree-triggered loading)
+- ``shadow=.`` and ``shadow=<dir>`` (only when asked for): as ``cwd=.`` and
+  ``read=<dir>``, with the profile's ``guidance.shadow_file`` written, seeded, at
+  the root or in ``<dir>`` for that scenario only, to show what it turns off in a
+  tree that holds none
 
 A file is ``loaded`` when both tokens are reported, ``truncated`` when only
 one is, ``fetched`` when it was reported only after the agent read the file
@@ -39,6 +43,8 @@ import os
 import re
 import shutil
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
@@ -58,6 +64,9 @@ TOKEN_RE = re.compile(r"\bRC[0-9A-F]{6}\b")
 PROBE_FILE = "REACH_PROBE.txt"
 PROSE_LIMIT = 8
 CLASSES = ("loaded", "truncated", "fetched", "not_loaded", "error")
+KINDS = ("root", "cwd", "read", "shadow")
+DEFAULT_KINDS = ("root", "cwd", "read")  # shadow adds a file the tree lacks: only on request
+SHADOW_TEXT = "# Local instructions\n"
 # Names some harness loads by convention. Any of them in an ancestor of the
 # workspace would be read by the harness and pollute every scenario.
 ANCESTOR_GUARD = ("CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md", "AGENTS.md", "AGENT.md",
@@ -94,10 +103,41 @@ class Scenario:
     cwd: str  # relative to the workspace root; "" is the root
     tools: str
     read: str | None = None  # file the agent is told to read first
+    shadow: str | None = None  # the shadow file written for this scenario only
 
     @property
     def prompt(self) -> str:
         return (ASK_AFTER_READ.format(path=self.read) if self.read else "") + ASK
+
+
+@dataclass(frozen=True)
+class Shadow:
+    """The profile's ``guidance.shadow_file``, and the tree's paths, which a shadow file never replaces."""
+
+    file: str
+    taken: frozenset[str]  # casefolded, as a case-insensitive disk would collide them
+
+    def free(self, path: str) -> bool:
+        key = path.casefold()
+        return key not in self.taken and not any(t.startswith(key + "/") for t in self.taken)
+
+
+def check_shadow(profile: HarnessProfile, kinds: tuple[str, ...]) -> None:
+    """Refuse the shadow kind for a profile that names no shadow file, rather than run nothing for it."""
+    if "shadow" in kinds and not profile.shadow_file:
+        raise ReachError(f"--scenarios shadow needs guidance.shadow_file in the harness profile; {profile.name} "
+                         "sets none")
+
+
+def shadow_for(profile: HarnessProfile, tree: RepoTree, kinds: tuple[str, ...]) -> Shadow | None:
+    """What the shadow scenarios need from the profile and the tree; None when the kind is not selected."""
+    check_shadow(profile, kinds)
+    name = profile.shadow_file
+    if "shadow" not in kinds or not name:
+        return None
+    if not _safe_path(name):
+        raise ReachError(f"{profile.path}: guidance.shadow_file {name!r} is not a path inside a directory")
+    return Shadow(name, frozenset(p.casefold() for p in tree.files()))
 
 
 def token(salt: str, path: str, position: str) -> str:
@@ -116,8 +156,8 @@ def probe_files(tree: RepoTree, manifest: RepoManifest, profile: HarnessProfile)
     return sorted(p for p in declared | native if not manifest.in_eval_dir(p))
 
 
-def scenarios(files: list[str], kinds: tuple[str, ...] = ("root", "cwd", "read"),
-              only: tuple[str, ...] = ()) -> list[Scenario]:
+def scenarios(files: list[str], kinds: tuple[str, ...] = DEFAULT_KINDS,
+              only: tuple[str, ...] = (), shadow: Shadow | None = None) -> list[Scenario]:
     dirs = sorted({str(PurePosixPath(f).parent) for f in files} - {"."})
     out: list[Scenario] = []
     if "root" in kinds:
@@ -126,7 +166,21 @@ def scenarios(files: list[str], kinds: tuple[str, ...] = ("root", "cwd", "read")
         out.extend(Scenario(f"cwd={d}", d, "none") for d in dirs)
     if "read" in kinds:
         out.extend(Scenario(f"read={d}", "", "read", read=f"{d}/{PROBE_FILE}") for d in dirs)
+    if "shadow" in kinds:
+        out.extend(_shadow_scenarios(files, shadow))
     return [s for s in out if s.id in only] if only else out
+
+
+def _shadow_scenarios(files: list[str], shadow: Shadow | None) -> list[Scenario]:
+    """``shadow=.``, then ``shadow=<dir>`` for each directory with a guidance file not named ``CLAUDE*`` (an
+    AGENTS.md-class file). A directory whose shadow path the tree already holds gets none: it would be overwritten."""
+    if shadow is None:
+        raise ReachError("the shadow scenarios need the profile's guidance.shadow_file (see shadow_for)")
+    dirs = sorted({str(PurePosixPath(f).parent) for f in files if not PurePosixPath(f).name.startswith("CLAUDE")}
+                  - {"."})
+    out = [Scenario("shadow=.", "", "none", shadow=shadow.file)] if shadow.free(shadow.file) else []
+    return out + [Scenario(f"shadow={d}", "", "read", read=f"{d}/{PROBE_FILE}", shadow=f"{d}/{shadow.file}")
+                  for d in dirs if shadow.free(f"{d}/{shadow.file}")]
 
 
 def check_ancestors(workspace: Path, names: tuple[str, ...] = ANCESTOR_GUARD) -> None:
@@ -218,8 +272,9 @@ def _safe_path(path: str) -> bool:
                 or any(part.rstrip(". ").casefold() in ("", ".git") for part in path.split("/")))
 
 
-def distinct_salt(tree: RepoTree, files: list[str], salt: str, attempts: int = 50) -> str:
-    """``salt``, or ``salt-N`` for the first N that gives every file its own two tokens.
+def distinct_salt(tree: RepoTree, files: list[str], salt: str, attempts: int = 50,
+                  shadows: tuple[str, ...] = ()) -> str:
+    """``salt``, or ``salt-N`` for the first N that gives every file, and every shadow file, its own two tokens.
 
     Tokens are 24 bits, so two files can share one, and a guidance file can already
     contain a token-shaped word; either would mark a file as seen that was not.
@@ -232,7 +287,7 @@ def distinct_salt(tree: RepoTree, files: list[str], salt: str, attempts: int = 5
             raise ReachError(f"cannot read guidance file {path}: {exc}") from exc
     for n in range(attempts):
         candidate = salt if n == 0 else f"{salt}-{n}"
-        tokens = [token(candidate, p, pos) for p in files for pos in ("head", "tail")]
+        tokens = [token(candidate, p, pos) for p in (*files, *shadows) for pos in ("head", "tail")]
         if len(set(tokens)) == len(tokens) and not present & set(tokens):
             return candidate
     raise ReachError(f"no salt in {attempts} tries gives every guidance file distinct tokens")
@@ -276,6 +331,45 @@ def classify(seeded: SeededFile, transcript: Transcript | None) -> dict[str, Any
     return {"head": head, "tail": tail, "read_by_tool": read_by_tool, "class": cls}
 
 
+def _shadow_seed(scenario: Scenario, salt: str) -> SeededFile | None:
+    path = scenario.shadow
+    return SeededFile(path, token(salt, path, "head"), token(salt, path, "tail")) if path else None
+
+
+@contextmanager
+def _shadowed(workspace: Path, item: SeededFile | None) -> Iterator[None]:
+    """The shadow file, seeded, in the workspace while its scenario runs and never after (an error included).
+    It stays out of the workspace's commit."""
+    if item is None:
+        yield
+        return
+    target = workspace / item.path
+    if os.path.lexists(target):  # scenarios() skips a tree path; this guards the probe's own files
+        raise ReachError(f"the shadow file {item.path} would replace a file of the probe workspace")
+    created = [p for p in target.parents if not p.exists()]  # nearest first: the last one is the outermost
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(seed_text(SHADOW_TEXT, item.path, item.head, item.tail), encoding="utf-8")
+        yield
+    finally:
+        target.unlink(missing_ok=True)
+        if created and created[-1].exists():
+            shutil.rmtree(created[-1], onerror=retry_writable)
+
+
+def _score_row(row: dict[str, Any], transcript: Transcript | None, known: set[str],
+               shadow: SeededFile | None) -> None:
+    """The row's reported, unknown and prose from the answer, and the result of its shadow file, which is kept on
+    the row: it is not a tree file, so it gets no records and no matrix row."""
+    if transcript is not None:
+        own = {shadow.head, shadow.tail} if shadow else set()
+        reported = sorted(set(TOKEN_RE.findall(transcript.answer)))
+        row.update(reported=reported, unknown=[t for t in reported if t not in known | own],
+                   prose=prose_words(transcript.answer))
+    if shadow is not None:
+        row["shadow"] = {"path": shadow.path, "tokens": [shadow.head, shadow.tail], **classify(shadow, transcript)}
+
+
 def run_reach(
     *,
     tree: RepoTree,
@@ -285,7 +379,7 @@ def run_reach(
     out_dir: Path,
     bin_path: str | None = None,
     work_dir: Path | None = None,
-    kinds: tuple[str, ...] = ("root", "cwd", "read"),
+    kinds: tuple[str, ...] = DEFAULT_KINDS,
     only: tuple[str, ...] = (),
     salt: str | None = None,
     max_turns: int = 4,
@@ -303,6 +397,7 @@ def run_reach(
         raise ReachError("no guidance file to probe: each is a link that cannot be followed: "
                          + "; ".join(u["reason"] for u in unresolved))
     files = [p for p in files if p not in {u["path"] for u in unresolved}]
+    plan = scenarios(files, kinds, only, shadow_for(profile, tree, kinds))
     salt = salt or hashlib.sha256(f"{tree.label}\0{datetime.now(timezone.utc).isoformat()}".encode()).hexdigest()[:12]
     # Resolved: a harness reports physical paths (macOS /var is /private/var).
     base = Path(tempfile.mkdtemp(prefix="reach-", dir=str(work_dir) if work_dir else None)).resolve()
@@ -310,7 +405,7 @@ def run_reach(
     try:
         workspace.mkdir()
         check_ancestors(workspace, tuple(dict.fromkeys(ANCESTOR_GUARD + profile.guidance_names)))
-        salt = distinct_salt(tree, list(groups), salt)
+        salt = distinct_salt(tree, list(groups), salt, shadows=tuple(s.shadow for s in plan if s.shadow))
         seeded = build_workspace(tree, list(groups), workspace, salt, groups)
         version_env = profile.env(base / "cfg-version")
         version = profile.version(version_env, bin_path)
@@ -321,17 +416,17 @@ def run_reach(
                 old.unlink()
         known = {s.head for s in seeded} | {s.tail for s in seeded}
         scenario_rows, records = [], []
-        for n, scenario in enumerate(scenarios(files, kinds, only)):
-            transcript, row = _run_one(profile, scenario, model, workspace, base / f"cfg-{n}",
-                                       bin_path, max_turns, budget_usd, timeout_s)
+        for n, scenario in enumerate(plan):
+            shadow = _shadow_seed(scenario, salt)
+            with _shadowed(workspace, shadow):
+                transcript, row = _run_one(profile, scenario, model, workspace, base / f"cfg-{n}",
+                                           bin_path, max_turns, budget_usd, timeout_s)
             slug = f"{n:02d}-" + re.sub(r"[^A-Za-z0-9._-]+", "_", scenario.id)
             (trace_dir / f"{slug}.stdout").write_text(row.pop("_stdout"), encoding="utf-8")
             if transcript is not None:
                 (trace_dir / f"{slug}.events.jsonl").write_text(transcript.events_jsonl(), encoding="utf-8")
-                reported = sorted(set(TOKEN_RE.findall(transcript.answer)))
-                row.update(reported=reported, unknown=[t for t in reported if t not in known],
-                           prose=prose_words(transcript.answer))
                 version = transcript.harness_version or version
+            _score_row(row, transcript, known, shadow)
             scenario_rows.append(row)
             for item in seeded:
                 records.append({"file": item.path, "scenario": scenario.id, "harness": profile.name,
@@ -451,6 +546,9 @@ def format_matrix(payload: dict[str, Any]) -> str:
     for u in payload.get("unresolved", []):
         lines.append(f"not probed: {u['path']} ({u['reason']})")
     for s in payload["scenarios"]:
+        if s.get("shadow"):  # schema-optional: only a shadow scenario has one
+            lines.append(f"shadow file of {s['id']}: {s['shadow']['path']} (written for this scenario only) "
+                         f"{s['shadow']['class']}")
         if s["error"]:
             lines.append(f"error in {s['id']}: {s['error']}")
         if (s.get("prose") or 0) > PROSE_LIMIT:
@@ -463,12 +561,12 @@ def format_matrix(payload: dict[str, Any]) -> str:
 
 def planned(files: list[str], profile: HarnessProfile, model: str, kinds: tuple[str, ...],
             only: tuple[str, ...] = (), bin_path: str | None = None, max_turns: int = 4,
-            budget_usd: float = 0.10) -> list[dict[str, Any]]:
-    """What a run would execute, for --dry-run."""
-    return [{"scenario": s.id, "cwd": s.cwd or ".",
+            budget_usd: float = 0.10, shadow: Shadow | None = None) -> list[dict[str, Any]]:
+    """What a run would execute, for --dry-run, with the shadow file a shadow scenario writes."""
+    return [{"scenario": s.id, "cwd": s.cwd or ".", **({"shadow": s.shadow} if s.shadow else {}),
              "argv": profile.argv(prompt=s.prompt, model=model, tools=s.tools, max_turns=max_turns,
                                   budget_usd=budget_usd, bin_path=bin_path)}
-            for s in scenarios(files, kinds, only)]
+            for s in scenarios(files, kinds, only, shadow)]
 
 
 def save_reach(payload: dict[str, Any], out_dir: Path) -> Path:

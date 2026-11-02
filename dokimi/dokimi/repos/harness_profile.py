@@ -74,6 +74,13 @@ class HarnessProfile:
         depth = self.guidance.get("import_max_depth")
         return int(depth) if depth is not None else None
 
+    @property
+    def shadow_file(self) -> str | None:
+        """A file the harness loads by convention that turns the other guidance of its directory off
+        (``guidance.shadow_file``); ``repo reach --scenarios shadow`` writes it. None: the profile declares none."""
+        name = self.guidance.get("shadow_file")
+        return str(name) if name else None
+
     def applied_args(self, tools: str, present: frozenset[str]) -> list[str]:
         """The ``args_if_present`` names :meth:`argv` adds: those in ``present``, in the ``all`` tool mode only."""
         if tools != "all":  # --tools does not limit MCP tools: only here is the repo's MCP config part of the arm

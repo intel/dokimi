@@ -242,12 +242,12 @@ def cmd_repo_fetch(args: argparse.Namespace) -> None:
 
 def _check_reach_flags(args: argparse.Namespace, kinds: tuple[str, ...]) -> None:
     """Refuse a flag that would drop a scenario kind silently, or spend a budget that is not one."""
-    from dokimi.repos.reach import ReachError
+    from dokimi.repos.reach import KINDS, ReachError
 
     # A typo would otherwise drop a scenario kind silently and still spend the budget.
-    unknown_kinds = sorted(set(kinds) - {"root", "cwd", "read"})
+    unknown_kinds = sorted(set(kinds) - set(KINDS))
     if unknown_kinds:
-        raise ReachError(f"unknown --scenarios kind(s) {', '.join(unknown_kinds)} (known: root, cwd, read)")
+        raise ReachError(f"unknown --scenarios kind(s) {', '.join(unknown_kinds)} (known: {', '.join(KINDS)})")
     if not math.isfinite(args.budget) or args.budget <= 0:
         raise ReachError(f"--budget must be > 0, got {args.budget:g}")
     if args.model is None:
@@ -373,11 +373,13 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
     from dokimi.repos.source import SourceArgumentError
     from dokimi.repos.reach import (
         ReachError,
+        check_shadow,
         planned,
         probe_files,
         run_reach,
         save_reach,
         scenarios,
+        shadow_for,
     )
 
     kinds = tuple(k.strip() for k in args.scenarios.split(",") if k.strip())
@@ -385,6 +387,7 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
     try:  # the arguments as typed: a usage error
         _check_reach_flags(args, kinds)
         profile = load_profile(args.harness)
+        check_shadow(profile, kinds)
         source = RepoSource.parse(args.source)
     except (SourceError, ProfileError, ReachError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
@@ -400,15 +403,16 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
     try:  # the manifest and the scenarios it selects: a usage error; a failed git read is a fetch failure (1)
         manifest = _load_manifest(tree, args, guidance_default=True)
         files = probe_files(tree, manifest, profile)
-        available = [s.id for s in scenarios(files, kinds)]
+        shadow = shadow_for(profile, tree, kinds)
+        available = [s.id for s in scenarios(files, kinds, shadow=shadow)]
         missing = [o for o in only if o not in available]
         if missing:
             raise ReachError(f"--only {', '.join(missing)} matches no scenario (have: {', '.join(available)})")
         if args.dry_run:
-            runs = planned(files, profile, args.model, kinds, only, args.bin, args.max_turns, args.budget)
+            runs = planned(files, profile, args.model, kinds, only, args.bin, args.max_turns, args.budget, shadow)
             print(json.dumps({"files": files, "runs": runs}, indent=2))
             return
-        planned_count = len(scenarios(files, kinds, only))
+        planned_count = len(scenarios(files, kinds, only, shadow))
         if not planned_count:
             raise ReachError("no scenario selected (check --scenarios and --only)")
     except (SourceError, ManifestError, ReachError) as exc:
@@ -686,7 +690,9 @@ def register(sub, positive_int) -> None:
     reach_p.add_argument("--bin", default=None, help="Harness executable (default: the profile's `bin`)")
     reach_p.add_argument("--out", default=None, help="Output directory: reach.json and traces/ (default: reach-out)")
     reach_p.add_argument("--scenarios", default=None,
-                         help="Comma list of scenario kinds: root, cwd, read (default: all)")
+                         help="Comma list of scenario kinds: root, cwd, read, shadow (default: root,cwd,read). "
+                         "shadow writes the profile's guidance.shadow_file (CLAUDE.local.md for claude-code) "
+                         "for one scenario at a time; a profile without one refuses it")
     reach_p.add_argument("--only", action="append", default=None, metavar="SCENARIO",
                          help="Run only this scenario id (for example read=cpp); repeatable")
     reach_p.add_argument("--work-dir", default=None, dest="work_dir",
