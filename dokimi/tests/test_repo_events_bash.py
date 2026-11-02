@@ -153,6 +153,8 @@ def test_a_call_that_moves_no_shell_keeps_the_next_relative_read(first):
     ("cd sub && { echo a; }", True),
     ('cd "$X" &', False), ('cd "$X" | cat', False), ("cd sub | cat", False), ("echo | cd sub", False),
     ('cd "$X" && make', True), ("cd $(pwd)", True), (r"cd a\|b", True),
+    ('eval "cd sub"', True), ('eval "$CMD"', True), ("source env.sh", True), (". env.sh", True),  # may run a cd
+    ("time cd sub", True), ("command cd sub", True), ('eval "cd sub" &', False), ("env source env.sh", False),
 ])
 def test_only_a_directory_builtin_in_the_calls_own_shell_moves_it(command, moves):
     assert shell_reads_moved(command)[1] is moves
@@ -166,9 +168,19 @@ def test_a_cd_in_a_job_or_a_pipeline_keeps_the_next_calls_relative_read(first):
     assert _reads(events) == ["AGENTS.md"]
 
 
-def test_a_pushd_in_an_earlier_call_also_loses_the_directory():
-    events = _events(_call("a", "pushd sub"), _result("a"), _call("b", "cat AGENTS.md"), _result("b"))
+@pytest.mark.parametrize("first", ["pushd sub", 'eval "cd sub"', "source .venv/bin/activate", ". env.sh",
+                                   "time cd sub"])
+def test_a_pushd_eval_or_source_in_an_earlier_call_also_loses_the_directory(first):
+    events = _events(_call("a", first), _result("a"), _call("b", "cat AGENTS.md"), _result("b"))
     assert _reads(events) == []
+
+
+@pytest.mark.parametrize("command, reads", [
+    ("time cd sub && cat AGENTS.md", ["sub/AGENTS.md"]), ("command cd sub && cat AGENTS.md", ["sub/AGENTS.md"]),
+    ('eval "cd sub" && cat AGENTS.md', []), ("source env.sh && cat AGENTS.md", []), (". env.sh; cat AGENTS.md", []),
+])
+def test_time_runs_a_cd_and_eval_or_source_loses_the_directory_within_a_call(command, reads):
+    assert _reads(_events(_call("a", command), _result("a"))) == reads
 
 
 def test_a_parents_cd_drops_a_subagents_later_relative_read():

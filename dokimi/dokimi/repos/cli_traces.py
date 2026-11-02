@@ -49,8 +49,9 @@ _STDOUT_AFTER_STDERR = re.compile(r"(?<![^\s;&|(])2>>?(?!&)[ \t]*[^\s;&|<>()]+.*
 _SYSTEM_BIN = {"/bin", "/usr/bin", "/usr/local/bin"}
 _ASSIGN = re.compile(r"[A-Za-z_]\w*=")  # a NAME=value word: a variable set for the command that follows
 _KEYWORDS = {"if", "then", "else", "elif", "do", "while", "until", "!"}
-_DIR_STACK = {"pushd", "popd"}
-_DIRS = {"cd"} | _DIR_STACK  # the builtins that change the directory
+# after these builtins the directory is not known: a directory stack, or a script that may run a ``cd``
+_DIR_LOST = {"pushd", "popd", "eval", "source", "."}
+_DIRS = {"cd"} | _DIR_LOST  # the builtins that change, or may change, the directory
 _PIPE = re.compile(r"(?<!\|)\|(?!\|)")  # a pipe, not ||
 _GROUP_OPEN = re.compile(r"(?:^|[\s;&|(])\{(?=\s|$)")  # a brace group opens: ``{`` as a word
 _GROUP_CLOSE = re.compile(r"(?:^|\s)\}(?=\s|$|[;&|])")
@@ -86,12 +87,12 @@ def shell_reads(script: str, cwd: str = "") -> list[str]:
     script starts in, relative to the workspace root. ``cd`` moves it for the parts that follow: a
     relative path is joined to it and normalised (no ``.`` or ``..``). The directory is unknown (a
     relative read is not recorded) after ``cd -``, a bare ``cd``, a ``cd`` to a computed path, a
-    ``pushd`` / ``popd``, ``env -C`` / ``--chdir`` (the command's reads, but absolute ones), a ``cd``
-    after ``if`` / ``then`` / ``do`` / ``else`` (it may not run), a ``cd`` after ``&&`` / ``||`` once the chain
-    holding it ends with ``;``, ``&`` or a newline (it may have been skipped), or a glob or brace expansion (the
-    files are not known). A subshell ``( ... )`` or `` `...` `` records no reads: its directory is not kept. A brace
-    group or an ``&&`` / ``||`` list that is backgrounded, or a piped group, runs in a subshell, so the directory is
-    restored after it; the reads of a
+    ``pushd`` / ``popd``, an ``eval``, ``source`` or ``.`` (it may run a ``cd``), ``env -C`` / ``--chdir`` (the
+    command's reads, but absolute ones), a ``cd`` after ``if`` / ``then`` / ``do`` / ``else`` (it may not run), a
+    ``cd`` after ``&&`` / ``||`` once the chain holding it ends with ``;``, ``&`` or a newline (it may have been
+    skipped), or a glob or brace expansion (the files are not known). A subshell ``( ... )`` or `` `...` `` records
+    no reads: its directory is not kept. A brace group or an ``&&`` / ``||`` list that is backgrounded, or a piped
+    group, runs in a subshell, so the directory is restored after it; the reads of a
     group whose output feeds a pipe after it is dropped, as a pipeline is not a read here; a group whose stdout is
     redirected to a file or /dev/null is dropped, as that output is not shown to the agent. ``--help`` and
     ``--version`` print and open no file. A function definition is skipped whole. Absolute paths are kept.
@@ -101,8 +102,9 @@ def shell_reads(script: str, cwd: str = "") -> list[str]:
 
 def shell_reads_moved(script: str, cwd: str = "") -> tuple[list[str], bool]:
     """:func:`shell_reads`, and whether the script may leave its shell in another directory: it ran a ``cd``,
-    ``pushd`` or ``popd`` in that shell, not in a subshell (``( ... )``, a pipeline or a backgrounded command, list
-    or group: ``cd sub &``, ``{ cd sub; } | cat``, ``cd sub && make &``, ``cd "$X" &``, ``cd sub | cat``)."""
+    ``pushd``, ``popd``, ``eval``, ``source`` or ``.`` in that shell, not in a subshell (``( ... )``, a pipeline
+    or a backgrounded command, list or group: ``cd sub &``, ``{ cd sub; } | cat``, ``cd sub && make &``,
+    ``cd "$X" &``, ``cd sub | cat``)."""
     reads, walk = _walk_script(script, cwd)
     return reads, walk.shell_moved
 
@@ -228,7 +230,7 @@ class _Walk:
         name = _run_name(words[0], via_env)
         if name is None:
             return []
-        if name in _DIR_STACK or (conditional and name == "cd"):
+        if name in _DIR_LOST or (conditional and name == "cd"):
             self.lose(after != "&")
         elif name == "cd":
             self.moved = True
@@ -248,12 +250,12 @@ class _Walk:
 
 
 def _run_name(name: str, via_env: bool) -> str | None:
-    """The name a command runs as, or None when it is a ``cd`` or directory-stack builtin that does not run."""
-    if via_env and (name == "cd" or name in _DIR_STACK):  # ``env cd x`` runs no builtin: nothing moves
+    """The name a command runs as, or None when it is a directory builtin (``cd``, ``pushd``, ``eval``, ...) that does not run."""
+    if via_env and (name == "cd" or name in _DIR_LOST):  # ``env cd x`` runs no builtin: nothing moves
         return None
     if "/" in name:  # ``/bin/cat`` is cat; ``./cat`` or ``/bin/cd`` is some other program
         name = posixpath.basename(name) if posixpath.dirname(name) in _SYSTEM_BIN else ""
-        if name == "cd" or name in _DIR_STACK:
+        if name == "cd" or name in _DIR_LOST:
             return None
     return name
 
@@ -436,13 +438,13 @@ def _program(word: str) -> str:
 
 def _command_words(words: list[str]) -> tuple[list[str], bool, bool]:
     """The words from the command's name on; whether ``env`` runs it; and whether that ``env`` changes
-    directory (``-C`` / ``--chdir``). ``NAME=value`` words, ``builtin`` or ``command`` before a directory
-    builtin (which runs it), and ``env`` with its options and assignments come before the name and are skipped."""
+    directory (``-C`` / ``--chdir``). ``NAME=value`` words, ``builtin``, ``command`` or ``time`` before a
+    directory builtin (which runs it), and ``env`` with its options and assignments come before the name and are skipped."""
     via_env = chdir = False
     while words:
         if _ASSIGN.match(words[0]):
             words = words[1:]
-        elif words[0] in ("builtin", "command") and len(words) > 1 and words[1] in _DIRS:  # ``./command`` is a program
+        elif words[0] in ("builtin", "command", "time") and len(words) > 1 and words[1] in _DIRS:  # ``./command`` is a program
             words = words[1:]
         elif _program(words[0]) == "env":
             words, via_env = words[1:], True
