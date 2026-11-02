@@ -76,6 +76,7 @@ from dokimi.repos.events import convert
     ("{ cd x; } & cat f", ["f"]),                         # a backgrounded group runs in a subshell
     ("{ cd x; } 2>&1 | cat; cat f", ["f"]),               # so does a piped one
     ("{ cd x; cat f; } & cat g", ["x/f", "g"]),
+    ("cd x && { cat f; cat h; } & cat g", ["x/f", "x/h", "g"]),  # the group is one command of the backgrounded list
     ("cat a | { cd x; cat b; }", []),                     # a group in a pipeline: directory unknown after it
     ("if true; then cd sub; fi; cat AGENTS.md", []),      # a conditional cd may not run
     ("for d in sub; do cd sub; done; cat AGENTS.md", []),

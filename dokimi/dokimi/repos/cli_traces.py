@@ -146,8 +146,9 @@ class _Walk:
         self.moved = False  # a cd was seen: after ||, the directory is not known
         self.shell_moved = False  # a directory builtin ran in the script's shell, not in a subshell
         self.gated = False  # a cd after && or || was seen in this chain: it may not have run for the next chain
-        # the open brace groups: ((here, shell_moved) before it, in a pipeline, index in the reads where it began)
-        self.groups: list[tuple[tuple[str | None, bool], bool, int]] = []
+        # the open brace groups: ((here, shell_moved) before it, in a pipeline, index in the reads where it began,
+        # the enclosing && / || list's (list_start, listed), which the group's own separators do not end)
+        self.groups: list[tuple[tuple[str | None, bool], bool, int, tuple[tuple[str | None, bool], bool]]] = []
         self.list_start: tuple[str | None, bool] = (here, False)  # (here, shell_moved) where the && / || list began
         self.listed = False  # that list has more than one command
         self.function = 0  # the brace depth inside a function definition
@@ -176,18 +177,18 @@ class _Walk:
         self.shell_moved |= shell
 
     def track_groups(self, bare: str, after: str, out: list[str]) -> None:
-        """A brace group opening or closing in ``bare``; one that ran in a subshell restores the directory. The
-        reads of a group whose output feeds a pipe after it, or a file, are dropped from ``out``: its output is not
-        the agent's."""
+        """A brace group opening or closing in ``bare``; one that ran in a subshell restores the directory. A group is
+        one command of the list around it: ``cd sub && { a; b; } &`` backgrounds the whole list. The reads of a group
+        whose output feeds a pipe after it, or a file, are dropped from ``out``: its output is not the agent's."""
         opened = _GROUP_OPEN.search(bare)
         if opened:
             piped = bool(_PIPE.search(bare[:opened.start()]))
-            self.groups.append(((self.here, self.shell_moved), piped, len(out)))
+            self.groups.append(((self.here, self.shell_moved), piped, len(out), (self.list_start, self.listed)))
             if piped:  # the group runs in a pipeline's subshell: where it ends up is not tracked
                 self.here = None
         closed = _GROUP_CLOSE.search(bare)
         if closed and self.groups:
-            before, piped, mark = self.groups.pop()
+            before, piped, mark, (self.list_start, self.listed) = self.groups.pop()
             after_close = bare[closed.start():]
             redirects = bare[closed.end():]
             if _PIPE.search(after_close) or _STDOUT_FILE.search(redirects) or _STDOUT_AFTER_STDERR.search(redirects):
