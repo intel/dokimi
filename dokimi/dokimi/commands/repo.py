@@ -137,11 +137,12 @@ def _typecheck_or_exit(args: argparse.Namespace):
             sys.exit(EXIT_USAGE)
         return None
     tool = args.typecheck_tool or "mypy"
-    if args.python_env is not None and not os.access(args.python_env, os.X_OK):
+    # a directory is X_OK too: only a regular file can be the interpreter
+    if args.python_env is not None and not (os.path.isfile(args.python_env) and os.access(args.python_env, os.X_OK)):
         print(f"✗ --python-env {args.python_env}: not an executable interpreter", file=sys.stderr)
         sys.exit(EXIT_USAGE)
     if tool != "mypy" and shutil.which(tool) is None:
-        print(f"✗ --typecheck {tool}: not on PATH", file=sys.stderr)
+        print(f"✗ --typecheck-tool {tool}: not on PATH", file=sys.stderr)
         sys.exit(EXIT_USAGE)
     python = os.path.abspath(args.python_env) if args.python_env is not None else None  # the tool runs elsewhere
     return Check(tool, python)
@@ -160,7 +161,7 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
     try:
         payload = scan_repo(tree, manifest, static, typecheck=check)
     except TypecheckError as exc:
-        print(f"✗ --typecheck {check.tool}: {exc}", file=sys.stderr)
+        print(f"✗ --typecheck-tool {check.tool}: {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
     if args.out:
         try:

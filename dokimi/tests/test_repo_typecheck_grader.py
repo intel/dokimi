@@ -474,3 +474,64 @@ def test_a_typecheck_task_without_reference_runs_no_oracle_step(tmp_path):
     assert selfcheck._oracle_applies(Task("t", raw, with_reference)) is True
     assert selfcheck._oracle_applies(Task("t", {"grader": "dokimi:review_seeds"}, bare)) is True
     assert selfcheck._oracle_applies(Task("t", {}, bare)) is True
+
+
+@pytest.mark.parametrize("source", [
+    "def add(a: int, b: int) -> int:\n    return f'{a}{b}'  # type: ignore\n",
+    "# mypy: ignore-errors\n" + WRONG,
+    "# mypy: disable-error-code=return-value\n" + WRONG,
+])
+def test_a_suppression_in_a_listed_file_fails_the_grade(tmp_path, source):
+    # the agent must fix the code, not hide the error: a listed file with a suppression never passes
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": source}, _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is False
+    assert result["n_suppressions"] == 1
+
+
+def test_a_stub_in_the_workspace_that_hides_a_module_fails_the_grade(tmp_path):
+    # mypy_path puts the workspace first: a stub there replaces json, and its __getattr__ hides json.nosuch()
+    stub = "from typing import Any\n\ndef __getattr__(name: str) -> Any: ...\n"
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": "import json\n\nprint(json.nosuch())\n",
+                          "json.pyi": stub}, _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is False
+    assert result["n_suppressions"] == 1
+
+
+def test_a_clean_listed_file_has_no_suppressions(tmp_path):
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": CLEAN}, _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is True
+    assert result["n_suppressions"] == 0
+
+
+def test_a_type_error_is_graded_from_any_working_directory(tmp_path, monkeypatch):
+    # mypy prints names relative to the cwd: "workspace/pkg/api.py" matched no listed name, so the error was dropped
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": WRONG}, _task())
+    monkeypatch.chdir(run)
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is False
+    assert result["n_errors"] == 1
+
+
+def test_two_listed_names_for_one_file_are_a_task_error():
+    # "a.py" and "./a.py" are one file: mypy reports it as a duplicate module, so the task could never pass
+    problems = typecheck.task_problems(_task(paths=["pkg/api.py", "./pkg/api.py"]))
+    assert any("distinct" in p for p in problems)
+
+
+def test_a_typecheck_task_without_reference_whose_listed_path_is_missing_is_a_problem(tmp_path):
+    # with no reference the null grade is the only step: a typo'd path fails it, so no run could ever pass
+    from dokimi.repos import selfcheck
+    from dokimi.repos.workspace import Task
+
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    raw = {"grader": "dokimi:typecheck", "tool": "mypy", "version": PINNED, "paths": ["src/pkg/modle.py"]}
+    rd = tmp_path / "rd"
+    rd.mkdir()
+    (rd / "grade.json").write_text(json.dumps({"pass": False, "missing": ["src/pkg/modle.py"]}), encoding="utf-8")
+    grade = {"status": "graded", "success": False, "score": None, "score_only": False, "pass": False}
+    problems = selfcheck._verdict_problems(Task("t", raw, bare), "null", grade, rd)
+    assert any("missing" in p and "src/pkg/modle.py" in p for p in problems)

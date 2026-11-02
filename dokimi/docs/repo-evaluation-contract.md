@@ -655,11 +655,11 @@ failed the task, and on a task with `score` that is a failed run with score
 |---|---|---|---|---|
 | `dokimi:review_seeds` | `manifest.json` (`manifest`); oracle answer `oracle.json` (`oracle_answer`), a list of findings | `null`; for a manifest with no seeds (a clean-diff control), `true` when no finding is `blocker` or `major` | `n_findings`, `n_severe`, `n_decoys`, `unmatched`, `recall` (`null` with no seeds) | `seeds_hit`, `decoys_flagged`, `recall_by_class` (`"hit/total"`) |
 | `dokimi:review_replay` | `gold.json` (`gold`); `task.json` `window`, default 5 | `null` (score-only) | `n_findings`, `n_severe`, `n_threads`, `recall` (= `recall_all`), `recall_addressed`, `precision_proxy` | `threads_hit`, `matches`, `recall_by_kind`, `decoys_flagged` (always `[]`) |
-| `dokimi:typecheck` | none: the task's own fields `tool` (`mypy`), `version` (the image's mypy, exactly), `paths` (workspace-relative files) | `true` when no error is reported on a listed file and every listed file exists, else `false` | `n_errors`, `n_missing`, `n_files` | `errors` (first 50, `file:line: message [code]`), `missing`, `tool`, `tool_version` |
+| `dokimi:typecheck` | none: the task's own fields `tool` (`mypy`), `version` (the image's mypy, exactly), `paths` (workspace-relative files) | `true` when no error is reported on a listed file, every listed file exists, and nothing silences mypy, else `false` | `n_errors`, `n_missing`, `n_suppressions`, `n_files` | `errors` (first 50, `file:line: message [code]`, and each silenced spot), `missing`, `tool`, `tool_version` |
 
 `dokimi:typecheck` checks the listed files only. Its pass is "no error on a
 listed file" (an error in a module a listed file imports belongs to that module,
-not to the listed file), and a listed file that is missing fails. A listed path
+not to the listed file), and a listed file that is missing fails. Silencing mypy fails too: a `# type: ignore` or `# mypy:` comment in a listed file, or a `.pyi` anywhere in the workspace (it would replace the module it names), is a suppression, and the grade counts it in `n_suppressions`. A listed path
 reached through a symbolic link is missing, not read. A symbolic link in the workspace whose target
 lies outside it refuses the whole grade (a grader error, not a pass), listed or not, whenever mypy runs, that is
 when some listed file is present: mypy follows an import through a link, so an unlisted module could supply what a
@@ -1497,7 +1497,9 @@ claim:
   guidance file, and its `why` names the first error (`mypy: line N: message`).
 - `unresolved`: the fence is not valid Python (a placeholder such as `f(<arg>)`),
   is too deeply nested for the parser, or no `--python-env` was given, so nothing
-  was checked. The reason says which.
+  was checked. It is also unresolved when its only errors are missing context (a
+  name an earlier fence defines, `await`/`return` outside a function), or when the
+  repository is older than the tool checks (mypy: Python 3.10). The reason says which.
 
 `--python-env PYTHON` names the repository's interpreter, a virtualenv with its
 pinned dependencies installed (and the repository itself, if its fences import

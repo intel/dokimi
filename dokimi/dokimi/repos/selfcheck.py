@@ -33,7 +33,7 @@ from typing import Any
 from .container import CONTENT_DIR, RUN_DIR, SOURCE_DIR, ContainerError, ContainerSpec, docker_network
 from .graders import builtin_name
 from .graders.typecheck import REFERENCE_DIR
-from .grading import EvalContext, outcome, run_entry
+from .grading import EvalContext, outcome, read_grade_json, run_entry
 from .host import probe_host, shortfall_kinds, unmet, validate_tasks
 from .runner import agent_layout, container_name
 from .workspace import PrepError, Task, prepare_workspace
@@ -148,6 +148,16 @@ def _prepare(ctx: EvalContext, task: Task, rd: Path) -> None:
     (rd / "events.jsonl").write_text("", encoding="utf-8")
 
 
+def _missing_listed(rd: Path) -> list[str]:
+    """For a typecheck task with no reference the null grade is the only step: a listed path it reports missing
+    fails that step, so no run could pass the task."""
+    doc, _ = read_grade_json(rd / "grade.json")
+    missing = doc.get("missing") if isinstance(doc, dict) else None
+    if not isinstance(missing, list) or not missing:
+        return []
+    return [f"null: listed path {', '.join(str(p) for p in missing)} is missing; with no reference no run can pass"]
+
+
 def _verdict_problems(task: Task, kind: str, grade: dict[str, Any], rd: Path) -> list[str]:
     if grade["status"] == "grader_failure":
         return [f"{kind}: grader failure ({'; '.join(grade['reasons'])}); see {rd / 'grade.log'}"]
@@ -155,7 +165,8 @@ def _verdict_problems(task: Task, kind: str, grade: dict[str, Any], rd: Path) ->
     reached = top is not None and grade["score"] is not None and grade["score"] >= top
     if kind == "null":
         out = ["null: the untouched workspace passes the gate"] if grade["success"] else []
-        return out + ([f"null: the untouched workspace reaches score.max {top}"] if reached else [])
+        out += [f"null: the untouched workspace reaches score.max {top}"] if reached else []
+        return out + ([] if _oracle_applies(task) else _missing_listed(rd))
     if grade["score_only"] and task.score:  # outcome() fails pass: null when the task has no `score`
         return [] if reached else [f"oracle: {task.score['metric']} = {grade['score']}, below score.max {top}"]
     out = [] if grade["success"] else ["oracle: the reference solution does not pass the gate"]

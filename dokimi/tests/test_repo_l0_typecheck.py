@@ -218,7 +218,7 @@ def test_a_tool_failure_is_a_usage_error_not_a_traceback(tmp_path, capsys, monke
     with pytest.raises(SystemExit) as exc:
         args.func(args)
     assert exc.value.code == 2
-    assert "--typecheck mypy: mypy exited 2: broken" in capsys.readouterr().err
+    assert "--typecheck-tool mypy: mypy exited 2: broken" in capsys.readouterr().err
 
 
 def test_basedpyright_missing_from_path_is_a_usage_error(tmp_path, capsys, monkeypatch):
@@ -229,7 +229,7 @@ def test_basedpyright_missing_from_path_is_a_usage_error(tmp_path, capsys, monke
     with pytest.raises(SystemExit) as exc:
         args.func(args)
     assert exc.value.code == 2
-    assert "--typecheck basedpyright: not on PATH" in capsys.readouterr().err
+    assert "--typecheck-tool basedpyright: not on PATH" in capsys.readouterr().err
 
 
 def test_an_interpreter_with_nothing_to_check_runs_no_tool(tmp_path):
@@ -587,3 +587,47 @@ def test_a_nonempty_report_that_is_not_the_tools_json_is_a_tool_failure(monkeypa
         returncode=1, stdout=stdout, stderr=""))
     with pytest.raises(l0_typecheck.TypecheckError, match="report"):
         l0_typecheck._run(Check(tool, sys.executable), ["x: int = 1\n"])
+
+
+def test_a_repository_older_than_mypy_supports_is_unresolved_and_mypy_is_not_run(tmp_path, monkeypatch):
+    # mypy 2.x refuses --python-version 3.9 and exits 2: the fences are unknown for that reason, not a tool failure
+    from dokimi.repos.l0 import typecheck as l0_typecheck
+
+    monkeypatch.setattr(l0_typecheck, "python_version", lambda check: (3, 9))
+
+    def no_run(*args, **kwargs):
+        raise AssertionError("mypy must not run for a target it refuses")
+
+    monkeypatch.setattr(l0_typecheck, "_run", no_run)
+    payload = scan_repo(_tree(tmp_path), parse_manifest(MANIFEST), typecheck=Check("mypy", sys.executable))
+    claims = _fence_claims(payload)
+    assert [c["status"] for c in claims] == ["unresolved", "unresolved", "unresolved"]
+    assert "3.9" in claims[0]["why"] and "3.10" in claims[0]["why"]
+    assert payload["typecheck"]["checked"] == 0
+
+
+def test_a_fence_that_is_a_fragment_of_a_longer_example_is_unresolved_not_stale(tmp_path):
+    # `client` is defined by an earlier fence, and `await` at top level is only valid in an async body
+    fragments = f'{FENCE}python\nclient.decode("{{}}")\n{FENCE}\n\n{FENCE}python\nawait asyncio.sleep(1)\n{FENCE}\n'
+    claims = _fence_claims(scan_repo(_tree(tmp_path, fragments), parse_manifest(MANIFEST),
+                                     typecheck=Check("mypy", sys.executable)))
+    assert [c["status"] for c in claims] == ["unresolved", "unresolved"]
+    assert all("longer example" in c["why"] for c in claims)
+
+
+def test_a_fragment_with_a_real_error_still_fails(tmp_path):
+    fence = f'{FENCE}python\nclient.decode("{{}}")\nx: int = "a"\n{FENCE}\n'
+    [claim] = _fence_claims(scan_repo(_tree(tmp_path, fence), parse_manifest(MANIFEST),
+                                      typecheck=Check("mypy", sys.executable)))
+    assert claim["status"] == "fail"
+
+
+def test_the_scan_command_refuses_a_python_env_that_is_a_directory(tmp_path, capsys):
+    # os.access(X_OK) is true for a directory: only a regular file can be the interpreter
+    args = build_parser().parse_args(["repo", "scan", str(tmp_path), "--typecheck", "--python-env", str(tmp_path)])
+    from dokimi.commands.repo import _typecheck_or_exit
+
+    with pytest.raises(SystemExit) as exc:
+        _typecheck_or_exit(args)
+    assert exc.value.code == 2
+    assert "not an executable interpreter" in capsys.readouterr().err

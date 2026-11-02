@@ -5,7 +5,7 @@
 
 task.json: ``"tool": "mypy"``, ``"version"`` (exactly the image's mypy version, else a grader
 failure) and ``"paths"`` (workspace-relative files). ``pass`` is true when no error is reported
-on a listed file and every listed file exists. Errors in other modules are not counted.
+on a listed file, every listed file exists and nothing silences mypy. Errors in other modules are not counted.
 
 It runs mypy in-process: the grader cannot start a child (the import layers allow spawns only in
 ``dokimi.process``, which the container cannot import), so basedpyright is not offered here. The
@@ -31,6 +31,9 @@ REFERENCE_DIR = "reference"  # task dir: the files of a reference repair, copied
 MAX_ERRORS = 50  # reported in details; the count is in the metrics
 _ERROR = re.compile(r"^(?P<file>.+?)(?::(?P<line>\d+))?(?::\d+)?: error: (?P<message>.*?)(?:\s+\[(?P<code>[\w-]+)\])?$")
 _TAIL = re.compile(r"^(?::(?P<line>\d+))?(?::\d+)?: error: (?P<message>.*?)(?:\s+\[(?P<code>[\w-]+)\])?$")
+# A comment that silences mypy: ``# type: ignore`` on a line, or a mypy directive comment (ignore-errors, ...).
+# A listed file with one is not graded clean, whatever mypy then reports.
+_SILENCE = re.compile(r"#\s*(?:type:\s*ignore|mypy:)")
 
 
 def _safe_path(path: object) -> bool:
@@ -51,6 +54,8 @@ def task_problems(raw: dict[str, Any]) -> list[str]:
     paths = raw.get("paths")
     if not isinstance(paths, list) or not paths or not all(_safe_path(p) for p in paths):
         problems.append("paths must be a non-empty list of workspace-relative file paths")
+    elif len({posixpath.normpath(p) for p in paths}) != len(paths):  # "a.py" and "./a.py": one file, a duplicate module
+        problems.append("paths must be distinct after normalising (\"a.py\" and \"./a.py\" are one file)")
     return problems
 
 
@@ -110,6 +115,19 @@ def _package_roots(workspace: Path, paths: list[str]) -> list[Path]:
     return roots
 
 
+def _silenced(workspace: Path, listed: list[str]) -> list[str]:
+    """Where the workspace silences mypy: ``file:line`` for a comment, the path for a stub (``.pyi`` shadows a module).
+
+    A ``.pyi`` anywhere is refused: mypy_path puts the workspace first, so ``__getattr__ -> Any`` hides every attribute."""
+    found = []
+    for p in listed:
+        text = (workspace / p).read_text(encoding="utf-8", errors="replace")
+        found += [f"{p}:{n}" for n, line in enumerate(text.splitlines(), 1) if _SILENCE.search(line)]
+    for dirpath, _, filenames in os.walk(workspace):
+        found += [Path(dirpath, name).relative_to(workspace).as_posix() for name in filenames if name.endswith(".pyi")]
+    return found
+
+
 def _links_outside(workspace: Path) -> list[str]:
     """The symbolic links under the (resolved) workspace, a link to a directory included, whose target lies outside
     it. mypy follows an import through a link, so a link to a file this run cannot see (a hidden repair) would be read
@@ -166,6 +184,7 @@ def grade(task: dict[str, Any], task_dir: Path, answer: str, run_dir: Path | Non
             # plain lines: the image's MYPY_FORCE_COLOR would put escapes around the file name and the marker
             stdout, stderr, status = api.run(["--no-incremental", "--no-color-output", f"--cache-dir={cache}",
                                               f"--config-file={config}", "--explicit-package-bases",
+                                              "--show-absolute-path",  # cwd-independent names, matched to the listed ones
                                               *[str(workspace / p) for p in present]])
         finally:
             sys.setrecursionlimit(limit)
@@ -183,9 +202,11 @@ def grade(task: dict[str, Any], task_dir: Path, answer: str, run_dir: Path | Non
             # mypy stopped at a blocking error in a file it did not reach ("errors prevented further
             # checking"): the listed files were not checked, so that error is the grade's
             errors = _errors(stdout, None, root)
+    silenced = _silenced(workspace, present)
     shown = [f"{e['file']}:{e['line']}: {e['message']}" + (f" [{e['code']}]" if e["code"] else "") for e in errors]
-    return {"pass": not errors and not missing, "n_errors": len(errors), "n_missing": len(missing),
-            "n_files": len(paths), "errors": shown[:MAX_ERRORS], "missing": missing,
+    shown += [f"{s}: mypy is silenced here (fix the code instead)" for s in silenced]
+    return {"pass": not errors and not missing and not silenced, "n_errors": len(errors), "n_missing": len(missing),
+            "n_suppressions": len(silenced), "n_files": len(paths), "errors": shown[:MAX_ERRORS], "missing": missing,
             "tool": TOOL, "tool_version": mypy.version.__version__}
 
 

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import tempfile
 import textwrap
@@ -28,6 +29,12 @@ from .markdown import PYTHON_LANGS, Fence, split
 TOOLS = ("mypy", "basedpyright")
 TIMEOUT = 600  # seconds for one run over every fence of a repository
 MAX_WHY = 200
+# The oldest repository Python each tool accepts: the pinned mypy 2.x refuses --python-version 3.9 and exits 2.
+MIN_PYTHON = {"mypy": (3, 10)}
+# Errors a fence has only because it is a fragment of a longer example: a name an earlier fence defines, or
+# await/return/yield outside a function. Any other error is real, whatever else the fence has.
+_FRAGMENT = re.compile(r'^(?:Name "[^"]+"|"[^"]+") is not defined(?: \[reportUndefinedVariable\])?$'
+                       r'|^"(?:await|return|yield)" outside function$')
 
 
 class TypecheckError(RuntimeError):
@@ -77,28 +84,62 @@ def check_fences(scan: Scan, files: list[str], check: Check) -> dict[str, Any]:
         return block
     # Nothing to run, no tool run: a version probe would fail on a repository without the tool, for no result.
     block["tool_version"] = tool_version(check) if runnable else None
+    if _older_than_the_tool(scan, check, runnable, target):
+        block["unknown"] = len(runnable)
+        return block
     # no file: usage error. ``blocked``: the tool stopped early, so a fence with no error was not necessarily checked.
     found_errors, blocked = _run(check, [code for _, _, code in runnable], target) if runnable else ({}, False)
-    unchecked = 0
+    fails, unchecked = _claims(scan, check.tool, runnable, found_errors, blocked)
+    block["fail"] = fails
+    block["checked"] = len(runnable) - unchecked
+    block["unknown"] += unchecked  # "unknown" is every fence that was not checked
+    return block
+
+
+def _claims(scan: Scan, tool: str, runnable: list[tuple[str, Fence, str]],
+            found_errors: dict[int, list[tuple[int, str]]], blocked: bool) -> tuple[int, int]:
+    """One claim per runnable fence from the tool's errors; (failing fences, fences not checked)."""
+    fails = unchecked = 0
     for i, (f, fence, code) in enumerate(runnable):
         errors = found_errors.get(i, [])
         if not errors and blocked:
             unchecked += 1
             scan.add(f, fence.line, "python_fence", _label(code), "unresolved",
-                     f"{check.tool} stopped before this fence was checked: not type-checked")
+                     f"{tool} stopped before this fence was checked: not type-checked")
             continue
         if not errors:
-            scan.add(f, fence.line, "python_fence", _label(code), "ok", f"{check.tool}: no error")
+            scan.add(f, fence.line, "python_fence", _label(code), "ok", f"{tool}: no error")
             continue
-        block["fail"] += 1
+        if _is_fragment(errors):
+            unchecked += 1
+            scan.add(f, fence.line, "python_fence", _label(code), "unresolved",
+                     f"{tool}: {errors[0][1]} (a fragment of a longer example: not type-checked)"[:MAX_WHY])
+            continue
+        fails += 1
         line, message = errors[0]
         more = f" (+{len(errors) - 1} more)" if len(errors) > 1 else ""
         where = f"line {line}: " if line else ""  # 0: the tool gave no line, so the claim is the fence itself
         scan.add(f, fence.line + line, "python_fence", _label(code), "fail",
-                 f"{check.tool}: {where}{message}{more}"[:MAX_WHY])
-    block["checked"] = len(runnable) - unchecked
-    block["unknown"] += unchecked  # "unknown" is every fence that was not checked
-    return block
+                 f"{tool}: {where}{message}{more}"[:MAX_WHY])
+    return fails, unchecked
+
+
+def _older_than_the_tool(scan: Scan, check: Check, runnable: list[tuple[str, Fence, str]],
+                         target: tuple[int, int] | None) -> bool:
+    """True, with each runnable fence unresolved, when the repository is older than the tool checks (no run)."""
+    floor = MIN_PYTHON.get(check.tool, (0, 0))
+    if target is None or target >= floor:
+        return False
+    for f, fence, code in runnable:
+        scan.add(f, fence.line, "python_fence", _label(code), "unresolved",
+                 f"{check.tool} checks Python {floor[0]}.{floor[1]} and later; the repository is "
+                 f"{target[0]}.{target[1]}: not type-checked")
+    return True
+
+
+def _is_fragment(errors: list[tuple[int, str]]) -> bool:
+    """True when every error of a fence is one its missing context causes (see ``_FRAGMENT``)."""
+    return all(_FRAGMENT.match(message) for _, message in errors)
 
 
 def tool_version(check: Check) -> str:
