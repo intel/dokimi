@@ -14,8 +14,9 @@ subdirectories, the files right in it staying its own. Per module:
 * ``other_tree_modules``: the modules of another tree it shares a reference with, either way. A tree is
   the first two path components (``cpp/daal`` and ``cpp/oneapi`` in oneDAL); a module shallower than
   that is of the same tree as the modules under it;
-* ``ambiguity``: the share of its function and method names that another module defines too;
-* ``in_guidance``: whether an instruction file names its path, or its name between ``/`` or backticks.
+* ``ambiguity``: the share of its function and method names that a different function of that name is
+  defined in another module;
+* ``in_guidance``: whether an instruction file names its path as a token, or its name between backticks.
 
 These are hypotheses about where an agent may lose its way, not measured effects: the findings drawn
 from them are ``info`` with ``low`` confidence.
@@ -115,8 +116,9 @@ def mentioned(module: str, text: str) -> bool:
     name = module.rsplit("/", 1)[-1]
     if module == "." or name not in text:  # the substring test spares the regexes on most modules
         return False
-    return (re.search(rf"[`/]{re.escape(name)}[`/]", text) is not None
-            or re.search(rf"(?<![\w/.]){re.escape(module)}(?![\w/])", text) is not None)
+    # The path as a token: no word, hyphen or extension continues it, a trailing "/" may follow.
+    path = re.search(rf"(?<![\w/.-]){re.escape(module)}(?![\w-]|\.\w)", text) is not None
+    return path or re.search(rf"`{re.escape(name)}/?`", text) is not None
 
 
 def _function_like(symbol: str) -> bool:
@@ -137,10 +139,10 @@ def analyze(index: CodeIndex, tree_files: Iterable[str], guidance: str, limit: i
     limit = module_limit(len(code)) if limit is None else limit
     module_of = _assign(code, limit)
 
-    defined_in, by_name, names_of = _definitions(index, repo_path, module_of)
+    defined_in, names_of, ambiguous_of = _definitions(index, repo_path, module_of)
     fanin, edges = _references(index, repo_path, module_of, defined_in)
     members: dict[str, int] = Counter(module_of.values())
-    modules = [_row(mod, members[mod], names_of[mod], by_name, fanin[mod], edges[mod], guidance)
+    modules = [_row(mod, members[mod], names_of[mod], ambiguous_of[mod], fanin[mod], edges[mod], guidance)
                for mod in sorted(members)]
     modules.sort(key=lambda m: (-m["reference_fanin"], m["module"]))
     return {
@@ -156,7 +158,10 @@ Modules = dict[str, set[str]]
 
 def _definitions(index: CodeIndex, repo_path: dict[str, str],
                  module_of: dict[str, str]) -> tuple[Modules, Modules, Modules]:
-    """Function-like symbol -> modules defining it; name -> modules defining it; module -> its names."""
+    """Function-like symbol -> modules defining it; module -> its names; module -> its ambiguous names.
+
+    A name is ambiguous for a module when some symbol of that name is not defined there: a function
+    declared in one module and defined in another is one symbol, so it is not ambiguous by itself."""
     defined_in: Modules = defaultdict(set)
     for doc, path in repo_path.items():
         mod = module_of.get(path)
@@ -165,15 +170,18 @@ def _definitions(index: CodeIndex, repo_path: dict[str, str],
         for occ in index.occurrences(doc):
             if occ.is_definition and _function_like(occ.symbol):
                 defined_in[occ.symbol].add(mod)
-    by_name: Modules = defaultdict(set)
-    for symbol, mods in defined_in.items():
-        by_name[descriptor_name(symbol) or ""] |= mods
-    by_name.pop("", None)
+    symbols_of: dict[str, set[str]] = defaultdict(set)
+    for symbol in defined_in:
+        symbols_of[descriptor_name(symbol) or ""].add(symbol)
+    symbols_of.pop("", None)
     names_of: Modules = defaultdict(set)
-    for name, mods in by_name.items():
-        for mod in mods:
+    ambiguous_of: Modules = defaultdict(set)
+    for name, symbols in symbols_of.items():
+        for mod in set().union(*(defined_in[s] for s in symbols)):
             names_of[mod].add(name)
-    return defined_in, by_name, names_of
+            if any(mod not in defined_in[s] for s in symbols):
+                ambiguous_of[mod].add(name)
+    return defined_in, names_of, ambiguous_of
 
 
 def _references(index: CodeIndex, repo_path: dict[str, str], module_of: dict[str, str],
@@ -195,12 +203,13 @@ def _references(index: CodeIndex, repo_path: dict[str, str], module_of: dict[str
     return fanin, edges
 
 
-def _row(mod: str, files: int, names: set[str], by_name: Modules, fanin: set[str], edges: set[str],
+def _row(mod: str, files: int, names: set[str], ambiguous: set[str], fanin: set[str], edges: set[str],
          guidance: str) -> dict[str, Any]:
-    ambiguity = sum(len(by_name[n]) > 1 for n in names) / len(names) if names else 0.0
+    share = len(ambiguous) / len(names) if names else 0.0  # exact: the finding compares it, rounding is for display
     return {
         "module": mod, "files": files, "reference_fanin": len(fanin),
         "other_tree_modules": sum(not same_tree(other, mod) for other in edges),
-        "ambiguity": round(ambiguity, 3), "names": len(names), "in_guidance": mentioned(mod, guidance),
+        "ambiguity": share, "names": len(names),
+        "in_guidance": mentioned(mod, guidance),
         "kept": files >= MIN_FILES and len(fanin) >= MIN_FANIN,
     }

@@ -134,6 +134,55 @@ def test_print_structure_lists_kept_modules_escaped(capsys):
     assert "m3: fan-in 7" in out and "m4:" not in out  # the top five only
 
 
+@pytest.mark.parametrize("module, text, expected", [
+    ("src/core", "tests/core/ is tests", False),       # the name between slashes, not the path
+    ("a/core", "b/core/x", False),
+    ("src/core", "edit `src/core-utils` first", False),  # a hyphen continues the token
+    ("src/core", "src/core.v2 and src/core.py", False),  # an extension continues it
+    ("src/core", "src/core.", True),                    # sentence-ending punctuation is not an extension
+    ("src", "see src/ for code", True),                 # a trailing slash names the module
+    ("src", "the src/main.py file", True),
+    ("docs", "docs/guide.md", True),
+    ("utils", "docs/utils/ is guidance", False),
+    ("src/utils", "`utils`", True),                     # the bare name counts only between backticks
+    ("src/utils", "the utils folder", False),
+    ("src/utils", "use `utils/` here", True),
+])
+def test_guidance_mentions_match_the_path_or_a_backticked_name(module, text, expected):
+    assert mentioned(module, text) is expected
+
+
+def test_one_function_defined_in_two_modules_is_not_ambiguous():
+    docs = {"include/x.h": [(_sym("run"), True)], "src/x.cc": [(_sym("run"), True)]}
+    module_of = {"include/x.h": "include", "src/x.cc": "src"}
+    _, names_of, ambiguous_of = structure._definitions(_index(docs), {doc: doc for doc in docs}, module_of)
+    assert names_of["include"] == {"run"} and ambiguous_of["include"] == set()
+    docs["lib/alt.py"] = [(_sym("run", "alt"), True)]  # a different function named run: now both are ambiguous
+    module_of["lib/alt.py"] = "lib"
+    _, _, ambiguous_of = structure._definitions(_index(docs), {doc: doc for doc in docs}, module_of)
+    assert ambiguous_of["include"] == {"run"} and ambiguous_of["lib"] == {"run"}
+
+
+def test_a_share_below_the_threshold_that_rounds_up_is_not_a_finding():
+    from dokimi.repos.environment import _structure_findings
+    row = structure._row("m", 3, {f"n{i}" for i in range(1001)}, {f"n{i}" for i in range(500)}, set(), set(), "")
+    assert row["ambiguity"] == pytest.approx(500 / 1001) and row["ambiguity"] < 0.5
+    row["kept"] = True
+    assert not [f for f in _structure_findings({"modules": [row]}) if f["rule"] == "structure.name_ambiguity"]
+
+
+def test_kept_modules_are_ordered_by_fan_in_then_name():
+    syms = {m: _sym(f"f{m}") for m in "abc"}
+    docs = {f"src/{m}/{i}.py": [] for m in "abc" for i in (1, 2, 3)}
+    for m in "abc":
+        docs[f"src/{m}/1.py"] = [(syms[m], True)]
+    fan_in = {"a": 3, "b": 5, "c": 4}
+    for r in range(1, 6):
+        docs[f"lib/r{r}.py"] = [(syms[m], False) for m, n in fan_in.items() if r <= n]
+    modules = analyze(_index(docs), list(docs), "", limit=3)["modules"]  # one module per src directory
+    assert [m["module"] for m in modules if m["kept"]] == ["src/b", "src/c", "src/a"]
+
+
 def test_ambiguity_is_the_share_of_names_another_module_defines():
     section = analyze(_index(DOCS), list(DOCS), "", limit=2)
     by = {m["module"]: m for m in section["modules"]}
@@ -142,8 +191,7 @@ def test_ambiguity_is_the_share_of_names_another_module_defines():
     one_of_three = {**DOCS, "src/core/c.py": [(_sym("a"), True), (_sym("b"), True)]}
     by = {m["module"]: m for m in analyze(_index(one_of_three), list(DOCS), "", limit=2)["modules"]}
     assert by["src/core"]["ambiguity"] == 0.25  # run, of run, parse, a and b
-    assert structure._row("m", 3, {"a", "b", "c"}, {"a": {"m", "n"}, "b": {"m"}, "c": {"m"}}, set(), set(),
-                          "")["ambiguity"] == 0.333
+    assert structure._row("m", 3, {"a", "b", "c"}, {"a"}, set(), set(), "")["ambiguity"] == pytest.approx(1 / 3)
     assert by["src/cli"]["names"] == 0 and by["src/cli"]["ambiguity"] == 0.0
 
 
@@ -158,7 +206,7 @@ def test_a_large_directory_is_split_into_its_subdirectories():
 
 def test_guidance_mentions_need_a_token_boundary():
     assert mentioned("src/core", "edit `src/core` first")
-    assert mentioned("src/core", "see the /core/ package")
+    assert not mentioned("src/core", "see the /core/ package")  # a name between slashes is not a mention
     assert not mentioned("src/core", "src/core2 holds the rest")
     assert not mentioned("src/core", "a core idea")
     assert mentioned("src/core", "run src/core first") and mentioned("src/core", "(src/core).")
