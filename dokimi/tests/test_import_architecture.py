@@ -465,19 +465,33 @@ def _scope_owners(tree: ast.Module) -> dict[int, ast.AST]:
     return owner
 
 
-#: ``(id of the scope, name) -> [(line, kind, payload)]``. Kinds: ``mod`` (payload: modules), ``fn`` (payload:
-#: ``(module, attr)`` of an exit callable), ``sysexit`` (SystemExit, a name for it, or an instance), ``other`` (any other binding, shadowing outer names).
-ExitTable = dict[tuple[int, str], list[tuple[int, str, object]]]
+#: ``(id of the scope, name) -> [(pos, kind, payload)]``, ``pos`` the (line, column) where the binding takes effect.
+#: Kinds: ``mod`` (payload: modules), ``fn`` (payload: ``(module, attr)`` of an exit callable), ``sysexit`` (SystemExit,
+#: a name for it, or an instance), ``other`` (any other binding, shadowing outer names), ``global`` / ``nonlocal``
+#: (payload: the scope the name is declared in, where it is bound).
+ExitTable = dict[tuple[int, str], list[tuple[tuple[int, int], str, object]]]
+#: A binding moved to another scope runs when its function is called, after any statement of the module.
+_LATER = (10**9, 0)
 
 
-def _bind(table: ExitTable, scope: ast.AST, name: str, lineno: int, kind: str, payload: object = None) -> None:
-    table.setdefault((id(scope), name), []).append((lineno, kind, payload))
+def _at(node: ast.AST) -> tuple[int, int]:
+    return (node.lineno, node.col_offset)
+
+
+def _after(node: ast.AST) -> tuple[int, int]:
+    """Where the bindings of a statement or a name take effect: after its value is evaluated."""
+    return (node.end_lineno, node.end_col_offset)
+
+
+def _bind(table: ExitTable, scope: ast.AST, name: str, pos: tuple[int, int], kind: str, payload: object = None) -> None:
+    table.setdefault((id(scope), name), []).append((pos, kind, payload))
 
 
 def _import_bindings(node: ast.Import | ast.ImportFrom, scope: ast.AST, table: ExitTable) -> None:
+    pos = _after(node)
     if isinstance(node, ast.Import):  # ``import sys as s`` binds s; ``import dokimi.exit_codes`` binds that dotted name
         for a in node.names:
-            _bind(table, scope, a.asname or a.name, node.lineno, "mod", frozenset({a.name}))
+            _bind(table, scope, a.asname or a.name, pos, "mod", frozenset({a.name}))
         return
     # ``from .exit_codes import x`` and ``from . import exit_codes`` name dokimi.exit_codes
     module = node.module
@@ -486,13 +500,13 @@ def _import_bindings(node: ast.Import | ast.ImportFrom, scope: ast.AST, table: E
     for a in node.names:
         name = a.asname or a.name
         if (module, a.name) in _EXIT_CALLS:  # ``from sys import exit as bye``
-            _bind(table, scope, name, node.lineno, "fn", (module, a.name))
+            _bind(table, scope, name, pos, "fn", (module, a.name))
         elif f"{module}.{a.name}" in _EXIT_MODULES:  # ``from dokimi import exit_codes as ec``
-            _bind(table, scope, name, node.lineno, "mod", frozenset({f"{module}.{a.name}"}))
+            _bind(table, scope, name, pos, "mod", frozenset({f"{module}.{a.name}"}))
         elif module == "builtins" and a.name == "SystemExit" and not node.level:  # ``from builtins import SystemExit as Stop``
-            _bind(table, scope, name, node.lineno, "sysexit")
+            _bind(table, scope, name, pos, "sysexit")
         else:
-            _bind(table, scope, name, node.lineno, "other")
+            _bind(table, scope, name, pos, "other")
 
 
 def _params(args: ast.arguments) -> list[str]:
@@ -507,57 +521,107 @@ def _shadowing_bindings(tree: ast.Module, owner: dict[int, ast.AST], table: Exit
         if isinstance(n, (ast.Import, ast.ImportFrom)):
             _import_bindings(n, owner[id(n)], table)
         elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            _bind(table, owner[id(n)], n.name, n.lineno, "other")
+            # the name binds after the header (decorators, defaults, bases), which the body follows
+            _bind(table, owner[id(n)], n.name, _at(n.body[0]), "other")
         elif isinstance(n, ast.ExceptHandler) and n.name:
-            _bind(table, owner[id(n)], n.name, n.lineno, "other")
+            _bind(table, owner[id(n)], n.name, _at(n.body[0]), "other")
         elif isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store) and id(n) not in assigned:
             # ``x: int`` binds nothing at run time outside a function, where it makes x local
             if id(n) not in bare or isinstance(owner[id(n)], _FUNC_NODES):
-                _bind(table, owner[id(n)], n.id, n.lineno, "other")
-        if isinstance(n, _FUNC_NODES):  # a parameter is local to its function
+                _bind(table, owner[id(n)], n.id, _after(n), "other")
+        if isinstance(n, _FUNC_NODES):  # a parameter is local to its function, bound on entry
             for name in _params(n.args):
-                _bind(table, n, name, n.lineno, "other")
+                _bind(table, n, name, _at(n), "other")
 
 
-def _value_binding(expr: ast.expr, scope: ast.AST, lineno: int, table: ExitTable, owner: dict[int, ast.AST]):
+def _target_scope(scope: ast.AST, name: str, table: ExitTable) -> ast.AST:
+    """The scope an assignment to ``name`` in ``scope`` binds: where ``global`` or ``nonlocal`` declared it, else ``scope``."""
+    for b in table.get((id(scope), name), []):
+        if b[1] in ("global", "nonlocal"):
+            return b[2]
+    return scope
+
+
+def _value_binding(expr: ast.expr, scope: ast.AST, pos: tuple[int, int], table: ExitTable, owner: dict[int, ast.AST]):
     """The (kind, payload) that ``x = expr`` gives x: SystemExit, an exit callable, a module, or other."""
-    if _is_sysexit_expr(expr, scope, lineno, table, owner):
+    if _is_sysexit_expr(expr, scope, pos, table, owner):
         return "sysexit", None
     if isinstance(expr, ast.Name):  # ``stop = exit_alias`` copies the binding it names
-        b = _resolve(expr.id, scope, lineno, table, owner)
+        b = _resolve(expr.id, scope, pos, table, owner)
+        if b is None and expr.id in ("exit", "quit"):  # the builtins, where nothing binds the name
+            return "fn", ("builtins", expr.id)
         if b is not None and b[1] in ("fn", "mod"):
             return b[1], b[2]
     if isinstance(expr, (ast.Name, ast.Attribute)):  # ``s = sys`` or ``ec = dokimi.exit_codes``
-        mods = _modules(ast.unparse(expr), scope, lineno, table, owner)
+        mods = _modules(ast.unparse(expr), scope, pos, table, owner)
         if mods:
             return "mod", frozenset(mods)
     if isinstance(expr, ast.Attribute):  # ``stop = sys.exit``
-        for m in _modules(ast.unparse(expr.value), scope, lineno, table, owner):
+        for m in _modules(ast.unparse(expr.value), scope, pos, table, owner):
             if (m, expr.attr) in _EXIT_CALLS:
                 return "fn", (m, expr.attr)
     return "other", None
 
 
-def _assignment_bindings(tree: ast.Module, owner: dict[int, ast.AST], table: ExitTable) -> None:
-    """``x = <value>`` binds x to what the value is. In source order, so a later value sees the earlier bindings."""
-    assigns = [n for n in ast.walk(tree) if isinstance(n, (ast.Assign, ast.AnnAssign)) and n.value is not None]
-    for n in sorted(assigns, key=lambda n: n.lineno):
-        kind, payload = _value_binding(n.value, owner[id(n)], n.lineno, table, owner)
-        for t in (n.targets if isinstance(n, ast.Assign) else [n.target]):
+def _assigned(assigns: list[tuple[ast.AST, list[ast.expr]]], owner: dict[int, ast.AST], table: ExitTable):
+    """The ``(key, entry)`` each assignment makes against ``table``, in source order."""
+    out = []
+    for n, targets in sorted(assigns, key=lambda p: _after(p[0])):
+        scope = owner[id(n)]
+        if isinstance(n, ast.NamedExpr):  # a walrus binds in the nearest enclosing def, lambda, class or module
+            while isinstance(scope, _COMPREHENSIONS):
+                scope = owner[id(scope)]
+        kind, payload = _value_binding(n.value, owner[id(n)], _at(n.value), table, owner)
+        for t in targets:
             if isinstance(t, ast.Name):
-                _bind(table, owner[id(n)], t.id, n.lineno, kind, payload)
+                target = _target_scope(scope, t.id, table)
+                pos = _after(n) if target is scope else _LATER
+                out.append(((id(target), t.id), (pos, kind, payload)))
+    return out
+
+
+def _assignment_bindings(tree: ast.Module, owner: dict[int, ast.AST], table: ExitTable) -> None:
+    """``x = value`` and ``(x := value)`` bind x to what the value is, once the value is evaluated.
+
+    A value can name a binding that another assignment makes later in the source (a function may run after it),
+    so the entries are recomputed until they settle: each pass reads the entries of the pass before it, then replaces them.
+    """
+    assigns: list[tuple[ast.AST, list[ast.expr]]] = []
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Assign):
+            assigns.append((n, n.targets))
+        elif isinstance(n, (ast.AnnAssign, ast.NamedExpr)) and n.value is not None:
+            assigns.append((n, [n.target]))
+    entries: list[tuple[tuple[int, str], tuple]] = []
+    for _ in range(len(assigns) + 1):
+        fresh = _assigned(assigns, owner, table)
+        for key, entry in entries:
+            table[key].remove(entry)
+        for key, entry in fresh:
+            table.setdefault(key, []).append(entry)
+        if fresh == entries:
+            break
+        entries = fresh
 
 
 def _declared_scopes(tree: ast.Module, owner: dict[int, ast.AST], table: ExitTable) -> None:
-    """``global x`` binds x in the module and ``nonlocal x`` in the nearest enclosing scope that binds it."""
+    """``global x`` declares x in the module and ``nonlocal x`` in the nearest enclosing scope that binds it.
+
+    The bindings made in the declaring scope move to that scope, where they run when the function is called. The
+    declaration stays in the scope, so that its own uses resolve there.
+    """
     for n in ast.walk(tree):
         if not isinstance(n, (ast.Global, ast.Nonlocal)):
             continue
         scope = owner[id(n)]
+        kind = "global" if isinstance(n, ast.Global) else "nonlocal"
         for name in n.names:
-            target = tree if isinstance(n, ast.Global) else _binder_above(scope, name, table, owner)
-            if target is not None and target is not scope:
-                table.setdefault((id(target), name), []).extend(table.pop((id(scope), name), []))
+            target = tree if kind == "global" else _binder_above(scope, name, table, owner)
+            if target is None or target is scope:
+                continue
+            moved = table.pop((id(scope), name), [])
+            table.setdefault((id(target), name), []).extend((_LATER, k, p) for _, k, p in moved)
+            table.setdefault((id(scope), name), []).append((_at(n), kind, target))
 
 
 def _binder_above(scope: ast.AST, name: str, table: ExitTable, owner: dict[int, ast.AST]) -> ast.AST | None:
@@ -571,80 +635,91 @@ def _binder_above(scope: ast.AST, name: str, table: ExitTable, owner: dict[int, 
 
 def _exit_table(tree: ast.Module, owner: dict[int, ast.AST]) -> ExitTable:
     # the targets of an assignment with a value; ``x: int`` alone binds x (local to its function) as any other name
-    assigned = {id(t) for n in ast.walk(tree)
-                if isinstance(n, ast.Assign) or (isinstance(n, ast.AnnAssign) and n.value is not None)
-                for t in (n.targets if isinstance(n, ast.Assign) else [n.target]) if isinstance(t, ast.Name)}
+    assigned: set[int] = set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Assign):
+            targets = n.targets
+        elif isinstance(n, (ast.AnnAssign, ast.NamedExpr)) and n.value is not None:
+            targets = [n.target]
+        else:
+            continue
+        assigned |= {id(t) for t in targets if isinstance(t, ast.Name)}
     table: ExitTable = {}
     _shadowing_bindings(tree, owner, table, assigned)
-    _assignment_bindings(tree, owner, table)
     _declared_scopes(tree, owner, table)
+    _assignment_bindings(tree, owner, table)
     return table
 
 
-def _resolve(name: str, use: ast.AST, lineno: int, table: ExitTable, owner: dict[int, ast.AST]):
-    """The binding that ``name`` denotes at a use on ``lineno`` in scope ``use``, or None when no scope binds it.
+def _resolve(name: str, use: ast.AST, pos: tuple[int, int], table: ExitTable, owner: dict[int, ast.AST]):
+    """The binding that ``name`` denotes at ``pos`` in scope ``use``, or None when no scope binds it.
 
-    Python's scoping: the innermost scope that binds the name wins. In the use's own scope the last binding at or
-    above the use decides, and a binding only below it leaves the name local and unbound there; a class body then
-    reads the enclosing names. An enclosing scope is read as its last exit-kind binding of the name, if it has one:
-    a function may run after any rebinding. A class body is seen only from its own statements, not from the
-    functions inside it.
+    Python's scoping: the innermost scope that binds the name wins, unless it declares the name ``global`` or
+    ``nonlocal``, which sends the lookup to the scope that binds it. In the use's own scope the last binding at
+    or before ``pos`` decides, and a binding only after it leaves the name local and unbound there; a class body
+    then reads the enclosing names. An enclosing scope is read as its last exit-kind binding: a function may run
+    after any rebinding. A class body is seen only from its own statements, not from the functions inside it.
     """
-    scope = use
+    scope, here = use, True
     while True:
-        if scope is use or not isinstance(scope, ast.ClassDef):
-            found = table.get((id(scope), name))
-            if found and scope is not use:  # a function may run later: its exit-kind binding counts
+        if here or not isinstance(scope, ast.ClassDef):
+            found = table.get((id(scope), name), [])
+            declared = [b for b in found if b[1] in ("global", "nonlocal")]
+            if declared:
+                scope, here = declared[-1][2], False
+                continue
+            if found and not here:  # a function may run later: its exit-kind binding counts
                 exits = [b for b in found if b[1] != "other"] or found
                 return sorted(exits, key=lambda b: b[0])[-1]
             if found:
-                before = [b for b in found if b[0] <= lineno]
+                before = [b for b in found if b[0] <= pos]
                 if before:
                     return sorted(before, key=lambda b: b[0])[-1]
                 if not isinstance(use, ast.ClassDef):  # a function's local, not bound yet
-                    return (lineno, "other", None)
+                    return (pos, "other", None)
         if id(scope) not in owner:  # the module: no enclosing scope
             return None
-        scope = owner[id(scope)]
+        scope, here = owner[id(scope)], False
 
 
-def _modules(text: str, scope: ast.AST, lineno: int, table: ExitTable, owner: dict[int, ast.AST]) -> set[str]:
+def _modules(text: str, scope: ast.AST, pos: tuple[int, int], table: ExitTable, owner: dict[int, ast.AST]) -> set[str]:
     """The modules a dotted name stands for at this use: an import binding, or sys and os when nothing binds them."""
-    b = _resolve(text, scope, lineno, table, owner)
+    b = _resolve(text, scope, pos, table, owner)
     if b is None:
         return {text} if text in ("sys", "os") else set()
     return set(b[2]) if b[1] == "mod" else set()
 
 
-def _is_sysexit_expr(expr: ast.expr, scope: ast.AST, lineno: int, table: ExitTable, owner: dict[int, ast.AST]) -> bool:
+def _is_sysexit_expr(expr: ast.expr, scope: ast.AST, pos: tuple[int, int], table: ExitTable, owner: dict[int, ast.AST]) -> bool:
     """Whether ``expr`` is SystemExit, a name bound to it, or an instance of it (a call of either)."""
     if isinstance(expr, ast.Call):
-        return _is_sysexit_expr(expr.func, scope, lineno, table, owner)
+        return _is_sysexit_expr(expr.func, scope, pos, table, owner)
     if isinstance(expr, ast.Name):
-        b = _resolve(expr.id, scope, lineno, table, owner)
+        b = _resolve(expr.id, scope, pos, table, owner)
         return expr.id == "SystemExit" if b is None else b[1] == "sysexit"
     if isinstance(expr, ast.Attribute):  # builtins.SystemExit, with ``import builtins``
-        return expr.attr == "SystemExit" and "builtins" in _modules(ast.unparse(expr.value), scope, lineno, table, owner)
+        return expr.attr == "SystemExit" and "builtins" in _modules(ast.unparse(expr.value), scope, pos, table, owner)
     return False
 
 
 def _calls_exit(node: ast.Call, scope: ast.AST, table: ExitTable, owner: dict[int, ast.AST]) -> bool:
     func = node.func
+    pos = _at(node)
     if isinstance(func, ast.Name):  # exit(), quit(), or a name bound to sys.exit and the like
-        b = _resolve(func.id, scope, node.lineno, table, owner)
+        b = _resolve(func.id, scope, pos, table, owner)
         return func.id in ("exit", "quit") if b is None else b[1] == "fn" and b[2] in _EXIT_CALLS
     return isinstance(func, ast.Attribute) and any(
-        (m, func.attr) in _EXIT_CALLS for m in _modules(ast.unparse(func.value), scope, node.lineno, table, owner))
+        (m, func.attr) in _EXIT_CALLS for m in _modules(ast.unparse(func.value), scope, pos, table, owner))
 
 
 def exit_sites(tree: ast.Module) -> list[int]:
     """Lines that end the process: an exit call (by module attribute, through an alias, or builtin name) or a raise of SystemExit.
 
     The ``if __name__ == '__main__':`` block of a script is the process boundary of ``python -m``, so it is
-    not counted. Each name resolves by function scope (see ``_resolve``): an import, a parameter or an
-    assignment in one function does not change what another function's name means, and a method does not see
-    the names of its class body. Linear, not control-flow aware: ``if c: e = SystemExit(2)`` then
-    ``else: e = ValueError()`` is read as the else binding.
+    not counted. Each name resolves by scope and by source position (see ``_resolve``): an import, a parameter or
+    an assignment in one function does not change what another function's name means, a method does not see the
+    names of its class body, and a binding that follows a use on the same line does not count for it. Linear, not
+    control-flow aware: ``if c: e = SystemExit(2)`` then ``else: e = ValueError()`` is read as the else binding.
 
     Known gap, where a real exit is missed: a module-level import followed by a later rebinding such as
     ``except ImportError: sys = None`` is read as the rebinding by the code after it.
@@ -660,7 +735,7 @@ def exit_sites(tree: ast.Module) -> list[int]:
         if id(node) in guarded or id(node) in raised:
             continue
         if isinstance(node, ast.Raise) and node.exc is not None:
-            if _is_sysexit_expr(node.exc, owner[id(node)], node.lineno, table, owner):
+            if _is_sysexit_expr(node.exc, owner[id(node)], _at(node.exc), table, owner):
                 lines.append(node.lineno)
                 raised.add(id(node.exc))
         elif isinstance(node, ast.Call) and _calls_exit(node, owner[id(node)], table, owner):
@@ -919,3 +994,30 @@ def test_tie_between_equal_size_subsets_is_stable():
     forward = cycle_problems([ab, ac, abc], {ab: "known1", ac: "known2"})
     backward = cycle_problems([ab, ac, abc], {ac: "known2", ab: "known1"})
     assert forward == backward
+
+
+@pytest.mark.parametrize("source, lines", [
+    # a definition's own name does not bind before its header is evaluated (the header runs in the enclosing scope)
+    ("import sys\ndef sys(x=sys.exit(2)):\n    pass\n", [2]),
+    ("import sys\nclass sys(sys.exit(2)):\n    pass\n", [2]),
+    ("import sys\nasync def sys(x=sys.exit(2)):\n    pass\n", [2]),
+    # unshadowed builtins exit and quit, bound to another name
+    ("stop = exit\nstop(2)\n", [2]),
+    ("stop = quit\nstop(2)\n", [2]),
+    ("exit = print\nexit(2)\n", []),
+    # a function's alias of a binding made later at module level: the function runs after that binding
+    ("import sys\ndef f():\n    stop = end\n    stop(2)\nend = sys.exit\nf()\n", [4]),
+    ("import sys\ndef f():\n    e = Stop\n    raise e(2)\nStop = SystemExit\nf()\n", [4]),
+    # assignment expressions bind their target
+    ("import sys\nif (stop := sys.exit):\n    stop(2)\n", [3]),
+    # a global declaration sends the name to the module, past the parameter that shadows it
+    ("import sys\ndef outer(sys):\n    def inner():\n        global sys\n        sys.exit(2)\n    return inner\n", [5]),
+    # a rebinding of the same line is read in source order
+    ("import sys; stop = sys.exit; stop(2); stop = None\n", [1]),
+    ("import sys; E = SystemExit; raise E(3); E = None\n", [1]),
+    ("import sys; s = sys; s.exit(2); s = None\n", [1]),
+    # a global rebinding made in a function runs only when it is called: module-level sys.exit is still a site
+    ("import sys\ndef f():\n    global sys\n    sys = None\nsys.exit(1)\n", [5]),
+])
+def test_exit_sites_resolves_names_by_scope_and_source_order(source, lines):
+    assert exit_sites(ast.parse(source)) == lines
