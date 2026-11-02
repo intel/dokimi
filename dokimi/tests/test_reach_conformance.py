@@ -64,7 +64,8 @@ DIGEST = "a" * 64
 
 
 def _matrix(runs=None, cells=None, generated_at="2026-10-31T00:00:00+00:00", digest=DIGEST) -> dict:
-    return cf.build_matrix(runs or [_run()], cells or [_cell()], digest, generated_at=generated_at)
+    return cf.build_matrix([_run()] if runs is None else runs, [_cell()] if cells is None else cells, digest,
+                           generated_at=generated_at)
 
 
 def test_unavailable_names_the_missing_piece():
@@ -270,6 +271,7 @@ def test_merge_keeps_two_failed_runs_of_one_harness():
     failed = _run(status="failed", reason="timed out", version="unknown", scenarios=0)
     merged = cf.merge([_matrix(runs=[failed], cells=[]), _matrix(runs=[failed], cells=[])])
     assert [r["status"] for r in merged["runs"]] == ["failed", "failed"]
+    assert merged["cells"] == []
 
 
 def test_merge_refuses_two_ran_runs_even_when_their_version_is_unknown():
