@@ -306,5 +306,5 @@ def test_a_readable_link_to_an_unreadable_target_digests_by_its_text(tmp_path):
         assert tree_digest(root / "link.json")
         assert tree_digest(root)
     finally:
-        os.chmod(private, 0o755)
+        os.chmod(private, 0o700)  # owner access back so tmp_path can be removed
 
