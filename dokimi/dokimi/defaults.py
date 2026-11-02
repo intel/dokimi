@@ -20,6 +20,7 @@ default flags before that are not comparable with ones taken after; re-baseline
 """
 
 import os
+from typing import Any, Mapping
 
 DEFAULT_ANSWER_PROVIDER = "openai"
 DEFAULT_ANSWER_MODEL = "gpt-6.1-sol"
@@ -91,6 +92,24 @@ JUDGE_MODEL_HELP = (f"Judge model (default: the default judge for --judge-provid
 
 # Decision (2026-03-04): one fixed semantic retrieval config.
 DEFAULT_RETRIEVAL_TOP_K = 3
+
+# Answering/judging method version, stamped into answers and eval artifacts; bump it when a change moves scores.
+# A later compare is meant to refuse mixed versions; an unstamped artifact predates it (#228 step 2) and is v1.
+ANSWERING_METHOD_VERSION = 2
+#: The version of an artifact that carries no stamp (written before ANSWERING_METHOD_VERSION existed).
+LEGACY_ANSWERING_METHOD_VERSION = 1
+
+
+def answers_method_version(meta: Mapping[str, Any]) -> int:
+    """The method_version an answers artifact carries; absent or null is legacy, else a positive int."""
+    value = meta.get("method_version")
+    if value is None:
+        return LEGACY_ANSWERING_METHOD_VERSION
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError(f"method_version must be a positive integer, got {value!r}")
+    return value
+
+
 DEFAULT_MAX_TOKENS_PER_QUESTION = 4000
 DEFAULT_CONCURRENCY = 5
 DEFAULT_RESULTS_SUFFIX = "_final"

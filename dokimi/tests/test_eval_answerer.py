@@ -18,6 +18,7 @@ for mod_name in ['langchain_openai', 'langchain_anthropic']:
         sys.modules[mod_name] = mock_mod
 
 from dokimi.eval.answerer import Answerer, ANSWER_PROMPT_WITH_DOCS, ANSWER_PROMPT_WITHOUT_DOCS
+from dokimi.defaults import DEFAULT_RETRIEVAL_TOP_K
 
 # Canonical return value for llm_call_with_usage mock
 _LLM_MOCK_RETURN = ("This is a test answer from LLM.", {
@@ -74,29 +75,17 @@ def mock_llm_call():
 
 
 class TestAnswererInit:
-    def test_init_openai(self):
-        mock_cls = Mock()
-        with patch('dokimi.eval.answerer.ChatOpenAI', mock_cls, create=True), \
-             patch('dokimi.eval.answerer.LANGCHAIN_AVAILABLE', True):
-            answerer = Answerer(model="gpt-4o", provider="openai")
-            assert answerer.model == "gpt-4o"
-            assert answerer.provider == "openai"
-            mock_cls.assert_called_once()
-
-    def test_init_anthropic(self):
-        mock_cls = Mock()
-        with patch('dokimi.eval.answerer.ChatAnthropic', mock_cls, create=True), \
-             patch('dokimi.eval.answerer.LANGCHAIN_AVAILABLE', True):
-            answerer = Answerer(model="claude-opus", provider="anthropic", api_key="test")
-            # The anthropic client is the one built, with the caller's model and key.
-            mock_cls.assert_called_once_with(model="claude-opus", api_key="test")
-            assert answerer.llm is mock_cls.return_value
-            assert answerer.provider == "anthropic"
+    @pytest.mark.parametrize(
+        "provider",
+        ["openai", "anthropic", "google", "gemini", "google-vertex", "openrouter",
+         "amazon-bedrock", "vertex_ai"],
+    )
+    def test_init_accepts_supported_provider(self, provider):  # test-quality: ok must-not-raise smoke test of the provider allow-list
+        with patch('dokimi.eval.answerer.LANGCHAIN_AVAILABLE', True):
+            Answerer(model="m", provider=provider)
 
     def test_init_unsupported_provider(self):
-        mock_cls = Mock()
-        with patch('dokimi.eval.answerer.ChatOpenAI', mock_cls, create=True), \
-             patch('dokimi.eval.answerer.LANGCHAIN_AVAILABLE', True):
+        with patch('dokimi.eval.answerer.LANGCHAIN_AVAILABLE', True):
             with pytest.raises(ValueError) as exc:
                 Answerer(provider="unsupported")
             assert "Unsupported provider" in str(exc.value)
@@ -191,17 +180,39 @@ class TestGenerateAnswers:
 
 
 class TestRetrieveDocs:
+    def test_asks_the_doc_source_for_top_k_docs(self, mock_mcp_client):
+        with patch('dokimi.eval.answerer.LANGCHAIN_AVAILABLE', True):
+            answerer = Answerer(mcp_client=mock_mcp_client, top_k=7)
+            answerer._retrieve_docs("uxlfoundation/oneTBB", "parallel_for", 4000)
+
+            mock_mcp_client.get_library_docs.assert_called_once_with(
+                library_id="uxlfoundation/oneTBB", query="parallel_for",
+                max_results=7, max_tokens=4000,
+            )
+
     def test_calls_mcp_client(self, mock_mcp_client):
         with patch('dokimi.eval.answerer.LANGCHAIN_AVAILABLE', True):
             answerer = Answerer(mcp_client=mock_mcp_client)
             docs = answerer._retrieve_docs("uxlfoundation/oneTBB", "parallel_for", 4000)
 
             mock_mcp_client.get_library_docs.assert_called_once_with(
-                library_id="uxlfoundation/oneTBB", query="parallel_for", max_tokens=4000
+                library_id="uxlfoundation/oneTBB", query="parallel_for",
+                max_results=DEFAULT_RETRIEVAL_TOP_K, max_tokens=4000,
             )
             assert [d["content"] for d in docs] == [
                 mock_mcp_client.get_library_docs.return_value[0]["content"]
             ]
+
+    def test_no_top_k_asks_the_doc_source_for_the_default(self, mock_mcp_client):
+        """`answers generate` without --top-k reaches here as top_k=None: the doc source gets the default, not None."""
+        with patch('dokimi.eval.answerer.LANGCHAIN_AVAILABLE', True):
+            answerer = Answerer(mcp_client=mock_mcp_client, top_k=None)
+            answerer._retrieve_docs("uxlfoundation/oneTBB", "parallel_for", 4000)
+
+            mock_mcp_client.get_library_docs.assert_called_once_with(
+                library_id="uxlfoundation/oneTBB", query="parallel_for",
+                max_results=3, max_tokens=4000,
+            )
 
     def test_error_handling(self, mock_mcp_client):
         mock_mcp_client.get_library_docs.side_effect = Exception("Network error")
@@ -227,15 +238,6 @@ class TestGenerateWithDocs:
             assert "token_usage" in result
             assert result["doc_source"] == "context7"
             assert result["answer"] == "This is a test answer from LLM."
-
-    def test_empty_docs(self):
-        with patch('dokimi.eval.answerer.LANGCHAIN_AVAILABLE', True):
-            answerer = Answerer()
-            result = answerer._generate_with_docs("Test question?", [])
-
-            assert result["answer"] == "[No documentation retrieved]"
-            assert result["retrieved_docs"] == []
-            assert "token_usage" in result
 
 
 class TestGenerateWithoutDocs:

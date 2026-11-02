@@ -13,27 +13,32 @@ and its limits.
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass
-from pathlib import PurePosixPath, PureWindowsPath
+from pathlib import PurePosixPath
 from typing import Any
 
-from .reach import PROSE_LIMIT
+from .budget import _imports, _target
+from .reach import PROSE_LIMIT, ReachError
 from .source import RepoTree
 
 SCHEMA = "effective-instructions/v0"
 SCHEMA_VERSION = "effective_instructions.v1"
 UNKNOWN = "unknown"
-# The probe's method: the model reports the marker tokens it can see; the request itself is not captured.
-METHOD = "prompt_capture"
+# The thread vocabulary's observation_method: no runtime event, prompt capture or hook backs the probe.
+OBSERVATION_METHOD = UNKNOWN
+# dokimi's own method: the model reports the marker tokens it can see; the request itself is not captured.
+DOKIMI_METHOD = "marker_self_report"
 # Root-level files that turn AGENTS.md off in Claude Code (budget.py): the displacing set.
 CLAUDE_ROOT = ("CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md")
 ROOT_NESTED = (".claude/CLAUDE.md", ".claude/AGENTS.md")  # project memory in .claude/ applies repo-wide
 SUBTREE_NAMES = ("AGENTS.md", "CLAUDE.md", "CLAUDE.local.md")
-_STATE = {"loaded": "loaded", "fetched": "fetched", "not_loaded": "not_loaded"}
+_STATE: dict[str | None, str] = {"loaded": "loaded", "fetched": "fetched", "not_loaded": "not_loaded"}
 _LOADED: dict[str | None, bool] = {"loaded": True, "not_loaded": False}
 DETAIL = ("the model is asked to report the marker tokens it can see; the request sent to the provider is not "
           "captured, so a reported token is evidence of loading, not a copy of the bytes it received")
-NOT_PROBED = "start-up imports and skills from repo_budget are not probed by reach; their observed state is unknown"
+NOT_PROBED = ("start-up imports and skill listings from repo_budget are not probed by reach; their observed state is "
+              "unknown, and skill bodies (loaded on demand) are not listed")
 
 
 @dataclass(frozen=True)
@@ -41,6 +46,7 @@ class _Run:
     row: dict[str, Any]  # the reach scenario row
     records: dict[tuple[str, str], dict[str, Any]]  # (file, scenario id) -> record
     when_of: dict[str, str]  # canonical path -> budget's when
+    own: frozenset[str]  # guidance files budget lists under their own path (not a link to another file)
     digests: dict[str, str | None]
     workdir: str  # the directory the run works in
     rules: bool  # budget's rules apply (Claude Code)
@@ -51,13 +57,14 @@ def build_receipt(reach: dict[str, Any], budget: dict[str, Any], tree: RepoTree)
     harness = reach["harness"]
     rules = harness["name"] == "claude-code"  # budget's start-up rules are Claude Code's
     when_of = _budget_when(reach, budget) if rules else {}
+    own = _own_guidance(reach, budget, tree)
     start_up = [p for p, when in when_of.items() if when in ("start", "off") and p not in _known(reach)]
     digests = source_digests(tree, [p for p, _ in _probed(reach)] + start_up)
     records = {(r["file"], r["scenario"]): r for r in reach["records"]}
     runtime = {"name": harness["name"], "version": harness["version"]}
     receipts = []
     for row in reach["scenarios"]:
-        run = _Run(row, records, when_of, digests, _workdir(row), rules)
+        run = _Run(row, records, when_of, own, digests, _workdir(row), rules)
         receipts.append(_receipt(reach, run, runtime, start_up))
     return {
         "schema_version": SCHEMA_VERSION,
@@ -65,20 +72,65 @@ def build_receipt(reach: dict[str, Any], budget: dict[str, Any], tree: RepoTree)
         "repo": {**reach["repo"], "tree": _shareable_tree(reach["repo"]["tree"])},
         "runtime": runtime,
         "model": reach["model"],
-        "observation": {"method": METHOD, "detail": DETAIL},
-        "unknowns": _global_unknowns(harness["name"], rules),
+        "observation": {"method": OBSERVATION_METHOD, "dokimi_method": DOKIMI_METHOD, "detail": DETAIL},
+        "unknowns": _global_unknowns(harness["name"], rules, pinned=bool(getattr(tree, "sha", None))),
         "receipts": receipts,
     }
 
 
+_REV_SUFFIX = re.compile(r"@[0-9a-f]{7,40}$")  # the pinned revision a git source's label ends with
+_URL_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")  # https://, ssh://, file://, ...
+_SCP_LIKE = re.compile(r"^[^/\\\s]+@[^/\\\s]+:")  # git@host:path
+_USERINFO = re.compile(r"^([A-Za-z][A-Za-z0-9+.-]*://)([^/]*)@")  # scheme://user[:secret]@, up to the last @ before the host
+
+
 def _shareable_tree(label: str) -> str:
-    """The tree label with a local directory cut to its last component, so no home path reaches a shared receipt."""
-    name, at, sha = label.rpartition("@")
-    if not at:
-        name, sha = label, ""
-    if not (PureWindowsPath(name).drive or PurePosixPath(name).is_absolute() or name.startswith("~")):
-        return label
-    return (PurePosixPath(name.replace("\\", "/")).name or "tree") + at + sha
+    """The tree label with a local directory cut to its last component, so no home path reaches a shared receipt.
+    A remote label (any URL scheme but file://, or git@host:path) is kept whole; any other label names a local
+    directory, absolute or relative, and is cut. The revision is the label's own hex suffix, so an ``@`` in a parent
+    directory is part of the path."""
+    match = _REV_SUFFIX.search(label)
+    name, rev = (label[: match.start()], match.group()) if match else (label, "")
+    if name.lower().startswith("file://"):
+        local = True
+    else:
+        local = not (_URL_SCHEME.match(name) or _SCP_LIKE.match(name))
+    if not local:
+        return _USERINFO.sub(_drop_secret, name, count=1) + rev
+    base = PurePosixPath(name.replace("\\", "/")).name
+    return (base if base not in ("", ".", "..") else "tree") + rev
+
+
+def _drop_secret(match: re.Match[str]) -> str:
+    """Userinfo that can carry a credential is dropped: any ``user:secret``, and all of it over http(s), where a
+    token is often the user name. A bare ssh user (``ssh://git@``) names no secret and is kept."""
+    scheme, user = match.groups()
+    if ":" in user or scheme.lower().startswith("http"):
+        return scheme
+    return match.group()
+
+
+def check_saved_reach(reach: dict[str, Any], repo_id: str, harness_name: str, tree_sha: str | None) -> None:
+    """Refuse a saved reach.json probed on another repository, harness or commit than the one it is read against."""
+    if reach["repo"]["id"] != repo_id:
+        raise ReachError(f"reach.json is for repository {reach['repo']['id']!r}, not {repo_id!r}")
+    if reach["harness"]["name"] != harness_name:
+        raise ReachError(f"reach.json was probed with harness {reach['harness']['name']!r}, not {harness_name!r}")
+    probed = reach["repo"].get("sha")
+    if probed and tree_sha and probed != tree_sha:
+        raise ReachError(f"reach.json was probed at {probed[:12]}, the source is at {tree_sha[:12]}")
+
+
+def check_receipt_provenance(reach: dict[str, Any], tree_sha: str | None) -> None:
+    """Refuse a receipt rebuilt from a saved probe unless both sides are at a commit. The digests and expectations
+    are read from the source now, so they describe the probed text only when that text is pinned: a working tree
+    may have changed since the probe, and a probe of a working tree has no commit to check the source against."""
+    if not tree_sha:
+        raise ReachError("--format receipt needs a pinned source: a working tree can change after the probe, so give "
+                         "the repository at a revision (<path>@<rev>)")
+    if not reach["repo"].get("sha"):
+        raise ReachError("reach.json was probed from a working tree (repo.sha is null), so its receipt cannot be "
+                         "tied to a commit; probe a pinned source to get a receipt")
 
 
 def source_digests(tree: RepoTree, paths: list[str]) -> dict[str, str | None]:
@@ -109,7 +161,16 @@ def _budget_when(reach: dict[str, Any], budget: dict[str, Any]) -> dict[str, str
     """budget's ``when`` of each guidance file and import, keyed by the file the path resolves to."""
     target_of = {alias: item["path"] for item in reach["files"] for alias in item.get("aliases", [])}
     return {target_of.get(e["path"], e["path"]): e["when"]
-            for e in budget["entries"] if e["kind"] in ("guidance", "import")}
+            for e in budget["entries"] if e["kind"] in ("guidance", "import", "skill listing")}
+
+
+def _own_guidance(reach: dict[str, Any], budget: dict[str, Any], tree: RepoTree) -> frozenset[str]:
+    """Guidance files budget lists under their own path, and that no other guidance file @-imports: a link or an
+    import is activated where its importer is, so the file has no subtree of its own."""
+    aliases = {alias for item in reach["files"] for alias in item.get("aliases", [])}
+    guidance = [e["path"] for e in budget["entries"] if e["kind"] == "guidance"]
+    imported = {_target(tree, p) for g in guidance for p in _imports(tree, [g])[0]}
+    return frozenset(p for p in guidance if p not in aliases and p not in imported)
 
 
 def _dir(path: str) -> str:
@@ -135,7 +196,7 @@ def _receipt(reach: dict[str, Any], run: _Run, runtime: dict[str, str], start_up
         "target": row.get("read"),
         "sources": sources,
         "precedence_observed": _precedence(sources, off),
-        "unknowns": _run_unknowns(row, sources),
+        "unknowns": _run_unknowns(row, sources, run),
     }
 
 
@@ -143,15 +204,15 @@ def _source(path: str, alias_of: str | None, run: _Run) -> dict[str, Any]:
     target = alias_of or path
     rec = run.records.get((target, run.row["id"]))
     cls = rec["class"] if rec else None
-    observed, method = _observation(cls)
     return {
         "path": path,
         **({"alias_of": alias_of} if alias_of else {}),
         "sha256": run.digests.get(path),
         "scope": _scope(path, alias_of is not None),
         "expected": _expected(target, run.when_of.get(target), run),
-        "observed": observed,
-        "observation_method": method,
+        "observed": _STATE.get(cls, UNKNOWN),  # a truncated cell saw one token: an observation, no verdict
+        "observation_method": OBSERVATION_METHOD,
+        "dokimi_method": DOKIMI_METHOD if rec else None,
         "states": _states(cls, run.row["tools"] == "none", bool(rec and rec["read_by_tool"])),
     }
 
@@ -160,17 +221,8 @@ def _budget_only(path: str, run: _Run) -> dict[str, Any]:
     """A start-up import or guidance file budget found and reach did not probe: expected, never observed."""
     return {"path": path, "sha256": run.digests.get(path), "scope": _scope(path, False),
             "expected": _expected(path, run.when_of[path], run), "observed": UNKNOWN,
-            "observation_method": UNKNOWN, "states": _states(None, False, False)}
-
-
-def _observation(cls: str | None) -> tuple[str, str]:
-    """(observed state, observation_method) of one reach class. A truncated cell saw one token: an observation,
-    no verdict."""
-    if cls in _STATE:
-        return _STATE[cls], METHOD
-    if cls == "truncated":
-        return UNKNOWN, METHOD
-    return UNKNOWN, UNKNOWN  # error, or no record (not probed in this run)
+            "observation_method": OBSERVATION_METHOD, "dokimi_method": None,
+            "states": _states(None, False, False)}
 
 
 def _states(cls: str | None, tools_off: bool, read_by_tool: bool) -> dict[str, Any]:
@@ -188,8 +240,10 @@ def _expected(target: str, when: str | None, run: _Run) -> bool | str:
         return UNKNOWN
     if when in ("start", "off"):
         return when == "start"
-    if when == "lazy":
+    if when == "lazy":  # budget's flattened when cannot say where a link or an import is activated: only a subtree file
         d = _dir(target)
+        if target not in run.own or not d or target.rsplit("/", 1)[-1] not in SUBTREE_NAMES:
+            return UNKNOWN
         return run.workdir == d or run.workdir.startswith(d + "/")
     return UNKNOWN
 
@@ -212,12 +266,22 @@ def _precedence(sources: list[dict[str, Any]], off: set[str]) -> list[dict[str, 
             for w in winners]
 
 
-def _run_unknowns(row: dict[str, Any], sources: list[dict[str, Any]]) -> list[str]:
+def _recorded_class(source: dict[str, Any], run: _Run) -> str | None:
+    """The reach class of the record this source's observation came from (its alias's, for a link)."""
+    rec = run.records.get((source.get("alias_of") or source["path"], run.row["id"]))
+    return rec["class"] if rec else None
+
+
+def _run_unknowns(row: dict[str, Any], sources: list[dict[str, Any]], run: _Run) -> list[str]:
     out = []
     if row.get("error"):
         out.append("no usable answer from this run: every observed state is unknown")
-    out += [f"{s['path']}: one of its two marker tokens was reported; loaded is not established"
-            for s in sources if s["observed"] == UNKNOWN and s["observation_method"] == METHOD]
+    else:
+        # a truncated record saw one of the two marker tokens; an error record saw neither, so it says nothing
+        out += [f"{s['path']}: one of its two marker tokens was reported; loaded is not established"
+                for s in sources if _recorded_class(s, run) == "truncated"]
+        out += [f"{s['path']}: the probe recorded an error for this file; no state is established"
+                for s in sources if _recorded_class(s, run) == "error"]
     if (row.get("prose") or 0) > PROSE_LIMIT:
         out.append(f"answered with {row['prose']} words besides tokens; its not_loaded states may be under-reports")
     if row.get("unknown"):
@@ -225,10 +289,12 @@ def _run_unknowns(row: dict[str, Any], sources: list[dict[str, Any]]) -> list[st
     return out
 
 
-def _global_unknowns(name: str, rules: bool) -> list[str]:
+def _global_unknowns(name: str, rules: bool, pinned: bool) -> list[str]:
     out = [
         "followed is not observed: no marker shows what the model did with a loaded source",
-        "accessed is observed only for the Read tool; a read through a shell (cat, rg, grep) is not seen",
+        "observation_method is unknown: no prompt is captured; dokimi_method names the marker self-report instead",
+        "accessed is observed only where the harness reports a read event; "
+        "a shell read it does not normalise is not seen",
         "sha256 is over the LF-normalised UTF-8 text dokimi reads, which the probe seeds; a CRLF file's bytes differ",
         "no load timestamps: the probe does not record when a source entered the request",
         "the order in which sources entered the request is not observed; precedence_observed lists displacements only",
@@ -236,4 +302,8 @@ def _global_unknowns(name: str, rules: bool) -> list[str]:
     ]
     if not rules:
         out.append(f"budget's start-up rules are Claude Code's: no source has an expected state for {name}")
+    if not pinned:
+        out.append("the source is a working tree: sha256 and expected are read after the harness exits, so an edit "
+                   "made while the run was in flight is not reflected in the observations; pin the source to a "
+                   "revision for a stable receipt")
     return out

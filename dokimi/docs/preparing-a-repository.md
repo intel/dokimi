@@ -199,8 +199,10 @@ Recurring review comments are review knowledge a repository already has.
 |---|---|
 | Claude Code 2.1.286 (measured 2026-10) | `CLAUDE.md`. `AGENTS.md` only when no `CLAUDE.md` is in its start-up chain. Subdirectory files lazily, when it reads a file there (a subdirectory `AGENTS.md` only if no `CLAUDE.md` is in the chain). |
 
-Other harnesses (Codex, Copilot and others) are not listed because no loading
-behavior was measured for them. Each needs its own `harness_profile.v1` and a
+Codex (codex-cli 0.160) and Copilot CLI (1.0.91) were measured too: what each
+loaded is in the `guidance.notes` of the built-in `codex` and `copilot` profiles
+(`dokimi/repos/profiles/codex.yaml`, `dokimi/repos/profiles/copilot.yaml`). A
+harness without a built-in profile needs its own `harness_profile.v1` and a
 measurement with `dokimi repo reach`; the `text`-trace limit below applies.
 
 Put a `CLAUDE.md` containing `@AGENTS.md` next to each `AGENTS.md`, including in

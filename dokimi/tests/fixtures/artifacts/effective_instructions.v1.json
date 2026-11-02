@@ -13,11 +13,13 @@
   },
   "model": "m",
   "observation": {
-    "method": "prompt_capture",
+    "method": "unknown",
+    "dokimi_method": "marker_self_report",
     "detail": "the model is asked to report the marker tokens it can see; the request sent to the provider is not captured, so a reported token is evidence of loading, not a copy of the bytes it received"
   },
   "unknowns": [
     "followed is not observed: no marker shows what the model did with a loaded source",
+    "observation_method is unknown: no prompt is captured; dokimi_method names the marker self-report instead",
     "accessed is observed only for the Read tool; a read through a shell (cat, rg, grep) is not seen",
     "sha256 is over the LF-normalised UTF-8 text dokimi reads, which the probe seeds; a CRLF file's bytes differ",
     "no load timestamps: the probe does not record when a source entered the request",
@@ -41,7 +43,8 @@
           "scope": "repo",
           "expected": false,
           "observed": "not_loaded",
-          "observation_method": "prompt_capture",
+          "observation_method": "unknown",
+          "dokimi_method": "marker_self_report",
           "states": {
             "accessed": false,
             "selected": "unknown",
@@ -55,7 +58,8 @@
           "scope": "repo",
           "expected": true,
           "observed": "loaded",
-          "observation_method": "prompt_capture",
+          "observation_method": "unknown",
+          "dokimi_method": "marker_self_report",
           "states": {
             "accessed": false,
             "selected": true,
@@ -69,7 +73,8 @@
           "scope": "subtree",
           "expected": false,
           "observed": "not_loaded",
-          "observation_method": "prompt_capture",
+          "observation_method": "unknown",
+          "dokimi_method": "marker_self_report",
           "states": {
             "accessed": false,
             "selected": "unknown",
@@ -84,6 +89,7 @@
           "expected": true,
           "observed": "unknown",
           "observation_method": "unknown",
+          "dokimi_method": null,
           "states": {
             "accessed": "unknown",
             "selected": "unknown",

@@ -1,0 +1,70 @@
+{
+  "schema_version": "eval_coverage.v1",
+  "evals_root": "skill",
+  "graph": {
+    "artifact_name": "dpnp-io",
+    "digest": "502b794faa561af3c1910c221a2d25db8db77563ec9fde3a05127121a8f12d67",
+    "nodes": 3,
+    "in_scope": 2,
+    "hypotheses": 2
+  },
+  "coverage": {
+    "weights": {
+      "core": 1.0,
+      "rare_critical": 1.0,
+      "branch": 0.7,
+      "supporting": 0.4,
+      "out_of_scope": 0.0
+    },
+    "weighted": 0.5,
+    "core_rare_critical": 0.5,
+    "rare_critical": 0.0,
+    "by_class": {
+      "core": {
+        "covered": 1,
+        "total": 1
+      },
+      "rare_critical": {
+        "covered": 0,
+        "total": 1
+      },
+      "branch": {
+        "covered": 0,
+        "total": 0
+      },
+      "supporting": {
+        "covered": 0,
+        "total": 0
+      },
+      "out_of_scope": {
+        "covered": 0,
+        "total": 1
+      }
+    }
+  },
+  "gaps": [
+    {
+      "id": "n2",
+      "path_class": "rare_critical",
+      "text": "keep allow_pickle=False for untrusted files",
+      "confirmed_by": "hypothesis"
+    }
+  ],
+  "evals": [
+    {
+      "id": "save",
+      "source": "evals.json",
+      "needs": [
+        "n1"
+      ],
+      "relevance": "relevant_core"
+    },
+    {
+      "id": "css",
+      "source": "evals.json",
+      "needs": [],
+      "relevance": "orphan"
+    }
+  ],
+  "problems": []
+}
