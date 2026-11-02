@@ -1078,7 +1078,9 @@ harness call (the harness's version command), so it refuses what a run would
 refuse, with the same `✗` line and exit code: a selection that leaves no
 scenario, a receipt that would replace the probe, and the checks of steps 1
 and 2. For those it builds the workspace, in `--work-dir` when given, and
-removes it, `--keep` or not.
+removes it, `--keep` or not. A `--work-dir` that is missing, not a directory
+or not writable, and a write the workspace refuses (a full disk), stop a dry
+run and a run alike with a `✗` line naming the directory and exit 1.
 
 Output: `<out>/reach.json` and `<out>/traces/` (raw stdout and `events.jsonl`
 per scenario).

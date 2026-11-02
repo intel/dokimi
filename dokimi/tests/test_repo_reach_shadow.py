@@ -10,7 +10,9 @@ chain of a file it is told to read, it loads the directory's own ``CLAUDE*`` fil
 
 from __future__ import annotations
 
+import errno
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -544,6 +546,54 @@ def test_repo_reach_dry_run_refuses_what_a_run_refuses_before_any_harness_call(t
     seen = _both_modes(tmp_path, capsys, argv)
     assert seen[0] == seen[1] and seen[0][:2] == (code, "") and message in seen[0][2]
     assert sorted(p.name for p in (tmp_path / "work").iterdir()) == work  # each removed the workspace it built
+
+
+def _refuse_mkdtemp(monkeypatch, work: Path) -> None:
+    """mkdtemp in ``work`` refused as an unwritable directory is, by root and on Windows too."""
+    real = reach.tempfile.mkdtemp
+
+    def mkdtemp(*args, **kwargs):
+        if kwargs.get("dir") == str(work):
+            raise PermissionError(errno.EACCES, "Permission denied")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(reach.tempfile, "mkdtemp", mkdtemp)
+
+
+@pytest.mark.parametrize("where, why", [("nope", "No such file or directory"), ("a-file", "Not a directory"),
+                                        ("work", "Permission denied")], ids=["missing", "a-file", "unwritable"])
+def test_repo_reach_with_a_work_dir_it_cannot_use_fails_cleanly_in_both_modes(tmp_path, monkeypatch, capsys,
+                                                                             where, why):
+    monkeypatch.setenv("FAKE_MODE", "ok")
+    (tmp_path / "work").mkdir()
+    (tmp_path / "a-file").write_text("not a directory\n", encoding="utf-8")
+    if where == "work":
+        _refuse_mkdtemp(monkeypatch, tmp_path / "work")
+    argv = _cli(tmp_path, "--work-dir", str(tmp_path / where), "--out", str(tmp_path / "out"),
+                shadow_file="CLAUDE.local.md")
+    seen = _both_modes(tmp_path, capsys, argv)
+    assert seen[0] == seen[1] == (1, "", f"✗ cannot make the probe workspace in --work-dir {tmp_path / where}: {why}")
+    assert not list((tmp_path / "work").iterdir()) and not (tmp_path / "nope").exists()
+
+
+def test_repo_reach_with_a_workspace_write_refused_fails_cleanly_in_both_modes(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("FAKE_MODE", "ok")
+    work = tmp_path / "work"
+    work.mkdir()
+    real = Path.write_text
+
+    def full(self, *args, **kwargs):  # the disk fills while the workspace is seeded
+        if work.resolve() in self.parents:
+            raise OSError(errno.ENOSPC, "No space left on device")
+        return real(self, *args, **kwargs)
+
+    argv = _cli(tmp_path, "--work-dir", str(work), "--out", str(tmp_path / "out"), shadow_file="CLAUDE.local.md")
+    monkeypatch.setattr(Path, "write_text", full)
+    for code, out, err in _both_modes(tmp_path, capsys, argv):
+        assert (code, out) == (1, "") and re.fullmatch(
+            rf"✗ cannot build the probe workspace {re.escape(str(work.resolve()))}.reach-\w+.ws: "
+            r"\[Errno 28\] No space left on device", err), err
+    assert not list(work.iterdir())  # each removed the workspace it began
 
 
 def test_a_dry_run_builds_and_removes_the_workspace_and_runs_no_harness(tmp_path, monkeypatch):

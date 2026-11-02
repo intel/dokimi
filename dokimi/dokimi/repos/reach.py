@@ -459,8 +459,7 @@ def run_reach(
     shadows = shadow_for(profile, tree, kinds)
     plan = scenarios(probed, kinds, only, shadows)
     salt = salt or hashlib.sha256(f"{tree.label}\0{datetime.now(timezone.utc).isoformat()}".encode()).hexdigest()[:12]
-    # Resolved: a harness reports physical paths (macOS /var is /private/var).
-    base = Path(tempfile.mkdtemp(prefix="reach-", dir=str(work_dir) if work_dir else None)).resolve()
+    base = _make_base(work_dir)
     workspace = base / "ws"
     try:
         salt, seeded = _prepare(tree, profile, groups, plan, workspace, salt)
@@ -520,14 +519,29 @@ def run_reach(
     }
 
 
+def _make_base(work_dir: Path | None) -> Path:
+    """The run's own directory, made under ``work_dir`` (the system's temporary directory without one) and resolved: a
+    harness reports physical paths (macOS /var is /private/var). One that is missing, not a directory or not writable
+    is a ReachError naming it."""
+    try:
+        return Path(tempfile.mkdtemp(prefix="reach-", dir=str(work_dir) if work_dir else None)).resolve()
+    except OSError as exc:
+        where = f"--work-dir {work_dir}" if work_dir else tempfile.gettempdir()
+        raise ReachError(f"cannot make the probe workspace in {where}: {exc.strerror or exc}") from exc
+
+
 def _prepare(tree: RepoTree, profile: HarnessProfile, groups: dict[str, list[str]], plan: list[Scenario],
              workspace: Path, salt: str) -> tuple[str, list[SeededFile]]:
-    """Build the workspace and make the checks a run makes before its first harness call: no guidance file above
-    the workspace, distinct tokens, a tree that can be seeded, free shadow paths. Returns the salt and the seeded."""
-    workspace.mkdir()
-    check_ancestors(workspace, tuple(dict.fromkeys(ANCESTOR_GUARD + profile.guidance_names)))
-    salt = distinct_salt(tree, list(groups), salt, shadows=tuple(s.shadow for s in plan if s.shadow))
-    seeded = build_workspace(tree, list(groups), workspace, salt, groups)
+    """Build the workspace and make the checks a run makes before its first harness call: distinct tokens, no
+    guidance file above the workspace, a tree that can be seeded, free shadow paths. Returns the salt and the seeded.
+    A write the workspace refuses (a full disk) is a ReachError naming the workspace."""
+    salt = distinct_salt(tree, list(groups), salt, shadows=tuple(s.shadow for s in plan if s.shadow))  # the tree only
+    try:
+        workspace.mkdir()
+        check_ancestors(workspace, tuple(dict.fromkeys(ANCESTOR_GUARD + profile.guidance_names)))
+        seeded = build_workspace(tree, list(groups), workspace, salt, groups)
+    except OSError as exc:
+        raise ReachError(f"cannot build the probe workspace {workspace}: {exc}") from exc
     _check_shadow_paths(workspace, plan)
     return salt, seeded
 
