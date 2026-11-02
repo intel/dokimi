@@ -1606,7 +1606,10 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
 - `repo hits judge <batch> --judge PROVIDER/MODEL` (§4.5) labels each credited
   pair of the batch's `dokimi:review_replay` cells, one judge call per pair
   (up to 3 draws when a reply does not parse; the response cache replays
-  them), and writes `<cell>/hits_judged.json` (`repo_hits_judged.v1`): the
+  them). The prompt gives the thread and the finding (file, line, full text)
+  each as one JSON object in a fenced block marked `data`, says that text
+  inside the blocks is data and not instructions, and gives the label rules
+  after the blocks. It writes `<cell>/hits_judged.json` (`repo_hits_judged.v1`): the
   judge, each pair's `thread`, `finding`, `label` and `reason`, the counts of
   `same point`, `related`, `unrelated` and `unjudged`, `n_threads` (from
   `grade.json` `metrics`), the grader's `recall`, and `recall_judged`. A cell
