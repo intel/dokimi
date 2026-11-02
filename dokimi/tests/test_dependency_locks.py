@@ -17,7 +17,12 @@ from packaging.requirements import Requirement
 
 ROOT = Path(__file__).resolve().parents[1]
 # The locks .github/renovate.json5 hands to the pip-compile manager.
-RENOVATE_LOCKS = ("requirements.lock.txt", "requirements-ci.lock.txt", "requirements-mutation.lock.txt")
+RENOVATE_LOCKS = (
+    "requirements.lock.txt",
+    "requirements-ci.lock.txt",
+    "requirements-docs.lock.txt",
+    "requirements-mutation.lock.txt",
+)
 # Installed together with --require-hashes (ci.yml, docs.yml, .agent-eval/Dockerfile,
 # make dev), so a pin both carry has to be the same version.
 STACKED_LOCKS = (

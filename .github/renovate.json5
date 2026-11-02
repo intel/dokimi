@@ -3,8 +3,9 @@
 
 // Dependency updates: the SHA-pinned actions in .github/workflows, the Python
 // lock (dokimi/requirements.lock.txt), the tools lock the workflows and the eval
-// image (.agent-eval/Dockerfile) install (dokimi/requirements-ci.lock.txt) and the
-// hook revs in .pre-commit-config.yaml.
+// image (.agent-eval/Dockerfile) install (dokimi/requirements-ci.lock.txt), the
+// docs lock (dokimi/requirements-docs.lock.txt) and the hook revs in
+// .pre-commit-config.yaml.
 //
 // Once a week, every minor and patch update lands in one PR; a major update
 // gets a PR of its own. Advisories (vulnerabilityAlerts) skip the schedule.
@@ -44,14 +45,15 @@
   // per-interpreter markers; pip_requirements would edit the pins in place without re-resolving, so it is left off.
   // pyproject.toml repeats the ranges of requirements.txt; pep621 keeps the two
   // in step when a range has to move (same dependency, same branch, one PR).
-  // requirements-docs.lock.txt is not matched yet: its header is not uv's, and it
-  // is compiled against the main lock with -c. pip-audit.yml audits it.
+  // requirements-docs.lock.txt is compiled against the main and tools locks with
+  // --constraint, so the same weekly PR refreshes it with them (its header is
+  // uv's, with long options, as the test in tests/test_dependency_locks.py checks).
   enabledManagers: ["github-actions", "pip-compile", "pep621", "custom.regex", "pre-commit"],
   // Off by default even when listed above. It reads `rev: <sha>  # frozen: vX`
   // and updates the SHA and the tag together.
   "pre-commit": { enabled: true },
   "pip-compile": {
-    managerFilePatterns: ["/(^|/)requirements(-ci|-mutation)?\\.lock\\.txt$/"],
+    managerFilePatterns: ["/(^|/)requirements(-ci|-docs|-mutation)?\\.lock\\.txt$/"],
   },
   // Inside a range: bump the lock only. Outside it: move the range too.
   rangeStrategy: "update-lockfile",
