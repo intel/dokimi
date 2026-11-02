@@ -206,8 +206,8 @@ these, in order, before writing what it showed (the fields:
   null and a loss alike without them (`repo compare --task` on the rest).
 - **Inconclusive, with the `mde`.** A gate or score row whose interval
   includes 0 is inconclusive, not "no effect". Quote the interval and the
-  note's `mde`, and say what the data rules out: a gain above the interval's
-  upper end. A smaller `target` needs about `n_tasks * (mde / target)^2`
+  note's `mde`, and say what the data rules out at both ends: a gain above the
+  interval's upper end and a loss below its lower end. A smaller `target` needs about `n_tasks * (mde / target)^2`
   tasks. Where the note says no effect can reach p < 0.05 here, say that.
   Where the interval includes 0 but `p_holm` is below 0.05, compare prints
   the disagreement note instead, with no `mde`: read `p_holm` there.
