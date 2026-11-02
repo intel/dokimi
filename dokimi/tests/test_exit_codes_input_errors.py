@@ -21,11 +21,11 @@ def _missing(tmp_path):
 
 
 def _personas_approve(tmp_path):
-    return ["personas", "approve", "--file", _missing(tmp_path)]
+    return ["eval", "personas", "validate", "--file", _missing(tmp_path)]
 
 
 def _personas_discover_no_source(tmp_path):
-    return ["personas", "discover", "--product", "lib"]
+    return ["eval", "personas", "discover", "--product", "lib"]
 
 
 def _tools_preference_missing_groups(tmp_path):

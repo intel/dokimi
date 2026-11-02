@@ -35,7 +35,7 @@ exits 2 for a backend that is not installed or not signed in, as for a missing k
 ```bash
 python cli.py answers generate --product oneTBB --questions questions/oneTBB.json \
   --output answers/oneTBB.json --provider claude-cli --model haiku
-python cli.py eval score --product oneTBB --answers answers/oneTBB.json \
+python cli.py eval score pointwise --product oneTBB --answers answers/oneTBB.json \
   --output eval/oneTBB.json --judge-provider claude-cli --judge-model sonnet
 ```
 

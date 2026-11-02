@@ -17,7 +17,7 @@ not the host: :func:`probe_host` runs a stdlib Python probe in a container
 started like the grading container (same image, same runner flags). Its CPU
 count is the affinity mask capped by the cgroup CPU quota (``docker --cpus``),
 which is what a threading runtime such as oneTBB sizes itself by. The probe
-runs once per ``repo run`` or ``repo tasks check`` invocation; its facts are
+runs once per ``repo run`` or ``eval check`` invocation; its facts are
 recorded with the batch and in each cell's ``meta.json``.
 """
 

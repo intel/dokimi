@@ -57,15 +57,15 @@ dev = [
   "types-PyYAML",
   "types-jsonschema",
   "scriv>=1.5",
-  # The test suite covers eval ragas.
+  # The test suite covers eval score ragas.
   "dokimi[ragas]",
 ]
-# `eval ragas` and `answers generate --ragas`.
+# `eval score ragas` and `answers generate --ragas`.
 ragas = [
   "ragas>=0.3.0,<0.4",
   # Every ragas release imports langchain_community.chat_models.vertexai, which 0.4.2 removed.
   "langchain-community<0.4.2",
-  # eval ragas wraps the judge in ChatOpenAI or ChatAnthropic, typed as langchain-core's BaseChatModel.
+  # eval score ragas wraps the judge in ChatOpenAI or ChatAnthropic, typed as langchain-core's BaseChatModel.
   "langchain-anthropic>=1.0,<2",
   "langchain-openai>=1.0,<2",
   "langchain-core>=1.0,<2",
@@ -73,9 +73,8 @@ ragas = [
 ocr = ["docling>=2.0"]
 mcp = ["mcp>=1.0"]
 embeddings = ["sentence-transformers>=2.2"]
-# Optional local baseline arm for `eval judge-validity --scorer typed:...`.
-# Floor is the version the arm was measured with: the adapter relies on
-# `predict(..., max_len=)` and on `usage.truncated` / `usage.state_tokens_dropped`.
+# Optional baseline arm for `eval judge validate --scorer typed:...`; floor = measured version
+# (the adapter needs `predict(max_len=)` and `usage.truncated` / `usage.state_tokens_dropped`).
 typed-scorer = ["laya>=0.3.24", "torch>=2.0"]
 
 [project.scripts]

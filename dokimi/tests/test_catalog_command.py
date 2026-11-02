@@ -361,7 +361,7 @@ def test_catalog_trigger_set_reports_clean_error_on_malformed_skill_md(tmp_path,
     questions = tmp_path / "q.json"
     questions.write_text(json.dumps([{"id": "q1", "question": "hi"}]), encoding="utf-8")
 
-    args = build_parser().parse_args(["catalog", "trigger-set", "--catalog", str(catalog),
+    args = build_parser().parse_args(["eval", "triggers", "generate", "--catalog", str(catalog),
                                       "--questions", f"{questions}=none", "--out", str(tmp_path / "o.json")])
     with pytest.raises(SystemExit) as exc_info:
         args.func(args)

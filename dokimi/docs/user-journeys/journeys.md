@@ -201,7 +201,7 @@ whether Docker is available; the budget for agent runs.
    tree (J7).
 5. Self-check the tasks before any agent run: the untouched workspace must
    fail, the reference solution must pass, the agent must not see the graders
-   (`python cli.py repo tasks check`).
+   (`python cli.py eval check`).
 6. Run agents on the tasks with and without the guidance
    (`python cli.py repo run`), resuming without re-running finished cells.
 7. Report one batch and compare arms (`python cli.py repo report`,
@@ -437,9 +437,9 @@ Questions: what users do with the subject; which failures matter most.
 
 1. Validate what exists (`python cli.py repo validate --manifest`).
 2. Self-check graders with no model: null, oracle, isolation
-   (`python cli.py repo tasks check`).
+   (`python cli.py eval check`).
 3. For judged evals, check the judge: does it tell good answers from
-   degraded ones (`python cli.py eval judge-validity`)?
+   degraded ones (`python cli.py eval judge validate`)?
 4. Propose new tasks from the subject's signals, as hypotheses for the user to
    confirm. **Proposed.**
 5. Add negative controls: tasks the subject should not help with, or
@@ -719,7 +719,7 @@ cost.
 non-zero exit only when a model cannot be verified or differs from the
 baseline; a regression in the scores is printed and exits 0. Failing on a regression beyond
 a threshold is **proposed** (AC-J12-001). Blocking policy is **partial**
-(AC-J12-002): `repo tasks check --allow-unsupported` decides host-unsupported
+(AC-J12-002): `eval check --allow-unsupported` decides host-unsupported
 tasks; budget-stopped and inconclusive judge results have no policy.
 
 ### Use cases and acceptance
@@ -792,7 +792,7 @@ the settings that produced it, the spend, and the stated limits.
 | Skill routing | `python cli.py novelty routing` | Free without `--model` |
 | Guidance reach | `python cli.py repo reach` | Plan with `--dry-run`; cap with `--budget` |
 | Context window of a run | `python cli.py context trace` | Reads an existing trace |
-| Judge calibration | `python cli.py eval judge-validity` | Sequential stopping with `--sequential` |
+| Judge calibration | `python cli.py eval judge validate` | Sequential stopping with `--sequential` |
 | Tool-choice probe | `python cli.py tools preference` | Cap with `--max-cost-usd` |
 
 **Connections.** Every other journey uses these as steps.

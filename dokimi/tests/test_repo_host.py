@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""task.json `host` requirements: probe, `repo tasks check`, `repo run`, `repo report` (contract §3, §4.3).
+"""task.json `host` requirements: probe, `eval check`, `repo run`, `repo report` (contract §3, §4.3).
 
 No docker, no LLM: the probe container is answered by a fake runner, or run on this host.
 """
@@ -180,7 +180,7 @@ def _cli(argv, monkeypatch, runner):
 
 
 def _check(root, out, runner, monkeypatch, *extra):
-    _cli(["repo", "tasks", "check", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml", "--out", str(out),
+    _cli(["eval", "check", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml", "--out", str(out),
           "--cache-root", str(out / "caches"), *extra], monkeypatch, runner)
 
 
@@ -258,7 +258,7 @@ def test_allow_unsupported_help_says_a_check_with_no_ok_task_still_exits_1(capsy
     from dokimi.cli import build_parser
 
     with pytest.raises(SystemExit):
-        build_parser().parse_args(["repo", "tasks", "check", "--help"])
+        build_parser().parse_args(["eval", "check", "--help"])
     assert "and so does a check in which no task is ok" in " ".join(capsys.readouterr().out.split())
 
 

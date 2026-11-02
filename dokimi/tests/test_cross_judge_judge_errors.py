@@ -86,7 +86,7 @@ def test_a_measure_read_from_a_file_asked_no_judge():
 
 
 def _cross_judge(tmp_path, monkeypatch, failing, *extra, data=None):
-    """``eval cross-judge --judges anthropic/m`` with a judge that raises on *failing* answers.
+    """``eval judge agreement --judges anthropic/m`` with a judge that raises on *failing* answers.
 
     Returns ``(exit code, stderr, the written JSON report)``; the code is 0 when it did not exit.
     """
@@ -103,7 +103,7 @@ def _cross_judge(tmp_path, monkeypatch, failing, *extra, data=None):
     answers = tmp_path / "run.json"
     answers.write_text(json.dumps(data or {"library_name": "L", "answers": _records()}), encoding="utf-8")
     out = tmp_path / "cj.json"
-    args = build_parser().parse_args(["eval", "cross-judge", "--answers", str(answers), "--judges", "anthropic/m",
+    args = build_parser().parse_args(["eval", "judge", "agreement", "--answers", str(answers), "--judges", "anthropic/m",
                                       "--output", str(out), *extra])
     code = 0
     try:

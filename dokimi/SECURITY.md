@@ -97,7 +97,7 @@ fix the locks can take:
     that can create files in the lock directory gets a stale-lock break to meet
     a reused inode (ext4, xfs).
 
-The locks do not contain ragas: it is the optional `[ragas]` extra (`eval ragas`,
+The locks do not contain ragas: it is the optional `[ragas]` extra (`eval score ragas`,
 `answers generate --ragas`), which installs ragas 0.3.9 and diskcache 5.6.3. Their
 advisories do not affect Dokimi:
 

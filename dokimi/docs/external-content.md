@@ -23,7 +23,7 @@ implicit default that points at a sibling checkout:
 |---|---|---|
 | `--root` | a whole content checkout to scan | `catalog scan` |
 | `--questions-root` | directory holding `<product_key>_golden.json` | `benchmark preflight/run/batch`, `evaluate`, `coverage`, `config_check` |
-| `--tasks-root` | directory of executable task dirs (each with `task.toml` or a BenchFlow `task.md`), or of exploration task YAML files | `tasks list/run`, `explore list/run`, `coverage`, `config_check` |
+| `--tasks-root` | directory of executable task dirs (each with `task.toml` or a BenchFlow `task.md`), or of exploration task YAML files | `eval tasks list`/`tasks run`, `explore list/run`, `coverage`, `config_check` |
 | `--repo-root` | the source tree an exploration task is scored against | `explore run` |
 | `--registry` | a `products.yaml` describing products this repo has never heard of | `benchmark preflight/run` |
 | `--questions` | one question-set file | `arms run`, `answers generate` |
@@ -234,7 +234,7 @@ report. Section 5 shows how to check the arm specs resolve first.
 `--tasks-root` is the directory that *contains* task directories:
 
 ```console
-$ python cli.py tasks list --tasks-root C:/Users/Public/content-repo/evaluation/harbor/tasks
+$ python cli.py eval tasks list --tasks-root C:/Users/Public/content-repo/evaluation/harbor/tasks
 demo-widget     easy    demo,widget
 onetbb-parallel-reduce  medium  onetbb
 ```
@@ -391,16 +391,16 @@ Worth knowing before you read a suspiciously clean result:
 
 | Command | Root missing | Exit |
 |---|---|---|
-| `catalog scan --root <missing>` | `--root is not a directory: <path>` | 1 |
-| `tasks run --tasks-root <missing>` | `FileNotFoundError: Task directory not found: demo-widget` | 1 |
-| `tasks list --tasks-root <missing>` | prints nothing | 0 |
+| `catalog scan --root <missing>` | `--root is not a directory: <path>` | 2 |
+| `tasks run --tasks-root <missing>` | `--tasks-root is not a directory: <path>` | 2 |
+| `eval tasks list --tasks-root <missing>` | `--tasks-root is not a directory: <path>` | 2 |
 | `explore list --tasks-root <missing>` | `--tasks-root is not a directory: <path>` | 2 |
 | `coverage` with no roots | every product reads `no`/`0`, plus an explicit note | 0 |
 | `evaluate`/`benchmark run` with a root lacking the golden set | `WARNING ... has no golden set for <product>` and continues | — |
 
-`tasks list` is the trap: an empty listing and a correct listing both exit 0,
-so a typo in a path looks like an empty checkout. `explore list` refuses an
-empty root with exit 2. The `coverage` matrix is explicit about it instead:
+`eval tasks list` is the trap for an existing directory: an empty listing and a correct listing
+both exit 0, so an empty checkout looks like a correct one. A missing root is refused with exit 2,
+not a silent success. `explore list` refuses an empty root with exit 2. The `coverage` matrix is explicit about it instead:
 
 ```console
 $ python -m dokimi.coverage

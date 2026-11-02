@@ -126,22 +126,22 @@ def build_parser() -> argparse.ArgumentParser:
     run.register_compare(sub, positive_int)     # compare
     baseline.register(sub, positive_int)        # baseline
     report.register(sub, positive_int)          # report
-    personas.register(sub, positive_int)        # personas
-    questions.register(sub, positive_int)       # questions
     answers.register(sub, positive_int)         # answers
-    evaluate.register(sub, positive_int)        # eval
+    eval_sub = evaluate.register(sub, positive_int)  # eval: the groups below join it (#94 M1)
+    personas.register(eval_sub, positive_int)   # eval personas
+    questions.register(eval_sub, positive_int)  # eval questions, eval import
     library.register(sub, positive_int)         # library
     benchmark.register(sub, positive_int)       # benchmark
     dashboard.register(sub, positive_int)       # dashboard
     arms.register(sub, positive_int)            # arms
     subjects.register(sub, positive_int)        # subjects (scorecards)
-    tasks.register(sub, positive_int)           # tasks
-    catalog.register(sub, positive_int)         # catalog (external skills/tasks)
+    tasks.register(sub, positive_int, eval_sub)  # tasks; eval tasks list, eval inspect
+    catalog.register(sub, positive_int, eval_sub)  # catalog; eval triggers generate
     explore.register(sub, positive_int)         # explore (ExploreBench)
     dataset.register(sub, positive_int)         # dataset
     ingest.register(sub, positive_int)          # ingest
     novelty.register(sub, positive_int)         # novelty (content novelty)
-    repo.register(sub, positive_int)            # repo (repositories as subjects)
+    repo.register(sub, positive_int, eval_sub)  # repo; eval check
     tools.register(sub, positive_int)           # tools (tool-choice probes)
     context.register(sub, positive_int)         # context (context window of a run)
     runs.register(sub, positive_int)            # runs (the artifacts under the runs root)
@@ -200,7 +200,7 @@ def main() -> None:
         args.func(args)
     except (EmptyQuestionError, InputError, llm_cli.SamplingError) as exc:  # bad input, not a bug: no traceback
         print(f"Error: {exc}", file=sys.stderr)
-        # 2, as the commands' other input errors: 1 is the verdict of `eval judge-validity`
+        # 2, as the commands' other input errors: 1 is the verdict of `eval judge validate`
         # and of the --strict gates, and a malformed file must not read as a failed gate.
         sys.exit(2)
 

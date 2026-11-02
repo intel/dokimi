@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""eval checklist / eval judge-wording: the judge-reliability checks beyond judge-validity."""
+"""eval score checklist / eval judge wording: the judge-reliability checks beyond judge-validity."""
 
 from __future__ import annotations
 
@@ -57,7 +57,7 @@ def _judge_name(doc: dict, path: str) -> str:
 
 
 def _result_measure(path: str, key: str, kind: type, build):
-    """The measure an `eval pairwise` or `eval checklist` file gives, or exit 2 naming the file.
+    """The measure an `eval score pairwise` or `eval score checklist` file gives, or exit 2 naming the file.
 
     *build* is ``(doc, name) -> Measure``; it raises ValueError on an entry of the wrong shape.
     """
@@ -103,7 +103,7 @@ def _require_arms(path: str, records, command: str) -> None:
 
     if not has_arms(records):
         print(f"Error: {path} has no arms answers (no record has an `arms` field); "
-              f"eval {command} reads an arms run (arms run --out-json), not a binary "
+              f"{command} reads an arms run (arms run --out-json), not a binary "
               "with_docs/without_docs answers file", file=sys.stderr)
         sys.exit(2)
 
@@ -180,7 +180,7 @@ def cmd_eval_pairwise(args: argparse.Namespace) -> None:
     baseline = args.baseline_arm or (data.get("baseline_arm") if isinstance(data, dict) else None) or "baseline"
     library = args.product or (data.get("library_name") if isinstance(data, dict) else None) or "the library"
     arms = [a.strip() for a in args.arms.split(",")] if args.arms else None
-    _require_arms(args.answers, records, "pairwise")
+    _require_arms(args.answers, records, "eval score pairwise")
     pairwise_jobs(records, baseline_arm=baseline, arms=arms)  # refuse a blank question before the probe call
     judge, label = pairwise_judge(args)
     print(f"Pairwise comparison: {label}, {len(records)} questions, baseline `{baseline}`")
@@ -214,7 +214,7 @@ def cmd_eval_checklist(args: argparse.Namespace) -> None:
     points = _load_points(args.questions)
     baseline = args.baseline_arm or (data.get("baseline_arm") if isinstance(data, dict) else None) or "baseline"
     arms = [a.strip() for a in args.arms.split(",")] if args.arms else None
-    _require_arms(args.answers, records, "checklist")
+    _require_arms(args.answers, records, "eval score checklist")
     checklist_jobs(records, points, arms=arms)  # refuse a blank question before the probe call
     _check_judge_temperature([(args.judge_model, args.judge_provider)], args.judge_temperature)
     llm = Judge(model=args.judge_model, provider=args.judge_provider, temperature=args.judge_temperature).llm
@@ -407,7 +407,7 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
     validity = [_load_json_object(v, "summary")["summary"] for v in args.validity or []]
     specs = [j.strip() for j in (args.judges or "").split(",") if j.strip()]
     if specs:
-        _require_arms(args.answers, records, "cross-judge --judges")
+        _require_arms(args.answers, records, "eval judge agreement --judges")
         scored_answers(records)  # refuse a blank question before the probe call
     _check_judge_temperature([(m, p) for p, _, m in (s.partition("/") for s in specs) if m and p in JUDGE_PROVIDERS],
                              args.judge_temperature)
@@ -477,9 +477,9 @@ def _strict_cross_judge_exit(arms: dict[str, dict[str, Any]], baseline_arm: str)
         sys.exit(1)
 
 
-def register(eval_sub, positive_int) -> None:
-    """Add `eval checklist`, `eval judge-wording` and `eval cross-judge` to the eval group."""
-    ck = eval_sub.add_parser(
+def register(score_sub, judge_sub, positive_int) -> None:
+    """Add `eval score checklist` and `eval score pairwise`, and `eval judge wording` and `eval judge agreement`."""
+    ck = score_sub.add_parser(
         "checklist",
         help="Required-point coverage per arm: is each expected_topic in the answer? (both polarities)",
     )
@@ -497,8 +497,8 @@ def register(eval_sub, positive_int) -> None:
                     help="Output JSON (default: <answers>_checklist.json); Markdown written next to it")
     ck.set_defaults(func=cmd_eval_checklist)
 
-    jw = eval_sub.add_parser(
-        "judge-wording",
+    jw = judge_sub.add_parser(
+        "wording",
         help="Judge-validity under rewrites of the judge prompt, paired against the original on the same pairs",
     )
     jw.add_argument("--answers", required=True, help="Path to answers JSON file")
@@ -521,8 +521,8 @@ def register(eval_sub, positive_int) -> None:
     jw.add_argument("--output", default=None, help="Output JSON report path")
     jw.set_defaults(func=cmd_eval_judge_wording)
 
-    cj = eval_sub.add_parser(
-        "cross-judge",
+    cj = judge_sub.add_parser(
+        "agreement",
         help="Each arm's delta under several judges and axes, labelled CONSISTENT / JUDGE-DEPENDENT / ...",
     )
     cj.add_argument("--answers", required=True, help="Arms output JSON (arms run --out-json)")
@@ -530,11 +530,11 @@ def register(eval_sub, positive_int) -> None:
                     help="Comma-separated provider/model judges to re-score with, e.g. "
                          "amazon-bedrock/us.anthropic.claude-haiku-5-5,amazon-bedrock/openai.gpt-oss-120b-1:0")
     cj.add_argument("--checklist", action="append", default=None,
-                    help="An `eval checklist` JSON to include as a coverage measure (repeatable)")
+                    help="An `eval score checklist` JSON to include as a coverage measure (repeatable)")
     cj.add_argument("--pairwise", action="append", default=None,
-                    help="An `eval pairwise` JSON to include as a measure (repeatable)")
+                    help="An `eval score pairwise` JSON to include as a measure (repeatable)")
     cj.add_argument("--validity", action="append", default=None,
-                    help="An `eval judge-validity` JSON; that judge's measures are marked PASS/FAIL and a "
+                    help="An `eval judge validate` JSON; that judge's measures are marked PASS/FAIL and a "
                          "FAILed judge does not vote in the verdict (repeatable)")
     cj.add_argument("--require-validated", action="store_true", dest="require_validated",
                     help="Only judges that PASSED a --validity gate vote in the verdict")
@@ -556,7 +556,7 @@ def register(eval_sub, positive_int) -> None:
                     help="Output JSON (default: <answers>_crossjudge.json); Markdown written next to it")
     cj.set_defaults(func=cmd_eval_cross_judge)
 
-    pw = eval_sub.add_parser(
+    pw = score_sub.add_parser(
         "pairwise",
         help="Every arm vs the baseline, both answers shown together in both orders; optional escalation",
     )

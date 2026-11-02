@@ -13,22 +13,22 @@ SPDX-License-Identifier: Apache-2.0
 # Answer-only eval formats
 
 Inspect AI, OpenAI evals, skill-creator `evals.json` and promptfoo sets run on
-dokimi's answer track. There is no separate runner. `questions import`
+dokimi's answer track. There is no separate runner. `eval import`
 translates a set into a questions.v2 file in which every question carries a
 `grading` block of format-neutral checks. The usual commands then answer it
-(`answers generate`, `arms run`), and `eval reference` scores the answers
+(`answers generate`, `arms run`), and `eval score reference` scores the answers
 against those checks.
 
 ```bash
-python cli.py questions import evals/born_first.jsonl --grader registry/evals/born-first.yaml -o q.json
+python cli.py eval import evals/born_first.jsonl --grader registry/evals/born-first.yaml -o q.json
 python cli.py answers generate --product born-first --questions q.json --doc-source none \
     --model claude-haiku-5-5 --provider amazon-bedrock --output answers.json
-python cli.py eval reference --answers answers.json --questions q.json -o eval.json
+python cli.py eval score reference --answers answers.json --questions q.json -o eval.json
 ```
 
-`tasks inspect <path>` names the format, and `questions import` uses the same
+`eval inspect <path>` names the format, and `eval import` uses the same
 detection. Use `--format` to override it. A file that fits several formats
-(`tasks inspect` lists the others under `alternatives`) is refused until
+(`eval inspect` lists the others under `alternatives`) is refused until
 `--format` names one.
 
 ## The canonical record
@@ -37,7 +37,7 @@ detection. Use `--format` to override it. A file that fits several formats
 |---|---|
 | `question` | The prompt as the native tool sends it. Chat inputs are flattened to one prompt, with `[role]` headings when there is more than one turn. MCQ rows are rendered with Inspect's single-answer template, or its multiple-answer one under `multiple_choice(multiple_correct=True)`. |
 | `prompt_style: verbatim` | The answerer sends `question` as it is, without its expert-answer wrapper, so that `ANSWER: X` and exact-match graders see a reply to the original prompt. A context arm, in `answers generate` or `arms run`, puts the docs first and the prompt after them. A multi-turn session arm still wraps its opening turn. |
-| `expected_topics` | The reference answers, assertion values or expectations. `eval checklist` and the judge read them. |
+| `expected_topics` | The reference answers, assertion values or expectations. `eval score checklist` and the judge read them. |
 | `grading.checks` | One check per native grader or assertion (below). Optional fields: `threshold`, `native_scorer`, `source_format`. |
 | `expected_skill` | skill-creator only: the skill the `evals.json` belongs to (`skill_name`, else the `<skill>/evals/` directory), so the set also scores [skill selection](evaluating-treatments.md#skill-selection-does-the-agent-load-the-right-skill) on a `skill-catalog:` arm. |
 | `metadata` | Sample metadata, promptfoo vars and prompt label, and the skill-creator `files`. |
@@ -65,7 +65,7 @@ A blank value is not a check. A `match` value that is blank once the check has
 normalised it (stripped, and with `ignore_punctuation` on, `...` too), or an
 empty `regex` pattern, is found in every answer, so a row whose
 `ideal`/`target` is blank imports as `unsupported`, and a hand-written `values`
-list with such an entry is refused by `eval reference`. An Inspect `exact`
+list with such an entry is refused by `eval score reference`. An Inspect `exact`
 target that SQuAD-normalises to nothing (`...`, `the`) equals no answer, so it
 is dropped, and a sample left with no target imports as `unsupported`. A
 promptfoo assert whose value is blank (whitespace included) imports as
@@ -93,7 +93,7 @@ count per arm as `errors`. An empty or content-less reply is an error, never gra
 it leaves the pass rate and the mean out, and is never cached (on store or replay),
 so a rerun asks the model again.
 
-`eval reference` writes eval.v1 for an `answers generate` file and an arms
+`eval score reference` writes eval.v1 for an `answers generate` file and an arms
 artifact for an `arms run` file. Each block carries `scorer: reference`, and
 the run's pass rates and mean scores are under `run_metadata.summary` (or
 `reference_scoring`).
@@ -156,10 +156,10 @@ python cli.py eval native-import out.json --answers-out native_answers.json --ev
 
 The completions become an answers.v1 file. They are stored as `without_docs`,
 because the native run had no dokimi doc context. The tool's own verdicts
-become an eval.v1 file with `scorer: native:<tool>`. Running `eval reference`
+become an eval.v1 file with `scorer: native:<tool>`. Running `eval score reference`
 on that answers file re-grades the same completions with dokimi's checks,
 which shows where the two graders disagree. An Inspect sample that errored
-keeps its error on the answer, so `eval reference` counts it as an error, not a
+keeps its error on the answer, so `eval score reference` counts it as an error, not a
 score, as Inspect does. A promptfoo output must come from
 a single provider. Supported log formats are Inspect `json` logs (inspect-ai
 0.3.283) and promptfoo `-o *.json` (0.125.0).

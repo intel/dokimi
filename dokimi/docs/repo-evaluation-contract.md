@@ -77,7 +77,7 @@ SPDX-License-Identifier: Apache-2.0
 > and agent runs with their report:
 >
 > ```bash
-> python cli.py repo tasks check <source> --manifest <path> [--task <id>] [--warm] [--allow-unsupported]
+> python cli.py eval check <source> --manifest <path> [--task <id>] [--warm] [--allow-unsupported]
 > python cli.py repo run <source> --manifest <path> --arm guidance:raw --model <id> --reps N --batch NAME
 >     --agent-network host
 > python cli.py repo report <out>/<batch>
@@ -160,7 +160,7 @@ outside every workspace and passes its absolute path to entry points as
   as `.bazelversion`) is read at run time, not baked in. A build that runs
   past `--build-timeout` seconds (3 hours by default) fails as a container
   error rather than hanging the batch.
-- `tasks check` (§4.3) fails a task whose agent container can read any file
+- `eval check` (§4.3) fails a task whose agent container can read any file
   under `tasks` or `{source_dir}`.
 
 ### 1.2 Code index input
@@ -233,7 +233,7 @@ Rules:
 - Every path is relative to the repository root.
 - `eval_dir`, `tasks` and `entry_points` come together or not at all. Without them the
   manifest is *guidance-only*: `scan` and `reach` run on it and `validate` checks its
-  globs, while `tasks check` and `run` refuse it. `image` and `explore_tasks` need
+  globs, while `eval check` and `run` refuse it. `image` and `explore_tasks` need
   `eval_dir`, and so does `process_metrics`.
 - `entry_points.grade` is required only when some task's `grader` does not
   start with `dokimi:` (a grader built into the framework); `repo validate`
@@ -269,7 +269,7 @@ Rules:
   dependency into the image is better when it can be done.
 - **Caches** are mounted read-write in every run, because Bazel's disk cache
   writes. A run may depend on them for speed, never for correctness. With
-  `network: none` they are filled by `tasks check --warm` (§4.3): one base is
+  `network: none` they are filled by `eval check --warm` (§4.3): one base is
   not enough when bases pin different tool versions (7 Bazel versions on
   oneDAL).
 - **Container runtime.** The framework starts every container with an init
@@ -543,11 +543,11 @@ measure the patch's text, such as a guidance line, not the tool.
   [repo-evaluation-mergeability.md](repo-evaluation-mergeability.md)
   *(proposed)*. The judge is not deterministic. Instead of a determinism
   check, it reports agreement between two judges and must pass a calibration
-  gate (`repo rubric check`, a separate paid subcommand; `tasks check` stays
+  gate (`repo rubric check`, a separate paid subcommand; `eval check` stays
   free of LLM calls). The regrade sample bypasses the verdict cache. Whether
   one judge repeats its own verdict on the same input is not measured yet.
 
-### 4.3 Self-check (`tasks check`, no LLM)
+### 4.3 Self-check (`eval check`, no LLM)
 
 For every task, before any paid run:
 
@@ -559,7 +559,7 @@ For every task, before any paid run:
 
 A task whose `host` requirements (§3) the probe container does not meet is
 `unsupported` with the reason, like a task whose `egress` needs the missing
-proxy, and `tasks check` exits 1 for it. With `--allow-unsupported` it is
+proxy, and `eval check` exits 1 for it. With `--allow-unsupported` it is
 still printed with its reason but does not make the exit code 1 unless no task
 is ok (below); broken tasks, tasks that need egress and tasks whose host probe
 failed still do. The probed facts are recorded in `check.json` `host`, and for
@@ -570,14 +570,14 @@ apart, neither failed nor missing. If the probe itself fails, a task with
 cells is left unrun; a cell that already has a `result.json` keeps it.
 
 Nothing checked is not a pass. Both commands refuse an export with no task, and
-exit 1 as `incomplete` when nothing was measured: `tasks check` when no task
+exit 1 as `incomplete` when nothing was measured: `eval check` when no task
 passed the self-check (every one unsupported, even with `--allow-unsupported`),
 `repo run` when no cell of the batch has a result (every one unsupported). The
 `repo run` summary line counts unsupported cells beside ran, done, crashed and
 not started.
 
 Each task runs with its own network (`image.network` plus its `egress`).
-`tasks check --warm` runs the same null and oracle steps with network and
+`eval check --warm` runs the same null and oracle steps with network and
 writable caches, to fill the caches before offline runs (§2); it judges task
 `host` requirements as an offline check does.
 
@@ -602,7 +602,7 @@ A task whose `grader` is `dokimi:<name>` is graded by the framework, not by
 the repository's `grade` and `oracle` entry points; any other name goes to
 those entry points. Such a task is data only: its directory holds
 `task.json`, the patch and the JSON files the grader reads. The `dokimi:`
-prefix is the framework's: an unknown `dokimi:` name fails `tasks check` and
+prefix is the framework's: an unknown `dokimi:` name fails `eval check` and
 the run's grade, and is never handed to the repository.
 
 A built-in grader runs where `grade` and `oracle` run: in the grading
@@ -820,7 +820,7 @@ on an error that is not one pull request's own: a malformed pull request, the
 source, the manifest, the prompt file, or a task it cannot write. Each prints
 `✗` and the reason. A git failure while one pull request is built skips that
 pull request with the reason.
-`repo tasks check` then runs the tasks, and two arms measure the guidance
+`eval check` then runs the tasks, and two arms measure the guidance
 (§9):
 
 ```bash
@@ -1463,7 +1463,7 @@ finding is an error.
 
 ## 9. Running
 
-`repo tasks check` and `repo run` need docker. Both export `eval_dir` from the
+`eval check` and `repo run` need docker. Both export `eval_dir` from the
 eval tree to `<out>/_eval/content`, and build the image from the eval tree
 without its tasks directory (tag `dokimi/<id>:<sha>`) unless
 `--image` names one. Cache directories default to
@@ -1489,7 +1489,7 @@ line, else its last `error:` line, else its last line.
 ```bash
 # self-check: no LLM; exits 1 if any task is broken or unsupported, or none is ok
 # (with --allow-unsupported, a task this host cannot run does not fail it on its own)
-python cli.py repo tasks check ~/oneDAL@<sha> --manifest dev/agent_evals/repo-eval.yaml \
+python cli.py eval check ~/oneDAL@<sha> --manifest dev/agent_evals/repo-eval.yaml \
     --task fix_finiteness_mut --build-network host --cache bazel-repo-cache=/cache/bazel-repo -j 3
 
 # agents: one cell per (task, arm, model, rep) under repo-runs/<batch>/
@@ -1680,7 +1680,7 @@ that runs the no-LLM checks on the caller's checkout and needs no secret.
 
 - `validate` runs `repo validate` and gates the other two jobs; `scan` runs `repo scan`
   (report only: the claim counts and failing claims go to the job summary, the
-  `repo_readiness.v1` report to an artifact); `tasks-check` runs `repo tasks check`
+  `repo_readiness.v1` report to an artifact); `tasks-check` runs `eval check`
   for each selected task in a job of its own (docker; the image is built from the
   manifest's Dockerfile), and uploads `check.json` and the grade logs. If the job is
   cancelled by its `timeout-minutes` before the check finishes, the Summary step

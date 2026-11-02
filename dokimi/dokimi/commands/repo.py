@@ -579,12 +579,12 @@ def _cache_dir(args: argparse.Namespace) -> Path | None:
     return Path(args.cache_dir) if args.cache_dir else None
 
 
-def register(sub, positive_int) -> None:
-    """Add the `repo` subcommand group."""
+def register(sub, positive_int, eval_sub) -> None:
+    """Add the `repo` subcommand group. Its check moved to `eval check` (#94 M1)."""
     repo_p = sub.add_parser(
         "repo",
         help="Repositories as evaluation subjects: validate repo-eval.yaml, L0 scan, fetch sources, reach probe, budget, "
-        "task self-check, agent runs and their report",
+        "agent runs and their report",
     )
     repo_sub = repo_p.add_subparsers(dest="repo_cmd", required=True)
     source_help = (
@@ -729,4 +729,4 @@ def register(sub, positive_int) -> None:
 
     from . import repo_run
 
-    repo_run.register(repo_sub, positive_int, source_help, cache_help)
+    repo_run.register(repo_sub, eval_sub, positive_int, source_help, cache_help)

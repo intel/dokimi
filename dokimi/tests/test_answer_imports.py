@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Tests for the answer-only format importers (``dokimi.task_formats.imports``) and
-``questions import``.
+``eval import``.
 
 Fixtures are hand-written from the upstream shapes the importers cite:
 
@@ -291,7 +291,7 @@ def test_a_punctuation_only_ideal_is_a_real_check_not_a_pass(tmp_path, grader):
 
 
 def test_an_ambiguous_file_is_refused_unless_the_format_is_named():
-    # Alone, joke_fruits.jsonl reads as Inspect samples or OpenAI evals rows (`tasks inspect`
+    # Alone, joke_fruits.jsonl reads as Inspect samples or OpenAI evals rows (`eval inspect`
     # lists the second as an alternative); only test-modelgraded.yaml says which it is.
     data = _EVALS / "data" / "test_modelgraded" / "joke_fruits.jsonl"
     with pytest.raises(ValueError, match=r"ambiguous format \(inspect-samples, openai-evals\).*--format"):
@@ -535,7 +535,7 @@ def test_import_path_detects_the_format_and_refuses_one_without_an_adapter(tmp_p
 def test_questions_import_cli_writes_a_valid_questions_artifact(tmp_path, capsys):
     data = _jsonl(tmp_path / "born.jsonl", _BORN)
     out = tmp_path / "q.json"
-    args = build_parser().parse_args(["questions", "import", str(data), "--grader", "match", "-o", str(out)])
+    args = build_parser().parse_args(["eval", "import", str(data), "--grader", "match", "-o", str(out)])
     args.func(args)
     loaded = load_questions(out)
     assert loaded.source_version == "questions.v2"
@@ -550,7 +550,7 @@ def test_eval_reference_cli_without_judge(tmp_path):
     a = tmp_path / "a.json"
     a.write_text(json.dumps({"answers": [{"question_id": "1", "question_text": "Q", "without_docs": {"answer": "yes"}}]}))
     out = tmp_path / "e.json"
-    args = build_parser().parse_args(["eval", "reference", "--answers", str(a), "--questions", str(q),
+    args = build_parser().parse_args(["eval", "score", "reference", "--answers", str(a), "--questions", str(q),
                                       "-o", str(out), "--no-judge"])
     args.func(args)
     block = json.loads(out.read_text())["evaluations"][0]["without_docs"]
@@ -565,7 +565,7 @@ def test_eval_reference_cli_without_judge_on_an_arms_run(tmp_path):
     a.write_text(json.dumps({"baseline_arm": "baseline", "arms": ["baseline"], "answers": [
         {"question_id": "1", "question_text": "Q", "arms": {"baseline": {"answer": "Paris"}}}]}))
     out = tmp_path / "r.json"
-    args = build_parser().parse_args(["eval", "reference", "--answers", str(a), "--questions", str(q),
+    args = build_parser().parse_args(["eval", "score", "reference", "--answers", str(a), "--questions", str(q),
                                       "-o", str(out), "--no-judge"])
     args.func(args)
     data = json.loads(out.read_text())
@@ -655,4 +655,11 @@ def test_importable_formats_match_the_adapters_and_show_as_consumer(tmp_path):
 
     assert IMPORTABLE == frozenset(ADAPTERS)
     report = detect(_jsonl(tmp_path / "samples.jsonl", _BORN))
-    assert report.consumers == ["questions import"]
+    assert report.consumers == ["eval import"]
+
+
+def test_import_path_without_a_format_names_eval_inspect_when_none_is_detected(tmp_path):
+    notes = tmp_path / "notes.txt"
+    notes.write_text("just some prose, no eval format here\n")
+    with pytest.raises(ValueError, match=r"see `eval inspect .*notes\.txt`"):
+        import_path(notes)

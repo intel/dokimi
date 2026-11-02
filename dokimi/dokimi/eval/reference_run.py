@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""``eval reference``: grade an answers or arms file with its questions' ``grading`` checks.
+"""``eval score reference``: grade an answers or arms file with its questions' ``grading`` checks.
 
 The answers come from the usual answer track (``answers generate``, ``arms run``) or from a
 native tool's log (:mod:`dokimi.task_formats.imports.native_logs`); the checks are

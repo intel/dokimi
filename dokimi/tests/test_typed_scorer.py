@@ -213,7 +213,7 @@ class TestTypedArmReachesTheGate:
             {"question_id": f"q{i}", "question_text": "q?",
              "arms": {"baseline": {"answer": (ANSWER if i % 2 else OTHER_ANSWER) + f" {i}"}}}
             for i in range(6)]}))
-        args = build_parser().parse_args(["eval", "judge-validity", "--answers", str(answers),
+        args = build_parser().parse_args(["eval", "judge", "validate", "--answers", str(answers),
                                           "--scorer", "typed:laya", "--bases", "6"])
         with pytest.raises(SystemExit):  # a constant scorer ties every pair: the gate FAILs
             args.func(args)
@@ -243,7 +243,7 @@ class TestTypedArmReachesTheGate:
         for max_len in ("0", "2048"):
             out = tmp_path / f"v{max_len}.json"
             args = build_parser().parse_args([
-                "eval", "judge-validity", "--answers", str(answers), "--scorer", "typed:laya",
+                "eval", "judge", "validate", "--answers", str(answers), "--scorer", "typed:laya",
                 "--bases", "6", "--typed-max-len", max_len, "--output", str(out)])
             with pytest.raises(SystemExit):
                 args.func(args)
@@ -258,13 +258,13 @@ class TestTypedArmReachesTheGate:
 
 
 class TestCliWiring:
-    """`eval judge-validity --scorer` must default to the judge and reject junk."""
+    """`eval judge validate --scorer` must default to the judge and reject junk."""
 
     @staticmethod
     def _parse(*argv):
         from dokimi.cli import build_parser
 
-        return build_parser().parse_args(["eval", "judge-validity",
+        return build_parser().parse_args(["eval", "judge", "validate",
                                           "--answers", "a.json", *argv])
 
     def test_default_arm_is_the_shipped_judge(self):
@@ -347,7 +347,7 @@ class TestCliKnobs:
     def _parse(*argv):
         from dokimi.cli import build_parser
 
-        return build_parser().parse_args(["eval", "judge-validity",
+        return build_parser().parse_args(["eval", "judge", "validate",
                                           "--answers", "a.json", *argv])
 
     @pytest.mark.parametrize("argv", [["--typed-max-len", "-5"],
@@ -417,7 +417,7 @@ class TestTypedArmWithTheReliabilityModes:
             {"question_id": f"q{i}", "question_text": "q?",
              "arms": {"baseline": {"answer": (ANSWER if i % 2 else OTHER_ANSWER) + f" {i}"}}}
             for i in range(6)]}))
-        return build_parser().parse_args(["eval", "judge-validity", "--answers", str(answers),
+        return build_parser().parse_args(["eval", "judge", "validate", "--answers", str(answers),
                                           "--scorer", "typed:laya", *argv])
 
     def test_pairwise_mode_rejects_a_typed_scorer(self, tmp_path, monkeypatch, capsys):

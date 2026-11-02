@@ -73,9 +73,9 @@ into runs and `run_id` is `null`. Files outside the root are not listed:
 
 - `repo run` writes its batches to `repo-runs/`, and its files carry no
   `schema_version`;
-- `answers generate` and `eval score` write to `answers/` and `eval/` unless
-  `--run-id` is given, and `eval panel-score` writes to `eval/`;
-- `questions generate` and `questions refine` write to `questions/`,
+- `answers generate` and `eval score pointwise` write to `answers/` and `eval/` unless
+  `--run-id` is given, and `eval score panel` writes to `eval/`;
+- `eval questions generate` and `eval questions refine` write to `questions/`,
   `repo reach` to `reach-out/`, `tools preference` to `tool_preference.json`
   in the working directory;
 - an output flag can point anywhere.

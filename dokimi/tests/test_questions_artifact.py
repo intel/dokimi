@@ -198,7 +198,7 @@ def test_questions_refine_writes_only_declared_keys(tmp_path):
          "difficulty": "hard", "persona": "dev"},
     ]}), encoding="utf-8")
     out = tmp_path / "refined.json"
-    args = build_parser().parse_args(["questions", "refine", "--questions", str(src),
+    args = build_parser().parse_args(["eval", "questions", "refine", "--questions", str(src),
                                       "--product", "oneTBB", "--output", str(out)])
     args.func(args)
     data = json.loads(out.read_text(encoding="utf-8"))
@@ -217,7 +217,7 @@ def test_catalog_trigger_set_questions_writes_only_declared_keys(tmp_path):
     other.write_text(json.dumps([{"id": "n1", "text": "my cat is sad today"}]), encoding="utf-8")
     out = tmp_path / "trigger_questions.json"
     args = build_parser().parse_args([
-        "catalog", "trigger-set", "--catalog", str(tmp_path / "skills"), "--format", "questions",
+        "eval", "triggers", "generate", "--catalog", str(tmp_path / "skills"), "--format", "questions",
         "--questions", f"{GOLDEN / 'onetbb_golden.excerpt.json'}=onetbb-quickstart",
         "--questions", f"{other}=none", "--rewrite", "--model", "m", "--out", str(out)])
     with patch("dokimi.llm.llm_call", return_value="how do I speed up my loop"):
@@ -636,7 +636,7 @@ def test_questions_refine_refuses_malformed_questions_with_error_exit(tmp_path, 
     # Pass an empty dict where a list or questions object is expected: invalid structure
     src.write_text(json.dumps({}), encoding="utf-8")
     out = tmp_path / "refined.json"
-    args = build_parser().parse_args(["questions", "refine", "--product", "oneTBB",
+    args = build_parser().parse_args(["eval", "questions", "refine", "--product", "oneTBB",
                                       "--questions", str(src), "--output", str(out)])
     with pytest.raises(SystemExit) as exc_info:
         args.func(args)
@@ -650,7 +650,7 @@ def test_questions_refine_names_an_unreadable_questions_file(tmp_path, capsys, k
     src = tmp_path / "q.json"
     if kind == "directory":
         src.mkdir()
-    args = build_parser().parse_args(["questions", "refine", "--product", "oneTBB",
+    args = build_parser().parse_args(["eval", "questions", "refine", "--product", "oneTBB",
                                       "--questions", str(src), "--output", str(tmp_path / "out.json")])
     with pytest.raises(SystemExit) as exc_info:
         args.func(args)
@@ -746,7 +746,7 @@ def test_questions_refine_repairs_a_set_that_strict_reading_refuses(tmp_path, mo
     with pytest.raises(ArtifactValidationError, match="topics"):
         load_questions(src)
     out = tmp_path / "refined.json"
-    args = build_parser().parse_args(["questions", "refine", "--product", "oneTBB",
+    args = build_parser().parse_args(["eval", "questions", "refine", "--product", "oneTBB",
                                       "--questions", str(src), "--output", str(out)])
     args.func(args)
     data = json.loads(out.read_text(encoding="utf-8"))
@@ -761,7 +761,7 @@ def test_questions_refine_prints_an_error_when_the_refined_set_is_invalid(tmp_pa
         {"id": "q2", "text": "Why does my task_arena deadlock under nested parallelism?"},
     ]}), encoding="utf-8")
     out = tmp_path / "refined.json"
-    args = build_parser().parse_args(["questions", "refine", "--product", "oneTBB",
+    args = build_parser().parse_args(["eval", "questions", "refine", "--product", "oneTBB",
                                       "--questions", str(src), "--output", str(out)])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
@@ -785,7 +785,7 @@ def test_questions_refine_fill_gaps_refuses_an_invalid_set_before_any_model_call
         {"id": "q2", "text": "Why does my task_arena deadlock under nested parallelism?"},
     ]}), encoding="utf-8")
     out = tmp_path / "refined.json"
-    args = build_parser().parse_args(["questions", "refine", "--product", "oneTBB",
+    args = build_parser().parse_args(["eval", "questions", "refine", "--product", "oneTBB",
                                       "--questions", str(src), "--output", str(out),
                                       "--fill-gaps"])
     with pytest.raises(SystemExit) as exc:

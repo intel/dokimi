@@ -2,9 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Build image for dokimi's own repository-mode evals: CI's Python, the lock, every CI tool,
-# and a warm uv cache so `make dev` inside a run works without downloading anything.
-# Pinned by digest, like the tools below, so a rerun grades in the same image. To move it:
-# `docker buildx imagetools inspect python:3.11-slim-bookworm`, then `repo tasks check`.
+# pinned by digest. To move the pin: `docker buildx imagetools inspect python:3.11-slim-bookworm`, then `eval check`.
 FROM python:3.11-slim-bookworm@sha256:0a310eeecf4e1f5a0743f9a6520c90c88d089c903ca5fd283f501e3a805f5f89
 # Debian's point releases replace these package versions, so pinning them would break the build.
 # hadolint ignore=DL3008
@@ -17,6 +15,7 @@ COPY dokimi/requirements.lock.txt dokimi/requirements-ci.lock.txt dokimi/require
 # The lock and the tools CI installs (uv among them), hash-checked so a rerun grades alike.
 RUN pip install --no-cache-dir --require-hashes -r /opt/dokimi-req/requirements.lock.txt \
        -r /opt/dokimi-req/requirements-ci.lock.txt
+# A warm uv cache, so `make dev` inside a run downloads nothing.
 ENV UV_CACHE_DIR=/opt/uv-cache UV_PYTHON_PREFERENCE=only-system UV_LINK_MODE=copy
 RUN uv venv --python 3.11 --seed /tmp/warm && uv pip install --python /tmp/warm/bin/python \
        --require-hashes -r /opt/dokimi-req/requirements.lock.txt -r /opt/dokimi-req/requirements-ci.lock.txt \

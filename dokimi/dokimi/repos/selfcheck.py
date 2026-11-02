@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""``repo tasks check``: the self-check every task passes before any paid run (contract §4.3). No LLM.
+"""``eval check``: the self-check every task passes before any paid run (contract §4.3). No LLM.
 
 Per task, on workspaces prepared exactly as for an agent (arm ``guidance:raw``,
 empty ``answer.txt`` and ``events.jsonl``):

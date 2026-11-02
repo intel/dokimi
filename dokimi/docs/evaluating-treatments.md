@@ -63,7 +63,7 @@ given `--judge`. For docs arms, the material is the retrieved chunks, rarely
 identical across questions, so each question adds its own copy (up to the
 15,000-char cut); on a synthetic 20-question docs run the artifact grew from
 93,209 to 392,852 bytes (4.2x). Sharing an arms artifact shares the skill or doc
-text it contains. With `cross-judge --judges`, the judge is given the same text
+text it contains. With `eval judge agreement --judges`, the judge is given the same text
 through `JudgeContextStore.from_artifact`, which skips any text that does not
 match its digest. Question ids must be unique for this (a question with no id is
 given a positional one; duplicated ids are refused).
@@ -84,7 +84,7 @@ judge, 24 bases, one run), the full material raised the mean intact score from
 0.674, not significant at this size), unchanged on wrong numbers. A skill arm's
 delta measured with the material is therefore on a higher level than one
 measured without it, and the difference between the two is not evidence that
-the skill helps. `eval judge-validity` passes no context by default; run it on an
+the skill helps. `eval judge validate` passes no context by default; run it on an
 arms artifact with `--context stored` to gate the judge the way it scored the
 arms — each answer with its arm's stored material (bases with no stored entry are
 dropped and counted, except baseline with the no-context marker). It exits 2
@@ -517,14 +517,14 @@ jq '[.questions[] | select(.expected_skill == "linux-perf") | .question]' trigge
 *Trigger set* here means a selection query set: messages labelled with the skill that
 should load. It is unrelated to the `trigger` axis of the
 [difficulty rubric](difficulty-rubric.md#axis-0--trigger-what-starts-the-work), which tags
-what input starts a task (`counter`, `source`, `new_code`). `catalog trigger-set` does not
+what input starts a task (`counter`, `source`, `new_code`). `eval triggers generate` does not
 carry `metadata.trigger` into its output.
 
-**Build the set.** `catalog trigger-set` labels question files, lints them, and writes
+**Build the set.** `eval triggers generate` labels question files, lints them, and writes
 the format a selection tool reads:
 
 ```bash
-python cli.py catalog trigger-set --catalog <skills-checkout>/skills \
+python cli.py eval triggers generate --catalog <skills-checkout>/skills \
   --questions <content>/questions/intel_performance_skills_golden.json=@metadata.skill_under_test \
   --questions <content>/questions/onetbb_golden.json=onetbb-quickstart \
   --questions <content>/questions/onedal_golden.json=none \
@@ -550,7 +550,7 @@ python cli.py catalog trigger-set --catalog <skills-checkout>/skills \
   rest as `acceptable_skills`, which skill-reach treats as neutral helpers rather than
   hits, so on those queries it is stricter than the `skill-catalog:` arm; `skill-creator --target <skill>` (a catalog skill) writes an
   [anthropics/skills skill-creator](https://github.com/anthropics/skills/tree/main/skills/skill-creator)
-  eval set; `questions` writes `questions.v2` with `expected_skill` for the arm below.
+  eval set; `eval triggers generate --format questions` writes `questions.v2` with `expected_skill` for the arm below.
 
 **Proxy: the `skill-catalog:` arm.** Runs in the normal arms loop on any model, and the
 report gains a *Skill selection* table (accuracy, recall, recall (any), multi-load,

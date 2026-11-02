@@ -36,7 +36,7 @@ class Root:
 
 @dataclass(frozen=True)
 class Leaf:
-    """An operation: a parser with no subcommands. ``path`` is its argv, e.g. ``("eval", "score")``."""
+    """An operation: a parser with no subcommands. ``path`` is its argv, e.g. ``("eval", "score", "pointwise")``."""
 
     path: tuple[str, ...]
     cost: str
@@ -45,7 +45,11 @@ class Leaf:
 
 @dataclass(frozen=True)
 class Tombstone:
-    """An old argv prefix that now moved: it answers with ``new`` and exits 2, never forwards."""
+    """An old argv prefix that now moved: it answers with ``new`` and exits 2, never forwards.
+
+    A group that stays in place (``eval score``) is the exception when no option follows it: see
+    ``moved_argv``.
+    """
 
     old: tuple[str, ...]
     new: tuple[str, ...]
@@ -68,8 +72,6 @@ ROOTS: tuple[Root, ...] = (
     Root("catalog", "Subjects"),
     Root("novelty", "Subjects"),
     Root("repo", "Subjects"),
-    Root("personas", "Evals"),
-    Root("questions", "Evals"),
     Root("eval", "Evals"),
     Root("dataset", "Analysis and data"),
     Root("ingest", "Analysis and data"),
@@ -100,8 +102,6 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("subjects", "show"), FREE),
     Leaf(("subjects", "run"), PAID),
     Leaf(("subjects", "evidence"), FREE),
-    Leaf(("tasks", "list"), FREE),
-    Leaf(("tasks", "inspect"), FREE),
     Leaf(("tasks", "harnesses"), FREE),
     Leaf(("tasks", "run"), PAID),
     Leaf(("explore", "list"), FREE),
@@ -113,7 +113,6 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("library", "intents"), FREE),
     Leaf(("catalog", "scan"), FREE),
     Leaf(("catalog", "formats"), FREE),
-    Leaf(("catalog", "trigger-set"), PAID),
     Leaf(("catalog", "trigger-probe"), PAID),
     Leaf(("novelty", "analyze"), PAID),
     Leaf(("novelty", "atoms"), PAID),
@@ -128,31 +127,34 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("repo", "fetch"), FREE),
     Leaf(("repo", "reach"), PAID),
     Leaf(("repo", "budget"), FREE),
-    Leaf(("repo", "tasks", "check"), FREE),
     Leaf(("repo", "tasks", "replay"), FREE),
     Leaf(("repo", "run"), PAID),
     Leaf(("repo", "report"), FREE),
     Leaf(("repo", "compare"), FREE),
-    Leaf(("personas", "discover"), PAID),
-    Leaf(("personas", "approve"), FREE),
-    Leaf(("questions", "generate"), PAID),
-    Leaf(("questions", "analyze"), PAID),
-    Leaf(("questions", "refine"), PAID),
-    Leaf(("questions", "panel-review"), PAID),
-    Leaf(("questions", "import"), FREE),
-    Leaf(("eval", "score"), PAID),
-    Leaf(("eval", "ragas"), PAID),
-    Leaf(("eval", "grounding"), FREE),
-    Leaf(("eval", "coverage"), FREE),
-    Leaf(("eval", "judge-validity"), PAID),
-    Leaf(("eval", "checklist"), PAID),
-    Leaf(("eval", "judge-wording"), PAID),
-    Leaf(("eval", "cross-judge"), PAID),
-    Leaf(("eval", "pairwise"), PAID),
-    Leaf(("eval", "reference"), PAID),
+    Leaf(("eval", "inspect"), FREE),
+    Leaf(("eval", "check"), FREE),
+    Leaf(("eval", "import"), FREE),
     Leaf(("eval", "native-import"), FREE),
+    Leaf(("eval", "tasks", "list"), FREE),
+    Leaf(("eval", "personas", "discover"), PAID),
+    Leaf(("eval", "personas", "validate"), FREE),
+    Leaf(("eval", "questions", "generate"), PAID),
+    Leaf(("eval", "questions", "analyze"), PAID),
+    Leaf(("eval", "questions", "refine"), PAID),
+    Leaf(("eval", "questions", "review"), PAID),
+    Leaf(("eval", "triggers", "generate"), PAID),
+    Leaf(("eval", "score", "pointwise"), PAID),
+    Leaf(("eval", "score", "pairwise"), PAID),
+    Leaf(("eval", "score", "panel"), PAID),
+    Leaf(("eval", "score", "checklist"), PAID),
+    Leaf(("eval", "score", "grounding"), FREE),
+    Leaf(("eval", "score", "ragas"), PAID),
+    Leaf(("eval", "score", "reference"), PAID),
+    Leaf(("eval", "judge", "validate"), PAID),
+    Leaf(("eval", "judge", "wording"), PAID),
+    Leaf(("eval", "judge", "agreement"), PAID),
+    Leaf(("eval", "coverage"), FREE),
     Leaf(("eval", "redteam"), PAID),
-    Leaf(("eval", "panel-score"), PAID),
     Leaf(("dataset", "export"), FREE),
     Leaf(("ingest", "docling"), FREE),
     Leaf(("tools", "preference"), PAID),
@@ -165,8 +167,33 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("data", "schema", "show"), FREE),
 )
 
-# No command has moved yet: the renames of #94 §5 M1-M3 add entries here.
-TOMBSTONES: tuple[Tombstone, ...] = ()
+# The moves of #94 §5 M1 (`eval`). M2 and M3 add their entries here.
+TOMBSTONES: tuple[Tombstone, ...] = (
+    Tombstone(("tasks", "inspect"), ("eval", "inspect")),
+    Tombstone(("repo", "tasks", "check"), ("eval", "check")),
+    Tombstone(("personas", "discover"), ("eval", "personas", "discover")),
+    Tombstone(("personas", "approve"), ("eval", "personas", "validate")),
+    Tombstone(("questions", "generate"), ("eval", "questions", "generate")),
+    Tombstone(("questions", "analyze"), ("eval", "questions", "analyze")),
+    Tombstone(("questions", "refine"), ("eval", "questions", "refine")),
+    Tombstone(("questions", "panel-review"), ("eval", "questions", "review")),
+    Tombstone(("questions", "import"), ("eval", "import")),
+    Tombstone(("tasks", "list"), ("eval", "tasks", "list")),
+    Tombstone(("catalog", "trigger-set"), ("eval", "triggers", "generate")),
+    Tombstone(("eval", "score"), ("eval", "score", "pointwise")),
+    Tombstone(("eval", "pairwise"), ("eval", "score", "pairwise")),
+    Tombstone(("eval", "panel-score"), ("eval", "score", "panel")),
+    Tombstone(("eval", "checklist"), ("eval", "score", "checklist")),
+    Tombstone(("eval", "grounding"), ("eval", "score", "grounding")),
+    Tombstone(("eval", "ragas"), ("eval", "score", "ragas")),
+    Tombstone(("eval", "reference"), ("eval", "score", "reference")),
+    Tombstone(("eval", "judge-validity"), ("eval", "judge", "validate")),
+    Tombstone(("eval", "judge-wording"), ("eval", "judge", "wording")),
+    Tombstone(("eval", "cross-judge"), ("eval", "judge", "agreement")),
+    # The retired roots: a bare `personas` or `questions` (or its help) points at `eval`.
+    Tombstone(("personas",), ("eval", "personas")),
+    Tombstone(("questions",), ("eval", "questions")),
+)
 
 SCHEMA_VERSION = "cli_routes.v1"
 
@@ -206,11 +233,24 @@ def moved_argv(
     """The argv a tombstone rewrites ``argv`` to, or None when no tombstone matches its start.
 
     An alias typed on the command line (``product`` for ``library``) matches the root's tombstones.
+    A path that is itself a live leaf under the old prefix is not a tombstone: ``eval score
+    pointwise`` is live even though ``eval score`` moved there.
     """
     canon = _canonical(tuple(argv))
+    live = {leaf.path for leaf in LEAVES}
     for tomb in TOMBSTONES if tombstones is None else tombstones:
-        if canon[: len(tomb.old)] == _canonical(tomb.old):
-            return [*tomb.new, *argv[len(tomb.old) :]]
+        n = len(tomb.old)
+        if canon[:n] != _canonical(tomb.old):
+            continue
+        if any(canon[:k] in live for k in range(n + 1, len(canon) + 1)):
+            continue
+        # A group that stays under its own name (`eval score` -> `eval score pointwise`) keeps its help.
+        # A plain word after it is a mistyped leaf (argparse names the choices); an option is an old call.
+        if tomb.new[:n] == _canonical(tomb.old) and (
+            all(a in ("-h", "--help") for a in argv[n:]) or not argv[n].startswith("-")
+        ):
+            continue
+        return [*tomb.new, *argv[n:]]
     return None
 
 
@@ -231,7 +271,8 @@ def _resolve(path: tuple[str, ...]) -> tuple[str, ...] | None:
 def _is_route(path: tuple[str, ...]) -> bool:
     """True when argv ``path`` names a root or an alias, or a group or leaf under one.
 
-    ``moved_argv`` matches by prefix, so a tombstone on a group shadows every route under it.
+    ``moved_argv`` matches by prefix and skips a live leaf, so a tombstone on a group shadows
+    the argv under it that is not a live leaf.
     """
     full = _resolve(path)
     return full is not None and any(leaf.path[: len(full)] == full for leaf in LEAVES)
@@ -251,7 +292,10 @@ def tombstone_problems(tombstones: tuple[Tombstone, ...] | None = None) -> list[
     for tomb in TOMBSTONES if tombstones is None else tombstones:
         if not tomb.old or tomb.old[0].startswith("-"):  # an empty path matches every argv
             problems.append(f"{' '.join(tomb.old) or '(empty)'} is not a command path")
-        if _is_route(tomb.old):
+        # A group the move leaves in place (`eval score`) is a route, but not an old one.
+        # Only a group of two or more words can stay in place; a whole root or alias cannot.
+        stays = len(tomb.old) > 1 and tomb.new[: len(tomb.old)] == _canonical(tomb.old)
+        if _is_route(tomb.old) and not stays:
             problems.append(f"{' '.join(tomb.old)} is still a live route")
         if _extends_a_leaf(tomb.old):
             problems.append(f"{' '.join(tomb.old)} extends a live route and would shadow it")

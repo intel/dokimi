@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""eval subcommand group: score, ragas, panel-score."""
+"""eval subcommand group: score, judge, and the eval sets (personas, questions, tasks, triggers, check)."""
 
 from __future__ import annotations
 
@@ -145,7 +145,7 @@ def cmd_eval_panel_score(args: argparse.Namespace) -> None:
                 answer_model=answer_model,
                 judge_provider=cfg.provider,
                 judge_model=cfg.model,
-                context="panel-score",
+                context="eval score panel",
             )
 
     n_effective = min(len(answers), args.limit) if args.limit else len(answers)
@@ -197,7 +197,7 @@ def cmd_eval_score(args: argparse.Namespace) -> None:
             answer_model=answer_model,
             judge_provider=args.judge_provider,
             judge_model=args.judge_model,
-            context="eval-score",
+            context="eval score pointwise",
         )
 
     try:
@@ -472,15 +472,22 @@ def _non_negative_int(value: str) -> int:
     return n
 
 
-def register(sub, positive_int) -> None:
-    """Add the `eval` subcommand group."""
+def register(sub, positive_int):
+    """Add the `eval` subcommand group and its `score` and `judge` groups; return the eval subparsers.
+
+    The groups that join `eval` (personas, questions, tasks, triggers, check) register on the return value.
+    """
     # Eval subcommand group
-    eval_p = sub.add_parser("eval", help="Evaluate answers")
+    eval_p = sub.add_parser("eval", help="Build and check eval sets, score answers, calibrate judges")
     eval_sub = eval_p.add_subparsers(dest="eval_cmd", required=True)
     eval_coverage.register(eval_sub)
 
-    # eval score
-    score_p = eval_sub.add_parser("score", help="Score answers using LLM-as-judge")
+    score_group = eval_sub.add_parser(
+        "score", help="Score answers: pointwise, pairwise, panel, checklist, grounding, ragas, reference")
+    score_sub = score_group.add_subparsers(dest="score_cmd", required=True)
+
+    # eval score pointwise
+    score_p = score_sub.add_parser("pointwise", help="Score answers using LLM-as-judge")
     score_p.add_argument("--product", required=True, help="Product name (e.g., oneTBB)")
     score_p.add_argument("--answers", required=True, help="Path to answers JSON file")
     score_p.add_argument("--run-id", default=None, dest="run_id",
@@ -495,8 +502,8 @@ def register(sub, positive_int) -> None:
                          help="Judge the no-retrieval placeholder answers too (default: they are not scored)")
     score_p.set_defaults(func=cmd_eval_score)
 
-    # eval ragas
-    ragas_p = eval_sub.add_parser("ragas", help="Run RAGAS meta-evaluation on answers")
+    # eval score ragas
+    ragas_p = score_sub.add_parser("ragas", help="Run RAGAS meta-evaluation on answers")
     ragas_p.add_argument("--answers", required=True, help="Path to answers JSON file")
     ragas_p.add_argument("--ragas-model", default=DEFAULT_JUDGE_MODEL,
                          help=f"LLM for RAGAS judge (default: {DEFAULT_JUDGE_MODEL})")
@@ -504,8 +511,8 @@ def register(sub, positive_int) -> None:
                          help=f"Provider for RAGAS judge LLM (default: {DEFAULT_JUDGE_PROVIDER})")
     ragas_p.set_defaults(func=cmd_eval_ragas)
 
-    # eval grounding (reference-free, no LLM)
-    grounding_p = eval_sub.add_parser(
+    # eval score grounding (reference-free, no LLM)
+    grounding_p = score_sub.add_parser(
         "grounding", help="Reference-free grounding/citation metrics with confidence intervals"
     )
     grounding_p.add_argument("--answers", required=True, help="Path to answers JSON file")
@@ -514,9 +521,11 @@ def register(sub, positive_int) -> None:
                              help="Grounding score above which an answer counts as grounded (default: 0.5)")
     grounding_p.set_defaults(func=cmd_eval_grounding)
 
-    # eval judge-validity (does the judge order known-worse answers below better ones?)
-    validity_p = eval_sub.add_parser(
-        "judge-validity",
+    # eval judge validate (does the judge order known-worse answers below better ones?)
+    judge_group = eval_sub.add_parser("judge", help="Judge calibration: validate, wording, agreement")
+    judge_sub = judge_group.add_subparsers(dest="judge_cmd", required=True)
+    validity_p = judge_sub.add_parser(
+        "validate",
         help="Measure judge discriminative validity on deterministic degradations (exits 1 on FAIL)",
     )
     validity_p.add_argument("--answers", required=True, help="Path to answers JSON file")
@@ -574,18 +583,18 @@ def register(sub, positive_int) -> None:
 
     from dokimi.commands import judge_reliability
 
-    judge_reliability.register(eval_sub, positive_int)  # eval checklist, eval judge-wording
+    judge_reliability.register(score_sub, judge_sub, positive_int)  # eval score checklist and pairwise; eval judge wording and agreement
 
     from dokimi.commands import answer_formats
 
-    answer_formats.register_eval(eval_sub, positive_int)  # eval reference, eval native-import
+    answer_formats.register_eval(score_sub, eval_sub, positive_int)  # eval score reference; eval native-import
 
     from dokimi.commands import redteam
 
     redteam.register_eval(eval_sub)  # eval redteam
 
-    # eval panel-score
-    panel_p = eval_sub.add_parser("panel-score", help="Score answers using a multi-judge panel")
+    # eval score panel
+    panel_p = score_sub.add_parser("panel", help="Score answers using a multi-judge panel")
     panel_p.add_argument("--answers", required=True, help="Path to answers JSON file")
     panel_p.add_argument("--product", required=True, help="Product name (e.g., oneTBB)")
     panel_p.add_argument("--output", default=None, help="Output file (default: eval/{product}_panel.json)")
@@ -610,3 +619,5 @@ def register(sub, positive_int) -> None:
     panel_p.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
                          help="Sampling temperature for every panel judge, recorded as judge_temperature")
     panel_p.set_defaults(func=cmd_eval_panel_score)
+
+    return eval_sub
