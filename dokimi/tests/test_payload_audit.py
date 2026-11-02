@@ -11,6 +11,7 @@ import dokimi.eval.agent_runner as ar_mod
 from dokimi.eval.agent_runner import run_agent_loop
 from dokimi.harnesses import load_task
 from dokimi.harnesses.agent_sandbox import AgentWorkspace
+from dokimi.harnesses.container_agent import AGENT_BIN
 from dokimi.harnesses.docker_solver import _CONTAINER_PLUGIN, DockerSolverHarness
 from dokimi.harnesses.payload_audit import added_framing, audit_payload, markers_for, new_leaks
 from dokimi.harnesses.skill_treatment import TREATMENT_NOTICE, Treatment
@@ -142,9 +143,16 @@ def test_docker_claude_arms_send_no_harness_artifacts(tmp_path):
         h = DockerSolverHarness(harness_id="docker-claude", mode="claude", skill_notice=notice)
         argv = h._claude_args(task, treatment, _CONTAINER_PLUGIN, "haiku", out)
         assert _CONTAINER_PLUGIN in argv and "abskill" not in " ".join(argv)
-        assert audit_payload(argv, markers, allowed=allowed) == []
+        # The command the agent runs: the in-container executable, then the arguments.
+        assert audit_payload([AGENT_BIN, *argv], markers, allowed=allowed) == []
     ws = AgentWorkspace.create()
     try:
         assert audit_payload({"cwd": str(ws.work), "root": ws.root.name}, markers) == []
+        # The host arm runs the binary on the host, with its plugin dir under the workspace root.
+        host = DockerSolverHarness(harness_id="docker-claude-host", mode="claude",
+                                   agent_location="host", skill_notice=True)
+        plugin = str(ws.root / "plugin")
+        argv = host._claude_args(task, treatment, plugin, "haiku", out)
+        assert audit_payload(["claude", *argv], markers, allowed=allowed) == []
     finally:
         ws.cleanup()

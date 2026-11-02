@@ -77,8 +77,8 @@ from .egress_proxy import (
 AGENT_UID = "10001:10001"
 # HOME is its own tmpfs, so the image's /tmp stays the image's (the verifier sees it too).
 AGENT_HOME = "/run/abhome"
-AGENT_BIN = "/opt/dokimi-agent/claude"
-FILES_DIR = "/opt/dokimi-agent/files"
+AGENT_BIN = "/opt/agent/claude"
+FILES_DIR = "/opt/agent/files"
 LABEL = "dokimi.run"  # on the network, sidecar and task container: find leftovers with it
 # File-valued variables whose file is copied into the container and re-pointed there.
 _FILE_VARS = ("NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "AWS_CA_BUNDLE",

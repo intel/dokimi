@@ -342,9 +342,9 @@ def test_container_solve_lifecycle(tmp_path, cli, docker_calls, monkeypatch):
     assert connect[2:4] == ["--alias", "egress"]
     run_call = next(c for c in docker_calls if c[0] == "run")
     assert run_call[run_call.index("--network") + 1].startswith("dokimi-net-")
-    assert any(c[0] == "cp" and c[-1].endswith(":/opt/dokimi-agent/claude") for c in docker_calls)
+    assert any(c[0] == "cp" and c[-1].endswith(":/opt/agent/claude") for c in docker_calls)
     assert seen["argv"][:4] == ["docker", "exec", "-u", AGENT_UID]
-    assert "/opt/dokimi-agent/claude" in seen["argv"] and "--tools" in seen["argv"]
+    assert "/opt/agent/claude" in seen["argv"] and "--tools" in seen["argv"]
     # Whatever the agent backgrounded is killed before the snapshot and the verifier's /tests.
     reap = next(i for i, c in enumerate(docker_calls)
                 if c[:3] == ["exec", "-u", AGENT_UID] and "kill -9 -1" in c[-1])
@@ -480,7 +480,7 @@ def test_container_discover_arm_is_the_skill_arm_without_the_notice(
     # Same claude argv otherwise: plugin dir, tools, settings; only the prompt differs.
 
     def claude_argv(argv):
-        argv = argv[argv.index("/opt/dokimi-agent/claude"):]
+        argv = argv[argv.index("/opt/agent/claude"):]
         return argv[:argv.index("-p") + 1] + argv[argv.index("-p") + 2:]
 
     assert claude_argv(skill_argv) == claude_argv(disc_argv)
@@ -612,7 +612,7 @@ def test_container_probe_runs_as_the_agent_with_container_paths_forbidden(tmp_pa
     assert seen["argv"][:4] == ["docker", "exec", "-u", AGENT_UID]
     assert "/solution" in seen["env"]["PROBE_TASK_FILES"].split()
     assert result.reward == 1.0 and result.passed is True
-    assert not any(c[0] == "cp" and c[-1].endswith(":/opt/dokimi-agent/claude") for c in docker_calls)
+    assert not any(c[0] == "cp" and c[-1].endswith(":/opt/agent/claude") for c in docker_calls)
 
 
 def test_a_hung_container_probe_is_untested_not_sealed(tmp_path, cli, docker_calls, monkeypatch):
@@ -880,12 +880,12 @@ def test_ca_and_credential_files_are_copied_in_and_repointed(tmp_path, cli, dock
     _fake_claude(cli, seen)
     create_harness("docker-claude", runner=cli).run(load_task(_task(tmp_path)), model="haiku",
                                        output_dir=tmp_path / "out")
-    assert any(c[:2] == ["cp", str(ca)] and c[2].endswith(":/opt/dokimi-agent/files/NODE_EXTRA_CA_CERTS")
+    assert any(c[:2] == ["cp", str(ca)] and c[2].endswith(":/opt/agent/files/NODE_EXTRA_CA_CERTS")
                for c in docker_calls)
 
 
 def test_a_binary_that_cannot_run_in_the_image_fails_clearly(tmp_path, cli, docker_calls, monkeypatch):
-    cli.answer = lambda call: reply(stderr="exec /opt/dokimi-agent/claude: no such file", returncode=127) if (
+    cli.answer = lambda call: reply(stderr="exec /opt/agent/claude: no such file", returncode=127) if (
         call.argv[1] == "exec" and call.argv[-1] == "--version") else None
     # Errored, with the isolation and egress record kept rather than raised away.
     result = create_harness("docker-claude", runner=cli).run(load_task(_task(tmp_path)), model="haiku",
