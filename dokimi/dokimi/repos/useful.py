@@ -30,6 +30,9 @@ USEFUL_REGEX_TIMEOUT = 2.0
 #: The ``repo compare`` measures of the first useful result, one value per task (see :func:`useful_task_values`).
 USEFUL_MEASURES = ("first_useful_s", "first_useful_steps", "first_useful_rate")
 
+#: The reasons that give a cell no verdict on the first useful result (its trace was not read, or its pattern timed out).
+_NO_VERDICT = ("unobserved", "timeout")
+
 #: A drive-qualified (``C:/x``, ``c:x``) or backslash-rooted (``\\server\share``, ``\\x``) path: not a POSIX
 #: path, so ``_workspace_path`` would take it for relative; it is outside the workspace.
 _NON_POSIX_ROOT = re.compile(r"^(?:[A-Za-z]:|\\)")
@@ -95,6 +98,11 @@ def _observed(have: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
     return [u for u in have if as_measure(u.get("steps")) is not None]
 
 
+def _measured(have: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """The cells with a verdict: an ``unobserved`` or ``timeout`` cell has none, so it is no miss either."""
+    return [u for u in have if u.get("reason") not in _NO_VERDICT]
+
+
 def _nums(values: Iterable[Any]) -> list[float]:
     """The stored numbers that are measures: finite and within the report bound (a NaN or a 10**400 is no measure)."""
     return [num for v in values if (num := as_measure(v)) is not None]
@@ -135,42 +143,57 @@ def useful_kind(recs: Sequence[Mapping[str, Any]]) -> str | None:
 
 
 def useful_task_values(recs: Sequence[Mapping[str, Any]]) -> dict[str, list[float | None]]:
-    """``repo compare``'s per-task values: the medians over the cells that observed it, and the share of the declared
-    cells that did (None if no cell declares it). The medians alone see only the observed cells. Cells that name two
-    kinds have no value: a command's timing and an edit's are not one measure."""
+    """``repo compare``'s per-task values: the medians over the cells that observed it, and the share of the cells
+    with a verdict that observed it (None if none has one). A cell with no verdict (``unobserved``, ``timeout``) is
+    neither a hit nor a miss. The medians alone see only the observed cells. Cells that name two kinds have no value:
+    a command's timing and an edit's are not one measure."""
     have = _declared(recs)
     if useful_kind(recs) == "mixed":
         return {measure: [None] for measure in USEFUL_MEASURES}
+    measured = _measured(have)
     observed = _nums(u.get("steps") for u in have)
     return {
         "first_useful_s": [_median(_nums(u.get("issued_s") for u in _observed(have)))],
         "first_useful_steps": [_median(observed)],
-        "first_useful_rate": [len(observed) / len(have) if have else None],
+        "first_useful_rate": [
+            len(_nums(u.get("steps") for u in measured)) / len(measured) if measured else None
+        ],
     }
 
 
 def useful_task_counts(recs: Sequence[Mapping[str, Any]]) -> dict[str, int]:
     """The cells behind each :func:`useful_task_values` measure: the timed hits for seconds, the observed hits for
-    steps, and the declared cells for the rate (a median of one value is not one cell)."""
+    steps, and the cells with a verdict for the rate (a median of one value is not one cell)."""
     have = _declared(recs)
     return {
         "first_useful_s": len(_nums(u.get("issued_s") for u in _observed(have))),
         "first_useful_steps": len(_nums(u.get("steps") for u in have)),
-        "first_useful_rate": len(have),
+        "first_useful_rate": len(_measured(have)),
     }
 
 
 def useful_counts(recs: Sequence[Mapping[str, Any]]) -> dict[str, int] | None:
-    """One arm's cells that observed a first useful result, of those that declare one; None if none declare."""
+    """One arm's cells that observed a first useful result, of those with a verdict, and the cells without one; None
+    if none declares a definition."""
     have = _declared(recs)
     if not have:
         return None
-    return {"observed": len(_nums(u.get("steps") for u in have)), "declared": len(have)}
+    measured = _measured(have)
+    return {
+        "observed": len(_nums(u.get("steps") for u in measured)),
+        "measured": len(measured),
+        "unmeasured": len(have) - len(measured),
+    }
 
 
 def useful_arms_line(counts: Mapping[str, Mapping[str, int] | None]) -> str | None:
-    """The compare header's line of observed-of-declared cells per arm; None when no arm declares one."""
-    shown = [f"{arm} {c['observed']} of {c['declared']}" for arm, c in counts.items() if c]
+    """The compare header's line of observed-of-measured cells per arm, with the unmeasured ones; None when no arm
+    declares one."""
+    shown = [
+        f"{arm} {c['observed']} of {c['measured']}"
+        + (f" ({c['unmeasured']} unmeasured)" if c["unmeasured"] else "")
+        for arm, c in counts.items() if c
+    ]
     return f"first useful observed: {', '.join(shown)}" if shown else None
 
 

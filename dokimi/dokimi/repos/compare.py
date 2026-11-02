@@ -17,8 +17,9 @@ cells are first reduced to one value per (task, arm, model):
   compared only when both arms report it for some shared task: a batch run before it was recorded has none;
 - **first_useful_s**, **first_useful_steps**: the median seconds and steps to the first useful result (``first_useful``
   in ``result.json``, :mod:`.useful`) over the cells that observed it; compared like ``first_prompt_tokens``;
-- **first_useful_rate**: the share of the cells that declare a first useful result and observed one, per task; the
-  header counts observed of declared cells per arm;
+- **first_useful_rate**: the share of the cells that declare a first useful result, and have a verdict (not
+  `unobserved` or `timeout`), that observed one, per task; the header counts observed of measured cells per arm and
+  the unmeasured ones;
 - **metric:<name>**: the mean of ``grade.json`` ``metrics.<name>`` over the
   cells that report it (``true`` is 1), for ``--metric``;
 - **pass^k**: for ``--pass-k K``, the chance that K cells drawn from the

@@ -495,8 +495,10 @@ harness never started, it did not parse, or a line of the trace was dropped: an 
 A cell of an older batch has no `first_useful`. Each cell that declares a definition
 is counted in `repo report`: the row says how many observed a hit, and the medians
 cover only those. `repo compare` pairs `first_useful_rate` per task (the share of its
-declared cells that observed a hit, so a task where most runs never hit it is not read
-through its medians alone) and its header counts observed of declared cells per arm. A
+declared cells with a verdict that observed a hit, so a task where most runs never hit it is not read
+through its medians alone; a cell `unobserved` or `timeout` has no verdict, so it is neither a hit nor
+a miss and is left out of the share) and its header counts observed of measured cells per arm, with
+the unmeasured ones. An edit made by a shell command (`sed -i`) is not an `edit` event, so it is not seen. A
 compared task has one kind, but the mean delta pools the tasks of both kinds: a per-task
 row shows which.
 
@@ -1513,7 +1515,7 @@ python cli.py repo compare repo-runs/replay --baseline guidance:none --metric re
   task is the unit. Per treatment arm, model and measure (gate share, score,
   cost, turns, `first_prompt_tokens`, `first_useful_s` and `first_useful_steps` (the median over a
   task's cells that observed the first useful result, §4.1), `first_useful_rate` (the share of a task's
-  declared cells that observed one), each `--metric` from `grade.json`, and each `process` count a
+  declared cells with a verdict that observed one), each `--metric` from `grade.json`, and each `process` count a
   compared cell reports as `process:<key>` or `counter:<name>`) it gives the mean per-task
   delta against the baseline with a 95% interval over tasks (a bootstrap for
   gate and score, a t interval for the descriptive measures, `-` for a single

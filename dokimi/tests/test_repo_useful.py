@@ -350,10 +350,10 @@ def test_a_task_value_is_the_median_of_the_cells_that_observed_it():
         "first_useful_steps": [None],
         "first_useful_rate": [None],
     }
-    assert useful_counts(recs) == {"observed": 3, "declared": 4}
+    assert useful_counts(recs) == {"observed": 3, "measured": 4, "unmeasured": 0}
     assert useful_counts([{}]) is None
     assert (
-        useful_arms_line({"a": {"observed": 1, "declared": 2}, "b": None})
+        useful_arms_line({"a": {"observed": 1, "measured": 2, "unmeasured": 0}, "b": None})
         == "first useful observed: a 1 of 2"
     )
     assert useful_arms_line({"a": None}) is None
@@ -436,8 +436,8 @@ def test_the_rate_says_how_many_declared_cells_observed_a_hit_where_the_medians_
     assert by_task["t1"]["baseline"] < 1.0  # the medians alone would read this arm as no slower
     assert _row(s, "first_useful_s")["delta"]["mean"] == 1.0  # medians 10 and 11
     assert s["first_useful"] == {
-        "guidance:none": {"observed": 1, "declared": 2},
-        "guidance:raw": {"observed": 2, "declared": 2},
+        "guidance:none": {"observed": 1, "measured": 2, "unmeasured": 0},
+        "guidance:raw": {"observed": 2, "measured": 2, "unmeasured": 0},
     }
     assert "first useful observed: guidance:none 1 of 2, guidance:raw 2 of 2" in format_compare(s)
 
@@ -549,7 +549,7 @@ def test_a_stored_non_finite_or_huge_number_is_no_measure(steps):
     recs = [{"first_useful": {"kind": "edit", "reason": None, "issued_s": 1.0, "steps": steps}}]
     assert useful_task_values(recs)["first_useful_steps"] == [None]
     assert useful_task_values(recs)["first_useful_rate"] == [0.0]
-    assert useful_counts(recs) == {"observed": 0, "declared": 1}
+    assert useful_counts(recs) == {"observed": 0, "measured": 1, "unmeasured": 0}
     # a cell that observed no hit has no timing either: its issued_s is not a timed hit
     assert useful_task_values(recs)["first_useful_s"] == [None]
     assert useful_task_counts(recs)["first_useful_s"] == 0
@@ -601,7 +601,7 @@ def test_the_header_counts_only_the_models_compared(tmp_path):
     _set_useful(batch, "t1__guidance-none__m2__r1", _hit(5.0, 3))
     _set_useful(batch, "t1__guidance-raw__m1__r1", _hit(9.0, 4))
     s = compare([batch], "guidance:none", models=["m1"])
-    assert s["first_useful"]["guidance:none"] == {"observed": 0, "declared": 1}
+    assert s["first_useful"]["guidance:none"] == {"observed": 0, "measured": 1, "unmeasured": 0}
 
 
 def test_a_task_whose_arms_define_different_kinds_of_first_useful_result_is_unpaired(tmp_path):
@@ -736,6 +736,41 @@ def test_the_rate_is_over_the_declared_cells_and_its_count_is_the_declared_cells
     assert useful_task_counts(recs)["first_useful_rate"] == 3
 
 
+def test_a_cell_with_no_verdict_is_left_out_of_the_rate_not_counted_as_a_miss():
+    recs = [
+        {"first_useful": _hit(1.0, 1)},
+        {"first_useful": {"kind": "command", "reason": "unobserved", "issued_s": None, "steps": None}},
+        {"first_useful": {"kind": "command", "reason": "timeout", "issued_s": None, "steps": None}},
+    ]
+    assert useful_task_values(recs)["first_useful_rate"] == [1.0]
+    assert useful_task_counts(recs)["first_useful_rate"] == 1
+    assert useful_counts(recs) == {"observed": 1, "measured": 1, "unmeasured": 2}
+
+
+def test_a_task_whose_cells_have_no_verdict_has_no_rate():
+    recs = [{"first_useful": {"kind": "edit", "reason": "unobserved", "issued_s": None, "steps": None}}]
+    assert useful_task_values(recs)["first_useful_rate"] == [None]
+    assert useful_task_counts(recs)["first_useful_rate"] == 0
+    assert useful_counts(recs) == {"observed": 0, "measured": 0, "unmeasured": 1}
+
+
+def test_compare_does_not_read_unobserved_and_timeout_cells_as_a_lower_rate(tmp_path):
+    batch = tmp_path / "b"
+    unobserved = {"kind": "command", "reason": "unobserved", "issued_s": None, "steps": None}
+    timeout = {"kind": "command", "reason": "timeout", "issued_s": None, "steps": None}
+    _timed(batch, "t1", "guidance:none", 1, _hit(10.0, 4))
+    _timed(batch, "t1", "guidance:none", 2, unobserved)
+    _timed(batch, "t1", "guidance:none", 3, timeout)
+    for rep, (s, n) in enumerate([(12.0, 5), (11.0, 4), (13.0, 6)], 1):
+        _timed(batch, "t1", "guidance:raw", rep, _hit(s, n))
+    s = compare([batch], "guidance:none")
+    rate = _row(s, "first_useful_rate")["tasks"][0]
+    assert (rate["baseline"], rate["treatment"]) == (1.0, 1.0)
+    assert _row(s, "first_useful_rate")["delta"]["mean"] == 0.0
+    assert s["first_useful"]["guidance:none"] == {"observed": 1, "measured": 1, "unmeasured": 2}
+    assert "first useful observed: guidance:none 1 of 1 (2 unmeasured), guidance:raw 3 of 3" in format_compare(s)
+
+
 @pytest.mark.parametrize("dropped, reason", [(0, None), (1, "unobserved")])
 def test_result_json_says_a_trace_with_a_dropped_line_is_unobserved_not_never(setup, monkeypatch, dropped, reason):  # noqa: F811
     """The runner's own guard: a dropped line may hold the hit, so the kept events are not used for it."""
@@ -769,7 +804,7 @@ def test_the_treatment_header_counts_only_the_models_compared(tmp_path):
                 {"kind": "command", "reason": "never", "issued_s": None, "steps": None})
     _set_useful(batch, "t1__guidance-raw__m2__r1", _hit(9.0, 4))
     s = compare([batch], "guidance:none", models=["m1"])
-    assert s["first_useful"]["guidance:raw"] == {"observed": 0, "declared": 1}
+    assert s["first_useful"]["guidance:raw"] == {"observed": 0, "measured": 1, "unmeasured": 0}
 
 
 @pytest.mark.parametrize("content", [[{}], [{"type": 7}], [{"type": None}], [{"text": "no type"}]])
