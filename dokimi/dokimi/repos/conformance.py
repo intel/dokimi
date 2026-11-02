@@ -218,7 +218,9 @@ def run_case(harness: Harness, model: str, fixture: Path, guidance: Path, out: P
 def run_harness(harness: Harness, model: str, fixtures: Path, expect: Mapping[str, Any], out_dir: Path, *,
                 timeout: int = DEFAULT_TIMEOUT_S, budget: float = DEFAULT_BUDGET_USD,
                 env: Mapping[str, str], which: Callable[[str], str | None] = shutil.which) -> dict[str, Any]:
-    """One harness over every fixture, as a matrix. A harness that cannot run here gets a skipped run per fixture."""
+    """One harness over every fixture, as a matrix. A harness that cannot run here gets a skipped run per fixture.
+
+    ``env`` only decides availability; each run inherits the process environment."""
     reason = unavailable(harness, model, env, which)
     guidance = fixtures / "guidance.yaml"
     runs: list[dict[str, Any]] = []
