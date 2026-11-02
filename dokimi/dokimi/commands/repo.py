@@ -480,7 +480,8 @@ def _print_receipt(tree, profile, payload: dict, out_dir: Path) -> None:
     from dokimi.repos.budget import budget
     from dokimi.repos.receipt import build_receipt
 
-    receipt = build_receipt(payload, budget(tree, profile.guidance_names, profile.import_max_depth), tree)
+    receipt = build_receipt(payload, budget(tree, profile.guidance_names, profile.import_max_depth,
+                                            claude_displaces_agents=profile.claude_displaces_agents), tree)
     try:  # a directory that is not writable, or one already named effective_instructions.json: a runtime failure
         written = save_artifact("effective_instructions", receipt, out_dir / RECEIPT_NAME)
     except OSError as exc:
@@ -501,7 +502,8 @@ def cmd_repo_budget(args: argparse.Namespace) -> None:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
     _, tree = _source_tree(args)
-    payload = budget(tree, profile.guidance_names, profile.import_max_depth)
+    payload = budget(tree, profile.guidance_names, profile.import_max_depth,
+                     claude_displaces_agents=profile.claude_displaces_agents)
     if args.out:
         try:
             save_artifact("repo_budget", payload, Path(args.out))

@@ -18,7 +18,7 @@ starts at the repository root:
   CLAUDE.md imports them (measured on Claude Code 2.1.286; the reach probe re-measures).
 - **off** too: an AGENTS.md below the root whose own directory holds a CLAUDE.md, CLAUDE.local.md or .claude/CLAUDE.md
   (not one in a parent or deeper directory), unless a CLAUDE* file is a link to it or a file that loads imports it
-  (measured on Claude Code 2.1.316).
+  (measured on Claude Code 2.1.316; only for a profile that sets ``guidance.claude_displaces_agents``, claude-code).
 
 Characters, not tokens: how many tokens a character costs depends on the model's tokenizer,
 and differs between model families. The exact cost is the first-call prompt difference
@@ -61,7 +61,10 @@ _WORD = re.compile(r"\w+")
 _STOP = frozenset("a an and the of to for in on with use when or is are be this that it its from by as at".split())
 
 
-def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: int | None = None) -> dict[str, Any]:
+def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: int | None = None, *,
+           claude_displaces_agents: bool = False) -> dict[str, Any]:
+    """The inventory. ``claude_displaces_agents`` (the profile's ``guidance.claude_displaces_agents``, Claude Code's
+    alone) adds the rule that a CLAUDE* file turns off the AGENTS.md in its own directory below the root."""
     files = tree.files()
     names = set(guidance_names)
     every = [f for f in files if f.rsplit("/", 1)[-1] in names]
@@ -79,7 +82,7 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
     # A root CLAUDE.md's imports load at start; a nested one's when the agent reaches its subtree.
     at_start, cut_start = _imports(tree, root_claude_for_off, import_max_depth)
     lazy_all, cut_lazy = _imports(tree, [f for f in claude if f not in root_claude], import_max_depth)
-    displaced = _displaced(tree, every, claude, root_claude_for_off)
+    displaced = _displaced(tree, every, claude, root_claude_for_off, claude_displaces_agents)
 
     # An AGENTS.md read on its own expands its @imports from hop 0. One a CLAUDE* displaces is read only through
     # an import, whose chain follows it at its real hop count, unless a root CLAUDE* or a CLAUDE* beside it aliases it.
@@ -174,13 +177,17 @@ def _is_root(path: str) -> bool:
     return "/" not in path or path in (".claude/CLAUDE.md", ".claude/AGENTS.md")
 
 
-def _displaced(tree: RepoTree, every: list[str], claude: list[str], root_claude: list[str]) -> dict[str, list[str]]:
-    """Each AGENTS.md a CLAUDE* file turns off, with the files that do: every one while a root CLAUDE* resolves, else
-    one whose own directory holds a CLAUDE.md, CLAUDE.local.md or .claude/CLAUDE.md that resolves (not one in a parent
-    or deeper directory; measured on Claude Code 2.1.316). Imports and aliases that still load it are decided later."""
+def _displaced(tree: RepoTree, every: list[str], claude: list[str], root_claude: list[str],
+               same_dir: bool) -> dict[str, list[str]]:
+    """Each AGENTS.md a CLAUDE* file turns off, with the files that do: every one while a root CLAUDE* resolves, else,
+    with ``same_dir``, one whose own directory holds a CLAUDE.md, CLAUDE.local.md or .claude/CLAUDE.md that resolves
+    (not one in a parent or deeper directory; measured on Claude Code 2.1.316). Imports and aliases that still load it
+    are decided later."""
     agents = [f for f in every if f.rsplit("/", 1)[-1] == "AGENTS.md"]
     if root_claude:
         return {f: root_claude for f in agents}
+    if not same_dir:
+        return {}
     present = {c for c in claude if _is_resolvable(tree, c)}
     out: dict[str, list[str]] = {}
     for f in agents:

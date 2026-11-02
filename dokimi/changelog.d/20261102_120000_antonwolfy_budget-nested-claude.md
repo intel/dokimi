@@ -7,6 +7,8 @@
   not counted, and a warning names the `CLAUDE*` file that turns it off. It stays `lazy` when one
   of those files is a link to it or a loaded file `@`-imports it, or when the same file is also
   reached as an `AGENTS.md` in another directory. A `CLAUDE*` file in a parent or a deeper
-  directory does not turn it off. A tree with a root `CLAUDE*` file, and a profile whose guidance
-  names hold no `CLAUDE*` name (Codex, Copilot), get the same budget as before. The `claude-code`
-  profile's `guidance.notes` state the measured rule.
+  directory does not turn it off. The rule applies only with a profile that sets the new optional
+  `guidance.claude_displaces_agents` key of `harness_profile.v1`, which only `claude-code` does: a
+  tree with a root `CLAUDE*` file, and the Codex and Copilot profiles (Copilot's guidance names
+  list `CLAUDE.md`), get the same budget as before. The `claude-code` profile's `guidance.notes`
+  state the measured rule.
