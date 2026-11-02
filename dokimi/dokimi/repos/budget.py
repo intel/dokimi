@@ -105,16 +105,16 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
     # resolve (not dangling/out-of-tree) count; unreadable UTF-8 still counts.
     root_claude_for_off = [f for f in root_claude if _is_resolvable(tree, f)]
     # A root CLAUDE.md's imports load at start; a nested one's when the agent reaches its subtree.
-    at_start, cut_start = _imports(tree, root_claude_for_off, import_max_depth)
-    lazy_all, cut_lazy = _imports(tree, [f for f in claude if f not in root_claude], import_max_depth)
+    at_start, cut_start = _imports(tree, root_claude_for_off, import_max_depth, rules)
+    lazy_all, cut_lazy = _imports(tree, [f for f in claude if f not in root_claude], import_max_depth, rules)
 
     # An AGENTS.md Claude reads on its own expands its @imports from hop 0: root ones at start, nested
     # ones when the agent reaches their subtree. One a root CLAUDE* displaces is read only through an
     # import, whose chain already follows it at its real hop count, unless it is a root CLAUDE* alias.
     agents = [f for f in every if f.rsplit("/", 1)[-1] == "AGENTS.md" and _is_resolvable(tree, f)
               and (not root_claude_for_off or any(a in root_claude for a in groups.get(_target(tree, f), [f])))]
-    agents_at_start, cut_agents_start = _imports(tree, [f for f in agents if _is_root(f)], import_max_depth)
-    agents_lazy, cut_agents_lazy = _imports(tree, [f for f in agents if not _is_root(f)], import_max_depth)
+    agents_at_start, cut_agents_start = _imports(tree, [f for f in agents if _is_root(f)], import_max_depth, rules)
+    agents_lazy, cut_agents_lazy = _imports(tree, [f for f in agents if not _is_root(f)], import_max_depth, rules)
     at_start |= agents_at_start
     lazy_all |= agents_lazy
     cut_start = cut_start + cut_agents_start
@@ -150,14 +150,28 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
     guidance_loaded = {_target(tree, e["path"]) for e in entries if e["when"] != "off"}
     counted = {_target(tree, f) for f in guidance}
     entries += _rules(tree, files if rules else [], counted, start_t, unreadable_warnings, entries)
+    rule_entries = {_target(tree, e["path"]): e for e in entries if e["kind"] == "rule"}
     for f in sorted((at_start | lazily) - set(guidance), key=lambda p: (p not in at_start, p)):
-        if _is_resolvable(tree, f) and _target(tree, f) not in counted:
-            counted.add(_target(tree, f))
+        if not _is_resolvable(tree, f):
+            continue
+        t = _target(tree, f)
+        when = "start" if f in at_start else "lazy"
+        if t in counted:
+            # A rule link counted this file with its frontmatter removed. An ordinary @import keeps the frontmatter,
+            # so its count replaces the rule's when it loads at the same time or earlier (a rule file is left alone).
+            rule = rule_entries.get(t)
+            if rule is None or RULE_GLOB.match(f) or RULE_GLOB.match(t) or (when == "lazy" and rule["when"] == "start"):
+                continue
             chars, warning = _chars(tree, f)
             if warning:
                 unreadable_warnings.append(warning)
-            entries.append({"path": f, "kind": "import", "when": "start" if f in at_start else "lazy",
-                            "chars": chars})
+            rule.update(path=f, kind="import", when=when, chars=chars)
+            continue
+        counted.add(t)
+        chars, warning = _chars(tree, f)
+        if warning:
+            unreadable_warnings.append(warning)
+        entries.append({"path": f, "kind": "import", "when": when, "chars": chars})
 
     skills = _skills(tree, [f for f in files if SKILL_GLOB.match(f)])
     for s in skills:
@@ -171,9 +185,8 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
     # A scoped rule (lazy) loads only when a matching file is read, so it does not cover a cut import at start.
     loaded = {_target(tree, p) for p in at_start | lazy_all} | guidance_loaded | {
         _target(tree, e["path"]) for e in entries if e["when"] == "start" and e["kind"] in ("guidance", "rule")}
-    # A nested rule with no paths loads whenever the agent works in its subtree (the directory above its
-    # .claude/rules), so a cut import of it from guidance in that subtree skips nothing. A path-scoped one loads on
-    # a matching read, and one imported from outside its subtree is not loaded with the importer: both still named.
+    # An unscoped nested rule loads for any work in its subtree, so a cut import of it there skips nothing.
+    # A path-scoped rule, or one imported from outside its subtree, does not load with its importer: still named.
     nested_unscoped = _nested_unscoped(tree, files) if rules else set()
     cut_lazy_set = set(cut_lazy)
     for f, target in sorted(set(cut_start + cut_lazy)):
@@ -426,7 +439,7 @@ def _without_comment(text: str) -> str:
     return text
 
 
-def _imports(tree: RepoTree, roots: list[str], max_depth: int | None = None) -> tuple[set[str], list[tuple[str, str]]]:
+def _imports(tree: RepoTree, roots: list[str], max_depth: int | None, rules: bool) -> tuple[set[str], list[tuple[str, str]]]:
     """Files the CLAUDE.md ``roots`` ``@import``, transitively (relative to the importing file).
 
     Breadth first, so a file is placed at its shortest hop count. A rule an import reaches is followed like any
@@ -435,11 +448,8 @@ def _imports(tree: RepoTree, roots: list[str], max_depth: int | None = None) -> 
     followed; those left unreached come back as ``(importing file, target)`` pairs.
     """
     seen: set[str] = set()
-    # Also by the file a path resolves to: an alias (CLAUDE.md -> .) names the same file under ever longer
-    # paths, which a path-string check never recognises as a cycle. A file is expanded once per kind of route:
-    # by a `.claude/rules` path, and by any other path. So a file a rule link reaches first is still expanded
-    # for an import that names it by its own path, whichever import comes first, and each file is expanded at most
-    # twice (once per kind), so the walk stays linear. Two non-rule paths to one file still expand it once only.
+    # Also by the file a path resolves to, so an alias (CLAUDE.md -> .) is not walked again under a longer path.
+    # Expanded once per route kind (rule path or not): a rule link reached first must not hide a later import.
     reached = {_target(tree, r) for r in roots}
     reached_by_rule: set[str] = set()
     level = list(roots)
@@ -452,7 +462,7 @@ def _imports(tree: RepoTree, roots: list[str], max_depth: int | None = None) -> 
                 text = tree.read_text(f)
             except (OSError, ValueError, RuntimeError):  # RuntimeError: a link loop before Python 3.13
                 continue
-            if f not in roots and (RULE_GLOB.match(f) or RULE_GLOB.match(_target(tree, f))):
+            if rules and f not in roots and (RULE_GLOB.match(f) or RULE_GLOB.match(_target(tree, f))):
                 text = _without_frontmatter(text)  # a rule's frontmatter is removed before it loads (as _rule counts)
             here = f.rsplit("/", 1)[0] + "/" if "/" in f else ""
             for target in IMPORT.findall(_strip_code_spans(_CODE_BLOCK.sub("", text))):

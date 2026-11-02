@@ -304,7 +304,7 @@ next release.
   `.claude/rules/**/*.md` files are `rule` entries: `start` in the root `.claude/rules/` when
   `paths` names no pattern, `lazy` when it does or in a subdirectory's `.claude/rules/`, but `start` whatever its `paths` when a root CLAUDE.md or
   AGENTS.md imports it, the frontmatter not counted. An `@` path in a rule is not followed, unless a CLAUDE.md imports
-  the rule: then the rule loads at start and its `@` imports are followed, transitively and within the hop limit. `start` is not an upper bound: it is too low by what it does not count
+  the rule: then the rule loads at start (lazily, when a nested CLAUDE.md imports it) and its `@` imports are followed, transitively and within the hop limit. `start` is not an upper bound: it is too low by what it does not count
   (only `@path.md` imports are followed, so `@notes.txt` adds nothing;
   skills are read only from real `.claude/skills/*/SKILL.md` directories at the root, so a skill
   behind a linked directory is not seen, nor are the rules behind a link at or below `.claude/rules` (a warning

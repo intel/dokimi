@@ -128,13 +128,36 @@ def test_a_profile_that_does_not_read_rules_still_counts_a_rules_file_as_guidanc
     tree = _tree(tmp_path, {
         "AGENTS.md": "root @.claude/rules/mid.md\n",
         ".claude/rules/AGENTS.md": "nested guidance\n",
-        ".claude/rules/mid.md": "mid @deep.md\n",
+        ".claude/rules/mid.md": "---\ndescription: see @../../extra.md\n---\nmid @deep.md\n",
         ".claude/rules/deep.md": "deep body\n",
+        "extra.md": "extra body\n",
     })
     got = _by_path(budget(tree, profile.guidance_names, profile.import_max_depth, False))
     assert ((".claude/rules/AGENTS.md", "guidance") in got)
     assert ((".claude/rules/mid.md", "import") in got)
     assert ((".claude/rules/deep.md", "import") in got)
+    # the frontmatter is not removed for a harness that does not read rules, so its @path is an import too
+    assert ("extra.md", "import") in got
+
+
+@pytest.mark.parametrize("claude_md", ["@shared.md\n@.claude/rules/r.md\n", "@.claude/rules/r.md\n@shared.md\n"])
+def test_an_ordinary_import_keeps_the_frontmatter_that_a_rule_link_to_the_same_file_removes(tmp_path, claude_md):
+    # CLAUDE.md imports shared.md whole, frontmatter included; the rule link to it loads only the body.
+    # Whichever comes first, the file loads at start as an import, so it is counted in full.
+    text = "---\ndescription: example\n---\nbody\n"
+    tree = _tree(tmp_path, {"CLAUDE.md": claude_md, "shared.md": text})
+    (tmp_path / ".claude/rules").mkdir(parents=True)
+    try:
+        (tmp_path / ".claude/rules/r.md").symlink_to(tmp_path / "shared.md")
+    except OSError:
+        pytest.skip("symlinks unavailable")
+
+    payload = budget(tree, NAMES, rules=True)
+
+    got = _by_path(payload)
+    assert got[("shared.md", "import")]["when"] == "start"
+    assert got[("shared.md", "import")]["chars"] == len(text)
+    assert payload["warnings"] == []
 
 
 @pytest.mark.parametrize(("front", "when"), [
