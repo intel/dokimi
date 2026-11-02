@@ -121,9 +121,13 @@ def grade(task: dict[str, Any], task_dir: Path, answer: str, run_dir: Path | Non
 
     if mypy.version.__version__ != task["version"]:
         raise ValueError(f"the image's mypy is {mypy.version.__version__}, the task pins {task['version']}")
-    workspace = (Path(run_dir or "/eval/run") / "workspace").resolve()  # absolute: mypy gets these paths
+    linked_root = Path(run_dir or "/eval/run") / "workspace"  # unresolved: a link at the root must be seen
+    workspace = linked_root.resolve()  # absolute: mypy gets these paths
     paths = [posixpath.normpath(p) for p in task["paths"]]
-    missing = [p for p in paths if not (workspace / p).is_file()]
+    # is_file() and mypy both follow links, and the grading container mounts the hidden reference: a listed path
+    # with a link on the way (or a linked root) is missing, never read.
+    missing = [p for p in paths
+               if _linked_on_the_way(linked_root, linked_root / p) or not (workspace / p).is_file()]
     present = [p for p in paths if p not in missing]
     errors: list[dict[str, Any]] = []
     if present:

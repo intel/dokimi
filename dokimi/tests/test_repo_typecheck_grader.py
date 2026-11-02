@@ -290,6 +290,29 @@ def test_an_external_mypypath_cannot_supply_a_module_the_image_lacks(tmp_path, m
 
 
 @pytest.mark.parametrize("linked", ["file", "directory", "workspace"])
+def test_a_listed_path_reached_through_a_link_is_missing_not_graded(tmp_path, linked):
+    # The agent links the listed file (or its directory, or the workspace) to a clean repair outside the workspace:
+    # is_file() and mypy would follow the link and pass it. The link is refused, so the file is missing.
+    outside = tmp_path / "outside"
+    (outside / "pkg").mkdir(parents=True)
+    (outside / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+    (outside / "pkg" / "api.py").write_text(CLEAN, encoding="utf-8")
+    workspace = tmp_path / "run" / "workspace"
+    if linked == "file":
+        (workspace / "pkg").mkdir(parents=True)
+        (workspace / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+        (workspace / "pkg" / "api.py").symlink_to(outside / "pkg" / "api.py")
+    elif linked == "directory":
+        workspace.mkdir(parents=True)
+        (workspace / "pkg").symlink_to(outside / "pkg", target_is_directory=True)
+    else:
+        workspace.parent.mkdir(parents=True)
+        workspace.symlink_to(outside, target_is_directory=True)
+    result = typecheck.grade(_task(), tmp_path, "", tmp_path / "run")
+    assert result["pass"] is False and result["n_missing"] == 1 and result["missing"] == ["pkg/api.py"]
+
+
+@pytest.mark.parametrize("linked", ["file", "directory", "workspace"])
 def test_the_oracle_refuses_to_write_through_a_symbolic_link(tmp_path, linked):
     outside = tmp_path / "outside"
     (outside / "pkg").mkdir(parents=True)
