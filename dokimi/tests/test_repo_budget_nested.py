@@ -88,6 +88,16 @@ def test_a_claude_file_in_another_directory_leaves_a_nested_agents_md_lazy(tmp_p
     assert got["warnings"] == []
 
 
+@pytest.mark.parametrize("claude", [".claude/CLAUDE.local.md", ".claude/.claude/CLAUDE.md"])
+def test_a_claude_file_beside_the_project_memory_agents_md_leaves_it_at_start(tmp_path, claude):
+    """.claude/AGENTS.md is read at start, as a root file: the nested rule does not apply inside .claude/."""
+    tree = _tree(tmp_path, {".claude/AGENTS.md": "a" * 5, claude: "c"})
+    got = _budget(tree)
+    assert _when(got) == {".claude/AGENTS.md": "start", claude: "lazy"}
+    assert got["totals"]["off"] == 0
+    assert got["warnings"] == []
+
+
 def test_a_harness_without_claude_names_keeps_a_nested_agents_md_lazy(tmp_path):
     tree = _tree(tmp_path, {"AGENTS.md": "a", "sub/AGENTS.md": "b", "sub/CLAUDE.md": "c"})
     assert _when(_budget(tree, ("AGENTS.md",))) == {"AGENTS.md": "start", "sub/AGENTS.md": "lazy"}

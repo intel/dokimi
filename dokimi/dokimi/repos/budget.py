@@ -16,7 +16,7 @@ starts at the repository root:
 - **on demand**: skill bodies, loaded when the agent invokes the skill.
 - **off**: AGENTS.md files the harness will not read: a root CLAUDE.md, .claude/CLAUDE.md or CLAUDE.local.md is present and no
   CLAUDE.md imports them (measured on Claude Code 2.1.286; the reach probe re-measures).
-- **off** too: an AGENTS.md below the root whose own directory holds a CLAUDE.md, CLAUDE.local.md or .claude/CLAUDE.md
+- **off** too: an AGENTS.md below the root (not .claude/AGENTS.md, read as a root file) whose own directory holds a CLAUDE.md, CLAUDE.local.md or .claude/CLAUDE.md
   (not one in a parent or deeper directory), unless a CLAUDE* file is a link to it or a file that loads imports it
   (measured on Claude Code 2.1.316; only for a profile that sets ``guidance.claude_displaces_agents``, claude-code).
 
@@ -191,7 +191,9 @@ def _displaced(tree: RepoTree, every: list[str], claude: list[str], root_claude:
     present = {c for c in claude if _is_resolvable(tree, c)}
     out: dict[str, list[str]] = {}
     for f in agents:
-        d = f[: -len("AGENTS.md")]  # "sub/"; at the root a CLAUDE* would have taken the branch above
+        if _is_root(f):
+            continue  # AGENTS.md and .claude/AGENTS.md: only a root CLAUDE* (the branch above) turns them off
+        d = f[: -len("AGENTS.md")]  # "sub/"
         beside = [c for c in (d + "CLAUDE.md", d + "CLAUDE.local.md", d + ".claude/CLAUDE.md") if c in present]
         if beside:
             out[f] = beside
