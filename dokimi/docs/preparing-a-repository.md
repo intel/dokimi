@@ -168,9 +168,12 @@ Recurring review comments are review knowledge a repository already has.
   turns the review threads of merged PRs into `dokimi:review_replay` tasks
   ([contract §4.6](repo-evaluation-contract.md#46-replay-tasks-from-review-threads)).
   Run them with `guidance:none` and `guidance:rev:<sha>` of the guidance under
-  review (not `guidance:raw`: each task starts from its PR's base) and compare
-  `recall_addressed`, instead of counting by hand which comments the guidance
-  covers.
+  review (not `guidance:raw`: each task starts from its PR's base) and decide
+  on `repo compare`'s `score` row (`recall` over all the threads, read at
+  `p_holm`), instead of counting by hand which comments the guidance covers.
+  `--metric recall_addressed` adds the threads the author addressed as a
+  descriptive row (uncorrected p, outside Holm), to read the result, not to
+  decide it.
 - **A maintainer curates the list.** In one run, one mined rule contradicted the
   repository's own guidance and had to be dropped.
 - **Place them in the prompt for now.** E6 measured rules in the prompt; the

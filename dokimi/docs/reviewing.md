@@ -211,13 +211,14 @@ these, in order, before writing what it showed (the fields:
   tasks. Where the note says no effect can reach p < 0.05 here, say that.
   Where the interval includes 0 but `p_holm` is below 0.05, compare prints
   the disagreement note instead, with no `mde`: read `p_holm` there.
-- **No suggestion rests on a descriptive p.** Cost, turns,
-  `first_prompt_tokens`, every `--metric` row (`n_findings`, `n_severe`,
-  `recall_addressed`) and the `process` rows are descriptive: their p is
-  uncorrected and outside Holm's family (the line under the comparison names
-  those below 0.05). Report them as descriptions. A suggestion to change the
-  guidance needs a gate or score row read at `p_holm`, also where its interval
-  disagrees; one about a section or a rule needs an arm that removes or
+- **No suggestion rests on a descriptive p.** A replay is decided on the
+  `score` row, read at `p_holm`: the task's score is `recall`, over all its
+  threads. Cost, turns, `first_prompt_tokens`, every `--metric` row
+  (`n_findings`, `n_severe`, `recall_addressed`) and the `process` rows are
+  descriptive: their p is uncorrected and outside Holm's family (the line
+  under the comparison names those below 0.05). Report them as descriptions.
+  A suggestion to change the guidance needs the score row at `p_holm`, also
+  where its interval disagrees; one about a section or a rule needs an arm that removes or
   changes it (a `guidance:rev:` of that edit). Without one, say the suggestion
   comes from reading.
 - **Read the hits before citing one.** Replay credits a finding by place, not
