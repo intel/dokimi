@@ -11,6 +11,7 @@ import json
 import sys
 from pathlib import Path
 
+from dokimi.commands import eval_coverage
 from dokimi.llm import ANSWER_PROVIDERS
 from dokimi.defaults import (
     DEFAULT_CONCURRENCY,
@@ -18,6 +19,7 @@ from dokimi.defaults import (
     DEFAULT_JUDGE_PROVIDER,
     JUDGE_MODEL_FOR_PROVIDER,
     JUDGE_MODEL_HELP,
+    answers_method_version,
 )
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY, NoUsablePairs
@@ -198,6 +200,11 @@ def cmd_eval_score(args: argparse.Namespace) -> None:
             context="eval-score",
         )
 
+    try:
+        method_version = answers_method_version(run.meta)
+    except ValueError as exc:  # refused before any judge call is paid for
+        print(f"Error: {args.answers}: {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
     print(f"Evaluating with judge: {args.judge_provider}/{args.judge_model}")
 
     # Evaluate
@@ -205,6 +212,9 @@ def cmd_eval_score(args: argparse.Namespace) -> None:
         model=args.judge_model,
         provider=args.judge_provider,
         temperature=args.judge_temperature,
+        judge_placeholder=getattr(args, "judge_placeholder", False),
+        # The eval says which answering method made the answers it judges; an unstamped file is legacy.
+        answers_method_version=method_version,
         run_metadata={
             "question_model": run.meta.get("question_model", "unknown"),
             "question_provider": run.meta.get("question_provider", "unknown"),
@@ -467,6 +477,7 @@ def register(sub, positive_int) -> None:
     # Eval subcommand group
     eval_p = sub.add_parser("eval", help="Evaluate answers")
     eval_sub = eval_p.add_subparsers(dest="eval_cmd", required=True)
+    eval_coverage.register(eval_sub)
 
     # eval score
     score_p = eval_sub.add_parser("score", help="Score answers using LLM-as-judge")
@@ -480,6 +491,8 @@ def register(sub, positive_int) -> None:
     score_p.add_argument("--concurrency", type=positive_int, default=DEFAULT_CONCURRENCY, help="Parallel judge calls (default: 5)")
     score_p.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",
                          help="Judge sampling temperature, recorded as judge_temperature in the output")
+    score_p.add_argument("--judge-placeholder", action="store_true", dest="judge_placeholder",
+                         help="Judge the no-retrieval placeholder answers too (default: they are not scored)")
     score_p.set_defaults(func=cmd_eval_score)
 
     # eval ragas
@@ -566,6 +579,10 @@ def register(sub, positive_int) -> None:
     from dokimi.commands import answer_formats
 
     answer_formats.register_eval(eval_sub, positive_int)  # eval reference, eval native-import
+
+    from dokimi.commands import redteam
+
+    redteam.register_eval(eval_sub)  # eval redteam
 
     # eval panel-score
     panel_p = eval_sub.add_parser("panel-score", help="Score answers using a multi-judge panel")
