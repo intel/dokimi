@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -26,6 +27,7 @@ from dokimi.repos.skill_reach import (
     Fixture,
     Placed,
     SkillReachError,
+    _git_init,
     build_fixture,
     collisions,
     format_table,
@@ -67,6 +69,9 @@ events = [{"type": "system", "subtype": "init", "claude_code_version": "1.2.3"}]
 if mode == "look":  # read a file before answering: what it reports then is fetched, not listed
     events.append({"type": "assistant", "message": {"content": [
         {"type": "tool_use", "id": "t1", "name": "Read", "input": {"file_path": str(root / "x")}}]}})
+if mode == "skill":  # invoke the Skill tool before answering: a skill's body is fetched on request, not listed
+    events.append({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "id": "t2", "name": "Skill", "input": {"skill": "project-client"}}]}})
 events += [
           {"type": "result", "subtype": "success", "is_error": False, "result": answer,
            "total_cost_usd": 0.001, "num_turns": 1, "usage": {}, "permission_denials": []}]
@@ -170,6 +175,52 @@ def test_a_look_before_answering_is_fetched(tmp_path, monkeypatch):
     assert payload["scenarios"][0]["looked"] is True
 
 
+def test_a_skill_invocation_before_answering_is_fetched(tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_MODE", "skill")
+    payload = _run(tmp_path, only=("project-client", "project-agents"))
+    by = {r["case"]: r["class"] for r in payload["records"]}
+    assert by == {"project-client": "fetched", "project-agents": "not_listed"}
+    assert payload["scenarios"][0]["looked"] is True
+
+
+def _git(cwd: Path, *args: str) -> str:
+    return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@invalid", *args], cwd=cwd, check=True,
+                          capture_output=True, text=True).stdout.strip()
+
+
+def test_git_init_ignores_the_callers_repository(tmp_path, monkeypatch):
+    other = tmp_path / "other"
+    other.mkdir()
+    _git(other, "init", "-q")
+    (other / "notes.txt").write_text("mine\n", encoding="utf-8")
+    _git(other, "add", "-A")
+    _git(other, "commit", "-q", "-m", "mine")
+    head = _git(other, "rev-parse", "HEAD")
+    monkeypatch.setenv("GIT_DIR", str(other / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(other))
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    _git_init(workspace)
+    assert (workspace / ".git").is_dir()
+    assert _git(other, "rev-parse", "HEAD") == head
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the hook is a POSIX shell script")
+def test_git_init_ignores_the_callers_global_config(tmp_path, monkeypatch):
+    home, hooks, marker = tmp_path / "home", tmp_path / "hooks", tmp_path / "hook-ran"
+    home.mkdir()
+    hooks.mkdir()
+    hook = hooks / "pre-commit"
+    hook.write_text(f"#!/bin/sh\ntouch '{marker}'\n", encoding="utf-8")
+    hook.chmod(0o755)
+    (home / ".gitconfig").write_text(f"[core]\n\thooksPath = {hooks}\n", encoding="utf-8")
+    monkeypatch.setenv("HOME", str(home))
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    _git_init(workspace)
+    assert not marker.exists()
+
+
 def test_profile_without_skills_block_is_refused(tmp_path):
     raw = yaml.safe_load(_profile(tmp_path).read_text(encoding="utf-8"))
     del raw["skills"]
@@ -257,6 +308,9 @@ BAD_CATALOGUES = [
     pytest.param(_catalogue("{id: a, at: 'project:x', dirname: '../escape'}"), "inside the fixture",
                  id="dirname-escapes"),
     pytest.param(_catalogue("{id: a, at: 'project:x', cwd: /etc}"), "inside the fixture", id="cwd-absolute"),
+    pytest.param(_catalogue("{id: a, at: 'project:x', dirname: 'C:/escape'}"), "inside the fixture",
+                 id="dirname-drive"),
+    pytest.param(_catalogue("{id: a, at: 'project:x', cwd: 'C:escape'}"), "inside the fixture", id="cwd-drive"),
     pytest.param(_catalogue("{id: a, at: 'project:x', name: one, collision: g}",
                             "{id: b, at: 'project:x', name: two, collision: g}"),
                  "mixes names", id="collision-mixes-names"),
@@ -317,6 +371,26 @@ def test_resolve_at_uses_the_profile_dirs_and_refuses_a_bad_location():
     assert resolve_at(case("{client_user}"), {}) is None
     with pytest.raises(SkillReachError, match="must be"):
         resolve_at(case("cloud:skills"), dirs)
+
+
+@pytest.mark.parametrize("at", ["project:C:/existing", "project:C:escape"])
+def test_a_drive_qualified_location_is_refused(at):
+    with pytest.raises(SkillReachError, match="must be"):
+        resolve_at(Case(id="c", at=at, name="c", dirname="c"), {})
+
+
+@pytest.mark.parametrize("case_id", ["../../escape", "ABSOLUTE"])
+def test_a_symlink_case_id_cannot_write_outside_the_fixture(tmp_path, case_id):
+    escape = tmp_path / "escape"
+    case_id = str(escape) if case_id == "ABSOLUTE" else case_id
+    profile = load_profile(str(_profile(tmp_path)))
+    base = tmp_path / "base"
+    roots = {scope: base / scope for scope in ("project", "home", "config")}
+    for root in roots.values():
+        root.mkdir(parents=True)
+    case = Case(id=case_id, at="project:{client_project}", name="skill", dirname="skill", link="symlink")
+    build_fixture([case], profile, roots, base / "outside", "s")
+    assert not escape.exists()
 
 
 def test_build_fixture_links_a_symlink_case_and_skips_an_undeclared_dir(tmp_path):
@@ -449,7 +523,7 @@ def test_the_table_flags_skipped_and_looked_scenarios(tmp_path, monkeypatch):
                               cases=cases, work_dir=work, salt="s", timeout_s=60)
     text = format_table(payload)
     assert "skipped user-client: fake declares no skill dir for {client_user}" in text
-    assert "warning: cwd=.: the agent ran a command or read a file" in text
+    assert "warning: cwd=.: the agent ran a command, read a file or invoked a skill" in text
 
 
 def test_the_table_names_a_scenario_that_errored(tmp_path, monkeypatch):

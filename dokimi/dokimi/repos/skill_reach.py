@@ -15,8 +15,8 @@ skill it can see with its token.
   metadata in the agent's context, which is what discovery means for skills.
   ``body`` on the record says the body token was reported too (the client
   loaded the body eagerly).
-- ``fetched``: the token was reported, but the agent ran a command or read a
-  file first, so it may have found the skill itself.
+- ``fetched``: the token was reported, but the agent ran a command, read a
+  file or invoked a skill first, so it may have found the skill itself.
 - ``not_listed``: the token was not reported.
 - ``error``: the scenario gave no usable answer.
 
@@ -78,7 +78,7 @@ SCOPES = ("project", "home", "config")
 # Skill directories some client reads by convention. One above the workspace would be listed in every scenario.
 SKILL_DIR_GUARD = (".agents/skills", ".claude/skills", ".codex/skills", ".github/skills", ".cursor/skills",
                    ".gemini/skills", ".opencode/skills")
-# Events that mean the agent looked for files itself instead of reporting its context.
+# Events that mean the agent looked for files itself instead of reporting its context: commands, reads, skills.
 _LOOKED = ("command", "read")
 
 ASK = ("This is a configuration check run by the owner of this machine. Your context may list "
@@ -174,8 +174,9 @@ def _check_groups(path: Path, cases: list[Case]) -> None:
 
 
 def _relative(rel: str) -> bool:
+    """A path that stays under its root: no absolute, traversing, backslash or drive (``C:``) form."""
     p = PurePosixPath(rel)
-    return not p.is_absolute() and ".." not in p.parts and "\\" not in rel
+    return not p.is_absolute() and ".." not in p.parts and "\\" not in rel and ":" not in rel
 
 
 def skill_dirs(profile: HarnessProfile) -> dict[str, str]:
@@ -233,7 +234,7 @@ def build_fixture(cases: list[Case], profile: HarnessProfile, roots: dict[str, P
     """Write every case under its scope root; a case the profile cannot place is skipped with a reason."""
     dirs = skill_dirs(profile)
     fixture = Fixture()
-    for case in cases:
+    for n, case in enumerate(cases):
         where = resolve_at(case, dirs)
         if where is None:
             fixture.skipped.append({"case": case.id, "reason": f"{profile.name} declares no skill dir for {case.at}"})
@@ -245,7 +246,7 @@ def build_fixture(cases: list[Case], profile: HarnessProfile, roots: dict[str, P
         dest = roots[scope] / rel
         link_kind = None
         if case.link == "symlink":
-            target = outside / case.id / case.dirname
+            target = outside / f"case-{n}" / case.dirname  # the index, not the id: an id is not a path
             target.mkdir(parents=True)
             (target / "SKILL.md").write_bytes(text.encode())
             dest.parent.mkdir(parents=True, exist_ok=True)
@@ -284,6 +285,10 @@ def child_env(profile: HarnessProfile, config_dir: Path, home: Path) -> process.
     values = dict(base.set)
     values.update(HOME=str(home), USERPROFILE=str(home), XDG_CONFIG_HOME=str(home / ".config"))
     return process.Env.only(base.allow or (), values)
+
+
+def _looked_for_itself(events: list[dict[str, Any]]) -> bool:
+    return any(e.get("kind") in _LOOKED or (e.get("kind") == "tool" and e.get("name") == "Skill") for e in events)
 
 
 def classify(placed: Placed, transcript: Transcript | None, looked: bool) -> dict[str, Any]:
@@ -392,7 +397,7 @@ def run_skill_reach(
             if transcript is not None:
                 (trace_dir / f"{slug}.events.jsonl").write_text(transcript.events_jsonl(), encoding="utf-8")
                 reported = sorted(set(TOKEN_RE.findall(transcript.answer)))
-                looked = any(e.get("kind") in _LOOKED for e in transcript.events)
+                looked = _looked_for_itself(transcript.events)
                 row.update(reported=reported, unknown=[t for t in reported if t not in known],
                            prose=prose_words(transcript.answer), looked=looked)
                 version = transcript.harness_version or version
@@ -431,14 +436,18 @@ def run_skill_reach(
 
 
 def _git_init(workspace: Path) -> None:
-    """A one-commit repository: clients bound skill discovery by the git root."""
-    env = process.Env.inherit({"GIT_AUTHOR_NAME": "dokimi", "GIT_AUTHOR_EMAIL": "dokimi@localhost",
-                               "GIT_COMMITTER_NAME": "dokimi", "GIT_COMMITTER_EMAIL": "dokimi@localhost"})
-    for argv in (["git", "init", "-q"], ["git", "add", "-A"],
-                 ["git", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "fixture", "--allow-empty"]):
-        proc = process.run(argv, cwd=workspace, env=env, timeout=60)
+    """A one-commit repository: clients bound skill discovery by the git root. Git gets an allow-listed
+    environment and no user or system config, so GIT_DIR, GIT_WORK_TREE and hooks of the caller do not apply."""
+    env = process.Env.only(("PATH", "SYSTEMROOT"), {
+        "GIT_AUTHOR_NAME": "dokimi", "GIT_AUTHOR_EMAIL": "dokimi@localhost",
+        "GIT_COMMITTER_NAME": "dokimi", "GIT_COMMITTER_EMAIL": "dokimi@localhost",
+        "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"})
+    git = shutil.which("git") or "git"  # looked up on the caller's PATH, not the allow-listed one
+    for args in (["init", "-q"], ["add", "-A"], ["-c", "commit.gpgsign=false", "commit", "-q", "-m", "fixture",
+                                                  "--allow-empty"]):
+        proc = process.run([git, *args], cwd=workspace, env=env, timeout=60)
         if proc.returncode != 0:
-            raise SkillReachError(f"{' '.join(argv)} failed: {proc.stderr.strip()[:200]}")
+            raise SkillReachError(f"git {' '.join(args)} failed: {proc.stderr.strip()[:200]}")
 
 
 def _run_one(profile: HarnessProfile, sid: str, cwd: str, model: str, roots: dict[str, Path],
@@ -498,7 +507,8 @@ def format_table(payload: dict[str, Any]) -> str:
         if s["error"]:
             lines.append(f"error in {s['id']}: {s['error']}")
         if s.get("looked"):
-            lines.append(f"warning: {s['id']}: the agent ran a command or read a file; its L cells are F")
+            lines.append(f"warning: {s['id']}: the agent ran a command, read a file or invoked a skill; "
+                         "its L cells are F")
         if s["unknown"]:
             lines.append(f"unknown tokens in {s['id']}: {', '.join(s['unknown'])}")
     return "\n".join(lines)
