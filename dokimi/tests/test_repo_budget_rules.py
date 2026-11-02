@@ -351,3 +351,35 @@ def test_an_alias_of_a_rule_is_not_followed_as_an_import(tmp_path):
 
     assert all(e["path"] != "extra.md" for e in payload["entries"])
     assert _by_path(payload)[(".claude/rules/r.md", "rule")]["when"] == "start"
+
+
+def test_a_root_claude_md_linked_to_a_rule_still_expands_its_imports(tmp_path):
+    # the root is memory, not a rule: Claude Code expands its @ imports whatever file it links to
+    tree = _tree(tmp_path, {"extra.md": "x" * 500 + "\n", ".claude/rules/shared.md": "shared @extra.md\n"})
+    try:
+        (tmp_path / "CLAUDE.md").symlink_to(tmp_path / ".claude/rules/shared.md")
+    except OSError:
+        pytest.skip("symlinks unavailable")
+
+    payload = budget(tree, NAMES, rules=True)
+
+    assert _by_path(payload)[("extra.md", "import")]["when"] == "start"
+    assert _by_path(payload)[("extra.md", "import")]["chars"] == 501
+
+
+def test_a_scoped_rule_alias_of_agents_md_does_not_suppress_a_cut_import(tmp_path):
+    # AGENTS.md is off (a root CLAUDE.md displaces it) and is reached only through an import cut at hop 4.
+    # The rule link to it is scoped, so the file still does not load at start: the cut import is named.
+    files = {"CLAUDE.md": "@c1.md\n", "c1.md": "@c2.md\n", "c2.md": "@c3.md\n", "c3.md": "@c4.md\n",
+             "c4.md": "@AGENTS.md\n", "AGENTS.md": "---\npaths: src/**\n---\nagents\n"}
+    tree = _tree(tmp_path, files)
+    (tmp_path / ".claude/rules").mkdir(parents=True)
+    try:
+        (tmp_path / ".claude/rules/agents.md").symlink_to(tmp_path / "AGENTS.md")
+    except OSError:
+        pytest.skip("symlinks unavailable")
+
+    payload = budget(tree, NAMES, import_max_depth=4, rules=True)
+
+    assert _by_path(payload)[("AGENTS.md", "guidance")]["when"] == "lazy"
+    assert any("c4.md: import of AGENTS.md is past" in w for w in payload["warnings"])

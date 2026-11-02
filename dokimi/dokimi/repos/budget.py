@@ -131,6 +131,8 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
         if warning:
             unreadable_warnings.append(warning)
         entries.append({"path": f, "kind": "guidance", "when": when, "chars": chars})
+    # What loads without a rule: a rule promotes a guidance entry below, but that does not make it independently loaded
+    guidance_loaded = {_target(tree, e["path"]) for e in entries if e["when"] != "off"}
     counted = {_target(tree, f) for f in guidance}
     entries += _rules(tree, files if rules else [], counted, start_t, unreadable_warnings, entries)
     for f in sorted((at_start | lazily) - set(guidance), key=lambda p: (p not in at_start, p)):
@@ -152,9 +154,8 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
     warnings = unreadable_warnings[:]
     # A guidance file or a rule is an entry of its own, so a cut import of it is already loaded (not an import).
     # A scoped rule (lazy) loads only when a matching file is read, so it does not cover a cut import at start.
-    loaded = {_target(tree, p) for p in at_start | lazy_all} | {
-        _target(tree, e["path"]) for e in entries
-        if (e["kind"] == "guidance" and e["when"] != "off") or (e["kind"] == "rule" and e["when"] == "start")}
+    loaded = {_target(tree, p) for p in at_start | lazy_all} | guidance_loaded | {
+        _target(tree, e["path"]) for e in entries if e["when"] == "start" and e["kind"] in ("guidance", "rule")}
     for f, target in sorted(set(cut_start + cut_lazy)):
         if _target(tree, target) in loaded:
             continue  # another chain did load it, possibly through a link
@@ -417,8 +418,10 @@ def _imports(tree: RepoTree, roots: list[str], max_depth: int | None = None,
     while level:
         nxt: list[str] = []
         for f in level:
-            if rules and (RULE_GLOB.match(f) or RULE_GLOB.match(_target(tree, f))):
-                continue  # an @ path in a rule, or in an alias that links to one, is not followed (docs/repo-evaluation-contract.md)
+            # an @ path in a rule, or in an import that links to one, is not followed (docs/repo-evaluation-contract.md).
+            # A root (or nested CLAUDE.md, AGENTS.md) is memory whatever it links to, so it keeps expanding.
+            if rules and (RULE_GLOB.match(f) or (f not in roots and RULE_GLOB.match(_target(tree, f)))):
+                continue
             try:
                 text = tree.read_text(f)
             except (OSError, ValueError, RuntimeError):  # RuntimeError: a link loop before Python 3.13
