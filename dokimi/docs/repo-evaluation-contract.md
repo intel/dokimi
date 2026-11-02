@@ -489,7 +489,7 @@ is not timed. `first_useful` is `{"kind": "command"|"edit"|null, "reason": ...,
 "issued_s": number|null, "steps": int|null}`. `reason` is `null` when the hit was
 found and timed; otherwise it says why `issued_s` (and `steps`, with no hit) is
 null: `not_declared` (no definition), `unobserved` (the trace was not read: the
-harness never started, it did not parse, or a line of the trace was dropped), `never` (no event hit), `timeout` (a `command` pattern ran past
+harness never started, it did not parse, or a line of the trace was dropped: an unreadable record or block, such as a tool call without an id, a name or an object of input, a content block without a string type, a Codex file change without a path, or Copilot shell, read or edit arguments that are not an object), `never` (no event hit), `timeout` (a `command` pattern ran past
 2 s on one event: no verdict, and the rest of the trace is not searched) or `untimed`
 (the trace format has no timestamps, so `steps` is set and `issued_s` is null).
 A cell of an older batch has no `first_useful`. Each cell that declares a definition
