@@ -88,10 +88,13 @@ STOP_WORDS = frozenset(
     should must may might if else only other such via per about over under more most very
     just""".split()
 )
-# An inline link target: balanced parentheses (``guide(v2).md``) or ``<in angle brackets>`` with spaces;
-# an optional title follows the target.
+# An inline link target is balanced in parentheses to any depth (``a(b(c)).md``) or in angle brackets with
+# spaces; an optional title and the closing parenthesis follow it (_inline_destinations).
 _TARGET_TITLE = r"""(?:\s+(?:"[^"]*"|'[^']*'|\([^()]*\)))?"""
-LINK_RE = re.compile(rf"\]\(\s*(<[^<>\n]*>|(?:[^()\s]|\([^()\s]*\))+){_TARGET_TITLE}\s*\)")
+_LINK_OPEN_RE = re.compile(r"\]\(\s*")
+_LINK_END_RE = re.compile(rf"{_TARGET_TITLE}\s*\)")
+# A backslash before ASCII punctuation is an escape in a link destination (``guide\_notes.md``).
+_ESCAPE_RE = re.compile(r"\\([!-/:-@\[-`{-~])")
 # A reference-style link definition, ``[label]: destination``, the destination on this line or the
 # next (footnotes ``[^n]:`` excluded). Matched over the whole body, not line by line.
 REF_DEF_RE = re.compile(
@@ -101,6 +104,12 @@ REF_DEF_RE = re.compile(
 )
 FENCE_OPEN_RE = re.compile(r"\ {0,3}(`{3,}|~{3,})(.*)$")
 FENCE_CLOSE_RE = re.compile(r"\ {0,3}(`{3,}|~{3,})[ \t]*$")
+# A fence under a list item may sit deeper than three spaces (the item's indentation); a blockquote's
+# ``>`` markers are stripped before any fence is matched, and a list item line marks the list.
+DEEP_FENCE_OPEN_RE = re.compile(r"[ \t]*(`{3,}|~{3,})(.*)$")
+DEEP_FENCE_CLOSE_RE = re.compile(r"[ \t]*(`{3,}|~{3,})[ \t]*$")
+QUOTE_PREFIX_RE = re.compile(r"(?:[ \t]{0,3}>[ \t]?)+")
+LIST_ITEM_RE = re.compile(r"[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]")
 # RFC 3986 scheme, dots included; a dotted one with a line or symbol after it is a file (_file_ref).
 URI_SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+\-.]*:")
 # After a file, a line or a symbol (``run.py:42``, ``run.py:10-20``, ``run.py:main``): read as the file's name.
@@ -255,25 +264,76 @@ def _outside_fences(body: str) -> list[str]:
     """The lines of ``body`` that are not inside a fenced code block.
 
     A block closes only at a line of the same marker (backticks or tildes) that is at least as long
-    as the opening run, as in CommonMark.
+    as the opening run, as in CommonMark. A fence in a blockquote opens and closes inside it (its
+    ``>`` markers are stripped); a fence under a list item may be indented past three spaces.
     """
     lines: list[str] = []
     fence = ""  # the run that opened the current block; "" outside one
+    quoted = deep = in_list = False  # the opener's blockquote and list context; in_list: the last block was a list
     for line in body.splitlines():
+        rest, in_quote = _unquote(line)
         if fence:
-            close = FENCE_CLOSE_RE.match(line)
-            if close and close.group(1)[0] == fence[0] and len(close.group(1)) >= len(fence):
+            close = (DEEP_FENCE_CLOSE_RE if deep else FENCE_CLOSE_RE).match(rest)
+            if (close and in_quote == quoted and close.group(1)[0] == fence[0]
+                    and len(close.group(1)) >= len(fence)):
                 fence = ""
                 lines.append("")  # a blank line keeps a definition above the block from reaching below it
             continue
-        opened = FENCE_OPEN_RE.match(line)
+        deep = in_list
+        opened = (DEEP_FENCE_OPEN_RE if deep else FENCE_OPEN_RE).match(rest)
         # a backtick info string may not hold a backtick: "```x```" is an inline code span, not a fence
         if opened and not (opened.group(1)[0] == "`" and "`" in opened.group(2)):
-            fence = opened.group(1)
+            fence, quoted = opened.group(1), in_quote
             lines.append("")
-        else:
-            lines.append(line)
+            continue
+        if LIST_ITEM_RE.match(rest):
+            in_list = True
+        elif rest.strip() and not rest[0].isspace():
+            in_list = False
+        lines.append(line)
     return lines
+
+
+def _unquote(line: str) -> tuple[str, bool]:
+    """``line`` without its blockquote markers, and whether it had any."""
+    prefix = QUOTE_PREFIX_RE.match(line)
+    return (line[prefix.end():], True) if prefix else (line, False)
+
+
+def _destination_stop(line: str, start: int) -> Optional[int]:
+    """Where the link destination that begins at ``start`` ends, or None if no destination is there."""
+    if start < len(line) and line[start] == "<":
+        end = line.find(">", start + 1)
+        return None if end == -1 or "<" in line[start + 1:end] else end + 1
+    depth, stop = 0, start
+    while stop < len(line):
+        char = line[stop]
+        if char == "\\":
+            stop += 2
+            continue
+        if char.isspace() or (char == ")" and depth == 0):
+            break
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+        stop += 1
+    return None if depth or stop == start else stop
+
+
+def _inline_destinations(line: str) -> list[str]:
+    """The destinations of the inline links on ``line``, as written (``<...>`` kept, a title left out).
+
+    A ``](`` opens a destination that runs to its matching parenthesis at any depth, or to the ``>``
+    of an angle-bracketed one; a backslash escapes the character after it.
+    """
+    found: list[str] = []
+    for opened in _LINK_OPEN_RE.finditer(line):
+        start = opened.end()
+        stop = _destination_stop(line, start)
+        if stop is not None and _LINK_END_RE.match(line, stop):
+            found.append(line[start:stop])
+    return found
 
 
 def _file_ref(raw: str, link: bool = False) -> Optional[str]:
@@ -282,11 +342,14 @@ def _file_ref(raw: str, link: bool = False) -> Optional[str]:
     None for a URL or any other URI (``tel:``, ``urn:``, ``MAILTO:``), a bare anchor, an
     absolute path, or a template with a variable other than ``${CLAUDE_SKILL_DIR}``. A
     ``<...>`` destination (CommonMark) is read as the path inside the brackets. A link
-    destination (``link``) is a URL: its ``?query`` is not part of the path.
+    destination (``link``) is a URL: its ``?query`` is not part of the path, and its backslash
+    escapes of ASCII punctuation (``guide\\_notes.md``) are decoded. A code span is literal.
     """
     text = raw.strip()
     if text.startswith("<") and text.endswith(">"):
         text = text[1:-1].strip()
+    if link:
+        text = _ESCAPE_RE.sub(r"\1", text)
     text = text.split("#", 1)[0].strip()
     if link:
         text = text.split("?", 1)[0].strip()
@@ -329,7 +392,7 @@ def _bundle_findings(skill: Skill, source_root: Path) -> list[Finding]:
     real_dir = skill_dir.resolve()
     lines = _outside_fences(skill.body)
     links = dict.fromkeys(
-        [m for line in lines for m in LINK_RE.findall(line)]
+        [m for line in lines for m in _inline_destinations(line)]
         + REF_DEF_RE.findall("\n".join(lines))
     )
     spans = dict.fromkeys(

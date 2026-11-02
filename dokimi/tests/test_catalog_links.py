@@ -55,6 +55,47 @@ def test_a_link_destination_with_parentheses_to_a_missing_file_names_the_whole_p
     assert "'references/guide(v2).md'" in review.findings[0].message
 
 
+def test_a_link_destination_nested_deeper_than_one_level_is_checked(tmp_path):
+    skill_dir = _skill(tmp_path / "skills", "nested", name="nested", description="Use for nested parens.",
+                       body="See [a](references/a(b(c)).md) and [b](gone(x(y)).md).\n")
+    (skill_dir / "references").mkdir()
+    (skill_dir / "references" / "a(b(c)).md").write_text("# A\n", encoding="utf-8")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == ["link-missing"]
+    assert "'gone(x(y)).md'" in review.findings[0].message
+
+
+def test_a_link_destination_nested_deeper_than_one_level_outside_the_skill_escapes(tmp_path):
+    (tmp_path / "shared").mkdir()
+    (tmp_path / "shared" / "a(b(c)).md").write_text("# A\n", encoding="utf-8")
+    _skill(tmp_path / "skills", "nested-escape", name="nested-escape", description="Use for nested escapes.",
+           body="See [a](../../shared/a(b(c)).md).\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == ["link-escapes-skill"]
+
+
+def test_a_backslash_escaped_underscore_in_a_link_destination_names_the_unescaped_file(tmp_path):
+    skill_dir = _skill(tmp_path / "skills", "escaped", name="escaped", description="Use for escaped links.",
+                       body="See [notes](references/guide\\_notes.md) and [n][x].\n\n[x]: references/guide\\_notes.md\n")
+    (skill_dir / "references").mkdir()
+    (skill_dir / "references" / "guide_notes.md").write_text("# Notes\n", encoding="utf-8")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.findings == []
+
+
+def test_a_backslash_escaped_underscore_outside_the_skill_still_escapes(tmp_path):
+    (tmp_path / "shared").mkdir()
+    (tmp_path / "shared" / "guide_notes.md").write_text("# Notes\n", encoding="utf-8")
+    _skill(tmp_path / "skills", "escaped-out", name="escaped-out", description="Use for escaped links.",
+           body="See [notes](../../shared/guide\\_notes.md).\n\n[n]: ../../shared/guide\\_notes.md\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == ["link-escapes-skill"]
+
+
 @pytest.mark.parametrize("exists", [True, False])
 def test_angle_bracket_destination_with_spaces_is_checked(tmp_path, exists):
     (tmp_path / "shared").mkdir()
@@ -102,6 +143,25 @@ def test_a_fence_indented_four_spaces_does_not_open_a_block(tmp_path):
 
     [review] = review_skills(read_skill_manifest(tmp_path))
     assert _codes(review) == ["link-missing"]
+
+
+def test_a_fence_in_a_blockquote_is_a_code_block_for_its_links(tmp_path):
+    _skill(tmp_path / "skills", "quoted-fence", name="quoted-fence", description="Use for quoted fences.",
+           body="> ```markdown\n> [example](missing.md)\n> ```\n\n[real](also-missing.md)\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == ["link-missing"]
+    assert "'also-missing.md'" in review.findings[0].message
+
+
+def test_a_fence_under_a_list_item_indented_past_three_spaces_is_a_code_block(tmp_path):
+    _skill(tmp_path / "skills", "list-fence", name="list-fence", description="Use for list fences.",
+           body="- step one\n  - nested\n\n        ```markdown\n        [example](missing.md)\n        ```\n\n"
+                "[real](also-missing.md)\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == ["link-missing"]
+    assert "'also-missing.md'" in review.findings[0].message
 
 
 def test_skills_named_through_a_subdirectory_dot_dot_are_not_mirror_drift(tmp_path):
