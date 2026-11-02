@@ -181,6 +181,10 @@ def test_digests_are_of_the_text_read_and_none_when_unreadable(tmp_path):
     ("file:///home/alice/toy.git@4ff761e2d943", "toy.git@4ff761e2d943"),
     ("git@github.com:org/toy.git@4ff761e2d943", "git@github.com:org/toy.git@4ff761e2d943"),
     ("ssh://git@example.com/org/toy.git@4ff761e2d943", "ssh://git@example.com/org/toy.git@4ff761e2d943"),
+    ("https://alice:s3cret@example.com/org/toy.git@4ff761e2d943", "https://example.com/org/toy.git@4ff761e2d943"),
+    ("https://alice@example.com/org/toy.git", "https://example.com/org/toy.git"),
+    ("ssh://alice:s3cret@example.com/org/toy.git", "ssh://example.com/org/toy.git"),
+    ("https://alice:p@ss@example.com/org/toy.git", "https://example.com/org/toy.git"),
 ])
 def test_the_tree_label_keeps_no_local_directory(tmp_path, label, shared):
     tree = _tree(tmp_path, {"AGENTS.md": "a\n"})

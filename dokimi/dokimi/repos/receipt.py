@@ -81,6 +81,7 @@ def build_receipt(reach: dict[str, Any], budget: dict[str, Any], tree: RepoTree)
 _REV_SUFFIX = re.compile(r"@[0-9a-f]{7,40}$")  # the pinned revision a git source's label ends with
 _URL_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")  # https://, ssh://, file://, ...
 _SCP_LIKE = re.compile(r"^[^/\\\s]+@[^/\\\s]+:")  # git@host:path
+_USERINFO = re.compile(r"^([A-Za-z][A-Za-z0-9+.-]*://)([^/]*)@")  # scheme://user[:secret]@, up to the last @ before the host
 
 
 def _shareable_tree(label: str) -> str:
@@ -95,9 +96,18 @@ def _shareable_tree(label: str) -> str:
     else:
         local = not (_URL_SCHEME.match(name) or _SCP_LIKE.match(name))
     if not local:
-        return label
+        return _USERINFO.sub(_drop_secret, name, count=1) + rev
     base = PurePosixPath(name.replace("\\", "/")).name
     return (base if base not in ("", ".", "..") else "tree") + rev
+
+
+def _drop_secret(match: re.Match[str]) -> str:
+    """Userinfo that can carry a credential is dropped: any ``user:secret``, and all of it over http(s), where a
+    token is often the user name. A bare ssh user (``ssh://git@``) names no secret and is kept."""
+    scheme, user = match.groups()
+    if ":" in user or scheme.lower().startswith("http"):
+        return scheme
+    return match.group()
 
 
 def check_saved_reach(reach: dict[str, Any], repo_id: str, harness_name: str, tree_sha: str | None) -> None:
