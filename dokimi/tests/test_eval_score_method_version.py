@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""``eval score`` stamps the eval artifact with the method version of the answers it judged."""
+"""``eval score pointwise`` stamps the eval artifact with the method version of the answers it judged."""
 
 import json
 from types import SimpleNamespace

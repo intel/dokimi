@@ -153,3 +153,10 @@ def test_eval_score_with_a_leaf_is_not_a_tombstone():
     # `eval score` moved to `eval score pointwise`, so it is a group: its leaves are live argv.
     for leaf in ("pointwise", "pairwise", "panel", "checklist", "grounding", "ragas", "reference"):
         assert cli_routes.moved_argv(["eval", "score", leaf, "--x"]) is None, leaf
+
+
+def test_redteam_help_names_the_new_import_command():
+    # `redteam` takes a questions file from `eval import`; `questions import` now only tombstones.
+    help_text = " ".join(_parser_at(("eval", "redteam")).format_help().split())
+    assert "questions import" not in help_text
+    assert "eval import" in help_text
