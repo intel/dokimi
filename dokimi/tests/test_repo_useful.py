@@ -763,6 +763,8 @@ def test_a_user_prompt_given_as_a_plain_string_is_not_dropped():
     {"type": "tool_use", "name": "Edit", "input": {"file_path": "/ws/src/x.py"}},  # no id: no result can find it
     {"type": "tool_use", "id": "e", "input": {}},  # no name
     {"type": "tool_use", "id": [1], "name": "Read", "input": {}},  # an id that is not a string
+    {"type": "tool_use", "id": "", "name": "Edit", "input": {}},  # an empty id
+    {"type": "tool_use", "id": "e", "name": "", "input": {}},  # an empty name
 ])
 def test_a_tool_use_block_that_is_not_a_call_is_a_dropped_line(block):
     line = {"type": "assistant", "message": {"content": [block]}}
