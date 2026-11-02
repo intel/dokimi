@@ -48,12 +48,29 @@ def _entry(pair: Pair) -> dict[str, Any]:
 
 def labelled_entries(path: Path) -> int:
     """The entries of an existing sheet at ``path`` whose ``label`` is set; 0 when there is no file or it is not
-    a JSON list (``repo hits sheet`` replaces such a file, and refuses to replace one with labels)."""
+    a JSON list (``repo hits sheet`` replaces such a file, and refuses to replace one with labels).
+
+    Raises:
+        HitsInputError: the file is there but cannot be read (no permission, a directory, not UTF-8 text), so
+            whether it holds labels is not known; only a missing file counts as no sheet.
+    """
     try:
-        entries = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, RecursionError):
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return 0
+    except OSError as exc:
+        raise _unreadable(path, exc.strerror or str(exc)) from exc
+    except UnicodeDecodeError as exc:
+        raise _unreadable(path, f"not UTF-8 text: {exc}") from exc
+    try:
+        entries = json.loads(text)
+    except (ValueError, RecursionError):
         return 0
     return sum(isinstance(e, dict) and e.get("label") is not None for e in entries) if isinstance(entries, list) else 0
+
+
+def _unreadable(path: Path, why: str) -> HitsInputError:
+    return HitsInputError(f"cannot read {path} to check it for labels ({why}); move it aside or pass another --out")
 
 
 def _entries(path: Path) -> list[Any]:

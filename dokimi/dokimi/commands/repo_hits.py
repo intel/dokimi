@@ -117,18 +117,18 @@ def _judge(batch_dir: Path, args: argparse.Namespace) -> None:
 def cmd_repo_hits_sheet(args: argparse.Namespace) -> None:
     """Sample credited replay pairs, stratified by arm, for a person to label (no LLM)."""
     from dokimi.repos.hits_calibration import labelled_entries, sheet
-    from dokimi.repos.hits_judge import read_pairs
+    from dokimi.repos.hits_judge import HitsInputError, read_pairs
     from dokimi.repos.report import CellFileError
 
     batch_dir = _batch(args)
+    out = Path(args.out)
     try:
         _, pairs = read_pairs(batch_dir)
-    except CellFileError as exc:
+        labelled = labelled_entries(out)  # an existing file that cannot be read is not replaced
+    except (CellFileError, HitsInputError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
     entries = sheet(pairs, args.per_arm, args.seed)
-    out = Path(args.out)
-    labelled = labelled_entries(out)
     if labelled:  # a person's labels are not replaced by a fresh sheet
         print(f"✗ {out} holds a sheet with {labelled} labelled entr{'y' if labelled == 1 else 'ies'}; move it aside "
               "or pass another --out", file=sys.stderr)
@@ -174,7 +174,8 @@ def register(repo_sub, positive_int, usd: Callable[[str], float]) -> None:
         "to label, N per arm (no LLM)")
     sheet_p.add_argument("batch_dir", help="<out>/<batch> of `repo run`")
     sheet_p.add_argument("--out", required=True, metavar="FILE",
-                         help="The sheet to write; refused (exit 2) when FILE holds a sheet with a label set")
+                         help="The sheet to write; refused (exit 2) when FILE holds a sheet with a label set or "
+                         "cannot be read")
     sheet_p.add_argument("--per-arm", type=positive_int, default=25, dest="per_arm", metavar="N",
                          help="Pairs per arm, all of an arm's when it has fewer (default 25)")
     sheet_p.add_argument("--seed", type=int, default=0, metavar="N",

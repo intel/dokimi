@@ -764,14 +764,42 @@ def test_sheet_refuses_to_replace_a_sheet_with_labels(tmp_path, capsys):
     assert err.strip() == f"✗ {out_file} holds a sheet with 1 labelled entry; move it aside or pass another --out"
 
 
-@pytest.mark.parametrize("earlier", ["a sheet with no label set", "not a JSON list"])
+@pytest.mark.parametrize("unreadable", ["no read permission", "a directory", "not UTF-8"])
+def test_sheet_refuses_an_existing_file_it_cannot_read_before_writing(tmp_path, capsys, monkeypatch, unreadable):
+    batch = _batch(tmp_path)
+    out_file = tmp_path / "sheet.json"
+    if unreadable == "a directory":
+        out_file.mkdir()
+        why = "Is a directory"
+    elif unreadable == "not UTF-8":
+        out_file.write_bytes(b'[{"label": "same point", "comment": "\xff"}]')
+        why = "not UTF-8 text"
+    else:  # written with a label, then made unreadable; a write would still succeed (as root, on Windows)
+        out_file.write_text(json.dumps([{"label": "same point"}]))
+        read_text = Path.read_text
+
+        def refuse(self, *a, **k):
+            if self == out_file:
+                raise PermissionError(13, "Permission denied", str(self))
+            return read_text(self, *a, **k)
+        monkeypatch.setattr(Path, "read_text", refuse)
+        why = "Permission denied"
+    before = None if out_file.is_dir() else out_file.read_bytes()
+    code, out, err = _run(capsys, "sheet", str(batch), "--out", str(out_file))
+    assert (code, out, None if out_file.is_dir() else out_file.read_bytes()) == (2, "", before)
+    assert err.startswith(f"✗ cannot read {out_file} to check it for labels (") and why in err
+    assert err.strip().endswith("); move it aside or pass another --out")
+
+
+@pytest.mark.parametrize("earlier", ["a sheet with no label set", "not a JSON list", "not JSON"])
 def test_sheet_replaces_a_file_with_no_label(tmp_path, capsys, earlier):
     batch = _batch(tmp_path)
     out_file = tmp_path / "sheet.json"
     assert _run(capsys, "sheet", str(batch), "--out", str(out_file))[0] == 0
     fresh = out_file.read_text()
     stale = [{**e, "comment": "an older text"} for e in json.loads(fresh)]
-    out_file.write_text(json.dumps(stale if earlier.startswith("a sheet") else {"label": "same point"}))
+    out_file.write_text({"a sheet with no label set": json.dumps(stale), "not a JSON list": '{"label": "same point"}',
+                         "not JSON": '[{"label": "same point"'}[earlier])  # readable, so known to hold no sheet
     code, _, _ = _run(capsys, "sheet", str(batch), "--out", str(out_file))
     assert (code, out_file.read_text()) == (0, fresh)
 
