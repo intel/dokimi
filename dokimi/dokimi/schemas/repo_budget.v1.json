@@ -17,7 +17,7 @@
         "additionalProperties": false,
         "properties": {
           "path": {"type": "string"},
-          "kind": {"enum": ["guidance", "import", "skill listing", "skill body"], "description": "`import` is a file a CLAUDE.md or AGENTS.md `@import`s; a skill has a `skill listing` entry unless it is hidden from the model, and always a `skill body` entry."},
+          "kind": {"enum": ["guidance", "import", "rule", "skill listing", "skill body"], "description": "`import` is a file a CLAUDE.md or AGENTS.md `@import`s; `rule` is a `.claude/rules/**/*.md` file, `start` at the root unless its frontmatter's `paths` names a pattern; a skill has a `skill listing` entry unless it is hidden from the model, and always a `skill body` entry."},
           "when": {"enum": ["start", "lazy", "on demand", "off"]},
           "chars": {"type": "integer", "minimum": 0, "description": "Characters in context; 0 for an unreadable file, which is also named in `warnings`."}
         }

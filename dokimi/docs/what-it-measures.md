@@ -53,7 +53,7 @@ manifest it owns:
 
 - `dokimi repo scan` (L0, no LLM): do the links, paths, identifiers, commands
   and build labels the guidance names exist in the tree?
-- `dokimi repo budget` (no LLM): how many characters of guidance and skill
+- `dokimi repo budget` (no LLM): how many characters of guidance, `.claude/rules` and skill
   listing every model call pays for at start-up, what loads lazily or on
   demand, and which AGENTS.md files a CLAUDE.md turns off.
 - `dokimi repo reach` (L1): which guidance files does a given harness actually
