@@ -128,8 +128,8 @@ CI additionally holds a PR to:
   nothing imports is dropped; the `dev` extra's tools are never imported by the
   package. A dependency that is declared only to cap a transitive version gets a
   `per_rule_ignores` entry with the reason.
-- **Workflow lint** — `zizmor --offline --min-severity medium .github/workflows` when you
-  edit a workflow.
+- **Workflow lint** — `zizmor --offline --min-severity medium .github/workflows actions`
+  (from the repo root) when you edit a workflow or a composite action.
 - **Changelog fragment** — a PR that changes the package (`dokimi/`) adds one to
   `changelog.d/` (`scriv create`) instead of editing `CHANGELOG.md`; see
   [changelog.d/README.md](changelog.d/README.md). A change with no user-visible
@@ -142,7 +142,7 @@ CI additionally holds a PR to:
 
 **pre-commit.** `.pre-commit-config.yaml` at the repo root runs the fast
 offline checks on the files a commit stages: `ruff check` (the version and
-config CI uses), zizmor on the workflows, YAML/JSON/TOML syntax, conflict
+config CI uses), zizmor on the workflows and actions, YAML/JSON/TOML syntax, conflict
 markers, files over 500 KB, and gitleaks on the staged changes (the
 `Scan commits` step in `ci.yml`'s `static` job scans a PR's commits the same way). From the repo root:
 
