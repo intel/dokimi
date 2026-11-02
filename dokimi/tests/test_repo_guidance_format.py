@@ -69,6 +69,9 @@ tail"""
     ("1.\t```\n    echo hi\n    ```\n# Real\n", ["Real"]),  # the same after an ordered marker
     ("-\t```\n  echo hi\n  ```\n# Real\n", []),  # 2 spaces is under the item's column 4: the item ends, as in CommonMark
     ("- a\n\t```\n```\n# Real\n", []),  # a tab-indented continuation fence (a pin: the sections match the spaces form)
+    ("- Example:\ncontinued text\n  ```\n  code\n# Real\n", ["Real"]),  # a lazy paragraph line keeps the item open
+    ("- a\nlazy\n```\n# not\n```\n# Real\n", ["Real"]),  # a fence at column 0 is a block start, not a lazy line
+    ("- a\nlazy\n# Real\n", ["Real"]),  # a heading is a block start too
 ])
 def test_a_fence_opened_by_a_list_item_holds_body_text_only_inside_the_item(text, sections):
     assert re.findall(r'title="([^"]*)"', to_format(text, "xml")) == sections

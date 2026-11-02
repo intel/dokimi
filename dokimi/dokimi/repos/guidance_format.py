@@ -23,6 +23,7 @@ _HEADING = re.compile(r"^(#{1,6}) (\S[^\r]*)$")  # canonical only: one space, no
 _FENCE = re.compile(r"^( *)(`{3,}|~{3,})(.*)$")  # the indentation, a run of ``` or ~~~, and what follows it
 _ITEM = re.compile(r" *(?:[-*+]|\d{1,9}[.)]) {1,4}(?=\S)")  # a list marker and the one to four spaces after it
 _OPENER = re.compile(r" {0,3}(`{3,}|~{3,})(.*)$")  # up to three spaces, then a run that opens a fence
+_BLOCK = re.compile(r" *(?:#{1,6}(?: |$)|>|([-*_])( *\1){2,} *$)")  # a heading, quote or rule: a line that starts a block
 _OPEN = re.compile(r'^<section level="([1-6])" title="([^"]*)">$')
 _ESCAPES = {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}
 _UNESCAPES = {v: k for k, v in _ESCAPES.items()}
@@ -65,14 +66,16 @@ def _marker_columns(line: str) -> tuple[int, ...]:
     return tuple(columns)
 
 
-def _items_after(items: tuple[int, ...], line: str) -> tuple[int, ...]:
+def _items_after(items: tuple[int, ...], line: str, lazy: bool = False) -> tuple[int, ...]:
     """The list items open after a line read outside a fence, outermost first. A blank line keeps them. A non-blank line
     ends the items whose content column it is indented less than, and a list marker it starts opens one item per
-    marker at its content column."""
+    marker at its content column. A ``lazy`` line (one that continues the paragraph before it) ends nothing."""
     if not line.strip():
         return items
     expanded = line.expandtabs(4)
     indent = len(expanded) - len(expanded.lstrip(" "))
+    if lazy and not _marker_columns(line) and not _BLOCK.match(expanded) and not _OPENER.match(expanded):
+        return items
     return tuple(column for column in items if column <= indent) + _marker_columns(line)
 
 
@@ -97,25 +100,29 @@ def _closes(fence: tuple[str, int], line: str) -> bool:
                 and not match.group(3).strip() and len(match.group(1)) <= column + 3)
 
 
-def _advance(fence: tuple[str, int] | None, items: tuple[int, ...], line: str
-             ) -> tuple[tuple[str, int] | None, tuple[int, ...]]:
-    """The fence open after a line, and the list items open after it. A line indented less than the column of the item
-    that opened the fence ends the item, and the fence with it; the line is then read as any other line."""
+def _advance(fence: tuple[str, int] | None, items: tuple[int, ...], line: str, para: bool = False
+             ) -> tuple[tuple[str, int] | None, tuple[int, ...], bool]:
+    """The fence open after a line, the list items open after it, and whether the line is paragraph text (which a
+    following less indented line may continue lazily). A line indented less than the column of the item that opened
+    the fence ends the item, and the fence with it; the line is then read as any other line."""
     if fence is not None:
         expanded = line.expandtabs(4)  # a tab is indentation up to the next multiple of four
         if not (line.strip() and len(expanded) - len(expanded.lstrip(" ")) < fence[1]):
-            return (None if _closes(fence, line) else fence), items
-    items = _items_after(items, line)
-    return _opened(line, items), items
+            return (None if _closes(fence, line) else fence), items, False
+    items = _items_after(items, line, para and bool(items))
+    opened = _opened(line, items)
+    text = line.expandtabs(4).strip()
+    return opened, items, opened is None and bool(text) and not _BLOCK.match(text)
 
 
 def _render_xml(text: str) -> str:
     out = [_ROOT]
     fence: tuple[str, int] | None = None
     items: tuple[int, ...] = ()
+    para = False
     open_levels: list[int] = []
     for line in text.split("\n"):
-        fence, items = _advance(fence, items, line)
+        fence, items, para = _advance(fence, items, line, para)
         heading = _HEADING.match(line) if fence is None else None  # a line of a fence is body text
         if heading is None:
             out.append(line)
