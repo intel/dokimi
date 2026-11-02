@@ -887,7 +887,8 @@ per answerer call than a two-arm one; a `--placebo-text` of another length is no
 three of the 12 are standard runs, so the standard profile rests on little data.
 The measured runs, the tier table above among them, predate the spread cap: their extraction
 stopped at the cap. A capped run now asks every extraction batch, and the projection counts
-those batches over the atoms expected before the cap, while the probes stay at the cap. On an
+one extraction call per batch of 25 spans, as the run asks them, while the probes stay at the
+cap. On an
 artifact with more atoms than the cap that adds extractor calls no measured run has checked
 yet; the held-out figures above are for the runs as they were measured.
 An explicit flag always beats the tier, and the override is recorded — a

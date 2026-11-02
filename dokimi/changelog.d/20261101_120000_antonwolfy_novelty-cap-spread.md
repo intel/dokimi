@@ -26,7 +26,7 @@
   with `cap-per-artifact:<n>` and a `reached` record still validate and render
   as before. Probing still stops at the cap, but a run whose cap was reached
   before its last extraction batch now asks the remaining batches, and
-  `--estimate-only` counts them; the tier profiles were measured with the old
+  `--estimate-only` counts them, one call per batch of 25 spans; the tier profiles were measured with the old
   order (decision D017). The
   shortening forfeit now says candidates are scored against a spread sample of
   the cap's atoms, so cutting a span with no sampled atom looks free.

@@ -35,6 +35,10 @@ ATOM_TAGS = (
     "rare_critical", "procedural", "routing", "evidence",
 )
 
+#: Spans per extraction call when the caller does not say; ``tiers.estimate_calls`` counts
+#: extraction calls with it, one per batch of this many spans.
+BATCH_SPANS = 25
+
 _EXTRACT_SYSTEM = (
     "You extract checkable knowledge from technical documents. You never invent facts "
     "that the text does not assert, and you never soften a claim the text makes."
@@ -300,7 +304,7 @@ def extract_atoms(
     spans: list[Span],
     *,
     client: LLMClient,
-    batch_spans: int = 25,
+    batch_spans: int = BATCH_SPANS,
     cap: int | None = None,
     report: ExtractionReport | None = None,
 ) -> list[Atom]:

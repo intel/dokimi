@@ -321,13 +321,10 @@ def test_the_estimate_caps_the_expected_atoms_and_records_the_tier():
     study = resolve_settings("study", {})
     bill = study.estimate(300, budgets=(0.5,), n_arms=3)
     assert (bill["spans"], bill["atom_cap"]) == (300, 120)
-    # Probing stops at the cap; extraction reads all 150 expected atoms' spans.
+    # Probing stops at the cap; extraction asks every batch of the 300 spans.
     assert bill["estimate"] == estimate_calls(
-        120, dict(TIERS["study"]["settings"], budgets=(0.5,)), n_arms=3, n_extracted=150)
+        120, dict(TIERS["study"]["settings"], budgets=(0.5,)), n_arms=3, n_spans=300)
     assert bill["estimate"]["n_atoms"] == 120
-    # 12 extraction batches (150 / 12, rounded half to even) where the cap's 120 atoms take 10.
-    assert bill["estimate"]["stage_calls"] - estimate_calls(
-        120, dict(TIERS["study"]["settings"], budgets=(0.5,)), n_arms=3)["stage_calls"] == 2
     assert bill["tier"] == {"name": "study", "forfeits": TIERS["study"]["forfeits"],
                             "overrides": {}}
     assert "cap is reached" in bill["caveat"]
@@ -335,6 +332,16 @@ def test_the_estimate_caps_the_expected_atoms_and_records_the_tier():
     sweep = resolve_settings(None, {"all_atoms": True}).estimate(9)
     assert (sweep["atom_cap"], sweep["estimate"]["n_atoms"]) == (None, 4)
     assert (sweep["caveat"], sweep["tier"]) == (None, None)
+
+
+@pytest.mark.parametrize(("spans", "tokens", "batches"), [(300, 19000, 12), (26, None, 2),
+                                                          (25, None, 1)])
+def test_the_estimate_counts_one_extraction_call_per_span_batch(spans, tokens, batches):
+    """A capped triage run asks ceil(spans / 25) extraction calls, not one per 12 atoms
+    expected before the cap (826 at 19,000 tokens, which counted 69)."""
+    bill = resolve_settings("triage", {}).estimate(spans, n_tokens=tokens)["estimate"]
+    # Triage runs no stage but extraction and the need graph.
+    assert bill["stage_calls"] == bill["by_role"]["extractor"] == batches + 1
 
 
 def test_the_warnings_follow_the_settings_and_the_atom_count():

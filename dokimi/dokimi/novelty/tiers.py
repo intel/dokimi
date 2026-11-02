@@ -21,8 +21,11 @@ and into the artifact's warnings, so the ceiling travels with the number.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
+
+from .atoms import BATCH_SPANS
 
 #: What a run gives up, keyed by the setting that is off. "sampled" is an atom cap that left atoms
 #: out, which probes atoms spread over the input: https://github.com/intel/dokimi/issues/293
@@ -215,8 +218,9 @@ class RunSettings:
 
         The atom count is the larger of one atom per two spans and one per
         :data:`TOKENS_PER_ATOM` tokens (spans alone undercount: short spans, such as table
-        rows, yield an atom each), capped at ``max_atoms`` for every stage but extraction,
-        which reads the whole input. Without ``n_tokens`` only the span rule applies. The
+        rows, yield an atom each), capped at ``max_atoms``. Extraction reads the whole input
+        whatever the cap, so its calls are the span batches it asks (see
+        :func:`estimate_calls`). Without ``n_tokens`` only the span rule applies. The
         forfeits assume the cap is reached, since the atom count is a guess until extraction
         runs: an artifact with no more atoms than the cap keeps them all and drops the cap's
         forfeits.
@@ -233,7 +237,7 @@ class RunSettings:
             # The full resolved settings, so the projection is the model `estimate_calls`
             # implements rather than a subset of it.
             "estimate": estimate_calls(n_atoms, dict(self.values, budgets=tuple(budgets)),
-                                       n_arms=n_arms, n_extracted=expected),
+                                       n_arms=n_arms, n_spans=n_spans),
             "tier": self.tier_record(),
             "caveat": (
                 "forfeits assume the atom cap is reached; the run recomputes them from the "
@@ -377,7 +381,7 @@ def estimate_usd(
 
 
 def estimate_calls(n_atoms: int, settings: dict, *, n_arms: int = 2,
-                   n_extracted: int | None = None) -> dict:
+                   n_spans: int | None = None) -> dict:
     """Project the model-call bill before spending it.
 
     From the instrumented runs: every probe, reversal included, costs an answer and a grade
@@ -395,8 +399,11 @@ def estimate_calls(n_atoms: int, settings: dict, *, n_arms: int = 2,
         n_atoms: Atoms expected after the cap.
         settings: Resolved tier settings (``paraphrases``, ``reversals``, stage switches).
         n_arms: Arms in the run, including the baseline.
-        n_extracted: Atoms expected before the cap (default ``n_atoms``). Extraction asks
-            every batch whatever the cap, so its calls follow this count.
+        n_spans: Spans of the input. Extraction asks every batch of
+            :data:`~dokimi.novelty.atoms.BATCH_SPANS` spans whatever the cap, so it makes
+            ``ceil(n_spans / BATCH_SPANS)`` calls (splits of an unparseable reply aside).
+            Without it, one call per 12 atoms of ``n_atoms``: the rule of the measured runs,
+            whose extraction stopped at the cap.
 
     Returns:
         ``{"n_atoms", "paired_probes", "reversal_probes", "probe_calls", "stage_calls",
@@ -415,9 +422,10 @@ def estimate_calls(n_atoms: int, settings: dict, *, n_arms: int = 2,
     # Reversals are graded in every arm too: the baseline arm's resistance to a planted
     # inversion is a reported control, not a by-product.
     probe_calls = (paired + reversals) * n_arms * 2
-    extracted = n_atoms if n_extracted is None else n_extracted
+    batches = (max(1, round(n_atoms / 12)) if n_spans is None
+               else math.ceil(n_spans / BATCH_SPANS))
     stage_calls = (
-        max(1, round(extracted / 12))                              # extraction batches
+        batches                                                    # extraction batches
         + (n_atoms if settings.get("verify_faithfulness") else 0)   # one per atom
         + (1 if settings.get("paraphrases") else 0)
         + (1 if settings.get("reversals") else 0)
