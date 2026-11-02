@@ -179,5 +179,5 @@ def test_a_file_of_a_nested_checkout_takes_its_mode_from_that_repository(tmp_pat
     _git(nested, "add", "q.sh")
     _git(nested, "update-index", "--chmod=+x", "q.sh")
     before = _subjects(root)["skill/a"].suite_hash
-    os.chmod(nested / "q.sh", 0o755)
+    os.chmod(nested / "q.sh", 0o700)
     assert _subjects(root)["skill/a"].suite_hash == before
