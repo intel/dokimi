@@ -108,7 +108,7 @@ FENCE_CLOSE_RE = re.compile(r"\ {0,3}(`{3,}|~{3,})[ \t]*$")
 # ``>`` markers are stripped before any fence is matched, and a list item line marks the list.
 DEEP_FENCE_OPEN_RE = re.compile(r"[ \t]*(`{3,}|~{3,})(.*)$")
 DEEP_FENCE_CLOSE_RE = re.compile(r"[ \t]*(`{3,}|~{3,})[ \t]*$")
-QUOTE_PREFIX_RE = re.compile(r"(?:[ \t]{0,3}>[ \t]?)+")
+QUOTE_MARK_RE = re.compile(r"[ \t]{0,3}>[ \t]?")
 LIST_ITEM_RE = re.compile(r"[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]")
 # RFC 3986 scheme, dots included; a dotted one with a line or symbol after it is a file (_file_ref).
 URI_SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+\-.]*:")
@@ -264,40 +264,59 @@ def _outside_fences(body: str) -> list[str]:
     """The lines of ``body`` that are not inside a fenced code block.
 
     A block closes only at a line of the same marker (backticks or tildes) that is at least as long
-    as the opening run, as in CommonMark. A fence in a blockquote opens and closes inside it (its
-    ``>`` markers are stripped); a fence under a list item may be indented past three spaces.
+    as the opening run, as in CommonMark. A fence in a blockquote keeps only the opener's ``>``
+    markers (a deeper ``>`` is code), and it ends with its quote. A fence under a list item may be
+    indented past three spaces, and it ends with its item: at the first non-blank line indented less
+    than the item's content column. Any other fence runs to its closing marker or to the end.
     """
     lines: list[str] = []
     fence = ""  # the run that opened the current block; "" outside one
-    quoted = deep = in_list = False  # the opener's blockquote and list context; in_list: the last block was a list
+    depth = 0  # the blockquote depth of the opener
+    col = 0  # the content column of the list item the opener sits in; 0 for a fence outside any item
+    item = 0  # the content column of the last list item; 0 once a line is indented less than it
     for line in body.splitlines():
-        rest, in_quote = _unquote(line)
         if fence:
-            close = (DEEP_FENCE_CLOSE_RE if deep else FENCE_CLOSE_RE).match(rest)
-            if (close and in_quote == quoted and close.group(1)[0] == fence[0]
-                    and len(close.group(1)) >= len(fence)):
-                fence = ""
-                lines.append("")  # a blank line keeps a definition above the block from reaching below it
-            continue
-        deep = in_list
+            rest, count = _unquote(line, depth)
+            ended = count < depth or bool(col and rest.strip() and _indent(rest) < col)
+            if not ended:
+                close = (DEEP_FENCE_CLOSE_RE if col else FENCE_CLOSE_RE).match(rest)
+                if close and close.group(1)[0] == fence[0] and len(close.group(1)) >= len(fence):
+                    fence = ""
+                    lines.append("")  # a blank line keeps a definition above the block from reaching below it
+                continue
+            fence = ""  # the container ended before a closing marker: this line is outside the block
+        rest, count = _unquote(line)
+        deep = bool(item) and _indent(rest) >= item
         opened = (DEEP_FENCE_OPEN_RE if deep else FENCE_OPEN_RE).match(rest)
         # a backtick info string may not hold a backtick: "```x```" is an inline code span, not a fence
         if opened and not (opened.group(1)[0] == "`" and "`" in opened.group(2)):
-            fence, quoted = opened.group(1), in_quote
+            fence, depth, col = opened.group(1), count, (item if deep else 0)
             lines.append("")
             continue
-        if LIST_ITEM_RE.match(rest):
-            in_list = True
-        elif rest.strip() and not rest[0].isspace():
-            in_list = False
+        bullet = LIST_ITEM_RE.match(rest)
+        if bullet:
+            item = bullet.end()
+        elif rest.strip() and _indent(rest) < item:
+            item = 0
         lines.append(line)
     return lines
 
 
-def _unquote(line: str) -> tuple[str, bool]:
-    """``line`` without its blockquote markers, and whether it had any."""
-    prefix = QUOTE_PREFIX_RE.match(line)
-    return (line[prefix.end():], True) if prefix else (line, False)
+def _unquote(line: str, depth: int | None = None) -> tuple[str, int]:
+    """``line`` without its first ``depth`` blockquote markers (all of them when None), and how many it lost."""
+    count = 0
+    while depth is None or count < depth:
+        mark = QUOTE_MARK_RE.match(line)
+        if not mark:
+            break
+        line = line[mark.end():]
+        count += 1
+    return line, count
+
+
+def _indent(line: str) -> int:
+    """The number of leading spaces and tabs of ``line``."""
+    return len(line) - len(line.lstrip(" \t"))
 
 
 def _destination_stop(line: str, start: int) -> Optional[int]:

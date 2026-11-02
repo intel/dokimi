@@ -164,6 +164,43 @@ def test_a_fence_under_a_list_item_indented_past_three_spaces_is_a_code_block(tm
     assert "'also-missing.md'" in review.findings[0].message
 
 
+def test_a_blockquote_fence_ends_with_its_quote_when_it_has_no_closing_marker(tmp_path):
+    _skill(tmp_path / "skills", "quote-end", name="quote-end", description="Use for quote ends.",
+           body="> ```\n> example\n\n[real](missing.md)\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == ["link-missing"]
+    assert "'missing.md'" in review.findings[0].message
+
+
+def test_a_list_item_fence_ends_with_its_item_when_it_has_no_closing_marker(tmp_path):
+    _skill(tmp_path / "skills", "item-end", name="item-end", description="Use for item ends.",
+           body="- item\n  ```\n  example\n\n[real](missing.md)\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == ["link-missing"]
+    assert "'missing.md'" in review.findings[0].message
+
+
+def test_a_top_level_fence_after_a_list_item_is_not_closed_by_an_indented_marker(tmp_path):
+    # the fence is at column 0, outside the item: its four-space ``` is code, not a closing marker
+    _skill(tmp_path / "skills", "outdent", name="outdent", description="Use for outdented fences.",
+           body="- item\n\n```\n    ```\n[example](missing.md)\n```\n[real](also-missing.md)\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == ["link-missing"]
+    assert "'also-missing.md'" in review.findings[0].message
+
+
+def test_a_deeper_quote_marker_inside_a_quoted_fence_is_code_not_a_closing_marker(tmp_path):
+    _skill(tmp_path / "skills", "deep-quote", name="deep-quote", description="Use for deep quotes.",
+           body="> ```\n> > ```\n> [example](missing.md)\n> ```\n[real](also-missing.md)\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == ["link-missing"]
+    assert "'also-missing.md'" in review.findings[0].message
+
+
 def test_skills_named_through_a_subdirectory_dot_dot_are_not_mirror_drift(tmp_path):
     # "skills/alpha/sub/.." is the skill directory "alpha": two such skills are not copies of each other.
     _skill(tmp_path / "skills", "alpha", name="alpha", description="Use for alpha work.", body="# Alpha\n")
