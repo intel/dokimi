@@ -979,6 +979,9 @@ def test_an_escaping_link_with_a_line_suffix_is_named_as_escaping(tmp_path):
         "Use formatting tools to normalize logs.",
         "Use iframe helpers to inspect embedded pages.",
         "Use ifs-free helpers to rewrite conditions.",
+        "Use this skillset to lint sources.",
+        "Triggers online for logs.",
+        "Wheneverish tooling for logs.",
     ],
 )
 def test_a_use_phrase_that_only_starts_like_a_trigger_is_still_a_description_warning(tmp_path, description):
