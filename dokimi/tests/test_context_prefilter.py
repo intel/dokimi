@@ -718,3 +718,90 @@ def test_a_home_relative_literal_path_is_read_when_only_that_file_exists(tmp_pat
     literal = _write(logs / "session[1].jsonl", [_prompt("one")])
     loaded, failed = _read_sessions(["~/logs/session[1].jsonl"])
     assert not failed and [s.name for s in loaded] == [str(literal)]
+
+
+# --- round 8: heredoc delimiters, comments, compound printing, quoting, functions, redirections, windows ----
+
+@pytest.mark.parametrize(("command", "acted"), [
+    ("cat <<EOF-TEXT\nnotes\nEOF-TEXT\nmake ci-local", 1),       # an unquoted delimiter with punctuation ends its body
+    ("cat <<'EOF-TEXT'\nmake ci-local\nEOF-TEXT", 0),            # a quoted one: the body is data, not a run
+    ('cat <<"EOF.md"\nmake ci-local\nEOF.md', 0),
+    ("cat <<-EOF\n\tbody\n\tEOF\nmake ci-local", 1),             # <<- closes on a tab-indented WORD
+    ("cat <<EOF\nbody\n  EOF\nmake ci-local", 0),               # plain << closes only on a WORD alone: never closed here
+    ("echo $((1<<2))\nmake ci-local", 1),                       # an arithmetic shift opens no heredoc
+    ("# <<EOF\nmake ci-local", 1),                              # a comment that names a heredoc opens none
+    ("true # <<EOF\nmake ci-local", 1),
+    ("true;# ignored; make ci-local", 0),                       # a comment starts after a control operator too
+])
+def test_heredoc_delimiters_comments_and_arithmetic_are_read_as_the_shell_reads_them(command, acted):
+    session = _session(_prompt("push the branch now"), _tool("Bash", command=command))
+    assert _row(_report([session]), CI)["acted"] == acted
+
+
+@pytest.mark.parametrize(("command", "acted"), [
+    ("if true; then echo changelog.d/x.md; fi", 0),
+    ("for i in 1; do echo changelog.d/x.md; done", 0),
+    ("if false; then :; else printf 'changelog.d/x.md\\n'; fi", 0),
+    ("if true; then cat changelog.d/x.md; fi", 1),              # a read under compound syntax is still an action
+])
+def test_a_printed_path_inside_compound_syntax_is_not_touched(command, acted):
+    rule = "- Keep `changelog.d/` current.\n"
+    session = _session(_prompt("keep the changelog current"), _tool("Bash", command=command))
+    assert _row(_report([session], rule), "Keep")["acted"] == acted
+
+
+def test_an_input_redirection_of_a_printing_command_is_a_read_of_its_file():
+    rule = "- Update `docs/guide.md` when behaviour changes.\n"
+    session = _session(_prompt("update behaviour changes"), _tool("Bash", command="printf 'done\\n' < docs/guide.md"))
+    assert _row(_report([session], rule), "Update")["acted"] == 1
+
+
+@pytest.mark.parametrize(("key", "acted"), [("docs/oreilly.md", 0), ("docs/o'reilly.md", 1)])
+def test_a_quoted_file_name_keeps_its_literal_apostrophe(key, acted):
+    rule = f"- Update `{key}` when behaviour changes.\n"
+    session = _session(_prompt("update behaviour changes"), _tool("Bash", command='cat "docs/o\'reilly.md"'))
+    assert _row(_report([session], rule), "Update")["acted"] == acted
+
+
+@pytest.mark.parametrize("command", ["check_ci() { make ci-local; }", "check_ci() {\n  make ci-local\n}"])
+def test_a_function_body_that_is_only_defined_is_not_an_action(command):
+    session = _session(_prompt("push the branch now"), _tool("Bash", command=command))
+    assert _row(_report([session]), CI)["acted"] == 0
+
+
+def test_a_path_in_an_uncalled_function_body_is_not_touched():
+    rule = "- Keep `changelog.d/` current.\n"
+    session = _session(_prompt("keep the changelog current"),
+                       _tool("Bash", command="write_note() { cat changelog.d/x.md; }"))
+    assert _row(_report([session], rule), "Keep")["acted"] == 0
+
+
+@pytest.mark.parametrize(("corrected_at", "corrected"), [(3, 1), (4, 0)])  # window is 3: the edge and one more
+def test_a_correction_exactly_window_events_after_the_trigger_counts_and_one_more_does_not(corrected_at, corrected):
+    events = [_prompt("push the branch now")]
+    events += [_tool("Read", file_path=f"/w/{i}.py") for i in range(corrected_at - 1)]
+    events.append(_prompt("no, do not push the branch yet"))
+    row = _row(_report([_session(*events)], window=3), CI)
+    assert row["corrected"] == corrected
+
+
+def test_two_triggers_window_apart_are_one_episode_and_window_plus_one_apart_are_two():
+    near = _session(_prompt("push the branch now"), _tool("Read", file_path="/w/a.py"),
+                    _tool("Read", file_path="/w/b.py"), _prompt("push the branch again"))
+    far = _session(_prompt("push the branch now"), _tool("Read", file_path="/w/a.py"),
+                   _tool("Read", file_path="/w/b.py"), _tool("Read", file_path="/w/c.py"),
+                   _prompt("push the branch again"))
+    assert _row(_report([near], window=3), CI)["episodes"] == 1
+    assert _row(_report([far], window=3), CI)["episodes"] == 2
+
+
+def test_a_home_glob_reads_every_match(tmp_path, monkeypatch):
+    from dokimi.commands.context import _read_sessions
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    first = _write(logs / "a.jsonl", [_prompt("one")])
+    second = _write(logs / "b.jsonl", [_prompt("two")])
+    loaded, failed = _read_sessions(["~/logs/*.jsonl"])
+    assert not failed and sorted(s.name for s in loaded) == sorted([str(first), str(second)])

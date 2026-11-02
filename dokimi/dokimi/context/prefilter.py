@@ -48,8 +48,14 @@ _QUOTED = re.compile(r"\\[\s\S]|'[^']*'|\"(?:\\[\s\S]|[^\"\\])*\"")
 _CONTINUATION = re.compile(r"\\\n|\\[\s\S]|'[^']*'|\"(?:\\[\s\S]|[^\"\\])*\"")
 # a heredoc header is ``<<WORD`` (or ``<<'WORD'``) outside quotes and not a here-string (``<<<``)
 _HEREDOC_OPEN = re.compile(r"(?<!<)<<(?!<)")
-_HEREDOC_WORD = re.compile(r"-?[ \t]*(['\"]?)(\w+)\1")
-_COMMENT = re.compile(r"(?m)(?:^|\s)#.*$")
+# a heredoc WORD is a shell word, quoted or not (``EOF-TEXT``, ``'EOF.md'``); group 1 is the ``-`` of ``<<-``
+_HEREDOC_WORD = re.compile(r"(-?)[ \t]*(?:'([^'\n]+)'|\"([^\"\n]+)\"|([^\s;&|<>()'\"]+))")
+# a ``#`` starts a comment at the start of a word: the start of a line, after blank space or a control operator
+_COMMENT = re.compile(r"(?m)(?:^|(?<=[\s;&|()]))#.*$")
+# ``$((1<<2))`` is arithmetic, not a heredoc
+_ARITHMETIC = re.compile(r"\$\(\([\s\S]*?\)\)")
+# a shell function definition: its body is defined, not run (a call of it is not followed)
+_FUNCTION = re.compile(r"(?s)\b[A-Za-z_][\w-]*\s*\(\s*\)\s*\{.*?\}")
 _SEGMENT = re.compile(r"&&|\|\||[;|&()\n]")
 _CUE = re.compile(r"\b(no|not|don't|do not|stop|instead|wrong|forgot|should have|revert|undo|why did you)\b", re.I)
 _STOP = frozenset("""
@@ -136,8 +142,18 @@ def _names(key: str, text: str) -> bool:
     return bool(words) and re.search(rf"(?<![\w-]){re.escape(words)}(?![\w-])", " ".join(text.split())) is not None
 
 
-def _unquote(text: str) -> str:
-    return text.replace('"', "").replace("'", "")
+def _dequote_match(match: re.Match[str]) -> str:
+    """A quoted or escaped piece of shell text as the word it stands for: its quotes go, its literal characters stay."""
+    text = match.group(0)
+    if text[0] == "\\":
+        return text[1:]
+    if text[0] == "'":
+        return text[1:-1]
+    return re.sub(r'\\([\\"$`])', r"\1", text[1:-1])
+
+
+def _dequote(text: str) -> str:
+    return _QUOTED.sub(_dequote_match, text)
 
 
 # A separator, a ``#`` or a redirection sign inside quotes is text, not shell syntax: it is swapped for a
@@ -161,25 +177,33 @@ def _join_line(match: re.Match[str]) -> str:
     return "" if match.group(0) == "\\\n" else match.group(0)
 
 
-def _heredoc_words(line: str) -> list[str]:
-    """The words of the heredocs a line opens: a ``<<`` inside quotes is text and opens none."""
-    masked = _QUOTED.sub(lambda m: "_" * len(m.group(0)), line)  # same length: positions line up
-    words = []
+def _blank(match: re.Match[str]) -> str:
+    return "_" * len(match.group(0))  # same length: positions in the line are kept
+
+
+def _heredoc_words(line: str) -> list[tuple[str, bool]]:
+    """The heredocs a line opens, as (WORD, whether ``<<-`` strips tabs). A ``<<`` inside quotes, in a comment or
+    in arithmetic is text and opens none."""
+    masked = _COMMENT.sub(_blank, _ARITHMETIC.sub(_blank, _QUOTED.sub(_blank, line)))
+    opened_words = []
     for opened in _HEREDOC_OPEN.finditer(masked):
         word = _HEREDOC_WORD.match(line, opened.end())
         if word:
-            words.append(word.group(2))
-    return words
+            name = word.group(2) or word.group(3) or word.group(4)
+            opened_words.append((name, word.group(1) == "-"))
+    return opened_words
 
 
 def _without_heredoc_bodies(command: str) -> str:
     """The command with each heredoc body dropped: the lines after its header up to a line that is its WORD
     alone. Body lines are read as data, so their quotes do not pair with the rest of the command."""
     out: list[str] = []
-    pending: list[str] = []  # the WORDs of the bodies still to skip, in order
+    pending: list[tuple[str, bool]] = []  # the WORDs of the bodies still to skip, in order
     for line in command.split("\n"):
         if pending:
-            if line.strip() == pending[0]:
+            name, strip_tabs = pending[0]
+            # a plain ``<<`` closes only on a WORD alone; ``<<-`` also on one indented with tabs
+            if (line.lstrip("\t") if strip_tabs else line) == name:
                 pending.pop(0)
             continue
         out.append(line)
@@ -187,14 +211,20 @@ def _without_heredoc_bodies(command: str) -> str:
     return "\n".join(out)
 
 
+def _executable(command: str) -> str:
+    """The lines a shell would run: heredoc bodies, line continuations and function definitions left out."""
+    text = _CONTINUATION.sub(_join_line, _without_heredoc_bodies(command or ""))
+    return _FUNCTION.sub(" ", text)
+
+
 def _masked_segments(command: str, *, hide_spaced: bool = False) -> list[str]:
     """The command's segments with their quotes removed, still masked. A heredoc body is dropped; with
     ``hide_spaced`` a quoted argument with a space in it is replaced by a placeholder."""
-    text = _CONTINUATION.sub(_join_line, _without_heredoc_bodies(command or ""))
+    text = _executable(command)
     if hide_spaced:
         text = _QUOTED.sub(_hide_sentence, text)  # the same pairing of quotes as _mask
     masked = _COMMENT.sub("", _QUOTED.sub(_mask, text))
-    return [_unquote(seg) for seg in _SEGMENT.split(masked)]
+    return [_dequote(seg) for seg in _SEGMENT.split(masked)]
 
 
 def _words(seg: str) -> str:
@@ -205,8 +235,7 @@ def _command_segments(command: str) -> list[str]:
     """The simple commands of a shell line, quotes kept: split at separators and pipes outside quotes, with
     heredoc bodies, line continuations and comments left out. Read here, not by ``shell.segments``, because that
     walker cuts a heredoc at a ``<<`` inside quotes and would hide the command after it."""
-    text = _CONTINUATION.sub(_join_line, _without_heredoc_bodies(command or ""))
-    masked = _COMMENT.sub("", _QUOTED.sub(_mask, text))
+    masked = _COMMENT.sub("", _QUOTED.sub(_mask, _executable(command)))
     return [seg.translate(_FROM_MASK) for seg in _SEGMENT.split(masked)]
 
 
@@ -235,13 +264,14 @@ def _invokes(key: str, command: str) -> bool:
 
 
 def _prints(text: str) -> bool:
-    """Whether a segment is an ``echo`` or ``printf``: its arguments are printed, not read or written."""
-    words = shell.strip_wrappers(text.split())
+    """Whether a segment is an ``echo`` or ``printf``: its arguments are printed, not read or written. Compound
+    syntax (``then``, ``do``, ``else``) is not the program."""
+    words = shell.strip_wrappers(shell.clean(text).split())
     return bool(words) and words[0] in ("echo", "printf")
 
 
-# a redirection target is written
-_REDIRECT = re.compile(r">>?\s*([^\s;&|<>]+)")
+# a redirection target is written (``>``, ``>>``) or read (``<``); ``<<`` is a heredoc, ``>&2`` a descriptor
+_REDIRECT = re.compile(r"(?<!<)<(?![<&(])\s*([^\s;&|<>()]+)|>>?\s*([^\s;&|<>()]+)")
 
 
 @functools.lru_cache(maxsize=8192)  # every claim is matched against the same tool calls
@@ -251,7 +281,7 @@ def _shell_paths(command: str) -> str:
     left out; a redirection sign inside quotes is not a redirection."""
     parts: list[str] = []
     for seg in _masked_segments(command, hide_spaced=True):
-        parts.extend(target.translate(_FROM_MASK) for target in _REDIRECT.findall(seg))
+        parts.extend((m.group(1) or m.group(2)).translate(_FROM_MASK) for m in _REDIRECT.finditer(seg))
         text = _words(seg)
         if not _prints(text):
             parts.append(text)
