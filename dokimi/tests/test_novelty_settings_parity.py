@@ -270,7 +270,8 @@ CAP_WARNING = ("atom extraction read the whole input, and the atom cap probes 1 
 # Intended change: the cap's forfeit no longer calls `added` a sampled rate, in the tier
 # record, the warnings and the estimate's stderr.
 CAP_FORFEIT_ON_MAIN = "`added` is a sampled rate over the atom cap: usable"
-CAP_FORFEIT = "`added` is a rate over the atoms the cap kept, not the whole input: usable"
+CAP_FORFEIT = ("`added` is a rate over the sample of extracted atoms the cap kept, not over every "
+               "atom: usable")
 # Intended change (#293): shortening is scored against a spread sample, not the opening. The
 # forfeit names the cap, which tests/test_novelty_tiers.py pins; here both sides read <cap>.
 SHORTEN_FORFEIT_ON_MAIN = ("shortening candidates are scored only against the capped atoms, i.e. "

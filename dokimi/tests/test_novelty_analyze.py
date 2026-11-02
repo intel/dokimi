@@ -610,7 +610,7 @@ def test_a_tier_writes_its_forfeits_into_the_run_it_produced(tmp_path):
     assert len(forfeits) == len(TIERS["triage"]["forfeits"]) - len(FORFEITS["sampled"])
     assert sorted(artifact["run_config"]["tier"]["forfeits"]) == sorted(
         w.split("forfeits: ", 1)[1] for w in forfeits)
-    assert not any("rate over the atoms the cap kept" in w for w in forfeits)
+    assert not any("atoms the cap kept" in w for w in forfeits)
     validate_artifact("novelty", dict(artifact, schema_version="novelty.v1"))
 
 
@@ -667,12 +667,44 @@ def test_an_artifact_written_under_the_document_order_cap_still_validates(tmp_pa
 
 
 def test_a_cap_the_atoms_meet_samples_nothing(tmp_path):
-    # Two atoms under a cap of 2: every atom is probed, exactly as with no cap.
+    # Two atoms under a cap of 2: every atom is probed, exactly as with no cap, and the label
+    # says so: `cap-spread:<n>` names a sample only when the cap left atoms out (#358).
     artifact = _analyze(tmp_path, max_atoms=2).artifact
-    assert artifact["atoms"]["n"] == 2 and artifact["atoms"]["sampling"] == "cap-spread:2"
+    assert artifact["atoms"]["n"] == 2 and artifact["atoms"]["sampling"] == "full"
     assert artifact["extraction"]["sampled"] is None
     assert not any("atom cap probes" in w for w in artifact["warnings"])
     assert "atom cap" not in render_novelty_markdown(artifact)
+    validate_artifact("novelty", dict(artifact, schema_version="novelty.v1"))
+
+
+def test_a_cap_above_the_atom_count_labels_the_run_full(tmp_path):
+    # Ten spans, one atom each, under the triage cap of 25: nothing is left out, so the run is
+    # a full one in its label as in `extraction.sampled` and the report header.
+    path = tmp_path / "ten" / "SKILL.md"
+    path.parent.mkdir(parents=True)
+    rules = "\n\n".join(f"Rule {i}: set `--opt{i}` to {i}." for i in range(10))
+    path.write_text(f"---\nname: ten\ndescription: Ten rules\n---\n\n{rules}\n", encoding="utf-8")
+    kind, name, description, frontmatter, body = load_artifact_text(f"skill:{path}")
+    scripted = _scripted("informed")
+
+    def per_span(prompt, system):
+        if "Extract the checkable knowledge" not in prompt:
+            return scripted(prompt, system)
+        return json.dumps([dict(_ATOMS[0], statement=f"{sid} holds.", question=f"What of {sid}?",
+                                span_ids=[sid])
+                           for sid in re.findall(r"^\[(s\d+)\]", prompt, flags=re.M)]), None
+
+    config = AnalyzeConfig(artifact_ref=f"skill:{path}", artifact_kind=kind, name=name,
+                           description=description, frontmatter=frontmatter, concurrency=1,
+                           max_atoms=25)
+    _, answerer, judge = _clients()
+    extractor = LLMClient(model="extractor-m", role="extractor", transport=per_span)
+    artifact = analyze(body, config, extractor=extractor, answerer=answerer,
+                       judge=judge).artifact
+    assert artifact["atoms"]["n"] == 10
+    assert artifact["atoms"]["sampling"] == "full"
+    assert artifact["extraction"]["sampled"] is None
+    assert "10 atoms (full), 10 probed." in render_novelty_markdown(artifact)
     validate_artifact("novelty", dict(artifact, schema_version="novelty.v1"))
 
 
@@ -686,6 +718,7 @@ def test_only_a_cap_that_leaves_atoms_out_counts_as_capped(tmp_path, cap, capped
     artifact = _analyze(tmp_path, **settings.config_fields()).artifact
     assert (artifact["extraction"]["sampled"] is not None) is capped
     assert artifact["spans"]["capped_atom_set"] is capped
+    assert artifact["atoms"]["sampling"] == (f"cap-spread:{cap}" if capped else "full")
     shortening = (f"shortening candidates are scored against a spread sample of {cap} of the "
                   "extracted atoms: a cut of a span with no sampled atom looks free")
     warned = "\n".join(artifact["warnings"])

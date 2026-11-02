@@ -899,7 +899,8 @@ Each tier carries the **claims it forfeits**, and those strings are written into
 run used and the atoms it extracted, not the tier's name: `--no-verify` adds the
 faithfulness forfeit, and `--all-atoms` or a skill with no more atoms than the cap (which
 keeps every atom: `extraction.sampled` is `null` and `spans.capped_atom_set` false) drops the
-cap's ones (that `added` is a rate over the atoms the cap kept, not the whole input, and
+cap's ones (that `added` is a rate over the sample of extracted atoms the cap kept, not over
+every atom, and
 that `frac_carrying_nothing` is not interpretable on a capped atom set). They do not depend on
 which atoms the cap kept (`--estimate-only` lists them before it is known), and neither does
 the `harmful_atoms` gate reason (`0 conflicts among the capped atoms`). With shortening on, a
@@ -934,7 +935,8 @@ atoms can fall between two sampled indices and get no probe; a higher cap spread
 without promising each file one, and `--all-atoms` probes every extracted atom. A bundled file
 left out has no atom in it (the `coverage:` line says how much of the artifact went into the
 input). The run records `atoms.sampling` as `cap-spread:<n>` and `extraction.sampled` as
-`{"atoms": n, "of": M, "rule": "cap-spread"}`. When every span was read it warns `atom
+`{"atoms": n, "of": M, "rule": "cap-spread"}`; a run whose cap kept every atom (M ≤ n) records
+`full`, as an uncapped run does, and `null`. When every span was read it warns `atom
 extraction read the whole input, and the atom cap probes 25 of the input's 61 atoms, spread over
 all of it (a stride of 2.44 atoms in document order): rates are estimated from that sample; pass
 --all-atoms to probe every atom`. When some spans were left unread (`extraction.unread_span_ids`:

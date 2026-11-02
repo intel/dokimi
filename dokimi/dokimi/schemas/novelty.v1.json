@@ -71,7 +71,7 @@
         },
         "sampling": {
           "type": "string",
-          "description": "How the probed subset was chosen: full, or cap-spread:<n> (e.g. cap-spread:120), n atoms spread over every extracted atom in document order (extraction.sampled). Runs before cap-spread wrote cap-per-artifact:<n>, the first n atoms in document order. Present so a capped run is never read as a full sweep."
+          "description": "How the probed subset was chosen: full, every extracted atom (also a cap the atoms meet or fall under), or cap-spread:<n> (e.g. cap-spread:120), only when the cap left atoms out: n atoms spread over every extracted atom in document order (extraction.sampled). Runs before cap-spread wrote cap-per-artifact:<n>, the first n atoms in document order. Present so a capped run is never read as a full sweep."
         },
         "faithfulness": {
           "type": ["object", "null"],

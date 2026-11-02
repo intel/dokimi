@@ -28,9 +28,9 @@ from typing import Any
 #: out, which probes atoms spread over the input: https://github.com/intel/dokimi/issues/293
 FORFEITS: dict[str, list[str]] = {
     "sampled": [
-        "`added` is a rate over the atoms the cap kept, not the whole input: usable as a "
-        "sign, not as a figure, and not comparable with another artifact's; pass "
-        "--all-atoms for the full sweep",
+        "`added` is a rate over the sample of extracted atoms the cap kept, not over every "
+        "atom: usable as a sign, not as a figure, and not comparable with another "
+        "artifact's; pass --all-atoms for the full sweep",
         "`frac_carrying_nothing` is not interpretable on a capped atom set (0.064 read "
         "as 0.743 on the study's largest artifact)",
     ],

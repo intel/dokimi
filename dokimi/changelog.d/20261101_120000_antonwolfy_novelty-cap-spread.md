@@ -13,9 +13,10 @@
   a rate that decides something, pass `--all-atoms`. The selection takes no
   seed: the same extracted atom list gives the same sample. `novelty analyze`
   and `novelty atoms` (whose `atoms.json` `probe` and `shorten` read) probe the
-  same atoms. A cap below 1 is refused before any call. New runs record `atoms.sampling` as `cap-spread:<n>` and
-  `extraction.reached` `null`; `extraction.sampled` is `{"atoms", "of", "rule"}`
-  when the cap leaves atoms out, and `null` when it keeps every atom (M ≤ n).
+  same atoms. A cap below 1 is refused before any call. New runs record
+  `extraction.reached` `null`; when the cap leaves atoms out, `atoms.sampling`
+  is `cap-spread:<n>` and `extraction.sampled` `{"atoms", "of", "rule"}`, and
+  when it keeps every atom (M ≤ n), `full` and `null`.
   Only a cap that leaves atoms out sets `spans.capped_atom_set` and brings the
   cap's forfeits: an input whose atoms exactly meet the cap no longer counts as
   capped. The cap warning, the `novelty.md` header and the headline's

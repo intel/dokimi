@@ -181,8 +181,9 @@ def analyze(
     # (M <= n, so `sampled` is unset), changes which claims are forfeit.
     capped = extraction.sampled is not None
     warnings.extend(settings.warnings(sampled=capped))
+    # A label for a sample only when the cap left atoms out; a cap the atoms meet is a full run.
     # Older runs recorded `cap-per-artifact:<n>`, the first n atoms in document order (#293).
-    sampling = f"cap-spread:{config.max_atoms}" if config.max_atoms is not None else "full"
+    sampling = f"cap-spread:{config.max_atoms}" if capped else "full"
     if extraction.sampled:  # set only when the cap left atoms out
         warnings.append(report.cap_warning(extraction.as_dict()))
     if not atom_list:
