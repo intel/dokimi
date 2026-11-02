@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Any
 
-from .budget import _imports, _target
+from .budget import CLAUDE_ROOT, _imports, _target
 from .reach import PROSE_LIMIT, ReachError
 from .source import RepoTree
 
@@ -29,8 +29,6 @@ UNKNOWN = "unknown"
 OBSERVATION_METHOD = UNKNOWN
 # dokimi's own method: the model reports the marker tokens it can see; the request itself is not captured.
 DOKIMI_METHOD = "marker_self_report"
-# Root-level files that turn AGENTS.md off in Claude Code (budget.py): the displacing set.
-CLAUDE_ROOT = ("CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md")
 ROOT_NESTED = (".claude/CLAUDE.md", ".claude/AGENTS.md")  # project memory in .claude/ applies repo-wide
 SUBTREE_NAMES = ("AGENTS.md", "CLAUDE.md", "CLAUDE.local.md")
 _STATE: dict[str | None, str] = {"loaded": "loaded", "fetched": "fetched", "not_loaded": "not_loaded"}

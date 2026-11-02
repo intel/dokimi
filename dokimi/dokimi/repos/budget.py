@@ -40,6 +40,9 @@ from typing import Any
 from dokimi.repos.source import RepoTree
 
 SKILL_GLOB = re.compile(r"^\.claude/skills/[^/]+/SKILL\.md$")
+# The CLAUDE* files that turn AGENTS.md off in Claude Code, relative to a directory: at the root for the whole
+# session, below it for the AGENTS.md beside them. receipt.py imports this set.
+CLAUDE_ROOT = ("CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md")
 MCP_FILE = ".mcp.json"
 # Claude Code truncates description + when_to_use at 1,536 characters in the listing (docs: Skills).
 LISTING_TEXT_CAP = 1536
@@ -194,7 +197,7 @@ def _displaced(tree: RepoTree, every: list[str], claude: list[str], root_claude:
         if _is_root(f):
             continue  # AGENTS.md and .claude/AGENTS.md: only a root CLAUDE* (the branch above) turns them off
         d = f[: -len("AGENTS.md")]  # "sub/"
-        beside = [c for c in (d + "CLAUDE.md", d + "CLAUDE.local.md", d + ".claude/CLAUDE.md") if c in present]
+        beside = [d + n for n in CLAUDE_ROOT if d + n in present]
         if beside:
             out[f] = beside
     return out

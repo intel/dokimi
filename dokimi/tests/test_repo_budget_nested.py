@@ -98,6 +98,18 @@ def test_a_claude_file_beside_the_project_memory_agents_md_leaves_it_at_start(tm
     assert got["warnings"] == []
 
 
+def test_the_nested_rule_and_the_receipt_read_one_claude_set(tmp_path, monkeypatch):
+    """One constant names the displacing CLAUDE* files, so budget and the receipt cannot drift apart."""
+    from dokimi.repos import budget as budget_module
+    from dokimi.repos import receipt
+
+    assert receipt.CLAUDE_ROOT is budget_module.CLAUDE_ROOT
+    tree = _tree(tmp_path, {"sub/AGENTS.md": "b", "sub/CLAUDE.local.md": "c"})
+    assert _when(_budget(tree))["sub/AGENTS.md"] == "off"
+    monkeypatch.setattr(budget_module, "CLAUDE_ROOT", ("CLAUDE.md", ".claude/CLAUDE.md"))
+    assert _when(_budget(tree))["sub/AGENTS.md"] == "lazy"
+
+
 def test_a_harness_without_claude_names_keeps_a_nested_agents_md_lazy(tmp_path):
     tree = _tree(tmp_path, {"AGENTS.md": "a", "sub/AGENTS.md": "b", "sub/CLAUDE.md": "c"})
     assert _when(_budget(tree, ("AGENTS.md",))) == {"AGENTS.md": "start", "sub/AGENTS.md": "lazy"}
