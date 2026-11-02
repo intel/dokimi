@@ -226,7 +226,8 @@ def _without_heredoc_bodies(command: str) -> str:
                 pending.pop(0)
             continue
         out.append(line)
-        pending.extend(_heredoc_words("\n".join(out)))
+        if "<<" in line:  # only a line with a ``<<`` can open a heredoc; the others skip the re-scan of the command
+            pending.extend(_heredoc_words("\n".join(out)))
     return "\n".join(out)
 
 
