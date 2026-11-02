@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import math
 import re
 from dataclasses import dataclass, field, replace
@@ -566,4 +567,8 @@ def _error_result(harness_id: str, task: TaskSpec, output_dir: Path, exc: Except
 
 
 def _safe_id(value: str) -> str:
-    return re.sub(r'[/\\:<>"|?* ]', "_", value)
+    """A directory name for a harness id. Characters Windows refuses add a digest of the id, so ids that differ only in them stay apart."""
+    name = value.replace("/", "_").replace(":", "_").replace(" ", "_")
+    if not re.search(r'[\\<>"|?*]', name):
+        return name
+    return re.sub(r'[\\<>"|?*]', "_", name) + "-" + hashlib.sha256(value.encode()).hexdigest()[:8]
