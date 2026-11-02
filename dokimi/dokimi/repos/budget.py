@@ -150,28 +150,7 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
     guidance_loaded = {_target(tree, e["path"]) for e in entries if e["when"] != "off"}
     counted = {_target(tree, f) for f in guidance}
     entries += _rules(tree, files if rules else [], counted, start_t, unreadable_warnings, entries)
-    rule_entries = {_target(tree, e["path"]): e for e in entries if e["kind"] == "rule"}
-    for f in sorted((at_start | lazily) - set(guidance), key=lambda p: (p not in at_start, p)):
-        if not _is_resolvable(tree, f):
-            continue
-        t = _target(tree, f)
-        when = "start" if f in at_start else "lazy"
-        if t in counted:
-            # A rule link counted this file with its frontmatter removed. An ordinary @import keeps the frontmatter,
-            # so its count replaces the rule's when it loads at the same time or earlier (a rule file is left alone).
-            rule = rule_entries.get(t)
-            if rule is None or RULE_GLOB.match(f) or RULE_GLOB.match(t) or (when == "lazy" and rule["when"] == "start"):
-                continue
-            chars, warning = _chars(tree, f)
-            if warning:
-                unreadable_warnings.append(warning)
-            rule.update(path=f, kind="import", when=when, chars=chars)
-            continue
-        counted.add(t)
-        chars, warning = _chars(tree, f)
-        if warning:
-            unreadable_warnings.append(warning)
-        entries.append({"path": f, "kind": "import", "when": when, "chars": chars})
+    _import_entries(tree, at_start, lazily, guidance, counted, entries, unreadable_warnings)
 
     skills = _skills(tree, [f for f in files if SKILL_GLOB.match(f)])
     for s in skills:
@@ -220,6 +199,33 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
         "mcp_servers": _mcp_servers(tree),
         "warnings": warnings,
     }
+
+
+def _import_entries(tree: RepoTree, at_start: set[str], lazily: set[str], guidance: list[str], counted: set[str],
+                    entries: list[dict[str, Any]], unreadable_warnings: list[str]) -> None:
+    """Add an entry for each import that is neither guidance nor a rule of its own (``counted`` grows with them)."""
+    rule_entries = {_target(tree, e["path"]): e for e in entries if e["kind"] == "rule"}
+    for f in sorted((at_start | lazily) - set(guidance), key=lambda p: (p not in at_start, p)):
+        if not _is_resolvable(tree, f):
+            continue
+        t = _target(tree, f)
+        when = "start" if f in at_start else "lazy"
+        if t in counted:
+            # A rule link counted this file with its frontmatter removed. An ordinary @import keeps the frontmatter,
+            # so its count replaces the rule's when it loads at the same time or earlier (a rule file is left alone).
+            rule = rule_entries.get(t)
+            if rule is None or RULE_GLOB.match(f) or RULE_GLOB.match(t) or (when == "lazy" and rule["when"] == "start"):
+                continue
+            chars, warning = _chars(tree, f)
+            if warning:
+                unreadable_warnings.append(warning)
+            rule.update(path=f, kind="import", when=when, chars=chars)
+            continue
+        counted.add(t)
+        chars, warning = _chars(tree, f)
+        if warning:
+            unreadable_warnings.append(warning)
+        entries.append({"path": f, "kind": "import", "when": when, "chars": chars})
 
 
 def _is_root(path: str) -> bool:
@@ -439,7 +445,8 @@ def _without_comment(text: str) -> str:
     return text
 
 
-def _imports(tree: RepoTree, roots: list[str], max_depth: int | None, rules: bool) -> tuple[set[str], list[tuple[str, str]]]:
+def _imports(tree: RepoTree, roots: list[str], max_depth: int | None = None,
+             rules: bool = False) -> tuple[set[str], list[tuple[str, str]]]:
     """Files the CLAUDE.md ``roots`` ``@import``, transitively (relative to the importing file).
 
     Breadth first, so a file is placed at its shortest hop count. A rule an import reaches is followed like any
