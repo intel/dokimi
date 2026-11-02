@@ -374,6 +374,7 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
     from dokimi.repos.reach import (
         ReachError,
         check_shadow,
+        followable,
         planned,
         probe_files,
         run_reach,
@@ -403,16 +404,17 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
     try:  # the manifest and the scenarios it selects: a usage error; a failed git read is a fetch failure (1)
         manifest = _load_manifest(tree, args, guidance_default=True)
         files = probe_files(tree, manifest, profile)
+        probed = followable(tree, files)[0]  # what run_reach plans from: no scenario for a link it drops
         shadow = shadow_for(profile, tree, kinds)
-        available = [s.id for s in scenarios(files, kinds, shadow=shadow)]
+        available = [s.id for s in scenarios(probed, kinds, shadow=shadow)]
         missing = [o for o in only if o not in available]
         if missing:
             raise ReachError(f"--only {', '.join(missing)} matches no scenario (have: {', '.join(available)})")
         if args.dry_run:
-            runs = planned(files, profile, args.model, kinds, only, args.bin, args.max_turns, args.budget, shadow)
+            runs = planned(probed, profile, args.model, kinds, only, args.bin, args.max_turns, args.budget, shadow)
             print(json.dumps({"files": files, "runs": runs}, indent=2))
             return
-        planned_count = len(scenarios(files, kinds, only, shadow))
+        planned_count = len(scenarios(probed, kinds, only, shadow))
         if not planned_count:
             raise ReachError("no scenario selected (check --scenarios and --only)")
     except (SourceError, ManifestError, ReachError) as exc:

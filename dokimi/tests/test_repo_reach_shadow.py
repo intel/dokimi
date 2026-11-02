@@ -414,6 +414,22 @@ def test_repo_reach_dry_run_lists_shadow_scenarios_only_when_asked(tmp_path, cap
     assert runs[1]["argv"][-2:] == ["--tools", "Read"]
 
 
+def test_repo_reach_dry_run_plans_no_scenario_for_a_link_a_run_drops(tmp_path, capsys):
+    argv = _cli(tmp_path, "--scenarios", "root,cwd,read,shadow", shadow_file="CLAUDE.local.md")
+    if not _can_symlink(tmp_path):
+        pytest.skip("this OS refuses an unprivileged symlink")
+    agents = tmp_path / "repo" / "sub" / "AGENTS.md"
+    agents.unlink()
+    agents.symlink_to("nowhere.md")  # a run lists it in unresolved and probes nothing in sub/
+    args = build_parser().parse_args(argv)
+    args.func(args)
+    assert [r["scenario"] for r in json.loads(capsys.readouterr().out)["runs"]] == ["cwd=.", "shadow=."]
+    args = build_parser().parse_args([*argv, "--only", "read=sub"])
+    with pytest.raises(SystemExit) as exc:  # --only checks against the same list
+        args.func(args)
+    assert exc.value.code == 2 and "--only read=sub matches no scenario" in capsys.readouterr().err
+
+
 def test_repo_reach_refuses_shadow_for_a_profile_without_a_shadow_file(tmp_path, capsys):
     args = build_parser().parse_args(_cli(tmp_path, "--scenarios", "root,shadow"))
     with pytest.raises(SystemExit) as exc:
