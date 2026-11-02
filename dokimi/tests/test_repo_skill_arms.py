@@ -473,6 +473,22 @@ def test_a_nested_name_alone_is_not_the_skill_name(tmp_path):
     assert [s.name for s in resolve_skills(parse_arm("skill:skills/lint"), tmp_path)] == ["lint"]
 
 
+@pytest.mark.parametrize("arm", ["guidance:as-skill+skill:skills/toy-guidance", "guidance:as-skill+skill-catalog:skills"])
+def test_an_as_skill_arm_with_a_skill_named_like_its_generated_one_is_refused_before_any_cell(tmp_path, arm):
+    _skill(tmp_path, "skills/toy-guidance", "toy-guidance")
+    with pytest.raises(ArmError, match="generated guidance skill .claude/skills/toy-guidance"):
+        check_arms([parse_arm(arm)], tmp_path, [], None, (), "toy")
+    check_arms([parse_arm(arm)], tmp_path, [], None, (), None)  # without the repo id the name is not known: no check
+
+
+def test_an_as_skill_arm_refuses_a_base_that_ships_its_generated_skill_before_any_cell(tmp_path):
+    _skill(tmp_path / "toy", ".claude/skills/toy-guidance/SKILL.md", "toy-guidance")  # a SKILL.md, no guidance glob
+    root, base = make_repo(tmp_path)
+    task = Task("t", {"base": base}, root)
+    with pytest.raises(ArmError, match="base of task t already has .claude/skills/toy-guidance"):
+        check_arms([parse_arm("guidance:as-skill")], root / ".agent-eval", [task], root / ".git", (), "toy")
+
+
 def test_a_skill_the_task_base_already_ships_is_refused_before_any_cell(tmp_path, capsys, monkeypatch):
     monkeypatch.setattr("dokimi.repos.container.DockerRunner", lambda *a, **k: FakeRunner())
     _skill(tmp_path / "toy", ".claude/skills/lint", "lint")
@@ -774,3 +790,17 @@ def test_the_base_check_refuses_a_tracked_symlink_at_claude_or_its_skills(tmp_pa
 def test_a_frontmatter_name_that_yaml_reads_as_an_impossible_date_is_the_directory_name_not_a_crash(tmp_path):
     write(tmp_path, "skills/lint/SKILL.md", "---\nname: 2024-13-45\n---\nBody.\n")
     assert [s.name for s in resolve_skills(parse_arm("skill:skills/lint"), tmp_path)] == ["lint"]
+
+
+def test_the_as_skill_arm_removes_the_base_skill_it_packages_so_it_is_not_refused(tmp_path):
+    _skill(tmp_path / "toy", ".claude/skills/lint", "lint")  # make_repo commits this as the base, which guidance:raw refuses
+    root, base = make_repo(tmp_path)
+    _skill(root, ".agent-eval/skills/lint", "lint")
+    _skill(root, ".claude/skills/lint", "lint")
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "skills")
+    tasks = [Task("t1", {"base": base}, root)]
+    content, globs = root / ".agent-eval", ["**/AGENTS.md", ".claude/skills/**"]
+    check_arms([parse_arm("guidance:as-skill+skill:skills/lint")], content, tasks, root / ".git", globs)
+    with pytest.raises(ArmError, match="already has .claude/skills/lint"):  # the same base under guidance:raw
+        check_arms([parse_arm("guidance:raw+skill:skills/lint")], content, tasks, root / ".git", globs)

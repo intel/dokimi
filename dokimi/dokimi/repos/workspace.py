@@ -12,7 +12,8 @@ Every task runs in ``<run_dir>/workspace``, made from the task's ``base``:
 3. ``git init`` and commit (no history, so an upstream fix cannot leak)
 4. apply ``setup_patches``
 5. apply the arm (``guidance:none`` | ``guidance:raw`` | ``guidance:bridge`` |
-   ``guidance:rev:<sha>`` | ``patch:<name>@<digest>``, see :class:`Arm`), then its
+   ``guidance:as-skill`` | ``guidance:format=<fmt>`` | ``guidance:rev:<sha>`` |
+   ``patch:<name>@<digest>``, see :class:`Arm`), then its
    skills into ``.claude/skills/`` (:mod:`.arms`)
 6. amend the commit
 7. apply ``review_patch`` with ``git am`` under a neutral author
@@ -49,17 +50,22 @@ from typing import Any
 
 from dokimi import process
 
-from .arms import ArmError, Skill, resolve_skills, tree_sha256
+from .arms import SKILLS_DIR, ArmError, Skill, resolve_skills, slug, tree_sha256
 from .errors import PrepError
+from .guidance_format import FORMATS, FormatError, to_format
 from .harness_profile import HarnessProfile
 from .manifest import RepoManifest, _is_within, match_glob
 from .source import GitTree, RepoSource, RepoTree, SourceError, cache_path, default_cache_dir, resolve_rev
 from .uptake import MCP_CONFIG, base_servers, mcp_servers
 
-ARMS = ("guidance:none", "guidance:raw", "guidance:bridge")  # the guidance parts
-REV_ARM, PATCH_ARM = "guidance:rev:", "patch:"
+ARMS = ("guidance:none", "guidance:raw", "guidance:bridge", "guidance:as-skill")  # the guidance parts
+#: The description of the skill ``guidance:as-skill`` packages the guidance into: the same for every repository.
+GUIDANCE_SKILL_DESCRIPTION = ("Repository guidance for working in this codebase, its conventions, build and test "
+                              "commands and rules. Load it before changing its code.")  # no ": " (YAML plain scalar)
+REV_ARM, PATCH_ARM, FORMAT_ARM = "guidance:rev:", "patch:", "guidance:format="
 #: Every form ``repo run --arm`` takes
-ARM_FORMS = (*ARMS, f"{REV_ARM}<rev>", f"{PATCH_ARM}<file>", "skill:<dir>", "skill-catalog:<dir>")
+ARM_FORMS = (*ARMS, f"{REV_ARM}<rev>", f"{PATCH_ARM}<file>", f"{FORMAT_ARM}<{'|'.join(FORMATS)}>",
+             "skill:<dir>", "skill-catalog:<dir>")
 SKILL_JOIN = "+"
 _SKILL_PREFIXES = ("skill:", "skill-catalog:")
 SNAPSHOT_AUTHOR = ("dokimi", "dokimi@example.invalid")
@@ -139,12 +145,18 @@ def parse_arm(spec: str) -> Arm:
 
 
 def _starts_part(text: str) -> bool:
-    return text in ARMS or text.startswith((REV_ARM, PATCH_ARM, *_SKILL_PREFIXES))
+    return text in ARMS or text.startswith((REV_ARM, PATCH_ARM, FORMAT_ARM, *_SKILL_PREFIXES))
 
 
 def _parse_guidance(spec: str) -> Arm:
-    """A guidance part: ``guidance:none|raw|bridge``, ``guidance:rev:<rev>`` or ``patch:<file>``."""
+    """A guidance part: ``guidance:none|raw|bridge|as-skill``, ``guidance:format=<fmt>``,
+    ``guidance:rev:<rev>`` or ``patch:<file>``."""
     if spec in ARMS:
+        return Arm(spec)
+    if spec.startswith(FORMAT_ARM):
+        fmt = spec[len(FORMAT_ARM):]
+        if fmt not in FORMATS:  # markdown is guidance:raw, a second name for it would be a duplicate arm
+            raise PrepError(f"arm {spec!r}: {fmt!r} is not a guidance format (known: {', '.join(FORMATS)})")
         return Arm(spec)
     if spec.startswith(REV_ARM):
         rev = spec[len(REV_ARM):]
@@ -386,6 +398,8 @@ def prepare_workspace(git_dir: Path, manifest: RepoManifest, task: Task, arm: st
     except PrepError as exc:
         raise PrepError(f"task {task.id}: {exc}") from exc
     installed = _install_skills(ws, task, skills)
+    if "guidance_skill" in arm_meta:  # packaged by guidance:as-skill: usage is measured on it like any skill
+        installed.append(arm_meta.pop("guidance_skill"))
     _git(ws, env, "add", "-A")                                                                # 6
     _git(ws, env, "commit", "-q", "--no-gpg-sign", "--no-verify", "--amend", "--allow-empty", "-m", "snapshot")
     _apply_review_patch(ws, task, patches)                                                    # 7
@@ -455,6 +469,10 @@ def _apply_arm(ws: Path, env: dict[str, str], git_dir: Path, manifest: RepoManif
         return _apply_patch(ws, env, manifest, arm)
     tracked = [p for p in _git(ws, env, "ls-files", "-z").split("\0") if p]
     matched = sorted(p for p in tracked if any(match_glob(g, p) for g in manifest.guidance_globs))
+    if arm.base == "guidance:as-skill":
+        return _apply_as_skill(ws, manifest, matched)
+    if arm.base.startswith(FORMAT_ARM):
+        return _apply_format(ws, matched, arm.base[len(FORMAT_ARM):])
     if arm.base == "guidance:none" or arm.rev_sha is not None:
         for rel in matched:
             (ws / rel).unlink()
@@ -463,6 +481,78 @@ def _apply_arm(ws: Path, env: dict[str, str], git_dir: Path, manifest: RepoManif
         return _apply_rev(ws, git_dir, manifest, arm, matched)
     assert bridge is not None
     return _apply_bridge(ws, matched, bridge)
+
+
+def _apply_format(ws: Path, matched: list[str], fmt: str) -> tuple[list[str], dict[str, Any]]:
+    """Each guidance file rewritten in ``fmt`` in place. A symlink is left alone: its target is rendered
+    once if it is a guidance file itself, and ``meta.json`` names the links that keep their raw bytes."""
+    if not matched:
+        raise PrepError(f"guidance:format={fmt}: the base has no guidance file to render")
+    written, links = [], []
+    for rel in matched:
+        if (ws / rel).is_symlink():
+            _link_file(ws, rel, matched)  # the link must reach a file that is rendered, not raw guidance
+            links.append(rel)
+            continue
+        try:
+            rendered = to_format(_guidance_text(ws, rel, f"guidance:format={fmt}"), fmt)
+        except FormatError as exc:
+            raise PrepError(f"guidance:format={fmt}: {rel}: {exc}") from exc
+        (ws / rel).write_bytes(rendered.encode("utf-8"))  # no newline translation: the restore check holds on disk
+        written.append(rel)
+    return written, ({"guidance_links_kept": links} if links else {})
+
+
+def _link_file(ws: Path, rel: str, matched: list[str]) -> None:
+    """The regular file a guidance link of the workspace reaches, resolved as the filesystem resolves it (a linked
+    directory on the way counts). PrepError when the link dangles or cycles, or reaches a file outside the workspace
+    or outside the matched guidance files: that file would be dropped or left unrendered."""
+    try:
+        target = (ws / rel).resolve(strict=True)
+    except (OSError, RuntimeError) as exc:  # RuntimeError: a symlink loop, before Python 3.13
+        raise PrepError(f"guidance link {rel} does not reach a file (a dangling link or a cycle): {exc}") from exc
+    root = ws.resolve()
+    if not target.is_relative_to(root) or not target.is_file():
+        raise PrepError(f"guidance link {rel} reaches {target}, which is outside the workspace or not a regular file")
+    reached = target.relative_to(root).as_posix()
+    if reached not in matched:
+        raise PrepError(f"guidance link {rel} reaches {reached}, which is not a guidance file")
+
+
+def _guidance_text(ws: Path, rel: str, arm: str) -> str:
+    """The text of a guidance file of the workspace; one that is not UTF-8 is a prep error of the cell."""
+    try:
+        return (ws / rel).read_bytes().decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise PrepError(f"{arm}: {rel} is not UTF-8: {exc}") from exc
+
+
+def _apply_as_skill(ws: Path, manifest: RepoManifest, matched: list[str]) -> tuple[list[str], dict[str, Any]]:
+    """The guidance files removed (as ``guidance:none`` removes them) and their text packaged as one skill,
+    ``.claude/skills/<repo>-guidance/SKILL.md``: each file under a ``## File: <path>`` line, its text verbatim."""
+    if not matched:
+        raise PrepError("guidance:as-skill: the base has no guidance file to package")
+    name = slug(f"{manifest.id}-guidance")
+    skill_dir = ws / SKILLS_DIR / name
+    for part in (ws / ".claude", ws / SKILLS_DIR):  # a repository link would write to the host
+        if part.is_symlink():
+            raise PrepError(f"guidance:as-skill: {part.relative_to(ws)} is a symlink in the repository")
+    if skill_dir.exists() or skill_dir.is_symlink():
+        raise PrepError(f"guidance:as-skill: the workspace already has {SKILLS_DIR}/{name}")
+    parts = []
+    for rel in matched:
+        if (ws / rel).is_symlink():  # packaged once under its target's name; a link to anything else would be lost
+            _link_file(ws, rel, matched)
+            continue
+        text = _guidance_text(ws, rel, "guidance:as-skill")
+        parts.append(f"## File: {rel}\n\n" + (text if text.endswith("\n") else text + "\n"))
+    for rel in matched:
+        (ws / rel).unlink()
+    skill_dir.mkdir(parents=True)
+    frontmatter = f"---\nname: {name}\ndescription: {GUIDANCE_SKILL_DESCRIPTION}\n---\n\n"
+    (skill_dir / "SKILL.md").write_bytes((frontmatter + "\n".join(parts)).encode("utf-8"))  # verbatim: no newline translation
+    return matched, {"guidance_skill": {"name": name, "path": f"{SKILLS_DIR}/{name}",
+                                        "sha256": tree_sha256(skill_dir)}}
 
 
 def _apply_rev(ws: Path, git_dir: Path, manifest: RepoManifest, arm: Arm,
