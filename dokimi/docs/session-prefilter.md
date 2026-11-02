@@ -55,7 +55,9 @@ model is called; every match is lexical.
   space in its name (`` `docs/my guide.md` ``) is a path, not a command. A Windows path
   matches with backslashes too.
   A rule that names neither is not measurable here: its
-  `acted` is `null` and it carries the flag `acted_not_measurable`.
+  `acted` is `null` and it carries the flag `acted_not_measurable`. A glob
+  (`` `tests/outcomes/*.json` ``, `` `[ab].md` ``) or a `~` path (`` `~/.claude/settings.json` ``)
+  is not a key either: it is not expanded or matched, so a rule with only such keys is not measurable.
 - **Corrected.** Within `--window` events after the trigger, the user's next
   prompt (the first prompt after it, and only that one) pushes back (`no`, `don't`, `instead`, `forgot`, `revert`, ...) and
   shares a keyword with the rule or names its command or path. Two or more
@@ -125,6 +127,10 @@ content. The tests use synthetic fixtures only.
   a rule's text is read before any ablation, not after.
 - "Acted" needs a named command or path. Most prose rules have none; for them
   the report says `null`, not zero.
+- A number before a spaced redirection is read as a file descriptor, so
+  `sleep 5 >/dev/null` is the same as `sleep 5>/dev/null`: the `5` is dropped in
+  both. A key `sleep 5` does not match the first, and `head -n 20` does not match
+  `head -n 20 > out.txt`. Known limit; not fixed here.
 - A quoted argument with no space is read as a path, so a commit message of one
   word that names a file (`git commit -m "docs/guide.md"`) counts as acting on it.
 - Corrections are read from the next prompts only, so a correction given much

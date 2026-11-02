@@ -736,6 +736,8 @@ def test_a_home_relative_literal_path_is_read_when_only_that_file_exists(tmp_pat
     ("# don't\ncat <<EOF\nnotes\nEOF\nmake ci-local", 1),       # an apostrophe in a comment opens no quote, so the header counts
     ('git commit -m "Title\n\nread a <<EOF heredoc"\nmake ci-local', 1),  # a quote opened on an earlier line hides the <<
     ("true;# ignored; make ci-local", 0),                       # a comment starts after a control operator too
+    ("cat <<\\EOF\nnotes\nEOF\nmake ci-local", 1),           # an escaped delimiter word is the word the shell reads
+    ('cat <<E"O"F\nnotes\nEOF\nmake ci-local', 1),             # so is a mixed quoted one
 ])
 def test_heredoc_delimiters_comments_and_arithmetic_are_read_as_the_shell_reads_them(command, acted):
     session = _session(_prompt("push the branch now"), _tool("Bash", command=command))
@@ -924,6 +926,8 @@ def test_a_path_in_an_uncalled_keyword_function_is_not_touched():
 @pytest.mark.parametrize(("command", "acted"), [
     ("cat <<< docs/guide.md", 0),                       # the payload is stdin: no file is opened
     ('cat <<< "docs/guide.md"', 0),
+    ('cat <<< "some text" docs/guide.md', 1),        # the payload is the quoted text, the file after it is read
+    ("cat <<< 'some text' docs/guide.md", 1),
     ("cat < docs/guide.md", 1),                         # a positive control: a real input redirection
 ])
 def test_a_here_string_payload_is_not_a_file_the_command_touched(command, acted):
@@ -969,3 +973,17 @@ def test_the_table_prints_a_rule_that_wraps_over_lines_on_one_row():
     guide = "- Run `make ci-local` before pushing\n  a branch and keep it green.\n"
     table = render_table(_report([_session(_prompt("push the branch now"))], guide))
     assert "pushing a branch and keep it green." in table
+
+
+# --- review of PR 334: unmatchable path keys are not measured ----------------------------------
+
+@pytest.mark.parametrize(("rule", "file_path"), [
+    ("- Update the outcome fixtures in `tests/outcomes/*.json` when behaviour changes.\n",
+     "/r/dokimi/tests/outcomes/x.json"),
+    ("- Update `~/.claude/settings.json` when behaviour changes.\n", "/home/u/.claude/settings.json"),
+])
+def test_a_glob_or_home_relative_path_key_is_not_measurable_so_acted_is_null(rule, file_path):
+    session = _session(_prompt("update the outcome fixture now"), _tool("Edit", file_path=file_path))
+    row = _row(_report([session], rule), "Update")
+    assert row["acted"] is None and row["acted_rate"] is None
+    assert "acted_not_measurable" in row["flags"]

@@ -38,6 +38,7 @@ STATUSES = (CANDIDATE, IN_USE, RARE, KEPT, INSUFFICIENT)
 NOTE = ("Candidates for ablation, not verdicts: a candidate is a rule the sessions rarely brought up. "
         "Run an ablation before changing any rule. Protected and rare rules are listed, not ranked.")
 
+_GLOB = re.compile(r"[*?\[]")
 _RULE_KINDS = frozenset({"sentence", "list_item", "table_row"})
 _BACKTICK = re.compile(r"`([^`\n]+)`")
 _WORD = re.compile(r"[a-z][a-z0-9_-]{2,}")
@@ -48,8 +49,9 @@ _QUOTED = re.compile(r"\\[\s\S]|'[^']*'|\"(?:\\[\s\S]|[^\"\\])*\"")
 _CONTINUATION = re.compile(r"\\\n|\\[\s\S]|'[^']*'|\"(?:\\[\s\S]|[^\"\\])*\"")
 # a heredoc header is ``<<WORD`` (or ``<<'WORD'``) outside quotes and not a here-string (``<<<``)
 _HEREDOC_OPEN = re.compile(r"(?<!<)<<(?!<)")
-# a heredoc WORD is a shell word, quoted or not (``EOF-TEXT``, ``'EOF.md'``); group 1 is the ``-`` of ``<<-``
-_HEREDOC_WORD = re.compile(r"(-?)[ \t]*(?:'([^'\n]+)'|\"([^\"\n]+)\"|([^\s;&|<>()'\"]+))")
+# a heredoc WORD is a shell word made of quoted and unquoted pieces (``EOF-TEXT``, ``'EOF.md'``, ``\EOF``, ``E"O"F``);
+# group 1 is the ``-`` of ``<<-``, group 2 the word as written
+_HEREDOC_WORD = re.compile(r"(-?)[ \t]*((?:\\[\s\S]|'[^'\n]*'|\"(?:\\[\s\S]|[^\"\\\n])*\"|[^\s;&|<>()'\"\\])+)")
 # a ``#`` starts a comment at the start of a word: the start of a line, after blank space or a control operator
 _COMMENT = re.compile(r"(?m)(?:^|(?<=[\s;&|()]))#.*$")
 # ``$((1<<2))`` is arithmetic, not a heredoc
@@ -59,8 +61,10 @@ _ARITHMETIC = re.compile(r"\$\(\([\s\S]*?\)\)")
 _COMMENT_OR_QUOTED = re.compile(r"(?m)(\\[\s\S]|'[^']*'|\"(?:\\[\s\S]|[^\"\\])*\")|(?:^|(?<=[\s;&|()]))#.*$")
 # a redirection operator at the start of a word (``>``, ``>>``, ``2>``, ``<``); a bare one takes the next word
 _REDIRECT_OP = re.compile(r"\d*(?:<<<|<<-?|>>|>&|<&|>\||[<>])")
-# a here-string's payload is the text fed to stdin, not a file the command opens
-_HERE_STRING = re.compile(r"<<<\s*[^\s;&|<>()]+")
+# a here-string's payload is the text fed to stdin, not a file the command opens; a quoted piece is skipped as text
+# so a ``<<<`` inside quotes is not a payload, and the payload may be quoted (``<<< "some text"``)
+_HERE_STRING = re.compile(r"(?P<quoted>\\[\s\S]|'[^']*'|\"(?:\\[\s\S]|[^\"\\])*\")"
+                          r"|<<<\s*(?:\\[\s\S]|'[^']*'|\"(?:\\[\s\S]|[^\"\\])*\"|[^\s;&|<>()'\"\\])+")
 _SEGMENT = re.compile(r"&&|\|\||(?<![<>])[|&]|[;()\n]")  # ``>|``, ``>&``, ``<&`` are operators
 _CUE = re.compile(r"\b(no|not|don't|do not|stop|instead|wrong|forgot|should have|revert|undo|why did you)\b", re.I)
 _STOP = frozenset("""
@@ -136,7 +140,7 @@ def claims_from_guidance(text: str) -> list[Claim]:
         if span.kind not in _RULE_KINDS:
             continue
         keywords = _stems(_BACKTICK.sub(" ", span.text))
-        keys = [k.strip() for k in _BACKTICK.findall(span.text) if k.strip()]
+        keys = [k.strip() for k in _BACKTICK.findall(span.text) if k.strip() and _matchable(k.strip())]
         if not (keywords or keys or span.protection):  # a rule with nothing to match on is no claim
             continue
         claims.append(Claim(
@@ -145,6 +149,13 @@ def claims_from_guidance(text: str) -> list[Claim]:
             paths=tuple(k for k in keys if _is_path(k)), protection=tuple(span.protection),
         ))
     return claims
+
+
+def _matchable(key: str) -> bool:
+    """Whether a guidance key names one thing a session can be matched on. A glob (``tests/*.json``, ``[ab].md``)
+    names a set of files and a ``~`` path names a home directory; neither is expanded here, so neither is a key:
+    a rule that has only such keys is not measurable (``acted`` is null), instead of reading as a measured zero."""
+    return not (_GLOB.search(key) or key.startswith("~"))
 
 
 def _names(key: str, text: str) -> bool:
@@ -206,8 +217,7 @@ def _heredoc_words(text: str) -> list[tuple[str, bool]]:
     for opened in _HEREDOC_OPEN.finditer(masked):
         word = _HEREDOC_WORD.match(line, opened.end())
         if word:
-            name = word.group(2) or word.group(3) or word.group(4)
-            opened_words.append((name, word.group(1) == "-"))
+            opened_words.append((_dequote(word.group(2)), word.group(1) == "-"))
     return opened_words
 
 
@@ -277,10 +287,16 @@ def _executable(command: str) -> str:
     return _without_functions(text)
 
 
+def _without_here_strings(text: str) -> str:
+    """The text with each here-string payload replaced by a space. Done before quoted sentences are hidden, so the
+    words after a payload keep their shell boundaries (``<<< "x y" docs/a.md`` reads ``docs/a.md``)."""
+    return _HERE_STRING.sub(lambda m: m.group(0) if m.group("quoted") else " ", text)
+
+
 def _masked_segments(command: str, *, hide_spaced: bool = False) -> list[str]:
     """The command's segments with their quotes removed, still masked. A heredoc body is dropped; with
     ``hide_spaced`` a quoted argument with a space in it is replaced by a placeholder."""
-    masked = _strip_comments(_executable(command), hide_spaced=hide_spaced)
+    masked = _strip_comments(_without_here_strings(_executable(command)), hide_spaced=hide_spaced)
     return [_dequote(seg) for seg in _SEGMENT.split(masked)]
 
 
@@ -363,7 +379,7 @@ def _shell_paths(command: str) -> str:
     parts: list[str] = []
     for seg in _masked_segments(command, hide_spaced=True):
         parts.extend((m.group(1) or m.group(2)).translate(_FROM_MASK) for m in _REDIRECT.finditer(seg))
-        text = _words(_HERE_STRING.sub(" ", seg))
+        text = _words(seg)
         if not _prints(text):
             parts.append(text)
     return " ".join(parts)
