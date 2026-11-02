@@ -17,6 +17,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from dokimi.repos.code_index import CodeIndex
 from dokimi.repos.l0.core import Scan
 from dokimi.repos.source import RepoTree, SourceError
 
@@ -24,6 +25,7 @@ from .checks import KINDS, detect_checks, package_json_unreadable
 from .files import LARGE_BYTES, inventory, sizes
 from .instructions import LARGE_INSTRUCTION_BYTES, detect_instructions
 from .instructions import RULES as INSTRUCTION_RULES
+from . import structure as S
 from .risks import (
     detect_capabilities,
     detect_hook_risks,
@@ -73,6 +75,10 @@ RULES: dict[str, RuleInfo] = {
                                             "the harness gets tools or hooks from the repository"),
     "files.large": RuleInfo("info", ("navigate", "edit"), "a file large enough that reading it costs much context"),
     "files.minified": RuleInfo("warning", ("navigate", "edit"), "a minified file: unreadable and not to be edited"),
+    "structure.name_ambiguity": RuleInfo("info", ("navigate",),
+                                         "a hotspot module most of whose function names other modules define too"),
+    "structure.cross_tree_bridge": RuleInfo("info", ("navigate",),
+                                            "a hotspot module tied by references to modules of another tree"),
 }
 
 NOT_OBSERVED = (
@@ -119,8 +125,43 @@ def _read_sizes(tree: RepoTree, files: list[str], size_of: dict[str, int] | None
     return out
 
 
-def inspect_repo(tree: RepoTree, large: int = LARGE_BYTES) -> dict[str, Any]:
-    """The ``repo_environment.v1`` payload (without ``schema_version``) for ``tree``."""
+def _structure_findings(section: dict[str, Any] | None) -> list[dict[str, Any]]:
+    hotspots = [m for m in (section or {}).get("modules", ()) if m["kept"]][:S.HOTSPOTS]
+    out = []
+    for m in hotspots:
+        if m["ambiguity"] >= S.AMBIGUOUS:
+            out.append(_finding("structure.name_ambiguity", f"{m['ambiguity']:.0%} of its {m['names']} function names "
+                                f"are defined in another module too; reference fan-in {m['reference_fanin']}",
+                                m["module"], "low"))
+        if m["other_tree_modules"] >= S.BRIDGES:
+            out.append(_finding("structure.cross_tree_bridge", f"shares references with {m['other_tree_modules']} modules of "
+                                f"another tree; reference fan-in {m['reference_fanin']}", m["module"], "low"))
+    return out
+
+
+def _not_observed(scan: Scan, size_of: dict[str, int] | None, section: dict[str, Any] | None) -> list[str]:
+    out = list(NOT_OBSERVED)
+    if size_of is None:
+        out.append("file sizes (a partial clone: listing them would fetch every blob)")
+    for manifest in unreadable_plugin_manifests(scan):
+        out.append(f"{manifest} hooks and MCP servers (the file is unreadable or not a JSON object)")
+    for settings in unreadable_claude_settings(scan):
+        out.append(f"{settings} automatic hooks (the file is unreadable or not a JSON object)")
+    if package_json_unreadable(scan):
+        out.append("package.json scripts (the file is unreadable or not a JSON object)")
+    if section is not None:
+        out.append("calls: the code index records references, not call expressions")
+        out.append("whether the code index matches this tree: files changed since it was built")
+        if section["index"]["documents_not_in_tree"]:
+            out.append(f"{section['index']['documents_not_in_tree']} index documents that are not files of this tree")
+    return out
+
+
+def inspect_repo(tree: RepoTree, large: int = LARGE_BYTES, index: CodeIndex | None = None) -> dict[str, Any]:
+    """The ``repo_environment.v1`` payload (without ``schema_version``) for ``tree``.
+
+    With ``index`` (a SCIP index of the tree, read with no root prefix), the payload has a ``structure``
+    section and findings drawn from it."""
     scan = Scan(tree, frozenset())
     size_of = sizes(tree)
     instructions = detect_instructions(scan.files, _read_sizes(tree, scan.files, size_of))
@@ -189,6 +230,9 @@ def inspect_repo(tree: RepoTree, large: int = LARGE_BYTES) -> dict[str, Any]:
         findings.append(_finding("files.large", f"{f['bytes']} bytes", f["path"]))
     for path in files["minified"]:
         findings.append(_finding("files.minified", "minified bundle", path))
+    section = None if index is None else S.analyze(index, scan.files, "\n".join(
+        scan.text(p) for p in sorted({i.path for i in instructions})))
+    findings.extend(_structure_findings(section))
     findings.sort(key=lambda f: (-SEVERITY_RANK[f["severity"]], f["rule"], f["path"] or "", f["id"]))
 
     stages = []
@@ -200,16 +244,8 @@ def inspect_repo(tree: RepoTree, large: int = LARGE_BYTES) -> dict[str, Any]:
 
     risk = ("high" if hooks or any(c.risk == "high" for c in capabilities) else
             "medium" if scripts or any(c.risk == "medium" for c in capabilities) else "low")
-    not_observed = list(NOT_OBSERVED)
-    if size_of is None:
-        not_observed.append("file sizes (a partial clone: listing them would fetch every blob)")
-    for manifest in unreadable_plugin_manifests(scan):
-        not_observed.append(f"{manifest} hooks and MCP servers (the file is unreadable or not a JSON object)")
-    for settings in unreadable_claude_settings(scan):
-        not_observed.append(f"{settings} automatic hooks (the file is unreadable or not a JSON object)")
-    if package_json_unreadable(scan):
-        not_observed.append("package.json scripts (the file is unreadable or not a JSON object)")
-    return {
+    not_observed = _not_observed(scan, size_of, section)
+    payload = {
         "repo": {"tree": tree.label, "sha": getattr(tree, "sha", None)},
         "instructions": [i.to_dict() for i in instructions],
         "checks": [c.to_dict() for c in checks],
@@ -223,4 +259,7 @@ def inspect_repo(tree: RepoTree, large: int = LARGE_BYTES) -> dict[str, Any]:
         "risk": risk,
         "not_observed": not_observed,
     }
+    if section is not None:
+        payload["structure"] = section
+    return payload
 

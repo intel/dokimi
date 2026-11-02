@@ -177,13 +177,42 @@ def _scan_gate(payload: dict, fail_on_fail: bool) -> None:
     sys.exit(1)
 
 
+def _code_index(path: str | None) -> Any:
+    """The SCIP index at ``path`` (``None`` without one); exit 2 when it cannot be read."""
+    if path is None:
+        return None
+    from dokimi.repos.code_index import load
+    from dokimi.repos.errors import CodeIndexError
+
+    try:
+        return load(path)
+    except (OSError, CodeIndexError) as exc:
+        print(f"✗ cannot read the code index {path}: {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+
+
+def _print_structure(section: dict[str, Any] | None) -> None:
+    if section is None:
+        return
+    kept = [m for m in section["modules"] if m["kept"]]
+    print(f"  structure: {section['index']['documents_in_tree']}/{section['index']['documents']} index documents "
+          f"in the tree, {len(section['modules'])} modules, {len(kept)} kept" + ("; top reference fan-in:" if kept else ""))
+    for m in kept[:5]:
+        print(f"    {_normalize_whitespace(m['module'], max_len=None)}: fan-in {m['reference_fanin']}, "
+              f"other-tree modules {m['other_tree_modules']}, ambiguity {m['ambiguity']:.2f}"
+              + ("" if m["in_guidance"] else ", not in guidance"))
+
+
 def cmd_repo_inspect(args: argparse.Namespace) -> None:
     """Static inspection: instruction files, check surfaces, launch risks, file inventory."""
     from dokimi.artifacts import save_artifact, stamp
     from dokimi.repos.environment import inspect_repo
 
     _, tree = _source_tree(args)
-    payload = inspect_repo(tree, large=args.large_bytes)
+    payload = inspect_repo(tree, large=args.large_bytes, index=_code_index(args.index))
+    if "structure" in payload and not payload["structure"]["index"]["documents_in_tree"]:
+        print(f"✗ no document of the code index {args.index} is a file of this tree", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
     if args.out:
         try:
             save_artifact("repo_environment", payload, Path(args.out))
@@ -207,6 +236,7 @@ def cmd_repo_inspect(args: argparse.Namespace) -> None:
                 where = f" {_normalize_whitespace(f['path'], max_len=None)}" if f["path"] else ""
                 print(f"  {f['severity'].upper()} {f['rule']}{where} -- {_normalize_whitespace(f['why'])}")
         print("  stages: " + ", ".join(f"{s['stage']} {s['status']}" for s in payload["stages"]))
+        _print_structure(payload.get("structure"))
         if args.out:
             print(f"wrote {args.out}")
     if args.fail_on_error and payload["counts"]["error"]:
@@ -649,6 +679,10 @@ def register(sub, positive_int) -> None:
     inspect_p.add_argument("source", help=source_help)
     inspect_p.add_argument("--large-bytes", type=positive_int, default=100_000, dest="large_bytes",
                            help="A file above this many bytes is reported as large (default: 100000, ~30k tokens)")
+    inspect_p.add_argument("--index", default=None, metavar="FILE",
+                           help="A SCIP code index of the tree (built by scip-python, scip-clang, ...): adds the "
+                           "structure section (modules, reference fan-in, cross-tree bridges, name ambiguity). Read besides "
+                           "the tree; exit 2 when it cannot be read or none of its documents is a file of the tree")
     inspect_p.add_argument("--out", default=None, help="Write the repo_environment.v1 report to this file")
     inspect_p.add_argument("--json", action="store_true", help="Print the full report as JSON")
     inspect_p.add_argument("--fail-on-error", action="store_true", dest="fail_on_error",
