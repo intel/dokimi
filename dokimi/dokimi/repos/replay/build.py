@@ -119,7 +119,7 @@ def _make(h: History, manifest: RepoManifest, pr: PullRequest, opts: Options,
     gold = _gold(h, manifest, pr, threads, rev, opts.window, notes)
     if not gold:
         raise _Skip("no gold thread is left")
-    task = _task(pr, base, rev, leave_out, opts, _public_at(threads, {g["id"] for g in gold}))
+    task = _task(pr, base, rev, leave_out, opts, _public_at(threads, {g["id"] for g in gold}, notes))
     return task, gold, _mbox(pr, rev, h.patch(base, rev, leave_out))
 
 
@@ -206,18 +206,23 @@ def _where(t: Thread) -> str:
     return f"{t.path}:{t.line}" if t.line else (t.path or "no path")
 
 
-def _public_at(threads: list[Thread], gold: set[str]) -> str | None:
-    """The earliest first-comment ``createdAt`` of the threads whose id is in ``gold``, as the input gives it;
-    a time that is not ISO 8601 or has no offset counts as none. GitHub's ``Z`` is an offset, UTC, and counts.
-    ``None`` when none has one."""
-    times = []
+def _public_at(threads: list[Thread], gold: set[str], notes: list[str]) -> str | None:
+    """The earliest first-comment ``createdAt`` of the threads whose id is in ``gold``, as the input gives it.
+    ``None``, with a note naming them, when any of them has no usable time: missing, not ISO 8601 or with no
+    offset (GitHub's ``Z`` is one, UTC). The minimum of the others could be later than the real one."""
+    times, unusable = [], []
     for t in (t for t in threads if t.id in gold):
         try:
             at = datetime.fromisoformat(t.created)
         except ValueError:
-            continue
-        if at.tzinfo is not None:  # a time with no offset is not comparable with one that has it
+            at = None
+        if at is None or at.tzinfo is None:  # a time with no offset is not comparable with one that has it
+            unusable.append(t.id)
+        else:
             times.append((at, t.created))
+    if unusable:
+        notes.append(f"no public_at: no first-comment createdAt with an offset on {', '.join(unusable)}")
+        return None
     return min(times)[1] if times else None
 
 

@@ -273,19 +273,29 @@ def test_public_at_is_the_earliest_gold_threads_first_comment_compared_as_times(
     assert task["public_at"] == "2026-10-02T20:00:00+09:00"
 
 
-def test_a_z_time_counts_and_a_time_with_no_offset_does_not(hist, tmp_path):
+def test_a_gold_thread_whose_time_has_no_offset_leaves_public_at_out(hist, tmp_path, capsys):
+    """The thread with no offset may be the first: the other's ``Z`` time could be later than the real one."""
     out = tmp_path / "tasks"
     _replay(hist["root"], _pages(_timed_pr7(hist, "2026-10-02T12:00:00Z", "2026-10-01T00:00:00")), out)
     task, gold, _ = _load(out, 7)
-    assert [g["id"] for g in gold] == ["pr7-t1", "pr7-t2"]
-    assert task["public_at"] == "2026-10-02T12:00:00Z"  # GitHub's form; the earlier time has no offset
+    assert [g["id"] for g in gold] == ["pr7-t1", "pr7-t2"] and "public_at" not in task
+    assert "no public_at: no first-comment createdAt with an offset on pr7-t2" in capsys.readouterr().out
 
 
-def test_a_task_whose_gold_threads_have_no_time_has_no_public_at(hist, tmp_path):
+def test_a_gold_thread_with_no_created_at_leaves_public_at_out(hist, tmp_path, capsys):
+    out = tmp_path / "tasks"
+    _replay(hist["root"], _pages(_timed_pr7(hist, None, "2026-10-02T12:00:00Z")), out)
+    task, gold, _ = _load(out, 7)
+    assert [g["id"] for g in gold] == ["pr7-t1", "pr7-t2"] and "public_at" not in task
+    assert "no public_at: no first-comment createdAt with an offset on pr7-t1" in capsys.readouterr().out
+
+
+def test_a_task_whose_gold_threads_have_no_time_has_no_public_at(hist, tmp_path, capsys):
     out = tmp_path / "tasks"
     _replay(hist["root"], _pages(_timed_pr7(hist, None, "yesterday")), out)
     task, gold, _ = _load(out, 7)
     assert [g["id"] for g in gold] == ["pr7-t1", "pr7-t2"] and "public_at" not in task
+    assert "no public_at: no first-comment createdAt with an offset on pr7-t1, pr7-t2" in capsys.readouterr().out
 
 
 def test_addressed_counts_only_the_prs_own_commits_not_main_merged_in(hist, tmp_path):

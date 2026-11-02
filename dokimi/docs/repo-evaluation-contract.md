@@ -781,7 +781,9 @@ by a reviewer: it has no line and is never gold.
   `source_pr`, `source_url`, `reviewed_commit`, `merge_commit`,
   `left_out_files` and `public_at`: the earliest `createdAt` of a gold
   thread's first comment, as the threads file gives it, the time the task's
-  answer was public (absent when no gold thread has a time). Against the
+  answer was public. It is absent when any gold thread's `createdAt` is
+  missing, not ISO 8601 or has no offset (`Z` is one), as the earliest time
+  is then unknown; the build's notes name those threads. Against the
   `committed` dates a `guidance:rev:` arm records (§3), it shows whether a
   guidance commit came after it.
 - `gold.json` holds `{id, file, line, kind, comment, addressed, reply, url}`
