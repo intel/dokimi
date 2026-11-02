@@ -5,8 +5,8 @@
 
 The framework counts what every repository asks of a trace:
 
-- ``tool_calls``: every event, so every tool call of the parent and its subagents, and the ``read`` event of
-  each file a shell command printed;
+- ``tool_calls``: every event, so every tool call of the parent and its subagents, and each ``read`` event kept
+  from a shell command, a denied one or one of a failed multi-file read (``cat a missing``) too;
 - ``commands``: the ``command`` events;
 - ``failed_commands``: commands not denied whose ``rc`` is neither ``0`` nor ``null`` (``null`` means
   no result came back, which is not a failure; a permission denial carries ``rc`` 1 but never ran);
