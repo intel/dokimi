@@ -679,8 +679,8 @@ def test_drifted_copies_of_one_skill_warn_on_both_and_name_each_other(tmp_path):
     reviews = review_skills(read_skill_manifest(tmp_path))
     assert all(r.duplicate_of is None for r in reviews)
     assert [_codes(r) for r in reviews] == [["mirror-drift"], ["mirror-drift"]]
-    assert "differs from plugins/x" in reviews[1].findings[0].message
-    assert "differs from skills/x" in reviews[0].findings[0].message
+    assert "differs from plugins/x (" in reviews[1].findings[0].message
+    assert "differs from skills/x (" in reviews[0].findings[0].message
 
 
 def test_identical_copies_are_a_duplicate_and_not_drift(tmp_path):
