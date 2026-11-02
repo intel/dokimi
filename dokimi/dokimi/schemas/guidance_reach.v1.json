@@ -46,6 +46,19 @@
         }
       }
     },
+    "overlays": {
+      "type": "object",
+      "description": "agentsmd/agents.md#185 overlays. own: the harness's overlay name (null: none); own_files: AGENTS.<own>.md files probed; own_loaded: those loaded in some scenario; foreign_files: AGENTS.<other>.md files probed; cross_loaded: foreign file -> scenario -> loaded, truncated or fetched. Any cross_loaded entry is a finding. ambiguous (only when some): overlay aliases whose file loaded but could not be told apart from the name it shares (a native name, or an own and a foreign overlay); they are neither own nor cross loads.",
+      "required": ["own", "own_files", "own_loaded", "foreign_files", "cross_loaded"],
+      "properties": {
+        "own": {"type": ["string", "null"]},
+        "own_files": {"type": "array", "items": {"type": "string"}},
+        "own_loaded": {"type": "array", "items": {"type": "string"}},
+        "foreign_files": {"type": "array", "items": {"type": "string"}},
+        "cross_loaded": {"type": "object", "additionalProperties": {"type": "object", "additionalProperties": {"enum": ["loaded", "truncated", "fetched"]}}},
+        "ambiguous": {"type": "array", "items": {"type": "string"}}
+      }
+    },
     "unresolved": {
       "type": "array",
       "description": "Probed paths that are symlinks the probe cannot follow inside the tree (escaping, dangling, looping or naming a directory). They are not seeded and have no records.",

@@ -94,3 +94,4 @@ bridge:
   for: AGENTS.md
   write: CLAUDE.md
   content: "@AGENTS.md"
+overlay: claude   # AGENTS.claude.md, the guidance:overlay arm (agentsmd/agents.md#185)

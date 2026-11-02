@@ -6,7 +6,8 @@ SPDX-License-Identifier: Apache-2.0
 # Preparing a repository for coding agents
 
 > **Status: recommendations.** §1–§7 apply today. The measurement loop in §8 runs
-> today for guidance arms (`guidance:none`, `guidance:raw`, `guidance:bridge`).
+> today for guidance arms (`guidance:none`, `guidance:raw`, `guidance:bridge`,
+> `guidance:overlay`).
 > `guidance:bridge` measures the `CLAUDE.md` import (§7). The `skill:` and
 > `skill-catalog:` arms, which install skills, run today too
 > ([skill arms](benchmarking-and-comparison.md#skill-arms-in-repository-mode)). Arms
@@ -251,7 +252,9 @@ Treat each item above as a hypothesis for your repository.
 2. Run the baseline and the arm with `dokimi repo run`, on the current models you
    use. Today an arm can remove or keep the guidance (`guidance:none`,
    `guidance:raw`), or inject a file (`guidance:bridge`, which writes a `CLAUDE.md`
-   containing `@AGENTS.md` next to each `AGENTS.md` for profiles with a bridge key).
+   containing `@AGENTS.md` next to each `AGENTS.md` for profiles with a bridge key), or
+   keep only the base and the harness's own `AGENTS.<agent>.md` (`guidance:overlay`, for
+   profiles with an `overlay` key).
    Testing an added tool, other than a skill (`skill:`, `skill-catalog:`), needs planned arms. Today, test one added guidance line
    with two task directories that differ only in a `setup_patches` entry (same
    prompt, same graders, distinct ids), or in their `base` commit (see

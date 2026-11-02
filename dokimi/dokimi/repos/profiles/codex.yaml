@@ -61,3 +61,4 @@ guidance:
     Measured on 0.160 with gpt-6-luna (oneDAL review task): root AGENTS.md
     applied, subtree AGENTS.md applied only after the agent printed them with a
     shell command; AGENTS.override.md hid the root AGENTS.md.
+overlay: codex   # AGENTS.codex.md, the guidance:overlay arm (agentsmd/agents.md#185)

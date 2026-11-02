@@ -70,9 +70,11 @@ def harness_sha256(path: Path) -> str:
 
 
 def execution_id(profile: HarnessProfile, tools: str, delegation: str = "native", harness_sha256: str | None = None,
-                 harness_version: str | None = None, companion_sha256: dict[str, str | None] | None = None) -> str:
+                 harness_version: str | None = None, companion_sha256: dict[str, str | None] | None = None,
+                 overlay: str | None = None) -> str:
     """Short hash of how the agent is started: the profile's ``invoke`` template with its tool arguments,
-    environment, config, prompt suffix, egress, bridge, trace, answer format and companions.
+    environment, config, prompt suffix, egress, bridge, trace, answer format and companions, and for a cell of
+    the overlay arm the overlay it keeps (``overlay``; the other cells carry none, so their ids do not change).
 
     Two runs with the same id ran the same command line up to the per-cell values (prompt, model,
     caps); ``repo run`` reuses a finished cell only when its id matches. Includes the harness
@@ -95,14 +97,17 @@ def execution_id(profile: HarnessProfile, tools: str, delegation: str = "native"
     if profile.bin_companions:
         key["bin_companions"] = (list(profile.bin_companions) if companion_sha256 is None
                                  else {n: companion_sha256.get(n) for n in profile.bin_companions})
+    if overlay is not None:
+        key["overlay"] = overlay
     return hashlib.sha256(json.dumps(key, sort_keys=True).encode("utf-8")).hexdigest()[:12]
 
 
 def execution_record(profile: HarnessProfile, tools: str, delegation: str, harness_sha256: str,
                      harness_version: str | None,
-                     companion_sha256: dict[str, str | None] | None = None) -> dict[str, str]:
+                     companion_sha256: dict[str, str | None] | None = None,
+                     overlay: str | None = None) -> dict[str, str]:
     """How a cell's agent was started, as ``meta.json`` and ``result.json`` record it."""
-    return {"id": execution_id(profile, tools, delegation, harness_sha256, harness_version, companion_sha256),
+    return {"id": execution_id(profile, tools, delegation, harness_sha256, harness_version, companion_sha256, overlay),
             "tools": tools, "delegation": profile.effective_delegation(tools, delegation)}
 
 

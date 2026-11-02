@@ -54,6 +54,7 @@ class HarnessProfile:
     endpoint_env: str | None = None
     guidance: dict[str, Any] = field(default_factory=dict)
     bridge: dict[str, str] | None = None
+    overlay: str | None = None  # the agent name of its AGENTS.<overlay>.md (guidance:overlay, repos/overlays.py)
     prompt_suffix: str = ""
     config_files: dict[str, str] = field(default_factory=dict)
     bin_companions: tuple[str, ...] = ()  # files beside the executable that it needs; mounted next to it
@@ -213,6 +214,12 @@ def _check_tools_element(raw: dict[str, Any], path: str) -> None:
         raise ProfileError(f"{path}: invoke must have exactly one {TOOLS_ELEMENT} element")
 
 
+def _check_overlay(raw: dict[str, Any], path: str) -> None:
+    overlay = raw.get("overlay")
+    if overlay is not None and not re.fullmatch(r"[a-z0-9][a-z0-9-]*", str(overlay)):  # fullmatch: `$` takes "\n"
+        raise ProfileError(f"{path}: overlay {overlay!r} is not an agent name (lower case, digits, dashes)")
+
+
 def parse_profile(raw: Any, path: str = "<profile>") -> HarnessProfile:
     errors = schema_errors("harness_profile.v1", raw)
     if errors:
@@ -237,6 +244,7 @@ def parse_profile(raw: Any, path: str = "<profile>") -> HarnessProfile:
         raise ProfileError(f"{path}: invoke never passes {{prompt}} (set native_prompt for a harness that "
                            "uses its own)")
     _check_tools_element(raw, path)
+    _check_overlay(raw, path)
     return HarnessProfile(
         name=raw["name"],
         bin=raw["bin"],
@@ -251,6 +259,7 @@ def parse_profile(raw: Any, path: str = "<profile>") -> HarnessProfile:
         endpoint_env=raw.get("endpoint_env"),
         guidance=dict(raw.get("guidance") or {}),
         bridge=raw.get("bridge"),
+        overlay=raw.get("overlay"),
         prompt_suffix=raw.get("prompt_suffix") or "",
         config_files=dict(raw.get("config_files") or {}),
         bin_companions=tuple(raw.get("bin_companions") or ()),
