@@ -1071,10 +1071,10 @@ per scenario).
       exit, or an error result.
 - Each scenario also records:
     - `unknown`: tokens the model reported that were never seeded;
-    - `prose`: words besides tokens. A lead-in line ending in `:` before the
-      tokens (the first non-empty line, when a later line holds a token) is not
-      counted. A high count usually means an explanation or a refusal, so read
-      that trace before trusting its `not_loaded` cells.
+    - `prose`: words besides tokens. A lead-in line of at most 12 words ending
+      in `:` before the tokens (the first non-empty line, when a later line holds
+      a token) is not counted. A high count usually means an explanation or a
+      refusal, so read that trace before trusting its `not_loaded` cells.
 - If payload capture is available, a `payload` field records whether each
   token was in the request bytes. This settles cells where the model
   under-reports, which is how a small model produces false `truncated` cells.
