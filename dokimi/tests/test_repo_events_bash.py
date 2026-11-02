@@ -125,13 +125,16 @@ def test_a_call_that_moves_no_shell_keeps_the_next_relative_read(first):
     ("popd", True), ("cd sub & cd docs", True), ("{ cd sub; } & cd docs", True),
     ("cd sub && { echo a; echo b; } &", False), ("cd sub && { cd x; cat a; } &", False),
     ("cd sub && { echo a; }", True),
+    ('cd "$X" &', False), ('cd "$X" | cat', False), ("cd sub | cat", False), ("echo | cd sub", False),
+    ('cd "$X" && make', True), ("cd $(pwd)", True), (r"cd a\|b", True),
 ])
 def test_only_a_directory_builtin_in_the_calls_own_shell_moves_it(command, moves):
     assert shell_reads_moved(command)[1] is moves
 
 
 @pytest.mark.parametrize("first", ["cd sub &", "{ cd sub; } | cat", "{ cd sub; } &", "cd sub && make &",
-                                   "cd sub && { echo a; echo b; } &", "cd sub && { cd x; cat a; } &"])
+                                   "cd sub && { echo a; echo b; } &", "cd sub && { cd x; cat a; } &",
+                                   'cd "$X" &', 'cd "$X" | cat', "cd sub | cat", "echo | cd sub"])
 def test_a_cd_in_a_job_or_a_pipeline_keeps_the_next_calls_relative_read(first):
     events = _events(_call("a", first), _result("a"), _call("b", "cat AGENTS.md"), _result("b"))
     assert _reads(events) == ["AGENTS.md"]

@@ -102,7 +102,7 @@ def shell_reads(script: str, cwd: str = "") -> list[str]:
 def shell_reads_moved(script: str, cwd: str = "") -> tuple[list[str], bool]:
     """:func:`shell_reads`, and whether the script may leave its shell in another directory: it ran a ``cd``,
     ``pushd`` or ``popd`` in that shell, not in a subshell (``( ... )``, a pipeline or a backgrounded command, list
-    or group: ``cd sub &``, ``{ cd sub; } | cat``, ``cd sub && make &``)."""
+    or group: ``cd sub &``, ``{ cd sub; } | cat``, ``cd sub && make &``, ``cd "$X" &``, ``cd sub | cat``)."""
     reads, walk = _walk_script(script, cwd)
     return reads, walk.shell_moved
 
@@ -130,7 +130,7 @@ def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
                 walk.lose(after != "&")
             continue
         walk.track_groups(_bare(part), after, out)
-        words = walk.words(part)
+        words = walk.words(part, after)
         if words:
             out.extend(walk.command(words, after, chained))
     walk.chain(previous, False)  # a list backgrounded at the end (``cd sub && make &``) ran in a subshell too
@@ -196,8 +196,9 @@ class _Walk:
             if piped or _PIPE.search(after_close) or after == "&":  # the group ran in a pipeline's or a job's subshell
                 self.here, self.shell_moved = before
 
-    def words(self, part: str) -> list[str]:
-        """The words of ``part``; none when it cannot be split or is computed (a computed ``cd`` loses the directory)."""
+    def words(self, part: str, after: str = "") -> list[str]:
+        """The words of ``part``; none when it cannot be split or is computed (a computed ``cd`` loses the directory,
+        and moves this shell unless ``part`` is a pipeline or is backgrounded by ``after``: then it ran in a subshell)."""
         if not _STDOUT_AFTER_STDERR.search(_bare(part)):  # else ``>&2`` stays: a redirect, so no read
             part = _outside_quotes(part, _HARMLESS_REDIRECT)
         part = _outside_quotes(part, _STDERR_FILE)
@@ -211,7 +212,7 @@ class _Walk:
                 rough = rough[1:]
             rough, via_env, _ = _command_words(rough)
             if rough[:1] and rough[0] in _DIRS and not via_env:  # ``builtin cd "$D"``: where it went is not known
-                self.lose()
+                self.lose(after != "&" and not _PIPE.search(re.sub(r"\\.", "", _bare(part))))  # ``\|`` is no pipe
             return []
         return words[1:] if words[:1] == ["{"] else words  # a brace group runs in this shell: its cd and reads count
 
