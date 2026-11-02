@@ -85,6 +85,14 @@
         }
       }
     },
+    "method_version": {
+      "type": "integer",
+      "description": "Answering method version (defaults.ANSWERING_METHOD_VERSION); absent on artifacts from before it was stamped."
+    },
+    "judge_placeholder": {
+      "type": "boolean",
+      "description": "True when the judge also scored a context answer that is the no-retrieval placeholder (--judge-placeholder), which the default leaves unjudged; absent on artifacts from before it was stamped. Two eval files with the same method_version but a different value here are not comparable."
+    },
     "judge_temperature": {
       "description": "Sampling temperature the judge ran at; null when left to the provider default."
     },
