@@ -156,6 +156,7 @@ class _Walk:
         self.list_start: tuple[str | None, bool] = (here, False)  # (here, shell_moved) where the && / || list began
         self.listed = False  # that list has more than one command
         self.function = 0  # the brace depth inside a function definition
+        self.operands: int | None = None  # how many files the last printing command named
 
     def chain(self, op: str, chained: bool) -> None:
         """A list of more than one command ended by ``&`` ran in a subshell, so this shell did not move: ``cd sub &&
@@ -248,6 +249,7 @@ class _Walk:
             if _asks_for_help(words[1:]):  # ``cat --help AGENTS.md`` prints the help and opens no file
                 return []
             files = _sed_files(words[1:]) if name == "sed" else _print_files(name, words[1:])
+            self.operands = len(files)  # all it names, those at an unknown directory too
             # ``env -C dir cat f`` reads dir/f, which is not known: only an absolute path is the same
             return [self.resolve(f) for f in files if f.startswith("/") or (self.here is not None and not chdir)]
         return []
@@ -605,10 +607,11 @@ def _failed_read(script: str, reads: list[Any], rc: Any) -> bool:
     (``cd sub && cat AGENTS.md``: the cd or the cat failed): that file was not read.
 
     Otherwise the exit code does not say which read failed (``cat a missing`` prints ``a`` and
-    exits 1), so the reads are kept.
+    exits 1), so the reads are kept: also when only one of the files is known (``cd -; cat missing /ws/a``).
     """
-    return rc not in (None, 0) and len(reads) == 1 and all(  # each part before the last is a ``cd``
-        _is_cd(part.text) for part in split_script(script)[:-1])
+    if rc in (None, 0) or not reads or not all(_is_cd(part.text) for part in split_script(script)[:-1]):
+        return False
+    return _walk_script(script, "")[1].operands == 1  # the printer's own operands, not the reads kept of them
 
 
 def _is_cd(part: str) -> bool:

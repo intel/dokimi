@@ -520,9 +520,12 @@ def test_codex_failed_command_keeps_the_reads_it_may_have_made():
         {"type": "item.started", "item": cmd("b", "cat b.md; false")},
         {"type": "item.completed", "item": {**cmd("b", "cat b.md; false"), "exit_code": 1}},
         {"type": "item.completed", "item": {**cmd("c", "head c.md d.md"), "exit_code": 1}},
+        # two operands, of which only the absolute one is known after ``cd -``: it may be the one printed
+        {"type": "item.started", "item": cmd("d", "cd /ws/sub; cd -; cat missing.md /ws/AGENTS.md")},
+        {"type": "item.completed", "item": {**cmd("d", "cd /ws/sub; cd -; cat missing.md /ws/AGENTS.md"), "exit_code": 1}},
     )
     reads = [e["path"] for e in convert("codex-json", raw, None).events if e["kind"] == "read"]
-    assert reads == ["sub/AGENTS.md", "sub/CLAUDE.md", "b.md", "c.md", "d.md"]
+    assert reads == ["sub/AGENTS.md", "sub/CLAUDE.md", "b.md", "c.md", "d.md", "/ws/AGENTS.md"]
 
 
 def test_answer_format_lists_agree():
@@ -585,7 +588,9 @@ def test_copilot_command_exit_code_falls_back_to_success(done, rc):
     ("cat AGENTS.md", {"shellExecution": {"exitCode": 0}}, {"AGENTS.md"}),
     ("cat a; cat b", {"shellExecution": {"exitCode": 1}}, {"a", "b"}),  # which part failed is not known
     ("cd sub && cat AGENTS.md", {"shellExecution": {"exitCode": 1}}, set()),  # the cd or the cat failed
-], ids=["exit-1", "success-false", "exit-0", "compound", "cd-then-cat"])
+    # cat names two files, one at a directory not known: the known one may be what it printed
+    ("cd /ws/sub; cd -; cat missing.md /ws/AGENTS.md", {"shellExecution": {"exitCode": 1}}, {"/ws/AGENTS.md"}),
+], ids=["exit-1", "success-false", "exit-0", "compound", "cd-then-cat", "two-operands-one-known"])
 def test_copilot_failed_bash_read_is_not_a_read(command, done, reads):
     raw = _jsonl(
         {"type": "tool.execution_start",

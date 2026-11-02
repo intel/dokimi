@@ -164,7 +164,7 @@ def _settle_bash(out: Transcript, calls: Iterable[_BashCall]) -> None:
     """Each Bash call's reads, once every result and denial is in. In the trace's order:
 
     - a denied call ran nothing: it moves no shell, and its reads stay, ``denied``, after a move too;
-    - a call that failed and was one read of one file (``cat AGENTS.md`` of a missing file, after any
+    - a call that failed and was one read naming one file (``cat AGENTS.md`` of a missing file, after any
       ``cd``: :func:`~dokimi.repos.cli_traces._failed_read`) drops its reads;
     - after a call that was not denied and may have moved its shell, only absolute reads are known, in
       every agent: a subagent may share the parent's shell;

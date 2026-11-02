@@ -78,6 +78,14 @@ def test_a_failed_cat_of_two_files_keeps_both_reads():
     assert [(e["path"], e["rc"]) for e in events if e["kind"] == "read"] == [("AGENTS.md", 0), ("missing.md", 0)]
 
 
+@pytest.mark.parametrize("command", ["cd /ws/sub; cd -; cat missing.md /ws/AGENTS.md",
+                                     "cd -; head -n 5 missing.md /ws/AGENTS.md"])
+def test_a_failed_read_of_two_files_keeps_the_one_known_after_a_lost_directory(command):
+    # the relative operand is at a directory not known, so no read of it: cat still named two files
+    events = _events(_call("a", command), _result("a", "# rules\ncat: missing.md: No such file", True))
+    assert [(e["path"], e["rc"]) for e in events if e["kind"] == "read"] == [("AGENTS.md", 0)]
+
+
 @pytest.mark.parametrize("refusal", [
     lambda: _result("a", "PreToolUse:Bash hook error: shell background", True),
     lambda: {"type": "result", "result": "ok", "permission_denials": [{"tool_name": "Bash", "tool_use_id": "a"}]},
