@@ -554,6 +554,36 @@ def test_a_label_on_another_finding_than_the_credited_one_is_refused_before_any_
                            "sheet with `repo hits sheet`")
 
 
+def _grade(batch: Path, rd: Path) -> None:
+    """Regrade the cell's ``answer.txt`` against the gold file now, as a `repo run` resume does."""
+    answer, spec = (rd / "answer.txt").read_text(), json.loads((rd / "task.json").read_text())
+    metrics, details = main.split_result(review.grade_replay(spec, batch / "_eval" / "content" / "tasks" / TASK, answer))
+    grade = json.loads((rd / "grade.json").read_text())
+    (rd / "grade.json").write_text(json.dumps({**grade, "metrics": metrics, "details": details}))
+
+
+@pytest.mark.parametrize("changed", ["gold comment", "finding message"])
+def test_a_text_changed_since_grading_is_not_judged(tmp_path, capsys, judge_llm, changed):
+    batch = _batch(tmp_path)
+    rd = _judged(batch, "guidance:none", 1).parent
+    if changed == "gold comment":  # a later `repo run` re-exported _eval/content with the thread reworded
+        gold = batch / "_eval" / "content" / "tasks" / TASK / "gold.json"
+        gold.write_text(json.dumps([{**g, "comment": "mul should multiply"} if g["id"] == "t_op" else g for g in GOLD]))
+    else:  # answer.txt edited after grading, the finding still at its index and place
+        (rd / "answer.txt").write_text(_answer([_f(11, "The TODO is repeated five times"), _f(30, "mul adds, see #12")]))
+    code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE)
+    assert code == 0 and not any("mul should multiply" in p or "see #12" in p for p in judge_llm.prompts)
+    doc = load_artifact("repo_hits_judged", rd / HITS_JUDGED)
+    stale = next(p for p in doc["pairs"] if p["thread"] == "t_op")
+    what = "thread 't_op' of " if changed == "gold comment" else "finding 1 of answer.txt "
+    assert stale["label"] is None and stale["error"].startswith(f"not judged: {what}")
+    assert stale["error"].endswith("credits: the text changed since grading") and doc["recall_judged"] is None
+    assert sum("the text changed since grading" in line for line in out.splitlines()) == 1
+    _grade(batch, rd)  # regraded: the match holds the new text, and the pair is judged again
+    assert _run(capsys, "judge", str(batch), "--judge", JUDGE)[0] == 0
+    assert load_artifact("repo_hits_judged", rd / HITS_JUDGED)["counts"]["unjudged"] == 0
+
+
 STALE = ("is not the text the sheet labelled (a sheet older than a change to answer.txt or the gold file, or a "
          "hand-edit); write a new sheet with `repo hits sheet`")
 
@@ -567,18 +597,13 @@ def test_a_label_on_a_pair_whose_text_changed_since_the_sheet_is_refused_before_
     judge_llm.requests.clear()
     entries = json.loads(labels.read_text())
     i = next(i for i, e in enumerate(entries) if (e["arm"], e["thread"]) == ("guidance:none", "t_op"))
-    if changed == "finding_text":  # another message at the same place, regraded: the batch credits the same index
-        rd, answer = _judged(batch, "guidance:none", 1).parent, _answer([_f(11, "The TODO is repeated five times"),
-                                                                         _f(30, "mul adds, see #12")])
-        (rd / "answer.txt").write_text(answer)
-        spec = json.loads((rd / "task.json").read_text())
-        metrics, details = main.split_result(review.grade_replay(spec, batch / "_eval" / "content" / "tasks" / TASK,
-                                                                 answer))
-        grade = json.loads((rd / "grade.json").read_text())
-        (rd / "grade.json").write_text(json.dumps({**grade, "metrics": metrics, "details": details}))
+    rd = _judged(batch, "guidance:none", 1).parent
+    if changed == "finding_text":  # another message at the same place: the batch credits the same index
+        (rd / "answer.txt").write_text(_answer([_f(11, "The TODO is repeated five times"), _f(30, "mul adds, see #12")]))
     else:
         gold = batch / "_eval" / "content" / "tasks" / TASK / "gold.json"
         gold.write_text(json.dumps([{**g, "comment": "mul should multiply"} if g["id"] == "t_op" else g for g in GOLD]))
+    _grade(batch, rd)
     now = next(p for p in read_pairs(batch)[1] if p.key == pair_key(entries[i]["cell"], "t_op"))
     assert (now.hit["finding"], now.problem) == (entries[i]["finding"], None)
     code, out, err = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(labels))

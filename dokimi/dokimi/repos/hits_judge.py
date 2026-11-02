@@ -7,7 +7,8 @@ The replay grader credits a human thread to the nearest finding on its file with
 (contract §4.5). Location is all it checks, so a finding that only sits near a thread is credited too.
 This step reads each credited pair (:func:`.report.load_hits`) with its full texts: the thread's
 ``comment`` from the task's gold file and the finding from the cell's ``answer.txt`` at index ``finding``
-(``matches`` cuts both to 200 characters and is used for the pairing only). A judge labels the pair
+(``matches`` cuts both to 200 characters: it gives the pairing, and a full text whose cut is not the match's
+changed since grading and is not judged). A judge labels the pair
 ``same point``, ``related`` or ``unrelated``, and each fully judged cell gets ``hits_judged.json``
 (``repo_hits_judged.v1``) with ``recall_judged``: the ``same point`` pairs over the task's threads, null
 when a pair is unjudged. Only credited pairs are rescored, so ``recall_judged <= recall``. The grade is not touched.
@@ -32,7 +33,7 @@ from dokimi.judged import judged_reply
 from dokimi.llm import LLM, Ask, Unparseable
 from dokimi.llm_json import extract_json_object
 
-from .graders.review import finding_fields, findings_of
+from .graders.review import CUT, finding_fields, findings_of
 from .report import REPLAY, load_cells, load_hits, resolved_models
 
 LABELS = ("same point", "related", "unrelated")
@@ -194,6 +195,9 @@ def _comment(texts: _Texts, hit: dict[str, Any]) -> str:
     comment = found[0].get("comment")
     if not isinstance(comment, str):
         raise _NotFound(f"thread {thread!r} of {path} has no comment")
+    if comment[:CUT] != hit.get("comment"):  # a later `repo run` re-exported _eval/content with a reworded thread
+        raise _NotFound(f"thread {thread!r} of {path} is not the comment grade.json credits: the text changed "
+                        "since grading")
     return comment
 
 
@@ -206,6 +210,10 @@ def _finding(texts: _Texts, hit: dict[str, Any]) -> str:
     if path != hit.get("file"):
         raise _NotFound(f"finding {index} of answer.txt is on {path!r}, not on {hit.get('file')!r} as grade.json "
                         "credits it")
+    message = findings[index].get("message")
+    if ("" if message is None else str(message))[:CUT] != hit.get("message"):  # the grader's cut of the message
+        raise _NotFound(f"finding {index} of answer.txt is not the message grade.json credits: the text changed "
+                        "since grading")
     return finding_text(findings[index])
 
 

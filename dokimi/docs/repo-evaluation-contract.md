@@ -685,7 +685,9 @@ review thread of a merged PR, anchored on a line of the reviewed revision.
   A judge model labels each credited pair `same point`, `related` or
   `unrelated`, reading the thread's full `comment` from the gold file and the
   finding's full `message` (with its `rule` and `evidence`) from the cell's
-  `answer.txt` at index `finding`; `matches` gives the pairing only.
+  `answer.txt` at index `finding`; `matches` gives the pairing, and a full
+  text that does not start with the match's cut of it changed since grading
+  and is not judged.
   `recall_judged` is the `same point` pairs over `n_threads`, and null when
   a pair of the cell is unjudged (not measured, so not a 0). Only credited
   pairs are rescored: a thread no finding was credited with stays missed, and
@@ -1635,8 +1637,10 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   cell graded without `matches`
   and a grader-failure cell are counted, not judged. A pair whose full text is
   not found (no single task directory or no such thread under
-  `<batch>/_eval/content`, no finding at its index in `answer.txt`, or a file
-  other than the one `matches` names), a pair whose reply never parses, and a
+  `<batch>/_eval/content`, no finding at its index in `answer.txt`, a file
+  other than the one `matches` names, or a comment or `message` whose first
+  200 characters are not the ones `matches` keeps: the text changed since
+  grading), a pair whose reply never parses, and a
   pair whose judge call fails (a provider error past the client's retries:
   `error` is `judge call failed: <type>: <message>`) are
   `unjudged`, with `error` saying why, and never count as `same point`. When
