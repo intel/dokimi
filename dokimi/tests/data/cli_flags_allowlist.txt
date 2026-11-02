@@ -223,5 +223,8 @@
 --work-output-dir
 --work-repeats
 -o
+--ceiling  # eval headroom (#279) adds it: no registry concept yet; a F1b migration names it
+--floor  # eval headroom (#279) adds it: no registry concept yet; a F1b migration names it
+--min-reps  # eval headroom (#279) adds it: no registry concept yet; a F1b migration names it
 --graph  # eval coverage: the frozen need graph input, a file no registry concept names yet (#331)
 --min  # eval coverage gate floor, [METRIC=]X like --timeout [PHASE=]SEC (#331)

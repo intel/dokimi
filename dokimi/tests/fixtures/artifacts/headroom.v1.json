@@ -1,0 +1,35 @@
+{
+  "schema_version": "headroom.v1",
+  "no_skill_arm": "baseline",
+  "thresholds": {"ceiling": 0.9, "floor": 0.0, "min_reps": 3},
+  "runs": 1,
+  "inputs": ["arms.json"],
+  "items": [
+    {
+      "question_id": "1",
+      "reps": 1,
+      "provisional": true,
+      "no_skill": 0.95,
+      "arms": {"baseline": 0.95, "skill": 0.94},
+      "unscored_arms": [],
+      "flag": "ceiling"
+    },
+    {
+      "question_id": "2",
+      "reps": 1,
+      "provisional": true,
+      "no_skill": 0.4,
+      "arms": {"baseline": 0.4, "skill": 0.7},
+      "unscored_arms": [],
+      "flag": null
+    }
+  ],
+  "summary": {
+    "items": 2,
+    "ceiling": 1,
+    "floor": 0,
+    "provisional": 2,
+    "flagged_provisional": 1,
+    "no_flag": 1
+  }
+}

@@ -151,6 +151,7 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("eval", "pairwise"), PAID),
     Leaf(("eval", "reference"), PAID),
     Leaf(("eval", "native-import"), FREE),
+    Leaf(("eval", "headroom"), FREE),
     Leaf(("eval", "redteam"), PAID),
     Leaf(("eval", "panel-score"), PAID),
     Leaf(("dataset", "export"), FREE),

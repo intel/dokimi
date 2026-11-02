@@ -39,6 +39,7 @@ CONTENTS = {
     "subject_scorecard.v2": {"cells": 0},
     "skill_evidence.v1": {"results": 2, "warnings": 0},
     "cli_routes.v1": {"roots": 2, "leaves": 2, "tombstones": 1},
+    "headroom.v1": {"items": 2, "inputs": 1},
     "redteam.v1": {"violations": 2, "questions": 2},
     "eval_coverage.v1": {"gaps": 1, "evals": 2, "problems": 0},
     "need_graph.v1": {"nodes": 3, "edges": 1},
