@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 import sys
 from pathlib import Path
 
@@ -14,6 +13,7 @@ import pytest
 import yaml
 
 from dokimi.artifacts import validate_artifact
+from dokimi.cli import build_parser
 from dokimi.repos.harness_profile import load_profile
 from dokimi.repos.skill_reach import (
     SkillReachError,
@@ -137,11 +137,12 @@ def test_profile_without_skills_block_is_refused(tmp_path):
         run_skill_reach(profile=load_profile(str(p)), model="m", out_dir=tmp_path / "o", cases=[])
 
 
-def test_cli_dry_run_and_unknown_case(tmp_path):
-    base = [sys.executable, "-m", "dokimi.cli", "repo", "skill-reach", "--model", "m",
-            "--harness", str(_profile(tmp_path))]
-    ok = subprocess.run([*base, "--dry-run", "--only", "project-client"], capture_output=True, text=True)
-    assert ok.returncode == 0, ok.stderr
-    assert json.loads(ok.stdout)["cases"] == ["project-client"]
-    bad = subprocess.run([*base, "--dry-run", "--only", "nope"], capture_output=True, text=True)
-    assert bad.returncode == 2 and "nope" in bad.stderr
+def test_cli_dry_run_and_unknown_case(tmp_path, capsys):
+    base = ["repo", "skill-reach", "--model", "m", "--harness", str(_profile(tmp_path)), "--dry-run"]
+    args = build_parser().parse_args([*base, "--only", "project-client"])
+    args.func(args)
+    assert json.loads(capsys.readouterr().out)["cases"] == ["project-client"]
+    args = build_parser().parse_args([*base, "--only", "nope"])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2 and "nope" in capsys.readouterr().err

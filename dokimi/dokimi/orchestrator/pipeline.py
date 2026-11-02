@@ -9,9 +9,10 @@ import json
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 
-from dokimi.defaults import DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER, DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER, DEFAULT_RETRIEVAL_TOP_K
+from dokimi.defaults import (ANSWERING_METHOD_VERSION, DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER, DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER, DEFAULT_RETRIEVAL_TOP_K,
+                             answers_method_version as answers_method_version_of)
 from dokimi.eval.stats import paired_summary
-from dokimi.mcp.factory import create_doc_source_client
+from dokimi.mcp.factory import create_doc_source_client, resolve_library_id_for_product
 from dokimi.utils import same_evaluator
 
 logger = logging.getLogger(__name__)
@@ -96,6 +97,8 @@ class EvaluationPipeline:
         questions_from: Optional[Path] = None,
         product_key: Optional[str] = None,
         questions_root: Optional[Path] = None,
+        registry: Optional[Any] = None,
+        judge_placeholder: bool = False,
     ):
         """
         Initialize pipeline.
@@ -136,6 +139,10 @@ class EvaluationPipeline:
                 skipped; when it is absent a warning is logged and questions are
                 generated. Without this argument (and without
                 ``custom_questions_path``) the run has no golden set.
+            registry: ProductRegistry used to find the declared context7_id
+                (default: the bundled products.yaml)
+            judge_placeholder: Also judge a with-docs answer that is the
+                no-retrieval placeholder (default: recorded, not scored)
         """
         if not repo and not description:
             raise ValueError(
@@ -192,6 +199,8 @@ class EvaluationPipeline:
         self.judge_model = judge_model
         self.judge_provider = judge_provider
         self.judge_temperature = judge_temperature
+        # Judge the no-retrieval placeholder answers too (off: they are not scored).
+        self.judge_placeholder = judge_placeholder
 
         self.personas_count = personas_count
         self.questions_per_topic = questions_per_topic
@@ -200,6 +209,8 @@ class EvaluationPipeline:
         self.debug_retrieval = debug_retrieval
         self.doc_source = doc_source
         self.context7_id = context7_id
+        # Product registry for the library id (defaults to the bundled products.yaml).
+        self.registry = registry
         self.max_tokens_per_question = max_tokens_per_question
         self.force_regen = force_regen
 
@@ -383,6 +394,10 @@ class EvaluationPipeline:
         
         # Summary stats over the complete pairs, the numbers the reports print for the same file.
         summary = paired_summary(evaluations)
+        # Questions scored in one arm only (a retrieval miss is left unjudged, a judge may fail)
+        # are in none of the averages: say how many, so the line is not read as covering all.
+        results["steps"]["evaluation"]["paired"] = summary.paired
+        results["steps"]["evaluation"]["unpaired"] = summary.unpaired
 
         if summary.paired:
             results["steps"]["evaluation"]["summary"] = {
@@ -393,7 +408,9 @@ class EvaluationPipeline:
             print(f"✓ Evaluated {len(evaluations)} answers: "
                   f"context={results['steps']['evaluation']['summary']['with_avg']}, "
                   f"baseline={results['steps']['evaluation']['summary']['without_avg']}, "
-                  f"delta={results['steps']['evaluation']['summary']['delta_avg']:+.1f}")
+                  f"delta={results['steps']['evaluation']['summary']['delta_avg']:+.1f}"
+                  + (f" (over the {summary.paired} scored in both arms; {summary.unpaired} left out)"
+                     if summary.unpaired else ""))
         else:
             print(f"✓ Evaluated {len(evaluations)} answers (summary unavailable)")
         
@@ -442,15 +459,30 @@ class EvaluationPipeline:
         
         return personas
     
+    def _library_id(self, mcp_client) -> str:
+        """The doc-source library id: explicit id, then the ``;id=`` of an ``mcp:`` source, then the
+        registry's ``context7_id``, then the client.
+
+        The caller's own choices (the explicit id, the source's descriptor) go before the registry, as
+        they did before the pipeline used the registry lookup; ``eval/arms_run.py`` resolves registry-first.
+        """
+        descriptor_id = getattr(mcp_client, "default_library_id", None)
+        return resolve_library_id_for_product(
+            self.product_key, mcp_client, explicit_id=self.context7_id or descriptor_id, registry=self.registry,
+        )
+
     def _generate_questions(self, personas: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Generate questions from personas."""
         from dokimi.questions import RagasSeedExtractor, QuestionGenerator
 
         # Extract topics
         mcp_client = create_doc_source_client(self.doc_source)
-        library_id = self.context7_id or mcp_client.resolve_library_id(self.product)
-        
-        extractor = RagasSeedExtractor(mcp_client=mcp_client, cache_dir=Path(".cache/topics"))
+        library_id = self._library_id(mcp_client)
+
+        # The id is the registry's for every source, so the topics cache is also keyed on the source.
+        source_key = hashlib.sha256(self.doc_source.encode("utf-8")).hexdigest()[:16]
+        extractor = RagasSeedExtractor(mcp_client=mcp_client,
+                                       cache_dir=Path(".cache/topics") / source_key)
         topics = extractor.extract_topics(
             library_id=library_id,
             library_name=self.product,
@@ -617,8 +649,8 @@ class EvaluationPipeline:
 
         # Setup documentation source client
         mcp_client = create_doc_source_client(self.doc_source)
-        library_id = self.context7_id or mcp_client.resolve_library_id(self.product)
-        
+        library_id = self._library_id(mcp_client)
+
         # Generate answers
         answerer = Answerer(
             mcp_client=mcp_client,
@@ -653,15 +685,23 @@ class EvaluationPipeline:
         # Use in-memory answers from the previous step (avoid stale disk read);
         # fall back to the answers file when none were passed.
         if answers:
-            answers_list = list(read(answers, source="answers", section="answers").records)
+            run = read(answers, source="answers", section="answers")
         else:
-            answers_list = list(load(self.answers_path, section="answers").records)
+            run = load(self.answers_path, section="answers")
+        answers_list = list(run.records)
+        # Fresh in-memory answers are this process's method; an artifact says its own, unstamped is legacy.
+        if answers and isinstance(answers, list):
+            answers_method_version = ANSWERING_METHOD_VERSION
+        else:
+            answers_method_version = answers_method_version_of(run.meta)
         
         # Evaluate
         judge = Judge(
             model=self.judge_model,
             provider=self.judge_provider,
             temperature=self.judge_temperature,
+            judge_placeholder=self.judge_placeholder,
+            answers_method_version=answers_method_version,
             run_metadata={
                 "question_model": self.model,
                 "question_provider": self.provider,

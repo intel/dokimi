@@ -238,3 +238,88 @@ def test_eval_report_win_and_degradation_rates_divide_by_the_complete_pairs(tmp_
 
     assert "- **Win rate:** 50% questions improved with context (2/4)." in eval_md
     assert "- **Degradations:** 1 questions (25%)." in eval_md
+
+
+def test_report_eval_with_no_complete_pair_says_so_instead_of_a_zero_delta(tmp_path):
+    # One question scored in each arm only: no pair, so there is no delta to report.
+    evaluations = [
+        {"question_id": "q1", "question_text": "How do I pin threads?",
+         "with_docs": {"aggregate": 80.0}, "without_docs": None, "delta": None},
+        {"question_id": "q2", "question_text": "How do I size a pool?",
+         "with_docs": None, "without_docs": {"aggregate": 60.0}, "delta": None},
+    ]
+    path = tmp_path / "eval" / "lib.json"
+    path.parent.mkdir()
+    path.write_text(json.dumps({"judge_model": "m", "evaluations": evaluations}), encoding="utf-8")
+    md = tmp_path / "lib.md"
+    generate_report(str(path), str(md), str(tmp_path / "lib.qa.json"))
+    text = md.read_text(encoding="utf-8")
+
+    all_row = next(line for line in text.splitlines() if line.startswith("| **All** |"))
+    assert all_row.split("|")[3:6] == [" — ", " — ", " — "]
+    assert "Overall delta: +0.0" not in text
+    assert "over the 0 complete pairs" not in text
+    assert "no complete pairs" in text
+
+
+def test_breakdown_tables_and_agreement_say_no_pair_instead_of_a_zero_delta(tmp_path):
+    # The static set (onetbb-Q*) has no complete pair, so its rows and the agreement bullet print no
+    # zero delta and no agreement with the dynamic set, which has one.
+    evaluations = [
+        {"question_id": "q1", "question_text": "How do I pin threads?", "difficulty": "easy",
+         "with_docs": {"aggregate": 80.0}, "without_docs": {"aggregate": 60.0}, "delta": 20.0},
+        {"question_id": "onetbb-Q1", "question_text": "How do I size a pool?", "difficulty": "hard",
+         "with_docs": {"aggregate": 80.0}, "without_docs": None, "delta": None},
+        {"question_id": "onetbb-Q2", "question_text": "How do I flush a queue?", "difficulty": "hard",
+         "with_docs": None, "without_docs": {"aggregate": 60.0}, "delta": None},
+    ]
+    path = tmp_path / "eval" / "lib.json"
+    path.parent.mkdir()
+    path.write_text(json.dumps({"judge_model": "m", "evaluations": evaluations}), encoding="utf-8")
+    md = tmp_path / "lib.md"
+    generate_report(str(path), str(md), str(tmp_path / "lib.qa.json"))
+    text = md.read_text(encoding="utf-8")
+
+    static_row = next(line for line in text.splitlines() if line.startswith("| Golden (static) |"))
+    assert static_row.split("|")[3:6] == [" — ", " — ", " — "]
+    hard_row = next(line for line in text.splitlines() if line.startswith("| hard |"))
+    assert hard_row.split("|")[3:6] == [" — ", " — ", " — "]
+    easy_row = next(line for line in text.splitlines() if line.startswith("| easy |"))
+    assert "**+20.0**" in easy_row
+    assert "Dynamic vs Static agreement:** none" in text
+    assert "Dynamic vs Static agreement:** +" not in text
+
+
+def test_an_all_miss_run_prints_no_zero_mean_delta_or_conclusion(tmp_path):
+    # The context arm was never judged (a no-retrieval placeholder), so no question is a complete pair.
+    data = {"judge_model": "m", "evaluations": [
+        {"question_id": "q1", "question_text": "How do I pin threads?", "with_docs": None,
+         "without_docs": {"aggregate": 60.0}, "delta": None},
+        {"question_id": "q2", "question_text": "How do I size a pool?", "with_docs": None,
+         "without_docs": {"aggregate": 40.0}, "delta": None},
+    ]}
+    md = ReportGenerator().generate_report(data, {"questions": []}, "markdown")
+    stats = json.loads(ReportGenerator().generate_report(data, {"questions": []}, "json"))["stats"]
+
+    assert stats["paired_questions"] == 0
+    assert stats["delta"] == {"avg": None, "min": None, "max": None}
+    assert "minimal impact" not in md
+    assert "no complete pairs" in md
+    average = next(line for line in md.splitlines() if line.startswith("| Average |"))
+    assert average == "| Average | — | — | **—** |"
+
+
+def test_a_group_with_no_complete_pair_has_no_means_in_the_grouped_tables():
+    # Persona B and source "manual" hold only q3, which has a context score and no baseline score.
+    evaluations = [EVALUATIONS[0], EVALUATIONS[2]]
+    questions = [{"id": "q1", "persona_id": "A", "source_type": "generated"},
+                 {"id": "q3", "persona_id": "B", "source_type": "manual"}]
+    report = json.loads(ReportGenerator().generate_report({"evaluations": evaluations}, {"questions": questions}, "json"))
+    clusters = {c["topic"]: c for c in report["clusters"]}
+    assert clusters["B"] == {"topic": "B", "count": 1, "unpaired": 1,
+                             "with_avg": None, "without_avg": None, "delta_avg": None}
+    sources = {s["source_type"]: s for s in report["sources_summary"]}
+    assert sources["manual"]["with_avg"] is None and sources["manual"]["delta_avg"] is None
+    md = ReportGenerator().generate_report({"evaluations": evaluations}, {"questions": questions}, "markdown")
+    assert "| B | 1 (1 unpaired) | — | — | **—** |" in md
+    assert "| manual | 1 (1 unpaired) | — | — | **—** |" in md

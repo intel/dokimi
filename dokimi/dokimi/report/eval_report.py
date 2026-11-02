@@ -115,11 +115,43 @@ def _unpaired_note(s: dict) -> list[str]:
     """A line saying what the Summary means leave out; nothing when every question is paired."""
     if not s["unpaired"]:
         return []
+    if not s["valid"]:
+        return [f'_No complete pairs: {s["unpaired"]} unpaired questions, so no arm mean or delta is given._', ""]
     return [
         f'_Arm means and delta are over the {s["valid"]} complete pairs; '
         f'{s["unpaired"]} unpaired (scored in one arm only) left out._',
         "",
     ]
+
+
+def _summary_cells(st: dict) -> tuple[str, str, str]:
+    """The context, baseline and delta cells of a Summary row: an em dash when no question is paired."""
+    if not st["valid"]:
+        return "—", "—", "—"
+    return str(st["with_avg"]), str(st["without_avg"]), f'**{st["delta_avg"]:+}**'
+
+
+def _overall_line(st: dict) -> str:
+    """The Overall delta bullet, or a note that no question is paired."""
+    if not st["valid"]:
+        return "- **Overall delta:** none — no complete pairs (a question scored in both arms), so there is no delta."
+    verdict = "context arm is helping." if st["delta_avg"] > 2 else "context arm is neutral or slightly harmful."
+    return f'- **Overall delta: {st["delta_avg"]:+}** — {verdict}'
+
+
+def _agreement_line(dyn: dict, static: dict) -> str:
+    """The Dynamic vs Static bullet; no agreement is claimed when either set has no complete pair."""
+    if not (dyn["valid"] and static["valid"]):
+        return "- **Dynamic vs Static agreement:** none — a set has no complete pairs, so there is no delta to compare."
+    gap = abs(dyn["delta_avg"] - static["delta_avg"])
+    verdict = "good consistency, benchmark is stable." if gap < 3 else "notable gap — investigate question quality."
+    return f'- **Dynamic vs Static agreement:** {dyn["delta_avg"]:+} vs {static["delta_avg"]:+} — {verdict}'
+
+
+def _delta_summary(st: dict) -> str:
+    if not st["valid"]:
+        return "   Delta: none (no complete pairs)"
+    return f"   Delta: {st['delta_avg']:+} (with={st['with_avg']}, without={st['without_avg']})"
 
 
 def fmt_delta(d):
@@ -282,9 +314,9 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
         "## Summary",
         "| Set | Count | Context arm | Baseline | Delta |",
         "|---|---:|---:|---:|---:|",
-        f'| **All** | {_count_cell(all_stats)} | {all_stats["with_avg"]} | {all_stats["without_avg"]} | **{all_stats["delta_avg"]:+}** |',
-        f'| Generated (dynamic) | {_count_cell(dyn_stats)} | {dyn_stats["with_avg"]} | {dyn_stats["without_avg"]} | **{dyn_stats["delta_avg"]:+}** |',
-        f'| Golden (static) | {_count_cell(static_stats)} | {static_stats["with_avg"]} | {static_stats["without_avg"]} | **{static_stats["delta_avg"]:+}** |',
+        f'| **All** | {_count_cell(all_stats)} | {" | ".join(_summary_cells(all_stats))} |',
+        f'| Generated (dynamic) | {_count_cell(dyn_stats)} | {" | ".join(_summary_cells(dyn_stats))} |',
+        f'| Golden (static) | {_count_cell(static_stats)} | {" | ".join(_summary_cells(static_stats))} |',
         "",
     ]
     lines += _unpaired_note(all_stats)
@@ -338,8 +370,8 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
         ("**Total**", all_stats),
     ]:
         lines.append(
-            f'| {label} | {_count_cell(s)} | {s["with_avg"]} | {s["without_avg"]} '
-            f'| **{s["delta_avg"]:+}** | {s["improvements"]} | {s["degradations"]} | {s["neutral"]} |'
+            f'| {label} | {_count_cell(s)} | {" | ".join(_summary_cells(s))} '
+            f'| {s["improvements"]} | {s["degradations"]} | {s["neutral"]} |'
         )
     lines.append("")
 
@@ -353,8 +385,8 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
         if d in diff_groups:
             s = stats(diff_groups[d])
             lines.append(
-                f'| {d} | {_count_cell(s)} | {s["with_avg"]} | {s["without_avg"]} '
-                f'| **{s["delta_avg"]:+}** | {s["improvements"]} | {s["degradations"]} |'
+                f'| {d} | {_count_cell(s)} | {" | ".join(_summary_cells(s))} '
+                f'| {s["improvements"]} | {s["degradations"]} |'
             )
     lines.append("")
 
@@ -464,12 +496,8 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
     lines += [
         "## Key Observations & Recommendations",
         "",
-        f'- **Overall delta: {all_stats["delta_avg"]:+}** — '
-        + ("context arm is helping." if all_stats["delta_avg"] > 2 else
-           "context arm is neutral or slightly harmful."),
-        f'- **Dynamic vs Static agreement:** {dyn_stats["delta_avg"]:+} vs {static_stats["delta_avg"]:+} — '
-        + ("good consistency, benchmark is stable." if abs(dyn_stats["delta_avg"] - static_stats["delta_avg"]) < 3
-           else "notable gap — investigate question quality."),
+        _overall_line(all_stats),
+        _agreement_line(dyn_stats, static_stats),
         f'- **Win rate:** {round(all_stats["improvements"]/all_stats["valid"]*100) if all_stats["valid"] else 0}% questions improved with context '
         f'({all_stats["improvements"]}/{all_stats["valid"]}).',
         f'- **Degradations:** {all_stats["degradations"]} questions '
@@ -522,7 +550,7 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
     print(f"✅ Report written to: {out_path}")
     print(f"✅ Q&A JSON written to: {qa_json_out}")
     print(f"   Questions: {all_stats['count']} ({dyn_stats['count']} dynamic + {static_stats['count']} static)")
-    print(f"   Delta: {all_stats['delta_avg']:+} (with={all_stats['with_avg']}, without={all_stats['without_avg']})")
+    print(_delta_summary(all_stats))
     return out_path
 
 

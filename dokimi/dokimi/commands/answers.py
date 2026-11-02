@@ -85,6 +85,10 @@ def cmd_answers_generate(args: argparse.Namespace) -> None:
     _retrieval_cfg = config.get("retrieval") or {}
     if args.top_k is None:
         args.top_k = _retrieval_cfg.get("top_k", DEFAULT_RETRIEVAL_TOP_K)
+        if isinstance(args.top_k, bool) or not isinstance(args.top_k, int) or args.top_k < 1:
+            print(f"Error: retrieval.top_k in the config must be a positive integer, "
+                  f"got {args.top_k!r}", file=sys.stderr)
+            sys.exit(EXIT_USAGE)
 
     questions = _load_questions(args.questions)
     print(f"Loaded {len(questions)} questions from {args.questions}")
@@ -162,7 +166,7 @@ def register(sub, positive_int) -> None:
     gen_a_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL, help="LLM model for answering")
     gen_a_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=ANSWER_PROVIDERS)
     gen_a_p.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS_PER_QUESTION, help="Max tokens to retrieve per question")
-    gen_a_p.add_argument("--top-k", type=int, default=None, help=f"Number of docs to retrieve before reranking (default from config/products.yaml retrieval.top_k or {DEFAULT_RETRIEVAL_TOP_K})")
+    gen_a_p.add_argument("--top-k", type=positive_int, default=None, help=f"Number of docs to retrieve before reranking (default from config/products.yaml retrieval.top_k or {DEFAULT_RETRIEVAL_TOP_K})")
     gen_a_p.add_argument("--rerank-threshold", type=float, default=0.3, help="Min relevance score (0-1) to keep docs")
     gen_a_p.add_argument("--debug-retrieval", action="store_true", help="Include retrieval metadata in output")
     gen_a_p.add_argument("--concurrency", type=positive_int, default=DEFAULT_CONCURRENCY, help="Parallel API calls (default: 5)")
