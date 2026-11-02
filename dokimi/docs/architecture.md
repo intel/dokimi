@@ -294,7 +294,8 @@ next release.
   the skill listing (without skills marked `disable-model-invocation: true`) load at start; nested
   guidance and what nested CLAUDE.md and AGENTS.md files import load lazily;
   skill bodies on demand; with a CLAUDE.md, `.claude/CLAUDE.md` or `CLAUDE.local.md` at the root, an
-  AGENTS.md no CLAUDE.md imports is reported off. A skill with no description is listed by its first
+  AGENTS.md no CLAUDE.md imports is reported off, and so is a nested one no CLAUDE.md imports whose own
+  directory holds one of those files (one in a parent directory does not count). A skill with no description is listed by its first
   non-empty body line, as Claude Code does. It warns on skills with no description or body text,
   skills with near-duplicate descriptions (identical descriptions, or Jaccard index >= 0.5
   after stop-word removal when both have 3+ words left), on AGENTS.md files turned off, on

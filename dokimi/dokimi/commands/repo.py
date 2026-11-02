@@ -711,8 +711,8 @@ def register(sub, positive_int) -> None:
         help="What the repository puts into an agent's context when it starts at the root: guidance "
         "files and their imports, the skill listing, lazily loaded and on-demand files, in characters; "
         "warns on skills with no description and no body text, skills with near-duplicate descriptions (identical, or Jaccard "
-        "index >= 0.5 after removing stop words when both have 3+ words), AGENTS.md files a root CLAUDE.md, .claude/CLAUDE.md or CLAUDE.local.md turns off "
-        "(Claude Code rules), unreadable files (non-UTF-8, dangling link), and imports past the harness's hop "
+        "index >= 0.5 after removing stop words when both have 3+ words), AGENTS.md files a root CLAUDE.md, .claude/CLAUDE.md or CLAUDE.local.md turns off, "
+        "or one in the AGENTS.md file's own directory (Claude Code rules), unreadable files (non-UTF-8, dangling link), and imports past the harness's hop "
         "limit. No LLM call.",
     )
     budget_p.add_argument("source", help=source_help)
