@@ -1072,6 +1072,14 @@ Protocol:
    attached to a tool result. Parse the reported tokens from the answer, and
    the reads from `events.jsonl`.
 
+`--dry-run` prints the probed files and the argv of every planned scenario,
+and calls no harness. It makes each check a run makes before its first
+harness call (the harness's version command), so it refuses what a run would
+refuse, with the same `✗` line and exit code: a selection that leaves no
+scenario, a receipt that would replace the probe, and the checks of steps 1
+and 2. For those it builds the workspace, in `--work-dir` when given, and
+removes it, `--keep` or not.
+
 Output: `<out>/reach.json` and `<out>/traces/` (raw stdout and `events.jsonl`
 per scenario).
 

@@ -487,3 +487,78 @@ def test_repo_reach_reports_a_shadow_file_the_workspace_refuses(tmp_path, monkey
     assert exc.value.code == 1
     assert ("✗ the shadow file REACH_PROBE.txt/x.md needs REACH_PROBE.txt, a file of the probe workspace, as a "
             "directory") in capsys.readouterr().err
+
+
+# --- --dry-run refuses what a run refuses before its first harness call -------------
+
+
+def _both_modes(tmp_path: Path, capsys, argv: list[str]) -> list[tuple[int, str, str]]:
+    """The exit code, stdout and last stderr line of a dry run and of the same command run, and no harness call."""
+    seen = []
+    for run in (argv, [a for a in argv if a != "--dry-run"]):
+        args = build_parser().parse_args(run)
+        with pytest.raises(SystemExit) as exc:
+            args.func(args)
+        out, err = capsys.readouterr()
+        seen.append((exc.value.code, out, err.splitlines()[-1]))
+    assert not (tmp_path / "seen.jsonl").exists()  # neither called the harness
+    return seen
+
+
+def test_repo_reach_dry_run_with_every_shadow_path_taken_fails_as_a_run_does(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("FAKE_MODE", "ok")
+    (tmp_path / "work").mkdir()
+    argv = _cli(tmp_path, "--scenarios", "shadow", "--work-dir", str(tmp_path / "work"), "--out",
+                str(tmp_path / "out"), shadow_file="CLAUDE.local.md")
+    for rel in ("CLAUDE.local.md", "sub/CLAUDE.local.md"):  # each shadow path is a tree file: no shadow scenario
+        _write(tmp_path / "repo", rel, "# local\n")
+    seen = _both_modes(tmp_path, capsys, argv)
+    assert seen[0] == seen[1] == (2, "", "✗ no scenario selected (check --scenarios and --only)")
+
+
+def _receipt_link(tmp_path: Path) -> None:
+    (tmp_path / "out").mkdir()
+    (tmp_path / "out" / "effective_instructions.json").symlink_to("reach.json")
+
+
+@pytest.mark.parametrize("setup, extra, code, message", [
+    (_receipt_link, ("--format", "receipt"), 2, "is the probe itself (a link to "),
+    (lambda tmp: [(tmp / "repo" / p).unlink() for p in ("AGENTS.md", "sub/AGENTS.md")], (), 1,
+     "no guidance files to probe: the manifest's globs and the fake guidance names match nothing"),
+    (lambda tmp: (tmp / "work" / "AGENTS.md").write_text("# above\n"), (), 1,
+     "guidance files above the workspace would leak into every scenario: "),
+    (lambda tmp: (tmp / "repo" / "sub" / "AGENTS.md").write_bytes(b"\xff\xfe\n"), (), 1,
+     "cannot read guidance file sub/AGENTS.md: "),
+    (lambda tmp: None, ("--scenarios", "shadow"), 1, "the shadow file REACH_PROBE.txt/x.md needs REACH_PROBE.txt"),
+], ids=["receipt-over-probe", "no-guidance", "guidance-above", "undecodable", "shadow-under-probe-file"])
+def test_repo_reach_dry_run_refuses_what_a_run_refuses_before_any_harness_call(tmp_path, monkeypatch, capsys,
+                                                                               setup, extra, code, message):
+    monkeypatch.setenv("FAKE_MODE", "ok")
+    (tmp_path / "work").mkdir()
+    argv = _cli(tmp_path, *extra, "--work-dir", str(tmp_path / "work"), "--out", str(tmp_path / "out"),
+                shadow_file="REACH_PROBE.txt/x.md")
+    if setup is _receipt_link and not _can_symlink(tmp_path):
+        pytest.skip("this OS refuses an unprivileged symlink")
+    setup(tmp_path)
+    work = sorted(p.name for p in (tmp_path / "work").iterdir())
+    seen = _both_modes(tmp_path, capsys, argv)
+    assert seen[0] == seen[1] and seen[0][:2] == (code, "") and message in seen[0][2]
+    assert sorted(p.name for p in (tmp_path / "work").iterdir()) == work  # each removed the workspace it built
+
+
+def test_a_dry_run_builds_and_removes_the_workspace_and_runs_no_harness(tmp_path, monkeypatch):
+    from dokimi.repos.harness_profile import HarnessProfile
+
+    def version(*args, **kwargs):
+        raise AssertionError("a dry run calls no harness, its version command included")
+
+    monkeypatch.setattr(HarnessProfile, "version", version)
+    tree = WorkTree(_tree(tmp_path))
+    (tmp_path / "work").mkdir()
+    profile = load_profile(_profile(tmp_path, shadow_file="CLAUDE.local.md"))
+    plan = run_reach(tree=tree, manifest=load_manifest(tree, "evals/repo-eval.yaml"), profile=profile, model="m",
+                     out_dir=tmp_path / "out", work_dir=tmp_path / "work", kinds=("root", "shadow"), keep=True,
+                     dry_run=True)
+    assert plan["files"] == ["AGENTS.md", "sub/AGENTS.md"]
+    assert [r["scenario"] for r in plan["runs"]] == ["cwd=.", "shadow=.", "shadow=sub"]
+    assert not list((tmp_path / "work").iterdir()) and not (tmp_path / "out").exists()  # --keep keeps none

@@ -444,24 +444,29 @@ def run_reach(
     budget_usd: float = 0.10,
     timeout_s: int = 300,
     keep: bool = False,
+    dry_run: bool = False,
 ) -> dict[str, Any]:
-    """Run every scenario once and return the guidance_reach.v1 payload (unsaved)."""
+    """Run every scenario once and return the guidance_reach.v1 payload (unsaved).
+
+    With ``dry_run``, stop before the first harness call (the version command) and return ``{"files", "runs"}``,
+    the files and the planned runs: the dry run makes every check a run makes up to there, the built workspace
+    included, so it refuses what the run would refuse."""
     files = probe_files(tree, manifest, profile)
     if not files:
         raise ReachError("no guidance files to probe: the manifest's globs and the "
                          f"{profile.name} guidance names match nothing")
-    files, groups, unresolved = followable(tree, files)
-    plan = scenarios(files, kinds, only, shadow_for(profile, tree, kinds))
+    probed, groups, unresolved = followable(tree, files)
+    shadows = shadow_for(profile, tree, kinds)
+    plan = scenarios(probed, kinds, only, shadows)
     salt = salt or hashlib.sha256(f"{tree.label}\0{datetime.now(timezone.utc).isoformat()}".encode()).hexdigest()[:12]
     # Resolved: a harness reports physical paths (macOS /var is /private/var).
     base = Path(tempfile.mkdtemp(prefix="reach-", dir=str(work_dir) if work_dir else None)).resolve()
     workspace = base / "ws"
     try:
-        workspace.mkdir()
-        check_ancestors(workspace, tuple(dict.fromkeys(ANCESTOR_GUARD + profile.guidance_names)))
-        salt = distinct_salt(tree, list(groups), salt, shadows=tuple(s.shadow for s in plan if s.shadow))
-        seeded = build_workspace(tree, list(groups), workspace, salt, groups)
-        _check_shadow_paths(workspace, plan)
+        salt, seeded = _prepare(tree, profile, groups, plan, workspace, salt)
+        if dry_run:
+            return {"files": files, "runs": planned(probed, profile, model, kinds, only, bin_path, max_turns,
+                                                    budget_usd, shadows)}
         version_env = profile.env(base / "cfg-version")
         version = profile.version(version_env, bin_path)
         trace_dir = out_dir / "traces"
@@ -487,7 +492,7 @@ def run_reach(
                 records.append({"file": item.path, "scenario": scenario.id, "harness": profile.name,
                                 "harness_version": version, "model": model, **classify(item, transcript)})
     finally:
-        if not keep:
+        if dry_run or not keep:  # a dry run names no workspace, so it keeps none
             shutil.rmtree(base, onerror=retry_writable)
 
     by_class = {c: sum(1 for r in records if r["class"] == c) for c in CLASSES}
@@ -513,6 +518,18 @@ def run_reach(
             "matrix": _matrix(records),
         },
     }
+
+
+def _prepare(tree: RepoTree, profile: HarnessProfile, groups: dict[str, list[str]], plan: list[Scenario],
+             workspace: Path, salt: str) -> tuple[str, list[SeededFile]]:
+    """Build the workspace and make the checks a run makes before its first harness call: no guidance file above
+    the workspace, distinct tokens, a tree that can be seeded, free shadow paths. Returns the salt and the seeded."""
+    workspace.mkdir()
+    check_ancestors(workspace, tuple(dict.fromkeys(ANCESTOR_GUARD + profile.guidance_names)))
+    salt = distinct_salt(tree, list(groups), salt, shadows=tuple(s.shadow for s in plan if s.shadow))
+    seeded = build_workspace(tree, list(groups), workspace, salt, groups)
+    _check_shadow_paths(workspace, plan)
+    return salt, seeded
 
 
 def _run_one(profile: HarnessProfile, scenario: Scenario, model: str, workspace: Path,

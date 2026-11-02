@@ -367,14 +367,14 @@ def _refuse_receipt_over_probe(args: argparse.Namespace, out_dir: Path) -> None:
 
 
 def _reach_plan(args: argparse.Namespace, tree, profile, kinds: tuple[str, ...],
-                only: tuple[str, ...]) -> tuple[Any, list[str], int] | None:
-    """The manifest, the probed files and the count of scenarios a run executes; None once --dry-run printed its plan.
+                only: tuple[str, ...]) -> tuple[Any, list[str], int]:
+    """The manifest, the probed files and the count of scenarios a run executes, for a run and --dry-run alike.
 
     Exits as the run would: a bad manifest or scenario selection is a usage error and a failed git read a fetch
     failure (1); a tree whose every guidance file is a link that cannot be followed is run_reach's own refusal (1).
     """
     from dokimi.repos import ManifestError, SourceError
-    from dokimi.repos.reach import ReachError, followable, planned, probe_files, scenarios, shadow_for
+    from dokimi.repos.reach import ReachError, followable, probe_files, scenarios, shadow_for
 
     try:  # the manifest and the files it selects
         manifest = _load_manifest(tree, args, guidance_default=True)
@@ -393,10 +393,6 @@ def _reach_plan(args: argparse.Namespace, tree, profile, kinds: tuple[str, ...],
         missing = [o for o in only if o not in available]
         if missing:
             raise ReachError(f"--only {', '.join(missing)} matches no scenario (have: {', '.join(available)})")
-        if args.dry_run:
-            runs = planned(probed, profile, args.model, kinds, only, args.bin, args.max_turns, args.budget, shadow)
-            print(json.dumps({"files": files, "runs": runs}, indent=2))
-            return None
         planned_count = len(scenarios(probed, kinds, only, shadow))
         if not planned_count:
             raise ReachError("no scenario selected (check --scenarios and --only)")
@@ -431,24 +427,25 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
     except (SourceError, OSError, ValueError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
-    plan = _reach_plan(args, tree, profile, kinds, only)
-    if plan is None:  # --dry-run printed it
-        return
-    manifest, files, planned_count = plan
-    print(f"{len(files)} guidance files, {planned_count} scenarios, "
-          f"at most ${args.budget:g} each", file=sys.stderr)
+    manifest, files, planned_count = _reach_plan(args, tree, profile, kinds, only)
+    if not args.dry_run:
+        print(f"{len(files)} guidance files, {planned_count} scenarios, "
+              f"at most ${args.budget:g} each", file=sys.stderr)
     out_dir = Path(args.out or "reach-out")
     _refuse_receipt_over_probe(args, out_dir)
-    try:  # the harness runs: a runtime failure
+    try:  # the harness runs, or with --dry-run every check before the first: a runtime failure
         payload = run_reach(
             tree=tree, manifest=manifest, profile=profile, model=args.model, out_dir=out_dir,
             bin_path=args.bin, work_dir=Path(args.work_dir) if args.work_dir else None, kinds=kinds,
             only=only, salt=args.salt, max_turns=args.max_turns, budget_usd=args.budget,
-            timeout_s=args.timeout, keep=args.keep,
+            timeout_s=args.timeout, keep=args.keep, dry_run=args.dry_run,
         )
     except (SourceError, ProfileError, ReachError) as exc:  # ProfileError: --bin cannot run its version command
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
+    if args.dry_run:
+        print(json.dumps(payload, indent=2))
+        return
     path = save_reach(payload, out_dir)
     _print_reach_output(tree, profile, payload, out_dir, path, receipt=args.format == "receipt")
     if any(s["error"] for s in payload["scenarios"]):
@@ -725,7 +722,8 @@ def register(sub, positive_int) -> None:
                          help="matrix: the table (default). receipt: print the effective-instructions/v0 receipt as JSON and "
                          "write it to effective_instructions.json in --out (docs/repo-evaluation-contract.md §7.1)")
     reach_p.add_argument("--dry-run", action="store_true", dest="dry_run",
-                         help="Print the files and the exact argv of every scenario; run nothing")
+                         help="Print the files and the exact argv of every scenario; run no harness. It makes the "
+                         "checks a run makes before its first harness call, so it builds the workspace and removes it")
     reach_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
     reach_p.set_defaults(func=_reach_entry)
 
