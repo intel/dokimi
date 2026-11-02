@@ -125,6 +125,7 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
 
     entries: list[dict[str, Any]] = []
     unreadable_warnings: list[str] = []
+    own_t = _own_targets(tree, guidance, groups, claude, bool(root_claude_for_off))
     for f in guidance:
         t = _target(tree, f)
         aliases = groups.get(t, [f])
@@ -149,7 +150,7 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
     # What loads without a rule: a rule promotes a guidance entry below, but that does not make it independently loaded
     guidance_loaded = {_target(tree, e["path"]) for e in entries if e["when"] != "off"}
     counted = {_target(tree, f) for f in guidance}
-    entries += _rules(tree, files if rules else [], counted, start_t, unreadable_warnings, entries)
+    entries += _rules(tree, files if rules else [], counted, start_t, unreadable_warnings, entries, own_t)
     _import_entries(tree, at_start, lazily, guidance, counted, entries, unreadable_warnings, rules)
 
     skills = _skills(tree, [f for f in files if SKILL_GLOB.match(f)])
@@ -230,6 +231,18 @@ def _import_entries(tree: RepoTree, at_start: set[str], lazily: set[str], guidan
         entries.append({"path": f, "kind": "import", "when": when, "chars": chars})
 
 
+def _own_targets(tree: RepoTree, guidance: list[str], groups: dict[str, list[str]], claude: list[str],
+                 displaced: bool) -> set[str]:
+    """The guidance files read on their own, not only through an import (a displaced AGENTS.md is read by import only)."""
+    own = set()
+    for f in guidance:
+        t = _target(tree, f)
+        aliases = groups.get(t, [f])
+        if any(a in claude for a in aliases) or not (displaced and f.rsplit("/", 1)[-1] == "AGENTS.md"):
+            own.add(t)
+    return own
+
+
 def _is_root(path: str) -> bool:
     """Guidance Claude Code reads at start: at the root, or the project memory in `.claude/`."""
     return "/" not in path or path in (".claude/CLAUDE.md", ".claude/AGENTS.md")
@@ -279,7 +292,7 @@ def _chars(tree: RepoTree, path: str) -> tuple[int, str | None]:
 
 
 def _rules(tree: RepoTree, files: list[str], counted: set[str], start_t: set[str],
-           warnings: list[str], guidance: list[dict[str, Any]]) -> list[dict[str, Any]]:
+           warnings: list[str], guidance: list[dict[str, Any]], own_t: set[str]) -> list[dict[str, Any]]:
     """The ``rule`` entries of ``files``, skipping files already ``counted`` (and adding theirs).
 
     A rule that is the same file as a guidance entry (in ``guidance``) is not counted twice: that entry
@@ -311,7 +324,9 @@ def _rules(tree: RepoTree, files: list[str], counted: set[str], start_t: set[str
             # a link to a file already counted (a guidance file, or another rule): the same bytes, loaded once.
             # The entry takes the earlier loading condition, and that route's count: a rule has its frontmatter removed.
             entry = by_target.get(target)
-            if entry is not None and rank[when] > rank[entry["when"]]:
+            # guidance that loads only through this rule link takes the rule's count even at the same condition
+            if entry is not None and (rank[when] > rank[entry["when"]]
+                                      or (rank[when] == rank[entry["when"]] and target not in own_t)):
                 entry["when"] = when
                 entry["chars"] = chars
             continue

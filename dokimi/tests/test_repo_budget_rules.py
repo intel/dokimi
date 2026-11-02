@@ -480,3 +480,18 @@ def test_a_scoped_rule_alias_of_agents_md_does_not_suppress_a_cut_import(tmp_pat
 
     assert _by_path(payload)[("AGENTS.md", "guidance")]["when"] == "lazy"
     assert any("c4.md: import of AGENTS.md is past" in w for w in payload["warnings"])
+
+
+def test_an_off_agents_md_reached_only_through_a_rule_link_is_charged_its_body(tmp_path):
+    # CLAUDE.md imports the rule link and nothing else loads AGENTS.md, so the rule route's count applies
+    tree = _tree(tmp_path, {"CLAUDE.md": "@.claude/rules/agents.md\n", "AGENTS.md": "---\npaths: src/**\n---\nagents\n"})
+    (tmp_path / ".claude/rules").mkdir(parents=True)
+    try:
+        (tmp_path / ".claude/rules/agents.md").symlink_to(tmp_path / "AGENTS.md")
+    except OSError:
+        pytest.skip("symlinks unavailable")
+
+    payload = budget(tree, NAMES, rules=True)
+
+    assert _by_path(payload)[("AGENTS.md", "guidance")] == {
+        "path": "AGENTS.md", "kind": "guidance", "when": "start", "chars": len("agents\n")}
