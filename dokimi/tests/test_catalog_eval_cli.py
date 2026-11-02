@@ -291,3 +291,13 @@ def test_task_loader_type_error_replaces_earlier_receipts_with_an_error(tmp_path
     assert done.returncode == 2
     assert not (out / "result.json").exists()
     assert "t1" in (out / "report.md").read_text()
+
+
+@pytest.mark.parametrize("name,content", [("report.md", "my notes"), ("plan.json", "{}"), ("result.json", "[1]"), ("catalog.json", "not json")])
+def test_unrelated_file_named_like_a_receipt_is_preserved(tmp_path, name, content):
+    root = _catalog(tmp_path)
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / name).write_text(content)
+    assert _run(root, out).returncode == 2
+    assert (out / name).read_text() == content

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import platform
 import tempfile
@@ -17,14 +18,30 @@ from dokimi import __version__
 from dokimi.artifacts import save_artifact
 from dokimi.exit_codes import usage_exit
 
-_OUTPUTS = {"catalog.json", "plan.json", "result.json", "report.md"}
+_OUTPUTS = {"catalog.json": "catalog_eval.", "plan.json": "plan.", "result.json": "result.", "report.md": None}
+_REPORT_HEADER = "# Catalog static evaluation"
+
+
+def _is_receipt(path: Path) -> bool:
+    """A regular file this command wrote: its own report header or schema_version."""
+    if path.name not in _OUTPUTS or path.is_symlink() or not path.is_file():
+        return False
+    try:
+        head = path.read_text(encoding="utf-8")
+        prefix = _OUTPUTS[path.name]
+        if prefix is None:
+            return head.startswith(_REPORT_HEADER)
+        version = json.loads(head).get("schema_version")
+    except (OSError, ValueError, AttributeError):
+        return False
+    return isinstance(version, str) and version.startswith(prefix)
 
 
 def _output(root: Path, out: Path) -> None:
     """Require a dedicated output directory outside all catalog input trees."""
     if root.is_relative_to(out) or out.is_relative_to(root):
         raise ValueError("--out-dir must be outside the entire catalog checkout and its ancestors")
-    if out.exists() and (not out.is_dir() or any(p.name not in _OUTPUTS or p.is_symlink() or not p.is_file() for p in out.iterdir())):
+    if out.exists() and (not out.is_dir() or any(not _is_receipt(p) for p in out.iterdir())):
         raise ValueError("--out-dir must be an empty directory or contain only earlier catalog evaluation receipts")
 
 
