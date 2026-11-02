@@ -614,6 +614,12 @@ not mean to route against, to route the name. `dokimi catalog scan` lists the sa
 name that is not kebab-case or not its directory name) is also left out, with a warning naming the error; pass
 `--include-invalid` to keep it, as a harness that refuses to list such a skill would not. A `skill:`
 competitor with a spec error is skipped with the same warning.
+The directory-name check applies to a `skill:` competitor under a `skills/` directory
+(`skills/<dir>/SKILL.md`, `plugins/x/skills/<dir>/SKILL.md`), as it does in a catalog. A `skill:`
+competitor anywhere else is read as a root skill, and its name is not checked against its
+directory: `tools/database/SKILL.md` named `db` is routed when passed explicitly, while a
+`--catalog` scan of its tree leaves it out with a name error. Keep the directory name and the
+`name` field equal to get the same field from both.
 A name that conflicts with another catalog skill leaves the field whatever the flag says.
 A `skill:` competitor that is not a `SKILL.md`, or a directory without one, is skipped with a
 warning. A shell glob must be expanded first, with the prefix on each path

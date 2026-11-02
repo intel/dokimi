@@ -344,6 +344,16 @@ def test_a_skill_under_a_skills_directory_keeps_the_directory_name_check(tmp_pat
         assert verdict is not None and "not the directory name 'checkout'" in verdict, ref
 
 
+def test_an_explicit_skill_outside_a_skills_directory_is_not_name_checked(tmp_path):
+    # documented in skill-novelty.md: a skill: competitor with no skills/ parent is read as a root skill
+    path = tmp_path / "cat" / "tools" / "database"
+    path.mkdir(parents=True)
+    (path / "SKILL.md").write_text(
+        "---\nname: db\ndescription: tune a database query\n---\n\n# B\n\n## A section\n",
+        encoding="utf-8")
+    assert competitor_left_out(f"skill:{path}", include_disabled=False, include_invalid=False) is None
+
+
 def test_a_relative_reference_under_a_skills_directory_keeps_the_name_check(tmp_path, monkeypatch):
     # from the skills/ directory a relative reference must get the same verdict as the absolute one:
     # without the abspath, "checkout/SKILL.md" would read as a root skill and skip the name check
