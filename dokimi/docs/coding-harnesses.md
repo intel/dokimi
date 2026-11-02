@@ -331,7 +331,7 @@ The result is in `metrics.isolation_probe` and `isolation_probe.json`:
   by `docker cp`: the `claude` binary, the files named by the file-valued
   variables below (CA bundles, `AWS_SHARED_CREDENTIALS_FILE` with every
   profile in it, `AWS_CONFIG_FILE`, `GOOGLE_APPLICATION_CREDENTIALS`), and
-  the skill arm's plugin at `/opt/abskill` (built with symlinks followed, as
+  the skill arm's plugin at `/opt/claude-plugins` (built with symlinks followed, as
   for the host arm).
 - **Image needs.** A glibc image (the host's `claude` binary is copied in; a
   musl image fails the `--version` check), and a working tree in `/app` that
@@ -450,7 +450,7 @@ The `-host` variants run the agent on the host instead. The host cannot hide an
 absolute path or close the network, so these harnesses state what they seal in
 every run's `metrics.isolation`. What they do:
 
-- solve in a fresh `dokimi-run-*` temp tree outside any checkout;
+- solve in a fresh temp tree (a plain `mkdtemp` name) outside any checkout;
 - point `HOME` and `CLAUDE_CONFIG_DIR` at empty scratch dirs;
 - pass only an allowlist of variables;
 - reach `task_files`, `treatment`, `operator_config`, `network` and `env` by
@@ -914,7 +914,7 @@ python cli.py tasks run \
 The arms differ by the skill and one notice, and by nothing else:
 
 - **Delivery.** The skill directory is wrapped in a one-skill plugin and passed
-  with `--plugin-dir`, at `/opt/abskill` in the container (outside `/app`, and
+  with `--plugin-dir`, at `/opt/claude-plugins` in the container (outside `/app`, and
   removed before the verifier runs) or beside the scratch work tree on the
   host. The agent loads it with its own `Skill` tool. The skill's top-level
   `evals/` (its prompts and expected outputs) is not copied. Symlinks are
