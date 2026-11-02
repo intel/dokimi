@@ -272,6 +272,12 @@ def test_merge_keeps_two_failed_runs_of_one_harness():
     assert [r["status"] for r in merged["runs"]] == ["failed", "failed"]
 
 
+def test_merge_refuses_two_ran_runs_even_when_their_version_is_unknown():
+    ran = _run(version="unknown")
+    with pytest.raises(cf.ConformanceError, match="codex unknown on toy"):
+        cf.merge([_matrix(runs=[ran]), _matrix(runs=[ran])])
+
+
 def test_merge_refuses_nothing():
     with pytest.raises(cf.ConformanceError, match="nothing to merge"):
         cf.merge([])

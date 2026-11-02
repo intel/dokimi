@@ -249,7 +249,7 @@ def merge(matrices: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     seen: set[tuple[str, str, str]] = set()
     for matrix in matrices:
         for run in matrix["runs"]:
-            if run["version"] == UNKNOWN:  # a failed or skipped run names no version, so a rerun of one is not a repeat
+            if run["status"] in ("failed", "skipped"):  # no receipt, so no cells to count twice and no version to key on
                 continue
             key = (run["harness"], run["version"], run["case"])
             if key in seen:
