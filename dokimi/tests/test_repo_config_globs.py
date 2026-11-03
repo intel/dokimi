@@ -88,3 +88,36 @@ def test_an_unreadable_directory_inside_a_skill_is_a_config_error_not_left_out_o
             load_repo_config(root).subjects()
     finally:
         scripts.chmod(0o755)
+
+
+@pytest.mark.skipif(os.name == "nt" or os.geteuid() == 0, reason="permissions are not enforced on Windows or for root")
+def test_an_unreadable_link_beside_a_literal_suite_file_is_not_read(tmp_path):
+    # a literal suite path reads only its own names: an unrelated link to a locked directory is never stat'ed
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: evaluation/task.json\n"
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": body,
+        "skills/a/SKILL.md": "a\n",
+        "evaluation/task.json": "[]\n",
+        "locked/dir/q.json": "{}\n",
+    })
+    os.symlink("../locked/dir", root / "evaluation" / "unrelated")
+    locked = root / "locked"
+    locked.chmod(0)
+    try:
+        assert "skill/a" in {s.id for s in load_repo_config(root).subjects()}
+    finally:
+        locked.chmod(0o755)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
+def test_a_link_to_a_regular_file_beside_a_double_star_suite_is_not_a_suite_link(tmp_path):
+    # ** reads through directory links only: a link to a regular file is never read, so it is no link of the suite
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: evaluation/**/task.json\n"
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": body,
+        "skills/a/SKILL.md": "a\n",
+        "evaluation/task.json": "[]\n",
+        "README.md": "readme\n",
+    })
+    os.symlink("../README.md", root / "evaluation" / "readme.md")
+    assert "skill/a" in {s.id for s in load_repo_config(root).subjects()}

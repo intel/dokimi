@@ -106,6 +106,22 @@ def _plain_path(text: str) -> str:
     return text
 
 
+def _settled(target: str) -> str:
+    """An absolute ``target`` with each ``..`` that follows a real directory folded into it, as the kernel reads the
+    path. A ``..`` that follows a link is kept: the kernel resolves it from the link's target, which a fold would miss."""
+    anchor, *names = Path(target).parts
+    kept: list[str] = []
+    for name in names:
+        if name == "..":
+            top = kept[-1] if kept else None
+            here = os.path.join(anchor, *kept)
+            if top not in (None, "..") and os.path.isdir(here) and not os.path.islink(here):
+                kept.pop()
+                continue
+        kept.append(name)
+    return os.path.join(anchor, *kept)
+
+
 def link_text(link: Path, root: Path) -> str:
     """A symlink's target as the digests hold it: as written, except an absolute target inside ``root``, which is
     written relative to the link. So a tree digests the same at another checkout path (the link's text is the same).
@@ -138,6 +154,13 @@ def link_text(link: Path, root: Path) -> str:
                 lexical = os.path.normcase(os.path.normpath(target))
                 if lexical != key_anchor and not lexical.startswith(key_anchor.rstrip(os.sep) + os.sep):
                     return target
+                # a ".." that leaves the tree and comes back in (tree/../tree/x) is folded, so the name of the checkout's
+                # directory does not reach the digest; the ".." after a link stays, as the kernel reads it
+                settled = _settled(target)
+                key_settled = os.path.normcase(settled)
+                if key_settled != key_anchor and not key_settled.startswith(key_anchor.rstrip(os.sep) + os.sep):
+                    return target
+                rest = [part for part in settled[len(anchor):].split(os.sep) if part not in ("", ".")]
                 return "/".join([".."] * depth + rest) + slash or "."
             here = os.path.join(anchor, *link.relative_to(root).parent.parts)
             return os.path.relpath(os.path.join(anchor, *rest), here).replace(os.sep, "/") + slash

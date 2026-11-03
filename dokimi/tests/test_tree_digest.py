@@ -308,3 +308,22 @@ def test_a_readable_link_to_an_unreadable_target_digests_by_its_text(tmp_path):
     finally:
         os.chmod(private, 0o700)  # owner access back so tmp_path can be removed
 
+
+
+@symlinks
+def test_an_absolute_link_that_leaves_the_tree_and_comes_back_digests_the_same_at_another_path(tmp_path):
+    # /tmp/a/../a/q.json re-enters the tree at its own q.json: the checkout's name must not reach the digest
+    roots = {name: _write(tmp_path / name, {"q.json": "[]\n"}) for name in ("a", "b")}
+    for name, root in roots.items():
+        os.symlink(f"{root}/../{name}/q.json", root / "current")
+    assert tree_digest(roots["a"]) == tree_digest(roots["b"])
+
+
+@symlinks
+def test_a_dotdot_after_a_missing_directory_is_kept_so_the_link_does_not_digest_as_its_folded_target(tmp_path):
+    # root/gone/../x is ENOENT while gone is absent (a dangling link), not root/x: the two must not digest alike
+    dangling = _write(tmp_path / "a", {"x": "x\n"})
+    os.symlink(f"{dangling}/gone/../x", dangling / "current")
+    direct = _write(tmp_path / "b", {"x": "x\n"})
+    os.symlink(f"{direct}/x", direct / "current")
+    assert tree_digest(dangling) != tree_digest(direct)

@@ -81,10 +81,12 @@ def _declared_links(path: Path, root: Path) -> list[tuple[str, ...]]:
 
 def _hops(path: Path, root: Path, root_real: Path) -> list[tuple[str, ...]]:
     """The repository-relative links met resolving ``path`` (a path under ``root``, as written): each link on its
-    declared way, and each link on the way to every target a link points to, until the path is resolved or leaves the
-    repository. A link's location is its real one, as git names it. A loop is cut after a fixed number of hops."""
+    declared way, and each link on the way to every target a link points to, until the path is resolved. A link's
+    location is its real one, as git names it. A loop is cut after a fixed number of hops. The walk is kept at its real
+    place in the filesystem, so a ``..`` may leave the repository and come back into it: a link met on the way back is
+    still recorded, and a link outside the repository is followed but not returned."""
     pending = list(path.relative_to(root).parts)
-    here: tuple[str, ...] = ()  # the real directory the next component is looked up in
+    here = root_real  # the real directory the next component is looked up in
     found: dict[tuple[str, ...], None] = {}
     hops = 0
     while pending:
@@ -92,29 +94,22 @@ def _hops(path: Path, root: Path, root_real: Path) -> list[tuple[str, ...]]:
         if part in ("", "."):
             continue
         if part == "..":
-            if not here:
-                break
-            here = here[:-1]
+            here = here.parent  # the directory holding ``here`` is real, so its parent is the kernel's parent
             continue
-        link = root_real.joinpath(*here, part)
+        link = here / part
         if not link.is_symlink():
-            here = (*here, part)
+            here = link
             continue
         hops += 1
         if hops > 256:
             break
-        found[(*here, part)] = None
+        if link.is_relative_to(root_real):
+            found[tuple(link.relative_to(root_real).parts)] = None
         target = _plain_path(os.readlink(link))  # Windows reads an absolute target back as \\?\C:\...
         if os.path.isabs(target):
-            for anchor in (root_real, root):  # written as the resolved or the given spelling of the repository
-                try:
-                    pending = [*Path(target).relative_to(anchor).parts, *pending]
-                    break
-                except ValueError:
-                    continue
-            else:
-                break  # an absolute target outside the repository: no more of the way is ours
-            here = ()
+            anchor, *names = Path(target).parts  # walked from the filesystem root, as the kernel walks it
+            pending = [*names, *pending]
+            here = Path(anchor)
         else:
-            pending = [*Path(target).parts, *pending]
+            pending = [*Path(target).parts, *pending]  # a relative target is read from the link's directory: here
     return list(found)

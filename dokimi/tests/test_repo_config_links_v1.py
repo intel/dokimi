@@ -160,6 +160,7 @@ def test_a_real_suite_whose_only_file_is_deleted_still_claims_the_suite(tmp_path
     assert impact.unclaimed == []
 
 
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
 @pytest.mark.skipif(os.name == "nt", reason="the executable bit is not kept on Windows")
 def test_a_file_of_a_nested_checkout_takes_its_mode_from_that_repository(tmp_path):
     """A file of a nested checkout is not in the outer index, so its mode is the nested repository's index bit, not the
@@ -181,3 +182,19 @@ def test_a_file_of_a_nested_checkout_takes_its_mode_from_that_repository(tmp_pat
     before = _subjects(root)["skill/a"].suite_hash
     os.chmod(nested / "q.sh", 0o700)
     assert _subjects(root)["skill/a"].suite_hash == before
+
+
+@symlinks
+@pytest.mark.parametrize("form", ["relative", "absolute"])
+def test_a_skill_link_whose_way_leaves_the_repository_and_comes_back_names_the_middle_link(tmp_path, form):
+    # skills/a -> ../../repo/mid: the way leaves the repository and re-enters it at mid, a link v1 refuses
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n",
+        "real/a/SKILL.md": "# a\n",
+    })
+    os.symlink("real/a", root / "mid")
+    target = f"../../{root.name}/mid" if form == "relative" else f"{root}/../{root.name}/mid"
+    (root / "skills").mkdir()
+    os.symlink(target, root / "skills" / "a")
+    with pytest.raises(ConfigError, match="reached through the link mid"):
+        load_repo_config(root).subjects()

@@ -18,5 +18,6 @@ SPDX-License-Identifier: Apache-2.0
   (`SKILL.md`, a script, a reference, one eval file) is refused at load, naming the subject and the file. A link in a suite that resolves into its skill is refused too. An explicit subject whose id is taken by a default skill at another directory is refused instead of silently replacing it. `baseline.store: false`
   reads as `off`, and a budget number that YAML reads as text (`1e3`) is refused with the plain
   decimal or the `1.0e+3` spelling, and a `.nan` or `.inf` budget is refused. A suite directory is
-  hashed file by file, following symlinks; a link also counts by its target text, so an edit to a shared eval, or a retarget of its link, moves `suite_hash`. Nothing reads the file yet: the commands that use it come later,
+  hashed file by file. In v1 a link is refused in a suite and on the way to one (the only link a subject may hold is
+  its skill directory, when that links inside the repository), so its retargeting is never attributed to the suite. Nothing reads the file yet: the commands that use it come later,
   and existing `.agent-eval/` lookups are unchanged.

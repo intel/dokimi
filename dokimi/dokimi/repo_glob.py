@@ -15,14 +15,18 @@ from pathlib import Path
 _MISSING = (errno.ENOENT, errno.ENOTDIR, errno.ELOOP)  # a path that is not there, or a link that loops: no entries
 
 
-def _listing(base: Path, *, strict: bool = False) -> list[tuple[str, bool, bool]]:
+def _listing(base: Path, *, strict: bool = False, dirs: bool = True) -> list[tuple[str, bool, bool]]:
     """(name, is_dir, is_symlink) of each entry of ``base`` that can be read. An unreadable one is left out, unless
     ``strict``: then its error is raised (a suite must not hash as if its files were absent). A missing ``base`` has
-    no entries either way."""
+    no entries either way. ``is_dir`` is read only when ``dirs``: a name the caller does not descend into costs no
+    metadata, so a link it never reads (one into a locked directory) cannot fail the walk."""
     out: list[tuple[str, bool, bool]] = []
     try:
         with os.scandir(base) as it:
             for entry in it:
+                if not dirs:
+                    out.append((entry.name, False, entry.is_symlink()))
+                    continue
                 try:
                     out.append((entry.name, entry.is_dir(), entry.is_symlink()))
                 except OSError as exc:
@@ -34,6 +38,14 @@ def _listing(base: Path, *, strict: bool = False) -> list[tuple[str, bool, bool]
         if strict and exc.errno not in _MISSING:
             raise
     return out
+
+
+def _regular_link(path: Path) -> bool:
+    """True for a symbolic link to a regular file: a walk never reads through one, so it is not a link of a suite."""
+    try:
+        return path.is_file()
+    except OSError:
+        return False
 
 
 def _glob_walk(base: Path, segs: tuple[str, ...], i: int, found: set[Path], *, strict: bool,
@@ -50,13 +62,13 @@ def _glob_walk(base: Path, segs: tuple[str, ...], i: int, found: set[Path], *, s
         if more or base.is_dir():  # terminal ** matches directories only
             _glob_walk(base, segs, i + 1, found, strict=strict, links=links)
         for name, is_dir, is_link in _listing(base, strict=strict):
-            if is_link and more:
+            if is_link and more and not _regular_link(base / name):
                 links.add((base / name, segs[i + 1:]))
             if is_dir:  # follows symlinks: a linked directory is matched, but not descended
                 _glob_walk(base / name, segs, i + 1 if is_link else i, found, strict=strict, links=links)
         return
     wild = any(c in seg for c in "*?[")  # matched by exact name against the listing: case-sensitive everywhere
-    for name, _, is_link in _listing(base, strict=strict):
+    for name, _, is_link in _listing(base, strict=strict, dirs=False):  # only a matched name is looked up further
         if fnmatch.fnmatchcase(name, seg) if wild else name == seg:
             if is_link and more:
                 links.add((base / name, segs[i + 1:]))
