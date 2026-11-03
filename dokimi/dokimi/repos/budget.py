@@ -16,7 +16,7 @@ starts at the repository root:
 - **on demand**: skill bodies, loaded when the agent invokes the skill.
 - **off**: AGENTS.md files the harness will not read: a root CLAUDE.md, .claude/CLAUDE.md or CLAUDE.local.md is present and no
   CLAUDE.md imports them (measured on Claude Code 2.1.286; the reach probe re-measures).
-- **off** too: an AGENTS.md below the root (not .claude/AGENTS.md, read as a root file) whose own directory holds a CLAUDE.md, CLAUDE.local.md or .claude/CLAUDE.md
+- **off** too: an AGENTS.md below the root that resolves (not .claude/AGENTS.md, read as a root file) whose own directory holds a CLAUDE.md, CLAUDE.local.md or .claude/CLAUDE.md
   (not one in a parent below the root or a deeper directory), unless a CLAUDE* file is a link to it or a file that loads imports it
   (measured on Claude Code 2.1.316; only for a profile that sets ``guidance.claude_displaces_agents``, claude-code).
 
@@ -183,9 +183,9 @@ def _is_root(path: str) -> bool:
 def _displaced(tree: RepoTree, every: list[str], claude: list[str], root_claude: list[str],
                same_dir: bool) -> dict[str, list[str]]:
     """Each AGENTS.md a CLAUDE* file turns off, with the files that do: every one while a root CLAUDE* resolves, else,
-    with ``same_dir``, one whose own directory holds a CLAUDE.md, CLAUDE.local.md or .claude/CLAUDE.md that resolves
-    (not one in a parent or deeper directory; measured on Claude Code 2.1.316). Imports and aliases that still load it
-    are decided later."""
+    with ``same_dir``, one that resolves and whose own directory holds a CLAUDE.md, CLAUDE.local.md or .claude/CLAUDE.md
+    that resolves (not one in a parent or deeper directory; measured on Claude Code 2.1.316). Imports and aliases that
+    still load it are decided later."""
     agents = [f for f in every if f.rsplit("/", 1)[-1] == "AGENTS.md"]
     if root_claude:
         return {f: root_claude for f in agents}
@@ -196,6 +196,8 @@ def _displaced(tree: RepoTree, every: list[str], claude: list[str], root_claude:
     for f in agents:
         if _is_root(f):
             continue  # AGENTS.md and .claude/AGENTS.md: only a root CLAUDE* (the branch above) turns them off
+        if not _is_resolvable(tree, f):
+            continue  # a dangling or out-of-tree link: nothing to turn off, the not-readable warning says it
         d = f[: -len("AGENTS.md")]  # "sub/"
         beside = [d + n for n in CLAUDE_ROOT if d + n in present]
         if beside:

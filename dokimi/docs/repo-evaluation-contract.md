@@ -1185,7 +1185,7 @@ written (`repos/budget.py`): an AGENTS.md is `off` while a root CLAUDE\*.md
 exists, nested ones included, unless a root CLAUDE\* file aliases it or
 `@`-imports it (`start`), or a nested CLAUDE\* file `@`-imports it (`lazy`). So
 nested AGENTS.md files can appear, and an AGENTS.md at the root is not always
-`off`. Without a root CLAUDE\*.md, a nested AGENTS.md is `off` when its own
+`off`. Without a root CLAUDE\*.md, a nested AGENTS.md that resolves is `off` when its own
 directory holds a CLAUDE\*.md that does not alias or `@`-import it; no root
 file wins there, so `precedence_observed` lists none of those. If budget's
 rule changes, the receipt follows it.

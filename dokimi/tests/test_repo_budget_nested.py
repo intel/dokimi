@@ -120,6 +120,29 @@ def test_a_dangling_claude_link_beside_a_nested_agents_md_turns_nothing_off(tmp_
     assert _when(_budget(tree))["sub/AGENTS.md"] == "lazy"
 
 
+@pytest.mark.parametrize("target", ["missing.md", "../../outside.md"])  # dangling, out of the tree
+def test_an_unresolved_nested_agents_md_beside_a_claude_md_is_not_displaced(tmp_path, target):
+    """Claude Code cannot read it anyway: it keeps the status the base gives it and only the not-readable warning."""
+    (tmp_path / "outside.md").write_text("x", encoding="utf-8")
+    tree = _tree(tmp_path / "repo", {"sub/CLAUDE.md": "c"}, {"sub/AGENTS.md": target})
+    got = _budget(tree)
+    assert _when(got) == {"sub/AGENTS.md": "lazy", "sub/CLAUDE.md": "lazy"}
+    assert got["totals"]["off"] == 0
+    assert got["warnings"] == ["sub/AGENTS.md: not readable (not found, broken link, or outside tree), counted as 0"]
+
+
+def test_a_readable_nested_agents_md_beside_a_claude_md_is_off_next_to_a_broken_one(tmp_path):
+    tree = _tree(tmp_path, {"sub/CLAUDE.md": "c", "ok/AGENTS.md": "b" * 7, "ok/CLAUDE.md": "c"},
+                 {"sub/AGENTS.md": "missing.md"})
+    got = _budget(tree)
+    assert _when(got)["ok/AGENTS.md"] == "off"
+    assert _when(got)["sub/AGENTS.md"] == "lazy"
+    assert [w for w in got["warnings"] if "turns AGENTS.md loading off" in w] == [
+        "ok/CLAUDE.md turns AGENTS.md loading off in ok/ and no CLAUDE.md imports ok/AGENTS.md, so Claude Code does "
+        "not read it unless the agent opens it (import it with `@AGENTS.md` from a CLAUDE.md beside it; "
+        "`repo reach` measures it)"]
+
+
 def test_a_displaced_nested_agents_md_adds_no_imports(tmp_path):
     tree = _tree(tmp_path, {"sub/AGENTS.md": "@notes.md\n", "sub/notes.md": "n" * 4, "sub/CLAUDE.md": "c"})
     got = _budget(tree)
