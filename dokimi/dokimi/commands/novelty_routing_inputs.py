@@ -36,9 +36,8 @@ def routing_field(args: argparse.Namespace, exclude: set[str],
     """
     from dokimi.novelty.routing import (
         catalog_competitors,
-        disables_model_invocation,
+        competitor_left_out,
         non_skill_reason,
-        skill_file,
     )
 
     competitors = []
@@ -50,20 +49,19 @@ def routing_field(args: argparse.Namespace, exclude: set[str],
                 left_out.append(f"{ref}: {reason}")
             continue
         candidate = routing_card(ref)[0]
-        ref_file = skill_file(ref)
-        if (ref_file and not args.include_disabled
-                and disables_model_invocation(ref_file)):
-            print(f"WARNING: skipped competitor {ref}: disable-model-invocation "
-                  "(--include-disabled keeps it)", file=sys.stderr)
+        reason = competitor_left_out(ref, include_disabled=args.include_disabled,
+                                     include_invalid=args.include_invalid)
+        if reason:
+            print(f"WARNING: skipped competitor {ref}: {reason}", file=sys.stderr)
             if left_out is not None:
-                left_out.append(f"{ref}: disable-model-invocation")
+                left_out.append(f"{ref}: {reason}")
             continue
         competitors.append(candidate)
     if args.catalog:
         notes: list[str] = []
-        catalog = catalog_competitors(args.catalog,
-                                      exclude | {c.name for c in competitors}, notes,
-                                      include_disabled=args.include_disabled)
+        catalog = catalog_competitors(args.catalog, exclude | {c.name for c in competitors},
+                                      notes, include_disabled=args.include_disabled,
+                                      include_invalid=args.include_invalid)
         for note in notes:
             print(f"WARNING: {note}", file=sys.stderr)
         if left_out is not None:

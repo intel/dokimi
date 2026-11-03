@@ -385,7 +385,7 @@ def base_opener(source: RepoSource, tree: RepoTree) -> Callable[[str], RepoTree]
         git_dir = tree.root
     else:
         return None
-    shallow = _git(git_dir, "rev-parse", "--is-shallow-repository").strip() == "true"
+    shallow = is_shallow(git_dir)
 
     def open_base(rev: str) -> RepoTree:
         try:
@@ -398,6 +398,20 @@ def base_opener(source: RepoSource, tree: RepoTree) -> Callable[[str], RepoTree]
         return GitTree(git_dir, sha, label=f"{source.location}@{sha[:12]}")
 
     return open_base
+
+
+def is_shallow(git_dir: Path, env: process.Env = process.GIT_ENV) -> bool:
+    """Whether ``git_dir`` is a shallow clone, whose history stops at its boundary commits. ``env``:
+    git's environment, the caller's by default; a ``GIT_DIR`` in it wins over ``git_dir``."""
+    return _git(git_dir, "rev-parse", "--is-shallow-repository", env=env).strip() == "true"
+
+
+def isolated_git_env() -> dict[str, str]:
+    """git with no user or system configuration (hooks, signing, templates, credential helpers) and no
+    prompt: of the caller's environment only ``PATH``, ``LANG``, ``TMPDIR`` and ``SYSTEMROOT``."""
+    keep = {k: v for k, v in os.environ.items() if k in ("PATH", "LANG", "TMPDIR", "SYSTEMROOT")}
+    return {**keep, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_TERMINAL_PROMPT": "0",
+            "HOME": os.devnull}
 
 
 def ensure_clone(url: str, cache_dir: Path) -> Path:
@@ -480,8 +494,8 @@ def _norm(path: str) -> str:
     return PurePosixPath(path).as_posix().removeprefix("./").rstrip("/") or "."
 
 
-def _git(git_dir: Path | None, *args: str, check: bool = True) -> str:
-    raw = _run_git(git_dir, list(args), None, check).stdout_bytes
+def _git(git_dir: Path | None, *args: str, check: bool = True, env: process.Env = process.GIT_ENV) -> str:
+    raw = _run_git(git_dir, list(args), None, check, env).stdout_bytes
     return raw.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")  # strict, as a blob read always was
 
 
@@ -503,11 +517,12 @@ def _git_bytes(git_dir: Path, args: list[str], stdin: bytes) -> bytes:
     return _run_git(git_dir, args, stdin, True).stdout_bytes
 
 
-def _run_git(git_dir: Path | None, args: list[str], stdin: bytes | None, check: bool) -> process.Completed:
+def _run_git(git_dir: Path | None, args: list[str], stdin: bytes | None, check: bool,
+             env: process.Env = process.GIT_ENV) -> process.Completed:
     # core.fsmonitor=false: a repository's own config must not run a command when it is read.
     where = ["-c", "core.fsmonitor=false"] + (["-C", str(git_dir)] if git_dir is not None else [])
     try:
-        proc = process.git(*where, *args, input=stdin, timeout=_GIT_TIMEOUT_S)
+        proc = process.git(*where, *args, input=stdin, timeout=_GIT_TIMEOUT_S, env=env)
     except OSError as exc:
         raise SourceError(f"git {args[0]} failed: {exc}") from exc
     if proc.timed_out:
