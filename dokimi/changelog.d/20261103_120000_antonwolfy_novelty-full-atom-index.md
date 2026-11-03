@@ -17,7 +17,8 @@
   (without `--allow-unsafe`). `atoms.json` holds every atom and lists the
   sample in `sampled_atom_ids`: `novelty probe` and `novelty shorten` measure
   that sample by default and say so, and `--all-atoms` measures every atom in
-  the file, reusing the extraction. A file without the record (written
+  the file, reusing the extraction, with a stderr warning counting the added
+  atoms whose faithfulness is `unchecked`. A file without the record (written
   before it) reads as every atom sampled; one that names an atom it does not
   hold exits 2. When such an older file comes from a cap that bound
   (`extraction.sampled` set, or any `extraction.reached`) or may have bound

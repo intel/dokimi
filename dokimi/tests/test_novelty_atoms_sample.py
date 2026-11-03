@@ -245,6 +245,32 @@ def test_probe_measures_the_recorded_sample_or_with_all_atoms_every_atom(
     assert (note in capsys.readouterr().err) is (probed == 2)
 
 
+def test_all_atoms_warns_about_the_atoms_it_adds_that_were_never_checked(
+        tmp_path, monkeypatch, capsys):
+    """`novelty atoms` verifies only the sample, so the atoms outside it read `unchecked`."""
+    skill, atoms_json, saved = _capped_atoms_json(tmp_path, monkeypatch)
+    sampled = set(saved["sampled_atom_ids"])
+    for row in [row for row in saved["atoms"] if row["id"] not in sampled][:2]:
+        row["faithfulness"] = "supported"
+    atoms_json.write_text(json.dumps(saved))
+    argv = ("probe", "--artifact", f"skill:{skill}", "--atoms", str(atoms_json), "--concurrency",
+            "1", "--no-paraphrase", "--no-reversal", "--out", str(tmp_path / "p.json"))
+    warning = (f"WARNING: probe --all-atoms measures 4 atom(s) outside the sample {atoms_json} "
+               "records, 2 of them with faithfulness \"unchecked\": their answer key was never "
+               "checked against the text. To check every atom, re-run `novelty atoms "
+               "--all-atoms`, a new uncapped extraction that verifies each atom it extracts")
+    capsys.readouterr()
+    _cli(monkeypatch, *argv, "--all-atoms")
+    assert warning in capsys.readouterr().err
+    _cli(monkeypatch, *argv)  # the sample only: nothing unchecked is added
+    assert "--all-atoms measures" not in capsys.readouterr().err
+    for row in saved["atoms"]:
+        row["faithfulness"] = "supported"
+    atoms_json.write_text(json.dumps(saved))
+    _cli(monkeypatch, *argv, "--all-atoms")
+    assert "--all-atoms measures" not in capsys.readouterr().err
+
+
 def test_shorten_refuses_a_sample_the_entry_point_leaves_empty(tmp_path, monkeypatch, capsys):
     """Two entry-point atoms, five resource atoms, and a cap of one that sampled a resource atom."""
     skill = tmp_path / "s" / "SKILL.md"

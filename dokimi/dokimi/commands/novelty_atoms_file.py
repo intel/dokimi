@@ -81,6 +81,20 @@ def warn_capped_sample(saved: dict, path) -> None:
           "`novelty atoms` to index every atom", file=sys.stderr)
 
 
+def _warn_unchecked(atoms: list, sample: list, stage: str, path) -> None:
+    """Say on stderr how many atoms ``--all-atoms`` adds that were never checked for
+    faithfulness: ``novelty atoms`` verifies only the cap's sample (#371)."""
+    sampled = {atom.id for atom in sample}
+    added = [atom for atom in atoms if atom.id not in sampled]
+    unchecked = sum(1 for atom in added if atom.faithfulness == "unchecked")
+    if unchecked:
+        print(f"WARNING: {stage} --all-atoms measures {len(added)} atom(s) outside the sample "
+              f"{path} records, {unchecked} of them with faithfulness \"unchecked\": their answer "
+              "key was never checked against the text. To check every atom, re-run `novelty "
+              "atoms --all-atoms`, a new uncapped extraction that verifies each atom it extracts",
+              file=sys.stderr)
+
+
 def measured_atoms(args: argparse.Namespace, atoms: list, saved: dict, stage: str) -> list:
     """The atoms ``stage`` measures: the cap's sample ``atoms.json`` records, or with
     ``--all-atoms`` every atom in it, reusing its extraction (#371).
@@ -93,6 +107,8 @@ def measured_atoms(args: argparse.Namespace, atoms: list, saved: dict, stage: st
 
     warn_capped_sample(saved, args.atoms)
     sample = recorded_sample(saved, atoms)
+    if args.all_atoms:
+        _warn_unchecked(atoms, sample, stage, args.atoms)
     if args.all_atoms or len(sample) == len(atoms):
         return atoms
     if not sample and atoms:

@@ -1002,7 +1002,9 @@ sample's ids in probe order (`null` when the cap kept every atom). `novelty prob
 shorten` measure only those atoms by default, say so on stderr (`NOTE probe measures the 60 atoms
 atoms.json records as the cap's sample, of its 200`), and index spans from all of them;
 `--all-atoms` measures every atom in the file, reusing the extraction instead of paying for a new
-one. On a bundle, `novelty shorten` keeps only the entry point's atoms; when none of the sample is
+one. Those outside the sample were never checked for faithfulness, so when any of them reads
+`unchecked`, `--all-atoms` prints a `WARNING` with how many, and that `novelty atoms --all-atoms`
+(a new, uncapped extraction) verifies every atom it extracts. On a bundle, `novelty shorten` keeps only the entry point's atoms; when none of the sample is
 among them it would score nothing, so it exits 2 and asks for `--all-atoms`.
 `novelty view` colours spans from every atom. An `atoms.json` with no `sampled_atom_ids`,
 written before the record existed, held only the atoms its run probed, and is read as all of them
