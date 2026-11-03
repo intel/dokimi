@@ -9,4 +9,4 @@ SPDX-License-Identifier: Apache-2.0
 
 ### Added
 
-- **`process.unknown_reads` in `result.json`** — the relative shell reads a trace made at a directory the converter could not follow (after `source .venv/bin/activate`, `cd -`, or a `cd` in an earlier Claude Code Bash call), which give no `read` event, for Claude Code, Codex and Copilot alike; `0` when there are none. A `guidance_read` of `[]` with `unknown_reads` above 0 means not known, not none read. `docs/repo-evaluation-contract.md` §4.1 says so.
+- **`process.unknown_reads` in `result.json`** — the relative shell reads a trace made at a directory the converter could not follow (after `source .venv/bin/activate`, `cd -`, or a `cd` in an earlier Claude Code Bash call), which give no `read` event, for Claude Code, Codex and Copilot alike; `0` when there are none. A `guidance_read` of `[]` with `unknown_reads` above 0 means not known, not none read. `repo report` and `repo compare` show it as `process:unknown_reads`, after `process:guidance_read`. `docs/repo-evaluation-contract.md` §4.1 says so.
