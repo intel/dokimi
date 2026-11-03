@@ -484,3 +484,35 @@ def test_a_multiline_or_backtick_named_code_span_path_is_checked_as_a_path(tmp_p
 
     [review] = review_skills(read_skill_manifest(tmp_path))
     assert _codes(review) == ["path-escapes-skill"]
+
+
+def test_an_escaped_parenthesis_in_a_link_destination_is_one_target(tmp_path):
+    # the destination is ``a\)b.md``: one file, read once; the splitter's one-level reader would cut it at the backslash
+    skill_dir = _skill(tmp_path / "skills", "escaped-paren", name="escaped-paren",
+                       description="Use for escaped parentheses.", body="See [x](a\\)b.md).\n")
+    (skill_dir / "a)b.md").write_text("# A\n", encoding="utf-8")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == []
+
+
+@pytest.mark.parametrize("body, missing", [
+    ("- run `foo\n- then see [x](missing.md)\n- and `bar` here\n", "missing.md"),
+    ("- use ` for quotes\n- see [x](missing.md) and `foo`\n", "missing.md"),
+    ("# h ` here\n[x](missing.md) `\n", "missing.md"),
+])
+def test_a_code_span_does_not_run_across_list_items_or_headings(tmp_path, body, missing):
+    _skill(tmp_path / "skills", "span-blocks", name="span-blocks", description="Use for span blocks.", body=body)
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == ["link-missing"]
+    assert f"'{missing}'" in review.findings[0].message
+
+
+def test_a_code_span_naming_a_path_outside_the_checkout_is_never_read(tmp_path):
+    # the span is only read for its text; a path that resolves outside the checkout is not statted or reported
+    _skill(tmp_path / "skills", "span-escape", name="span-escape", description="Use for span escapes.",
+           body="Read `../../../../../../../../etc/passwd`.\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.findings == []

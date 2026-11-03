@@ -109,6 +109,11 @@ _LINK_OPEN_RE = re.compile(r"\]\(\s*")
 _LINK_END_RE = re.compile(rf"{_TARGET_TITLE}\s*\)")
 # A reference label alone on its line: its destination may be on the next line.
 _LABEL_ONLY_RE = re.compile(r"^ {0,3}\[(?!\^)[^\]]+\]:[ \t]*$")
+# A line that starts a reference definition (its target is read by the splitter, not _inline_destinations).
+_DEFINITION_START_RE = re.compile(r"^ {0,3}\[(?!\^)[^\]]+\]:")
+# Blocks that end a paragraph: a list item and an ATX heading (see _paragraphs).
+_LIST_ITEM_RE = re.compile(r"^[ \t]*(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)")
+_HEADING_RE = re.compile(r"^ {0,3}#{1,6}(?:[ \t]|$)")
 FENCE_OPEN_RE = re.compile(r"\ {0,3}(`{3,}|~{3,})(.*)$")
 FENCE_CLOSE_RE = re.compile(r"\ {0,3}(`{3,}|~{3,})[ \t]*$")
 # A fence under a list item may sit deeper than three spaces (the item's indentation); its opener is
@@ -354,15 +359,22 @@ def _indent(line: str) -> int:
 
 
 def _paragraphs(lines: list[str]) -> list[str]:
-    """The paragraphs of ``lines`` (blank lines end one), each joined by newlines."""
+    """The paragraphs of ``lines`` (blank lines end one), each joined by newlines.
+
+    A list item and an ATX heading are blocks of their own: a code span cannot run across them (CommonMark).
+    """
     out: list[str] = []
     block: list[str] = []
     for line in lines + [""]:
+        if not line.strip() or _LIST_ITEM_RE.match(line) or _HEADING_RE.match(line):
+            if block:
+                out.append("\n".join(block))
+                block = []
         if line.strip():
             block.append(line)
-        elif block:
-            out.append("\n".join(block))
-            block = []
+            if _HEADING_RE.match(line):
+                out.append("\n".join(block))
+                block = []
     return out
 
 
@@ -450,7 +462,8 @@ def _pieces(lines: list[str]) -> tuple[list[str], list[str]]:
     A code span is matched by its run of backticks, across the lines of its paragraph, and its text is
     taken whole. Its text and the escaped brackets are then blanked. Inline links are read from the
     paragraph (any depth of parentheses, a destination over lines), and reference definitions by the
-    markdown splitter of L0 (``dokimi.repos.l0.markdown.split``), line by line.
+    markdown splitter of L0 (``dokimi.repos.l0.markdown.split``), line by line. The splitter's inline
+    reader is not used: it reads one level of parentheses and no escapes, so it would disagree with this one.
     """
     targets: dict[str, None] = {}
     spans: dict[str, None] = {}
@@ -463,6 +476,8 @@ def _pieces(lines: list[str]) -> tuple[list[str], list[str]]:
         for target in _inline_destinations(masked):
             targets[target] = None
         for line in _join_label_lines(masked.split("\n")):
+            if not _DEFINITION_START_RE.match(line):
+                continue
             for _, target, _ in split_markdown(line).links:
                 targets[target] = None
     return list(targets), list(spans)
