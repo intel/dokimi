@@ -1192,7 +1192,9 @@ observations of that run. It cannot show:
   command the parser does not fully follow counts as moving the shell when
   its command word, after `builtin`, `command` or `time` and their options,
   names a directory builtin (`X="a b" cd "$D"`, `time -p cd sub`; not
-  `time git add .`); the forms that only drop a read are listed in
+  `time git add .`), and so does one in a `case` arm. `time` is that
+  keyword only as the first word, unquoted (`X=1 time cd sub` and
+  `\time cd sub` run /usr/bin/time); the forms that only drop a read are listed in
   [#374](https://github.com/intel/dokimi/issues/374);
 - when a source entered the request, or in what order (no timestamps);
 - start-up imports and skill listings from budget, which reach does not probe:

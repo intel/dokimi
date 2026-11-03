@@ -68,7 +68,8 @@ def test_a_failed_cd_then_cat_of_one_file_is_no_read(command):
 
 
 @pytest.mark.parametrize("command", ["cat AGENTS.md && cd sub", "make && cat AGENTS.md", "(cd sub) && cat AGENTS.md",
-                                     "env cd sub && cat AGENTS.md"])  # ``env cd`` runs no builtin: some program failed
+                                     "env cd sub && cat AGENTS.md",  # ``env cd`` runs no builtin: some program failed
+                                     "X=1 time cd sub && cat AGENTS.md", r"\time cd sub && cat AGENTS.md"])  # /usr/bin/time
 def test_a_failed_list_whose_other_part_is_not_a_cd_keeps_the_read(command):
     # the failure may be the other part's: the file may have been shown
     events = _events(_call("a", command), _result("a", "error", True))
@@ -247,6 +248,25 @@ def test_a_builtins_name_after_a_quote_shlex_cannot_split_moves_no_shell():
     first = r"grep $'it\'s' ."
     assert shell_reads_moved(first)[1] is False
     assert _reads(_events(_call("a", first), _result("a"), _call("b", "cat AGENTS.md"), _result("b"))) == ["AGENTS.md"]
+
+
+@pytest.mark.parametrize("first", ["X=1 time cd sub", r"\time cd sub", '"time" cd sub', "X=1 time -p cd sub"])
+def test_a_time_that_is_not_the_keyword_runs_a_child_and_moves_no_shell(first):
+    # after an assignment, or quoted or escaped, ``time`` is /usr/bin/time: the cd runs in a child process
+    assert shell_reads_moved(f"{first}; cat a") == (["a"], False)
+    assert _reads(_events(_call("a", first), _result("a"), _call("b", "cat AGENTS.md"), _result("b"))) == ["AGENTS.md"]
+
+
+@pytest.mark.parametrize("command", ["case x in a) cd sub;; esac", "case x in a) :;; b) cd sub;; esac",
+                                     "case $x in\n  a) echo\n     cd sub;;\nesac", "case x in a) source env.sh;; esac"])
+def test_a_directory_builtin_in_a_case_arm_may_move_the_shell(command):
+    # a case is not followed: the arm may have run
+    assert shell_reads_moved(f"{command}; cat a") == ([], True)
+    assert _reads(_events(_call("a", command), _result("a"), _call("b", "cat AGENTS.md"), _result("b"))) == []
+
+
+def test_a_case_with_no_directory_builtin_keeps_the_next_read():
+    assert shell_reads_moved("case x in a) echo a;; esac; cat a") == (["a"], False)
 
 
 def test_a_parents_cd_drops_a_subagents_later_relative_read():

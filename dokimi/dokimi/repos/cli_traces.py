@@ -27,7 +27,8 @@ from datetime import datetime
 from typing import Any
 
 from .shell_split import split_script
-from .shell_words import _DIR_LOST, _KEYWORDS, _cd, _command_words, _is_cd, _may_run_dir, _run_name, _runs_dir
+from .shell_words import (_DIR_LOST, _DIRS, _KEYWORDS, _cd, _command_words, _is_cd, _may_run_dir, _run_name, _runs_dir,
+                          _time_keyword, _unquoted)
 from .transcript import Transcript, _parse_time, clip_output, relative_path
 
 _BASH_WRAP = re.compile(r"^(?:/\S*/)?(?:ba|z)?sh -lc (.+)$", re.S)
@@ -85,7 +86,8 @@ def shell_reads(script: str, cwd: str = "") -> list[str]:
     relative read is not recorded) after ``cd -``, a bare ``cd``, a ``cd`` to a computed path, a
     ``pushd`` / ``popd``, an ``eval``, ``source`` or ``.`` (it may run a ``cd``; none of these when backgrounded or
     piped, as it then ran in a subshell: ``source env.sh & false || cat a`` reads a), a part the walker does not
-    follow whose command word is one of these (``time -p cd sub``, ``X="a b" cd "$D"``: :func:`_may_run_dir`), ``env -C`` / ``--chdir`` (the
+    follow whose command word is one of these (``time -p cd sub``, ``X="a b" cd "$D"``: :func:`_may_run_dir`), a ``case``
+    arm that names one (``case`` is not followed: its reads are not kept either), ``env -C`` / ``--chdir`` (the
     command's reads, but absolute ones), a ``cd`` after ``if`` / ``then`` / ``do`` / ``else`` (it may not run), a
     ``cd`` after ``&&`` / ``||`` once the chain holding it ends with ``;``, ``&`` or a newline (it may have been
     skipped), or a glob or brace expansion (the files are not known). A subshell ``( ... )`` or `` `...` `` records
@@ -121,7 +123,7 @@ def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
         if not chained and walk.gated:  # a cd after && or || may not have run: the next chain starts in no known directory
             walk.here, walk.gated = None, False
         walk.chain(op, chained)
-        if walk.in_function(_bare(part)):  # a definition runs nothing
+        if walk.in_function(_bare(part)) or walk.in_case(outer):  # a definition runs nothing; a case is not followed
             continue
         if op == "||" and walk.moved:
             walk.here = None
@@ -132,7 +134,7 @@ def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
             continue
         words = walk.words(part, after)
         if words:
-            out.extend(walk.command(words, after, chained))
+            out.extend(walk.command(words, after, chained, _time_keyword(part)))
     walk.chain(previous, False)  # a list backgrounded at the end (``cd sub && make &``) ran in a subshell too
     return out, walk
 
@@ -155,6 +157,7 @@ class _Walk:
         self.list_start: _Spot = (here, False, False)  # the spot where the && / || list began
         self.listed = False  # that list has more than one command
         self.function = 0  # the brace depth inside a function definition
+        self.case = 0  # the depth inside ``case ... esac``
         self.operands: int | None = None  # how many files the last printing command named
 
     def spot(self) -> _Spot:
@@ -180,6 +183,20 @@ class _Walk:
         if not self.function and not _FUNCTION_DEF.match(bare):
             return False
         self.function = max(self.function + len(_GROUP_OPEN.findall(bare)) - len(_GROUP_CLOSE.findall(bare)), 0)
+        return True
+
+    def in_case(self, outer: str) -> bool:
+        """Whether ``outer`` is part of a ``case ... esac``, which is not followed: an arm may run or not, so one naming a
+        directory builtin (as any word: ``case x in a) cd sub;; esac``) may move the shell, and its reads are not kept."""
+        words = _unquoted(outer.split())
+        while words[:1] and (words[0] in _KEYWORDS or words[0] == "{"):
+            words = words[1:]
+        self.case += words[:1] == ["case"]
+        if not self.case:
+            return False
+        if any(w in _DIRS for w in words):
+            self.lose()
+        self.case -= words[:1] == ["esac"]
         return True
 
     def lose(self, own_shell: bool = True) -> None:
@@ -231,19 +248,20 @@ class _Walk:
             words = words[1:]
         return words
 
-    def command(self, words: list[str], after: str, chained: bool = False) -> list[str]:
+    def command(self, words: list[str], after: str, chained: bool = False, timed: bool = False) -> list[str]:
         """Move the directory for a ``cd``; the files a printing command reads. ``chained``: the command follows
-        ``&&`` or ``||``, so a ``cd`` in it runs only if the command before it succeeded."""
+        ``&&`` or ``||``, so a ``cd`` in it runs only if the command before it succeeded; ``timed``: it starts with
+        bash's ``time`` keyword (:func:`~dokimi.repos.shell_words._time_keyword`)."""
         conditional = False
         while words and words[0] in _KEYWORDS:  # ``then cd x``: the cd may not run
             words, conditional = words[1:], True
-        words, via_env, chdir = _command_words(words)
+        words, via_env, chdir = _command_words(words, timed)
         if not words:
             return []
         name = _run_name(words[0], via_env)
         if name is None:
             return []
-        if name in _DIR_LOST or (conditional and name == "cd") or _may_run_dir(words):
+        if name in _DIR_LOST or (conditional and name == "cd") or _may_run_dir(words, timed):
             self.lose(after != "&")
         elif name == "cd":
             self.gated |= chained

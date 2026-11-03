@@ -17,6 +17,13 @@ _KEYWORDS = {"if", "then", "else", "elif", "do", "while", "until", "!"}
 _DIR_LOST = {"pushd", "popd", "eval", "source", "."}
 _DIRS = {"cd"} | _DIR_LOST  # the builtins that change, or may change, the directory
 _PREFIXES = {"builtin", "command", "time"}  # each runs the directory builtin named after it in this shell
+# ``time`` is bash's keyword only as the first word, unquoted; else (``X=1 time``, ``\time``) it is /usr/bin/time, a child
+_TIME = re.compile(r"\s*(?:(?:[{!]|if|then|else|elif|do|while|until)\s+)*time(?=\s|$)")
+
+
+def _time_keyword(text: str) -> bool:
+    """Whether the command in ``text`` starts with bash's ``time`` keyword, which runs the rest in this shell."""
+    return _TIME.match(text) is not None
 
 
 def _run_name(name: str, via_env: bool) -> str | None:
@@ -55,11 +62,11 @@ def _runs_dir(outer: str) -> bool:
     except ValueError:
         raw = outer.split()
         words, told = _unquoted(raw), [_unquote(w) is not None for w in raw]
-    rest = words
+    rest, timed = words, _time_keyword(outer)
     while rest and (rest[0] in _KEYWORDS or rest[0] == "{"):
         rest = rest[1:]
-    rest, via_env, _ = _command_words(rest)
-    at = _command_at(rest)
+    rest, via_env, _ = _command_words(rest, timed)
+    at = _command_at(rest, timed)
     if at is None or at >= len(rest):
         return False
     if told is not None and not all(told[:len(words) - len(rest) + at + 1]):
@@ -67,19 +74,21 @@ def _runs_dir(outer: str) -> bool:
     return not via_env and rest[at] in _DIRS
 
 
-def _may_run_dir(words: list[str]) -> bool:
+def _may_run_dir(words: list[str], timed: bool) -> bool:
     """The rule for a part the walker does not fully follow: its unquoted ``words``, from the name on, start with a
-    ``builtin``, ``command`` or ``time`` that :func:`_command_words` did not skip, as an option comes first (``time -p
-    cd sub``, ``command -p cd``, ``builtin -- cd``), and the command word after it names a directory builtin."""
-    at = _command_at(words) if words[:1] and words[0] in _PREFIXES else None
-    return at is not None and at < len(words) and words[at] in _DIRS
+    ``builtin``, ``command`` or ``time`` (``timed``: the keyword) that :func:`_command_words` did not skip, as an option
+    comes first (``time -p cd sub``, ``command -p cd``, ``builtin -- cd``), and the command word after it names a
+    directory builtin."""
+    at = _command_at(words, timed)
+    return at is not None and 0 < at < len(words) and words[at] in _DIRS
 
 
-def _command_at(words: list[str]) -> int | None:
-    """The index of the command word in unquoted ``words``, past ``builtin``, ``command`` and ``time`` with their options
-    (``time -p``, ``command -p``, ``--``); None for ``command -v`` / ``-V``, which only describes the command."""
+def _command_at(words: list[str], timed: bool) -> int | None:
+    """The index of the command word in unquoted ``words``, past ``builtin``, ``command`` and, when ``timed``, a first
+    ``time``, with their options (``time -p``, ``command -p``, ``--``); None for ``command -v`` / ``-V``, which only
+    describes the command."""
     at = 0
-    while at < len(words) and words[at] in _PREFIXES:
+    while at < len(words) and _prefix(words[at], timed and at == 0):
         prefix, at = words[at], at + 1
         while at < len(words) and words[at].startswith("-") and words[at] != "-":
             if prefix == "command" and set(words[at]) & {"v", "V"}:
@@ -112,16 +121,21 @@ def _unquote(word: str) -> str | None:
     return split[0] if len(split) == 1 else None
 
 
-def _command_words(words: list[str]) -> tuple[list[str], bool, bool]:
+def _prefix(word: str, timed: bool) -> bool:
+    """Whether ``word`` is ``builtin``, ``command``, or ``time`` as bash's keyword (``timed``), which run what follows."""
+    return word in _PREFIXES and (word != "time" or timed)
+
+
+def _command_words(words: list[str], timed: bool) -> tuple[list[str], bool, bool]:
     """The words from the command's name on; whether ``env`` runs it; and whether that ``env`` changes
-    directory (``-C`` / ``--chdir``). ``NAME=value`` words, ``builtin``, ``command`` or ``time`` before a
-    directory builtin (which runs it), and ``env`` with its options and assignments come before the name and are skipped.
-    ``words`` are unquoted: ``shlex.split``'s, or :func:`_unquoted`'s for a part shlex does not split."""
+    directory (``-C`` / ``--chdir``). ``NAME=value`` words, ``builtin``, ``command`` or a first ``time`` (``timed``: the
+    keyword) before a directory builtin (which runs it), and ``env`` with its options and assignments come before the
+    name and are skipped. ``words`` are unquoted: ``shlex.split``'s, or :func:`_unquoted`'s for a part shlex does not split."""
     via_env = chdir = False
     while words:
         if _ASSIGN.match(words[0]):
             words = words[1:]
-        elif words[0] in _PREFIXES and len(words) > 1 and words[1] in _DIRS:  # ``./command`` is a program
+        elif _prefix(words[0], timed) and len(words) > 1 and words[1] in _DIRS:  # ``./command`` is a program
             words = words[1:]
         elif _program(words[0]) == "env":
             words, via_env = words[1:], True
@@ -131,10 +145,12 @@ def _command_words(words: list[str]) -> tuple[list[str], bool, bool]:
                 words = words[2:] if opt in ("-C", "-u", "--chdir", "--unset") else words[1:]  # these take the next word as a value
         else:
             break
+        timed = False  # past the first word, ``time`` is a program
     return words, via_env, chdir
 
 
 def _is_cd(part: str) -> bool:
-    """Whether ``part`` runs the ``cd`` builtin, past what the walker skips (``time cd``, ``X=1 cd``, ``"cd"``; not ``env cd``)."""
-    words, via_env, _ = _command_words(_unquoted(part.split()))
+    """Whether ``part`` runs the ``cd`` builtin, past what the walker skips (``time cd``, ``X=1 cd``, ``"cd"``; not
+    ``env cd``, nor ``X=1 time cd`` or ``\\time cd``, which run /usr/bin/time)."""
+    words, via_env, _ = _command_words(_unquoted(part.split()), _time_keyword(part))
     return words[:1] == ["cd"] and not via_env
