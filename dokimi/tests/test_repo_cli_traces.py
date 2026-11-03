@@ -535,6 +535,17 @@ def test_codex_failed_command_does_not_count_as_a_read():
     assert [e["rc"] for e in t.events if e["kind"] == "command"] == [1, 0, 2]
 
 
+def test_codex_and_copilot_count_a_read_at_a_directory_not_known():
+    codex = {"id": "a", "type": "command_execution", "command": "cd -; cat AGENTS.md"}
+    raw = _jsonl({"type": "item.started", "item": codex}, {"type": "item.completed", "item": {**codex, "exit_code": 0}},
+                 {"type": "item.completed", "item": {**codex, "id": "b", "command": "cd -; cat a.md", "exit_code": 0}})
+    assert convert("codex-json", raw, None).unknown_reads == 2
+    copilot = {"toolCallId": "a", "toolName": "bash", "arguments": {"command": "cd -; cat AGENTS.md"}}
+    assert convert("copilot-json", _jsonl({"type": "tool.execution_start", "data": copilot}), None).unknown_reads == 1
+    assert convert("copilot-json", _jsonl({"type": "tool.execution_start", "data": {
+        **copilot, "arguments": {"command": "cat AGENTS.md"}}}), None).unknown_reads == 0
+
+
 def test_codex_failed_brace_group_holding_one_read_is_no_read():
     cmd = {"id": "a", "type": "command_execution", "command": "{ cat AGENTS.md; }"}
     raw = _jsonl({"type": "item.started", "item": cmd}, {"type": "item.completed", "item": {**cmd, "exit_code": 1}})

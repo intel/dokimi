@@ -332,6 +332,25 @@ def test_a_bash_call_with_no_result_keeps_its_read_without_an_rc():
     assert events[0] == {"t": 5.0, "kind": "read", "path": "AGENTS.md"}
 
 
+def _process(*lines: dict) -> dict:
+    first = {"type": "system", "subtype": "init", "timestamp": "2026-01-01T00:00:00Z"}
+    t = convert("claude-stream-json", "\n".join(json.dumps(x) for x in (first, *lines)), WS)
+    return process_metrics(t.events, lambda p: p.endswith("AGENTS.md"), unknown_reads=t.unknown_reads)
+
+
+@pytest.mark.parametrize("lines, unknown, guidance", [
+    ((_call("a", "source .venv/bin/activate && pytest"), _result("a"), _call("b", "cat AGENTS.md"), _result("b")), 1, []),
+    ((_call("a", "cd - && cat AGENTS.md README.md"), _result("a")), 2, []),  # within the call: cd - is not followed
+    ((_call("a", "cd sub"), _result("a"), _call("b", "cat AGENTS.md /ws/a.md"), _result("b", "x", True)), 1, []),
+    ((_call("a", "cd sub"), _result("a"), _call("b", "cat AGENTS.md"), _result("b", "x", True)), 0, []),  # it failed
+    ((_call("a", "cd sub"), _result("a"), _call("b", "cd -; cat AGENTS.md"), _denials("b")), 0, []),  # nothing ran
+    ((_call("a", "cat AGENTS.md"), _result("a"), _call("b", "cd sub && make"), _result("b")), 0, ["AGENTS.md"]),
+])
+def test_a_read_at_a_directory_not_known_is_counted(lines, unknown, guidance):
+    got = _process(*lines)
+    assert (got["unknown_reads"], got["guidance_read"]) == (unknown, guidance)
+
+
 def test_guidance_printed_through_bash_is_guidance_read():
     events = _events(_call("b", "cat AGENTS.md"), _result("b", "cat: AGENTS.md: No such file or directory", True),
                      _call("c", "cat README.md"), _result("c"),

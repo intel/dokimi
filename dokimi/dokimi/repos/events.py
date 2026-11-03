@@ -44,7 +44,7 @@ from typing import Any
 
 from dokimi.context.trace import parse_trace
 
-from .cli_traces import _failed_read, codex_json, copilot_json, shell_reads_moved
+from .cli_traces import _failed_read, codex_json, copilot_json, shell_walk
 from .transcript import Transcript, _parse_time, clip_output, relative_path
 
 TRACE_FORMATS = ("claude-stream-json", "codex-json", "copilot-json", "text")
@@ -79,6 +79,7 @@ class _BashCall:
     named: list[str]  # the files its command prints, from the start directory
     reads: list[dict[str, Any]]  # their read events, in place before the command event
     moves: bool  # the command may leave its shell in another directory
+    unknown: int = 0  # the relative files it named after a directory change it could not follow, in itself
     result: str | None = None  # "ok", "error" or "denied"; None while nothing came back
 
 
@@ -170,17 +171,23 @@ def _settle_bash(out: Transcript, calls: Iterable[_BashCall]) -> None:
     - after a call that was not denied and may have moved its shell, only absolute reads are known, in
       every agent: a subagent may share the parent's shell;
     - else the reads get ``rc`` 0, since a failure does not say which file failed (``cat a missing``).
+
+    ``out.unknown_reads`` counts the relative reads of the calls not denied whose directory was not known: dropped
+    after a move, or after a directory change in the call that the walker could not follow (``cd -; cat a``).
     """
     moved = False  # the shell may have left its start directory
     dropped: set[int] = set()
     for call in calls:
         failed = call.result == "error" and _failed_read(call.text, call.named, 1)
+        if call.result != "denied":
+            out.unknown_reads += call.unknown
         for read, path in zip(call.reads, call.named, strict=True):
             unknown = moved and not path.startswith("/")  # the shell's directory is not known, nor the file
             if call.result == "denied":  # kept after a move too, with no path when it was relative
                 _deny_read(read, unknown)
             elif failed or unknown:
                 dropped.add(id(read))
+                out.unknown_reads += not failed  # dropped as its directory was not known, not as it failed
             elif call.result:
                 read["rc"] = 0
         moved |= call.moves and call.result != "denied"
@@ -211,9 +218,9 @@ def _tool_use(out: Transcript, block: dict[str, Any], t: float | None, agent: st
 
 def _bash_call(event: dict[str, Any], stream: _Stream) -> _BashCall:
     """A Bash command's call, with a read event for each file it names; :func:`_settle_bash` keeps or drops them."""
-    named, moves = shell_reads_moved(str(event["text"]), stream.cwd)
+    named, moves, unknown = shell_walk(str(event["text"]), stream.cwd)
     reads = [{"t": event["t"], "kind": "read", "path": relative_path(p, stream.workdir)} for p in named]
-    stream.bash[id(event)] = call = _BashCall(str(event["text"]), named, reads, moves)
+    stream.bash[id(event)] = call = _BashCall(str(event["text"]), named, reads, moves, unknown)
     return call
 
 

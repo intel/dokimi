@@ -26,6 +26,7 @@ class Transcript:
     answer: str = ""
     agent_messages: list[str] = field(default_factory=list)  # codex: every agent message in order; answer is the last
     events: list[dict[str, Any]] = field(default_factory=list)
+    unknown_reads: int = 0  # relative shell reads at a directory the converter could not follow: no read event
     cost_usd: float | None = None
     num_turns: int | None = None
     result_seen: bool = False  # the harness wrote its final result record, so the agent started

@@ -106,8 +106,13 @@ def shell_reads_moved(script: str, cwd: str = "") -> tuple[list[str], bool]:
     ``pushd``, ``popd``, ``eval``, ``source`` or ``.`` in that shell, not in a subshell (``( ... )``, a pipeline
     or a backgrounded command, list or group: ``cd sub &``, ``{ cd sub; } | cat``, ``cd sub && make &``,
     ``cd "$X" &``, ``cd sub | cat``, ``{ cd $(pwd); } &``)."""
+    return shell_walk(script, cwd)[:2]
+
+
+def shell_walk(script: str, cwd: str = "") -> tuple[list[str], bool, int]:
+    """:func:`shell_reads_moved`, and how many relative files its printing commands named at a directory not known."""
     reads, walk = _walk_script(script, cwd)
-    return reads, walk.shell_moved
+    return reads, walk.shell_moved, walk.unknown
 
 
 def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
@@ -159,6 +164,7 @@ class _Walk:
         self.function = 0  # the brace depth inside a function definition
         self.case = 0  # the depth inside ``case ... esac``
         self.operands: int | None = None  # how many files the last printing command named
+        self.unknown = 0  # the relative files printing commands named at a directory not known
 
     def spot(self) -> _Spot:
         return self.here, self.shell_moved, self.moved
@@ -268,13 +274,19 @@ class _Walk:
             if after != "&":  # a backgrounded cd runs in a subshell: this shell stays where it was
                 self.here, self.shell_moved, self.moved = _cd(self.here, words[1:]), True, True
         elif name in _PRINTERS:
-            if _asks_for_help(words[1:]):  # ``cat --help AGENTS.md`` prints the help and opens no file
-                return []
-            files = _sed_files(words[1:]) if name == "sed" else _print_files(name, words[1:])
-            self.operands = len(files)  # all it names, those at an unknown directory too
-            # ``env -C dir cat f`` reads dir/f, which is not known: only an absolute path is the same
-            return [self.resolve(f) for f in files if f.startswith("/") or (self.here is not None and not chdir)]
+            return self.printed(name, words[1:], chdir)
         return []
+
+    def printed(self, name: str, args: list[str], chdir: bool) -> list[str]:
+        """The files a printing command reads; ``unknown`` counts those it names at a directory not known."""
+        if _asks_for_help(args):  # ``cat --help AGENTS.md`` prints the help and opens no file
+            return []
+        files = _sed_files(args) if name == "sed" else _print_files(name, args)
+        self.operands = len(files)  # all it names, those at an unknown directory too
+        # ``env -C dir cat f`` reads dir/f, which is not known: only an absolute path is the same
+        known = [f for f in files if f.startswith("/") or (self.here is not None and not chdir)]
+        self.unknown += len(files) - len(known)
+        return [self.resolve(f) for f in known]
 
     def resolve(self, f: str) -> str:
         return posixpath.normpath(f if f.startswith("/") else posixpath.join(self.here or "", f))
@@ -506,7 +518,7 @@ def _codex_command_started(out: Transcript, item: dict[str, Any], workdir: str |
                            event_reads: dict[int, list[dict[str, Any]]]) -> None:
     script = unwrap_shell(str(item.get("command") or ""))
     read_events = [{"t": None, "kind": "read", "path": relative_path(path, workdir)}
-                   for path in shell_reads(script, cwd)]
+                   for path in _counted_reads(out, script, cwd)]
     out.events.extend(read_events)
     event: dict[str, Any] = {"t": None, "kind": "command", "text": script, "rc": None}
     event_reads[id(event)] = read_events
@@ -551,7 +563,7 @@ def _codex_command_finished(out: Transcript, item: dict[str, Any], event: dict[s
 def _codex_command_unstarted(out: Transcript, item: dict[str, Any], script: str, workdir: str | None,
                              cwd: str) -> None:
     """Fallback for item.completed without item.started."""
-    paths = shell_reads(script, cwd)
+    paths = _counted_reads(out, script, cwd)
     if not _failed_read(script, paths, item.get("exit_code")):
         for path in paths:
             out.events.append({"t": None, "kind": "read", "path": relative_path(path, workdir)})
@@ -559,6 +571,13 @@ def _codex_command_unstarted(out: Transcript, item: dict[str, Any], script: str,
     if item.get("aggregated_output"):
         event["output"], event["output_truncated"] = clip_output(str(item["aggregated_output"]))
     out.events.append(event)
+
+
+def _counted_reads(out: Transcript, script: str, cwd: str) -> list[str]:
+    """:func:`shell_reads`; ``out.unknown_reads`` counts the files it named at a directory not known."""
+    reads, _, unknown = shell_walk(script, cwd)
+    out.unknown_reads += unknown
+    return reads
 
 
 def _failed_read(script: str, reads: list[Any], rc: Any) -> bool:
@@ -616,7 +635,7 @@ class _CopilotRun:
         elif kind == "assistant.message":
             self.message(data)
         elif kind == "tool.execution_start":
-            events = _copilot_tool(data, t, workdir, cwd)
+            events = _copilot_tool(data, t, workdir, cwd, out)
             out.events.extend(events)
             self.by_id[str(data.get("toolCallId"))] = events
         elif kind == "tool.execution_complete":
@@ -650,13 +669,14 @@ def copilot_json(raw: str, workdir: str | None, cwd: str = "") -> Transcript:
     return out
 
 
-def _copilot_tool(data: dict[str, Any], t: float | None, workdir: str | None, cwd: str = "") -> list[dict[str, Any]]:
+def _copilot_tool(data: dict[str, Any], t: float | None, workdir: str | None, cwd: str,
+                  out: Transcript) -> list[dict[str, Any]]:
     name = str(data.get("toolName") or "")
     args = data.get("arguments")
     if name in _COPILOT_SHELL:
         command = str((args or {}).get("command", "")) if isinstance(args, dict) else ""
         # only bash is a POSIX script; a PowerShell command is not parsed for the files it reads
-        scripts = shell_reads(command, cwd) if name == "bash" else []
+        scripts = _counted_reads(out, command, cwd) if name == "bash" else []
         reads = [{"t": t, "kind": "read", "path": relative_path(p, workdir)} for p in scripts]
         return [*reads, {"t": t, "kind": "command", "text": command, "rc": None}]
     if name in _COPILOT_READ | _COPILOT_EDIT and isinstance(args, dict):
