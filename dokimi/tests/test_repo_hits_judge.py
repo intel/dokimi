@@ -6,6 +6,7 @@ the real ``dokimi:review_replay`` grader, with the judge a scripted fake LLM."""
 
 from __future__ import annotations
 
+import codecs
 import contextlib
 import json
 from pathlib import Path
@@ -764,11 +765,17 @@ def test_sheet_refuses_to_replace_a_sheet_with_labels(tmp_path, capsys):
     assert err.strip() == f"✗ {out_file} holds a sheet with 1 labelled entry; move it aside or pass another --out"
 
 
-@pytest.mark.parametrize("unreadable", ["no read permission", "a directory", "not UTF-8"])
+@pytest.mark.parametrize("unreadable", ["no read permission", "a directory", "not UTF-8", "a BOM", "a JSON typo"])
 def test_sheet_refuses_an_existing_file_it_cannot_read_before_writing(tmp_path, capsys, monkeypatch, unreadable):
     batch = _batch(tmp_path)
     out_file = tmp_path / "sheet.json"
-    if unreadable == "a directory":
+    if unreadable in ("a BOM", "a JSON typo"):  # a labelled sheet after a hand-edit: still not known to hold none
+        assert _run(capsys, "sheet", str(batch), "--out", str(out_file))[0] == 0
+        labelled = json.dumps([{**e, "label": "same point"} for e in json.loads(out_file.read_text())])
+        out_file.write_bytes(codecs.BOM_UTF8 + labelled.encode() if unreadable == "a BOM"
+                             else labelled[:-1].encode() + b",]")
+        why = "not JSON"
+    elif unreadable == "a directory":
         out_file.mkdir()
         why = "Is a directory"
     elif unreadable == "not UTF-8":
@@ -791,7 +798,7 @@ def test_sheet_refuses_an_existing_file_it_cannot_read_before_writing(tmp_path, 
     assert err.strip().endswith("); move it aside or pass another --out")
 
 
-@pytest.mark.parametrize("earlier", ["a sheet with no label set", "not a JSON list", "not JSON"])
+@pytest.mark.parametrize("earlier", ["a sheet with no label set", "not a JSON list", "blank"])
 def test_sheet_replaces_a_file_with_no_label(tmp_path, capsys, earlier):
     batch = _batch(tmp_path)
     out_file = tmp_path / "sheet.json"
@@ -799,7 +806,7 @@ def test_sheet_replaces_a_file_with_no_label(tmp_path, capsys, earlier):
     fresh = out_file.read_text()
     stale = [{**e, "comment": "an older text"} for e in json.loads(fresh)]
     out_file.write_text({"a sheet with no label set": json.dumps(stale), "not a JSON list": '{"label": "same point"}',
-                         "not JSON": '[{"label": "same point"'}[earlier])  # readable, so known to hold no sheet
+                         "blank": "  "}[earlier])  # readable, so known to hold no sheet
     code, _, _ = _run(capsys, "sheet", str(batch), "--out", str(out_file))
     assert (code, out_file.read_text()) == (0, fresh)
 

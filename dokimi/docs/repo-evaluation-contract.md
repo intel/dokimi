@@ -1700,11 +1700,11 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   file to `repo hits judge --labels`. When `--out` names a file that holds a
   JSON list with an entry whose `label` is set, the command refuses with
   exit 2 before writing, naming the path and the number of labelled entries
-  (move it aside or pass another `--out`); a file with no label set, or that
-  is not a JSON list, is replaced. A file at `--out` that cannot be read (no
-  read permission, a directory, not UTF-8 text) is refused the same way,
-  exit 2 before writing and naming the path, since whether it holds labels
-  is not known; only a missing file counts as no sheet.
+  (move it aside or pass another `--out`); a file with no label set, a
+  blank file, or JSON that is not a list, is replaced. A file at `--out` that
+  cannot be read (no read permission, a directory, not UTF-8 text) or parsed
+  as JSON (a trailing comma, a BOM) is refused the same way, exit 2 before
+  writing and naming the path, since whether it holds labels is not known.
 - `repo compare` reduces cells to one value per (task, arm, model) first:
   repetitions share a task's difficulty and are not paired across arms, so the
   task is the unit. Per treatment arm, model and measure (gate share, score,
