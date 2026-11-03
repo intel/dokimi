@@ -994,6 +994,12 @@ atoms.json records as the cap's sample, of its 200`), and index spans from all o
 one. `novelty view` colours spans from every atom. An `atoms.json` with no `sampled_atom_ids`,
 written before the record existed, held only the atoms its run probed, and is read as all of them
 sampled; one whose `sampled_atom_ids` names an atom the file does not hold is refused (exit 2).
+When such an older file's record shows a cap that left atoms out (`extraction.sampled` set, or a
+document-order cap's `extraction.reached` short of the input's last span), `novelty probe`,
+`novelty shorten` and `novelty view` print a `WARNING` on stderr: the file holds only the atoms its
+run probed, so spans whose atoms fell outside them read as carrying nothing and a shortening can
+cut them; re-run `novelty atoms` to index every atom. A file this version wrote always has the
+key, so one whose cap kept every atom (`sampled_atom_ids: null`) gets no warning.
 
 Runs written before the spread rule recorded `cap-per-artifact:<n>`: extraction walked the spans
 in document order and stopped at the cap, so their atoms cover the input up to the span it

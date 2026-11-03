@@ -16,7 +16,11 @@
   that sample by default and say so, and `--all-atoms` measures every atom in
   the file, reusing the extraction. A file without the record (written
   before it) reads as every atom sampled; one that names an atom it does not
-  hold exits 2. The `harmful_atoms` gate check still does not clear a 0 on a
+  hold exits 2. When such an older file comes from a cap that left atoms out
+  (`extraction.sampled` set, or `extraction.reached` short of the last span),
+  `novelty probe`, `novelty shorten` and `novelty view` warn on stderr that
+  it holds only the probed atoms, so a shortening can cut spans whose atoms
+  fell outside them, and to re-run `novelty atoms`. The `harmful_atoms` gate check still does not clear a 0 on a
   sampled run, now read from `extraction.sampled`, and the `dead_tokens`
   check judges a capped run's share. The cap no longer forfeits
   `frac_carrying_nothing`, and the shortening forfeit says `knowledge` and

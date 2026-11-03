@@ -591,9 +591,17 @@ def load_atoms(path) -> tuple[list[Atom], list[Span]]:
     cannot say whether a span went unread. A ``sampled_atom_ids`` that names an atom the file
     does not hold raises ``ValueError`` (:func:`recorded_sample` reads the record).
     """
+    atoms, spans, _data = load_atoms_record(path)
+    return atoms, spans
+
+
+def load_atoms_record(path) -> tuple[list[Atom], list[Span], dict]:
+    """:func:`load_atoms` plus the parsed record, for a reader of its other keys."""
     from pathlib import Path
 
-    return _atoms_from_record(json.loads(Path(path).read_text(encoding="utf-8")))
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    atoms, spans = _atoms_from_record(data)
+    return atoms, spans, data
 
 
 def _is_int(value) -> bool:
@@ -724,11 +732,8 @@ def load_atoms_or_exit(path) -> tuple[list[Atom], list[Span], dict]:
     Exits with the file named when it cannot be read or is not an atom set, including a
     ``bundle`` whose fields do not have the types its readers use.
     """
-    from pathlib import Path
-
     try:
-        data = json.loads(Path(path).read_text(encoding="utf-8"))
-        atoms, spans = _atoms_from_record(data)
+        atoms, spans, data = load_atoms_record(path)
         _check_bundle_shape(data.get("bundle"))
     except (OSError, ValueError, RecursionError) as exc:
         usage_exit(f"cannot read atoms from {path}: {exc}")

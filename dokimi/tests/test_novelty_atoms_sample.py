@@ -130,17 +130,18 @@ def _cli(monkeypatch, *argv):
     args.func(args)
 
 
-def _capped_atoms_json(tmp_path, monkeypatch):
-    """`novelty atoms --max-atoms 2` over a six-span skill: the skill and its atoms.json."""
+def _capped_atoms_json(tmp_path, monkeypatch, cap: int = 2):
+    """`novelty atoms --max-atoms <cap>` over a six-span skill: the skill and its atoms.json."""
     skill = tmp_path / "s" / "SKILL.md"
     skill.parent.mkdir(parents=True)
     skill.write_text("---\nname: s\ndescription: d\n---\n\n" + "\n\n".join(
         f"Setting {i} defaults to {i}." for i in range(1, 7)) + "\n", encoding="utf-8")
     atoms_json = tmp_path / "atoms.json"
     _cli(monkeypatch, "atoms", "--artifact", f"skill:{skill}", "--out", str(atoms_json),
-         "--max-atoms", "2", "--no-verify")
+         "--max-atoms", str(cap), "--no-verify")
     saved = json.loads(atoms_json.read_text())
-    assert (len(saved["atoms"]), len(saved["sampled_atom_ids"])) == (6, 2)
+    assert len(saved["atoms"]) == 6
+    assert len(saved["sampled_atom_ids"] or saved["atoms"]) == min(cap, 6)
     return skill, atoms_json, saved
 
 
@@ -185,3 +186,76 @@ def test_probe_measures_the_recorded_sample_or_with_all_atoms_every_atom(
     note = (f"NOTE probe measures the 2 atoms {atoms_json} records as the cap's sample, of its 6; "
             "spans are indexed from all 6. Pass --all-atoms to measure every atom")
     assert (note in capsys.readouterr().err) is (probed == 2)
+
+
+OLD_CAPPED_WARNING = ("was written by a capped `novelty atoms` run before atoms files recorded "
+                      "their sample (`sampled_atom_ids`): it holds only the atoms its run probed, "
+                      "so spans whose atoms fell outside them read as carrying nothing and a "
+                      "shortening can cut them; re-run `novelty atoms` to index every atom")
+
+
+def _as_written_before_371(atoms_json, saved, **extraction) -> None:
+    """Rewrite ``saved`` as a capped run wrote it before #371: only the probed atoms, spans
+    indexed from them, no ``sampled_atom_ids``; ``extraction`` overrides its record."""
+    kept = set(saved.pop("sampled_atom_ids"))
+    saved["atoms"] = [row for row in saved["atoms"] if row["id"] in kept]
+    for span in saved["spans"]:
+        span["atom_ids"] = [atom_id for atom_id in span["atom_ids"] if atom_id in kept]
+    saved["extraction"].update(extraction)
+    atoms_json.write_text(json.dumps(saved))
+
+
+def _reach(saved, spans: int) -> dict:
+    """A document-order cap's ``extraction.reached`` (#299) that stopped at span ``spans``."""
+    return {"sampled": None, "reached": {"last_span": saved["spans"][spans - 1]["id"],
+                                         "spans": spans, "of": len(saved["spans"]),
+                                         "tokens_share": spans / len(saved["spans"])}}
+
+
+@pytest.mark.parametrize("cap, written, warns", [
+    (2, "spread-cap", True), (2, "reach-short", True), (2, "reach-end", False),
+    (2, "this-version", False), (6, "this-version", False),
+], ids=["spread-cap-before-371", "document-order-cap-short-of-the-end",
+        "document-order-cap-at-the-last-span", "this-version-capped", "this-version-cap-kept-all"])
+def test_shorten_warns_on_an_older_capped_atoms_file_only(
+        tmp_path, monkeypatch, capsys, cap, written, warns):
+    skill, atoms_json, saved = _capped_atoms_json(tmp_path, monkeypatch, cap)
+    if written == "spread-cap":  # `novelty atoms` from #358 on: `extraction.sampled` is set
+        _as_written_before_371(atoms_json, saved)
+    elif written.startswith("reach"):  # a document-order cap, before #358
+        _as_written_before_371(atoms_json, saved,
+                               **_reach(saved, 3 if written == "reach-short" else len(saved["spans"])))
+    capsys.readouterr()
+    _cli(monkeypatch, "shorten", "--artifact", f"skill:{skill}", "--atoms", str(atoms_json),
+         "--lexical-only")
+    assert (f"WARNING: {atoms_json} {OLD_CAPPED_WARNING}" in capsys.readouterr().err) is warns
+
+
+def test_the_sample_key_not_its_value_marks_a_file_this_version_wrote():
+    from dokimi.commands.novelty_atoms_file import holds_only_a_capped_sample
+
+    sampled = {"atoms": 2, "of": 6, "rule": "cap-spread"}
+    assert holds_only_a_capped_sample({"cap": 2, "extraction": {"sampled": sampled}})
+    assert not holds_only_a_capped_sample(
+        {"cap": 2, "extraction": {"sampled": sampled}, "sampled_atom_ids": None})
+    assert not holds_only_a_capped_sample({"cap": None, "extraction": {"sampled": None}})
+
+
+@pytest.mark.parametrize("before_371", [True, False], ids=["older-capped-file", "this-version"])
+def test_view_and_probe_warn_on_an_older_capped_atoms_file(
+        tmp_path, monkeypatch, capsys, before_371):
+    from dokimi.artifacts import save_artifact
+
+    skill, atoms_json, saved = _capped_atoms_json(tmp_path, monkeypatch)
+    if before_371:
+        _as_written_before_371(atoms_json, saved)
+    novelty_json = tmp_path / "novelty.json"
+    save_artifact("novelty", novelty_cli._minimal_artifact(), novelty_json)
+    warning = f"WARNING: {atoms_json} {OLD_CAPPED_WARNING}"
+    capsys.readouterr()
+    _cli(monkeypatch, "view", "--novelty", str(novelty_json), "--atoms", str(atoms_json),
+         "--format", "md", "--out", str(tmp_path / "annotated.md"))
+    assert (warning in capsys.readouterr().err) is before_371
+    _cli(monkeypatch, "probe", "--artifact", f"skill:{skill}", "--atoms", str(atoms_json),
+         "--concurrency", "1", "--no-paraphrase", "--no-reversal", "--out", str(tmp_path / "p.json"))
+    assert (warning in capsys.readouterr().err) is before_371

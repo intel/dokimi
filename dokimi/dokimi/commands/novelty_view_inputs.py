@@ -17,9 +17,13 @@ def _fail(message: str) -> NoReturn:
 
 
 def load_view_inputs(novelty_path: str, atoms_path: str):
-    """``(artifact, atoms, spans)`` from the two files; an unreadable or invalid one exits 2."""
+    """``(artifact, atoms, spans)`` from the two files; an unreadable or invalid one exits 2.
+
+    An older capped atoms file that holds only its sample is said on stderr (#371).
+    """
     from dokimi.artifacts import load_artifact
-    from dokimi.novelty.atoms import load_atoms
+    from dokimi.commands.novelty_atoms_file import warn_capped_sample
+    from dokimi.novelty.atoms import load_atoms_record
 
     try:
         artifact = load_artifact("novelty", Path(novelty_path))
@@ -28,9 +32,10 @@ def load_view_inputs(novelty_path: str, atoms_path: str):
     except (ValueError, RecursionError) as exc:  # not UTF-8, not JSON, or not a novelty artifact
         _fail(f"{novelty_path} is not a valid novelty artifact: {exc}")
     try:
-        atoms, spans = load_atoms(atoms_path)
+        atoms, spans, saved = load_atoms_record(atoms_path)
     except OSError as exc:
         _fail(f"cannot read {atoms_path}: {exc}")
     except (ValueError, RecursionError) as exc:  # not UTF-8, not JSON, or not an atoms record
         _fail(f"{atoms_path} is not a valid atoms file: {exc}")
+    warn_capped_sample(saved, atoms_path)
     return artifact, atoms, spans
