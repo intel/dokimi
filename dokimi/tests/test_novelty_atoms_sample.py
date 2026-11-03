@@ -218,10 +218,19 @@ def test_shorten_refuses_a_sample_the_entry_point_leaves_empty(tmp_path, monkeyp
     assert "OK Wrote candidate" in capsys.readouterr().out and out.exists()
 
 
-OLD_CAPPED_WARNING = ("was written by a capped `novelty atoms` run before atoms files recorded "
-                      "their sample (`sampled_atom_ids`): it holds only the atoms its run probed, "
-                      "so spans whose atoms fell outside them read as carrying nothing and a "
-                      "shortening can cut them; re-run `novelty atoms` to index every atom")
+HOLDS_THE_SAMPLE = "it holds only the atoms its run probed"
+MAY_HOLD_THE_SAMPLE = ("it may hold only the atoms its run probed (its cap was met at the input's "
+                       "last span and may have cut that reply)")
+
+
+def _old_capped_warning(holds: str = HOLDS_THE_SAMPLE) -> str:
+    return ("was written by a capped `novelty atoms` run before atoms files recorded their sample "
+            f"(`sampled_atom_ids`): {holds}, so spans whose atoms fell outside them read as "
+            "carrying nothing and a shortening can cut them; re-run `novelty atoms` to index "
+            "every atom")
+
+
+OLD_CAPPED_WARNING = _old_capped_warning()
 
 
 def _as_written_before_371(atoms_json, saved, **extraction) -> None:
@@ -242,13 +251,15 @@ def _reach(saved, spans: int) -> dict:
                                          "tokens_share": spans / len(saved["spans"])}}
 
 
-@pytest.mark.parametrize("cap, written, warns", [
-    (2, "spread-cap", True), (2, "reach-short", True), (2, "reach-end", False),
-    (2, "this-version", False), (6, "this-version", False),
+@pytest.mark.parametrize("cap, written, holds", [
+    (2, "spread-cap", HOLDS_THE_SAMPLE), (2, "reach-short", HOLDS_THE_SAMPLE),
+    (2, "reach-end", MAY_HOLD_THE_SAMPLE), (2, "this-version", None), (6, "this-version", None),
 ], ids=["spread-cap-before-371", "document-order-cap-short-of-the-end",
         "document-order-cap-at-the-last-span", "this-version-capped", "this-version-cap-kept-all"])
 def test_shorten_warns_on_an_older_capped_atoms_file_only(
-        tmp_path, monkeypatch, capsys, cap, written, warns):
+        tmp_path, monkeypatch, capsys, cap, written, holds):
+    """A document-order cap recorded `reached` only when it bound, so even one that reached the
+    last span may have cut that reply's later atoms: it warns, saying it may."""
     skill, atoms_json, saved = _capped_atoms_json(tmp_path, monkeypatch, cap)
     if written == "spread-cap":  # `novelty atoms` from #358 on: `extraction.sampled` is set
         _as_written_before_371(atoms_json, saved)
@@ -258,7 +269,11 @@ def test_shorten_warns_on_an_older_capped_atoms_file_only(
     capsys.readouterr()
     _cli(monkeypatch, "shorten", "--artifact", f"skill:{skill}", "--atoms", str(atoms_json),
          "--lexical-only")
-    assert (f"WARNING: {atoms_json} {OLD_CAPPED_WARNING}" in capsys.readouterr().err) is warns
+    err = capsys.readouterr().err
+    if holds is None:
+        assert "was written by a capped `novelty atoms` run" not in err
+    else:
+        assert f"WARNING: {atoms_json} {_old_capped_warning(holds)}" in err
 
 
 def test_the_sample_key_not_its_value_marks_a_file_this_version_wrote():
@@ -269,6 +284,10 @@ def test_the_sample_key_not_its_value_marks_a_file_this_version_wrote():
     assert not holds_only_a_capped_sample(
         {"cap": 2, "extraction": {"sampled": sampled}, "sampled_atom_ids": None})
     assert not holds_only_a_capped_sample({"cap": None, "extraction": {"sampled": None}})
+    # Any `reached` object means a binding document-order cap, even one at the last span.
+    reached = {"last_span": "s0002", "spans": 2, "of": 2, "tokens_share": 1.0}
+    assert holds_only_a_capped_sample({"cap": 1, "extraction": {"reached": reached}})
+    assert not holds_only_a_capped_sample({"cap": 1, "extraction": {"reached": None}})
 
 
 @pytest.mark.parametrize("before_371", [True, False], ids=["older-capped-file", "this-version"])

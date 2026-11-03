@@ -27,31 +27,40 @@ def warn_unread(spans: list, consequence: str) -> None:
 
 
 def holds_only_a_capped_sample(saved: dict) -> bool:
-    """Whether ``atoms.json`` predates ``sampled_atom_ids`` and its cap left atoms out.
+    """Whether ``atoms.json`` predates ``sampled_atom_ids`` and its cap may have left atoms out.
 
     Such a file holds only the atoms its run probed. A spread cap (#293) recorded
     ``extraction.sampled``; a document-order cap before it recorded ``cap`` and an
-    ``extraction.reached`` short of the input's last span, as ``report.reach_is_end`` tells
-    them apart. A file this version wrote has the key, ``null`` when its cap kept every atom.
+    ``extraction.reached`` object, which it wrote only when the cap bound. Even a reach at the
+    input's last span (``report.reach_is_end``) may have cut that reply's later atoms, so it
+    counts too. A file this version wrote has the key, ``null`` when its cap kept every atom.
     """
     if "sampled_atom_ids" in saved:
         return False
     extraction = saved.get("extraction") or {}  # an object or absent: the loader checked
     if extraction.get("sampled"):
         return True
-    reached = extraction.get("reached")
-    return (saved.get("cap") is not None and isinstance(reached, dict)
-            and reached.get("spans") != reached.get("of"))
+    return saved.get("cap") is not None and isinstance(extraction.get("reached"), dict)
 
 
 def warn_capped_sample(saved: dict, path) -> None:
-    """Say on stderr that an older capped ``atoms.json`` indexes spans from its sample only (#371)."""
-    if holds_only_a_capped_sample(saved):
-        print(f"WARNING: {path} was written by a capped `novelty atoms` run before atoms files "
-              "recorded their sample (`sampled_atom_ids`): it holds only the atoms its run "
-              "probed, so spans whose atoms fell outside them read as carrying nothing and a "
-              "shortening can cut them; re-run `novelty atoms` to index every atom",
-              file=sys.stderr)
+    """Say on stderr that an older capped ``atoms.json`` indexes spans from its sample only (#371).
+
+    When a document-order cap reached the input's last span, the file only *may* have lost atoms
+    (those the cap cut from the last reply), and the warning says so.
+    """
+    if not holds_only_a_capped_sample(saved):
+        return
+    extraction = saved.get("extraction") or {}
+    reached = extraction.get("reached") or {}
+    holds =("it may hold only the atoms its run probed (its cap was met at the input's last "
+             "span and may have cut that reply)" if not extraction.get("sampled")
+             and reached.get("spans") == reached.get("of")
+             else "it holds only the atoms its run probed")
+    print(f"WARNING: {path} was written by a capped `novelty atoms` run before atoms files "
+          f"recorded their sample (`sampled_atom_ids`): {holds}, so spans whose atoms fell "
+          "outside them read as carrying nothing and a shortening can cut them; re-run "
+          "`novelty atoms` to index every atom", file=sys.stderr)
 
 
 def measured_atoms(args: argparse.Namespace, atoms: list, saved: dict, stage: str) -> list:
