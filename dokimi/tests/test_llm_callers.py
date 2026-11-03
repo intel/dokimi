@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """The judge, persona generator, question generator and validator route through :mod:`dokimi.llm`.
 
 They reached litellm through ``utils.get_llm``'s own provider table, which differed from the one
