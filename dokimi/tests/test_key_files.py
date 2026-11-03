@@ -128,3 +128,25 @@ def test_ragas_judge_without_a_key_leaves_it_to_langchain(chat_models, monkeypat
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     RagasEvaluator(llm_model="m", provider="openai")
     assert chat_models == [("openai", {"model": "m", "api_key": None})]
+
+
+@pytest.mark.parametrize("provider", ["openai", "anthropic"])
+def test_ragas_judge_raises_on_an_empty_key_file(provider, chat_models, tmp_path, monkeypatch):
+    # Given no key, langchain would read the variable itself and send the file: string.
+    empty = tmp_path / "key"
+    empty.write_text("  \n")
+    monkeypatch.setenv(api_key_env(provider), f"file:{empty}")
+    with pytest.raises(ValueError, match=f"{api_key_env(provider)} for provider {provider} names an empty key file"):
+        RagasEvaluator(provider=provider)
+    with pytest.raises(ValueError, match=f"api_key for provider {provider} names an empty key file"):
+        RagasEvaluator(provider=provider, api_key=f"file:{empty}")
+    assert chat_models == []
+
+
+def test_ragas_fallback_judge_raises_on_an_empty_key_file(chat_models, tmp_path, monkeypatch):
+    empty = tmp_path / "key"
+    empty.write_text("")
+    monkeypatch.setenv(api_key_env(DEFAULT_JUDGE_PROVIDER), f"file:{empty}")
+    with pytest.raises(ValueError, match="names an empty key file"):
+        RagasEvaluator(provider="google")
+    assert chat_models == []

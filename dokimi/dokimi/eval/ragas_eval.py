@@ -19,14 +19,29 @@ Usage:
 """
 
 import logging
+import os
 from typing import List, Dict, Any, Optional
 
 from dokimi.eval.question_text import require_question_text
 from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
-from dokimi.llm import resolve_api_key
+from dokimi.llm import api_key_env, resolve_api_key
 from dokimi.records import BASELINE, CONTEXT, RecordLike, records
 
 logger = logging.getLogger(__name__)
+
+
+def _key(provider: str, api_key: Optional[str] = None) -> Optional[str]:
+    """*provider*'s key as ``llm.resolve_api_key`` reads it; ``None`` when none is set.
+
+    Raises:
+        ValueError: the ``file:`` key is unreadable or names an empty file. Given ``None``,
+            langchain would read the variable itself and send the ``file:`` string.
+    """
+    key = resolve_api_key(provider, api_key)
+    if key is None and (api_key or os.environ.get(api_key_env(provider))):
+        source = "api_key" if api_key else api_key_env(provider)
+        raise ValueError(f"{source} for provider {provider} names an empty key file")
+    return key
 
 
 def _import_ragas_runtime():
@@ -227,8 +242,7 @@ class RagasEvaluator:
 
             chat = {"openai": ChatOpenAI, "anthropic": ChatAnthropic}
             if self.provider in chat:
-                key = resolve_api_key(self.provider, self.api_key)
-                lc_llm = chat[self.provider](model=self.llm_model, api_key=key)
+                lc_llm = chat[self.provider](model=self.llm_model, api_key=_key(self.provider, self.api_key))
             else:
                 # RAGAS 0.2 needs a LangChain chat model, built here for openai and
                 # anthropic only. Any other provider (google/vertex/openrouter/bedrock)
@@ -240,7 +254,7 @@ class RagasEvaluator:
                     self.provider, DEFAULT_JUDGE_PROVIDER, DEFAULT_JUDGE_MODEL,
                 )
                 lc_llm = chat[DEFAULT_JUDGE_PROVIDER](model=DEFAULT_JUDGE_MODEL,
-                                                      api_key=resolve_api_key(DEFAULT_JUDGE_PROVIDER))
+                                                      api_key=_key(DEFAULT_JUDGE_PROVIDER))
 
             return LangchainLLMWrapper(lc_llm)
 

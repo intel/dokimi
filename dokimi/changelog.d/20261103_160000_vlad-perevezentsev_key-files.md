@@ -15,7 +15,7 @@ SPDX-License-Identifier: Apache-2.0
     an empty key file".
   - The RAGAS judge (`answers generate --ragas`, `eval ragas`) sent the `file:…` string itself
     as the key, from the environment or from an explicit `api_key`, so every RAGAS call failed
-    authentication; it now sends the file's contents. An unreadable key file now ends the RAGAS
-    step before any RAGAS call, with "RAGAS evaluation failed: Cannot read API key from file …"
-    like any other RAGAS failure. In the Python API, the fallback judge that a provider other
+    authentication; it now sends the file's contents. A key file that is unreadable or empty now
+    ends the RAGAS step before any RAGAS call, with "RAGAS evaluation failed: Cannot read API key
+    from file …" or "… names an empty key file", like any other RAGAS failure. In the Python API, the fallback judge that a provider other
     than openai and anthropic gets reads its key file too.
