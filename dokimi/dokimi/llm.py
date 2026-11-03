@@ -26,7 +26,7 @@ What a caller can rely on:
 
 - **Providers.** :data:`PROVIDERS` (canonical name -> key variable) plus
   :data:`PROVIDER_ALIASES`. :func:`resolve_model` is this module's model-name map and
-  :func:`api_key_env` its key-variable map. A provider outside the table is
+  :func:`credential_env_var` its key-variable map. A provider outside the table is
   passed to litellm as its own route prefix (``azure/<model>``), reading
   ``OPENAI_API_KEY``. A provider in :data:`dokimi.llm_cli.BACKENDS` (``claude-cli``)
   is a logged-in coding-agent CLI, not an API: no key, no tools, no sampling
@@ -110,7 +110,7 @@ def _canonical(provider: str) -> str:
     return PROVIDER_ALIASES.get(provider, provider)
 
 
-def api_key_env(provider: str) -> str:
+def credential_env_var(provider: str) -> str:
     """The environment variable holding *provider*'s key (``OPENAI_API_KEY`` off the table)."""
     return PROVIDERS.get(_canonical(provider), "OPENAI_API_KEY")
 
@@ -123,7 +123,7 @@ def resolve_api_key(provider: str, api_key: Optional[str] = None) -> Optional[st
     Raises:
         ValueError: a ``file:`` key is unreadable.
     """
-    key = "" if llm_cli.backend(provider) else (api_key or os.environ.get(api_key_env(provider), ""))
+    key = "" if llm_cli.backend(provider) else (api_key or os.environ.get(credential_env_var(provider), ""))
     if key.startswith("file:"):
         path = os.path.expanduser(key[len("file:"):])
         try:

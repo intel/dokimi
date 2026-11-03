@@ -20,7 +20,7 @@ from dokimi.commands.benchmark import _credential_error
 from dokimi.defaults import DEFAULT_JUDGE_PROVIDER
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.ragas_eval import RagasEvaluator
-from dokimi.llm import ANSWER_PROVIDERS, api_key_env
+from dokimi.llm import ANSWER_PROVIDERS, credential_env_var
 from dokimi.llm_cli import BACKENDS
 
 API_PROVIDERS = sorted({*ANSWER_PROVIDERS, *JUDGE_PROVIDERS} - set(BACKENDS))
@@ -57,9 +57,9 @@ def test_preflight_refuses_an_empty_key_file(tmp_path, monkeypatch, capsys):
 
 @pytest.mark.parametrize("provider", API_PROVIDERS)
 def test_preflight_names_the_variable_dokimi_llm_reads(provider, tmp_path, monkeypatch):
-    for var in {api_key_env(p) for p in API_PROVIDERS}:
+    for var in {credential_env_var(p) for p in API_PROVIDERS}:
         monkeypatch.delenv(var, raising=False)
-    var = api_key_env(provider)
+    var = credential_env_var(provider)
     assert _credential_error(provider) == f"missing {var} for provider {provider}"
     key = tmp_path / "key"
     key.write_text("sk-test\n")
@@ -104,7 +104,7 @@ def chat_models(ragas_stubs, monkeypatch):
 def test_ragas_judge_reads_a_key_file_from_the_environment(provider, chat_models, tmp_path, monkeypatch):
     key = tmp_path / "key"
     key.write_text("sk-from-file\n")
-    monkeypatch.setenv(api_key_env(provider), f"file:{key}")
+    monkeypatch.setenv(credential_env_var(provider), f"file:{key}")
     RagasEvaluator(llm_model="m", provider=provider)
     assert chat_models == [(provider, {"model": "m", "api_key": "sk-from-file"})]
 
@@ -120,7 +120,7 @@ def test_ragas_judge_reads_an_explicit_key_file(chat_models, tmp_path, monkeypat
 def test_ragas_fallback_judge_reads_its_own_key_file(chat_models, tmp_path, monkeypatch):
     key = tmp_path / "key"
     key.write_text("sk-judge\n")
-    monkeypatch.setenv(api_key_env(DEFAULT_JUDGE_PROVIDER), f"file:{key}")
+    monkeypatch.setenv(credential_env_var(DEFAULT_JUDGE_PROVIDER), f"file:{key}")
     RagasEvaluator(llm_model="gemini-x", provider="google", api_key="sk-for-google")
     ((name, kwargs),) = chat_models
     assert (name, kwargs["api_key"]) == (DEFAULT_JUDGE_PROVIDER, "sk-judge")
@@ -145,8 +145,8 @@ def test_ragas_judge_raises_on_an_empty_key_file(provider, chat_models, tmp_path
     # Given no key, langchain would read the variable itself and send the file: string.
     empty = tmp_path / "key"
     empty.write_text("  \n")
-    monkeypatch.setenv(api_key_env(provider), f"file:{empty}")
-    with pytest.raises(ValueError, match=f"{api_key_env(provider)} for provider {provider} names an empty key file"):
+    monkeypatch.setenv(credential_env_var(provider), f"file:{empty}")
+    with pytest.raises(ValueError, match=f"{credential_env_var(provider)} for provider {provider} names an empty key file"):
         RagasEvaluator(provider=provider)
     with pytest.raises(ValueError, match=f"api_key for provider {provider} names an empty key file"):
         RagasEvaluator(provider=provider, api_key=f"file:{empty}")
@@ -156,7 +156,7 @@ def test_ragas_judge_raises_on_an_empty_key_file(provider, chat_models, tmp_path
 def test_ragas_fallback_judge_raises_on_an_empty_key_file(chat_models, tmp_path, monkeypatch):
     empty = tmp_path / "key"
     empty.write_text("")
-    monkeypatch.setenv(api_key_env(DEFAULT_JUDGE_PROVIDER), f"file:{empty}")
+    monkeypatch.setenv(credential_env_var(DEFAULT_JUDGE_PROVIDER), f"file:{empty}")
     with pytest.raises(ValueError, match="names an empty key file"):
         RagasEvaluator(provider="google")
     assert chat_models == []

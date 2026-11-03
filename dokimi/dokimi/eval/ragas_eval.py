@@ -24,7 +24,7 @@ from typing import List, Dict, Any, Optional
 
 from dokimi.eval.question_text import require_question_text
 from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
-from dokimi.llm import api_key_env, resolve_api_key
+from dokimi.llm import credential_env_var, resolve_api_key
 from dokimi.records import BASELINE, CONTEXT, RecordLike, records
 
 logger = logging.getLogger(__name__)
@@ -38,8 +38,8 @@ def _key(provider: str, api_key: Optional[str] = None) -> Optional[str]:
             langchain would read the variable itself and send the ``file:`` string.
     """
     key = resolve_api_key(provider, api_key)
-    if key is None and (api_key or os.environ.get(api_key_env(provider))):
-        source = "api_key" if api_key else api_key_env(provider)
+    if key is None and (api_key or os.environ.get(credential_env_var(provider))):
+        source = "api_key" if api_key else credential_env_var(provider)
         raise ValueError(f"{source} for provider {provider} names an empty key file")
     return key
 
