@@ -18,7 +18,7 @@ from unittest.mock import patch
 import pytest
 
 from dokimi.artifacts import load_artifact
-from dokimi.cli import main
+from dokimi.cli import build_parser, main
 from dokimi.runner.plan import completeness
 
 PROJECT = Path(__file__).resolve().parents[1]
@@ -237,6 +237,7 @@ def test_looping_symlink_paths_are_usage_errors(tmp_path):
 
 def test_unresolvable_paths_raising_runtime_error_are_usage_errors(tmp_path, monkeypatch):
     root = _catalog(tmp_path)
+    build_parser()  # import every command module before Path.resolve is patched
 
     def loop(self, strict=False):
         raise RuntimeError("Symlink loop")
