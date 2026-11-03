@@ -1501,8 +1501,9 @@ claim:
   guidance file, and its `why` names the first error (`mypy: line N: message`).
 - `unresolved`: the fence is not valid Python (a placeholder such as `f(<arg>)`),
   is too deeply nested for the parser, or no `--python-env` was given, so nothing
-  was checked. It is also unresolved when its only errors are missing context (a
-  name an earlier fence defines, `await`/`return`, `async with`/`async for` outside a function), or when the
+  was checked. It is also unresolved when its only errors are missing context (any
+  undefined name, as from an earlier fence or an omitted import, so a removed builtin such as
+  `unicode` is unresolved too; `await`/`return`, `async with`/`async for` outside a function), or when the
   repository is older than the tool checks (mypy: Python 3.10). The reason says which.
 
 `--python-env PYTHON` names the repository's interpreter, a virtualenv with its
