@@ -247,24 +247,17 @@ def _import_entries(tree: RepoTree, at_start: set[str], lazily: set[str], guidan
         t = _target(tree, f)
         when = "start" if f in at_start else "lazy"
         if t in counted:
-            # A rule link counted this file with its frontmatter removed. An ordinary @import keeps the frontmatter,
-            # so its count replaces the rule's when it loads at the same time or earlier (a rule file is left alone).
-            rule = rule_entries.get(t)
-            if rule is None:
-                # a rule route the tree lists no rule entry for (its rules dir is a link) reaches guidance: the same
-                # bytes, so the guidance entry takes the body count when this route loads it earlier (as _rules does)
-                entry = guidance_entries.get(t)
-                if rules and entry is not None and (RULE_GLOB.match(f) or RULE_GLOB.match(t)):
-                    chars, _, warning = _rule(tree, f)
-                    if warning is None and _rule_route_wins(entry, when, t, own_rank):
-                        entry.update(when=when, chars=chars)
-                continue
-            if RULE_GLOB.match(f) or RULE_GLOB.match(t) or (when == "lazy" and rule["when"] == "start"):
-                continue
-            chars, warning = _chars(tree, f)
-            if warning:
-                unreadable_warnings.append(warning)
-            rule.update(path=f, kind="import", when=when, chars=chars)
+            _counted_import(
+                tree,
+                f,
+                t,
+                when,
+                rules,
+                rule_entries,
+                guidance_entries,
+                unreadable_warnings,
+                own_rank,
+            )
             continue
         counted.add(t)
         chars, warning = _chars(tree, f)
@@ -278,6 +271,38 @@ def _import_entries(tree: RepoTree, at_start: set[str], lazily: set[str], guidan
             # a rule-path import whose rules dir is a link is not a rule entry, but its count is body-only too:
             # an ordinary import of the same file, later in the loop, replaces it (as it replaces a rule entry)
             rule_entries[t] = entry
+
+
+def _counted_import(
+    tree: RepoTree,
+    f: str,
+    t: str,
+    when: str,
+    rules: bool,
+    rule_entries: dict[str, dict[str, Any]],
+    guidance_entries: dict[str, dict[str, Any]],
+    unreadable_warnings: list[str],
+    own_rank: dict[str, int],
+) -> None:
+    """Fold an import of ``f`` (resolving to ``t``, already counted) into the entry that counts ``t`` (``_import_entries``)."""
+    rule = rule_entries.get(t)
+    if rule is None:
+        # a rule route the tree lists no rule entry for (its rules dir is a link) reaches guidance: the same
+        # bytes, so the guidance entry takes the body count when this route loads it earlier (as _rules does)
+        entry = guidance_entries.get(t)
+        if rules and entry is not None and (RULE_GLOB.match(f) or RULE_GLOB.match(t)):
+            chars, _, warning = _rule(tree, f)
+            if warning is None and _rule_route_wins(entry, when, t, own_rank):
+                entry.update(when=when, chars=chars)
+        return
+    # A rule link counted this file with its frontmatter removed. An ordinary @import keeps the frontmatter,
+    # so its count replaces the rule's when it loads at the same time or earlier (a rule file is left alone).
+    if RULE_GLOB.match(f) or RULE_GLOB.match(t) or (when == "lazy" and rule["when"] == "start"):
+        return
+    chars, warning = _chars(tree, f)
+    if warning:
+        unreadable_warnings.append(warning)
+    rule.update(path=f, kind="import", when=when, chars=chars)
 
 
 def _own_targets(tree: RepoTree, guidance: list[str], groups: dict[str, list[str]], claude: list[str],
