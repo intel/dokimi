@@ -292,9 +292,9 @@ def discover_tasks(root: Path | None = None) -> list[TaskSpec]:
         return []
     tasks = []
     for path in sorted(root.iterdir()):
-        reason = not_a_task(path)
-        if reason == "not a task directory":
+        if not is_task_dir(path):
             continue
+        reason = not_a_task(path)
         if reason:
             # A lone task.md without frontmatter (planning notes) or another tool's
             # task.yaml is not a task; load_task on that directory still raises.

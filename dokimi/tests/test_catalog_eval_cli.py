@@ -51,6 +51,12 @@ def _commit(root: Path) -> str:
     return _git(root, "rev-parse", "HEAD")
 
 
+def _statuses(out: Path) -> dict[str, str]:
+    """Result status of each plan task, by task id."""
+    task = {cell["cell_id"]: cell["task"] for cell in load_artifact("plan", out / "plan.json")["cells"]}
+    return {task[cell["cell_id"]]: cell["status"] for cell in load_artifact("result", out / "result.json")["cells"]}
+
+
 def _run(root: Path, out: Path, *args: str) -> subprocess.CompletedProcess[str]:
     argv = ["catalog", "eval", str(root), "--tier", "static", "--out-dir", str(out), *args]
     stdout, stderr = io.StringIO(), io.StringIO()
@@ -205,7 +211,7 @@ def test_duplicate_skill_validation_has_complete_failure_receipts(tmp_path):
     result = load_artifact("result", out / "result.json")
     assert report["status"] == "fail"
     assert completeness(plan, result).complete
-    assert {cell["status"] for cell in result["cells"]} == {"fail"}
+    assert sorted(cell["status"] for cell in result["cells"]) == ["fail", "pass"]
 
 
 def test_report_lists_each_finding_once(tmp_path):
@@ -276,7 +282,7 @@ def test_submodule_checkout_is_refused_before_git_inspects_it(tmp_path):
     assert "submodules" in done.stderr
 
 
-def test_task_loader_type_error_replaces_earlier_receipts_with_an_error(tmp_path, monkeypatch):
+def test_task_loader_type_error_is_a_finding_that_replaces_earlier_receipts(tmp_path, monkeypatch):
     root = _catalog(tmp_path)
     out = tmp_path / "out"
     assert _run(root, out).returncode == 0
@@ -290,9 +296,9 @@ def test_task_loader_type_error_replaces_earlier_receipts_with_an_error(tmp_path
 
     monkeypatch.setattr("dokimi.external.catalog_eval_inventory.load_task", boom)
     done = _run(root, out)
-    assert done.returncode == 2
-    assert not (out / "result.json").exists()
-    assert "t1" in (out / "report.md").read_text()
+    assert done.returncode == 1
+    assert "task-load" in (out / "report.md").read_text()
+    assert _statuses(out)["catalog-integrity"] == "fail"
 
 
 @pytest.mark.parametrize("name,content", [("report.md", "my notes"), ("plan.json", "{}"), ("result.json", "[1]"), ("catalog.json", "not json"),
@@ -319,7 +325,7 @@ def test_shared_format_artifact_from_another_run_is_preserved(tmp_path, name):
     assert target.read_bytes() == fixture.read_bytes()
 
 
-def test_overflowing_task_limit_replaces_earlier_receipts_with_an_input_error(tmp_path, monkeypatch):
+def test_overflowing_task_limit_is_a_finding_that_replaces_earlier_receipts(tmp_path, monkeypatch):
     root = _catalog(tmp_path)
     out = tmp_path / "out"
     assert _run(root, out).returncode == 0
@@ -333,9 +339,9 @@ def test_overflowing_task_limit_replaces_earlier_receipts_with_an_input_error(tm
 
     monkeypatch.setattr("dokimi.external.catalog_eval_inventory.load_task", boom)
     done = _run(root, out)
-    assert done.returncode == 2
-    assert not (out / "result.json").exists()
-    assert "t1" in (out / "report.md").read_text()
+    assert done.returncode == 1
+    assert "task-load" in (out / "report.md").read_text()
+    assert _statuses(out)["catalog-integrity"] == "fail"
 
 
 def test_multiline_filter_value_is_refused_not_a_crash(tmp_path):
@@ -354,15 +360,14 @@ def test_failed_rollback_keeps_the_previous_receipts(tmp_path):
     before = (out / "report.md").read_text()
     real = os.replace
     def flaky(src, dst):
-        if Path(dst) == out or Path(src).name == "old":
-            if Path(src) != out:
-                raise OSError("disk gone")
+        if Path(src).parent.name in {"new", "old"}:
+            raise OSError("disk gone")
         return real(src, dst)
 
     with patch("dokimi.commands.catalog_eval.os.replace", flaky):
         done = _run(root, out)
     assert done.returncode != 0
-    kept = [p for p in tmp_path.glob(".catalog-eval-*/old") if (p / "report.md").read_text() == before]
+    kept = [p for p in out.glob(".catalog-eval-*/old") if (p / "report.md").read_text() == before]
     assert kept and str(kept[0]) in done.stderr
 
 
@@ -399,14 +404,15 @@ def test_interrupt_between_backup_and_publish_keeps_the_previous_receipts(tmp_pa
     real = os.replace
 
     def interrupted(src, dst):
-        if Path(dst) == out and Path(src).name == "new":
+        if Path(src).parent.name == "new":
             raise KeyboardInterrupt
         return real(src, dst)
 
     with patch("dokimi.commands.catalog_eval.os.replace", interrupted), pytest.raises(KeyboardInterrupt):
         _run(root, out)
     assert (out / "report.md").read_text() == before
-    assert not list(tmp_path.glob(".catalog-eval-*"))
+    assert (out / "result.json").is_file()
+    assert not list(out.glob(".catalog-eval-*"))
 
 
 @pytest.mark.skipif(os.name == "nt", reason="needs undecodable POSIX filenames")
@@ -495,3 +501,91 @@ def test_partial_clone_never_fetches_through_its_configured_transport(tmp_path):
     done = _run(clone, tmp_path / "out", "--changed-from", base)
     assert done.returncode == 2
     assert not marker.exists()
+
+
+def test_out_dir_that_is_the_current_directory_survives(tmp_path, monkeypatch):
+    root = _catalog(tmp_path)
+    out = tmp_path / "receipts"
+    out.mkdir()
+    monkeypatch.chdir(out)
+    assert _run(root, Path(".")).returncode == 0
+    assert (out / "result.json").is_file()
+    assert Path.cwd().samefile(out)
+
+
+def test_receipts_are_written_into_the_existing_directory_without_touching_its_parent(tmp_path):
+    root = _catalog(tmp_path)
+    holder = tmp_path / "holder"
+    out = holder / "out"
+    out.mkdir(parents=True)
+    assert _run(root, out).returncode == 0
+    inode = out.stat().st_ino
+    assert _run(root, out).returncode == 0
+    assert out.stat().st_ino == inode
+    assert sorted(p.name for p in holder.iterdir()) == ["out"]
+    assert sorted(p.name for p in out.iterdir()) == ["catalog.json", "plan.json", "report.md", "result.json"]
+
+
+def test_scratch_left_by_an_interrupted_run_does_not_block_the_next_run(tmp_path):
+    root = _catalog(tmp_path)
+    out = tmp_path / "out"
+    (out / ".catalog-eval-stale" / "old").mkdir(parents=True)
+    assert _run(root, out).returncode == 0
+
+
+def _tracked_catalog(tmp_path: Path) -> tuple[Path, str]:
+    root = _catalog(tmp_path)
+    (root / ".gitignore").write_text(".pytest_cache/\nvenv/\n")
+    return root, _commit(root)
+
+
+def _selected(out: Path) -> list[str]:
+    return json.loads((out / "catalog.json").read_text())["selection"]["selected"]
+
+
+def test_an_ignored_file_outside_every_bundle_selects_nothing(tmp_path):
+    root, sha = _tracked_catalog(tmp_path)
+    (root / ".pytest_cache").mkdir()
+    (root / ".pytest_cache/cache").write_text("x")
+    out = tmp_path / "out"
+    assert _run(root, out, "--changed-from", sha).returncode == 0
+    assert _selected(out) == []
+    assert json.loads((out / "catalog.json").read_text())["source"]["dirty"] is False
+
+
+def test_an_untracked_file_in_a_task_named_like_a_vendored_directory_selects_its_skill(tmp_path):
+    root = _catalog(tmp_path)
+    task = root / "evaluation/harbor/tasks/venv"
+    task.mkdir(parents=True)
+    (task / "task.toml").write_text('[metadata]\nskill = "alpha"\n')
+    (task / "instruction.md").write_text("Read.")
+    sha = _commit(root)
+    (task / "oracle.sh").write_text("true")
+    out = tmp_path / "out"
+    assert _run(root, out, "--changed-from", sha).returncode == 0
+    assert _selected(out) == ["alpha"]
+
+
+def test_a_task_moved_to_another_skill_selects_both_without_a_suites_file(tmp_path):
+    root = _catalog(tmp_path)
+    task = root / "evaluation/harbor/tasks/t1"
+    task.mkdir(parents=True)
+    (task / "task.toml").write_text('[metadata]\nskill = "alpha"\n')
+    (task / "instruction.md").write_text("Read.")
+    sha = _commit(root)
+    (task / "task.toml").write_text('[metadata]\nskill = "beta"\n')
+    out = tmp_path / "out"
+    assert _run(root, out, "--changed-from", sha).returncode == 0
+    assert _selected(out) == ["alpha", "beta"]
+
+
+def test_a_broken_skill_outside_the_selection_does_not_fail_the_cli(tmp_path):
+    root, sha = _tracked_catalog(tmp_path)
+    (root / "skills/beta/SKILL.md").write_text("broken", encoding="utf-8")
+    _git(root, "commit", "-qam", "break beta")
+    sha = _git(root, "rev-parse", "HEAD")
+    (root / "skills/alpha/new.md").write_text("x")
+    out = tmp_path / "out"
+    done = _run(root, out, "--changed-from", sha)
+    assert done.returncode == 0, done.stderr
+    assert _statuses(out) == {"catalog-integrity": "pass", "skill/alpha": "pass"}

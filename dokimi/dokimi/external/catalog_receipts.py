@@ -9,6 +9,8 @@ from typing import Any
 
 from dokimi.runner.plan import completeness, plan_cells, plan_digest
 
+from .catalog_eval import shared_problems
+
 
 def receipts(report: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     """One always-run integrity cell plus one check per selected skill; no runtime cells."""
@@ -30,7 +32,8 @@ def receipts(report: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
         "varied_variable": "none-static-checks", "cells": plan_cells(["catalog-static"], [None], names),
         "budget": {"cells": len(names), "agent_calls": 0, "cost_usd": 0},
     }
-    statuses = {"catalog-integrity": report["status"],
+    integrity = any(item["level"] == "error" for item in shared_problems(report["problems"], report["skills"]))
+    statuses = {"catalog-integrity": "fail" if integrity else "pass",
                 **{f"skill/{row['name']}": _skill_status(report, row["name"]) for row in rows}}
     result = {
         "plan_digest": plan_digest(plan),

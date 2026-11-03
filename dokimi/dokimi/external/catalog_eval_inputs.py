@@ -13,6 +13,8 @@ from typing import Any
 
 from dokimi.skills.loader import VENDORED_DIR_NAMES
 
+from .catalog import DEFAULT_TASKS_SUBDIR
+
 
 class UnsafePath(ValueError):
     """A catalog path cannot be inspected without following a link or escaping."""
@@ -37,6 +39,12 @@ def redirected(path: Path) -> bool:
         return bool(getattr(path.lstat(), "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT)
     except OSError:
         return False
+
+
+def task_dir(path: str) -> str | None:
+    """The task directory a catalog-relative path is in, else ``None``."""
+    tasks, parts = PurePosixPath(DEFAULT_TASKS_SUBDIR).parts, PurePosixPath(path).parts
+    return PurePosixPath(*parts[:len(tasks) + 1]).as_posix() if parts[:len(tasks)] == tasks and len(parts) > len(tasks) else None
 
 
 def checked_root(root: Path) -> Path:
@@ -71,8 +79,12 @@ def finding(code: str, message: str, path: str = "", level: str = "error") -> di
 
 def digest(value: Any) -> str:
     """Hash canonical data, independent of checkout location or traversal order."""
-    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"),
-                                     ensure_ascii=False).encode("utf-8")).hexdigest()
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode("ascii")).hexdigest()
+
+
+def _skipped(child: Path) -> bool:
+    """Not a bundle input: a ``.git`` of any type (a worktree's is a file with an absolute path), or a vendored directory or link."""
+    return child.name == ".git" or (child.name in VENDORED_DIR_NAMES and (redirected(child) or child.is_dir()))
 
 
 class Inputs:
@@ -120,10 +132,9 @@ class Inputs:
                 children = sorted(current.iterdir())
             except OSError as exc:
                 raise ValueError(f"cannot inspect {current}: {exc}") from exc
-            for child in children:
+            kept = [c for c in children if not _skipped(c)]
+            for child in kept:
                 checked_path(self.root, child)
-            # A worktree's .git is a file holding an absolute path, so it is skipped whatever its type.
-            kept = [c for c in children if c.name != ".git" and (c.name not in VENDORED_DIR_NAMES or not c.is_dir())]
             pending.extend(reversed(kept))
         return result
 

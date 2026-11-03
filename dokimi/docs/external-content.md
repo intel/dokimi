@@ -32,7 +32,9 @@ symlink in a parent directory is resolved once, and no link below the root is fo
 Tasks are discovered on disk and assigned using their `metadata.skill` field.
 `evaluation/harbor/suites.json` is cross-checked: a task present on disk but absent
 from a suite remains visible with a warning; a missing declared implemented task,
-unknown owner or contradictory ownership fails validation. Planned tasks remain
+unknown owner or contradictory ownership fails validation. A task that cannot be
+loaded (for example invalid TOML) is a `task-load` finding on its declaring skill, or on
+the catalog when no suite declares it. Planned tasks remain
 listed separately. Imported skills or suites with `evaluated_here: false` receive
 `checks_only`; local skills without actual tasks receive `no_tasks`; other skills
 receive `not_measured`. A static pass establishes none of their runtime outcomes,
@@ -40,8 +42,14 @@ skill usefulness, discovery rate or hardware performance, and changes no catalog
 promotion status.
 
 `--changed-from` compares a locally available base commit with working-tree bytes,
-including untracked paths. Skill resources and owned tasks select their skill;
+including untracked and ignored files that a skill or task bundle hashes (files
+under a vendored directory such as `node_modules` and any `.git` are not hashed, so
+they select nothing). Skill resources and owned tasks select their skill, and a
+changed or removed task also selects the skill that owned it at the base;
 registry, suite, shared machinery and unclaimed changes select conservatively.
+Selection limits what can fail: a finding in a skill that is not selected is
+listed in the report but does not fail the run, while a catalog-wide problem
+(manifest, suites, tasks root, a task with no known owner) always does.
 Removed skill paths remain visible in the selection receipt. An unavailable base
 selects all skills with an explicit note. A docs-only change can select no skills;
 the catalog integrity check still runs. Git paths are read as NUL-delimited data,
@@ -52,7 +60,9 @@ and exit 2 reports unusable input or output. A failed validation rewrites the
 receipts with failure; an input error removes earlier success receipts and leaves
 an error report when the output directory is usable. The directory must be empty
 or contain only this command's earlier receipts, and must be outside the entire
-catalog checkout and its ancestors. Linked catalog roots and inputs are refused.
+catalog checkout and its ancestors. The directory itself is never renamed or
+removed, so it may be a mount point, the current directory or sit under a
+read-only parent; receipts are staged in a scratch directory inside it. Linked catalog roots and inputs are refused.
 Successful outputs are prepared and schema-checked before replacement.
 
 This path can run in a read-only, key-free catalog workflow. It is not a substitute

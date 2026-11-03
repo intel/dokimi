@@ -140,7 +140,7 @@ def inventory_suites(inputs: Inputs, rows: list[dict], problems: list[dict]) -> 
         data = json.loads(inputs.text(path))
     except (ValueError, RecursionError) as exc:
         raise ValueError(f"invalid suites at {path}: {exc}") from exc
-    suites = data.get("suites", []) if isinstance(data, dict) else None
+    suites = (data.get("suites") or []) if isinstance(data, dict) else None
     if not isinstance(suites, list) or not all(isinstance(item, dict) for item in suites):
         raise ValueError(f"invalid suites list at {path}")
     declared: dict[str, dict] = {}
@@ -166,7 +166,7 @@ def _suite(suite: dict, owners: dict, seen: set[str], declared: dict, problems: 
         findings.append(finding("evaluated-here-type", "evaluated_here must be a boolean", DEFAULT_SUITES_MANIFEST))
     elif flag is False:
         row["evaluated_here"] = False
-    tasks = suite.get("tasks", [])
+    tasks = suite.get("tasks") or []
     if not isinstance(tasks, list) or not all(isinstance(task, dict) for task in tasks):
         raise ValueError(f"invalid tasks list at {DEFAULT_SUITES_MANIFEST}")
     for task in tasks:
@@ -229,6 +229,10 @@ def _task(inputs: Inputs, path: Path, owners: dict, declared: dict, actual: set[
     relative = path.relative_to(inputs.root).as_posix()
     try:
         bundle = inputs.bundle(path)
+    except UnsafePath as exc:
+        problems.append(finding("unsafe-path", str(exc), relative))
+        return
+    try:
         if not_a_task(path):
             return
         config = read_task_config(path)
@@ -237,11 +241,12 @@ def _task(inputs: Inputs, path: Path, owners: dict, declared: dict, actual: set[
     except UnsafePath as exc:
         problems.append(finding("unsafe-path", str(exc), relative))
         return
-    except FileNotFoundError as exc:
-        problems.append(finding("task-load", str(exc), relative))
-        return
     except (ValueError, OSError, UnicodeError, RecursionError, TypeError, OverflowError) as exc:
-        raise ValueError(f"cannot load task at {path}: {exc}") from exc
+        # The declaring suite's skill owns a task that cannot be loaded; without one it is a catalog problem.
+        declaration = declared.get(path.name)
+        row = owners.get(declaration["owner"]) if declaration else None
+        (row["checks"]["findings"] if row else problems).append(finding("task-load", f"cannot load task: {exc}", relative))
+        return
     actual.add(spec.name)
     owner = spec.metadata.get("skill")
     if not isinstance(owner, str) or owner not in owners:

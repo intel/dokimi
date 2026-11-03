@@ -23,6 +23,7 @@ from dokimi.exit_codes import usage_exit
 
 _OUTPUTS = ("catalog.json", "plan.json", "result.json", "report.md")
 _REPORT_HEADER = "# Catalog static evaluation"
+_SCRATCH = ".catalog-eval-"
 _RESULT_DETAIL = "Deterministic checks only"
 
 
@@ -46,11 +47,16 @@ def _is_receipt(path: Path) -> bool:
         return False
 
 
+def _is_scratch(path: Path) -> bool:
+    """A scratch directory an interrupted run of this command left in the output directory."""
+    return path.name.startswith(_SCRATCH) and path.is_dir() and not path.is_symlink()
+
+
 def _output(root: Path, out: Path) -> None:
     """Require a dedicated output directory outside all catalog input trees."""
     if root.is_relative_to(out) or out.is_relative_to(root):
         raise ValueError("--out-dir must be outside the entire catalog checkout and its ancestors")
-    if out.exists() and (not out.is_dir() or any(not _is_receipt(p) for p in out.iterdir())):
+    if out.exists() and (not out.is_dir() or any(not _is_receipt(p) and not _is_scratch(p) for p in out.iterdir())):
         raise ValueError("--out-dir must be an empty directory or contain only earlier catalog evaluation receipts")
 
 
@@ -62,54 +68,60 @@ def _resolve(path: Path) -> Path:
 
 
 def _write(out: Path, report: dict[str, Any], plan: dict[str, Any], result: dict[str, Any]) -> None:
-    """Prepare all schema-checked files before replacing a previous output directory."""
+    """Prepare all schema-checked files before replacing the previous receipts."""
     from dokimi.external.catalog_receipts import render
 
-    out.parent.mkdir(parents=True, exist_ok=True)
-    with _workdir(out.parent) as work:
+    with _workdir(out) as work:
         staged = Path(work) / "new"
         staged.mkdir()
         for kind, payload in (("catalog_eval", report), ("plan", plan), ("result", result)):
             name = "catalog.json" if kind == "catalog_eval" else f"{kind}.json"
             save_artifact(kind, payload, staged / name)
         (staged / "report.md").write_text(render(report), encoding="utf-8", errors="backslashreplace")
-        _replace_output(out, staged, Path(work) / "old")
+        _replace_receipts(out, staged, Path(work) / "old")
 
 
 class _RollbackFailed(OSError):
-    """The previous output could not be put back; its copy is kept for recovery."""
+    """The previous receipts could not be put back; their copy is kept for recovery."""
 
 
 @contextlib.contextmanager
-def _workdir(parent: Path) -> Iterator[Path]:
-    """A scratch directory, kept only while it still holds the sole copy of the previous output."""
-    work = Path(tempfile.mkdtemp(prefix=".catalog-eval-", dir=parent))
+def _workdir(out: Path) -> Iterator[Path]:
+    """A scratch directory inside *out*, kept only while it holds the sole copy of the previous receipts."""
+    out.mkdir(parents=True, exist_ok=True)
+    work = Path(tempfile.mkdtemp(prefix=_SCRATCH, dir=out))
     try:
+        (work / "old").mkdir()
         yield work
     finally:
-        if not (work / "old").exists():
+        if not (work / "old").is_dir() or not any((work / "old").iterdir()):
             shutil.rmtree(work, ignore_errors=True)
 
 
-def _replace_output(out: Path, staged: Path, backup: Path) -> None:
+def _replace_receipts(out: Path, staged: Path, backup: Path) -> None:
+    """Swap the four receipt files within *out*; the directory itself is never renamed or removed."""
     try:
-        if out.exists():
-            os.replace(out, backup)
-        os.replace(staged, out)
+        for name in _OUTPUTS:
+            if (out / name).exists():
+                os.replace(out / name, backup / name)
+        for name in sorted(path.name for path in staged.iterdir()):
+            os.replace(staged / name, out / name)
     except BaseException as exc:
-        if backup.exists():
-            try:
-                os.replace(backup, out)
-            except OSError as restore:
-                raise _RollbackFailed(f"cannot restore previous receipts, kept at {backup}: {restore}") from exc
+        try:
+            for name in _OUTPUTS:
+                if (backup / name).exists():
+                    os.replace(backup / name, out / name)
+                else:
+                    (out / name).unlink(missing_ok=True)
+        except OSError as restore:
+            raise _RollbackFailed(f"cannot restore previous receipts, kept at {backup}: {restore}") from exc
         raise
     shutil.rmtree(backup, ignore_errors=True)
 
 
 def _write_error(out: Path, error: Exception) -> None:
     """Invalidate earlier success after an input error without inventing a measured plan."""
-    out.parent.mkdir(parents=True, exist_ok=True)
-    with _workdir(out.parent) as work:
+    with _workdir(out) as work:
         staged = Path(work) / "new"
         staged.mkdir()
         message = str(error).replace("<", "&lt;").replace(">", "&gt;")
@@ -117,7 +129,7 @@ def _write_error(out: Path, error: Exception) -> None:
             f"# Catalog static evaluation\n\nInput error: {message}\n\n"
             "No valid result was produced. Earlier success receipts were removed.\n",
             encoding="utf-8", errors="backslashreplace")
-        _replace_output(out, staged, Path(work) / "old")
+        _replace_receipts(out, staged, Path(work) / "old")
 
 
 def _checker() -> dict[str, str]:
@@ -135,7 +147,7 @@ def _checker() -> dict[str, str]:
 
 
 def cmd_catalog_eval(args: argparse.Namespace) -> None:
-    from dokimi.external.catalog_eval import evaluate_catalog
+    from dokimi.external.catalog_eval import evaluate_catalog, hashed_paths
     from dokimi.external.catalog_git import source_and_changes
     from dokimi.external.catalog_receipts import receipts
     from dokimi.external.catalog_eval_inputs import checked_root
@@ -148,8 +160,10 @@ def cmd_catalog_eval(args: argparse.Namespace) -> None:
         _output(root, out)
         output_valid = True
         root = checked_root(supplied_root)
-        source, changed, note = source_and_changes(root, args.changed_from, out)
-        report = evaluate_catalog(root, changed_paths=changed)
+        source, changed, untracked, base_owners, note = source_and_changes(root, args.changed_from, out)
+        report = evaluate_catalog(root, changed_paths=changed, untracked_paths=untracked, base_owners=base_owners)
+        if source["dirty"] is False and hashed_paths(report["skills"], untracked):
+            source["dirty"] = True
         report["source"] = source
         report["checker"] = _checker()
         if note:

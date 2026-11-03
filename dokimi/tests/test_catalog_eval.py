@@ -237,7 +237,6 @@ def test_empty_manifest_is_an_empty_catalog_not_an_input_error(tmp_path, content
 @pytest.mark.parametrize("file,contents", [
     ("skills.yaml", "skills: ["),
     ("evaluation/harbor/suites.json", "["),
-    (f"{TASKS}/unrelated-name/task.toml", "[metadata"),
 ])
 def test_malformed_input_raises_with_its_path(tmp_path, file, contents):
     skill(tmp_path)
@@ -701,3 +700,143 @@ def test_fallback_discovery_skips_skill_templates(tmp_path):
     report = evaluate(tmp_path)
     assert report["status"] == "pass"
     assert [item["name"] for item in report["skills"]] == ["alpha"]
+
+
+def receipts(report: dict) -> tuple[dict, dict]:
+    from dokimi.external import catalog_receipts
+
+    report["source"] = {"commit": None, "dirty": None}
+    report["checker"] = {"package_sha256": "sha256:" + "0" * 64}
+    return catalog_receipts.receipts(report)
+
+
+def _plan_task_ids(report: dict) -> list[str]:
+    return sorted({cell["task"] for cell in receipts(report)[0]["cells"]})
+
+
+def test_plan_and_budget_list_only_the_selected_skills(tmp_path):
+    skill(tmp_path)
+    skill(tmp_path, "beta")
+    report = evaluate(tmp_path, ["skills/alpha/new.md"])
+    plan, _ = receipts(report)
+    assert _plan_task_ids(report) == ["catalog-integrity", "skill/alpha"]
+    assert plan["budget"]["cells"] == 2
+
+
+def test_an_unselected_broken_skill_does_not_fail_a_changed_run(tmp_path):
+    skill(tmp_path)
+    broken = skill(tmp_path, "beta")
+    (broken / "SKILL.md").write_text("no frontmatter", encoding="utf-8")
+    changed = evaluate(tmp_path, ["skills/alpha/new.md"])
+    assert changed["status"] == "pass"
+    assert "skill-load" in codes(changed)
+    _, result = receipts(changed)
+    assert {cell["status"] for cell in result["cells"]} == {"pass"}
+    assert evaluate(tmp_path)["status"] == "fail"
+    assert evaluate(tmp_path, ["skills/beta/SKILL.md"])["status"] == "fail"
+
+
+def test_a_catalog_wide_problem_fails_a_changed_run(tmp_path):
+    skill(tmp_path)
+    task(tmp_path, owner="ghost")
+    changed = evaluate(tmp_path, ["skills/alpha/new.md"])
+    assert changed["status"] == "fail"
+    statuses = {cell["status"] for cell in receipts(changed)[1]["cells"]}
+    assert statuses == {"pass", "fail"}
+
+
+def test_a_task_that_cannot_be_loaded_is_a_finding_and_the_other_skills_still_run(tmp_path):
+    skill(tmp_path)
+    skill(tmp_path, "beta")
+    task(tmp_path, "good", owner="beta")
+    bad = task(tmp_path, "bad")
+    (bad / "task.toml").write_text("[metadata", encoding="utf-8")
+    report = evaluate(tmp_path)
+    assert report["status"] == "fail"
+    assert "task-load" in codes(report)
+    assert row(report, "beta")["tasks"][0]["name"] == "good"
+
+
+def test_a_declared_task_that_cannot_be_loaded_is_the_declaring_skills_finding(tmp_path):
+    skill(tmp_path)
+    skill(tmp_path, "beta")
+    suites(tmp_path, [{"skill": "alpha", "tasks": [{"name": "bad"}]}])
+    bad = task(tmp_path, "bad")
+    (bad / "task.toml").write_text("[metadata", encoding="utf-8")
+    report = evaluate(tmp_path)
+    assert "task-load" in {item["code"] for item in row(report)["checks"]["findings"]}
+    assert row(report, "beta")["checks"]["status"] == "pass"
+
+
+def test_null_suites_and_tasks_are_empty_lists(tmp_path):
+    skill(tmp_path)
+    (tmp_path / "evaluation/harbor").mkdir(parents=True)
+    (tmp_path / "evaluation/harbor/suites.json").write_text('{"suites": null}')
+    assert evaluate(tmp_path)["status"] == "pass"
+    suites(tmp_path, [{"skill": "alpha", "tasks": None}])
+    assert evaluate(tmp_path)["status"] == "pass"
+
+
+def test_digest_accepts_a_file_name_that_is_not_valid_utf8():
+    from dokimi.external.catalog_eval_inputs import digest
+
+    name = "bad" + chr(0xDCFF) + ".txt"
+    assert digest([[name, "a"]]) != digest([["bad.txt", "a"]])
+
+
+def _link(destination: Path, target: Path) -> None:
+    try:
+        destination.symlink_to(target, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks are not available")
+
+
+@pytest.mark.parametrize("name", ["node_modules", ".git"])
+def test_a_symlinked_vendored_directory_is_not_a_bundle_input(tmp_path, name):
+    alpha = skill(tmp_path)
+    (tmp_path / "elsewhere").mkdir()
+    before = evaluate(tmp_path)
+    _link(alpha / name, tmp_path / "elsewhere")
+    after = evaluate(tmp_path)
+    assert after["status"] == "pass", after["problems"]
+    assert row(after)["bundle_digest"] == row(before)["bundle_digest"]
+
+
+def test_a_symlink_that_is_not_vendored_is_still_refused(tmp_path):
+    alpha = skill(tmp_path)
+    (tmp_path / "elsewhere").mkdir()
+    _link(alpha / "docs", tmp_path / "elsewhere")
+    assert "unsafe-path" in codes(evaluate(tmp_path))
+
+
+def untracked(root: Path, changed: list[str], loose: list[str], base_owners: dict | None = None) -> dict:
+    from dokimi.external.catalog_eval import evaluate_catalog
+
+    return evaluate_catalog(root, changed, loose, base_owners)
+
+
+def test_untracked_files_select_only_the_skills_whose_bundle_hashes_them(tmp_path):
+    skill(tmp_path)
+    skill(tmp_path, "beta")
+    task(tmp_path, "venv")
+    cases = {
+        f"{TASKS}/venv/oracle.sh": ["alpha"],
+        "skills/alpha/build.log": ["alpha"],
+        "skills/alpha/node_modules/pkg/index.js": [],
+        "skills/beta/.git": [],
+        ".pytest_cache/v/cache": [],
+        "scratch.txt": [],
+    }
+    for path, selected in cases.items():
+        assert untracked(tmp_path, [], [path])["selection"]["selected"] == selected, path
+
+
+def test_a_moved_task_selects_the_skill_that_owned_it_at_the_base(tmp_path):
+    skill(tmp_path)
+    skill(tmp_path, "beta")
+    task(tmp_path, "t1", owner="beta")
+    changed = [f"{TASKS}/t1/task.toml"]
+    assert evaluate(tmp_path, changed)["selection"]["selected"] == ["beta"]
+    report = untracked(tmp_path, changed, [], {f"{TASKS}/t1": "alpha"})
+    assert report["selection"]["selected"] == ["alpha", "beta"]
+    assert row(report)["evaluation"] == "no_tasks"
