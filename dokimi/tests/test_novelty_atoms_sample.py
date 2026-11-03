@@ -58,6 +58,11 @@ def test_a_capped_run_indexes_every_atom_and_probes_only_the_sample():
     assert spans["frac_carrying_nothing"] == 0.0
     assert spans["sole_carrier"] == 200 and artifact["views"]["dead_weight"] == []
     assert artifact["attribution"]["spans_by_label"]["empty"] == 0
+    # The result keeps every extracted atom: each id the spans and attributions cite resolves.
+    assert (len(result.extracted_atoms), len(result.atoms)) == (200, 60)
+    cited = ({atom_id for span in result.spans for atom_id in span.atom_ids}
+             | {atom_id for row in result.attributions for atom_id in row.atom_ids})
+    assert cited == {atom.id for atom in result.extracted_atoms}
     # The paid stages stay at the cap: 60 atoms, each a question and a paraphrase in two arms.
     assert artifact["extraction"]["sampled"] == {"atoms": 60, "of": 200, "rule": "cap-spread"}
     assert (artifact["atoms"]["n"], artifact["atoms"]["n_probed"]) == (60, 60)

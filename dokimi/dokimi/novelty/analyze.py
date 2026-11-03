@@ -100,7 +100,11 @@ def _run_config(config: "AnalyzeConfig") -> dict:
 
 @dataclass
 class AnalyzeResult:
-    """Everything one analysis produced, plus the renderable views."""
+    """Everything one analysis produced, plus the renderable views.
+
+    ``atoms`` are the atoms the run probed (a capped run's sample); ``extracted_atoms`` are every
+    extracted atom, the set ``spans`` and ``attributions`` index, so each atom id they cite is there.
+    """
 
     artifact: dict
     attributions: list = field(default_factory=list)
@@ -108,6 +112,7 @@ class AnalyzeResult:
     atoms: list = field(default_factory=list)
     spans: list = field(default_factory=list)
     measure_result: object | None = None
+    extracted_atoms: list = field(default_factory=list)
 
 
 def kind_agreement_warnings(rows: dict[str, dict]) -> list[str]:
@@ -393,6 +398,7 @@ def analyze(
         atoms=atom_list,
         spans=span_list,
         measure_result=measure_result,
+        extracted_atoms=extracted,
     )
 
 
