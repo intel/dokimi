@@ -9,6 +9,8 @@ from __future__ import annotations
 import argparse
 import sys
 
+from dokimi.exit_codes import usage_exit
+
 
 def warn_unread(spans: list, consequence: str) -> None:
     """Say on stderr that ``atoms.json`` records spans extraction never read.
@@ -57,7 +59,8 @@ def measured_atoms(args: argparse.Namespace, atoms: list, saved: dict, stage: st
     ``--all-atoms`` every atom in it, reusing its extraction (#371).
 
     Spans are indexed from every atom either way; a sample that leaves atoms out is said on
-    stderr, and so is an older capped file that holds only its sample.
+    stderr, and so is an older capped file that holds only its sample. A sample the caller's
+    filter emptied (shortening keeps the entry point's atoms) exits: it would score nothing.
     """
     from dokimi.novelty.atoms import recorded_sample
 
@@ -65,6 +68,11 @@ def measured_atoms(args: argparse.Namespace, atoms: list, saved: dict, stage: st
     sample = recorded_sample(saved, atoms)
     if args.all_atoms or len(sample) == len(atoms):
         return atoms
+    if not sample and atoms:
+        usage_exit(f"{stage}: {args.atoms} records a sample of {len(saved['sampled_atom_ids'])} "
+                   f"atom(s), none of them among the {len(atoms)} of its {len(saved['atoms'])} "
+                   f"atoms {stage} measures here, so it would score nothing; pass --all-atoms "
+                   f"to measure those {len(atoms)}")
     print(f"NOTE {stage} measures the {len(sample)} atoms {args.atoms} records as the cap's "
           f"sample, of its {len(atoms)}; spans are indexed from all {len(atoms)}. Pass "
           "--all-atoms to measure every atom, reusing the extraction", file=sys.stderr)

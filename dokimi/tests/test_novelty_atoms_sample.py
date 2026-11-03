@@ -188,6 +188,31 @@ def test_probe_measures_the_recorded_sample_or_with_all_atoms_every_atom(
     assert (note in capsys.readouterr().err) is (probed == 2)
 
 
+def test_shorten_refuses_a_sample_the_entry_point_leaves_empty(tmp_path, monkeypatch, capsys):
+    """Two entry-point atoms, five resource atoms, and a cap of one that sampled a resource atom."""
+    skill = tmp_path / "s" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("---\nname: s\ndescription: d\n---\n\nbody\n", encoding="utf-8")
+    path, atoms, sample = _capped_file(tmp_path, n=7, cap=1)
+    data = json.loads(path.read_text())
+    assert sample[0].span_ids == ("s0004",)  # a resource span: the entry point ends at s0002
+    data["bundle"] = {"include_resources": True, "n_files": 2, "files": [
+        {"path": "SKILL.md", "start": 0, "end": data["spans"][2]["start"]},
+        {"path": "references/r.md", "start": data["spans"][2]["start"]}]}
+    path.write_text(json.dumps(data))
+    out = tmp_path / "short.md"
+    argv = ("shorten", "--artifact", f"skill:{skill}", "--atoms", str(path), "--lexical-only",
+            "--budgets", "0.5", "--out", str(out))
+    with pytest.raises(SystemExit) as exit_info:
+        _cli(monkeypatch, *argv)
+    assert exit_info.value.code == 2 and not out.exists()
+    assert (f"shorten: {path} records a sample of 1 atom(s), none of them among the 2 of its 7 "
+            "atoms shorten measures here, so it would score nothing; pass --all-atoms to measure "
+            "those 2") in capsys.readouterr().err
+    _cli(monkeypatch, *argv, "--all-atoms")
+    assert "OK Wrote candidate" in capsys.readouterr().out and out.exists()
+
+
 OLD_CAPPED_WARNING = ("was written by a capped `novelty atoms` run before atoms files recorded "
                       "their sample (`sampled_atom_ids`): it holds only the atoms its run probed, "
                       "so spans whose atoms fell outside them read as carrying nothing and a "
