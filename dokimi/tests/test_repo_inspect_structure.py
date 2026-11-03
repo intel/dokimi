@@ -323,6 +323,19 @@ def test_inspect_with_an_index_adds_the_section_and_info_findings(tmp_path):
     assert "structure" not in inspect_repo(WorkTree(tmp_path))
 
 
+# r1.py at the root defines run, referenced from a, b and c: the root files form the kept module "."
+ROOT_DOCS = {"r1.py": [(CORE_RUN, True)], "r2.py": [], "r3.py": [], "a/x.py": [(CORE_RUN, False)],
+             "b/y.py": [(CORE_RUN, False)], "c/z.py": [(CORE_RUN, False)], **{f"a/f{i}.py": [] for i in range(30)}}
+
+
+@pytest.mark.parametrize("instruction, expected", [("AGENTS.md", True), ("src/AGENTS.md", False),
+                                                   ("CLAUDE.local.md", False)])
+def test_the_root_module_is_in_guidance_with_a_root_instruction_file(tmp_path, instruction, expected):
+    _repo(tmp_path, {**{p: "x = 1\n" for p in ROOT_DOCS}, instruction: "Notes.\n"})
+    by = {m["module"]: m for m in inspect_repo(WorkTree(tmp_path), index=_index(ROOT_DOCS))["structure"]["modules"]}
+    assert by["."]["kept"] and by["."]["in_guidance"] is expected
+
+
 def _fixture_repo(root: Path) -> None:
     # the fixture index is relative to tests/fixtures/code_index/; here its files sit under vendor/
     files = {f"vendor/sample_pkg/{p.name}": p.read_text() for p in (FIXTURES / "sample_pkg").glob("*.py")}
