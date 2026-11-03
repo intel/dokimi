@@ -129,7 +129,7 @@ def resolve_api_key(provider: str, api_key: Optional[str] = None) -> Optional[st
         try:
             with open(path, encoding="utf-8") as fh:
                 key = fh.read().strip()
-        except OSError as exc:
+        except (OSError, UnicodeDecodeError) as exc:
             raise ValueError(f"Cannot read API key from file '{path}': {exc}") from exc
     return key or None
 

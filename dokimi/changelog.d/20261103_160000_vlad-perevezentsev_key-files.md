@@ -22,3 +22,5 @@ SPDX-License-Identifier: Apache-2.0
     key from file …" or "… names an empty key file", like any other RAGAS failure. In the Python
     API, the fallback judge that a provider other than openai and anthropic gets reads its key
     file too.
+  - A `file:` key that is not UTF-8 is reported as "Cannot read API key from file '…'" too, by
+    every command that reads a key; it raised a bare decode error that did not name the file.

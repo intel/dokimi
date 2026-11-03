@@ -201,3 +201,12 @@ def test_ragas_builds_no_embeddings_without_answer_relevancy(ragas_stubs, tmp_pa
     RagasEvaluator(provider="anthropic", metrics=["faithfulness"])
     assert _answer_relevancy().embeddings == "unset"
     assert [name for name, _ in ragas_stubs] == ["anthropic"]
+
+
+def test_a_key_file_that_is_not_utf8_is_named_in_the_refusal(tmp_path, monkeypatch, capsys):
+    key = tmp_path / "key"
+    key.write_bytes(b"\xff\xfe")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", f"file:{key}")
+    code, err = _preflight(tmp_path, monkeypatch, capsys)
+    assert f"Cannot read API key from file '{key}'" in err
+    assert code == 2
