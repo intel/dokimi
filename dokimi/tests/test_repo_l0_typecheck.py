@@ -84,7 +84,7 @@ def test_a_fence_that_is_not_python_is_unresolved_not_failed(tmp_path):
                         typecheck=Check("mypy", sys.executable))
     placeholder = {c["line"]: c for c in _fence_claims(payload)}[15]  # opens on line 15
     assert placeholder["status"] == "unresolved"
-    assert "not valid Python" in placeholder["why"]
+    assert "not parsed by" in placeholder["why"] and "invalid syntax" in placeholder["why"]
     assert payload["typecheck"]["syntax"] == 1
 
 
@@ -92,7 +92,7 @@ def test_without_an_interpreter_every_checkable_fence_is_unknown(tmp_path):
     payload = scan_repo(_tree(tmp_path), parse_manifest(MANIFEST), typecheck=Check("mypy", None))
     fences = _fence_claims(payload)
     assert {c["status"] for c in fences} == {"unresolved"}
-    assert all("unknown" in c["why"] for c in fences if "not valid" not in c["why"])
+    assert all("unknown" in c["why"] for c in fences if "not parsed by" not in c["why"])
     assert payload["typecheck"] == {"tool": "mypy", "tool_version": None, "python": None, "fences": 3,
                                     "checked": 0, "fail": 0, "unknown": 2, "syntax": 1}
 
@@ -218,7 +218,22 @@ def test_a_tool_failure_is_a_usage_error_not_a_traceback(tmp_path, capsys, monke
     with pytest.raises(SystemExit) as exc:
         args.func(args)
     assert exc.value.code == 2
-    assert "--typecheck-tool mypy: mypy exited 2: broken" in capsys.readouterr().err
+    assert "repo scan --typecheck: mypy exited 2: broken" in capsys.readouterr().err
+
+
+def test_an_interpreter_that_reports_no_version_is_not_labelled_as_the_tool(tmp_path, capsys, monkeypatch):
+    from dokimi.repos.l0 import typecheck as l0_typecheck
+
+    def no_version(check):
+        raise l0_typecheck.TypecheckError("/venv/bin/python did not report its version: ''")
+
+    monkeypatch.setattr(l0_typecheck, "python_version", no_version)
+    args = _scan_args(tmp_path, "--typecheck", "--python-env", sys.executable)
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "did not report its version" in err and "--typecheck-tool" not in err
 
 
 def test_basedpyright_missing_from_path_is_a_usage_error(tmp_path, capsys, monkeypatch):
@@ -620,6 +635,15 @@ def test_a_fragment_with_a_real_error_still_fails(tmp_path):
     [claim] = _fence_claims(scan_repo(_tree(tmp_path, fence), parse_manifest(MANIFEST),
                                       typecheck=Check("mypy", sys.executable)))
     assert claim["status"] == "fail"
+
+
+def test_the_claim_names_the_first_real_error_when_a_fragment_error_comes_first(tmp_path):
+    # `client` is an earlier fence's name: its error is a fragment, so the real error is the one the claim names
+    fence = f'{FENCE}python\nclient.decode("{{}}")\nx: int = "a"\n{FENCE}\n'
+    [claim] = _fence_claims(scan_repo(_tree(tmp_path, fence), parse_manifest(MANIFEST),
+                                      typecheck=Check("mypy", sys.executable)))
+    assert claim["status"] == "fail"
+    assert "Incompatible types" in claim["why"] and "not defined" not in claim["why"]
 
 
 def test_basedpyright_top_level_await_return_and_yield_are_fragments_not_stale(tmp_path, monkeypatch):

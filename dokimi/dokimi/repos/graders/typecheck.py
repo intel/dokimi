@@ -61,7 +61,13 @@ def task_problems(raw: dict[str, Any]) -> list[str]:
     return problems
 
 
-def _split(line: str, listed: set[str] | None, root: str) -> tuple[str, re.Match[str]] | None:
+def _name(text: str, sep: str) -> str:
+    """A diagnostic's file name as the listed names are: POSIX separators, normalised. Only ``sep`` (the native
+    separator, which mypy prints on Windows) is converted, so a backslash in a POSIX name stays one."""
+    return posixpath.normpath(text.replace(sep, "/"))
+
+
+def _split(line: str, listed: set[str] | None, root: str, sep: str = os.sep) -> tuple[str, re.Match[str]] | None:
     """The file a mypy line is about, and the match of the diagnostic after it; None for a line that is not one.
 
     With ``listed``, the file is a listed name, normalised as the names are: a name may hold ": error: " itself, so
@@ -72,25 +78,25 @@ def _split(line: str, listed: set[str] | None, root: str) -> tuple[str, re.Match
         if m is None:
             return None
         name = m.group("file")
-        return posixpath.normpath(name[len(root):] if name.startswith(root) else name), m
+        return _name(name[len(root):] if name.startswith(root) else name, sep), m
     text = line[len(root):] if line.startswith(root) else line
     best: tuple[str, re.Match[str]] | None = None
     for k, ch in enumerate(text):
         if ch != ":":
             continue
         tail = _TAIL.match(text[k:])
-        name = posixpath.normpath(text[:k])
+        name = _name(text[:k], sep)
         if tail is not None and name in listed:
             best = (name, tail)
     return best
 
 
-def _errors(stdout: str, listed: set[str] | None, root: str) -> list[dict[str, Any]]:
+def _errors(stdout: str, listed: set[str] | None, root: str, sep: str = os.sep) -> list[dict[str, Any]]:
     """The error lines of mypy's output on a listed file (any file when ``listed`` is None), in output
-    order; ``root`` is stripped from the names."""
+    order; ``root`` is stripped from the names, and ``sep`` (the separator mypy printed) is read as ``/``."""
     out = []
     for line in stdout.splitlines():
-        hit = _split(line, listed, root)
+        hit = _split(line, listed, root, sep)
         if hit is None:
             continue
         name, m = hit

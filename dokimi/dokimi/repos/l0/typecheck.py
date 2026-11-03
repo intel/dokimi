@@ -76,7 +76,7 @@ def check_fences(scan: Scan, files: list[str], check: Check) -> dict[str, Any]:
         if why is not None:  # `f(<arg>)` is not Python, or too deep for the parser
             block["syntax"] += 1
             scan.add(f, fence.line, "python_fence", _label(code), "unresolved",
-                     f"not valid Python ({why}): not type-checked")
+                     f"not parsed by {check.python or 'dokimi'} ({why}): not type-checked")
             continue
         runnable.append((f, fence, code))
     if check.python is None:
@@ -119,7 +119,8 @@ def _claims(scan: Scan, tool: str, runnable: list[tuple[str, Fence, str]],
                      f"{tool}: {errors[0][1]} (a fragment of a longer example: not type-checked)"[:MAX_WHY])
             continue
         fails += 1
-        line, message = errors[0]
+        # the first real error names the claim: a fragment error of the same fence is only counted
+        line, message = next(e for e in errors if not _FRAGMENT.match(e[1]))
         more = f" (+{len(errors) - 1} more)" if len(errors) > 1 else ""
         where = f"line {line}: " if line else ""  # 0: the tool gave no line, so the claim is the fence itself
         scan.add(f, fence.line + line, "python_fence", _label(code), "fail",

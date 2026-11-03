@@ -544,6 +544,19 @@ def test_a_type_error_is_graded_from_any_working_directory(tmp_path, monkeypatch
     assert result["n_errors"] == 1
 
 
+def test_a_windows_diagnostic_path_matches_the_listed_name():
+    # mypy on Windows prints backslash paths; the listed name is POSIX, so the error is still this file's
+    stdout = "C:\\run\\workspace\\pkg\\api.py:2: error: boom\n"
+    errors = typecheck._errors(stdout, {"pkg/api.py"}, "C:\\run\\workspace\\", sep="\\")
+    assert errors == [{"file": "pkg/api.py", "line": 2, "code": "", "message": "boom"}]
+
+
+def test_a_backslash_in_a_posix_name_is_a_literal_character():
+    # only the native separator is converted: on POSIX a file may be named with a backslash
+    errors = typecheck._errors("ws/a\\b.py:1: error: boom\n", {"a\\b.py"}, "ws/", sep="/")
+    assert [e["file"] for e in errors] == ["a\\b.py"]
+
+
 def test_two_listed_names_for_one_file_are_a_task_error():
     # "a.py" and "./a.py" are one file: mypy reports it as a duplicate module, so the task could never pass
     problems = typecheck.task_problems(_task(paths=["pkg/api.py", "./pkg/api.py"]))
@@ -560,7 +573,9 @@ def test_a_typecheck_task_without_reference_whose_listed_path_is_missing_is_a_pr
     raw = {"grader": "dokimi:typecheck", "tool": "mypy", "version": PINNED, "paths": ["src/pkg/modle.py"]}
     rd = tmp_path / "rd"
     rd.mkdir()
-    (rd / "grade.json").write_text(json.dumps({"pass": False, "missing": ["src/pkg/modle.py"]}), encoding="utf-8")
+    # the shape main.grade writes: a list is under details, not at the top level
+    mets, det = main.split_result({"pass": False, "n_missing": 1, "missing": ["src/pkg/modle.py"]})
+    (rd / "grade.json").write_text(json.dumps({"pass": False, "metrics": mets, "details": det}), encoding="utf-8")
     grade = {"status": "graded", "success": False, "score": None, "score_only": False, "pass": False}
     problems = selfcheck._verdict_problems(Task("t", raw, bare), "null", grade, rd)
     assert any("missing" in p and "src/pkg/modle.py" in p for p in problems)

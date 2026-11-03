@@ -161,7 +161,7 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
     try:
         payload = scan_repo(tree, manifest, static, typecheck=check)
     except TypecheckError as exc:
-        print(f"✗ --typecheck-tool {check.tool}: {exc}", file=sys.stderr)
+        print(f"✗ repo scan --typecheck: {exc}", file=sys.stderr)  # the error says whether the tool or the interpreter
         sys.exit(EXIT_USAGE)
     if args.out:
         try:

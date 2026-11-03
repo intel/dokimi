@@ -152,7 +152,8 @@ def _missing_listed(rd: Path) -> list[str]:
     """For a typecheck task with no reference the null grade is the only step: a listed path it reports missing
     fails that step, so no run could pass the task."""
     doc, _ = read_grade_json(rd / "grade.json")
-    missing = doc.get("missing") if isinstance(doc, dict) else None
+    details = doc.get("details") if isinstance(doc, dict) else None  # the grader's lists are under details
+    missing = details.get("missing") if isinstance(details, dict) else None
     if not isinstance(missing, list) or not missing:
         return []
     return [f"null: listed path {', '.join(str(p) for p in missing)} is missing; with no reference no run can pass"]
