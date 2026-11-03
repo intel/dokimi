@@ -451,7 +451,7 @@ def codex_json(raw: str, workdir: str | None, cwd: str = "") -> Transcript:
     out = Transcript()
     messages: list[str] = []
     by_id: dict[str, dict[str, Any]] = {}  # Track started items by ID to update on completion
-    event_reads: dict[int, list[dict[str, Any]]] = {}  # command event -> the read events derived from it
+    event_reads: dict[int, _Derived] = {}  # command event -> the read events derived from it
     for n, line in enumerate(raw.split("\n"), 1):  # a JSON string may hold U+2028: splitlines would cut it
         if not line.strip():
             continue
@@ -477,7 +477,7 @@ def codex_json(raw: str, workdir: str | None, cwd: str = "") -> Transcript:
 
 def _codex_apply(out: Transcript, rec: dict[str, Any], messages: list[str], workdir: str | None,
                   by_id: dict[str, dict[str, Any]] | None = None, cwd: str = "",
-                  event_reads: dict[int, list[dict[str, Any]]] | None = None) -> None:
+                  event_reads: dict[int, _Derived] | None = None) -> None:
     if by_id is None:
         by_id = {}
     if event_reads is None:
@@ -523,20 +523,20 @@ def _codex_key(item: dict[str, Any], script: str) -> str:
 
 def _codex_command_started(out: Transcript, item: dict[str, Any], workdir: str | None,
                            by_id: dict[str, dict[str, Any]], cwd: str,
-                           event_reads: dict[int, list[dict[str, Any]]]) -> None:
+                           event_reads: dict[int, _Derived]) -> None:
     script = unwrap_shell(str(item.get("command") or ""))
-    read_events = [{"t": None, "kind": "read", "path": relative_path(path, workdir)}
-                   for path in _counted_reads(out, script, cwd)]
+    paths, unknown = _counted_reads(out, script, cwd)
+    read_events = [{"t": None, "kind": "read", "path": relative_path(path, workdir)} for path in paths]
     out.events.extend(read_events)
     event: dict[str, Any] = {"t": None, "kind": "command", "text": script, "rc": None}
-    event_reads[id(event)] = read_events
+    event_reads[id(event)] = (read_events, unknown)
     by_id[_codex_key(item, script)] = event
     out.events.append(event)
 
 
 def _codex_item_completed(out: Transcript, item: dict[str, Any], messages: list[str], workdir: str | None,
                           by_id: dict[str, dict[str, Any]], cwd: str,
-                          event_reads: dict[int, list[dict[str, Any]]]) -> None:
+                          event_reads: dict[int, _Derived]) -> None:
     itype = item.get("type")
     if itype == "agent_message":
         messages.append(str(item.get("text") or ""))
@@ -568,13 +568,14 @@ def _codex_item_completed(out: Transcript, item: dict[str, Any], messages: list[
 
 
 def _codex_command_finished(out: Transcript, item: dict[str, Any], event: dict[str, Any],
-                            event_reads: dict[int, list[dict[str, Any]]]) -> None:
+                            event_reads: dict[int, _Derived]) -> None:
     """Update the event from item.started with completion data."""
     event["rc"] = item.get("exit_code")
     if item.get("aggregated_output"):
         event["output"], event["output_truncated"] = clip_output(str(item["aggregated_output"]))
-    derived = event_reads.get(id(event), [])
-    if _failed_read(str(event["text"]), derived, event["rc"]):  # drop the read events derived from it
+    derived, unknown = event_reads.get(id(event), ([], 0))
+    if _failed_read(str(event["text"]), event["rc"]):  # drop the read events derived from it, and its unknown ones
+        out.unknown_reads -= unknown
         dropped = {id(e) for e in derived}
         out.events[:] = [e for e in out.events if id(e) not in dropped]
 
@@ -582,8 +583,9 @@ def _codex_command_finished(out: Transcript, item: dict[str, Any], event: dict[s
 def _codex_command_unstarted(out: Transcript, item: dict[str, Any], script: str, workdir: str | None,
                              cwd: str) -> None:
     """Fallback for item.completed without item.started."""
-    paths = _counted_reads(out, script, cwd)
-    if not _failed_read(script, paths, item.get("exit_code")):
+    paths, _, unknown = shell_walk(script, cwd)
+    if not _failed_read(script, item.get("exit_code")):
+        out.unknown_reads += unknown
         for path in paths:
             out.events.append({"t": None, "kind": "read", "path": relative_path(path, workdir)})
     event = {"t": None, "kind": "command", "text": script, "rc": item.get("exit_code")}
@@ -592,16 +594,21 @@ def _codex_command_unstarted(out: Transcript, item: dict[str, Any], script: str,
     out.events.append(event)
 
 
-def _counted_reads(out: Transcript, script: str, cwd: str) -> list[str]:
-    """:func:`shell_reads`; ``out.unknown_reads`` counts the files it named at a directory not known."""
+_Derived = tuple[list[dict[str, Any]], int]  # a command's read events, and how many files it named at a directory not known
+
+
+def _counted_reads(out: Transcript, script: str, cwd: str) -> tuple[list[str], int]:
+    """:func:`shell_reads`, and the files it named at a directory not known, which ``out.unknown_reads`` counts
+    until the command's result says it failed (:func:`_failed_read`)."""
     reads, _, unknown = shell_walk(script, cwd)
     out.unknown_reads += unknown
-    return reads
+    return reads, unknown
 
 
-def _failed_read(script: str, reads: list[Any], rc: Any) -> bool:
+def _failed_read(script: str, rc: Any) -> bool:
     """A non-zero exit of a command that is one part naming one file, alone or after ``cd`` parts
-    (``cd sub && cat AGENTS.md``: the cd or the cat failed): that file was not read.
+    (``cd sub && cat AGENTS.md``: the cd or the cat failed): that file was not read, known or not
+    (``cd -; cat missing``: no read, and no ``unknown_reads``).
 
     Otherwise the exit code does not say which read failed (``cat a missing`` prints ``a`` and
     exits 1), so the reads are kept: also when only one of the files is known (``cd -; cat missing /ws/a``). A part
@@ -610,7 +617,7 @@ def _failed_read(script: str, reads: list[Any], rc: Any) -> bool:
     not parts: ``{ cat AGENTS.md; }`` and ``cd sub && { cat AGENTS.md; }`` are one read.
     """
     parts = [p for p in (_ungrouped(part.text) for part in split_script(script)) if p]
-    if rc in (None, 0) or not reads or not all(_is_cd(p) for p in parts[:-1]):
+    if rc in (None, 0) or not all(_is_cd(p) for p in parts[:-1]):
         return False
     return _walk_script(script, "")[1].operands == 1  # the printer's own operands, not the reads kept of them
 
@@ -626,7 +633,7 @@ class _CopilotRun:
 
     def __init__(self) -> None:
         self.start: datetime | None = None
-        self.by_id: dict[str, list[dict[str, Any]]] = {}
+        self.by_id: dict[str, _Derived] = {}  # a call's events, and the files it named at a directory not known
         self.final = self.last = ""
         self.turns = 0
         self.result = False  # the final ``result`` record came: the agent started even with no turn
@@ -654,11 +661,12 @@ class _CopilotRun:
         elif kind == "assistant.message":
             self.message(data)
         elif kind == "tool.execution_start":
+            counted = out.unknown_reads
             events = _copilot_tool(data, t, workdir, cwd, out)
             out.events.extend(events)
-            self.by_id[str(data.get("toolCallId"))] = events
+            self.by_id[str(data.get("toolCallId"))] = (events, out.unknown_reads - counted)
         elif kind == "tool.execution_complete":
-            _copilot_result(out, self.by_id.get(str(data.get("toolCallId")), []), data)
+            _copilot_result(out, self.by_id.get(str(data.get("toolCallId")), ([], 0)), data)
         elif kind == "result":
             self.result = True
             out.is_error = rec.get("exitCode") not in (0, None)
@@ -702,7 +710,7 @@ def _copilot_tool(data: dict[str, Any], t: float | None, workdir: str | None, cw
     if name in _COPILOT_SHELL:
         command = str(obj.get("command", ""))
         # only bash is a POSIX script; a PowerShell command is not parsed for the files it reads
-        scripts = _counted_reads(out, command, cwd) if name == "bash" else []
+        scripts = _counted_reads(out, command, cwd)[0] if name == "bash" else []
         reads = [{"t": t, "kind": "read", "path": relative_path(p, workdir)} for p in scripts]
         return [*reads, {"t": t, "kind": "command", "text": command, "rc": None}]
     if name in _COPILOT_READ | _COPILOT_EDIT:
@@ -718,8 +726,10 @@ def _copilot_tool(data: dict[str, Any], t: float | None, workdir: str | None, cw
     return [{"t": t, "kind": "tool", "name": name}]
 
 
-def _copilot_result(out: Transcript, events: list[dict[str, Any]], data: dict[str, Any]) -> None:
-    """Fill in the completion; drop the reads of a failed ``view`` and of a failed one-file command."""
+def _copilot_result(out: Transcript, call: _Derived, data: dict[str, Any]) -> None:
+    """Fill in the completion; drop the reads of a failed ``view`` and of a failed one-file command, and take back
+    the files that command named at a directory not known."""
+    events, unknown = call
     reads = [e for e in events if e["kind"] == "read"]
     failed = data.get("success") is False
     for event in events:
@@ -732,11 +742,12 @@ def _copilot_result(out: Transcript, events: list[dict[str, Any]], data: dict[st
         code = shell.get("exitCode") if isinstance(shell, dict) else None
         event["rc"] = code if isinstance(code, int) else (None if data.get("success") is None
                                                           else 0 if data.get("success") else 1)
-        failed = _failed_read(str(event["text"]), reads, event["rc"])
+        failed = _failed_read(str(event["text"]), event["rc"])
         result = data.get("result") or {}
         output = result.get("content") if isinstance(result, dict) else None
         if isinstance(output, str) and output:
             event["output"], event["output_truncated"] = clip_output(output)
-    if failed and reads:
+    if failed:
+        out.unknown_reads -= unknown
         dropped = {id(e) for e in reads}
         out.events[:] = [e for e in out.events if id(e) not in dropped]

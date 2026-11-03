@@ -556,6 +556,28 @@ def test_codex_and_copilot_count_a_read_at_a_directory_not_known():
         **copilot, "arguments": {"command": "cat AGENTS.md"}}}), None).unknown_reads == 0
 
 
+_UNKNOWN_ONE = "cd -; cat missing.md"  # one file, named at a directory not known
+
+
+@pytest.mark.parametrize("fmt, records", [
+    ("codex-json", lambda rc: [{"type": "item.completed", "item": {
+        "type": "command_execution", "command": _UNKNOWN_ONE, "exit_code": rc}}]),
+    ("codex-json", lambda rc: [{"type": "item.started", "item": {"id": "a", "type": "command_execution",
+                                                                 "command": _UNKNOWN_ONE}},
+                               {"type": "item.completed", "item": {"id": "a", "type": "command_execution",
+                                                                   "command": _UNKNOWN_ONE, "exit_code": rc}}]),
+    ("copilot-json", lambda rc: [
+        {"type": "tool.execution_start", "data": {"toolCallId": "a", "toolName": "bash",
+                                                  "arguments": {"command": _UNKNOWN_ONE}}},
+        {"type": "tool.execution_complete", "data": {"toolCallId": "a", "success": rc == 0,
+                                                     "shellExecution": {"exitCode": rc}}}]),
+], ids=["codex-completed", "codex-started", "copilot"])
+def test_a_failed_one_file_read_at_a_directory_not_known_counts_no_unknown_read(fmt, records):
+    # its exit says the one file it named was not printed: settled with the result, as a known read is
+    assert convert(fmt, _jsonl(*records(1)), None).unknown_reads == 0
+    assert convert(fmt, _jsonl(*records(0)), None).unknown_reads == 1
+
+
 @pytest.mark.parametrize("command, unknown", [
     ("{ source env.sh; cat AGENTS.md; } > /dev/null", 0),  # the group's output is hidden: not the agent's
     ("{ source env.sh; cat AGENTS.md; } | head", 0),

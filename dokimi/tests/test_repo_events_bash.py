@@ -360,6 +360,8 @@ def _process(*lines: dict) -> dict:
 @pytest.mark.parametrize("lines, unknown, guidance", [
     ((_call("a", "source .venv/bin/activate && pytest"), _result("a"), _call("b", "cat AGENTS.md"), _result("b")), 1, []),
     ((_call("a", "cd - && cat AGENTS.md README.md"), _result("a")), 2, []),  # within the call: cd - is not followed
+    ((_call("a", "cd -; cat missing.md"), _result("a")), 1, []),
+    ((_call("a", "cd -; cat missing.md"), _result("a", "No such file", True)), 0, []),  # one file, failed: not read
     ((_call("a", "cd sub"), _result("a"), _call("b", "cat AGENTS.md /ws/a.md"), _result("b", "x", True)), 1, []),
     ((_call("a", "cd sub"), _result("a"), _call("b", "cat AGENTS.md"), _result("b", "x", True)), 0, []),  # it failed
     ((_call("a", "cd sub"), _result("a"), _call("b", "cd -; cat AGENTS.md"), _denials("b")), 0, []),  # nothing ran

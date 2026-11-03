@@ -179,14 +179,15 @@ def _settle_bash(out: Transcript, calls: Iterable[_BashCall]) -> None:
       every agent: a subagent may share the parent's shell;
     - else the reads get ``rc`` 0, since a failure does not say which file failed (``cat a missing``).
 
-    ``out.unknown_reads`` counts the relative reads of the calls not denied whose directory was not known: dropped
-    after a move, or after a directory change in the call that the walker could not follow (``cd -; cat a``).
+    ``out.unknown_reads`` counts the relative reads of the calls neither denied nor failed as above whose directory
+    was not known: dropped after a move, or after a directory change in the call that the walker could not follow
+    (``cd -; cat a``).
     """
     moved = False  # the shell may have left its start directory
     dropped: set[int] = set()
     for call in calls:
-        failed = call.result == "error" and _failed_read(call.text, call.named, 1)
-        if call.result != "denied":
+        failed = call.result == "error" and _failed_read(call.text, 1)
+        if call.result != "denied" and not failed:
             out.unknown_reads += call.unknown
         for read, path in zip(call.reads, call.named, strict=True):
             unknown = moved and not path.startswith("/")  # the shell's directory is not known, nor the file
