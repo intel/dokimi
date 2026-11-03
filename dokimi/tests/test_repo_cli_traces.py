@@ -229,7 +229,9 @@ def test_a_directory_builtin_the_walker_does_not_follow_loses_the_directory(comm
 
 
 @pytest.mark.parametrize("command", ["time -p cd sub & cat AGENTS.md", 'X="a b" cd "$D" | cat; cat AGENTS.md',
-                                     "time -p make; cat AGENTS.md", "command -v git; cat AGENTS.md"])
+                                     "time -p make; cat AGENTS.md", "command -v git; cat AGENTS.md",
+                                     "time git add .; cat AGENTS.md", "command -v cd; cat AGENTS.md",
+                                     "builtin printf '%s' . && cat AGENTS.md", "time find . -name x; cat AGENTS.md"])
 def test_an_unfollowed_builtin_in_a_job_or_a_pipe_or_none_keeps_the_directory(command):
     assert shell_reads(command, "sub") == ["sub/AGENTS.md"]
 

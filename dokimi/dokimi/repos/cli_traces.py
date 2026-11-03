@@ -91,7 +91,7 @@ def shell_reads(script: str, cwd: str = "") -> list[str]:
     relative read is not recorded) after ``cd -``, a bare ``cd``, a ``cd`` to a computed path, a
     ``pushd`` / ``popd``, an ``eval``, ``source`` or ``.`` (it may run a ``cd``; none of these when backgrounded or
     piped, as it then ran in a subshell: ``source env.sh & false || cat a`` reads a), a part the walker does not
-    follow that names one of these (``time -p cd sub``, ``X="a b" cd "$D"``: :func:`_may_run_dir`), ``env -C`` / ``--chdir`` (the
+    follow whose command word is one of these (``time -p cd sub``, ``X="a b" cd "$D"``: :func:`_may_run_dir`), ``env -C`` / ``--chdir`` (the
     command's reads, but absolute ones), a ``cd`` after ``if`` / ``then`` / ``do`` / ``else`` (it may not run), a
     ``cd`` after ``&&`` / ``||`` once the chain holding it ends with ``;``, ``&`` or a newline (it may have been
     skipped), or a glob or brace expansion (the files are not known). A subshell ``( ... )`` or `` `...` `` records
@@ -297,22 +297,46 @@ def _cd(here: str | None, args: list[str]) -> str | None:
 def _runs_dir(outer: str) -> bool:
     """Whether a part's text, or its outer text (:class:`~dokimi.repos.shell_split.Part`), runs a directory builtin, as
     ``cd $(...)`` and ``X="a b" cd "$D"`` do, or may (:func:`_may_run_dir`); a subshell ``(cd x; ...)`` has no such
-    text, so it changes nothing outside itself. Text shlex cannot split is not understood: any builtin's name in it counts."""
+    text, so it changes nothing outside itself. Text shlex cannot split is read word by word (:func:`_unquoted`): its
+    command word counts, and when a quote up to it does not close (``X="a b c" cd``), any builtin's name in it counts."""
     try:
-        words = shlex.split(outer)
+        words, told = shlex.split(outer), None
     except ValueError:
-        return any(w in _DIRS for w in _unquoted(outer.split()))
-    while words and (words[0] in _KEYWORDS or words[0] == "{"):
-        words = words[1:]
-    words, via_env, _ = _command_words(words)
-    return bool(words) and not via_env and (words[0] in _DIRS or _may_run_dir(words))
+        raw = outer.split()
+        words, told = _unquoted(raw), [_unquote(w) is not None for w in raw]
+    rest = words
+    while rest and (rest[0] in _KEYWORDS or rest[0] == "{"):
+        rest = rest[1:]
+    rest, via_env, _ = _command_words(rest)
+    at = _command_at(rest)
+    if at is None or at >= len(rest):
+        return False
+    if told is not None and not all(told[:len(words) - len(rest) + at + 1]):
+        return any(w in _DIRS for w in words)
+    return not via_env and rest[at] in _DIRS
 
 
 def _may_run_dir(words: list[str]) -> bool:
     """The rule for a part the walker does not fully follow: its unquoted ``words``, from the name on, start with a
     ``builtin``, ``command`` or ``time`` that :func:`_command_words` did not skip, as an option comes first (``time -p
-    cd sub``, ``command -p cd``, ``builtin -- cd``), and a later word names a directory builtin: the shell may move."""
-    return bool(words) and words[0] in _PREFIXES and any(w in _DIRS for w in words[1:])
+    cd sub``, ``command -p cd``, ``builtin -- cd``), and the command word after it names a directory builtin."""
+    at = _command_at(words) if words[:1] and words[0] in _PREFIXES else None
+    return at is not None and at < len(words) and words[at] in _DIRS
+
+
+def _command_at(words: list[str]) -> int | None:
+    """The index of the command word in unquoted ``words``, past ``builtin``, ``command`` and ``time`` with their options
+    (``time -p``, ``command -p``, ``--``); None for ``command -v`` / ``-V``, which only describes the command."""
+    at = 0
+    while at < len(words) and words[at] in _PREFIXES:
+        prefix, at = words[at], at + 1
+        while at < len(words) and words[at].startswith("-") and words[at] != "-":
+            if prefix == "command" and set(words[at]) & {"v", "V"}:
+                return None
+            at += 1
+            if words[at - 1] == "--":
+                break
+    return at
 
 
 def _in_own_shell(outer: str, after: str) -> bool:
@@ -476,14 +500,16 @@ def _unquoted(words: list[str]) -> list[str]:
     """Words split at blanks, each with its quotes and backslash escapes removed and nothing expanded (``"cd"``,
     ``'cd'``, ``\\cd`` and ``c"d"`` are ``cd``; ``"$D"`` is ``$D``), as ``shlex.split`` gives them; a word
     whose quotes do not close here (``"a b"`` split at its blank) stays as it is."""
-    out = []
-    for word in words:
-        try:
-            split = shlex.split(word)
-        except ValueError:
-            split = []
-        out.append(split[0] if len(split) == 1 else word)
-    return out
+    return [w if (u := _unquote(w)) is None else u for w in words]
+
+
+def _unquote(word: str) -> str | None:
+    """``word`` with its quotes and escapes removed, as :func:`_unquoted` does; None when its quote does not close."""
+    try:
+        split = shlex.split(word)
+    except ValueError:
+        return None
+    return split[0] if len(split) == 1 else None
 
 
 def _command_words(words: list[str]) -> tuple[list[str], bool, bool]:

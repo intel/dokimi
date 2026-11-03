@@ -176,7 +176,7 @@ def test_a_call_that_moves_no_shell_keeps_the_next_relative_read(first):
     ('"cd" "$D" &', False), ('"source" "$E" | cat', False), ('"env" cd "$D"', False), ("'\\cd' \"$D\"", False),
     ('X="a b" cd "$D"', True), ("time -p cd sub", True), ("command -p cd sub", True), ("builtin -- cd sub", True),
     ("time -p cd sub &", False), ('X="a b" cd "$D" | cat', False), ("time -p make", False),  # not followed: may move
-    ('time -p cd "$D', True),  # shlex cannot split it: any builtin's name counts
+    ('time -p cd "$D', True), ('X="a b c" cd "$D', True),  # shlex cannot split it: the command word, else any word
 ])
 def test_only_a_directory_builtin_in_the_calls_own_shell_moves_it(command, moves):
     assert shell_reads_moved(command)[1] is moves
@@ -231,6 +231,22 @@ def test_a_failed_read_after_a_part_not_surely_a_cd_keeps_its_read():
     # ``_is_cd`` splits at blanks: ``X="a b" cd sub`` is not surely a cd, so the exit may be its own
     events = _events(_call("a", 'X="a b" cd sub && cat AGENTS.md'), _result("a", "error", True))
     assert [(e["kind"], e.get("path"), e["rc"]) for e in events] == [("read", "sub/AGENTS.md", 0), ("command", None, 1)]
+
+
+@pytest.mark.parametrize("first", ["time find . -name x", "time cat AGENTS.md .", "time git add .", "time make -C .",
+                                   "command -v cd", "command -V cd", "builtin printf '%s' ."])
+def test_a_builtins_name_as_an_argument_moves_no_shell(first):
+    # only the command word, past ``time`` / ``command`` / ``builtin`` and their options, names the builtin
+    assert shell_reads_moved(first)[1] is False
+    assert _reads(_events(_call("a", f"{first}; cat AGENTS.md"), _result("a"))) == ["AGENTS.md"]
+    assert _reads(_events(_call("a", first), _result("a"), _call("b", "cat AGENTS.md"), _result("b"))) == ["AGENTS.md"]
+
+
+def test_a_builtins_name_after_a_quote_shlex_cannot_split_moves_no_shell():
+    # the command word is told: grep (the splitter does not know ``$'...'``, so only the next call is checked)
+    first = r"grep $'it\'s' ."
+    assert shell_reads_moved(first)[1] is False
+    assert _reads(_events(_call("a", first), _result("a"), _call("b", "cat AGENTS.md"), _result("b"))) == ["AGENTS.md"]
 
 
 def test_a_parents_cd_drops_a_subagents_later_relative_read():
