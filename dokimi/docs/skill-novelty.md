@@ -727,7 +727,7 @@ Three properties worth knowing before quoting either:
   recall@1 0.225, and a skill's own bundled `evals/` questions gave 0.667. Headings inside
   fenced code blocks are not offered as queries. Only `##` and `###` headings of two or more
   content words count, and a skill whose headings give none has no self-derived query: its
-  description is not used as one. `queries_source` (`headings` or `none`) says what was used.
+  description is not used as one. `queries_source` (`headings`, `none`, or `null` for `--queries`) says what was used.
   A run with no usable query exits non-zero,
   says why, and still writes the result with `"status": "no_queries"`. Every rate line
   prints its `n_queries` (and `triage: self-derived` when it is self-derived), and fewer
