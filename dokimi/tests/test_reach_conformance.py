@@ -233,6 +233,20 @@ def test_run_case_with_one_scenario_unanswered_is_errors_and_names_its_error(tmp
     assert cells
 
 
+def test_run_case_scores_no_not_loaded_of_a_scenario_that_answered_in_prose(tmp_path, monkeypatch):
+    fixture = tmp_path / "toy"
+    tree = _tree(fixture, {"AGENTS.md": "a\n", "CLAUDE.md": "c\n"})
+    row = {**ROOT_ROW, "prose": 14}  # a refusal: words, no tokens
+    records = [_record("AGENTS.md", "cwd=.", "not_loaded"), _record("CLAUDE.md", "cwd=.", "loaded")]
+    _fake_reach(monkeypatch, build_receipt(_reach(records, [row]), BUDGET, tree), rows=[row])
+    expect = _expect(**{"claude-code": {"why": "docs", "files": {"AGENTS.md": {"cwd=.": "loaded"},
+                                                                 "CLAUDE.md": {"cwd=.": "loaded"}}}})
+    record, cells = cf.run_case(CLAUDE, "m", fixture, tmp_path / "g.yaml", tmp_path / "out", expect,
+                                timeout=30, budget=0.5, env={})
+    found = {c["path"]: (c["observed"], c["agreement"]) for c in cells if c["path"] in ("AGENTS.md", "CLAUDE.md")}
+    assert found == {"AGENTS.md": ("unknown", "inconclusive"), "CLAUDE.md": ("loaded", "agrees")}
+    assert record["status"] == "ran"
+
 def test_cli_run_exits_1_when_no_scenario_of_a_fixture_answered(tmp_path, monkeypatch, capsys):
     _fixture, receipt = _toy_fixture(tmp_path)
     _fake_reach(monkeypatch, receipt, returncode=1, rows=[{**ROOT_ROW, "error": AUTH_ERROR}])

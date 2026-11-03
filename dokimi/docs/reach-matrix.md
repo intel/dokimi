@@ -28,7 +28,7 @@ The matrix has two kinds of record:
   credential is rejected; the reason is the first scenario's error); `skipped` means the harness could not run
   here, with the reason.
 - `cells`: one per source file per scenario, with the observed state, the documented state and an agreement:
-  `agrees`, `disagrees`, `inconclusive` (observed unknown, or only `fetched`: reach saw the file only in a `read=` scenario, after the agent read it with a tool, so its loading rule is not shown), `no_claim` (the docs say nothing),
+  `agrees`, `disagrees`, `inconclusive` (observed unknown, which includes a `not_loaded` from a scenario that answered in prose and so may under-report; or only `fetched`: reach saw the file only in a `read=` scenario, after the agent read it with a tool, so its loading rule is not shown), `no_claim` (the docs say nothing),
   or `alias` (a link, whose state is its target's and is not compared).
 
 The schema is `reach_matrix.v1` (`dokimi/schemas/reach_matrix.v1.json`).

@@ -20,12 +20,13 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Collection, Mapping, Sequence
 
 import yaml
 
 from dokimi import process
 from dokimi.artifacts import load_artifact, save_artifact, schema_errors
+from dokimi.repos.reach import PROSE_LIMIT
 
 SCHEMA_EXPECTATIONS = "reach_conformance.v1"
 RECEIPT_NAME = "effective_instructions.json"
@@ -168,8 +169,10 @@ def agreement(observed: str, documented_state: str, alias: bool) -> str:
     return "agrees" if observed == documented_state else "disagrees"
 
 
-def cells_of(receipt: Mapping[str, Any], case: str, expect: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """One cell per source per scenario of one receipt (an effective-instructions receipt of one fixture)."""
+def cells_of(receipt: Mapping[str, Any], case: str, expect: Mapping[str, Any],
+             prose: Collection[str] = ()) -> list[dict[str, Any]]:
+    """One cell per source per scenario of one receipt (an effective-instructions receipt of one fixture).
+    A ``not_loaded`` in a scenario of ``prose`` (it answered in prose, so it may under-report) is observed unknown."""
     harness, version = receipt["runtime"]["name"], receipt["runtime"]["version"]
     out = []
     for run in receipt["receipts"]:
@@ -177,9 +180,10 @@ def cells_of(receipt: Mapping[str, Any], case: str, expect: Mapping[str, Any]) -
         for src in run["sources"]:
             alias = src.get("alias_of")
             state = documented(expect, case, harness, src["path"], scenario)
+            observed = UNKNOWN if scenario in prose and src["observed"] == "not_loaded" else src["observed"]
             cell = {"harness": harness, "version": version, "case": case, "scenario": scenario,
-                    "path": src["path"], "observed": src["observed"], "documented": state,
-                    "agreement": agreement(src["observed"], state, alias is not None)}
+                    "path": src["path"], "observed": observed, "documented": state,
+                    "agreement": agreement(observed, state, alias is not None)}
             if alias:
                 cell["alias_of"] = alias
             out.append(cell)
@@ -260,7 +264,8 @@ def run_case(harness: Harness, model: str, fixture: Path, guidance: Path, out: P
     reason = None if status == "ran" else (errors[0] if errors else _reason(proc))
     record = run_record(harness.name, case, status, reason, receipt["runtime"]["version"], model,
                         len(receipt["receipts"]))
-    return record, cells_of(receipt, case, expect)
+    prose = {str(r.get("id")) for r in rows if (r.get("prose") or 0) > PROSE_LIMIT}
+    return record, cells_of(receipt, case, expect, prose)
 
 
 def check_out_dir(out: Path, fixtures: Path) -> None:
