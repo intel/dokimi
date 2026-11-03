@@ -284,10 +284,44 @@ def _without_functions(text: str) -> str:
     return "".join(out) + text[pos:]
 
 
+# a ``$(...)`` inside double quotes is run by the shell (one level of nested parentheses); an escaped ``\$`` is text
+_DQ_SUBSTITUTION = re.compile(r"\\[\s\S]|\$\(((?:[^()\\]|\\[\s\S]|\([^()]*\))*)\)")
+
+
+def _run_substitutions(text: str) -> str:
+    """The text with each ``$(...)`` inside double quotes left out, and its command put on a line of its own after the
+    text: the shell runs it, so ``echo "$(make ci-local)"`` runs ``make ci-local``. Single quotes and comments keep it."""
+    out: list[str] = []
+    extra: list[str] = []
+    pos = 0
+    for match in _COMMENT_OR_QUOTED.finditer(text):
+        quoted = match.group(1)
+        if quoted is None or not quoted.startswith('"') or "$(" not in quoted:
+            continue
+        kept: list[str] = []
+        subs: list[str] = []
+        last = 0
+        for sub in _DQ_SUBSTITUTION.finditer(quoted):
+            if sub.group(1) is None:  # an escape pair: text
+                continue
+            kept.append(quoted[last:sub.start()])
+            subs.append(sub.group(1))
+            last = sub.end()
+        if not subs:
+            continue
+        kept.append(quoted[last:])
+        out += [text[pos:match.start()], "".join(kept)]
+        pos = match.end()
+        extra += [_run_substitutions(sub) for sub in subs]
+    out.append(text[pos:])
+    return "".join(out) + "".join("\n" + line for line in extra)
+
+
 def _executable(command: str) -> str:
-    """The lines a shell would run: heredoc bodies, line continuations and function definitions left out."""
+    """The lines a shell would run: heredoc bodies, line continuations and function definitions left out, and the
+    commands of double-quoted substitutions added."""
     text = _CONTINUATION.sub(_join_line, _without_heredoc_bodies(command or ""))
-    return _without_functions(text)
+    return _run_substitutions(_without_functions(text))
 
 
 def _without_here_strings(text: str) -> str:

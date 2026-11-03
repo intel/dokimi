@@ -74,3 +74,25 @@ def test_a_number_before_a_spaced_redirection_is_an_argument_not_a_descriptor(co
     rule = "- Run `make 2 ci-local` before pushing a branch.\n"
     session = _session(_prompt("push the branch now"), _tool("Bash", command=command))
     assert _row(_report([session], rule), "Run")["acted"] == 1
+
+
+# review: a command substitution inside double quotes runs its command; in single quotes or escaped it is text
+
+@pytest.mark.parametrize("command", ['echo "$(make ci-local)"', 'echo "x $(make ci-local)" > log.txt',
+                                     'echo "$(echo "$(make ci-local)")"', 'echo "$(date) $(make ci-local)"'])
+def test_a_command_substitution_inside_double_quotes_is_a_command_that_runs(command):
+    session = _session(_prompt("push the branch now"), _tool("Bash", command=command))
+    assert _row(_report([session]), CI)["acted"] == 1
+
+
+@pytest.mark.parametrize("command", ["echo '$(make ci-local)'", 'echo "\\$(make ci-local)"',
+                                     'echo "\\\\" "$(true)" make ci-local'])
+def test_a_substitution_in_single_quotes_or_escaped_is_text_not_a_run(command):
+    session = _session(_prompt("push the branch now"), _tool("Bash", command=command))
+    assert _row(_report([session]), CI)["acted"] == 0
+
+
+def test_a_path_read_by_a_substitution_inside_double_quotes_counts_as_touched():
+    rule = "- Update `docs/guide.md` when behaviour changes.\n"
+    session = _session(_prompt("update behaviour changes"), _tool("Bash", command='echo "$(cat docs/guide.md)"'))
+    assert _row(_report([session], rule), "Update")["acted"] == 1
