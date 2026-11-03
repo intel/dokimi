@@ -443,3 +443,19 @@ def test_backslash_in_a_changed_filename_is_a_literal_name(tmp_path):
     done = _run(root, out, "--changed-from", sha)
     assert done.returncode == 0, done.stderr
     assert json.loads((out / "catalog.json").read_text())["selection"]["selected"] == ["alpha"]
+
+
+def test_inherited_git_dir_does_not_redirect_the_source_stamp(tmp_path, monkeypatch):
+    root = _catalog(tmp_path)
+    sha = _commit(root)
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "f").write_text("x")
+    _commit(other)
+    monkeypatch.setenv("GIT_DIR", str(other / ".git"))
+    out = tmp_path / "out"
+    done = _run(root, out, "--changed-from", sha)
+    assert done.returncode == 0, done.stderr
+    report = json.loads((out / "catalog.json").read_text())
+    assert report["source"] == {"commit": sha, "dirty": False}
+    assert report["selection"]["selected"] == []
