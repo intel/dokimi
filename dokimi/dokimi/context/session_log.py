@@ -12,7 +12,8 @@ compaction (``isCompactSummary``). A subagent's brief (a ``user`` record with
 subagent's own tool calls still count as the agent acting.
 
 Tool inputs are kept as text for matching, except the bodies of an edit or a write, which would
-echo file content into the match. Nothing here calls a model.
+echo file content into the match, and a ``prompt`` input (the brief a Task call sends a subagent),
+which is the parent agent's words too. Nothing here calls a model.
 """
 
 from __future__ import annotations
@@ -23,8 +24,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-# Input keys whose value is file content, not the agent's intent: left out of an event's text.
-_CONTENT_KEYS = frozenset({"old_string", "new_string", "content", "new_source", "edits",
+# Input keys whose value is file content or a model-facing brief, not the agent's intent: left out of an event's text.
+_CONTENT_KEYS = frozenset({"old_string", "new_string", "content", "new_source", "edits", "prompt",
                            "file_text", "old_str", "new_str"})  # the last three: Goose's editor tools
 _PATH_KEYS = ("file_path", "path", "notebook_path")
 # Markup a harness wraps around text it injects into a user turn; not the user's words.

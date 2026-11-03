@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 
 from dokimi.context.prefilter import claims_from_guidance
-from tests.test_context_prefilter import CI, GUIDE, _prompt, _report, _row, _session
+from tests.test_context_prefilter import CI, GUIDE, _prompt, _report, _row, _session, _tool
 
 
 
@@ -30,3 +30,12 @@ def test_a_table_header_row_is_no_claim_and_its_body_rows_are():
     assert [c.text for c in claims_from_guidance(aligned)] == ["| `make ci-local` | the full gate |"]
     broken = "| `make ci-local` | the full gate |\n---\n"  # a thematic break, not a delimiter row
     assert [c.text for c in claims_from_guidance(broken)] == ["| `make ci-local` | the full gate |"]
+
+
+def test_a_subagent_brief_in_the_task_call_is_not_a_trigger():
+    rule = "- Commit with `git commit -s`: the repo is public and takes DCO sign-off.\n"
+    brief = "Commit with git commit -s: the repo is public and takes DCO sign-off"
+    session = _session(_prompt("please fix the failing runner test"),
+                       _tool("Task", description="Fix test", prompt=brief, subagent_type="general-purpose"))
+    assert [e.text for e in session.events if e.kind == "tool"] == ["Fix test general-purpose"]
+    assert _row(_report([session], rule), "Commit")["sessions_triggered"] == 0
