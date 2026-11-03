@@ -131,6 +131,29 @@ def test_a_sample_record_the_atoms_do_not_hold_is_refused(tmp_path, capsys, reco
     assert f"cannot read atoms from {path}: {error}" in capsys.readouterr().err
 
 
+def test_a_sample_record_that_repeats_an_id_is_refused(tmp_path, capsys):
+    """Counted twice, one retained atom would read as half the sample's knowledge."""
+    path, atoms, _sample = _capped_file(tmp_path, n=3, cap=2)
+    data = json.loads(path.read_text())
+    data["sampled_atom_ids"] = [atoms[0].id, atoms[0].id]
+    path.write_text(json.dumps(data))
+    error = f"'sampled_atom_ids' repeats 1 atom id(s): {atoms[0].id}"
+    with pytest.raises(SystemExit) as exit_info:
+        load_atoms_or_exit(path)
+    assert exit_info.value.code == 2
+    assert f"cannot read atoms from {path}: {error}" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("cap", [0, -1])
+def test_sample_atoms_refuses_a_cap_below_one(cap):
+    spans = segment("One.\n\nTwo.")
+    atoms = [Atom(statement=s.text, question="q", answer="a", span_ids=(s.id,)) for s in spans]
+    with pytest.raises(ValueError, match="the atom cap must be at least 1, or None for no cap"):
+        sample_atoms(atoms, spans, cap)
+    assert sample_atoms(atoms, spans, None) == atoms
+    assert sample_atoms(atoms, spans, 1) == [atoms[1]]
+
+
 def _cli(monkeypatch, *argv):
     real_client = novelty_cli.novelty_cmd._client
     monkeypatch.setattr(novelty_cli.novelty_cmd, "_client",

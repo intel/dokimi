@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import Counter
 from dataclasses import dataclass, field
 
 from .client import LLMClient, accepting
@@ -431,8 +432,9 @@ def sample_atoms(atoms: list[Atom], spans: list[Span], cap: int | None) -> list[
     Under a binding cap, :func:`spread_sample` of them in document order, by the earliest span
     each cites (atoms citing the same earliest span keep extraction order). With no cap, or
     ``M <= n``: every atom, in extraction order. Faithfulness, the need graph, probes, the
-    conflict check and the shortening oracle see only these.
+    conflict check and the shortening oracle see only these. A cap below 1 raises ``ValueError``.
     """
+    _check_cap(cap)
     return spread_sample(atoms, cap, key=_earliest_span(spans))
 
 
@@ -589,7 +591,7 @@ def load_atoms(path) -> tuple[list[Atom], list[Span]]:
 
     An ``atoms.json`` written before the ``extraction`` record existed marks nothing; it
     cannot say whether a span went unread. A ``sampled_atom_ids`` that names an atom the file
-    does not hold raises ``ValueError`` (:func:`recorded_sample` reads the record).
+    does not hold, or names one twice, raises ``ValueError`` (:func:`recorded_sample` reads it).
     """
     atoms, spans, _data = load_atoms_record(path)
     return atoms, spans
@@ -680,11 +682,16 @@ def _atoms_from_record(data) -> tuple[list[Atom], list[Span]]:
 
 
 def _check_sample(ids, held: set[str]) -> None:
-    """Raise ValueError unless ``sampled_atom_ids`` is absent, null, or ids of atoms in the file."""
+    """Raise ValueError unless ``sampled_atom_ids`` is absent, null, or distinct ids of atoms in
+    the file (a repeated id would count one atom twice in a retention rate)."""
     if ids is None:
         return
     if not _is_str_list(ids):
         raise ValueError("'sampled_atom_ids' is not a list of strings")
+    repeated = sorted(atom_id for atom_id, n in Counter(ids).items() if n > 1)
+    if repeated:
+        raise ValueError(f"'sampled_atom_ids' repeats {len(repeated)} atom id(s): "
+                         f"{', '.join(repeated[:5])}")
     unknown = [atom_id for atom_id in ids if atom_id not in held]
     if unknown:
         raise ValueError(f"'sampled_atom_ids' names {len(unknown)} atom id(s) the file's 'atoms' "

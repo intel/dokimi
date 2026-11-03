@@ -1000,7 +1000,8 @@ one. On a bundle, `novelty shorten` keeps only the entry point's atoms; when non
 among them it would score nothing, so it exits 2 and asks for `--all-atoms`.
 `novelty view` colours spans from every atom. An `atoms.json` with no `sampled_atom_ids`,
 written before the record existed, held only the atoms its run probed, and is read as all of them
-sampled; one whose `sampled_atom_ids` names an atom the file does not hold is refused (exit 2).
+sampled; one whose `sampled_atom_ids` names an atom the file does not hold, or names one twice,
+is refused (exit 2).
 When such an older file's record shows a cap that bound (`extraction.sampled` set, or `cap` set
 with any `extraction.reached` object, which a document-order cap wrote only when it bound),
 `novelty probe`, `novelty shorten` and `novelty view` print a `WARNING` on stderr: the file holds
