@@ -504,6 +504,22 @@ def test_a_suite_that_claims_a_whole_directory_of_its_skill_is_accepted_and_leav
     assert impact.suites == {"skill/a": ["skills/a/tests/sub/r.json"]} and impact.skills == {}
 
 
+def test_a_suite_directory_that_appears_or_is_left_empty_does_not_move_skill_sha(tmp_path):
+    # evals/ appears with the first matched task and stays, empty, after the last one goes: it holds only suite content
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: '{skill}/evals/task-*'\n"
+    root = _tree(tmp_path / "repo", {".github/dokimi/config.yaml": body, "skills/a/SKILL.md": "a\n"})
+    before = _subjects(root)["skill/a"]
+    (root / "skills/a/evals/task-1").mkdir(parents=True)
+    (root / "skills/a/evals/task-1/q.json").write_text("[]\n", encoding="utf-8")
+    first = _subjects(root)["skill/a"]
+    assert first.skill_sha == before.skill_sha and first.suite_hash != before.suite_hash
+    (root / "skills/a/evals/task-1/q.json").unlink()
+    (root / "skills/a/evals/task-1").rmdir()
+    assert _subjects(root)["skill/a"].skill_sha == before.skill_sha
+    (root / "skills/a/evals/notes.md").write_text("kept\n", encoding="utf-8")  # not a match: the skill keeps it
+    assert _subjects(root)["skill/a"].skill_sha != before.skill_sha
+
+
 def test_a_suite_inside_the_evals_dir_is_accepted(tmp_path):
     body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: '{skill}/evals/**'\n"
     root = _tree(tmp_path / "repo", {".github/dokimi/config.yaml": body, "skills/a/SKILL.md": "a\n", "skills/a/evals/q.json": "[]\n"})

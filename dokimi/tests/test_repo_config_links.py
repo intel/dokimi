@@ -161,6 +161,26 @@ def test_a_case_that_differs_only_from_the_name_on_disk_is_the_declared_suite_pl
     assert expected.skills == {"skill/a": ["skills/a/EVALS/q.json"]} and expected.suites == {}
 
 
+def test_an_explicit_skill_path_must_be_spelled_as_on_disk(tmp_path, monkeypatch):
+    # a case-folding filesystem (Windows) takes skills/A for skills/a and resolves it to the name on disk; the suite globs
+    # match names case-sensitively, so the declared spelling would hash the evals as skill content and claim none
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": HEADER + "subjects:\n  - id: skill/a\n    path: skills/A\n",
+        "skills/a/SKILL.md": "a\n",
+        "skills/a/evals/q.json": "[]\n",
+    })
+    real, real_is_dir = repo_links._real, Path.is_dir
+
+    def folded(path):  # Windows: the declared name is the directory, and it resolves to the spelling on disk
+        return real(path.parent / "a") if path.name == "A" else real(path)
+
+    monkeypatch.setattr(repo_links, "_real", folded)
+    monkeypatch.setattr(repo_config, "_real", folded)
+    monkeypatch.setattr(Path, "is_dir", lambda self: True if self.name == "A" else real_is_dir(self))
+    with pytest.raises(ConfigError, match="skills/a"):
+        load_repo_config(root).subjects()
+
+
 @pytest.mark.skipif(shutil.which("git") is None, reason="the executable bits come from git's index; needs git")
 @pytest.mark.parametrize("added", [True, False], ids=["tracked", "untracked"])
 def test_a_suite_of_many_files_reads_the_git_index_once(tmp_path, monkeypatch, added):

@@ -535,8 +535,21 @@ def _subject(entry: dict[str, Any], root: Path, template: Any) -> Subject:
     path = _pattern(entry.get("path"), f"subject {sid}: path")
     if not (root / path).is_dir():
         raise ConfigError(f"subject {sid}: {path} is not a directory under {root}")
+    _spelled_as_on_disk(path, root, sid)
     globs = _suite_globs(entry.get("suite", template), where=f"subject {sid}: suite", skill=path)
     return Subject(id=sid, kind="skill", path=path, manifest=None, suite_globs=globs)
+
+
+def _spelled_as_on_disk(path: str, root: Path, sid: str) -> None:
+    """A skill path is spelled as its directory is named on disk. A case-folding filesystem (Windows) takes any spelling,
+    but suite globs match names case-sensitively on every platform, so a differently cased skill would hash its evals as
+    skill content and claim none. A path with a link on the way is spelled by its link and is not compared."""
+    root_real = _real(root)
+    if root_real is None or _declared_links(root / path, root):
+        return
+    real = _inside(root / path, root_real)
+    if real is not None and "/".join(real) != path:
+        raise ConfigError(f"subject {sid}: {path} is not spelled as on disk; the skill is {'/'.join(real)}")
 
 
 def _suite_globs(spec: Any, *, where: str, skill: str | None) -> tuple[str, ...]:
@@ -788,5 +801,45 @@ def _hashed(subject: Subject, root: Path, all_subjects: list[Subject], modes: Ma
         if s.kind == "skill" and s.path != subject.path and _within(s.path, subject.path)
     ]
     # A skill directory that is a symlink is its target's content (a suite match is hashed by its link instead).
-    skill_sha = "sha256:" + tree_digest((root / subject.path).resolve(), exclude=[*inside, *nested], strict=True)
+    base = (root / subject.path).resolve()
+    emptied = _suite_only_dirs(base, inside, _suite_prefixes(subject))
+    skill_sha = "sha256:" + tree_digest(base, exclude=[*inside, *nested, *emptied], strict=True)
     return replace(subject, skill_sha=skill_sha, suite_hash=_digest_files(files, root, modes))
+
+
+def _suite_prefixes(subject: Subject) -> list[str]:
+    """The literal directories each suite glob starts with, inside the skill: where its matches sit, whether or not any is
+    left, so a suite directory that is emptied counts as the suite's."""
+    found: list[str] = []
+    for pattern in subject.suite_globs:
+        literal: list[str] = []
+        for seg in pattern.split("/"):
+            if any(c in seg for c in "*?["):
+                break
+            literal.append(seg)
+        place = "/".join(literal)
+        if _within(place, subject.path) and place != subject.path:
+            found.append(place[len(subject.path) + 1:])
+    return found
+
+
+def _suite_only_dirs(skill: Path, claimed: list[str], prefixes: list[str]) -> list[str]:
+    """The directories under ``skill`` that hold nothing but suite content: an ancestor of a claimed path or of a suite
+    glob's literal prefix, whose every entry is claimed or is such a directory itself. tree_digest hashes a directory by
+    its name, so the first matched task (which creates evals/) or the last one removed (which leaves it empty) would move
+    skill_sha though no skill file changed. A directory with any other entry stays in skill_sha."""
+    names = {"/".join(parts[:k]) for rel in [*claimed, *prefixes] for parts in [rel.split("/")]
+             for k in range(1, len(parts))}
+    names.update(prefixes)
+    covered = list(claimed)
+    found: list[str] = []
+    for rel in sorted(names, key=lambda r: (-r.count("/"), r)):  # deepest first: a directory's entries are decided before it
+        here = skill / rel
+        if here.is_symlink() or not here.is_dir():
+            continue
+        with os.scandir(here) as it:  # an unreadable directory raises here, as the digest's strict walk would
+            children = [f"{rel}/{entry.name}" for entry in it]
+        if all(any(_within(child, c) for c in covered) for child in children):
+            found.append(rel)
+            covered.append(rel)
+    return found
