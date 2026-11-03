@@ -71,7 +71,7 @@
     "dokimi/report/subject_report.py::render_subject_scorecard": {"complexity": 12},
     "dokimi/report/task_runs_report.py::render_task_runs_report": {"complexity": 22},
     "dokimi/repos/budget.py::budget": {"complexity": 21, "rationale": "pre-existing when the gate was introduced"},
-    "dokimi/repos/environment/__init__.py::inspect_repo": {"complexity": 25, "rationale": "pre-existing when the gate was introduced"},
+    "dokimi/repos/environment/__init__.py::inspect_repo": {"complexity": 22, "rationale": "pre-existing when the gate was introduced"},
     "dokimi/repos/environment/checks.py::_python": {"complexity": 11, "rationale": "pre-existing when the gate was introduced"},
     "dokimi/repos/environment/risks.py::_runs_repository_code": {"complexity": 12, "rationale": "pre-existing when the gate was introduced"},
     "dokimi/repos/environment/risks.py::_segments": {"complexity": 29, "rationale": "pre-existing when the gate was introduced"},
