@@ -486,7 +486,7 @@ the first one used; `null` when the task names none). When the trace could not
 be read (the harness never started), `measured` is `false` and `skill_invoked`
 and `skill_selected_correct` are `null`: the usage is unknown, not "did not use
 the skill". `repo report` leaves such cells out of its skill counts.
-A `guidance:as-skill` cell has no `skills` object for its generated skill: its
+A `guidance:as-skill` cell has no `skills` entry for its generated skill: its
 usage is `guidance_skill_loaded` (`true` when the agent called that skill or read
 its `SKILL.md`, `false` when not, `null` when the trace could not be read).
 
