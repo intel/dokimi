@@ -67,7 +67,8 @@ model is called; every match is lexical.
 Not counted: the agent's own text, tool results (what a file or command
 printed), subagent briefs (a `user` record with `isSidechain`, and the `prompt` input of the
 Task call that sends one), and records
-Claude Code injects (`isMeta`, such as CLAUDE.md echoed into the context). A
+Claude Code injects (`isMeta`, such as CLAUDE.md echoed into the context, and the
+`[Request interrupted by user]` marker of a stopped turn or tool call). A
 memory echo of a rule would otherwise trigger that rule on every session.
 
 ## Statuses

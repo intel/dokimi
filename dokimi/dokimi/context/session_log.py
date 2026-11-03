@@ -32,6 +32,8 @@ _PATH_KEYS = ("file_path", "path", "notebook_path")
 # ``bash-stdout`` and ``bash-stderr`` hold what a ``!`` shell turn printed: output, not the user's words.
 _INJECTED = re.compile(r"<(system-reminder|command-[a-z-]+|local-command-[a-z-]+|bash-stdout|bash-stderr)>.*?</\1>",
                        re.S)
+# the record Claude Code writes when the user stops a turn or a tool call: the harness's words, not a prompt
+_INTERRUPTED = re.compile(r"\[Request interrupted by user(?: for tool use)?\]")
 _ERROR_LIMIT = 20
 
 
@@ -91,8 +93,9 @@ def parse_session(raw: str, name: str = "") -> Session:
 
 
 def prompt_text(raw: str) -> str:
-    """The user's own words: harness markup removed, edges trimmed."""
-    return _INJECTED.sub(" ", raw).strip()
+    """The user's own words: harness markup removed, edges trimmed. An interruption marker alone is no words."""
+    text = _INJECTED.sub(" ", raw).strip()
+    return "" if _INTERRUPTED.fullmatch(text) else text
 
 
 def add_error(session: Session, message: str) -> None:

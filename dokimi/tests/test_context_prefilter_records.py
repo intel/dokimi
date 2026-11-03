@@ -39,3 +39,14 @@ def test_a_subagent_brief_in_the_task_call_is_not_a_trigger():
                        _tool("Task", description="Fix test", prompt=brief, subagent_type="general-purpose"))
     assert [e.text for e in session.events if e.kind == "tool"] == ["Fix test general-purpose"]
     assert _row(_report([session], rule), "Commit")["sessions_triggered"] == 0
+
+
+@pytest.mark.parametrize("marker", ["[Request interrupted by user for tool use]", "[Request interrupted by user]"])
+def test_an_interruption_marker_is_not_the_next_prompt_so_the_pushback_after_it_is_read(marker):
+    rule = "- Run `make ci-local` before pushing a branch.\n"
+    session = _session(_prompt("push the branch now"), _tool("Bash", command="git push origin HEAD"),
+                       _prompt([{"type": "text", "text": marker}]),
+                       _prompt("no, run make ci-local before you push"))
+    assert [e.text for e in session.events if e.kind == "prompt"] == [
+        "push the branch now", "no, run make ci-local before you push"]
+    assert _row(_report([session], rule), "Run")["corrected"] == 1
