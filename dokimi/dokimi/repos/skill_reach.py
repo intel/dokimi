@@ -168,6 +168,10 @@ def _parse_case(path: Path, n: int, item: Any) -> Case:
     for rel in (case.dirname, case.cwd or "."):
         if not _relative(rel):
             raise SkillReachError(f"{path}: case {cid}: {rel!r} must be a relative path inside the fixture")
+    try:  # the syntax of `at` with stand-ins for the profile's dirs, so a dry run refuses what a run would
+        resolve_at(case, {"client_project": "p", "client_user": "config:u"})
+    except SkillReachError as exc:
+        raise SkillReachError(f"{path}: {exc}") from exc
     return case
 
 

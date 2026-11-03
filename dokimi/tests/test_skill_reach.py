@@ -406,6 +406,10 @@ BAD_CATALOGUES = [
     pytest.param(_catalogue("{id: a, at: 'project:x', cwd: 1}"), "cwd must be a string", id="cwd-not-a-string"),
     pytest.param(_catalogue("{id: a, at: 'project:x', collision: [g]}"), "collision must be a string",
                  id="collision-not-a-string"),
+    pytest.param(_catalogue("{id: a, at: 'nowhere:x'}"), "must be project:|home:|config:", id="at-unknown-scope"),
+    pytest.param(_catalogue("{id: a, at: 'project:../escape'}"), "must be project:|home:|config:", id="at-escapes"),
+    pytest.param(_catalogue("{id: a, at: 'project:{client_projet}'}"), "must be project:|home:|config:",
+                 id="at-placeholder-typo"),
 ]
 
 
@@ -415,6 +419,15 @@ def test_a_bad_catalogue_is_refused(tmp_path, text, message):
     path.write_text(text, encoding="utf-8")
     with pytest.raises(SkillReachError, match=re.escape(message)):
         load_catalogue(path)
+
+
+@pytest.mark.parametrize("at", ["nowhere:x", "project:../escape", "project:{client_projet}"])
+def test_cli_dry_run_refuses_a_catalogue_location_a_run_would_refuse(tmp_path, capsys, at):
+    path = tmp_path / "cat.yaml"
+    path.write_text(_catalogue(f"{{id: a, at: '{at}'}}"), encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        _cli("--harness", str(_profile(tmp_path)), "--catalogue", str(path), "--dry-run")
+    assert exc.value.code == EXIT_USAGE and "must be project:|home:|config:" in capsys.readouterr().err
 
 
 def test_a_missing_catalogue_is_refused(tmp_path):
