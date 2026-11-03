@@ -187,6 +187,8 @@ def test_missing_and_non_yaml_manifest(tmp_path):
         ({"egress": ["py*.org"]}, "egress must be a list"),
         ({"expected_skill": "skills/lint"}, "expected_skill must be a skill name"),  # a path never matches usage
         ({"expected_skill": 3}, "expected_skill must be a skill name"),
+        ({"useful": {"command": "("}}, "useful command is not a valid regex"),
+        ({"useful": {"edit": []}}, "useful must be"),  # a definition names one kind and at least one target
     ],
 )
 def test_bad_task_is_reported(tmp_path, task_extra, needle):

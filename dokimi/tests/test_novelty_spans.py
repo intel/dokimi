@@ -90,6 +90,7 @@ def test_span_summary_flags_a_capped_atom_set_because_the_cap_inverts_the_metric
         Atom(statement=f"claim {i}", question="q", answer="a", span_ids=(spans[1].id,))
         for i in range(3)
     ]
-    assert span_summary(spans, atoms, atom_cap=3)["capped_atom_set"] is True
-    assert span_summary(spans, atoms, atom_cap=4)["capped_atom_set"] is False
+    # The run says whether its cap left atoms out; three atoms alone do not say it.
+    assert span_summary(spans, atoms, capped=True)["capped_atom_set"] is True
+    assert span_summary(spans, atoms)["capped_atom_set"] is False
     assert span_summary(spans)["n_atoms_indexed"] is None

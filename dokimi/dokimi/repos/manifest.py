@@ -35,6 +35,7 @@ from .graders import DATA_FILES, NAMES as BUILTIN_NAMES, PREFIX as BUILTIN_PREFI
 from .host_spec import HostSpecError, parse_host
 from .process_metrics import Counter, parse_counter
 from .source import RepoTree
+from .useful_spec import UsefulSpecError, parse_useful
 
 SCHEMA_VERSION = "repo_manifest.v1"
 _RUN_KEYS = ("eval_dir", "tasks", "entry_points")
@@ -559,6 +560,7 @@ def _check_task(tree: RepoTree, task_dir: str, report: RepoCheckReport) -> None:
         parse_host(raw.get("host"), name)
     except HostSpecError as exc:
         problems.append(str(exc).split("task.json ", 1)[-1])
+    problems += _useful_problems(raw)
     report.errors.extend(f"{where}: {p}" for p in problems)
     if not problems:
         report.tasks.append(TaskSummary(
@@ -589,6 +591,15 @@ def _positive(value: Any) -> bool:
     float range is no number a cap can hold."""
     num = as_float(value)
     return num is not None and num > 0
+
+
+def _useful_problems(raw: dict[str, Any]) -> list[str]:
+    """The ``useful`` key's shape problem, if it has one (contract §3)."""
+    try:
+        parse_useful(raw.get("useful"))
+    except UsefulSpecError as exc:
+        return [str(exc)]
+    return []
 
 
 def _builtin_problems(tree: RepoTree, task_dir: str, raw: dict[str, Any], name: str) -> list[str]:
