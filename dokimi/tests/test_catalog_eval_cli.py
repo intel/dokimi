@@ -437,7 +437,7 @@ def test_ignored_files_count_as_changes_and_dirty_state(tmp_path):
 def test_backslash_in_a_changed_filename_is_a_literal_name(tmp_path):
     root = _catalog(tmp_path)
     sha = _commit(root)
-    (root / "skills/alpha/weird\name.md").write_text("x")
+    (root / ("skills/alpha/weird" + chr(92) + "name.md")).write_text("x")
     out = tmp_path / "out"
     done = _run(root, out, "--changed-from", sha)
     assert done.returncode == 0, done.stderr
