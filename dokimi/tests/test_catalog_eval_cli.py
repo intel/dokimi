@@ -296,7 +296,7 @@ def test_task_loader_type_error_replaces_earlier_receipts_with_an_error(tmp_path
 
 
 @pytest.mark.parametrize("name,content", [("report.md", "my notes"), ("plan.json", "{}"), ("result.json", "[1]"), ("catalog.json", "not json"),
-                                          ("result.json", '{"cells": []}'),
+                                          ("result.json", '{"cells": []}'), ("catalog.json", '{"schema_version": "need_graph.v1"}'),
                                           ("plan.json", "[" * 2000 + "0" + "]" * 2000)])
 def test_unrelated_file_named_like_a_receipt_is_preserved(tmp_path, name, content):
     root = _catalog(tmp_path)
