@@ -305,8 +305,9 @@ class Meter:
 
     A response-cache replay is free and not counted. A live call with no known price counts as 0 in
     ``spent_usd`` and in ``unpriced``; with ``max_usd`` no further live call starts after it, as ``novelty``'s
-    spend cap does: the cap cannot be enforced on spend it cannot see. Replays still answer. ``stop`` says why no
-    new call starts.
+    spend cap does: the cap cannot be enforced on spend it cannot see. ``stop`` says why no new call starts.
+    The stop applies to live calls: a call after it is refused before the cache is read, so a caller replays
+    through :func:`dokimi.caching.replay_only` (as :func:`dokimi.judged.judged_reply` probes before each live call).
     ``failing`` holds ``(kind, error)`` of the calls that failed since the last reply (not in ``calls``); the kind
     of a provider error is its type and ``status_code``, as its text differs per call (a request id); a cache
     miss of the replay-only probe before a live call (:class:`dokimi.caching.CacheMiss`) is not a failed call."""

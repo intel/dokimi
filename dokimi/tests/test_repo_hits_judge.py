@@ -413,6 +413,24 @@ def test_an_unpriced_judge_under_max_usd_stops_the_run_and_says_why(tmp_path, ca
     assert (result["unpriced_calls"], result["budget_stop"], result["budget_stopped"]) == (4, None, [])
 
 
+def test_pairs_in_the_response_cache_still_finish_after_an_unpriced_stop(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv(caching.RESPONSE_CACHE_ENV, str(tmp_path / "cache"))
+    batch = tmp_path / "replay"
+    raw = _put(batch, "guidance:raw", 1, [_f(10, "Add a TODO naming the issue"), _f(5, "read() has no docstring",
+                                                                                     file="src/io.py")])
+    with llm.use_adapter(llm.FakeAdapter(respond=_reply)) as fill:  # fills the cache with the raw arm's replies
+        assert _run(capsys, "judge", str(batch), "--judge", JUDGE)[0] == 0 and len(fill.requests) == 2
+    (raw / HITS_JUDGED).unlink()
+    _put(batch, "guidance:none", 1, [_f(11, "The TODO is repeated five times"), _f(30, "mul adds")])  # not cached
+    with llm.use_adapter(llm.FakeAdapter(respond=_reply)) as fake:  # no cost_usd: the judge has no known price
+        code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--max-usd", "5", "--json")
+    result = json.loads(out)
+    assert (code, len(fake.requests), result["calls"]) == (1, 1, 1)  # none's first pair live, then the stop
+    assert result["budget_stopped"] == [f"{TASK}__guidance-none__{MODEL}__r1"] and result["budget_stop"] == UNPRICED_STOP
+    assert result["written"] == 1 and (raw / HITS_JUDGED).is_file()  # the raw arm replayed after the stop
+    assert load_artifact("repo_hits_judged", raw / HITS_JUDGED)["counts"]["unjudged"] == 0
+
+
 def test_a_file_that_cannot_be_written_stops_the_run_with_exit_2_and_no_later_call(tmp_path, capsys, judge_llm):
     batch = _batch(tmp_path)
     _put(batch, "guidance:raw", 3, [_f(30, "mul adds")])  # one more pair, judged after the failing cell
