@@ -23,3 +23,7 @@ SPDX-License-Identifier: Apache-2.0
   from `tempfile.mkdtemp`, and a write the workspace refused while it was seeded (a full disk) raised `OSError`, in
   a dry run and a run alike. Each is now a `✗ cannot make the probe workspace in --work-dir <dir>: <reason>` (or
   `cannot build the probe workspace <dir>: <reason>`) line and exit 1.
+- **`repo reach` on a tree with no guidance file names that cause** — with a selection that leaves no scenario on
+  such a tree (`--scenarios cwd`: no subdirectory to start in), a run and a dry run stopped with
+  `no scenario selected` (exit 2). The check for a guidance file now comes before the scenario selection, so both
+  stop with `no guidance files to probe` and exit 1, as a run with the default scenarios does.

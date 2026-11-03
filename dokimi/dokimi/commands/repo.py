@@ -404,10 +404,11 @@ def _reach_plan(args: argparse.Namespace, tree, profile, kinds: tuple[str, ...],
     """The manifest, the probed files and the count of scenarios a run executes, for a run and --dry-run alike.
 
     Exits as the run would: a bad manifest or scenario selection is a usage error and a failed git read a fetch
-    failure (1); a tree whose every guidance file is a link that cannot be followed is run_reach's own refusal (1).
+    failure (1); a tree with no guidance file, or whose every guidance file is a link that cannot be followed, is
+    run_reach's own refusal (1), before the scenarios are selected.
     """
     from dokimi.repos import ManifestError, SourceError
-    from dokimi.repos.reach import ReachError, followable, probe_files, scenarios, shadow_for
+    from dokimi.repos.reach import ReachError, check_files, followable, probe_files, scenarios, shadow_for
 
     try:  # the manifest and the files it selects
         manifest = _load_manifest(tree, args, guidance_default=True)
@@ -415,7 +416,8 @@ def _reach_plan(args: argparse.Namespace, tree, profile, kinds: tuple[str, ...],
     except (SourceError, ManifestError, ReachError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(_tree_read_exit_code(exc))
-    try:  # what run_reach plans from, with its guard: no scenario for a link it drops
+    try:  # what run_reach plans from, with its guards: a file to probe, no scenario for a link it drops
+        check_files(files, profile)
         probed = followable(tree, files)[0]
     except ReachError as exc:
         print(f"✗ {exc}", file=sys.stderr)

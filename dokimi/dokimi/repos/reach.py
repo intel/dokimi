@@ -168,6 +168,13 @@ def probe_files(tree: RepoTree, manifest: RepoManifest, profile: HarnessProfile)
     return sorted(p for p in declared | native if not manifest.in_eval_dir(p))
 
 
+def check_files(files: list[str], profile: HarnessProfile) -> None:
+    """Refuse a tree with no guidance file to probe (``files``: probe_files), before any scenario is selected."""
+    if not files:
+        raise ReachError("no guidance files to probe: the manifest's globs and the "
+                         f"{profile.name} guidance names match nothing")
+
+
 def scenarios(files: list[str], kinds: tuple[str, ...] = DEFAULT_KINDS,
               only: tuple[str, ...] = (), shadow: Shadow | None = None) -> list[Scenario]:
     dirs = sorted({str(PurePosixPath(f).parent) for f in files} - {"."})
@@ -464,9 +471,7 @@ def run_reach(
     the files and the planned runs: the dry run makes every check a run makes up to there, the built workspace
     included, so it refuses what the run would refuse."""
     files = probe_files(tree, manifest, profile)
-    if not files:
-        raise ReachError("no guidance files to probe: the manifest's globs and the "
-                         f"{profile.name} guidance names match nothing")
+    check_files(files, profile)
     probed, groups, unresolved = followable(tree, files)
     shadows = shadow_for(profile, tree, kinds)
     plan = scenarios(probed, kinds, only, shadows)

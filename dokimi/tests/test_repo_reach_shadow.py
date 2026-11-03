@@ -527,12 +527,15 @@ def _receipt_link(tmp_path: Path) -> None:
     (_receipt_link, ("--format", "receipt"), 2, "is the probe itself (a link to "),
     (lambda tmp: [(tmp / "repo" / p).unlink() for p in ("AGENTS.md", "sub/AGENTS.md")], (), 1,
      "no guidance files to probe: the manifest's globs and the fake guidance names match nothing"),
+    (lambda tmp: [(tmp / "repo" / p).unlink() for p in ("AGENTS.md", "sub/AGENTS.md")], ("--scenarios", "cwd"), 1,
+     "no guidance files to probe: the manifest's globs and the fake guidance names match nothing"),
     (lambda tmp: (tmp / "work" / "AGENTS.md").write_text("# above\n"), (), 1,
      "guidance files above the workspace would leak into every scenario: "),
     (lambda tmp: (tmp / "repo" / "sub" / "AGENTS.md").write_bytes(b"\xff\xfe\n"), (), 1,
      "cannot read guidance file sub/AGENTS.md: "),
     (lambda tmp: None, ("--scenarios", "shadow"), 1, "the shadow file REACH_PROBE.txt/x.md needs REACH_PROBE.txt"),
-], ids=["receipt-over-probe", "no-guidance", "guidance-above", "undecodable", "shadow-under-probe-file"])
+], ids=["receipt-over-probe", "no-guidance", "no-guidance-no-scenario", "guidance-above", "undecodable",
+        "shadow-under-probe-file"])
 def test_repo_reach_dry_run_refuses_what_a_run_refuses_before_any_harness_call(tmp_path, monkeypatch, capsys,
                                                                                setup, extra, code, message):
     monkeypatch.setenv("FAKE_MODE", "ok")
