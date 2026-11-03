@@ -131,7 +131,7 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
 
     entries: list[dict[str, Any]] = []
     unreadable_warnings: list[str] = []
-    own_t = _own_targets(tree, guidance, groups, claude, displaced, at_start, lazily)
+    own_rank = _own_targets(tree, guidance, groups, claude, displaced, at_start, lazily)
     for f in guidance:
         when = _guidance_when(tree, f, groups, claude, root_claude, displaced, start_t, loaded_t)
         chars, warning = _chars(tree, f)
@@ -141,8 +141,8 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
     # What loads without a rule: a rule promotes a guidance entry below, but that does not make it independently loaded
     guidance_loaded = {_target(tree, e["path"]) for e in entries if e["when"] != "off"}
     counted = {_target(tree, f) for f in guidance}
-    entries += _rules(tree, files if rules else [], counted, start_t, unreadable_warnings, entries, own_t)
-    _import_entries(tree, at_start, lazily, guidance, counted, entries, unreadable_warnings, rules)
+    entries += _rules(tree, files if rules else [], counted, start_t, unreadable_warnings, entries, own_rank)
+    _import_entries(tree, at_start, lazily, guidance, counted, entries, unreadable_warnings, rules, own_rank)
 
     skills = _skills(tree, [f for f in files if SKILL_GLOB.match(f)])
     entries += _skill_entries(skills)
@@ -235,9 +235,12 @@ def _skill_warnings(skills: list[dict[str, Any]]) -> list[str]:
 
 
 def _import_entries(tree: RepoTree, at_start: set[str], lazily: set[str], guidance: list[str], counted: set[str],
-                    entries: list[dict[str, Any]], unreadable_warnings: list[str], rules: bool = False) -> None:
+                    entries: list[dict[str, Any]], unreadable_warnings: list[str], rules: bool = False,
+                    own_rank: dict[str, int] | None = None) -> None:
     """Add an entry for each import that is neither guidance nor a rule of its own (``counted`` grows with them)."""
     rule_entries = {_target(tree, e["path"]): e for e in entries if e["kind"] == "rule"}
+    guidance_entries = {_target(tree, e["path"]): e for e in entries if e["kind"] == "guidance"}
+    own_rank = own_rank or {}
     for f in sorted((at_start | lazily) - set(guidance), key=lambda p: (p not in at_start, p)):
         if not _is_resolvable(tree, f):
             continue
@@ -247,7 +250,16 @@ def _import_entries(tree: RepoTree, at_start: set[str], lazily: set[str], guidan
             # A rule link counted this file with its frontmatter removed. An ordinary @import keeps the frontmatter,
             # so its count replaces the rule's when it loads at the same time or earlier (a rule file is left alone).
             rule = rule_entries.get(t)
-            if rule is None or RULE_GLOB.match(f) or RULE_GLOB.match(t) or (when == "lazy" and rule["when"] == "start"):
+            if rule is None:
+                # a rule route the tree lists no rule entry for (its rules dir is a link) reaches guidance: the same
+                # bytes, so the guidance entry takes the body count when this route loads it earlier (as _rules does)
+                entry = guidance_entries.get(t)
+                if rules and entry is not None and (RULE_GLOB.match(f) or RULE_GLOB.match(t)):
+                    chars, _, warning = _rule(tree, f)
+                    if warning is None and _rule_route_wins(entry, when, t, own_rank):
+                        entry.update(when=when, chars=chars)
+                continue
+            if RULE_GLOB.match(f) or RULE_GLOB.match(t) or (when == "lazy" and rule["when"] == "start"):
                 continue
             chars, warning = _chars(tree, f)
             if warning:
@@ -269,20 +281,33 @@ def _import_entries(tree: RepoTree, at_start: set[str], lazily: set[str], guidan
 
 
 def _own_targets(tree: RepoTree, guidance: list[str], groups: dict[str, list[str]], claude: list[str],
-                 displaced: bool, at_start: set[str], lazily: set[str]) -> set[str]:
-    """The guidance files read on their own, or through an ordinary import (not only a rule link)."""
-    own = set()
+                 displaced: bool, at_start: set[str], lazily: set[str]) -> dict[str, int]:
+    """The guidance files read on their own, or through an ordinary import (not only a rule link), each with the rank
+    of its earliest full-text route (``_RANK``: 2 at start, 1 lazily). A rule route keeps the full count only when one
+    of these loads at the time the rule does."""
+    own: dict[str, int] = {}
     start_t = {_target(tree, p) for p in at_start}
     for f in guidance:
         t = _target(tree, f)
         aliases = groups.get(t, [f])
         if any(a in claude for a in aliases) or not (displaced and f.rsplit("/", 1)[-1] == "AGENTS.md"):
-            own.add(t)
+            own[t] = max(own.get(t, 0), 2 if _is_root(f) else 1)
     for p in at_start | lazily:
         t = _target(tree, p)
         if not (RULE_GLOB.match(p) or RULE_GLOB.match(t)) and (p in at_start or t not in start_t):
-            own.add(t)
+            own[t] = max(own.get(t, 0), 2 if p in at_start else 1)
     return own
+
+
+_RANK = {"off": 0, "lazy": 1, "start": 2}
+
+
+def _rule_route_wins(entry: dict[str, Any], when: str, target: str, own_rank: dict[str, int]) -> bool:
+    """True when a rule route to a guidance entry replaces its count: the route loads earlier, or at the same time
+    with no full-text route of that file at that time (a full-text route at the same time keeps the whole file)."""
+    if _RANK[when] != _RANK[entry["when"]]:
+        return _RANK[when] > _RANK[entry["when"]]
+    return own_rank.get(target, 0) < _RANK[when]
 
 
 def _is_root(path: str) -> bool:
@@ -334,7 +359,7 @@ def _chars(tree: RepoTree, path: str) -> tuple[int, str | None]:
 
 
 def _rules(tree: RepoTree, files: list[str], counted: set[str], start_t: set[str],
-           warnings: list[str], guidance: list[dict[str, Any]], own_t: set[str]) -> list[dict[str, Any]]:
+           warnings: list[str], guidance: list[dict[str, Any]], own_rank: dict[str, int]) -> list[dict[str, Any]]:
     """The ``rule`` entries of ``files``, skipping files already ``counted`` (and adding theirs).
 
     A rule that is the same file as a guidance entry (in ``guidance``) is not counted twice: that entry
@@ -343,7 +368,6 @@ def _rules(tree: RepoTree, files: list[str], counted: set[str], start_t: set[str
 
     ``budget`` passes no files for a harness that does not read ``.claude/rules`` (``guidance.claude_rules``).
     """
-    rank = {"off": 0, "lazy": 1, "start": 2}
     by_target = {_target(tree, e["path"]): e for e in guidance}
     out = []
     dirs: set[str] = set()
@@ -367,8 +391,7 @@ def _rules(tree: RepoTree, files: list[str], counted: set[str], start_t: set[str
             # The entry takes the earlier loading condition, and that route's count: a rule has its frontmatter removed.
             entry = by_target.get(target)
             # guidance that loads only through this rule link takes the rule's count even at the same condition
-            if entry is not None and (rank[when] > rank[entry["when"]]
-                                      or (rank[when] == rank[entry["when"]] and target not in own_t)):
+            if entry is not None and _rule_route_wins(entry, when, target, own_rank):
                 entry["when"] = when
                 entry["chars"] = chars
             continue
@@ -522,7 +545,7 @@ def _imports(tree: RepoTree, roots: list[str], max_depth: int | None = None,
     reached_by_rule: set[str] = set()
     level = list(roots)
     cut: list[tuple[str, str]] = []
-    edges: list[tuple[str, str]] = []  # every import read from an expanded file, by the files it links
+    edges: list[tuple[str, str]] = []  # (path an expanded file was read at, the path it imports), every import
     depth = 0
     while level:
         nxt: list[str] = []
@@ -537,7 +560,7 @@ def _imports(tree: RepoTree, roots: list[str], max_depth: int | None = None,
                 path = _normalize(here + target)
                 if not path:
                     continue
-                edges.append((_target(tree, f), _target(tree, path)))
+                edges.append((f, path))
                 if path in seen:
                     continue
                 t = _target(tree, path)
@@ -553,7 +576,7 @@ def _imports(tree: RepoTree, roots: list[str], max_depth: int | None = None,
         level = nxt
         depth += 1
     reach = _roots_reaching(tree, edges, roots, max_depth)
-    return seen, [(f, p, r) for f, p in cut if p not in seen for r in sorted(reach.get(_target(tree, f), ()))]
+    return seen, [(f, p, r) for f, p in cut if p not in seen for r in sorted(reach.get(f, ()))]
 
 
 def _import_text(tree: RepoTree, f: str, roots: list[str], rules: bool) -> str | None:
@@ -569,26 +592,29 @@ def _import_text(tree: RepoTree, f: str, roots: list[str], rules: bool) -> str |
 
 def _roots_reaching(tree: RepoTree, edges: list[tuple[str, str]], roots: list[str],
                     max_depth: int | None) -> dict[str, set[str]]:
-    """For each file (by its target), the guidance roots whose import chains reach it within ``max_depth`` hops.
+    """For each path a file is read at, the guidance roots whose import chains reach it within ``max_depth`` hops.
 
-    The traversal of ``_imports`` reads a file once, so a second root that reaches it is not walked again. Each root
-    is therefore walked over the recorded import edges with the same hop limit: a file past the limit for a root is
-    not that root's (its import chain is cut there, not loaded).
+    Routes are kept apart by the path they are read at, since a relative import is resolved from that path: a rule
+    link read at its own path imports from the link's directory, whatever file it resolves to. ``_imports`` reads a
+    file once per target, so a path that was not read has no edges of its own: it takes the edges of the path that
+    was read for the same file (as before routes were kept apart). Each root is walked over the edges with the same
+    hop limit, so a path past the limit for a root is not that root's (its import chain is cut there, not loaded).
     """
     adj: dict[str, list[str]] = {}
+    by_target: dict[str, list[str]] = {}
     for src, dst in edges:
         adj.setdefault(src, []).append(dst)
+        by_target.setdefault(_target(tree, src), []).append(dst)
     reach: dict[str, set[str]] = {}
     for r in roots:
-        start = _target(tree, r)
-        reach.setdefault(start, set()).add(r)
-        seen = {start}
-        level = [start]
+        reach.setdefault(r, set()).add(r)
+        seen = {r}
+        level = [r]
         depth = 0
         while level and (max_depth is None or depth < max_depth):
             nxt: list[str] = []
             for node in level:
-                for dst in adj.get(node, ()):
+                for dst in adj[node] if node in adj else by_target.get(_target(tree, node), ()):
                     if dst not in seen:
                         seen.add(dst)
                         reach.setdefault(dst, set()).add(r)

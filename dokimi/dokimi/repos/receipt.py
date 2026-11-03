@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Any
 
-from .budget import _imports, _target
+from .budget import RULE_GLOB, _imports, _target
 from .reach import PROSE_LIMIT, ReachError
 from .source import RepoTree
 
@@ -166,11 +166,13 @@ def _budget_when(reach: dict[str, Any], budget: dict[str, Any]) -> dict[str, str
 
 def _own_guidance(reach: dict[str, Any], budget: dict[str, Any], tree: RepoTree) -> frozenset[str]:
     """Guidance files budget lists under their own path, and that no other guidance file @-imports: a link or an
-    import is activated where its importer is, so the file has no subtree of its own."""
+    import is activated where its importer is, so the file has no subtree of its own. A file a rule links to loads
+    through that rule, whose ``paths`` decide where, so it is not independent guidance either."""
     aliases = {alias for item in reach["files"] for alias in item.get("aliases", [])}
     guidance = [e["path"] for e in budget["entries"] if e["kind"] == "guidance"]
     imported = {_target(tree, p) for g in guidance for p in _imports(tree, [g])[0]}
-    return frozenset(p for p in guidance if p not in aliases and p not in imported)
+    ruled = {_target(tree, f) for f in tree.files() if RULE_GLOB.match(f)}
+    return frozenset(p for p in guidance if p not in aliases and p not in imported and _target(tree, p) not in ruled)
 
 
 def _dir(path: str) -> str:

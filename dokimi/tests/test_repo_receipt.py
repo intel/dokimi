@@ -652,3 +652,21 @@ def test_from_an_empty_file_name_is_a_usage_error_and_runs_no_probe(tmp_path, mo
         args.func(args)
     assert exc.value.code == 2 and "--from needs a file name" in capsys.readouterr().err
     assert not (tmp_path / "out" / "reach.json").exists()
+
+
+def test_a_scoped_rule_alias_of_a_nested_agents_md_is_not_expected_in_its_subtree(tmp_path):
+    # sub/AGENTS.md loads only through the rule link, whose paths do not match the read in sub/: budget says lazy,
+    # but the subtree is not where it activates, so the receipt cannot say it is expected there
+    from dokimi.repos.budget import budget
+
+    tree = _tree(tmp_path, {"CLAUDE.md": "root\n", "sub/AGENTS.md": "---\npaths: other/**\n---\nagents\n"})
+    (tmp_path / ".claude/rules").mkdir(parents=True)
+    try:
+        (tmp_path / ".claude/rules/agents.md").symlink_to(tmp_path / "sub/AGENTS.md")
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    payload = budget(tree, ("CLAUDE.md", "CLAUDE.local.md", "AGENTS.md"), None, True)
+    records = [_record("sub/AGENTS.md", s, "not_loaded") for s in ("cwd=.", "read=sub")]
+    files = [{"path": "sub/AGENTS.md", "head": "RC000005", "tail": "RC000006"}]
+    receipt = build_receipt(_reach(records, [ROOT_ROW, SUB_ROW], files=files), payload, tree)
+    assert _sources(receipt, "read=sub")["sub/AGENTS.md"]["expected"] == "unknown"

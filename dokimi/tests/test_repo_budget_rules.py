@@ -678,3 +678,44 @@ def test_the_receipt_budget_reads_rules_as_repo_budget_does(tmp_path, monkeypatc
     repo_cmd._print_receipt(WorkTree(tmp_path), profile, {}, tmp_path)
 
     assert _by_path(seen["budget"])[("AGENTS.md", "guidance")]["when"] == "start"
+
+
+def test_a_rule_import_through_a_linked_rules_directory_counts_the_body_of_the_guidance_it_reaches(tmp_path):
+    # the rules dir is a link, so the tree lists no rule entry for the file; the import's rule route still strips
+    # the frontmatter, and the guidance entry takes the body count at the same loading time
+    _tree(tmp_path, {"shared/AGENTS.md": "---\npaths: []\n---\nbody\n", "CLAUDE.md": "@.claude/rules/AGENTS.md\n"})
+    (tmp_path / ".claude").mkdir()
+    try:
+        (tmp_path / ".claude/rules").symlink_to(tmp_path / "shared")
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    payload = budget(WorkTree(tmp_path), NAMES, rules=True)
+    assert _by_path(payload)[("shared/AGENTS.md", "guidance")] == {
+        "path": "shared/AGENTS.md", "kind": "guidance", "when": "start", "chars": len("body\n")}
+    assert payload["totals"]["start"] == len("@.claude/rules/AGENTS.md\n") + len("body\n")
+
+
+def test_a_root_import_of_a_rule_linked_to_a_nested_claude_md_counts_its_body_at_start(tmp_path):
+    # sub/CLAUDE.md also loads lazily as memory with its frontmatter, but the root import loads the body at start
+    _tree(tmp_path, {"CLAUDE.md": "@.claude/rules/nested.md\n", "sub/CLAUDE.md": "---\npaths: []\n---\nnested\n"})
+    (tmp_path / ".claude/rules").mkdir(parents=True)
+    try:
+        (tmp_path / ".claude/rules/nested.md").symlink_to(tmp_path / "sub/CLAUDE.md")
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    payload = budget(WorkTree(tmp_path), NAMES, rules=True)
+    assert _by_path(payload)[("sub/CLAUDE.md", "guidance")] == {
+        "path": "sub/CLAUDE.md", "kind": "guidance", "when": "start", "chars": len("nested\n")}
+
+
+def test_a_cut_import_is_not_blamed_on_a_root_that_reaches_the_file_of_the_rule_route_by_another_path(tmp_path):
+    # sub/'s rule link reads shared.md at sub/.claude/rules/link.md, so its @r.md is sub/'s rule, quiet for sub/;
+    # zother/ reaches the same bytes as shared.md, where the same @r.md is no file at all
+    _tree(tmp_path, {"sub/CLAUDE.md": "@.claude/rules/link.md\n", "shared.md": "@r.md\n",
+                     "zother/CLAUDE.md": "@../shared.md\n", "sub/.claude/rules/r.md": "rule\n"})
+    try:
+        (tmp_path / "sub/.claude/rules/link.md").symlink_to(tmp_path / "shared.md")
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    payload = budget(WorkTree(tmp_path), NAMES, import_max_depth=1, rules=True)
+    assert payload["warnings"] == []
