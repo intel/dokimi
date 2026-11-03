@@ -524,7 +524,8 @@ def _unmeasured(batch: Path, task: str, arm: str, how: str) -> None:
 
 @pytest.mark.parametrize(("side", "how", "kind"), [("arm", "outage", "gate"), ("baseline", "outage", "gate"),
                                                    ("arm", "grader_failure", "score")])
-def test_a_linked_case_that_was_not_measured_is_insufficient_evidence(tmp_path, side, how, kind):
+@pytest.mark.parametrize("n", [1, 8])  # one unmeasured pair among good ones is enough
+def test_a_linked_case_that_was_not_measured_is_insufficient_evidence(tmp_path, side, how, kind, n):
     # Without the check the arm side reads as review and the baseline side as keep, from 0s nobody measured.
     tasks, other = _ids("t", 8), _ids("gb", 6)
     batch = _gate_batch(tmp_path, {t: (False, True) for t in other})
@@ -535,12 +536,13 @@ def test_a_linked_case_that_was_not_measured_is_insufficient_evidence(tmp_path, 
         else:
             _cell(batch, task, BASE, score=0.6)
             _cell(batch, task, ARM, score=0.6)
+    for task in tasks[:n]:
         _unmeasured(batch, task, ARM if side == "arm" else BASE, how)
     rules = [_rule("R1", tasks), _rule("B", other)]
     result = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", rules)), [batch], BASE, today=TODAY)
     entries = {e["rule"]: e for e in result["rules"]}
     assert entries["R1"]["verdict"] == INSUFFICIENT
-    assert entries["R1"]["unmeasured"] == 8 and "agent outage" in entries["R1"]["reason"]
+    assert entries["R1"]["unmeasured"] == n and "agent outage" in entries["R1"]["reason"]
     assert result["family"] == 1  # the unmeasured result takes no Holm slot
     assert entries["B"]["p_holm"] == pytest.approx(2 / 2**6, abs=1e-9)
 
