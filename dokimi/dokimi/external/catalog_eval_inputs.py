@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import stat
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
