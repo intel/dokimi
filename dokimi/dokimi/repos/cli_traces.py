@@ -536,6 +536,7 @@ def codex_json(raw: str, workdir: str | None, cwd: str = "") -> Transcript:
             continue
         if not isinstance(rec, dict):
             out.dropped_lines += 1
+            out.errors.append(f"line {n}: not a JSON object")
             continue
         try:
             _codex_apply(out, rec, messages, workdir, by_id, cwd, event_reads)
@@ -729,6 +730,7 @@ def copilot_json(raw: str, workdir: str | None, cwd: str = "") -> Transcript:
             continue
         if not isinstance(rec, dict):
             out.dropped_lines += 1
+            out.errors.append(f"line {n}: not a JSON object")
             continue
         t = run.offset(rec)
         try:

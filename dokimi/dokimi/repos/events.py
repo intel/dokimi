@@ -74,6 +74,7 @@ def _claude_stream_json(raw: str, workdir: str | None) -> Transcript:
             continue
         if not isinstance(rec, dict):
             out.dropped_lines += 1
+            out.errors.append(f"line {n}: not a JSON object")
             continue
         t = None
         stamp = _parse_time(rec.get("timestamp"))
@@ -131,10 +132,13 @@ def _apply(out: Transcript, rec: dict[str, Any], t: float | None,
     elif kind == "user":
         for block in _content(rec, out):
             if block.get("type") == "tool_result":
-                if not _well_formed_tool_result(block):  # a result that names no call is lost: a dropped line
-                    out.dropped_lines += 1
-                    continue
-                _apply_result(block, by_id)
+                # a result that names no recorded call is lost: a dropped line
+                if not _well_formed_tool_result(block):
+                    _drop(out, "a tool_result with no usable tool_use_id")
+                elif block["tool_use_id"] not in by_id:
+                    _drop(out, "a tool_result for no recorded tool call")
+                else:
+                    _apply_result(block, by_id)
     elif kind == "result":
         _apply_final(out, rec, by_id)
 
@@ -152,7 +156,7 @@ def _apply_assistant(out: Transcript, rec: dict[str, Any], t: float | None,
     for block in _content(rec, out):
         if block.get("type") == "tool_use":
             if not _well_formed_tool_use(block):  # an unreadable call is a dropped line, not an empty one
-                out.dropped_lines += 1
+                _drop(out, "a tool_use with no usable id, name or input")
                 continue
             event = _tool_event(block, t, workdir)
             if rec.get("parent_tool_use_id"):
@@ -232,9 +236,15 @@ def _content(rec: dict[str, Any], out: Transcript) -> list[dict[str, Any]]:
     if rec.get("type") == "user" and (isinstance(content, str) or content is None):  # a user's prompt is a plain string: nothing lost
         return []
     if not isinstance(content, list):
-        out.dropped_lines += 1
+        _drop(out, "a message whose content is not a list")
         return []
     blocks = [b for b in content if isinstance(b, dict) and isinstance(b.get("type"), str)]  # a block says its type
     if len(blocks) != len(content):
-        out.dropped_lines += 1
+        _drop(out, "a content block with no string type")
     return blocks
+
+
+def _drop(out: Transcript, why: str) -> None:
+    """Count one unreadable part of the trace as dropped, and say why in the cell's trace errors."""
+    out.dropped_lines += 1
+    out.errors.append(why)

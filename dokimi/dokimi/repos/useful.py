@@ -112,24 +112,34 @@ def _median(values: list[float]) -> float | None:
     return statistics.median(values) if values else None
 
 
-def useful_summary(recs: Sequence[Mapping[str, Any]]) -> dict[str, Any] | None:
-    """``repo report``'s ``first_useful`` for one row: the cells observed, their medians and why the rest are not.
-
-    None when no cell records a definition."""
-    have = _declared(recs)
-    if not have:
-        return None
+def _kind_summary(have: Sequence[Mapping[str, Any]], kind: str) -> dict[str, Any]:
+    """The cells of one kind: how many observed the hit, their medians and why the rest did not."""
     seconds = _nums(u.get("issued_s") for u in _observed(have))
     steps = _nums(u.get("steps") for u in have)
-    kind = useful_kind(recs)  # "mixed" when the cells name both kinds: no median of those is one measure
-    mixed = kind == "mixed"
     return {
         "kind": kind,
         "n": len(have),
         "observed": len(steps),
-        "median_s": None if mixed else _median(seconds),
-        "median_steps": None if mixed else _median(steps),
+        "median_s": _median(seconds),
+        "median_steps": _median(steps),
         "reasons": dict(Counter(u["reason"] for u in have if u.get("reason"))),
+    }
+
+
+def useful_summary(recs: Sequence[Mapping[str, Any]]) -> dict[str, Any] | None:
+    """``repo report``'s ``first_useful`` for one row: the cells observed, their medians and why the rest are not.
+
+    Cells that name both kinds give ``kind`` ``mixed`` and one summary per kind in ``by_kind``: a command's seconds
+    and an edit's are no one measure, so no count or median pools them. None when no cell records a definition."""
+    have = _declared(recs)
+    if not have:
+        return None
+    kinds = sorted({u["kind"] for u in have})
+    if len(kinds) == 1:
+        return _kind_summary(have, kinds[0])
+    return {
+        "kind": "mixed",
+        "by_kind": {k: _kind_summary([u for u in have if u["kind"] == k], k) for k in kinds},
     }
 
 
@@ -198,9 +208,11 @@ def useful_arms_line(counts: Mapping[str, Mapping[str, int] | None]) -> str | No
 
 
 def useful_line(summary: Mapping[str, Any] | None, width: int) -> list[str]:
-    """The row's first-useful summary on one indented line; none for a row without a definition."""
+    """The row's first-useful summary on one indented line per kind; none for a row without a definition."""
     if not summary:
         return []
+    if summary["kind"] == "mixed":
+        return [line for part in summary["by_kind"].values() for line in useful_line(part, width)]
     parts = [f"{summary['observed']} of {summary['n']} observed"]
     if summary["median_s"] is not None:
         parts.append(f"median {summary['median_s']:.1f} s")

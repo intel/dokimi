@@ -314,22 +314,23 @@ def test_useful_summary_is_the_observed_cells_medians_and_why_the_rest_are_not()
     assert useful_line(None, 4) == []
 
 
-def test_useful_summary_of_mixed_kinds_names_no_kind_and_no_median():
-    # a command hit and an edit hit in one row: their seconds and steps are no one measure
+def test_useful_summary_of_mixed_kinds_gives_one_summary_per_kind():
+    # a command hit and an edit hit in one row: their seconds and steps are no one measure, so no kind pools the other
     recs = [
         {"first_useful": _hit(10.0, 4)},
         {"first_useful": {"kind": "edit", "reason": None, "issued_s": 40.0, "steps": 9}},
     ]
     assert useful_summary(recs) == {
         "kind": "mixed",
-        "n": 2,
-        "observed": 2,
-        "median_s": None,
-        "median_steps": None,
-        "reasons": {},
+        "by_kind": {
+            "command": {"kind": "command", "n": 1, "observed": 1, "median_s": 10.0, "median_steps": 4,
+                        "reasons": {}},
+            "edit": {"kind": "edit", "n": 1, "observed": 1, "median_s": 40.0, "median_steps": 9, "reasons": {}},
+        },
     }
     assert useful_line(useful_summary(recs), 4) == [
-        " " * 8 + "first useful (mixed): 2 of 2 observed"
+        " " * 8 + "first useful (command): 1 of 1 observed, median 10.0 s, 4 steps",
+        " " * 8 + "first useful (edit): 1 of 1 observed, median 40.0 s, 9 steps",
     ]
 
 
@@ -567,6 +568,42 @@ def test_a_trace_line_that_does_not_parse_marks_the_trace_incomplete():
     assert convert("claude-stream-json", "", None).dropped_lines == 0
 
 
+@pytest.mark.parametrize("fmt", ["claude-stream-json", "codex-json", "copilot-json"])
+def test_a_trace_line_that_is_not_an_object_says_why_in_the_trace_errors(fmt):
+    transcript = convert(fmt, "[1]\n", None)
+    assert transcript.dropped_lines == 1
+    assert any("not a JSON object" in e for e in transcript.errors)
+
+
+@pytest.mark.parametrize("line", [
+    {"type": "user", "message": {"content": [{"type": "tool_result", "is_error": False, "content": "ok"}]}},
+    {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "nope", "content": "ok"}]}},
+    {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Edit", "input": {}}]}},
+    {"type": "assistant", "message": {"content": [{"type": "text", "text": "a"}, 42]}},
+    {"type": "assistant", "message": {"content": "not a list"}},
+])
+def test_each_dropped_claude_line_says_why_in_the_trace_errors(line):
+    transcript = convert("claude-stream-json", json.dumps(line), "/ws")
+    assert transcript.dropped_lines == 1
+    assert transcript.errors, "a dropped block must leave a reason the cell can show"
+
+
+def test_a_tool_result_that_names_no_recorded_call_is_unobserved_not_never():
+    # the result's id is a non-empty string, but no call of the trace has it: the edit's result is lost, not a miss
+    lines = [
+        {"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "id": "e", "name": "Edit", "input": {"file_path": "/ws/src/x.py"}}]}},
+        {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "other",
+                                                   "is_error": False, "content": "ok"}]}},
+        {"type": "result", "subtype": "success", "is_error": False, "num_turns": 2, "result": "done",
+         "usage": {"input_tokens": 1, "output_tokens": 1}},
+    ]
+    transcript = convert("claude-stream-json", "\n".join(json.dumps(x) for x in lines), "/ws")
+    assert transcript.dropped_lines == 1
+    events = None if transcript.dropped_lines else transcript.events
+    assert first_useful(parse_useful({"edit": "src/*.py"}), events)["reason"] == "unobserved"
+
+
 def test_the_compare_counts_are_the_cells_behind_each_value(tmp_path):
     batch = tmp_path / "b"
     _timed(batch, "t1", "guidance:none", 1, _hit(10.0, 4))
@@ -617,7 +654,8 @@ def test_a_task_whose_arms_define_different_kinds_of_first_useful_result_is_unpa
     s = compare([batch], "guidance:none")
     assert not [r for r in s["comparisons"] if r["measure"].startswith("first_useful")]
     assert any(
-        u["task"] == "t1" and "first useful kinds differ" in u["reason"] for u in s["unpaired"]
+        u["task"] == "t1" and u["measure"] == "first_useful" and "first useful kinds differ" in u["reason"]
+        for u in s["unpaired"]
     )
 
 
@@ -854,7 +892,7 @@ def test_an_edit_call_with_a_non_object_input_is_unobserved_not_never():
          "usage": {"input_tokens": 1, "output_tokens": 1}},
     ]
     transcript = convert("claude-stream-json", "\n".join(json.dumps(x) for x in lines), "/ws")
-    assert transcript.dropped_lines == 1
+    assert transcript.dropped_lines == 2  # the call's line, and its result's line, which names no recorded call
     events = None if transcript.dropped_lines else transcript.events
     assert first_useful(parse_useful({"edit": "**"}), events)["reason"] == "unobserved"
 

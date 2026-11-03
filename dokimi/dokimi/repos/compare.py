@@ -392,7 +392,7 @@ def _compare_model(treatment: str, model: str, base_vals: dict[tuple[str, str], 
             unpaired.append(_unpaired(treatment, model, task, None, f"{b} task in baseline, {t} in treatment"))
         bk, tk = base_vals[(model, task)]["useful_kind"], treat_vals[(model, task)]["useful_kind"]
         if (bk and tk and bk != tk) or "mixed" in (bk, tk):  # a command's timing and an edit's are not one measure
-            unpaired.append(_unpaired(treatment, model, task, None,
+            unpaired.append(_unpaired(treatment, model, task, "first_useful",
                                       f"first useful kinds differ: {bk} in baseline, {tk} in treatment"))
         else:
             useful_ok.append(task)
@@ -491,7 +491,8 @@ def headroom(pairs: list[dict[str, Any]], tops: list[tuple[float | None, float |
 
 
 def _unpaired(treatment: str, model: str, task: str, measure: str | None, reason: str) -> dict[str, Any]:
-    """A task left out of the comparison: of every measure (``measure`` None) or of one."""
+    """A task left out of the comparison: of every measure (``measure`` None), of the first useful ones
+    (``first_useful``: the three ``first_useful_*`` measures) or of one."""
     return {"treatment": treatment, "model": model, "task": task, "measure": measure, "reason": reason}
 
 
