@@ -10,3 +10,6 @@
   reads; without one, the listed files are graded as they are and the self-check runs the null step only,
   reporting a listed path that is missing or a suppression the workspace already has (no run could pass).
 - A tool report without its diagnostic fields (for example `{}`) is a tool failure, not a clean run.
+- A fence that imports a module the environment lacks is `unresolved`, not `fail`. A fence whose only errors are
+  a statement that needs a function or loop around it (`break`, `continue`, `yield from`, `nonlocal`) is unresolved too.
+- The grader refuses a workspace module named as one the image's site-packages provides, as it does a standard-library name.

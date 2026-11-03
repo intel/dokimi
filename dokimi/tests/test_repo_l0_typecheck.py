@@ -336,7 +336,8 @@ def test_a_host_mypypath_cannot_supply_a_module_the_pinned_environment_lacks(tmp
     monkeypatch.setenv("MYPYPATH", str(extra))
     tree = _tree(tmp_path, f"{FENCE}python\nimport ghost_pkg_mod\nprint(ghost_pkg_mod.run())\n{FENCE}\n")
     [claim] = _fence_claims(scan_repo(tree, parse_manifest(MANIFEST), typecheck=Check("mypy", sys.executable)))
-    assert claim["status"] == "fail"
+    # the module is missing from the pinned environment: unresolved, and never checked against the host's copy
+    assert claim["status"] == "unresolved"
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="the stand-in interpreter is a POSIX shell script")
@@ -534,7 +535,8 @@ def test_only_python_tagged_fences_become_claims(tmp_path):
 def test_a_fence_cannot_import_another_fence_as_a_module(tmp_path):
     agents = f"{FENCE}python\nvalue: int = 1\n{FENCE}\n\n{FENCE}python\nimport fence_0\nprint(fence_0.value)\n{FENCE}\n"
     payload = scan_repo(_tree(tmp_path, agents), parse_manifest(MANIFEST), typecheck=Check("mypy", sys.executable))
-    assert [c["status"] for c in _fence_claims(payload)] == ["ok", "fail"]
+    # fence_0 is not a module of the environment: the import is unresolved, and the fence is not passed by another's file
+    assert [c["status"] for c in _fence_claims(payload)] == ["ok", "unresolved"]
 
 
 def test_mypy_is_given_the_repository_interpreter(monkeypatch):
@@ -736,6 +738,76 @@ def test_basedpyright_top_level_await_return_and_yield_are_fragments_not_stale(t
     claims = _fence_claims(payload)
     assert [c["status"] for c in claims] == ["unresolved"] * 3
     assert all("longer example" in c["why"] for c in claims)
+    assert payload["typecheck"]["fail"] == 0
+
+
+@pytest.mark.parametrize("statement", ["yield from range(3)", "continue", "break", "nonlocal x"])
+def test_a_statement_that_needs_a_function_or_loop_around_it_is_a_fragment_not_stale(tmp_path, statement):
+    # mypy's wording for each outside a function or loop: the fence is a piece of a longer example
+    claims = _fence_claims(scan_repo(_tree(tmp_path, f"{FENCE}python\n{statement}\n{FENCE}\n"),
+                                     parse_manifest(MANIFEST), typecheck=Check("mypy", sys.executable)))
+    assert [c["status"] for c in claims] == ["unresolved"]
+    assert "longer example" in claims[0]["why"]
+
+
+def test_a_top_level_return_is_a_fragment_not_stale(tmp_path):
+    # the real-mypy twin of the fake basedpyright case below: "return" outside function stays unresolved
+    claims = _fence_claims(scan_repo(_tree(tmp_path, f"{FENCE}python\nreturn 1\n{FENCE}\n"),
+                                     parse_manifest(MANIFEST), typecheck=Check("mypy", sys.executable)))
+    assert [c["status"] for c in claims] == ["unresolved"]
+
+
+def test_a_repository_on_python_3_10_is_checked_not_unresolved(tmp_path, monkeypatch):
+    # mypy 2.x accepts --python-version 3.10: only 3.9 and older are unresolved, 3.10 is checked
+    from dokimi.repos.l0 import typecheck as l0_typecheck
+
+    monkeypatch.setattr(l0_typecheck, "python_version", lambda check: (3, 10))
+    agents = f"{FENCE}python\nimport json\nprint(json.dumps(1))\n{FENCE}\n\n{FENCE}python\nx: int = 'a'\n{FENCE}\n"
+    claims = _fence_claims(scan_repo(_tree(tmp_path, agents), parse_manifest(MANIFEST),
+                                     typecheck=Check("mypy", sys.executable)))
+    assert [c["status"] for c in claims] == ["ok", "fail"]
+
+
+def test_a_module_the_repository_environment_lacks_is_unresolved_not_stale(tmp_path):
+    claims = _fence_claims(scan_repo(_tree(tmp_path, f"{FENCE}python\nimport nosuchmodule_dokimi\n{FENCE}\n"),
+                                     parse_manifest(MANIFEST), typecheck=Check("mypy", sys.executable)))
+    assert [c["status"] for c in claims] == ["unresolved"]
+    assert "not type-checked" in claims[0]["why"] and "lacks" in claims[0]["why"]
+
+
+def test_a_missing_module_with_a_real_error_fails_on_the_real_error(tmp_path):
+    fence = f"{FENCE}python\nimport nosuchmodule_dokimi\nx: int = 'a'\n{FENCE}\n"
+    [claim] = _fence_claims(scan_repo(_tree(tmp_path, fence), parse_manifest(MANIFEST),
+                                      typecheck=Check("mypy", sys.executable)))
+    assert claim["status"] == "fail"
+    assert "line 2" in claim["why"] and "nosuchmodule_dokimi" not in claim["why"]
+
+
+def test_basedpyright_break_continue_nonlocal_and_a_missing_import_are_not_stale(tmp_path, monkeypatch):
+    # pyright's own messages (not run here: basedpyright is not installed in CI's test image)
+    from dokimi.repos.l0 import typecheck as l0_typecheck
+
+    fences = ["break", "continue", "yield from range(3)", "nonlocal x", "import nosuchmodule_dokimi"]
+    messages = ['"break" can be used only within a loop', '"continue" can be used only within a loop',
+                '"yield from" not allowed outside of a function or lambda',
+                "Nonlocal declaration not allowed at module level",
+                'Import "nosuchmodule_dokimi" could not be resolved']
+
+    def fake(argv, cwd, stdin=None):
+        if stdin is not None:  # the fences parse
+            return _completed(returncode=0, stdout=json.dumps([None] * len(fences)))
+        if argv[-1] == "--version":
+            return _completed(returncode=0, stdout="basedpyright 1.31.6\n")
+        report = {"generalDiagnostics": [
+            {"file": f"fence-{i}.py", "severity": "error", "message": message, "rule": "reportGeneralTypeIssues",
+             "range": {"start": {"line": 0}}} for i, message in enumerate(messages)]}
+        return _completed(returncode=1, stdout=json.dumps(report), stderr="")
+
+    monkeypatch.setattr(l0_typecheck, "_run_tool", fake)
+    monkeypatch.setattr(l0_typecheck, "python_version", lambda check: (3, 12))
+    payload = scan_repo(_tree(tmp_path, "".join(f"{FENCE}python\n{code}\n{FENCE}\n\n" for code in fences)),
+                        parse_manifest(MANIFEST), typecheck=Check("basedpyright", sys.executable))
+    assert [c["status"] for c in _fence_claims(payload)] == ["unresolved"] * len(fences)
     assert payload["typecheck"]["fail"] == 0
 
 

@@ -15,12 +15,14 @@ time; mypy is imported by :func:`grade` and must be importable by the image's ``
 
 from __future__ import annotations
 
+import importlib.util
 import io
 import os
 import posixpath
 import re
 import shutil
 import sys
+import sysconfig
 import tempfile
 import tokenize
 from pathlib import Path
@@ -144,9 +146,26 @@ def _no_type_check(text: str) -> list[int]:
         return [n for n, line in enumerate(text.splitlines(), 1) if _NO_TYPE_CHECK in line]
 
 
+def _image_provides(name: str) -> bool:
+    """True when the image's site-packages provides the top-level module ``name``. The module is found, not imported;
+    a dotted name is not looked up (find_spec would import its parent)."""
+    if not name.isidentifier():
+        return False
+    try:
+        spec = importlib.util.find_spec(name)
+    except (ImportError, ValueError):  # a module in sys.modules without a spec
+        return False
+    if spec is None:
+        return False
+    found = [spec.origin or "", *(spec.submodule_search_locations or [])]
+    site = [Path(sysconfig.get_path(key)).resolve() for key in ("purelib", "platlib")]
+    return any(os.path.isabs(loc) and Path(loc).resolve().is_relative_to(d) for loc in found for d in site)
+
+
 def _silenced(workspace: Path, listed: list[str]) -> list[str]:
     """Where the workspace silences mypy: ``file:line`` for a comment, the path for a stub (``.pyi`` shadows a module)
-    or for a top-level module named as a standard-library one (``json.py``), on the workspace or a source root.
+    or for a top-level module named as a standard-library one or one the image's site-packages provides
+    (``json.py``, ``requests/__init__.py``), on the workspace or a source root.
 
     Both are refused: mypy_path puts the workspace first, so ``__getattr__ -> Any`` hides every attribute."""
     found = []
@@ -159,7 +178,7 @@ def _silenced(workspace: Path, listed: list[str]) -> list[str]:
     for base in (workspace, *_package_roots(workspace, listed)):
         for entry in sorted(base.iterdir()) if base.is_dir() else []:
             module = entry.stem if entry.suffix == ".py" else entry.name if (entry / "__init__.py").is_file() else ""
-            if module in sys.stdlib_module_names:
+            if module in sys.stdlib_module_names or _image_provides(module):
                 found.append(entry.relative_to(workspace).as_posix())
     return found
 

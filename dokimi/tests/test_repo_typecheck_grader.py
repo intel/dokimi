@@ -221,6 +221,7 @@ def test_a_src_layout_package_resolves_when_both_files_are_listed(tmp_path):
     assert result["pass"] is True, result["errors"]
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="a directory named src:lib cannot be created on Windows")
 @pytest.mark.parametrize("sep", [",", ":"])
 def test_a_source_root_with_a_mypy_path_delimiter_is_a_task_error(tmp_path, sep):
     files = {f"src{sep}lib/pkg/__init__.py": "", f"src{sep}lib/pkg/x.py": "val: int = 1\n",
@@ -393,6 +394,7 @@ def test_the_oracle_refuses_an_empty_reference_directory_created_through_a_link(
     assert not (outside / "sub").exists()
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows does not keep the 0700 mode this checks")
 def test_the_oracle_refuses_a_linked_workspace_even_with_an_empty_reference(tmp_path):
     # no entry in reference/, so the walk checks nothing; copytree still copies the mode onto the linked root
     outside = tmp_path / "outside"
@@ -539,6 +541,26 @@ def test_a_workspace_module_named_as_a_standard_library_one_fails_the_grade(tmp_
     result = typecheck.grade(_task(), tmp_path, "", run)
     assert result["pass"] is False
     assert result["n_suppressions"] == 1
+
+
+@pytest.mark.parametrize("shadow", [
+    {"mypy.py": "def __getattr__(name: str) -> int: ...\n"},
+    {"mypy/__init__.py": "def __getattr__(name: str) -> int: ...\n"},
+])
+def test_a_workspace_module_named_as_an_installed_package_fails_the_grade(tmp_path, shadow):
+    # mypy is in the image's site-packages: a workspace mypy.py would stand in for it, as json.py does for json
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": "import mypy\n\nprint(mypy.nosuch)\n", **shadow},
+               _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is False
+    assert result["n_suppressions"] == 1
+
+
+def test_image_provides_finds_an_installed_module_and_not_a_workspace_name():
+    assert typecheck._image_provides("mypy") is True
+    assert typecheck._image_provides("pkg") is False
+    assert typecheck._image_provides("not-an-identifier") is False
+    assert typecheck._image_provides("mypy.version") is False  # a dotted name is not looked up
 
 
 def test_a_standard_library_name_on_a_source_root_fails_the_grade(tmp_path):

@@ -32,15 +32,21 @@ TIMEOUT = 600  # seconds for one run over every fence of a repository
 MAX_WHY = 200
 # The oldest repository Python each tool accepts: the pinned mypy 2.x refuses --python-version 3.9 and exits 2.
 MIN_PYTHON = {"mypy": (3, 10)}
-# Fragment-only errors (a name an earlier fence defines, await/return/yield or async with/for outside a function),
-# in mypy's or basedpyright's wording; any other error is real.
+# Fragment-only errors (a name an earlier fence defines, a statement that needs a function, loop or async body
+# around it), in mypy's or basedpyright's wording; any other error is real.
 _FRAGMENT = re.compile(r'^(?:Name "[^"]+"|"[^"]+") is not defined(?: \[reportUndefinedVariable\])?$'
-                       r'|^"(?:await|return|yield)" outside function$'
+                       r'|^"(?:await|return|yield|yield from|continue|break)" outside (?:function|loop)$'
                        r'|^"async (?:with|for)" outside async function$'
+                       r'|^(?:Nonlocal|nonlocal) declaration not allowed at module level(?: \[\w+\])?$'
                        r'|^Use of "async" not allowed outside of async function(?: \[\w+\])?$'
                        r'|^"await" allowed only within async function(?: \[\w+\])?$'
                        r'|^"return" can be used only within a function(?: \[\w+\])?$'
-                       r'|^"yield" not allowed outside of a function or lambda(?: \[\w+\])?$')
+                       r'|^"(?:break|continue)" can be used only within a loop(?: \[\w+\])?$'
+                       r'|^"(?:yield|yield from)" not allowed outside of a function or lambda(?: \[\w+\])?$')
+# A module the repository environment does not have: the fence's own import fails, so nothing it says about that
+# module can be checked (in mypy's or basedpyright's wording). A missing module is not a stale call.
+_MISSING_MODULE = re.compile(r'^Cannot find implementation or library stub for module named "[^"]+"$'
+                             r'|^Import "[^"]+" could not be resolved(?: \[\w+\])?$')
 
 
 class TypecheckError(RuntimeError):
@@ -110,14 +116,14 @@ def _claims(scan: Scan, tool: str, runnable: list[tuple[str, Fence, str]],
         if not errors:
             scan.add(f, fence.line, "python_fence", _label(code), "ok", f"{tool}: no error")
             continue
-        if _is_fragment(errors):
+        if _is_unchecked(errors):
             unchecked += 1
             scan.add(f, fence.line, "python_fence", _label(code), "unresolved",
-                     f"{tool}: {errors[0][1]} (a fragment of a longer example: not type-checked)"[:MAX_WHY])
+                     f"{tool}: {errors[0][1]} ({_unchecked_reason(errors)}: not type-checked)"[:MAX_WHY])
             continue
         fails += 1
-        # the first real error names the claim: a fragment error of the same fence is only counted
-        line, message = next(e for e in errors if not _FRAGMENT.match(e[1]))
+        # the first real error names the claim: a fragment or missing-module error of the same fence is only counted
+        line, message = next(e for e in errors if not _missing_context(e[1]))
         more = f" (+{len(errors) - 1} more)" if len(errors) > 1 else ""
         where = f"line {line}: " if line else ""  # 0: the tool gave no line, so the claim is the fence itself
         scan.add(f, fence.line + line, "python_fence", _label(code), "fail",
@@ -138,9 +144,24 @@ def _older_than_the_tool(scan: Scan, check: Check, runnable: list[tuple[str, Fen
     return True
 
 
-def _is_fragment(errors: list[tuple[int, str]]) -> bool:
-    """True when every error of a fence is one its missing context causes (see ``_FRAGMENT``)."""
-    return all(_FRAGMENT.match(message) for _, message in errors)
+def _missing_context(message: str) -> bool:
+    """True for an error the fence's missing context or a module the environment lacks causes (see the patterns)."""
+    return _FRAGMENT.match(message) is not None or _MISSING_MODULE.match(message) is not None
+
+
+def _is_unchecked(errors: list[tuple[int, str]]) -> bool:
+    """True when every error of a fence is one of those (see ``_missing_context``): nothing real was found."""
+    return all(_missing_context(message) for _, message in errors)
+
+
+def _unchecked_reason(errors: list[tuple[int, str]]) -> str:
+    """Why the fence is not checked, for the claim: the fence is a fragment, or a module is missing (or both)."""
+    missing = [m for _, m in errors if _MISSING_MODULE.match(m)]
+    if len(missing) == len(errors):
+        return "a module the repository environment lacks"
+    if missing:
+        return "a fragment of a longer example, or a module the repository environment lacks"
+    return "a fragment of a longer example"
 
 
 def tool_version(check: Check) -> str:
