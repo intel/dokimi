@@ -157,12 +157,32 @@ def _advance(fence: tuple[str, int] | None, items: tuple[int, ...], line: str, p
     items = _items_after(items, line, para)
     opened = _opened(line, items)
     expanded = line.expandtabs(4)
-    text = expanded[markers[-1]:].strip() if markers else expanded.strip()
+    rest = expanded[markers[-1]:] if markers else expanded  # the line after its list markers, if any
+    text = rest.strip()
     indent = len(expanded) - len(expanded.lstrip(" "))
     code = not para and indent - (items[-1] if items else 0) >= 4  # four columns past the content column: code
-    return (opened, items, opened is None and bool(text) and (not _BLOCK.match(text) or _quoted_paragraph(text, para and not markers))  # a new list item does not continue the paragraph
+    block = _starts_block(rest, 0 if markers else (items[-1] if items else 0))
+    return (opened, items, opened is None and bool(text) and (not block or _quoted_paragraph(text, para and not markers))  # a new list item does not continue the paragraph
             and not code,
             bool(markers) and not text)
+
+
+def _starts_block(rest: str, base: int) -> bool:
+    """Whether a line's text starts a heading, quote or rule, which interrupts paragraph text. Its indent is counted past
+    ``base`` (the column its container starts at): four columns in is paragraph text, as in CommonMark."""
+    return len(rest) - len(rest.lstrip(" ")) - base < 4 and _BLOCK.match(rest) is not None
+
+
+def _comment_column(line: str, before: tuple[int, ...], para: bool, after: tuple[int, ...]) -> int | None:
+    """The column of the item an HTML comment block that starts on a line belongs to, or None if no block starts there.
+    A block starts after the list markers the line starts (``- <!-- c``, read against the items ``before`` the line),
+    or on a line indented up to three columns. Its item is the innermost one open after the line (``after``), so a
+    lazy line is in none and the block ends with the item."""
+    markers = _markers(before, line, para)
+    starts = line.expandtabs(4)[markers[-1]:].startswith("<!--") if markers else _COMMENT.match(line) is not None
+    if not starts or "-->" in line:
+        return None
+    return after[-1] if after else 0
 
 
 def _front_matter_end(lines: list[str]) -> int:
@@ -192,15 +212,15 @@ def _render_xml(text: str) -> str:
                 comment = "-->" not in line
                 out.append(line)
                 continue
+        before, before_para = items, para
         fence, items, para, empty = _advance(fence, items, line, para, empty)
         heading = _HEADING.match(line) if fence is None else None  # a line of a fence is body text
         if heading is None:
             out.append(line)
-            if fence is None and _COMMENT.match(line) and "-->" not in line:
-                expanded = line.expandtabs(4)
-                indent = len(expanded) - len(expanded.lstrip(" "))
+            column = _comment_column(line, before, before_para, items) if fence is None else None
+            if column is not None:
                 comment, para, empty = True, False, False  # a comment block is not paragraph text
-                comment_column = items[-1] if items and indent >= items[-1] else 0  # a lazy line is in no item
+                comment_column = column  # a lazy line is in no item
             continue
         level = len(heading.group(1))
         while open_levels and open_levels[-1] >= level:

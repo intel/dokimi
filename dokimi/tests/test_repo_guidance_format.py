@@ -139,9 +139,18 @@ def test_xml_wraps_each_heading_in_a_section_closed_before_its_peer():
     ("- item\n  <!--\n# Real\n-->\n", ["Real"]),  # the item ends at the heading, and its comment block with it
     ("- item\n<!--\n# Real\n-->\n", []),  # a lazy comment line starts a block outside the item: the comment holds on
     ("- a\n<!--\n  -->\n  <!--\n## S\n", []),  # the column-0 comment ends the item, so the later one is in no item
+    ("- <!-- c\ntext\n  <!-- c\n## Sub\n", []),  # a comment that opens after a list marker is a block too; its item ends at "text"
+    ("<!--\nfoo\n# H\n-->\n# Real\n", ["Real"]),  # the heading inside the block is body text, the one after it is not
+    ("1.\n1.\n1.\n  ```\n# H\n", []),  # an ordered list's fence is body text
+    ("===\n1.\n   <!--\n***\n# H\n", []),  # a comment that starts inside an item is still a block
 ])
 def test_a_heading_inside_an_html_comment_block_is_body_text(text, sections):
     assert re.findall(r'title="([^"]*)"', to_format(text, "xml")) == sections
+
+
+def test_an_indented_heading_line_continues_a_paragraph_so_its_fence_is_body_text():
+    # "    # H" cannot start a heading after paragraph text (it is four columns in), so "-" is setext-looking text, not an item
+    assert re.findall(r'title="([^"]*)"', to_format("x\n    # H\n-\n  ```\n## Sub\n", "xml")) == []
 
 
 def test_a_yaml_front_matter_block_stays_verbatim_above_the_root():
