@@ -115,7 +115,7 @@ def _judge(batch_dir: Path, args: argparse.Namespace) -> None:
 
 
 def cmd_repo_hits_sheet(args: argparse.Namespace) -> None:
-    """Sample credited replay pairs, stratified by arm, for a person to label (no LLM)."""
+    """Sample credited replay pairs, stratified by arm and answer model, for a person to label (no LLM)."""
     from dokimi.repos.hits_calibration import labelled_entries, sheet
     from dokimi.repos.hits_judge import HitsInputError, read_pairs
     from dokimi.repos.report import CellFileError
@@ -139,10 +139,10 @@ def cmd_repo_hits_sheet(args: argparse.Namespace) -> None:
     left = [p for p in pairs if p.problem is not None]
     if left:
         print(f"{len(left)} pair(s) left out, full text not found (see `repo hits judge`)", file=sys.stderr)
-    per_arm = Counter(e["arm"] for e in entries)
+    per_row = Counter((e["arm"], e["model"]) for e in entries)
     print(f"wrote {len(entries)} pair(s) to label to {out}"
-          + "".join(f"; {arm}: {n} of {sum(p.arm == arm and p.problem is None for p in pairs)}"
-                    for arm, n in sorted(per_arm.items())))
+          + "".join(f"; {arm} ({model}): {n} of {sum(p.row == (arm, model) and p.problem is None for p in pairs)}"
+                    for (arm, model), n in sorted(per_row.items())))
 
 
 def register(repo_sub, positive_int, usd: Callable[[str], float]) -> None:
@@ -159,7 +159,7 @@ def register(repo_sub, positive_int, usd: Callable[[str], float]) -> None:
                          help="The judge; refused when it runs the model of any answer of the batch")
     judge_p.add_argument("--labels", default=None, metavar="FILE",
                          help="A `repo hits sheet` file with `label` filled in: report agreement and Cohen's kappa "
-                         "per arm between the person and the judge")
+                         "per arm and answer model between the person and the judge")
     judge_p.add_argument("--max-usd", type=usd, default=None, dest="max_usd", metavar="X",
                          help="Start no new judge call once this much has been spent (exit 1 if a cell was left); "
                          "after a judge reply with no known price no further call starts, since the cap cannot "
@@ -171,13 +171,13 @@ def register(repo_sub, positive_int, usd: Callable[[str], float]) -> None:
 
     sheet_p = hits_sub.add_parser(
         "sheet", help="Write a JSON list of credited pairs with their full texts and `label: null` for a person "
-        "to label, N per arm (no LLM)")
+        "to label, N per arm and answer model (no LLM)")
     sheet_p.add_argument("batch_dir", help="<out>/<batch> of `repo run`")
     sheet_p.add_argument("--out", required=True, metavar="FILE",
                          help="The sheet to write; refused (exit 2) when FILE holds a sheet with a label set or "
                          "cannot be read")
     sheet_p.add_argument("--per-arm", type=positive_int, default=25, dest="per_arm", metavar="N",
-                         help="Pairs per arm, all of an arm's when it has fewer (default 25)")
+                         help="Pairs per arm and answer model, all of theirs when they have fewer (default 25)")
     sheet_p.add_argument("--seed", type=int, default=0, metavar="N",
                          help="Seed of the draw: the same seed gives the same sheet (default 0)")
     sheet_p.set_defaults(func=cmd_repo_hits_sheet)

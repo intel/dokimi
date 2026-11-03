@@ -3,10 +3,11 @@
 
 """A person's labels against the judge's for ``repo hits``: the sheet to label, and agreement and kappa.
 
-``repo hits sheet`` samples credited pairs for a person to label, stratified by arm: ``per_arm`` pairs of
-each arm (all of them when it has fewer), drawn with ``random.Random(seed)``, so one seed gives one sheet.
-``repo hits judge --labels`` reads the sheet back with ``label`` filled in and reports, per arm, the
-pairs both labelled, the share on which they agree, and Cohen's kappa over the three labels.
+``repo hits sheet`` samples credited pairs for a person to label, stratified by arm and answer model (the rows
+of the judged table): ``per_arm`` pairs of each (arm, model) (all of them when it has fewer), drawn with
+``random.Random(seed)``, so one seed gives one sheet. ``repo hits judge --labels`` reads the sheet back with
+``label`` filled in and reports, per (arm, model), the pairs both labelled, the share on which they agree, and
+Cohen's kappa over the three labels.
 """
 
 from __future__ import annotations
@@ -23,17 +24,18 @@ PER_ARM = 25
 
 
 def sheet(pairs: list[Pair], per_arm: int = PER_ARM, seed: int = 0) -> list[dict[str, Any]]:
-    """The pairs to label, ``per_arm`` per arm in arm order, each in the order ``repo report --hits`` lists it.
+    """The pairs to label, ``per_arm`` per (arm, model) in that order, each in the order ``repo report --hits``
+    lists it: each row of the judged table gets its own sample, so each can be calibrated.
 
     A pair whose full text was not found cannot be labelled and is left out."""
     rng = random.Random(seed)
-    by_arm: dict[str, list[int]] = defaultdict(list)
+    by_row: dict[tuple[str, str], list[int]] = defaultdict(list)
     for i, pair in enumerate(pairs):
         if pair.problem is None:
-            by_arm[pair.arm].append(i)
+            by_row[pair.row].append(i)
     chosen = []
-    for arm in sorted(by_arm):
-        indices = by_arm[arm]
+    for row in sorted(by_row):
+        indices = by_row[row]
         chosen += sorted(indices if len(indices) <= per_arm else rng.sample(indices, per_arm))
     return [_entry(pairs[i]) for i in chosen]
 
@@ -167,18 +169,19 @@ def cohen_kappa(a: Sequence[str], b: Sequence[str]) -> Optional[float]:
 
 def calibrate(person: dict[tuple[str, str], str], judge: dict[tuple[str, str], str],
               pairs: list[Pair]) -> list[dict[str, Any]]:
-    """Per arm: ``labelled`` pairs both labelled, ``agreement`` (the share with equal labels) and ``kappa``.
+    """Per (arm, model), a row of the judged table: ``labelled`` pairs both labelled, ``agreement`` (the share
+    with equal labels) and ``kappa``. One answer model's labels say nothing of the judge on another's findings.
 
     A labelled pair the judge left unjudged is not counted."""
-    by_arm: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    by_row: dict[tuple[str, str], list[tuple[str, str]]] = defaultdict(list)
     for pair in pairs:
         if pair.key in person and pair.key in judge:
-            by_arm[pair.arm].append((person[pair.key], judge[pair.key]))
+            by_row[pair.row].append((person[pair.key], judge[pair.key]))
     out = []
-    for arm in sorted({p.arm for p in pairs if p.key in person}):
-        both = by_arm.get(arm, [])
+    for arm, model in sorted({p.row for p in pairs if p.key in person}):
+        both = by_row.get((arm, model), [])
         a, b = [x for x, _ in both], [y for _, y in both]
-        out.append({"arm": arm, "labelled": len(both),
+        out.append({"arm": arm, "model": model, "labelled": len(both),
                     "agreement": round(sum(x == y for x, y in both) / len(both), 3) if both else None,
                     "kappa": cohen_kappa(a, b)})
     return out

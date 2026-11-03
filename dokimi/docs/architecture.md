@@ -342,7 +342,8 @@ next release.
   `repo hits judge`: a judge model labels each credited pair of the replay
   cells with their full texts, and each cell gets `hits_judged.json`
   (`repo_hits_judged.v1`, `recall_judged`); `repo hits sheet` samples pairs
-  for a person, and the labels give agreement and Cohen's kappa per arm.
+  for a person, and the labels give agreement and Cohen's kappa per arm and
+  answer model.
 - `dokimi/repos/compare.py` — `repo compare`: treatment arms against a
   baseline arm over one or more batches, one value per task and arm (gate
   share, score, cost, turns, chosen `grade.json` metrics, `result.json`

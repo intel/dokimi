@@ -104,8 +104,13 @@ def _run(capsys, *argv: str) -> tuple[int, str, str]:
     return code, out.out, out.err
 
 
-def _judged(batch: Path, arm: str, rep: int) -> Path:
-    return batch / f"{TASK}__{arm.replace(':', '-')}__{MODEL}__r{rep}" / HITS_JUDGED
+def _judged(batch: Path, arm: str, rep: int, model: str = MODEL) -> Path:
+    return batch / f"{TASK}__{arm.replace(':', '-')}__{model}__r{rep}" / HITS_JUDGED
+
+
+def _rows(*arms: str, model: str = MODEL) -> list[dict[str, str]]:
+    """``uncalibrated_rows`` of these arms, each with one answer model."""
+    return [{"arm": arm, "model": model} for arm in arms]
 
 
 def test_judge_reads_the_full_texts_and_writes_recall_judged_per_cell(tmp_path, capsys, judge_llm):
@@ -130,7 +135,7 @@ def test_judge_reads_the_full_texts_and_writes_recall_judged_per_cell(tmp_path, 
     assert [(r["arm"], r["cells"], r["pairs"], r["recall"], r["recall_judged"]) for r in result["rows"]] == [
         ("guidance:none", 1, 2, 0.667, 0.333), ("guidance:raw", 1, 2, 0.667, 0.333)]
     assert (result["calls"], result["spent_usd"], result["calibration"]) == (4, 1.6, None)
-    assert result["uncalibrated_arms"] == ["guidance:none", "guidance:raw"]  # no --labels: no arm is calibrated
+    assert result["uncalibrated_rows"] == _rows("guidance:none", "guidance:raw")  # no --labels: no row is calibrated
 
 
 def test_the_texts_are_json_in_data_blocks_before_the_rules_and_a_rule_in_a_finding_stays_data():
@@ -567,11 +572,11 @@ def test_kappa_and_agreement_on_a_known_table():
     # observed 0.7; both raters 4/2/4, so chance 0.16 + 0.04 + 0.16 = 0.36: (0.7 - 0.36) / 0.64
     assert cohen_kappa(person, judge) == 0.531
     assert cohen_kappa(["related"] * 3, ["related"] * 3) is None  # chance agreement 1: kappa is undefined
-    pairs = [Pair({"cell": "c", "arm": "a" if i < 10 else "b", "thread": i}) for i in range(12)]
+    pairs = [Pair({"cell": "c", "arm": "a" if i < 10 else "b", "model": "m", "thread": i}) for i in range(12)]
     rated = calibrate({p.key: person[i] if i < 10 else "related" for i, p in enumerate(pairs)},
                       {p.key: judge[i] for i, p in enumerate(pairs) if i < 10}, pairs)
-    assert rated == [{"arm": "a", "labelled": 10, "agreement": 0.7, "kappa": 0.531},
-                     {"arm": "b", "labelled": 0, "agreement": None, "kappa": None}]  # the judge left b unjudged
+    assert rated == [{"arm": "a", "model": "m", "labelled": 10, "agreement": 0.7, "kappa": 0.531},
+                     {"arm": "b", "model": "m", "labelled": 0, "agreement": None, "kappa": None}]  # b left unjudged
 
 
 def test_labels_are_compared_per_arm_and_an_unknown_thread_is_refused(tmp_path, capsys, judge_llm):
@@ -586,9 +591,9 @@ def test_labels_are_compared_per_arm_and_an_unknown_thread_is_refused(tmp_path, 
     code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(sheet_file), "--json")
     assert code == 0
     assert json.loads(out)["calibration"] == [  # none: agree on t_todo, not on t_op; raw: agree on thread 7
-        {"arm": "guidance:none", "labelled": 2, "agreement": 0.5, "kappa": 0.333},
-        {"arm": "guidance:raw", "labelled": 1, "agreement": 1.0, "kappa": None}]
-    assert json.loads(out)["uncalibrated_arms"] == []
+        {"arm": "guidance:none", "model": MODEL, "labelled": 2, "agreement": 0.5, "kappa": 0.333},
+        {"arm": "guidance:raw", "model": MODEL, "labelled": 1, "agreement": 1.0, "kappa": None}]
+    assert json.loads(out)["uncalibrated_rows"] == []
     text = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(sheet_file))[1]
     assert "kappa 0.333" in text and "uncalibrated" not in text
     judge_llm.requests.clear()
@@ -625,8 +630,8 @@ def test_labels_no_pair_shares_with_the_judge_leave_recall_judged_uncalibrated(t
         assert code == 0
         result = json.loads(out)
         text = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(labels))[1].splitlines()
-    assert result["uncalibrated_arms"] == ["guidance:none", "guidance:raw"]
-    assert result["calibration"] == ([{"arm": arm, "labelled": 0, "agreement": None, "kappa": None}
+    assert result["uncalibrated_rows"] == _rows("guidance:none", "guidance:raw")
+    assert result["calibration"] == ([{"arm": arm, "model": MODEL, "labelled": 0, "agreement": None, "kappa": None}
                                       for arm in ("guidance:none", "guidance:raw")] if unparsed else [])
     assert text[-2] == UNCALIBRATED and not any(line.startswith("calibration against") for line in text)
 
@@ -638,12 +643,56 @@ def test_labels_on_one_arm_only_name_the_arm_left_uncalibrated(tmp_path, capsys,
     assert code == 0
     result = json.loads(out)
     assert [c["arm"] for c in result["calibration"]] == ["guidance:none"]
-    assert result["uncalibrated_arms"] == ["guidance:raw"]
+    assert result["uncalibrated_rows"] == _rows("guidance:raw")
     text = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(labels))[1].splitlines()
     assert text[-4:-1] == ["calibration against the labels (person vs judge):",
-                           "  guidance:none: 2 labelled pair(s), agreement 0.000, kappa 0.000",
-                           "recall_judged is uncalibrated in guidance:raw: no pair of it carries both a person's "
-                           "and the judge's label"]
+                           f"  guidance:none ({MODEL}): 2 labelled pair(s), agreement 0.000, kappa 0.000",
+                           f"recall_judged is uncalibrated in guidance:raw ({MODEL}): no pair of it carries both a "
+                           "person's and the judge's label"]
+
+
+OTHER = "gpt-5.1"
+
+
+def _two_models(tmp_path: Path) -> Path:
+    """The test batch plus a ``guidance:none`` cell answered by another model: three rows, two of one arm."""
+    batch = _batch(tmp_path)
+    _put(batch, "guidance:none", 1, [_f(11, "The TODO is repeated five times"), _f(30, "mul adds")], model=OTHER)
+    return batch
+
+
+def test_labels_on_one_answer_model_of_an_arm_name_the_other_model_uncalibrated(tmp_path, capsys, judge_llm):
+    batch = _two_models(tmp_path)
+    labels = _sheet(tmp_path, capsys, batch, label=lambda e: "related" if e["model"] == MODEL else None)
+    code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(labels), "--json")
+    assert code == 0
+    result = json.loads(out)
+    assert [(r["arm"], r["model"]) for r in result["rows"]] == [
+        ("guidance:none", MODEL), ("guidance:none", OTHER), ("guidance:raw", MODEL)]
+    assert [(c["arm"], c["model"], c["labelled"]) for c in result["calibration"]] == [
+        ("guidance:none", MODEL, 2), ("guidance:raw", MODEL, 2)]
+    assert result["uncalibrated_rows"] == [{"arm": "guidance:none", "model": OTHER}]  # its arm's labels are not its
+    text = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(labels))[1].splitlines()
+    assert text[-2] == (f"recall_judged is uncalibrated in guidance:none ({OTHER}): no pair of it carries both a "
+                        "person's and the judge's label")
+    labels.unlink()
+    labels = _sheet(tmp_path, capsys, batch)  # every row labelled
+    result = json.loads(_run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(labels), "--json")[1])
+    assert [(c["arm"], c["model"]) for c in result["calibration"]] == [(r["arm"], r["model"]) for r in result["rows"]]
+    assert result["uncalibrated_rows"] == []
+    text = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(labels))[1]
+    assert "uncalibrated" not in text and f"  guidance:none ({OTHER}): 2 labelled pair(s)" in text
+
+
+def test_the_sheet_command_samples_each_answer_model_of_an_arm(tmp_path, capsys):
+    batch = _two_models(tmp_path)
+    out_file = tmp_path / "sheet.json"
+    code, out, _ = _run(capsys, "sheet", str(batch), "--out", str(out_file), "--per-arm", "1")
+    assert code == 0
+    assert [(e["arm"], e["model"]) for e in json.loads(out_file.read_text())] == [
+        ("guidance:none", MODEL), ("guidance:none", OTHER), ("guidance:raw", MODEL)]
+    assert out.strip() == (f"wrote 3 pair(s) to label to {out_file}; guidance:none ({MODEL}): 1 of 2; "
+                           f"guidance:none ({OTHER}): 1 of 2; guidance:raw ({MODEL}): 1 of 2")
 
 
 def test_a_label_on_another_finding_than_the_credited_one_is_refused_before_any_call(tmp_path, capsys, judge_llm):
@@ -780,9 +829,10 @@ def test_a_label_outside_the_three_is_refused(tmp_path, capsys, judge_llm):
     assert err.strip() == f"✗ {labels} entry 0: label 'maybe' is not one of 'same point', 'related', 'unrelated'"
 
 
-def _pairs(n_a: int, n_b: int) -> list[Pair]:
-    return [Pair({"cell": f"c{i}", "task": "t", "arm": arm, "model": "m", "rep": 1, "thread": i, "finding": 0},
-                 comment="c", text="f") for i, arm in enumerate(["a"] * n_a + ["b"] * n_b)]
+def _pairs(n_a: int, n_b: int, model_b: str = "m", arm_b: str = "b") -> list[Pair]:
+    rows = [("a", "m")] * n_a + [(arm_b, model_b)] * n_b
+    return [Pair({"cell": f"c{i}", "task": "t", "arm": arm, "model": model, "rep": 1, "thread": i, "finding": 0},
+                 comment="c", text="f") for i, (arm, model) in enumerate(rows)]
 
 
 def test_the_sheet_is_stratified_by_arm_capped_per_arm_and_seeded():
@@ -797,6 +847,11 @@ def test_the_sheet_is_stratified_by_arm_capped_per_arm_and_seeded():
     assert 0 not in [e["thread"] for e in sheet(pairs, per_arm=40)]  # a pair with no text cannot be labelled
 
 
+def test_the_sheet_takes_its_share_from_each_answer_model_of_an_arm():
+    drawn = sheet(_pairs(30, 3, model_b="m2", arm_b="a"), per_arm=25)  # one arm, two answer models
+    assert [(e["arm"], e["model"]) for e in drawn] == [("a", "m")] * 25 + [("a", "m2")] * 3
+
+
 def test_sheet_command_writes_the_full_texts_for_a_person(tmp_path, capsys):
     batch = _batch(tmp_path)
     out_file = tmp_path / "labels" / "sheet.json"
@@ -804,7 +859,8 @@ def test_sheet_command_writes_the_full_texts_for_a_person(tmp_path, capsys):
     assert code == 0
     entries = json.loads(out_file.read_text())
     assert [e["arm"] for e in entries] == ["guidance:none", "guidance:raw"]
-    assert out.strip() == f"wrote 2 pair(s) to label to {out_file}; guidance:none: 1 of 2; guidance:raw: 1 of 2"
+    assert out.strip() == (f"wrote 2 pair(s) to label to {out_file}; guidance:none ({MODEL}): 1 of 2; "
+                           f"guidance:raw ({MODEL}): 1 of 2")
     found, pairs = read_pairs(batch)
     full = {pair_key(p.cell, p.hit["thread"]): (p.comment, p.text) for p in pairs}
     for e in entries:

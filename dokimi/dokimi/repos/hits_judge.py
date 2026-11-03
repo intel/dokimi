@@ -105,6 +105,11 @@ class Pair:
         return str(self.hit["arm"])
 
     @property
+    def row(self) -> tuple[str, str]:
+        """Its row of the judged table (:func:`rows`): its arm and its answer model."""
+        return self.arm, str(self.hit["model"])
+
+    @property
     def key(self) -> tuple[str, str]:
         return pair_key(self.cell, self.hit.get("thread"))
 
@@ -528,14 +533,15 @@ def summary(found: dict[str, Any], pairs: list[Pair], judge: tuple[str, str], do
             calibration: Optional[list[dict[str, Any]]]) -> dict[str, Any]:
     """What ``repo hits judge`` prints (``--json``: this dict).
 
-    ``uncalibrated_arms``: the arms of ``rows`` with no pair labelled by both the person and the judge (every
-    arm without ``--labels``), whose ``recall_judged`` no calibration covers. ``stale_removed``: the cells whose
+    ``uncalibrated_rows``: the ``{"arm", "model"}`` of each row of ``rows`` with no pair labelled by both the
+    person and the judge (every row without ``--labels``), whose ``recall_judged`` no calibration covers: a
+    labelled pair of one answer model does not cover another's. ``stale_removed``: the cells whose
     earlier ``hits_judged.json`` :func:`judge_cells` removed (``Judged.stale``). ``budget_stop``: why no new call
     started (``Meter.stop``) when ``budget_stopped`` names a cell, else null. ``unpriced_calls``: the live calls
     with no known price, counted as 0 in ``spent_usd``. ``unjudged_cells``: the cells written with an unjudged
     pair, whose ``recall_judged`` is null and left out of the means of ``rows``."""
     table = rows(done.docs)
-    calibrated = {c["arm"] for c in calibration or [] if c["labelled"]}
+    calibrated = {(c["arm"], c["model"]) for c in calibration or [] if c["labelled"]}
     return {"batch": found["batch"], "judge": {"provider": judge[0], "model": judge[1]},
             "replay_cells": found["replay_cells"], "without_matches": found["without_matches"],
             "grader_failures": found["grader_failures"], "pairs": len(pairs),
@@ -546,7 +552,8 @@ def summary(found: dict[str, Any], pairs: list[Pair], judge: tuple[str, str], do
             "budget_stop": done.meter.stop if done.stopped else None, "stale_removed": done.stale,
             "calls": done.meter.calls, "spent_usd": round(done.meter.spent_usd, 6),
             "unpriced_calls": done.meter.unpriced, "calibration": calibration,
-            "uncalibrated_arms": sorted({r["arm"] for r in table} - calibrated)}
+            "uncalibrated_rows": [{"arm": arm, "model": model}
+                                  for arm, model in sorted({(r["arm"], r["model"]) for r in table} - calibrated)]}
 
 
 def _fmt(value: Optional[float]) -> str:
@@ -566,19 +573,23 @@ def _row_lines(table: list[dict[str, Any]]) -> list[str]:
     return lines
 
 
-def _calibration_lines(calibration: Optional[list[dict[str, Any]]], uncalibrated: list[str]) -> list[str]:
+def _row_name(row: dict[str, Any]) -> str:
+    return f"{row['arm']} ({row['model']})"
+
+
+def _calibration_lines(calibration: Optional[list[dict[str, Any]]], uncalibrated: list[dict[str, Any]]) -> list[str]:
     """No pair labelled by both (no ``--labels``, an unfilled sheet, labels only on unjudged pairs) is no
-    calibration; with some, the arms that have none are named."""
+    calibration; with some, the rows (arm and model) that have none are named."""
     if not any(c["labelled"] for c in calibration or []):
         why = "" if calibration is None else " (no pair carries both a person's and the judge's label)"
         return [f"recall_judged is uncalibrated{why}: label a sample of pairs (`repo hits sheet`) and pass it "
                 "with --labels before quoting it"]
     lines = ["calibration against the labels (person vs judge):"]
     for c in calibration or []:
-        lines.append(f"  {c['arm']}: {c['labelled']} labelled pair(s), agreement {_fmt(c['agreement'])}, "
+        lines.append(f"  {_row_name(c)}: {c['labelled']} labelled pair(s), agreement {_fmt(c['agreement'])}, "
                      f"kappa {_fmt(c['kappa'])}")
     if uncalibrated:
-        lines.append("recall_judged is uncalibrated in " + ", ".join(uncalibrated)
+        lines.append("recall_judged is uncalibrated in " + ", ".join(_row_name(r) for r in uncalibrated)
                      + ": no pair of it carries both a person's and the judge's label")
     return lines
 
@@ -605,7 +616,7 @@ def format_summary(s: dict[str, Any]) -> str:
     if s["stale_removed"]:
         lines.append(f"removed the earlier {HITS_JUDGED} of {len(s['stale_removed'])} cell(s) not judged now "
                      "(a grader failure, a grade without hit details, another grader): " + _named(s["stale_removed"]))
-    lines += _calibration_lines(s["calibration"], s["uncalibrated_arms"])
+    lines += _calibration_lines(s["calibration"], s["uncalibrated_rows"])
     lines.append(f"{s['calls']} judge call(s), {spend_text(s['spent_usd'], s['unpriced_calls'])}")
     return "\n".join(lines)
 

@@ -694,10 +694,11 @@ review thread of a merged PR, anchored on a line of the reviewed revision.
   a finding outside the window is not judged, so `recall_judged` is at most
   `recall`. It is a judge's reading, not a verdict: quote a figure only next to
   a person's labels for a sample of the pairs (`repo hits sheet`, then
-  `--labels`), whose agreement with the judge and Cohen's kappa per arm the
-  command reports; without them, or when no pair carries both a person's
-  and the judge's label, it says the figure is uncalibrated, and it names
-  the arms that no labelled pair covers.
+  `--labels`), whose agreement with the judge and Cohen's kappa per arm and
+  answer model the command reports; without them, or when no pair carries
+  both a person's and the judge's label, it says the figure is uncalibrated,
+  and it names the rows (arm and model) that no labelled pair covers: one
+  model's labels do not calibrate the judge on another model's findings.
 - `recall_addressed` counts only threads with `addressed: true` (the code
   changed in response), `recall_by_kind` groups by `kind`, and
   `precision_proxy` is the share of findings within the window of any
@@ -1682,19 +1683,22 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   the run there with no further call: a `✗` line names the path and the
   error, the judge calls made and their cost, and says the cells written
   before keep their files; the command exits 2. With `--labels FILE` it
-  reports, per arm, the pairs both the person and the judge labelled, the share with equal labels, and Cohen's
-  kappa over the three labels. Without it, or when no pair carries both the
-  person's and the judge's label (a sheet left `null`, `[]`, labels only on
-  pairs the judge left `unjudged`), a line says `recall_judged` is
-  uncalibrated; when only some arms have such pairs, a line names the others.
-  `--json` lists the arms with no such pair in `uncalibrated_arms` (every
-  arm without `--labels`); `calibration` is `null` without `--labels`.
+  reports, per row of the table (arm and answer model), the pairs both the
+  person and the judge labelled, the share with equal labels, and Cohen's
+  kappa over the three labels (`calibration`: one entry per row with a
+  labelled pair, with its `arm` and `model`). Without it, or when no pair
+  carries both the person's and the judge's label (a sheet left `null`,
+  `[]`, labels only on pairs the judge left `unjudged`), a line says
+  `recall_judged` is uncalibrated; when only some rows have such pairs, a
+  line names the others as `arm (model)`. `--json` lists the rows with no
+  such pair in `uncalibrated_rows`, sorted, each `{"arm", "model"}` (every
+  row without `--labels`); `calibration` is `null` without `--labels`.
 - `repo hits sheet <batch> --out FILE` makes no call. It writes a JSON list of
   credited pairs for a person to label: each with its `cell`, `task`, `arm`,
   `model`, `rep`, `thread`, `finding`, their files and lines, the full
   `comment` and `finding_text`, and `label: null`. It takes `--per-arm N`
-  pairs of each arm (default 25; all of an arm's pairs when it has fewer),
-  drawn with `random.Random(seed)` for `--seed N` (default 0), so a seed gives
+  pairs of each arm and answer model, a row of the `repo hits judge` table
+  (default 25; all of a row's pairs when it has fewer), drawn with `random.Random(seed)` for `--seed N` (default 0), so a seed gives
   one sheet; a pair whose full text is not found is left out. Set each
   `label` to one of the three (`null` leaves the pair unlabelled) and pass the
   file to `repo hits judge --labels`. When `--out` names a file that holds a
