@@ -270,6 +270,33 @@ def test_a_provider_error_whose_request_id_changes_per_call_still_stops_the_run(
     assert err.startswith("✗ the judge call failed 3 times in a row (_AuthError: invalid x-api-key, request_id "
                           "req_0004); stopped there after 1 judge call(s)")
 
+@pytest.mark.parametrize("fail", [
+    lambda n: RuntimeError("provider said 500") if n % 2 else None,  # 3 failures, never 2 in a row
+    lambda n: RuntimeError(f"provider said 50{n}") if n <= 3 else None,  # 3 in a row, each another error
+], ids=["not in a row", "different errors"])
+def test_failures_not_in_a_row_with_one_error_do_not_stop_the_run(tmp_path, capsys, monkeypatch, fail):
+    monkeypatch.delenv(caching.RESPONSE_CACHE_ENV, raising=False)
+    batch = _batch(tmp_path)
+    _put(batch, "guidance:raw", 3, [_f(30, "mul adds")])
+    with llm.use_adapter(_failing(fail)) as fake:
+        code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--json")
+    assert (code, len(fake.requests), json.loads(out)["budget_stop"]) == (0, 5, None)
+
+
+def test_a_label_in_another_case_counts_as_that_label(tmp_path, capsys, monkeypatch):
+    monkeypatch.delenv(caching.RESPONSE_CACHE_ENV, raising=False)
+    batch = _batch(tmp_path)
+    def titled(request) -> str:
+        reply = json.loads(_reply(request))
+        return json.dumps({**reply, "label": f" {reply['label'].title()}"})  # " Same Point"
+
+    with llm.use_adapter(llm.FakeAdapter(respond=titled)) as fake:
+        code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--json")
+    result = json.loads(out)
+    assert (code, len(fake.requests), result["unjudged_cells"]) == (0, 4, [])
+    assert [(r["arm"], r["recall_judged"]) for r in result["rows"]] == [("guidance:none", 0.333),
+                                                                         ("guidance:raw", 0.333)]
+
 def test_cache_misses_before_each_live_call_do_not_hide_a_repeated_judge_error(tmp_path, capsys, monkeypatch):
     monkeypatch.setenv(caching.RESPONSE_CACHE_ENV, str(tmp_path / "cache"))  # on and empty: each pair probes first
     batch = _batch(tmp_path)
