@@ -100,19 +100,21 @@ def _workdir(out: Path) -> Iterator[Path]:
 
 def _replace_receipts(out: Path, staged: Path, backup: Path) -> None:
     """Swap the four receipt files within *out*; the directory itself is never renamed or removed."""
+    placed: list[str] = []
     try:
         for name in _OUTPUTS:
             if (out / name).exists():
                 os.replace(out / name, backup / name)
         for name in sorted(path.name for path in staged.iterdir()):
+            placed.append(name)
             os.replace(staged / name, out / name)
     except BaseException as exc:
         try:
+            for name in placed:
+                (out / name).unlink(missing_ok=True)
             for name in _OUTPUTS:
                 if (backup / name).exists():
                     os.replace(backup / name, out / name)
-                else:
-                    (out / name).unlink(missing_ok=True)
         except OSError as restore:
             raise _RollbackFailed(f"cannot restore previous receipts, kept at {backup}: {restore}") from exc
         raise

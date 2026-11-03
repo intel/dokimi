@@ -415,6 +415,23 @@ def test_interrupt_between_backup_and_publish_keeps_the_previous_receipts(tmp_pa
     assert not list(out.glob(".catalog-eval-*"))
 
 
+def test_interrupt_while_moving_old_receipts_aside_keeps_all_of_them(tmp_path):
+    root = _catalog(tmp_path)
+    out = tmp_path / "out"
+    assert _run(root, out).returncode == 0
+    before = {p.name: p.read_bytes() for p in out.iterdir()}
+    real = os.replace
+
+    def interrupted(src, dst):
+        if Path(src).name == "result.json" and Path(dst).parent.name == "old":
+            raise KeyboardInterrupt
+        return real(src, dst)
+
+    with patch("dokimi.commands.catalog_eval.os.replace", interrupted), pytest.raises(KeyboardInterrupt):
+        _run(root, out)
+    assert {p.name: p.read_bytes() for p in out.iterdir()} == before
+
+
 @pytest.mark.skipif(os.name == "nt", reason="needs undecodable POSIX filenames")
 def test_undecodable_filename_in_an_input_error_still_invalidates_receipts(tmp_path):
     root = _catalog(tmp_path)
@@ -498,8 +515,11 @@ def test_partial_clone_never_fetches_through_its_configured_transport(tmp_path):
     transport.chmod(0o755)
     _git(clone, "config", "remote.origin.uploadpack", str(transport))
     assert _run(clone, tmp_path / "full").returncode == 0
-    done = _run(clone, tmp_path / "out", "--changed-from", base)
-    assert done.returncode == 2
+    out = tmp_path / "out"
+    done = _run(clone, out, "--changed-from", base)
+    assert done.returncode == 0, done.stderr
+    assert _selected(out) == ["alpha", "beta"]
+    assert "partial clone" in (out / "report.md").read_text()
     assert not marker.exists()
 
 
