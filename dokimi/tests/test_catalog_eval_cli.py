@@ -411,13 +411,12 @@ def test_interrupt_between_backup_and_publish_keeps_the_previous_receipts(tmp_pa
 @pytest.mark.skipif(os.name == "nt", reason="needs undecodable POSIX filenames")
 def test_undecodable_filename_in_an_input_error_still_invalidates_receipts(tmp_path):
     root = _catalog(tmp_path)
+    odd = Path(os.fsdecode(os.fsencode(root) + b"bad" + bytes([255])))
+    root.rename(odd)
     out = tmp_path / "out"
-    assert _run(root, out).returncode == 0
-    odd = Path(os.fsdecode(os.fsencode(root) + b"/bad\xff"))
-    odd.mkdir()
-    (root / "skills.yaml").write_text("skills: not-a-list\n")
-    (odd / "skills.yaml").write_text("x")
-    done = _run(root, out, "--changed-from", "HEAD")
+    assert _run(odd, out).returncode == 0
+    (odd / "skills.yaml").write_text("skills: not-a-list" + chr(10))
+    done = _run(odd, out)
     assert done.returncode == 2
     assert not (out / "result.json").exists()
 
