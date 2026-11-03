@@ -548,19 +548,27 @@ def test_repo_reach_dry_run_refuses_what_a_run_refuses_before_any_harness_call(t
     assert sorted(p.name for p in (tmp_path / "work").iterdir()) == work  # each removed the workspace it built
 
 
-@pytest.mark.parametrize("shadow_file, above", [("MEMORY.md", "MEMORY.md"), (".memory/MEMORY.md", "MEMORY.md"),
-                                                ("CLAUDE.local.md", "CLAUDE.local.md")])
-def test_repo_reach_guards_the_shadow_file_name_above_the_workspace(tmp_path, monkeypatch, capsys, shadow_file, above):
+@pytest.mark.parametrize("shadow_file", ["MEMORY.md", ".memory/MEMORY.md", "CLAUDE.local.md",
+                                         ".claude/CLAUDE.local.md"])
+def test_repo_reach_guards_the_shadow_file_path_above_the_workspace(tmp_path, monkeypatch, capsys, shadow_file):
     monkeypatch.setenv("FAKE_MODE", "ok")
     work = tmp_path / "work"
-    work.mkdir()
-    (work / above).write_text("# above\n", encoding="utf-8")  # names: [AGENTS.md] only, so only shadow_file guards it
+    _write(work, shadow_file, "# above\n")  # names: [AGENTS.md] only, so only shadow_file guards it
     argv = _cli(tmp_path, "--scenarios", "root,shadow", "--work-dir", str(work), "--out", str(tmp_path / "out"),
                 names=["AGENTS.md"], shadow_file=shadow_file)
     seen = _both_modes(tmp_path, capsys, argv)
     assert seen[0] == seen[1] == (1, "", "✗ guidance files above the workspace would leak into every scenario: "
-                                         f"{work.resolve() / above} (use --work-dir outside that tree)")
-    assert sorted(p.name for p in work.iterdir()) == [above]  # each removed the workspace it built
+                                         f"{work.resolve() / shadow_file} (use --work-dir outside that tree)")
+    assert sorted(p.name for p in work.iterdir()) == [shadow_file.split("/")[0]]  # each removed the workspace it built
+
+
+def test_repo_reach_guards_no_shadow_file_name_its_path_does_not_name(tmp_path, capsys):
+    (tmp_path / "work").mkdir()
+    (tmp_path / "work" / "MEM.md").write_text("# above\n", encoding="utf-8")  # the profile loads .claude/MEM.md only
+    args = build_parser().parse_args(_cli(tmp_path, "--scenarios", "root,shadow", "--work-dir", str(tmp_path / "work"),
+                                          names=["AGENTS.md"], shadow_file=".claude/MEM.md"))
+    args.func(args)
+    assert [r["scenario"] for r in json.loads(capsys.readouterr().out)["runs"]] == ["cwd=.", "shadow=.", "shadow=sub"]
 
 
 def test_repo_reach_guards_no_shadow_file_name_without_a_shadow_scenario(tmp_path, capsys):

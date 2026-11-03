@@ -559,9 +559,9 @@ def _prepare(tree: RepoTree, profile: HarnessProfile, groups: dict[str, list[str
 
 
 def _guarded(profile: HarnessProfile, plan: list[Scenario]) -> tuple[str, ...]:
-    """The names check_ancestors looks for: ANCESTOR_GUARD, the profile's guidance names and, when a shadow scenario is
-    planned, the name of its shadow file (the last part of a path checked by shadow_for), which the harness loads too."""
-    shadow = tuple(PurePosixPath(s.shadow).name for s in plan if s.shadow)
+    """The paths check_ancestors looks for: ANCESTOR_GUARD, the profile's guidance names and, when a shadow scenario is
+    planned, its shadow file as given (a relative path checked by shadow_for), which the harness loads too."""
+    shadow = (profile.shadow_file,) if profile.shadow_file and any(s.shadow for s in plan) else ()
     return tuple(dict.fromkeys(ANCESTOR_GUARD + profile.guidance_names + shadow))
 
 

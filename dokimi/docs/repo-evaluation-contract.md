@@ -1041,8 +1041,9 @@ Protocol:
       skeleton also keeps a blob-less clone from fetching every blob.
     - The probe refuses to run if any ancestor of the workspace holds a
       guidance file: a name some harness loads by convention, one of the
-      profile's `guidance.names`, or, when a shadow scenario is planned, the
-      file name (last path part) of its `guidance.shadow_file`.
+      profile's `guidance.names`, or, when a shadow scenario is planned, its
+      `guidance.shadow_file`, the path as given (`.claude/CLAUDE.local.md`
+      looks for that path in each ancestor, not for `CLAUDE.local.md`).
     - It also refuses a tree path with a `\`, a `:`, or a `.`, `..` or `.git`
       component, which would be written outside the workspace or into its git
       directory.
