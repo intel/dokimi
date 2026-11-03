@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib.resources
 import importlib.util
+import json
 import os
 import tomllib
 from pathlib import Path
@@ -164,7 +165,7 @@ def test_build_matrix_counts_and_validates_against_the_schema():
 
 
 def _fake_reach(monkeypatch, receipt: dict, *, returncode: int = 0, timed_out: bool = False,
-                write: bool = True) -> list[list[str]]:
+                write: bool = True, rows: list[dict] | None = None) -> list[list[str]]:
     calls: list[list[str]] = []
 
     def fake_run(argv, *, timeout, env, **_):
@@ -173,6 +174,8 @@ def _fake_reach(monkeypatch, receipt: dict, *, returncode: int = 0, timed_out: b
         if write:
             out.mkdir(parents=True, exist_ok=True)
             save_artifact("effective_instructions", receipt, out / cf.RECEIPT_NAME)
+        if rows is not None:
+            (out / "reach.json").write_text(json.dumps({"scenarios": rows}), encoding="utf-8")
         return process.Completed(argv=tuple(argv), returncode=returncode, timed_out=timed_out,
                                  stderr_bytes=b"boom")
 
@@ -207,6 +210,36 @@ def test_run_case_marks_a_run_with_a_failing_scenario_as_errors(tmp_path, monkey
                                 timeout=30, budget=0.5, env={})
     assert (record["status"], record["reason"]) == ("errors", "exit 1: boom")
     assert cells
+
+
+AUTH_ERROR = "exit 1 (no answer): API Error: 403 Authentication failed"
+
+
+def test_run_case_with_no_scenario_answered_is_failed_and_names_the_scenario_error(tmp_path, monkeypatch):
+    fixture, receipt = _toy_fixture(tmp_path)
+    _fake_reach(monkeypatch, receipt, returncode=1, rows=[{**ROOT_ROW, "error": AUTH_ERROR}])
+    record, cells = cf.run_case(CLAUDE, "m", fixture, tmp_path / "g.yaml", tmp_path / "out", _expect(),
+                                timeout=30, budget=0.5, env={})
+    assert (record["status"], record["reason"], cells) == ("failed", AUTH_ERROR, [])
+
+
+def test_run_case_with_one_scenario_unanswered_is_errors_and_names_its_error(tmp_path, monkeypatch):
+    fixture, receipt = _toy_fixture(tmp_path)
+    rows = [ROOT_ROW, {**ROOT_ROW, "id": "read=sub", "error": AUTH_ERROR}]
+    _fake_reach(monkeypatch, receipt, returncode=1, rows=rows)
+    record, cells = cf.run_case(CLAUDE, "m", fixture, tmp_path / "g.yaml", tmp_path / "out", _expect(),
+                                timeout=30, budget=0.5, env={})
+    assert (record["status"], record["reason"]) == ("errors", AUTH_ERROR)
+    assert cells
+
+
+def test_cli_run_exits_1_when_no_scenario_of_a_fixture_answered(tmp_path, monkeypatch, capsys):
+    _fixture, receipt = _toy_fixture(tmp_path)
+    _fake_reach(monkeypatch, receipt, returncode=1, rows=[{**ROOT_ROW, "error": AUTH_ERROR}])
+    monkeypatch.setattr(cf.shutil, "which", lambda cmd, path=None: f"/usr/bin/{cmd}")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "fake")
+    assert cli.main(["run", "--harness", "claude-code=m", "--out", str(tmp_path / "o")]) == 1
+    assert "errors 0, failed 8" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize(("kwargs", "reason"), [

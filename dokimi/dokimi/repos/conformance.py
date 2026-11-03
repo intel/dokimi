@@ -220,6 +220,15 @@ def _reason(proc: process.Completed) -> str:
     return f"exit {proc.returncode}" + (f": {tail}" if tail else "")
 
 
+def _scenario_rows(out: Path) -> list[dict[str, Any]]:
+    """The scenario rows of the run's ``reach.json``; none when it is missing or unreadable."""
+    try:
+        rows = json.loads((out / "reach.json").read_text(encoding="utf-8"))["scenarios"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return []
+    return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+
+
 def run_case(harness: Harness, model: str, fixture: Path, guidance: Path, out: Path,
              expect: Mapping[str, Any], *, timeout: int, budget: float,
              env: Mapping[str, str]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -243,8 +252,12 @@ def run_case(harness: Harness, model: str, fixture: Path, guidance: Path, out: P
         receipt = load_artifact("effective_instructions", receipt_path)
     except (OSError, ValueError) as exc:  # one bad receipt fails its run, not the whole harness
         return run_record(harness.name, case, "failed", f"invalid receipt: {exc}", UNKNOWN, model, 0), []
+    rows = _scenario_rows(out)
+    errors = [str(r["error"]) for r in rows if r.get("error")]
+    if rows and len(errors) == len(rows):  # no scenario answered (a revoked key, a hung CLI): nothing was observed
+        return run_record(harness.name, case, "failed", errors[0], receipt["runtime"]["version"], model, 0), []
     status = "ran" if proc.returncode == 0 else "errors"
-    reason = None if status == "ran" else _reason(proc)
+    reason = None if status == "ran" else (errors[0] if errors else _reason(proc))
     record = run_record(harness.name, case, status, reason, receipt["runtime"]["version"], model,
                         len(receipt["receipts"]))
     return record, cells_of(receipt, case, expect)

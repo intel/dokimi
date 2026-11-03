@@ -24,7 +24,8 @@ The matrix has two kinds of record:
 
 - `runs`: one per harness and fixture, with a status. `ran` means every scenario answered; `errors` means a
   receipt came back with a scenario that gave no usable answer; `failed` means no usable receipt (a timeout, a
-  crash before it was written, or an invalid or unreadable receipt); `skipped` means the harness could not run
+  crash before it was written, an invalid or unreadable receipt, or one in which no scenario answered, as when the
+  credential is rejected; the reason is the first scenario's error); `skipped` means the harness could not run
   here, with the reason.
 - `cells`: one per source file per scenario, with the observed state, the documented state and an agreement:
   `agrees`, `disagrees`, `inconclusive` (observed unknown, or only `fetched`: reach saw the file only in a `read=` scenario, after the agent read it with a tool, so its loading rule is not shown), `no_claim` (the docs say nothing),

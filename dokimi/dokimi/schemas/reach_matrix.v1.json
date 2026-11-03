@@ -20,7 +20,7 @@
           "version": {"type": "string", "description": "The harness's own version as reach reports it; `unknown` when no receipt came back."},
           "model": {"type": "string", "description": "The model string passed to the harness; empty when none was configured."},
           "case": {"type": "string", "description": "The fixture repository's directory name."},
-          "status": {"enum": ["ran", "errors", "failed", "skipped"], "description": "ran: every scenario answered; errors: a receipt came back with at least one scenario that gave no usable answer; failed: no receipt; skipped: the harness could not run here."},
+          "status": {"enum": ["ran", "errors", "failed", "skipped"], "description": "ran: every scenario answered; errors: a receipt came back with at least one scenario that gave no usable answer; failed: no usable receipt, or no scenario answered; skipped: the harness could not run here."},
           "reason": {"type": ["string", "null"]},
           "scenarios": {"type": "integer", "minimum": 0}
         }
