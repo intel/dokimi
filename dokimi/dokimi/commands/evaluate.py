@@ -580,6 +580,10 @@ def register(sub, positive_int) -> None:
 
     answer_formats.register_eval(eval_sub, positive_int)  # eval reference, eval native-import
 
+    from dokimi.commands import headroom
+
+    headroom.register_eval(eval_sub, positive_int)  # eval headroom
+
     from dokimi.commands import redteam
 
     redteam.register_eval(eval_sub)  # eval redteam
