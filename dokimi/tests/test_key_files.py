@@ -56,7 +56,7 @@ def test_preflight_refuses_an_empty_key_file(tmp_path, monkeypatch, capsys):
 
 
 @pytest.mark.parametrize("provider", API_PROVIDERS)
-def test_preflight_checks_the_variable_the_run_reads(provider, tmp_path, monkeypatch):
+def test_preflight_names_the_variable_dokimi_llm_reads(provider, tmp_path, monkeypatch):
     for var in {api_key_env(p) for p in API_PROVIDERS}:
         monkeypatch.delenv(var, raising=False)
     var = api_key_env(provider)
