@@ -85,7 +85,6 @@
     "dokimi/repos/manifest.py::parse_manifest": {"complexity": 15},
     "dokimi/repos/source.py::GitTree.read_many": {"complexity": 14},
     "dokimi/repos/workspace.py::_apply_rev": {"complexity": 11, "rationale": "pre-existing when the gate was introduced"},
-    "dokimi/repos/workspace.py::_guidance_at": {"complexity": 11, "rationale": "pre-existing when the gate was introduced"},
     "dokimi/schema_compat.py::_compare": {"complexity": 41},
     "dokimi/subjects/loader.py::_parse_subject": {"complexity": 13},
     "dokimi/tool_preference.py::summarize": {"complexity": 12},
