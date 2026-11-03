@@ -255,6 +255,21 @@ def test_the_same_judge_error_three_calls_in_a_row_stops_the_run_with_exit_1(tmp
     assert not stale.exists() and not _judged(batch, "guidance:raw", 3).exists()
 
 
+class _AuthError(Exception):
+    status_code = 401  # as litellm's provider errors carry it
+
+
+def test_a_provider_error_whose_request_id_changes_per_call_still_stops_the_run(tmp_path, capsys, monkeypatch):
+    monkeypatch.delenv(caching.RESPONSE_CACHE_ENV, raising=False)
+    batch = _batch(tmp_path)
+    _put(batch, "guidance:raw", 3, [_f(30, "mul adds")])  # one more pair, after the stop
+    with llm.use_adapter(_failing(lambda n: _AuthError(f"invalid x-api-key, request_id req_{n:04d}") if n > 1
+                                  else None)) as fake:
+        code, out, err = _run(capsys, "judge", str(batch), "--judge", JUDGE)
+    assert (code, out, len(fake.requests)) == (1, "", 4)
+    assert err.startswith("✗ the judge call failed 3 times in a row (_AuthError: invalid x-api-key, request_id "
+                          "req_0004); stopped there after 1 judge call(s)")
+
 def test_cache_misses_before_each_live_call_do_not_hide_a_repeated_judge_error(tmp_path, capsys, monkeypatch):
     monkeypatch.setenv(caching.RESPONSE_CACHE_ENV, str(tmp_path / "cache"))  # on and empty: each pair probes first
     batch = _batch(tmp_path)

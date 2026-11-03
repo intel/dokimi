@@ -307,7 +307,8 @@ class Meter:
     ``spent_usd`` and in ``unpriced``; with ``max_usd`` no further live call starts after it, as ``novelty``'s
     spend cap does: the cap cannot be enforced on spend it cannot see. Replays still answer. ``stop`` says why no
     new call starts.
-    ``failing`` holds the errors of the calls that failed since the last reply (not in ``calls``); a response-cache
+    ``failing`` holds ``(kind, error)`` of the calls that failed since the last reply (not in ``calls``); the kind
+    of a provider error is its type and ``status_code``, as its text differs per call (a request id); a cache
     miss of the replay-only probe before a live call (:class:`dokimi.caching.CacheMiss`) is not a failed call."""
 
     max_usd: Optional[float] = None
@@ -315,12 +316,12 @@ class Meter:
     calls: int = 0
     unpriced: int = 0
     stop: Optional[str] = None
-    failing: list[str] = field(default_factory=list)
+    failing: list[tuple[str, str]] = field(default_factory=list)
 
     def repeated_failure(self) -> Optional[str]:
         """The error of the last :data:`FAILING` calls when they all failed with it (an auth error, a missing key)."""
         last = self.failing[-FAILING:]
-        return last[0] if len(last) == FAILING and len(set(last)) == 1 else None
+        return last[-1][1] if len(last) == FAILING and len({kind for kind, _ in last}) == 1 else None
 
     def asking(self, llm: LLM) -> Ask:
         def ask(prompt: str, *, draw: int = 0, cache_if: Optional[Callable[[str], bool]] = None) -> str:
@@ -334,7 +335,8 @@ class Meter:
             except caching.CacheMiss:  # a replay-only probe before the live call (first_replayed): no call failed
                 raise
             except Exception as exc:
-                self.failing.append(f"{type(exc).__name__}: {exc}")
+                error, status = f"{type(exc).__name__}: {exc}", getattr(exc, "status_code", None)
+                self.failing.append((error if status is None else f"{type(exc).__name__} {status}", error))
                 raise
             self.failing.clear()
             if not reply.usage.replayed:
