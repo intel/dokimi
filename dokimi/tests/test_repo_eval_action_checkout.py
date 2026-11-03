@@ -127,6 +127,7 @@ def test_validate_installs_the_commit_it_resolved_when_the_repositories_match() 
     # Two ls-remote calls for one tag can name two commits if it moves between them: with one repository
     # the setup step gets the commit resolved above. A different package repository resolves its own ref.
     setup = next(s for s in _validate_steps() if s.get("id") == "dokimi")
+    assert setup["uses"] == f"./{CHECKOUT_PATH}/actions/setup"
     assert setup["with"]["dokimi-ref"] == (
         "${{ inputs.dokimi-repository == inputs.dokimi-action-repository"
         " && steps.action-ref.outputs.sha || inputs.dokimi-ref }}")
