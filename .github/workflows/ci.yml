@@ -62,7 +62,8 @@ jobs:
       # The tools, hash-locked in dokimi/requirements-ci.lock.txt (input:
       # requirements-ci.txt, which says why ruff is an exact pin). Every install
       # from a lock passes --require-hashes, so a tampered or re-uploaded
-      # artifact fails the install.
+      # artifact fails the install; one that includes requirements.lock.txt also
+      # passes --no-deps (the locks are the full closure; see SECURITY.md on filelock).
       - name: Install tools
         run: pip install --require-hashes -r requirements-ci.lock.txt
       # Lint only: most of the tree predates the formatter (205 of 276 files would
@@ -250,7 +251,7 @@ jobs:
           python-version: '3.13'
           cache: pip
           cache-dependency-path: dokimi/requirements.lock.txt
-      - run: pip install --require-hashes -r requirements.lock.txt -r requirements-ci.lock.txt
+      - run: pip install --no-deps --require-hashes -r requirements.lock.txt -r requirements-ci.lock.txt
       - name: mypy
         run: mypy
       # The CLI snapshot, on the pinned Python: its content check (tests/test_cli_flags.py)
@@ -316,7 +317,7 @@ jobs:
       # The lock, not the ranges: a PR's result should not depend on what was
       # released upstream that morning. test-latest below watches the ranges.
       - name: Install deps
-        run: pip install --require-hashes -r requirements.lock.txt
+        run: pip install --no-deps --require-hashes -r requirements.lock.txt
       # Offline by construction: pytest-socket (addopts in pyproject.toml) fails
       # any test that opens a network socket. --outcomes also checks the user
       # outcomes in tests/outcomes/: an evidence id that no test claims fails the
@@ -486,7 +487,7 @@ jobs:
           smoke="$PWD/scripts/smoke_installed.py"
           cd "$RUNNER_TEMP" && python "$smoke"
       - name: Install test deps
-        run: python -m pip install --require-hashes -r requirements.lock.txt
+        run: python -m pip install --no-deps --require-hashes -r requirements.lock.txt
       # test_runs_scan.py holds the only junction test of the runs-root containment; it runs on Windows only.
       - name: Run a few fast tests
         run: pytest -q tests/test_cli_help.py tests/test_console_encoding.py tests/test_runs_scan.py tests/test_runs_show.py

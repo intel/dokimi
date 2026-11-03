@@ -1,0 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+# Passed to both `uv pip compile` commands with --override. litellm caps filelock<4.0
+# in its metadata (lifted on its main, not yet released); see SECURITY.md.
+filelock>=4.2.1
