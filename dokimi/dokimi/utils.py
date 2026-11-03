@@ -122,6 +122,19 @@ def _settled(target: str) -> str:
     return os.path.join(anchor, *kept)
 
 
+def _posix_separators(text: str, sep: str = os.sep) -> str:
+    """``text`` with its native separator ``sep`` written as ``/``, so a relative link target digests the same on Windows
+    (where os.readlink gives backslashes) as on POSIX. On POSIX a backslash is part of a name and is kept."""
+    return text if sep == "/" else text.replace(sep, "/")
+
+
+def _digest_bytes(path: Path, crlf_as_lf: bool) -> bytes:
+    """A file's bytes for a digest. With ``crlf_as_lf`` a text file (no NUL byte) reads with its CRLF line ends as LF, so
+    a checkout that converts line ends (core.autocrlf on Windows) digests as the LF text git stores. Binary files are kept."""
+    data = path.read_bytes()
+    return data.replace(b"\r\n", b"\n") if crlf_as_lf and b"\0" not in data else data
+
+
 def link_text(link: Path, root: Path) -> str:
     """A symlink's target as the digests hold it: as written, except an absolute target inside ``root``, which is
     written relative to the link. So a tree digests the same at another checkout path (the link's text is the same).
@@ -129,7 +142,7 @@ def link_text(link: Path, root: Path) -> str:
     collapsing it lexically would hash two different files alike."""
     target = os.readlink(link)
     if not os.path.isabs(target):
-        return target
+        return _posix_separators(target)
     target = _plain_path(target)
     if link == root:  # the root is hashed by its target, not walked: kept as written, so a loop through it stays a loop
         return target
@@ -212,7 +225,7 @@ def _entries(root: Path, skip: tuple[str, ...], *, strict: bool) -> list[Path]:
 
 
 def tree_digest(root: Path, *, exclude: Iterable[str] = (), strict: bool = False,
-                tracked: Mapping[str, bool] | None = None) -> str:
+                tracked: Mapping[str, bool] | None = None, crlf_as_lf: bool = False) -> str:
     """sha256 (bare hex) over every path, mode bit and byte under ``root``; a link by its target.
 
     A file ``root`` digests as itself (its path is ``.``), and so does a symlink ``root``
@@ -228,6 +241,7 @@ def tree_digest(root: Path, *, exclude: Iterable[str] = (), strict: bool = False
     ``strict``: a directory under ``root`` that cannot be read raises its OSError (the default skips it silently).
     ``tracked``: the executable bits git records, keyed by path relative to ``root`` (to its parent for a file root),
     as :func:`_tracked_modes` returns them; None reads them from git. A caller digesting many files reads them once.
+    ``crlf_as_lf``: a text file's CRLF line ends digest as LF (see ``_digest_bytes``), so a CRLF checkout matches the LF one.
     """
     skip = tuple(e.strip("/") for e in exclude)
     # a symlink is never looked through here: its target may be unreadable (or gone), and it digests by its text
@@ -259,7 +273,7 @@ def tree_digest(root: Path, *, exclude: Iterable[str] = (), strict: bool = False
             else:
                 executable = bool(os.lstat(path).st_mode & stat.S_IXUSR)
             h.update(b"F " + name + f"\0{int(executable)}\0".encode())
-            h.update(hashlib.sha256(path.read_bytes()).digest())
+            h.update(hashlib.sha256(_digest_bytes(path, crlf_as_lf)).digest())
         elif path.is_dir():
             h.update(b"D " + name + b"\0")
     return h.hexdigest()

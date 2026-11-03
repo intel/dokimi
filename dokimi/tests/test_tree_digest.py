@@ -339,3 +339,28 @@ def test_a_dotdot_after_a_missing_directory_is_kept_so_the_link_does_not_digest_
     direct = _write(tmp_path / "b", {"x": "x\n"})
     os.symlink(f"{direct}/x", direct / "current")
     assert tree_digest(dangling) != tree_digest(direct)
+
+
+def test_crlf_text_digests_as_lf_only_when_asked(tmp_path):
+    lf = _write(tmp_path / "lf", {"SKILL.md": "a\nb\n"})
+    crlf = _write(tmp_path / "crlf", {"SKILL.md": "a\r\nb\r\n"})
+    assert tree_digest(lf) != tree_digest(crlf)  # default: bytes as they are, as the build context hashes them
+    assert tree_digest(lf, crlf_as_lf=True) == tree_digest(crlf, crlf_as_lf=True)
+
+
+def test_crlf_bytes_in_a_binary_file_are_hashed_as_they_are(tmp_path):
+    lf = tmp_path / "lf" / "blob.bin"
+    crlf = tmp_path / "crlf" / "blob.bin"
+    lf.parent.mkdir()
+    crlf.parent.mkdir()
+    lf.write_bytes(b"\x00\nabc\n")
+    crlf.write_bytes(b"\x00\r\nabc\r\n")  # a NUL makes it binary: git does not convert it either
+    assert tree_digest(lf.parent, crlf_as_lf=True) != tree_digest(crlf.parent, crlf_as_lf=True)
+
+
+def test_a_relative_link_target_is_hashed_with_forward_slashes_on_any_os():
+    from dokimi.utils import _posix_separators
+
+    assert _posix_separators("..\\vendor\\a", "\\") == "../vendor/a"  # Windows: os.readlink gives the native separator
+    assert _posix_separators("../vendor/a", "/") == "../vendor/a"
+    assert _posix_separators("a\\b", "/") == "a\\b"  # POSIX: a backslash is part of the name

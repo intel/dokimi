@@ -113,7 +113,8 @@ class RepoConfig:
                 if rel is None:
                     impact.unclaimed.append(str(raw))
                     continue
-                _map_one(rel, subjects, reach, shared, impact, gone=not os.path.lexists(self.root / rel))
+                gone = not os.path.lexists(self.root / rel)
+                _map_one(rel, subjects, reach, shared, impact, gone=gone, file=not gone and (self.root / rel).is_file())
             return impact
         except OSError as exc:
             raise _unreadable(exc) from exc
@@ -388,20 +389,20 @@ def _suite_entry(entry: Path, root: Path, root_real: Path, real_skill: tuple[str
         suites.append(real)
 
 
-def _in_suite(subject: Subject, segs: tuple[str, ...], reach: Reach, gone: bool = False) -> bool:
-    return (any(_claims(g, segs) or (gone and _ancestor_of(g, segs)) for g in reach.globs)
+def _in_suite(subject: Subject, segs: tuple[str, ...], reach: Reach, gone: bool = False, file: bool = False) -> bool:
+    return (any(_claims(g, segs, file) or (gone and _ancestor_of(g, segs)) for g in reach.globs)
             or any(_under(segs, r) for r in reach.suites) or segs in reach.links)
 
 
 def _map_one(rel: str, subjects: list[Subject], reach: dict[str, Reach], shared: list[str], impact: Impact,
-             *, gone: bool = False) -> None:
+             *, gone: bool = False, file: bool = False) -> None:
     segs = tuple(rel.split("/"))
     is_shared = any(_claims(g, segs) for g in shared)
-    suites = [s.id for s in subjects if _in_suite(s, segs, reach[s.id], gone)]
+    suites = [s.id for s in subjects if _in_suite(s, segs, reach[s.id], gone, file)]
     # a skill whose own suite holds this file gets nothing: it is eval, and skill_sha leaves it out
     skills = [
         s for s in _skill_owners(subjects, reach, segs)
-        if not _in_suite(s, segs, reach[s.id], gone) or segs in reach[s.id].skill_links
+        if not _in_suite(s, segs, reach[s.id], gone, file) or segs in reach[s.id].skill_links
         or _gone_above_suite(reach[s.id], segs, gone)
     ]
     if is_shared:
@@ -416,8 +417,9 @@ def _map_one(rel: str, subjects: list[Subject], reach: dict[str, Reach], shared:
 
 def _gone_above_suite(reach: Reach, segs: tuple[str, ...], gone: bool) -> bool:
     """A deleted path above a suite's glob that is not itself a suite path: it may have been a link inside the skill,
-    which skill_sha hashed, so the skill keeps the change as well as the suite (the glob's own matches stay the suite's)."""
-    return gone and any(_ancestor_of(g, segs) and not _claims(g, segs) for g in reach.globs)
+    which skill_sha hashed, so the skill keeps the change as well as the suite (the glob's own matches stay the suite's).
+    Or it may have been a file that the glob reaches only through a trailing ``**``, which the suite does not claim."""
+    return gone and any(_ancestor_of(g, segs) and not _claims(g, segs, file=True) for g in reach.globs)
 
 
 def _skill_owners(subjects: list[Subject], reach: dict[str, Reach], segs: tuple[str, ...]) -> list[Subject]:
@@ -595,7 +597,7 @@ def _digest_files(files: dict[str, Path], root: Path, modes: Mapping[str, bool] 
             if path.is_dir():
                 continue  # a linked directory: its files are walked and hashed one by one
             target = path.resolve() if path.exists() else path
-            h.update(os.fsencode(f"{name}\0{tree_digest(target, tracked=_file_modes(target, root_real, modes))}\n"))
+            h.update(os.fsencode(f"{name}\0{tree_digest(target, tracked=_file_modes(target, root_real, modes), crlf_as_lf=True)}\n"))
     return "sha256:" + h.hexdigest()
 
 
@@ -790,5 +792,5 @@ def _hashed(subject: Subject, root: Path, all_subjects: list[Subject], modes: Ma
     # A skill directory that is a symlink is its target's content (a suite match is hashed by its link instead).
     base = (root / subject.path).resolve()
     emptied = _suite_only_dirs(base, inside, _suite_prefixes(subject.suite_globs, subject.path))
-    skill_sha = "sha256:" + tree_digest(base, exclude=[*inside, *nested, *emptied], strict=True)
+    skill_sha = "sha256:" + tree_digest(base, exclude=[*inside, *nested, *emptied], strict=True, crlf_as_lf=True)
     return replace(subject, skill_sha=skill_sha, suite_hash=_digest_files(files, root, modes))

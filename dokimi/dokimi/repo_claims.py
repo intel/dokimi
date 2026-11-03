@@ -13,10 +13,13 @@ from pathlib import Path
 from dokimi.repo_links import _within
 
 
-def _claims(pattern: str, segs: tuple[str, ...]) -> bool:
-    """True when the glob matches ``segs`` or one of its parent directories (a directory glob claims what is under it)."""
+def _claims(pattern: str, segs: tuple[str, ...], file: bool = False) -> bool:
+    """True when the glob matches ``segs`` or one of its parent directories (a directory glob claims what is under it).
+    ``file``: ``segs`` is a file. A trailing ``**`` matches directories only (as the suite walk matches them), so a file
+    that the glob reaches only through that ``**`` is not claimed; its parent directories still are."""
     pat = tuple(pattern.split("/"))
-    return any(_match(pat, segs[:k]) for k in range(1, len(segs) + 1))
+    return any(_match(pat, segs[:k]) and not (file and k == len(segs) and pat[-1] == "**")
+               for k in range(1, len(segs) + 1))
 
 
 def _match(pat: tuple[str, ...], segs: tuple[str, ...]) -> bool:

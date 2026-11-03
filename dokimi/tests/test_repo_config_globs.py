@@ -185,3 +185,47 @@ def test_many_double_stars_in_a_suite_walk_a_deep_tree_in_linear_time(tmp_path):
                                                   "evaluation/" + "d/" * 20 + "q.json": "{}\n"})
         return load_repo_config(root).subjects()[0].suite_hash
     assert suite_hash("/".join(["evaluation"] + ["**"] * 10)) == suite_hash("evaluation/**")
+
+
+def test_a_changed_skill_file_under_a_star_double_star_suite_is_the_skills_in_impact(tmp_path):
+    # '{skill}/*/**' does not claim SKILL.md (a terminal ** needs a directory), so its hash moves skill_sha and impact
+    # must name the skill, not the suite
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: '{skill}/*/**'\n"
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": body,
+        "skills/a/SKILL.md": "a\n",
+        "skills/a/evals/q.json": "[]\n",
+    })
+    before = load_repo_config(root).subjects()[0]
+    (root / "skills/a/SKILL.md").write_text("b\n", encoding="utf-8")
+    config = load_repo_config(root)
+    assert config.subjects()[0].skill_sha != before.skill_sha
+    impact = config.subjects_for_changed(["skills/a/SKILL.md"])
+    assert (dict(impact.skills), dict(impact.suites), impact.unclaimed) == ({"skill/a": ["skills/a/SKILL.md"]}, {}, [])
+
+
+def test_a_deleted_skill_file_under_a_star_double_star_suite_is_named_for_both(tmp_path):
+    # a deleted path may have been a file (skill_sha) or a directory (the suite): impact names both, never neither
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: '{skill}/*/**'\n"
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": body,
+        "skills/a/SKILL.md": "a\n",
+        "skills/a/evals/q.json": "[]\n",
+    })
+    before = load_repo_config(root).subjects()[0]
+    (root / "skills/a/SKILL.md").unlink()
+    config = load_repo_config(root)
+    assert config.subjects()[0].skill_sha != before.skill_sha
+    impact = config.subjects_for_changed(["skills/a/SKILL.md"])
+    assert list(impact.skills) == ["skill/a"] and list(impact.suites) == ["skill/a"]
+
+
+def test_crlf_and_lf_checkouts_of_the_same_text_digest_the_same(tmp_path):
+    # core.autocrlf=true on Windows checks text out with CRLF; skill_sha and suite_hash must not move with it
+    files = {"skills/a/SKILL.md": "a\nb\n", "skills/a/evals/q.json": "[]\n"}
+    lf = _tree(tmp_path / "lf", {".github/dokimi/config.yaml": HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n", **files})
+    crlf_files = {rel: text.replace("\n", "\r\n") for rel, text in files.items()}
+    crlf = _tree(tmp_path / "crlf", {".github/dokimi/config.yaml": HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n",
+                                     **crlf_files})
+    a, b = load_repo_config(lf).subjects()[0], load_repo_config(crlf).subjects()[0]
+    assert (a.skill_sha, a.suite_hash) == (b.skill_sha, b.suite_hash)
