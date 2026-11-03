@@ -158,8 +158,8 @@ def cmd_novelty_atoms(args: argparse.Namespace) -> None:
     except ExtractionError as exc:
         raise SystemExit(str(exc)) from None
     # The cap warning analyze records; probe and shorten, which read atoms.json, do not repeat it.
-    reach = [cap_warning(cap, extraction.reached)] if extraction.reached else []
-    for warning in extraction.warnings(len(spans)) + reach:
+    sampled = [cap_warning(extraction.as_dict())] if extraction.sampled else []
+    for warning in extraction.warnings(len(spans)) + sampled:
         print(f"WARNING {warning}", file=sys.stderr)
     if settings.values["verify_faithfulness"]:
         verify_atoms(atoms, spans, client=extractor)
@@ -167,7 +167,7 @@ def cmd_novelty_atoms(args: argparse.Namespace) -> None:
     save_atoms(atoms, spans, out, extractor=extractor.model, cap=cap,
                bundle=artifact_bundle.summary(), extraction=extraction)
     print(f"OK Saved {len(atoms)} atoms over {len(spans)} spans: {out}")
-    print(json.dumps(span_summary(spans, atoms, atom_cap=cap), indent=2))
+    print(json.dumps(span_summary(spans, atoms, capped=extraction.sampled is not None), indent=2))
 
 
 def cmd_novelty_probe(args: argparse.Namespace) -> None:
@@ -304,9 +304,8 @@ def _routing_field(args: argparse.Namespace, exclude: set[str],
     """
     from dokimi.novelty.routing import (
         catalog_competitors,
-        disables_model_invocation,
+        competitor_left_out,
         non_skill_reason,
-        skill_file,
     )
 
     competitors = []
@@ -318,20 +317,19 @@ def _routing_field(args: argparse.Namespace, exclude: set[str],
                 left_out.append(f"{ref}: {reason}")
             continue
         candidate = _routing_card(ref)[0]
-        ref_file = skill_file(ref)
-        if (ref_file and not args.include_disabled
-                and disables_model_invocation(ref_file)):
-            print(f"WARNING: skipped competitor {ref}: disable-model-invocation "
-                  "(--include-disabled keeps it)", file=sys.stderr)
+        reason = competitor_left_out(ref, include_disabled=args.include_disabled,
+                                     include_invalid=args.include_invalid)
+        if reason:
+            print(f"WARNING: skipped competitor {ref}: {reason}", file=sys.stderr)
             if left_out is not None:
-                left_out.append(f"{ref}: disable-model-invocation")
+                left_out.append(f"{ref}: {reason}")
             continue
         competitors.append(candidate)
     if args.catalog:
         notes: list[str] = []
-        catalog = catalog_competitors(args.catalog,
-                                      exclude | {c.name for c in competitors}, notes,
-                                      include_disabled=args.include_disabled)
+        catalog = catalog_competitors(args.catalog, exclude | {c.name for c in competitors},
+                                      notes, include_disabled=args.include_disabled,
+                                      include_invalid=args.include_invalid)
         for note in notes:
             print(f"WARNING: {note}", file=sys.stderr)
         if left_out is not None:
@@ -408,7 +406,7 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
 
 def _field_record(args: argparse.Namespace, competitors: list, left_out: list[str]) -> dict:
     """The field rule a routing result was measured under, saved next to the result."""
-    return {"include_disabled": bool(args.include_disabled),
+    return {**{name: bool(getattr(args, name)) for name in ("include_disabled", "include_invalid")},
             "competitors": [c.name for c in competitors], "left_out": left_out}
 
 
@@ -855,16 +853,16 @@ def register(sub, positive_int) -> None:
                            help="Directory of skills to take the competitors from: every "
                                 "skill the catalog lists (skills.yaml when present, else every "
                                 "SKILL.md under it; a template/ copy and vendored or VCS "
-                                "directories like .git are left out, and a byte-identical "
-                                "copy under another path counts once) except "
-                                "the artifact itself, i.e. the "
-                                "siblings a harness lists next to it. Combines with "
-                                "--competitors")
+                                "directories like .git are left out, and a byte-identical copy "
+                                "under another path counts once) except the artifact itself, the "
+                                "siblings a harness lists next to it. Combines with --competitors")
     routing_p.add_argument("--include-disabled", action="store_true", dest="include_disabled",
                            help="Keep skills that set disable-model-invocation in the field. "
                                 "Off by default: no harness lists them, so the model cannot "
                                 "select them and a card for one measures a choice that does "
                                 "not exist")
+    routing_p.add_argument("--include-invalid", action="store_true", dest="include_invalid",
+                           help="Keep catalog and skill: competitors with a spec error in the field")
     routing_p.add_argument("--queries", default=None,
                            help="JSON list (or one per line) of user-shaped requests that "
                                 "should select this artifact, written independently of it")
@@ -948,7 +946,7 @@ def _add_common(parser: argparse.ArgumentParser, positive_int) -> None:
                              "Unset by default so that passing the default value explicitly "
                              "still overrides a --tier cap")
     parser.add_argument("--all-atoms", action="store_true", dest="all_atoms",
-                        help="Extract every atom (opt-in: this is the expensive sweep)")
+                        help="Probe every extracted atom (opt-in: this is the expensive sweep)")
     parser.add_argument("--budgets", type=float, nargs="+", default=[0.75, 0.5],
                         help="Target token fractions for shortening candidates")
     parser.add_argument("--cache-dir", default=None, dest="cache_dir",
@@ -1159,7 +1157,7 @@ def _print_coverage(bundle: dict, extraction: dict | None = None) -> None:
     The share is stated on stdout because the headline is what a user copies. A run under
     the floor also says so on stdout: a stderr-only warning is one a user piping the
     headline never sees, and a rate quoted off half-read skill is not a property of it.
-    A capped run says the words went into the input, and how far its atoms reach.
+    A capped run says the words went into the input, and how many of its atoms were probed.
     """
     from dokimi.novelty.bundle import MEASURED_SHARE_WARN_AT, Coverage
     from dokimi.novelty.report import coverage_reach, floored_percent
