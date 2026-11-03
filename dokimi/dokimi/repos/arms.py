@@ -210,16 +210,17 @@ def check_arms(arms: list[Any], content_dir: Path, tasks: list[Any], git_dir: Pa
             raise ArmError(f"arms {cells[cell]!r} and {arm.spec!r} would share one result directory ({cell})")
         skills = resolve_skills(arm, content_dir)
         names = {s.name for s in skills}
+        generated = None  # the skill preparation installs beside the catalog's; its usage is scored apart
         if repo_id is not None and arm.patch is None and arm.base == "guidance:as-skill":
             _check_generated_skill(arm, skills, repo_id, tasks, git_dir, shipped)
-            names.add(guidance_skill_name(repo_id))  # the skill preparation installs beside the catalog's
+            generated = guidance_skill_name(repo_id)
         drops = arm.patch is None and (arm.base in ("guidance:none", "guidance:as-skill") or arm.rev is not None)
         rev = (arm.rev_sha or arm.rev) if arm.patch is None else None
         if skills and git_dir is not None:
             for task in tasks:
                 _check_shipped(arm, skills, task, git_dir, shipped, (drops, rev, guidance_globs))
         if any(kind == "skill-catalog" for kind, _ in arm.skills):
-            _check_expected_skills(arm, tasks, names)
+            _check_expected_skills(arm, tasks, names, generated)
 
 
 def _check_generated_skill(arm: Any, skills: list[Skill], repo_id: str, tasks: list[Any], git_dir: Path | None,
@@ -273,10 +274,15 @@ def _cached_shipped(git_dir: Path, commit: str,
     return shipped[commit]
 
 
-def _check_expected_skills(arm: Any, tasks: list[Any], names: set[str]) -> None:
-    """A catalog arm has to install the ``expected_skill`` of every task that names one."""
+def _check_expected_skills(arm: Any, tasks: list[Any], names: set[str], generated: str | None = None) -> None:
+    """A catalog arm has to install the ``expected_skill`` of every task that names one. The generated guidance
+    skill of a ``guidance:as-skill`` arm (``generated``) is refused as one: its usage is recorded apart from the
+    catalog's (``guidance_skill_loaded``), so the catalog's usage would read it as never invoked."""
     for task in tasks:
         expected = task.raw.get("expected_skill")
+        if expected and expected == generated:
+            raise ArmError(f"arm {arm.spec!r}: task {task.id}'s expected_skill {expected!r} is the generated guidance "
+                           f"skill of the arm; name a skill of the catalog instead")
         if expected and expected not in names:
             raise ArmError(f"arm {arm.spec!r}: task {task.id}'s expected_skill {expected!r} is not installed "
                            f"(installed: {', '.join(sorted(names))})")

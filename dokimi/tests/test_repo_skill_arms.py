@@ -837,9 +837,16 @@ def test_the_as_skill_arm_removes_the_base_skill_it_packages_so_it_is_not_refuse
         check_arms([parse_arm("guidance:raw+skill:skills/lint")], content, tasks, root / ".git", globs)
 
 
-def test_a_catalog_arm_with_as_skill_accepts_an_expected_skill_naming_the_generated_skill(tmp_path):
+def test_a_catalog_arm_with_as_skill_refuses_an_expected_skill_naming_the_generated_skill(tmp_path):
     _skill(tmp_path, "skills/lint", "lint")  # the catalog holds lint only; preparation installs toy-guidance beside it
     task = Task("t", {"expected_skill": "toy-guidance"}, tmp_path)
+    with pytest.raises(ArmError, match="expected_skill 'toy-guidance' is the generated guidance skill"):
+        check_arms([parse_arm("guidance:as-skill+skill-catalog:skills")], tmp_path, [task], None, (), "toy")
+
+
+def test_a_catalog_arm_with_as_skill_still_accepts_an_expected_skill_from_the_catalog(tmp_path):
+    _skill(tmp_path, "skills/lint", "lint")
+    task = Task("t", {"expected_skill": "lint"}, tmp_path)
     check_arms([parse_arm("guidance:as-skill+skill-catalog:skills")], tmp_path, [task], None, (), "toy")
 
 
