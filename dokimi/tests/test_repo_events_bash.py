@@ -346,6 +346,9 @@ def _process(*lines: dict) -> dict:
     ((_call("a", "cd sub"), _result("a"), _call("b", "cat AGENTS.md"), _result("b", "x", True)), 0, []),  # it failed
     ((_call("a", "cd sub"), _result("a"), _call("b", "cd -; cat AGENTS.md"), _denials("b")), 0, []),  # nothing ran
     ((_call("a", "cat AGENTS.md"), _result("a"), _call("b", "cd sub && make"), _result("b")), 0, ["AGENTS.md"]),
+    ((_call("a", "{ source env.sh; cat AGENTS.md; } > /dev/null"), _result("a")), 0, []),  # its output is hidden
+    ((_call("a", "{ source env.sh; cat AGENTS.md; } | head"), _result("a")), 0, []),
+    ((_call("a", "{ source env.sh; cat AGENTS.md; }"), _result("a")), 1, []),
 ])
 def test_a_read_at_a_directory_not_known_is_counted(lines, unknown, guidance):
     got = _process(*lines)

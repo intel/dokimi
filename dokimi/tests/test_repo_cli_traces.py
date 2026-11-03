@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from dokimi.repos.cli_traces import _LONG_VALUE, shell_reads, unwrap_shell
+from dokimi.repos.cli_traces import _LONG_VALUE, shell_reads, shell_walk, unwrap_shell
 from dokimi.repos.events import convert
 
 # --- traces ------------------------------------------------------------------
@@ -544,6 +544,19 @@ def test_codex_and_copilot_count_a_read_at_a_directory_not_known():
     assert convert("copilot-json", _jsonl({"type": "tool.execution_start", "data": copilot}), None).unknown_reads == 1
     assert convert("copilot-json", _jsonl({"type": "tool.execution_start", "data": {
         **copilot, "arguments": {"command": "cat AGENTS.md"}}}), None).unknown_reads == 0
+
+
+@pytest.mark.parametrize("command, unknown", [
+    ("{ source env.sh; cat AGENTS.md; } > /dev/null", 0),  # the group's output is hidden: not the agent's
+    ("{ source env.sh; cat AGENTS.md; } | head", 0),
+    ("source env.sh; { cat AGENTS.md; } > /dev/null", 0),
+    ("{ source env.sh; { cat a; } > /dev/null; cat b; }", 1),  # only the inner group is hidden
+    ("{ source env.sh; cat AGENTS.md; }", 1),
+    ("source env.sh; { cat AGENTS.md; }", 1),
+])
+def test_a_hidden_groups_reads_are_not_counted_at_a_directory_not_known(command, unknown):
+    reads, _, got = shell_walk(command)
+    assert (reads, got) == ([], unknown)
 
 
 def test_codex_failed_brace_group_holding_one_read_is_no_read():
