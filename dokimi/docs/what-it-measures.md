@@ -55,7 +55,7 @@ manifest it owns:
   and build labels the guidance names exist in the tree?
 - `dokimi repo budget` (no LLM): how many characters of guidance and skill
   listing every model call pays for at start-up, what loads lazily or on
-  demand, and which AGENTS.md files a CLAUDE.md turns off.
+  demand, and which AGENTS.md files a CLAUDE.md turns off (with `claude-code`).
 - `dokimi repo reach` (L1): which guidance files does a given harness actually
   load?
 - `dokimi repo inspect` (static, no LLM): which instruction files, checks,
