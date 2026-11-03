@@ -23,7 +23,7 @@ def cmd_repo_skill_reach(args: argparse.Namespace) -> None:
     from dokimi.repos.skill_reach import (
         SkillReachError,
         format_table,
-        load_catalogue,
+        read_catalogue,
         run_skill_reach,
         save_skill_reach,
         scenario_ids,
@@ -39,7 +39,7 @@ def cmd_repo_skill_reach(args: argparse.Namespace) -> None:
             raise SkillReachError(f"--budget: {profile.name} has no spend-cap flag, so the cap would not be "
                                   "enforced; drop --budget (the timeout bounds each run)")
         budget = args.budget if args.budget is not None else DEFAULT_BUDGET
-        cases = load_catalogue(Path(args.catalogue) if args.catalogue else None)
+        cases, digest = read_catalogue(Path(args.catalogue) if args.catalogue else None)
         only = tuple(args.only or ())
         missing = sorted(set(only) - {c.id for c in cases})
         if missing:
@@ -61,7 +61,7 @@ def cmd_repo_skill_reach(args: argparse.Namespace) -> None:
     try:  # the run and the artifact: a missing work dir or an unwritable --out is a diagnostic, not a traceback
         payload = run_skill_reach(
             profile=profile, model=args.model, out_dir=out_dir, cases=selected,
-            catalogue=Path(args.catalogue) if args.catalogue else None, bin_path=args.bin,
+            catalogue=Path(args.catalogue) if args.catalogue else None, catalogue_sha256=digest, bin_path=args.bin,
             work_dir=Path(args.work_dir) if args.work_dir else None, salt=args.salt,
             max_turns=args.max_turns, budget_usd=budget, timeout_s=args.timeout, keep=args.keep,
         )

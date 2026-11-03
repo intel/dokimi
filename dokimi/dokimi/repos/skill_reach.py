@@ -130,9 +130,15 @@ class Fixture:
 
 
 def load_catalogue(path: Path | None = None) -> list[Case]:
+    return read_catalogue(path)[0]
+
+
+def read_catalogue(path: Path | None = None) -> tuple[list[Case], str]:
+    """The cases and the sha256 of the bytes they were parsed from (a pipe or a later edit cannot change it)."""
     path = path or CATALOGUE
     try:
-        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        data = path.read_bytes()
+        raw = yaml.safe_load(data.decode("utf-8"))
     except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
         raise SkillReachError(f"{path}: cannot read the catalogue: {exc}") from exc
     if not isinstance(raw, dict) or raw.get("schema") != "skill_fixtures.v1" or not isinstance(raw.get("cases"), list):
@@ -144,7 +150,7 @@ def load_catalogue(path: Path | None = None) -> list[Case]:
             raise SkillReachError(f"{path}: case id {case.id} appears twice")
         cases.append(case)
     _check_groups(path, cases)
-    return cases
+    return cases, hashlib.sha256(data).hexdigest()
 
 
 def _parse_case(path: Path, n: int, item: Any) -> Case:
@@ -373,6 +379,19 @@ def _select(cases: list[Case], only: tuple[str, ...]) -> list[Case]:
     return [c for c in cases if c.id in only]
 
 
+def _cases_and_digest(cases: list[Case] | None, catalogue: Path | None,
+                      digest: str | None) -> tuple[list[Case], str]:
+    """The cases and their catalogue's sha256, both taken before any scenario runs."""
+    if cases is None:
+        return read_catalogue(catalogue)
+    if digest is not None:
+        return cases, digest
+    try:  # cases from a caller without a digest: hash the file now
+        return cases, hashlib.sha256((catalogue or CATALOGUE).read_bytes()).hexdigest()
+    except OSError as exc:
+        raise SkillReachError(f"{catalogue or CATALOGUE}: cannot read the catalogue: {exc}") from exc
+
+
 def _trace_dir(out_dir: Path) -> Path:
     """out_dir/traces, emptied of the traces an earlier run left there."""
     trace_dir = out_dir / "traces"
@@ -390,6 +409,7 @@ def run_skill_reach(
     out_dir: Path,
     cases: list[Case] | None = None,
     catalogue: Path | None = None,
+    catalogue_sha256: str | None = None,
     only: tuple[str, ...] = (),
     bin_path: str | None = None,
     work_dir: Path | None = None,
@@ -401,7 +421,8 @@ def run_skill_reach(
 ) -> dict[str, Any]:
     """Build the fixture, run every scenario once and return the skill_discovery.v1 payload (unsaved)."""
     check_profile(profile)
-    cases = _select(cases if cases is not None else load_catalogue(catalogue), only)
+    cases, catalogue_sha256 = _cases_and_digest(cases, catalogue, catalogue_sha256)
+    cases = _select(cases, only)
     salt = salt or hashlib.sha256(datetime.now(timezone.utc).isoformat().encode()).hexdigest()[:12]
     base = Path(tempfile.mkdtemp(prefix="skill-reach-", dir=str(work_dir) if work_dir else None)).resolve()
     roots = {"project": base / "ws", "home": base / "home", "config": base / "cfg"}
@@ -446,7 +467,7 @@ def run_skill_reach(
         "salt": salt,
         "ask": ASK,
         "catalogue": str(catalogue or CATALOGUE),
-        "catalogue_sha256": hashlib.sha256((catalogue or CATALOGUE).read_bytes()).hexdigest(),
+        "catalogue_sha256": catalogue_sha256,
         "workspace": str(base) if keep else None,
         "cases": [{"id": p.case.id, "scope": p.scope, "path": p.path, "name": p.case.name,
                    "description": p.case.description, "eol": p.case.eol, "token": p.token,

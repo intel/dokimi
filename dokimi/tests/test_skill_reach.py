@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -33,6 +34,7 @@ from dokimi.repos.skill_reach import (
     collisions,
     format_table,
     load_catalogue,
+    read_catalogue,
     resolve_at,
     run_skill_reach,
     save_skill_reach,
@@ -438,6 +440,44 @@ def test_cli_dry_run_refuses_a_catalogue_location_a_run_would_refuse(tmp_path, c
     with pytest.raises(SystemExit) as exc:
         _cli("--harness", str(_profile(tmp_path)), "--catalogue", str(path), "--dry-run")
     assert exc.value.code == EXIT_USAGE and "must be project:|home:|config:" in capsys.readouterr().err
+
+
+@pytest.mark.skipif(not Path("/dev/fd").is_dir(), reason="needs /dev/fd")
+def test_the_digest_is_of_the_catalogue_bytes_read_from_a_pipe(tmp_path):
+    data = _catalogue("{id: project-client, at: 'project:{client_project}'}").encode()
+    read_fd, write_fd = os.pipe()
+    os.write(write_fd, data)
+    os.close(write_fd)
+    work = tmp_path / "work"
+    work.mkdir()
+    try:
+        _cli("--harness", str(_profile(tmp_path)), "--catalogue", f"/dev/fd/{read_fd}",
+             "--out", str(tmp_path / "out"), "--work-dir", str(work))
+    finally:
+        os.close(read_fd)
+    payload = json.loads((tmp_path / "out" / "skill-discovery.json").read_text(encoding="utf-8"))
+    assert payload["catalogue_sha256"] == hashlib.sha256(data).hexdigest()
+
+
+def test_a_catalogue_removed_after_loading_still_gives_an_artifact(tmp_path):
+    path = tmp_path / "cat.yaml"
+    path.write_text(_catalogue("{id: project-client, at: 'project:{client_project}'}"), encoding="utf-8")
+    cases, digest = read_catalogue(path)
+    path.unlink()
+    work = tmp_path / "work"
+    work.mkdir()
+    payload = run_skill_reach(profile=load_profile(str(_profile(tmp_path))), model="m", out_dir=tmp_path / "out",
+                              cases=cases, catalogue=path, catalogue_sha256=digest, work_dir=work, salt="s",
+                              timeout_s=60)
+    assert payload["catalogue_sha256"] == digest
+
+
+def test_cases_without_a_digest_are_refused_when_their_catalogue_is_gone(tmp_path):
+    cases = load_catalogue()[:1]
+    with pytest.raises(SkillReachError, match="cannot read the catalogue"):
+        run_skill_reach(profile=load_profile(str(_profile(tmp_path))), model="m", out_dir=tmp_path / "out",
+                        cases=cases, catalogue=tmp_path / "gone.yaml", work_dir=tmp_path)
+    assert not (tmp_path / "out").exists()
 
 
 def test_a_missing_catalogue_is_refused(tmp_path):
