@@ -62,8 +62,7 @@ jobs:
       # The tools, hash-locked in dokimi/requirements-ci.lock.txt (input:
       # requirements-ci.txt, which says why ruff is an exact pin). Every install
       # from a lock passes --require-hashes, so a tampered or re-uploaded
-      # artifact fails the install; one that includes requirements.lock.txt also
-      # passes --no-deps (the locks are the full closure; see SECURITY.md on filelock).
+      # artifact fails the install.
       - name: Install tools
         run: pip install --require-hashes -r requirements-ci.lock.txt
       # Lint only: most of the tree predates the formatter (205 of 276 files would
