@@ -79,6 +79,7 @@
 --hits  # repo report replay hits (#297) adds it: a view switch has no registry concept yet
 --image
 --include-disabled  # novelty routing (#172) adds it: no registry concept yet; a F1b migration names it
+--include-invalid  # novelty routing: keeps a skill with a spec error in the field; no registry concept yet
 --include-resources
 --input
 --intents
@@ -123,6 +124,7 @@
 --no-confirm-carriers
 --no-json
 --no-judge
+--no-known-positive  # catalog trigger-probe known-positive guard: no registry concept yet
 --no-paraphrase
 --no-plugin-deltas
 --no-recursive
@@ -226,5 +228,8 @@
 --work-output-dir
 --work-repeats
 -o
+--ceiling  # eval headroom (#279) adds it: no registry concept yet; a F1b migration names it
+--floor  # eval headroom (#279) adds it: no registry concept yet; a F1b migration names it
+--min-reps  # eval headroom (#279) adds it: no registry concept yet; a F1b migration names it
 --graph  # eval coverage: the frozen need graph input, a file no registry concept names yet (#331)
 --min  # eval coverage gate floor, [METRIC=]X like --timeout [PHASE=]SEC (#331)

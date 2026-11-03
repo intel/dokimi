@@ -69,6 +69,7 @@ FIELDS: dict[str, KindFields] = {
                                          counts=("receipts",)),
     "task_inspect": KindFields(subject=("root",), counts=("items",)),
     "cli_routes": KindFields(counts=("roots", "leaves", "tombstones")),
+    "headroom": KindFields(counts=("items", "inputs")),
     "redteam": KindFields(subject=("questions_path",), model=("judge_model",),
                           counts=("violations", "questions")),
     "need_graph": KindFields(subject=("artifact_name",), counts=("nodes", "edges")),

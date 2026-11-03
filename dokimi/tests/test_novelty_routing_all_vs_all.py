@@ -470,6 +470,28 @@ def test_an_unreadable_queries_file_is_a_message_not_a_traceback(tmp_path, make)
         args.func(args)
 
 
+@pytest.mark.parametrize("left_out, says", [
+    ("spec_error", "--include-invalid keeps it"),
+    ("name_conflict", "every copy of a name that two different skills share"),
+])
+def test_queries_for_a_skill_the_field_left_out_are_refused_with_the_real_reason(
+        tmp_path, left_out, says):
+    root = tmp_path / "catalog"
+    _cat(root, {"cache": "cache slow lookups", "queue": "queue background jobs"})
+    if left_out == "spec_error":
+        _catalog_skill(root, "db", "x" * 1100)
+    else:
+        _catalog_skill(root, "db", "tune a slow database query")
+        _catalog_skill(root / "plugins" / "p", "db", "migrate a database schema")
+    queries = _write_queries(tmp_path, {"cache": ["q"], "queue": ["q"], "db": ["q"]})
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--include-disabled", "--queries-by-skill", str(queries),
+                  "--out", str(tmp_path / "o.json"))
+    with pytest.raises(SystemExit, match="not in the field: `db`") as exc:
+        args.func(args)
+    assert says in str(exc.value)
+
+
 def _cat(root, names_descriptions):
     for name, description in names_descriptions.items():
         _catalog_skill(root, name, description)
@@ -596,7 +618,8 @@ def test_a_single_artifact_routing_run_records_the_field_rule_too(tmp_path):
                   "--out", str(out))
     args.func(args)
     field = json.loads(out.read_text(encoding="utf-8"))["field"]
-    assert field == {"include_disabled": True, "competitors": ["db"], "left_out": []}
+    assert field == {"include_disabled": True, "include_invalid": False,
+                     "competitors": ["db"], "left_out": []}
 
 
 def test_console_says_how_many_tied_and_unscored_queries_are_not_counted_as_picks(
