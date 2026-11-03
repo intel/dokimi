@@ -684,3 +684,20 @@ def test_moving_a_suite_declared_task_also_selects_the_suite_owner(tmp_path):
     report = evaluate(tmp_path, [f"{TASKS}/t1/task.toml"])
     assert row(report)["checks"]["status"] == "fail"
     assert report["selection"]["selected"] == ["alpha", "beta"]
+
+
+def test_empty_import_repo_alone_fails_the_import_check(tmp_path):
+    skill(tmp_path, **{"external-repo": "", "external-commit": "pin", "external-path": "skills/alpha",
+                       "external-license": "MIT"})
+    report = evaluate(tmp_path)
+    assert report["status"] == "fail"
+    assert codes(report) == {"import-type"}
+
+
+def test_fallback_discovery_skips_skill_templates(tmp_path):
+    for path in ("skills/alpha", "templates/skill-template"):
+        (tmp_path / path).mkdir(parents=True)
+        (tmp_path / path / "SKILL.md").write_text("---\nname: alpha\ndescription: Use to inspect alpha.\n---\nInspect.\n")
+    report = evaluate(tmp_path)
+    assert report["status"] == "pass"
+    assert [item["name"] for item in report["skills"]] == ["alpha"]
