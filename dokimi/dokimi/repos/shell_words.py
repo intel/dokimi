@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """A shell command's words, for :func:`~dokimi.repos.cli_traces.shell_reads`: the command word past what comes before
-it (``NAME=value``, ``builtin``, ``command``, ``time``, ``env``), and whether it runs a directory builtin."""
+it (``NAME=value``, a redirection, ``builtin``, ``command``, ``time``, ``env``), and whether it runs a directory builtin."""
 
 from __future__ import annotations
 
@@ -12,6 +12,8 @@ import shlex
 
 _SYSTEM_BIN = {"/bin", "/usr/bin", "/usr/local/bin"}
 _ASSIGN = re.compile(r"[A-Za-z_]\w*=")  # a NAME=value word: a variable set for the command that follows
+# a redirection word (``>``, ``2>err``, ``</dev/null``, ``&>>log``, ``{fd}>x``): group 1 is its attached target, if any
+_REDIRECT = re.compile(r"(?:\d+|&|\{\w+\})?(?:>[>|&]?|<(?:<<?|[&>])?)(.*)", re.S)
 _KEYWORDS = {"if", "then", "else", "elif", "do", "while", "until", "!"}
 # after these builtins the directory is not known: a directory stack, or a script that may run a ``cd``
 _DIR_LOST = {"pushd", "popd", "eval", "source", "."}
@@ -85,8 +87,8 @@ def _may_run_dir(words: list[str], timed: bool) -> bool:
 
 def _command_at(words: list[str], timed: bool) -> int | None:
     """The index of the command word in unquoted ``words``, past ``builtin``, ``command`` and, when ``timed``, a first
-    ``time``, with their options (``time -p``, ``command -p``, ``--``) and, after ``time``, ``NAME=value`` words; None for
-    ``command -v`` / ``-V``, which only describes the command."""
+    ``time``, with their options (``time -p``, ``command -p``, ``--``), redirections and, after ``time``, ``NAME=value``
+    words; None for ``command -v`` / ``-V``, which only describes the command."""
     at = 0
     while at < len(words) and _prefix(words[at], timed and at == 0):
         prefix, at = words[at], at + 1
@@ -96,24 +98,31 @@ def _command_at(words: list[str], timed: bool) -> int | None:
             at += 1
             if words[at - 1] == "--":
                 break
-        if prefix == "time":  # the keyword times a whole simple command, its assignments too: ``time -p X=1 cd``
-            at = _past_assignments(words, at)
+        # the keyword times a whole simple command, its assignments too: ``time -p X=1 cd``
+        at = _past_redirections(words, at, prefix == "time")
     return at
 
 
-def _past_assignments(words: list[str], at: int) -> int:
-    """The index of the first word of ``words`` from ``at`` on that is not ``NAME=value``."""
-    while at < len(words) and _ASSIGN.match(words[at]):
-        at += 1
-    return at
+def _past_redirections(words: list[str], at: int, assignments: bool = True) -> int:
+    """The index of the first word of ``words`` from ``at`` on that is neither a redirection (``> log``, ``2>err``,
+    which is no command word) nor, when ``assignments``, ``NAME=value``."""
+    while at < len(words):
+        if assignments and _ASSIGN.match(words[at]):
+            at += 1
+        elif m := _REDIRECT.fullmatch(words[at]):
+            at += 1 if m.group(1) else 2  # its target is attached, or the next word
+        else:
+            break
+    return min(at, len(words))
 
 
 def _prefix_runs_dir(words: list[str], timed: bool) -> bool:
     """Whether ``words`` start with ``builtin``, ``command`` or bash's ``time`` (``timed``) and then a directory builtin,
-    which the prefix runs in this shell; past ``time``, ``NAME=value`` words may come first (``time X=1 cd sub``)."""
+    which the prefix runs in this shell; past ``time``, ``NAME=value`` words may come first (``time X=1 cd sub``), and
+    redirections past any of them."""
     if not _prefix(words[0], timed):
         return False
-    at = _past_assignments(words, 1) if words[0] == "time" else 1
+    at = _past_redirections(words, 1, words[0] == "time")
     return at < len(words) and words[at] in _DIRS
 
 
@@ -146,13 +155,14 @@ def _prefix(word: str, timed: bool) -> bool:
 
 def _command_words(words: list[str], timed: bool) -> tuple[list[str], bool, bool]:
     """The words from the command's name on; whether ``env`` runs it; and whether that ``env`` changes
-    directory (``-C`` / ``--chdir``). ``NAME=value`` words, ``builtin``, ``command`` or a first ``time`` (``timed``: the
-    keyword) before a directory builtin (which runs it; ``time X=1 cd``), and ``env`` with its options and assignments come before the
-    name and are skipped. ``words`` are unquoted: ``shlex.split``'s, or :func:`_unquoted`'s for a part shlex does not split."""
+    directory (``-C`` / ``--chdir``). ``NAME=value`` words, redirections (``> log cd sub``), ``builtin``, ``command`` or
+    a first ``time`` (``timed``: the keyword) before a directory builtin (which runs it; ``time X=1 cd``), and ``env``
+    with its options and assignments come before the name and are skipped. ``words`` are unquoted: ``shlex.split``'s,
+    or :func:`_unquoted`'s for a part shlex does not split."""
     via_env = chdir = False
     while words:
-        if _ASSIGN.match(words[0]):
-            words = words[1:]
+        if _ASSIGN.match(words[0]) or _REDIRECT.fullmatch(words[0]):
+            words = words[_past_redirections(words, 0):]
         elif _prefix_runs_dir(words, timed):  # ``./command`` is a program
             words = words[1:]
         elif _program(words[0]) == "env":
