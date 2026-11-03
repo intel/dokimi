@@ -47,8 +47,8 @@ SPDX-License-Identifier: Apache-2.0
 > start (AGENTS.md files and their imports too, unless a root CLAUDE*, `.claude/CLAUDE.md` or
 > `CLAUDE.local.md` turns them off), nested guidance lazily, skill bodies on demand, and AGENTS.md
 > files a root CLAUDE* turns off, or a CLAUDE.md, `CLAUDE.local.md` or `.claude/CLAUDE.md` in the
-> AGENTS.md file's own directory (not one in a parent below the root; with a profile that sets
-> `guidance.claude_displaces_agents`, as `claude-code` does). The `start` total is not an upper bound: it is too low by what it does
+> AGENTS.md file's own directory (not one in a parent below the root). Both rules hold only with a profile that sets
+> `guidance.claude_displaces_agents`, as `claude-code` does: with `copilot`, a root AGENTS.md is `start` beside a root CLAUDE.md. The `start` total is not an upper bound: it is too low by what it does
 > not count (`.claude/rules/*.md` files, non-`.md` imports, skills behind a linked directory, nested
 > `.claude/skills/` skills, and
 > imports past the profile's `guidance.import_max_depth`, four hops for Claude Code, which warns
@@ -950,7 +950,7 @@ guidance:                            # DECLARED; verified by the reach probe, ne
   names: [CLAUDE.md, CLAUDE.local.md, AGENTS.md]
   resolution: ancestors-of-cwd + lazy-on-subtree-access
   imports: "@path"
-  claude_displaces_agents: true      # repo budget: a CLAUDE* turns off the AGENTS.md in its own directory
+  claude_displaces_agents: true      # repo budget: a root CLAUDE* turns off every AGENTS.md, a nested one its own directory's
 bridge: {for: AGENTS.md, write: CLAUDE.md, content: "@AGENTS.md"}
 args_if_present:                     # argv added after the "{tools}" element when the workspace file exists and the tool mode is `all`
   .mcp.json: ["--mcp-config", ".mcp.json"]

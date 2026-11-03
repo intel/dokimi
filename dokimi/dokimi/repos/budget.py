@@ -18,7 +18,9 @@ starts at the repository root:
   CLAUDE.md imports them (measured on Claude Code 2.1.286; the reach probe re-measures).
 - **off** too: an AGENTS.md below the root that resolves (not .claude/AGENTS.md, read as a root file) whose own directory holds a CLAUDE.md, CLAUDE.local.md or .claude/CLAUDE.md
   (not one in a parent below the root or a deeper directory), unless a CLAUDE* file is a link to it or a file that loads imports it
-  (measured on Claude Code 2.1.316; only for a profile that sets ``guidance.claude_displaces_agents``, claude-code).
+  (measured on Claude Code 2.1.316).
+- Both **off** rules are Claude Code's: they apply only for a profile that sets ``guidance.claude_displaces_agents``
+  (claude-code). Copilot CLI reads a root AGENTS.md beside a root CLAUDE.md.
 
 Characters, not tokens: how many tokens a character costs depends on the model's tokenizer,
 and differs between model families. The exact cost is the first-call prompt difference
@@ -67,7 +69,8 @@ _STOP = frozenset("a an and the of to for in on with use when or is are be this 
 def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: int | None = None, *,
            claude_displaces_agents: bool = False) -> dict[str, Any]:
     """The inventory. ``claude_displaces_agents`` (the profile's ``guidance.claude_displaces_agents``, Claude Code's
-    alone) adds the rule that a CLAUDE* file turns off the AGENTS.md in its own directory below the root."""
+    alone) adds the rules that a root CLAUDE* file turns off every AGENTS.md and one below the root the AGENTS.md
+    in its own directory; without it no AGENTS.md is off."""
     files = tree.files()
     names = set(guidance_names)
     every = [f for f in files if f.rsplit("/", 1)[-1] in names]
@@ -181,16 +184,16 @@ def _is_root(path: str) -> bool:
 
 
 def _displaced(tree: RepoTree, every: list[str], claude: list[str], root_claude: list[str],
-               same_dir: bool) -> dict[str, list[str]]:
-    """Each AGENTS.md a CLAUDE* file turns off, with the files that do: every one while a root CLAUDE* resolves, else,
-    with ``same_dir``, one that resolves and whose own directory holds a CLAUDE.md, CLAUDE.local.md or .claude/CLAUDE.md
+               rules: bool) -> dict[str, list[str]]:
+    """Each AGENTS.md a CLAUDE* file turns off, with the files that do, only with ``rules`` (Claude Code's): every one
+    while a root CLAUDE* resolves, else one that resolves and whose own directory holds a CLAUDE.md, CLAUDE.local.md or .claude/CLAUDE.md
     that resolves (not one in a parent or deeper directory; measured on Claude Code 2.1.316). Imports and aliases that
     still load it are decided later."""
+    if not rules:
+        return {}
     agents = [f for f in every if f.rsplit("/", 1)[-1] == "AGENTS.md"]
     if root_claude:
         return {f: root_claude for f in agents}
-    if not same_dir:
-        return {}
     present = {c for c in claude if _is_resolvable(tree, c)}
     out: dict[str, list[str]] = {}
     for f in agents:

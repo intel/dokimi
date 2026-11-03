@@ -76,7 +76,7 @@ class HarnessProfile:
 
     @property
     def claude_displaces_agents(self) -> bool:
-        """A CLAUDE* file turns off the AGENTS.md in its own directory (``guidance.claude_displaces_agents``)."""
+        """A root CLAUDE* turns every AGENTS.md off, a nested one its own directory's (``guidance.claude_displaces_agents``)."""
         return self.guidance.get("claude_displaces_agents") is True
 
     def applied_args(self, tools: str, present: frozenset[str]) -> list[str]:
