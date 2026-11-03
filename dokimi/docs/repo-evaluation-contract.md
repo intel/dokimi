@@ -1584,8 +1584,11 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
 ```bash
 # review tasks from the threads of merged PRs (§4.6): no LLM, no docker, no GitHub call
 python cli.py repo tasks replay ~/dpnp --threads threads.json --out ~/dpnp/.agent-eval/tasks
-python cli.py repo run ~/dpnp --task review_replay_pr3107 --arm guidance:none,guidance:raw \
+# a task starts from its PR's base: guidance:rev:<sha> runs the guidance under review there
+# (replace <sha> with that revision; the quotes keep the shell from reading <sha> as a redirect)
+python cli.py repo run ~/dpnp --task review_replay_pr3107 --arm 'guidance:none,guidance:rev:<sha>' \
     --model claude-sonnet-5-5 --batch replay --agent-network host
+# decide on the score row (recall, p_holm); metric:recall_addressed is descriptive
 python cli.py repo compare repo-runs/replay --baseline guidance:none --metric recall_addressed
 ```
 
@@ -1656,7 +1659,8 @@ python cli.py repo compare repo-runs/replay --baseline guidance:none --metric re
   record in `hits` per pair (`task`, `arm`, `model`, `rep`, `cell` and the
   match's fields; the first five come from the cell's `result.json`, and a
   match key of the same name does not replace them). A cell graded before `matches` was recorded is counted
-  (`N cell(s) graded without hit details`), not listed.
+  (`N cell(s) graded without hit details`), not listed. How to read a replay
+  batch before writing it up: [reviewing.md](reviewing.md#reading-a-replay-batch).
 - `repo compare` reduces cells to one value per (task, arm, model) first:
   repetitions share a task's difficulty and are not paired across arms, so the
   task is the unit. Per treatment arm, model and measure (gate share, score,
