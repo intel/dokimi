@@ -31,6 +31,7 @@ from dokimi.repos.skill_reach import (
     SkillReachError,
     _git_init,
     build_fixture,
+    classify,
     collisions,
     format_table,
     load_catalogue,
@@ -71,6 +72,8 @@ for base in (root / ".fake/skills", Path(os.environ["FAKE_CONFIG_DIR"]) / "skill
 answer = "\n".join(f"{n} {t}" for n, t in seen.items()) or "NONE"
 if mode == "prose":  # two words and a token: the token's letters are not prose
     answer = "project-client SKBCFC2F"
+if mode == "empty":  # exit 0 with an empty result: no usable answer, so an error, not not_listed
+    answer = ""
 events = [{"type": "system", "subtype": "init", "claude_code_version": "1.2.3"}]
 if mode == "look":  # read a file before answering: what it reports then is fetched, not listed
     events.append({"type": "assistant", "message": {"content": [
@@ -81,6 +84,9 @@ if mode == "skill":  # invoke the Skill tool before answering: a skill's body is
 if mode == "grep":  # search the skill files before answering: what it reports then is fetched, not listed
     events.append({"type": "assistant", "message": {"content": [
         {"type": "tool_use", "id": "t3", "name": "Grep", "input": {"pattern": "SK", "path": str(root)}}]}})
+if mode == "bash":  # list the skill dirs with a shell command before answering: a command is looking too
+    events.append({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "id": "t5", "name": "Bash", "input": {"command": "ls .fake/skills"}}]}})
 if mode == "edit":  # edit a file before answering: an edit is a tool call too, so what it reports is fetched
     events.append({"type": "assistant", "message": {"content": [
         {"type": "tool_use", "id": "t4", "name": "Edit", "input": {"file_path": str(root / "x"), "old_string": "a",
@@ -211,6 +217,27 @@ def test_an_edit_tool_before_answering_is_fetched(tmp_path, monkeypatch):
     by = {r["case"]: r["class"] for r in payload["records"]}
     assert by == {"project-client": "fetched", "project-agents": "not_listed"}
     assert payload["scenarios"][0]["looked"] is True
+
+
+def test_a_shell_command_before_answering_is_fetched(tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_MODE", "bash")
+    payload = _run(tmp_path, only=("project-client", "project-agents"))
+    by = {r["case"]: r["class"] for r in payload["records"]}
+    assert by == {"project-client": "fetched", "project-agents": "not_listed"}
+
+
+def test_an_empty_answer_with_exit_0_is_an_error_not_not_listed(tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_MODE", "empty")
+    payload = _run(tmp_path, only=("project-client",))
+    assert {r["class"] for r in payload["records"]} == {"error"}
+    assert "(no answer)" in payload["scenarios"][0]["error"]
+
+
+@pytest.mark.parametrize("description, cls", [("missing", "listed"), ("single", "not_listed")])
+def test_only_a_description_missing_skill_is_listed_by_its_body_token(description, cls):
+    case = Case(id="c", at="project:x", name="c", dirname="c", description=description)
+    placed = Placed(case, "project", "c", "SK000001", "SB000001")
+    assert classify(placed, SimpleNamespace(answer="c SB000001"), looked=False) == {"class": cls, "body": True}
 
 
 def test_a_token_in_the_answer_is_not_counted_as_prose(tmp_path, monkeypatch):
