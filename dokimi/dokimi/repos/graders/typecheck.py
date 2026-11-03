@@ -202,6 +202,7 @@ def grade(task: dict[str, Any], task_dir: Path, answer: str, run_dir: Path | Non
             # plain lines: the image's MYPY_FORCE_COLOR would put escapes around the file name and the marker
             stdout, stderr, status = api.run(["--no-incremental", "--no-color-output", f"--cache-dir={cache}",
                                               f"--config-file={config}", "--explicit-package-bases",
+                                              "--check-untyped-defs",  # as L0: stripped annotations hide nothing
                                               "--show-absolute-path",  # cwd-independent names, matched to the listed ones
                                               *[str(workspace / p) for p in present]])
         finally:
