@@ -31,9 +31,8 @@ TIMEOUT = 600  # seconds for one run over every fence of a repository
 MAX_WHY = 200
 # The oldest repository Python each tool accepts: the pinned mypy 2.x refuses --python-version 3.9 and exits 2.
 MIN_PYTHON = {"mypy": (3, 10)}
-# Errors a fence has only because it is a fragment of a longer example: a name an earlier fence defines, or
-# await/return/yield outside a function. Each tool words them its own way (mypy, then basedpyright, which may add
-# a rule name). Any other error is real, whatever else the fence has.
+# Fragment-only errors (a name an earlier fence defines, await/return/yield outside a function), in mypy's or
+# basedpyright's wording; any other error is real.
 _FRAGMENT = re.compile(r'^(?:Name "[^"]+"|"[^"]+") is not defined(?: \[reportUndefinedVariable\])?$'
                        r'|^"(?:await|return|yield)" outside function$'
                        r'|^"await" allowed only within async function(?: \[\w+\])?$'

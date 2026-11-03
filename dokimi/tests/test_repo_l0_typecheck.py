@@ -666,7 +666,7 @@ def test_the_fence_parser_runs_where_ast_parse_has_no_type_comments_keyword(monk
     monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(["x: int = 1", "f("])))
     out = io.StringIO()
     monkeypatch.setattr(sys, "stdout", out)
-    exec(compile(l0_typecheck._PARSE, "<parse>", "exec"), {"__name__": "__main__"})
+    exec(compile(l0_typecheck._PARSE, "<parse>", "exec"), {"__name__": "__main__"})  # nosec B102 - our own constant
     valid, invalid = json.loads(out.getvalue())
     assert valid is None
     assert invalid is not None
