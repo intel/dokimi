@@ -690,11 +690,11 @@ in the field, or no queries at all. A query file that names a skill outside the 
 when that skill is one the field leaves out for `disable-model-invocation`, the message names it and
 points to `--include-disabled`.
 
-**Cost of `--model` in all-vs-all.** The model arm makes one selector call per query, across
-every skill in the field: the call count is the number of queries in `queries.json` that have a
-content word (one without is unscored in both arms and not sent), and a failed call still counts. Each call sends the whole field's cards, so a large field costs
+**Cost of `--model` in all-vs-all.** The model arm makes one selector call per query and repeat,
+across every skill in the field: the call count is the number of queries in `queries.json` that have a
+content word (one without is unscored in both arms and not sent) times `--repeats`, and a failed call still counts. Each call sends the whole field's cards, so a large field costs
 more per call as well as in calls. Before the first call the run prints that count to stderr
-(`all-vs-all: --model makes N model calls, one per query, ...`). The run does not pause for it,
+(`all-vs-all: --model makes N model calls, one per query and repeat, ...`). The run does not pause for it,
 so count the queries first, or pass `--max-usd` to stop the run at a spend limit. A lexical-only run (no `--model`) makes no model calls.
 A stored response in `DOKIMI_RESPONSE_CACHE` is replayed without a call, so a rerun can make
 fewer calls than the printed count.
