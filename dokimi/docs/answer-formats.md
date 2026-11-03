@@ -98,6 +98,38 @@ artifact for an `arms run` file. Each block carries `scorer: reference`, and
 the run's pass rates and mean scores are under `run_metadata.summary` (or
 `reference_scoring`).
 
+## Red-teaming the grading
+
+`eval redteam QUESTIONS.json` grades synthetic answers against each question's
+`grading` block and reports how often the grader accepts them:
+
+| Attack | Answer | The grader must |
+|---|---|---|
+| `canary` | The right answer, built from the one literal check (`match`, `fuzzy`, `exact`, `choice`, `json`); a question with several checks, a `regex`, a `judge` or a `negate` has none | pass it |
+| `wrong` | A planted wrong answer, picked per block so that no positive literal check accepts it, asked with the check's own rules (the probe is skipped only when no candidate is clean) | fail it |
+| `empty` | `""` | fail it |
+| `hedge` | A fixed non-committal sentence; skipped when a positive literal check accepts it | fail it |
+
+An attack the grader accepts, or a canary it rejects, is a violation, and any
+violation makes the run `blocked`: the command prints the pass rates and the
+violations and exits 1 (`--out FILE` writes `redteam.v1`). A run in which a graded
+question was not measured is `inconclusive` and also exits 1: a question whose
+`judge` checks have no verdict without `--judge` (no probe scored), or a block
+of only negated checks. A `negate` check passes an answer that lacks its value,
+so a block of only negated checks gets none of `wrong`, `empty` and `hedge`: it
+is marked `negated_only` in the artifact (the table prints a line "N questions with only negated checks: wrong, empty and hedge not run"),
+and it has no probe at all. The table names up to 20 questions that were not
+measured and counts them as `unprobed`; `--out FILE` keeps the complete list; only a run that measured every graded
+question and found no violation is `pass`. An unwritable `--out` exits 2.
+A block with a positive check
+is graded as written, `threshold` included, so a negated check's share of the score
+counts: a block it lifts over the line is blocked.
+A probe the grader cannot
+score is unscored and does not block. `judge` checks are unscored unless
+`--judge` is given, so the default run makes no model call; with `--judge` the
+artifact records `judge_model` and `judge_provider` (both `null` without it). Nothing here
+changes a score; it tells you whether a grading block is worth trusting.
+
 ## What does not carry over
 
 | Format | Lossy |

@@ -7,7 +7,7 @@
 # ruff-check rev in .pre-commit-config.yaml (Renovate's ruff group). zizmor
 # likewise matches its pre-commit rev. PyYAML and jsonschema: schema-check in
 # the static job, which installs no other lock.
-ruff==0.17.1
+ruff==0.17.2
 zizmor==1.31.1
 pre-commit==4.7.0
 bandit==1.9.4
@@ -15,6 +15,9 @@ pip-audit==2.10.1
 mypy==2.4.0
 PyYAML
 jsonschema
+# regex: the static job's registry-drift-check and guidance self-scan import dokimi.repos,
+# which imports the `regex` module (the reference check's engine); the job installs no other lock.
+regex
 types-PyYAML
 types-jsonschema
 deptry==0.25.1
@@ -24,4 +27,4 @@ build
 # build with --no-isolation, so setuptools comes from this lock, hashed, not from PyPI.
 setuptools
 twine
-uv==0.13.4
+uv==0.13.5

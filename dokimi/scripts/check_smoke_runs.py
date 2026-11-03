@@ -4,8 +4,9 @@
 
 """Pass/fail gate for the external-catalog smoke test's ``task_runs.v1`` artifact.
 
-``tasks run`` is a reporting command: its exit code does not say whether the
-task passed. This gate does, for ``docker-oracle`` and ``docker-probe``:
+``tasks run`` exits 1 for an incomplete run (an errored, unscored or missing
+cell), not for failed verification. This gate adds that check, for
+``docker-oracle`` and ``docker-probe``:
 
 - every cell ran and passed: ``n > 0``, ``passed == n`` and no errored cell.
   ``pass_rate`` alone is not enough, because an errored cell is left out of its
