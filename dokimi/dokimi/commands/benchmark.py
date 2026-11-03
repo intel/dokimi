@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 from typing import Any, Callable, List, cast
 
-from dokimi.llm import ANSWER_PROVIDERS
+from dokimi.llm import ANSWER_PROVIDERS, api_key_env, resolve_api_key
 from dokimi.commands.evaluate import _warn_judge_independence
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
@@ -86,28 +86,28 @@ def _run_single_library(entry, output_dir: str, model: str, provider: str, judge
     return {"library": entry.key, "name": entry.name, "status": "ok", "result": result}
 
 
-def _credential_env_var(provider: str) -> str:
-    return {
-        "openai": "OPENAI_API_KEY",
-        "anthropic": "ANTHROPIC_API_KEY",
-        "openrouter": "OPENROUTER_API_KEY",
-        "amazon-bedrock": "AWS_BEARER_TOKEN_BEDROCK",
-        "google": "GEMINI_API_KEY",
-        "google-vertex": "GEMINI_API_KEY",
-        "openai-codex": "OPENAI_API_KEY",
-    }.get(provider, "OPENAI_API_KEY")
+def _key_error(provider: str) -> str | None:
+    """Why *provider* has no key to send, or ``None``: the key is read as the run reads it."""
+    var = api_key_env(provider)
+    try:
+        if resolve_api_key(provider):
+            return None
+    except ValueError as exc:
+        return f"{exc} ({var}, provider {provider})"
+    if os.environ.get(var):
+        return f"{var} for provider {provider} names an empty key file"
+    return f"missing {var} for provider {provider}"
 
 
 def _credential_error(provider: str, status=None) -> str | None:
-    """Why *provider* cannot run here, or ``None``: a missing key, or a CLI not signed in.
+    """Why *provider* cannot run here, or ``None``: no key to send, or a CLI not signed in.
 
     *status* is the provider's ``llm_cli.detect`` result when the caller already has it.
     """
     from dokimi import llm_cli
 
     if llm_cli.backend(provider) is None:
-        key = _credential_env_var(provider)
-        return None if os.environ.get(key) else f"missing {key} for provider {provider}"
+        return _key_error(provider)
     status = status or llm_cli.detect(provider)
     if not status.installed:
         return f"{provider}: '{status.binary}' is not installed"

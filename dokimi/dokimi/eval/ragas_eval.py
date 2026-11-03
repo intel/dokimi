@@ -19,11 +19,11 @@ Usage:
 """
 
 import logging
-import os
 from typing import List, Dict, Any, Optional
 
 from dokimi.eval.question_text import require_question_text
 from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
+from dokimi.llm import resolve_api_key
 from dokimi.records import BASELINE, CONTEXT, RecordLike, records
 
 logger = logging.getLogger(__name__)
@@ -68,7 +68,7 @@ class RagasEvaluator:
         Args:
             llm_model:  LLM used internally by RAGAS for scoring.
             provider:   Provider — "openai", "anthropic", or "google".
-            api_key:    Optional API key (falls back to env var).
+            api_key:    Optional API key (falls back to env var); either may be ``file:<path>``.
             metrics:    Which metrics to compute. Defaults to all supported ones.
                         Choices: "faithfulness", "answer_relevancy",
                                  "context_precision", "context_recall".
@@ -225,11 +225,10 @@ class RagasEvaluator:
             from langchain_core.language_models import BaseChatModel
             lc_llm: BaseChatModel  # either provider's chat model
 
-            key = self._resolve_key()
-
             chat = {"openai": ChatOpenAI, "anthropic": ChatAnthropic}
             if self.provider in chat:
-                lc_llm = chat[self.provider](model=self.llm_model, api_key=key or None)
+                key = resolve_api_key(self.provider, self.api_key)
+                lc_llm = chat[self.provider](model=self.llm_model, api_key=key)
             else:
                 # RAGAS 0.2 needs a LangChain chat model, built here for openai and
                 # anthropic only. Any other provider (google/vertex/openrouter/bedrock)
@@ -240,7 +239,8 @@ class RagasEvaluator:
                     "falling back to %s/%s for judging.",
                     self.provider, DEFAULT_JUDGE_PROVIDER, DEFAULT_JUDGE_MODEL,
                 )
-                lc_llm = chat[DEFAULT_JUDGE_PROVIDER](model=DEFAULT_JUDGE_MODEL)
+                lc_llm = chat[DEFAULT_JUDGE_PROVIDER](model=DEFAULT_JUDGE_MODEL,
+                                                      api_key=resolve_api_key(DEFAULT_JUDGE_PROVIDER))
 
             return LangchainLLMWrapper(lc_llm)
 
@@ -278,17 +278,6 @@ class RagasEvaluator:
         for m in metrics:
             m.llm = self._ragas_llm
         return metrics
-
-    def _resolve_key(self) -> str:
-        """Resolve API key from instance or env."""
-        if self.api_key:
-            return self.api_key
-        env_map = {
-            "openai": "OPENAI_API_KEY",
-            "anthropic": "ANTHROPIC_API_KEY",
-            "google": "GEMINI_API_KEY",
-        }
-        return os.environ.get(env_map.get(self.provider, "OPENAI_API_KEY"), "")
 
 
 class RagasResult:

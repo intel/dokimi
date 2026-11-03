@@ -1,0 +1,130 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""The benchmark preflight and the RAGAS judge read a key as ``dokimi.llm`` does.
+
+A key may be ``file:<path>`` (``llm.resolve_api_key``). The preflight passed an
+unreadable or empty key file that every call then failed on, and the RAGAS judge
+sent the ``file:`` string itself as the key.
+"""
+
+from __future__ import annotations
+
+import sys
+import types
+
+import pytest
+
+from dokimi import cli
+from dokimi.commands.benchmark import _credential_error
+from dokimi.defaults import DEFAULT_JUDGE_PROVIDER
+from dokimi.eval.judge import JUDGE_PROVIDERS
+from dokimi.eval.ragas_eval import RagasEvaluator
+from dokimi.llm import ANSWER_PROVIDERS, api_key_env
+from dokimi.llm_cli import BACKENDS
+
+API_PROVIDERS = sorted({*ANSWER_PROVIDERS, *JUDGE_PROVIDERS} - set(BACKENDS))
+
+
+def _preflight(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(
+        "sys.argv",
+        ["dokimi", "benchmark", "preflight", "--library", "onetbb", "--provider", "anthropic",
+         "--judge-provider", "anthropic", "--output-dir", str(tmp_path / "out")],
+    )
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    return exc.value.code, capsys.readouterr().err
+
+
+def test_preflight_refuses_an_unreadable_key_file(tmp_path, monkeypatch, capsys):
+    missing = tmp_path / "no-such-key"
+    monkeypatch.setenv("ANTHROPIC_API_KEY", f"file:{missing}")
+    code, err = _preflight(tmp_path, monkeypatch, capsys)
+    assert f"Cannot read API key from file '{missing}'" in err
+    assert "(ANTHROPIC_API_KEY, provider anthropic)" in err
+    assert code == 2
+
+
+def test_preflight_refuses_an_empty_key_file(tmp_path, monkeypatch, capsys):
+    empty = tmp_path / "key"
+    empty.write_text("\n")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", f"file:{empty}")
+    code, err = _preflight(tmp_path, monkeypatch, capsys)
+    assert "ANTHROPIC_API_KEY for provider anthropic names an empty key file" in err
+    assert code == 2
+
+
+@pytest.mark.parametrize("provider", API_PROVIDERS)
+def test_preflight_checks_the_variable_the_run_reads(provider, tmp_path, monkeypatch):
+    for var in {api_key_env(p) for p in API_PROVIDERS}:
+        monkeypatch.delenv(var, raising=False)
+    var = api_key_env(provider)
+    assert _credential_error(provider) == f"missing {var} for provider {provider}"
+    key = tmp_path / "key"
+    key.write_text("sk-test\n")
+    monkeypatch.setenv(var, f"file:{key}")
+    assert _credential_error(provider) is None
+
+
+@pytest.fixture
+def chat_models(monkeypatch):
+    """Stub LangChain chat classes recording each build, so no ragas extra is needed."""
+    built = []
+
+    def chat(name):
+        def build(**kwargs):
+            built.append((name, kwargs))
+            return name
+        return build
+
+    stubs = {
+        "ragas.llms": {"LangchainLLMWrapper": lambda model: model},
+        "langchain_openai": {"ChatOpenAI": chat("openai")},
+        "langchain_anthropic": {"ChatAnthropic": chat("anthropic")},
+        "langchain_core.language_models": {"BaseChatModel": object},
+    }
+    for name, attrs in stubs.items():
+        monkeypatch.setitem(sys.modules, name, types.SimpleNamespace(**attrs))
+    monkeypatch.setattr(RagasEvaluator, "_build_metrics", lambda self: [])
+    return built
+
+
+@pytest.mark.parametrize("provider", ["openai", "anthropic"])
+def test_ragas_judge_reads_a_key_file_from_the_environment(provider, chat_models, tmp_path, monkeypatch):
+    key = tmp_path / "key"
+    key.write_text("sk-from-file\n")
+    monkeypatch.setenv(api_key_env(provider), f"file:{key}")
+    RagasEvaluator(llm_model="m", provider=provider)
+    assert chat_models == [(provider, {"model": "m", "api_key": "sk-from-file"})]
+
+
+def test_ragas_judge_reads_an_explicit_key_file(chat_models, tmp_path, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-env")
+    key = tmp_path / "key"
+    key.write_text("sk-explicit\n")
+    RagasEvaluator(llm_model="m", provider="openai", api_key=f"file:{key}")
+    assert chat_models == [("openai", {"model": "m", "api_key": "sk-explicit"})]
+
+
+def test_ragas_fallback_judge_reads_its_own_key_file(chat_models, tmp_path, monkeypatch):
+    key = tmp_path / "key"
+    key.write_text("sk-judge\n")
+    monkeypatch.setenv(api_key_env(DEFAULT_JUDGE_PROVIDER), f"file:{key}")
+    RagasEvaluator(llm_model="gemini-x", provider="google", api_key="sk-for-google")
+    ((name, kwargs),) = chat_models
+    assert (name, kwargs["api_key"]) == (DEFAULT_JUDGE_PROVIDER, "sk-judge")
+
+
+def test_ragas_judge_raises_on_an_unreadable_key_file(chat_models, tmp_path, monkeypatch):
+    missing = tmp_path / "no-such-key"
+    monkeypatch.setenv("ANTHROPIC_API_KEY", f"file:{missing}")
+    with pytest.raises(ValueError, match="Cannot read API key from file"):
+        RagasEvaluator(provider="anthropic")
+    assert chat_models == []
+
+
+def test_ragas_judge_without_a_key_leaves_it_to_langchain(chat_models, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    RagasEvaluator(llm_model="m", provider="openai")
+    assert chat_models == [("openai", {"model": "m", "api_key": None})]

@@ -14,6 +14,7 @@ import yaml
 
 from dokimi import config, defaults
 from dokimi.cli import build_parser
+from dokimi.llm import api_key_env
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -139,10 +140,12 @@ def test_ragas_falls_back_to_the_default_judge_for_an_unsupported_provider(monke
     monkeypatch.setitem(sys.modules, "langchain_anthropic", anthropic_mod)
     monkeypatch.setitem(sys.modules, "langchain_core.language_models", core_models)
 
+    monkeypatch.delenv(api_key_env(JUDGE[1]), raising=False)
+
     evaluator = RagasEvaluator.__new__(RagasEvaluator)
     evaluator.llm_model, evaluator.provider, evaluator.api_key = "gemini-x", "google", None
     evaluator._build_ragas_llm()
-    assert built == [(JUDGE[1], {"model": JUDGE[0]})]
+    assert built == [(JUDGE[1], {"model": JUDGE[0], "api_key": None})]
 
 
 def test_independence_warning_sees_a_bedrock_alias_and_its_profile_as_one_model(capsys):
