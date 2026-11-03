@@ -381,9 +381,12 @@ did not match them) in its density. `knowledge` and `value` are retention of the
 the atom count. With no cap, or a cap the atoms do not exceed, the two sets are the same. Since
 the oracle cannot see an unsampled atom go, each candidate counts the unsampled atoms none of whose
 cited spans it keeps (`dropped_unscored_atoms`), and a candidate is `safe` only when that is 0 and it
-keeps every protected span. Without `--allow-unsafe`, `pick_best` (the one `shorten --out` writes)
-takes only safe ones, so a `greedy_value` or `random` cut that drops an unsampled fact is still
-built, scored and listed, but not chosen.
+keeps every protected span. `greedy_value_safe` pins, besides protected spans and sole carriers, the
+cheapest cited span (fewest tokens, then the earliest) of each unsampled atom none of whose cited
+spans is pinned yet, so an unsampled atom cited by two spans keeps one of them. Without
+`--allow-unsafe`, `pick_best` (the one `shorten --out` writes) takes only safe ones, so a
+`greedy_value` or `random` cut that drops an unsampled fact is still built, scored and listed, but
+not chosen.
 
 Rule of thumb from the measurements: a safety-pinned strategy at 0.60 token fraction held
 `protection = 1.000` with knowledge 0.81–0.96, and pooled across the behavioural sweep every
