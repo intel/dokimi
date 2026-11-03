@@ -329,11 +329,45 @@ def _run_substitutions(text: str) -> str:
     return "".join(out) + "".join("\n" + line for line in extra)
 
 
+_BACKTICK_BODY = re.compile(r"`((?:[^`\\]|\\[\s\S])*)`")
+
+
+def _backticks_as_substitutions(text: str) -> str:
+    """The text with each backtick substitution outside single quotes and comments written as ``$(...)``: the shell
+    runs both forms. An escaped backtick is text."""
+    if "`" not in text:
+        return text
+    out: list[str] = []
+    i, double = 0, False
+    while i < len(text):
+        c = text[i]
+        if c == "\\":
+            out.append(text[i:i + 2])
+            i += 2
+            continue
+        end = i + 1
+        if c == "'" and not double:
+            close = text.find("'", i + 1)
+            end = len(text) if close < 0 else close + 1
+        elif c == "#" and not double and (i == 0 or text[i - 1] in " \t\n;&|()"):
+            close = text.find("\n", i)
+            end = len(text) if close < 0 else close
+        elif c == "`" and (body := _BACKTICK_BODY.match(text, i)):
+            out.append(f"$({body.group(1)})")
+            i = body.end()
+            continue
+        elif c == '"':
+            double = not double
+        out.append(text[i:end])
+        i = end
+    return "".join(out)
+
+
 def _executable(command: str) -> str:
     """The lines a shell would run: heredoc bodies, line continuations and function definitions left out, and the
-    commands of double-quoted substitutions added."""
+    commands of double-quoted and backtick substitutions added."""
     text = _CONTINUATION.sub(_join_line, _without_heredoc_bodies(command or ""))
-    return _run_substitutions(_without_functions(text))
+    return _run_substitutions(_backticks_as_substitutions(_without_functions(text)))
 
 
 def _without_here_strings(text: str) -> str:

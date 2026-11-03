@@ -46,7 +46,7 @@ model is called; every match is lexical.
   echo/printf arguments (their redirection targets still count) and quoted sentences: a quoted
   argument with a space in it is text, so `git commit -m "update docs/guide.md"` does not act on
   the file, while `cat "docs/guide.md"` does. A quoted path that itself contains a space is read as a
-  sentence and does not count. A `>` inside quotes is text, not a redirection. A `$(...)` inside double quotes runs its command (`echo "$(make ci-local)"` counts), while one in single quotes or escaped is text. A number glued to a redirection (`sleep 5>/dev/null`) is a file descriptor, so `sleep 5` does not match it; a spaced one (`sleep 5 >/dev/null`) is an argument. A `<` reads its file, and a
+  sentence and does not count. A `>` inside quotes is text, not a redirection. A `$(...)` inside double quotes runs its command (`echo "$(make ci-local)"` counts), while one in single quotes or escaped is text; a backtick substitution (`` echo `make ci-local` ``) is read the same way. A number glued to a redirection (`sleep 5>/dev/null`) is a file descriptor, so `sleep 5` does not match it; a spaced one (`sleep 5 >/dev/null`) is an argument. A `<` reads its file, and a
   shell function's definition does not count as acting: its body is ignored (up to the brace that closes it,
   quotes and nested groups counted), and calls of the function are not followed.
   A capitalised bare file name in backticks (`` `Makefile` ``) matches an edit of that file, or a

@@ -92,6 +92,22 @@ def test_a_substitution_in_single_quotes_or_escaped_is_text_not_a_run(command):
     assert _row(_report([session]), CI)["acted"] == 0
 
 
+@pytest.mark.parametrize("command", ["echo `make ci-local`", 'echo "`make ci-local`"', "out=`make ci-local`",
+                                     "echo \"it's\" `make ci-local`", "echo `make ci-local 2>&1 | tail -1`",
+                                     "echo 'a`b' `make ci-local`", "echo \\` `make ci-local`",
+                                     "# don't\necho `make ci-local`"])
+def test_a_backtick_substitution_is_a_command_that_runs(command):
+    session = _session(_prompt("push the branch now"), _tool("Bash", command=command))
+    assert _row(_report([session]), CI)["acted"] == 1
+
+
+@pytest.mark.parametrize("command", ["echo '`make ci-local`'", "echo \\`make ci-local\\`",
+                                     "echo hi # `make ci-local`", "echo 'a' \"\\`make ci-local\\`\""])
+def test_a_backtick_in_single_quotes_a_comment_or_escaped_is_text_not_a_run(command):
+    session = _session(_prompt("push the branch now"), _tool("Bash", command=command))
+    assert _row(_report([session]), CI)["acted"] == 0
+
+
 def test_a_path_read_by_a_substitution_inside_double_quotes_counts_as_touched():
     rule = "- Update `docs/guide.md` when behaviour changes.\n"
     session = _session(_prompt("update behaviour changes"), _tool("Bash", command='echo "$(cat docs/guide.md)"'))
