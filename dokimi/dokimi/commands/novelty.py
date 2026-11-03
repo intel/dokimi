@@ -173,7 +173,7 @@ def cmd_novelty_atoms(args: argparse.Namespace) -> None:
 
 def cmd_novelty_probe(args: argparse.Namespace) -> None:
     """Run the paired probes against a saved atom set and print the 2×2."""
-    from dokimi.commands.novelty_atoms_file import measured_atoms, warn_unread
+    from dokimi.commands.novelty_atoms_file import measured_atoms, sampling_record, warn_unread
     from dokimi.novelty.atoms import load_atoms_or_exit
     from dokimi.novelty.bundle import check_answer_key
     from dokimi.novelty.measure import SelfJudgeError, check_self_judge, run_measurement
@@ -224,6 +224,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
         artifact_ref=args.artifact, model=answerer.model, judge_model=judge.model,
         probed_bundle=verdict.bundle, atoms_bundle=saved.get("bundle"),
         probe_set=probe_set, measure_result=result,
+        sampling=sampling_record(args, atoms, saved),
     )
     out = Path(args.out) if args.out else _default_dir(args.artifact) / "probes.json"
     out.parent.mkdir(parents=True, exist_ok=True)

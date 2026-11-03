@@ -1050,7 +1050,10 @@ the wrong reason. If the artifact's files changed since extraction — edited, r
 new text file added — `probe` refuses instead of mis-scoring (a new image or symlink is not
 text any mode reads, so it does not). The entry point alone may
 change (that is the re-measure step); the result's `ref_digest` and `bundle` then describe
-the text that was probed, and `atoms_ref_digest` the text the atoms came from. Every novelty
+the text that was probed, and `atoms_ref_digest` the text the atoms came from. Its `sampling`,
+`{"atoms": n, "of": M, "all_atoms": false}`, says `probe` measured n of the file's M atoms (the
+recorded sample) or, with `all_atoms: true`, every one, so a rate over a sample is not quoted as
+the file's; records written before it have no `sampling`. Every novelty
 `ref_digest` is the bundle's `measured_digest` (the measured files' paths and text digests);
 the subject scorecard's `subject.ref_digest` is a different hash, of every file under the
 subject path, and the two are not meant to match. `shorten`

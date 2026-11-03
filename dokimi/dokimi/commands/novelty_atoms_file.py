@@ -95,6 +95,12 @@ def _warn_unchecked(atoms: list, sample: list, stage: str, path) -> None:
               file=sys.stderr)
 
 
+def sampling_record(args: argparse.Namespace, atoms: list, saved: dict) -> dict:
+    """``probes.json``'s ``sampling``: the ``atoms`` measured, ``of`` the file's atoms, and
+    whether ``--all-atoms`` was set, so a rate over the sample is not read as the file's."""
+    return {"atoms": len(atoms), "of": len(saved["atoms"]), "all_atoms": bool(args.all_atoms)}
+
+
 def measured_atoms(args: argparse.Namespace, atoms: list, saved: dict, stage: str) -> list:
     """The atoms ``stage`` measures: the cap's sample ``atoms.json`` records, or with
     ``--all-atoms`` every atom in it, reusing its extraction (#371).

@@ -236,8 +236,11 @@ def test_probe_measures_the_recorded_sample_or_with_all_atoms_every_atom(
     _cli(monkeypatch, "probe", "--artifact", f"skill:{skill}", "--atoms", str(atoms_json),
          "--concurrency", "1", "--no-paraphrase", "--no-reversal", "--out", str(probes_json),
          *flags)
-    runs = json.loads(probes_json.read_text())["runs"]
+    record = json.loads(probes_json.read_text())
+    runs = record["runs"]
     assert len({run["atom_id"] for run in runs}) == probed
+    # The record says it measured a sample, so its 2x2 is not quoted as the file's rate.
+    assert record["sampling"] == {"atoms": probed, "of": 6, "all_atoms": probed == 6}
     if probed == 2:
         assert {run["atom_id"] for run in runs} == set(saved["sampled_atom_ids"])
     note = (f"NOTE probe measures the 2 atoms {atoms_json} records as the cap's sample, of its 6; "

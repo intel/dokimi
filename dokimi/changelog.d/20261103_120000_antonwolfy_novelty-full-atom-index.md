@@ -31,3 +31,16 @@
   check judges a capped run's share. The cap no longer forfeits
   `frac_carrying_nothing`, and the shortening forfeit says `knowledge` and
   `value` are retention of the sample rather than that a cut looks free.
+  `probes.json` records `sampling` (`atoms` probed, `of` the file's atoms,
+  `all_atoms`), so a rate over the sample is not read as the file's.
+
+### Changed
+
+- **Capped novelty runs: span and shortening figures are not comparable with
+  older capped runs** — on a run whose cap left atoms out,
+  `frac_carrying_nothing`, dead weight, sole carriers, the novelty gate's
+  `dead_tokens` check and the candidate `novelty shorten --out` writes are
+  now computed over every extracted atom instead of the cap's sample, so the
+  same input gives different numbers than before. Re-run older capped
+  `novelty analyze` and `novelty atoms` runs before comparing them with new
+  ones.
