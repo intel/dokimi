@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from dokimi.repos.cli_traces import shell_reads_moved
+from dokimi.repos.cli_traces import shell_reads_moved, shell_walk
 from dokimi.repos.events import convert
 from dokimi.repos.process_metrics import process_metrics
 
@@ -300,6 +300,24 @@ def test_a_directory_builtin_in_a_case_arm_may_move_the_shell(command):
 
 def test_a_case_with_no_directory_builtin_keeps_the_next_read():
     assert shell_reads_moved("case x in a) echo a;; esac; cat a") == (["a"], False)
+
+
+def test_assignments_after_the_time_keyword_still_run_the_cd_in_this_shell():
+    # bash's ``time`` times the whole simple command ``X=1 cd sub``: the cd runs here
+    assert shell_walk("time X=1 cd sub; cat AGENTS.md") == (["sub/AGENTS.md"], True, 0)
+    assert _reads(_events(_call("a", "time X=1 cd sub"), _result("a"), _call("b", "cat AGENTS.md"), _result("b"))) == []
+
+
+def test_a_nested_case_keeps_the_outer_case_open_past_the_inner_esac():
+    # the cd is still in the outer case's arm: not followed, so the cat after the case is at an unknown directory
+    command = "case $x in a) case $y in b) :;; esac; cd sub;; esac; cat AGENTS.md"
+    assert shell_walk(command) == ([], True, 1)
+    assert _reads(_events(_call("a", command), _result("a"))) == []
+
+
+def test_a_brace_opened_on_a_case_part_is_tracked_so_the_outer_redirect_hides_the_group():
+    assert shell_walk("{ cat AGENTS.md; { case $x in a) :;; esac; }; } > /dev/null") == ([], False, 0)
+    assert shell_walk("{ cat AGENTS.md; { case $x in a) :;; esac; }; }") == (["AGENTS.md"], False, 0)
 
 
 def test_a_parents_cd_drops_a_subagents_later_relative_read():

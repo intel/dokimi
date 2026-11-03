@@ -85,8 +85,8 @@ def _may_run_dir(words: list[str], timed: bool) -> bool:
 
 def _command_at(words: list[str], timed: bool) -> int | None:
     """The index of the command word in unquoted ``words``, past ``builtin``, ``command`` and, when ``timed``, a first
-    ``time``, with their options (``time -p``, ``command -p``, ``--``); None for ``command -v`` / ``-V``, which only
-    describes the command."""
+    ``time``, with their options (``time -p``, ``command -p``, ``--``) and, after ``time``, ``NAME=value`` words; None for
+    ``command -v`` / ``-V``, which only describes the command."""
     at = 0
     while at < len(words) and _prefix(words[at], timed and at == 0):
         prefix, at = words[at], at + 1
@@ -96,7 +96,25 @@ def _command_at(words: list[str], timed: bool) -> int | None:
             at += 1
             if words[at - 1] == "--":
                 break
+        if prefix == "time":  # the keyword times a whole simple command, its assignments too: ``time -p X=1 cd``
+            at = _past_assignments(words, at)
     return at
+
+
+def _past_assignments(words: list[str], at: int) -> int:
+    """The index of the first word of ``words`` from ``at`` on that is not ``NAME=value``."""
+    while at < len(words) and _ASSIGN.match(words[at]):
+        at += 1
+    return at
+
+
+def _prefix_runs_dir(words: list[str], timed: bool) -> bool:
+    """Whether ``words`` start with ``builtin``, ``command`` or bash's ``time`` (``timed``) and then a directory builtin,
+    which the prefix runs in this shell; past ``time``, ``NAME=value`` words may come first (``time X=1 cd sub``)."""
+    if not _prefix(words[0], timed):
+        return False
+    at = _past_assignments(words, 1) if words[0] == "time" else 1
+    return at < len(words) and words[at] in _DIRS
 
 
 def _program(word: str) -> str:
@@ -129,13 +147,13 @@ def _prefix(word: str, timed: bool) -> bool:
 def _command_words(words: list[str], timed: bool) -> tuple[list[str], bool, bool]:
     """The words from the command's name on; whether ``env`` runs it; and whether that ``env`` changes
     directory (``-C`` / ``--chdir``). ``NAME=value`` words, ``builtin``, ``command`` or a first ``time`` (``timed``: the
-    keyword) before a directory builtin (which runs it), and ``env`` with its options and assignments come before the
+    keyword) before a directory builtin (which runs it; ``time X=1 cd``), and ``env`` with its options and assignments come before the
     name and are skipped. ``words`` are unquoted: ``shlex.split``'s, or :func:`_unquoted`'s for a part shlex does not split."""
     via_env = chdir = False
     while words:
         if _ASSIGN.match(words[0]):
             words = words[1:]
-        elif _prefix(words[0], timed) and len(words) > 1 and words[1] in _DIRS:  # ``./command`` is a program
+        elif _prefix_runs_dir(words, timed):  # ``./command`` is a program
             words = words[1:]
         elif _program(words[0]) == "env":
             words, via_env = words[1:], True

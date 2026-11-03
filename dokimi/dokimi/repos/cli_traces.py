@@ -128,7 +128,7 @@ def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
         if not chained and walk.gated:  # a cd after && or || may not have run: the next chain starts in no known directory
             walk.here, walk.gated = None, False
         walk.chain(op, chained)
-        if walk.in_function(_bare(part)) or walk.in_case(outer):  # a definition runs nothing; a case is not followed
+        if walk.in_function(_bare(part)) or walk.in_case(outer, after, out):  # a definition runs nothing; a case is not followed
             continue
         if op == "||" and walk.moved:
             walk.here = None
@@ -191,15 +191,17 @@ class _Walk:
         self.function = max(self.function + len(_GROUP_OPEN.findall(bare)) - len(_GROUP_CLOSE.findall(bare)), 0)
         return True
 
-    def in_case(self, outer: str) -> bool:
+    def in_case(self, outer: str, after: str, out: list[str]) -> bool:
         """Whether ``outer`` is part of a ``case ... esac``, which is not followed: an arm may run or not, so one naming a
-        directory builtin (as any word: ``case x in a) cd sub;; esac``) may move the shell, and its reads are not kept."""
+        directory builtin (as any word: ``case x in a) cd sub;; esac``) may move the shell, and its reads are not kept.
+        Inside one, each ``case`` word opens another, so a miscount stays inside; its braces still open and close groups."""
         words = _unquoted(outer.split())
         while words[:1] and (words[0] in _KEYWORDS or words[0] == "{"):
             words = words[1:]
-        self.case += words[:1] == ["case"]
-        if not self.case:
+        if not self.case and words[:1] != ["case"]:
             return False
+        self.case += words.count("case")
+        self.track_groups(_bare(outer), after, out)  # before lose: a backgrounded group around the case restores it
         if any(w in _DIRS for w in words):
             self.lose()
         self.case -= words[:1] == ["esac"]

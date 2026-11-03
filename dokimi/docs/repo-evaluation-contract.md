@@ -1326,7 +1326,8 @@ observations of that run. It cannot show:
   is not followed, so a later relative read is taken from the directory
   before it (an `eval`, `source` or `.` is taken as moving the shell). A
   command the parser does not fully follow counts as moving the shell when
-  its command word, after `builtin`, `command` or `time` and their options,
+  its command word, after `builtin`, `command` or `time` and their options
+  (and, after `time`, assignments: `time X=1 cd sub` runs the `cd` here),
   names a directory builtin (`X="a b" cd "$D"`, `time -p cd sub`; not
   `time git add .`), and so does one in a `case` arm. `time` is that
   keyword only as the first word, unquoted (`X=1 time cd sub` and
