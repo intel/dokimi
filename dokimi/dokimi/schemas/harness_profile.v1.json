@@ -53,6 +53,7 @@
         "imports": {"type": ["string", "null"]},
         "import_max_depth": {"type": "integer", "minimum": 1, "description": "How many hops of @imports the harness follows from a guidance file; absent: unlimited."},
         "shadow_file": {"type": "string", "minLength": 1, "description": "A file the harness loads by convention that, put in a directory, should turn the other guidance there off: a file name or a path relative to the directory (CLAUDE.local.md for Claude Code). `repo reach --scenarios shadow` writes it for one scenario at a time; absent: that kind is refused."},
+        "claude_displaces_agents": {"type": "boolean", "description": "`repo budget` reports a nested AGENTS.md off when its own directory holds a CLAUDE.md, CLAUDE.local.md or .claude/CLAUDE.md (Claude Code's rule). Default false."},
         "notes": {"type": "string"}
       }
     },
