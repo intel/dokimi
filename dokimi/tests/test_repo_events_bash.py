@@ -144,10 +144,26 @@ def test_a_refused_cd_moves_no_shell(refusal, reads):
     lambda: _denials("b"),
 ])
 def test_a_refused_relative_read_after_a_cd_stays_denied(refusal):
-    events = _events(_call("a", "cd sub"), _result("a"), _call("b", "cat AGENTS.md"), refusal())
-    assert [(e["kind"], e.get("denied")) for e in events] == [("command", None), ("read", True), ("command", True)]
+    events = _events(_call("a", "cd sub"), _result("a"), _call("b", "cat AGENTS.md /ws/README.md"), refusal())
+    # the relative read's file is not known after the cd: it has no path; the absolute one keeps its own
+    assert [(e["kind"], e.get("path"), e.get("denied")) for e in events] == [
+        ("command", None, None), ("read", None, True), ("read", "README.md", True), ("command", None, True)]
+    assert "path" not in events[1]
     got = process_metrics(events, lambda p: p.endswith("AGENTS.md"))
-    assert got["tool_calls"] == 3 and got["guidance_read"] == []
+    assert got["tool_calls"] == 4 and got["guidance_read"] == []
+
+
+def test_a_read_with_no_path_is_no_read_to_any_consumer():
+    from dokimi.context.consistency import run_from_events
+    from dokimi.repos.arms import skill_usage
+    from dokimi.repos.transcript import Transcript
+    from dokimi.repos.uptake import arm_uptake
+    events = _events(_call("a", "cd sub"), _result("a"), _call("b", "cat AGENTS.md"), _denials("b"))
+    assert events[1] == {"t": 5.0, "kind": "read", "denied": True}
+    assert Transcript(events=events).reads() == set()
+    assert skill_usage(events, ["lint"], None)["skills_used"] == []
+    assert arm_uptake(events, ["AGENTS.md"], [], WS)["reads"] == 0
+    assert [(e.action, e.input) for e in run_from_events(events).events if e.tool == "Read"] == [("Read", {})]
 
 
 @pytest.mark.parametrize("command", ["cat AGENTS.md | head", "grep -n rule AGENTS.md", "cat AGENTS.md > copy.md"])

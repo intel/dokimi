@@ -441,6 +441,9 @@ reads the upstream base (`base_sha`) and the workspace start commit
   must not count `null` as a failure.
 - `agent` is present on an event a subagent made: the id of the parent's
   `Agent`/`Task` call that started it. Events without it are the parent's.
+- A `read` event may have no `path`: a refused Claude Code Bash read of a
+  relative path after an earlier call moved the shell, whose file is not
+  known (`{"kind": "read", "denied": true}`).
 
 `result.json` reports the agent's tokens (`input_tokens`, `output_tokens`,
 `cache_read_tokens`, `cache_write_tokens`) over the same scope as `cost_usd`.

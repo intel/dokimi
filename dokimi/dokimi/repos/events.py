@@ -24,8 +24,8 @@ Claude Code's ``Bash`` tool. Claude Code keeps the shell's directory from one ``
 next, so once any call ran a ``cd`` in that shell (not in a subshell, a pipeline or a background
 job), later relative reads are not recorded, the parent's and every subagent's alike: subagents may
 share the parent's shell, and dropping a read is the safe side either way. A refused call ran nothing:
-it moves no shell, and its reads stay, ``denied``, after a move too (a relative path is then taken
-from the start directory; ``guidance_read``, reach and skill use skip a denied read). The reads are settled when the trace ends,
+it moves no shell, and its reads stay, ``denied``, after a move too (a relative one then has no
+``path``: which file it named is not known; ``guidance_read``, reach and skill use skip a denied read). The reads are settled when the trace ends,
 since a ``permission_denials`` entry comes only in the final result.
 
 Token counts cover the same scope as ``cost_usd``: summed over ``modelUsage``
@@ -163,7 +163,8 @@ def _deny(stream: _Stream, tool_id: Any) -> None:
 def _settle_bash(out: Transcript, calls: Iterable[_BashCall]) -> None:
     """Each Bash call's reads, once every result and denial is in. In the trace's order:
 
-    - a denied call ran nothing: it moves no shell, and its reads stay, ``denied``, after a move too;
+    - a denied call ran nothing: it moves no shell, and its reads stay, ``denied``, after a move too (a relative
+      one then with no ``path``);
     - a call that failed and was one read naming one file (``cat AGENTS.md`` of a missing file, after any
       ``cd``: :func:`~dokimi.repos.cli_traces._failed_read`) drops its reads;
     - after a call that was not denied and may have moved its shell, only absolute reads are known, in
@@ -175,15 +176,23 @@ def _settle_bash(out: Transcript, calls: Iterable[_BashCall]) -> None:
     for call in calls:
         failed = call.result == "error" and _failed_read(call.text, call.named, 1)
         for read, path in zip(call.reads, call.named, strict=True):
-            if call.result == "denied":  # kept after a move too, its path taken from the start directory
-                read["denied"] = True
-            elif failed or (moved and not path.startswith("/")):
+            unknown = moved and not path.startswith("/")  # the shell's directory is not known, nor the file
+            if call.result == "denied":  # kept after a move too, with no path when it was relative
+                _deny_read(read, unknown)
+            elif failed or unknown:
                 dropped.add(id(read))
             elif call.result:
                 read["rc"] = 0
         moved |= call.moves and call.result != "denied"
     if dropped:
         out.events[:] = [e for e in out.events if id(e) not in dropped]
+
+
+def _deny_read(read: dict[str, Any], unknown: bool) -> None:
+    """A refused call's read; ``unknown``: relative, after a move, so the file it named is not known and has no path."""
+    read["denied"] = True
+    if unknown:
+        del read["path"]
 
 
 def _tool_use(out: Transcript, block: dict[str, Any], t: float | None, agent: str, stream: _Stream) -> None:
