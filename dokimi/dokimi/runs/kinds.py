@@ -74,6 +74,7 @@ FIELDS: dict[str, KindFields] = {
                           counts=("violations", "questions")),
     "need_graph": KindFields(subject=("artifact_name",), counts=("nodes", "edges")),
     "eval_coverage": KindFields(subject=("graph.artifact_name",), counts=("gaps", "evals", "problems")),
+    "repo_hits_judged": KindFields(subject=("task",), model=("judge.model",), counts=("pairs",)),
 }
 
 #: Every schema_version an artifact may carry (current and superseded) -> its kind.

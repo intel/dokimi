@@ -32,7 +32,7 @@ SPDX-License-Identifier: Apache-2.0
 >
 > ```bash
 > python cli.py repo reach <source> --manifest <path> --model <id> [--harness claude-code|codex|copilot|copilot-review|<profile.yaml>]
->     [--bin <cli>] [--scenarios root,cwd,read] [--only <scenario>] [--dry-run]
+>     [--bin <cli>] [--scenarios root,cwd,read[,shadow]] [--only <scenario>] [--dry-run]
 > ```
 >
 > Slice S2 adds the L0 scan (§8):
@@ -309,6 +309,7 @@ belongs to the repository's grader and is passed through unread, except `grader`
 | `host` | no | framework | `{"min_cpus": <int>, "cpu_vendors": [<str>], "cpu_flags": [<str>]}`, every key optional: what the hidden test needs to show the bug (a thread race that needs 3+ CPUs, an ISA path). Vendor and flag names are `/proc/cpuinfo`'s (`GenuineIntel`, `avx512f`); both match in any case, and a vendor other than `GenuineIntel`, `AuthenticAMD`, `HygonGenuine`, `CentaurHauls`, `Shanghai` is refused (`repo validate` too). A probe that read neither vendor nor flags from `/proc/cpuinfo` is a probe failure, not a miss They are checked against a probe container started like the grading one: CPUs are its affinity mask capped by its cgroup CPU quota (`docker --cpus`). On a host that misses them the task is unsupported (§4.3), and the probed facts go to `meta.json` `host` of a cell that runs, or to its `unsupported.json` `host` when it does not |
 | `egress` | no | framework | extra hosts (DNS names, optional `:port`; `*` stands for one whole label and the last two labels are literal, so `*.pythonhosted.org` passes and `*` or `*.org` does not) this task's agent and entry points reach through the proxy (§2), for example `["pypi.org", "files.pythonhosted.org"]` |
 | `expected_skill` | no | framework | the name (directory name) of the skill the agent should use; a `skill-catalog:` arm must install it, or the arm is refused before anything runs. `result.json` `skills` records whether the agent used it and whether it used it first |
+| `useful` | no | framework | the definition of the run's first useful result, reported as `first_useful` in `result.json` (§4.1): `{"command": "<regex>"}` for a task whose grade runs the target tests, or `{"edit": "<glob>"}` (or a list of globs) for one that grades an edit to a target file. Omit it when no event is the useful result. A malformed value is refused by `repo validate`, `tasks check` and `repo run` |
 | anything else | — | repository | for example `hidden_files`, `targets`, `regression_targets`, `manifest` |
 
 `setup_patch` (a single string) is accepted as a synonym for a one-element
@@ -497,6 +498,36 @@ parent's and subagents' together, so a grader need not:
 | `counters` | each `process_metrics` name (§2) and its count |
 
 `process` is `null` when the trace could not be read, the agent left none (no event and no result record), or computing the metrics failed (the error is in `agent.trace_errors`).
+
+`result.json` `first_useful` is the run's first useful result: the first event that
+hits the task's `useful` key (§3). The definition depends on the grader:
+
+| Grader | Declare | Hit |
+|---|---|---|
+| test: the grade runs the target tests | `{"command": "<regex>"}` | the first `command` event whose text matches the regex (`regex.search`) and whose `rc` is `0`. `rc` 0 says that command passed, not that every target test did, so the regex should name the target tests |
+| edit or diff: the grade reads a target file | `{"edit": "<glob>"}` or a list | the first `edit` event whose path matches a glob (`match_glob`, as the guidance globs) |
+| review (`dokimi:review_*`) | none | none, so `not_declared`: the answer is the product, so no event is the useful result. A declared key is measured all the same |
+| any other repository grader | either form, or none | none declared, `not_declared` |
+
+A refused event (`denied`) never hits, nor does an `edit` without a success result (`rc` 0): an error result (`rc` 1) means the file was not changed, and no result at all (a killed run) proves nothing. An edit that deletes its file (a Codex `file_change` of kind `delete`, a Copilot `*** Delete File:` patch) is no hit either: the target is gone, not the useful change. `steps` counts every event up to and
+including the hit, the parent's and subagents' (as `process.tool_calls` does).
+`issued_s` is the hit's `t`: the time the call was issued, since a call's result
+is not timed. `first_useful` is `{"kind": "command"|"edit"|null, "reason": ...,
+"issued_s": number|null, "steps": int|null}`. `reason` is `null` when the hit was
+found and timed; otherwise it says why `issued_s` (and `steps`, with no hit) is
+null: `not_declared` (no definition), `unobserved` (the trace was not read: the
+harness never started, it did not parse, or a line of the trace was dropped: an unreadable record or block, such as a tool call without an id, a name or an object of input, a content block without a string type, a Codex file change without a path, or Copilot shell, read or edit arguments that are not an object), `never` (no event hit), `timeout` (a `command` pattern ran past
+2 s on one event: no verdict, and the rest of the trace is not searched) or `untimed`
+(the trace format has no timestamps, so `steps` is set and `issued_s` is null).
+A cell of an older batch has no `first_useful`. Each cell that declares a definition
+is counted in `repo report`: the row says how many observed a hit, and the medians
+cover only those. `repo compare` pairs `first_useful_rate` per task (the share of its
+declared cells with a verdict that observed a hit, so a task where most runs never hit it is not read
+through its medians alone; a cell `unobserved` or `timeout` has no verdict, so it is neither a hit nor
+a miss and is left out of the share) and its header counts observed of measured cells per arm, with
+the unmeasured ones. An edit made by a shell command (`sed -i`) is not an `edit` event, so it is not seen. A
+compared task has one kind, but the mean delta pools the tasks of both kinds: a per-task
+row shows which.
 
 A cell of an arm that installs skills also has a `skills` object in
 `result.json`: `measured`, `skills_installed` (the installed skill names),
@@ -707,6 +738,25 @@ review thread of a merged PR, anchored on a line of the reviewed revision.
   (repository-relative), `line` (as read for matching), `severity` and
   `message`, and their `distance` in lines; `comment`, `severity` and
   `message` are cut to 200 characters. `repo report --hits` lists them (§9).
+- Judged recall (`repo hits judge`, §9) is an optional, paid step after
+  grading; the grader stays deterministic and `grade.json` is not rewritten.
+  A judge model labels each credited pair `same point`, `related` or
+  `unrelated`, reading the thread's full `comment` from the gold file and the
+  finding's full `message` (with its `rule` and `evidence`) from the cell's
+  `answer.txt` at index `finding`; `matches` gives the pairing, and a full
+  text that does not start with the match's cut of it changed since grading
+  and is not judged.
+  `recall_judged` is the `same point` pairs over `n_threads`, and null when
+  a pair of the cell is unjudged (not measured, so not a 0). Only credited
+  pairs are rescored: a thread no finding was credited with stays missed, and
+  a finding outside the window is not judged, so `recall_judged` is at most
+  `recall`. It is a judge's reading, not a verdict: quote a figure only next to
+  a person's labels for a sample of the pairs (`repo hits sheet`, then
+  `--labels`), whose agreement with the judge and Cohen's kappa per arm and
+  answer model the command reports; without them, or when no pair carries
+  both a person's and the judge's label, it says the figure is uncalibrated,
+  and it names the rows (arm and model) that no labelled pair covers: one
+  model's labels do not calibrate the judge on another model's findings.
 - `recall_addressed` counts only threads with `addressed: true` (the code
   changed in response), `recall_by_kind` groups by `kind`, and
   `precision_proxy` is the share of findings within the window of any
@@ -925,6 +975,7 @@ guidance:                            # DECLARED; verified by the reach probe, ne
   names: [CLAUDE.md, CLAUDE.local.md, AGENTS.md]
   resolution: ancestors-of-cwd + lazy-on-subtree-access
   imports: "@path"
+  shadow_file: CLAUDE.local.md       # written by `repo reach --scenarios shadow` (§7)
   claude_displaces_agents: true      # repo budget: a CLAUDE* turns off the AGENTS.md in its own directory
 bridge: {for: AGENTS.md, write: CLAUDE.md, content: "@AGENTS.md"}
 args_if_present:                     # argv added after the "{tools}" element when the workspace file exists and the tool mode is `all`
@@ -986,6 +1037,12 @@ args_if_present:                     # argv added after the "{tools}" element wh
   `codex-code-mode-host`: every tool call goes through it.
 - `repo reach` writes `config_files` into each scenario's config directory as
   `repo run` does, with `{config_dir}` and `{support_dir}` as host paths.
+- Optional `guidance.shadow_file` names a file the harness loads by convention
+  that, put in a directory, should turn the other guidance there off: a file
+  name or a path relative to the directory. `repo reach --scenarios shadow`
+  writes it to measure that (§7); a profile without it refuses that kind
+  (exit 2). Only the built-in `claude-code` profile sets it, to
+  `CLAUDE.local.md`.
 - `native_prompt: true` marks a harness that runs its own built-in prompt, such
   as a native review mode. `invoke` then passes no `{prompt}` (and there is no
   `prompt_suffix`), the agent never sees the task prompt, and `repo reach`
@@ -1043,7 +1100,10 @@ Protocol:
     - Loading depends on paths and names, not on the rest of the tree. A
       skeleton also keeps a blob-less clone from fetching every blob.
     - The probe refuses to run if any ancestor of the workspace holds a
-      guidance file.
+      guidance file: a name some harness loads by convention, one of the
+      profile's `guidance.names`, or, when a shadow scenario is planned, its
+      `guidance.shadow_file`, the path as given (`.claude/CLAUDE.local.md`
+      looks for that path in each ancestor, not for `CLAUDE.local.md`).
     - It also refuses a tree path with a `\`, a `:`, or a `.`, `..` or `.git`
       component, which would be written outside the workspace or into its git
       directory.
@@ -1054,7 +1114,9 @@ Protocol:
       as a copy of the seeded file, and `alias_kind: copy` says so: a harness
       that skips symlinks would then still show the file loaded.
     - A link that escapes the tree, dangles, loops or names a directory is not
-      seeded. It is listed in `unresolved` with the reason.
+      seeded. It is listed in `unresolved` with the reason. When every guidance
+      file is such a link, nothing is left to probe: `repo reach` stops with
+      exit 1 before any scenario, and `--dry-run` stops the same way.
 2. Seed the workspace. Each guidance file gets a head token, placed after any
    YAML front matter, and a tail token. A token is `RC` plus the first 6 hex
    digits of sha256(salt, path, position).
@@ -1073,6 +1135,25 @@ Protocol:
       (the default is `root,cwd,read`); a profile without a `bash` tool mode
       (Codex and Copilot, whose shell commands are already their reads) is a
       usage error (exit 2) naming the profile.
+    - `shadow=.` and `shadow=<dir>`, only with `--scenarios shadow` (the
+      default is `root,cwd,read`): the profile's `guidance.shadow_file` (§6)
+      is written into the workspace for that one scenario, seeded with its own
+      head and tail tokens, so a tree that holds none still shows what it
+      turns off. `shadow=.` writes it at the root and runs as `cwd=.`;
+      `shadow=<dir>` writes it in each guidance directory that holds a file
+      not named `CLAUDE*` (an `AGENTS.md`-class file) and runs as
+      `read=<dir>`. A directory where the tree already has a file or a
+      directory (an empty one included) at that path, or a file where the
+      path needs a directory, gets no shadow scenario. The tree's files are
+      compared ignoring case, as they would collide in the workspace on a
+      case-insensitive disk; an empty directory is found by the disk's own
+      lookup. A shadow path that would replace or go under a file of the
+      probe's own (a `REACH_PROBE.txt`, a seeded file or a link) stops the
+      run with an error once the workspace is built, before any scenario
+      runs and before anything is written. The file is not
+      committed, and it is removed when its scenario ends, after an error or
+      a timeout too, with the directories it needed that the workspace
+      lacked, so no other scenario sees it.
     - A scenario that runs past `--timeout` is an `error`; its raw stdout up
       to the kill is kept in the trace. Its harness is killed with its process
       group (POSIX) or job object (Windows), and so is anything left in that
@@ -1087,6 +1168,16 @@ Protocol:
 4. Ask for every token in the instructions or context, including context
    attached to a tool result. Parse the reported tokens from the answer, and
    the reads from `events.jsonl`.
+
+`--dry-run` prints the probed files and the argv of every planned scenario,
+and calls no harness. It makes each check a run makes before its first
+harness call (the harness's version command), so it refuses what a run would
+refuse, with the same `✗` line and exit code: a selection that leaves no
+scenario, a receipt that would replace the probe, and the checks of steps 1
+and 2. For those it builds the workspace, in `--work-dir` when given, and
+removes it, `--keep` or not. A `--work-dir` that is missing, not a directory
+or not writable, and a write the workspace refuses (a full disk), stop a dry
+run and a run alike with a `✗` line naming the directory and exit 1.
 
 Output: `<out>/reach.json` and `<out>/traces/` (raw stdout and `events.jsonl`
 per scenario).
@@ -1127,6 +1218,11 @@ per scenario).
       in `:` before the tokens (the first non-empty line, when a later line holds
       a token) is not counted. A high count usually means an explanation or a
       refusal, so read that trace before trusting its `not_loaded` cells.
+    - `shadow`, on a shadow scenario only: the shadow file's `path`, its two
+      `tokens`, and `head`, `tail`, `read_by_tool` and `class` as in a record.
+      It is not a tree file, so it has no `files` entry, no records and no
+      matrix row; the matrix prints one line per shadow scenario with its
+      class.
 - If payload capture is available, a `payload` field records whether each
   token was in the request bytes. This settles cells where the model
   under-reports, which is how a small model produces false `truncated` cells.
@@ -1163,7 +1259,9 @@ beside the saved file; a name that resolves to the saved probe is a usage error
 
 One artifact is written to `effective_instructions.json`, with one entry in its
 `receipts` array per reach scenario and `run_id` `<salt>:<scenario id>`.
-Each source carries:
+The shadow scenarios (§7) get no entry: they run with a file the tree does not
+hold, and the receipt describes the tree as committed. Their results stay in
+`reach.json` and the matrix. Each source carries:
 
 | Receipt field | From | Meaning |
 |---|---|---|
@@ -1626,6 +1724,9 @@ python cli.py repo run ~/dpnp --task review_replay_pr3107 --arm 'guidance:none,g
     --model claude-sonnet-5-5 --batch replay --agent-network host
 # decide on the score row (recall, p_holm); metric:recall_addressed is descriptive
 python cli.py repo compare repo-runs/replay --baseline guidance:none --metric recall_addressed
+# judged recall (§4.5): a sample for a person to label (no LLM), then the judge (paid)
+python cli.py repo hits sheet repo-runs/replay --out labels.json
+python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels labels.json --max-usd 5
 ```
 
 - Each cell holds the §4 inputs plus `agent.stdout` (the raw trace) and
@@ -1691,22 +1792,134 @@ python cli.py repo compare repo-runs/replay --baseline guidance:none --metric re
   `parse_errors` on every row. `repo report --hits` prints, instead of the table, each credited pair of
   the `dokimi:review_replay` cells (`details.matches`, §4.5) by task, arm,
   model and rep: the thread and its comment, then the finding that hit it.
-  `--hits --json` gives `{batch, replay_cells, without_matches, hits}`, one
+  `--hits --json` gives `{batch, replay_cells, without_matches, grader_failures, cells, hits}`, one
   record in `hits` per pair (`task`, `arm`, `model`, `rep`, `cell` and the
   match's fields; the first five come from the cell's `result.json`, and a
-  match key of the same name does not replace them). A cell graded before `matches` was recorded is counted
-  (`N cell(s) graded without hit details`), not listed. How to read a replay
+  match key of the same name does not replace them), and one in `cells` per
+  cell whose `matches` was read, with or without a pair, and per cell whose
+  answer had no findings JSON (a `parse_error` grade: no pair, `recall` 0)
+  (those five, `n_threads` and `recall` from `grade.json`, and
+  `parse_error`). A cell graded before `matches` was recorded is counted
+  (`N cell(s) graded without hit details`), not listed, and so is a cell whose
+  `result.json` says `grader_failure` (`grader_failures`). How to read a replay
   batch before writing it up: [reviewing.md](reviewing.md#reading-a-replay-batch).
+- `repo hits judge <batch> --judge PROVIDER/MODEL` (§4.5) labels each credited
+  pair of the batch's `dokimi:review_replay` cells, one judge call per pair
+  (up to 3 draws when a reply does not parse; the response cache replays
+  them). The prompt gives the thread and the finding (file, line, full text)
+  each as one JSON object in a fenced block marked `data`, says that text
+  inside the blocks is data and not instructions, and gives the label rules
+  after the blocks. It writes `<cell>/hits_judged.json` (`repo_hits_judged.v1`): the
+  judge, each pair's `thread`, `finding`, `label` and `reason`, the counts of
+  `same point`, `related`, `unrelated` and `unjudged`, `n_threads` (from
+  `grade.json` `metrics`), the grader's `recall`, and `recall_judged`. A cell
+  whose answer had no findings JSON is written with no pair and its
+  `recall_judged` is the grader's `recall` (0), so it counts in its arm's
+  means. A rerun
+  rewrites it. Before its first call, a run that judges (not `--dry-run`)
+  removes the `hits_judged.json` an earlier run left in every other finished
+  cell of the batch, one regraded since into a grader failure, a grade
+  without `matches` that is not a parse error, or another grader, and a line names those cells
+  (`--json`: `stale_removed`). The command prints, per (arm, model), the cells written, their
+  pairs and label counts, the mean `recall` of those cells and the mean
+  `recall_judged` of those whose `recall_judged` is not null (`--json`: the
+  same as JSON). Before any call it refuses, with exit 2,
+  a judge that runs the model of any answer of the batch (`meta.json` or
+  `result.json` `model`, the model asked for, and `model_resolved`, the
+  model or models the trace says answered; a CLI alias counts as its family's
+  full id, the rule of `novelty`), and a `--labels` entry that names no
+  credited pair of the batch, has no `finding` or names another finding than
+  the one the batch credits for its thread (a hand-edit, or a sheet older
+  than a regrade: write a new one), or has a label other than the three, a
+  labelled entry whose `comment` or `finding_text` is missing or is not the
+  pair's text now (the thread's full comment in the gold file, the finding's
+  full text in `answer.txt`, compared exactly, with no normalisation), or whose
+  pair's texts are not found now (write a new sheet), and
+  two entries that give one pair two different labels (the same label twice,
+  or a `null` next to a label, is taken). A
+  cell graded without `matches`
+  and a grader-failure cell are counted, not judged. A pair whose full text is
+  not found (no single task directory or no such thread under
+  `<batch>/_eval/content`, no finding at its index in `answer.txt`, a file
+  other than the one `matches` names, or a comment or `message` whose first
+  200 characters are not the ones `matches` keeps: the text changed since
+  grading), a pair whose reply never parses, and a
+  pair whose judge call fails (a provider error past the client's retries:
+  `error` is `judge call failed: <type>: <message>`) are
+  `unjudged`, with `error` saying why, and never count as `same point`. When
+  3 judge calls in a row fail with one error (an auth error, a missing key;
+  a response-cache miss before a live call is not a failed call),
+  the run stops there: a `✗` line gives the error, the judge calls made and
+  their cost, and says the cells written before keep their files; the cell
+  in progress gets none (an earlier one is removed), and the command exits 1. A
+  cell with an unjudged pair is written with `recall_judged` null and left out
+  of the mean `recall_judged`; a line counts and names those cells
+  (`unjudged cells: N`; `--json`: `unjudged_cells`).
+  `--dry-run` counts the pairs and prints their cost at list price (one call
+  each; prompt characters over 4, 100 reply tokens) and makes no call.
+  A run that judges holds the batch's lock (`<batch>/_eval/lock`, which
+  `repo run` holds while it rewrites `_eval/content` and regrades cells)
+  from before it reads the pairs to its end; when another run holds it, the
+  command exits 2 with the message `repo run` gives, and when it cannot be
+  taken (a read-only batch) it exits 2 naming the lock, both before any
+  call. `--dry-run` writes nothing and takes no lock.
+  `--max-usd X` starts no new call once X is spent: a cell not fully judged
+  gets no `hits_judged.json` (one an earlier run wrote is removed), and the
+  command exits 1. After a live judge reply with no known price, such a run
+  starts no further live call, as `novelty`'s spend cap does: the cap cannot
+  be enforced on spend it cannot see. That reply still labels its pair when
+  it parses (a redraw would be a further call), and pairs replayed from the
+  response cache still finish; when
+  pairs are left, the cells they are in get no file, the line naming those
+  cells says why (`--json`: `budget_stop`; drop `--max-usd` to run
+  unmetered), and the command exits 1. When none is left, the run ends as
+  one with no cap does (exit 0, `budget_stop` null). Without
+  `--max-usd` an unpriced call counts as 0, and the spend line says how many
+  calls had no price and that the spend is not known (`--json`:
+  `unpriced_calls`). A reply replayed from the response cache is free. A
+  `hits_judged.json` that cannot be written, or an earlier one that cannot
+  be removed (a read-only batch, a directory in its place), stops
+  the run there with no further call: a `✗` line names the path and the
+  error, the judge calls made and their cost, and says the cells written
+  before keep their files; the command exits 2. With `--labels FILE` it
+  reports, per row of the table (arm and answer model), the pairs both the
+  person and the judge labelled, the share with equal labels, and Cohen's
+  kappa over the three labels (`calibration`: one entry per row with a
+  labelled pair, with its `arm` and `model`). Without it, or when no pair
+  carries both the person's and the judge's label (a sheet left `null`,
+  `[]`, labels only on pairs the judge left `unjudged`), a line says
+  `recall_judged` is uncalibrated; when only some rows have such pairs, a
+  line names the others as `arm (model)`. `--json` lists the rows with no
+  such pair in `uncalibrated_rows`, sorted, each `{"arm", "model"}` (every
+  row without `--labels`); `calibration` is `null` without `--labels`.
+- `repo hits sheet <batch> --out FILE` makes no call. It writes a JSON list of
+  credited pairs for a person to label: each with its `cell`, `task`, `arm`,
+  `model`, `rep`, `thread`, `finding`, their files and lines, the full
+  `comment` and `finding_text`, and `label: null`. It takes `--per-arm N`
+  pairs of each arm and answer model, a row of the `repo hits judge` table
+  (default 25; all of a row's pairs when it has fewer), drawn with `random.Random(seed)` for `--seed N` (default 0), so a seed gives
+  one sheet; a pair whose full text is not found is left out. Set each
+  `label` to one of the three (`null` leaves the pair unlabelled) and pass the
+  file to `repo hits judge --labels`. When `--out` names a file that holds a
+  JSON list with an entry whose `label` is set, the command refuses with
+  exit 2 before writing, naming the path and the number of labelled entries
+  (move it aside or pass another `--out`); a file with no label set, a
+  blank file, or JSON that is not a list, is replaced. A file at `--out` that
+  cannot be read (no read permission, a directory, not UTF-8 text) or parsed
+  as JSON (a trailing comma, a BOM) is refused the same way, exit 2 before
+  writing and naming the path, since whether it holds labels is not known.
 - `repo compare` reduces cells to one value per (task, arm, model) first:
   repetitions share a task's difficulty and are not paired across arms, so the
   task is the unit. Per treatment arm, model and measure (gate share, score,
-  cost, turns, `first_prompt_tokens`, each `--metric` from `grade.json`, and each `process` count a
+  cost, turns, `first_prompt_tokens`, `first_useful_s` and `first_useful_steps` (the median over a
+  task's cells that observed the first useful result, §4.1), `first_useful_rate` (the share of a task's
+  declared cells with a verdict that observed one), each `--metric` from `grade.json`, and each `process` count a
   compared cell reports as `process:<key>` or `counter:<name>`) it gives the mean per-task
   delta against the baseline with a 95% interval over tasks (a bootstrap for
   gate and score, a t interval for the descriptive measures, `-` for a single
   task), the tasks up, down and tied, and a two-sided sign-flip permutation p (exact up to 16
   changed tasks; at one cell per task and arm it equals McNemar's exact test).
-  A `process` count or `first_prompt_tokens` only one arm reports for the shared tasks of a
+  A `process` count, `first_prompt_tokens` or `first_useful_*` only one arm reports for the shared tasks of a
   (treatment, model) is not compared; a warning names it. When neither arm
   reports it (a batch run before `repo run` recorded it), the row is absent.
   Holm's correction runs over the gate and score comparisons of one call; the

@@ -85,6 +85,8 @@ guidance:
   imports: "@path"
   # Memory docs (code.claude.com/docs/en/memory): imports recurse "with a maximum depth of four hops".
   import_max_depth: 4
+  # repo reach --scenarios shadow writes it to measure what it turns off.
+  shadow_file: CLAUDE.local.md
   # repo budget: a CLAUDE* file turns off the AGENTS.md in its own directory (notes below).
   claude_displaces_agents: true
   notes: >-
