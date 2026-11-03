@@ -373,10 +373,13 @@ def cmd_repo_compare(args: argparse.Namespace) -> None:
     except (CompareError, CellFileError, LedgerError) as exc:  # an unusable baseline, arm, metric, cell or ledger
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
+    if args.json:
+        print(json.dumps(summary, indent=2))
+        return
     text = format_compare(summary)
     if "ledger" in summary:
         text += "\n\n" + format_ledger(summary["ledger"])
-    print(json.dumps(summary, indent=2) if args.json else text)
+    print(text)
 
 
 def _usd(text: str) -> float:

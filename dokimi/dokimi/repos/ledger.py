@@ -21,20 +21,19 @@ import math
 import re
 from collections import Counter
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import date
 from pathlib import Path
 from typing import Any
 
 from dokimi.artifacts import schema_errors
 from dokimi.eval.stats import adjust_pvalues
 
-from .compare import PRIMARY, compare, load_batches, min_sign_flip_p, parse_selector, selector_matches
+from .compare import EPS, PRIMARY, _num, compare, load_batches, min_sign_flip_p, parse_selector, selector_matches
 from .compare_reach import ALPHA
 from .compare_tasks import CompareError
 
 KEEP, REVIEW, INSUFFICIENT = "keep", "review", "insufficient-evidence"
 DEFAULT_REVIEW_DAYS = 180
-_EPS = 1e-9  # a mean delta this close to zero is a tie, as in compare
 _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")  # repo_ledger.v1's rule id
 
 
@@ -95,6 +94,8 @@ def _rule(entry: dict[str, Any], path: Path) -> Rule:
         reviewed = date.fromisoformat(entry["reviewed"])
     except ValueError as exc:  # a bad selector (CompareError is one) or an impossible date such as 2026-02-30
         raise LedgerError(f"{path}: rule {entry['id']!r}: {exc}") from exc
+    if entry.get("baseline") == entry["arm"]:  # a typo would otherwise read as a verdict of not measured
+        raise LedgerError(f"{path}: rule {entry['id']!r}: its arm {entry['arm']!r} is its own baseline")
     return Rule(id=entry["id"], hypothesis=entry["hypothesis"], arm=entry["arm"], cases=tuple(entry["cases"]),
                 reviewed=reviewed, baseline=entry.get("baseline"), text=entry.get("rule"), source=entry.get("source"))
 
@@ -102,11 +103,13 @@ def _rule(entry: dict[str, Any], path: Path) -> Rule:
 def evaluate(ledger: Ledger, batch_dirs: list[Path], baseline: str, models: list[str] | None = None,
              seed: int = 0, today: date | None = None, ledger_name: str = "") -> dict[str, Any]:
     """One result per rule and model: paired statistics, Holm-adjusted p, verdict and reason."""
-    today = today or datetime.now(UTC).date()
+    today = today or date.today()  # noqa: DTZ011 - a review is dated in the writer's local time, not UTC
     known = {c["task"] for c in load_batches(batch_dirs)[0]}
     entries: list[dict[str, Any]] = []
     warnings: list[str] = []
     for rule in ledger.rules:
+        if rule.arm == (rule.baseline or baseline):
+            raise LedgerError(f"rule {rule.id!r}: its arm {rule.arm!r} is its own baseline")
         rule_entries = _rule_entries(rule, batch_dirs, baseline, models, known, seed, warnings)
         age = (today - rule.reviewed).days
         stale = age < 0 or age > ledger.review_within_days
@@ -241,7 +244,7 @@ def _verdict(entry: dict[str, Any], alpha: float) -> tuple[str, str]:
     if entry["p_holm"] is None:
         return INSUFFICIENT, "every linked case ties: there is no difference to test"
     p, mean = entry["p_holm"], entry["delta"]["mean"]
-    if p < alpha and abs(mean) > _EPS:
+    if p < alpha and abs(mean) > EPS:
         if mean > 0:
             return KEEP, f"beats {entry['baseline']} on its linked cases (p_holm {p:.4f} < {alpha})"
         return REVIEW, (f"{entry['baseline']} beats it on its linked cases (p_holm {p:.4f} < {alpha}): "
@@ -273,10 +276,6 @@ def format_ledger(result: dict[str, Any]) -> str:
         lines += [f"  warning: {w}" for w in e["warnings"]]
     lines += [f"warning: {w}" for w in result["warnings"]]
     return "\n".join(lines)
-
-
-def _num(value: float | None) -> str:
-    return "-" if value is None else f"{value:.3f}"
 
 
 def _p(value: float | None) -> str:

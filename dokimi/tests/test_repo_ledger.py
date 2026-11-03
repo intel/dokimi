@@ -552,3 +552,47 @@ def test_the_plain_comparison_rows_do_not_gain_the_unmeasured_count(tmp_path):
     _unmeasured(batch, "t_0", ARM, "outage")
     rows = compare([batch], BASE)["comparisons"]
     assert rows and all("unmeasured" not in r for r in rows)
+
+
+def test_a_rule_whose_arm_is_its_named_baseline_is_refused_not_a_verdict(tmp_path):
+    tasks = _ids("t", 8)
+    path = _ledger(tmp_path / "ledger.json", [_rule("R1", tasks, baseline=ARM)])
+    with pytest.raises(LedgerError, match="R1"):
+        load_ledger(path)
+
+
+def test_a_rule_whose_arm_is_the_default_baseline_is_refused_not_a_verdict(tmp_path):
+    tasks = _ids("t", 8)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in tasks})
+    ledger = load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", tasks)]))
+    with pytest.raises(LedgerError, match="R1"):
+        evaluate(ledger, [batch], ARM, today=TODAY)
+
+
+def test_the_default_today_is_the_local_date_not_the_utc_date(tmp_path, monkeypatch):
+    import dokimi.repos.ledger as ledger_module
+
+    class LocalDate(date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 11, 2)
+
+    tasks = _ids("t", 8)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in tasks})
+    monkeypatch.setattr(ledger_module, "date", LocalDate)
+    result = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", tasks)])), [batch], BASE)
+    assert result["today"] == "2026-11-02"
+
+
+def test_compare_json_is_printed_even_when_the_text_would_fail(tmp_path, capsys, monkeypatch):
+    import dokimi.repos.compare as compare_module
+
+    def broken(summary):
+        raise RuntimeError("text formatting failed")
+
+    tasks = _ids("t", 8)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in tasks})
+    monkeypatch.setattr(compare_module, "format_compare", broken)
+    args = build_parser().parse_args(["repo", "compare", str(batch), "--baseline", BASE, "--json"])
+    args.func(args)
+    assert "comparisons" in json.loads(capsys.readouterr().out)
