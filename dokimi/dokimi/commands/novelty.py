@@ -304,9 +304,8 @@ def _routing_field(args: argparse.Namespace, exclude: set[str],
     """
     from dokimi.novelty.routing import (
         catalog_competitors,
-        disables_model_invocation,
+        competitor_left_out,
         non_skill_reason,
-        skill_file,
     )
 
     competitors = []
@@ -318,20 +317,19 @@ def _routing_field(args: argparse.Namespace, exclude: set[str],
                 left_out.append(f"{ref}: {reason}")
             continue
         candidate = _routing_card(ref)[0]
-        ref_file = skill_file(ref)
-        if (ref_file and not args.include_disabled
-                and disables_model_invocation(ref_file)):
-            print(f"WARNING: skipped competitor {ref}: disable-model-invocation "
-                  "(--include-disabled keeps it)", file=sys.stderr)
+        reason = competitor_left_out(ref, include_disabled=args.include_disabled,
+                                     include_invalid=args.include_invalid)
+        if reason:
+            print(f"WARNING: skipped competitor {ref}: {reason}", file=sys.stderr)
             if left_out is not None:
-                left_out.append(f"{ref}: disable-model-invocation")
+                left_out.append(f"{ref}: {reason}")
             continue
         competitors.append(candidate)
     if args.catalog:
         notes: list[str] = []
-        catalog = catalog_competitors(args.catalog,
-                                      exclude | {c.name for c in competitors}, notes,
-                                      include_disabled=args.include_disabled)
+        catalog = catalog_competitors(args.catalog, exclude | {c.name for c in competitors},
+                                      notes, include_disabled=args.include_disabled,
+                                      include_invalid=args.include_invalid)
         for note in notes:
             print(f"WARNING: {note}", file=sys.stderr)
         if left_out is not None:
@@ -408,7 +406,7 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
 
 def _field_record(args: argparse.Namespace, competitors: list, left_out: list[str]) -> dict:
     """The field rule a routing result was measured under, saved next to the result."""
-    return {"include_disabled": bool(args.include_disabled),
+    return {**{name: bool(getattr(args, name)) for name in ("include_disabled", "include_invalid")},
             "competitors": [c.name for c in competitors], "left_out": left_out}
 
 
@@ -855,16 +853,16 @@ def register(sub, positive_int) -> None:
                            help="Directory of skills to take the competitors from: every "
                                 "skill the catalog lists (skills.yaml when present, else every "
                                 "SKILL.md under it; a template/ copy and vendored or VCS "
-                                "directories like .git are left out, and a byte-identical "
-                                "copy under another path counts once) except "
-                                "the artifact itself, i.e. the "
-                                "siblings a harness lists next to it. Combines with "
-                                "--competitors")
+                                "directories like .git are left out, and a byte-identical copy "
+                                "under another path counts once) except the artifact itself, the "
+                                "siblings a harness lists next to it. Combines with --competitors")
     routing_p.add_argument("--include-disabled", action="store_true", dest="include_disabled",
                            help="Keep skills that set disable-model-invocation in the field. "
                                 "Off by default: no harness lists them, so the model cannot "
                                 "select them and a card for one measures a choice that does "
                                 "not exist")
+    routing_p.add_argument("--include-invalid", action="store_true", dest="include_invalid",
+                           help="Keep catalog and skill: competitors with a spec error in the field")
     routing_p.add_argument("--queries", default=None,
                            help="JSON list (or one per line) of user-shaped requests that "
                                 "should select this artifact, written independently of it")
