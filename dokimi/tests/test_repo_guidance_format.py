@@ -138,6 +138,7 @@ def test_xml_wraps_each_heading_in_a_section_closed_before_its_peer():
     ("text <!--\n# Real\n-->\n", ["Real"]),  # a comment inside a paragraph line is no block: the heading is a section
     ("- item\n  <!--\n# Real\n-->\n", ["Real"]),  # the item ends at the heading, and its comment block with it
     ("- item\n<!--\n# Real\n-->\n", []),  # a lazy comment line starts a block outside the item: the comment holds on
+    ("- a\n<!--\n  -->\n  <!--\n## S\n", []),  # the column-0 comment ends the item, so the later one is in no item
 ])
 def test_a_heading_inside_an_html_comment_block_is_body_text(text, sections):
     assert re.findall(r'title="([^"]*)"', to_format(text, "xml")) == sections

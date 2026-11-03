@@ -94,13 +94,14 @@ def _items_after(items: tuple[int, ...], line: str, para: bool = False) -> tuple
     """The list items open after a line read outside a fence, outermost first. A blank line keeps them. A non-blank line
     ends the items whose content column it is indented less than, and a list marker it starts opens one item per
     marker at its content column. A line that continues paragraph text (``para``) ends nothing, unless it starts a
-    block (a heading, quote or rule, or a fence) or a list item."""
+    block (a heading, quote or rule, a fence or an HTML comment) or a list item."""
     if not line.strip():
         return items
     expanded = line.expandtabs(4)
     indent = len(expanded) - len(expanded.lstrip(" "))
     markers = _markers(items, line, para)
-    if not markers and para and not _BLOCK.match(expanded) and not _OPENER.match(expanded):
+    if (not markers and para and not _BLOCK.match(expanded) and not _OPENER.match(expanded)
+            and not _COMMENT.match(expanded)):
         return items
     return tuple(column for column in items if column <= indent) + markers
 
