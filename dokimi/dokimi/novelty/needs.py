@@ -81,6 +81,7 @@ class NeedNode:
     text: str
     type: str = "intent"
     path_class: str = "core"
+    confirmed_by: str = "hypothesis"  # "user" once a person confirmed it (need_graph.v1)
 
     @property
     def weight(self) -> float:
@@ -90,7 +91,10 @@ class NeedNode:
     def as_dict(self) -> dict:
         """Serializable form."""
         return {"id": self.id, "text": self.text, "type": self.type,
-                "path_class": self.path_class}
+                "path_class": self.path_class, "confirmed_by": self.confirmed_by}
+
+
+_NODE_FIELDS = frozenset(NeedNode.__dataclass_fields__)
 
 
 @dataclass
@@ -101,6 +105,7 @@ class NeedGraph:
     description: str
     nodes: list[NeedNode] = field(default_factory=list)
     edges: list[dict] = field(default_factory=list)
+    provenance: dict = field(default_factory=dict)
 
     def task_statement(self) -> str:
         """A task description for the value judge, built without the artifact body."""
@@ -126,6 +131,7 @@ class NeedGraph:
             "description": self.description,
             "nodes": [n.as_dict() for n in self.nodes],
             "edges": list(self.edges),
+            **({"provenance": dict(self.provenance)} if self.provenance else {}),
         }
 
     @classmethod
@@ -134,8 +140,10 @@ class NeedGraph:
         return cls(
             artifact_name=data.get("artifact_name", ""),
             description=data.get("description", ""),
-            nodes=[NeedNode(**row) for row in data.get("nodes", [])],
+            nodes=[NeedNode(**{k: v for k, v in row.items() if k in _NODE_FIELDS})
+                   for row in data.get("nodes", [])],
             edges=list(data.get("edges", [])),
+            provenance=dict(data.get("provenance") or {}),
         )
 
 

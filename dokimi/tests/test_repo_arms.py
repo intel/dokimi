@@ -116,7 +116,8 @@ def _commit_objects(root: Path, sha: str) -> set[str]:
 def test_rev_arm_puts_another_revisions_guidance_on_the_base(toy):
     meta, ws = _prep(toy, "guidance:rev:pr")
     assert meta["arm"] == f"guidance:rev:{toy['pr']}"
-    assert meta["arm_rev"] == {"rev": "pr", "sha": toy["pr"], "removed": ["sub/AGENTS.md"]}
+    assert {k: meta["arm_rev"][k] for k in ("rev", "sha", "removed")} == {
+        "rev": "pr", "sha": toy["pr"], "removed": ["sub/AGENTS.md"]}
     # written and deleted (contract §3): the deleted base guidance is in arm_files too, not the eval dir's
     assert meta["arm_files"] == ["AGENTS.md", "src/AGENTS.md", "sub/AGENTS.md"]
     assert (ws / "AGENTS.md").read_text() == "# pr guidance\n"

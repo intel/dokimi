@@ -177,13 +177,45 @@ def _scan_gate(payload: dict, fail_on_fail: bool) -> None:
     sys.exit(1)
 
 
+def _code_index(path: str | None) -> Any:
+    """The SCIP index at ``path`` (``None`` without one); exit 2 when it cannot be read."""
+    if path is None:
+        return None
+    from dokimi.repos.code_index import load
+    from dokimi.repos.errors import CodeIndexError
+
+    try:
+        return load(path)
+    except (OSError, CodeIndexError) as exc:
+        print(f"✗ cannot read the code index {path}: {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+
+
+def _print_structure(section: dict[str, Any] | None) -> None:
+    if section is None:
+        return
+    kept = [m for m in section["modules"] if m["kept"]]
+    missing = section["index"].get("tree_files_not_in_index", 0)
+    print(f"  structure: {section['index']['documents_in_tree']}/{section['index']['documents']} index documents "
+          f"in the tree" + (f", {missing} tree files of the indexed kinds not in it" if missing else "")
+          + f", {len(section['modules'])} modules, {len(kept)} kept" + ("; top reference fan-in:" if kept else ""))
+    for m in kept[:5]:
+        share = "n/a" if m["ambiguity"] is None else f"{m['ambiguity']:.2f}"
+        print(f"    {_normalize_whitespace(m['module'], max_len=None)}: fan-in {m['reference_fanin']}, "
+              f"other-tree modules {m['other_tree_modules']}, ambiguity {share}"
+              + ("" if m["in_guidance"] else ", not in guidance"))
+
+
 def cmd_repo_inspect(args: argparse.Namespace) -> None:
     """Static inspection: instruction files, check surfaces, launch risks, file inventory."""
     from dokimi.artifacts import save_artifact, stamp
     from dokimi.repos.environment import inspect_repo
 
     _, tree = _source_tree(args)
-    payload = inspect_repo(tree, large=args.large_bytes)
+    payload = inspect_repo(tree, large=args.large_bytes, index=_code_index(args.index))
+    if "structure" in payload and not payload["structure"]["index"]["documents_in_tree"]:
+        print(f"✗ no document of the code index {args.index} is a file of this tree", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
     if args.out:
         try:
             save_artifact("repo_environment", payload, Path(args.out))
@@ -207,6 +239,7 @@ def cmd_repo_inspect(args: argparse.Namespace) -> None:
                 where = f" {_normalize_whitespace(f['path'], max_len=None)}" if f["path"] else ""
                 print(f"  {f['severity'].upper()} {f['rule']}{where} -- {_normalize_whitespace(f['why'])}")
         print("  stages: " + ", ".join(f"{s['stage']} {s['status']}" for s in payload["stages"]))
+        _print_structure(payload.get("structure"))
         if args.out:
             print(f"wrote {args.out}")
     if args.fail_on_error and payload["counts"]["error"]:
@@ -250,6 +283,92 @@ def _check_reach_flags(args: argparse.Namespace, kinds: tuple[str, ...]) -> None
         raise ReachError(f"unknown --scenarios kind(s) {', '.join(unknown_kinds)} (known: root, cwd, read)")
     if not math.isfinite(args.budget) or args.budget <= 0:
         raise ReachError(f"--budget must be > 0, got {args.budget:g}")
+    if args.model is None:
+        raise ReachError("--model is required to probe (leave it out only with --from)")
+
+
+# The probe's flags, unset by default: --from refuses any of them given, even at its default value.
+_PROBE_ONLY = {"only": None, "salt": None, "work_dir": None, "keep": False, "bin": None, "dry_run": False,
+               "model": None, "scenarios": None, "max_turns": None, "budget": None, "timeout": None, "out": None}
+_PROBE_DEFAULTS = {"scenarios": "root,cwd,read", "max_turns": 4, "budget": 0.10, "timeout": 300}
+
+
+def _reach_entry(args: argparse.Namespace) -> None:
+    """`repo reach`: probe the repository, or with --from read a saved reach.json."""
+    if args.from_file is not None:  # an empty name is still a name: a usage error, never a probe
+        _reach_from_saved(args)
+    else:
+        for key, value in _PROBE_DEFAULTS.items():
+            if getattr(args, key) is None:
+                setattr(args, key, value)
+        cmd_repo_reach(args)
+
+
+def _probe_flags_given(args: argparse.Namespace) -> list[str]:
+    return [f"--{k.replace('_', '-')}" for k, default in _PROBE_ONLY.items() if getattr(args, k) != default]
+
+
+def _saved_reach_inputs(args: argparse.Namespace):
+    """The harness profile, the source and the saved reach.json of ``--from``, as typed; raises on a usage error."""
+    from dokimi.repos import RepoSource
+    from dokimi.repos.harness_profile import load_profile
+    from dokimi.repos.reach import ReachError, load_reach, saved_gaps, saved_matrix_problem
+
+    if not args.from_file:
+        raise ReachError("--from needs a file name")
+    given = _probe_flags_given(args)
+    if given:
+        raise ReachError(f"--from reads a saved probe, so {', '.join(given)} cannot be used with it")
+    profile = load_profile(args.harness)
+    source = RepoSource.parse(args.source)
+    reach = load_reach(Path(args.from_file))
+    gaps = saved_gaps(reach, args.format)
+    if gaps:
+        raise ReachError(f"{args.from_file} has no {', '.join(gaps)}, which --format {args.format} needs")
+    if args.format == "matrix" and (problem := saved_matrix_problem(reach)):
+        raise ReachError(f"{args.from_file} cannot be shown as a matrix: {problem}")
+    if args.format == "receipt" and _receipt_would_overwrite(Path(args.from_file), _receipt_path(args.from_file)):
+        raise ReachError(f"the receipt would replace {args.from_file}, the probe it is read from: "
+                         "rename the saved file")
+    return profile, source, reach
+
+
+def _reach_from_saved(args: argparse.Namespace) -> None:
+    """The matrix or the receipt of a saved reach.json, checked against the source; no harness runs."""
+    from dokimi.repos import ManifestError, SourceError, open_source
+    from dokimi.repos.harness_profile import ProfileError
+    from dokimi.repos.receipt import check_receipt_provenance, check_saved_reach
+    from dokimi.repos.reach import ReachError, format_matrix
+    from dokimi.repos.source import SourceArgumentError
+
+    try:  # the arguments and the saved file as typed: a usage error
+        profile, source, reach = _saved_reach_inputs(args)
+    except (SourceError, ProfileError, ReachError, OSError, ValueError) as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+    try:  # the clone and fetch: a runtime failure
+        tree = open_source(source, _cache_dir(args))
+    except SourceArgumentError as exc:  # a pinned local path that is not the repository root
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+    except (SourceError, OSError, ValueError) as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(1)
+    try:  # the manifest and the file's provenance: a usage error; a failed git read is a fetch failure (1)
+        manifest = _load_manifest(tree, args, guidance_default=True)
+        check_saved_reach(reach, manifest.id, profile.name, getattr(tree, "sha", None))
+        if args.format == "receipt":
+            check_receipt_provenance(reach, getattr(tree, "sha", None))
+    except (SourceError, ManifestError, ReachError) as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(_tree_read_exit_code(exc))
+    if args.format == "receipt":
+        _print_receipt(tree, profile, reach, Path(args.from_file).parent)
+        print(f"wrote {_receipt_path(args.from_file)}", file=sys.stderr)
+    else:
+        print(format_matrix(reach))
+    if any(s["error"] for s in reach["scenarios"]):
+        sys.exit(1)
 
 
 def _tree_read_exit_code(exc: Exception) -> int:
@@ -262,6 +381,24 @@ def _tree_read_exit_code(exc: Exception) -> int:
     return 1 if git_failure else EXIT_USAGE
 
 
+def _refuse_receipt_over_probe(args: argparse.Namespace, out_dir: Path) -> None:
+    """Exit as a usage error when ``--format receipt`` would write the receipt over the probe it is built from, or
+    when an output path is a link that cannot be resolved (a loop)."""
+    from dokimi.repos.reach import ReachError
+
+    if args.format != "receipt":
+        return
+    try:
+        overwrite = _receipt_would_overwrite(out_dir / "reach.json", out_dir / RECEIPT_NAME)
+    except ReachError as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+    if overwrite:
+        print(f"✗ {out_dir / RECEIPT_NAME} is the probe itself (a link to {out_dir / 'reach.json'}): "
+              "remove the link", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+
+
 def cmd_repo_reach(args: argparse.Namespace) -> None:
     """L1 reach probe: which guidance files one harness/version/model loads."""
     from dokimi.repos import ManifestError, RepoSource, SourceError, open_source
@@ -269,7 +406,6 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
     from dokimi.repos.source import SourceArgumentError
     from dokimi.repos.reach import (
         ReachError,
-        format_matrix,
         planned,
         probe_files,
         run_reach,
@@ -313,7 +449,8 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
         sys.exit(_tree_read_exit_code(exc))
     print(f"{len(files)} guidance files, {planned_count} scenarios, "
           f"at most ${args.budget:g} each", file=sys.stderr)
-    out_dir = Path(args.out)
+    out_dir = Path(args.out or "reach-out")
+    _refuse_receipt_over_probe(args, out_dir)
     try:  # the harness runs: a runtime failure
         payload = run_reach(
             tree=tree, manifest=manifest, profile=profile, model=args.model, out_dir=out_dir,
@@ -325,10 +462,65 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
     path = save_reach(payload, out_dir)
-    print(format_matrix(payload))
-    print(f"wrote {path}")
+    _print_reach_output(tree, profile, payload, out_dir, path, receipt=args.format == "receipt")
     if any(s["error"] for s in payload["scenarios"]):
         sys.exit(1)
+
+
+def _print_reach_output(tree, profile, payload: dict, out_dir: Path, path: Path, receipt: bool) -> None:
+    """The matrix on stdout; with ``receipt``, the effective-instructions receipt on stdout and the note on stderr."""
+    from dokimi.repos.reach import format_matrix
+
+    if receipt:
+        _print_receipt(tree, profile, payload, out_dir)
+        print(f"wrote {path}", file=sys.stderr)
+    else:
+        print(format_matrix(payload))
+        print(f"wrote {path}")
+
+
+RECEIPT_NAME = "effective_instructions.json"
+
+
+def _receipt_path(from_file: str) -> Path:
+    return Path(from_file).parent / RECEIPT_NAME
+
+
+def _strict_resolve(path: Path) -> Path:
+    """``path`` with every link resolved, a missing or dangling last component included. Non-strict resolve() of a link
+    loop raises RuntimeError before Python 3.13 and returns the looping path from 3.13 on; strict resolve raises
+    OSError on a loop on every version."""
+    try:
+        return path.resolve(strict=True)
+    except FileNotFoundError:
+        return path.resolve()
+
+
+def _receipt_would_overwrite(probe: Path, receipt: Path) -> bool:
+    """A receipt written at the probe's path, directly or through a link, would replace the probe it is built from.
+    A link loop cannot be resolved (OSError, or RuntimeError before Python 3.13): a usage error, not a traceback."""
+    from dokimi.repos.reach import ReachError
+
+    try:
+        return _strict_resolve(probe) == _strict_resolve(receipt)
+    except (OSError, RuntimeError) as exc:
+        raise ReachError(f"cannot resolve {receipt}: {exc}") from exc
+
+
+def _print_receipt(tree, profile, payload: dict, out_dir: Path) -> None:
+    """The effective-instructions receipt of a probe: budget's start-up chain, reach's observed states."""
+    from dokimi.artifacts import save_artifact
+    from dokimi.repos.budget import budget
+    from dokimi.repos.receipt import build_receipt
+
+    receipt = build_receipt(payload, budget(tree, profile.guidance_names, profile.import_max_depth,
+                                            claude_displaces_agents=profile.claude_displaces_agents), tree)
+    try:  # a directory that is not writable, or one already named effective_instructions.json: a runtime failure
+        written = save_artifact("effective_instructions", receipt, out_dir / RECEIPT_NAME)
+    except OSError as exc:
+        print(f"✗ cannot write {out_dir / RECEIPT_NAME}: {exc}", file=sys.stderr)
+        sys.exit(1)
+    print(json.dumps(written, indent=2))
 
 
 def cmd_repo_budget(args: argparse.Namespace) -> None:
@@ -343,7 +535,8 @@ def cmd_repo_budget(args: argparse.Namespace) -> None:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
     _, tree = _source_tree(args)
-    payload = budget(tree, profile.guidance_names, profile.import_max_depth)
+    payload = budget(tree, profile.guidance_names, profile.import_max_depth,
+                     claude_displaces_agents=profile.claude_displaces_agents)
     if args.out:
         try:
             save_artifact("repo_budget", payload, Path(args.out))
@@ -491,6 +684,10 @@ def register(sub, positive_int) -> None:
     inspect_p.add_argument("source", help=source_help)
     inspect_p.add_argument("--large-bytes", type=positive_int, default=100_000, dest="large_bytes",
                            help="A file above this many bytes is reported as large (default: 100000, ~30k tokens)")
+    inspect_p.add_argument("--index", default=None, metavar="FILE",
+                           help="A SCIP code index of the tree (built by scip-python, scip-clang, ...): adds the "
+                           "structure section (modules, reference fan-in, cross-tree bridges, name ambiguity). Read besides "
+                           "the tree; exit 2 when it cannot be read or none of its documents is a file of the tree")
     inspect_p.add_argument("--out", default=None, help="Write the repo_environment.v1 report to this file")
     inspect_p.add_argument("--json", action="store_true", help="Print the full report as JSON")
     inspect_p.add_argument("--fail-on-error", action="store_true", dest="fail_on_error",
@@ -520,10 +717,14 @@ def register(sub, positive_int) -> None:
                          "at --manifest (for a repository that has not added it yet)")
     reach_p.add_argument("--harness", default="claude-code",
                          help="Built-in profile name or a harness_profile.v1 YAML path (default: claude-code)")
-    reach_p.add_argument("--model", required=True, help="Model string passed to the harness as it is")
+    reach_p.add_argument("--model", default=None, help="Model string passed to the harness as it is (required "
+                         "unless --from)")
+    reach_p.add_argument("--from", default=None, dest="from_file", metavar="REACH_JSON",
+                         help="Read a saved reach.json instead of probing: no harness runs, no cost. The source is "
+                         "still read, to check the file's repository, harness and sha; the receipt goes beside the file")
     reach_p.add_argument("--bin", default=None, help="Harness executable (default: the profile's `bin`)")
-    reach_p.add_argument("--out", default="reach-out", help="Output directory: reach.json and traces/")
-    reach_p.add_argument("--scenarios", default="root,cwd,read",
+    reach_p.add_argument("--out", default=None, help="Output directory: reach.json and traces/ (default: reach-out)")
+    reach_p.add_argument("--scenarios", default=None,
                          help="Comma list of scenario kinds: root, cwd, read (default: all)")
     reach_p.add_argument("--only", action="append", default=None, metavar="SCENARIO",
                          help="Run only this scenario id (for example read=cpp); repeatable")
@@ -531,22 +732,26 @@ def register(sub, positive_int) -> None:
                          help="Parent of the temporary workspace (default: the system temp dir). "
                          "No ancestor may hold guidance files.")
     reach_p.add_argument("--salt", default=None, help="Token salt (default: random per run)")
-    reach_p.add_argument("--max-turns", type=positive_int, default=4, dest="max_turns")
-    reach_p.add_argument("--budget", type=float, default=0.10, help="Per-scenario USD cap (default: 0.10)")
-    reach_p.add_argument("--timeout", type=positive_int, default=300, help="Per-scenario seconds")
+    reach_p.add_argument("--max-turns", type=positive_int, default=None, dest="max_turns",
+                         help="Turn cap per scenario (default: 4)")
+    reach_p.add_argument("--budget", type=float, default=None, help="Per-scenario USD cap (default: 0.10)")
+    reach_p.add_argument("--timeout", type=positive_int, default=None, help="Per-scenario seconds (default: 300)")
     reach_p.add_argument("--keep", action="store_true", help="Keep the temporary workspace")
+    reach_p.add_argument("--format", choices=["matrix", "receipt"], default="matrix",
+                         help="matrix: the table (default). receipt: print the effective-instructions/v0 receipt as JSON and "
+                         "write it to effective_instructions.json in --out (docs/repo-evaluation-contract.md §7.1)")
     reach_p.add_argument("--dry-run", action="store_true", dest="dry_run",
                          help="Print the files and the exact argv of every scenario; run nothing")
     reach_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
-    reach_p.set_defaults(func=cmd_repo_reach)
+    reach_p.set_defaults(func=_reach_entry)
 
     budget_p = repo_sub.add_parser(
         "budget",
         help="What the repository puts into an agent's context when it starts at the root: guidance "
         "files and their imports, the skill listing, lazily loaded and on-demand files, in characters; "
         "warns on skills with no description and no body text, skills with near-duplicate descriptions (identical, or Jaccard "
-        "index >= 0.5 after removing stop words when both have 3+ words), AGENTS.md files a root CLAUDE.md, .claude/CLAUDE.md or CLAUDE.local.md turns off "
-        "(Claude Code rules), unreadable files (non-UTF-8, dangling link), and imports past the harness's hop "
+        "index >= 0.5 after removing stop words when both have 3+ words), AGENTS.md files a root CLAUDE.md, .claude/CLAUDE.md or CLAUDE.local.md turns off, "
+        "or one in the AGENTS.md file's own directory (Claude Code rules), unreadable files (non-UTF-8, dangling link), and imports past the harness's hop "
         "limit. No LLM call.",
     )
     budget_p.add_argument("source", help=source_help)

@@ -1,0 +1,196 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""The zero-score check counts unjudged retrieval misses as unusable.
+
+A question whose retrieval missed gets no with-docs judgement, so it has no
+context score. The zero-score check must still count it. Otherwise a run where
+most questions miss passes a fail-severity check it fails on intel/main.
+"""
+
+from unittest.mock import MagicMock
+
+import pytest
+
+from dokimi.eval.diagnoser import EMPTY_RETRIEVAL, INSUFFICIENT_DATA, summarise_diagnoses
+from dokimi.eval.judge import Judge
+from dokimi.gate.trust_gate import evaluate_trust
+
+GOOD = MagicMock(content=(
+    '{"correctness": 60, "completeness": 60, "specificity": 60, '
+    '"code_quality": 60, "actionability": 60, "aggregate": 0}'
+))
+HIT = {
+    "answer": "use parallel_for",
+    "doc_source": "context7",
+    "retrieved_docs": [{"source": "context7", "snippet": "parallel_for ...",
+                        "relevance_score": 0.8}],
+}
+MISS = {
+    "answer": "[FALLBACK: No relevant documentation found]",
+    "doc_source": "fallback_none",
+    "retrieved_docs": [],
+}
+
+
+def _rows(n_hit, n_miss):
+    """Judge n_hit questions with a document and n_miss without, as the judge does."""
+    judge = Judge.__new__(Judge)
+    judge._accumulate_usage = lambda usage: None
+    judge.temperature = judge.seed = None
+    judge.llm = MagicMock()
+    judge.llm.invoke.return_value = GOOD
+    rows = []
+    for i in range(n_hit + n_miss):
+        rows.append(judge._evaluate_answer_pair("L", {
+            "question_id": f"q{i}",
+            "question_text": "q?",
+            "with_docs": dict(HIT if i < n_hit else MISS),
+            "without_docs": {"answer": "baseline"},
+        }))
+    return rows
+
+
+def _zero_check(verdict):
+    (check,) = [c for c in verdict.checks if c.name == "zero_score_fraction"]
+    return check
+
+
+def test_four_misses_of_fourteen_fail_the_zero_check():
+    check = _zero_check(evaluate_trust(_rows(10, 4)))
+    assert check.severity == "fail"
+    assert check.value == 0.286
+    assert check.passed is False
+
+
+def test_all_hits_pass_the_zero_check():
+    check = _zero_check(evaluate_trust(_rows(14, 0)))
+    assert check.value == 0.0
+    assert check.passed is True
+
+
+def _retrieval_check(verdict):
+    (check,) = [c for c in verdict.checks if c.name == "retrieval_hit_rate"]
+    return check
+
+
+def test_judge_error_rows_keep_the_retrieval_outcome_of_their_answer(monkeypatch):
+    """5 of 20 answers fail in the judge: the retrieval rate is still measured over all 20."""
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key-not-used")
+    judge = Judge(model="gpt-x", provider="openai")
+    judge.llm = MagicMock()
+    judge.llm.invoke.side_effect = lambda msgs, *a, **k: GOOD
+    real = judge._evaluate_answer_pair
+
+    def flaky(library_name, item):
+        if int(item.question_id[1:]) >= 15:
+            raise RuntimeError("judge down")
+        return real(library_name, item)
+
+    judge._evaluate_answer_pair = flaky
+    answers = [
+        {"question_id": f"q{i}", "question_text": "q?",
+         "with_docs": dict(HIT), "without_docs": {"answer": "baseline"}}
+        for i in range(20)
+    ]
+    rows = judge.evaluate_answers("L", answers)
+    assert sum("error" in r for r in rows) == 5
+    check = _retrieval_check(evaluate_trust(rows))
+    assert check.value == 1.0
+    assert check.measured is not False
+    assert "(20/20)" in check.message
+
+
+def test_unjudged_misses_stay_empty_retrievals_in_the_failure_analysis():
+    summary = summarise_diagnoses(_rows(10, 4))
+    assert summary["counts"][EMPTY_RETRIEVAL] == 4
+    assert summary["counts"][INSUFFICIENT_DATA] == 0
+
+
+def _row(question_id, context, baseline, retrieval_hit):
+    """An eval record as the judge writes it: a null condition is one that was not scored."""
+    return {
+        "question_id": question_id,
+        "question_text": "q?",
+        "with_docs": None if context is None else {"aggregate": context},
+        "without_docs": None if baseline is None else {"aggregate": baseline},
+        "delta": None if context is None or baseline is None else context - baseline,
+        "retrieval_hit": retrieval_hit,
+    }
+
+
+@pytest.mark.parametrize("extra", [
+    # no context score, and no retrieval outcome recorded: an older artifact, or a judge error
+    # on an answer whose outcome was never stamped
+    _row("legacy", None, 60, None),
+    # a document reached the prompt, but the context answer was not scored (judge error)
+    _row("judge-error", None, 60, True),
+    # a miss with no baseline score: it is not a question both arms were meant to score
+    _row("no-baseline", None, None, False),
+], ids=["legacy-row", "hit-not-scored", "miss-without-baseline"])
+def test_only_a_recorded_miss_with_a_baseline_counts_as_unusable(extra):
+    rows = [_row(f"q{i}", 70, 60, True) for i in range(10)]
+
+    check = _zero_check(evaluate_trust(rows + [extra]))
+
+    assert (check.value, check.message.split(" ")[0]) == (0.0, "0/10")
+
+
+def test_a_scored_miss_counts_once_in_the_zero_check():
+    # A miss the judge scored (--judge-placeholder) with a 0 context score is a zero already; it
+    # must not also count as an unjudged miss, or the numerator and the denominator both grow.
+    rows = [_row(f"q{i}", 70, 60, True) for i in range(10)] + [_row("scored-miss", 0, 60, False)]
+
+    check = _zero_check(evaluate_trust(rows))
+
+    assert (check.value, check.message.split(" ")[0]) == (round(1 / 11, 3), "1/11")
+
+
+def _judged_with_failures(n_hit, n_miss, failing):
+    """Judge the answers through ``evaluate_answers``; each question id in ``failing`` raises in the judge."""
+    judge = Judge(model="gpt-x", provider="openai")
+    judge.llm = MagicMock()
+    judge.llm.invoke.side_effect = lambda msgs, *a, **k: GOOD
+    real = judge._evaluate_answer_pair
+
+    def flaky(library_name, item):
+        if item.question_id in failing:
+            raise RuntimeError("judge down")
+        return real(library_name, item)
+
+    judge._evaluate_answer_pair = flaky
+    answers = [
+        {"question_id": f"h{i}", "question_text": "q?",
+         "with_docs": dict(HIT), "without_docs": {"answer": "baseline"}}
+        for i in range(n_hit)
+    ] + [
+        {"question_id": f"m{i}", "question_text": "q?",
+         "with_docs": dict(MISS), "without_docs": {"answer": "baseline"}}
+        for i in range(n_miss)
+    ]
+    return judge.evaluate_answers("L", answers)
+
+
+def test_a_judge_error_on_a_retrieval_miss_counts_as_unusable(monkeypatch):
+    """The judge raises on a miss: its error row has no scores, but it is still an unusable question."""
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key-not-used")
+    rows = _judged_with_failures(3, 1, failing={"m0"})
+    error_row = next(r for r in rows if r["question_id"] == "m0")
+    assert "error" in error_row and error_row["retrieval_hit"] is False
+
+    check = _zero_check(evaluate_trust(rows))
+
+    assert (check.value, check.passed) == (0.25, False)
+    assert check.message.split(" ")[0] == "1/4"
+
+
+def test_a_judge_error_on_a_retrieval_hit_stays_out_of_the_zero_check(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key-not-used")
+    rows = _judged_with_failures(3, 0, failing={"h0"})
+    error_row = next(r for r in rows if r["question_id"] == "h0")
+    assert "error" in error_row and error_row["retrieval_hit"] is True
+
+    check = _zero_check(evaluate_trust(rows))
+
+    assert (check.value, check.passed) == (0.0, True)
+    assert check.message.split(" ")[0] == "0/2"

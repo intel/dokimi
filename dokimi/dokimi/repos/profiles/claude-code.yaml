@@ -84,10 +84,16 @@ guidance:
   imports: "@path"
   # Memory docs (code.claude.com/docs/en/memory): imports recurse "with a maximum depth of four hops".
   import_max_depth: 4
+  # repo budget: a CLAUDE* file turns off the AGENTS.md in its own directory (notes below).
+  claude_displaces_agents: true
   notes: >-
     Measured on CLI 2.1.286: it reads AGENTS.md only
-    when no CLAUDE.md is in the directory chain it starts in, and one CLAUDE.md
-    turns AGENTS.md off for the whole session. 2.1.241 and 2.1.250 read no
+    when no CLAUDE.md is in the directory chain it starts in. Measured on
+    2.1.316: started in a chain with a CLAUDE.md, CLAUDE.local.md or
+    .claude/CLAUDE.md, it loads no AGENTS.md; on lazy loading, a directory's
+    own CLAUDE* file turns that directory's AGENTS.md off, a CLAUDE* in a parent
+    below the root does not, and a root CLAUDE* file (CLAUDE.local.md included)
+    turns every AGENTS.md off for the whole session. 2.1.241 and 2.1.250 read no
     AGENTS.md beside a root CLAUDE.md; without one they were not measured. The
     reach probe measures this per version.
 bridge:
