@@ -46,7 +46,9 @@ SPDX-License-Identifier: Apache-2.0
 > no LLM call): root CLAUDE.md files and their `@` imports plus the skill listing at
 > start (AGENTS.md files and their imports too, unless a root CLAUDE*, `.claude/CLAUDE.md` or
 > `CLAUDE.local.md` turns them off), nested guidance lazily, skill bodies on demand, and AGENTS.md
-> files a root CLAUDE* turns off. The `start` total is not an upper bound: it is too low by what it does
+> files a root CLAUDE* turns off, or a CLAUDE.md, `CLAUDE.local.md` or `.claude/CLAUDE.md` in the
+> AGENTS.md file's own directory (not one in a parent below the root; with a profile that sets
+> `guidance.claude_displaces_agents`, as `claude-code` does). The `start` total is not an upper bound: it is too low by what it does
 > not count (`.claude/rules/*.md` files, non-`.md` imports, skills behind a linked directory, nested
 > `.claude/skills/` skills, and
 > imports past the profile's `guidance.import_max_depth`, four hops for Claude Code, which warns
@@ -63,7 +65,7 @@ SPDX-License-Identifier: Apache-2.0
 > `repo inspect` (§8.1) needs no manifest: a static look at what the tree offers an agent.
 >
 > ```bash
-> python cli.py repo inspect <source> [--out environment.json] [--json] [--large-bytes N] [--fail-on-error]
+> python cli.py repo inspect <source> [--index index.scip] [--out environment.json] [--json] [--large-bytes N] [--fail-on-error]
 > ```
 >
 > `--manifest-file <local.yaml>` on `validate`, `scan` and `reach` reads the manifest
@@ -188,8 +190,8 @@ documented in `dokimi/repos/code_index/index.py`.
 
 The decoder uses only the standard library. A malformed, empty, or garbled
 file raises `CodeIndexError`. A file cut at a document boundary still reads,
-with fewer documents, so compare the indexed files with the tree. Nothing in
-the eval flow reads an index yet.
+with fewer documents, so compare the indexed files with the tree. `repo
+inspect --index` reads one (§8.1); nothing in the eval flow does yet.
 
 ## 2. `repo-eval.yaml`
 
@@ -391,7 +393,27 @@ commit and is not in the workspace, because step 3 starts a new history; a
 grader diffs the agent's changes from `start_sha`. With the arm come
 `arm_files`, the files it deleted, wrote or changed; for `guidance:rev:` an
 `arm_rev` object (`rev` as given, its `sha`, and `removed`: the base's guidance
-files with no counterpart at `<rev>`); for `patch:` an `arm_patch` object (the
+files with no counterpart at `<rev>`), which also records the guidance history
+of `<rev>` (`dokimi/repos/guidance_history.py`): `guidance_latest`, for
+each guidance file the arm wrote, the commit reachable from `<rev>` that last
+touched it, or for a link it or any path its resolution goes through (each
+intermediate link and the file it resolves to), by committer date;
+`guidance_commits`, the commits reachable from `<rev>` that touch a path the
+guidance globs match outside `eval_dir` (which the arm leaves out, as it does
+the files) or a path a guidance link resolves through, newest first by committer
+date, at most 200, each with its `subject`; and `guidance_commits_truncated`,
+`true` when that cap cut the list. Each commit has its `sha`, `authored` and
+`committed` (strict ISO 8601, `%aI` and `%cI`; a UTC date is written `Z`,
+whichever form the git that read the history prints). The history needs the whole of it: a shallow
+git dir (a local checkout cloned with `--depth`) fails the cell's preparation
+(`git fetch --unshallow`), as its history stops at the boundary commit. A merge commit counts for a
+path when its result differs there from every parent: a conflict resolution,
+an edit made in the merge, or a clean merge of its parents' edits to
+different parts of one file; a merge that takes the path as one parent has
+it does not, and the commits it merged count. A reader can compare `committed` with a replay task's
+`public_at` (§4.6) to see whether a guidance commit came after the task's
+answer was public; the author date alone cannot show it, as an amend or a
+rebase keeps it. For `patch:` an `arm_patch` object (the
 file's absolute `path` and full `sha256`, `added`: the files the patch added
 that neither the guidance globs nor `.mcp.json` match, and `mcp_servers`: the servers
 the patch added to the `.mcp.json` at the root, read before the agent runs). `args_if_present` lists the profile's
@@ -778,8 +800,14 @@ by a reviewer: it has no line and is never gold.
   `score: {metric: recall, max: 1.0}`, `review_patch`, `gold`, `window`
   (`--window`, default 5) and the prompt (`--prompt-file` replaces the default,
   which asks for the findings JSON of §4.5). For the reader it adds
-  `source_pr`, `source_url`, `reviewed_commit`, `merge_commit` and
-  `left_out_files`.
+  `source_pr`, `source_url`, `reviewed_commit`, `merge_commit`,
+  `left_out_files` and `public_at`: the earliest `createdAt` of a gold
+  thread's first comment, as the threads file gives it, the time the task's
+  answer was public. It is absent when any gold thread's `createdAt` is
+  missing, not ISO 8601 or has no offset (`Z` is one), as the earliest time
+  is then unknown; the build's notes name those threads. Against the
+  `committed` dates a `guidance:rev:` arm records (§3), it shows whether a
+  guidance commit came after it.
 - `gold.json` holds `{id, file, line, kind, comment, addressed, reply, url}`
   per thread. `id` is `pr<number>-t<n>`, `n` being the thread's position among
   all the PR's threads, so ids stay the same when a thread is dropped. `kind`
@@ -910,6 +938,7 @@ guidance:                            # DECLARED; verified by the reach probe, ne
   names: [CLAUDE.md, CLAUDE.local.md, AGENTS.md]
   resolution: ancestors-of-cwd + lazy-on-subtree-access
   imports: "@path"
+  claude_displaces_agents: true      # repo budget: a CLAUDE* turns off the AGENTS.md in its own directory
 bridge: {for: AGENTS.md, write: CLAUDE.md, content: "@AGENTS.md"}
 args_if_present:                     # argv added after the "{tools}" element when the workspace file exists and the tool mode is `all`
   .mcp.json: ["--mcp-config", ".mcp.json"]
@@ -1090,8 +1119,10 @@ per scenario).
       exit, or an error result.
 - Each scenario also records:
     - `unknown`: tokens the model reported that were never seeded;
-    - `prose`: words besides tokens. A high count usually means an explanation
-      or a refusal, so read that trace before trusting its `not_loaded` cells.
+    - `prose`: words besides tokens. A lead-in line of at most 12 words ending
+      in `:` before the tokens (the first non-empty line, when a later line holds
+      a token) is not counted. A high count usually means an explanation or a
+      refusal, so read that trace before trusting its `not_loaded` cells.
 - If payload capture is available, a `payload` field records whether each
   token was in the request bytes. This settles cells where the model
   under-reports, which is how a small model produces false `truncated` cells.
@@ -1159,7 +1190,7 @@ and the receipt says so.
 | budget `when` | `expected` | Reason |
 |---|---|---|
 | `start` | `true` | loaded at start-up in every run |
-| `off` | `false` | a root CLAUDE\*.md turns AGENTS.md off |
+| `off` | `false` | a root CLAUDE\*.md, or one in the AGENTS.md file's own directory, turns AGENTS.md off |
 | `lazy`, run directory is the file's directory or inside it | `true` | loaded when the work reaches that directory |
 | `lazy`, run directory outside it | `false` | not reached by this run |
 | `lazy` on a link, an import, a root file, or a file another guidance file `@`-imports | `unknown` | budget's flattened `when` does not say which directory activates the file, so only a nested AGENTS/CLAUDE file that budget lists under its own path, and that no guidance file imports, gets a verdict |
@@ -1173,7 +1204,10 @@ written (`repos/budget.py`): an AGENTS.md is `off` while a root CLAUDE\*.md
 exists, nested ones included, unless a root CLAUDE\* file aliases it or
 `@`-imports it (`start`), or a nested CLAUDE\* file `@`-imports it (`lazy`). So
 nested AGENTS.md files can appear, and an AGENTS.md at the root is not always
-`off`. If budget's rule changes, the receipt follows it.
+`off`. Without a root CLAUDE\*.md, a nested AGENTS.md that resolves is `off` when its own
+directory holds a CLAUDE\*.md that does not alias or `@`-import it; no root
+file wins there, so `precedence_observed` lists none of those. If budget's
+rule changes, the receipt follows it.
 
 **What the marker method can and cannot show.** It shows which tokens were
 reported in a run, so it can support `loaded`, `fetched` and `not_loaded` as
@@ -1411,7 +1445,8 @@ checkers: see the pull request that added the scan (#68).
 
 ### 8.1 Inspection (`repo_environment.v1`)
 
-`repo inspect <source>` reads the tree and nothing else: no manifest, no LLM
+`repo inspect <source>` reads the tree and, with `--index`, a code index of
+it, nothing else: no manifest, no LLM
 call, no command of the repository run. Where L0 asks whether what the
 guidance says is true, inspection asks what the guidance may have left out:
 which instruction files exist and where they apply, how a change can be built
@@ -1480,6 +1515,51 @@ pass, CI secrets and the agent's network. `risk` is the worst of the launch
 observations. There is no overall score. `--fail-on-error` exits 1 when any
 finding is an error.
 
+With `--index FILE`, a SCIP index of the tree (§1.2), the report adds a
+`structure` section. The index's root prefix is found by matching its document
+paths to the tree's files; documents that are not files of the tree are
+counted and left out; an index none of whose documents is a file of the tree
+exits 2. `tree_files_not_in_index` counts the tree's non-test files under the
+root prefix, of an extension the indexed files have, that the index lacks (an
+index cut at a document boundary still reads); `not_observed` names the count. A module is a directory; one holding more indexed non-test files
+than `max(30, n // 20)`, `n` the indexed non-test files of the tree and `//` integer division, is split
+into its subdirectories,
+the files right in it staying its own. Test files are neither modules nor
+callers. Per module:
+
+- `reference_fanin`: the files outside the module that reference a function or
+  method defined in it. The index records references, not calls: a reference to
+  a function or method counts, a use of a type does not, and a declaration
+  counts only when the indexer records it as a reference, not as a definition.
+  This is not a caller count.
+- `other_tree_modules`: the modules of another tree (the first two path
+  components, `cpp/daal` against `cpp/oneapi`; a module shallower than that is
+  of the tree of the modules under it, except the root `.`, which is a tree of
+  its own, so every module it shares a reference with counts as another tree's)
+  it shares a reference with, either way.
+- `ambiguity`: the share of its function and method names that a different
+  function of the same name is defined in another module. A function declared
+  in one module and defined in another is one symbol and does not count.
+  Dunder names (`__init__`, `__repr__`, …) and C++ operator overloads
+  (`operator==`, `operator=`, …) are neither counted nor ambiguous.
+  It is `null` when the module has no function names: no names is not a share
+  of zero.
+- `in_guidance`: whether an instruction file names the module's path as a token
+  (no word, hyphen or extension continues it; a leading `./` may precede it),
+  or its name between backticks.
+  A module with an instruction file of its own is in guidance too, since no
+  path names it: the root `.` with a root instruction file, `src/core` with a
+  path-specific `src/core/AGENTS.md`. A local-private file does not count.
+
+A module is `kept` with at least 3 files and a fan-in of 3. Of the ten kept
+modules with most fan-in, one with an ambiguity of 0.5 or more gets a
+`structure.name_ambiguity` finding, one sharing references with 5 or more
+modules of another tree gets `structure.cross_tree_bridge`; `rules` records
+these numbers; both are `info` with `low` confidence: on
+oneDAL they tracked agent cost or error over 39 modules only, which cannot
+separate structure from question design.
+Whether the index is current is not checked: `not_observed` says so.
+
 ## 9. Running
 
 `repo tasks check` and `repo run` need docker. Both export `eval_dir` from the
@@ -1523,8 +1603,11 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
 ```bash
 # review tasks from the threads of merged PRs (§4.6): no LLM, no docker, no GitHub call
 python cli.py repo tasks replay ~/dpnp --threads threads.json --out ~/dpnp/.agent-eval/tasks
-python cli.py repo run ~/dpnp --task review_replay_pr3107 --arm guidance:none,guidance:raw \
+# a task starts from its PR's base: guidance:rev:<sha> runs the guidance under review there
+# (replace <sha> with that revision; the quotes keep the shell from reading <sha> as a redirect)
+python cli.py repo run ~/dpnp --task review_replay_pr3107 --arm 'guidance:none,guidance:rev:<sha>' \
     --model claude-sonnet-5-5 --batch replay --agent-network host
+# decide on the score row (recall, p_holm); metric:recall_addressed is descriptive
 python cli.py repo compare repo-runs/replay --baseline guidance:none --metric recall_addressed
 # judged recall (§4.5): a sample for a person to label (no LLM), then the judge (paid)
 python cli.py repo hits sheet repo-runs/replay --out labels.json
@@ -1603,7 +1686,8 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   (those five, `n_threads` and `recall` from `grade.json`, and
   `parse_error`). A cell graded before `matches` was recorded is counted
   (`N cell(s) graded without hit details`), not listed, and so is a cell whose
-  `result.json` says `grader_failure` (`grader_failures`).
+  `result.json` says `grader_failure` (`grader_failures`). How to read a replay
+  batch before writing it up: [reviewing.md](reviewing.md#reading-a-replay-batch).
 - `repo hits judge <batch> --judge PROVIDER/MODEL` (§4.5) labels each credited
   pair of the batch's `dokimi:review_replay` cells, one judge call per pair
   (up to 3 draws when a reply does not parse; the response cache replays

@@ -39,6 +39,28 @@ def test_prose_counts_words_not_formatting():
     assert prose_words("I will not list these tokens.") == 5
 
 
+LEAD_IN = "Now I'll list all verification tokens found in my context:"
+HAIKU_TOKENS = "RC1A2B3C\nRC4D5E6F\nRC0A1B2C\nRC3D4E5F"
+REFUSAL = ("I could not read most files because the sandbox denied access, and I refuse to guess "
+           "what else was there, but here is what I saw:")
+
+
+@pytest.mark.parametrize("answer, words", [
+    (f"{LEAD_IN}\n{HAIKU_TOKENS}", 0),  # Haiku's answer on IntelPython/dpnp#3099
+    (f"\n{LEAD_IN}\n\n{HAIKU_TOKENS}\n", 0),
+    (LEAD_IN, 10),
+    (f"{LEAD_IN}\nNONE", 10),
+    (f"{LEAD_IN}\n{HAIKU_TOKENS}\nThese are all the tokens.", 5),
+    (f"{LEAD_IN.rstrip(':')}.\n{HAIKU_TOKENS}", 10),
+    (f"RC1A2B3C\n{LEAD_IN}\nRC4D5E6F", 10),
+    ("Here are all the verification tokens that were found in my context:\nRC1A2B3C", 0),
+    ("Here are all of the verification tokens that were found in my context:\nRC1A2B3C", 13),
+    (f"{REFUSAL}\nRC1A2B3C", 23),  # review of #368: a long ':' line is prose, not a lead-in
+])
+def test_prose_skips_only_a_lead_in_before_tokens(answer, words):
+    assert prose_words(answer) == words
+
+
 def test_unreadable_guidance_is_a_reach_error(tmp_path, monkeypatch):
     original = WorkTree.read_text
 
