@@ -184,12 +184,12 @@ def _is_root(path: str) -> bool:
 
 
 def _displaced(tree: RepoTree, every: list[str], claude: list[str], root_claude: list[str],
-               rules: bool) -> dict[str, list[str]]:
-    """Each AGENTS.md a CLAUDE* file turns off, with the files that do, only with ``rules`` (Claude Code's): every one
+               claude_displaces_agents: bool) -> dict[str, list[str]]:
+    """Each AGENTS.md a CLAUDE* file turns off, with the files that do, only with ``claude_displaces_agents``: every one
     while a root CLAUDE* resolves, else one that resolves and whose own directory holds a CLAUDE.md, CLAUDE.local.md or .claude/CLAUDE.md
     that resolves (not one in a parent or deeper directory; measured on Claude Code 2.1.316). Imports and aliases that
     still load it are decided later."""
-    if not rules:
+    if not claude_displaces_agents:
         return {}
     agents = [f for f in every if f.rsplit("/", 1)[-1] == "AGENTS.md"]
     if root_claude:
