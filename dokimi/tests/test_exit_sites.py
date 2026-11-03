@@ -259,11 +259,15 @@ def test_postponed_annotations_are_not_run_but_defaults_and_decorators_are(tmp_p
         "dokimi/b.py": "import sys\ndef f(x: sys.exit(2)):\n    pass\n",
         "dokimi/c.py": "from __future__ import annotations\nimport sys\ndef f(x=sys.exit(2)):\n    pass\n",
         "dokimi/d.py": "from __future__ import annotations\nimport sys\n@sys.exit(2)\ndef f():\n    pass\n",
+        "dokimi/e.py": "from __future__ import annotations\nimport sys\nx: sys.exit(2)\n",
+        "dokimi/f.py": "from __future__ import annotations\nimport sys\ndef f(*a: sys.exit(2), k: sys.exit(3), **kw: sys.exit(4)):\n    pass\n",
     })
     assert exit_sites(imports.trees["dokimi.a"]) == []
     assert exit_sites(imports.trees["dokimi.b"]) == [2]
     assert exit_sites(imports.trees["dokimi.c"]) == [3]
     assert exit_sites(imports.trees["dokimi.d"]) == [3]
+    assert exit_sites(imports.trees["dokimi.e"]) == []
+    assert exit_sites(imports.trees["dokimi.f"]) == []
 
 
 def test_a_function_local_annotation_is_never_run_but_its_value_and_a_module_annotation_are(tmp_path):
