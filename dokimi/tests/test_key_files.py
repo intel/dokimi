@@ -68,26 +68,35 @@ def test_preflight_checks_the_variable_the_run_reads(provider, tmp_path, monkeyp
 
 
 @pytest.fixture
-def chat_models(monkeypatch):
-    """Stub LangChain chat classes recording each build, so no ragas extra is needed."""
+def ragas_stubs(monkeypatch):
+    """Stub ragas and the LangChain classes, recording each chat model and embeddings built."""
     built = []
 
-    def chat(name):
+    def record(name):
         def build(**kwargs):
             built.append((name, kwargs))
-            return name
+            return name, kwargs
         return build
 
     stubs = {
         "ragas.llms": {"LangchainLLMWrapper": lambda model: model},
-        "langchain_openai": {"ChatOpenAI": chat("openai")},
-        "langchain_anthropic": {"ChatAnthropic": chat("anthropic")},
+        "ragas.embeddings": {"LangchainEmbeddingsWrapper": lambda embeddings: embeddings},
+        "ragas.metrics": {name: types.SimpleNamespace(embeddings="unset")
+                          for name in ("faithfulness", "answer_relevancy", "context_precision")},
+        "langchain_openai": {"ChatOpenAI": record("openai"), "OpenAIEmbeddings": record("embeddings")},
+        "langchain_anthropic": {"ChatAnthropic": record("anthropic")},
         "langchain_core.language_models": {"BaseChatModel": object},
     }
     for name, attrs in stubs.items():
         monkeypatch.setitem(sys.modules, name, types.SimpleNamespace(**attrs))
-    monkeypatch.setattr(RagasEvaluator, "_build_metrics", lambda self: [])
     return built
+
+
+@pytest.fixture
+def chat_models(ragas_stubs, monkeypatch):
+    """The chat models built, with no metric (and so no embeddings) built."""
+    monkeypatch.setattr(RagasEvaluator, "_build_metrics", lambda self: [])
+    return ragas_stubs
 
 
 @pytest.mark.parametrize("provider", ["openai", "anthropic"])
@@ -150,3 +159,45 @@ def test_ragas_fallback_judge_raises_on_an_empty_key_file(chat_models, tmp_path,
     with pytest.raises(ValueError, match="names an empty key file"):
         RagasEvaluator(provider="google")
     assert chat_models == []
+
+
+def _answer_relevancy():
+    return sys.modules["ragas.metrics"].answer_relevancy
+
+
+def test_ragas_embeddings_read_a_key_file(ragas_stubs, tmp_path, monkeypatch):
+    # ragas embeds answer_relevancy with OpenAI whatever the judge; its default read file: as is.
+    key = tmp_path / "key"
+    key.write_text("sk-embed\n")
+    monkeypatch.setenv("OPENAI_API_KEY", f"file:{key}")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-judge")
+    RagasEvaluator(provider="anthropic", metrics=["answer_relevancy"])
+    embeddings = ("embeddings", {"model": "text-embedding-ada-002", "openai_api_key": "sk-embed"})
+    assert _answer_relevancy().embeddings == embeddings
+    assert embeddings in ragas_stubs
+
+
+def test_ragas_embeddings_without_a_key_stay_ragas_default(ragas_stubs, monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    RagasEvaluator(provider="openai", api_key="sk-judge", metrics=["answer_relevancy"])
+    assert _answer_relevancy().embeddings is None
+    assert [name for name, _ in ragas_stubs] == ["openai"]
+
+
+@pytest.mark.parametrize("content", [None, ""])
+def test_ragas_embeddings_raise_on_a_bad_key_file(content, ragas_stubs, tmp_path, monkeypatch):
+    key = tmp_path / "key"
+    if content is not None:
+        key.write_text(content)
+    monkeypatch.setenv("OPENAI_API_KEY", f"file:{key}")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-judge")
+    with pytest.raises(ValueError, match="Cannot read API key from file|names an empty key file"):
+        RagasEvaluator(provider="anthropic", metrics=["answer_relevancy"])
+
+
+def test_ragas_builds_no_embeddings_without_answer_relevancy(ragas_stubs, tmp_path, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", f"file:{tmp_path / 'no-such-key'}")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-judge")
+    RagasEvaluator(provider="anthropic", metrics=["faithfulness"])
+    assert _answer_relevancy().embeddings == "unset"
+    assert [name for name, _ in ragas_stubs] == ["anthropic"]

@@ -13,9 +13,12 @@ SPDX-License-Identifier: Apache-2.0
     with exit 2, as it refuses a missing key: "Cannot read API key from file '…'
     (ANTHROPIC_API_KEY, provider anthropic)" or "ANTHROPIC_API_KEY for provider anthropic names
     an empty key file".
-  - The RAGAS judge (`answers generate --ragas`, `eval ragas`) sent the `file:…` string itself
+  - The RAGAS step (`answers generate --ragas`, `eval ragas`) sent the `file:…` string itself
     as the key, from the environment or from an explicit `api_key`, so every RAGAS call failed
-    authentication; it now sends the file's contents. A key file that is unreadable or empty now
-    ends the RAGAS step before any RAGAS call, with "RAGAS evaluation failed: Cannot read API key
-    from file …" or "… names an empty key file", like any other RAGAS failure. In the Python API, the fallback judge that a provider other
-    than openai and anthropic gets reads its key file too.
+    authentication. That was the judge's key, and also `OPENAI_API_KEY`, which ragas uses to embed
+    for `answer_relevancy` whatever the judge. Both now send the file's contents; the embeddings
+    keep ragas's default model, `text-embedding-ada-002`. A key file that is unreadable or empty
+    now ends the RAGAS step before any RAGAS call, with "RAGAS evaluation failed: Cannot read API
+    key from file …" or "… names an empty key file", like any other RAGAS failure. In the Python
+    API, the fallback judge that a provider other than openai and anthropic gets reads its key
+    file too.

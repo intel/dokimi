@@ -291,7 +291,24 @@ class RagasEvaluator:
         # Attach LLM to each metric
         for m in metrics:
             m.llm = self._ragas_llm
+        if "answer_relevancy" in self._requested:
+            answer_relevancy.embeddings = self._build_ragas_embeddings()
         return metrics
+
+    def _build_ragas_embeddings(self):
+        """OpenAI embeddings for answer_relevancy, keyed as dokimi reads a key.
+
+        ragas embeds with OpenAI whatever the judge, and its own default reads
+        ``OPENAI_API_KEY`` as it is, a ``file:`` string included. ``None`` (no key) leaves
+        that default.
+        """
+        key = _key("openai")
+        if key is None:
+            return None
+        from langchain_openai import OpenAIEmbeddings
+        from ragas.embeddings import LangchainEmbeddingsWrapper
+        # ragas's default model (embedding_factory), so the scores do not move.
+        return LangchainEmbeddingsWrapper(OpenAIEmbeddings(model="text-embedding-ada-002", openai_api_key=key))
 
 
 class RagasResult:
