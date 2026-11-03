@@ -109,6 +109,18 @@ def expectations_digest(expect: Mapping[str, Any]) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def fixtures_digest(fixtures: Path) -> str:
+    """The sha256 of the fixture tree (each file's path and bytes, a link's target): what the observed states come from."""
+    h = hashlib.sha256()
+    for p in sorted(fixtures.rglob("*"), key=lambda p: p.relative_to(fixtures).as_posix()):
+        if not (p.is_symlink() or p.is_file()):
+            continue
+        data = b"L" + os.readlink(p).encode() if p.is_symlink() else b"F" + p.read_bytes()
+        for part in (p.relative_to(fixtures).as_posix().encode(), data):
+            h.update(len(part).to_bytes(8, "big") + part)
+    return h.hexdigest()
+
+
 def check_expectations(expect: Mapping[str, Any], fixtures: Path) -> list[str]:
     """What makes the expectations disagree with the fixture tree; empty when they agree."""
     declared, found = set(expect["cases"]), set(cases(fixtures))
@@ -203,13 +215,14 @@ def summary(runs: Sequence[Mapping[str, Any]], cells: Sequence[Mapping[str, Any]
 
 
 def build_matrix(runs: Sequence[Mapping[str, Any]], cells: Sequence[Mapping[str, Any]], digest: str,
-                 generated_at: str | None = None) -> dict[str, Any]:
+                 fixtures: str, generated_at: str | None = None) -> dict[str, Any]:
     """The ``reach_matrix.v1`` payload: runs and cells in a stable order, with the counts."""
     return {
         "schema_version": "reach_matrix.v1",
         "generated_at": generated_at or datetime.now(timezone.utc).isoformat(),
         "expectations": SCHEMA_EXPECTATIONS,
         "expectations_digest": digest,
+        "fixtures_digest": fixtures,
         "runs": sorted((dict(r) for r in runs), key=lambda r: (r["case"], r["harness"], r["version"])),
         "cells": sorted((dict(c) for c in cells),
                         key=lambda c: (c["case"], c["harness"], c["version"], c["path"], c["scenario"])),
@@ -294,19 +307,22 @@ def run_harness(harness: Harness, model: str, fixtures: Path, expect: Mapping[st
                                  timeout=timeout, budget=budget, env=env)
         runs.append(record)
         cells += found
-    return build_matrix(runs, cells, expectations_digest(expect))
+    return build_matrix(runs, cells, expectations_digest(expect), fixtures_digest(fixtures))
 
 
 def merge(matrices: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     """One matrix from several: the runs and cells of each, and no run of the same known harness version twice.
 
-    The matrices must come from one revision of the expectations, else their documented states differ."""
+    The matrices must come from one revision of the expectations and of the fixtures, else their states differ."""
     if not matrices:
         raise ConformanceError("nothing to merge")
     digests = sorted({m["expectations_digest"] for m in matrices})
     if len(digests) > 1:
         raise ConformanceError(f"the matrices come from {len(digests)} revisions of the expectations: "
                                + ", ".join(d[:12] for d in digests))
+    trees = sorted({m["fixtures_digest"] for m in matrices})
+    if len(trees) > 1:
+        raise ConformanceError(f"the matrices come from {len(trees)} fixture trees: " + ", ".join(d[:12] for d in trees))
     runs: list[dict[str, Any]] = []
     cells: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str]] = set()
@@ -321,7 +337,7 @@ def merge(matrices: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         runs += matrix["runs"]
         cells += matrix["cells"]
     latest = max((m["generated_at"] for m in matrices), key=_instant)
-    return build_matrix(runs, cells, digests[0], generated_at=latest)
+    return build_matrix(runs, cells, digests[0], trees[0], generated_at=latest)
 
 
 def _instant(text: str) -> datetime:

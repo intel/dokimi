@@ -3,6 +3,7 @@
   "generated_at": "2026-10-31T04:37:00+00:00",
   "expectations": "reach_conformance.v1",
   "expectations_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+  "fixtures_digest": "0000000000000000000000000000000000000000000000000000000000000000",
   "runs": [
     {
       "harness": "codex",

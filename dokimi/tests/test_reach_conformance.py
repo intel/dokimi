@@ -10,6 +10,7 @@ import importlib.resources
 import importlib.util
 import json
 import os
+import shutil
 import tomllib
 from pathlib import Path
 
@@ -66,10 +67,11 @@ def _cell(**fields) -> dict:
 
 
 DIGEST = "a" * 64
+TREE = "c" * 64
 
 
-def _matrix(runs=None, cells=None, generated_at="2026-10-31T00:00:00+00:00", digest=DIGEST) -> dict:
-    return cf.build_matrix([_run()] if runs is None else runs, [_cell()] if cells is None else cells, digest,
+def _matrix(runs=None, cells=None, generated_at="2026-10-31T00:00:00+00:00", digest=DIGEST, tree=TREE) -> dict:
+    return cf.build_matrix([_run()] if runs is None else runs, [_cell()] if cells is None else cells, digest, tree,
                            generated_at=generated_at)
 
 
@@ -158,7 +160,7 @@ def test_build_matrix_counts_and_validates_against_the_schema():
     runs = [_run(), _run(harness="copilot", status="skipped", reason="no key", version="unknown")]
     cells = [_cell(), _cell(agreement="disagrees", observed="not_loaded", documented="loaded", path="CLAUDE.md"),
              _cell(agreement="alias", path="LINK.md", alias_of="AGENTS.md")]
-    matrix = cf.build_matrix(runs, cells, DIGEST, generated_at="2026-10-31T00:00:00+00:00")
+    matrix = cf.build_matrix(runs, cells, DIGEST, TREE, generated_at="2026-10-31T00:00:00+00:00")
     assert matrix["summary"] == {"agrees": 1, "disagrees": 1, "inconclusive": 0, "no_claim": 0, "alias": 1,
                                  "runs": {"ran": 1, "errors": 0, "failed": 0, "skipped": 1}}
     assert schema_errors("reach_matrix.v1", matrix) == []
@@ -322,6 +324,31 @@ def test_merge_refuses_matrices_from_two_revisions_of_the_expectations():
     second = _matrix(runs=[_run(harness="claude-code")], cells=[_cell(harness="claude-code")], digest="b" * 64)
     with pytest.raises(cf.ConformanceError, match="2 revisions of the expectations"):
         cf.merge([_matrix(), second])
+
+
+def test_merge_refuses_matrices_observed_over_two_fixture_trees(tmp_path, monkeypatch):
+    expect = cf.load_expectations(FIXTURES / "expectations.yaml")
+    edited = tmp_path / "fixtures"
+    shutil.copytree(FIXTURES, edited, symlinks=True)
+    (edited / "nested-agents" / "packages" / "app" / "CLAUDE.md").write_text("x\n", encoding="utf-8")
+    monkeypatch.setattr(cf.process, "run", lambda *a, **k: pytest.fail("a skipped harness must not run"))
+    pristine, changed = (cf.run_harness(CODEX, "", fx, expect, tmp_path / name, env={}, which=_found)
+                         for fx, name in ((FIXTURES, "a"), (edited, "b")))
+    assert pristine["fixtures_digest"] == cf.fixtures_digest(FIXTURES) != changed["fixtures_digest"]
+    with pytest.raises(cf.ConformanceError, match="2 fixture trees"):
+        cf.merge([pristine, changed])
+
+
+def test_fixtures_digest_follows_each_file_and_link(tmp_path):
+    tree = tmp_path / "t"
+    (tree / "a").mkdir(parents=True)
+    (tree / "a" / "AGENTS.md").write_text("x\n", encoding="utf-8")
+    base = cf.fixtures_digest(tree)
+    assert cf.fixtures_digest(tree) == base
+    (tree / "a" / "AGENTS.md").write_text("y\n", encoding="utf-8")
+    edited = cf.fixtures_digest(tree)
+    (tree / "a" / "AGENTS.md").rename(tree / "a" / "CLAUDE.md")
+    assert len({base, edited, cf.fixtures_digest(tree)}) == 3
 
 
 def test_expectations_digest_follows_the_content_not_the_key_order():
@@ -559,7 +586,7 @@ def test_cli_run_refuses_a_harness_given_twice_before_any_call(tmp_path, monkeyp
 def test_cli_run_exits_1_only_when_a_run_failed(tmp_path, monkeypatch, status, exit_code):
     run = _run(status=status, reason="exit 1", version="unknown" if status == "failed" else "0.166.0",
                scenarios=0 if status == "failed" else 1)
-    monkeypatch.setattr(cli.cf, "run_harness", lambda *args, **kwargs: cf.build_matrix([run], [], DIGEST))
+    monkeypatch.setattr(cli.cf, "run_harness", lambda *args, **kwargs: cf.build_matrix([run], [], DIGEST, TREE))
     assert cli.main(["run", "--harness", "codex=m", "--out", str(tmp_path)]) == exit_code
     assert (tmp_path / "codex.matrix.json").is_file()
 
