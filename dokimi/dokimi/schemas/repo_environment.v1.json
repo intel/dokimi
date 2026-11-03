@@ -169,14 +169,16 @@
         "index": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["format", "tool", "documents", "root_prefix", "documents_in_tree", "documents_not_in_tree"],
+          "required": ["format", "tool", "documents", "root_prefix", "documents_in_tree", "documents_not_in_tree",
+                       "tree_files_not_in_index"],
           "properties": {
             "format": {"enum": ["scip"]},
             "tool": {"type": "string"},
             "documents": {"type": "integer", "minimum": 0},
             "root_prefix": {"type": "string"},
             "documents_in_tree": {"type": "integer", "minimum": 0},
-            "documents_not_in_tree": {"type": "integer", "minimum": 0}
+            "documents_not_in_tree": {"type": "integer", "minimum": 0},
+            "tree_files_not_in_index": {"type": "integer", "minimum": 0}
           }
         },
         "rules": {

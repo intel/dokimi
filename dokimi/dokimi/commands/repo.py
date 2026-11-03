@@ -195,8 +195,10 @@ def _print_structure(section: dict[str, Any] | None) -> None:
     if section is None:
         return
     kept = [m for m in section["modules"] if m["kept"]]
+    missing = section["index"].get("tree_files_not_in_index", 0)
     print(f"  structure: {section['index']['documents_in_tree']}/{section['index']['documents']} index documents "
-          f"in the tree, {len(section['modules'])} modules, {len(kept)} kept" + ("; top reference fan-in:" if kept else ""))
+          f"in the tree" + (f", {missing} tree files of the indexed kinds not in it" if missing else "")
+          + f", {len(section['modules'])} modules, {len(kept)} kept" + ("; top reference fan-in:" if kept else ""))
     for m in kept[:5]:
         share = "n/a" if m["ambiguity"] is None else f"{m['ambiguity']:.2f}"
         print(f"    {_normalize_whitespace(m['module'], max_len=None)}: fan-in {m['reference_fanin']}, "

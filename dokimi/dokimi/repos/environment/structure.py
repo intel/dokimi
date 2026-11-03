@@ -138,13 +138,18 @@ def analyze(index: CodeIndex, tree_files: Iterable[str], guidance: str, limit: i
     """The ``structure`` section for an index read with no root prefix, against the tree's file list.
 
     ``limit`` overrides :func:`module_limit` (the most files a module holds before it is split).
-    ``root_guidance`` says a root instruction file exists: it puts the root ``.`` in guidance."""
+    ``root_guidance`` says a root instruction file exists: it puts the root ``.`` in guidance.
+    ``tree_files_not_in_index`` counts the non-test tree files under the prefix, of an extension the indexed
+    files have, that the index lacks: an index cut short still reads."""
     tree_files = list(tree_files)
     documents = index.files()
     prefix, _ = detect_prefix(documents, tree_files)
     in_tree = set(tree_files)
     repo_path = {doc: prefix + doc for doc in documents if prefix + doc in in_tree}
     code = sorted(p for p in repo_path.values() if not is_test_file(p))
+    kinds = {posixpath.splitext(p)[1] for p in code} - {""}
+    unindexed = sum(1 for f in in_tree - set(repo_path.values())
+                    if f.startswith(prefix) and posixpath.splitext(f)[1] in kinds and not is_test_file(f))
     limit = module_limit(len(code)) if limit is None else limit
     module_of = _assign(code, limit)
 
@@ -157,7 +162,8 @@ def analyze(index: CodeIndex, tree_files: Iterable[str], guidance: str, limit: i
     modules.sort(key=lambda m: (-m["reference_fanin"], m["module"]))
     return {
         "index": {"format": "scip", "tool": index.tool, "documents": len(documents), "root_prefix": prefix,
-                  "documents_in_tree": len(repo_path), "documents_not_in_tree": len(documents) - len(repo_path)},
+                  "documents_in_tree": len(repo_path), "documents_not_in_tree": len(documents) - len(repo_path),
+                  "tree_files_not_in_index": unindexed},
         "rules": rules(limit),
         "modules": modules,
     }

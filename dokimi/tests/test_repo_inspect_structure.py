@@ -18,11 +18,12 @@ import pytest
 from dokimi.artifacts import validate_artifact
 from dokimi.cli import build_parser
 from dokimi.repos.code_index import CodeIndex
-from dokimi.repos.code_index.scip import DEFINITION, Decoded, Occurrence
+from dokimi.repos.code_index.scip import DEFINITION, Decoded, Occurrence, decode_index
 from dokimi.commands.repo import _print_structure
 from dokimi.repos.environment import _structure_findings, inspect_repo
 from dokimi.repos.environment import structure
 from dokimi.repos.environment.structure import _assign, analyze, detect_prefix, mentioned, same_tree, tree_of
+from dokimi.repos.errors import CodeIndexError
 from dokimi.repos.source import WorkTree
 from tests.test_repo_environment import _repo
 
@@ -269,6 +270,15 @@ def test_documents_outside_the_tree_are_counted_not_used():
     assert section["rules"]["module_limit"] == 2
 
 
+def test_tree_files_the_index_lacks_are_counted_by_kind_under_the_prefix():
+    tree = [*DOCS, "src/core/d.py", "src/x.cpp", "tests/test_x.py", "README"]
+    assert analyze(_index(DOCS), tree, "", limit=2)["index"]["tree_files_not_in_index"] == 1  # src/core/d.py
+    docs = {"pkg/a.py": [], "pkg/b.py": [], "pkg/BUILD": []}
+    tree = ["d/pkg/a.py", "d/pkg/b.py", "d/pkg/BUILD", "d/pkg/c.py", "d/pkg/README", "e/c.py"]
+    # e/ is outside the prefix; no extension is not a kind
+    assert analyze(_index(docs), tree, "")["index"]["tree_files_not_in_index"] == 1
+
+
 @pytest.mark.outcome("cjm-repo-inspect")
 def test_inspect_with_an_index_adds_the_section_and_info_findings(tmp_path):
     # 30 more files in src/cli: past the default module limit (30), so the tree splits as with limit=2
@@ -307,6 +317,28 @@ def test_cli_index_maps_a_real_index_onto_the_tree(tmp_path, capsys):
     data = json.loads((tmp_path / "env.json").read_text())
     assert data["structure"]["index"]["root_prefix"] == "vendor/"
     assert data["structure"]["index"]["tool"] == "scip-python 0.6.8"
+    assert data["structure"]["index"]["tree_files_not_in_index"] == 0
+    assert not any("not in the code index" in n for n in data["not_observed"])
+
+
+@pytest.mark.outcome("cjm-repo-inspect")
+def test_cli_reports_tree_files_an_index_cut_short_lacks(tmp_path, capsys):
+    _fixture_repo(tmp_path / "toy")
+    data = (FIXTURES / "sample.scip").read_bytes()
+
+    def documents(cut: int) -> int:
+        try:
+            return len(decode_index(memoryview(data[:cut])).occurrences)
+        except CodeIndexError:
+            return 0
+    (tmp_path / "cut.scip").write_bytes(data[:next(c for c in range(len(data)) if documents(c) == 1)])
+    args = build_parser().parse_args(["repo", "inspect", str(tmp_path / "toy"), "--index",
+                                      str(tmp_path / "cut.scip"), "--out", str(tmp_path / "env.json")])
+    args.func(args)
+    assert "1/1 index documents in the tree, 2 tree files of the indexed kinds not in it" in capsys.readouterr().out
+    data = json.loads((tmp_path / "env.json").read_text())
+    assert data["structure"]["index"]["tree_files_not_in_index"] == 2
+    assert "2 tree files of the indexed kinds that are not in the code index" in data["not_observed"]
 
 
 @pytest.mark.outcome("cjm-repo-inspect")

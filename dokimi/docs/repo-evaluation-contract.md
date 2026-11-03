@@ -1466,7 +1466,9 @@ With `--index FILE`, a SCIP index of the tree (§1.2), the report adds a
 `structure` section. The index's root prefix is found by matching its document
 paths to the tree's files; documents that are not files of the tree are
 counted and left out; an index none of whose documents is a file of the tree
-exits 2. A module is a directory; one holding more indexed non-test files
+exits 2. `tree_files_not_in_index` counts the tree's non-test files under the
+root prefix, of an extension the indexed files have, that the index lacks (an
+index cut at a document boundary still reads); `not_observed` names the count. A module is a directory; one holding more indexed non-test files
 than `max(30, n // 20)`, `n` the indexed non-test files of the tree and `//` integer division, is split
 into its subdirectories,
 the files right in it staying its own. Test files are neither modules nor

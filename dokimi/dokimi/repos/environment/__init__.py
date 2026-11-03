@@ -154,6 +154,9 @@ def _not_observed(scan: Scan, size_of: dict[str, int] | None, section: dict[str,
         out.append("whether the code index matches this tree: files changed since it was built")
         if section["index"]["documents_not_in_tree"]:
             out.append(f"{section['index']['documents_not_in_tree']} index documents that are not files of this tree")
+        if section["index"]["tree_files_not_in_index"]:
+            out.append(f"{section['index']['tree_files_not_in_index']} tree files of the indexed kinds that are not in "
+                       "the code index")
     return out
 
 
