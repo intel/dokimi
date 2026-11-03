@@ -688,6 +688,23 @@ def test_a_codex_file_change_that_failed_is_no_useful_edit():
     assert first_useful(spec, change("completed"))["reason"] == "untimed"  # a hit: the edit landed (no clock here)
 
 
+def test_a_deleted_file_is_no_useful_edit():
+    spec = parse_useful({"edit": "src/*.py"})
+    assert not hits(spec, _edit("src/x.py", deleted=True))
+    assert hits(spec, _edit("src/x.py"))  # the same edit, not a deletion, is a hit
+
+
+def test_a_codex_or_copilot_deletion_of_the_target_is_never_the_useful_edit():
+    spec = parse_useful({"edit": "src/*.py"})
+    item = {"id": "1", "type": "file_change", "status": "completed", "changes": [{"path": "/ws/src/x.py", "kind": "delete"}]}
+    codex = json.dumps({"type": "item.completed", "item": item})
+    assert first_useful(spec, convert("codex-json", codex, "/ws").events)["reason"] == "never"
+    patch = "*** Begin Patch\n*** Delete File: /ws/src/x.py\n*** End Patch\n"
+    assert first_useful(spec, convert("copilot-json", _copilot_lines("apply_patch", patch), "/ws").events)["reason"] == "never"
+    update = patch.replace("Delete File", "Update File")  # the positive control: the same path, updated, hits
+    assert first_useful(spec, convert("copilot-json", _copilot_lines("apply_patch", update), "/ws").events)["reason"] == "untimed"
+
+
 def test_a_claude_trace_with_a_malformed_content_block_is_unobserved_not_never():
     lines = [
         {"type": "assistant", "message": {"content": [42]}},  # a block of no known shape

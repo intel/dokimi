@@ -33,7 +33,7 @@ _PRINTERS = {"cat", "head", "tail", "nl", "sed"}
 _COPILOT_SHELL = {"bash", "powershell"}
 _COPILOT_READ = {"view"}
 _COPILOT_EDIT = {"edit", "create", "str_replace_editor", "write"}
-_PATCH_FILE = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$", re.M)
+_PATCH_FILE = re.compile(r"^\*\*\* (Add|Update|Delete) File: (.+)$", re.M)
 _CONTINUATION = re.compile(r"\\\n")
 _HEREDOC = re.compile(r"<<-?[ \t]*(['\"]?)(\w+)\1([^\n]*)\n.*?^[ \t]*\2[ \t]*$", re.S | re.M)
 # a redirect that leaves what a printing command shows on stdout: 2>&1, >&2, 2>/dev/null. A stdout discard
@@ -630,6 +630,8 @@ def _codex_item_completed(out: Transcript, item: dict[str, Any], messages: list[
             raise ValueError("file_change with a malformed changes entry")
         for change in changes:
             event: dict[str, Any] = {"t": None, "kind": "edit", "path": relative_path(str(change["path"]), workdir)}
+            if change.get("kind") == "delete":  # a deleted file is no useful edit (§4.1)
+                event["deleted"] = True
             if rc is not None:
                 event["rc"] = rc
             out.events.append(event)
@@ -763,7 +765,9 @@ def _copilot_tool(data: dict[str, Any], t: float | None, workdir: str | None, cw
         return [{"t": t, "kind": "read" if name in _COPILOT_READ else "edit", "path": relative_path(path, workdir)}]
     if name == "apply_patch":
         text = args if isinstance(args, str) else str((args or {}).get("input", ""))
-        return [{"t": t, "kind": "edit", "path": relative_path(p.strip(), workdir)} for p in _PATCH_FILE.findall(text)]
+        return [{"t": t, "kind": "edit", "path": relative_path(p.strip(), workdir),
+                 **({"deleted": True} if verb == "Delete" else {})}
+                for verb, p in _PATCH_FILE.findall(text)]
     return [{"t": t, "kind": "tool", "name": name}]
 
 

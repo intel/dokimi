@@ -4,7 +4,7 @@
   `"useful": {"command": "<regex>"}` for a task graded by its target tests, or
   `"useful": {"edit": "<glob>"}` (or a list of globs) for one graded by an edit to a target
   file. The first non-denied event with `rc` 0 that hits it (a command whose text matches, or an
-  edit whose path matches) is recorded in `result.json` `first_useful` with its `issued_s` (the
+  edit whose path matches, not a deletion) is recorded in `result.json` `first_useful` with its `issued_s` (the
   event's issue time) and `steps` (events up to and including it). A run with no hit says
   why (`never`, `unobserved`, or `timeout`: a `command` pattern, searched with the `regex` module, ran past
   2 s on one event, so the run has no verdict); a task with no declaration is `not_declared`. A hit in a trace

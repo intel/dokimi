@@ -50,8 +50,8 @@ def hits(useful: Useful, event: Mapping[str, Any]) -> bool:
             return False
         return useful.command.search(str(event.get("text") or ""), timeout=USEFUL_REGEX_TIMEOUT) is not None
     raw = str(event.get("path") or "")
-    # no path, outside the workspace, or the workspace root itself: no target
-    if event.get("kind") != "edit" or not raw or _NON_POSIX_ROOT.match(raw):
+    # no path, outside the workspace, or the workspace root itself: no target; a deleted file is no useful edit
+    if event.get("kind") != "edit" or event.get("deleted") or not raw or _NON_POSIX_ROOT.match(raw):
         return False
     path = _workspace_path(raw)
     if path is None or path == ".":
