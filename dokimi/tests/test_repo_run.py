@@ -57,7 +57,7 @@ def test_run_isolates_the_agent_and_grades_each_cell(setup, capsys):
     assert meta["agent_network"] == "host"
     assert meta["egress_proxy"] is False and len(meta["start_sha"]) == 40
     events = [json.loads(line) for line in (rd / "events.jsonl").read_text().splitlines()]
-    assert events == [{"kind": "edit", "path": "src/calc.py", "t": None}]  # relative to /eval/run/workspace
+    assert events == [{"kind": "edit", "path": "src/calc.py", "rc": 0, "t": None}]  # relative to /eval/run/workspace
     assert (rd / "answer.txt").read_text() == "done: src/calc.py"
     assert (rd / "config/settings.json").read_text() == '{"hook": "python3 /eval/support/no_background.py"}'
     result = json.loads((rd / "result.json").read_text())
