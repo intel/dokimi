@@ -67,3 +67,10 @@ def test_a_heredoc_redirected_to_a_path_is_still_a_write_to_that_path():
     session = _session(_prompt("update behaviour changes"),
                        _tool("Bash", command="cat <<EOF >docs/guide.md\nnotes\nEOF"))
     assert _row(_report([session], rule), "Update")["acted"] == 1
+
+
+@pytest.mark.parametrize("command", ["make 2 >results.txt ci-local", "make 2 > results.txt ci-local"])
+def test_a_number_before_a_spaced_redirection_is_an_argument_not_a_descriptor(command):
+    rule = "- Run `make 2 ci-local` before pushing a branch.\n"
+    session = _session(_prompt("push the branch now"), _tool("Bash", command=command))
+    assert _row(_report([session], rule), "Run")["acted"] == 1

@@ -327,8 +327,6 @@ def _without_redirections(words: list[str]) -> list[str]:
     i = 0
     while i < len(words):
         word, i = words[i], i + 1
-        if word.isdigit() and i < len(words) and _REDIRECT_OP.match(words[i]):
-            continue
         op = _REDIRECT_OP.match(word)
         if op:
             if op.end() == len(word):  # a bare operator: the next word is its target
@@ -345,11 +343,15 @@ def _key_words(key: str) -> list[str]:
     return shell.strip_wrappers(words) or words
 
 
+# a descriptor is glued to its operator (``2>log``); a number before a spaced one (``2 >log``) is an argument
+_DESCRIPTOR = re.compile(r"(?<![^\s;&|()])\d+(?=[<>])")
+
+
 def _command_words(command: str) -> tuple[tuple[str, ...], ...]:
     """Each simple command of a shell line as its words, wrappers stripped and redirections left out. A quoted
-    operator-like word (``'>x'``) is read as the argument it is: the words are unmasked only after the redirections
-    are taken out."""
-    return tuple(tuple(w.translate(_FROM_MASK) for w in shell.strip_wrappers(_without_redirections(_words_of(seg))))
+    operator-like word (``'>x'``) is an argument: words are unmasked only after the redirections are taken out."""
+    return tuple(tuple(w.translate(_FROM_MASK) for w in shell.strip_wrappers(
+                     _without_redirections(_words_of(_DESCRIPTOR.sub("", seg)))))
                  for seg in _command_segments(command))
 
 
@@ -369,7 +371,7 @@ def _invokes(key: str, commands: tuple[tuple[str, ...], ...]) -> bool:
 def _prints(text: str) -> bool:
     """Whether a segment is an ``echo`` or ``printf``: its arguments are printed, not read or written. Compound
     syntax (``then``, ``do``, ``else``) is not the program."""
-    words = shell.strip_wrappers(_without_redirections(_words_of(text)))
+    words = shell.strip_wrappers(_without_redirections(_words_of(_DESCRIPTOR.sub("", text))))
     return bool(words) and words[0] in ("echo", "printf")
 
 
