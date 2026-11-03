@@ -75,6 +75,13 @@ class HarnessProfile:
         return int(depth) if depth is not None else None
 
     @property
+    def shadow_file(self) -> str | None:
+        """A file the harness loads by convention that turns the other guidance of its directory off
+        (``guidance.shadow_file``); ``repo reach --scenarios shadow`` writes it. None: the profile declares none."""
+        name = self.guidance.get("shadow_file")
+        return str(name) if name else None
+
+    @property
     def claude_displaces_agents(self) -> bool:
         """A root CLAUDE* turns every AGENTS.md off, a nested one its own directory's (``guidance.claude_displaces_agents``)."""
         return self.guidance.get("claude_displaces_agents") is True
