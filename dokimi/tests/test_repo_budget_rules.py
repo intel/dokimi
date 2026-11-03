@@ -460,6 +460,31 @@ def test_a_cut_import_stays_named_for_every_root_that_reaches_it_through_a_share
         "sub/notes.md: import of sub/.claude/rules/x.md is past the harness's 1-hop import limit, not followed"]
 
 
+def test_a_cut_import_is_not_blamed_on_a_root_that_reaches_the_shared_file_past_the_hop_limit(tmp_path):
+    # sub/'s cut of the unscoped nested rule is quiet (it loads with sub/); zother/ reads mid.md past the limit,
+    # so its chain must not be blamed for the cut
+    files = {"sub/CLAUDE.md": "@mid.md\n", "sub/mid.md": "@.claude/rules/r.md\n", "sub/.claude/rules/r.md": "rule\n",
+             "zother/CLAUDE.md": "@bridge.md\n", "zother/bridge.md": "@../sub/mid.md\n"}
+    payload = budget(_tree(tmp_path, files), NAMES, import_max_depth=1, rules=True)
+    assert payload["warnings"] == []
+
+
+def test_an_alias_cycle_back_to_agents_md_is_not_expanded_again_when_rules_are_off(tmp_path):
+    # with rules off, .claude/rules/link.md is ordinary guidance: its target is AGENTS.md, already read, so the
+    # traversal must not expand it again relative to .claude/rules/ (which would import .claude/rules/extra.md)
+    files = {"AGENTS.md": "@.claude/rules/link.md\n@extra.md\n", "extra.md": "extra\n",
+             ".claude/rules/extra.md": "rule extra\n"}
+    tree = _tree(tmp_path, files)
+    try:
+        (tmp_path / ".claude/rules/link.md").symlink_to(tmp_path / "AGENTS.md")
+    except OSError:
+        pytest.skip("symlinks unavailable")
+
+    payload = budget(tree, NAMES, rules=False)
+
+    assert not [e for e in payload["entries"] if e["path"] == ".claude/rules/extra.md"]
+
+
 def test_a_cut_import_of_a_scoped_nested_rule_still_warns(tmp_path):
     # a scoped nested rule loads only when the agent reads a matching file, so the cut import is still named
     files = {"sub/CLAUDE.md": "@.claude/rules/r.md\n", "sub/.claude/rules/r.md": "---\npaths: src/**\n---\nrule\n"}

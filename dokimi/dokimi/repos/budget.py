@@ -541,7 +541,7 @@ def _imports(tree: RepoTree, roots: list[str], max_depth: int | None = None,
                 if path in seen:
                     continue
                 t = _target(tree, path)
-                done = reached_by_rule if RULE_GLOB.match(path) else reached
+                done = reached_by_rule if rules and RULE_GLOB.match(path) else reached
                 if t in done:
                     continue
                 if max_depth is not None and depth >= max_depth:
@@ -552,7 +552,7 @@ def _imports(tree: RepoTree, roots: list[str], max_depth: int | None = None,
                 nxt.append(path)
         level = nxt
         depth += 1
-    reach = _roots_reaching(tree, edges, roots)
+    reach = _roots_reaching(tree, edges, roots, max_depth)
     return seen, [(f, p, r) for f, p in cut if p not in seen for r in sorted(reach.get(_target(tree, f), ()))]
 
 
@@ -567,23 +567,34 @@ def _import_text(tree: RepoTree, f: str, roots: list[str], rules: bool) -> str |
     return text
 
 
-def _roots_reaching(tree: RepoTree, edges: list[tuple[str, str]], roots: list[str]) -> dict[str, set[str]]:
-    """For each file (by its target), the guidance roots whose import chains reach it, through any route.
+def _roots_reaching(tree: RepoTree, edges: list[tuple[str, str]], roots: list[str],
+                    max_depth: int | None) -> dict[str, set[str]]:
+    """For each file (by its target), the guidance roots whose import chains reach it within ``max_depth`` hops.
 
-    The traversal of ``_imports`` reads a file once, so a second root that reaches it is not walked again; the
-    roots are carried along the recorded import edges instead, to a fixed point (cycles included).
+    The traversal of ``_imports`` reads a file once, so a second root that reaches it is not walked again. Each root
+    is therefore walked over the recorded import edges with the same hop limit: a file past the limit for a root is
+    not that root's (its import chain is cut there, not loaded).
     """
+    adj: dict[str, list[str]] = {}
+    for src, dst in edges:
+        adj.setdefault(src, []).append(dst)
     reach: dict[str, set[str]] = {}
     for r in roots:
-        reach.setdefault(_target(tree, r), set()).add(r)
-    changed = True
-    while changed:
-        changed = False
-        for src, dst in edges:
-            new = reach.get(src, set()) - reach.get(dst, set())
-            if new:
-                reach.setdefault(dst, set()).update(new)
-                changed = True
+        start = _target(tree, r)
+        reach.setdefault(start, set()).add(r)
+        seen = {start}
+        level = [start]
+        depth = 0
+        while level and (max_depth is None or depth < max_depth):
+            nxt: list[str] = []
+            for node in level:
+                for dst in adj.get(node, ()):
+                    if dst not in seen:
+                        seen.add(dst)
+                        reach.setdefault(dst, set()).add(r)
+                        nxt.append(dst)
+            level = nxt
+            depth += 1
     return reach
 
 
