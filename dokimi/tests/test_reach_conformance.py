@@ -637,6 +637,13 @@ def test_the_codex_suite_profile_authenticates_with_the_key_it_forwards(tmp_path
     assert provider["base_url"] == "https://api.openai.com/v1"
 
 
+def test_the_codex_suite_profile_is_the_builtin_one_plus_its_provider():
+    suite = yaml.safe_load(cf.CODEX_PROFILE.read_text(encoding="utf-8"))
+    builtin = yaml.safe_load((cf.CODEX_PROFILE.parents[1] / "profiles" / "codex.yaml").read_text(encoding="utf-8"))
+    assert list(suite.pop("config_files")) == ["config.toml"]
+    assert suite == builtin  # the nightly measures the Codex setup `repo reach --harness codex` runs
+
+
 def test_the_codex_suite_profile_loads_through_the_package_resources():
     # The installed-wheel case: the file is found through the package, not through the source tree.
     shipped = importlib.resources.files("dokimi.repos") / "conformance_profiles" / "codex.yaml"
