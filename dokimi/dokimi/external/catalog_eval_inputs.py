@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import stat
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
@@ -18,9 +19,9 @@ class UnsafePath(ValueError):
     """A catalog path cannot be inspected without following a link or escaping."""
 
 
-def relative_path(value: object) -> str:
-    """Accept only normalized, catalog-relative POSIX paths."""
-    if not isinstance(value, str) or not value or "\x00" in value or "\\" in value:
+def relative_path(value: object, *, literal_backslash: bool = False) -> str:
+    """Accept only normalized, catalog-relative POSIX paths; git-listed POSIX names may contain a backslash."""
+    if not isinstance(value, str) or not value or "\x00" in value or ("\\" in value and not literal_backslash):
         raise UnsafePath(f"unsafe relative path: {value!r}")
     posix = PurePosixPath(value)
     windows = PureWindowsPath(value)

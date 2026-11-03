@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from dokimi import process
+from dokimi.skills.loader import VENDORED_DIR_NAMES
 
 
 def _git(root: Path, *args: str) -> process.Completed:
@@ -28,6 +29,12 @@ def _paths(done: process.Completed) -> list[str]:
         raise ValueError(f"cannot read changed paths: {process.git_failure(done)}")
     # Git's bytes are filesystem names, not shell commands or line-delimited text.
     return [os.fsdecode(path) for path in done.stdout_bytes.split(b"\0") if path]
+
+
+def _others(root: Path) -> list[str]:
+    """Untracked files, ignored ones included, since bundle digests hash them; vendored directories are not hashed."""
+    done = _git(root, "ls-files", "--others", "-z", "--", ".")
+    return [path for path in _paths(done) if not VENDORED_DIR_NAMES.intersection(Path(path).parts[:-1])]
 
 
 def source_and_changes(root: Path, base: str | None, out: Path) -> tuple[dict[str, Any], list[str] | None, str | None]:
@@ -53,7 +60,7 @@ def source_and_changes(root: Path, base: str | None, out: Path) -> tuple[dict[st
         status = _git(root, "status", "--porcelain=v1", "-z", "--ignore-submodules=all", "--untracked-files=all", "--", ".")
         if status.returncode:
             raise ValueError(f"cannot read source state: {process.git_failure(status)}")
-        source["dirty"] = bool(status.stdout_bytes)
+        source["dirty"] = bool(status.stdout_bytes) or bool(_others(root))
     if base is None:
         return source, None, None
     resolved = _git(root, "rev-parse", "--verify", "--end-of-options", f"{base}^{{commit}}")
@@ -61,6 +68,5 @@ def source_and_changes(root: Path, base: str | None, out: Path) -> tuple[dict[st
         return source, None, f"Base {base!r} unavailable; conservatively checking every skill."
     tracked = _git(root, "diff", "--ignore-submodules=all", "--no-ext-diff", "--no-textconv", "--name-only", "-z",
                    "--no-renames", "--relative", resolved.stdout.strip(), "--", ".")
-    untracked = _git(root, "ls-files", "--others", "--exclude-standard", "-z", "--", ".")
-    paths = sorted(set(_paths(tracked) + _paths(untracked)))
+    paths = sorted(set(_paths(tracked) + _others(root)))
     return source, [path for path in paths if not (root / path).is_relative_to(out)], None

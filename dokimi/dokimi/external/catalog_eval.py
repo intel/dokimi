@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from .catalog import DEFAULT_SUITES_MANIFEST, DEFAULT_TASKS_SUBDIR
@@ -23,7 +24,7 @@ def _impact(root: Path, rows: list[dict], changed: list[str] | None) -> dict:
     if not isinstance(changed, list):
         raise ValueError("changed_paths must be a list of local paths")
     try:
-        paths = sorted({relative_path(path) for path in changed})
+        paths = sorted({relative_path(path, literal_backslash=os.name != "nt") for path in changed})
     except UnsafePath as exc:
         raise ValueError(f"invalid changed path: {exc}") from exc
     selection["changed_paths"] = paths

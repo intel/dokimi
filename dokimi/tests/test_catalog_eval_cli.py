@@ -388,3 +388,58 @@ def test_unreadable_directory_without_a_manifest_is_an_input_error(tmp_path):
         (root / "beta").chmod(0o755)
     assert done.returncode == 2
     assert "beta" in done.stderr
+
+
+def test_interrupt_between_backup_and_publish_keeps_the_previous_receipts(tmp_path):
+    root = _catalog(tmp_path)
+    out = tmp_path / "out"
+    assert _run(root, out).returncode == 0
+    before = (out / "report.md").read_text()
+    real = os.replace
+
+    def interrupted(src, dst):
+        if Path(dst) == out and Path(src).name == "new":
+            raise KeyboardInterrupt
+        return real(src, dst)
+
+    with patch("dokimi.commands.catalog_eval.os.replace", interrupted), pytest.raises(KeyboardInterrupt):
+        _run(root, out)
+    assert (out / "report.md").read_text() == before
+    assert not list(tmp_path.glob(".catalog-eval-*"))
+
+
+@pytest.mark.skipif(os.name == "nt", reason="needs undecodable POSIX filenames")
+def test_undecodable_filename_in_an_input_error_still_invalidates_receipts(tmp_path):
+    root = _catalog(tmp_path)
+    out = tmp_path / "out"
+    assert _run(root, out).returncode == 0
+    odd = Path(os.fsdecode(os.fsencode(root) + b"/bad\xff"))
+    odd.mkdir()
+    (root / "skills.yaml").write_text("skills: not-a-list\n")
+    (odd / "skills.yaml").write_text("x")
+    done = _run(root, out, "--changed-from", "HEAD")
+    assert done.returncode == 2
+    assert not (out / "result.json").exists()
+
+
+def test_ignored_files_count_as_changes_and_dirty_state(tmp_path):
+    root = _catalog(tmp_path)
+    (root / ".gitignore").write_text("build.log\n")
+    sha = _commit(root)
+    (root / "skills/alpha/build.log").write_text("generated")
+    out = tmp_path / "out"
+    assert _run(root, out, "--changed-from", sha).returncode == 0
+    report = json.loads((out / "catalog.json").read_text())
+    assert report["selection"]["selected"] == ["alpha"]
+    assert report["source"]["dirty"] is True
+
+
+@pytest.mark.skipif(os.name == "nt", reason="backslash is a path separator on Windows")
+def test_backslash_in_a_changed_filename_is_a_literal_name(tmp_path):
+    root = _catalog(tmp_path)
+    sha = _commit(root)
+    (root / "skills/alpha/weird\name.md").write_text("x")
+    out = tmp_path / "out"
+    done = _run(root, out, "--changed-from", sha)
+    assert done.returncode == 0, done.stderr
+    assert json.loads((out / "catalog.json").read_text())["selection"]["selected"] == ["alpha"]

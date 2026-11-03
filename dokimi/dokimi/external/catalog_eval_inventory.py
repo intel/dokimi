@@ -205,12 +205,16 @@ def inventory_tasks(inputs: Inputs, rows: list[dict], declared: dict, problems: 
     tasks_root = inputs.root / DEFAULT_TASKS_SUBDIR
     try:
         checked_path(inputs.root, tasks_root)
-        files = inputs.files(tasks_root)
+        inputs.files(tasks_root)
     except UnsafePath as exc:
         problems.append(finding("unsafe-path", str(exc), DEFAULT_TASKS_SUBDIR))
         return
-    candidates = sorted({file.parent for file in files if file.parent.parent == tasks_root
-                         and file.name in {"task.toml", "task.md", "task.yaml"}})
+    try:
+        children = sorted(tasks_root.iterdir()) if tasks_root.is_dir() else []
+    except OSError as exc:
+        raise ValueError(f"cannot inspect {tasks_root}: {exc}") from exc
+    candidates = [child for child in children
+                  if any((child / name).is_file() for name in ("task.toml", "task.md", "task.yaml"))]
     owners = {row["name"]: row for row in rows}
     actual: set[str] = set()
     for path in candidates:

@@ -72,7 +72,7 @@ def _write(out: Path, report: dict[str, Any], plan: dict[str, Any], result: dict
         for kind, payload in (("catalog_eval", report), ("plan", plan), ("result", result)):
             name = "catalog.json" if kind == "catalog_eval" else f"{kind}.json"
             save_artifact(kind, payload, staged / name)
-        (staged / "report.md").write_text(render(report), encoding="utf-8")
+        (staged / "report.md").write_text(render(report), encoding="utf-8", errors="backslashreplace")
         _replace_output(out, staged, Path(work) / "old")
 
 
@@ -82,29 +82,28 @@ class _RollbackFailed(OSError):
 
 @contextlib.contextmanager
 def _workdir(parent: Path) -> Iterator[Path]:
+    """A scratch directory, kept only while it still holds the sole copy of the previous output."""
     work = Path(tempfile.mkdtemp(prefix=".catalog-eval-", dir=parent))
     try:
         yield work
-    except _RollbackFailed:
-        raise
-    except BaseException:
-        shutil.rmtree(work, ignore_errors=True)
-        raise
-    shutil.rmtree(work, ignore_errors=True)
+    finally:
+        if not (work / "old").exists():
+            shutil.rmtree(work, ignore_errors=True)
 
 
 def _replace_output(out: Path, staged: Path, backup: Path) -> None:
-    if out.exists():
-        os.replace(out, backup)
     try:
+        if out.exists():
+            os.replace(out, backup)
         os.replace(staged, out)
-    except OSError as exc:
+    except BaseException as exc:
         if backup.exists():
             try:
                 os.replace(backup, out)
             except OSError as restore:
                 raise _RollbackFailed(f"cannot restore previous receipts, kept at {backup}: {restore}") from exc
         raise
+    shutil.rmtree(backup, ignore_errors=True)
 
 
 def _write_error(out: Path, error: Exception) -> None:
@@ -116,7 +115,8 @@ def _write_error(out: Path, error: Exception) -> None:
         message = str(error).replace("<", "&lt;").replace(">", "&gt;")
         (staged / "report.md").write_text(
             f"# Catalog static evaluation\n\nInput error: {message}\n\n"
-            "No valid result was produced. Earlier success receipts were removed.\n", encoding="utf-8")
+            "No valid result was produced. Earlier success receipts were removed.\n",
+            encoding="utf-8", errors="backslashreplace")
         _replace_output(out, staged, Path(work) / "old")
 
 

@@ -667,3 +667,10 @@ def test_regular_resource_named_like_a_vendored_directory_is_hashed(tmp_path):
     second = evaluate(tmp_path)
     assert row(first)["bundle_digest"] != row(second)["bundle_digest"]
     assert first["catalog_digest"] != second["catalog_digest"]
+
+
+def test_task_directory_named_like_a_vendored_directory_is_discovered(tmp_path):
+    skill(tmp_path)
+    task(tmp_path, name="venv", owner="ghost")
+    report = evaluate(tmp_path)
+    assert "task-owner" in codes(report)
