@@ -15,7 +15,8 @@
   `--include-disabled`, a copy that is `disable-model-invocation` counts as one of the copies.
 - **`novelty routing --catalog` skips a name that two different skills share, with a warning, instead of
   refusing the run** (exit 2). Every copy of that name leaves the field, the rest of it stays, and stderr
-  names every path.
+  names every path. Under `--all-vs-all`, a query file that names such a skill, or one left out
+  for a spec error, is still refused (exit 2), and the message names both reasons.
 - **`catalog scan` reports a same-name skill with different content as a `name-conflict` warning**
   (among listed skills: no `disable-model-invocation`, no spec error), naming the other path and that
   `novelty routing --catalog` leaves the name out of the field. Before, each of the two skills was
