@@ -74,6 +74,11 @@ class HarnessProfile:
         depth = self.guidance.get("import_max_depth")
         return int(depth) if depth is not None else None
 
+    @property
+    def claude_displaces_agents(self) -> bool:
+        """A CLAUDE* file turns off the AGENTS.md in its own directory (``guidance.claude_displaces_agents``)."""
+        return self.guidance.get("claude_displaces_agents") is True
+
     def applied_args(self, tools: str, present: frozenset[str]) -> list[str]:
         """The ``args_if_present`` names :meth:`argv` adds: those in ``present``, in the ``all`` tool mode only."""
         if tools != "all":  # --tools does not limit MCP tools: only here is the repo's MCP config part of the arm

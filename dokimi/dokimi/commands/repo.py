@@ -177,13 +177,45 @@ def _scan_gate(payload: dict, fail_on_fail: bool) -> None:
     sys.exit(1)
 
 
+def _code_index(path: str | None) -> Any:
+    """The SCIP index at ``path`` (``None`` without one); exit 2 when it cannot be read."""
+    if path is None:
+        return None
+    from dokimi.repos.code_index import load
+    from dokimi.repos.errors import CodeIndexError
+
+    try:
+        return load(path)
+    except (OSError, CodeIndexError) as exc:
+        print(f"✗ cannot read the code index {path}: {exc}", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
+
+
+def _print_structure(section: dict[str, Any] | None) -> None:
+    if section is None:
+        return
+    kept = [m for m in section["modules"] if m["kept"]]
+    missing = section["index"].get("tree_files_not_in_index", 0)
+    print(f"  structure: {section['index']['documents_in_tree']}/{section['index']['documents']} index documents "
+          f"in the tree" + (f", {missing} tree files of the indexed kinds not in it" if missing else "")
+          + f", {len(section['modules'])} modules, {len(kept)} kept" + ("; top reference fan-in:" if kept else ""))
+    for m in kept[:5]:
+        share = "n/a" if m["ambiguity"] is None else f"{m['ambiguity']:.2f}"
+        print(f"    {_normalize_whitespace(m['module'], max_len=None)}: fan-in {m['reference_fanin']}, "
+              f"other-tree modules {m['other_tree_modules']}, ambiguity {share}"
+              + ("" if m["in_guidance"] else ", not in guidance"))
+
+
 def cmd_repo_inspect(args: argparse.Namespace) -> None:
     """Static inspection: instruction files, check surfaces, launch risks, file inventory."""
     from dokimi.artifacts import save_artifact, stamp
     from dokimi.repos.environment import inspect_repo
 
     _, tree = _source_tree(args)
-    payload = inspect_repo(tree, large=args.large_bytes)
+    payload = inspect_repo(tree, large=args.large_bytes, index=_code_index(args.index))
+    if "structure" in payload and not payload["structure"]["index"]["documents_in_tree"]:
+        print(f"✗ no document of the code index {args.index} is a file of this tree", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
     if args.out:
         try:
             save_artifact("repo_environment", payload, Path(args.out))
@@ -207,6 +239,7 @@ def cmd_repo_inspect(args: argparse.Namespace) -> None:
                 where = f" {_normalize_whitespace(f['path'], max_len=None)}" if f["path"] else ""
                 print(f"  {f['severity'].upper()} {f['rule']}{where} -- {_normalize_whitespace(f['why'])}")
         print("  stages: " + ", ".join(f"{s['stage']} {s['status']}" for s in payload["stages"]))
+        _print_structure(payload.get("structure"))
         if args.out:
             print(f"wrote {args.out}")
     if args.fail_on_error and payload["counts"]["error"]:
@@ -482,7 +515,8 @@ def _print_receipt(tree, profile, payload: dict, out_dir: Path) -> None:
     from dokimi.repos.budget import budget
     from dokimi.repos.receipt import build_receipt
 
-    receipt = build_receipt(payload, budget(tree, profile.guidance_names, profile.import_max_depth), tree)
+    receipt = build_receipt(payload, budget(tree, profile.guidance_names, profile.import_max_depth,
+                                            claude_displaces_agents=profile.claude_displaces_agents), tree)
     try:  # a directory that is not writable, or one already named effective_instructions.json: a runtime failure
         written = save_artifact("effective_instructions", receipt, out_dir / RECEIPT_NAME)
     except OSError as exc:
@@ -503,7 +537,8 @@ def cmd_repo_budget(args: argparse.Namespace) -> None:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
     _, tree = _source_tree(args)
-    payload = budget(tree, profile.guidance_names, profile.import_max_depth)
+    payload = budget(tree, profile.guidance_names, profile.import_max_depth,
+                     claude_displaces_agents=profile.claude_displaces_agents)
     if args.out:
         try:
             save_artifact("repo_budget", payload, Path(args.out))
@@ -651,6 +686,10 @@ def register(sub, positive_int) -> None:
     inspect_p.add_argument("source", help=source_help)
     inspect_p.add_argument("--large-bytes", type=positive_int, default=100_000, dest="large_bytes",
                            help="A file above this many bytes is reported as large (default: 100000, ~30k tokens)")
+    inspect_p.add_argument("--index", default=None, metavar="FILE",
+                           help="A SCIP code index of the tree (built by scip-python, scip-clang, ...): adds the "
+                           "structure section (modules, reference fan-in, cross-tree bridges, name ambiguity). Read besides "
+                           "the tree; exit 2 when it cannot be read or none of its documents is a file of the tree")
     inspect_p.add_argument("--out", default=None, help="Write the repo_environment.v1 report to this file")
     inspect_p.add_argument("--json", action="store_true", help="Print the full report as JSON")
     inspect_p.add_argument("--fail-on-error", action="store_true", dest="fail_on_error",
@@ -714,8 +753,8 @@ def register(sub, positive_int) -> None:
         help="What the repository puts into an agent's context when it starts at the root: guidance "
         "files and their imports, the skill listing, lazily loaded and on-demand files, in characters; "
         "warns on skills with no description and no body text, skills with near-duplicate descriptions (identical, or Jaccard "
-        "index >= 0.5 after removing stop words when both have 3+ words), AGENTS.md files a root CLAUDE.md, .claude/CLAUDE.md or CLAUDE.local.md turns off "
-        "(Claude Code rules), unreadable files (non-UTF-8, dangling link), and imports past the harness's hop "
+        "index >= 0.5 after removing stop words when both have 3+ words), AGENTS.md files a root CLAUDE.md, .claude/CLAUDE.md or CLAUDE.local.md turns off, "
+        "or one in the AGENTS.md file's own directory (Claude Code rules), unreadable files (non-UTF-8, dangling link), and imports past the harness's hop "
         "limit. No LLM call.",
     )
     budget_p.add_argument("source", help=source_help)

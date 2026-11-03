@@ -594,10 +594,21 @@ left on as a user has them (`--sealed` turns them off). The skill chosen is read
 transcript's `Skill` calls, and the output's `skill_selection_summary` is scored by the
 same code as the `skill-catalog:` arm, one column per trial. `max_turns_hit` counts runs
 that ended on `--max-turns` (scored as no load), and the command exits 1 when Claude Code
-did not list a catalog skill (`not_listed`). When no run listed any skill, `not_listed`
+did not list a catalog skill (`not_listed`; `status` is then `invalid: skill not listed`, and the labelled results are still written). When no run listed any skill, `not_listed`
 stays empty and a warning on stderr says it was not checked. A trigger set with no
-labelled query exits 2 before any run. Records are kept in `<out>.partial` while the
-probe runs:
+labelled query exits 2 before any run. Before the labelled queries, one explicit run
+(`Use the <skill> skill.`, for the `--target` skill or the alphabetically first skill name of the
+catalog) must load that skill; if it does not, no labelled query runs, `status` is
+`invalid: skill not loaded` (Claude Code listed the skill but the request did not load it) or
+`invalid: skill not visible` (the init event did not list it) in the output and on stdout, and the command
+exits 1; a leftover `<out>.partial` is removed. A skill call that returned an error, or a
+`plugin:skill` of another plugin, does not count as a load. If that run ended in an error, `status` is `error: known-positive run failed` instead. An empty catalog is
+refused (exit 2) before the guard runs, unless `--no-known-positive` is passed. This
+known-positive check is what separates "the model did not pick the skill" from "the
+harness never showed it"; `--no-known-positive` skips it, and `status` is then `unchecked` (`invalid: skill not listed` still applies
+when a catalog skill is never listed). A pass shows only that the skill can be loaded: the explicit request
+may load a skill the harness did not list, so listing is diagnosed by `invalid: skill not listed`, not by the guard.
+Records are kept in `<out>.partial` while the probe runs:
 
 ```bash
 python cli.py catalog trigger-probe --catalog <skills-checkout>/skills \
@@ -723,6 +734,57 @@ Two gates are deliberately statistical rather than absolute:
   questions (39 vs 40 was observed, worth ~0.4 points). The script recomputes it over
   those questions. It pools questions; a mean of per-cell means differs slightly
   when the sets have different sizes — say which one a report uses.
+
+## Headroom: items a comparison cannot learn from
+
+A skill cannot raise an item the no-skill arm already answers, and an item no arm
+answers points at the question or its grader, not at the skill. `eval headroom` flags
+both, from one or more arms files of the same question set (one file per repetition):
+
+```bash
+python cli.py eval headroom run1/arms.json run2/arms.json run3/arms.json \
+    --baseline-arm baseline --ceiling 0.9 --floor 0 --min-reps 3 --out headroom.json
+```
+
+- **ceiling**: the no-skill arm's mean over the runs is at least `--ceiling` (0-1; the
+  0-100 aggregate divided by 100). Default 0.9.
+- **floor**: the no-skill arm was scored, every arm that a run scored has a mean at most
+  `--floor`, and at least one arm other than the no-skill arm scored. Default 0. An arm no run scored is
+  left out of this test and listed in the item's `unscored_arms`; the no-skill arm alone at zero
+  is not a floor.
+- **provisional**: fewer than `--min-reps` runs scored the item with its no-skill arm (the
+  reps are those runs). Default 3. A file gives each item zero or one rep (zero when its
+  no-skill arm was not scored in that file), so one file alone makes every item provisional at the
+  default of 3; the reps of several files add up.
+
+A run is one file. A file repeated on the command line, or holding the same JSON content as
+an earlier one (whitespace and key order do not count), is skipped with a note, so it does
+not add a rep. Numbers are compared as numbers: `95.0` and `95` are the same content. A question id repeated within one
+file is an error (exit 2): it would count as two runs.
+
+Cached replays are not detected. With `DOKIMI_RESPONSE_CACHE` set, a repeated `arms run` replays
+the same answers and judgments, but its file has a new `generated_at` and so counts as a fresh rep.
+Collect repeats with the cache off when the reps feed `eval headroom`. Recording replay provenance
+per answer, so headroom can exclude cached repeats, is tracked in #370.
+
+The table always goes to stdout: the flagged and provisional items, with the no-skill arm
+in its own column, a note naming any arm no run scored, and the counts. The JSON goes to
+`--out` only, as a `headroom.v1` artifact with every item; if that file cannot be written the
+command prints `Error: cannot write ...` on stderr and exits 2, after the table. Scores are compared unrounded
+and shown rounded down to up to nine decimal places, so 0.89996 prints as 0.89996 and a value just under a threshold never
+prints as the threshold. Without `--baseline-arm`, the runs must
+declare the same baseline; the default is that baseline. The runs must also be repetitions of one
+configuration: a file whose model, judge, run config (the seed aside), harness, arms or library
+differs from the first file's exits 2. So does a file scored by `eval reference` next to a judged one, an arm whose
+recorded profile prompt digest differs between files (an edited profile keeps its name), and a question
+id judged grounded in one file and ungrounded in another (a file with no `grounded_questions` count is not
+compared). With `--baseline-arm`, the arm must
+be one the runs list (exit 2 otherwise, naming the arms that exist), and the declared
+baselines are not checked. A threshold out of range exits 2: `--ceiling` in [1e-6, 1],
+`--floor` 0 or in [1e-6, ceiling), `--min-reps` at least 1. A positive threshold may be finer than one score step. It also exits 2 when no run scored the
+no-skill arm, or when `--out` is one of the input files (or its `.rejected` sibling), or names a directory or a path ending in a separator. Scores are read as the 0-100
+aggregate divided by 100 and are not range-checked. Only arms runs are read. The flags are descriptive: they do not
+change any score or any gate.
 
 ## Scope and caveats
 
