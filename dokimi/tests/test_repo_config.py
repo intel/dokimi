@@ -532,6 +532,20 @@ def test_an_off_store_loads_as_off_whether_quoted_or_read_as_false(tmp_path, sto
     assert load_repo_config(root).data["baseline"]["store"] == "off"
 
 
+@pytest.mark.parametrize("store_line", ["store: |\n    off", "store: |\n    branch:main", "store: 'branch: '",
+                                        "store: 'branch:main '", "store: 'branch:-x'", "store: 'branch:a b'"])
+def test_a_store_with_whitespace_a_final_newline_or_a_leading_dash_is_refused(tmp_path, store_line):
+    root = _tree(tmp_path / "repo", {".github/dokimi/config.yaml": HEADER + f"baseline:\n  {store_line}\n"})
+    with pytest.raises(ConfigError, match="store"):
+        load_repo_config(root)
+
+
+def test_a_store_branch_with_a_slash_loads_as_written(tmp_path):
+    body = HEADER + "baseline:\n  store: branch:release/1.2\n"
+    root = _tree(tmp_path / "repo", {".github/dokimi/config.yaml": body})
+    assert load_repo_config(root).data["baseline"]["store"] == "branch:release/1.2"
+
+
 def test_nested_yaml_aliases_are_refused_with_a_short_message(tmp_path):
     levels = ["  - &a0 [" + ", ".join(["x"] * 10) + "]\n"]
     levels += [f"  - &a{n} [" + ", ".join([f"*a{n - 1}"] * 10) + "]\n" for n in range(1, 6)]
