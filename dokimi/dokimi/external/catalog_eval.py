@@ -69,7 +69,8 @@ def _bundled(path: str, prefix: str) -> bool:
 def _owners(path: str, rows: list[dict], hashed: bool = False) -> tuple[list[str], str]:
     if path in {"skills.yaml", DEFAULT_SUITES_MANIFEST}:
         return [row["name"] for row in rows], f"catalog metadata changed: {path}"
-    if path.startswith((".github/", "tools/", "scripts/", "dokimi/")):
+    if path.startswith((".github/", "tools/", "scripts/", "dokimi/")) and not (
+            hashed and VENDORED_DIR_NAMES.intersection(PurePosixPath(path).parts)):
         return [row["name"] for row in rows], f"shared evaluator changed: {path}"
     owners = []
     for row in rows:
