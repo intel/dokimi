@@ -190,9 +190,9 @@ these, in order, before writing what it showed (the fields:
   size of the root file points at that file alone. Confirm with reach (step 2)
   on a cell's start commit (`meta.json` `start_sha`: the task's base with its
   arm applied; `guidance:rev:` writes each link as a plain file), with the
-  run's manifest (the cell has no `eval_dir`), the cells' `--harness` and a
-  `--bin` of their `harness_version`:
-  `dokimi repo reach <cell>/workspace@<start_sha> --manifest-file <manifest> --model <id>`.
+  run's manifest (the cell has no `eval_dir`), the profile `meta.json`
+  `harness` names and a binary of its `harness_version`:
+  `dokimi repo reach <cell>/workspace@<start_sha> --manifest-file <manifest> --harness <harness> --bin <path> --model <id>`.
   Reach on the checkout or on `<repo>@<sha>` (links kept, no base) checks
   that tree, not the cells'. Where a credit turns on it, read the cells'
   traces too. A nested `AGENTS.md` loads later if at all (reach's
