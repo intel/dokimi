@@ -605,8 +605,22 @@ lists except the artifact itself. A `skills.yaml` at the root decides what the c
 without one, every `SKILL.md` under it counts, except a `template/` copy and vendored or VCS
 directories such as `.git` and `node_modules`, which are not walked. A byte-identical copy under
 another path counts once. A declared skill that cannot be loaded is skipped with a warning. Two
-catalog skills with the same name and different content are refused, with both paths named:
-rename one, or delete the copy you do not mean to route against.
+catalog skills with the same name and different content are both skipped, with a warning that
+names every path of that name: the rest of the field stays. Only the copies the field lists count:
+a disabled copy (unless `--include-disabled`) or a spec-error copy (unless `--include-invalid`) is
+left out first, so it does not make its name a conflict. Rename one, or delete the copy you do
+not mean to route against, to route the name. `dokimi catalog scan` lists the same names as
+`name-conflict` warnings, for the copies it lists. A skill with a spec error (for example a description over 1024 characters, or a
+name that is not kebab-case or not its directory name) is also left out, with a warning naming the error; pass
+`--include-invalid` to keep it, as a harness that refuses to list such a skill would not. A `skill:`
+competitor with a spec error is skipped with the same warning.
+The directory-name check applies to a `skill:` competitor under a `skills/` directory
+(`skills/<dir>/SKILL.md`, `plugins/x/skills/<dir>/SKILL.md`), as it does in a catalog. A `skill:`
+competitor anywhere else is read as a root skill, and its name is not checked against its
+directory: `tools/database/SKILL.md` named `db` is routed when passed explicitly, while a
+`--catalog` scan of its tree leaves it out with a name error. Keep the directory name and the
+`name` field equal to get the same field from both.
+A name that conflicts with another catalog skill leaves the field whatever the flag says.
 A `skill:` competitor that is not a `SKILL.md`, or a directory without one, is skipped with a
 warning. A shell glob must be expanded first, with the prefix on each path
 (`skill:dir/a/SKILL.md skill:dir/b/SKILL.md`): an unexpanded `skill:dir/*` is refused as a missing
@@ -680,15 +694,17 @@ is no attractor, and a tied skill's own rate is lower by the picks inside its gr
 `n_scored` and `n_unscored` per skill say how many, a query with no content word or a failed
 model call is unscored, and a skill with none scored has an own rate of `null`, not 0.0. A run
 with any failed model call writes the result and exits non-zero. The saved file records the
-field rule under `field` (`include_disabled`, the `competitors` and what was `left_out`); a
+field rule under `field` (`include_disabled`, `include_invalid`, the `competitors` and what was `left_out`, which
+also names each skill left out for a conflicting name or a spec error); a
 single-artifact run records it too. It takes no `--artifact`, `--queries` or `--queries-from-headings`. `--repeats` needs `--model`
 and asks each query that many times, as a single-artifact run does: the model arm then carries a
 `noise` block (agreement per query, the rate of each repeat, `half_range`), and its counts are
 calls, one per query per repeat. The model arm also records the selector `model`, so two runs with
 different models can be told apart. It is refused with fewer than two skills, a name repeated
 in the field, or no queries at all. A query file that names a skill outside the field is refused;
-when that skill is one the field leaves out for `disable-model-invocation`, the message names it and
-points to `--include-disabled`.
+when the field leaves that skill out for `disable-model-invocation`, a spec error or a name that two
+different skills share, the message names each such skill with every reason that applies, and
+`--include-disabled` or `--include-invalid` where a flag keeps it.
 
 **Cost of `--model` in all-vs-all.** The model arm makes one selector call per query and repeat,
 across every skill in the field: the call count is the number of queries in `queries.json` that have a

@@ -133,8 +133,10 @@ def _check_all_vs_all_input(names: list[str], queries_by_skill: dict[str, list[s
     if unknown:
         raise RoutingInputError("the queries name skills that are not in the field: "
                                 + ", ".join(f"`{n}`" for n in unknown)
-                                + "; a skill that sets disable-model-invocation is left out "
-                                "unless you pass --include-disabled")
+                                + "; the field leaves out a skill that sets "
+                                "disable-model-invocation (--include-disabled keeps it), one "
+                                "with a spec error (--include-invalid keeps it) and every copy "
+                                "of a name that two different skills share")
     if not queries_by_skill:
         raise RoutingInputError("no skill in the field has queries to route")
 

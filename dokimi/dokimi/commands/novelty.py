@@ -28,7 +28,7 @@ from dokimi.commands.novelty_routing_report import (
     print_routing_summary,
     no_queries_reason,
     refuse_estimate_without_queries,
-    refuse_queries_naming_disabled,
+    refuse_queries_naming_left_out,
     routing_queries,
 )
 from dokimi.defaults import (
@@ -305,9 +305,9 @@ def _routing_card(ref: str):
 
 
 def _named_competitors(args: argparse.Namespace, left_out: list[str] | None,
-                      disabled: list[str] | None) -> list:
+                      dropped: dict[str, set[str]] | None) -> list:
     """The ``--competitors`` references that stay in the field, each as a candidate."""
-    from dokimi.novelty.routing import disables_model_invocation, non_skill_reason, skill_file
+    from dokimi.novelty.routing import competitor_left_out, left_out_rules, non_skill_reason
 
     competitors = []
     for ref in args.competitors or []:
@@ -318,15 +318,15 @@ def _named_competitors(args: argparse.Namespace, left_out: list[str] | None,
                 left_out.append(f"{ref}: {reason}")
             continue
         candidate = _routing_card(ref)[0]
-        ref_file = skill_file(ref)
-        if (ref_file and not args.include_disabled
-                and disables_model_invocation(ref_file)):
-            print(f"WARNING: skipped competitor {ref}: disable-model-invocation "
-                  "(--include-disabled keeps it)", file=sys.stderr)
+        reason = competitor_left_out(ref, include_disabled=args.include_disabled,
+                                     include_invalid=args.include_invalid)
+        if reason:
+            print(f"WARNING: skipped competitor {ref}: {reason}", file=sys.stderr)
             if left_out is not None:
-                left_out.append(f"{ref}: disable-model-invocation")
-            if disabled is not None:
-                disabled.append(candidate.name)
+                left_out.append(f"{ref}: {reason}")
+            if dropped is not None:
+                dropped.setdefault(candidate.name, set()).update(
+                    left_out_rules(ref, reason, include_invalid=args.include_invalid))
             continue
         competitors.append(candidate)
     return competitors
@@ -334,24 +334,23 @@ def _named_competitors(args: argparse.Namespace, left_out: list[str] | None,
 
 def _routing_field(args: argparse.Namespace, exclude: set[str],
                    left_out: list[str] | None = None,
-                   disabled: list[str] | None = None) -> list:
+                   dropped: dict[str, set[str]] | None = None) -> list:
     """The field ``--competitors`` and ``--catalog`` name, without the names in ``exclude``.
 
-    What was left out of the field, and why, is appended to ``left_out`` when given. The
-    names left out for disable-model-invocation are appended to ``disabled`` when given.
+    What was left out of the field, and why, is appended to ``left_out`` when given. Each
+    name a rule leaves out maps to its rules in ``dropped`` (when given).
 
     Raises:
         OSError, ValueError, RecursionError: A reference or the catalog cannot be loaded.
     """
     from dokimi.novelty.routing import catalog_competitors
 
-    competitors = _named_competitors(args, left_out, disabled)
+    competitors = _named_competitors(args, left_out, dropped)
     if args.catalog:
         notes: list[str] = []
-        catalog = catalog_competitors(args.catalog,
-                                      exclude | {c.name for c in competitors}, notes,
-                                      include_disabled=args.include_disabled,
-                                      disabled=disabled)
+        catalog = catalog_competitors(args.catalog, exclude | {c.name for c in competitors},
+                                      notes, include_disabled=args.include_disabled,
+                                      include_invalid=args.include_invalid, dropped=dropped)
         for note in notes:
             print(f"WARNING: {note}", file=sys.stderr)
         if left_out is not None:
@@ -374,9 +373,9 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
 
     _check_all_vs_all_args(args)
     left_out: list[str] = []
-    disabled: list[str] = []
+    dropped: dict[str, set[str]] = {}
     try:
-        field = _routing_field(args, set(), left_out, disabled)
+        field = _routing_field(args, set(), left_out, dropped)
     except RoutingInputError as exc:
         usage_exit(str(exc))
     except (OSError, ValueError, RecursionError) as exc:
@@ -386,7 +385,7 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
             queries_by_skill = load_queries_by_skill(args.queries_by_skill)
         except (OSError, UnicodeDecodeError) as exc:
             usage_exit(f"cannot read the queries: {exc}")
-        refuse_queries_naming_disabled(args, field, queries_by_skill, disabled)
+        refuse_queries_naming_left_out(field, queries_by_skill, dropped)
         selector = _client(args.model, args.provider, "selector", args) if args.model else None
         if selector is not None:
             # One call per query with a content word and per repeat, each sending every card.
@@ -434,7 +433,7 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
 
 def _field_record(args: argparse.Namespace, competitors: list, left_out: list[str]) -> dict:
     """The field rule a routing result was measured under, saved next to the result."""
-    return {"include_disabled": bool(args.include_disabled),
+    return {**{name: bool(getattr(args, name)) for name in ("include_disabled", "include_invalid")},
             "competitors": [c.name for c in competitors], "left_out": left_out}
 
 
@@ -786,16 +785,16 @@ def register(sub, positive_int) -> None:
                            help="Directory of skills to take the competitors from: every "
                                 "skill the catalog lists (skills.yaml when present, else every "
                                 "SKILL.md under it; a template/ copy and vendored or VCS "
-                                "directories like .git are left out, and a byte-identical "
-                                "copy under another path counts once) except "
-                                "the artifact itself, i.e. the "
-                                "siblings a harness lists next to it. Combines with "
-                                "--competitors")
+                                "directories like .git are left out, and a byte-identical copy "
+                                "under another path counts once) except the artifact itself, the "
+                                "siblings a harness lists next to it. Combines with --competitors")
     routing_p.add_argument("--include-disabled", action="store_true", dest="include_disabled",
                            help="Keep skills that set disable-model-invocation in the field. "
                                 "Off by default: no harness lists them, so the model cannot "
                                 "select them and a card for one measures a choice that does "
                                 "not exist")
+    routing_p.add_argument("--include-invalid", action="store_true", dest="include_invalid",
+                           help="Keep catalog and skill: competitors with a spec error in the field")
     routing_p.add_argument("--queries", default=None,
                            help="JSON list (or one per line) of user-shaped requests that "
                                 "should select this artifact, written independently of it")

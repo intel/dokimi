@@ -87,26 +87,34 @@ def refuse_estimate_without_queries(args: argparse.Namespace, queries: list[str]
                    "Nothing is estimated, since the run would be refused")
 
 
-def refuse_queries_naming_disabled(args: argparse.Namespace, field: list,
-                                    queries_by_skill: dict[str, list[str]],
-                                    disabled: list[str]) -> None:
-    """Refuse queries for a skill the field leaves out only because it sets disable-model-invocation.
+# Why a field rule left a skill out, as the refusal says it, in the order it says them.
+_LEFT_OUT_BECAUSE = {
+    "disabled": "sets disable-model-invocation (--include-disabled keeps it)",
+    "invalid": "has a spec error (--include-invalid keeps it)",
+    "conflict": "has copies with different content (every copy of a name that two different "
+                "skills share is left out whatever the flag says; dedupe or rename them)",
+}
 
-    ``disabled`` is the names :func:`_routing_field` left out for that reason, so the field is
-    not read again. The generic "not in the field" refusal only hints at the flag, so this names the
-    disabled skills and the flag that keeps them. Other unknown names fall through to that refusal.
+
+def refuse_queries_naming_left_out(field: list, queries_by_skill: dict[str, list[str]],
+                                   dropped: dict[str, set[str]]) -> None:
+    """Refuse queries for a skill a field rule left out, naming each skill and every reason.
+
+    ``dropped`` maps each name :func:`_routing_field` left out to why (``disabled``, ``invalid``,
+    ``conflict``), so the field is not read again. The generic "not in the field" refusal can
+    only list the rules, so this names the rule behind each skill. A query file naming only skills
+    no rule left out falls through to that refusal.
     """
-    if args.include_disabled:
+    unknown = sorted(set(queries_by_skill) - {c.name for c in field})
+    if not any(name in dropped for name in unknown):
         return
-    held = {c.name for c in field}
-    unknown = sorted(set(queries_by_skill) - held)
-    named = [name for name in unknown if name in disabled]
-    if named:
-        usage_exit("the queries name skills that are not in the field: "
-                   + ", ".join(f"`{n}`" for n in unknown) + ". "
-                   + "; ".join(f"`{n}` sets disable-model-invocation, so the field leaves it out"
-                               for n in named)
-                   + "; pass --include-disabled to keep those skills in the field")
+    reasons = []
+    for name in unknown:
+        whys = [text for why, text in _LEFT_OUT_BECAUSE.items() if why in dropped.get(name, ())]
+        reasons.append(f"`{name}` {' and '.join(whys)}, so the field leaves it out" if whys
+                       else f"`{name}` is not a loadable skill the field was given")
+    usage_exit("the queries name skills that are not in the field: "
+               + ", ".join(f"`{n}`" for n in unknown) + ". " + "; ".join(reasons))
 
 
 def print_routing_estimate(args: argparse.Namespace, candidates: list, queries: list[str]) -> None:
