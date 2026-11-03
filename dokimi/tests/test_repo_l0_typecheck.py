@@ -523,6 +523,14 @@ def test_a_linked_guidance_file_has_its_fences_checked_and_counted_once(tmp_path
     assert payload["typecheck"]["fences"] == 1
 
 
+def test_only_python_tagged_fences_become_claims(tmp_path):
+    bad = "import json\n\njson.nosuch()\n"
+    agents = f"{FENCE}python\n{bad}{FENCE}\n\n{FENCE}bash\n{bad}{FENCE}\n\n{FENCE}json\n{bad}{FENCE}\n"
+    payload = scan_repo(_tree(tmp_path, agents), parse_manifest(MANIFEST), typecheck=Check("mypy", sys.executable))
+    assert payload["typecheck"]["fences"] == 1
+    assert [c["status"] for c in _fence_claims(payload)] == ["fail"]
+
+
 def test_a_fence_cannot_import_another_fence_as_a_module(tmp_path):
     agents = f"{FENCE}python\nvalue: int = 1\n{FENCE}\n\n{FENCE}python\nimport fence_0\nprint(fence_0.value)\n{FENCE}\n"
     payload = scan_repo(_tree(tmp_path, agents), parse_manifest(MANIFEST), typecheck=Check("mypy", sys.executable))
