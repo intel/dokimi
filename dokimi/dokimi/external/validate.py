@@ -59,9 +59,11 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Optional, Sequence
+from urllib.parse import unquote
 
 import yaml
 
+from dokimi.repos.l0.markdown import split as split_markdown
 from dokimi.skills import Skill
 from dokimi.utils import parse_frontmatter_strict
 
@@ -71,6 +73,7 @@ NAME_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 NAME_MAX = 64
 DESCRIPTION_MAX = 1024
 NEAR_DUPLICATE_JACCARD = 0.5
+NEAR_DUPLICATE_MIN_SHARED = 3  # shared words; a one-word overlap in two short descriptions is not a near-duplicate
 
 # A "when" clause of any subject and verb ("run migrations when deploying"), or a use phrase: the model
 # chooses a skill from its description alone.
@@ -88,26 +91,25 @@ STOP_WORDS = frozenset(
     should must may might if else only other such via per about over under more most very
     just""".split()
 )
-# An inline link target is balanced in parentheses to any depth (``a(b(c)).md``) or in angle brackets with
-# spaces; an optional title and the closing parenthesis follow it (_inline_destinations).
+# A code span of any run length, across lines of a paragraph: its text is literal (a backslash escapes
+# nothing in it), so no link is read inside one. Group 2 is the text.
+CODE_SPAN_RE = re.compile(r"(?<![\\`])(`+)(?!`)(.+?)(?<!`)\1(?!`)", re.DOTALL)
+# Brackets and the backslashes that may escape them, in order (_unlinked_brackets).
+BRACKET_RE = re.compile(r"\\\\|\\[\[\]]|[\[\]]")
+# A backslash before ASCII punctuation is an escape in a link destination (``guide\_notes.md``).
+_ESCAPE_RE = re.compile(r"\\([!-/:-@\[-`{-~])")
+# An inline link target balanced in parentheses to any depth (``a(b(c)).md``), in angle brackets (no line
+# break inside), with an optional title; split() reads one level of parentheses only, so these are read here.
 _TARGET_TITLE = r"""(?:\s+(?:"[^"]*"|'[^']*'|\([^()]*\)))?"""
 _LINK_OPEN_RE = re.compile(r"\]\(\s*")
 _LINK_END_RE = re.compile(rf"{_TARGET_TITLE}\s*\)")
-# A backslash before ASCII punctuation is an escape in a link destination (``guide\_notes.md``).
-_ESCAPE_RE = re.compile(r"\\([!-/:-@\[-`{-~])")
-# A reference-style link definition, ``[label]: destination``, the destination on this line or the
-# next (footnotes ``[^n]:`` excluded). Matched over the whole body, not line by line.
-REF_DEF_RE = re.compile(
-    r"""^ {0,3}\[(?!\^)[^\]\n]+\]:[ \t]*(?:\n[ \t]*)?(<[^>\n]*>|\S+)"""
-    r"""(?:[ \t]+(?:"[^"]*"|'[^']*'|\([^)]*\)))?[ \t]*$""",
-    re.MULTILINE,
-)
+# A reference label alone on its line: its destination may be on the next line.
+_LABEL_ONLY_RE = re.compile(r"^ {0,3}\[(?!\^)[^\]]+\]:[ \t]*$")
 FENCE_OPEN_RE = re.compile(r"\ {0,3}(`{3,}|~{3,})(.*)$")
 FENCE_CLOSE_RE = re.compile(r"\ {0,3}(`{3,}|~{3,})[ \t]*$")
-# A fence under a list item may sit deeper than three spaces (the item's indentation); a blockquote's
-# ``>`` markers are stripped before any fence is matched, and a list item line marks the list.
+# A fence under a list item may sit deeper than three spaces (the item's indentation); its opener is
+# read after the bullet, its other lines relative to the item's content column (_dedent).
 DEEP_FENCE_OPEN_RE = re.compile(r"[ \t]*(`{3,}|~{3,})(.*)$")
-DEEP_FENCE_CLOSE_RE = re.compile(r"[ \t]*(`{3,}|~{3,})[ \t]*$")
 QUOTE_MARK_RE = re.compile(r"[ \t]{0,3}>[ \t]?")
 LIST_ITEM_RE = re.compile(r"[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]")
 # RFC 3986 scheme, dots included; a dotted one with a line or symbol after it is a file (_file_ref).
@@ -115,9 +117,6 @@ URI_SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+\-.]*:")
 # After a file, a line or a symbol (``run.py:42``, ``run.py:10-20``, ``run.py:main``): read as the file's name.
 FILE_SUFFIX_RE = re.compile(r"\d+(?:[-:]\d+)?|[A-Za-z_]\w*")
 LOCATION_SUFFIX_RE = re.compile(r":(?:\d+(?:[-:]\d+)?|[A-Za-z_]\w*)$")
-CODE_SPAN_RE = re.compile(r"`([^`\n]+)`")
-# A code span of any length, across lines within a paragraph: its text is literal, so no link is read in it.
-CODE_SPAN_MASK_RE = re.compile(r"(?<!\\)(`+)(?!`).*?(?<!`)(?<!\\)\1(?!`)", re.DOTALL)
 SKILL_DIR_VAR = "${CLAUDE_SKILL_DIR}/"
 
 
@@ -270,7 +269,9 @@ def _outside_fences(body: str) -> list[str]:
     markers (a deeper ``>`` is code), and it ends with its quote. A fence under a list item may be
     indented past three spaces, and it ends with its innermost item: at the first non-blank line
     indented less than that item's content column. A list item's own line may open a fence (``- ```).
-    Any other fence runs to its closing marker or to the end. A change of quote depth is a blank line.
+    Any other fence runs to its closing marker or to the end. Inside an item, a fence's marker may
+    sit at most three columns past the item's content column, as outside one. A change of quote
+    depth is a blank line.
     """
     lines: list[str] = []
     fence = ""  # the run that opened the current block; "" outside one
@@ -283,7 +284,7 @@ def _outside_fences(body: str) -> list[str]:
             rest, count = _unquote(line, depth)
             ended = count < depth or bool(col and rest.strip() and _indent(rest) < col)
             if not ended:
-                close = (DEEP_FENCE_CLOSE_RE if col else FENCE_CLOSE_RE).match(rest)
+                close = FENCE_CLOSE_RE.match(_dedent(rest, col))
                 if close and close.group(1)[0] == fence[0] and len(close.group(1)) >= len(fence):
                     fence = ""
                     lines.append("")  # a blank line keeps a definition above the block from reaching below it
@@ -299,7 +300,10 @@ def _outside_fences(body: str) -> list[str]:
             opener = rest[bullet.end():]
         else:
             opener = rest
-        opened = (DEEP_FENCE_OPEN_RE if items else FENCE_OPEN_RE).match(opener)
+        if bullet:
+            opened = DEEP_FENCE_OPEN_RE.match(opener)
+        else:
+            opened = FENCE_OPEN_RE.match(_dedent(opener, items[-1][0] if items else 0))
         # a backtick info string may not hold a backtick: "```x```" is an inline code span, not a fence
         if opened and not (opened.group(1)[0] == "`" and "`" in opened.group(2)):
             fence, depth, col = opened.group(1), count, (items[-1][0] if items else 0)
@@ -324,6 +328,14 @@ def _unquote(line: str, depth: int | None = None) -> tuple[str, int]:
     return line, count
 
 
+def _dedent(line: str, col: int) -> str:
+    """``line`` with its leading whitespace cut back to the column ``col`` (a list item's content column)."""
+    cut = 0
+    while cut < len(line) and line[cut] in " \t" and _width(line[: cut + 1]) <= col:
+        cut += 1
+    return line[cut:]
+
+
 def _width(text: str) -> int:
     """The column just past ``text``, where a tab advances to the next multiple of four, as in CommonMark."""
     col = 0
@@ -337,11 +349,51 @@ def _indent(line: str) -> int:
     return _width(line[:len(line) - len(line.lstrip(" \t"))])
 
 
+def _paragraphs(lines: list[str]) -> list[str]:
+    """The paragraphs of ``lines`` (blank lines end one), each joined by newlines."""
+    out: list[str] = []
+    block: list[str] = []
+    for line in lines + [""]:
+        if line.strip():
+            block.append(line)
+        elif block:
+            out.append("\n".join(block))
+            block = []
+    return out
+
+
+def _unlinked_brackets(text: str) -> str:
+    """``text`` with the brackets that open no link blanked: an escaped one (``\\[``), and a ``]`` with no
+    unescaped ``[`` still open before it, so ``\\[guide](x.md)`` and ``note](x.md)`` read no link while
+    ``[![CI](badge.svg)](x.md)`` and ``[see [docs]](x.md)`` keep both. An escaped backslash is kept, so a
+    bracket after it still counts."""
+    out: list[str] = []
+    open_count, pos = 0, 0
+    for m in BRACKET_RE.finditer(text):
+        token = m.group()
+        out.append(text[pos : m.start()])
+        pos = m.end()
+        if token == "\\\\":
+            out.append(token)
+        elif token[0] == "\\":
+            out.append("  ")
+        elif token == "[":
+            open_count += 1
+            out.append(token)
+        elif open_count:
+            open_count -= 1
+            out.append(token)
+        else:
+            out.append(" ")
+    out.append(text[pos:])
+    return "".join(out)
+
+
 def _destination_stop(line: str, start: int) -> Optional[int]:
     """Where the link destination that begins at ``start`` ends, or None if no destination is there."""
     if start < len(line) and line[start] == "<":
         end = line.find(">", start + 1)
-        return None if end == -1 or any(c in line[start + 1:end] for c in "<\n") else end + 1
+        return None if end == -1 or any(c in line[start + 1 : end] for c in "<\n") else end + 1
     depth, stop = 0, start
     while stop < len(line):
         char = line[stop]
@@ -358,26 +410,11 @@ def _destination_stop(line: str, start: int) -> Optional[int]:
     return None if depth or stop == start else stop
 
 
-def _paragraphs(lines: list[str]) -> list[str]:
-    """The paragraphs of ``lines`` (blank lines end one), each joined by newlines with its code spans blanked."""
-    out: list[str] = []
-    block: list[str] = []
-    for line in lines + [""]:
-        if line.strip():
-            block.append(line)
-        elif block:
-            text = "\n".join(block)
-            out.append(CODE_SPAN_MASK_RE.sub(lambda m: " " * len(m.group()), text))
-            block = []
-    return out
-
-
 def _inline_destinations(text: str) -> list[str]:
     """The destinations of the inline links in ``text``, as written (``<...>`` kept, a title left out).
 
     A ``](`` opens a destination that runs to its matching parenthesis at any depth, or to the ``>``
-    of an angle-bracketed one; a backslash escapes the character after it. The destination may
-    start or end on another line of the same paragraph.
+    of an angle-bracketed one. The destination may start or end on another line of the paragraph.
     """
     found: list[str] = []
     for opened in _LINK_OPEN_RE.finditer(text):
@@ -388,23 +425,63 @@ def _inline_destinations(text: str) -> list[str]:
     return found
 
 
+def _join_label_lines(lines: list[str]) -> list[str]:
+    """``lines`` with each reference label alone on its line joined to the line after it, so that a
+    definition whose destination is on the next line reads as one line for the splitter."""
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        if _LABEL_ONLY_RE.match(lines[i]) and i + 1 < len(lines):
+            out.append(f"{lines[i]} {lines[i + 1]}")
+            i += 2
+        else:
+            out.append(lines[i])
+            i += 1
+    return out
+
+
+def _pieces(lines: list[str]) -> tuple[list[str], list[str]]:
+    """The link destinations and the code-span texts of ``lines`` (outside fences), as written.
+
+    A code span is matched by its run of backticks, across the lines of its paragraph, and its text is
+    taken whole. Its text and the escaped brackets are then blanked. Inline links are read from the
+    paragraph (any depth of parentheses, a destination over lines), and reference definitions by the
+    markdown splitter of L0 (``dokimi.repos.l0.markdown.split``), line by line.
+    """
+    targets: dict[str, None] = {}
+    spans: dict[str, None] = {}
+    for paragraph in _paragraphs(lines):
+        for m in CODE_SPAN_RE.finditer(paragraph):
+            text = m.group(2).replace("\n", " ").strip()
+            if text:
+                spans[text] = None
+        masked = _unlinked_brackets(CODE_SPAN_RE.sub(lambda m: " " * len(m.group()), paragraph))
+        for target in _inline_destinations(masked):
+            targets[target] = None
+        for line in _join_label_lines(masked.split("\n")):
+            for _, target, _ in split_markdown(line).links:
+                targets[target] = None
+    return list(targets), list(spans)
+
+
 def _file_ref(raw: str, link: bool = False) -> Optional[str]:
     """The skill-relative file a reference names, or None if it names no file to check.
 
     None for a URL or any other URI (``tel:``, ``urn:``, ``MAILTO:``), a bare anchor, an
     absolute path, or a template with a variable other than ``${CLAUDE_SKILL_DIR}``. A
     ``<...>`` destination (CommonMark) is read as the path inside the brackets. A link
-    destination (``link``) is a URL: its ``?query`` is not part of the path, and its backslash
-    escapes of ASCII punctuation (``guide\\_notes.md``) are decoded. A code span is literal.
+    destination (``link``) is a URL: its ``#fragment`` and ``?query`` are not part of the path,
+    its backslash escapes of ASCII punctuation (``guide\\_notes.md``) are decoded, and its
+    percent-encoded bytes name the file (``guide%20notes.md``). A code span is literal: a ``#``
+    or a ``%`` in it is in the file's name.
     """
     text = raw.strip()
     if text.startswith("<") and text.endswith(">"):
         text = text[1:-1].strip()
     if link:
         text = _ESCAPE_RE.sub(r"\1", text)
-    text = text.split("#", 1)[0].strip()
-    if link:
-        text = text.split("?", 1)[0].strip()
+        text = text.split("#", 1)[0].split("?", 1)[0].strip()
+        text = unquote(text)
     if not text or "://" in text or text.startswith("/"):
         return None
     scheme = URI_SCHEME_RE.match(text)
@@ -438,64 +515,68 @@ def _exists(path: Path) -> bool:
         return False
 
 
+def _inside(path: Path, base: Path) -> bool:
+    """Whether ``path`` lies under ``base`` by its written name, with ``..`` taken away. Reads no file."""
+    return Path(os.path.abspath(path)).is_relative_to(os.path.abspath(base))
+
+
+def _link_finding(raw: str, skill_dir: Path, source_root: Path, real_dir: Path) -> Optional[Finding]:
+    """The finding for one link destination (inline or reference), or None when it is fine."""
+    text = _file_ref(raw, link=True)
+    if text is None:
+        return None
+    named = skill_dir / text
+    if not _inside(named, skill_dir):
+        return _escapes_link(raw)
+    target = _resolved(named)
+    if target is not None and _exists(target):
+        return None if target.is_relative_to(real_dir) else _escapes_link(raw)
+    from_root = ""
+    if _inside(source_root / text, source_root) and _exists(source_root / text):
+        from_root = " (it exists from the catalog root: the base is wrong)"
+    return Finding("warn", "link-missing", f"link {raw!r} names no file relative to the skill directory{from_root}")
+
+
+def _span_finding(raw: str, skill_dir: Path, source_root: Path, real_dir: Path) -> Optional[Finding]:
+    """The finding for a code span that names an existing file outside the skill (``../``), or None."""
+    text = _file_ref(raw)
+    if text is None or not raw.startswith("../"):
+        return None
+    named = skill_dir / text
+    if not _inside(named, source_root):
+        return None  # outside the checkout: not read
+    target = _resolved(named)
+    if target is None or not _exists(target) or target.is_relative_to(real_dir):
+        return None
+    return Finding(
+        "warn",
+        "path-escapes-skill",
+        f"{raw!r} points outside the skill directory; it breaks when the skill "
+        "is installed alone",
+    )
+
+
 def _bundle_findings(skill: Skill, source_root: Path) -> list[Finding]:
-    """Link and path checks on the body of ``skill``: missing targets, or targets outside it."""
+    """Link and path checks on the body of ``skill``: missing targets, or targets outside it.
+
+    A target is classed by its written name before any file is read: one outside the skill
+    directory is ``link-escapes-skill`` whether or not it exists, and one outside the catalog
+    checkout is never probed.
+    """
     skill_dir = skill.path.parent
     real_dir = skill_dir.resolve()
-    lines = _outside_fences(skill.body)
-    paragraphs = _paragraphs(lines)
-    links = dict.fromkeys(
-        [m for text in paragraphs for m in _inline_destinations(text)]
-        + [m for text in paragraphs for m in REF_DEF_RE.findall(text)]
+    targets, spans = _pieces(_outside_fences(skill.body))
+    found = [_link_finding(raw, skill_dir, source_root, real_dir) for raw in targets]
+    found += [_span_finding(raw, skill_dir, source_root, real_dir) for raw in spans]
+    return [finding for finding in found if finding is not None]
+
+
+def _escapes_link(raw: str) -> Finding:
+    return Finding(
+        "warn",
+        "link-escapes-skill",
+        f"link {raw!r} points outside the skill directory; it breaks when the skill is installed alone",
     )
-    spans = dict.fromkeys(
-        s.strip()
-        for line in lines
-        for s in CODE_SPAN_RE.findall(line)
-        if s.strip().startswith("../")
-    )
-    findings: list[Finding] = []
-    for raw in links:
-        text = _file_ref(raw, link=True)
-        if text is None:
-            continue
-        target = _resolved(skill_dir / text)
-        if target is not None and _exists(target):
-            if not target.is_relative_to(real_dir):
-                findings.append(
-                    Finding(
-                        "warn",
-                        "link-escapes-skill",
-                        f"link {raw!r} points outside the skill directory; it breaks when "
-                        "the skill is installed alone",
-                    )
-                )
-            continue
-        from_root = ""
-        if _exists(source_root / text):
-            from_root = " (it exists from the catalog root: the base is wrong)"
-        findings.append(
-            Finding(
-                "warn",
-                "link-missing",
-                f"link {raw!r} names no file relative to the skill directory{from_root}",
-            )
-        )
-    for raw in spans:
-        text = _file_ref(raw)
-        if text is None:
-            continue
-        target = _resolved(skill_dir / text)
-        if target is not None and _exists(target) and not target.is_relative_to(real_dir):
-            findings.append(
-                Finding(
-                    "warn",
-                    "path-escapes-skill",
-                    f"{raw!r} points outside the skill directory; it breaks when the skill "
-                    "is installed alone",
-                )
-            )
-    return findings
 
 
 def _description_findings(skill: Skill) -> list[Finding]:
@@ -542,20 +623,30 @@ def _dir_name(item: tuple[SkillCatalogEntry, Skill, SkillReview]) -> Optional[st
     return _dir_name_of(skill.path.parent)
 
 
+def _same_description(a: Skill, b: Skill) -> bool:
+    return " ".join(a.description.split()) == " ".join(b.description.split())
+
+
+def _is_drift(a: tuple[SkillCatalogEntry, Skill, SkillReview], b: tuple[SkillCatalogEntry, Skill, SkillReview]) -> bool:
+    """Two same-named skills whose ``SKILL.md`` differ though their descriptions agree: copies that drifted."""
+    return a[2].content_sha256 != b[2].content_sha256 and _same_description(a[1], b[1])
+
+
 def _mirror_drift(loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]]) -> None:
-    """``mirror-drift`` on each skill that shares its directory name with a differing copy."""
+    """``mirror-drift`` on each skill that shares its directory name with a copy that has drifted.
+
+    A same-named skill with another description is a different skill (plugins repeat ``review``),
+    and the description checks cover it.
+    """
     by_dir_name: dict[str, list[tuple[SkillCatalogEntry, Skill, SkillReview]]] = {}
     for item in loaded:
         name = _dir_name(item)
         if name is not None:
             by_dir_name.setdefault(name, []).append(item)
     for group in by_dir_name.values():
-        for entry, _, review in group:
-            others = [
-                _counterpart(item, entry)
-                for item in group
-                if item[2].content_sha256 != review.content_sha256
-            ]
+        for item in group:
+            entry, _, review = item
+            others = [_counterpart(other, entry) for other in group if _is_drift(item, other)]
             if others:
                 review.findings.append(
                     Finding(
@@ -582,10 +673,11 @@ def _near_duplicates(loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]])
             o_entry, _, o_review = shown[j]
             if o_review.content_sha256 == review.content_sha256:
                 continue  # an identical SKILL.md: already a duplicate
-            if names[i] is not None and names[i] == names[j]:
-                continue  # the same skill in another path: already a mirror-drift
+            if names[i] is not None and names[i] == names[j] and _is_drift(shown[i], shown[j]):
+                continue  # the same skill in another path, drifted: already a mirror-drift
+            shared = len(tokens[i] & tokens[j])
             similarity = _jaccard(tokens[i], tokens[j])
-            if similarity >= NEAR_DUPLICATE_JACCARD:
+            if shared >= NEAR_DUPLICATE_MIN_SHARED and similarity >= NEAR_DUPLICATE_JACCARD:
                 pairs = (
                     (review, _counterpart(shown[j], entry)),
                     (o_review, _counterpart(shown[i], o_entry)),

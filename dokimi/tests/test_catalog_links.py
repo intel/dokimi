@@ -105,7 +105,7 @@ def test_angle_bracket_destination_with_spaces_is_checked(tmp_path, exists):
            body="See [notes](<../../shared/my notes.md>).\n")
 
     [review] = review_skills(read_skill_manifest(tmp_path))
-    assert _codes(review) == (["link-escapes-skill"] if exists else ["link-missing"])
+    assert _codes(review) == ["link-escapes-skill"]
 
 
 @pytest.mark.parametrize("exists", [True, False])
@@ -117,7 +117,7 @@ def test_reference_definition_with_destination_on_the_next_line_is_checked(tmp_p
            body="See [notes][n].\n\n[n]:\n  ../../shared/notes.md\n")
 
     [review] = review_skills(read_skill_manifest(tmp_path))
-    assert _codes(review) == (["link-escapes-skill"] if exists else ["link-missing"])
+    assert _codes(review) == ["link-escapes-skill"]
 
 
 def test_a_tilde_line_inside_a_backtick_fence_does_not_close_it(tmp_path):
@@ -363,3 +363,124 @@ def test_an_escaped_backtick_does_not_open_a_code_span(tmp_path):
     [review] = review_skills(read_skill_manifest(tmp_path))
     assert _codes(review) == ["link-missing"]
     assert "'missing.md'" in review.findings[0].message
+
+
+def test_a_percent_encoded_link_names_the_decoded_file(tmp_path):
+    skill_dir = _skill(tmp_path / "skills", "pct", name="pct", description="Use for percent links.",
+                       body="[g](references/guide%20notes.md) [h](a%23b.md)\n")
+    (skill_dir / "references").mkdir()
+    (skill_dir / "references" / "guide notes.md").write_text("# Notes\n", encoding="utf-8")
+    (skill_dir / "a#b.md").write_text("# A\n", encoding="utf-8")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.findings == []
+
+
+def test_a_percent_encoded_link_to_a_missing_file_names_the_encoded_path(tmp_path):
+    _skill(tmp_path / "skills", "pct-missing", name="pct-missing", description="Use for percent links.",
+           body="[g](references/guide%20notes.md)\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == ["link-missing"]
+    assert "'references/guide%20notes.md'" in review.findings[0].message
+
+
+def test_an_escaped_bracket_opens_no_link(tmp_path):
+    _skill(tmp_path / "skills", "escaped-bracket", name="escaped-bracket", description="Use for escaped brackets.",
+           body="\\[guide](missing.md)\n[guide\\](also-missing.md)\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.findings == []
+
+
+@pytest.mark.parametrize("body", ["See [guide](missing.md 'title').\n", "See [guide](missing.md ).\n"])
+def test_a_link_with_a_single_quoted_title_or_a_space_before_the_paren_is_checked(tmp_path, body):
+    _skill(tmp_path / "skills", "titled", name="titled", description="Use for titles.", body=body)
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == ["link-missing"]
+    assert "'missing.md'" in review.findings[0].message
+
+
+def test_a_code_span_ending_in_a_backslash_closes_before_the_next_link(tmp_path):
+    _skill(tmp_path / "skills", "trailing-slash", name="trailing-slash", description="Use for backslashes.",
+           body="Example: `[example](missing.md)\\` and [real](gone.md)\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == ["link-missing"]
+    assert "'gone.md'" in review.findings[0].message
+
+
+@pytest.mark.parametrize("body", ["Example: ``[guide](missing.md)``\n", "Example: `[guide](missing.md)\nsee above`\n"])
+def test_a_multi_backtick_or_multiline_code_span_is_literal(tmp_path, body):
+    _skill(tmp_path / "skills", "span-literal", name="span-literal", description="Use for code spans.", body=body)
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.findings == []
+
+
+def test_a_fragment_inside_a_code_span_is_part_of_the_file_name(tmp_path):
+    (tmp_path / "skills" / "shared").mkdir(parents=True)
+    (tmp_path / "skills" / "shared" / "notes#draft.md").write_text("# Notes\n", encoding="utf-8")
+    _skill(tmp_path / "skills", "span-fragment", name="span-fragment", description="Use for span fragments.",
+           body="Read `../shared/notes#draft.md`.\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == ["path-escapes-skill"]
+
+
+def test_a_fence_closing_marker_indented_past_the_opening_one_does_not_close_it(tmp_path):
+    _skill(tmp_path / "skills", "deep-close", name="deep-close", description="Use for deep fences.",
+           body="- item\n  ```\n      ```\n  [example](missing.md)\n  ```\n\n[real](also-missing.md)\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == ["link-missing"]
+    assert "'also-missing.md'" in review.findings[0].message
+
+
+def test_a_host_path_link_is_an_escape_whether_or_not_the_host_file_exists(tmp_path):
+    # /etc/passwd exists on most hosts and the nonexistent name does not: both are classed by name alone.
+    _skill(tmp_path / "skills", "host-path", name="host-path", description="Use for host paths.",
+           body="See [a](../../../../../../../../etc/passwd) and [b](../../../../../../../../etc/nonexist).\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == ["link-escapes-skill", "link-escapes-skill"]
+
+
+@pytest.mark.parametrize("body", ["See [![CI](badge.svg)](missing.md).\n", "See [see [docs]](missing.md).\n"])
+def test_a_link_whose_text_holds_brackets_is_still_checked(tmp_path, body):
+    skill_dir = _skill(tmp_path / "skills", "nested-text", name="nested-text", description="Use for nested text.",
+                       body=body)
+    (skill_dir / "badge.svg").write_text("<svg/>", encoding="utf-8")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == ["link-missing"]
+    assert "'missing.md'" in review.findings[0].message
+
+
+def test_backtick_runs_of_unequal_length_do_not_make_a_code_span(tmp_path):
+    _skill(tmp_path / "skills", "tick-runs", name="tick-runs", description="Use for backtick runs.",
+           body="Text ``x [a](missing.md) `y\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == ["link-missing"]
+    assert "'missing.md'" in review.findings[0].message
+
+
+def test_a_literal_trailing_backslash_in_a_code_span_does_not_escape_its_closing_backtick(tmp_path):
+    _skill(tmp_path / "skills", "literal-slash", name="literal-slash", description="Use for backslashes.",
+           body="Example: `[example](missing.md)\\`\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.findings == []
+
+
+@pytest.mark.parametrize("body", ["Read `\n../shared/notes.md\n`.\n", "Read ``../shared/a`b.md``.\n"])
+def test_a_multiline_or_backtick_named_code_span_path_is_checked_as_a_path(tmp_path, body):
+    (tmp_path / "skills" / "shared").mkdir(parents=True)
+    (tmp_path / "skills" / "shared" / "notes.md").write_text("# Notes\n", encoding="utf-8")
+    (tmp_path / "skills" / "shared" / "a`b.md").write_text("# A\n", encoding="utf-8")
+    _skill(tmp_path / "skills", "reach-span", name="reach-span", description="Use for code span paths.", body=body)
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == ["path-escapes-skill"]

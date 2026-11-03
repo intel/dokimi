@@ -115,8 +115,8 @@ def test_different_skill_md_with_the_same_name_is_not_a_duplicate(tmp_path):
 
     reviews = review_skills(read_skill_manifest(tmp_path))
     assert all(r.duplicate_of is None for r in reviews)
-    # Not a duplicate, but a mirror that has drifted: both copies say so.
-    assert [[f.code for f in r.findings] for r in reviews] == [["mirror-drift"], ["mirror-drift"]]
+    # Another description is another skill (plugins repeat names): no mirror-drift, nothing to flag.
+    assert [[f.code for f in r.findings] for r in reviews] == [[], []]
 
 
 def test_disable_model_invocation_is_reported_as_a_flag_not_a_finding(tmp_path):
@@ -574,7 +574,8 @@ def test_link_out_of_the_skill_dir_to_a_missing_file_is_a_warning(tmp_path):
 
     [review] = review_skills(read_skill_manifest(tmp_path))
     assert review.state == "warn"
-    assert _codes(review) == ["link-missing"]
+    # Classed by its written name before any read: outside the skill, so it escapes whether or not it exists.
+    assert _codes(review) == ["link-escapes-skill"]
 
 
 def test_dotdot_code_span_to_an_existing_file_outside_the_skill_is_a_warning(tmp_path):
@@ -658,7 +659,8 @@ def _words(prefix: str, count: int) -> str:
 
 @pytest.mark.parametrize(
     ("shared", "own_a", "own_b", "warns"),
-    [(2, 1, 1, True), (24, 13, 12, False)],  # 2/4 = 0.5 exactly; 24/49 just below it
+    # 2 shared words is under the floor of 3, even at 2/4 = 0.5; 3/5 clears both; 24/49 is just below 0.5
+    [(2, 1, 1, False), (3, 1, 1, True), (24, 13, 12, False)],
 )
 def test_near_duplicate_threshold_is_half_the_words(tmp_path, shared, own_a, own_b, warns):
     common = _words("zq", shared)
@@ -904,7 +906,7 @@ def test_mirror_drift_names_the_checkout_of_the_other_copy(tmp_path):
     entries = []
     for checkout, text in (("a", "one"), ("b", "two")):
         root = tmp_path / checkout
-        _skill(root, "same", name="same", description=f"Use for {text}.")
+        _skill(root, "same", name="same", description="Use for same.", body=f"# {text}\n")
         entries.extend(read_skill_manifest(root))
 
     reviews = review_skills(entries)
