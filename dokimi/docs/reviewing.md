@@ -197,8 +197,12 @@ these, in order, before writing what it showed (the fields:
   that tree, not the cells'. Where a credit turns on it, read the cells'
   traces too. A nested `AGENTS.md` loads later if at all (reach's
   `cwd=<dir>`, `read=<dir>` show what loads it). `process:guidance_read`
-  counts Read-tool reads only: 0 from an agent that used Bash is not "never
-  read"; look for a `cat` or `grep` of a guidance file in `events.jsonl` or
+  counts a read tool's reads and a Claude Code Bash call, Codex command or
+  Copilot `bash` command that only prints files (§7's list: a bare `cat`,
+  `head`, `tail`, `nl` or `sed -n`), not a pipe, `grep` or `rg`, nor a
+  relative read after the shell moved; `process:unknown_reads` counts those
+  dropped relative reads, so `guidance_read: []` with `unknown_reads` above 0
+  is not "never read". For the rest, look in `events.jsonl` or
   `agent.stdout`, or add a `process_metrics` counter. Name what was delivered
   as what was tested ("the root `AGENTS.md`", not "the guidance").
 - **A leakage cut.** A task is out of sample for a guidance revision only when
