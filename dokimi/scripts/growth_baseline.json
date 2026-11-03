@@ -76,7 +76,6 @@
     "dokimi/repos/environment/risks.py::_runs_repository_code": {"complexity": 12, "rationale": "pre-existing when the gate was introduced"},
     "dokimi/repos/environment/risks.py::_segments": {"complexity": 29, "rationale": "pre-existing when the gate was introduced"},
     "dokimi/repos/environment/risks.py::detect_capabilities": {"complexity": 16, "rationale": "pre-existing when the gate was introduced"},
-    "dokimi/repos/events.py::_apply": {"complexity": 17, "rationale": "pre-existing when the gate was introduced"},
     "dokimi/repos/harness_profile.py::parse_profile": {"complexity": 11},
     "dokimi/repos/l0/adapters.py::_build_names": {"complexity": 15, "rationale": "grew on main in #115 (L0 rules for static_check parity) before the ratchet landed; split it in its own PR"},
     "dokimi/repos/l0/adapters.py::_make": {"complexity": 11},
