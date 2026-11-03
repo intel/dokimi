@@ -92,6 +92,14 @@ def test_the_root_is_found_from_a_subdirectory(tmp_path):
     assert load_repo_config(root / "skills" / "onetbb").root == root
 
 
+def test_the_root_is_found_through_a_git_file_as_in_a_worktree(tmp_path):
+    root = _tree(tmp_path / "wt", {**BESIDE})
+    (root / ".git").rmdir()
+    (root / ".git").write_text("gitdir: /elsewhere/.git/worktrees/wt\n", encoding="utf-8")
+    assert find_repo_root(root / "skills" / "onetbb" / "evals") == root
+    assert load_repo_config(root / "skills" / "onetbb").root == root
+
+
 # --- schema ------------------------------------------------------------------------------------
 
 
