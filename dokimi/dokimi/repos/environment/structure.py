@@ -17,8 +17,8 @@ subdirectories, the files right in it staying its own. Per module:
   that is of the same tree as the modules under it;
 * ``ambiguity``: the share of its function and method names that a different function of that name is
   defined in another module, dunder names and C++ operators aside; ``None`` when it has no function names;
-* ``in_guidance``: whether an instruction file names its path as a token, or its name between backticks; the
-  root ``.`` is in guidance when a root instruction file exists.
+* ``in_guidance``: whether an instruction file names its path as a token, or its name between backticks; a
+  module with an instruction file of its own (the root ``.`` with a root one) is in guidance too.
 
 These are hypotheses about where an agent may lose its way, not measured effects: the findings drawn
 from them are ``info`` with ``low`` confidence.
@@ -136,11 +136,12 @@ def _function_like(symbol: str) -> bool:
 
 
 def analyze(index: CodeIndex, tree_files: Iterable[str], guidance: str, limit: int | None = None,
-            *, root_guidance: bool = False) -> dict[str, Any]:
+            *, guided: frozenset[str] = frozenset()) -> dict[str, Any]:
     """The ``structure`` section for an index read with no root prefix, against the tree's file list.
 
     ``limit`` overrides :func:`module_limit` (the most files a module holds before it is split).
-    ``root_guidance`` says a root instruction file exists: it puts the root ``.`` in guidance.
+    ``guided`` are the directories with an instruction file of their own (``.`` for a root one): a module that
+    is one of them is in guidance, since no path names it.
     ``tree_files_not_in_index`` counts the non-test tree files under the prefix, of an extension the indexed
     files have, that the index lacks: an index cut short still reads."""
     tree_files = list(tree_files)
@@ -159,7 +160,7 @@ def analyze(index: CodeIndex, tree_files: Iterable[str], guidance: str, limit: i
     fanin, edges = _references(index, repo_path, module_of, defined_in)
     members: dict[str, int] = Counter(module_of.values())
     modules = [_row(mod, members[mod], names_of[mod], ambiguous_of[mod], fanin[mod], edges[mod], guidance,
-                    root_guidance=root_guidance)
+                    guided=guided)
                for mod in sorted(members)]
     modules.sort(key=lambda m: (-m["reference_fanin"], m["module"]))
     return {
@@ -227,13 +228,13 @@ def _references(index: CodeIndex, repo_path: dict[str, str], module_of: dict[str
 
 
 def _row(mod: str, files: int, names: set[str], ambiguous: set[str], fanin: set[str], edges: set[str],
-         guidance: str, *, root_guidance: bool = False) -> dict[str, Any]:
+         guidance: str, *, guided: frozenset[str] = frozenset()) -> dict[str, Any]:
     # exact: the finding compares it, rounding is for display; no names means no share, not a share of zero
     share = len(ambiguous) / len(names) if names else None
     return {
         "module": mod, "files": files, "reference_fanin": len(fanin),
         "other_tree_modules": sum(not same_tree(other, mod) for other in edges),
         "ambiguity": share, "names": len(names),
-        "in_guidance": mentioned(mod, guidance) or (mod == "." and root_guidance),
+        "in_guidance": mentioned(mod, guidance) or mod in guided,
         "kept": files >= MIN_FILES and len(fanin) >= MIN_FANIN,
     }

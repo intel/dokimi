@@ -254,8 +254,8 @@ def test_a_module_without_function_names_has_no_ambiguity_share(capsys):
 
 def test_the_root_is_in_guidance_when_a_root_instruction_file_exists():
     assert structure._row(".", 3, set(), set(), set(), set(), "")["in_guidance"] is False
-    assert structure._row(".", 3, set(), set(), set(), set(), "", root_guidance=True)["in_guidance"] is True
-    assert structure._row("src", 3, set(), set(), set(), set(), "", root_guidance=True)["in_guidance"] is False
+    assert structure._row(".", 3, set(), set(), set(), set(), "", guided=frozenset({"."}))["in_guidance"] is True
+    assert structure._row("src", 3, set(), set(), set(), set(), "", guided=frozenset({"."}))["in_guidance"] is False
 
 
 def test_a_large_directory_is_split_into_its_subdirectories():
@@ -334,6 +334,16 @@ def test_the_root_module_is_in_guidance_with_a_root_instruction_file(tmp_path, i
     _repo(tmp_path, {**{p: "x = 1\n" for p in ROOT_DOCS}, instruction: "Notes.\n"})
     by = {m["module"]: m for m in inspect_repo(WorkTree(tmp_path), index=_index(ROOT_DOCS))["structure"]["modules"]}
     assert by["."]["kept"] and by["."]["in_guidance"] is expected
+
+
+@pytest.mark.parametrize("instruction, expected", [("src/core/AGENTS.md", True), ("src/core/CLAUDE.md", True),
+                                                   ("src/core/GEMINI.md", True), ("src/core/CLAUDE.local.md", False)])
+def test_a_module_with_its_own_instruction_file_is_in_guidance(tmp_path, instruction, expected):
+    docs = {**DOCS, **{f"src/cli/f{i}.py": [] for i in range(30)}}
+    _repo(tmp_path, {**{p: "x = 1\n" for p in docs}, instruction: "Run its tests before any edit.\n"})
+    by = {m["module"]: m for m in inspect_repo(WorkTree(tmp_path), index=_index(docs))["structure"]["modules"]}
+    assert by["src/core"]["in_guidance"] is expected  # a local-private file is not shared guidance
+    assert not by["src/cli"]["in_guidance"] and not by["lib"]["in_guidance"]
 
 
 def _fixture_repo(root: Path) -> None:

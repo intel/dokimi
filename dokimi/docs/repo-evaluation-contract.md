@@ -1494,8 +1494,9 @@ callers. Per module:
 - `in_guidance`: whether an instruction file names the module's path as a token
   (no word, hyphen or extension continues it; a leading `./` may precede it),
   or its name between backticks.
-  The root `.` is in guidance when a root instruction file exists, since no
-  path names it.
+  A module with an instruction file of its own is in guidance too, since no
+  path names it: the root `.` with a root instruction file, `src/core` with a
+  path-specific `src/core/AGENTS.md`. A local-private file does not count.
 
 A module is `kept` with at least 3 files and a fan-in of 3. Of the ten kept
 modules with most fan-in, one with an ambiguity of 0.5 or more gets a

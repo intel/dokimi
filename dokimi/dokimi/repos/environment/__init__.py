@@ -23,7 +23,7 @@ from dokimi.repos.source import RepoTree, SourceError
 
 from .checks import KINDS, detect_checks, package_json_unreadable
 from .files import LARGE_BYTES, inventory, sizes
-from .instructions import LARGE_INSTRUCTION_BYTES, detect_instructions
+from .instructions import LARGE_INSTRUCTION_BYTES, Instruction, detect_instructions
 from .instructions import RULES as INSTRUCTION_RULES
 from . import structure as S
 from .risks import (
@@ -139,6 +139,12 @@ def _structure_findings(section: dict[str, Any] | None) -> list[dict[str, Any]]:
     return out
 
 
+def _guided(instructions: list[Instruction]) -> frozenset[str]:
+    """The directories with an instruction file of their own: ``.`` for a root one, a nested one's directory."""
+    nested = {i.directory for i in instructions if i.scope == "path-specific" and i.directory}
+    return frozenset(nested | ({"."} if any(i.scope == "root" for i in instructions) else set()))
+
+
 def _not_observed(scan: Scan, size_of: dict[str, int] | None, section: dict[str, Any] | None) -> list[str]:
     out = list(NOT_OBSERVED)
     if size_of is None:
@@ -235,7 +241,7 @@ def inspect_repo(tree: RepoTree, large: int = LARGE_BYTES, index: CodeIndex | No
         findings.append(_finding("files.minified", "minified bundle", path))
     section = None if index is None else S.analyze(
         index, scan.files, "\n".join(scan.text(p) for p in sorted({i.path for i in instructions})),
-        root_guidance=any(i.scope == "root" for i in instructions))
+        guided=_guided(instructions))
     findings.extend(_structure_findings(section))
     findings.sort(key=lambda f: (-SEVERITY_RANK[f["severity"]], f["rule"], f["path"] or "", f["id"]))
 
