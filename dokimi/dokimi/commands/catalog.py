@@ -131,6 +131,15 @@ def cmd_catalog_scan(args: argparse.Namespace) -> None:
         any_failure = _scan_skills(args, root, report, as_json)
     if args.kind in ("tasks", "all"):
         any_failure = _scan_tasks(args, root, report, as_json) or any_failure
+    if args.kind in ("skills", "all") and not report["skills"]:
+        # Nothing to scan is a wrong root or an empty checkout, so a skills scan fails on it. A
+        # --kind all scan of a tasks-only catalog is a warning, which --strict makes a failure.
+        if (root / "skills.yaml").is_file():
+            print(f"skills.yaml under {root} has no skill that can be scanned", file=sys.stderr)
+        else:
+            print(f"no SKILL.md found under {root}", file=sys.stderr)
+        if args.kind == "skills" or args.strict or not report["tasks"]:
+            any_failure = True
     if as_json:
         print(json.dumps(report, indent=2))
     if any_failure:
@@ -335,7 +344,8 @@ def register(sub, positive_int) -> None:
         "--strict",
         action="store_true",
         help="Exit 1 on a skill spec error (name not the directory name or not kebab-case, "
-        "description over 1024 characters) as well as on a skill that does not load",
+        "description over 1024 characters) as well as on a skill that does not load; with "
+        "--kind all, also on a tasks-only root with no SKILL.md",
     )
     scan_p.add_argument(
         "--format",

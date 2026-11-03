@@ -63,6 +63,8 @@ from .source import RepoTree, SourceError
 TOKEN_RE = re.compile(r"\bRC[0-9A-F]{6}\b")
 PROBE_FILE = "REACH_PROBE.txt"
 PROSE_LIMIT = 8
+# Haiku's lead-in had 10 words; a longer ':' line is an explanation or a refusal, so it counts.
+LEAD_IN_WORDS = 12
 CLASSES = ("loaded", "truncated", "fetched", "not_loaded", "error")
 KINDS = ("root", "cwd", "read", "shadow")
 DEFAULT_KINDS = ("root", "cwd", "read")  # shadow adds a file the tree lacks: only on request
@@ -330,11 +332,21 @@ def seed_text(text: str, path: str, head: str, tail: str) -> str:
     return bom + head_line + body + tail_line
 
 
+def _prose(text: str) -> list[str]:
+    words = re.findall(r"[A-Za-z]{2,}", TOKEN_RE.sub(" ", text))
+    return [w for w in words if w != "NONE"]
+
+
 def prose_words(answer: str) -> int:
-    """Words in the answer besides tokens and NONE. A long tail usually means the
-    model explained or refused instead of listing, so its not_loaded cells are suspect."""
-    words = re.findall(r"[A-Za-z]{2,}", TOKEN_RE.sub(" ", answer))
-    return len([w for w in words if w != "NONE"])
+    """Words in the answer besides tokens and NONE, not counting a first non-empty line
+    of at most LEAD_IN_WORDS words that ends in ':' when a later line holds a token (a
+    lead-in such as "Tokens found:"). A long tail usually means the model explained or
+    refused instead of listing, so its not_loaded cells are suspect."""
+    lines = [line for line in answer.splitlines() if line.strip()]
+    if (lines and lines[0].rstrip().endswith(":") and len(_prose(lines[0])) <= LEAD_IN_WORDS
+            and any(TOKEN_RE.search(line) for line in lines[1:])):
+        answer = "\n".join(lines[1:])
+    return len(_prose(answer))
 
 
 def classify(seeded: SeededFile, transcript: Transcript | None) -> dict[str, Any]:
