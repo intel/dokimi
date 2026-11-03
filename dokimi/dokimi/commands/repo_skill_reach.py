@@ -22,7 +22,6 @@ def cmd_repo_skill_reach(args: argparse.Namespace) -> None:
     from dokimi.repos.reach import ReachError
     from dokimi.repos.skill_reach import (
         SkillReachError,
-        check_profile,
         format_table,
         load_catalogue,
         run_skill_reach,
@@ -46,15 +45,11 @@ def cmd_repo_skill_reach(args: argparse.Namespace) -> None:
         if missing:
             raise SkillReachError(f"--only {', '.join(missing)} matches no case")
         selected = [c for c in cases if not only or c.id in only]
+        _refuse_what_a_run_would_refuse(args, profile, selected)
     except (ProfileError, SkillReachError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
     if args.dry_run:
-        try:  # the same profile check as a run, so a dry run cannot print an argv a run would refuse
-            check_profile(profile)
-        except SkillReachError as exc:
-            print(f"✗ {exc}", file=sys.stderr)
-            sys.exit(1)
         argv = profile.argv(prompt="<ask>", model=args.model, tools="skills", max_turns=args.max_turns,
                             budget_usd=budget, bin_path=args.bin)
         print(json.dumps({"cases": [c.id for c in selected], "scenarios": [s for s, _ in scenario_ids(selected)],
@@ -78,6 +73,24 @@ def cmd_repo_skill_reach(args: argparse.Namespace) -> None:
     print(f"wrote {path}")
     if any(s["error"] for s in payload["scenarios"]):
         sys.exit(1)
+
+
+def _refuse_what_a_run_would_refuse(args: argparse.Namespace, profile, selected: list) -> None:
+    """The profile, each case's location and (for a run) --out and --work-dir, before a dry run or the banner."""
+    from dokimi.repos.skill_reach import SkillReachError, check_profile, resolve_at, skill_dirs
+
+    check_profile(profile)
+    for case in selected:
+        resolve_at(case, skill_dirs(profile))
+    if args.dry_run:
+        return
+    existing = Path(args.out) / "traces"
+    while not existing.exists() and existing != existing.parent:
+        existing = existing.parent
+    if not existing.is_dir():
+        raise SkillReachError(f"--out {args.out}: {existing} is not a directory")
+    if args.work_dir and not Path(args.work_dir).is_dir():
+        raise SkillReachError(f"--work-dir {args.work_dir} is not a directory")
 
 
 def add_skill_reach_parser(repo_sub, positive_int) -> None:

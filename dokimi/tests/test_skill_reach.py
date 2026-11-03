@@ -296,7 +296,7 @@ def test_cli_dry_run_refuses_what_a_run_would_refuse(tmp_path, capsys, changes, 
     profile = _edit_profile(tmp_path, "refused.yaml", **changes)
     with pytest.raises(SystemExit) as exc:
         _cli("--harness", str(profile), "--dry-run")
-    assert exc.value.code == 1 and message in capsys.readouterr().err
+    assert exc.value.code == EXIT_USAGE and message in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("budget", ["0", "-1", "nan"])
@@ -336,14 +336,15 @@ def test_cli_run_reports_a_missing_work_dir_and_a_blocked_out_dir(tmp_path, caps
     with pytest.raises(SystemExit) as exc:
         _cli("--harness", str(profile), "--only", "project-client", "--out", str(tmp_path / "out"),
              "--work-dir", str(tmp_path / "no-such-parent" / "work"))
-    assert exc.value.code == 1 and "✗" in capsys.readouterr().err
+    assert exc.value.code == EXIT_USAGE and "is not a directory" in capsys.readouterr().err
     blocked = tmp_path / "blocked"  # a file where the output directory should be
     blocked.write_text("not a directory", encoding="utf-8")
     work = tmp_path / "work"
     work.mkdir()
     with pytest.raises(SystemExit) as exc:
         _cli("--harness", str(profile), "--only", "project-client", "--out", str(blocked), "--work-dir", str(work))
-    assert exc.value.code == 1 and "✗" in capsys.readouterr().err
+    assert exc.value.code == EXIT_USAGE and "is not a directory" in capsys.readouterr().err
+    assert not (tmp_path / "out").exists()
 
 
 def test_cli_refuses_a_budget_for_a_harness_with_no_spend_cap(capsys):
@@ -367,8 +368,17 @@ def test_cli_run_refuses_a_profile_without_a_skills_block(tmp_path, capsys):
     profile = _edit_profile(tmp_path, "noskills.yaml", skills=None)
     with pytest.raises(SystemExit) as exc:
         _cli("--harness", str(profile), "--out", str(tmp_path / "out"))
-    assert exc.value.code == 1
-    assert "declares no `skills` block" in capsys.readouterr().err
+    assert exc.value.code == EXIT_USAGE
+    err = capsys.readouterr().err
+    assert "declares no `skills` block" in err and "cases," not in err
+
+
+def test_cli_dry_run_refuses_a_profile_skill_dir_that_escapes(tmp_path, capsys):
+    profile = _edit_profile(tmp_path, "escape.yaml", skills={"project_dirs": [".fake/skills"],
+                                                             "user_dirs": ["config:../x"]})
+    with pytest.raises(SystemExit) as exc:
+        _cli("--harness", str(profile), "--only", "user-client", "--dry-run")
+    assert exc.value.code == EXIT_USAGE and "must be project:|home:|config:" in capsys.readouterr().err
 
 
 CATALOGUE_HEAD = "schema: skill_fixtures.v1\ncases:\n"
