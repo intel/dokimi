@@ -67,6 +67,8 @@ for base in (root / ".fake/skills", Path(os.environ["FAKE_CONFIG_DIR"]) / "skill
         if name and tok:
             seen[name.group(1)] = tok.group(0)
 answer = "\n".join(f"{n} {t}" for n, t in seen.items()) or "NONE"
+if mode == "prose":  # two words and a token: the token's letters are not prose
+    answer = "project-client SKBCFC2F"
 events = [{"type": "system", "subtype": "init", "claude_code_version": "1.2.3"}]
 if mode == "look":  # read a file before answering: what it reports then is fetched, not listed
     events.append({"type": "assistant", "message": {"content": [
@@ -77,6 +79,10 @@ if mode == "skill":  # invoke the Skill tool before answering: a skill's body is
 if mode == "grep":  # search the skill files before answering: what it reports then is fetched, not listed
     events.append({"type": "assistant", "message": {"content": [
         {"type": "tool_use", "id": "t3", "name": "Grep", "input": {"pattern": "SK", "path": str(root)}}]}})
+if mode == "edit":  # edit a file before answering: an edit is a tool call too, so what it reports is fetched
+    events.append({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "id": "t4", "name": "Edit", "input": {"file_path": str(root / "x"), "old_string": "a",
+                                                                    "new_string": "b"}}]}})
 events += [
           {"type": "result", "subtype": "success", "is_error": False, "result": answer,
            "total_cost_usd": 0.001, "num_turns": 1, "usage": {}, "permission_denials": []}]
@@ -197,6 +203,20 @@ def test_a_search_tool_before_answering_is_fetched(tmp_path, monkeypatch):
     assert payload["scenarios"][0]["looked"] is True
 
 
+def test_an_edit_tool_before_answering_is_fetched(tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_MODE", "edit")
+    payload = _run(tmp_path, only=("project-client", "project-agents"))
+    by = {r["case"]: r["class"] for r in payload["records"]}
+    assert by == {"project-client": "fetched", "project-agents": "not_listed"}
+    assert payload["scenarios"][0]["looked"] is True
+
+
+def test_a_token_in_the_answer_is_not_counted_as_prose(tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_MODE", "prose")
+    payload = _run(tmp_path, only=("project-client",))
+    assert payload["scenarios"][0]["prose"] == 2  # "project", "client"; SKBCFC2F is a token, not words
+
+
 def _git(cwd: Path, *args: str) -> str:
     return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@invalid", *args], cwd=cwd, check=True,
                           capture_output=True, text=True).stdout.strip()
@@ -264,6 +284,19 @@ def test_cli_dry_run_and_unknown_case(tmp_path, capsys):
 def _cli(*argv: str) -> None:
     args = build_parser().parse_args(["repo", "skill-reach", "--model", "m", *argv])
     args.func(args)
+
+
+@pytest.mark.parametrize("changes, message", [
+    pytest.param({"native_prompt": True, "invoke": ["{bin}", "--model", "{model}", "{tools}"]}, "native_prompt",
+                 id="native-prompt"),
+    pytest.param({"skills": None}, "declares no `skills` block", id="no-skills-block"),
+    pytest.param({"tools": {"none": ["--tools", ""], "read": ["--tools", "Read"]}}, "tool mode", id="no-skills-tool"),
+])
+def test_cli_dry_run_refuses_what_a_run_would_refuse(tmp_path, capsys, changes, message):
+    profile = _edit_profile(tmp_path, "refused.yaml", **changes)
+    with pytest.raises(SystemExit) as exc:
+        _cli("--harness", str(profile), "--dry-run")
+    assert exc.value.code == 1 and message in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("budget", ["0", "-1", "nan"])
@@ -353,6 +386,10 @@ BAD_CATALOGUES = [
                  id="duplicate-id"),
     pytest.param(_catalogue("{at: 'project:x'}"), "needs `id` and `at`", id="no-id"),
     pytest.param(_catalogue("{id: a, at: 'project:x', colour: red}"), "unknown field", id="unknown-field"),
+    pytest.param(_catalogue("{id: a, at: 'project:x', 123: red, colour: blue}"), "unknown field(s) 123, colour",
+                 id="unknown-field-not-a-string"),
+    pytest.param(_catalogue('{id: a, at: "project:x", dirname: "d\\0e"}'), "inside the fixture", id="dirname-nul"),
+    pytest.param(_catalogue('{id: a, at: "project:x", cwd: "d\\0e"}'), "inside the fixture", id="cwd-nul"),
     pytest.param(_catalogue("{id: a, at: 'project:x', description: fancy}"), "description must be one of",
                  id="bad-description"),
     pytest.param(_catalogue("{id: a, at: 'project:x', eol: cr}"), "eol is lf|crlf", id="bad-eol"),
@@ -435,8 +472,8 @@ def test_resolve_at_uses_the_profile_dirs_and_refuses_a_bad_location():
         resolve_at(case("cloud:skills"), dirs)
 
 
-@pytest.mark.parametrize("at", ["project:C:/existing", "project:C:escape"])
-def test_a_drive_qualified_location_is_refused(at):
+@pytest.mark.parametrize("at", ["project:C:/existing", "project:C:escape", "project:x\x00y"])
+def test_a_drive_qualified_or_nul_location_is_refused(at):
     with pytest.raises(SkillReachError, match="must be"):
         resolve_at(Case(id="c", at=at, name="c", dirname="c"), {})
 

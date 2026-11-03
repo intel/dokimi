@@ -22,6 +22,7 @@ def cmd_repo_skill_reach(args: argparse.Namespace) -> None:
     from dokimi.repos.reach import ReachError
     from dokimi.repos.skill_reach import (
         SkillReachError,
+        check_profile,
         format_table,
         load_catalogue,
         run_skill_reach,
@@ -49,8 +50,13 @@ def cmd_repo_skill_reach(args: argparse.Namespace) -> None:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
     if args.dry_run:
+        try:  # the same profile check as a run, so a dry run cannot print an argv a run would refuse
+            check_profile(profile)
+        except SkillReachError as exc:
+            print(f"✗ {exc}", file=sys.stderr)
+            sys.exit(1)
         argv = profile.argv(prompt="<ask>", model=args.model, tools="skills", max_turns=args.max_turns,
-                            budget_usd=budget, bin_path=args.bin) if "skills" in profile.tools else None
+                            budget_usd=budget, bin_path=args.bin)
         print(json.dumps({"cases": [c.id for c in selected], "scenarios": [s for s, _ in scenario_ids(selected)],
                           "argv": argv, "declared": profile.skills}, indent=2))
         return

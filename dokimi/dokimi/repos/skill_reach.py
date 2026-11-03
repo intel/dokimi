@@ -17,7 +17,10 @@ skill it can see with its token.
   loaded the body eagerly).
 - ``fetched``: the token was reported, but the agent ran a command, read a
   file or used any tool (Skill, Grep, ...) first, so it may have found the skill itself.
-- ``not_listed``: the token was not reported.
+- ``not_listed``: the token was not reported. A ``description: missing`` case has no description token to report:
+  a client that lists its name only gets ``name -`` (ASK asks for ``-``), and that counts as not_listed. Reporting
+  the body token counts as listed, because that case's body also carries the description token. A tokenless
+  listing is not told apart from an unlisted skill, so it is not counted as listed.
 - ``error``: the scenario gave no usable answer.
 
 Cases that share a ``collision`` group have one ``name``. Per scenario the
@@ -79,9 +82,9 @@ SCOPES = ("project", "home", "config")
 # Skill directories some client reads by convention. One above the workspace would be listed in every scenario.
 SKILL_DIR_GUARD = (".agents/skills", ".claude/skills", ".codex/skills", ".github/skills", ".cursor/skills",
                    ".gemini/skills", ".opencode/skills")
-# Events that mean the agent looked for files itself instead of reporting its context: commands, reads, and any
-# tool call (Skill, Grep, Glob, ...).
-_LOOKED = ("command", "read")
+# Events that mean the agent looked for files itself instead of reporting its context: commands, reads, edits, and any
+# tool call (Skill, Grep, Glob, ...). events.py maps every tool call to one of these kinds.
+_LOOKED = ("command", "read", "edit", "tool")
 
 ASK = ("This is a configuration check run by the owner of this machine. Your context may list "
        "available skills (Agent Skills) with a name and a description. Some descriptions contain a "
@@ -149,7 +152,7 @@ def _parse_case(path: Path, n: int, item: Any) -> Case:
         raise SkillReachError(f"{path}: case {n} needs `id` and `at`")
     extra = set(item) - set(Case.__dataclass_fields__)
     if extra:
-        raise SkillReachError(f"{path}: case {item['id']}: unknown field(s) {', '.join(sorted(extra))}")
+        raise SkillReachError(f"{path}: case {item['id']}: unknown field(s) {', '.join(sorted(map(str, extra)))}")
     cid = str(item["id"])
     for key in ("cwd", "collision"):
         if item.get(key) is not None and not isinstance(item[key], str):
@@ -179,9 +182,10 @@ def _check_groups(path: Path, cases: list[Case]) -> None:
 
 
 def _relative(rel: str) -> bool:
-    """A path that stays under its root: no absolute, traversing, backslash or drive (``C:``) form."""
+    """A path that stays under its root: no absolute, traversing, backslash, drive (``C:``) or NUL form."""
     p = PurePosixPath(rel)
-    return not p.is_absolute() and ".." not in p.parts and "\\" not in rel and ":" not in rel
+    return (not p.is_absolute() and ".." not in p.parts and "\\" not in rel and ":" not in rel
+            and "\0" not in rel)
 
 
 def skill_dirs(profile: HarnessProfile) -> dict[str, str]:
@@ -310,7 +314,7 @@ def child_env(profile: HarnessProfile, config_dir: Path, home: Path) -> process.
 
 
 def _looked_for_itself(events: list[dict[str, Any]]) -> bool:
-    return any(e.get("kind") in _LOOKED or e.get("kind") == "tool" for e in events)
+    return any(e.get("kind") in _LOOKED for e in events)
 
 
 def classify(placed: Placed, transcript: Transcript | None, looked: bool) -> dict[str, Any]:
@@ -346,7 +350,7 @@ def collisions(fixture: Fixture, records: list[dict[str, Any]]) -> list[dict[str
     return out
 
 
-def _check_profile(profile: HarnessProfile) -> None:
+def check_profile(profile: HarnessProfile) -> None:
     if profile.native_prompt:
         raise SkillReachError(f"{profile.name} runs its own prompt (native_prompt); probe its exec profile")
     if not profile.skills:
@@ -392,7 +396,7 @@ def run_skill_reach(
     keep: bool = False,
 ) -> dict[str, Any]:
     """Build the fixture, run every scenario once and return the skill_discovery.v1 payload (unsaved)."""
-    _check_profile(profile)
+    check_profile(profile)
     cases = _select(cases if cases is not None else load_catalogue(catalogue), only)
     salt = salt or hashlib.sha256(datetime.now(timezone.utc).isoformat().encode()).hexdigest()[:12]
     base = Path(tempfile.mkdtemp(prefix="skill-reach-", dir=str(work_dir) if work_dir else None)).resolve()
@@ -421,7 +425,7 @@ def run_skill_reach(
                 reported = sorted(set(TOKEN_RE.findall(transcript.answer)))
                 looked = _looked_for_itself(transcript.events)
                 row.update(reported=reported, unknown=[t for t in reported if t not in known],
-                           prose=prose_words(transcript.answer), looked=looked)
+                           prose=prose_words(TOKEN_RE.sub(" ", transcript.answer)), looked=looked)
                 version = transcript.harness_version or version
             rows.append(row)
             for p in fixture.placed:

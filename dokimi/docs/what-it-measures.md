@@ -61,7 +61,10 @@ manifest it owns:
 - `dokimi repo skill-reach` (L1): which Agent Skills does a given harness list,
   from a fixture catalogue of `SKILL.md` placements (project and user dirs,
   `.agents/skills`, nesting, symlinks, description formats, same-name
-  collisions)? Writes `skill_discovery.v1`.
+  collisions)? Writes `skill_discovery.v1`. A `description: missing` skill has
+  no description token, so a client that lists only its name (the agent
+  answers `name -`) is counted `not_listed`; the probe does not count a
+  tokenless listing as listed. Reporting the body token counts as listed.
 - `dokimi repo inspect` (static, no LLM): which instruction files, checks,
   capability surfaces and risky hooks or scripts the repository offers an
   agent, with findings per stage.
