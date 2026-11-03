@@ -100,14 +100,15 @@ comparison of the rule's arm against its baseline over the rule's linked cases
 (`repo compare` itself, so the pairing, headroom and provenance warnings are
 the same). The p values of the rule results are Holm-corrected together. A result whose
 linked cases mix gate and score tasks has no single test, so it takes no slot in
-that family and is `insufficient-evidence`. The rules' family is separate from the
+that family and is `insufficient-evidence`. So is a result with a grader failure or an agent outage on a
+linked case in either arm: its 0 is not a measurement. The rules' family is separate from the
 family of the comparison's own rows.
 
 | Verdict | When | Meaning |
 |---|---|---|
 | `keep` | Mean delta above zero and Holm p below alpha | The arm beats its baseline on the linked cases. |
 | `review` | Mean delta below zero and Holm p below alpha | The baseline beats the arm there. A person decides whether to fix or cut the rule. |
-| `insufficient-evidence` | Anything else | Not measured, mixed kinds, every case tied, no significant difference, or too few changed cases for any outcome to reach alpha. The reason says which. |
+| `insufficient-evidence` | Anything else | Not measured, a linked case with a grader failure or an agent outage in either arm, mixed kinds, every case tied, no significant difference, or too few changed cases for any outcome to reach alpha. The reason says which. |
 
 A review older than `review_within_days` adds a warning and leaves the verdict
 alone. "No significant difference" is not a verdict to cut: the rule is not

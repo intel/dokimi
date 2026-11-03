@@ -133,7 +133,7 @@ def _head(rule: Rule, baseline: str, linked: int, missing: list[str]) -> dict[st
             "arm": rule.arm, "baseline": baseline, "linked": linked, "missing": missing, "model": None,
             "measure": None, "paired": 0, "error": None, "mixed": False, "changed": 0, "headroom": None,
             "baseline_mean": None, "treatment_mean": None, "delta": {"mean": None, "lo": None, "hi": None},
-            "up": 0, "down": 0, "tied": 0, "p": None, "p_holm": None, "warnings": []}
+            "up": 0, "down": 0, "tied": 0, "p": None, "p_holm": None, "unmeasured": 0, "warnings": []}
 
 
 def _rule_entries(rule: Rule, batch_dirs: list[Path], default_baseline: str, models: list[str] | None,
@@ -210,15 +210,15 @@ def _entry(head: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
            "baseline_mean": row["baseline_mean"], "treatment_mean": row["treatment_mean"],
            "delta": {"mean": d["mean"], "lo": d["lo"], "hi": d["hi"]}, "up": row["up"], "down": row["down"],
            "tied": row["tied"], "p": row["p"], "headroom": row["headroom"], "mixed": False,
-           "changed": row["up"] + row["down"], "warnings": []}
+           "changed": row["up"] + row["down"], "unmeasured": row["unmeasured"], "warnings": []}
     if row["headroom"]:
         out["warnings"].append(f"{row['measure']} headroom: {row['headroom']} (the cases cannot show an effect)")
     return out
 
 
 def _in_family(entry: dict[str, Any]) -> bool:
-    """A result has a p and is not mixed: a gate-and-score rule has no single test, so it takes no slot."""
-    return entry["p"] is not None and not entry["mixed"]
+    """A result has a p, is not mixed (a gate-and-score rule has no single test) and every pair was measured."""
+    return entry["p"] is not None and not entry["mixed"] and not entry["unmeasured"]
 
 
 def _holm(entries: list[dict[str, Any]]) -> None:
@@ -232,6 +232,9 @@ def _verdict(entry: dict[str, Any], alpha: float) -> tuple[str, str]:
     """The verdict of one result and why. Cutting a rule is left to a person."""
     if entry["error"] or not entry["paired"]:
         return INSUFFICIENT, f"not measured: {entry['error'] or 'no linked case has cells in both arms'}"
+    if entry["unmeasured"]:
+        return INSUFFICIENT, (f"{entry['unmeasured']} linked case(s) had a grader failure or an agent outage, "
+                              "a 0 that is not a measurement: re-run them (not in the Holm family)")
     if entry["mixed"]:
         return INSUFFICIENT, ("the linked cases mix gate and score tasks: link one kind of task per rule "
                               "(not in the Holm family)")

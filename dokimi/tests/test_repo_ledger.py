@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from dokimi.cli import build_parser
+from dokimi.repos.compare import compare
 from dokimi.repos.ledger import KEEP, REVIEW, INSUFFICIENT, LedgerError, evaluate, format_ledger, load_ledger
 
 TODAY = date(2026, 10, 31)
@@ -509,3 +510,43 @@ def test_compare_with_ledger_and_model_judges_only_that_model(tmp_path, capsys):
     ledger = json.loads(capsys.readouterr().out)["ledger"]
     assert {e["model"] for e in ledger["rules"]} == {"m-1"}
     assert ledger["family"] == 1  # the Holm family counts the one model that was asked for
+
+
+def _unmeasured(batch: Path, task: str, arm: str, how: str) -> None:
+    path = batch / f"{task}__{arm.replace(':', '-')}__m-1__r1" / "result.json"
+    rec = json.loads(path.read_text(encoding="utf-8"))
+    if how == "outage":  # the agent never ran
+        rec["agent"].update(is_error=True, num_turns=0, cost_usd=0)
+    else:
+        rec["grade"]["status"] = "grader_failure"
+    path.write_text(json.dumps(rec), encoding="utf-8")
+
+
+@pytest.mark.parametrize(("side", "how", "kind"), [("arm", "outage", "gate"), ("baseline", "outage", "gate"),
+                                                   ("arm", "grader_failure", "score")])
+def test_a_linked_case_that_was_not_measured_is_insufficient_evidence(tmp_path, side, how, kind):
+    # Without the check the arm side reads as review and the baseline side as keep, from 0s nobody measured.
+    tasks, other = _ids("t", 8), _ids("gb", 6)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in other})
+    for task in tasks:
+        if kind == "gate":
+            _cell(batch, task, BASE, success=side == "arm")
+            _cell(batch, task, ARM, success=side != "arm")
+        else:
+            _cell(batch, task, BASE, score=0.6)
+            _cell(batch, task, ARM, score=0.6)
+        _unmeasured(batch, task, ARM if side == "arm" else BASE, how)
+    rules = [_rule("R1", tasks), _rule("B", other)]
+    result = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", rules)), [batch], BASE, today=TODAY)
+    entries = {e["rule"]: e for e in result["rules"]}
+    assert entries["R1"]["verdict"] == INSUFFICIENT
+    assert entries["R1"]["unmeasured"] == 8 and "agent outage" in entries["R1"]["reason"]
+    assert result["family"] == 1  # the unmeasured result takes no Holm slot
+    assert entries["B"]["p_holm"] == pytest.approx(2 / 2**6, abs=1e-9)
+
+
+def test_the_plain_comparison_rows_do_not_gain_the_unmeasured_count(tmp_path):
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in _ids("t", 3)})
+    _unmeasured(batch, "t_0", ARM, "outage")
+    rows = compare([batch], BASE)["comparisons"]
+    assert rows and all("unmeasured" not in r for r in rows)

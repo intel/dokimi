@@ -428,14 +428,15 @@ def _compare_measure(treatment: str, model: str, measure: str, shared: list[str]
     pairs = _measure_pairs(treatment, model, shared, base_vals, treat_vals, measure, unpaired)
     if not pairs:
         return None
-    flag = None
+    flag, extra = None, dict[str, int]()
     if measure in PRIMARY:
         tops = [(base_vals[(model, p["task"])]["top"], treat_vals[(model, p["task"])]["top"]) for p in pairs]
         failed = [base_vals[(model, p["task"])]["grader_failed"]
                   or treat_vals[(model, p["task"])]["grader_failed"] for p in pairs]
         flag = headroom(pairs, tops, failed)
+        extra = {"unmeasured": sum(failed)} if exact else {}  # the ledger reads it; plain rows are unchanged
     return {"treatment": treatment, "model": model, "measure": measure,
-            **paired_summary(pairs, measure, seed=seed, exact=exact), "headroom": flag}
+            **paired_summary(pairs, measure, seed=seed, exact=exact), "headroom": flag, **extra}
 
 
 def headroom(pairs: list[dict[str, Any]], tops: list[tuple[float | None, float | None]],
