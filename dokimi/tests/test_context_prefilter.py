@@ -144,6 +144,12 @@ def test_claims_are_rule_lines_and_skip_headings_and_code():
     assert not any(t == "Guide" for t in texts)
 
 
+def test_a_table_header_row_with_three_columns_is_not_a_claim():
+    guide = "| Tool | Notes | Owner |\n| --- | :-: | --- |\n| `pytest tests/test_x.py` | Run one file | QA |\n"
+    texts = [c.text for c in claims_from_guidance(guide)]
+    assert texts and not any("Tool" in t for t in texts)
+
+
 def test_backticked_names_split_into_commands_and_paths():
     claims = {c.text: c for c in claims_from_guidance(GUIDE)}
     ci = next(c for t, c in claims.items() if CI in t)
