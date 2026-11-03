@@ -53,6 +53,8 @@ def _owners(path: str, rows: list[dict]) -> tuple[list[str], str]:
     for row in rows:
         prefixes = [row["path"]] + [task["path"] for task in row["tasks"]]
         prefixes += [f"{DEFAULT_TASKS_SUBDIR}/{task}" for task in row["planned_tasks"]]
+        # A task this skill's findings name (one suites.json still assigns to it) is its input too.
+        prefixes += [item["path"] for item in row["checks"]["findings"] if item["path"].startswith(DEFAULT_TASKS_SUBDIR + "/")]
         if any(prefix and (prefix == "." or path == prefix or path.startswith(prefix + "/")) for prefix in prefixes):
             owners.append(row["name"])
     return owners, f"owned input changed: {path}"

@@ -674,3 +674,13 @@ def test_task_directory_named_like_a_vendored_directory_is_discovered(tmp_path):
     task(tmp_path, name="venv", owner="ghost")
     report = evaluate(tmp_path)
     assert "task-owner" in codes(report)
+
+
+def test_moving_a_suite_declared_task_also_selects_the_suite_owner(tmp_path):
+    skill(tmp_path)
+    skill(tmp_path, "beta")
+    suites(tmp_path, [{"skill": "alpha", "tasks": [{"name": "t1"}]}])
+    task(tmp_path, "t1", owner="beta")
+    report = evaluate(tmp_path, [f"{TASKS}/t1/task.toml"])
+    assert row(report)["checks"]["status"] == "fail"
+    assert report["selection"]["selected"] == ["alpha", "beta"]
