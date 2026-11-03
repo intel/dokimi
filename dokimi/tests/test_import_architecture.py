@@ -63,7 +63,8 @@ LAYERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     # ingest, static metrics, gates.
     ("components", (
         "dokimi.agent_profiles", "dokimi.gate", "dokimi.ingest", "dokimi.mcp",
-        "dokimi.metrics", "dokimi.repo_config", "dokimi.repo_glob", "dokimi.repo_links", "dokimi.skills",
+        "dokimi.metrics", "dokimi.repo_claims", "dokimi.repo_config", "dokimi.repo_glob", "dokimi.repo_links",
+        "dokimi.skills",
     )),
     # What everything shares: defaults, registries, artifact and record I/O, the LLM and
     # process chokepoints, console output.

@@ -15,7 +15,6 @@ repository. A changed file maps to a suite, to a skill, to the ``shared`` list, 
 
 from __future__ import annotations
 
-import fnmatch
 import glob
 import hashlib
 import os
@@ -29,6 +28,7 @@ from typing import Any, Iterable, Mapping
 import yaml
 
 from dokimi.artifacts import ArtifactValidationError, validate_artifact
+from dokimi.repo_claims import _ancestor_of, _claims, _suite_only_dirs, _suite_prefixes
 from dokimi.repo_glob import glob_links as _glob_links, glob_paths as _glob_paths
 from dokimi.repo_links import _declared_links, _hops, _inside, _real, _under, _walk, _within
 from dokimi.utils import _tracked_modes, link_text, tree_digest
@@ -247,20 +247,6 @@ def _own_path(config: RepoConfig) -> list[str]:
     return list(dict.fromkeys(found))
 
 
-def _claims(pattern: str, segs: tuple[str, ...]) -> bool:
-    """True when the glob matches ``segs`` or one of its parent directories (a directory glob claims what is under it)."""
-    pat = tuple(pattern.split("/"))
-    return any(_match(pat, segs[:k]) for k in range(1, len(segs) + 1))
-
-
-def _match(pat: tuple[str, ...], segs: tuple[str, ...]) -> bool:
-    if not pat:
-        return not segs
-    if pat[0] == "**":
-        return any(_match(pat[1:], segs[i:]) for i in range(len(segs) + 1))
-    return bool(segs) and fnmatch.fnmatchcase(segs[0], pat[0]) and _match(pat[1:], segs[1:])
-
-
 @dataclass(frozen=True)
 class Reach:
     """Where a subject's hashes read, by repository-relative segments.
@@ -387,23 +373,6 @@ def _suite_entry(entry: Path, root: Path, root_real: Path, real_skill: tuple[str
 def _in_suite(subject: Subject, segs: tuple[str, ...], reach: Reach, gone: bool = False) -> bool:
     return (any(_claims(g, segs) or (gone and _ancestor_of(g, segs)) for g in reach.globs)
             or any(_under(segs, r) for r in reach.suites) or segs in reach.links)
-
-
-def _ancestor_of(pattern: str, segs: tuple[str, ...]) -> bool:
-    """True when ``segs`` is a strict ancestor of a path the glob ``pattern`` matches. Only asked of a changed path that
-    is gone from disk: a link on the way to a suite that was deleted still changes what the suite reads, and no link
-    is left to find, so the change claims the suite. (A ``**`` leading the pattern can match under any path.)"""
-    return _ancestor(tuple(pattern.split("/")), segs)
-
-
-def _ancestor(pat: tuple[str, ...], segs: tuple[str, ...]) -> bool:
-    if not segs:
-        return bool(pat)
-    if not pat:
-        return False
-    if pat[0] == "**":
-        return True  # a ** below here may match anything under the path
-    return fnmatch.fnmatchcase(segs[0], pat[0]) and _ancestor(pat[1:], segs[1:])
 
 
 def _map_one(rel: str, subjects: list[Subject], reach: dict[str, Reach], shared: list[str], impact: Impact,
@@ -802,44 +771,6 @@ def _hashed(subject: Subject, root: Path, all_subjects: list[Subject], modes: Ma
     ]
     # A skill directory that is a symlink is its target's content (a suite match is hashed by its link instead).
     base = (root / subject.path).resolve()
-    emptied = _suite_only_dirs(base, inside, _suite_prefixes(subject))
+    emptied = _suite_only_dirs(base, inside, _suite_prefixes(subject.suite_globs, subject.path))
     skill_sha = "sha256:" + tree_digest(base, exclude=[*inside, *nested, *emptied], strict=True)
     return replace(subject, skill_sha=skill_sha, suite_hash=_digest_files(files, root, modes))
-
-
-def _suite_prefixes(subject: Subject) -> list[str]:
-    """The literal directories each suite glob starts with, inside the skill: where its matches sit, whether or not any is
-    left, so a suite directory that is emptied counts as the suite's."""
-    found: list[str] = []
-    for pattern in subject.suite_globs:
-        literal: list[str] = []
-        for seg in pattern.split("/"):
-            if any(c in seg for c in "*?["):
-                break
-            literal.append(seg)
-        place = "/".join(literal)
-        if _within(place, subject.path) and place != subject.path:
-            found.append(place[len(subject.path) + 1:])
-    return found
-
-
-def _suite_only_dirs(skill: Path, claimed: list[str], prefixes: list[str]) -> list[str]:
-    """The directories under ``skill`` that hold nothing but suite content: an ancestor of a claimed path or of a suite
-    glob's literal prefix, whose every entry is claimed or is such a directory itself. tree_digest hashes a directory by
-    its name, so the first matched task (which creates evals/) or the last one removed (which leaves it empty) would move
-    skill_sha though no skill file changed. A directory with any other entry stays in skill_sha."""
-    names = {"/".join(parts[:k]) for rel in [*claimed, *prefixes] for parts in [rel.split("/")]
-             for k in range(1, len(parts))}
-    names.update(prefixes)
-    covered = list(claimed)
-    found: list[str] = []
-    for rel in sorted(names, key=lambda r: (-r.count("/"), r)):  # deepest first: a directory's entries are decided before it
-        here = skill / rel
-        if here.is_symlink() or not here.is_dir():
-            continue
-        with os.scandir(here) as it:  # an unreadable directory raises here, as the digest's strict walk would
-            children = [f"{rel}/{entry.name}" for entry in it]
-        if all(any(_within(child, c) for c in covered) for child in children):
-            found.append(rel)
-            covered.append(rel)
-    return found
