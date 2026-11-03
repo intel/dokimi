@@ -11980,7 +11980,7 @@
               "action": "_StoreAction",
               "choices": null,
               "const": null,
-              "default": 0.1,
+              "default": null,
               "group_key": null,
               "group_required": null,
               "hidden": false,

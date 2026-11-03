@@ -16,7 +16,7 @@ skill it can see with its token.
   ``body`` on the record says the body token was reported too (the client
   loaded the body eagerly).
 - ``fetched``: the token was reported, but the agent ran a command, read a
-  file or invoked a skill first, so it may have found the skill itself.
+  file or used any tool (Skill, Grep, ...) first, so it may have found the skill itself.
 - ``not_listed``: the token was not reported.
 - ``error``: the scenario gave no usable answer.
 
@@ -50,6 +50,7 @@ Catalogue fields (``skill_fixtures.v1``, one case per SKILL.md):
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -78,7 +79,8 @@ SCOPES = ("project", "home", "config")
 # Skill directories some client reads by convention. One above the workspace would be listed in every scenario.
 SKILL_DIR_GUARD = (".agents/skills", ".claude/skills", ".codex/skills", ".github/skills", ".cursor/skills",
                    ".gemini/skills", ".opencode/skills")
-# Events that mean the agent looked for files itself instead of reporting its context: commands, reads, skills.
+# Events that mean the agent looked for files itself instead of reporting its context: commands, reads, and any
+# tool call (Skill, Grep, Glob, ...).
 _LOOKED = ("command", "read")
 
 ASK = ("This is a configuration check run by the owner of this machine. Your context may list "
@@ -128,7 +130,7 @@ def load_catalogue(path: Path | None = None) -> list[Case]:
     path = path or CATALOGUE
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError) as exc:
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
         raise SkillReachError(f"{path}: cannot read the catalogue: {exc}") from exc
     if not isinstance(raw, dict) or raw.get("schema") != "skill_fixtures.v1" or not isinstance(raw.get("cases"), list):
         raise SkillReachError(f"{path}: not a skill_fixtures.v1 catalogue (needs `schema` and a `cases` list)")
@@ -149,6 +151,9 @@ def _parse_case(path: Path, n: int, item: Any) -> Case:
     if extra:
         raise SkillReachError(f"{path}: case {item['id']}: unknown field(s) {', '.join(sorted(extra))}")
     cid = str(item["id"])
+    for key in ("cwd", "collision"):
+        if item.get(key) is not None and not isinstance(item[key], str):
+            raise SkillReachError(f"{path}: case {cid}: {key} must be a string")
     name = str(item.get("name") or cid)
     case = Case(id=cid, at=str(item["at"]), name=name, dirname=str(item.get("dirname") or name),
                 description=str(item.get("description") or "single"), eol=str(item.get("eol") or "lf"),
@@ -213,6 +218,16 @@ def token(salt: str, case_id: str, position: str) -> str:
     return ("SK" if position == "description" else "SB") + digest[:6].upper()
 
 
+def _yaml_str(value: str) -> str:
+    """``value`` as a YAML scalar that loads back as the same string: plain when it can be, else quoted
+    (``null``, ``true`` and ``123`` would otherwise load as another type)."""
+    try:
+        loaded = yaml.safe_load(f"v: {value}\n")
+    except yaml.YAMLError:
+        loaded = None
+    return value if isinstance(loaded, dict) and loaded.get("v") == value else json.dumps(value)
+
+
 def skill_text(case: Case, tok: str, body_tok: str) -> str:
     """The SKILL.md of one case; the description token sits in ``description`` in the case's format."""
     first, second = f"Fixture skill {tok}.", "Use for nothing; it exists to test skill discovery."
@@ -225,15 +240,17 @@ def skill_text(case: Case, tok: str, body_tok: str) -> str:
         "missing": "",
     }[case.description]
     body = f"Body token {body_tok}.\n" + (f"Description token {tok}.\n" if case.description == "missing" else "")
-    text = f"---\nname: {case.name}\n{desc}---\n\n# {case.name}\n\n{body}"
+    text = f"---\nname: {_yaml_str(case.name)}\n{desc}---\n\n# {case.name}\n\n{body}"
     return text.replace("\n", "\r\n") if case.eol == "crlf" else text
 
 
 def build_fixture(cases: list[Case], profile: HarnessProfile, roots: dict[str, Path], outside: Path,
                   salt: str) -> Fixture:
-    """Write every case under its scope root; a case the profile cannot place is skipped with a reason."""
+    """Write every case under its scope root; a case the profile cannot place, or whose directory an earlier case
+    already holds, is skipped with a reason (a second write would replace the first copy)."""
     dirs = skill_dirs(profile)
     fixture = Fixture()
+    taken: dict[Path, str] = {}
     for n, case in enumerate(cases):
         where = resolve_at(case, dirs)
         if where is None:
@@ -241,9 +258,14 @@ def build_fixture(cases: list[Case], profile: HarnessProfile, roots: dict[str, P
             continue
         scope, parent = where
         rel = str(PurePosixPath(parent) / case.dirname)
+        dest = roots[scope] / rel
+        if dest in taken or dest.exists() or dest.is_symlink():
+            owner = taken.get(dest, "a file already there")
+            fixture.skipped.append({"case": case.id, "reason": f"{scope}:{rel} is taken by {owner}"})
+            continue
+        taken[dest] = case.id
         tok, body_tok = token(salt, case.id, "description"), token(salt, case.id, "body")
         text = skill_text(case, tok, body_tok)
-        dest = roots[scope] / rel
         link_kind = None
         if case.link == "symlink":
             target = outside / f"case-{n}" / case.dirname  # the index, not the id: an id is not a path
@@ -288,7 +310,7 @@ def child_env(profile: HarnessProfile, config_dir: Path, home: Path) -> process.
 
 
 def _looked_for_itself(events: list[dict[str, Any]]) -> bool:
-    return any(e.get("kind") in _LOOKED or (e.get("kind") == "tool" and e.get("name") == "Skill") for e in events)
+    return any(e.get("kind") in _LOOKED or e.get("kind") == "tool" for e in events)
 
 
 def classify(placed: Placed, transcript: Transcript | None, looked: bool) -> dict[str, Any]:
@@ -445,7 +467,10 @@ def _git_init(workspace: Path) -> None:
     git = shutil.which("git") or "git"  # looked up on the caller's PATH, not the allow-listed one
     for args in (["init", "-q"], ["add", "-A"], ["-c", "commit.gpgsign=false", "commit", "-q", "-m", "fixture",
                                                   "--allow-empty"]):
-        proc = process.run([git, *args], cwd=workspace, env=env, timeout=60)
+        try:
+            proc = process.run([git, *args], cwd=workspace, env=env, timeout=60)
+        except OSError as exc:  # no git executable
+            raise SkillReachError(f"git {' '.join(args)} could not start: {exc}") from exc
         if proc.returncode != 0:
             raise SkillReachError(f"git {' '.join(args)} failed: {proc.stderr.strip()[:200]}")
 
@@ -507,7 +532,7 @@ def format_table(payload: dict[str, Any]) -> str:
         if s["error"]:
             lines.append(f"error in {s['id']}: {s['error']}")
         if s.get("looked"):
-            lines.append(f"warning: {s['id']}: the agent ran a command, read a file or invoked a skill; "
+            lines.append(f"warning: {s['id']}: the agent ran a command, read a file or used a tool; "
                          "its L cells are F")
         if s["unknown"]:
             lines.append(f"unknown tokens in {s['id']}: {', '.join(s['unknown'])}")

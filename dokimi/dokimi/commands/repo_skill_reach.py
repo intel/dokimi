@@ -13,6 +13,8 @@ from pathlib import Path
 
 from dokimi.exit_codes import EXIT_USAGE
 
+DEFAULT_BUDGET = 0.10  # USD per scenario, for a harness whose invoke passes {budget}
+
 
 def cmd_repo_skill_reach(args: argparse.Namespace) -> None:
     """Skill-discovery probe: which skills one harness/version/model lists, from a fixture catalogue."""
@@ -28,9 +30,15 @@ def cmd_repo_skill_reach(args: argparse.Namespace) -> None:
     )
 
     try:  # the arguments as typed: a usage error
-        if not math.isfinite(args.budget) or args.budget <= 0:
+        if args.budget is not None and (not math.isfinite(args.budget) or args.budget <= 0):
             raise SkillReachError(f"--budget must be > 0, got {args.budget:g}")
         profile = load_profile(args.harness)
+        # Only a profile whose invoke passes {budget} can cap the spend; the others are bounded by the timeout.
+        capped = any("{budget}" in element for element in profile.invoke)
+        if args.budget is not None and not capped:
+            raise SkillReachError(f"--budget: {profile.name} has no spend-cap flag, so the cap would not be "
+                                  "enforced; drop --budget (the timeout bounds each run)")
+        budget = args.budget if args.budget is not None else DEFAULT_BUDGET
         cases = load_catalogue(Path(args.catalogue) if args.catalogue else None)
         only = tuple(args.only or ())
         missing = sorted(set(only) - {c.id for c in cases})
@@ -42,24 +50,24 @@ def cmd_repo_skill_reach(args: argparse.Namespace) -> None:
         sys.exit(EXIT_USAGE)
     if args.dry_run:
         argv = profile.argv(prompt="<ask>", model=args.model, tools="skills", max_turns=args.max_turns,
-                            budget_usd=args.budget, bin_path=args.bin) if "skills" in profile.tools else None
+                            budget_usd=budget, bin_path=args.bin) if "skills" in profile.tools else None
         print(json.dumps({"cases": [c.id for c in selected], "scenarios": [s for s, _ in scenario_ids(selected)],
                           "argv": argv, "declared": profile.skills}, indent=2))
         return
-    print(f"{len(selected)} cases, {len(scenario_ids(selected))} scenarios, at most ${args.budget:g} each",
-          file=sys.stderr)
+    spend = f"at most ${budget:g} each" if capped else "no spend cap (the timeout bounds each run)"
+    print(f"{len(selected)} cases, {len(scenario_ids(selected))} scenarios, {spend}", file=sys.stderr)
     out_dir = Path(args.out)
-    try:
+    try:  # the run and the artifact: a missing work dir or an unwritable --out is a diagnostic, not a traceback
         payload = run_skill_reach(
             profile=profile, model=args.model, out_dir=out_dir, cases=selected,
             catalogue=Path(args.catalogue) if args.catalogue else None, bin_path=args.bin,
             work_dir=Path(args.work_dir) if args.work_dir else None, salt=args.salt,
-            max_turns=args.max_turns, budget_usd=args.budget, timeout_s=args.timeout, keep=args.keep,
+            max_turns=args.max_turns, budget_usd=budget, timeout_s=args.timeout, keep=args.keep,
         )
-    except (ProfileError, SkillReachError, ReachError) as exc:
+        path = save_skill_reach(payload, out_dir)
+    except (ProfileError, SkillReachError, ReachError, OSError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
-    path = save_skill_reach(payload, out_dir)
     print(format_table(payload))
     print(f"wrote {path}")
     if any(s["error"] for s in payload["scenarios"]):
@@ -88,7 +96,9 @@ def add_skill_reach_parser(repo_sub, positive_int) -> None:
                          "hold guidance or a skills dir.")
     skill_p.add_argument("--salt", default=None, help="Token salt (default: random per run)")
     skill_p.add_argument("--max-turns", type=positive_int, default=4, dest="max_turns")
-    skill_p.add_argument("--budget", type=float, default=0.10, help="Per-scenario USD cap (default: 0.10)")
+    skill_p.add_argument("--budget", type=float, default=None,
+                         help="Per-scenario USD cap (default: 0.10). Refused for a harness with no spend-cap flag "
+                         "(codex, copilot): the timeout is their only bound")
     skill_p.add_argument("--timeout", type=positive_int, default=300, help="Per-scenario seconds")
     skill_p.add_argument("--keep", action="store_true", help="Keep the temporary fixture")
     skill_p.add_argument("--dry-run", action="store_true", dest="dry_run",

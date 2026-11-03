@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -36,6 +37,7 @@ from dokimi.repos.skill_reach import (
     run_skill_reach,
     save_skill_reach,
     scenario_ids,
+    skill_text,
 )
 from dokimi.repos.skill_reach import check_skill_ancestors as real_check_skill_ancestors
 
@@ -72,6 +74,9 @@ if mode == "look":  # read a file before answering: what it reports then is fetc
 if mode == "skill":  # invoke the Skill tool before answering: a skill's body is fetched on request, not listed
     events.append({"type": "assistant", "message": {"content": [
         {"type": "tool_use", "id": "t2", "name": "Skill", "input": {"skill": "project-client"}}]}})
+if mode == "grep":  # search the skill files before answering: what it reports then is fetched, not listed
+    events.append({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "id": "t3", "name": "Grep", "input": {"pattern": "SK", "path": str(root)}}]}})
 events += [
           {"type": "result", "subtype": "success", "is_error": False, "result": answer,
            "total_cost_usd": 0.001, "num_turns": 1, "usage": {}, "permission_denials": []}]
@@ -88,7 +93,8 @@ def _profile(tmp_path: Path, **override) -> Path:
         "name": "fake",
         "bin": sys.executable,
         "version_cmd": ["{bin}", str(script), "--version"],
-        "invoke": ["{bin}", str(script), "-p", "{prompt}", "--model", "{model}", "{tools}"],
+        "invoke": ["{bin}", str(script), "-p", "{prompt}", "--model", "{model}", "--max-budget-usd", "{budget}",
+                   "{tools}"],
         "tools": {"none": ["--tools", ""], "read": ["--tools", "Read"],
                   "skills": ["--tools", "Skill"]},
         "config_dir_env": "FAKE_CONFIG_DIR",
@@ -183,6 +189,14 @@ def test_a_skill_invocation_before_answering_is_fetched(tmp_path, monkeypatch):
     assert payload["scenarios"][0]["looked"] is True
 
 
+def test_a_search_tool_before_answering_is_fetched(tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_MODE", "grep")
+    payload = _run(tmp_path, only=("project-client", "project-agents"))
+    by = {r["case"]: r["class"] for r in payload["records"]}
+    assert by == {"project-client": "fetched", "project-agents": "not_listed"}
+    assert payload["scenarios"][0]["looked"] is True
+
+
 def _git(cwd: Path, *args: str) -> str:
     return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@invalid", *args], cwd=cwd, check=True,
                           capture_output=True, text=True).stdout.strip()
@@ -219,6 +233,12 @@ def test_git_init_ignores_the_callers_global_config(tmp_path, monkeypatch):
     workspace.mkdir()
     _git_init(workspace)
     assert not marker.exists()
+
+
+def test_a_missing_git_executable_is_a_skill_reach_error(tmp_path, monkeypatch):
+    monkeypatch.setattr(shutil, "which", lambda name: "/nonexistent/git")
+    with pytest.raises(SkillReachError, match="could not start"):
+        _git_init(tmp_path)
 
 
 def test_profile_without_skills_block_is_refused(tmp_path):
@@ -278,6 +298,38 @@ def test_cli_run_exits_1_when_a_scenario_errors(tmp_path, capsys, monkeypatch):
     assert "error in cwd=.: exit 2 (no answer): boom" in out and "wrote " in out
 
 
+def test_cli_run_reports_a_missing_work_dir_and_a_blocked_out_dir(tmp_path, capsys):
+    profile = _profile(tmp_path)
+    with pytest.raises(SystemExit) as exc:
+        _cli("--harness", str(profile), "--only", "project-client", "--out", str(tmp_path / "out"),
+             "--work-dir", str(tmp_path / "no-such-parent" / "work"))
+    assert exc.value.code == 1 and "✗" in capsys.readouterr().err
+    blocked = tmp_path / "blocked"  # a file where the output directory should be
+    blocked.write_text("not a directory", encoding="utf-8")
+    work = tmp_path / "work"
+    work.mkdir()
+    with pytest.raises(SystemExit) as exc:
+        _cli("--harness", str(profile), "--only", "project-client", "--out", str(blocked), "--work-dir", str(work))
+    assert exc.value.code == 1 and "✗" in capsys.readouterr().err
+
+
+def test_cli_refuses_a_budget_for_a_harness_with_no_spend_cap(capsys):
+    with pytest.raises(SystemExit) as exc:
+        _cli("--harness", "codex", "--budget", "0.01", "--dry-run")
+    assert exc.value.code == EXIT_USAGE
+    assert "has no spend-cap flag" in capsys.readouterr().err
+
+
+def test_cli_run_without_a_budget_says_a_spend_cap_is_not_enforced(tmp_path, capsys):
+    profile = _edit_profile(tmp_path, "nobudget.yaml", invoke=[
+        "{bin}", str(tmp_path / "fake_harness.py"), "-p", "{prompt}", "--model", "{model}", "{tools}"])
+    work = tmp_path / "work"
+    work.mkdir()
+    _cli("--harness", str(profile), "--only", "project-client", "--out", str(tmp_path / "out"),
+         "--work-dir", str(work))
+    assert "no spend cap (the timeout bounds each run)" in capsys.readouterr().err
+
+
 def test_cli_run_refuses_a_profile_without_a_skills_block(tmp_path, capsys):
     profile = _edit_profile(tmp_path, "noskills.yaml", skills=None)
     with pytest.raises(SystemExit) as exc:
@@ -314,6 +366,9 @@ BAD_CATALOGUES = [
     pytest.param(_catalogue("{id: a, at: 'project:x', name: one, collision: g}",
                             "{id: b, at: 'project:x', name: two, collision: g}"),
                  "mixes names", id="collision-mixes-names"),
+    pytest.param(_catalogue("{id: a, at: 'project:x', cwd: 1}"), "cwd must be a string", id="cwd-not-a-string"),
+    pytest.param(_catalogue("{id: a, at: 'project:x', collision: [g]}"), "collision must be a string",
+                 id="collision-not-a-string"),
 ]
 
 
@@ -328,6 +383,13 @@ def test_a_bad_catalogue_is_refused(tmp_path, text, message):
 def test_a_missing_catalogue_is_refused(tmp_path):
     with pytest.raises(SkillReachError, match="cannot read the catalogue"):
         load_catalogue(tmp_path / "missing.yaml")
+
+
+def test_a_catalogue_that_is_not_utf8_is_refused(tmp_path):
+    path = tmp_path / "cat.yaml"
+    path.write_bytes(b"schema: skill_fixtures.v1\ncases:\n  - {id: a, at: 'project:x', name: \xff}\n")
+    with pytest.raises(SkillReachError, match="cannot read the catalogue"):
+        load_catalogue(path)
 
 
 def _placed(cid: str, collision: str | None = None) -> Placed:
@@ -394,6 +456,10 @@ def test_a_symlink_case_id_cannot_write_outside_the_fixture(tmp_path, case_id):
 
 
 def test_build_fixture_links_a_symlink_case_and_skips_an_undeclared_dir(tmp_path):
+    try:  # Windows without symlink privilege: the fallback is test_build_fixture_reports_a_symlink_the_os_refuses
+        os.symlink(tmp_path, tmp_path / "probe-link", target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"cannot create a symlink here: {exc}")
     profile = load_profile(str(_edit_profile(tmp_path, "project-only.yaml",
                                              skills={"project_dirs": [".fake/skills"]})))
     cases = [c for c in load_catalogue() if c.id in ("symlink-client", "user-client")]
@@ -420,6 +486,38 @@ def test_build_fixture_reports_a_symlink_the_os_refuses(tmp_path, monkeypatch):
     fixture = build_fixture(cases, profile, roots, tmp_path / "outside", "s")
     assert fixture.placed == []
     assert fixture.skipped[0]["reason"].startswith("this OS refused a symlink")
+
+
+def _roots(tmp_path: Path) -> dict[str, Path]:
+    roots = {scope: tmp_path / scope for scope in ("project", "home", "config")}
+    for root in roots.values():
+        root.mkdir()
+    return roots
+
+
+def test_a_second_case_for_the_same_directory_is_skipped_not_written(tmp_path):
+    profile = load_profile(str(_profile(tmp_path)))
+    cases = [Case(id="first", at="project:x", name="first", dirname="same"),
+             Case(id="second", at="project:x", name="second", dirname="same")]
+    roots = _roots(tmp_path)
+    fixture = build_fixture(cases, profile, roots, tmp_path / "outside", "s")
+    assert [p.case.id for p in fixture.placed] == ["first"]
+    assert fixture.skipped == [{"case": "second", "reason": "project:x/same is taken by first"}]
+    assert "name: first" in (roots["project"] / "x/same/SKILL.md").read_text(encoding="utf-8")
+
+
+def test_the_bundled_agents_dir_collision_places_one_copy(tmp_path):
+    profile = load_profile(str(_edit_profile(tmp_path, "agents.yaml", skills={"project_dirs": [".agents/skills"]})))
+    cases = [c for c in load_catalogue() if c.id in ("dup-project-agents", "dup-project-client2")]
+    fixture = build_fixture(cases, profile, _roots(tmp_path), tmp_path / "outside", "s")
+    assert [p.case.id for p in fixture.placed] == ["dup-project-agents"]
+    assert [s["case"] for s in fixture.skipped] == ["dup-project-client2"]
+
+
+@pytest.mark.parametrize("name", ["null", "true", "123", "a: b", "project-client"])
+def test_the_skill_name_loads_back_as_the_same_string(name):
+    text = skill_text(Case(id="c", at="project:x", name=name, dirname="c"), "SK000001", "SB000001")
+    assert yaml.safe_load(text.split("---")[1])["name"] == name
 
 
 def test_a_skill_dir_above_the_workspace_is_refused(tmp_path):
@@ -523,7 +621,7 @@ def test_the_table_flags_skipped_and_looked_scenarios(tmp_path, monkeypatch):
                               cases=cases, work_dir=work, salt="s", timeout_s=60)
     text = format_table(payload)
     assert "skipped user-client: fake declares no skill dir for {client_user}" in text
-    assert "warning: cwd=.: the agent ran a command, read a file or invoked a skill" in text
+    assert "warning: cwd=.: the agent ran a command, read a file or used a tool" in text
 
 
 def test_the_table_names_a_scenario_that_errored(tmp_path, monkeypatch):
