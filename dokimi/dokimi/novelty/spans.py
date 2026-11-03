@@ -254,7 +254,7 @@ def index_atoms(spans: list[Span], atoms: list) -> None:
                 target.atom_ids.append(atom.id)
 
 
-def span_summary(spans: list[Span], atoms: list | None = None, *, capped: bool = False) -> dict:
+def span_summary(spans: list[Span], atoms: list | None = None) -> dict:
     """Aggregate span statistics for the ``novelty.v1`` ``spans{}`` block.
 
     ``tokens_carrying_nothing`` counts tokens in spans from which the extractor drew no
@@ -272,8 +272,9 @@ def span_summary(spans: list[Span], atoms: list | None = None, *, capped: bool =
     ``n_atoms_indexed`` and ``capped_atom_set`` ship next to the fraction, and a reader
     who sees ``capped_atom_set: true`` must not read the fraction as a property of the
     artifact. A sampling cap that is honest for one metric silently corrupts another. A
-    capped run probes a sample but indexes every extracted atom, so it writes ``false`` too;
-    ``true`` is on artifacts written before https://github.com/intel/dokimi/issues/371.
+    capped run probes a sample but indexes every extracted atom, so this always writes
+    ``false``; ``true`` is only on artifacts written before
+    https://github.com/intel/dokimi/issues/371, and the gate still reads it there.
 
     Extractor recall is the other limit, and it is now measured rather than assumed
     (skill-novelty-evidence.md §10.7): three extractors over the same artifacts cited the same
@@ -284,8 +285,6 @@ def span_summary(spans: list[Span], atoms: list | None = None, *, capped: bool =
         spans: Segmented artifact spans.
         atoms: Atoms to index onto the spans. Pass the full extracted set, a capped run's
             included (what :func:`~dokimi.novelty.atoms.extract_atoms` returns).
-        capped: Whether ``atoms`` is a sample of the extracted set, so it is flagged rather
-            than silently averaged. No caller in the package passes one.
     """
     if atoms is not None:
         index_atoms(spans, atoms)
@@ -308,7 +307,7 @@ def span_summary(spans: list[Span], atoms: list | None = None, *, capped: bool =
         "n_unread": len(unknown),
         "tokens_unread": unknown_tokens,
         "n_atoms_indexed": len(atoms) if atoms is not None else None,
-        "capped_atom_set": capped,
+        "capped_atom_set": False,
         "sole_carrier": len(sole),
         "protected": sum(1 for s in spans if s.protected),
         "by_kind": {
