@@ -34,6 +34,8 @@ RUN_STATUSES = ("ran", "errors", "failed", "skipped")
 AGREEMENTS = ("agrees", "disagrees", "inconclusive", "no_claim", "alias")
 DEFAULT_TIMEOUT_S = 300
 DEFAULT_BUDGET_USD = 0.10
+# The guidance names data/reach-conformance/guidance.yaml globs, so every harness probes them in each fixture.
+MANIFEST_NAMES = ("AGENTS.md", "AGENTS.override.md", "CLAUDE.md", "CLAUDE.local.md")
 
 
 class ConformanceError(RuntimeError):
@@ -116,8 +118,17 @@ def check_expectations(expect: Mapping[str, Any], fixtures: Path) -> list[str]:
     return problems
 
 
+def scenarios_of(root: Path) -> set[str]:
+    """The scenario ids reach runs over one fixture: ``cwd=.``, and ``cwd=<dir>`` and ``read=<dir>`` for each
+    directory below the root that holds a guidance file the conformance manifest globs."""
+    dirs = {p.relative_to(root).parent.as_posix() for p in root.rglob("*") if p.name in MANIFEST_NAMES}
+    dirs.discard(".")
+    return {"cwd=."} | {f"cwd={d}" for d in dirs} | {f"read={d}" for d in dirs}
+
+
 def _case_problems(case: str, block: Mapping[str, Any], root: Path) -> list[str]:
     out = []
+    produced = scenarios_of(root)
     for harness, body in block.items():
         if harness == "summary":
             continue
@@ -127,8 +138,7 @@ def _case_problems(case: str, block: Mapping[str, Any], root: Path) -> list[str]
             if not (root / path).is_file() and not (root / path).is_symlink():
                 out.append(f"{case}: {harness} names {path}, which the fixture does not hold")
             for scenario in states:
-                kind, _, where = scenario.partition("=")
-                if kind not in ("cwd", "read") or not where or not (root / where).is_dir():
+                if scenario not in produced:
                     out.append(f"{case}: {harness} names scenario {scenario}, which the fixture does not have")
     return out
 
@@ -240,12 +250,20 @@ def run_case(harness: Harness, model: str, fixture: Path, guidance: Path, out: P
     return record, cells_of(receipt, case, expect)
 
 
+def check_out_dir(out: Path, fixtures: Path) -> None:
+    """Refuse an output directory that is, holds or sits in the fixtures: a run clears ``<out>/<case>`` first."""
+    a, b = out.resolve(), fixtures.resolve()
+    if a == b or a.is_relative_to(b) or b.is_relative_to(a):
+        raise ConformanceError(f"{out} and the fixtures {fixtures} overlap: a run would clear a fixture's directory")
+
+
 def run_harness(harness: Harness, model: str, fixtures: Path, expect: Mapping[str, Any], out_dir: Path, *,
                 timeout: int = DEFAULT_TIMEOUT_S, budget: float = DEFAULT_BUDGET_USD,
                 env: Mapping[str, str], which: Callable[[str, str], str | None] = _which_on) -> dict[str, Any]:
     """One harness over every fixture, as a matrix. A harness that cannot run here gets a skipped run per fixture.
 
     ``env`` decides availability and is the whole environment each run gets (nothing else is inherited)."""
+    check_out_dir(out_dir, fixtures)
     reason = unavailable(harness, model, env, which)
     guidance = fixtures / "guidance.yaml"
     runs: list[dict[str, Any]] = []

@@ -13,6 +13,7 @@ import tomllib
 from pathlib import Path
 
 import pytest
+import yaml
 
 from dokimi import process
 from dokimi.artifacts import load_artifact, save_artifact, schema_errors
@@ -351,6 +352,23 @@ def test_check_expectations_names_a_harness_key_that_no_harness_has(tmp_path):
     assert "toy: claud is not a harness" in cf.check_expectations(expect, fixtures)
 
 
+def test_check_expectations_names_only_the_scenarios_reach_runs(tmp_path):
+    fixtures = tmp_path / "fixtures"
+    _tree(fixtures / "toy", {"AGENTS.md": "a\n", "sub/AGENTS.md": "b\n", "packages/app.py": "x\n"})
+    expect = {"schema": "reach_conformance.v1", "cases": {"toy": {"summary": "s", "codex": {"why": "w", "files": {
+        "AGENTS.md": {"cwd=.": "loaded", "cwd=sub": "loaded", "read=sub": "loaded", "read=.": "loaded"},
+        "sub/AGENTS.md": {"cwd=packages": "loaded"}}}}}}
+    problems = "\n".join(cf.check_expectations(expect, fixtures))
+    assert "toy: codex names scenario read=., which" in problems  # the root is never a read= directory
+    assert "toy: codex names scenario cwd=packages, which" in problems  # packages holds no guidance file
+    assert "cwd=sub" not in problems and "read=sub" not in problems
+
+
+def test_manifest_names_are_the_guidance_globs_of_the_conformance_manifest():
+    manifest = yaml.safe_load((FIXTURES / "guidance.yaml").read_text(encoding="utf-8"))
+    assert sorted(glob.removeprefix("**/") for glob in manifest["guidance"]["globs"]) == sorted(cf.MANIFEST_NAMES)
+
+
 def test_load_expectations_rejects_another_schema(tmp_path):
     path = tmp_path / "expectations.yaml"
     path.write_text("schema: other.v1\ncases: {}\n", encoding="utf-8")
@@ -448,6 +466,37 @@ def test_run_case_does_not_read_a_receipt_an_earlier_run_left(tmp_path, monkeypa
     assert record["status"] == "failed" and cells == []
 
 
+@pytest.mark.parametrize("layout", ["same", "parent", "inside", "through-link"])
+def test_run_harness_refuses_an_out_directory_that_holds_the_fixtures(tmp_path, monkeypatch, layout):
+    suite = tmp_path / "suite"
+    fixtures = suite / "codex-runs"  # the out directory of a run is out/<harness>-runs: this is out_dir = fixtures
+    _tree(fixtures / "toy", {"AGENTS.md": "a\n"})
+    (fixtures / "guidance.yaml").write_text("guidance: {}\n", encoding="utf-8")
+    out = {"same": fixtures, "parent": suite, "inside": fixtures / "toy", "through-link": tmp_path / "link"}[layout]
+    if layout == "through-link":
+        out.symlink_to(suite, target_is_directory=True)
+
+    def no_run(*args, **kwargs):
+        raise AssertionError("a run must not start")
+
+    monkeypatch.setattr(cf, "run_case", no_run)
+    with pytest.raises(cf.ConformanceError, match="overlap"):
+        cf.run_harness(CODEX, "m", fixtures, _expect(), out, env={"CODEX_API_KEY": "k", "PATH": "/usr/bin"},
+                       which=_found)
+    assert (fixtures / "toy" / "AGENTS.md").read_text(encoding="utf-8") == "a\n"
+    assert (fixtures / "guidance.yaml").is_file()
+
+
+def test_cli_run_refuses_an_out_directory_that_holds_the_fixtures(monkeypatch, capsys):
+    def no_call(*args, **kwargs):
+        raise AssertionError("run_harness must not be called")
+
+    monkeypatch.setattr(cli.cf, "run_harness", no_call)
+    assert cli.main(["run", "--harness", "codex=m", "--out", str(FIXTURES.parent)]) == 1  # out holds the fixtures
+    assert "overlap" in capsys.readouterr().err
+    assert not (FIXTURES.parent / "codex-runs").exists()
+
+
 def test_cli_run_refuses_a_harness_given_twice_before_any_call(tmp_path, monkeypatch, capsys):
     def no_call(*args, **kwargs):
         raise AssertionError("run_harness must not be called")
@@ -523,7 +572,8 @@ def test_the_codex_suite_profile_loads_through_the_package_resources():
 
 
 def test_run_harness_gives_each_run_exactly_the_environment_it_is_given(tmp_path, monkeypatch):
-    fixture, _receipt = _toy_fixture(tmp_path)
+    fixtures = tmp_path / "fixtures"
+    _toy_fixture(fixtures)
     seen: list[dict[str, str]] = []
 
     def fake_run(argv, *, timeout, env, **_):
@@ -532,7 +582,7 @@ def test_run_harness_gives_each_run_exactly_the_environment_it_is_given(tmp_path
 
     monkeypatch.setattr(cf.process, "run", fake_run)
     given = {"CODEX_API_KEY": "k", "PATH": "/usr/bin"}
-    matrix = cf.run_harness(CODEX, "gpt", tmp_path, _expect(), tmp_path / "runs", env=given, which=_found)
+    matrix = cf.run_harness(CODEX, "gpt", fixtures, _expect(), tmp_path / "runs", env=given, which=_found)
     assert seen == [given]
     assert [r["status"] for r in matrix["runs"]] == ["failed"]
 

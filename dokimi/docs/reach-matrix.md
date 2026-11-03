@@ -23,8 +23,9 @@ documented one. A harness that cannot run here gets a `skipped` run and no cells
 The matrix has two kinds of record:
 
 - `runs`: one per harness and fixture, with a status. `ran` means every scenario answered; `errors` means a
-  receipt came back with a scenario that gave no usable answer; `failed` means no receipt (a timeout, or a
-  crash before the receipt was written); `skipped` means the harness could not run here, with the reason.
+  receipt came back with a scenario that gave no usable answer; `failed` means no usable receipt (a timeout, a
+  crash before it was written, or an invalid or unreadable receipt); `skipped` means the harness could not run
+  here, with the reason.
 - `cells`: one per source file per scenario, with the observed state, the documented state and an agreement:
   `agrees`, `disagrees`, `inconclusive` (observed unknown, or only `fetched`: reach saw the file only in a `read=` scenario, after the agent read it with a tool, so its loading rule is not shown), `no_claim` (the docs say nothing),
   or `alias` (a link, whose state is its target's and is not compared).
@@ -33,8 +34,8 @@ The schema is `reach_matrix.v1` (`dokimi/schemas/reach_matrix.v1.json`).
 
 ## The fixtures
 
-Each directory under `data/reach-conformance/` is one case. Each has a root `AGENTS.md` or `CLAUDE.md`
-arrangement that exercises one loading rule.
+Each directory under `data/reach-conformance/` is one case. Each holds the guidance files of one loading rule,
+at the root or in subdirectories.
 
 | case | what it holds | the rule it tests |
 |---|---|---|
@@ -65,7 +66,8 @@ observation is reported, and nothing is claimed about it. Copilot has no documen
 CLI, so every Copilot cell is `no_claim`; a Copilot run still records what it observed.
 
 Scenario ids are `cwd=.` (start in the root), `cwd=<dir>` (start in a subdirectory) and `read=<dir>` (start in
-the root and have the model read a file in `<dir>`).
+the root and have the model read a file in `<dir>`). `cwd=<dir>` and `read=<dir>` exist only for a directory
+below the root that holds a guidance file; `check` rejects any other id.
 
 `python scripts/reach_conformance.py check` verifies the expectations against the fixture tree: every fixture
 has an entry, every named file exists in its fixture, and every named scenario's directory exists. It exits 1
@@ -151,7 +153,7 @@ its CLI install.
 
 ## Adding a case or a harness
 
-A case is a directory under `data/reach-conformance/` with a root guidance arrangement, plus an entry in
+A case is a directory under `data/reach-conformance/` with the guidance files it exercises, plus an entry in
 `expectations.yaml` for every harness whose documentation says something about it. `check` must pass.
 
 A harness is a `Harness` in `HARNESSES` (`dokimi/repos/conformance.py`), with its CLI and the credential

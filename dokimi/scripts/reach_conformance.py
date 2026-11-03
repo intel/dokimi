@@ -57,6 +57,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     if len(set(names)) != len(names):
         print("✗ each --harness may be given once: a second run would overwrite the first's matrix", file=sys.stderr)
         return 1
+    cf.check_out_dir(args.out, args.fixtures)  # before anything is created or cleared
     failed = False
     args.out.mkdir(parents=True, exist_ok=True)
     for harness, model in args.harness:
