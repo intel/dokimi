@@ -11,6 +11,7 @@ import os
 import re
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -977,5 +978,6 @@ def test_item_analysis_accepts_a_probe_file_that_records_no_digest(tmp_path):
 def test_importing_the_cli_does_not_load_the_novelty_package():
     # the CLI imports the novelty command at start-up: the package itself loads only when a novelty command runs
     code = "import sys, dokimi.cli; print([m for m in sys.modules if m.startswith('dokimi.novelty')])"
-    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True).stdout
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True,
+                         cwd=Path(__file__).resolve().parents[1]).stdout
     assert out.strip() == "[]"
