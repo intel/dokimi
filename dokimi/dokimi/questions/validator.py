@@ -129,9 +129,8 @@ class QuestionValidator:
             elif llm_provider == "anthropic":
                 self.llm = ChatAnthropic(model=llm_model, api_key=api_key)
             else:
-                # An explicit api_key wins. Without one, LLM reads the provider's own
-                # variable from llm.PROVIDERS (OPENROUTER_API_KEY only for openrouter),
-                # and OPENAI_API_KEY for a provider off that table (llm.api_key_env).
+                # An explicit api_key wins; without one LLM reads the provider's own variable
+                # (llm.PROVIDERS, OPENAI_API_KEY off the table, see llm.api_key_env).
                 self.llm = Invoker(LLM(llm_model, llm_provider, api_key))
         else:
             self.llm = None
