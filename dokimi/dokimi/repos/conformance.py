@@ -121,6 +121,8 @@ def _case_problems(case: str, block: Mapping[str, Any], root: Path) -> list[str]
     for harness, body in block.items():
         if harness == "summary":
             continue
+        if harness not in HARNESSES:
+            out.append(f"{case}: {harness} is not a harness")
         for path, states in body["files"].items():
             if not (root / path).is_file() and not (root / path).is_symlink():
                 out.append(f"{case}: {harness} names {path}, which the fixture does not hold")
@@ -338,8 +340,9 @@ def render_markdown(matrix: Mapping[str, Any], summaries: Mapping[str, str] | No
               f"{_table_text(r['model'] or '-')} | {_table_text(r['status'])} | {_table_text(r['reason'] or '-')} |"
               for r in matrix["runs"]]
     lines += ["", "Cell legend: `loaded` or `not_loaded` as observed; `fetched` is read with a tool first; "
-              "`unknown` is no usable answer. `(docs: X)` marks a disagreement with the documentation; a "
-              "cell with no `(docs: ...)` agrees, or the documentation makes no claim.", ""]
+              "`unknown` is no usable answer. `(docs: X)` marks a disagreement with the documentation; `link, X` "
+              "marks a symlink; `inconclusive` is an observed `unknown` or `fetched` where the documentation names a "
+              "state; a cell with none of these agrees, or the documentation makes no claim.", ""]
     for case in sorted({c["case"] for c in matrix["cells"]}):
         lines += _case_section(matrix, case, columns, summaries.get(case, ""))
     return "\n".join(lines).rstrip() + "\n"

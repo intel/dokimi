@@ -96,7 +96,8 @@ def build_parser() -> argparse.ArgumentParser:
                      metavar="NAME[=MODEL]", help="repeatable; no model makes the harness skipped")
     run.add_argument("--out", type=Path, required=True, help="directory for <harness>.matrix.json")
     run.add_argument("--timeout", type=int, default=cf.DEFAULT_TIMEOUT_S, help="per-scenario seconds")
-    run.add_argument("--budget", type=float, default=cf.DEFAULT_BUDGET_USD, help="per-scenario USD cap")
+    run.add_argument("--budget", type=float, default=cf.DEFAULT_BUDGET_USD,
+                     help="per-scenario USD cap for Claude Code only; Codex and Copilot have no budget flag")
     merge = sub.add_parser("merge", help="merge matrices into one JSON and one markdown page")
     merge.add_argument("inputs", nargs="+", type=Path)
     merge.add_argument("--out", type=Path, required=True)

@@ -343,6 +343,14 @@ def test_check_expectations_reports_each_kind_of_drift(tmp_path):
     assert "codex names scenario cwd, which" in problems  # no "=": the empty directory is the fixture root, not a scenario
 
 
+def test_check_expectations_names_a_harness_key_that_no_harness_has(tmp_path):
+    fixtures = tmp_path / "fixtures"
+    _tree(fixtures / "toy", {"AGENTS.md": "a\n"})
+    expect = {"schema": "reach_conformance.v1", "cases": {"toy": {"summary": "s", "claud": {
+        "why": "w", "files": {"AGENTS.md": {"cwd=.": "loaded"}}}}}}
+    assert "toy: claud is not a harness" in cf.check_expectations(expect, fixtures)
+
+
 def test_load_expectations_rejects_another_schema(tmp_path):
     path = tmp_path / "expectations.yaml"
     path.write_text("schema: other.v1\ncases: {}\n", encoding="utf-8")
@@ -361,6 +369,18 @@ def test_cli_check_passes_on_the_fixtures_and_fails_on_drift(tmp_path, capsys):
 def test_cli_run_rejects_an_unknown_harness(tmp_path):
     with pytest.raises(SystemExit):
         cli.main(["run", "--harness", "nope=x", "--out", str(tmp_path)])
+
+
+def test_cli_run_budget_help_says_it_caps_claude_code_only(capsys):
+    with pytest.raises(SystemExit):
+        cli.main(["run", "--help"])
+    assert "Claude Code only" in " ".join(capsys.readouterr().out.split())
+
+
+def test_render_markdown_legend_names_the_inconclusive_and_link_cells():
+    matrix = _matrix(runs=[_run()], cells=[_cell(observed="unknown", documented="loaded", agreement="inconclusive")])
+    legend = cf.render_markdown(matrix).split("Cell legend", 1)[1].split("\n\n", 1)[0]
+    assert "inconclusive" in legend and "link" in legend
 
 
 def test_cli_merge_writes_json_and_markdown(tmp_path):
