@@ -60,13 +60,13 @@ _ARITHMETIC = re.compile(r"\$\(\([\s\S]*?\)\)")
 # and a ``#`` in quotes is text
 _COMMENT_OR_QUOTED = re.compile(r"(?m)(\\[\s\S]|'[^']*'|\"(?:\\[\s\S]|[^\"\\])*\")|(?:^|(?<=[\s;&|()]))#.*$")
 # a redirection operator at the start of a word (``>``, ``>>``, ``2>``, ``<``); a bare one takes the next word
-_REDIRECT_OP = re.compile(r"\d*(?:<<<|<<-?|>>|>&|<&|>\||[<>])")
+_REDIRECT_OP = re.compile(r"\d*(?:<<<|<<-?|&>>|&>|>>|>&|<&|>\||[<>])")
 # a here-string's payload is the text fed to stdin, not a file the command opens; a quoted piece is skipped as text
 # so a ``<<<`` inside quotes is not a payload, and the payload may be quoted (``<<< "some text"``)
 _HERE_STRING = re.compile(r"(?m)(?P<quoted>\\[\s\S]|'[^']*'|\"(?:\\[\s\S]|[^\"\\])*\")"
                           r"|(?P<comment>(?:^|(?<=[\s;&|()]))#.*$)"  # a comment's apostrophes open no quote
                           r"|<<<\s*(?:\\[\s\S]|'[^']*'|\"(?:\\[\s\S]|[^\"\\])*\"|[^\s;&|<>()'\"\\])+")
-_SEGMENT = re.compile(r"&&|\|\||(?<![<>])[|&]|[;()\n]")  # ``>|``, ``>&``, ``<&`` are operators
+_SEGMENT = re.compile(r"&&|\|\||(?<![<>])[|]|(?<![<>])&(?!>)|[;()\n]")  # ``>|``, ``>&``, ``<&``, ``&>`` are not splits
 _CUE = re.compile(r"\b(no|not|don't|do not|stop|instead|wrong|forgot|should have|revert|undo|why did you)\b", re.I)
 _STOP = frozenset("""
 able about above after again against all also always and any are because been before being below
@@ -309,11 +309,10 @@ def _words(seg: str) -> str:
 
 
 def _command_segments(command: str) -> list[str]:
-    """The simple commands of a shell line, quotes kept: split at separators and pipes outside quotes, with
-    heredoc bodies, line continuations and comments left out. Read here, not by ``shell.segments``, because that
-    walker cuts a heredoc at a ``<<`` inside quotes and would hide the command after it."""
-    masked = _strip_comments(_executable(command))
-    return [seg.translate(_FROM_MASK) for seg in _SEGMENT.split(masked)]
+    """The simple commands of a shell line, quotes kept and still masked: split at separators and pipes outside
+    quotes, with heredoc bodies, line continuations and comments left out. Read here, not by ``shell.segments``,
+    because that walker cuts a heredoc at a ``<<`` inside quotes and would hide the command after it."""
+    return _SEGMENT.split(_strip_comments(_executable(command)))
 
 
 def _words_of(segment: str) -> list[str]:
@@ -347,8 +346,10 @@ def _key_words(key: str) -> list[str]:
 
 
 def _command_words(command: str) -> tuple[tuple[str, ...], ...]:
-    """Each simple command of a shell line as its words, wrappers stripped and redirections left out."""
-    return tuple(tuple(shell.strip_wrappers(_without_redirections(_words_of(seg))))
+    """Each simple command of a shell line as its words, wrappers stripped and redirections left out. A quoted
+    operator-like word (``'>x'``) is read as the argument it is: the words are unmasked only after the redirections
+    are taken out."""
+    return tuple(tuple(w.translate(_FROM_MASK) for w in shell.strip_wrappers(_without_redirections(_words_of(seg))))
                  for seg in _command_segments(command))
 
 
@@ -372,6 +373,8 @@ def _prints(text: str) -> bool:
     return bool(words) and words[0] in ("echo", "printf")
 
 
+# a heredoc header's operator and delimiter word (``<<EOF``, ``<<-docs/a.md``): the word ends the body, it is no path
+_HEREDOC_DELIMITER = re.compile(r"(?<!<)<<-?[ \t]*[^\s;&|<>()]+")
 # a redirection target is written (``>``, ``>>``, ``>|``, ``>&``) or read (``<``); ``<<`` is a heredoc
 _REDIRECT = re.compile(r"(?<!<)<(?![<&(])\s*([^\s;&|<>()]+)|>(?:>|[|&])?\s*([^\s;&|<>()]+)")
 
@@ -383,7 +386,7 @@ def _shell_paths(command: str) -> str:
     parts: list[str] = []
     for seg in _masked_segments(command, hide_spaced=True):
         parts.extend((m.group(1) or m.group(2)).translate(_FROM_MASK) for m in _REDIRECT.finditer(seg))
-        text = _words(seg)
+        text = _words(_HEREDOC_DELIMITER.sub(" ", seg))
         if not _prints(text):
             parts.append(text)
     return " ".join(parts)
