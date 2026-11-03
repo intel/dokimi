@@ -289,3 +289,77 @@ def test_a_query_bearing_link_outside_the_skill_still_escapes(tmp_path):
 
     [review] = review_skills(read_skill_manifest(tmp_path))
     assert _codes(review) == ["link-escapes-skill"]
+
+
+def test_a_fence_under_an_inner_list_item_ends_with_the_outer_item(tmp_path):
+    # the fence is at column 2, inside the outer item (content column 2) but outside the inner one (column 4)
+    _skill(tmp_path / "skills", "nested-item", name="nested-item", description="Use for nested items.",
+           body="- outer\n  - inner\n\n  ```\n  example\n\n[real](missing.md)\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == ["link-missing"]
+    assert "'missing.md'" in review.findings[0].message
+
+
+def test_a_fence_opened_on_a_list_item_line_is_a_code_block(tmp_path):
+    _skill(tmp_path / "skills", "item-opener", name="item-opener", description="Use for item openers.",
+           body="- ```markdown\n  [example](missing.md)\n  ```\n\n[real](also-missing.md)\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == ["link-missing"]
+    assert "'also-missing.md'" in review.findings[0].message
+
+
+@pytest.mark.parametrize("exists", [True, False])
+def test_a_multiline_inline_link_is_checked(tmp_path, exists):
+    (tmp_path / "shared").mkdir()
+    if exists:
+        (tmp_path / "shared" / "notes.md").write_text("# Notes\n", encoding="utf-8")
+    _skill(tmp_path / "skills", "multiline", name="multiline", description="Use for multiline links.",
+           body="See [notes](\n../../shared/notes.md\n).\n" if exists
+           else "See [guide](\nreferences/missing.md\n).\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == (["link-escapes-skill"] if exists else ["link-missing"])
+
+
+@pytest.mark.parametrize("body", [
+    "See [guide](\n\nreferences/missing.md)\n",
+    "See [guide](<\nreferences/missing.md>)\n",
+])
+def test_a_link_split_by_a_blank_line_or_an_angle_bracket_line_end_is_not_a_link(tmp_path, body):
+    _skill(tmp_path / "skills", "split-link", name="split-link", description="Use for split links.", body=body)
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.findings == []
+
+
+def test_a_link_inside_a_code_span_is_not_checked(tmp_path):
+    _skill(tmp_path / "skills", "code-span", name="code-span", description="Use for code spans.",
+           body="Example: `[guide](missing.md)` and [real](also-missing.md)\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == ["link-missing"]
+    assert "'also-missing.md'" in review.findings[0].message
+
+
+@pytest.mark.parametrize("exists", [True, False])
+def test_a_reference_definition_in_a_blockquote_is_checked(tmp_path, exists):
+    (tmp_path / "shared").mkdir()
+    if exists:
+        (tmp_path / "shared" / "notes.md").write_text("# Notes\n", encoding="utf-8")
+    _skill(tmp_path / "skills", "quoted-ref", name="quoted-ref", description="Use for quoted references.",
+           body="> [notes][n]\n>\n> [n]: ../../shared/notes.md\n" if exists
+           else "> [notes][n]\n>\n> [n]: references/missing.md\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == (["link-escapes-skill"] if exists else ["link-missing"])
+
+
+def test_an_escaped_backtick_does_not_open_a_code_span(tmp_path):
+    _skill(tmp_path / "skills", "escaped-tick", name="escaped-tick", description="Use for escaped ticks.",
+           body="\\`[a](missing.md)\\`\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == ["link-missing"]
+    assert "'missing.md'" in review.findings[0].message

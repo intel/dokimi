@@ -116,6 +116,8 @@ URI_SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+\-.]*:")
 FILE_SUFFIX_RE = re.compile(r"\d+(?:[-:]\d+)?|[A-Za-z_]\w*")
 LOCATION_SUFFIX_RE = re.compile(r":(?:\d+(?:[-:]\d+)?|[A-Za-z_]\w*)$")
 CODE_SPAN_RE = re.compile(r"`([^`\n]+)`")
+# A code span of any length, across lines within a paragraph: its text is literal, so no link is read in it.
+CODE_SPAN_MASK_RE = re.compile(r"(?<!\\)(`+)(?!`).*?(?<!`)(?<!\\)\1(?!`)", re.DOTALL)
 SKILL_DIR_VAR = "${CLAUDE_SKILL_DIR}/"
 
 
@@ -261,20 +263,21 @@ def _counterpart(other: tuple[SkillCatalogEntry, Skill, SkillReview], entry: Ski
 
 
 def _outside_fences(body: str) -> list[str]:
-    """The lines of ``body`` that are not inside a fenced code block.
+    """The lines of ``body`` that are not inside a fenced code block, without their blockquote markers.
 
     A block closes only at a line of the same marker (backticks or tildes) that is at least as long
     as the opening run, as in CommonMark. A fence in a blockquote keeps only the opener's ``>``
     markers (a deeper ``>`` is code), and it ends with its quote. A fence under a list item may be
-    indented past three spaces, and it ends with its item: at the first non-blank line indented less
-    than the item's content column. Any other fence runs to its closing marker or to the end.
+    indented past three spaces, and it ends with its innermost item: at the first non-blank line
+    indented less than that item's content column. A list item's own line may open a fence (``- ```).
+    Any other fence runs to its closing marker or to the end. A change of quote depth is a blank line.
     """
     lines: list[str] = []
     fence = ""  # the run that opened the current block; "" outside one
     depth = 0  # the blockquote depth of the opener
     col = 0  # the content column of the list item the opener sits in; 0 for a fence outside any item
-    item = 0  # the content column of the last list item; 0 once a line is indented less than it, or its quote ended
-    item_depth = 0  # the blockquote depth of that list item
+    items: list[tuple[int, int]] = []  # (content column, blockquote depth) of the open items, outermost first
+    last_depth = 0
     for line in body.splitlines():
         if fence:
             rest, count = _unquote(line, depth)
@@ -287,21 +290,25 @@ def _outside_fences(body: str) -> list[str]:
                 continue
             fence = ""  # the container ended before a closing marker: this line is outside the block
         rest, count = _unquote(line)
-        if count < item_depth:
-            item = 0  # the quote the item sits in has ended, so its indent no longer belongs to the item
-        deep = bool(item) and _indent(rest) >= item
-        opened = (DEEP_FENCE_OPEN_RE if deep else FENCE_OPEN_RE).match(rest)
-        # a backtick info string may not hold a backtick: "```x```" is an inline code span, not a fence
-        if opened and not (opened.group(1)[0] == "`" and "`" in opened.group(2)):
-            fence, depth, col = opened.group(1), count, (item if deep else 0)
-            lines.append("")
-            continue
+        # a line closes the items whose quote it has left, and the items it is not indented into
+        while items and (count < items[-1][1] or (rest.strip() and _indent(rest) < items[-1][0])):
+            items.pop()
         bullet = LIST_ITEM_RE.match(rest)
         if bullet:
-            item, item_depth = _width(rest[:bullet.end()]), count
-        elif rest.strip() and _indent(rest) < item:
-            item = 0
-        lines.append(line)
+            items.append((_width(rest[:bullet.end()]), count))
+            opener = rest[bullet.end():]
+        else:
+            opener = rest
+        opened = (DEEP_FENCE_OPEN_RE if items else FENCE_OPEN_RE).match(opener)
+        # a backtick info string may not hold a backtick: "```x```" is an inline code span, not a fence
+        if opened and not (opened.group(1)[0] == "`" and "`" in opened.group(2)):
+            fence, depth, col = opened.group(1), count, (items[-1][0] if items else 0)
+            lines.append("")
+            continue
+        if count != last_depth:
+            lines.append("")
+        last_depth = count
+        lines.append(rest)
     return lines
 
 
@@ -334,7 +341,7 @@ def _destination_stop(line: str, start: int) -> Optional[int]:
     """Where the link destination that begins at ``start`` ends, or None if no destination is there."""
     if start < len(line) and line[start] == "<":
         end = line.find(">", start + 1)
-        return None if end == -1 or "<" in line[start + 1:end] else end + 1
+        return None if end == -1 or any(c in line[start + 1:end] for c in "<\n") else end + 1
     depth, stop = 0, start
     while stop < len(line):
         char = line[stop]
@@ -351,18 +358,33 @@ def _destination_stop(line: str, start: int) -> Optional[int]:
     return None if depth or stop == start else stop
 
 
-def _inline_destinations(line: str) -> list[str]:
-    """The destinations of the inline links on ``line``, as written (``<...>`` kept, a title left out).
+def _paragraphs(lines: list[str]) -> list[str]:
+    """The paragraphs of ``lines`` (blank lines end one), each joined by newlines with its code spans blanked."""
+    out: list[str] = []
+    block: list[str] = []
+    for line in lines + [""]:
+        if line.strip():
+            block.append(line)
+        elif block:
+            text = "\n".join(block)
+            out.append(CODE_SPAN_MASK_RE.sub(lambda m: " " * len(m.group()), text))
+            block = []
+    return out
+
+
+def _inline_destinations(text: str) -> list[str]:
+    """The destinations of the inline links in ``text``, as written (``<...>`` kept, a title left out).
 
     A ``](`` opens a destination that runs to its matching parenthesis at any depth, or to the ``>``
-    of an angle-bracketed one; a backslash escapes the character after it.
+    of an angle-bracketed one; a backslash escapes the character after it. The destination may
+    start or end on another line of the same paragraph.
     """
     found: list[str] = []
-    for opened in _LINK_OPEN_RE.finditer(line):
+    for opened in _LINK_OPEN_RE.finditer(text):
         start = opened.end()
-        stop = _destination_stop(line, start)
-        if stop is not None and _LINK_END_RE.match(line, stop):
-            found.append(line[start:stop])
+        stop = _destination_stop(text, start)
+        if stop is not None and _LINK_END_RE.match(text, stop):
+            found.append(text[start:stop])
     return found
 
 
@@ -421,9 +443,10 @@ def _bundle_findings(skill: Skill, source_root: Path) -> list[Finding]:
     skill_dir = skill.path.parent
     real_dir = skill_dir.resolve()
     lines = _outside_fences(skill.body)
+    paragraphs = _paragraphs(lines)
     links = dict.fromkeys(
-        [m for line in lines for m in _inline_destinations(line)]
-        + REF_DEF_RE.findall("\n".join(lines))
+        [m for text in paragraphs for m in _inline_destinations(text)]
+        + [m for text in paragraphs for m in REF_DEF_RE.findall(text)]
     )
     spans = dict.fromkeys(
         s.strip()
