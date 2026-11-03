@@ -93,7 +93,7 @@ def refuse_queries_naming_disabled(args: argparse.Namespace, field: list,
     """Refuse queries for a skill the field leaves out only because it sets disable-model-invocation.
 
     ``disabled`` is the names :func:`_routing_field` left out for that reason, so the field is
-    not read again. The generic "not in the field" refusal does not say why, so this names the
+    not read again. The generic "not in the field" refusal only hints at the flag, so this names the
     disabled skills and the flag that keeps them. Other unknown names fall through to that refusal.
     """
     if args.include_disabled:
