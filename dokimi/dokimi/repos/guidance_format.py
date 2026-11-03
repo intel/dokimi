@@ -166,9 +166,9 @@ def _advance(fence: tuple[str, int] | None, items: tuple[int, ...], line: str, p
 
 def _front_matter_end(lines: list[str]) -> int:
     """The index of the line that closes a leading YAML front matter block (``---`` to ``---``), or -1 if none."""
-    if lines and lines[0] == _FRONT:
+    if lines and lines[0].rstrip("\r") == _FRONT:  # a CRLF file's delimiter keeps its CR in the lines, not in the match
         for index in range(1, len(lines)):
-            if lines[index] == _FRONT:
+            if lines[index].rstrip("\r") == _FRONT:
                 return index
     return -1
 
@@ -180,18 +180,26 @@ def _render_xml(text: str) -> str:
     fence: tuple[str, int] | None = None
     items: tuple[int, ...] = ()
     para = empty = comment = False
+    comment_column = 0  # the content column of the item a comment block is in: a line indented less ends both
     open_levels: list[int] = []
     for line in lines[end + 1:]:
-        if comment:  # inside an HTML comment block: body text up to the line that closes it
-            comment = "-->" not in line
-            out.append(line)
-            continue
+        if comment:  # inside an HTML comment block: body text up to the line that closes it or leaves its item
+            expanded = line.expandtabs(4)
+            if line.strip() and len(expanded) - len(expanded.lstrip(" ")) < comment_column:
+                comment = False  # the item ends with the block, so the line is read as any other
+            else:
+                comment = "-->" not in line
+                out.append(line)
+                continue
         fence, items, para, empty = _advance(fence, items, line, para, empty)
         heading = _HEADING.match(line) if fence is None else None  # a line of a fence is body text
         if heading is None:
             out.append(line)
             if fence is None and _COMMENT.match(line) and "-->" not in line:
+                expanded = line.expandtabs(4)
+                indent = len(expanded) - len(expanded.lstrip(" "))
                 comment, para, empty = True, False, False  # a comment block is not paragraph text
+                comment_column = items[-1] if items and indent >= items[-1] else 0  # a lazy line is in no item
             continue
         level = len(heading.group(1))
         while open_levels and open_levels[-1] >= level:

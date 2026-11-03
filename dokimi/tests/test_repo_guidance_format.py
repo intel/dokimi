@@ -136,6 +136,8 @@ def test_xml_wraps_each_heading_in_a_section_closed_before_its_peer():
     ("  <!--\n# a\n  -->\n# Real\n", ["Real"]),  # up to three spaces of indentation
     ("<!--\n# a\n", []),  # unclosed: the rest of the file is the comment
     ("text <!--\n# Real\n-->\n", ["Real"]),  # a comment inside a paragraph line is no block: the heading is a section
+    ("- item\n  <!--\n# Real\n-->\n", ["Real"]),  # the item ends at the heading, and its comment block with it
+    ("- item\n<!--\n# Real\n-->\n", []),  # a lazy comment line starts a block outside the item: the comment holds on
 ])
 def test_a_heading_inside_an_html_comment_block_is_body_text(text, sections):
     assert re.findall(r'title="([^"]*)"', to_format(text, "xml")) == sections
@@ -150,6 +152,13 @@ def test_a_yaml_front_matter_block_stays_verbatim_above_the_root():
         "</section>\n"
         "</guidance>"
     )
+
+
+def test_a_crlf_front_matter_block_stays_verbatim_above_the_root():
+    text = "---\r\npaths:\r\n  - src/**\r\n---\r\n# Rules\r\n"
+    rendered = to_format(text, "xml")  # the delimiters keep their CR; the match ignores it
+    assert rendered.startswith("---\r\npaths:\r\n  - src/**\r\n---\r\n<guidance>\n")
+    assert restore(rendered) == text
 
 
 def test_a_fenced_hash_line_is_body_text_not_a_section():

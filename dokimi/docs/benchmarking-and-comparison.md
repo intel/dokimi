@@ -327,8 +327,10 @@ the cells the way the skill arms are compared above.
   symlink to any other file fails the cell. The frontmatter
   description is one fixed sentence for every repository, so the skill is
   selected on its description alone. Nested guidance files lose the directory
-  they applied to; the skill records its sha256 and appears in `skills` like any
-  installed skill, so `repo report` counts whether the agent loaded it.
+  they applied to; the skill's name, path and sha256 are recorded in
+  `meta.json` under `guidance_skill`. Its usage is recorded separately in
+  `result.json` as `guidance_skill_loaded` (`null` if the trace is unreadable),
+  and is not currently aggregated by `repo report`.
 
 Reading the two together: `guidance:format=xml` against `guidance:raw` isolates
 the markup, and `guidance:as-skill` against `guidance:raw` isolates the packaging
