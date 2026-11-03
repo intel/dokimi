@@ -89,17 +89,26 @@ def _command_at(words: list[str], timed: bool) -> int | None:
     """The index of the command word in unquoted ``words``, past ``builtin``, ``command`` and, when ``timed``, a first
     ``time``, with their options (``time -p``, ``command -p``, ``--``), redirections and, after ``time``, ``NAME=value``
     words; None for ``command -v`` / ``-V``, which only describes the command."""
-    at = 0
-    while at < len(words) and _prefix(words[at], timed and at == 0):
-        prefix, at = words[at], at + 1
-        while at < len(words) and words[at].startswith("-") and words[at] != "-":
-            if prefix == "command" and set(words[at]) & {"v", "V"}:
+    at: int | None = 0
+    while at is not None and at < len(words) and _prefix(words[at], timed and at == 0):
+        at = _past_prefix(words, at)
+    return at
+
+
+def _past_prefix(words: list[str], at: int) -> int | None:
+    """The index past the prefix ``words[at]`` and the options, redirections and, after ``time``, ``NAME=value`` words
+    that follow it in any order (``command > log -p cd``, ``time -p X=1 cd``); None for ``command -v`` / ``-V``."""
+    prefix, at, options = words[at], at + 1, True
+    while at < len(words):
+        word = words[at]
+        if options and word.startswith("-") and word != "-":
+            if prefix == "command" and set(word) & {"v", "V"}:
                 return None
-            at += 1
-            if words[at - 1] == "--":
-                break
-        # the keyword times a whole simple command, its assignments too: ``time -p X=1 cd``
-        at = _past_redirections(words, at, prefix == "time")
+            at, options = at + 1, word != "--"  # past ``--`` a word is no option
+        elif (past := _past_redirections(words, at, prefix == "time")) > at:
+            at = past  # the keyword times a whole simple command, its assignments too
+        else:
+            break
     return at
 
 

@@ -334,6 +334,18 @@ def test_a_leading_redirection_of_a_cd_in_a_job_or_a_pipeline_moves_no_shell():
     assert shell_walk("> log cd sub | cat; cat AGENTS.md") == (["AGENTS.md"], False, 0)
 
 
+@pytest.mark.parametrize("first", ["command > /tmp/cd.log -p cd sub", "time > log -p cd sub",
+                                   "builtin > log -- cd sub", "time -p > log X=1 cd sub"])
+def test_a_redirection_before_a_prefixs_options_still_finds_the_cd(first):
+    # the prefix's options, redirections and (past ``time``) assignments come in any order before the command word
+    assert shell_walk(f"{first}; cat AGENTS.md") == ([], True, 1)
+    assert _reads(_events(_call("a", first), _result("a"), _call("b", "cat AGENTS.md"), _result("b"))) == []
+
+
+def test_a_redirection_before_command_v_still_runs_nothing():
+    assert shell_walk("command > log -v cd; cat AGENTS.md") == (["AGENTS.md"], False, 0)
+
+
 def test_a_parents_cd_drops_a_subagents_later_relative_read():
     # a subagent may share the parent's shell, so its relative read after the parent's cd is not known
     events = _events(_call("s1", "cat AGENTS.md", agent="t1"), _result("s1"),
