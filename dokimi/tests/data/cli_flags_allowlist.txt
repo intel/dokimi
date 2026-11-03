@@ -106,20 +106,24 @@
 --max-atoms
 --max-bases
 --max-batch-usd
+--max-context-drop  # baseline compare score tolerance in points, not a spend cap; moves to the gate policy (#94)
 --max-cost-usd
 --max-file-words
 --max-iterations
+--max-lift-drop  # baseline compare score tolerance in points, not a spend cap; moves to the gate policy (#94)
 --max-resource-words
 --max-tokens
 --max-turns
 --metric
 --min-accuracy
+--min-matched  # baseline compare gate: no registry concept yet; moves to the gate policy (#94)
 --mode
 --multi-run
 --no-classify
 --no-confirm-carriers
 --no-json
 --no-judge
+--no-known-positive  # catalog trigger-probe known-positive guard: no registry concept yet
 --no-paraphrase
 --no-plugin-deltas
 --no-recursive
@@ -224,5 +228,8 @@
 --work-repeats
 -o
 --catalogue  # repo skill-reach: the skill_fixtures.v1 YAML of SKILL.md placements; no registry concept covers a fixture catalogue
+--ceiling  # eval headroom (#279) adds it: no registry concept yet; a F1b migration names it
+--floor  # eval headroom (#279) adds it: no registry concept yet; a F1b migration names it
+--min-reps  # eval headroom (#279) adds it: no registry concept yet; a F1b migration names it
 --graph  # eval coverage: the frozen need graph input, a file no registry concept names yet (#331)
 --min  # eval coverage gate floor, [METRIC=]X like --timeout [PHASE=]SEC (#331)
