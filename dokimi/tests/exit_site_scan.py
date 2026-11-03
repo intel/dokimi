@@ -355,6 +355,24 @@ def _live(b, scope: ast.AST):
     return (b[0], "other", None) if isinstance(scope, _FUNC_NODES) else None
 
 
+def _read_in_scope(scope: ast.AST, use: ast.AST, pos: tuple[int, int], found: list, here: bool) -> list | None:
+    """What a lookup of a name that ``scope`` binds (``found``) reads there, or None when no binding is live at ``pos``."""
+    if not here:  # a function may run later: each exit-kind binding it can see counts
+        exits = [b for b in found if b[1] != "other"] or found
+        return [_live(b, scope) for b in sorted(exits, key=lambda b: b[0])]
+    before = [b for b in found if b[0] <= pos]
+    if before:  # every binding of the last statement that bound it: an alias may copy several
+        last = max(b[0] for b in before)
+        live = [b for b in before if b[0] == last]
+        if isinstance(scope, ast.ClassDef):  # a class body's del unbinds its namespace: read the enclosing scope
+            live = [b for b in live if b[1] != "del"]
+        if live:
+            return [_live(b, scope) for b in live]
+    if scope is use and isinstance(use, _FUNC_NODES + _COMPREHENSIONS):  # a function's local, not bound yet
+        return [(pos, "other", None)]
+    return None
+
+
 def _candidates(name: str, use: ast.AST, pos: tuple[int, int], table: ExitTable, owner: dict[int, ast.AST]) -> list:
     """The bindings that ``name`` may denote at ``pos`` in scope ``use``; a None in the list is the builtin.
 
@@ -375,20 +393,10 @@ def _candidates(name: str, use: ast.AST, pos: tuple[int, int], table: ExitTable,
             if declared and declared[-1][2] is not scope:
                 scope, here = declared[-1][2], False
                 continue
-            if found and not here:  # a function may run later: each exit-kind binding it can see counts
-                exits = [b for b in found if b[1] != "other"] or found
-                return [_live(b, scope) for b in sorted(exits, key=lambda b: b[0])]
             if found:
-                before = [b for b in found if b[0] <= pos]
-                if before:  # every binding of the last statement that bound it: an alias may copy several
-                    last = max(b[0] for b in before)
-                    live = [b for b in before if b[0] == last]
-                    if isinstance(scope, ast.ClassDef):  # a class body's del unbinds its namespace: read the enclosing scope
-                        live = [b for b in live if b[1] != "del"]
-                    if live:
-                        return [_live(b, scope) for b in live]
-                if scope is use and isinstance(use, _FUNC_NODES + _COMPREHENSIONS):  # a function's local, not bound yet
-                    return [(pos, "other", None)]
+                read = _read_in_scope(scope, use, pos, found, here)
+                if read is not None:
+                    return read
         if id(scope) not in owner:  # the module: no enclosing scope
             return [None]
         # a class body and a list, set or dict comprehension run in place, so the enclosing scope is read by position
