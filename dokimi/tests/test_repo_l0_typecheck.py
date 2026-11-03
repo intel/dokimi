@@ -662,6 +662,38 @@ def test_a_fragment_with_a_real_error_still_fails(tmp_path):
     assert claim["status"] == "fail"
 
 
+def test_a_top_level_async_with_or_async_for_is_a_fragment_not_stale(tmp_path):
+    # the same missing context as a top-level await: the snippet's body runs inside an async function
+    fences = ["import asyncio\nasync with asyncio.timeout(1):\n    await asyncio.sleep(0)",
+              "async def gen():\n    yield 1\nasync for x in gen():\n    print(x)",
+              "import asyncio\nimport json\nasync with asyncio.timeout(1):\n    json.dumps(1).nosuch()"]
+    claims = _fence_claims(scan_repo(_tree(tmp_path, "".join(f"{FENCE}python\n{c}\n{FENCE}\n\n" for c in fences)),
+                                     parse_manifest(MANIFEST), typecheck=Check("mypy", sys.executable)))
+    assert [c["status"] for c in claims] == ["unresolved", "unresolved", "fail"]
+    assert "nosuch" in claims[2]["why"]
+
+
+def test_basedpyright_top_level_async_with_is_a_fragment_not_stale(tmp_path, monkeypatch):
+    from dokimi.repos.l0 import typecheck as l0_typecheck
+
+    def fake(argv, cwd, stdin=None):
+        if stdin is not None:
+            return _completed(returncode=0, stdout=json.dumps([None]))
+        if argv[-1] == "--version":
+            return _completed(returncode=0, stdout="basedpyright 1.40.2\n")
+        report = {"generalDiagnostics": [
+            {"file": "fence-0.py", "severity": "error", "message": 'Use of "async" not allowed outside of async function',
+             "rule": "reportGeneralTypeIssues", "range": {"start": {"line": 1}}}]}
+        return _completed(returncode=1, stdout=json.dumps(report), stderr="")
+
+    monkeypatch.setattr(l0_typecheck, "_run_tool", fake)
+    monkeypatch.setattr(l0_typecheck, "python_version", lambda check: (3, 12))
+    fence = f"{FENCE}python\nimport asyncio\nasync with asyncio.timeout(1):\n    pass\n{FENCE}\n"
+    [claim] = _fence_claims(scan_repo(_tree(tmp_path, fence), parse_manifest(MANIFEST),
+                                      typecheck=Check("basedpyright", sys.executable)))
+    assert claim["status"] == "unresolved"
+
+
 def test_the_claim_names_the_first_real_error_when_a_fragment_error_comes_first(tmp_path):
     # `client` is an earlier fence's name: its error is a fragment, so the real error is the one the claim names
     fence = f'{FENCE}python\nclient.decode("{{}}")\nx: int = "a"\n{FENCE}\n'
