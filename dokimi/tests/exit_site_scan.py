@@ -345,9 +345,10 @@ def _exit_table(tree: ast.Module, owner: dict[int, ast.AST]) -> ExitTable:
 
 
 def _live(b, scope: ast.AST):
-    """The binding a lookup reads, or None (the builtin) for a ``del`` at module or class level.
+    """The binding a lookup reads, or None (the builtin) for a ``del`` at module level.
 
-    A ``del`` in a function leaves its local unbound: reading it raises, so it is never the builtin.
+    A ``del`` in a function leaves its local unbound: reading it raises, so it is never the builtin. A ``del`` in a
+    class body is not a live binding either: ``_candidates`` reads the enclosing scope instead.
     """
     if b[1] != "del":
         return b
@@ -363,7 +364,8 @@ def _candidates(name: str, use: ast.AST, pos: tuple[int, int], table: ExitTable,
     then reads the enclosing names, by position, as does a comprehension. Beyond a function, lambda or generator
     an enclosing scope may run after any rebinding, so every exit-kind binding of it is a candidate. A class body
     is seen only from its own statements, not from the functions inside it. A module-level name read before its
-    first binding is the builtin of that name, since it is then unbound.
+    first binding is the builtin of that name, since it is then unbound. A class body's del or cleared except target
+    leaves the name to the enclosing scope, as LOAD_NAME does, not to the builtin.
     """
     scope, here = use, True
     while True:
@@ -380,7 +382,11 @@ def _candidates(name: str, use: ast.AST, pos: tuple[int, int], table: ExitTable,
                 before = [b for b in found if b[0] <= pos]
                 if before:  # every binding of the last statement that bound it: an alias may copy several
                     last = max(b[0] for b in before)
-                    return [_live(b, scope) for b in before if b[0] == last]
+                    live = [b for b in before if b[0] == last]
+                    if isinstance(scope, ast.ClassDef):  # a class body's del unbinds its namespace: read the enclosing scope
+                        live = [b for b in live if b[1] != "del"]
+                    if live:
+                        return [_live(b, scope) for b in live]
                 if scope is use and isinstance(use, _FUNC_NODES + _COMPREHENSIONS):  # a function's local, not bound yet
                     return [(pos, "other", None)]
         if id(scope) not in owner:  # the module: no enclosing scope

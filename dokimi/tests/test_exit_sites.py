@@ -196,6 +196,22 @@ def test_a_deleted_binding_or_a_cleared_except_target_leaves_the_builtin(tmp_pat
     assert exit_sites(imports.trees["dokimi.d"]) == []
 
 
+def test_a_class_body_del_or_cleared_except_target_reads_the_enclosing_name(tmp_path):
+    imports = _package(tmp_path, {
+        "dokimi/a.py": "import sys as s\nclass C:\n    s = None\n    del s\n    s.exit(2)\n",
+        "dokimi/b.py": ("import sys as s\nclass C:\n    try:\n        raise ValueError\n"
+                        "    except ValueError as s:\n        pass\n    s.exit(2)\n"),
+        "dokimi/c.py": "SystemExit = ValueError\nclass C:\n    SystemExit = print\n    del SystemExit\n    raise SystemExit(2)\n",
+        "dokimi/d.py": "class C:\n    SystemExit = ValueError\n    del SystemExit\n    raise SystemExit(2)\n",
+        "dokimi/e.py": "import sys as s\ndel s\ns.exit(2)\n",
+    })
+    assert exit_sites(imports.trees["dokimi.a"]) == [5]
+    assert exit_sites(imports.trees["dokimi.b"]) == [7]
+    assert exit_sites(imports.trees["dokimi.c"]) == []
+    assert exit_sites(imports.trees["dokimi.d"]) == [4]
+    assert exit_sites(imports.trees["dokimi.e"]) == []
+
+
 def test_a_nonlocal_assignment_reaches_the_aliases_read_in_a_sibling(tmp_path):
     imports = _package(tmp_path, {
         "dokimi/a.py": ("import sys\ndef outer():\n    x = None\n    def set_exit():\n        nonlocal x\n"
