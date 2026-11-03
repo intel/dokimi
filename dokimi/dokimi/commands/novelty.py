@@ -671,7 +671,7 @@ def cmd_novelty_shorten(args: argparse.Namespace) -> None:
         )
     best = pick_best(candidates, require_safe=not args.allow_unsafe)
     if best is None:
-        print("No candidate kept every protected span; the artifact's length is its content.")
+        print("No safe candidate (none kept every protected span and unsampled atom).")
         return
     print(
         f"Best safe candidate: {best.strategy} @ {best.budget_frac} → {best.token_frac} tokens, "

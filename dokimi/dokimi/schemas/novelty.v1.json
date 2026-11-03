@@ -449,9 +449,10 @@
             "description": "Share of protected spans kept. A candidate below 1.0 is a different artifact, not a smaller one."
           },
           "routing": {"type": "number"},
-          "safe": {"type": "boolean"},
+          "safe": {"type": "boolean", "description": "Protection is 1.0 and `dropped_unscored_atoms` is 0 (or absent): only a safe candidate is picked as the best one by default."},
           "kept_spans": {"type": "integer"},
-          "dropped_protected_spans": {"type": "array", "items": {"type": "string"}}
+          "dropped_protected_spans": {"type": "array", "items": {"type": "string"}},
+          "dropped_unscored_atoms": {"type": "integer", "minimum": 0, "description": "Atoms outside the scored sample (a capped run's unsampled atoms) none of whose cited spans the candidate keeps. The oracle never scores them, so `knowledge` cannot show their loss; above 0 the candidate is not `safe`. Absent on artifacts written before it existed."}
         }
       }
     },

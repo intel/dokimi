@@ -64,6 +64,11 @@ def test_a_capped_run_indexes_every_atom_and_probes_only_the_sample():
     assert len(answers) == len(grades) == 60 * 2 * 2
     # Carrier confirmation and each shortening candidate ask the oracle about the 60 only.
     assert artifact["retention"]["decisions"] == 60 * (1 + len(artifact["shortening"]))
+    # A cut that drops unsampled atoms, which those decisions never score, is not offered.
+    lossy = [c for c in artifact["shortening"] if c["dropped_unscored_atoms"]]
+    assert lossy and not any(c["safe"] for c in lossy)
+    assert any("drop every span of an atom outside the cap's sample" in line
+               for line in artifact["warnings"])
     forfeits = artifact["run_config"]["tier"]["forfeits"]
     assert not any("frac_carrying_nothing" in line or "looks free" in line for line in forfeits)
     assert any(line.startswith("shortening candidates are scored against a spread sample of 60")

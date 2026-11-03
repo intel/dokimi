@@ -311,12 +311,7 @@ def analyze(
             candidate.text = shorten.render(
                 span_list, candidate.kept_span_ids, frontmatter=config.frontmatter
             )
-        unsafe = [c for c in candidates if not c.safe]
-        if unsafe:
-            warnings.append(
-                f"{len(unsafe)} shortening candidates drop protected spans; they are reported "
-                "so the knowledge-vs-protection gap is visible, not offered as accepted output"
-            )
+        warnings.extend(_unsafe_candidate_warnings(candidates))
 
     # Does an atom's own question and its rewording agree? A `redundant` that survives only
     # the artifact's phrasing is not prior knowledge (open question the kind split exists for).
@@ -399,6 +394,26 @@ def analyze(
         spans=span_list,
         measure_result=measure_result,
     )
+
+
+def _unsafe_candidate_warnings(candidates: list) -> list[str]:
+    """Why some shortening candidates are reported but not offered: a dropped protected span,
+    or every span of an atom outside the cap's sample, which ``knowledge`` does not score."""
+    warnings = []
+    leaky = [c for c in candidates if c.protection < 1.0]
+    if leaky:
+        warnings.append(
+            f"{len(leaky)} shortening candidates drop protected spans; they are reported "
+            "so the knowledge-vs-protection gap is visible, not offered as accepted output"
+        )
+    lossy = [c for c in candidates if c.dropped_unscored_atoms]
+    if lossy:
+        warnings.append(
+            f"{len(lossy)} shortening candidates drop every span of an atom outside the cap's "
+            "sample, a loss `knowledge` does not score; they are reported, not offered as "
+            "accepted output"
+        )
+    return warnings
 
 
 def _outcomes_by_source(

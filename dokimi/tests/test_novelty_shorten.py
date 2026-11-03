@@ -201,3 +201,36 @@ def test_a_span_whose_only_atom_is_unsampled_is_a_sole_carrier_and_the_oracle_se
                              scored_atoms=atoms)
     default = build_candidates(spans, atoms, oracle=RetentionOracle(), budgets=(0.3,))
     assert [c.as_dict() for c in every] == [c.as_dict() for c in default]
+
+
+def _four_one_atom_spans():
+    """Four unprotected spans of 20, 10, 20 and 10 tokens, one atom each."""
+    from dokimi.novelty.spans import Span
+
+    spans, atoms = [], []
+    for i, (word, chars) in enumerate((("alpha", 80), ("bravo", 40), ("charlie", 80),
+                                       ("delta", 40)), start=1):
+        text = " ".join([word] * 20)[:chars]
+        spans.append(Span(id=f"s{i:04d}", kind="sentence", text=text, start=0, end=chars))
+        atoms.append(Atom(statement=text, question=f"Q {word}", answer="a", span_ids=(f"s{i:04d}",)))
+    index_atoms(spans, atoms)
+    assert [span.tokens for span in spans] == [20, 10, 20, 10]
+    return spans, atoms
+
+
+def test_a_cut_that_drops_every_carrier_of_an_unsampled_atom_is_not_safe_and_not_picked():
+    """A cap of two sampled the 2nd and 4th spans' atoms; the oracle never scores the others."""
+    spans, atoms = _four_one_atom_spans()
+    candidates = build_candidates(spans, atoms, oracle=RetentionOracle(client=None),
+                                  budgets=(0.5,), scored_atoms=[atoms[1], atoms[3]])
+    greedy = next(c for c in candidates if c.strategy == "greedy_value")
+    assert greedy.kept_span_ids == ["s0002", "s0004"] and greedy.knowledge == 1.0
+    assert greedy.dropped_unscored_atoms == 2 and greedy.safe is False
+    assert greedy.as_dict()["dropped_unscored_atoms"] == 2
+    assert all(c.dropped_unscored_atoms == 0 for c in candidates if c.safe)
+    assert pick_best(candidates) is not greedy
+    # Uncapped, the oracle scores every atom, so the same cut's loss shows in `knowledge`.
+    uncapped = build_candidates(spans, atoms, oracle=RetentionOracle(client=None), budgets=(0.5,))
+    assert all(c.dropped_unscored_atoms == 0 for c in uncapped)
+    greedy = next(c for c in uncapped if c.strategy == "greedy_value")
+    assert (greedy.knowledge, greedy.safe) == (0.5, True)

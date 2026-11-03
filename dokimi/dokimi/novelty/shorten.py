@@ -61,6 +61,9 @@ class Candidate:
     # so the axis read as "value" was mostly coverage. The number ships next to the rate.
     value_coverage: float = 0.0
     dropped_protected_spans: list[str] = field(default_factory=list)
+    # Atoms outside the oracle's scored sample whose every cited span this candidate drops:
+    # knowledge the oracle never scores, so a cut that loses one is not safe (#371).
+    dropped_unscored_atoms: int = 0
 
     @property
     def token_frac(self) -> float:
@@ -72,9 +75,10 @@ class Candidate:
         """Whether this candidate may be accepted at all.
 
         A candidate that drops a protected span is not a smaller artifact; it is a
-        different one, with a failure mode the knowledge score cannot see.
+        different one, with a failure mode the knowledge score cannot see. Nor is one that
+        drops every span citing an atom the oracle did not score: its loss is not in ``knowledge``.
         """
-        return self.protection >= 1.0
+        return self.protection >= 1.0 and self.dropped_unscored_atoms == 0
 
     def as_dict(self) -> dict:
         """Serializable form."""
@@ -93,6 +97,7 @@ class Candidate:
             "safe": self.safe,
             "kept_spans": len(self.kept_span_ids),
             "dropped_protected_spans": list(self.dropped_protected_spans),
+            "dropped_unscored_atoms": self.dropped_unscored_atoms,
         }
 
 
@@ -151,7 +156,8 @@ def build_candidates(
             (novelty 0.5, at relevance 0.5 when unmatched) to its span's density.
         scored_atoms: The atoms the oracle scores ``knowledge`` and ``value`` over: a capped
             run's sample, so the oracle's pairs grow with the cap, not with the atom count.
-            ``None``: ``atoms``.
+            ``None``: ``atoms``. A candidate that keeps no span cited by an atom outside them
+            counts it in ``dropped_unscored_atoms`` and is not ``safe``.
         budgets: Target token fractions. A budget is a target, not a promise: the safe
             strategies refuse to go below what protection and sole carriers require, and
             report the token fraction they actually reached.
@@ -179,6 +185,9 @@ def build_candidates(
     protected_ids = {span.id for span in spans if span.protected}
     unread_ids = {span.id for span in spans if span.unread and not atoms_by_span[span.id]}
     scored = atoms if scored_atoms is None else scored_atoms
+    scored_ids = {atom.id for atom in scored}
+    unscored_carriers = [{s for s in atom.span_ids if s in atoms_by_span}
+                         for atom in atoms if atom.id not in scored_ids]
     candidates: list[Candidate] = []
 
     for strategy in strategies:
@@ -190,11 +199,14 @@ def build_candidates(
                 unread_ids=unread_ids,
                 relevance=relevance, outcomes=outcomes, categories=categories, seed=seed,
             )
-            candidates.append(_score(
+            candidate = _score(
                 strategy, budget, kept, spans, scored, oracle,
                 tokens_full=tokens_full, protected_ids=protected_ids,
                 relevance=relevance, outcomes=outcomes,
-            ))
+            )
+            candidate.dropped_unscored_atoms = sum(
+                1 for cited in unscored_carriers if cited and cited.isdisjoint(kept))
+            candidates.append(candidate)
             if strategy == "dedupe_only":
                 break  # deduplication ignores the budget; one candidate is the answer
     return candidates

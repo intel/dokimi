@@ -378,7 +378,12 @@ sole carrier when no other span cites its atom, so the safe strategy keeps it. I
 outcome, so they count at the no-outcome default (novelty 0.5, at relevance 0.5 when the need graph
 did not match them) in its density. `knowledge` and `value` are retention of the sampled atoms only
 (`build_candidates` takes them as `scored_atoms`), so the oracle's pairs grow with the cap, not with
-the atom count. With no cap, or a cap the atoms do not exceed, the two sets are the same.
+the atom count. With no cap, or a cap the atoms do not exceed, the two sets are the same. Since
+the oracle cannot see an unsampled atom go, each candidate counts the unsampled atoms none of whose
+cited spans it keeps (`dropped_unscored_atoms`), and a candidate is `safe` only when that is 0 and it
+keeps every protected span. Without `--allow-unsafe`, `pick_best` (the one `shorten --out` writes)
+takes only safe ones, so a `greedy_value` or `random` cut that drops an unsampled fact is still
+built, scored and listed, but not chosen.
 
 Rule of thumb from the measurements: a safety-pinned strategy at 0.60 token fraction held
 `protection = 1.000` with knowledge 0.81–0.96, and pooled across the behavioural sweep every
