@@ -654,15 +654,14 @@ def cmd_novelty_shorten(args: argparse.Namespace) -> None:
     oracle_warning = error_warning(oracle)
     if oracle_warning:
         print(f"WARNING {oracle_warning}", file=sys.stderr)
-    print(
-        f"{'strategy':20s} {'budget':>7s} {'tok':>6s} {'know':>6s} "
-        f"{'value':>6s} {'prot':>6s} safe"
-    )
+    print(f"{'strategy':20s} {'budget':>7s} {'tok':>6s} {'know':>6s} "
+          f"{'value':>6s} {'prot':>6s} {'lost':>4s} safe")
     for candidate in candidates:
         row = candidate.as_dict()
         print(
             f"{row['strategy']:20s} {row['budget_frac']:7.2f} {row['token_frac']:6.2f} "
-            f"{row['knowledge']:6.3f} {row['value']:6.3f} {row['protection']:6.3f} {row['safe']}"
+            f"{row['knowledge']:6.3f} {row['value']:6.3f} {row['protection']:6.3f} "
+            f"{row['dropped_unscored_atoms']:4d} {row['safe']}"
         )
     if args.lexical_only:
         print(

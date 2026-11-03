@@ -18,6 +18,7 @@ from dokimi.novelty.spans import segment
 from dokimi.novelty.tiers import resolve_settings
 from tests import test_novelty_cli as novelty_cli
 from tests.test_novelty_analyze import _scripted
+from tests.test_novelty_report import _artifact as _report_artifact
 
 ROWS = "\n\n".join(f"Setting number {i} defaults to {i * 10}." for i in range(1, 201)) + "\n"
 
@@ -200,6 +201,29 @@ def test_shorten_indexes_every_atom_and_scores_the_recorded_sample(
     if scored == 2:
         assert seen[0][1] == saved["sampled_atom_ids"]
     assert ("NOTE shorten measures the 2 atoms" in capsys.readouterr().err) is (scored == 2)
+
+
+def test_both_shorten_tables_show_the_unsampled_atoms_a_candidate_loses(
+        tmp_path, monkeypatch, capsys):
+    """`prot 1.000 safe False` has a visible reason: the `lost` column."""
+    from dokimi.novelty import shorten
+    from dokimi.novelty.report import render_novelty_markdown
+
+    skill, atoms_json, _saved = _capped_atoms_json(tmp_path, monkeypatch)
+    lossy = shorten.Candidate(strategy="greedy_value", budget_frac=0.5, kept_span_ids=["s0001"],
+                              text="t", tokens=5, tokens_full=10, knowledge=1.0, value=1.0,
+                              protection=1.0, dropped_unscored_atoms=2)
+    monkeypatch.setattr(shorten, "build_candidates", lambda spans, atoms, **kwargs: [lossy])
+    capsys.readouterr()
+    _cli(monkeypatch, "shorten", "--artifact", f"skill:{skill}", "--atoms", str(atoms_json),
+         "--lexical-only")
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].endswith("value   prot lost safe")
+    assert lines[1].endswith("  1.000  1.000  1.000    2 False")
+    markdown = render_novelty_markdown(_report_artifact(shortening=[lossy.as_dict()]))
+    assert "| protection | lost | safe |" in markdown
+    assert "| 1.0 | 1.0 | 1.0 | 2 | False |" in markdown
+    assert "or every span of an atom outside the cap's sample (`lost`" in markdown
 
 
 @pytest.mark.parametrize("flags, probed", [([], 2), (["--all-atoms"], 6)],

@@ -570,17 +570,21 @@ def render_novelty_markdown(artifact: dict) -> str:
     if candidates:
         lines.append("## Shortening candidates")
         lines.append("")
-        lines.append("| strategy | budget | tok frac | knowledge | value | protection | safe |")
-        lines.append("|---|---|---|---|---|---|---|")
+        lines.append(
+            "| strategy | budget | tok frac | knowledge | value | protection | lost | safe |")
+        lines.append("|---|---|---|---|---|---|---|---|")
         for row in candidates:
             lines.append(
                 f"| {row['strategy']} | {row['budget_frac']} | {row['token_frac']} | "
-                f"{row['knowledge']} | {row['value']} | {row['protection']} | {row['safe']} |"
+                f"{row['knowledge']} | {row['value']} | {row['protection']} | "
+                f"{row.get('dropped_unscored_atoms', '—')} | {row['safe']} |"
             )
         lines.append("")
         lines.append(
-            "A candidate with `safe: false` dropped a protected span. Knowledge can read "
-            "high while protection collapses — that pair is the reason the axes stay apart."
+            "A candidate with `safe: false` dropped a protected span, or every span of an "
+            "atom outside the cap's sample (`lost`, a loss `knowledge` does not score). "
+            "Knowledge can read high while protection collapses — that pair is the reason "
+            "the axes stay apart."
         )
         lines.append("")
 
