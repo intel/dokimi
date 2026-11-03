@@ -316,7 +316,9 @@ next release.
 - `dokimi/repos/events.py` — converts a harness trace to the
   `events.jsonl` run trace; `dokimi/repos/cli_traces.py` holds the Codex and
   Copilot JSON converters and the parser of the files a shell command prints
-  (`dokimi/repos/shell_split.py` splits the command into its parts),
+  (`dokimi/repos/shell_split.py` splits the command into its parts, and
+  `dokimi/repos/shell_words.py` finds a part's command word and the
+  directory builtins it runs),
   and `dokimi/repos/answers.py` the `answer_format`
   conversions that turn a native review answer into a findings block.
 - `dokimi/repos/l0/` — `repo scan` (L0): checks the links, paths,
