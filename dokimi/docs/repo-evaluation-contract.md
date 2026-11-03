@@ -1487,7 +1487,8 @@ callers. Per module:
 - `ambiguity`: the share of its function and method names that a different
   function of the same name is defined in another module. A function declared
   in one module and defined in another is one symbol and does not count.
-  Dunder names (`__init__`, `__repr__`, …) are neither counted nor ambiguous.
+  Dunder names (`__init__`, `__repr__`, …) and C++ operator overloads
+  (`operator==`, `operator=`, …) are neither counted nor ambiguous.
   It is `null` when the module has no function names: no names is not a share
   of zero.
 - `in_guidance`: whether an instruction file names the module's path as a token

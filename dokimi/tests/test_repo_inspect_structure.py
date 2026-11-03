@@ -220,7 +220,26 @@ def test_dunder_names_are_neither_counted_nor_ambiguous():
     module_of = {"a/x.py": "a", "b/y.py": "b"}
     _, names_of, ambiguous_of = structure._definitions(_index(docs), {doc: doc for doc in docs}, module_of)
     assert "__init__" not in names_of["a"] and ambiguous_of["a"] == set() and ambiguous_of["b"] == set()
-    assert structure._is_dunder("__init__") and not structure._is_dunder("__") and not structure._is_dunder("_x_")
+    assert structure._is_protocol_name("__init__")
+    assert not structure._is_protocol_name("__") and not structure._is_protocol_name("_x_")
+
+
+@pytest.mark.parametrize("name, expected", [("operator==", True), ("operator=", True), ("operator<<", True),
+                                            ("operator()", True), ("operator bool", True),
+                                            ("operator_helper", False), ("operators", False)])
+def test_cpp_operator_overloads_are_protocol_names(name, expected):
+    assert structure._is_protocol_name(name) is expected
+
+
+def test_cpp_operator_overloads_are_neither_counted_nor_ambiguous():
+    # scip-clang symbols: two classes each define operator== and one method of their own
+    def cxx(cls: str, method: str) -> str:
+        return f"cxx . . $ `{cls}`/C{cls}#`{method}`(001)."
+    docs = {"a/x.cpp": [(cxx("a", "operator=="), True), (cxx("a", "run_a"), True)],
+            "b/y.cpp": [(cxx("b", "operator=="), True), (cxx("b", "run_b"), True)]}
+    module_of = {"a/x.cpp": "a", "b/y.cpp": "b"}
+    _, names_of, ambiguous_of = structure._definitions(_index(docs), {doc: doc for doc in docs}, module_of)
+    assert names_of["a"] == {"run_a"} and ambiguous_of["a"] == set() and ambiguous_of["b"] == set()
 
 
 def test_a_module_without_function_names_has_no_ambiguity_share(capsys):

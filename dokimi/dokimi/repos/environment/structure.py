@@ -16,7 +16,7 @@ subdirectories, the files right in it staying its own. Per module:
   the first two path components (``cpp/daal`` and ``cpp/oneapi`` in oneDAL); a module shallower than
   that is of the same tree as the modules under it;
 * ``ambiguity``: the share of its function and method names that a different function of that name is
-  defined in another module, dunder names aside; ``None`` when it has no function names;
+  defined in another module, dunder names and C++ operators aside; ``None`` when it has no function names;
 * ``in_guidance``: whether an instruction file names its path as a token, or its name between backticks; the
   root ``.`` is in guidance when a root instruction file exists.
 
@@ -123,9 +123,11 @@ def mentioned(module: str, text: str) -> bool:
     return path or re.search(rf"`{re.escape(name)}/?`", text) is not None
 
 
-def _is_dunder(name: str) -> bool:
-    # Protocol methods such as __init__ and __repr__: most classes define them and nobody looks them up by name.
-    return len(name) > 4 and name.startswith("__") and name.endswith("__")
+def _is_protocol_name(name: str) -> bool:
+    # Protocol methods such as __init__ and C++ operator overloads such as operator==: most classes define
+    # them and nobody looks them up by name.
+    dunder = len(name) > 4 and name.startswith("__") and name.endswith("__")
+    return dunder or re.match(r"operator\W", name) is not None
 
 
 def _function_like(symbol: str) -> bool:
@@ -176,7 +178,7 @@ def _definitions(index: CodeIndex, repo_path: dict[str, str],
                  module_of: dict[str, str]) -> tuple[Modules, Modules, Modules]:
     """Function-like symbol -> modules defining it; module -> its names; module -> its ambiguous names.
 
-    Dunder names are neither (see :func:`_is_dunder`).
+    Dunder names and C++ operators are neither (see :func:`_is_protocol_name`).
     A name is ambiguous for a module when there are two or more symbols of that name and one of them is defined
     in another module. A function declared in one module and defined in another is one symbol, so it is not
     ambiguous by itself."""
@@ -192,7 +194,7 @@ def _definitions(index: CodeIndex, repo_path: dict[str, str],
     for symbol in defined_in:
         symbols_of[descriptor_name(symbol) or ""].add(symbol)
     symbols_of.pop("", None)
-    symbols_of = {name: symbols for name, symbols in symbols_of.items() if not _is_dunder(name)}
+    symbols_of = {name: symbols for name, symbols in symbols_of.items() if not _is_protocol_name(name)}
     names_of: Modules = defaultdict(set)
     ambiguous_of: Modules = defaultdict(set)
     for name, symbols in symbols_of.items():
