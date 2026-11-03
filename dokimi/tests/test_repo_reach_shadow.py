@@ -592,15 +592,25 @@ def _refuse_mkdtemp(monkeypatch, work: Path) -> None:
     monkeypatch.setattr(reach.tempfile, "mkdtemp", mkdtemp)
 
 
-@pytest.mark.parametrize("where, why", [("nope", "No such file or directory"), ("a-file", "Not a directory"),
-                                        ("work", "Permission denied")], ids=["missing", "a-file", "unwritable"])
-def test_repo_reach_with_a_work_dir_it_cannot_use_fails_cleanly_in_both_modes(tmp_path, monkeypatch, capsys,
-                                                                             where, why):
+def _mkdtemp_reason(where: Path) -> str:
+    """The reason the OS gives for refusing mkdtemp in ``where`` (its own wording: Windows says "The system cannot
+    find the path specified" where POSIX says "No such file or directory")."""
+    try:
+        made = reach.tempfile.mkdtemp(prefix="reach-", dir=str(where))
+    except OSError as exc:
+        return exc.strerror or str(exc)
+    Path(made).rmdir()
+    raise AssertionError(f"mkdtemp in {where} succeeded")
+
+
+@pytest.mark.parametrize("where", ["nope", "a-file", "work"], ids=["missing", "a-file", "unwritable"])
+def test_repo_reach_with_a_work_dir_it_cannot_use_fails_cleanly_in_both_modes(tmp_path, monkeypatch, capsys, where):
     monkeypatch.setenv("FAKE_MODE", "ok")
     (tmp_path / "work").mkdir()
     (tmp_path / "a-file").write_text("not a directory\n", encoding="utf-8")
     if where == "work":
         _refuse_mkdtemp(monkeypatch, tmp_path / "work")
+    why = _mkdtemp_reason(tmp_path / where)
     argv = _cli(tmp_path, "--work-dir", str(tmp_path / where), "--out", str(tmp_path / "out"),
                 shadow_file="CLAUDE.local.md")
     seen = _both_modes(tmp_path, capsys, argv)
