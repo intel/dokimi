@@ -28,7 +28,7 @@ statistics of a comparison stay in :mod:`dokimi.eval.stats`.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import ROUND_FLOOR, Decimal
+from decimal import ROUND_FLOOR, Context, Decimal
 from fractions import Fraction
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
@@ -283,7 +283,9 @@ def _fmt(value: Optional[float]) -> str:
     # Floored from the shortest repr, not a scaled binary value, so a mean of exactly 0.9 shows 0.90.
     if value is None:
         return "-"
-    text = format(Decimal(repr(float(value))).quantize(Decimal("1e-9"), rounding=ROUND_FLOOR), "f")
+    shortest = Decimal(repr(float(value)))
+    digits = Context(prec=max(28, shortest.adjusted() + 11))  # quantize raises past 28 digits by default
+    text = format(shortest.quantize(Decimal("1e-9"), rounding=ROUND_FLOOR, context=digits), "f")
     whole, _, frac = text.partition(".")
     return f"{whole}.{frac.rstrip('0').ljust(2, '0')}"
 

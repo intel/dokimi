@@ -228,6 +228,16 @@ def test_the_table_and_json_do_not_round_0_89996_up_to_the_ceiling():
     assert _fmt(0.8999999996) == "0.899999999"
 
 
+def test_the_table_prints_an_out_of_range_score_of_any_size():
+    # Scores are not range-checked: an aggregate of 1e21 (and the largest float) used to end in a traceback.
+    run = _run([("1", {"baseline": 1e21, "skill": -1.7e308}), ("2", {"baseline": 1.7e308, "skill": 0})])
+    result = headroom([run])
+    table = format_table(result)
+    assert "10000000000000000000.00" in table and "-1700000000000000000" in table
+    assert _fmt(1.7976931348623157e308).startswith("17976931348623157")
+    assert _fmt(-1e-30) == "-0.000000001"
+
+
 def test_the_table_lists_the_control_arm_once():
     result = headroom([_run([("1", {"baseline": 40, "skill": 60})])], min_reps=2)
     header = format_table(result).splitlines()[0].split()
