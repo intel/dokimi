@@ -118,8 +118,8 @@ def mentioned(module: str, text: str) -> bool:
     name = module.rsplit("/", 1)[-1]
     if module == "." or name not in text:  # the substring test spares the regexes on most modules
         return False
-    # The path as a token: no word, hyphen or extension continues it, a trailing "/" may follow.
-    path = re.search(rf"(?<![\w/.-]){re.escape(module)}(?![\w-]|\.\w)", text) is not None
+    # The path as a token: no word, hyphen or extension continues it, a leading "./" or trailing "/" may go with it.
+    path = re.search(rf"(?<![\w/.-])(?:\./)?{re.escape(module)}(?![\w-]|\.\w)", text) is not None
     return path or re.search(rf"`{re.escape(name)}/?`", text) is not None
 
 

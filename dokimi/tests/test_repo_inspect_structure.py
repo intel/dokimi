@@ -151,6 +151,11 @@ def test_print_structure_lists_kept_modules_escaped(capsys):
     ("pkg", "see xpkg here", False),                   # a word character before the path continues the token
     ("pkg", "see my-pkg", False),                      # a hyphen before it does too
     ("pkg", "see a.pkg", False),                       # and a dot
+    ("src/core", "See ./src/core for the engine.", True),  # a leading "./" is relative to the root
+    ("src/core", "`./src/core/`", True),
+    ("src/core", "[core](./src/core/README.md)", True),
+    ("src/core", "tests/src/core", False),
+    ("src/core", "tests/./src/core and ../src/core", False),
 ])
 def test_guidance_mentions_match_the_path_or_a_backticked_name(module, text, expected):
     assert mentioned(module, text) is expected

@@ -1491,7 +1491,8 @@ callers. Per module:
   It is `null` when the module has no function names: no names is not a share
   of zero.
 - `in_guidance`: whether an instruction file names the module's path as a token
-  (no word, hyphen or extension continues it), or its name between backticks.
+  (no word, hyphen or extension continues it; a leading `./` may precede it),
+  or its name between backticks.
   The root `.` is in guidance when a root instruction file exists, since no
   path names it.
 
