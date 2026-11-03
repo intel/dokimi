@@ -97,6 +97,9 @@ class RagasEvaluator:
 
         self._ragas_llm = self._build_ragas_llm()
         self._metric_objects = self._build_metrics()
+        # Kept here, not on ragas's module-level metric, which every evaluator shares.
+        self._ragas_embeddings = (self._build_ragas_embeddings()
+                                  if "answer_relevancy" in self._requested else None)
 
     # -------------------------------------------------------------------------
     # Public API
@@ -167,6 +170,7 @@ class RagasEvaluator:
                     ds,
                     metrics=active_metrics,
                     llm=self._ragas_llm,
+                    embeddings=self._ragas_embeddings,
                     raise_exceptions=False,
                 )
                 df = result.to_pandas()
@@ -201,6 +205,7 @@ class RagasEvaluator:
                     ds_wod,
                     metrics=[ar_metric],
                     llm=self._ragas_llm,
+                    embeddings=self._ragas_embeddings,
                     raise_exceptions=False,
                 )
                 df_wod = result_wod.to_pandas()
@@ -291,8 +296,6 @@ class RagasEvaluator:
         # Attach LLM to each metric
         for m in metrics:
             m.llm = self._ragas_llm
-        if "answer_relevancy" in self._requested:
-            answer_relevancy.embeddings = self._build_ragas_embeddings()
         return metrics
 
     def _build_ragas_embeddings(self):

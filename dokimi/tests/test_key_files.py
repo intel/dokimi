@@ -94,8 +94,9 @@ def ragas_stubs(monkeypatch):
 
 @pytest.fixture
 def chat_models(ragas_stubs, monkeypatch):
-    """The chat models built, with no metric (and so no embeddings) built."""
+    """The chat models built, with no metric and no embeddings built."""
     monkeypatch.setattr(RagasEvaluator, "_build_metrics", lambda self: [])
+    monkeypatch.setattr(RagasEvaluator, "_build_ragas_embeddings", lambda self: None)
     return ragas_stubs
 
 
@@ -165,22 +166,56 @@ def _answer_relevancy():
     return sys.modules["ragas.metrics"].answer_relevancy
 
 
+def _embeddings(key):
+    return "embeddings", {"model": "text-embedding-ada-002", "openai_api_key": key}
+
+
 def test_ragas_embeddings_read_a_key_file(ragas_stubs, tmp_path, monkeypatch):
     # ragas embeds answer_relevancy with OpenAI whatever the judge; its default read file: as is.
     key = tmp_path / "key"
     key.write_text("sk-embed\n")
     monkeypatch.setenv("OPENAI_API_KEY", f"file:{key}")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-judge")
-    RagasEvaluator(provider="anthropic", metrics=["answer_relevancy"])
-    embeddings = ("embeddings", {"model": "text-embedding-ada-002", "openai_api_key": "sk-embed"})
-    assert _answer_relevancy().embeddings == embeddings
-    assert embeddings in ragas_stubs
+    evaluator = RagasEvaluator(provider="anthropic", metrics=["answer_relevancy"])
+    assert evaluator._ragas_embeddings == _embeddings("sk-embed")
+    assert _answer_relevancy().embeddings == "unset"
+
+
+def test_each_evaluator_keeps_its_own_embeddings(ragas_stubs, monkeypatch):
+    # ragas's answer_relevancy is one module-level object that every evaluator shares.
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-A")
+    first = RagasEvaluator(provider="openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-B")
+    second = RagasEvaluator(provider="openai")
+    monkeypatch.delenv("OPENAI_API_KEY")
+    RagasEvaluator(provider="anthropic", api_key="sk-judge")
+    assert first._ragas_embeddings == _embeddings("sk-A")
+    assert second._ragas_embeddings == _embeddings("sk-B")
+    assert _answer_relevancy().embeddings == "unset"
+
+
+def test_both_arms_are_scored_with_the_evaluators_embeddings(ragas_stubs, monkeypatch):
+    calls = []
+
+    def ragas_evaluate(dataset, **kwargs):
+        calls.append(kwargs)
+        raise RuntimeError("stop after the call")  # evaluate logs it and goes on
+
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-A")
+    evaluator = RagasEvaluator(provider="openai")
+    monkeypatch.setattr("dokimi.eval.ragas_eval._import_ragas_runtime",
+                        lambda: (types.SimpleNamespace(from_list=list), ragas_evaluate))
+    answers = [{"question_id": "q1", "question_text": "How?",
+                "with_docs": {"answer": "a", "retrieved_docs": [{"snippet": "s"}]},
+                "without_docs": {"answer": "b"}}]
+    evaluator.evaluate(answers, include_without_docs=True)
+    assert [call["embeddings"] for call in calls] == [_embeddings("sk-A")] * 2
 
 
 def test_ragas_embeddings_without_a_key_stay_ragas_default(ragas_stubs, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    RagasEvaluator(provider="openai", api_key="sk-judge", metrics=["answer_relevancy"])
-    assert _answer_relevancy().embeddings is None
+    evaluator = RagasEvaluator(provider="openai", api_key="sk-judge", metrics=["answer_relevancy"])
+    assert evaluator._ragas_embeddings is None
     assert [name for name, _ in ragas_stubs] == ["openai"]
 
 
@@ -198,8 +233,8 @@ def test_ragas_embeddings_raise_on_a_bad_key_file(content, ragas_stubs, tmp_path
 def test_ragas_builds_no_embeddings_without_answer_relevancy(ragas_stubs, tmp_path, monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", f"file:{tmp_path / 'no-such-key'}")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-judge")
-    RagasEvaluator(provider="anthropic", metrics=["faithfulness"])
-    assert _answer_relevancy().embeddings == "unset"
+    evaluator = RagasEvaluator(provider="anthropic", metrics=["faithfulness"])
+    assert evaluator._ragas_embeddings is None
     assert [name for name, _ in ragas_stubs] == ["anthropic"]
 
 
