@@ -15,12 +15,14 @@ time; mypy is imported by :func:`grade` and must be importable by the image's ``
 
 from __future__ import annotations
 
+import io
 import os
 import posixpath
 import re
 import shutil
 import sys
 import tempfile
+import tokenize
 from pathlib import Path
 from typing import Any
 
@@ -115,6 +117,16 @@ def _package_roots(workspace: Path, paths: list[str]) -> list[Path]:
     return roots
 
 
+def _comments(text: str) -> list[tuple[int, str]]:
+    """The comments of a Python source, with their lines: a marker inside a string or a docstring is not one.
+    A source the tokenizer cannot read is taken line by line, so a marker in it still counts."""
+    try:
+        tokens = tokenize.generate_tokens(io.StringIO(text).readline)
+        return [(tok.start[0], tok.string) for tok in tokens if tok.type == tokenize.COMMENT]
+    except (tokenize.TokenError, SyntaxError):
+        return list(enumerate(text.splitlines(), 1))
+
+
 def _silenced(workspace: Path, listed: list[str]) -> list[str]:
     """Where the workspace silences mypy: ``file:line`` for a comment, the path for a stub (``.pyi`` shadows a module).
 
@@ -122,7 +134,7 @@ def _silenced(workspace: Path, listed: list[str]) -> list[str]:
     found = []
     for p in listed:
         text = (workspace / p).read_text(encoding="utf-8", errors="replace")
-        found += [f"{p}:{n}" for n, line in enumerate(text.splitlines(), 1) if _SILENCE.search(line)]
+        found += [f"{p}:{n}" for n, comment in _comments(text) if _SILENCE.search(comment)]
     for dirpath, _, filenames in os.walk(workspace):
         found += [Path(dirpath, name).relative_to(workspace).as_posix() for name in filenames if name.endswith(".pyi")]
     return found

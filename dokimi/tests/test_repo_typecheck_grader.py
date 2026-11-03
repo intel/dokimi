@@ -506,6 +506,35 @@ def test_a_clean_listed_file_has_no_suppressions(tmp_path):
     assert result["n_suppressions"] == 0
 
 
+@pytest.mark.parametrize("source", [
+    'MESSAGE = "# type: ignore"\n' + CLEAN,
+    '"""Show the marker:\n\n    # mypy: ignore-errors\n    x = 1  # type: ignore\n"""\n' + CLEAN,
+])
+def test_a_marker_inside_a_string_is_not_a_suppression(tmp_path, source):
+    # mypy reads comments only: the text of a string or a docstring that shows a marker silences nothing
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": source}, _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is True
+    assert result["n_suppressions"] == 0
+
+
+def test_a_genuine_suppression_after_a_docstring_is_named_on_its_own_line(tmp_path):
+    source = '"""Show:\n\n    # mypy: ignore-errors\n"""\nVALUE: int = 1  # type: ignore\n'
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": source}, _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is False
+    assert result["n_suppressions"] == 1
+    assert result["errors"] == ["pkg/api.py:5: mypy is silenced here (fix the code instead)"]
+
+
+def test_a_source_that_does_not_tokenize_still_counts_its_marker(tmp_path):
+    # no comment stream to read: the marker is found line by line, and the file fails mypy's parse anyway
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": "def add(:\n    return 1  # type: ignore\n"}, _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is False
+    assert result["n_suppressions"] == 1
+
+
 def test_a_type_error_is_graded_from_any_working_directory(tmp_path, monkeypatch):
     # mypy prints names relative to the cwd: "workspace/pkg/api.py" matched no listed name, so the error was dropped
     run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": WRONG}, _task())

@@ -622,6 +622,56 @@ def test_a_fragment_with_a_real_error_still_fails(tmp_path):
     assert claim["status"] == "fail"
 
 
+def test_basedpyright_top_level_await_return_and_yield_are_fragments_not_stale(tmp_path, monkeypatch):
+    # basedpyright words these in its own way (pyright's messages, an optional rule suffix): not mypy's wording
+    from dokimi.repos.l0 import typecheck as l0_typecheck
+
+    fences = ["await asyncio.sleep(1)", "return 1", "yield 1"]
+    messages = ['"await" allowed only within async function', '"return" can be used only within a function',
+                '"yield" not allowed outside of a function or lambda']
+
+    def fake(argv, cwd, stdin=None):
+        if stdin is not None:  # the fences parse
+            return _completed(returncode=0, stdout=json.dumps([None] * len(fences)))
+        if argv[-1] == "--version":
+            return _completed(returncode=0, stdout="basedpyright 1.31.6\n")
+        report = {"generalDiagnostics": [
+            {"file": f"fence-{i}.py", "severity": "error", "message": message, "rule": "reportGeneralTypeIssues",
+             "range": {"start": {"line": 0}}} for i, message in enumerate(messages)]}
+        return _completed(returncode=1, stdout=json.dumps(report), stderr="")
+
+    monkeypatch.setattr(l0_typecheck, "_run_tool", fake)
+    monkeypatch.setattr(l0_typecheck, "python_version", lambda check: (3, 12))
+    payload = scan_repo(_tree(tmp_path, "".join(f"{FENCE}python\n{code}\n{FENCE}\n\n" for code in fences)),
+                        parse_manifest(MANIFEST), typecheck=Check("basedpyright", sys.executable))
+    claims = _fence_claims(payload)
+    assert [c["status"] for c in claims] == ["unresolved"] * 3
+    assert all("longer example" in c["why"] for c in claims)
+    assert payload["typecheck"]["fail"] == 0
+
+
+def test_the_fence_parser_runs_where_ast_parse_has_no_type_comments_keyword(monkeypatch):
+    # Python 3.7's ast.parse takes no type_comments keyword: the fence is parsed without it, not a crash
+    import ast
+    import io
+
+    from dokimi.repos.l0 import typecheck as l0_typecheck
+
+    real_parse = ast.parse
+
+    def parse_3_7(source, filename="<unknown>", mode="exec", *, feature_version=None):
+        return real_parse(source, filename, mode, feature_version=feature_version)
+
+    monkeypatch.setattr(ast, "parse", parse_3_7)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(["x: int = 1", "f("])))
+    out = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", out)
+    exec(compile(l0_typecheck._PARSE, "<parse>", "exec"), {"__name__": "__main__"})
+    valid, invalid = json.loads(out.getvalue())
+    assert valid is None
+    assert invalid is not None
+
+
 def test_the_scan_command_refuses_a_python_env_that_is_a_directory(tmp_path, capsys):
     # os.access(X_OK) is true for a directory: only a regular file can be the interpreter
     args = build_parser().parse_args(["repo", "scan", str(tmp_path), "--typecheck", "--python-env", str(tmp_path)])

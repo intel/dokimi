@@ -602,7 +602,8 @@ repository's checks with its own without knowing their rules.
 A task whose `grader` is `dokimi:<name>` is graded by the framework, not by
 the repository's `grade` and `oracle` entry points; any other name goes to
 those entry points. Such a task is data only: its directory holds
-`task.json`, the patch and the JSON files the grader reads. The `dokimi:`
+`task.json`, the patch and the JSON files the grader reads (and, for
+`dokimi:typecheck`, an optional `reference/` directory, §4.5 below). The `dokimi:`
 prefix is the framework's: an unknown `dokimi:` name fails `tasks check` and
 the run's grade, and is never handed to the repository.
 
@@ -612,7 +613,9 @@ framework's grader code is mounted read-only at `/eval/graders` (never into
 the agent's container) and runs as
 `python3 -I -B /eval/graders/main.py grade|oracle <name> <task dir> /eval/run`,
 where `<task dir>` is the task's directory under `{eval_dir}`. It uses the
-standard library only and the image's `python3` (3.8 or newer). `-I` keeps
+standard library only and the image's `python3` (3.8 or newer), except
+`dokimi:typecheck`, which imports the image's mypy (the pinned one, on Python
+3.10 or newer). `-I` keeps
 `PYTHONPATH` from `image.env` and the workspace off `sys.path`; `-B` prevents
 writing `.pyc` files to the read-only mount. An image with no `python3` on
 `PATH` is a grader failure that says so: the grader exits 127 and its
@@ -626,7 +629,8 @@ other exit 127 is reported as a plain `grade exited 127`.
   `pass: null` with `errors`. A metric the task's `gate` names that the grader
   did not produce is `null`.
 - `oracle` writes the reference answer to `answer.txt` and leaves the
-  workspace alone.
+  workspace alone, except `dokimi:typecheck`, whose `oracle` copies `reference/`
+  over the workspace (see its paragraph below).
 
 A review task with `pass: null` is scored, not gated: give it `score`. A `gate`
 on its metrics is not applied (`success` is null), and without `score` the run

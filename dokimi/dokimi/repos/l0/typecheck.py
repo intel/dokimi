@@ -32,9 +32,13 @@ MAX_WHY = 200
 # The oldest repository Python each tool accepts: the pinned mypy 2.x refuses --python-version 3.9 and exits 2.
 MIN_PYTHON = {"mypy": (3, 10)}
 # Errors a fence has only because it is a fragment of a longer example: a name an earlier fence defines, or
-# await/return/yield outside a function. Any other error is real, whatever else the fence has.
+# await/return/yield outside a function. Each tool words them its own way (mypy, then basedpyright, which may add
+# a rule name). Any other error is real, whatever else the fence has.
 _FRAGMENT = re.compile(r'^(?:Name "[^"]+"|"[^"]+") is not defined(?: \[reportUndefinedVariable\])?$'
-                       r'|^"(?:await|return|yield)" outside function$')
+                       r'|^"(?:await|return|yield)" outside function$'
+                       r'|^"await" allowed only within async function(?: \[\w+\])?$'
+                       r'|^"return" can be used only within a function(?: \[\w+\])?$'
+                       r'|^"yield" not allowed outside of a function or lambda(?: \[\w+\])?$')
 
 
 class TypecheckError(RuntimeError):
@@ -43,7 +47,7 @@ class TypecheckError(RuntimeError):
 
 @dataclass(frozen=True)
 class Check:
-    tool: str  # ``mypy`` (the host's pinned copy) or ``basedpyright`` (on PATH)
+    tool: str  # ``mypy`` (dokimi's own interpreter, pinned in requirements-test.txt) or ``basedpyright`` (on PATH)
     python: str | None = None  # the repository's interpreter; None means unknown, nothing is checked
 
 
@@ -174,10 +178,15 @@ def _label(code: str) -> str:
 
 _PARSE = """\
 import ast, json, sys
+def parse(code):
+    try:
+        ast.parse(code, type_comments=True)
+    except TypeError:  # Python 3.7: ast.parse has no type_comments keyword (it came in 3.8)
+        ast.parse(code)
 out = []
 for code in json.load(sys.stdin):
     try:
-        ast.parse(code, type_comments=True)
+        parse(code)
         out.append(None)
     except (SyntaxError, ValueError, RecursionError, MemoryError) as exc:
         out.append((exc.msg or "invalid syntax") if isinstance(exc, SyntaxError) else type(exc).__name__)
