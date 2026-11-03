@@ -90,10 +90,21 @@ def test_a_bedrock_arn_keeps_the_bedrock_route(caller, fake_llm):
     assert sent(caller, fake_llm, ARN, "amazon-bedrock").litellm_model == f"bedrock/{ARN}"
 
 
+@pytest.mark.parametrize("caller", CALLERS)
+@pytest.mark.parametrize("model", ["meta/llama-3.1-405b-instruct-maas", "mistralai/mistral-large"])
+def test_a_vertex_model_garden_name_keeps_the_vertex_route(caller, model, fake_llm):
+    # Its "/" is a publisher, not a litellm route: without vertex_ai/ litellm cannot place it.
+    assert sent(caller, fake_llm, model, "google-vertex").litellm_model == f"vertex_ai/{model}"
+
+
 def test_the_answerer_table_routes_a_bedrock_arn_and_vertex_ai():
     # An ARN has a "/", which the table passed through without a route; litellm cannot place it.
     assert resolve_model(ARN, "amazon-bedrock") == f"bedrock/{ARN}"
     assert api_key_env("vertex_ai") == "GEMINI_API_KEY"
+    assert resolve_model("meta/llama-3.1-405b-instruct-maas", "google") == "vertex_ai/meta/llama-3.1-405b-instruct-maas"
+    # A litellm route of its own passes through: Google AI Studio, or an explicit Vertex one.
+    assert [resolve_model(m, "google-vertex") for m in ("gemini/gemini-2.5-pro", "vertex_ai/x")] == [
+        "gemini/gemini-2.5-pro", "vertex_ai/x"]
 
 
 BARE = "claude-sonnet-4"  # off BEDROCK_MODEL_IDS: get_llm ran the box's default Sonnet for it

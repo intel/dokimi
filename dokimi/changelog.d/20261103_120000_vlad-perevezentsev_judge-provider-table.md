@@ -18,9 +18,11 @@
     `Cannot read API key from file ...` before any request.
   - OpenRouter output was capped at 2000 tokens. It now has no ceiling of its own, as the answerer
     there never did.
-  - A model name with a `/` passes through as litellm's own route, as for the answerer: on
+  - A model name that starts with a litellm route passes through, as for the answerer: on
     `google`/`google-vertex`, `gemini/gemini-2.5-pro` goes to Google AI Studio instead of
     `vertex_ai/gemini/...`, and on Bedrock `bedrock/...` is no longer doubled to `bedrock/bedrock/...`.
+    A Vertex Model Garden name (`meta/llama-3.1-405b-instruct-maas`) keeps its `vertex_ai/` route;
+    the answerer sent it without one, which litellm cannot place, and now adds it too.
   - The `vertex_ai` provider name sent no key. It now reads `GEMINI_API_KEY`, as `google-vertex`
     does. The answerer sent it `OPENAI_API_KEY`, and now reads `GEMINI_API_KEY` too.
   - The answerer routed a Bedrock ARN without its `bedrock/` prefix, so litellm could not place
