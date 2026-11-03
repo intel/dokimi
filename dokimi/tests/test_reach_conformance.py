@@ -351,6 +351,42 @@ def test_fixtures_digest_follows_each_file_and_link(tmp_path):
     assert len({base, edited, cf.fixtures_digest(tree)}) == 3
 
 
+def test_fixtures_digest_counts_a_link_by_its_target_text(tmp_path):
+    tree = tmp_path / "t"
+    tree.mkdir()
+    (tree / "real.md").write_text("same\n", encoding="utf-8")
+    (tree / "other.md").write_text("same\n", encoding="utf-8")
+    os.symlink("real.md", tree / "LINK.md")
+    linked = cf.fixtures_digest(tree)
+    (tree / "LINK.md").unlink()
+    os.symlink("other.md", tree / "LINK.md")  # the same bytes behind it: only the link's text differs
+    retargeted = cf.fixtures_digest(tree)
+    assert retargeted != linked
+    (tree / "LINK.md").unlink()
+    assert cf.fixtures_digest(tree) not in {linked, retargeted}  # a missing link is a change too
+
+
+def test_fixtures_digest_frames_each_path_and_its_data(tmp_path):
+    one, two = tmp_path / "one", tmp_path / "two"
+    one.mkdir()
+    two.mkdir()
+    (one / "a").write_bytes(b"Fb")  # path "a" then data "F" + "Fb": without length prefixes, "aFFb"
+    (two / "aF").write_bytes(b"b")  # path "aF" then data "F" + "b": the same bytes, a different tree
+    assert cf.fixtures_digest(one) != cf.fixtures_digest(two)
+
+
+def test_fixtures_digest_does_not_depend_on_the_walk_order(tmp_path, monkeypatch):
+    tree = tmp_path / "t"
+    tree.mkdir()
+    for name in ("a.md", "b.md", "c.md"):
+        (tree / name).write_text(name, encoding="utf-8")
+    os.symlink("a.md", tree / "L.md")
+    ordinary = cf.fixtures_digest(tree)
+    walk = type(tree).rglob
+    monkeypatch.setattr(type(tree), "rglob", lambda self, pattern: reversed(list(walk(self, pattern))))
+    assert cf.fixtures_digest(tree) == ordinary  # the same tree, walked in the other order: one digest
+
+
 def test_expectations_digest_follows_the_content_not_the_key_order():
     expect = cf.load_expectations(FIXTURES / "expectations.yaml")
     reordered = dict(reversed(list(expect.items())))
