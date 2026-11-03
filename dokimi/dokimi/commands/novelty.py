@@ -142,8 +142,8 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
 
 def cmd_novelty_atoms(args: argparse.Namespace) -> None:
     """Extract atoms and spans only — the expensive stage, cached for reuse."""
-    from dokimi.novelty.atoms import (ExtractionError, ExtractionReport, extract_atoms, save_atoms,
-                                      verify_atoms)
+    from dokimi.novelty.atoms import (ExtractionError, ExtractionReport, extract_atoms, sample_atoms,
+                                      save_atoms, verify_atoms)
     from dokimi.novelty.report import cap_warning
     from dokimi.novelty.spans import segment, span_summary
 
@@ -157,21 +157,23 @@ def cmd_novelty_atoms(args: argparse.Namespace) -> None:
         atoms = extract_atoms(spans, client=extractor, cap=cap, report=extraction)
     except ExtractionError as exc:
         raise SystemExit(str(exc)) from None
+    sample = sample_atoms(atoms, spans, cap)  # what the run probes; atoms.json holds every atom
     # The cap warning analyze records; probe and shorten, which read atoms.json, do not repeat it.
     sampled = [cap_warning(extraction.as_dict())] if extraction.sampled else []
     for warning in extraction.warnings(len(spans)) + sampled:
         print(f"WARNING {warning}", file=sys.stderr)
     if settings.values["verify_faithfulness"]:
-        verify_atoms(atoms, spans, client=extractor)
+        verify_atoms(sample, spans, client=extractor)
     out = Path(args.out) if args.out else _default_dir(args.artifact) / "atoms.json"
     save_atoms(atoms, spans, out, extractor=extractor.model, cap=cap,
-               bundle=artifact_bundle.summary(), extraction=extraction)
-    print(f"OK Saved {len(atoms)} atoms over {len(spans)} spans: {out}")
-    print(json.dumps(span_summary(spans, atoms, capped=extraction.sampled is not None), indent=2))
+               bundle=artifact_bundle.summary(), extraction=extraction, sample=sample)
+    print(f"OK Saved {len(atoms)} atoms ({len(sample)} sampled) over {len(spans)} spans: {out}")
+    print(json.dumps(span_summary(spans, atoms), indent=2))
 
 
 def cmd_novelty_probe(args: argparse.Namespace) -> None:
     """Run the paired probes against a saved atom set and print the 2×2."""
+    from dokimi.commands.novelty_atoms_file import measured_atoms, warn_unread
     from dokimi.novelty.atoms import load_atoms_or_exit
     from dokimi.novelty.bundle import check_answer_key
     from dokimi.novelty.measure import SelfJudgeError, check_self_judge, run_measurement
@@ -179,7 +181,8 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
     from dokimi.novelty.report import build_probe_record
 
     atoms, saved_spans, saved = load_atoms_or_exit(args.atoms)
-    _warn_unread(saved_spans, "the atoms probed here leave out whatever those spans assert")
+    atoms = measured_atoms(args, atoms, saved, "probe")
+    warn_unread(saved_spans, "the atoms probed here leave out whatever those spans assert")
     verdict = check_answer_key(args.artifact, saved.get("bundle"), source=args.atoms)
     if not verdict.ok:
         usage_exit(verdict.message)
@@ -624,6 +627,7 @@ def _refuse_no_queries(args: argparse.Namespace, queries: list[str], self_derive
 
 def cmd_novelty_shorten(args: argparse.Namespace) -> None:
     """Score shortening candidates on the five axes and optionally write the best one."""
+    from dokimi.commands.novelty_atoms_file import measured_atoms, warn_unread
     from dokimi.novelty.artifact import load_artifact_or_exit
     from dokimi.novelty.atoms import load_atoms_or_exit
     from dokimi.novelty.bundle import entry_point_only
@@ -638,15 +642,15 @@ def cmd_novelty_shorten(args: argparse.Namespace) -> None:
         usage_exit(f"{args.atoms}: {exc}")
     if note:
         print(note, file=sys.stderr)
-    _warn_unread(spans, "every candidate keeps them, since what they carry is unknown")
+    warn_unread(spans, "every candidate keeps them, since what they carry is unknown")
+    scored = measured_atoms(args, atoms, saved, "shorten")
     client = _client(args.extract_model or args.model, args.provider, "oracle", args) \
         if not args.lexical_only else None
     oracle = RetentionOracle(
         client=client, cache_dir=Path(args.cache_dir) if args.cache_dir else None
     )
-    candidates = build_candidates(
-        spans, atoms, oracle=oracle, budgets=tuple(args.budgets), seed=args.seed
-    )
+    candidates = build_candidates(spans, atoms, oracle=oracle, budgets=tuple(args.budgets),
+                                  seed=args.seed, scored_atoms=scored)
     oracle_warning = error_warning(oracle)
     if oracle_warning:
         print(f"WARNING {oracle_warning}", file=sys.stderr)
@@ -687,12 +691,13 @@ def cmd_novelty_shorten(args: argparse.Namespace) -> None:
 
 def cmd_novelty_view(args: argparse.Namespace) -> None:
     """Re-render the annotated view from a saved novelty artifact plus its atoms."""
+    from dokimi.commands.novelty_atoms_file import warn_unread
     from dokimi.commands.novelty_view_inputs import load_view_inputs
     from dokimi.novelty.attribute import attribute_spans
     from dokimi.novelty.report import render_annotated_html, render_annotated_markdown
 
     artifact, atoms, spans = load_view_inputs(args.novelty, args.atoms)
-    _warn_unread(spans, "they render as `unread`, not as text that carries nothing")
+    warn_unread(spans, "they render as `unread`, not as text that carries nothing")
     # Re-rendering needs per-atom outcomes; the artifact carries aggregates, so a view
     # rebuilt from it alone would colour by category only. Say so instead of implying the
     # colours mean more than they do.
@@ -707,20 +712,6 @@ def cmd_novelty_view(args: argparse.Namespace) -> None:
         "NOTE colours here come from spans and categories only. For outcome colouring "
         "(added / degraded), render during `novelty analyze`, which has the paired runs."
     )
-
-
-def _warn_unread(spans: list, consequence: str) -> None:
-    """Say on stderr that ``atoms.json`` records spans extraction never read.
-
-    The record is the only trace of them after ``novelty atoms``, so each stage that
-    reads the file repeats it, with what it means for that stage.
-    """
-    unread = [span for span in spans if span.unread]
-    if unread:
-        print(f"WARNING: {len(unread)} of {len(spans)} spans "
-              f"({sum(span.tokens for span in unread)} tokens) were never read by "
-              f"extraction (see `extraction` in the atoms file); {consequence}",
-              file=sys.stderr)
 
 
 def _bundle_from_args(args: argparse.Namespace):
@@ -946,7 +937,8 @@ def _add_common(parser: argparse.ArgumentParser, positive_int) -> None:
                              "Unset by default so that passing the default value explicitly "
                              "still overrides a --tier cap")
     parser.add_argument("--all-atoms", action="store_true", dest="all_atoms",
-                        help="Probe every extracted atom (opt-in: this is the expensive sweep)")
+                        help="Probe every extracted atom (opt-in: the expensive sweep); with "
+                             "--atoms, every atom in the file, not only the cap's sample")
     parser.add_argument("--budgets", type=float, nargs="+", default=[0.75, 0.5],
                         help="Target token fractions for shortening candidates")
     parser.add_argument("--cache-dir", default=None, dest="cache_dir",

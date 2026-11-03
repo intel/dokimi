@@ -66,8 +66,8 @@ LEGEND = {
     "blue": "states something the model got wrong with and without it, and nothing it "
             "already knew: rephrase or promote it",
     "plain": "carries atoms with no measured outcome and none judged inert or scaffolding "
-             "(unprobed atoms judged useful, or atoms the value judge did not answer for), "
-             "so no colour is claimed",
+             "(unprobed atoms judged useful, atoms the value judge did not answer for, or "
+             "atoms outside a capped run's sample), so no colour is claimed",
     "hatched": "not read: every extraction call for this span failed, so what it carries "
                "is unknown",
     "dim": "no extracted atom — an upper bound on dead weight, not proof of it",

@@ -169,9 +169,12 @@ def analyze(
     warnings: list[str] = []
     span_list = spans.segment(text)
     extraction = atoms_mod.ExtractionReport()
-    atom_list = atoms_mod.extract_atoms(
+    extracted = atoms_mod.extract_atoms(
         span_list, client=extractor, cap=config.max_atoms, report=extraction
     )
+    # Spans, attribution and shortening's structure index every atom; the paid stages see the
+    # cap's sample: https://github.com/intel/dokimi/issues/371
+    atom_list = atoms_mod.sample_atoms(extracted, span_list, config.max_atoms)
     warnings.extend(extraction.warnings(len(span_list)))
     settings = RunSettings.of(config)
     if tier:
@@ -279,7 +282,7 @@ def analyze(
         warnings.append("content categories were not judged (--no-classify)")
 
     attributions = attribute.attribute_spans(
-        span_list, atom_list, outcomes=outcomes, categories=categories
+        span_list, extracted, outcomes=outcomes, categories=categories
     )
     oracle = RetentionOracle(client=extractor, cache_dir=config.cache_dir)
     confirmation: dict | None = None
@@ -300,8 +303,9 @@ def analyze(
     candidates: list = []
     if config.shorten_artifact and atom_list:
         candidates = shorten.build_candidates(
-            span_list, atom_list, oracle=oracle, budgets=config.budgets,
+            span_list, extracted, oracle=oracle, budgets=config.budgets,
             relevance=relevance, outcomes=outcomes, categories=categories, seed=config.seed,
+            scored_atoms=atom_list,
         )
         for candidate in candidates:
             candidate.text = shorten.render(
@@ -362,7 +366,7 @@ def analyze(
         atoms=atom_list,
         sampling=sampling,
         measure_result=measure_result,
-        span_summary=spans.span_summary(span_list, atom_list, capped=capped),
+        span_summary=spans.span_summary(span_list, extracted),
         by_knowledge_kind=by_knowledge_kind,
         probe_fidelity=probe_set.as_dict(),
         items=item_stats,

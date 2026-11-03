@@ -108,7 +108,8 @@ def span_value(
 
     A conflicting atom contributes *negatively*: keeping the span is worse than dropping
     it, and a selector that treated harm as merely worthless would keep it whenever it
-    was cheap.
+    was cheap. An atom with no outcome (unprobed, such as one outside a capped run's sample)
+    counts at novelty 0.5, and one with no relevance at 0.5.
     """
     relevance = relevance or {}
     outcomes = outcomes or {}
@@ -138,10 +139,19 @@ def build_candidates(
     categories: dict[str, str] | None = None,
     pin_kinds: tuple[str, ...] = ("heading",),
     seed: int = 0,
+    scored_atoms: list[Atom] | None = None,
 ) -> list[Candidate]:
     """Build and score one candidate per (strategy, budget).
 
     Args:
+        atoms: Every extracted atom. Sole carriers, deduplication and each span's value
+            density come from these, so a span whose atoms are all outside ``scored_atoms``
+            still carries knowledge (and is a sole carrier when no other span cites its atom).
+            Such an atom has no outcome, so it adds :func:`span_value`'s no-outcome default
+            (novelty 0.5, at relevance 0.5 when unmatched) to its span's density.
+        scored_atoms: The atoms the oracle scores ``knowledge`` and ``value`` over: a capped
+            run's sample, so the oracle's pairs grow with the cap, not with the atom count.
+            ``None``: ``atoms``.
         budgets: Target token fractions. A budget is a target, not a promise: the safe
             strategies refuse to go below what protection and sole carriers require, and
             report the token fraction they actually reached.
@@ -168,6 +178,7 @@ def build_candidates(
     tokens_full = sum(span.tokens for span in spans)
     protected_ids = {span.id for span in spans if span.protected}
     unread_ids = {span.id for span in spans if span.unread and not atoms_by_span[span.id]}
+    scored = atoms if scored_atoms is None else scored_atoms
     candidates: list[Candidate] = []
 
     for strategy in strategies:
@@ -180,7 +191,7 @@ def build_candidates(
                 relevance=relevance, outcomes=outcomes, categories=categories, seed=seed,
             )
             candidates.append(_score(
-                strategy, budget, kept, spans, atoms, oracle,
+                strategy, budget, kept, spans, scored, oracle,
                 tokens_full=tokens_full, protected_ids=protected_ids,
                 relevance=relevance, outcomes=outcomes,
             ))

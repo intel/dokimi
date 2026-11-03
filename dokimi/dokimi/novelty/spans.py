@@ -271,7 +271,9 @@ def span_summary(spans: list[Span], atoms: list | None = None, *, capped: bool =
     were simply the two largest. Where the cap did not bind, the two agreed exactly. So
     ``n_atoms_indexed`` and ``capped_atom_set`` ship next to the fraction, and a reader
     who sees ``capped_atom_set: true`` must not read the fraction as a property of the
-    artifact. A sampling cap that is honest for one metric silently corrupts another.
+    artifact. A sampling cap that is honest for one metric silently corrupts another. A
+    capped run probes a sample but indexes every extracted atom, so it writes ``false`` too;
+    ``true`` is on artifacts written before https://github.com/intel/dokimi/issues/371.
 
     Extractor recall is the other limit, and it is now measured rather than assumed
     (skill-novelty-evidence.md §10.7): three extractors over the same artifacts cited the same
@@ -280,10 +282,10 @@ def span_summary(spans: list[Span], atoms: list | None = None, *, capped: bool =
 
     Args:
         spans: Segmented artifact spans.
-        atoms: Atoms to index onto the spans. Pass the full extracted set.
-        capped: Whether the cap left atoms out (``ExtractionReport.sampled`` is set), so a
-            sampled set is flagged rather than silently averaged. An input with as many atoms
-            as the cap, or fewer, keeps every atom and is not capped.
+        atoms: Atoms to index onto the spans. Pass the full extracted set, a capped run's
+            included (what :func:`~dokimi.novelty.atoms.extract_atoms` returns).
+        capped: Whether ``atoms`` is a sample of the extracted set, so it is flagged rather
+            than silently averaged. No caller in the package passes one.
     """
     if atoms is not None:
         index_atoms(spans, atoms)

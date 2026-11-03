@@ -327,19 +327,20 @@ def extract_atoms(
         client: Extractor client (must not be the judge — see :mod:`.measure`).
         batch_spans: Spans per extraction call. Batching is what keeps extraction
             affordable; too large and the model starts skipping spans.
-        cap: Keep this many atoms, spread over the extracted atoms in document order
-            (:func:`spread_sample`); every span is extracted either way. At least 1: a
-            smaller cap raises ``ValueError`` before any call or change to ``spans``. Recorded in the artifact as
-            the sampling rule, so a capped run is never quoted as a full sweep.
+        cap: The atoms a run probes, spread over the extracted atoms in document order
+            (:func:`sample_atoms`); every span is extracted either way, and every atom is
+            returned. At least 1: a smaller cap raises ``ValueError`` before any call or
+            change to ``spans``. Recorded in ``report.sampled`` when it leaves atoms out, so
+            a capped run is never quoted as a full sweep.
         report: Filled in place with what could not be read and what re-asking cost,
-            and what a binding cap kept (``sampled``). Spans no call could read are also
+            and what a binding cap keeps (``sampled``). Spans no call could read are also
             marked ``unread`` in place.
 
     Returns:
-        Atoms de-duplicated by id. When the cap keeps them all (no cap, or ``M <= n``):
-        every atom, in extraction order (batches in document order, each in its reply's
-        order). When it binds: the cap's sample, in document order, by the earliest span
-        each atom cites (atoms citing the same earliest span keep extraction order).
+        Every extracted atom, de-duplicated by id, in extraction order (batches in document
+        order, each in its reply's order), a binding cap's included: spans, attribution and
+        shortening's structure index them all, and :func:`sample_atoms` picks the ones the
+        paid stages see (https://github.com/intel/dokimi/issues/371).
     """
     from dokimi.llm import extract_json_array
 
@@ -421,6 +422,17 @@ def extract_atoms(
         # result, and a recovered parse error is not a failure.
         raise ExtractionError(f"no atoms: every extraction call failed ({lost})") from lost
     report.sampled = sample_record(len(atoms), cap)
+    return atoms
+
+
+def sample_atoms(atoms: list[Atom], spans: list[Span], cap: int | None) -> list[Atom]:
+    """The atoms a run probes of those :func:`extract_atoms` returned for ``spans``.
+
+    Under a binding cap, :func:`spread_sample` of them in document order, by the earliest span
+    each cites (atoms citing the same earliest span keep extraction order). With no cap, or
+    ``M <= n``: every atom, in extraction order. Faithfulness, the need graph, probes, the
+    conflict check and the shortening oracle see only these.
+    """
     return spread_sample(atoms, cap, key=_earliest_span(spans))
 
 
@@ -444,7 +456,7 @@ def spread_sample(atoms: list, cap: int | None, *, key=None) -> list:
     Index ``floor((i + 0.5) * M / n)`` for ``i`` in ``0..n-1`` of the atoms sorted by ``key``
     (stably, so atoms with equal keys keep their order; ``None``: as given), so the sample
     starts at the middle of the first stride and estimates the per-atom rate an uncapped run
-    reports. :func:`extract_atoms` sorts by the earliest cited span, i.e. document order
+    reports. :func:`sample_atoms` sorts by the earliest cited span, i.e. document order
     (on a bundle run, the files in bundle order). A pure function of the list, with no seed:
     the same extracted list gives the same sample. With no cap, or ``M <= n``, every atom,
     in the order given and unsorted. https://github.com/intel/dokimi/issues/293
@@ -533,9 +545,13 @@ def _names_a_faithfulness_verdict(reply: dict) -> bool:
 def save_atoms(
     atoms: list[Atom], spans: list[Span], path, *,
     extractor: str | None = None, cap: int | None = None, bundle: dict | None = None,
-    extraction: ExtractionReport | None = None,
+    extraction: ExtractionReport | None = None, sample: list[Atom] | None = None,
 ) -> None:
     """Write atoms plus their spans as one JSON file (input to ``novelty probe``).
+
+    ``atoms`` is every extracted atom and ``sample`` the ones a run probes
+    (:func:`sample_atoms`): ``sampled_atom_ids`` lists those, in probe order, when they leave
+    atoms out, and is ``null`` when they are every atom or ``sample`` is not given.
 
     ``bundle`` records *which files of the artifact* these atoms came from. Without it a
     later ``novelty probe`` cannot know whether to inject the entry point or the whole
@@ -559,6 +575,8 @@ def save_atoms(
         "bundle": bundle or {},
         "extraction": record,
         "atoms": [atom.as_dict() for atom in atoms],
+        "sampled_atom_ids": ([atom.id for atom in sample]
+                             if sample is not None and len(sample) < len(atoms) else None),
         "spans": [span.as_dict() for span in spans],
     }
     path = Path(path)
@@ -570,7 +588,8 @@ def load_atoms(path) -> tuple[list[Atom], list[Span]]:
     """Read back what :func:`save_atoms` wrote, with unread spans marked ``unread``.
 
     An ``atoms.json`` written before the ``extraction`` record existed marks nothing; it
-    cannot say whether a span went unread.
+    cannot say whether a span went unread. A ``sampled_atom_ids`` that names an atom the file
+    does not hold raises ``ValueError`` (:func:`recorded_sample` reads the record).
     """
     from pathlib import Path
 
@@ -637,6 +656,7 @@ def _atoms_from_record(data) -> tuple[list[Atom], list[Span]]:
         raise ValueError(f"the file holds {type(data).__name__}, not an object")
     _check_record_fields(data)
     atoms = [Atom.from_dict(row) for row in data.get("atoms", [])]
+    _check_sample(data.get("sampled_atom_ids"), {atom.id for atom in atoms})
     unread = set((data.get("extraction") or {}).get("unread_span_ids") or ())
     spans = [
         Span(
@@ -649,6 +669,34 @@ def _atoms_from_record(data) -> tuple[list[Atom], list[Span]]:
         for row in data.get("spans", [])
     ]
     return atoms, spans
+
+
+def _check_sample(ids, held: set[str]) -> None:
+    """Raise ValueError unless ``sampled_atom_ids`` is absent, null, or ids of atoms in the file."""
+    if ids is None:
+        return
+    if not _is_str_list(ids):
+        raise ValueError("'sampled_atom_ids' is not a list of strings")
+    unknown = [atom_id for atom_id in ids if atom_id not in held]
+    if unknown:
+        raise ValueError(f"'sampled_atom_ids' names {len(unknown)} atom id(s) the file's 'atoms' "
+                         f"do not hold: {', '.join(unknown[:5])}")
+
+
+def recorded_sample(data: dict, atoms: list[Atom]) -> list[Atom]:
+    """The atoms ``novelty probe`` and ``novelty shorten`` measure by default, of ``atoms``.
+
+    Those ``sampled_atom_ids`` names, in its order. Without the record, every atom: a file
+    written before it existed holds only the atoms its run probed, and a run whose cap kept
+    every atom writes ``null``. An id whose atom the caller left out of ``atoms`` (shortening
+    keeps the entry point's) is left out too. ``data`` is the record :func:`load_atoms_or_exit`
+    returned, so every id is in the file.
+    """
+    ids = data.get("sampled_atom_ids")
+    if ids is None:
+        return list(atoms)
+    by_id = {atom.id: atom for atom in atoms}
+    return [by_id[atom_id] for atom_id in ids if atom_id in by_id]
 
 
 def _check_bundle_shape(bundle) -> None:

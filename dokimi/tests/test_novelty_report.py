@@ -50,6 +50,9 @@ def test_a_zero_the_gate_clears_reads_as_zero(artifact):
      "The conflict check compared 970 of 1770 atom pairs"),
     ({"spans": {"capped_atom_set": True, "n_atoms_indexed": 300}}, "The atom set was capped (300 indexed)"),
     ({"conflict_coverage": {"pairs_total": 1770}}, "The conflict_coverage record is malformed"),
+    # Since #371 a capped run indexes every atom (`capped_atom_set` false); its conflicts are sampled.
+    ({"extraction": {"sampled": {"atoms": 60, "of": 200, "rule": "cap-spread"}}},
+     "The conflict check compared the cap's sample of 60 of the 200 extracted atoms"),
 ])
 @pytest.mark.outcome("cjm-novelty-uncleared-conflicts")
 def test_a_zero_the_gate_does_not_clear_is_not_shown_as_zero(overrides, reason):

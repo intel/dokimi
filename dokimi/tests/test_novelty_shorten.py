@@ -171,3 +171,33 @@ def test_pick_best_falls_back_to_knowledge_when_value_is_a_proxy():
 
     low.value_coverage = high.value_coverage = 1.0
     assert pick_best([low, high]) is low
+
+
+class _Asked(RetentionOracle):
+    """The lexical oracle, recording which atoms it was asked about."""
+
+    def __init__(self):
+        super().__init__(client=None)
+        self.asked: set[str] = set()
+
+    def verdict(self, atom, text):
+        self.asked.add(atom.id)
+        return super().verdict(atom, text)
+
+
+def test_a_span_whose_only_atom_is_unsampled_is_a_sole_carrier_and_the_oracle_sees_the_sample():
+    """A capped run: s0002's atom is outside the sample, the protected spans' are in it (#371)."""
+    spans, atoms = _prepared()
+    unsampled, sample = atoms[0], atoms[1:]
+    oracle = _Asked()
+    candidates = build_candidates(spans, atoms, oracle=oracle, budgets=(0.3,), scored_atoms=sample)
+    # Its knowledge is not scored, so the oracle's pairs follow the sample, not every atom.
+    assert oracle.asked == {atom.id for atom in sample}
+    safe = next(c for c in candidates if c.strategy == "greedy_value_safe")
+    assert unsampled.span_ids[0] in safe.kept_span_ids  # still carries knowledge: kept, not free
+    assert safe.knowledge == 1.0  # both sampled atoms kept, over a denominator of two
+    # Without a sample (no cap, or every atom kept) the candidates are those of every atom.
+    every = build_candidates(spans, atoms, oracle=RetentionOracle(), budgets=(0.3,),
+                             scored_atoms=atoms)
+    default = build_candidates(spans, atoms, oracle=RetentionOracle(), budgets=(0.3,))
+    assert [c.as_dict() for c in every] == [c.as_dict() for c in default]
