@@ -46,7 +46,9 @@ SPDX-License-Identifier: Apache-2.0
 > no LLM call): root CLAUDE.md files and their `@` imports plus the skill listing at
 > start (AGENTS.md files and their imports too, unless a root CLAUDE*, `.claude/CLAUDE.md` or
 > `CLAUDE.local.md` turns them off), nested guidance lazily, skill bodies on demand, and AGENTS.md
-> files a root CLAUDE* turns off. The `start` total is not an upper bound: it is too low by what it does
+> files a root CLAUDE* turns off, or a CLAUDE.md, `CLAUDE.local.md` or `.claude/CLAUDE.md` in the
+> AGENTS.md file's own directory (not one in a parent below the root; with a profile that sets
+> `guidance.claude_displaces_agents`, as `claude-code` does). The `start` total is not an upper bound: it is too low by what it does
 > not count (`.claude/rules/*.md` files, non-`.md` imports, skills behind a linked directory, nested
 > `.claude/skills/` skills, and
 > imports past the profile's `guidance.import_max_depth`, four hops for Claude Code, which warns
@@ -917,6 +919,7 @@ guidance:                            # DECLARED; verified by the reach probe, ne
   names: [CLAUDE.md, CLAUDE.local.md, AGENTS.md]
   resolution: ancestors-of-cwd + lazy-on-subtree-access
   imports: "@path"
+  claude_displaces_agents: true      # repo budget: a CLAUDE* turns off the AGENTS.md in its own directory
 bridge: {for: AGENTS.md, write: CLAUDE.md, content: "@AGENTS.md"}
 args_if_present:                     # argv added after the "{tools}" element when the workspace file exists and the tool mode is `all`
   .mcp.json: ["--mcp-config", ".mcp.json"]
@@ -1168,7 +1171,7 @@ and the receipt says so.
 | budget `when` | `expected` | Reason |
 |---|---|---|
 | `start` | `true` | loaded at start-up in every run |
-| `off` | `false` | a root CLAUDE\*.md turns AGENTS.md off |
+| `off` | `false` | a root CLAUDE\*.md, or one in the AGENTS.md file's own directory, turns AGENTS.md off |
 | `lazy`, run directory is the file's directory or inside it | `true` | loaded when the work reaches that directory |
 | `lazy`, run directory outside it | `false` | not reached by this run |
 | `lazy` on a link, an import, a root file, or a file another guidance file `@`-imports | `unknown` | budget's flattened `when` does not say which directory activates the file, so only a nested AGENTS/CLAUDE file that budget lists under its own path, and that no guidance file imports, gets a verdict |
@@ -1182,7 +1185,10 @@ written (`repos/budget.py`): an AGENTS.md is `off` while a root CLAUDE\*.md
 exists, nested ones included, unless a root CLAUDE\* file aliases it or
 `@`-imports it (`start`), or a nested CLAUDE\* file `@`-imports it (`lazy`). So
 nested AGENTS.md files can appear, and an AGENTS.md at the root is not always
-`off`. If budget's rule changes, the receipt follows it.
+`off`. Without a root CLAUDE\*.md, a nested AGENTS.md that resolves is `off` when its own
+directory holds a CLAUDE\*.md that does not alias or `@`-import it; no root
+file wins there, so `precedence_observed` lists none of those. If budget's
+rule changes, the receipt follows it.
 
 **What the marker method can and cannot show.** It shows which tokens were
 reported in a run, so it can support `loaded`, `fetched` and `not_loaded` as
