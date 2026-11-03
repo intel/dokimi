@@ -568,11 +568,18 @@ def _failed_read(script: str, reads: list[Any], rc: Any) -> bool:
     Otherwise the exit code does not say which read failed (``cat a missing`` prints ``a`` and
     exits 1), so the reads are kept: also when only one of the files is known (``cd -; cat missing /ws/a``). A part
     before it that is not surely a ``cd`` (``X="a b" cd sub``, ``time -p cd sub``) keeps them too: its exit may be
-    the one that failed, and a read is dropped only when that file surely was not printed.
+    the one that failed, and a read is dropped only when that file surely was not printed. A brace group's braces are
+    not parts: ``{ cat AGENTS.md; }`` and ``cd sub && { cat AGENTS.md; }`` are one read.
     """
-    if rc in (None, 0) or not reads or not all(_is_cd(part.text) for part in split_script(script)[:-1]):
+    parts = [p for p in (_ungrouped(part.text) for part in split_script(script)) if p]
+    if rc in (None, 0) or not reads or not all(_is_cd(p) for p in parts[:-1]):
         return False
     return _walk_script(script, "")[1].operands == 1  # the printer's own operands, not the reads kept of them
+
+
+def _ungrouped(text: str) -> str:
+    """A part's ``text`` past the ``{`` that open brace groups in it; ``""`` for the ``}`` that closes one."""
+    return "" if _GROUP_CLOSE.match(text) else re.sub(r"^(?:\{\s+)+", "", text)
 
 
 class _CopilotRun:

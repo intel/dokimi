@@ -67,6 +67,22 @@ def test_a_failed_cd_then_cat_of_one_file_is_no_read(command):
     assert [(e["kind"], e["rc"]) for e in events] == [("command", 1)]
 
 
+@pytest.mark.parametrize("command, path", [("{ cat AGENTS.md; }", "AGENTS.md"),
+                                           ("cd sub && { cat AGENTS.md; }", "sub/AGENTS.md"),
+                                           ("{ { cat AGENTS.md; }; }", "AGENTS.md"),
+                                           ("{ cd sub; cat AGENTS.md; }", "sub/AGENTS.md")])
+def test_a_brace_group_holding_one_read_is_that_read(command, path):
+    # failed, it read nothing; succeeded, it read its file
+    events = _events(_call("a", command), _result("a", "cat: AGENTS.md: No such file or directory", True))
+    assert [(e["kind"], e["rc"]) for e in events] == [("command", 1)]
+    assert _reads(_events(_call("a", command), _result("a"))) == [path]
+
+
+def test_a_failed_brace_group_with_two_commands_keeps_the_read():
+    events = _events(_call("a", "{ make; cat AGENTS.md; }"), _result("a", "error", True))
+    assert [(e["kind"], e["rc"]) for e in events] == [("read", 0), ("command", 1)]
+
+
 @pytest.mark.parametrize("command", ["cat AGENTS.md && cd sub", "make && cat AGENTS.md", "(cd sub) && cat AGENTS.md",
                                      "env cd sub && cat AGENTS.md",  # ``env cd`` runs no builtin: some program failed
                                      "X=1 time cd sub && cat AGENTS.md", r"\time cd sub && cat AGENTS.md"])  # /usr/bin/time

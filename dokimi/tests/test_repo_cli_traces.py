@@ -535,6 +535,12 @@ def test_codex_failed_command_does_not_count_as_a_read():
     assert [e["rc"] for e in t.events if e["kind"] == "command"] == [1, 0, 2]
 
 
+def test_codex_failed_brace_group_holding_one_read_is_no_read():
+    cmd = {"id": "a", "type": "command_execution", "command": "{ cat AGENTS.md; }"}
+    raw = _jsonl({"type": "item.started", "item": cmd}, {"type": "item.completed", "item": {**cmd, "exit_code": 1}})
+    assert [e["kind"] for e in convert("codex-json", raw, None).events] == ["command"]
+
+
 def test_codex_failed_command_drops_only_its_own_reads():
     """A read that succeeded earlier stays when a later command fails: reach would class the file `fetched`."""
     ok = {"type": "command_execution", "command": "cat AGENTS.md"}
@@ -644,7 +650,8 @@ def test_copilot_command_exit_code_falls_back_to_success(done, rc):
     ("cd sub && cat AGENTS.md", {"shellExecution": {"exitCode": 1}}, set()),  # the cd or the cat failed
     # cat names two files, one at a directory not known: the known one may be what it printed
     ("cd /ws/sub; cd -; cat missing.md /ws/AGENTS.md", {"shellExecution": {"exitCode": 1}}, {"/ws/AGENTS.md"}),
-], ids=["exit-1", "success-false", "exit-0", "compound", "cd-then-cat", "two-operands-one-known"])
+    ("cd sub && { cat AGENTS.md; }", {"shellExecution": {"exitCode": 1}}, set()),  # a group holding one read is it
+], ids=["exit-1", "success-false", "exit-0", "compound", "cd-then-cat", "two-operands-one-known", "brace-group"])
 def test_copilot_failed_bash_read_is_not_a_read(command, done, reads):
     raw = _jsonl(
         {"type": "tool.execution_start",
