@@ -474,3 +474,24 @@ def test_a_worktree_checkout_has_the_digests_of_its_main_checkout(tmp_path):
         reports.append(json.loads((out / "catalog.json").read_text()))
     assert reports[0]["catalog_digest"] == reports[1]["catalog_digest"]
     assert reports[0]["skills"] == reports[1]["skills"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the marker transport is a shell script")
+def test_partial_clone_never_fetches_through_its_configured_transport(tmp_path):
+    origin = _catalog(tmp_path)
+    base = _commit(origin)
+    (origin / "skills/alpha/reference.md").write_text("new guidance")
+    _git(origin, "add", ".")
+    _git(origin, "commit", "-qm", "second")
+    _git(origin, "config", "uploadpack.allowFilter", "true")
+    clone = tmp_path / "clone"
+    subprocess.check_call(["git", "clone", "-q", "--filter=tree:0", "--no-local", origin.as_uri(), str(clone)])
+    marker = tmp_path / "FETCHED"
+    transport = tmp_path / "upload.sh"
+    transport.write_text(f'#!/bin/sh\ntouch {marker}\nexec git upload-pack "$@"\n')
+    transport.chmod(0o755)
+    _git(clone, "config", "remote.origin.uploadpack", str(transport))
+    assert _run(clone, tmp_path / "full").returncode == 0
+    done = _run(clone, tmp_path / "out", "--changed-from", base)
+    assert done.returncode == 2
+    assert not marker.exists()

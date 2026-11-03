@@ -14,10 +14,10 @@ from dokimi.skills.loader import VENDORED_DIR_NAMES
 
 
 def _git(root: Path, *args: str) -> process.Completed:
-    # The checkout is data: even a locally configured fsmonitor must not run.
-    # A caller's GIT_DIR (as in a hook) must not swap in another repository.
+    # The checkout is data: no fsmonitor, hook or lazy-fetch transport it configures may run,
+    # and a caller's GIT_DIR (as in a hook) must not swap in another repository.
     return process.git(
-        "--no-pager", "-c", "core.fsmonitor=false", "-c", f"core.hooksPath={os.devnull}",
+        "--no-pager", "-c", "core.fsmonitor=false", "-c", f"core.hooksPath={os.devnull}", "-c", "protocol.allow=never",
         *args, cwd=root, env=process.Env.only([k for k in os.environ if k not in process.GIT_REPO_OVERRIDES], {
             "GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_NOSYSTEM": "1",
             "GIT_CONFIG_GLOBAL": os.devnull,
