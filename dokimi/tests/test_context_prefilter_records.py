@@ -7,7 +7,8 @@ from __future__ import annotations
 
 import pytest
 
-from tests.test_context_prefilter import CI, _prompt, _report, _row, _session
+from dokimi.context.prefilter import claims_from_guidance
+from tests.test_context_prefilter import CI, GUIDE, _prompt, _report, _row, _session
 
 
 
@@ -20,3 +21,12 @@ def test_user_overrides_needs_two_episodes_and_corrections_on_half_of_them(corre
     row = _row(_report(pushback + agreed), CI)
     assert row["episodes"] == corrected + plain and row["corrected"] == corrected
     assert any(f.startswith("user_overrides") for f in row["flags"]) is flagged
+
+
+def test_a_table_header_row_is_no_claim_and_its_body_rows_are():
+    texts = [c.text for c in claims_from_guidance(GUIDE)]
+    assert "| Command | Purpose |" not in texts and "| `pytest tests/test_x.py` | Run one file |" in texts
+    aligned = "| Command | Purpose |\n|:---|---:|\n| `make ci-local` | the full gate |\n"
+    assert [c.text for c in claims_from_guidance(aligned)] == ["| `make ci-local` | the full gate |"]
+    broken = "| `make ci-local` | the full gate |\n---\n"  # a thematic break, not a delimiter row
+    assert [c.text for c in claims_from_guidance(broken)] == ["| `make ci-local` | the full gate |"]

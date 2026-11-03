@@ -24,7 +24,7 @@ python cli.py context prefilter AGENTS.md "$HOME/.claude/projects/<project>/*.js
 
 The guidance file is split into rules with the span segmentation the novelty
 layer uses (`dokimi/novelty/spans.py`): each sentence, list item or table row
-that has a keyword is a claim. Headings and code blocks are not claims. No
+that has a keyword is a claim. Headings, a table's header row and code blocks are not claims. No
 model is called; every match is lexical.
 
 ## What is measured per rule

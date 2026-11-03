@@ -40,6 +40,8 @@ NOTE = ("Candidates for ablation, not verdicts: a candidate is a rule the sessio
 
 _GLOB = re.compile(r"[*?\[]")
 _RULE_KINDS = frozenset({"sentence", "list_item", "table_row"})
+# the GFM delimiter row (``| --- | :-: |``) under a table's header row: column titles are no rule
+_TABLE_DELIMITER = re.compile(r"\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*")
 _BACKTICK = re.compile(r"`([^`\n]+)`")
 _WORD = re.compile(r"[a-z][a-z0-9_-]{2,}")
 _PATH = re.compile(r"[/\\]|\.[A-Za-z0-9]{1,6}$|^\.[A-Za-z][\w-]*$")  # a bare dotfile (``.gitignore``) is a path too
@@ -138,7 +140,7 @@ def claims_from_guidance(text: str) -> list[Claim]:
     """The rules of one guidance file: each sentence, list item or table row with a keyword."""
     claims = []
     for span in segment(text):
-        if span.kind not in _RULE_KINDS:
+        if span.kind not in _RULE_KINDS or (span.kind == "table_row" and _is_table_header(text, span.start)):
             continue
         keywords = _stems(_BACKTICK.sub(" ", span.text))
         named = [k.strip() for k in _BACKTICK.findall(span.text) if k.strip()]
@@ -151,6 +153,16 @@ def claims_from_guidance(text: str) -> list[Claim]:
             paths=tuple(k for k in keys if _is_path(k)), protection=tuple(span.protection),
         ))
     return claims
+
+
+def _is_table_header(text: str, start: int) -> bool:
+    """Whether the line at ``start`` is followed by a table's delimiter row, which makes it the header row."""
+    nl = text.find("\n", start)
+    if nl < 0:
+        return False
+    end = text.find("\n", nl + 1)
+    line = text[nl + 1:end if end >= 0 else len(text)].rstrip("\r")
+    return "|" in line and bool(_TABLE_DELIMITER.fullmatch(line))
 
 
 def _matchable(key: str) -> bool:
