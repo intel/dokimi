@@ -17,7 +17,7 @@ SPDX-License-Identifier: Apache-2.0
   `tests/**`), and those directories leave `skill_sha`. A suite that picks an individual file of its skill
   (`SKILL.md`, a script, a reference, one eval file) is refused at load, naming the subject and the file. A link in a suite that resolves into its skill is refused too. An explicit subject whose id is taken by a default skill at another directory is refused instead of silently replacing it. `baseline.store: false`
   reads as `off`, and a budget number that YAML reads as text (`1e3`) is refused with the plain
-  decimal or the `1.0e+3` spelling, and a `.nan` or `.inf` budget is refused. A suite directory is
+  decimal or the `1.0e+3` spelling, and a `.nan` or `.inf` budget is refused. YAML anchors and aliases are refused. A suite directory is
   hashed file by file. In v1 a link is refused in a suite and on the way to one (a skill may hold only its own
   directory as a link, when that links inside the repository; a repository's manifest may be reached through links),
   so its retargeting is never attributed to the suite. Nothing reads the file yet: the commands that use it come later,

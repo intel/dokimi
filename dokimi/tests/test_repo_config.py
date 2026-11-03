@@ -532,6 +532,15 @@ def test_an_off_store_loads_as_off_whether_quoted_or_read_as_false(tmp_path, sto
     assert load_repo_config(root).data["baseline"]["store"] == "off"
 
 
+def test_nested_yaml_aliases_are_refused_with_a_short_message(tmp_path):
+    levels = ["  - &a0 [" + ", ".join(["x"] * 10) + "]\n"]
+    levels += [f"  - &a{n} [" + ", ".join([f"*a{n - 1}"] * 10) + "]\n" for n in range(1, 6)]
+    root = _tree(tmp_path / "repo", {".github/dokimi/config.yaml": HEADER + "plan:\n models:\n" + "".join(levels)})
+    with pytest.raises(ConfigError, match="aliases are not supported") as caught:
+        load_repo_config(root)
+    assert len(str(caught.value)) < 1024
+
+
 def test_a_budget_number_written_as_text_gets_a_hint_with_the_plain_decimal(tmp_path):
     root = _tree(tmp_path / "repo", {".github/dokimi/config.yaml": HEADER + "budget:\n  pr_max_usd: 1e3\n"})
     with pytest.raises(ConfigError, match=r"budget\.pr_max_usd is the text '1e3'.*Write 1000 .*1\.0e\+3"):

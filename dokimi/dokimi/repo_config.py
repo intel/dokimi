@@ -143,11 +143,29 @@ def discover(start: Path | None = None, *, explicit: Path | None = None) -> Path
     return None
 
 
+class _NoAliasLoader(yaml.SafeLoader):
+    """A safe loader that refuses aliases: a few hundred bytes of nested aliases expand to gigabytes in error messages."""
+
+    def compose_node(self, parent: Any, index: Any) -> Any:
+        if self.check_event(yaml.AliasEvent):
+            raise yaml.MarkedYAMLError(None, None, "anchors and aliases are not supported",
+                                         self.peek_event().start_mark)
+        return super().compose_node(parent, index)
+
+    @classmethod
+    def read(cls, text: str) -> Any:
+        loader = cls(text)
+        try:
+            return loader.get_single_data()
+        finally:
+            loader.dispose()
+
+
 def load(path: Path, *, root: Path) -> RepoConfig:
     """Read and schema-validate the config at ``path``; its paths are relative to ``root``."""
     path = Path(path)
     try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        data = _NoAliasLoader.read(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
         raise ConfigError(f"{path}: cannot read the config: {exc}") from exc
     if not isinstance(data, dict):
