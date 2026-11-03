@@ -345,7 +345,7 @@ def analyze(
             "tokens": sum(s.tokens for s in span_list if s.id in pointer_ids),
         }
         bundle_summary["by_source"] = _outcomes_by_source(
-            span_list, atom_list, outcomes, artifact_bundle
+            span_list, extracted, {atom.id for atom in atom_list}, outcomes, artifact_bundle
         )
         warnings.extend(artifact_bundle.coverage_warnings())
         if ref_digest is None:
@@ -423,7 +423,8 @@ def _unsafe_candidate_warnings(candidates: list) -> list[str]:
 
 
 def _outcomes_by_source(
-    span_list: list, atom_list: list, outcomes: dict[str, str], artifact_bundle
+    span_list: list, atom_list: list, sampled_ids: set[str], outcomes: dict[str, str],
+    artifact_bundle,
 ) -> list[dict]:
     """The paired 2x2 cut by which bundle file carried the atom.
 
@@ -432,6 +433,10 @@ def _outcomes_by_source(
     of `added` is knowledge that may belong where the agent will actually read it. An atom
     is attributed to the file of its first cited span; an atom citing spans in two files
     is rare and counted once, at the first.
+
+    ``n_atoms`` counts every extracted atom (``atom_list``); the outcome counts are over the
+    probed ones (``sampled_ids``, a capped run's sample), and ``n_sampled`` is their number,
+    so a file whose atoms all fell outside the sample reads ``n_atoms > 0, n_sampled: 0``.
 
     A file with spans no extraction call read carries ``n_spans_unread`` /
     ``tokens_unread``, and one that was not read at all has ``n_atoms: null`` and
@@ -444,8 +449,9 @@ def _outcomes_by_source(
         source = next(
             (source_of_span[sid] for sid in atom.span_ids if sid in source_of_span), ""
         )
-        row = rows.setdefault(source, {"source": source, "n_atoms": 0})
+        row = rows.setdefault(source, {"source": source, "n_atoms": 0, "n_sampled": 0})
         row["n_atoms"] += 1
+        row["n_sampled"] += atom.id in sampled_ids
         verdict = outcomes.get(atom.id)
         if verdict:
             row[verdict] = row.get(verdict, 0) + 1
@@ -453,7 +459,7 @@ def _outcomes_by_source(
     # pointers and prose, or knowledge the extractor could not formalize -- unless no
     # extraction call read it, which is said below.
     for item in artifact_bundle.files:
-        rows.setdefault(item.path, {"source": item.path, "n_atoms": 0})
+        rows.setdefault(item.path, {"source": item.path, "n_atoms": 0, "n_sampled": 0})
     spans_of: dict[str, list] = {}
     for span in span_list:
         spans_of.setdefault(source_of_span[span.id], []).append(span)
@@ -468,6 +474,6 @@ def _outcomes_by_source(
             row["n_spans_unread"] = len(unknown)
             row["tokens_unread"] = sum(span.tokens for span in unknown)
         if own and not row["n_atoms"] and all(span.unread for span in own):
-            row["n_atoms"] = None
+            row["n_atoms"] = row["n_sampled"] = None
             row["unread"] = True
     return sorted(rows.values(), key=lambda r: (-r.get("added", 0), r["source"]))

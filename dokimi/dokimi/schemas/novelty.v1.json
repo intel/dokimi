@@ -175,7 +175,7 @@
         "pointer_spans": {"type": "object"},
         "by_source": {
           "type": "array",
-          "description": "Per-file atom counts and paired outcomes. An atom is attributed to the file of its first cited span. A file with spans no extraction call read carries n_spans_unread and tokens_unread; a file none of whose spans was read has n_atoms null and unread true, rather than reading as a file that yields no knowledge.",
+          "description": "Per-file atom counts and paired outcomes. An atom is attributed to the file of its first cited span. n_atoms counts every extracted atom; the outcome counts are over the probed atoms, a capped run's sample, and n_sampled (absent from artifacts written before it) is their number, so a file whose atoms all fell outside the sample has n_atoms above 0 and n_sampled 0. A file with spans no extraction call read carries n_spans_unread and tokens_unread; a file none of whose spans was read has n_atoms and n_sampled null and unread true, rather than reading as a file that yields no knowledge.",
           "items": {"type": "object"}
         }
       }

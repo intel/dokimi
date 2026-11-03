@@ -281,6 +281,7 @@ def test_a_bundle_run_reports_which_file_carried_each_atom(tmp_path):
     assert {row["source"] for row in reported["by_source"]} <= {"SKILL.md",
                                                                 "references/tuning.md"}
     assert sum(row["n_atoms"] for row in reported["by_source"]) == artifact["atoms"]["n"]
+    assert all(row["n_sampled"] == row["n_atoms"] for row in reported["by_source"])  # no cap
     assert artifact["run_config"]["include_resources"] is True
     # One meaning for `ref_digest`: the files this cell measured, as the record says.
     assert artifact["artifact"]["ref_digest"] == bundle.measured_digest()
@@ -734,9 +735,10 @@ def test_only_a_cap_that_leaves_atoms_out_counts_as_capped(tmp_path, cap, capped
 
 @pytest.mark.parametrize("cap, probed, by_file", [
     # 8 atoms, one per span; SKILL.md holds s0001-s0005, references/tuning.md s0006-s0008.
+    (1, ["s0005"], {"SKILL.md": 1, "references/tuning.md": 0}),
     (2, ["s0003", "s0007"], {"SKILL.md": 1, "references/tuning.md": 1}),
     (3, ["s0002", "s0005", "s0007"], {"SKILL.md": 2, "references/tuning.md": 1}),
-], ids=["cap-2", "cap-3"])
+], ids=["cap-1", "cap-2", "cap-3"])
 def test_a_capped_bundle_run_strides_across_its_files_in_file_order(tmp_path, capsys, cap, probed,
                                                                      by_file):
     from dokimi.commands import novelty as novelty_cmd
@@ -772,7 +774,12 @@ def test_a_capped_bundle_run_strides_across_its_files_in_file_order(tmp_path, ca
                      judge=judge, artifact_bundle=bundle)
     artifact = result.artifact
     assert [atom.span_ids[0] for atom in result.atoms] == probed
-    assert {row["source"]: row["n_atoms"] for row in artifact["bundle"]["by_source"]} == by_file
+    # Outcomes are over the sample, atom counts over every extracted atom: at cap 1 none of
+    # tuning.md's three atoms is probed, yet it carries them.
+    rows = artifact["bundle"]["by_source"]
+    assert {row["source"]: row["n_sampled"] for row in rows} == by_file
+    assert {row["source"]: row["n_atoms"] for row in rows} == {"SKILL.md": 5,
+                                                               "references/tuning.md": 3}
     assert artifact["extraction"]["sampled"] == {"atoms": cap, "of": 8, "rule": "cap-spread"}
     novelty_cmd._print_coverage(artifact["bundle"], artifact["extraction"])
     # 6% of the artifact went into the input; the sample is of the input's atoms.
