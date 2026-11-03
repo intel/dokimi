@@ -11,6 +11,7 @@ from pathlib import Path
 
 from dokimi.llm import ANSWER_PROVIDERS
 from dokimi.llm_cli import SamplingError, check_sampling
+from dokimi.utils import check_bedrock_model
 from dokimi.commands.evaluate import _warn_judge_independence
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
@@ -35,6 +36,7 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
     except SamplingError as exc:  # the same exit as the other judge commands' sampling refusal
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
+    check_bedrock_model(args.judge_provider, args.judge_model)  # InputError: exit 2, as above
 
     print(f"Starting full evaluation pipeline for {args.product}")
     if args.repo:

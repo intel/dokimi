@@ -3,8 +3,8 @@
 
 """The entry point for LLM calls in the framework.
 
-``llm_call``, ``chat_completion``, the shims and ``utils.get_llm`` already delegate
-here. Not yet moved: ``utils.get_llm``'s route and key table,
+``llm_call``, ``chat_completion``, the shims, the judge, generators and validator go
+through here. Not yet moved: ``utils.get_llm`` (no caller left but tests),
 ``commands/benchmark.py``'s ``_credential_env_var``, ``eval/ragas_eval.py``'s
 ``_resolve_key``, and the persona and validator redraw loops.
 
@@ -103,6 +103,7 @@ ANSWER_PROVIDERS: Tuple[str, ...] = (*PROVIDERS, *llm_cli.BACKENDS)
 PROVIDER_ALIASES: Dict[str, str] = {
     "google": "google-vertex",
     "gemini": "google-vertex",
+    "vertex_ai": "google-vertex",
 }
 
 
@@ -152,14 +153,13 @@ def resolve_model(model: str, provider: str) -> str:
         ours = model in known or "ft:gpt-3.5-turbo" in model or "ft:gpt-4" in model  # as litellm
         routed = (p := model.split("/", 1)[0]) in litellm.provider_list or litellm.JSONProviderRegistry.exists(p) if "/" in model else ours
         return model if routed else f"openai/{model}"
-    if "/" in model:
-        return model
+    if "/" in model and not (name == "amazon-bedrock" and model.startswith("arn:")):
+        return model  # an ARN has a "/" too, but no route of its own
     if name == "google-vertex":
         return f"vertex_ai/{model}"
     if name == "amazon-bedrock":
-        # Bedrock's openai.* model namespace only accepts invocations via the
-        # Converse API; the plain bedrock/<model> route 404s on it (Anthropic
-        # models on Bedrock work fine either way, so this is scoped narrowly).
+        # Bedrock's openai.* namespace answers only via the Converse API; the plain
+        # bedrock/<model> route 404s on it (Anthropic models work either way).
         if "openai." in model:
             return f"bedrock/converse/{model}"
         return f"bedrock/{bedrock_profile(model) or model}"
@@ -941,8 +941,8 @@ class _Resp:
         self.usage = usage   # UsageRecord | None — lets callers (judge) track cost
 
 
-class _Invoker:
-    """``invoke(prompt, draw=, cache_if=)`` over an :class:`LLM`, the shape ``get_llm`` returns."""
+class Invoker:
+    """``invoke(prompt, draw=, cache_if=)`` over an :class:`LLM`: the :class:`ChatModel` shape."""
 
     def __init__(self, llm: LLM):
         self.llm = llm
@@ -959,7 +959,7 @@ class _Invoker:
 
 @dataclass(eq=False)
 class _GetLLMCompat(LLM):
-    """The transport ``utils.get_llm`` had, on :class:`LLM`; goes when the judge moves.
+    """The transport ``utils.get_llm`` had, on :class:`LLM`; goes with ``get_llm``.
 
     ``get_llm`` keeps its own provider table, so it hands in the litellm *route* and
     the *key* it resolved. Its cache entries were keyed without ``stream``, and its
