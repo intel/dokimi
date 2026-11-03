@@ -121,3 +121,48 @@ def test_a_link_to_a_regular_file_beside_a_double_star_suite_is_not_a_suite_link
     })
     os.symlink("../README.md", root / "evaluation" / "readme.md")
     assert "skill/a" in {s.id for s in load_repo_config(root).subjects()}
+
+
+def test_renaming_a_suite_file_with_the_same_bytes_moves_suite_hash(tmp_path):
+    # the digest of a suite holds each file's name: the same bytes under another name are another suite
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: '{skill}/evals/**'\n"
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": body,
+        "skills/a/SKILL.md": "a\n",
+        "skills/a/evals/q.json": "[]\n",
+    })
+    before = load_repo_config(root).subjects()[0]
+    (root / "skills/a/evals/q.json").rename(root / "skills/a/evals/r.json")
+    after = load_repo_config(root).subjects()[0]
+    assert after.suite_hash != before.suite_hash
+    assert after.skill_sha == before.skill_sha
+
+
+def test_a_suite_glob_keeps_a_sibling_whose_name_only_starts_with_a_match(tmp_path):
+    # eval* matches evals and evals-old; evals-old is not under evals, so its files are the suite's and hash with it
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: '{skill}/eval*'\n"
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": body,
+        "skills/a/SKILL.md": "a\n",
+        "skills/a/evals/q.json": "[]\n",
+        "skills/a/evals-old/q.json": "[]\n",
+    })
+    before = load_repo_config(root).subjects()[0]
+    (root / "skills/a/evals-old/q.json").write_text("[2]\n", encoding="utf-8")
+    after = load_repo_config(root).subjects()[0]
+    assert after.suite_hash != before.suite_hash
+    assert after.skill_sha == before.skill_sha
+
+
+def test_a_terminal_double_star_does_not_claim_a_file_its_prefix_reaches(tmp_path):
+    # '*/**' reaches skills/a/SKILL.md through '*', but a terminal ** matches directories only: SKILL.md stays the skill's
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: '{skill}/*/**'\n"
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": body,
+        "skills/a/SKILL.md": "a\n",
+        "skills/a/evals/q.json": "[]\n",
+    })
+    before = load_repo_config(root).subjects()[0]  # a ConfigError here: the suite claimed SKILL.md, a file of its skill
+    (root / "skills/a/SKILL.md").write_text("b\n", encoding="utf-8")
+    after = load_repo_config(root).subjects()[0]
+    assert after.skill_sha != before.skill_sha and after.suite_hash == before.suite_hash
