@@ -62,6 +62,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "repo_budget": "repo_budget.v1",
     "effective_instructions": "effective_instructions.v1",
     "task_inspect": "task_inspect.v1",
+    "headroom": "headroom.v1",
     "redteam": "redteam.v1",
     "cli_routes": "cli_routes.v1",
     "dokimi_config": "dokimi_config.v1",

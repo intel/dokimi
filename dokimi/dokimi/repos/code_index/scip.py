@@ -92,6 +92,8 @@ def decode_index(buf: memoryview, root_prefix: str = "") -> Decoded:
             pos = skip(buf, pos, wire)
     if not has_metadata:
         raise CodeIndexError("no metadata message: not a SCIP index, or truncated before its first field")
+    # One path can come in several Document messages: keep each identical occurrence once, across them.
+    occurrences = {path: list(dict.fromkeys(occs)) for path, occs in occurrences.items()}
     tool = f"{tool_info.get(1, '')} {tool_info.get(2, '')}".strip()
     return Decoded(tool, occurrences, bases)
 
