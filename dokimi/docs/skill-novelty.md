@@ -561,7 +561,7 @@ reference whose atoms are all `redundant` is a file the model already knows; one
 atoms is pointers and prose. `n_atoms` counts every extracted atom of the file; the outcome counts
 are over the atoms the run probed, and `n_sampled` is how many of the file's atoms that is, so on a
 capped run a file whose atoms all fell outside the sample reads `n_sampled: 0` with its `n_atoms`
-above 0 (without a cap the two are equal). A file with spans extraction could not read says how many
+above 0, rendered `5 (0 sampled)` in novelty.md (without a cap the two are equal). A file with spans extraction could not read says how many
 (`n_spans_unread`, `tokens_unread`), and a file it read none of has `n_atoms: null` and `unread:
 true` (rendered `not read`), not zero atoms. **Pointer spans** — spans whose content is just a path into
 the bundle (53 of 2,600 spans in the corpus, 19 of 33 skills), and the per-file headings
