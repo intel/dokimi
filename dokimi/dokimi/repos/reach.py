@@ -13,6 +13,10 @@ token it can see:
 - ``cwd=<dir>``: started in each directory that holds guidance, tools disabled
 - ``read=<dir>``: started at the root, told to read one file in ``<dir>`` with
   the read tool and then list tokens (finds lazy, subtree-triggered loading)
+- ``shadow=.`` and ``shadow=<dir>`` (only when asked for): as ``cwd=.`` and
+  ``read=<dir>``, with the profile's ``guidance.shadow_file`` written, seeded, at
+  the root or in ``<dir>`` for that scenario only, to show what it turns off in a
+  tree that holds none
 
 A file is ``loaded`` when both tokens are reported, ``truncated`` when only
 one is, ``fetched`` when it was reported only after the agent read the file
@@ -39,6 +43,8 @@ import os
 import re
 import shutil
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
@@ -60,6 +66,9 @@ PROSE_LIMIT = 8
 # Haiku's lead-in had 10 words; a longer ':' line is an explanation or a refusal, so it counts.
 LEAD_IN_WORDS = 12
 CLASSES = ("loaded", "truncated", "fetched", "not_loaded", "error")
+KINDS = ("root", "cwd", "read", "shadow")
+DEFAULT_KINDS = ("root", "cwd", "read")  # shadow adds a file the tree lacks: only on request
+SHADOW_TEXT = "# Local instructions\n"
 # Names some harness loads by convention. Any of them in an ancestor of the
 # workspace would be read by the harness and pollute every scenario.
 ANCESTOR_GUARD = ("CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md", "AGENTS.md", "AGENT.md",
@@ -96,10 +105,51 @@ class Scenario:
     cwd: str  # relative to the workspace root; "" is the root
     tools: str
     read: str | None = None  # file the agent is told to read first
+    shadow: str | None = None  # the shadow file written for this scenario only
 
     @property
     def prompt(self) -> str:
         return (ASK_AFTER_READ.format(path=self.read) if self.read else "") + ASK
+
+
+@dataclass(frozen=True)
+class Shadow:
+    """The profile's ``guidance.shadow_file``, and the tree's paths, which a shadow file never replaces."""
+
+    file: str
+    taken: frozenset[str]  # casefolded, as a case-insensitive disk would collide them
+    tree: RepoTree | None = None  # asked for a directory at the path: the file list has no empty one
+
+    def free(self, path: str) -> bool:
+        """No tree path at ``path``, under it (a directory) or above it (a file where ``path`` needs a directory)."""
+        key = path.casefold()
+        above = {p.as_posix() for p in PurePosixPath(key).parents} - {"."}
+        if key in self.taken or above & self.taken or any(t.startswith(key + "/") for t in self.taken):
+            return False
+        try:
+            return self.tree is None or not self.tree.is_dir(path)
+        # A link git ignores, so not in files(), that leads out of the tree or loops (RuntimeError before
+        # Python 3.13, as WorkTree.resolve maps it): not free.
+        except (SourceError, RuntimeError, OSError):
+            return False
+
+
+def check_shadow(profile: HarnessProfile, kinds: tuple[str, ...]) -> None:
+    """Refuse the shadow kind for a profile that names no shadow file, rather than run nothing for it."""
+    if "shadow" in kinds and not profile.shadow_file:
+        raise ReachError(f"--scenarios shadow needs guidance.shadow_file in the harness profile; {profile.name} "
+                         "sets none")
+
+
+def shadow_for(profile: HarnessProfile, tree: RepoTree, kinds: tuple[str, ...]) -> Shadow | None:
+    """What the shadow scenarios need from the profile and the tree; None when the kind is not selected."""
+    check_shadow(profile, kinds)
+    name = profile.shadow_file
+    if "shadow" not in kinds or not name:
+        return None
+    if not _safe_path(name):
+        raise ReachError(f"{profile.path}: guidance.shadow_file {name!r} is not a path inside a directory")
+    return Shadow(name, frozenset(p.casefold() for p in tree.files()), tree)
 
 
 def token(salt: str, path: str, position: str) -> str:
@@ -118,8 +168,15 @@ def probe_files(tree: RepoTree, manifest: RepoManifest, profile: HarnessProfile)
     return sorted(p for p in declared | native if not manifest.in_eval_dir(p))
 
 
-def scenarios(files: list[str], kinds: tuple[str, ...] = ("root", "cwd", "read"),
-              only: tuple[str, ...] = ()) -> list[Scenario]:
+def check_files(files: list[str], profile: HarnessProfile) -> None:
+    """Refuse a tree with no guidance file to probe (``files``: probe_files), before any scenario is selected."""
+    if not files:
+        raise ReachError("no guidance files to probe: the manifest's globs and the "
+                         f"{profile.name} guidance names match nothing")
+
+
+def scenarios(files: list[str], kinds: tuple[str, ...] = DEFAULT_KINDS,
+              only: tuple[str, ...] = (), shadow: Shadow | None = None) -> list[Scenario]:
     dirs = sorted({str(PurePosixPath(f).parent) for f in files} - {"."})
     out: list[Scenario] = []
     if "root" in kinds:
@@ -128,7 +185,21 @@ def scenarios(files: list[str], kinds: tuple[str, ...] = ("root", "cwd", "read")
         out.extend(Scenario(f"cwd={d}", d, "none") for d in dirs)
     if "read" in kinds:
         out.extend(Scenario(f"read={d}", "", "read", read=f"{d}/{PROBE_FILE}") for d in dirs)
+    if "shadow" in kinds:
+        out.extend(_shadow_scenarios(files, shadow))
     return [s for s in out if s.id in only] if only else out
+
+
+def _shadow_scenarios(files: list[str], shadow: Shadow | None) -> list[Scenario]:
+    """``shadow=.``, then ``shadow=<dir>`` for each directory with a guidance file not named ``CLAUDE*`` (an
+    AGENTS.md-class file). A directory whose shadow path the tree already holds gets none: it would be overwritten."""
+    if shadow is None:
+        raise ReachError("the shadow scenarios need the profile's guidance.shadow_file (see shadow_for)")
+    dirs = sorted({str(PurePosixPath(f).parent) for f in files if not PurePosixPath(f).name.startswith("CLAUDE")}
+                  - {"."})
+    out = [Scenario("shadow=.", "", "none", shadow=shadow.file)] if shadow.free(shadow.file) else []
+    return out + [Scenario(f"shadow={d}", "", "read", read=f"{d}/{PROBE_FILE}", shadow=f"{d}/{shadow.file}")
+                  for d in dirs if shadow.free(f"{d}/{shadow.file}")]
 
 
 def check_ancestors(workspace: Path, names: tuple[str, ...] = ANCESTOR_GUARD) -> None:
@@ -157,6 +228,18 @@ def resolve_links(tree: RepoTree, files: list[str]) -> tuple[dict[str, list[str]
         if target != path:
             links.append(path)
     return dict(sorted(groups.items())), unresolved
+
+
+def followable(tree: RepoTree, files: list[str]) -> tuple[list[str], dict[str, list[str]], list[dict[str, str]]]:
+    """``files`` without the links resolve_links cannot follow, then its groups and unresolved links. A run plans its
+    scenarios from that list, so --dry-run does too: an unresolved link's directory gets no scenario. Refuses
+    ``files`` whose every path is such a link: nothing is left to probe, in a run or a dry run alike."""
+    groups, unresolved = resolve_links(tree, files)
+    if files and not groups:
+        raise ReachError("no guidance file to probe: each is a link that cannot be followed: "
+                         + "; ".join(u["reason"] for u in unresolved))
+    dropped = {u["path"] for u in unresolved}
+    return [p for p in files if p not in dropped], groups, unresolved
 
 
 def build_workspace(tree: RepoTree, files: list[str], workspace: Path, salt: str,
@@ -220,8 +303,9 @@ def _safe_path(path: str) -> bool:
                 or any(part.rstrip(". ").casefold() in ("", ".git") for part in path.split("/")))
 
 
-def distinct_salt(tree: RepoTree, files: list[str], salt: str, attempts: int = 50) -> str:
-    """``salt``, or ``salt-N`` for the first N that gives every file its own two tokens.
+def distinct_salt(tree: RepoTree, files: list[str], salt: str, attempts: int = 50,
+                  shadows: tuple[str, ...] = ()) -> str:
+    """``salt``, or ``salt-N`` for the first N that gives every file, and every shadow file, its own two tokens.
 
     Tokens are 24 bits, so two files can share one, and a guidance file can already
     contain a token-shaped word; either would mark a file as seen that was not.
@@ -234,7 +318,7 @@ def distinct_salt(tree: RepoTree, files: list[str], salt: str, attempts: int = 5
             raise ReachError(f"cannot read guidance file {path}: {exc}") from exc
     for n in range(attempts):
         candidate = salt if n == 0 else f"{salt}-{n}"
-        tokens = [token(candidate, p, pos) for p in files for pos in ("head", "tail")]
+        tokens = [token(candidate, p, pos) for p in (*files, *shadows) for pos in ("head", "tail")]
         if len(set(tokens)) == len(tokens) and not present & set(tokens):
             return candidate
     raise ReachError(f"no salt in {attempts} tries gives every guidance file distinct tokens")
@@ -288,6 +372,81 @@ def classify(seeded: SeededFile, transcript: Transcript | None) -> dict[str, Any
     return {"head": head, "tail": tail, "read_by_tool": read_by_tool, "class": cls}
 
 
+def _shadow_seed(scenario: Scenario, salt: str) -> SeededFile | None:
+    path = scenario.shadow
+    return SeededFile(path, token(salt, path, "head"), token(salt, path, "tail")) if path else None
+
+
+@contextmanager
+def _shadowed(workspace: Path, item: SeededFile | None) -> Iterator[None]:
+    """The shadow file, seeded, in the workspace while its scenario runs and never after (an error included).
+    It stays out of the workspace's commit."""
+    if item is None:
+        yield
+        return
+    _check_shadow_path(workspace, item.path)
+    dirs: list[Path] = []  # the directories this call made, outermost first
+    written: list[Path] = []  # the file, once this call has begun to write it
+    try:
+        try:
+            _write_shadow(workspace, item, dirs, written)
+        except OSError as exc:
+            raise ReachError(f"cannot write the shadow file {item.path} in the probe workspace: {exc}") from exc
+        yield
+    finally:
+        for path in written:
+            path.unlink(missing_ok=True)
+        if dirs and dirs[0].exists():
+            shutil.rmtree(dirs[0], onerror=retry_writable)
+
+
+def _check_shadow_paths(workspace: Path, plan: list[Scenario]) -> None:
+    """Check every planned shadow path once the workspace is built, before any scenario runs: the workspace is the same
+    in every scenario, so a refusal found late would only come after scenarios that ran and were billed."""
+    for scenario in plan:
+        if scenario.shadow:
+            _check_shadow_path(workspace, scenario.shadow)
+
+
+def _check_shadow_path(workspace: Path, path: str) -> None:
+    """Refuse a shadow path the workspace already holds, or one under a workspace entry that is not a directory (a
+    probe file, a seeded file, a link). scenarios() skips a tree path; this guards the probe's own files."""
+    parts = PurePosixPath(path).parts
+    for n in range(1, len(parts)):
+        above = workspace.joinpath(*parts[:n])
+        if not os.path.lexists(above):
+            break
+        if above.is_symlink() or not above.is_dir():
+            raise ReachError(f"the shadow file {path} needs {'/'.join(parts[:n])}, a file of the probe workspace, "
+                             "as a directory")
+    if os.path.lexists(workspace / path):
+        raise ReachError(f"the shadow file {path} would replace a file of the probe workspace")
+
+
+def _write_shadow(workspace: Path, item: SeededFile, dirs: list[Path], written: list[Path]) -> None:
+    """Make the shadow file's missing directories, each added to ``dirs`` once made, then the file."""
+    target = workspace / item.path
+    for parent in reversed(PurePosixPath(item.path).parents[:-1]):  # outermost first; [-1] is "."
+        if not (workspace / parent).is_dir():
+            (workspace / parent).mkdir()
+            dirs.append(workspace / parent)
+    written.append(target)  # before the write: one that fails part way can leave the file
+    target.write_text(seed_text(SHADOW_TEXT, item.path, item.head, item.tail), encoding="utf-8")
+
+
+def _score_row(row: dict[str, Any], transcript: Transcript | None, known: set[str],
+               shadow: SeededFile | None) -> None:
+    """The row's reported, unknown and prose from the answer, and the result of its shadow file, which is kept on
+    the row: it is not a tree file, so it gets no records and no matrix row."""
+    if transcript is not None:
+        own = {shadow.head, shadow.tail} if shadow else set()
+        reported = sorted(set(TOKEN_RE.findall(transcript.answer)))
+        row.update(reported=reported, unknown=[t for t in reported if t not in known | own],
+                   prose=prose_words(transcript.answer))
+    if shadow is not None:
+        row["shadow"] = {"path": shadow.path, "tokens": [shadow.head, shadow.tail], **classify(shadow, transcript)}
+
+
 def run_reach(
     *,
     tree: RepoTree,
@@ -297,33 +456,33 @@ def run_reach(
     out_dir: Path,
     bin_path: str | None = None,
     work_dir: Path | None = None,
-    kinds: tuple[str, ...] = ("root", "cwd", "read"),
+    kinds: tuple[str, ...] = DEFAULT_KINDS,
     only: tuple[str, ...] = (),
     salt: str | None = None,
     max_turns: int = 4,
     budget_usd: float = 0.10,
     timeout_s: int = 300,
     keep: bool = False,
+    dry_run: bool = False,
 ) -> dict[str, Any]:
-    """Run every scenario once and return the guidance_reach.v1 payload (unsaved)."""
+    """Run every scenario once and return the guidance_reach.v1 payload (unsaved).
+
+    With ``dry_run``, stop before the first harness call (the version command) and return ``{"files", "runs"}``,
+    the files and the planned runs: the dry run makes every check a run makes up to there, the built workspace
+    included, so it refuses what the run would refuse."""
     files = probe_files(tree, manifest, profile)
-    if not files:
-        raise ReachError("no guidance files to probe: the manifest's globs and the "
-                         f"{profile.name} guidance names match nothing")
-    groups, unresolved = resolve_links(tree, files)
-    if not groups:
-        raise ReachError("no guidance file to probe: each is a link that cannot be followed: "
-                         + "; ".join(u["reason"] for u in unresolved))
-    files = [p for p in files if p not in {u["path"] for u in unresolved}]
+    check_files(files, profile)
+    probed, groups, unresolved = followable(tree, files)
+    shadows = shadow_for(profile, tree, kinds)
+    plan = scenarios(probed, kinds, only, shadows)
     salt = salt or hashlib.sha256(f"{tree.label}\0{datetime.now(timezone.utc).isoformat()}".encode()).hexdigest()[:12]
-    # Resolved: a harness reports physical paths (macOS /var is /private/var).
-    base = Path(tempfile.mkdtemp(prefix="reach-", dir=str(work_dir) if work_dir else None)).resolve()
+    base = _make_base(work_dir)
     workspace = base / "ws"
     try:
-        workspace.mkdir()
-        check_ancestors(workspace, tuple(dict.fromkeys(ANCESTOR_GUARD + profile.guidance_names)))
-        salt = distinct_salt(tree, list(groups), salt)
-        seeded = build_workspace(tree, list(groups), workspace, salt, groups)
+        salt, seeded = _prepare(tree, profile, groups, plan, workspace, salt)
+        if dry_run:
+            return {"files": files, "runs": planned(probed, profile, model, kinds, only, bin_path, max_turns,
+                                                    budget_usd, shadows)}
         version_env = profile.env(base / "cfg-version")
         version = profile.version(version_env, bin_path)
         trace_dir = out_dir / "traces"
@@ -333,23 +492,23 @@ def run_reach(
                 old.unlink()
         known = {s.head for s in seeded} | {s.tail for s in seeded}
         scenario_rows, records = [], []
-        for n, scenario in enumerate(scenarios(files, kinds, only)):
-            transcript, row = _run_one(profile, scenario, model, workspace, base / f"cfg-{n}",
-                                       bin_path, max_turns, budget_usd, timeout_s)
+        for n, scenario in enumerate(plan):
+            shadow = _shadow_seed(scenario, salt)
+            with _shadowed(workspace, shadow):
+                transcript, row = _run_one(profile, scenario, model, workspace, base / f"cfg-{n}",
+                                           bin_path, max_turns, budget_usd, timeout_s)
             slug = f"{n:02d}-" + re.sub(r"[^A-Za-z0-9._-]+", "_", scenario.id)
             (trace_dir / f"{slug}.stdout").write_text(row.pop("_stdout"), encoding="utf-8")
             if transcript is not None:
                 (trace_dir / f"{slug}.events.jsonl").write_text(transcript.events_jsonl(), encoding="utf-8")
-                reported = sorted(set(TOKEN_RE.findall(transcript.answer)))
-                row.update(reported=reported, unknown=[t for t in reported if t not in known],
-                           prose=prose_words(transcript.answer))
                 version = transcript.harness_version or version
+            _score_row(row, transcript, known, shadow)
             scenario_rows.append(row)
             for item in seeded:
                 records.append({"file": item.path, "scenario": scenario.id, "harness": profile.name,
                                 "harness_version": version, "model": model, **classify(item, transcript)})
     finally:
-        if not keep:
+        if dry_run or not keep:  # a dry run names no workspace, so it keeps none
             shutil.rmtree(base, onerror=retry_writable)
 
     by_class = {c: sum(1 for r in records if r["class"] == c) for c in CLASSES}
@@ -375,6 +534,40 @@ def run_reach(
             "matrix": _matrix(records),
         },
     }
+
+
+def _make_base(work_dir: Path | None) -> Path:
+    """The run's own directory, made under ``work_dir`` (the system's temporary directory without one) and resolved: a
+    harness reports physical paths (macOS /var is /private/var). One that is missing, not a directory or not writable
+    is a ReachError naming it."""
+    try:
+        return Path(tempfile.mkdtemp(prefix="reach-", dir=str(work_dir) if work_dir else None)).resolve()
+    except OSError as exc:
+        where = f"--work-dir {work_dir}" if work_dir else tempfile.gettempdir()
+        raise ReachError(f"cannot make the probe workspace in {where}: {exc.strerror or exc}") from exc
+
+
+def _prepare(tree: RepoTree, profile: HarnessProfile, groups: dict[str, list[str]], plan: list[Scenario],
+             workspace: Path, salt: str) -> tuple[str, list[SeededFile]]:
+    """Build the workspace and make the checks a run makes before its first harness call: distinct tokens, no
+    guidance file above the workspace, a tree that can be seeded, free shadow paths. Returns the salt and the seeded.
+    A write the workspace refuses (a full disk) is a ReachError naming the workspace."""
+    salt = distinct_salt(tree, list(groups), salt, shadows=tuple(s.shadow for s in plan if s.shadow))  # the tree only
+    try:
+        workspace.mkdir()
+        check_ancestors(workspace, _guarded(profile, plan))
+        seeded = build_workspace(tree, list(groups), workspace, salt, groups)
+    except OSError as exc:
+        raise ReachError(f"cannot build the probe workspace {workspace}: {exc}") from exc
+    _check_shadow_paths(workspace, plan)
+    return salt, seeded
+
+
+def _guarded(profile: HarnessProfile, plan: list[Scenario]) -> tuple[str, ...]:
+    """The paths check_ancestors looks for: ANCESTOR_GUARD, the profile's guidance names and, when a shadow scenario is
+    planned, its shadow file as given (a relative path checked by shadow_for), which the harness loads too."""
+    shadow = (profile.shadow_file,) if profile.shadow_file and any(s.shadow for s in plan) else ()
+    return tuple(dict.fromkeys(ANCESTOR_GUARD + profile.guidance_names + shadow))
 
 
 def _run_one(profile: HarnessProfile, scenario: Scenario, model: str, workspace: Path,
@@ -463,6 +656,9 @@ def format_matrix(payload: dict[str, Any]) -> str:
     for u in payload.get("unresolved", []):
         lines.append(f"not probed: {u['path']} ({u['reason']})")
     for s in payload["scenarios"]:
+        if s.get("shadow"):  # schema-optional: only a shadow scenario has one
+            lines.append(f"shadow file of {s['id']}: {s['shadow']['path']} (written for this scenario only) "
+                         f"{s['shadow']['class']}")
         if s["error"]:
             lines.append(f"error in {s['id']}: {s['error']}")
         if (s.get("prose") or 0) > PROSE_LIMIT:
@@ -475,12 +671,12 @@ def format_matrix(payload: dict[str, Any]) -> str:
 
 def planned(files: list[str], profile: HarnessProfile, model: str, kinds: tuple[str, ...],
             only: tuple[str, ...] = (), bin_path: str | None = None, max_turns: int = 4,
-            budget_usd: float = 0.10) -> list[dict[str, Any]]:
-    """What a run would execute, for --dry-run."""
-    return [{"scenario": s.id, "cwd": s.cwd or ".",
+            budget_usd: float = 0.10, shadow: Shadow | None = None) -> list[dict[str, Any]]:
+    """What a run would execute, for --dry-run, with the shadow file a shadow scenario writes."""
+    return [{"scenario": s.id, "cwd": s.cwd or ".", **({"shadow": s.shadow} if s.shadow else {}),
              "argv": profile.argv(prompt=s.prompt, model=model, tools=s.tools, max_turns=max_turns,
                                   budget_usd=budget_usd, bin_path=bin_path)}
-            for s in scenarios(files, kinds, only)]
+            for s in scenarios(files, kinds, only, shadow)]
 
 
 def save_reach(payload: dict[str, Any], out_dir: Path) -> Path:

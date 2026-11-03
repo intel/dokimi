@@ -32,7 +32,7 @@ SPDX-License-Identifier: Apache-2.0
 >
 > ```bash
 > python cli.py repo reach <source> --manifest <path> --model <id> [--harness claude-code|codex|copilot|copilot-review|<profile.yaml>]
->     [--bin <cli>] [--scenarios root,cwd,read] [--only <scenario>] [--dry-run]
+>     [--bin <cli>] [--scenarios root,cwd,read[,shadow]] [--only <scenario>] [--dry-run]
 > ```
 >
 > Slice S2 adds the L0 scan (§8):
@@ -969,6 +969,7 @@ guidance:                            # DECLARED; verified by the reach probe, ne
   names: [CLAUDE.md, CLAUDE.local.md, AGENTS.md]
   resolution: ancestors-of-cwd + lazy-on-subtree-access
   imports: "@path"
+  shadow_file: CLAUDE.local.md       # written by `repo reach --scenarios shadow` (§7)
   claude_displaces_agents: true      # repo budget: a CLAUDE* turns off the AGENTS.md in its own directory
 bridge: {for: AGENTS.md, write: CLAUDE.md, content: "@AGENTS.md"}
 args_if_present:                     # argv added after the "{tools}" element when the workspace file exists and the tool mode is `all`
@@ -1029,6 +1030,12 @@ args_if_present:                     # argv added after the "{tools}" element wh
   `codex-code-mode-host`: every tool call goes through it.
 - `repo reach` writes `config_files` into each scenario's config directory as
   `repo run` does, with `{config_dir}` and `{support_dir}` as host paths.
+- Optional `guidance.shadow_file` names a file the harness loads by convention
+  that, put in a directory, should turn the other guidance there off: a file
+  name or a path relative to the directory. `repo reach --scenarios shadow`
+  writes it to measure that (§7); a profile without it refuses that kind
+  (exit 2). Only the built-in `claude-code` profile sets it, to
+  `CLAUDE.local.md`.
 - `native_prompt: true` marks a harness that runs its own built-in prompt, such
   as a native review mode. `invoke` then passes no `{prompt}` (and there is no
   `prompt_suffix`), the agent never sees the task prompt, and `repo reach`
@@ -1086,7 +1093,10 @@ Protocol:
     - Loading depends on paths and names, not on the rest of the tree. A
       skeleton also keeps a blob-less clone from fetching every blob.
     - The probe refuses to run if any ancestor of the workspace holds a
-      guidance file.
+      guidance file: a name some harness loads by convention, one of the
+      profile's `guidance.names`, or, when a shadow scenario is planned, its
+      `guidance.shadow_file`, the path as given (`.claude/CLAUDE.local.md`
+      looks for that path in each ancestor, not for `CLAUDE.local.md`).
     - It also refuses a tree path with a `\`, a `:`, or a `.`, `..` or `.git`
       component, which would be written outside the workspace or into its git
       directory.
@@ -1097,7 +1107,9 @@ Protocol:
       as a copy of the seeded file, and `alias_kind: copy` says so: a harness
       that skips symlinks would then still show the file loaded.
     - A link that escapes the tree, dangles, loops or names a directory is not
-      seeded. It is listed in `unresolved` with the reason.
+      seeded. It is listed in `unresolved` with the reason. When every guidance
+      file is such a link, nothing is left to probe: `repo reach` stops with
+      exit 1 before any scenario, and `--dry-run` stops the same way.
 2. Seed the workspace. Each guidance file gets a head token, placed after any
    YAML front matter, and a tail token. A token is `RC` plus the first 6 hex
    digits of sha256(salt, path, position).
@@ -1108,6 +1120,25 @@ Protocol:
     - `cwd=<dir>`: started in each guidance directory, tools off.
     - `read=<dir>`: started at the root, read tool on. The agent is told to
       read `<dir>/REACH_PROBE.txt`, then list tokens.
+    - `shadow=.` and `shadow=<dir>`, only with `--scenarios shadow` (the
+      default is `root,cwd,read`): the profile's `guidance.shadow_file` (§6)
+      is written into the workspace for that one scenario, seeded with its own
+      head and tail tokens, so a tree that holds none still shows what it
+      turns off. `shadow=.` writes it at the root and runs as `cwd=.`;
+      `shadow=<dir>` writes it in each guidance directory that holds a file
+      not named `CLAUDE*` (an `AGENTS.md`-class file) and runs as
+      `read=<dir>`. A directory where the tree already has a file or a
+      directory (an empty one included) at that path, or a file where the
+      path needs a directory, gets no shadow scenario. The tree's files are
+      compared ignoring case, as they would collide in the workspace on a
+      case-insensitive disk; an empty directory is found by the disk's own
+      lookup. A shadow path that would replace or go under a file of the
+      probe's own (a `REACH_PROBE.txt`, a seeded file or a link) stops the
+      run with an error once the workspace is built, before any scenario
+      runs and before anything is written. The file is not
+      committed, and it is removed when its scenario ends, after an error or
+      a timeout too, with the directories it needed that the workspace
+      lacked, so no other scenario sees it.
     - A scenario that runs past `--timeout` is an `error`; its raw stdout up
       to the kill is kept in the trace. Its harness is killed with its process
       group (POSIX) or job object (Windows), and so is anything left in that
@@ -1122,6 +1153,16 @@ Protocol:
 4. Ask for every token in the instructions or context, including context
    attached to a tool result. Parse the reported tokens from the answer, and
    the reads from `events.jsonl`.
+
+`--dry-run` prints the probed files and the argv of every planned scenario,
+and calls no harness. It makes each check a run makes before its first
+harness call (the harness's version command), so it refuses what a run would
+refuse, with the same `✗` line and exit code: a selection that leaves no
+scenario, a receipt that would replace the probe, and the checks of steps 1
+and 2. For those it builds the workspace, in `--work-dir` when given, and
+removes it, `--keep` or not. A `--work-dir` that is missing, not a directory
+or not writable, and a write the workspace refuses (a full disk), stop a dry
+run and a run alike with a `✗` line naming the directory and exit 1.
 
 Output: `<out>/reach.json` and `<out>/traces/` (raw stdout and `events.jsonl`
 per scenario).
@@ -1154,6 +1195,11 @@ per scenario).
       in `:` before the tokens (the first non-empty line, when a later line holds
       a token) is not counted. A high count usually means an explanation or a
       refusal, so read that trace before trusting its `not_loaded` cells.
+    - `shadow`, on a shadow scenario only: the shadow file's `path`, its two
+      `tokens`, and `head`, `tail`, `read_by_tool` and `class` as in a record.
+      It is not a tree file, so it has no `files` entry, no records and no
+      matrix row; the matrix prints one line per shadow scenario with its
+      class.
 - If payload capture is available, a `payload` field records whether each
   token was in the request bytes. This settles cells where the model
   under-reports, which is how a small model produces false `truncated` cells.
@@ -1190,7 +1236,9 @@ beside the saved file; a name that resolves to the saved probe is a usage error
 
 One artifact is written to `effective_instructions.json`, with one entry in its
 `receipts` array per reach scenario and `run_id` `<salt>:<scenario id>`.
-Each source carries:
+The shadow scenarios (§7) get no entry: they run with a file the tree does not
+hold, and the receipt describes the tree as committed. Their results stay in
+`reach.json` and the matrix. Each source carries:
 
 | Receipt field | From | Meaning |
 |---|---|---|
