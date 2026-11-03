@@ -49,10 +49,14 @@ def _regular_link(path: Path) -> bool:
 
 
 def _glob_walk(base: Path, segs: tuple[str, ...], i: int, found: set[Path], *, strict: bool,
-               links: set[tuple[Path, tuple[str, ...]]]) -> None:
+               links: set[tuple[Path, tuple[str, ...]]], seen: set[tuple[Path, int]]) -> None:
     """Match ``segs[i:]`` under ``base``, adding each match to ``found`` and each symbolic link a segment must read
     through to ``links``, with the segments left to match under the link's target (matched or not: a retargeted
-    link may leave the pattern nothing to match)."""
+    link may leave the pattern nothing to match). Each (directory, segment) pair is walked once: every ``**`` split
+    reaches the same pairs again, and the results are sets."""
+    if (base, i) in seen:
+        return
+    seen.add((base, i))
     if i == len(segs):
         found.add(base)
         return
@@ -60,26 +64,32 @@ def _glob_walk(base: Path, segs: tuple[str, ...], i: int, found: set[Path], *, s
     more = i + 1 < len(segs)  # a link is read through only when a segment follows it
     if seg == "**":
         if more or base.is_dir():  # terminal ** matches directories only
-            _glob_walk(base, segs, i + 1, found, strict=strict, links=links)
+            _glob_walk(base, segs, i + 1, found, strict=strict, links=links, seen=seen)
         for name, is_dir, is_link in _listing(base, strict=strict):
             if is_link and more and not _regular_link(base / name):
                 links.add((base / name, segs[i + 1:]))
             if is_dir:  # follows symlinks: a linked directory is matched, but not descended
-                _glob_walk(base / name, segs, i + 1 if is_link else i, found, strict=strict, links=links)
+                _glob_walk(base / name, segs, i + 1 if is_link else i, found, strict=strict, links=links, seen=seen)
         return
-    wild = any(c in seg for c in "*?[")  # matched by exact name against the listing: case-sensitive everywhere
-    for name, _, is_link in _listing(base, strict=strict, dirs=False):  # only a matched name is looked up further
-        if fnmatch.fnmatchcase(name, seg) if wild else name == seg:
-            if is_link and more:
-                links.add((base / name, segs[i + 1:]))
-            _glob_walk(base / name, segs, i + 1, found, strict=strict, links=links)
+    for name, is_link in _named(base, seg, strict=strict):
+        if is_link and more:
+            links.add((base / name, segs[i + 1:]))
+        _glob_walk(base / name, segs, i + 1, found, strict=strict, links=links, seen=seen)
+
+
+def _named(base: Path, seg: str, *, strict: bool) -> list[tuple[str, bool]]:
+    """(name, is_symlink) of each entry of ``base`` that ``seg`` matches: by exact name against the listing,
+    case-sensitive everywhere, and only a matched name is looked up further."""
+    wild = any(c in seg for c in "*?[")
+    return [(name, is_link) for name, _, is_link in _listing(base, strict=strict, dirs=False)
+            if (fnmatch.fnmatchcase(name, seg) if wild else name == seg)]
 
 
 def glob_links(root: Path, pattern: str) -> list[tuple[Path, tuple[str, ...]]]:
     """The symbolic links a walk of ``pattern`` reads through, matched or not, unreadable directories raising, each
     with the segments the pattern still has under its target (a link met by the last segment has none)."""
     links: set[tuple[Path, tuple[str, ...]]] = set()
-    _glob_walk(root, tuple(pattern.split("/")), 0, set(), strict=True, links=links)
+    _glob_walk(root, tuple(pattern.split("/")), 0, set(), strict=True, links=links, seen=set())
     return sorted(links)
 
 
@@ -93,5 +103,5 @@ def glob_paths(root: Path, pattern: str, *, strict: bool = False) -> list[Path]:
     linked directory is matched by ``**`` itself on every version. A directory that cannot be listed contributes no
     matches, unless ``strict``: then its error is raised."""
     found: set[Path] = set()
-    _glob_walk(root, tuple(pattern.split("/")), 0, found, strict=strict, links=set())
+    _glob_walk(root, tuple(pattern.split("/")), 0, found, strict=strict, links=set(), seen=set())
     return sorted(found)

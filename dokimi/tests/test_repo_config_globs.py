@@ -166,3 +166,22 @@ def test_a_terminal_double_star_does_not_claim_a_file_its_prefix_reaches(tmp_pat
     (root / "skills/a/SKILL.md").write_text("b\n", encoding="utf-8")
     after = load_repo_config(root).subjects()[0]
     assert after.skill_sha != before.skill_sha and after.suite_hash == before.suite_hash
+
+
+@pytest.mark.timeout(10)
+def test_many_double_stars_in_shared_match_a_deep_change_in_linear_time(tmp_path):
+    body = HEADER + "shared: ['" + "/".join(["**"] * 12 + ["zzz"]) + "']\n"
+    root = _tree(tmp_path / "repo", {".github/dokimi/config.yaml": body})
+    deep = "a/" * 24
+    impact = load_repo_config(root).subjects_for_changed([deep + "zzz", deep + "b"])
+    assert (impact.shared, impact.unclaimed) == ([deep + "zzz"], [deep + "b"])
+
+
+@pytest.mark.timeout(10)
+def test_many_double_stars_in_a_suite_walk_a_deep_tree_in_linear_time(tmp_path):
+    def suite_hash(suite):
+        body = HEADER + f"subjects:\n  - id: skill/a\n    path: skills/a\n    suite: '{suite}'\n"
+        root = _tree(tmp_path / str(len(suite)), {".github/dokimi/config.yaml": body, "skills/a/SKILL.md": "a\n",
+                                                  "evaluation/" + "d/" * 20 + "q.json": "{}\n"})
+        return load_repo_config(root).subjects()[0].suite_hash
+    assert suite_hash("/".join(["evaluation"] + ["**"] * 10)) == suite_hash("evaluation/**")

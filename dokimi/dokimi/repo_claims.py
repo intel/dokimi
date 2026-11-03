@@ -20,11 +20,23 @@ def _claims(pattern: str, segs: tuple[str, ...]) -> bool:
 
 
 def _match(pat: tuple[str, ...], segs: tuple[str, ...]) -> bool:
-    if not pat:
-        return not segs
-    if pat[0] == "**":
-        return any(_match(pat[1:], segs[i:]) for i in range(len(segs) + 1))
-    return bool(segs) and fnmatch.fnmatchcase(segs[0], pat[0]) and _match(pat[1:], segs[1:])
+    """The set of pattern positions reached after each segment, so k ``**`` cost no more than one (backtracking is
+    exponential in k), with no recursion per segment."""
+    states = _past_stars(pat, {0})
+    for seg in segs:
+        states = _past_stars(pat, {i if pat[i] == "**" else i + 1 for i in states
+                                   if i < len(pat) and (pat[i] == "**" or fnmatch.fnmatchcase(seg, pat[i]))})
+    return len(pat) in states
+
+
+def _past_stars(pat: tuple[str, ...], states: set[int]) -> set[int]:
+    """``states`` plus each position a run of ``**`` from it reaches by matching no directory."""
+    out = set(states)
+    for i in states:
+        while i < len(pat) and pat[i] == "**":
+            i += 1
+            out.add(i)
+    return out
 
 
 def _ancestor_of(pattern: str, segs: tuple[str, ...]) -> bool:
