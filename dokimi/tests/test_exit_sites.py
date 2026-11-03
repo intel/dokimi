@@ -250,6 +250,21 @@ def test_postponed_annotations_are_not_run_but_defaults_and_decorators_are(tmp_p
     assert exit_sites(imports.trees["dokimi.d"]) == [3]
 
 
+def test_a_function_local_annotation_is_never_run_but_its_value_and_a_module_annotation_are(tmp_path):
+    imports = _package(tmp_path, {
+        "dokimi/a.py": "import sys\ndef f():\n    x: sys.exit(2)\n",
+        "dokimi/b.py": "import sys\ndef f():\n    x: sys.exit(2) = 1\n",
+        "dokimi/c.py": "import sys\ndef f():\n    x: int = sys.exit(2)\n",
+        "dokimi/d.py": "import sys\ndef f():\n    class C:\n        x: sys.exit(2)\n",
+        "dokimi/e.py": "import sys\nx: sys.exit(2)\n",
+    })
+    assert exit_sites(imports.trees["dokimi.a"]) == []
+    assert exit_sites(imports.trees["dokimi.b"]) == []
+    assert exit_sites(imports.trees["dokimi.c"]) == [3]
+    assert exit_sites(imports.trees["dokimi.d"]) == [4]
+    assert exit_sites(imports.trees["dokimi.e"]) == [2]
+
+
 def test_a_nonlocal_binder_skips_the_class_body_between_it_and_the_function(tmp_path):
     imports = _package(tmp_path, {
         "dokimi/a.py": ("import sys\ndef outer():\n    x = None\n    class C:\n        x = None\n"

@@ -424,21 +424,20 @@ def _calls_exit(node: ast.Call, scope: ast.AST, table: ExitTable, owner: dict[in
         (m, func.attr) in _EXIT_CALLS for m in _modules(ast.unparse(func.value), scope, pos, table, owner))
 
 
-def _postponed(tree: ast.Module) -> set[int]:
-    """Ids of the annotations that ``from __future__ import annotations`` keeps as strings: Python never runs them."""
+def _unevaluated(tree: ast.Module, owner: dict[int, ast.AST]) -> set[int]:
+    """Ids of the annotations Python never runs: a local variable's, in any function (PEP 526), and, under
+    ``from __future__ import annotations``, every annotation, which is kept as a string."""
     future = any(isinstance(s, ast.ImportFrom) and s.module == "__future__" and any(a.name == "annotations" for a in s.names)
                  for s in tree.body)
-    if not future:
-        return set()
     roots: list[ast.AST] = []
     for n in ast.walk(tree):
-        if isinstance(n, _FUNC_NODES):
+        if future and isinstance(n, _FUNC_NODES):
             args = n.args
             roots += [a.annotation for a in [*args.posonlyargs, *args.args, *args.kwonlyargs, args.vararg, args.kwarg]
                       if a is not None and a.annotation is not None]
             if getattr(n, "returns", None) is not None:
                 roots.append(n.returns)
-        elif isinstance(n, ast.AnnAssign):
+        elif isinstance(n, ast.AnnAssign) and (future or isinstance(owner[id(n)], _FUNC_NODES)):
             roots.append(n.annotation)
     return {id(d) for r in roots for d in ast.walk(r)}
 
@@ -447,7 +446,8 @@ def exit_sites(tree: ast.Module) -> list[int]:
     """Lines that end the process: an exit call (by module attribute, through an alias, or builtin name) or a raise of SystemExit.
 
     The ``if __name__ == '__main__':`` block of a script is the process boundary of ``python -m``, so it is
-    not counted, and neither is an annotation that ``from __future__ import annotations`` postpones. Each name
+    not counted, and neither is an annotation Python does not run: a local variable's, or any under
+    ``from __future__ import annotations`` (its value is still scanned). Each name
     resolves by scope and by source position (see ``_candidates``): an import, a parameter or an assignment in one
     function does not change what another function's name means, a method does not see the names of its class
     body, and a binding that follows a use on the same line does not count for it. Linear, not control-flow aware:
@@ -460,8 +460,8 @@ def exit_sites(tree: ast.Module) -> list[int]:
     guarded = {id(n) for stmt in tree.body
                if isinstance(stmt, ast.If) and ast.unparse(stmt.test) == "__name__ == '__main__'"
                for body_stmt in stmt.body for n in ast.walk(body_stmt)}
-    guarded |= _postponed(tree)
     owner = _scope_owners(tree)
+    guarded |= _unevaluated(tree, owner)
     table = _exit_table(tree, owner)
     lines: list[int] = []
     raised: set[int] = set()  # the call of a raise is counted once, by the raise
