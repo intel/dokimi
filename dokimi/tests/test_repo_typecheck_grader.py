@@ -630,3 +630,21 @@ def test_a_typecheck_task_without_reference_whose_listed_path_is_missing_is_a_pr
     grade = {"status": "graded", "success": False, "score": None, "score_only": False, "pass": False}
     problems = selfcheck._verdict_problems(Task("t", raw, bare), "null", grade, rd)
     assert any("missing" in p and "src/pkg/modle.py" in p for p in problems)
+
+
+def test_a_typecheck_task_without_reference_whose_workspace_already_silences_mypy_is_a_problem(tmp_path):
+    # a repository stub fails every grade, so with no reference even a run that repairs the code cannot pass
+    from dokimi.repos import selfcheck
+    from dokimi.repos.workspace import Task
+
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    files = {"pkg/__init__.py": "", "pkg/api.py": CLEAN, "pkg/_ext.pyi": "def f() -> int: ...\n"}
+    run = _run(tmp_path, files, _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["n_errors"] == 0 and result["n_suppressions"] == 1  # repaired, and still failing
+    mets, det = main.split_result(result)
+    (run / "grade.json").write_text(json.dumps({"pass": False, "metrics": mets, "details": det}), encoding="utf-8")
+    grade = {"status": "graded", "success": False, "score": None, "score_only": False, "pass": False}
+    problems = selfcheck._verdict_problems(Task("t", _task(tool="mypy"), bare), "null", grade, run)
+    assert any("silences mypy" in p for p in problems)

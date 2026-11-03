@@ -149,14 +149,19 @@ def _prepare(ctx: EvalContext, task: Task, rd: Path) -> None:
 
 
 def _missing_listed(rd: Path) -> list[str]:
-    """For a typecheck task with no reference the null grade is the only step: a listed path it reports missing
-    fails that step, so no run could pass the task."""
+    """For a typecheck task with no reference the null grade is the only step: a listed path it reports missing,
+    or a suppression already in the workspace, fails that step, so no run that repairs the code could pass."""
     doc, _ = read_grade_json(rd / "grade.json")
     details = doc.get("details") if isinstance(doc, dict) else None  # the grader's lists are under details
+    metrics = doc.get("metrics") if isinstance(doc, dict) else None
     missing = details.get("missing") if isinstance(details, dict) else None
-    if not isinstance(missing, list) or not missing:
-        return []
-    return [f"null: listed path {', '.join(str(p) for p in missing)} is missing; with no reference no run can pass"]
+    out = []
+    if isinstance(missing, list) and missing:
+        out.append(f"null: listed path {', '.join(str(p) for p in missing)} is missing; with no reference no run "
+                   "can pass")
+    if isinstance(metrics, dict) and isinstance(metrics.get("n_suppressions"), int) and metrics["n_suppressions"] > 0:
+        out.append("null: the untouched workspace already silences mypy; with no reference a code repair cannot pass")
+    return out
 
 
 def _verdict_problems(task: Task, kind: str, grade: dict[str, Any], rd: Path) -> list[str]:
