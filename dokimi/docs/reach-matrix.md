@@ -44,7 +44,7 @@ arrangement that exercises one loading rule.
 | `claude-imports-agents` | `CLAUDE.md` containing `@AGENTS.md` | a Claude Code `@` import is followed; Codex does not read `CLAUDE.md` |
 | `override-file` | `AGENTS.md` beside `AGENTS.override.md` | Codex uses the override in place of `AGENTS.md` |
 | `subtree-claude-shadow` | `sub/AGENTS.md` beside `sub/CLAUDE.md` | a directory's `CLAUDE.md` shadows its `AGENTS.md` in Claude Code |
-| `large-file` | a root `AGENTS.md` of about 40 KB | the size cap; the docs give no cut-off for Claude Code, and 32 KiB for Codex |
+| `large-file` | a root `AGENTS.md` of about 40 KB | the size cap; the docs give no cut-off for Claude Code, and 32 KiB for Codex. A file cut at the cap reads as `unknown` |
 | `symlinked-file` | `CLAUDE.md` as a symbolic link to `AGENTS.md` | how a link is named and read; the docs do not say |
 
 The fixtures are plain directories. `guidance.yaml` next to them is a `repo_manifest.v1` that names every
@@ -79,8 +79,8 @@ puts on the import path.
 
 ```sh
 PYTHONPATH=. python scripts/reach_conformance.py check
-PYTHONPATH=. python scripts/reach_conformance.py run --harness codex=<model> --out reach-out
-PYTHONPATH=. python scripts/reach_conformance.py merge reach-out/*.matrix.json --out reach-matrix.json --md reach-matrix.md
+PYTHONPATH=. python scripts/reach_conformance.py run --harness codex=<model> --out results/reach-out
+PYTHONPATH=. python scripts/reach_conformance.py merge results/reach-out/*.matrix.json --out reports/reach-matrix.json --md reports/reach-matrix.md
 ```
 
 `--harness NAME[=MODEL]` is repeatable: `claude-code`, `codex` and `copilot` are known. A harness without a model

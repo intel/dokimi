@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # The codex profile of the reach suite: profiles/codex.yaml plus a provider that reads CODEX_API_KEY, because the
-# built-in one sends no bearer (401 Missing bearer). Keep the two in step; the rest is in intel/dokimi#364.
+# built-in one sends no bearer (401 Missing bearer). Keep the two in step.
 schema: harness_profile.v1
 name: codex
 bin: codex  # npm's codex is a node launcher; mount the native one (.../vendor/<triple>/bin/codex) with --bin
