@@ -459,3 +459,18 @@ def test_inherited_git_dir_does_not_redirect_the_source_stamp(tmp_path, monkeypa
     report = json.loads((out / "catalog.json").read_text())
     assert report["source"] == {"commit": sha, "dirty": False}
     assert report["selection"]["selected"] == []
+
+
+def test_a_worktree_checkout_has_the_digests_of_its_main_checkout(tmp_path):
+    root = tmp_path / "catalog"
+    root.mkdir()
+    (root / "SKILL.md").write_text("---\nname: alpha\ndescription: Use for alpha tasks.\n---\nRun.\n")
+    _commit(root)
+    _git(root, "worktree", "add", "-q", str(tmp_path / "wt"))
+    reports = []
+    for checkout in (root, tmp_path / "wt"):
+        out = tmp_path / f"out-{checkout.name}"
+        assert _run(checkout, out).returncode == 0
+        reports.append(json.loads((out / "catalog.json").read_text()))
+    assert reports[0]["catalog_digest"] == reports[1]["catalog_digest"]
+    assert reports[0]["skills"] == reports[1]["skills"]

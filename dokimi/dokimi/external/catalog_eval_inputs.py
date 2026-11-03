@@ -122,7 +122,9 @@ class Inputs:
                 raise ValueError(f"cannot inspect {current}: {exc}") from exc
             for child in children:
                 checked_path(self.root, child)
-            pending.extend(reversed([c for c in children if c.name not in VENDORED_DIR_NAMES or not c.is_dir()]))
+            # A worktree's .git is a file holding an absolute path, so it is skipped whatever its type.
+            kept = [c for c in children if c.name != ".git" and (c.name not in VENDORED_DIR_NAMES or not c.is_dir())]
+            pending.extend(reversed(kept))
         return result
 
     def bundle(self, path: Path) -> str:
