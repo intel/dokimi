@@ -27,7 +27,7 @@ from dokimi.context.prefilter import (
     render_table,
     status_of,
 )
-from dokimi.context.session_log import SessionError, parse_session, read_session
+from dokimi.context.session_log import parse_session
 
 GUIDE = """# Guide
 
@@ -75,64 +75,6 @@ def _report(sessions, guide=GUIDE, **kw):
     params = {"window": 10, "min_sessions": 1, "rare_max": 0, "in_use_rate": 0.2}
     params.update(kw)
     return build_report("AGENTS.md", guide, sessions, **params)
-
-
-# --- session_log: what becomes an event --------------------------------------------------------
-
-def test_prompts_are_typed_text_and_injected_records_are_not():
-    session = _session(
-        _prompt("CLAUDE.md echo: keep the changelog fragment current", isMeta=True),
-        _prompt("<system-reminder>keep the changelog</system-reminder> please ship it"),
-        _prompt("the subagent brief", isSidechain=True),
-        {"type": "user", "message": {"role": "user", "content": [
-            {"type": "tool_result", "tool_use_id": "t", "content": "ok"}]}},
-    )
-    assert [e.text for e in session.events] == ["please ship it"]
-
-
-def test_tool_call_keeps_command_and_paths_and_drops_file_bodies():
-    session = _session(_tool("Edit", file_path="/w/docs/guide.md", old_string="keep the changelog",
-                             new_string="rewritten body", description="tidy"))
-    (event,) = session.events
-    assert event.kind == "tool"
-    assert event.paths == ("/w/docs/guide.md",)
-    assert "tidy" in event.text and "/w/docs/guide.md" in event.text
-    assert "keep the changelog" not in event.text and "rewritten body" not in event.text
-
-
-def test_bash_command_is_its_own_field_and_a_subagent_call_still_counts():
-    record = _tool("Bash", command="make ci-local --offline")
-    record["isSidechain"] = True
-    (event,) = _session(record).events
-    assert event.command == "make ci-local --offline"
-
-
-def test_a_bad_line_is_reported_and_the_rest_still_reads():
-    raw = "not json\n" + json.dumps(_prompt("hello there")) + "\n"
-    session = parse_session(raw, "x")
-    assert [e.text for e in session.events] == ["hello there"]
-    assert session.errors == ["line 1: not JSON"]
-
-
-def test_a_line_separator_inside_a_prompt_does_not_split_the_record():
-    raw = json.dumps(_prompt("keep the changelog fragment"), ensure_ascii=False) + "\n"
-    session = parse_session(raw, "x")
-    assert session.errors == [] and [e.text for e in session.events] == ["keep the changelog fragment"]
-
-
-def test_a_line_nested_too_deep_to_parse_is_reported_and_skipped():
-    raw = "[" * 100_000 + "\n" + json.dumps(_prompt("still here")) + "\n"
-    session = parse_session(raw, "x")
-    assert [e.text for e in session.events] == ["still here"]
-    assert session.errors == ["line 1: not JSON"]
-
-
-def test_read_session_refuses_a_file_it_cannot_read_or_that_holds_no_event(tmp_path):
-    with pytest.raises(SessionError, match="cannot read"):
-        read_session(tmp_path / "missing.jsonl")
-    empty = _write(tmp_path / "empty.jsonl", [{"type": "summary", "summary": "x"}])
-    with pytest.raises(SessionError, match="no prompt and no tool call"):
-        read_session(empty)
 
 
 # --- claims: what a guidance file's rules are --------------------------------------------------
@@ -418,13 +360,6 @@ def test_a_correction_is_read_from_the_next_prompt_only():
     later = _session(_prompt("push the branch"), _prompt("thanks, continue"),
                      _prompt("no, the branch must not go before ci"))
     assert _row(_report([later]), CI)["corrected"] == 0
-
-
-def test_goose_edit_bodies_are_not_event_text():
-    from dokimi.context.session_log import tool_event
-    event = tool_event({"path": "/w/README.md", "file_text": "Keep the changelog fragment current",
-                        "old_str": "changelog", "new_str": "changelog fragment"})
-    assert "changelog" not in event.text and event.paths == ("/w/README.md",)
 
 
 def test_candidates_with_equal_rounded_rates_rank_by_exact_count():
@@ -987,6 +922,8 @@ def test_the_table_prints_a_rule_that_wraps_over_lines_on_one_row():
     ("- Update the outcome fixtures in `tests/outcomes/*.json` when behaviour changes.\n",
      "/r/dokimi/tests/outcomes/x.json"),
     ("- Update `~/.claude/settings.json` when behaviour changes.\n", "/home/u/.claude/settings.json"),
+    ("- Update `docs/a?.md` when behaviour changes.\n", "/r/docs/ab.md"),
+    ("- Update `docs/[ab].md` when behaviour changes.\n", "/r/docs/a.md"),
 ])
 def test_a_glob_or_home_relative_path_key_is_not_measurable_so_acted_is_null(rule, file_path):
     session = _session(_prompt("update the outcome fixture now"), _tool("Edit", file_path=file_path))

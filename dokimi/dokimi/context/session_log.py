@@ -25,8 +25,10 @@ from pathlib import Path
 from typing import Any
 
 # Input keys whose value is file content or a model-facing brief, not the agent's intent: left out of an event's text.
-_CONTENT_KEYS = frozenset({"old_string", "new_string", "content", "new_source", "edits", "prompt",
+_CONTENT_KEYS = frozenset({"old_string", "new_string", "content", "new_source", "edits",
                            "file_text", "old_str", "new_str"})  # the last three: Goose's editor tools
+# a subagent call's ``prompt`` is the brief the subagent gets, not the agent's intent; other tools' ``prompt`` is input
+_SUBAGENT_TOOLS = frozenset({"Task", "Agent"})
 _PATH_KEYS = ("file_path", "path", "notebook_path")
 # Markup a harness wraps around text it injects into a user turn; not the user's words.
 # ``bash-stdout`` and ``bash-stderr`` hold what a ``!`` shell turn printed: output, not the user's words.
@@ -130,7 +132,7 @@ def _events_of(rec: dict[str, Any]) -> list[Event]:
         text = prompt_text(_text_of(content))
         return [Event("prompt", text)] if text else []
     if rec.get("type") == "assistant" and isinstance(content, list):
-        return [tool_event(b.get("input")) for b in content
+        return [tool_event(b.get("input"), b.get("name")) for b in content
                 if isinstance(b, dict) and b.get("type") == "tool_use"]
     return []
 
@@ -144,9 +146,11 @@ def _text_of(content: Any) -> str:
     return ""
 
 
-def tool_event(tool_input: Any) -> Event:
+def tool_event(tool_input: Any, name: Any = None) -> Event:
     args = tool_input if isinstance(tool_input, dict) else {}
-    strings = [v for k, v in args.items() if k not in _CONTENT_KEYS and isinstance(v, str)]
+    subagent = isinstance(name, str) and name in _SUBAGENT_TOOLS
+    dropped = _CONTENT_KEYS | {"prompt"} if subagent else _CONTENT_KEYS
+    strings = [v for k, v in args.items() if k not in dropped and isinstance(v, str)]
     raw_command = args.get("command")
     command = raw_command if isinstance(raw_command, str) else ""
     paths = tuple(args[k] for k in _PATH_KEYS if isinstance(args.get(k), str))

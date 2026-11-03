@@ -95,5 +95,5 @@ def _events_of(role: str, content: list[Any], user_visible: bool) -> list[Event]
             call = block.get("toolCall")
             value = call.get("value") if isinstance(call, dict) else None
             if isinstance(value, dict):
-                events.append(tool_event(value.get("arguments")))
+                events.append(tool_event(value.get("arguments"), value.get("name")))
     return events
