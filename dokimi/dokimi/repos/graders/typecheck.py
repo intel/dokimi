@@ -145,9 +145,10 @@ def _no_type_check(text: str) -> list[int]:
 
 
 def _silenced(workspace: Path, listed: list[str]) -> list[str]:
-    """Where the workspace silences mypy: ``file:line`` for a comment, the path for a stub (``.pyi`` shadows a module).
+    """Where the workspace silences mypy: ``file:line`` for a comment, the path for a stub (``.pyi`` shadows a module)
+    or for a top-level module named as a standard-library one (``json.py``), on the workspace or a source root.
 
-    A ``.pyi`` anywhere is refused: mypy_path puts the workspace first, so ``__getattr__ -> Any`` hides every attribute."""
+    Both are refused: mypy_path puts the workspace first, so ``__getattr__ -> Any`` hides every attribute."""
     found = []
     for p in listed:
         text = (workspace / p).read_text(encoding="utf-8", errors="replace")
@@ -155,6 +156,11 @@ def _silenced(workspace: Path, listed: list[str]) -> list[str]:
         found += [f"{p}:{n}" for n in _no_type_check(text)]
     for dirpath, _, filenames in os.walk(workspace):
         found += [Path(dirpath, name).relative_to(workspace).as_posix() for name in filenames if name.endswith(".pyi")]
+    for base in (workspace, *_package_roots(workspace, listed)):
+        for entry in sorted(base.iterdir()) if base.is_dir() else []:
+            module = entry.stem if entry.suffix == ".py" else entry.name if (entry / "__init__.py").is_file() else ""
+            if module in sys.stdlib_module_names:
+                found.append(entry.relative_to(workspace).as_posix())
     return found
 
 

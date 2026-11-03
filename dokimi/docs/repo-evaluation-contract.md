@@ -663,7 +663,7 @@ failed the task, and on a task with `score` that is a failed run with score
 
 `dokimi:typecheck` checks the listed files only. Its pass is "no error on a
 listed file" (an error in a module a listed file imports belongs to that module,
-not to the listed file), and a listed file that is missing fails. Silencing mypy fails too: a `# type: ignore` or `# mypy:` comment or the name `no_type_check` in a listed file, or a `.pyi` anywhere in the workspace (it would replace the module it names), is a suppression, and the grade counts it in `n_suppressions`. A listed path
+not to the listed file), and a listed file that is missing fails. Silencing mypy fails too: a `# type: ignore` or `# mypy:` comment or the name `no_type_check` in a listed file, or a `.pyi` anywhere in the workspace (it would replace the module it names), or a top-level module or package named as a standard-library one (`json.py`, the same replacement), is a suppression, and the grade counts it in `n_suppressions`. A listed path
 reached through a symbolic link is missing, not read. A symbolic link in the workspace whose target
 lies outside it refuses the whole grade (a grader error, not a pass), listed or not, whenever mypy runs, that is
 when some listed file is present: mypy follows an import through a link, so an unlisted module could supply what a

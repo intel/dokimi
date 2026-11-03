@@ -527,6 +527,29 @@ def test_no_type_check_in_a_string_is_not_a_suppression(tmp_path):
     assert typecheck.grade(_task(), tmp_path, "", run)["pass"] is True
 
 
+@pytest.mark.parametrize("shadow", [
+    {"json.py": "from typing import Any\n\ndef __getattr__(name: str) -> Any: ...\n"},
+    {"json.py": "def nosuch() -> None: ...\n"},
+    {"json/__init__.py": "def nosuch() -> None: ...\n"},
+])
+def test_a_workspace_module_named_as_a_standard_library_one_fails_the_grade(tmp_path, shadow):
+    # the .py twin of a json.pyi: the workspace is first on mypy_path, so it replaces json and hides json.nosuch()
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": "import json\n\nprint(json.nosuch())\n", **shadow},
+               _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is False
+    assert result["n_suppressions"] == 1
+
+
+def test_a_standard_library_name_on_a_source_root_fails_the_grade(tmp_path):
+    files = {"src/pkg/__init__.py": "", "src/pkg/api.py": "import json\n\nprint(json.nosuch())\n",
+             "src/json.py": "def nosuch() -> None: ...\n"}
+    run = _run(tmp_path, files, _task(paths=["src/pkg/api.py"]))
+    result = typecheck.grade(_task(paths=["src/pkg/api.py"]), tmp_path, "", run)
+    assert result["pass"] is False
+    assert "src/json.py: mypy is silenced here (fix the code instead)" in result["errors"]
+
+
 def test_a_clean_listed_file_has_no_suppressions(tmp_path):
     run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": CLEAN}, _task())
     result = typecheck.grade(_task(), tmp_path, "", run)
