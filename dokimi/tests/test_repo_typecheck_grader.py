@@ -508,6 +508,25 @@ def test_an_error_in_an_unannotated_function_still_fails_the_grade(tmp_path):
     assert result["n_errors"] == 1
 
 
+@pytest.mark.parametrize("source", [
+    "from typing import no_type_check\n\n@no_type_check\n" + WRONG,
+    "import typing\n\n@typing.no_type_check\n" + WRONG,
+    "from typing import no_type_check as ok\n\n@ok\n" + WRONG,
+    "from typing import no_type_check\n\n@no_type_check\ndef add(:\n    return 1\n",  # not tokenizable: by line
+])
+def test_no_type_check_in_a_listed_file_is_a_suppression(tmp_path, source):
+    # mypy skips a function under @no_type_check: the error is hidden, not fixed
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": source}, _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is False
+    assert result["n_suppressions"] >= 1
+
+
+def test_no_type_check_in_a_string_is_not_a_suppression(tmp_path):
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": 'NOTE = "no_type_check"\n' + CLEAN}, _task())
+    assert typecheck.grade(_task(), tmp_path, "", run)["pass"] is True
+
+
 def test_a_clean_listed_file_has_no_suppressions(tmp_path):
     run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": CLEAN}, _task())
     result = typecheck.grade(_task(), tmp_path, "", run)

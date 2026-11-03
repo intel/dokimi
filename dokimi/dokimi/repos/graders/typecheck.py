@@ -36,6 +36,7 @@ _TAIL = re.compile(r"^(?::(?P<line>\d+))?(?::\d+)?: error: (?P<message>.*?)(?:\s
 # A comment that silences mypy: ``# type: ignore`` on a line, or a mypy directive comment (ignore-errors, ...).
 # A listed file with one is not graded clean, whatever mypy then reports.
 _SILENCE = re.compile(r"#\s*(?:type:\s*ignore|mypy:)")
+_NO_TYPE_CHECK = "no_type_check"  # typing's decorator: mypy skips the body it wraps, under any import alias
 
 
 def _safe_path(path: object) -> bool:
@@ -133,6 +134,16 @@ def _comments(text: str) -> list[tuple[int, str]]:
         return list(enumerate(text.splitlines(), 1))
 
 
+def _no_type_check(text: str) -> list[int]:
+    """The lines where a source names ``no_type_check`` as code (not in a comment or a string); line by line for a
+    source the tokenizer cannot read."""
+    try:
+        tokens = tokenize.generate_tokens(io.StringIO(text).readline)
+        return [tok.start[0] for tok in tokens if tok.type == tokenize.NAME and tok.string == _NO_TYPE_CHECK]
+    except (tokenize.TokenError, SyntaxError):
+        return [n for n, line in enumerate(text.splitlines(), 1) if _NO_TYPE_CHECK in line]
+
+
 def _silenced(workspace: Path, listed: list[str]) -> list[str]:
     """Where the workspace silences mypy: ``file:line`` for a comment, the path for a stub (``.pyi`` shadows a module).
 
@@ -141,6 +152,7 @@ def _silenced(workspace: Path, listed: list[str]) -> list[str]:
     for p in listed:
         text = (workspace / p).read_text(encoding="utf-8", errors="replace")
         found += [f"{p}:{n}" for n, comment in _comments(text) if _SILENCE.search(comment)]
+        found += [f"{p}:{n}" for n in _no_type_check(text)]
     for dirpath, _, filenames in os.walk(workspace):
         found += [Path(dirpath, name).relative_to(workspace).as_posix() for name in filenames if name.endswith(".pyi")]
     return found
