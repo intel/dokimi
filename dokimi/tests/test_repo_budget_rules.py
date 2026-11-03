@@ -140,6 +140,20 @@ def test_a_profile_that_does_not_read_rules_still_counts_a_rules_file_as_guidanc
     assert ("extra.md", "import") in got
 
 
+def test_a_profile_that_does_not_read_rules_keeps_the_frontmatter_of_a_rule_linked_guidance_file(tmp_path):
+    # the rules-off recount of a guidance file a rule links to keeps its frontmatter: start is 52, not 33
+    tree = _tree(tmp_path, {"CLAUDE.md": "@.claude/rules/link.md\n", "AGENTS.md": "---\npaths: [x]\n---\nbody body\n",
+                            ".claude/rules/link.md": "placeholder\n"})
+    try:
+        (tmp_path / ".claude/rules/link.md").unlink()
+        (tmp_path / ".claude/rules/link.md").symlink_to(tmp_path / "AGENTS.md")
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    payload = budget(tree, ("CLAUDE.md", "AGENTS.md"), None, False)
+    assert payload["totals"]["start"] == 52
+    assert _by_path(payload)[("AGENTS.md", "guidance")]["chars"] == 29
+
+
 @pytest.mark.parametrize("claude_md", ["@shared.md\n@.claude/rules/r.md\n", "@.claude/rules/r.md\n@shared.md\n"])
 def test_an_ordinary_import_keeps_the_frontmatter_that_a_rule_link_to_the_same_file_removes(tmp_path, claude_md):
     # CLAUDE.md imports shared.md whole, frontmatter included; the rule link to it loads only the body.
@@ -673,7 +687,8 @@ def test_the_receipt_budget_reads_rules_as_repo_budget_does(tmp_path, monkeypatc
 
     monkeypatch.setattr(receipt_module, "build_receipt", fake_build_receipt)
     monkeypatch.setattr("dokimi.artifacts.save_artifact", lambda name, data, path: {"path": str(path)})
-    profile = SimpleNamespace(guidance_names=NAMES, import_max_depth=None, reads_claude_rules=True)
+    profile = SimpleNamespace(guidance_names=NAMES, import_max_depth=None, reads_claude_rules=True,
+                                 claude_displaces_agents=False)
 
     repo_cmd._print_receipt(WorkTree(tmp_path), profile, {}, tmp_path)
 

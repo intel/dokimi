@@ -53,6 +53,7 @@
         "imports": {"type": ["string", "null"]},
         "import_max_depth": {"type": "integer", "minimum": 1, "description": "How many hops of @imports the harness follows from a guidance file; absent: unlimited."},
         "claude_rules": {"type": "boolean", "description": "The harness reads .claude/rules/**/*.md (repo budget counts them); absent: false."},
+        "claude_displaces_agents": {"type": "boolean", "description": "`repo budget` reports a nested AGENTS.md off when its own directory holds a CLAUDE.md, CLAUDE.local.md or .claude/CLAUDE.md (Claude Code's rule). Default false."},
         "notes": {"type": "string"}
       }
     },

@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Any
 
-from .budget import RULE_GLOB, _imports, _target
+from .budget import CLAUDE_ROOT, RULE_GLOB, _imports, _target
 from .reach import PROSE_LIMIT, ReachError
 from .source import RepoTree
 
@@ -29,16 +29,15 @@ UNKNOWN = "unknown"
 OBSERVATION_METHOD = UNKNOWN
 # dokimi's own method: the model reports the marker tokens it can see; the request itself is not captured.
 DOKIMI_METHOD = "marker_self_report"
-# Root-level files that turn AGENTS.md off in Claude Code (budget.py): the displacing set.
-CLAUDE_ROOT = ("CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md")
 ROOT_NESTED = (".claude/CLAUDE.md", ".claude/AGENTS.md")  # project memory in .claude/ applies repo-wide
 SUBTREE_NAMES = ("AGENTS.md", "CLAUDE.md", "CLAUDE.local.md")
+CLAUDE_MEMORY = ("CLAUDE.md", "CLAUDE.local.md")  # the memory files Claude Code loads by directory
 _STATE: dict[str | None, str] = {"loaded": "loaded", "fetched": "fetched", "not_loaded": "not_loaded"}
 _LOADED: dict[str | None, bool] = {"loaded": True, "not_loaded": False}
 DETAIL = ("the model is asked to report the marker tokens it can see; the request sent to the provider is not "
           "captured, so a reported token is evidence of loading, not a copy of the bytes it received")
-NOT_PROBED = ("start-up imports and skill listings from repo_budget are not probed by reach; their observed state is "
-              "unknown, and skill bodies (loaded on demand) are not listed")
+NOT_PROBED = ("start-up imports, start-up rules and skill listings from repo_budget are not probed by reach; their "
+              "observed state is unknown, and skill bodies (loaded on demand) are not listed")
 
 
 @dataclass(frozen=True)
@@ -167,12 +166,15 @@ def _budget_when(reach: dict[str, Any], budget: dict[str, Any]) -> dict[str, str
 def _own_guidance(reach: dict[str, Any], budget: dict[str, Any], tree: RepoTree) -> frozenset[str]:
     """Guidance files budget lists under their own path, and that no other guidance file @-imports: a link or an
     import is activated where its importer is, so the file has no subtree of its own. A file a rule links to loads
-    through that rule, whose ``paths`` decide where, so it is not independent guidance either."""
+    through that rule, whose ``paths`` decide where, so it is not independent guidance either, unless it is a CLAUDE
+    memory file, which keeps a route of its own (loaded where its directory is reached). An AGENTS.md has none in
+    Claude Code: a rule link is its only route, so it is not expected in a subtree on the strength of budget alone."""
     aliases = {alias for item in reach["files"] for alias in item.get("aliases", [])}
     guidance = [e["path"] for e in budget["entries"] if e["kind"] == "guidance"]
     imported = {_target(tree, p) for g in guidance for p in _imports(tree, [g])[0]}
     ruled = {_target(tree, f) for f in tree.files() if RULE_GLOB.match(f)}
-    return frozenset(p for p in guidance if p not in aliases and p not in imported and _target(tree, p) not in ruled)
+    return frozenset(p for p in guidance if p not in aliases and p not in imported
+                     and not (_target(tree, p) in ruled and p.rsplit("/", 1)[-1] not in CLAUDE_MEMORY))
 
 
 def _dir(path: str) -> str:

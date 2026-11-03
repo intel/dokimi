@@ -14,3 +14,5 @@
   for a harness profile with the new optional `guidance.claude_rules: true` (`claude-code`
   only); the Codex and Copilot profiles leave it unset. An `@` import of a file keeps its frontmatter
   (it is counted in full), and a profile that does not read rules strips none from an imported rule file.
+- **Receipt**: `repo reach --format receipt` names start-up rules in its not-probed notice. A file a rule links to is
+  expected in a subtree only when it is a nested CLAUDE.md; a linked nested AGENTS.md is `unknown` there.
