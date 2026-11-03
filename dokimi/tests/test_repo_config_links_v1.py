@@ -84,6 +84,19 @@ def test_a_link_other_than_a_whole_skill_directory_is_a_config_error(tmp_path, c
 
 
 @symlinks
+def test_a_link_inside_a_matched_suite_directory_is_refused(tmp_path):
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": SKILL_A.format(suite="evaluation/*"),
+        "skills/a/SKILL.md": "# a\n",
+        "evaluation/current/real.json": "[]\n",
+        "shared/x": "x\n",
+    })
+    os.symlink("../../shared/x", root / "evaluation" / "current" / "task.json")
+    with pytest.raises(ConfigError, match="evaluation/current/task.json, a link; a suite holds real files in v1"):
+        load_repo_config(root).subjects()
+
+
+@symlinks
 @pytest.mark.parametrize("suite", ["evaluation/current/task.json", "evaluation/*/task.json", "evaluation/**/task.json"])
 @pytest.mark.parametrize("target_present", [True, False])
 def test_a_link_on_the_way_to_a_suite_is_refused_whether_or_not_its_file_exists(tmp_path, suite, target_present):
