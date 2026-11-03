@@ -110,7 +110,7 @@ def expectations_digest(expect: Mapping[str, Any]) -> str:
 
 
 def fixtures_digest(fixtures: Path) -> str:
-    """The sha256 of the fixture tree (each file's path and bytes, a link's target): what the observed states come from."""
+    """The sha256 of everything under the fixtures root (each file's path and bytes, a link's target), including its guidance file and, by default, its expectations file."""
     h = hashlib.sha256()
     for p in sorted(fixtures.rglob("*"), key=lambda p: p.relative_to(fixtures).as_posix()):
         if not (p.is_symlink() or p.is_file()):

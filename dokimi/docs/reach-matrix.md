@@ -108,8 +108,9 @@ authenticates the run. For Bedrock, also set `CLAUDE_CODE_USE_BEDROCK=1` and
 same fixture, so a merge cannot double-count (failed and skipped runs hold no cells and are kept as they are). Each
 matrix carries `expectations_digest`, the sha256 of the expectations it was scored against; `merge` refuses matrices
 with different digests, and the `merge` command refuses ones whose digest is not that of its `--expectations` file. Each also carries
-`fixtures_digest`, the sha256 of the fixture tree its runs observed, and `merge` refuses matrices with different
-ones: an edited fixture would otherwise read as a change between harness versions.
+`fixtures_digest`, the sha256 of everything under the fixtures root its runs observed, and `merge` refuses matrices
+with different ones: an edited fixture would otherwise read as a change between harness versions. The root also
+holds `guidance.yaml` and, by default, `expectations.yaml`, so an edit to either, even to a comment, changes the digest.
 
 The offline tests (`tests/test_reach_conformance.py`) cover the agreement rules, scenario ids, alias handling,
 skipped and failed runs, merge, rendering, the drift checks, and the CLI, with the harness runs faked. No test
