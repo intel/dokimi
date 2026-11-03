@@ -277,7 +277,7 @@ def test_plugin_removal_timeout_aborts_cell(tmp_path):
     """A plugin-directory removal that times out aborts the cell before verification."""
     task = load_task(_fixture_task(tmp_path))
     cli = _pipeline(reward=1.0, answer=lambda call: reply(timed_out=True) if (
-        call.argv[1] == "exec" and "-rf" in call.argv and "abskill" in call.argv[-1]) else None)
+        call.argv[1] == "exec" and "-rf" in call.argv and "claude-plugins" in call.argv[-1]) else None)
 
     result = create_harness("docker-claude", runner=cli).run(task, output_dir=tmp_path / "out")
 

@@ -121,6 +121,17 @@ class Score:
         """Panel inter-rater agreement (0-1), when a panel scored it."""
         return _number(self.raw.get("agreement_score"))
 
+    @property
+    def incomplete(self) -> bool:
+        """Whether a panel judge's vote failed or carries no score (``votes`` or ``panel.votes``)."""
+        panel = self.raw.get("panel")
+        lists = (self.raw.get("votes"), panel.get("votes") if isinstance(panel, Mapping) else None)
+        return any(
+            isinstance(votes, list) and any(
+                not isinstance(v, Mapping) or v.get("error") or _number(v.get("aggregate")) is None
+                for v in votes)
+            for votes in lists)
+
 
 @dataclass(frozen=True)
 class Record:
