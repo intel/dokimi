@@ -1521,7 +1521,8 @@ grammar of the repository interpreter's version, and mypy runs with that
 `--python-version` and an explicit empty config, so the subject's and the host's
 mypy settings do not apply. basedpyright gets the same version as `pythonVersion`
 in its explicit project file, since `--pythonpath` alone sets the import paths. The tools run on the host through
-`dokimi.process`; one run covers every fence of the repository.
+`dokimi.process`; one run covers every fence of the repository. When mypy stops on a blocking error, it runs
+again on the fences that error did not name, so one fence cannot leave the others unchecked.
 
 ```bash
 python cli.py repo scan <source> --manifest <path> --typecheck --python-env <repo-venv>/bin/python

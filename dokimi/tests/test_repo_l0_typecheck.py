@@ -403,17 +403,42 @@ def _fake_tools(monkeypatch, mypy_result, seen: list):
     monkeypatch.setattr(l0_typecheck, "_run_tool", fake)
 
 
-def test_a_tool_that_stops_on_a_blocking_error_leaves_the_unchecked_fences_unresolved(tmp_path, monkeypatch):
-    report = json.dumps({"file": "fence-0.py", "line": 1, "severity": "error", "message": "blocking"})
-    _fake_tools(monkeypatch, _completed(returncode=2, stdout=report + "\n"), [])
+def test_a_tool_that_stops_on_a_blocking_error_is_run_again_on_the_fences_it_did_not_name(tmp_path, monkeypatch):
+    blocking = json.dumps({"file": "fence-0.py", "line": 1, "severity": "error", "message": "blocking"})
+    stale = json.dumps({"file": "fence-0.py", "line": 1, "severity": "error", "message": "stale"})
+    runs: list = []
+    _fake_tools(monkeypatch, None, runs)
+    from dokimi.repos.l0 import typecheck as l0_typecheck
+
+    fake = l0_typecheck._run_tool
+
+    def per_run(argv, cwd, stdin=None):
+        done = fake(argv, cwd, stdin)
+        if done is not None:
+            return done
+        mypy_runs = [a for a in runs if "--output" in a]
+        report = blocking if len(mypy_runs) == 1 else stale  # the second run has only the other fence, as fence-0
+        return _completed(returncode=2 if len(mypy_runs) == 1 else 1, stdout=report + "\n")
+
+    monkeypatch.setattr(l0_typecheck, "_run_tool", per_run)
     agents = f"{FENCE}python\nx: int = 1\n{FENCE}\n\n{FENCE}python\ny: int = 2\n{FENCE}\n"
     payload = scan_repo(_tree(tmp_path, agents), parse_manifest(MANIFEST), typecheck=Check("mypy", sys.executable))
     claims = _fence_claims(payload)
-    assert [c["status"] for c in claims] == ["fail", "unresolved"]
-    assert "blocking" in claims[0]["why"]
-    assert "stopped before this fence was checked" in claims[1]["why"]  # no error reported is not a pass
-    assert payload["typecheck"]["checked"] == 1
-    assert payload["typecheck"]["unknown"] == 1
+    assert [c["status"] for c in claims] == ["fail", "fail"]
+    assert "blocking" in claims[0]["why"] and "stale" in claims[1]["why"]
+    assert [a[-1] for a in runs if "--output" in a] == ["fence-1.py", "fence-0.py"]
+    assert payload["typecheck"]["checked"] == 2
+
+
+def test_a_blocking_fragment_fence_does_not_hide_a_stale_fence(tmp_path):
+    # a top-level yield stops mypy and is itself a fragment: the stale fence must still be named, not unresolved
+    agents = (f"{FENCE}python\nconn = open('/dev/null')\nyield conn\n{FENCE}\n\n"
+              f"{FENCE}python\nimport json\njson.dumps(1).nosuch()\n{FENCE}\n")
+    payload = scan_repo(_tree(tmp_path, agents), parse_manifest(MANIFEST), typecheck=Check("mypy", sys.executable))
+    claims = _fence_claims(payload)
+    assert [c["status"] for c in claims] == ["unresolved", "fail"]
+    assert "nosuch" in claims[1]["why"]
+    assert payload["typecheck"]["fail"] == 1
 
 
 def test_a_tool_that_exits_two_with_no_fence_report_is_an_error_not_a_pass(monkeypatch):

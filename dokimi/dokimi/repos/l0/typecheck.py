@@ -5,8 +5,9 @@
 
 Each fence that parses becomes a ``python_fence`` claim: ``ok`` when the tool reports no error,
 ``fail`` (a stale-API candidate) when it does, and ``unresolved`` when it does not parse or no
-repository interpreter was given, so nothing was checked. One tool run covers every fence; the
-interpreter's site-packages are the pinned dependencies, and imports are not followed past the fence.
+repository interpreter was given, so nothing was checked. One tool run covers every fence (mypy runs again
+without the fences a blocking error named); the interpreter's site-packages are the pinned dependencies,
+and imports are not followed past the fence.
 """
 
 from __future__ import annotations
@@ -90,9 +91,8 @@ def check_fences(scan: Scan, files: list[str], check: Check) -> dict[str, Any]:
     if _older_than_the_tool(scan, check, runnable, target):
         block["unknown"] = len(runnable)
         return block
-    # no file: usage error. ``blocked``: the tool stopped early, so a fence with no error was not necessarily checked.
-    found_errors, blocked = _run(check, [code for _, _, code in runnable], target) if runnable else ({}, False)
-    fails, unchecked = _claims(scan, check.tool, runnable, found_errors, blocked)
+    found_errors = _run_past_blocking(check, [code for _, _, code in runnable], target) if runnable else {}
+    fails, unchecked = _claims(scan, check.tool, runnable, found_errors)
     block["fail"] = fails
     block["checked"] = len(runnable) - unchecked
     block["unknown"] += unchecked  # "unknown" is every fence that was not checked
@@ -100,16 +100,11 @@ def check_fences(scan: Scan, files: list[str], check: Check) -> dict[str, Any]:
 
 
 def _claims(scan: Scan, tool: str, runnable: list[tuple[str, Fence, str]],
-            found_errors: dict[int, list[tuple[int, str]]], blocked: bool) -> tuple[int, int]:
+            found_errors: dict[int, list[tuple[int, str]]]) -> tuple[int, int]:
     """One claim per runnable fence from the tool's errors; (failing fences, fences not checked)."""
     fails = unchecked = 0
     for i, (f, fence, code) in enumerate(runnable):
         errors = found_errors.get(i, [])
-        if not errors and blocked:
-            unchecked += 1
-            scan.add(f, fence.line, "python_fence", _label(code), "unresolved",
-                     f"{tool} stopped before this fence was checked: not type-checked")
-            continue
         if not errors:
             scan.add(f, fence.line, "python_fence", _label(code), "ok", f"{tool}: no error")
             continue
@@ -211,6 +206,21 @@ def _syntax_errors(check: Check, codes: list[str]) -> list[str | None]:
     if not isinstance(reasons, list) or len(reasons) != len(codes):
         raise TypecheckError(f"{python} did not parse the fences: {done.stdout[-300:]!r}")
     return reasons
+
+
+def _run_past_blocking(check: Check, codes: list[str],
+                       target: tuple[int, int] | None) -> dict[int, list[tuple[int, str]]]:
+    """Errors per fence index. A run mypy stopped on a blocking error is run again without the fences it named,
+    so that one fence cannot leave every other fence unchecked; each round drops at least one fence."""
+    errors: dict[int, list[tuple[int, str]]] = {}
+    todo = list(range(len(codes)))
+    while todo:
+        found, blocked = _run(check, [codes[i] for i in todo], target)
+        errors.update((todo[k], found_errors) for k, found_errors in found.items())
+        if not blocked:
+            break
+        todo = [i for k, i in enumerate(todo) if k not in found]
+    return errors
 
 
 def _run(check: Check, codes: list[str],
