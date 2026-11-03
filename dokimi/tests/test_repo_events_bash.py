@@ -61,7 +61,8 @@ def test_a_failed_cat_of_one_file_is_no_read():
                                      "time cd sub && cat AGENTS.md", "command cd sub && cat AGENTS.md",
                                      "builtin cd sub && cat AGENTS.md", "X=1 cd sub && cat AGENTS.md",
                                      '"cd" sub && cat AGENTS.md', r"\cd sub && cat AGENTS.md",
-                                     "builtin 'cd' sub && cat AGENTS.md"])  # a quoted or escaped name is the builtin
+                                     "builtin 'cd' sub && cat AGENTS.md",  # a quoted or escaped name is the builtin
+                                     "cd \\\nsub && cat AGENTS.md", "cd sub \\\n&& cat AGENTS.md"])  # continued lines
 def test_a_failed_cd_then_cat_of_one_file_is_no_read(command):
     events = _events(_call("a", command), _result("a", "cat: AGENTS.md: No such file or directory", True))
     assert [(e["kind"], e["rc"]) for e in events] == [("command", 1)]
