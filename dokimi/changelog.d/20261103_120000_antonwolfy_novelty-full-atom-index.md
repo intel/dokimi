@@ -20,11 +20,12 @@
   the file, reusing the extraction. A file without the record (written
   before it) reads as every atom sampled; one that names an atom it does not
   hold exits 2. When such an older file comes from a cap that bound
-  (`extraction.sampled` set, or any `extraction.reached`),
+  (`extraction.sampled` set, or any `extraction.reached`) or may have bound
+  (`cap` set, no `extraction.reached`, and at least `cap` atoms),
   `novelty probe`, `novelty shorten` and `novelty view` warn on stderr that
-  it holds only the probed atoms (or, for a cap met at the last span, may
-  hold only those), so a shortening can cut spans whose atoms fell outside
-  them, and to re-run `novelty atoms`. The `harmful_atoms` gate check still does not clear a 0 on a
+  it holds only the probed atoms (or, for a cap met at the last span or a
+  file without `reached`, may hold only those), so a shortening can cut
+  spans whose atoms fell outside them, and to re-run `novelty atoms`. The `harmful_atoms` gate check still does not clear a 0 on a
   sampled run, now read from `extraction.sampled`, and the `dead_tokens`
   check judges a capped run's share. The cap no longer forfeits
   `frac_carrying_nothing`, and the shortening forfeit says `knowledge` and

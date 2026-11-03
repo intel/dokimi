@@ -1014,9 +1014,12 @@ with any `extraction.reached` object, which a document-order cap wrote only when
 only the atoms its run probed, so spans whose atoms fell outside them read as carrying nothing and
 a shortening can cut them; re-run `novelty atoms` to index every atom. A document-order cap whose
 `reached` is the input's last span (`spans` equal to `of`) may still have cut atoms from that last
-reply, so the warning says the file *may* hold only the atoms its run probed. A file this version
-wrote always has the
-key, so one whose cap kept every atom (`sampled_atom_ids: null`) gets no warning.
+reply, so the warning says the file *may* hold only the atoms its run probed. A file from before
+`extraction.reached` existed (#299), with `cap` set, no `reached` key and at least `cap` atoms, gets
+the same "may hold" warning, since its document-order cap stopped at exactly `cap` atoms when it
+bound and the file cannot say whether it did; one with fewer atoms than `cap` gets none. A file this
+version wrote always has the key, so one whose cap kept every atom (`sampled_atom_ids: null`) gets
+no warning.
 
 Runs written before the spread rule recorded `cap-per-artifact:<n>`: extraction walked the spans
 in document order and stopped at the cap, so their atoms cover the input up to the span it

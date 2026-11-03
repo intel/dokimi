@@ -342,6 +342,24 @@ def test_the_sample_key_not_its_value_marks_a_file_this_version_wrote():
     assert not holds_only_a_capped_sample({"cap": 1, "extraction": {"reached": None}})
 
 
+@pytest.mark.parametrize("n_atoms, warns", [(3, True), (2, False)],
+                         ids=["as-many-atoms-as-the-cap", "fewer-atoms-than-the-cap"])
+def test_a_capped_file_from_before_reached_warns_that_it_may_hold_only_its_sample(
+        capsys, n_atoms, warns):
+    """Before `extraction.reached` (#299) a document-order cap stopped at exactly `cap` atoms."""
+    from dokimi.commands.novelty_atoms_file import holds_only_a_capped_sample, warn_capped_sample
+
+    saved = {"cap": 3, "atoms": [{"id": f"a{i}"} for i in range(n_atoms)],
+             "extraction": {"batches": 2}}
+    assert holds_only_a_capped_sample(saved) is warns
+    warn_capped_sample(saved, "atoms.json")
+    holds = ("it may hold only the atoms its run probed (it records no `extraction.reached`, so "
+             "whether its cap bound is unknown)")
+    assert (f"WARNING: atoms.json {_old_capped_warning(holds)}" in capsys.readouterr().err) is warns
+    # A file after #299 records `reached: null` when its cap did not bind: no warning.
+    assert not holds_only_a_capped_sample(dict(saved, extraction={"reached": None}))
+
+
 @pytest.mark.parametrize("before_371", [True, False], ids=["older-capped-file", "this-version"])
 def test_view_and_probe_warn_on_an_older_capped_atoms_file(
         tmp_path, monkeypatch, capsys, before_371):

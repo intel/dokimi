@@ -26,6 +26,25 @@ def warn_unread(spans: list, consequence: str) -> None:
               file=sys.stderr)
 
 
+def _capped_sample(saved: dict) -> str | None:
+    """How an ``atoms.json`` that predates ``sampled_atom_ids`` holds only its probed atoms:
+    ``"holds"``, ``"may hold"`` (the cap may not have cut any), or ``None``."""
+    if "sampled_atom_ids" in saved:
+        return None
+    extraction = saved.get("extraction") or {}  # an object or absent: the loader checked
+    if extraction.get("sampled"):
+        return "holds"
+    cap = saved.get("cap")
+    if not isinstance(cap, int):
+        return None
+    reached = extraction.get("reached")
+    if isinstance(reached, dict):
+        return "may hold" if reached.get("spans") == reached.get("of") else "holds"
+    # Before `reached` (#299) a document-order cap stopped at exactly `cap` atoms.
+    return "may hold" if "reached" not in extraction and len(saved.get("atoms") or []) >= cap \
+        else None
+
+
 def holds_only_a_capped_sample(saved: dict) -> bool:
     """Whether ``atoms.json`` predates ``sampled_atom_ids`` and its cap may have left atoms out.
 
@@ -33,30 +52,29 @@ def holds_only_a_capped_sample(saved: dict) -> bool:
     ``extraction.sampled``; a document-order cap before it recorded ``cap`` and an
     ``extraction.reached`` object, which it wrote only when the cap bound. Even a reach at the
     input's last span (``report.reach_is_end``) may have cut that reply's later atoms, so it
-    counts too. A file this version wrote has the key, ``null`` when its cap kept every atom.
+    counts too, and so does a file from before ``reached`` (#299) with ``cap`` set and at least
+    ``cap`` atoms, whose cap may have bound. A file this version wrote has the key, ``null``
+    when its cap kept every atom.
     """
-    if "sampled_atom_ids" in saved:
-        return False
-    extraction = saved.get("extraction") or {}  # an object or absent: the loader checked
-    if extraction.get("sampled"):
-        return True
-    return saved.get("cap") is not None and isinstance(extraction.get("reached"), dict)
+    return _capped_sample(saved) is not None
 
 
 def warn_capped_sample(saved: dict, path) -> None:
     """Say on stderr that an older capped ``atoms.json`` indexes spans from its sample only (#371).
 
     When a document-order cap reached the input's last span, the file only *may* have lost atoms
-    (those the cap cut from the last reply), and the warning says so.
+    (those the cap cut from the last reply), and the warning says so; so it does for a capped
+    file from before ``extraction.reached``, which cannot tell whether its cap bound.
     """
-    if not holds_only_a_capped_sample(saved):
+    kind = _capped_sample(saved)
+    if kind is None:
         return
-    extraction = saved.get("extraction") or {}
-    reached = extraction.get("reached") or {}
-    holds =("it may hold only the atoms its run probed (its cap was met at the input's last "
-             "span and may have cut that reply)" if not extraction.get("sampled")
-             and reached.get("spans") == reached.get("of")
-             else "it holds only the atoms its run probed")
+    reached = (saved.get("extraction") or {}).get("reached")
+    holds = ("it holds only the atoms its run probed" if kind == "holds"
+             else "it may hold only the atoms its run probed (its cap was met at the input's "
+             "last span and may have cut that reply)" if reached
+             else "it may hold only the atoms its run probed (it records no `extraction.reached`, "
+             "so whether its cap bound is unknown)")
     print(f"WARNING: {path} was written by a capped `novelty atoms` run before atoms files "
           f"recorded their sample (`sampled_atom_ids`): {holds}, so spans whose atoms fell "
           "outside them read as carrying nothing and a shortening can cut them; re-run "
