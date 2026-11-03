@@ -393,8 +393,9 @@ def _cases_and_digest(cases: list[Case] | None, catalogue: Path | None,
 
 
 def _trace_dir(out_dir: Path) -> Path:
-    """out_dir/traces, emptied of the traces an earlier run left there."""
-    trace_dir = out_dir / "traces"
+    """out_dir/skill-traces, emptied of the traces an earlier run left there; not traces/, which
+    `repo reach` owns, so the two probes can share an --out without deleting each other's evidence."""
+    trace_dir = out_dir / "skill-traces"
     trace_dir.mkdir(parents=True, exist_ok=True)
     for old in trace_dir.iterdir():
         if re.match(r"^\d{2,}-.*\.(stdout|events\.jsonl)$", old.name) and old.is_file():

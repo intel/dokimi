@@ -84,7 +84,7 @@ def _refuse_what_a_run_would_refuse(args: argparse.Namespace, profile, selected:
         resolve_at(case, skill_dirs(profile))
     if args.dry_run:
         return
-    existing = Path(args.out) / "traces"
+    existing = Path(args.out) / "skill-traces"
     while not existing.exists() and existing != existing.parent:
         existing = existing.parent
     if not existing.is_dir():
@@ -109,7 +109,8 @@ def add_skill_reach_parser(repo_sub, positive_int) -> None:
     skill_p.add_argument("--only", action="append", default=None, metavar="CASE",
                          help="Place only this case id; repeatable")
     skill_p.add_argument("--bin", default=None, help="Harness executable (default: the profile's `bin`)")
-    skill_p.add_argument("--out", default="skill-reach-out", help="Output directory: skill-discovery.json and traces/")
+    skill_p.add_argument("--out", default="skill-reach-out",
+                         help="Output directory: skill-discovery.json and skill-traces/")
     skill_p.add_argument("--work-dir", default=None, dest="work_dir",
                          help="Parent of the temporary fixture (default: the system temp dir). No ancestor may "
                          "hold guidance or a skills dir.")

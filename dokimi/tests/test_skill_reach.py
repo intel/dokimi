@@ -665,8 +665,18 @@ def test_a_profile_that_places_no_case_is_refused(tmp_path):
                         work_dir=work)
 
 
+def test_a_run_leaves_the_guidance_reach_traces_in_a_shared_out_dir(tmp_path):
+    reach = tmp_path / "out" / "traces"
+    reach.mkdir(parents=True)
+    (reach / "00-root.stdout").write_text("reach", encoding="utf-8")
+    (reach / "03-cwd_src.events.jsonl").write_text("reach", encoding="utf-8")
+    _run(tmp_path, only=("project-client",))
+    assert sorted(p.name for p in reach.iterdir()) == ["00-root.stdout", "03-cwd_src.events.jsonl"]
+    assert (tmp_path / "out" / "skill-traces" / "00-cwd_..stdout").is_file()
+
+
 def test_a_new_run_clears_the_traces_of_an_earlier_one(tmp_path):
-    trace = tmp_path / "out" / "traces"
+    trace = tmp_path / "out" / "skill-traces"
     trace.mkdir(parents=True)
     (trace / "07-stale.stdout").write_text("old", encoding="utf-8")
     (trace / "07-stale.events.jsonl").write_text("old", encoding="utf-8")
