@@ -199,6 +199,18 @@ def test_a_root_link_to_a_descendant_of_itself_digests_differently_from_a_relati
     assert tree_digest(root) != looping
 
 
+@symlinks
+@pytest.mark.parametrize("suffix", ["/", "/."])
+def test_a_root_link_through_a_subdirectory_to_the_root_digests_differently_from_the_filesystem_root(tmp_path, suffix):
+    # current sits directly under the root and targets <root>/sub/.. (a real sub): settled, it is the root itself, not
+    # "/" -- a retarget between the two must move the digest
+    inside = _write(tmp_path / "a", {"q.json": "[]\n", "sub/keep": "x\n"})
+    os.symlink(f"{inside}/sub/..{suffix}", inside / "current")
+    outside = _write(tmp_path / "b", {"q.json": "[]\n", "sub/keep": "x\n"})
+    os.symlink("/", outside / "current")
+    assert tree_digest(inside) != tree_digest(outside)
+
+
 def test_a_windows_extended_path_prefix_is_read_as_the_plain_path():
     # os.readlink on Windows returns the \\?\ form of an absolute link target; the containment check needs the plain one
     from dokimi.utils import _plain_path

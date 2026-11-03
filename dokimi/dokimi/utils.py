@@ -161,7 +161,7 @@ def link_text(link: Path, root: Path) -> str:
                 if key_settled != key_anchor and not key_settled.startswith(key_anchor.rstrip(os.sep) + os.sep):
                     return target
                 rest = [part for part in settled[len(anchor):].split(os.sep) if part not in ("", ".")]
-                return "/".join([".."] * depth + rest) + slash or "."
+                return ("/".join([".."] * depth + rest) or ".") + slash  # the root itself is "." before the slash
             here = os.path.join(anchor, *link.relative_to(root).parent.parts)
             return os.path.relpath(os.path.join(anchor, *rest), here).replace(os.sep, "/") + slash
     return target  # outside the tree: as written
