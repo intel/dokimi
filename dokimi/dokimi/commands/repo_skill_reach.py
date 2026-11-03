@@ -9,6 +9,7 @@ import argparse
 import json
 import math
 import sys
+import tempfile
 from pathlib import Path
 
 from dokimi.exit_codes import EXIT_USAGE
@@ -46,7 +47,7 @@ def cmd_repo_skill_reach(args: argparse.Namespace) -> None:
             raise SkillReachError(f"--only {', '.join(missing)} matches no case")
         selected = [c for c in cases if not only or c.id in only]
         _refuse_what_a_run_would_refuse(args, profile, selected)
-    except (ProfileError, SkillReachError) as exc:
+    except (ProfileError, SkillReachError, ReachError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
     if args.dry_run:
@@ -76,12 +77,18 @@ def cmd_repo_skill_reach(args: argparse.Namespace) -> None:
 
 
 def _refuse_what_a_run_would_refuse(args: argparse.Namespace, profile, selected: list) -> None:
-    """The profile, each case's location and (for a run) --out and --work-dir, before a dry run or the banner."""
-    from dokimi.repos.skill_reach import SkillReachError, check_profile, resolve_at, skill_dirs
+    """What a run refuses before it places anything, checked before a dry run too (so both refuse the same
+    inputs); --out is checked for a run only, since a dry run writes nothing."""
+    from dokimi.repos.skill_reach import SkillReachError, check_profile, check_skill_ancestors, resolve_at, skill_dirs
 
     check_profile(profile)
-    for case in selected:
-        resolve_at(case, skill_dirs(profile))
+    dirs = skill_dirs(profile)
+    if all(resolve_at(case, dirs) is None for case in selected):
+        raise SkillReachError("no case could be placed: the profile declares no skill dir that a selected case names")
+    if args.work_dir and not Path(args.work_dir).is_dir():
+        raise SkillReachError(f"--work-dir {args.work_dir} is not a directory")
+    # run_skill_reach checks a fixture under a temp dir made inside --work-dir: the same ancestors as this path
+    check_skill_ancestors(Path(args.work_dir or tempfile.gettempdir()).resolve() / "_", profile.guidance_names)
     if args.dry_run:
         return
     existing = Path(args.out) / "skill-traces"
@@ -89,8 +96,6 @@ def _refuse_what_a_run_would_refuse(args: argparse.Namespace, profile, selected:
         existing = existing.parent
     if not existing.is_dir():
         raise SkillReachError(f"--out {args.out}: {existing} is not a directory")
-    if args.work_dir and not Path(args.work_dir).is_dir():
-        raise SkillReachError(f"--work-dir {args.work_dir} is not a directory")
 
 
 def add_skill_reach_parser(repo_sub, positive_int) -> None:

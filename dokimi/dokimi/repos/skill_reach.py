@@ -14,7 +14,10 @@ skill it can see with its token.
 - ``listed``: the description token was reported. The client put the skill's
   metadata in the agent's context, which is what discovery means for skills.
   ``body`` on the record says the body token was reported too (the client
-  loaded the body eagerly).
+  loaded the body eagerly). A body token alone does not make a skill listed
+  unless its body also carries the description token (``missing``): for every
+  other format the body does not carry it, so the probe counts it as not_listed
+  (the conservative reading).
 - ``fetched``: the token was reported, but the agent ran a command, read a
   file or used any tool (Skill, Grep, ...) first, so it may have found the skill itself.
 - ``not_listed``: the token was not reported. A ``description: missing`` case has no description token to report:
@@ -25,7 +28,9 @@ skill it can see with its token.
 
 Cases that share a ``collision`` group have one ``name``. Per scenario the
 group's verdict is ``one`` (a single copy listed: the record names it),
-``all`` (every copy listed), ``some`` or ``none``.
+``all`` (every copy listed), ``some`` or ``none``; ``fetched`` when a member
+was fetched (the agent looked for it, so which copy it named says nothing
+about precedence); ``error`` when a member errored.
 
 Scenarios: ``cwd=.`` (started at the workspace root) and ``cwd=<dir>`` for
 each ``cwd`` a case names. Every case is classified in every scenario.
@@ -299,9 +304,10 @@ def build_fixture(cases: list[Case], profile: HarnessProfile, roots: dict[str, P
     return fixture
 
 
-def check_skill_ancestors(path: Path) -> None:
-    """Refuse to run under a directory that holds a skill dir or guidance some client would read."""
-    check_ancestors(path, ANCESTOR_GUARD)
+def check_skill_ancestors(path: Path, guidance: tuple[str, ...] = ()) -> None:
+    """Refuse to run under a directory that holds a skill dir or guidance some client would read: the default
+    guidance names and the profile's own (as reach checks them)."""
+    check_ancestors(path, tuple(dict.fromkeys(ANCESTOR_GUARD + tuple(guidance))))
     for parent in path.parents:
         for rel in SKILL_DIR_GUARD:
             if (parent / rel).is_dir():
@@ -353,8 +359,11 @@ def collisions(fixture: Fixture, records: list[dict[str, Any]]) -> list[dict[str
                 verdict, listed = "error", []
             else:
                 listed = [m for m, c in zip(members, classes, strict=True) if c in ("listed", "fetched")]
-                verdict = ("none" if not listed else "all" if len(listed) == len(members)
-                           else "one" if len(listed) == 1 else "some")
+                if "fetched" in classes:  # the agent looked for a copy itself: no precedence is measured
+                    verdict = "fetched"
+                else:
+                    verdict = ("none" if not listed else "all" if len(listed) == len(members)
+                               else "one" if len(listed) == 1 else "some")
             out.append({"group": group, "scenario": scenario, "members": members, "listed": listed,
                         "verdict": verdict})
     return out
@@ -368,6 +377,9 @@ def check_profile(profile: HarnessProfile) -> None:
     if "skills" not in profile.tools:
         raise SkillReachError(f"{profile.path}: declares no `skills` tool mode (the tools under which the agent "
                               "sees its skill list but can run nothing)")
+    if profile.trace == "text":
+        raise SkillReachError(f"{profile.path}: its trace has no tool events, so a fetched skill cannot be told "
+                              "from a listed one")
 
 
 def _select(cases: list[Case], only: tuple[str, ...]) -> list[Case]:
@@ -430,7 +442,7 @@ def run_skill_reach(
     try:
         for root in roots.values():
             root.mkdir()
-        check_skill_ancestors(roots["project"])
+        check_skill_ancestors(roots["project"], profile.guidance_names)
         fixture = build_fixture(cases, profile, roots, base / "outside", salt)
         if not fixture.placed:
             raise SkillReachError("no case could be placed: " + "; ".join(s["reason"] for s in fixture.skipped))
@@ -481,7 +493,9 @@ def run_skill_reach(
         "records": records,
         "collisions": collisions(fixture, records),
         "summary": {
-            "cost_usd": round(sum(r.get("cost_usd") or 0 for r in rows), 6),
+            # None when any scenario's cost is unknown (Codex, Copilot, a timeout): a sum would read as free
+            "cost_usd": (round(sum(r["cost_usd"] for r in rows), 6)
+                         if all(r.get("cost_usd") is not None for r in rows) else None),
             "by_class": {c: sum(1 for r in records if r["class"] == c) for c in CLASSES},
         },
     }
@@ -542,8 +556,9 @@ def format_table(payload: dict[str, Any]) -> str:
     cell = {(r["case"], r["scenario"]): r for r in payload["records"]}
     label = {c["id"]: f"{c['id']}  ({c['scope']}:{c['path']})" for c in payload["cases"]}
     width = max([len(v) for v in label.values()] + [4])
+    cost = payload["summary"]["cost_usd"]
     lines = [f"{payload['harness']['name']} {payload['harness']['version']}  model={payload['model']}"
-             f"  cost=${payload['summary']['cost_usd']:.4f}"]
+             f"  cost={'unknown' if cost is None else f'${cost:.4f}'}"]
     lines += [f"  [{i}] {sid}" for i, sid in enumerate(ids)]
     lines.append(" " * (width + 2) + " ".join(f"{i:>2}" for i in range(len(ids))))
     for c in payload["cases"]:

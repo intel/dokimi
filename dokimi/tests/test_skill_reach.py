@@ -91,11 +91,17 @@ if mode == "edit":  # edit a file before answering: an edit is a tool call too, 
     events.append({"type": "assistant", "message": {"content": [
         {"type": "tool_use", "id": "t4", "name": "Edit", "input": {"file_path": str(root / "x"), "old_string": "a",
                                                                     "new_string": "b"}}]}})
-events += [
-          {"type": "result", "subtype": "success", "is_error": False, "result": answer,
-           "total_cost_usd": 0.001, "num_turns": 1, "usage": {}, "permission_denials": []}]
+result = {"type": "result", "subtype": "success", "is_error": False, "result": answer,
+          "total_cost_usd": 0.001, "num_turns": 1, "usage": {}, "permission_denials": []}
+if mode == "nocost":  # no total_cost_usd, as Codex reports it: the spend is unknown, not 0
+    del result["total_cost_usd"]
+if mode == "errresult":  # an error result that still carries an answer with tokens: not a measurement
+    result.update(is_error=True, subtype="error_max_turns")
+events.append(result)
 for e in events:
     print(json.dumps(e))
+if mode == "exit3":  # the answer is printed, then the process fails: not a measurement either
+    sys.exit(3)
 '''
 
 
@@ -233,6 +239,29 @@ def test_an_empty_answer_with_exit_0_is_an_error_not_not_listed(tmp_path, monkey
     assert "(no answer)" in payload["scenarios"][0]["error"]
 
 
+def test_a_token_before_a_non_zero_exit_is_an_error_not_a_measurement(tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_MODE", "exit3")
+    payload = _run(tmp_path, only=("project-client",))
+    assert {r["class"] for r in payload["records"]} == {"error"}
+    assert "exit 3" in payload["scenarios"][0]["error"]
+
+
+def test_an_error_result_with_an_answer_is_an_error_not_a_measurement(tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_MODE", "errresult")
+    payload = _run(tmp_path, only=("project-client",))
+    assert {r["class"] for r in payload["records"]} == {"error"}
+    assert "(error result)" in payload["scenarios"][0]["error"]
+
+
+def test_an_unknown_cost_is_null_not_zero(tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_MODE", "nocost")
+    payload = _run(tmp_path, only=("project-client",))
+    assert payload["summary"]["cost_usd"] is None
+    validate_artifact("skill_discovery", json.loads(save_skill_reach(payload, tmp_path / "out").read_text(
+        encoding="utf-8")))
+    assert "cost=unknown" in format_table(payload).splitlines()[0]
+
+
 @pytest.mark.parametrize("description, cls", [("missing", "listed"), ("single", "not_listed")])
 def test_only_a_description_missing_skill_is_listed_by_its_body_token(description, cls):
     case = Case(id="c", at="project:x", name="c", dirname="c", description=description)
@@ -320,12 +349,66 @@ def _cli(*argv: str) -> None:
                  id="native-prompt"),
     pytest.param({"skills": None}, "declares no `skills` block", id="no-skills-block"),
     pytest.param({"tools": {"none": ["--tools", ""], "read": ["--tools", "Read"]}}, "tool mode", id="no-skills-tool"),
+    pytest.param({"trace": "text"}, "no tool events", id="text-trace"),
 ])
 def test_cli_dry_run_refuses_what_a_run_would_refuse(tmp_path, capsys, changes, message):
     profile = _edit_profile(tmp_path, "refused.yaml", **changes)
     with pytest.raises(SystemExit) as exc:
         _cli("--harness", str(profile), "--dry-run")
     assert exc.value.code == EXIT_USAGE and message in capsys.readouterr().err
+
+
+@pytest.fixture
+def _real_ancestor_guard(monkeypatch):
+    """Undo the autouse no-op guard, so the real ancestor checks run."""
+    from dokimi.repos import reach, skill_reach
+    monkeypatch.setattr(skill_reach, "check_ancestors", reach.check_ancestors)
+    monkeypatch.setattr(skill_reach, "check_skill_ancestors", real_check_skill_ancestors)
+
+
+def test_cli_dry_run_refuses_when_no_selected_case_has_a_skill_dir_in_the_profile(tmp_path, capsys):
+    profile = _edit_profile(tmp_path, "no-user.yaml", skills={"project_dirs": [".fake/skills"]})
+    with pytest.raises(SystemExit) as exc:
+        _cli("--harness", str(profile), "--only", "user-client", "--dry-run")
+    assert exc.value.code == EXIT_USAGE and "no case could be placed" in capsys.readouterr().err
+
+
+def test_cli_dry_run_refuses_a_work_dir_under_guidance_as_a_run_would(tmp_path, capsys, _real_ancestor_guard):
+    (tmp_path / "CLAUDE.md").write_text("guidance\n", encoding="utf-8")
+    work = tmp_path / "work"
+    work.mkdir()
+    with pytest.raises(SystemExit) as exc:
+        _cli("--harness", str(_profile(tmp_path)), "--only", "project-client", "--dry-run", "--work-dir", str(work))
+    assert exc.value.code == EXIT_USAGE and "guidance files above the workspace" in capsys.readouterr().err
+
+
+def test_cli_dry_run_refuses_a_work_dir_that_is_not_a_directory(tmp_path, capsys):
+    with pytest.raises(SystemExit) as exc:
+        _cli("--harness", str(_profile(tmp_path)), "--dry-run", "--work-dir", str(tmp_path / "missing"))
+    assert exc.value.code == EXIT_USAGE and "is not a directory" in capsys.readouterr().err
+
+
+def test_the_ancestor_guard_also_refuses_the_profiles_own_guidance_names(tmp_path, _real_ancestor_guard):
+    (tmp_path / "AGENTS.override.md").write_text("guidance\n", encoding="utf-8")
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    real_check_skill_ancestors(workspace)  # not a name the default guard holds: passes
+    with pytest.raises(ReachError, match="AGENTS.override.md"):
+        real_check_skill_ancestors(workspace, ("AGENTS.override.md",))
+
+
+def test_cli_run_passes_its_timeout_salt_and_budget_to_the_run(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("FAKE_MODE", "hang")
+    work = tmp_path / "work"
+    work.mkdir()
+    with pytest.raises(SystemExit) as exc:
+        _cli("--harness", str(_profile(tmp_path)), "--only", "project-client", "--out", str(tmp_path / "out"),
+             "--work-dir", str(work), "--timeout", "1", "--salt", "SALT42", "--budget", "0.5")
+    assert exc.value.code == 1
+    captured = capsys.readouterr()
+    assert "at most $0.5 each" in captured.err and "timed out after 1 seconds" in captured.out
+    artifact = json.loads((tmp_path / "out" / "skill-discovery.json").read_text(encoding="utf-8"))
+    assert artifact["salt"] == "SALT42"
 
 
 @pytest.mark.parametrize("budget", ["0", "-1", "nan"])
@@ -530,7 +613,7 @@ def _rec(case: str, cls: str, scenario: str = "cwd=.") -> dict:
 
 def test_a_collision_verdict_counts_only_the_listed_copies():
     fixture = Fixture(placed=[_placed("a", "g"), _placed("b", "g"), _placed("c", "g"), _placed("solo", "s")])
-    records = [_rec("a", "listed"), _rec("b", "not_listed"), _rec("c", "fetched"), _rec("solo", "listed")]
+    records = [_rec("a", "listed"), _rec("b", "not_listed"), _rec("c", "listed"), _rec("solo", "listed")]
     (verdict,) = collisions(fixture, records)  # a one-member group is not a collision
     assert verdict == {"group": "g", "scenario": "cwd=.", "members": ["a", "b", "c"],
                        "listed": ["a", "c"], "verdict": "some"}
@@ -541,6 +624,8 @@ def test_a_collision_verdict_counts_only_the_listed_copies():
     (("not_listed", "not_listed"), "none"),
     (("listed", "not_listed"), "one"),
     (("listed", "error"), "error"),  # an errored copy makes the group's verdict unknown
+    (("fetched", "not_listed"), "fetched"),  # the agent looked for a copy itself: no precedence was measured
+    (("listed", "fetched"), "fetched"),
 ])
 def test_collision_verdicts(classes, verdict):
     fixture = Fixture(placed=[_placed("a", "g"), _placed("b", "g")])

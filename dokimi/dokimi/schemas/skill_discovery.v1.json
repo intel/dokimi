@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/intel/dokimi/schemas/skill_discovery.v1.json",
   "title": "Skill discovery probe v1",
-  "description": "Which Agent Skills one (harness, version, model) lists, from a fixture of SKILL.md files placed in a fresh workspace, HOME and config dir (`dokimi repo skill-reach`). Each skill carries a token in its description and one in its body. `class` is listed (description token reported), fetched (reported after the agent used any tool: a command, a read, an edit, a skill invocation or a search), not_listed (a tokenless listing of a `description: missing` skill counts here), or error (no usable answer). `body` says the body token was reported too. A collision verdict is one, all, some, none or error.",
+  "description": "Which Agent Skills one (harness, version, model) lists, from a fixture of SKILL.md files placed in a fresh workspace, HOME and config dir (`dokimi repo skill-reach`). Each skill carries a token in its description and one in its body. `class` is listed (description token reported), fetched (reported after the agent used any tool: a command, a read, an edit, a skill invocation or a search), not_listed (a tokenless listing of a `description: missing` skill counts here), or error (no usable answer). `body` says the body token was reported too. A collision verdict is one, all, some, none, fetched (a member was fetched: no precedence is measured) or error.",
   "type": "object",
   "required": ["schema_version", "harness", "model", "cases", "scenarios", "records", "collisions", "summary"],
   "properties": {
@@ -90,7 +90,7 @@
           "scenario": {"type": "string"},
           "members": {"type": "array", "items": {"type": "string"}},
           "listed": {"type": "array", "items": {"type": "string"}},
-          "verdict": {"enum": ["one", "all", "some", "none", "error"]}
+          "verdict": {"enum": ["one", "all", "some", "none", "fetched", "error"]}
         }
       }
     },
@@ -98,7 +98,7 @@
       "type": "object",
       "required": ["cost_usd", "by_class"],
       "properties": {
-        "cost_usd": {"type": "number"},
+        "cost_usd": {"type": ["number", "null"]},
         "by_class": {"type": "object", "additionalProperties": {"type": "integer"}}
       }
     }
