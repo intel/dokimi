@@ -48,7 +48,8 @@ SPDX-License-Identifier: Apache-2.0
 > `CLAUDE.local.md` turns them off), nested guidance lazily, skill bodies on demand, and AGENTS.md
 > files a root CLAUDE* turns off, or a CLAUDE.md, `CLAUDE.local.md` or `.claude/CLAUDE.md` in the
 > AGENTS.md file's own directory (not one in a parent below the root). Both rules hold only with a profile that sets
-> `guidance.claude_displaces_agents`, as `claude-code` does: with `copilot`, a root AGENTS.md is `start` beside a root CLAUDE.md. The `start` total is not an upper bound: it is too low by what it does
+> `guidance.claude_displaces_agents`, as `claude-code` does: with `copilot`, a root AGENTS.md is `start` beside a root CLAUDE.md. Imports are followed only with a profile that
+declares `guidance.imports` (`claude-code`; it is null for `codex` and `copilot`). The `start` total is not an upper bound: it is too low by what it does
 > not count (`.claude/rules/*.md` files, non-`.md` imports, skills behind a linked directory, nested
 > `.claude/skills/` skills, and
 > imports past the profile's `guidance.import_max_depth`, four hops for Claude Code, which warns

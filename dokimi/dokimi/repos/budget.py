@@ -7,7 +7,8 @@ A static inventory, in characters, of the context a harness takes from the tree 
 starts at the repository root:
 
 - **start**: guidance files at the root, the files a root ``CLAUDE*`` or ``AGENTS.md`` file
-  ``@import``s (``AGENTS.md`` only when it is not turned off), and the skill
+  ``@import``s (``AGENTS.md`` only when it is not turned off; none with a profile whose ``guidance.imports``
+  is null), and the skill
   listing (each project skill's ``name``, plus its ``description`` and ``when_to_use`` up to
   1,536 characters together; a skill with
   ``disable-model-invocation: true`` is not listed). Every model call pays for these.
@@ -36,6 +37,7 @@ from __future__ import annotations
 
 import json
 import re
+from functools import partial
 from itertools import combinations
 from typing import Any
 
@@ -67,10 +69,12 @@ _STOP = frozenset("a an and the of to for in on with use when or is are be this 
 
 
 def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: int | None = None, *,
-           claude_displaces_agents: bool = False) -> dict[str, Any]:
+           claude_displaces_agents: bool = False, follow_imports: bool = True) -> dict[str, Any]:
     """The inventory. ``claude_displaces_agents`` (the profile's ``guidance.claude_displaces_agents``, Claude Code's
     alone) adds the rules that a root CLAUDE* file turns off every AGENTS.md and one below the root the AGENTS.md
-    in its own directory; without it no AGENTS.md is off."""
+    in its own directory; without it no AGENTS.md is off. Without ``follow_imports`` (a profile whose
+    ``guidance.imports`` is null) no guidance file's ``@`` imports are followed."""
+    imports = partial(_followed_imports, tree, max_depth=import_max_depth, follow=follow_imports)
     files = tree.files()
     names = set(guidance_names)
     every = [f for f in files if f.rsplit("/", 1)[-1] in names]
@@ -86,8 +90,8 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
     # resolve (not dangling/out-of-tree) count; unreadable UTF-8 still counts.
     root_claude_for_off = [f for f in root_claude if _is_resolvable(tree, f)]
     # A root CLAUDE.md's imports load at start; a nested one's when the agent reaches its subtree.
-    at_start, cut_start = _imports(tree, root_claude_for_off, import_max_depth)
-    lazy_all, cut_lazy = _imports(tree, [f for f in claude if f not in root_claude], import_max_depth)
+    at_start, cut_start = imports(root_claude_for_off)
+    lazy_all, cut_lazy = imports([f for f in claude if f not in root_claude])
     displaced = _displaced(tree, every, claude, root_claude_for_off, claude_displaces_agents)
 
     # An AGENTS.md read on its own expands its @imports from hop 0. One a CLAUDE* displaces is read only through
@@ -95,8 +99,8 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
     agents = [f for f in every if f.rsplit("/", 1)[-1] == "AGENTS.md" and _is_resolvable(tree, f)
               and (f not in displaced or any(a in root_claude or a in displaced[f]
                                              for a in groups.get(_target(tree, f), [f])))]
-    agents_at_start, cut_agents_start = _imports(tree, [f for f in agents if _is_root(f)], import_max_depth)
-    agents_lazy, cut_agents_lazy = _imports(tree, [f for f in agents if not _is_root(f)], import_max_depth)
+    agents_at_start, cut_agents_start = imports([f for f in agents if _is_root(f)])
+    agents_lazy, cut_agents_lazy = imports([f for f in agents if not _is_root(f)])
     at_start |= agents_at_start
     lazy_all |= agents_lazy
     cut_start = cut_start + cut_agents_start
@@ -260,6 +264,12 @@ def _chars(tree: RepoTree, path: str) -> tuple[int, str | None]:
         return len(tree.read_text(path)), None
     except (OSError, ValueError, RuntimeError) as err:  # RuntimeError: a link loop before Python 3.13  # UnicodeDecodeError is a ValueError
         return 0, f"{path}: not readable ({_unreadable_reason(err)}), counted as 0"
+
+
+def _followed_imports(tree: RepoTree, roots: list[str], *, max_depth: int | None,
+                      follow: bool) -> tuple[set[str], list[tuple[str, str]]]:
+    """:func:`_imports` of ``roots``, or none when the profile declares no import syntax."""
+    return _imports(tree, roots, max_depth) if follow else (set(), [])
 
 
 def _imports(tree: RepoTree, roots: list[str], max_depth: int | None = None) -> tuple[set[str], list[tuple[str, str]]]:

@@ -534,7 +534,8 @@ def _print_receipt(tree, profile, payload: dict, out_dir: Path) -> None:
     from dokimi.repos.receipt import build_receipt
 
     receipt = build_receipt(payload, budget(tree, profile.guidance_names, profile.import_max_depth,
-                                            claude_displaces_agents=profile.claude_displaces_agents), tree)
+                                            claude_displaces_agents=profile.claude_displaces_agents,
+                                            follow_imports=profile.follows_imports), tree)
     try:  # a directory that is not writable, or one already named effective_instructions.json: a runtime failure
         written = save_artifact("effective_instructions", receipt, out_dir / RECEIPT_NAME)
     except OSError as exc:
@@ -556,7 +557,8 @@ def cmd_repo_budget(args: argparse.Namespace) -> None:
         sys.exit(EXIT_USAGE)
     _, tree = _source_tree(args)
     payload = budget(tree, profile.guidance_names, profile.import_max_depth,
-                     claude_displaces_agents=profile.claude_displaces_agents)
+                     claude_displaces_agents=profile.claude_displaces_agents,
+                     follow_imports=profile.follows_imports)
     if args.out:
         try:
             save_artifact("repo_budget", payload, Path(args.out))
@@ -780,8 +782,9 @@ def register(sub, positive_int) -> None:
     budget_p.add_argument("source", help=source_help)
     budget_p.add_argument("--harness", default="claude-code",
                           help="Built-in profile name or a harness_profile.v1 YAML path; its guidance names "
-                          "supply the file names, but the classification rules (root vs nested, off rule) are "
-                          "hardcoded to Claude Code until other harnesses are measured (default: claude-code)")
+                          "supply the file names, guidance.imports whether @ imports are followed (not when null) "
+                          "and guidance.claude_displaces_agents the off rules; root vs nested is Claude Code's "
+                          "(default: claude-code)")
     budget_p.add_argument("--out", default=None, help="Write the repo_budget.v1 inventory to this file")
     budget_p.add_argument("--json", action="store_true", help="Print the repo_budget.v1 inventory as JSON")
     budget_p.add_argument("--fail-on-warning", action="store_true", dest="fail_on_warning",

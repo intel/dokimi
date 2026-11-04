@@ -75,6 +75,11 @@ class HarnessProfile:
         return int(depth) if depth is not None else None
 
     @property
+    def follows_imports(self) -> bool:
+        """The harness declares an ``@`` import syntax (``guidance.imports`` not null); budget follows imports only then."""
+        return self.guidance.get("imports") is not None
+
+    @property
     def shadow_file(self) -> str | None:
         """A file the harness loads by convention that turns the other guidance of its directory off
         (``guidance.shadow_file``); ``repo reach --scenarios shadow`` writes it. None: the profile declares none."""
