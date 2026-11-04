@@ -21,6 +21,17 @@ from typing import TYPE_CHECKING, NoReturn
 
 from dokimi.commands.inputs import placebo_text_for_arms_or_exit
 from dokimi.commands.novelty_routing_inputs import load_all_vs_all_field, load_routing_field
+from dokimi.commands.novelty_routing_report import (
+    exit_partial_all_vs_all,
+    print_all_vs_all_model,
+    print_attractors,
+    print_routing_estimate,
+    print_routing_summary,
+    no_queries_reason,
+    refuse_estimate_without_queries,
+    refuse_queries_naming_left_out,
+    routing_queries,
+)
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
     DEFAULT_ANSWER_PROVIDER,
@@ -121,7 +132,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
                          artifact_bundle=artifact_bundle)
     except SelfJudgeError as exc:  # the judge is the answering model: the flags contradict
         raise InputError(str(exc)) from exc
-    except (ExtractionError, ValueError) as exc:  # a model failure under way: exit 1, not bad input
+    except (ExtractionError, ValueError) as exc:  # a model failure under way
         raise SystemExit(str(exc)) from None
 
     out_dir = Path(args.out_dir) if args.out_dir else _default_dir(args.artifact)
@@ -156,7 +167,7 @@ def cmd_novelty_atoms(args: argparse.Namespace) -> None:
     extraction = ExtractionReport()
     try:
         atoms = extract_atoms(spans, client=extractor, cap=cap, report=extraction)
-    except ExtractionError as exc:  # a model failure under way: exit 1, not bad input
+    except ExtractionError as exc:
         raise SystemExit(str(exc)) from None
     # The cap warning analyze records; probe and shorten, which read atoms.json, do not repeat it.
     sampled = [cap_warning(extraction.as_dict())] if extraction.sampled else []
@@ -215,7 +226,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
             allow_self_judge=args.allow_self_judge, seed=args.seed,
             placebo_text=placebo_text,
         )
-    except ValueError as exc:  # a model failure under way: exit 1, not bad input
+    except ValueError as exc:  # a model failure under way
         raise SystemExit(str(exc)) from None
 
     payload = build_probe_record(
@@ -287,25 +298,30 @@ def cmd_novelty_items(args: argparse.Namespace) -> None:
 def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     """Every skill in the field is the gold in turn: confusion matrix and attractors."""
     from dokimi.novelty.all_vs_all import all_vs_all, load_queries_by_skill
+    from dokimi.novelty.client import roll_up_cost
     from dokimi.novelty.routing import tokenize
 
     _check_all_vs_all_args(args)
     left_out: list[str] = []
-    field = load_all_vs_all_field(args, left_out)
+    dropped: dict[str, set[str]] = {}
+    field = load_all_vs_all_field(args, left_out, dropped)
     try:
         queries_by_skill = load_queries_by_skill(args.queries_by_skill)
     except (OSError, UnicodeDecodeError) as exc:
         raise InputError(f"cannot read the queries: {exc}") from exc
+    refuse_queries_naming_left_out(field, queries_by_skill, dropped)
     selector = _client(args.model, args.provider, "selector", args) if args.model else None
     if selector is not None:
-        # One call per query with a content word, each sending every card in the field.
+        # One call per query with a content word and per repeat, each sending every card.
         calls = sum(bool(tokenize(q)) for qs in queries_by_skill.values() for q in qs)
+        calls *= args.repeats
         print(
-            f"all-vs-all: --model makes {calls} model calls, one per query, over "
+            f"all-vs-all: --model makes {calls} model calls, one per query and repeat, over "
             f"{len(field)} cards each",
             file=sys.stderr,
         )
-    result = all_vs_all(field, queries_by_skill, client=selector, seed=args.seed)
+    result = all_vs_all(field, queries_by_skill, client=selector, seed=args.seed,
+                        repeats=args.repeats)
     without = [c.name for c in field if c.name not in queries_by_skill]
     if without:
         print(f"WARNING: {len(without)} skill(s) in the field have no queries, so they only "
@@ -317,23 +333,24 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     sent = sum(model_arm.get("n_scored", {}).values()) + failed  # contentless ones are not sent
     if failed:
         print(f"WARNING: {failed} model call(s) failed (first error: "
-              f"{model_arm['first_error']}); those queries are left out of "
-              "every rate in the model arm", file=sys.stderr)
+              f"{model_arm['first_error']}); failed calls are left out of model-arm scoring, "
+              "and a query with a failed repeat out of the repeat-noise rates", file=sys.stderr)
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     payload = {"mode": "all_vs_all", "queries_by_skill": args.queries_by_skill,
                "n_candidates": len(field), "result": result}
     payload["field"] = _field_record(args, field, left_out)
+    if selector is not None:
+        payload["cost"] = roll_up_cost([selector])
     out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     if failed:
-        raise SystemExit(f"{failed} of {sent} model call(s) failed "
-                         f"({model_arm['first_error']}); the partial result, with those queries "
-                         f"left out of every rate, is in {out}")
+        exit_partial_all_vs_all(model_arm, payload.get("cost"), failed, sent, out)
     print(f"OK Saved all-vs-all routing: {out}")
     print(f"all-vs-all: {len(field)} skills in the field, {result['n_queries']} queries over "
           f"{len(queries_by_skill)} skills with queries")
-    _print_attractors(result)
+    print_attractors(result)
+    print_all_vs_all_model(model_arm, payload.get("cost"))
 
 
 def _field_record(args: argparse.Namespace, competitors: list, left_out: list[str]) -> dict:
@@ -348,8 +365,9 @@ def _check_all_vs_all_args(args: argparse.Namespace) -> None:
         raise InputError("--all-vs-all takes no --artifact: every skill in the field is the gold in turn")
     if args.queries or args.queries_from_headings:
         raise InputError("--all-vs-all takes --queries-by-skill, not --queries or --queries-from-headings")
-    if args.repeats > 1:
-        raise InputError("--all-vs-all takes no --repeats: it makes one call per query")
+    if args.estimate_only:
+        raise InputError("--all-vs-all takes no --estimate-only: it would make the calls it was asked "
+                   "to price; drop the flag, or estimate one artifact with routing --artifact")
     if not args.queries_by_skill:
         raise InputError("--all-vs-all needs --queries-by-skill <file>: a JSON object of skill "
                    "name to the requests that should select it")
@@ -368,44 +386,13 @@ def _warn_blind_skills(result: dict, queries_by_skill: dict[str, list[str]]) -> 
               "(no content word in them), so their lexical own_rate is None", file=sys.stderr)
 
 
-def _print_attractors(result: dict) -> None:
-    """The top five attractors of each arm, one line each, and what the arm left out.
-
-    A tie and an unscored query name no pick, so a "no skill was picked" line beside them
-    would read as a clean result; the line after the attractors says how many there were.
-    Skills with the same description words are one tied group, named once, not each other's
-    attractor.
-    """
-    from dokimi.novelty.all_vs_all import TIE
-
-    for group in result["tied_groups"]:
-        print(f"tied: {', '.join(group)} have the same description; one group, not attractors "
-              "of each other")
-    for arm in ("lexical", "model"):
-        if arm not in result:
-            continue
-        section = result[arm]
-        rows = section["attractors"][:5]
-        if not rows:
-            print(f"{arm}: no skill was picked for another skill's query")
-        for row in rows:
-            print(f"{arm}: {row['skill']} picked for {row['wrongly_picked']} of "
-                  f"{row['sibling_queries']} sibling queries (from {', '.join(row['from'])})")
-        tied = sum(picks.get(TIE, 0) for picks in section["confusion"].values())
-        unscored = sum(section["n_unscored"].values())
-        if tied or unscored:
-            print(f"{arm}: {tied} tied and {unscored} unscored queries are not counted as picks")
-
-
 def cmd_novelty_routing(args: argparse.Namespace) -> None:
     """Can this artifact be selected against its competitors? Lexical floor, model on top."""
     if args.repeats > 1 and not args.model:
         raise InputError("--repeats needs --model: the lexical floor is deterministic, so repeating it measures nothing")
     from dokimi.novelty.routing import (
         check_field,
-        headings_as_queries,
         lexical_routing,
-        load_queries,
         model_routing,
     )
 
@@ -417,31 +404,25 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
     # Checked before the query file is read, so the message is about the real problem.
     check_field(gold, competitors)
 
-    self_derived = False
-    if args.queries:
-        queries = load_queries(args.queries)
-    elif args.queries_from_headings:
-        queries = headings_as_queries(body)
-        self_derived = True
-        print("WARNING: queries derived from the artifact's own headings. The artifact then "
-              "defines both the problem scope and its own relevance, so this is triage, not "
-              "a routing rate", file=sys.stderr)
-    else:
-        raise InputError("pass --queries <file> with requests written independently of the artifact, or "
-                   "--queries-from-headings for a self-derived triage run")
+    queries, self_derived, queries_source = routing_queries(args, body)
     candidates = [gold, *competitors]
+    if args.estimate_only:
+        refuse_estimate_without_queries(args, queries, self_derived)
+        print_routing_estimate(args, candidates, queries)
+        return
     lexical = dict(lexical_routing(candidates, queries, gold=0),
                    queries_self_derived=self_derived)
     out = Path(args.out) if args.out else _default_dir(args.artifact) / "routing.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     if not lexical["n_queries_scored"]:
-        _refuse_no_queries(args, queries, self_derived, out, len(candidates))
+        _refuse_no_queries(args, queries, self_derived, out, len(candidates), queries_source)
 
     payload = {
         "artifact": args.artifact,
         "status": "ok",
         "n_candidates": len(candidates),
         "queries_self_derived": self_derived,
+        "queries_source": queries_source,
         "field": _field_record(args, competitors, left_out),
         "lexical": lexical,
     }
@@ -459,74 +440,18 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
     out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     print(f"OK Saved routing measurement: {out}")
 
-    _print_routing_summary(payload, len(competitors), self_derived)
-
-
-def _print_routing_summary(payload: dict, n_competitors: int, self_derived: bool) -> None:
-    """The lexical line, the model line and their caveats, printed after a routing run."""
-    # Every rate is printed with the number of queries behind it, and a self-derived one
-    # carries the triage tag on the same line, so a copied figure cannot lose either.
-    tag = "  triage: self-derived" if self_derived else ""
-    lexical = payload["lexical"]
-    print(f"lexical  R@1 {lexical['recall_at_1']}  R@3 {lexical['recall_at_3']}  "
-          f"MRR {lexical['mrr']}  n_queries {lexical['n_queries_scored']} of "
-          f"{lexical['n_queries_given']} given, vs {n_competitors} competitors{tag}"
-          + ("  (R@3 needs more than 3 candidates to mean anything)"
-             if lexical["recall_at_3"] is None else ""))
-    if lexical["n_queries_scored"] < 5:
-        n_scored = lexical["n_queries_scored"]
-        noun = "query" if n_scored == 1 else "queries"
-        print(f"WARNING: only {n_scored} {noun} scored; one query moves "
-              "a rate by 20 points or more, so do not quote it as a routing rate")
-    if "model" in payload:
-        row = payload["model"]
-        print(f"model    selection {row['selection_rate']}  "
-              f"({row['selection_rate_among_answered']} among answered; "
-              f"{row['n_abstained']} abstained, {row['n_failed']} failed)  "
-              f"[{row['model']}]  n_queries {row['n_queries']} given{tag}")
-        if row["n_abstained"]:
-            of_calls = f" of {row['n_calls']} calls" if row["repeats"] > 1 else ""
-            print(f"{row['n_abstained']}{of_calls} abstained or unparseable: the raw reply "
-                  "is under per_query[].raw_reply in the output")
-        if row["noise"]:
-            noise = row["noise"]
-            print(f"noise    {row['repeats']} repeats per query: mean agreement "
-                  f"{noise['mean_agreement']}, {noise['unstable_queries']} queries picked "
-                  f"differently across repeats; selection by repeat "
-                  f"{noise['selection_rate_by_repeat']}, half range "
-                  f"{noise['half_range']} (a crude sampling floor)")
-        print("The model figure is an upper bound on harness behaviour: a harness that "
-              "truncates descriptions in its own listing selects on less text.")
-        cost = payload["cost"]
-        if not cost["llm_calls"]:
-            print("cost     0 calls")
-        else:
-            spent = ("USD not known: a call had no price or no usage" if cost["usd"] is None
-                     else "<$0.0001" if 0 < cost["usd"] < 0.00005 else f"${cost['usd']:.4f}")
-            replayed = (f", {cost['replayed_calls']} replayed from the cache and not counted"
-                        if cost["replayed_calls"] else "")
-            print(f"cost     {cost['llm_calls']} calls, {cost['input_tokens']} input / "
-                  f"{cost['output_tokens']} output tokens, cache read "
-                  f"{cost['cache_read_tokens']} / write {cost['cache_write_tokens']}, "
-                  f"{spent}{replayed}")
-    if self_derived:
-        print("Self-derived queries: read as triage only.")
+    print_routing_summary(payload, len(competitors), self_derived)
 
 
 def _refuse_no_queries(args: argparse.Namespace, queries: list[str], self_derived: bool,
-                       out: Path, n_candidates: int) -> NoReturn:
+                       out: Path, n_candidates: int,
+                       queries_source: str | None = None) -> NoReturn:
     """Write the ``no_queries`` record, then exit saying why no query was scored."""
     # Written too, so a batch run leaves a record of why it has no rate.
-    if not queries and self_derived:
-        reason = (f"no section heading of two or more words outside code fences in "
-                  f"{args.artifact}; headings inside fenced code are not requests")
-    elif not queries:
-        reason = f"--queries {args.queries} holds no non-blank query"
-    else:
-        reason = (f"none of the {len(queries)} queries has a content word, since words "
-                  "like a, the, how do not count")
+    reason = no_queries_reason(args, queries, self_derived)
     out.write_text(json.dumps({"artifact": args.artifact, "status": "no_queries",
                                "reason": reason, "queries_self_derived": self_derived,
+                               "queries_source": queries_source or ("none" if self_derived else None),
                                "n_candidates": n_candidates}, indent=2),
                    encoding="utf-8")
     raise InputError(f"no usable queries: {reason}. Pass --queries <file> with requests written independently "
@@ -788,12 +713,18 @@ def register(sub, positive_int) -> None:
     routing_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=PROVIDERS)
     routing_p.add_argument("--max-tokens", type=positive_int, default=None, dest="max_tokens")
     routing_p.add_argument("--seed", type=int, default=0,
-                           help="Seeds the per-query card permutation, so a position-biased "
-                                "model scores ~1/N and the run is reproducible")
+                           help="Seeds only the card order: each query's cards are listed in "
+                                "a seeded random permutation, so a position-biased model scores "
+                                "about 1/N. It does not make the model's answers repeatable; "
+                                "measure that with --repeats")
     routing_p.add_argument("--repeats", type=positive_int, default=1,
                            help="Ask the model this many times per query, with the same card "
                                 "order each time, and report per-query agreement and the "
                                 "run-to-run noise floor. Needs --model; costs N times the calls")
+    routing_p.add_argument("--estimate-only", action="store_true", dest="estimate_only",
+                           help="Print the calls, input and output tokens and the list-price "
+                                "expected_usd that --model would make, as JSON, and make no model call. "
+                                "Without --model the run is lexical and the bill is zero")
     routing_p.add_argument("--out", default=None)
     _add_spend_cap(routing_p)
     routing_p.set_defaults(func=_stops_at_cap(cmd_novelty_routing))

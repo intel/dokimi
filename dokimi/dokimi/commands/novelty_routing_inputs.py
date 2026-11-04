@@ -25,20 +25,10 @@ def routing_card(ref: str) -> tuple[Candidate, str]:
     return candidate, body
 
 
-def routing_field(args: argparse.Namespace, exclude: set[str],
-                   left_out: list[str] | None = None) -> list[Candidate]:
-    """The field ``--competitors`` and ``--catalog`` name, without the names in ``exclude``.
-
-    What was left out of the field, and why, is appended to ``left_out`` when given.
-
-    Raises:
-        OSError, ValueError, RecursionError: A reference or the catalog cannot be loaded.
-    """
-    from dokimi.novelty.routing import (
-        catalog_competitors,
-        competitor_left_out,
-        non_skill_reason,
-    )
+def named_competitors(args: argparse.Namespace, left_out: list[str] | None,
+                      dropped: dict[str, set[str]] | None) -> list[Candidate]:
+    """The ``--competitors`` references that stay in the field, each as a candidate."""
+    from dokimi.novelty.routing import competitor_left_out, left_out_rules, non_skill_reason
 
     competitors = []
     for ref in args.competitors or []:
@@ -55,13 +45,33 @@ def routing_field(args: argparse.Namespace, exclude: set[str],
             print(f"WARNING: skipped competitor {ref}: {reason}", file=sys.stderr)
             if left_out is not None:
                 left_out.append(f"{ref}: {reason}")
+            if dropped is not None:
+                dropped.setdefault(candidate.name, set()).update(
+                    left_out_rules(ref, reason, include_invalid=args.include_invalid))
             continue
         competitors.append(candidate)
+    return competitors
+
+
+def routing_field(args: argparse.Namespace, exclude: set[str],
+                  left_out: list[str] | None = None,
+                  dropped: dict[str, set[str]] | None = None) -> list[Candidate]:
+    """The field ``--competitors`` and ``--catalog`` name, without the names in ``exclude``.
+
+    What was left out of the field, and why, is appended to ``left_out`` when given. Each
+    name a rule leaves out maps to its rules in ``dropped`` (when given).
+
+    Raises:
+        OSError, ValueError, RecursionError: A reference or the catalog cannot be loaded.
+    """
+    from dokimi.novelty.routing import catalog_competitors
+
+    competitors = named_competitors(args, left_out, dropped)
     if args.catalog:
         notes: list[str] = []
         catalog = catalog_competitors(args.catalog, exclude | {c.name for c in competitors},
                                       notes, include_disabled=args.include_disabled,
-                                      include_invalid=args.include_invalid)
+                                      include_invalid=args.include_invalid, dropped=dropped)
         for note in notes:
             print(f"WARNING: {note}", file=sys.stderr)
         if left_out is not None:
@@ -76,10 +86,11 @@ def routing_field(args: argparse.Namespace, exclude: set[str],
     return competitors
 
 
-def load_all_vs_all_field(args: argparse.Namespace, left_out: list[str]) -> list[Candidate]:
+def load_all_vs_all_field(args: argparse.Namespace, left_out: list[str],
+                          dropped: dict[str, set[str]]) -> list[Candidate]:
     """The all-vs-all field, or InputError naming the cause."""
     try:
-        return routing_field(args, set(), left_out)
+        return routing_field(args, set(), left_out, dropped)
     except InputError:
         raise
     except (OSError, ValueError, RecursionError) as exc:

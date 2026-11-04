@@ -29,7 +29,7 @@ class EmptyQuestionError(InputError):
 
     An :class:`~dokimi.utils.InputError`: the CLI reports it as ``Error: ...`` with
     exit 2, the code for bad input (1 is the verdict code of ``--strict`` gates and
-    ``eval judge-validity``).
+    ``eval judge validate``).
     """
 
 

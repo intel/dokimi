@@ -19,6 +19,7 @@ on:
       - '**.py'
       - '.github/workflows/**'
       - '.github/actions/**'
+      - 'actions/**'
   schedule:
     - cron: '23 4 * * 1'
 

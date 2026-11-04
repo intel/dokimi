@@ -21,7 +21,7 @@ flowchart LR
     J1 -. proposed: costed next-step plan .-> plan[Next evaluation plan]
     J1 --> J4[J4 guidance: correctness, reach]
     J1 --> J2[J2 diagnose skill: routing, novelty]
-    J1 --> J3[J3 repository: scan, tasks check, runs]
+    J1 --> J3[J3 repository: scan, eval check, runs]
     J2 --> change[Change the subject]
     J4 --> change
     J3 --> change

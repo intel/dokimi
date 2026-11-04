@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 
@@ -448,6 +449,25 @@ def test_two_same_name_copies_that_differ_only_late_in_the_body_are_skipped(tmp_
     assert len(notes) == 1 and "db" in notes[0]
 
 
+def test_a_disabled_skill_named_by_a_query_warns_once_and_counts_the_field_once(tmp_path, capsys):
+    root = tmp_path / "catalog"
+    _catalog_skill(root, "perf", "profile a slow binary")
+    (root / "skills" / "grill").mkdir(parents=True)
+    (root / "skills" / "grill" / "SKILL.md").write_text(
+        "---\nname: grill\ndescription: relentless interview about a plan\n"
+        "disable-model-invocation: true\n---\n\n# B\n", encoding="utf-8")
+    queries = tmp_path / "queries_by_skill.json"
+    queries.write_text(json.dumps({"perf": ["profile a slow binary"],
+                                   "grill": ["interview me about my plan"]}), encoding="utf-8")
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
+    with pytest.raises(SystemExit):
+        args.func(args)
+    err = capsys.readouterr().err
+    assert err.count("competitors") == 1
+    assert err.count("left out catalog skill") == 1
+
+
 def _long_description_catalog(tmp_path):
     root = tmp_path / "catalog"
     _catalog_skill(root, "perf", "profile a slow binary with perf")
@@ -498,3 +518,88 @@ def test_the_include_invalid_flag_reaches_the_routing_field(tmp_path, capsys):
     assert "long" in capsys.readouterr().err and left_out
     field = routing_field(_parse(*argv, "--include-invalid"), {"perf"}, [])
     assert [c.name for c in field] == ["long"]
+
+
+def _write_queries(tmp_path, by_skill):
+    path = tmp_path / "queries_by_skill.json"
+    path.write_text(json.dumps(by_skill), encoding="utf-8")
+    return path
+
+
+def test_queries_naming_a_disabled_skill_say_so_and_suggest_the_flag(tmp_path):
+    root = tmp_path / "catalog"
+    _catalog_skill(root, "perf", "profile a slow binary")
+    (root / "skills" / "grill").mkdir(parents=True)
+    (root / "skills" / "grill" / "SKILL.md").write_text(
+        "---\nname: grill\ndescription: relentless interview about a plan\n"
+        "disable-model-invocation: true\n---\n\n# B\n", encoding="utf-8")
+    queries = _write_queries(tmp_path, {"perf": ["profile a slow binary"],
+                                        "grill": ["interview me about my plan"]})
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    message = str(exc.value)
+    assert "not in the field: `grill`" in message
+    assert re.search(r"`grill` sets disable-model-invocation.*--include-disabled", message)
+    assert not (tmp_path / "o.json").exists()
+
+
+def test_the_disabled_skill_routes_once_include_disabled_is_passed(tmp_path, capsys):
+    root = tmp_path / "catalog"
+    _catalog_skill(root, "perf", "profile a slow binary")
+    (root / "skills" / "grill").mkdir(parents=True)
+    (root / "skills" / "grill" / "SKILL.md").write_text(
+        "---\nname: grill\ndescription: relentless interview about a plan\n"
+        "disable-model-invocation: true\n---\n\n# B\n", encoding="utf-8")
+    queries = _write_queries(tmp_path, {"perf": ["profile a slow binary"],
+                                        "grill": ["interview me about my plan"]})
+    out = tmp_path / "o.json"
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(out), "--include-disabled")
+    args.func(args)
+    assert json.loads(out.read_text(encoding="utf-8"))["result"]["n_skills"] == 2
+
+
+def test_one_refusal_names_each_left_out_skill_with_every_rule_that_left_it_out(tmp_path):
+    root = tmp_path / "catalog"
+    _catalog_skill(root, "perf", "profile a slow binary")
+    _catalog_skill(root, "cache", "cache slow lookups")
+    _catalog_skill(root, "long", "x" * 1100)
+    _catalog_skill(root, "db", "tune a slow database query")
+    _catalog_skill(root / "plugins" / "p", "db", "migrate a database schema")
+    for name, description in (("grill", "relentless interview about a plan"), ("both", "x" * 1100)):
+        (root / "skills" / name).mkdir(parents=True)
+        (root / "skills" / name / "SKILL.md").write_text(
+            f"---\nname: {name}\ndescription: {description}\n"
+            "disable-model-invocation: true\n---\n\n# B\n", encoding="utf-8")
+    names = ["perf", "cache", "long", "db", "grill", "both", "ghost"]
+    queries = _write_queries(tmp_path, {name: ["q"] for name in names})
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    message = str(exc.value)
+    assert "not in the field: `both`, `db`, `ghost`, `grill`, `long`." in message
+    assert "`grill` sets disable-model-invocation (--include-disabled keeps it), so" in message
+    assert "`long` has a spec error (--include-invalid keeps it), so" in message
+    assert ("`both` sets disable-model-invocation (--include-disabled keeps it) and has a spec "
+            "error (--include-invalid keeps it), so") in message
+    assert "`db` has copies with different content" in message
+    assert "`ghost` is not a loadable skill the field was given" in message
+    assert not (tmp_path / "o.json").exists()
+
+
+def test_a_skill_competitor_records_every_rule_that_left_it_out(tmp_path):
+    refs = []
+    for name, extra in (("long", ""), ("both", "disable-model-invocation: true\n")):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "SKILL.md").write_text(
+            f"---\nname: {name}\ndescription: {'x' * 1100}\n{extra}---\n\n# B\n",
+            encoding="utf-8")
+        refs.append(f"skill:{tmp_path / name}")
+    args = _parse("novelty", "routing", "--all-vs-all", "--competitors", *refs,
+                  "--queries-by-skill", "q.json")
+    dropped: dict[str, set[str]] = {}
+    assert routing_field(args, set(), [], dropped) == []
+    assert dropped == {"long": {"invalid"}, "both": {"disabled", "invalid"}}

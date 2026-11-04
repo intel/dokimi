@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Progress lines of `repo tasks check` / `repo run` are flushed one by one, not at exit."""
+"""Progress lines of `eval check` / `repo run` are flushed one by one, not at exit."""
 
 import select
 import subprocess
