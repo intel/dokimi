@@ -104,12 +104,12 @@ def evaluate(ledger: Ledger, batch_dirs: list[Path], baseline: str, models: list
              seed: int = 0, today: date | None = None, ledger_name: str = "") -> dict[str, Any]:
     """One result per rule and model: paired statistics, Holm-adjusted p, verdict and reason."""
     today = today or date.today()  # noqa: DTZ011 - a review is dated in the writer's local time, not UTC
-    known = {c["task"] for c in load_batches(batch_dirs)[0]}
+    cells = load_batches(batch_dirs)[0]
+    known = {c["task"] for c in cells}
     entries: list[dict[str, Any]] = []
     warnings: list[str] = []
     for rule in ledger.rules:
-        if rule.arm == (rule.baseline or baseline):
-            raise LedgerError(f"rule {rule.id!r}: its arm {rule.arm!r} is its own baseline")
+        _check_arm(rule, rule.baseline or baseline, cells, ledger_name)
         rule_entries = _rule_entries(rule, batch_dirs, baseline, models, known, seed, warnings)
         age = (today - rule.reviewed).days
         stale = age < 0 or age > ledger.review_within_days
@@ -129,6 +129,17 @@ def evaluate(ledger: Ledger, batch_dirs: list[Path], baseline: str, models: list
     return {"ledger": ledger_name, "alpha": ledger.alpha, "review_within_days": ledger.review_within_days,
             "today": today.isoformat(), "family": sum(_in_family(e) for e in entries),
             "rules": entries, "warnings": list(dict.fromkeys(warnings))}
+
+
+def _check_arm(rule: Rule, base: str, cells: list[dict[str, Any]], ledger_name: str) -> None:
+    """Refuse a rule whose arm is its baseline or also selects its cells: a typo, not a not-measured verdict."""
+    where = f"{ledger_name}: " if ledger_name else ""
+    if rule.arm == base:
+        raise LedgerError(f"{where}rule {rule.id!r}: its arm {rule.arm!r} is its own baseline")
+    arm_sel, base_sel = parse_selector(rule.arm), parse_selector(base)
+    if any(selector_matches(arm_sel, c) and selector_matches(base_sel, c) for c in cells):
+        raise LedgerError(f"{where}rule {rule.id!r}: its arm {rule.arm!r} also selects cells of its baseline "
+                          f"{base!r}; name its batch (BATCH/ARM)")
 
 
 def _head(rule: Rule, baseline: str, linked: int, missing: list[str]) -> dict[str, Any]:

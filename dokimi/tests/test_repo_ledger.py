@@ -569,6 +569,29 @@ def test_a_rule_whose_arm_is_the_default_baseline_is_refused_not_a_verdict(tmp_p
         evaluate(ledger, [batch], ARM, today=TODAY)
 
 
+def test_a_rule_whose_arm_is_the_default_baseline_is_refused_with_no_linked_cell(tmp_path):
+    batch = _gate_batch(tmp_path, {"elsewhere": (False, True)})
+    ledger = load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", _ids("t", 8))]))
+    with pytest.raises(LedgerError, match="its own baseline"):
+        evaluate(ledger, [batch], ARM, today=TODAY)
+
+
+@pytest.mark.parametrize(("arm", "baseline"), [(f"after/{ARM}", ARM), (ARM, f"before/{ARM}")])
+def test_a_rule_whose_arm_also_selects_its_baseline_cells_exits_2_not_a_verdict(tmp_path, capsys, arm, baseline):
+    tasks = _ids("t", 8)
+    for name, passes in (("before", False), ("after", True)):
+        for task in tasks:
+            _cell(tmp_path / name, task, BASE, success=False)
+            _cell(tmp_path / name, task, ARM, success=passes)
+    path = _ledger(tmp_path / "ledger.json", [_rule("R1", tasks, arm=arm, baseline=baseline)])
+    args = build_parser().parse_args(["repo", "compare", str(tmp_path / "before"), str(tmp_path / "after"),
+                                      "--baseline", BASE, "--ledger", str(path)])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2
+    assert "R1" in (err := capsys.readouterr().err) and "ledger.json" in err and "also selects" in err
+
+
 def test_the_default_today_is_the_local_date_not_the_utc_date(tmp_path, monkeypatch):
     import dokimi.repos.ledger as ledger_module
 
