@@ -586,20 +586,24 @@ class TestBackendSelectionEdges:
 
 
 class TestLlmKeyRouting:
-    """The validator's LLM key is resolved by get_llm, through the real get_llm.
+    """The validator's LLM key is resolved by dokimi.llm.
 
-    The litellm wrapper is patched so the test sees the key each provider gets.
+    The test reads the key each provider's request carries at the adapter seam.
     OPENROUTER_API_KEY is only for openrouter.
     """
 
     @staticmethod
     def _key_for(provider, env, api_key=None):
+        from dokimi.llm import FakeAdapter, use_adapter
+
+        fake = FakeAdapter("ok")
         with patch('dokimi.questions.validator.LANGCHAIN_AVAILABLE', True), \
-             patch('dokimi.llm._GetLLMCompat') as compat, \
-             patch.dict('os.environ', env, clear=True):
-            QuestionValidator(llm_provider=provider, llm_model="some-model", api_key=api_key)
-        compat.assert_called_once()
-        return compat.call_args.kwargs["key"]
+             patch.dict('os.environ', env, clear=True), use_adapter(fake):
+            validator = QuestionValidator(llm_provider=provider, llm_model="some-model",
+                                          api_key=api_key)
+            validator.llm.invoke("q")
+        (request,) = fake.requests
+        return request.api_key
 
     @pytest.mark.parametrize(
         "provider", ["google", "google-vertex", "openai-codex", "amazon-bedrock"]

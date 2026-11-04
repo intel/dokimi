@@ -11,6 +11,7 @@ import pytest
 
 from dokimi.cli import build_parser
 from dokimi.novelty.client import LLMClient
+from dokimi.utils import InputError
 
 
 def _parse(*argv):
@@ -43,7 +44,7 @@ def test_a_skill_with_no_usable_heading_is_refused_even_with_a_description(tmp_p
                                        body="# Grill\n\n## Steps\n"),
                   "--competitors", _skill(tmp_path, "b", "tune a database"),
                   "--queries-from-headings", "--out", str(out))
-    with pytest.raises(SystemExit):
+    with pytest.raises(InputError):
         args.func(args)
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["status"] == "no_queries"
@@ -57,7 +58,7 @@ def test_no_derived_queries_refuses_without_claiming_a_derivation(tmp_path, caps
                   "--artifact", _skill(tmp_path, "grill", "Stop.", body="# Grill\n\n## Steps\n"),
                   "--competitors", _skill(tmp_path, "b", "tune a database"),
                   "--queries-from-headings", "--out", str(out))
-    with pytest.raises(SystemExit):
+    with pytest.raises(InputError):
         args.func(args)
     err = capsys.readouterr().err
     assert "derived from the artifact" not in err
@@ -65,7 +66,7 @@ def test_no_derived_queries_refuses_without_claiming_a_derivation(tmp_path, caps
 
 
 def test_the_seed_help_says_what_it_fixes_and_does_not_call_the_run_reproducible(capsys):
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit):  # argparse prints the help and exits 0
         _parse("novelty", "routing", "--help")
     text = " ".join(capsys.readouterr().out.split())
     seed_help = text[text.rindex("--seed"):text.index("--repeats", text.rindex("--seed"))]
@@ -180,9 +181,8 @@ def test_estimate_only_refuses_the_run_the_real_run_refuses(tmp_path, capsys, qu
                   "--artifact", _skill(tmp_path, "grill", "Stop.", body="# Grill\n\n## Steps\n"),
                   "--competitors", _skill(tmp_path, "b", "tune a database"),
                   *flags, "--model", "m", "--estimate-only", "--out", str(out))
-    with pytest.raises(SystemExit):
+    with pytest.raises(InputError, match="no usable queries"):
         args.func(args)
-    assert "no usable queries" in capsys.readouterr().err
     assert not out.exists()
 
 

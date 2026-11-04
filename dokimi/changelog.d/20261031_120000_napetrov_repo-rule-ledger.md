@@ -1,0 +1,3 @@
+### Added
+
+- **`repo compare --ledger FILE`** — gives each guidance rule of a `repo_ledger.v1` file a verdict: its arm against its baseline on the rule's linked cases (task ids), with the paired statistics of `repo compare`, Holm correction across the rules, and `keep`, `review` or `insufficient-evidence` with the reason. A rule whose `reviewed` date is older than `review_within_days` (default 180) gets a warning; its verdict is computed as usual. The ledger only computes verdicts; cutting a rule is left to a person. The design, the ledger format and the incident-to-case path are in `docs/rule-ledger.md`. `--json` adds a `ledger` key to the comparison.

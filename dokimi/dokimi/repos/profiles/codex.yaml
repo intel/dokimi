@@ -29,6 +29,8 @@ tools:
   none: ["--sandbox", "read-only"]
   read: ["--sandbox", "read-only"]
   all: ["--dangerously-bypass-approvals-and-sandbox"]
+  # codex has no tool allow-list: this is the read sandbox, so the agent can still run commands; a look is caught afterwards and the cell reads fetched.
+  skills: ["--sandbox", "read-only"]
 config_dir_env: CODEX_HOME
 env_allow:
   - PATH
@@ -61,3 +63,11 @@ guidance:
     Measured on 0.160 with gpt-6-luna (oneDAL review task): root AGENTS.md
     applied, subtree AGENTS.md applied only after the agent printed them with a
     shell command; AGENTS.override.md hid the root AGENTS.md.
+skills:
+  project_dirs: [.codex/skills, .agents/skills]
+  user_dirs: ["config:skills", "home:.agents/skills"]
+  notes: >-
+    Measured on codex-cli 0.166.0 (Linux, gpt-6-sol): lists .agents/skills
+    and .codex/skills in the project, $CODEX_HOME/skills and ~/.agents/skills,
+    nested skills/group/<skill> and symlinked skill dirs. Skills that share
+    a name are all listed (identity is name + path).

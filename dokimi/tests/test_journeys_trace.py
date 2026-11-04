@@ -552,7 +552,7 @@ def test_a_short_alias_counts_as_its_long_option():
 
 
 def test_an_abbreviation_argparse_accepts_counts_as_its_option():
-    assert journeys.invoked(ROOT, "repo tasks check --task", [["repo", "tasks", "check", "src", "--ta", "x"]])
+    assert journeys.invoked(ROOT, "eval check --task", [["eval", "check", "src", "--ta", "x"]])
 
 
 def test_text_after_the_separator_is_not_an_option():

@@ -21,7 +21,7 @@ try:  # optional: local, key-free embeddings for deduplication
 except ImportError:
     SENTENCE_TRANSFORMERS_AVAILABLE = False
 
-from dokimi.llm import ChatModel
+from dokimi.llm import LLM, ChatModel, Invoker
 from dokimi.llm import ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
 from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
 
@@ -129,10 +129,9 @@ class QuestionValidator:
             elif llm_provider == "anthropic":
                 self.llm = ChatAnthropic(model=llm_model, api_key=api_key)
             else:
-                from dokimi.utils import get_llm
-                # get_llm applies each provider's own env key (OPENROUTER_API_KEY
-                # only for openrouter), so the validator passes its key through.
-                self.llm = get_llm(llm_provider, llm_model, api_key)
+                # An explicit api_key wins; without one LLM reads the provider's own variable
+                # (llm.PROVIDERS, OPENAI_API_KEY off the table, see llm.credential_env_var).
+                self.llm = Invoker(LLM(llm_model, llm_provider, api_key))
         else:
             self.llm = None
         self.threshold = threshold

@@ -66,7 +66,11 @@ checks the eval set itself: that it parses, that each task's grader fails an
 untouched workspace and passes the reference solution, and that an LLM judge
 scores degraded answers lower.
 
-![Three checks of an eval set: valid (dokimi repo validate), graded right (dokimi repo tasks check), judge checked (dokimi eval judge-validity)](assets/readme/eval-checks.png)
+The three checks, each a command:
+
+- valid: `dokimi repo validate`
+- graded right: `dokimi eval check`
+- judge checked: `dokimi eval judge validate`
 
 **Where it is going:** mapping each claim in a skill to the tasks that
 exercise it, so the claims no eval tests are listed next to the score.
@@ -93,7 +97,7 @@ From the studies so far ([evidence](skill-novelty-evidence.md)):
 | `skill:` | a skill (`SKILL.md`) injected as context |
 | `profile:` | an agent persona system prompt |
 | `agent:` / `skill-agent:` | **agentic** use — the model gets a tool and *decides* whether to fetch docs / load the skill |
-| `skill-catalog:` | **selection** — every skill in a catalog is offered (a copy under a `template/` or `templates/` directory, a byte-identical mirror that loads under the same skill name, and anything under a vendored or VCS directory such as `.git`, `node_modules` or `.venv` are left out); scored on which one loads (`catalog trigger-set` builds the queries) |
+| `skill-catalog:` | **selection** — every skill in a catalog is offered (a copy under a `template/` or `templates/` directory, a byte-identical mirror that loads under the same skill name, and anything under a vendored or VCS directory such as `.git`, `node_modules` or `.venv` are left out); scored on which one loads (`eval triggers generate` builds the queries) |
 
 Two fine-print notes:
 
@@ -321,6 +325,9 @@ code.
 - [context-window.md](context-window.md) — read a run's context window from
   its Claude Code trace with `cli.py context trace`: start-up load, growth,
   compactions, tool-result weight. No LLM call.
+- [session-prefilter.md](session-prefilter.md) — which AGENTS.md or CLAUDE.md rules
+  the Claude Code session logs triggered, acted on and were corrected on, with
+  `cli.py context prefilter`: candidates for ablation, not verdicts. No LLM call.
 - [run-consistency.md](run-consistency.md) — repeated runs of one task with
   `cli.py context consistency`: result stability (pass^k), path stability
   (tool mix, order, actions, strategies), process-contract conformance.
@@ -351,8 +358,12 @@ code.
   partly implemented)* what a repository provides to be evaluated as a whole:
   `repo-eval.yaml`, `task.json`, the `grade` entry point and `grade.json`,
   harness profiles, and the guidance reach probe; and how to run its task
-  self-check, agent runs, report and arm comparison (`repo tasks check`,
+  self-check, agent runs, report and arm comparison (`eval check`,
   `repo run`, `repo report`, `repo compare`). Tasks and graders stay in the scanned repository.
+- [reach-matrix.md](reach-matrix.md) — the reach conformance suite: fixture
+  repositories, what each harness's vendor documentation says they load, the
+  `scripts/reach_conformance.py` run and merge that produce the agent × version
+  matrix, and the nightly workflow that publishes it.
 - [repo-evaluation-mergeability.md](repo-evaluation-mergeability.md) —
   *(proposed)* grading whether a maintainer would merge a test-passing change:
   `rubric.json` (blockers, non-blockers, scope), deterministic scope and
@@ -368,6 +379,10 @@ code.
 - [preparing-a-repository-evidence.md](preparing-a-repository-evidence.md) —
   the runs behind each figure on that page: task set, arms, model, cell count
   and raw count.
+- [rule-ledger.md](rule-ledger.md) — one row per guidance rule: its
+  hypothesis, the replay or executable cases of the failures it prevents, and
+  the review date; `repo compare --ledger` gives each rule a keep, review or
+  insufficient-evidence verdict. The cut decision stays with a person.
 
 ## Extending Dokimi
 

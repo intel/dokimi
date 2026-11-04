@@ -7,39 +7,51 @@ A static inventory, in characters, of the context a harness takes from the tree 
 starts at the repository root:
 
 - **start**: guidance files at the root, the files a root ``CLAUDE*`` or ``AGENTS.md`` file
-  ``@import``s (``AGENTS.md`` only when it is not turned off), and the skill
+  ``@import``s (``AGENTS.md`` only when it is not turned off; none with a profile whose ``guidance.imports``
+  is null), the root ``.claude/rules/**/*.md``
+  files whose ``paths`` frontmatter names no pattern, when the harness reads rules (their own ``@`` paths are not
+  imports unless a CLAUDE.md imports the rule; then they are, transitively), and the skill
   listing (each project skill's ``name``, plus its ``description`` and ``when_to_use`` up to
   1,536 characters together; a skill with
   ``disable-model-invocation: true`` is not listed). Every model call pays for these.
-- **lazy**: guidance files in subdirectories, and what a nested CLAUDE.md or AGENTS.md imports, loaded
-  when the agent works in that subtree.
+- **lazy**: guidance files in subdirectories, what a nested CLAUDE.md or AGENTS.md imports, and the
+  rules of a subdirectory's ``.claude/rules/``, loaded when the agent works in that subtree; rules
+  whose ``paths`` names a pattern, loaded when the agent reads a matching file.
 - **on demand**: skill bodies, loaded when the agent invokes the skill.
 - **off**: AGENTS.md files the harness will not read: a root CLAUDE.md, .claude/CLAUDE.md or CLAUDE.local.md is present and no
   CLAUDE.md imports them (measured on Claude Code 2.1.286; the reach probe re-measures).
 - **off** too: an AGENTS.md below the root that resolves (not .claude/AGENTS.md, read as a root file) whose own directory holds a CLAUDE.md, CLAUDE.local.md or .claude/CLAUDE.md
   (not one in a parent below the root or a deeper directory), unless a CLAUDE* file is a link to it or a file that loads imports it
-  (measured on Claude Code 2.1.316; only for a profile that sets ``guidance.claude_displaces_agents``, claude-code).
+  (measured on Claude Code 2.1.316).
+- Both **off** rules are Claude Code's: they apply only for a profile that sets ``guidance.claude_displaces_agents``
+  (claude-code). Copilot CLI reads a root AGENTS.md beside a root CLAUDE.md.
 
 Characters, not tokens: how many tokens a character costs depends on the model's tokenizer,
 and differs between model families. The exact cost is the first-call prompt difference
 between a run with the file and one without.
 
-Five checks ride along: skills with no description and no body text, skills whose descriptions are near-duplicates
+Six checks ride along: skills with no description and no body text, skills whose descriptions are near-duplicates
 (the agent has to choose between them from the listing alone), AGENTS.md files turned off by a
-CLAUDE.md, .claude/CLAUDE.md or CLAUDE.local.md at the root or in their own directory (each named), unreadable files (non-UTF-8, dangling link), and imports past the
-harness's hop limit.
+CLAUDE.md, .claude/CLAUDE.md or CLAUDE.local.md at the root or in their own directory (each named), unreadable files (non-UTF-8, dangling link), imports past the
+harness's hop limit, and links under ``.claude/rules`` to a directory or out of the tree, whose rules
+are not counted.
 """
 
 from __future__ import annotations
 
 import json
 import re
+from functools import partial
 from itertools import combinations
 from typing import Any
 
+from dokimi.repos.rule_frontmatter import _FRONTMATTER, _has_paths, _without_frontmatter
 from dokimi.repos.source import RepoTree
+from dokimi.repos.unlisted_rules import RULES_ENTRY as _RULES_ENTRY, unlisted_rules
 
 SKILL_GLOB = re.compile(r"^\.claude/skills/[^/]+/SKILL\.md$")
+# Rules are discovered recursively, in the root .claude/rules/ and in a subdirectory's (docs: Memory).
+RULE_GLOB = re.compile(r"^(?:.+/)?\.claude/rules/(?:.+/)?[^/]+\.md$")
 # The CLAUDE* files that turn AGENTS.md off in Claude Code, relative to a directory: at the root for the whole
 # session, below it for the AGENTS.md beside them. receipt.py imports this set.
 CLAUDE_ROOT = ("CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md")
@@ -64,13 +76,39 @@ _WORD = re.compile(r"\w+")
 _STOP = frozenset("a an and the of to for in on with use when or is are be this that it its from by as at".split())
 
 
-def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: int | None = None, *,
-           claude_displaces_agents: bool = False) -> dict[str, Any]:
+def _nested_unscoped(tree: RepoTree, files) -> set:
+    """(rule target, directory above its .claude/rules) for each unscoped rule in a nested .claude/rules."""
+    return {(_target(tree, f), f.split(".claude/rules/", 1)[0]) for f in files
+            if RULE_GLOB.match(f) and not f.startswith(".claude/rules/") and not _rule(tree, f)[1]}
+
+
+def _cut_is_quiet(tree: RepoTree, target: str, root: str, loaded, pair_lazy: bool, pair_start: bool,
+                  nested_unscoped: set) -> bool:
+    """True when a cut import needs no warning: another chain loaded its target, or it is a cut lazy import of an
+    unscoped nested rule from guidance in that rule's subtree (the rule loads with that guidance anyway).
+
+    ``root`` is the guidance file the chain of the cut import starts from: that guidance, not the importing file,
+    decides whether the rule loads with it. The second exemption does not cover a pair the start chain cut too:
+    that rule does not load at start."""
+    if _target(tree, target) in loaded:
+        return True  # another chain did load it, possibly through a link
+    return pair_lazy and not pair_start and any(
+        _target(tree, target) == t and root.startswith(sub) for t, sub in nested_unscoped)
+
+
+def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: int | None = None,
+           rules: bool = False, *, claude_displaces_agents: bool = False,
+           follow_imports: bool = True) -> dict[str, Any]:
     """The inventory. ``claude_displaces_agents`` (the profile's ``guidance.claude_displaces_agents``, Claude Code's
-    alone) adds the rule that a CLAUDE* file turns off the AGENTS.md in its own directory below the root."""
+    alone) adds the rules that a root CLAUDE* file turns off every AGENTS.md and one below the root the AGENTS.md
+    in its own directory; without it no AGENTS.md is off. Without ``follow_imports`` (a profile whose
+    ``guidance.imports`` is null) no guidance file's ``@`` imports are followed."""
+    imports = partial(_followed_imports, tree, max_depth=import_max_depth, follow=follow_imports, rules=rules)
     files = tree.files()
     names = set(guidance_names)
-    every = [f for f in files if f.rsplit("/", 1)[-1] in names]
+    # under .claude/rules a file is a rule whatever its name (a rules/CLAUDE.md is not guidance), when
+    # the harness reads rules; otherwise it is an ordinary file of the profile's guidance names
+    every = [f for f in files if f.rsplit("/", 1)[-1] in names and not (rules and RULE_GLOB.match(f))]
     guidance = _unaliased(tree, every)
     groups: dict[str, list[str]] = {}
     for f in every:
@@ -83,8 +121,8 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
     # resolve (not dangling/out-of-tree) count; unreadable UTF-8 still counts.
     root_claude_for_off = [f for f in root_claude if _is_resolvable(tree, f)]
     # A root CLAUDE.md's imports load at start; a nested one's when the agent reaches its subtree.
-    at_start, cut_start = _imports(tree, root_claude_for_off, import_max_depth)
-    lazy_all, cut_lazy = _imports(tree, [f for f in claude if f not in root_claude], import_max_depth)
+    at_start, cut_start = imports(root_claude_for_off)
+    lazy_all, cut_lazy = imports([f for f in claude if f not in root_claude])
     displaced = _displaced(tree, every, claude, root_claude_for_off, claude_displaces_agents)
 
     # An AGENTS.md read on its own expands its @imports from hop 0. One a CLAUDE* displaces is read only through
@@ -92,8 +130,8 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
     agents = [f for f in every if f.rsplit("/", 1)[-1] == "AGENTS.md" and _is_resolvable(tree, f)
               and (f not in displaced or any(a in root_claude or a in displaced[f]
                                              for a in groups.get(_target(tree, f), [f])))]
-    agents_at_start, cut_agents_start = _imports(tree, [f for f in agents if _is_root(f)], import_max_depth)
-    agents_lazy, cut_agents_lazy = _imports(tree, [f for f in agents if not _is_root(f)], import_max_depth)
+    agents_at_start, cut_agents_start = imports([f for f in agents if _is_root(f)])
+    agents_lazy, cut_agents_lazy = imports([f for f in agents if not _is_root(f)])
     at_start |= agents_at_start
     lazy_all |= agents_lazy
     cut_start = cut_start + cut_agents_start
@@ -104,62 +142,34 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
 
     entries: list[dict[str, Any]] = []
     unreadable_warnings: list[str] = []
+    own_rank = _own_targets(tree, guidance, groups, claude, displaced, at_start, lazily)
     for f in guidance:
-        t = _target(tree, f)
-        aliases = groups.get(t, [f])
-        root_alias = any(a in root_claude for a in aliases)
-        nested_alias = any(a in claude and a not in root_claude for a in aliases)
-        if f in displaced and all(a in displaced for a in aliases if a.rsplit("/", 1)[-1] == "AGENTS.md"):
-            # a CLAUDE.md displaces AGENTS.md: it is read only through a CLAUDE.md that reaches it
-            if root_alias or t in start_t:
-                when = "start"
-            elif nested_alias or t in loaded_t:
-                when = "lazy"
-            else:
-                when = "off"
-        elif root_alias or t in start_t or _is_root(f):
-            when = "start"
-        else:
-            when = "lazy"
+        when = _guidance_when(tree, f, groups, claude, root_claude, displaced, start_t, loaded_t)
         chars, warning = _chars(tree, f)
         if warning:
             unreadable_warnings.append(warning)
         entries.append({"path": f, "kind": "guidance", "when": when, "chars": chars})
+    # What loads without a rule: a rule promotes a guidance entry below, but that does not make it independently loaded
+    guidance_loaded = {_target(tree, e["path"]) for e in entries if e["when"] != "off"}
     counted = {_target(tree, f) for f in guidance}
-    for f in sorted((at_start | lazily) - set(guidance), key=lambda p: (p not in at_start, p)):
-        if _is_resolvable(tree, f) and _target(tree, f) not in counted:
-            counted.add(_target(tree, f))
-            chars, warning = _chars(tree, f)
-            if warning:
-                unreadable_warnings.append(warning)
-            entries.append({"path": f, "kind": "import", "when": "start" if f in at_start else "lazy",
-                            "chars": chars})
+    entries += _rules(tree, files if rules else [], counted, start_t, unreadable_warnings, entries, own_rank)
+    _import_entries(tree, at_start, lazily, guidance, counted, entries, unreadable_warnings, rules, own_rank)
 
     skills = _skills(tree, [f for f in files if SKILL_GLOB.match(f)])
-    for s in skills:
-        if s["listed"]:
-            entries.append({"path": s["path"], "kind": "skill listing", "when": "start", "chars": s["listing_chars"]})
-        entries.append({"path": s["path"], "kind": "skill body", "when": "on demand", "chars": s["body_chars"]})
+    entries += _skill_entries(skills)
 
     totals = {w: sum(e["chars"] for e in entries if e["when"] == w) for w in ("start", "lazy", "on demand", "off")}
-    warnings = unreadable_warnings[:]
-    # A guidance file is an entry of its own, so a cut import of it is already loaded (not an import).
-    loaded = {_target(tree, p) for p in at_start | lazy_all} | {
-        _target(tree, e["path"]) for e in entries if e["kind"] == "guidance" and e["when"] != "off"}
-    for f, target in sorted(set(cut_start + cut_lazy)):
-        if _target(tree, target) in loaded:
-            continue  # another chain did load it, possibly through a link
-        if not _is_resolvable(tree, target):
-            continue  # nothing to load, as with a missing import within the limit
-        warnings.append(f"{f}: import of {target} is past the harness's {import_max_depth}-hop import limit, "
-                        "not followed")
+    # A guidance file or a rule is an entry of its own, so a cut import of it is already loaded (not an import).
+    # A scoped rule (lazy) loads only when a matching file is read, so it does not cover a cut import at start.
+    loaded = {_target(tree, p) for p in at_start | lazy_all} | guidance_loaded | {
+        _target(tree, e["path"]) for e in entries if e["when"] == "start" and e["kind"] in ("guidance", "rule")}
+    # An unscoped nested rule loads for any work in its subtree, so a cut import of it there skips nothing.
+    # A path-scoped rule, or one imported from outside its subtree, does not load with its importer: still named.
+    nested_unscoped = _nested_unscoped(tree, files) if rules else set()
+    warnings = unreadable_warnings + _cut_warnings(tree, cut_start, cut_lazy, loaded, nested_unscoped,
+                                                   import_max_depth)
     warnings += _off_warnings([e["path"] for e in entries if e["when"] == "off"], displaced, root_claude_for_off)
-    for s in skills:
-        if s["unreadable"]:
-            warnings.append(f"{s['path']}: not readable ({s['unreadable']}), body counted as 0")
-        elif s["listed"] and not s["description"]:
-            warnings.append(f"{s['path']}: no description and an empty body; the listing gives the agent nothing "
-                            "to choose it by")
+    warnings += _skill_warnings(skills)
     duplicates = _near_duplicates([s for s in skills if s["listed"]])
     for d in duplicates:
         warnings.append(f"skills {d['a']} and {d['b']} have near-duplicate descriptions "
@@ -175,22 +185,180 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
     }
 
 
+def _guidance_when(tree: RepoTree, f: str, groups: dict[str, list[str]], claude: list[str], root_claude: list[str],
+                   displaced: dict[str, list[str]], start_t: set[str], loaded_t: set[str]) -> str:
+    """When a guidance file loads: ``start``, ``lazy`` (its subtree, or an import reached later) or ``off``."""
+    t = _target(tree, f)
+    aliases = groups.get(t, [f])
+    root_alias = any(a in root_claude for a in aliases)
+    nested_alias = any(a in claude and a not in root_claude for a in aliases)
+    if f in displaced and all(a in displaced for a in aliases if a.rsplit("/", 1)[-1] == "AGENTS.md"):
+        # a CLAUDE.md displaces AGENTS.md: it is read only through a CLAUDE.md that reaches it
+        if root_alias or t in start_t:
+            return "start"
+        return "lazy" if nested_alias or t in loaded_t else "off"
+    return "start" if root_alias or t in start_t or _is_root(f) else "lazy"
+
+
+def _cut_warnings(tree: RepoTree, cut_start: list[tuple[str, str, str]], cut_lazy: list[tuple[str, str, str]],
+                  loaded: set[str], nested_unscoped: set, import_max_depth: int | None) -> list[str]:
+    """One warning per cut import that no chain loads (``_cut_is_quiet``), naming every root whose chain cuts it."""
+    cut_lazy_set = {(f, p) for f, p, _ in cut_lazy}
+    cut_start_set = {(f, p) for f, p, _ in cut_start}
+    roots_of: dict[tuple[str, str], set[str]] = {}  # a cut pair names every guidance file whose chain cuts it
+    for f, target, root in cut_start + cut_lazy:
+        roots_of.setdefault((f, target), set()).add(root)
+    out = []
+    for (f, target), roots in sorted(roots_of.items()):
+        if all(_cut_is_quiet(tree, target, root, loaded, (f, target) in cut_lazy_set, (f, target) in cut_start_set,
+                             nested_unscoped) for root in roots):
+            continue
+        if not _is_resolvable(tree, target):
+            continue  # nothing to load, as with a missing import within the limit
+        out.append(f"{f}: import of {target} is past the harness's {import_max_depth}-hop import limit, "
+                   "not followed")
+    return out
+
+
+def _skill_entries(skills: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The listing (at start, when listed) and the body (on demand) of each skill."""
+    out = []
+    for s in skills:
+        if s["listed"]:
+            out.append({"path": s["path"], "kind": "skill listing", "when": "start", "chars": s["listing_chars"]})
+        out.append({"path": s["path"], "kind": "skill body", "when": "on demand", "chars": s["body_chars"]})
+    return out
+
+
+def _skill_warnings(skills: list[dict[str, Any]]) -> list[str]:
+    out = []
+    for s in skills:
+        if s["unreadable"]:
+            out.append(f"{s['path']}: not readable ({s['unreadable']}), body counted as 0")
+        elif s["listed"] and not s["description"]:
+            out.append(f"{s['path']}: no description and an empty body; the listing gives the agent nothing "
+                       "to choose it by")
+    return out
+
+
+def _import_entries(tree: RepoTree, at_start: set[str], lazily: set[str], guidance: list[str], counted: set[str],
+                    entries: list[dict[str, Any]], unreadable_warnings: list[str], rules: bool = False,
+                    own_rank: dict[str, int] | None = None) -> None:
+    """Add an entry for each import that is neither guidance nor a rule of its own (``counted`` grows with them)."""
+    rule_entries = {_target(tree, e["path"]): e for e in entries if e["kind"] == "rule"}
+    guidance_entries = {_target(tree, e["path"]): e for e in entries if e["kind"] == "guidance"}
+    own_rank = own_rank or {}
+    for f in sorted((at_start | lazily) - set(guidance), key=lambda p: (p not in at_start, p)):
+        if not _is_resolvable(tree, f):
+            continue
+        t = _target(tree, f)
+        when = "start" if f in at_start else "lazy"
+        if t in counted:
+            _counted_import(
+                tree,
+                f,
+                t,
+                when,
+                rules,
+                rule_entries,
+                guidance_entries,
+                unreadable_warnings,
+                own_rank,
+            )
+            continue
+        counted.add(t)
+        chars, warning = _chars(tree, f)
+        if warning:
+            unreadable_warnings.append(warning)
+        elif rules and (RULE_GLOB.match(f) or RULE_GLOB.match(t)):
+            chars = len(_without_frontmatter(tree.read_text(f)))
+        entry = {"path": f, "kind": "import", "when": when, "chars": chars}
+        entries.append(entry)
+        if rules and not warning and (RULE_GLOB.match(f) or RULE_GLOB.match(t)):
+            # a rule-path import whose rules dir is a link is not a rule entry, but its count is body-only too:
+            # an ordinary import of the same file, later in the loop, replaces it (as it replaces a rule entry)
+            rule_entries[t] = entry
+
+
+def _counted_import(
+    tree: RepoTree,
+    f: str,
+    t: str,
+    when: str,
+    rules: bool,
+    rule_entries: dict[str, dict[str, Any]],
+    guidance_entries: dict[str, dict[str, Any]],
+    unreadable_warnings: list[str],
+    own_rank: dict[str, int],
+) -> None:
+    """Fold an import of ``f`` (resolving to ``t``, already counted) into the entry that counts ``t`` (``_import_entries``)."""
+    rule = rule_entries.get(t)
+    if rule is None:
+        # a rule route the tree lists no rule entry for (its rules dir is a link) reaches guidance: the same
+        # bytes, so the guidance entry takes the body count when this route loads it earlier (as _rules does)
+        entry = guidance_entries.get(t)
+        if rules and entry is not None and (RULE_GLOB.match(f) or RULE_GLOB.match(t)):
+            chars, _, warning = _rule(tree, f)
+            if warning is None and _rule_route_wins(entry, when, t, own_rank):
+                entry.update(when=when, chars=chars)
+        return
+    # A rule link counted this file with its frontmatter removed. An ordinary @import keeps the frontmatter,
+    # so its count replaces the rule's when it loads at the same time or earlier (a rule file is left alone).
+    if RULE_GLOB.match(f) or RULE_GLOB.match(t) or (when == "lazy" and rule["when"] == "start"):
+        return
+    chars, warning = _chars(tree, f)
+    if warning:
+        unreadable_warnings.append(warning)
+    rule.update(path=f, kind="import", when=when, chars=chars)
+
+
+def _own_targets(tree: RepoTree, guidance: list[str], groups: dict[str, list[str]], claude: list[str],
+                 displaced: dict[str, list[str]], at_start: set[str], lazily: set[str]) -> dict[str, int]:
+    """The guidance files read on their own, or through an ordinary import (not only a rule link), each with the rank
+    of its earliest full-text route (``_RANK``: 2 at start, 1 lazily). A rule route keeps the full count only when one
+    of these loads at the time the rule does."""
+    own: dict[str, int] = {}
+    start_t = {_target(tree, p) for p in at_start}
+    for f in guidance:
+        t = _target(tree, f)
+        aliases = groups.get(t, [f])
+        if any(a in claude for a in aliases) or f not in displaced:
+            own[t] = max(own.get(t, 0), 2 if _is_root(f) else 1)
+    for p in at_start | lazily:
+        t = _target(tree, p)
+        if not (RULE_GLOB.match(p) or RULE_GLOB.match(t)) and (p in at_start or t not in start_t):
+            own[t] = max(own.get(t, 0), 2 if p in at_start else 1)
+    return own
+
+
+_RANK = {"off": 0, "lazy": 1, "start": 2}
+
+
+def _rule_route_wins(entry: dict[str, Any], when: str, target: str, own_rank: dict[str, int]) -> bool:
+    """True when a rule route to a guidance entry replaces its count: the route loads earlier, or at the same time
+    with no full-text route of that file at that time (a full-text route at the same time keeps the whole file)."""
+    if _RANK[when] != _RANK[entry["when"]]:
+        return _RANK[when] > _RANK[entry["when"]]
+    return own_rank.get(target, 0) < _RANK[when]
+
+
 def _is_root(path: str) -> bool:
     """Guidance Claude Code reads at start: at the root, or the project memory in `.claude/`."""
     return "/" not in path or path in (".claude/CLAUDE.md", ".claude/AGENTS.md")
 
 
+
 def _displaced(tree: RepoTree, every: list[str], claude: list[str], root_claude: list[str],
-               same_dir: bool) -> dict[str, list[str]]:
-    """Each AGENTS.md a CLAUDE* file turns off, with the files that do: every one while a root CLAUDE* resolves, else,
-    with ``same_dir``, one that resolves and whose own directory holds a CLAUDE.md, CLAUDE.local.md or .claude/CLAUDE.md
+               claude_displaces_agents: bool) -> dict[str, list[str]]:
+    """Each AGENTS.md a CLAUDE* file turns off, with the files that do, only with ``claude_displaces_agents``: every one
+    while a root CLAUDE* resolves, else one that resolves and whose own directory holds a CLAUDE.md, CLAUDE.local.md or .claude/CLAUDE.md
     that resolves (not one in a parent or deeper directory; measured on Claude Code 2.1.316). Imports and aliases that
     still load it are decided later."""
+    if not claude_displaces_agents:
+        return {}
     agents = [f for f in every if f.rsplit("/", 1)[-1] == "AGENTS.md"]
     if root_claude:
         return {f: root_claude for f in agents}
-    if not same_dir:
-        return {}
     present = {c for c in claude if _is_resolvable(tree, c)}
     out: dict[str, list[str]] = {}
     for f in agents:
@@ -259,43 +427,174 @@ def _chars(tree: RepoTree, path: str) -> tuple[int, str | None]:
         return 0, f"{path}: not readable ({_unreadable_reason(err)}), counted as 0"
 
 
-def _imports(tree: RepoTree, roots: list[str], max_depth: int | None = None) -> tuple[set[str], list[tuple[str, str]]]:
+def _rules(tree: RepoTree, files: list[str], counted: set[str], start_t: set[str],
+           warnings: list[str], guidance: list[dict[str, Any]], own_rank: dict[str, int]) -> list[dict[str, Any]]:
+    """The ``rule`` entries of ``files``, skipping files already ``counted`` (and adding theirs).
+
+    A rule that is the same file as a guidance entry (in ``guidance``) is not counted twice: that entry
+    takes the earlier of the two loading conditions, so a root rule linked to an AGENTS.md that a root
+    CLAUDE.md turns off loads it at start.
+
+    ``budget`` passes no files for a harness that does not read ``.claude/rules`` (``guidance.claude_rules``).
+    """
+    by_target = {_target(tree, e["path"]): e for e in guidance}
+    out = []
+    dirs: set[str] = set()
+    warnings += unlisted_rules(tree, files)
+    for f in sorted(f for f in files if _RULES_ENTRY.match(f)):
+        try:
+            if tree.is_dir(tree.resolve(f, dirs=True)):  # a tree lists a link to a directory as one entry
+                warnings.append(f"{f}: a link to a directory; the rules behind it are not counted")
+                dirs.add(f)
+        except (OSError, ValueError, RuntimeError):  # out of the tree (a shared rules dir), dangling or a loop
+            # A link that does not resolve may be a directory whatever its name, and the tree cannot tell which:
+            # any such entry is named, except a Markdown rule, which _rule names as unreadable and counts as 0.
+            if not RULE_GLOB.match(f):
+                warnings.append(f"{f}: a link that does not resolve in the tree; any rules behind it are not counted")
+    for f in sorted(f for f in files if RULE_GLOB.match(f) and f not in dirs):
+        target = _target(tree, f)
+        chars, scoped, warning = _rule(tree, f)
+        # a CLAUDE.md that imports a rule at start loads it then, whatever its frontmatter says
+        when = "start" if (f.startswith(".claude/rules/") and not scoped) or target in start_t else "lazy"
+        if target in counted:
+            # a link to a file already counted (a guidance file, or another rule): the same bytes, loaded once.
+            # The entry takes the earlier loading condition, and that route's count: a rule has its frontmatter removed.
+            entry = by_target.get(target)
+            # guidance that loads only through this rule link takes the rule's count even at the same condition
+            if entry is not None and _rule_route_wins(entry, when, target, own_rank):
+                entry["when"] = when
+                entry["chars"] = chars
+            continue
+        counted.add(target)
+        if warning:
+            warnings.append(warning)
+        entry = {"path": f, "kind": "rule", "when": when, "chars": chars}
+        out.append(entry)
+        by_target[target] = entry
+    return out
+
+
+def _rule(tree: RepoTree, path: str) -> tuple[int, bool, str | None]:
+    """Return (chars in context, has ``paths``, warning) for a ``.claude/rules`` file.
+
+    Claude Code removes the frontmatter before loading a rule, so it is not counted. A rule with
+    a non-empty ``paths`` loads only when the agent reads a matching file. Measured on Claude Code
+    2.1.304, the key is read line by line: it holds even when the rest of the YAML does not parse
+    (the docs say such a rule loads unconditionally), while ``paths: []`` loads at start. A rule
+    whose only pattern is invalid (``[unclosed``) never loads; it is counted lazy.
+    """
+    try:
+        text = tree.read_text(path)
+    except (OSError, ValueError, RuntimeError) as err:  # UnicodeDecodeError is a ValueError; RuntimeError a loop
+        return 0, False, f"{path}: not readable ({_unreadable_reason(err)}), counted as 0"
+    text = text.removeprefix("\ufeff")  # a UTF-8 BOM from an editor is not part of the frontmatter (as in skills)
+    m = _FRONTMATTER.match(text)
+    if not m:
+        return len(text), False, None
+    return len(text) - m.end(), _has_paths(m.group(1)), None
+
+
+def _followed_imports(tree: RepoTree, roots: list[str], *, max_depth: int | None, follow: bool,
+                      rules: bool) -> tuple[set[str], list[tuple[str, str, str]]]:
+    """:func:`_imports` of ``roots``, or none when the profile declares no import syntax."""
+    return _imports(tree, roots, max_depth, rules) if follow else (set(), [])
+
+
+def _imports(tree: RepoTree, roots: list[str], max_depth: int | None = None,
+             rules: bool = False) -> tuple[set[str], list[tuple[str, str, str]]]:
     """Files the CLAUDE.md ``roots`` ``@import``, transitively (relative to the importing file).
 
-    Breadth first, so a file is placed at its shortest hop count. With ``max_depth``, imports of
-    files already ``max_depth`` hops from a root are not followed; those left unreached come back
-    as ``(importing file, target)`` pairs.
+    Breadth first, so a file is placed at its shortest hop count. A rule an import reaches is followed like any
+    other file (its @ paths are imports only because a CLAUDE.md imports the rule: a rule that no CLAUDE.md imports
+    is never read here). With ``max_depth``, imports of files already ``max_depth`` hops from a root are not
+    followed; those left unreached come back as ``(importing file, target, root)``, one for each guidance
+    file whose import chain reaches the importing file (a file reached from two roots, one through a shared
+    file that is read once, names both).
     """
     seen: set[str] = set()
-    # Also by the file a path resolves to: an alias (CLAUDE.md -> .) names the same file under
-    # ever longer paths, which a path-string check never recognises as a cycle.
+    # Also by the file a path resolves to, so an alias (CLAUDE.md -> .) is not walked again under a longer path.
+    # Expanded once per route kind (rule path or not): a rule link reached first must not hide a later import.
     reached = {_target(tree, r) for r in roots}
+    reached_by_rule: set[str] = set()
     level = list(roots)
     cut: list[tuple[str, str]] = []
+    edges: list[tuple[str, str]] = []  # (path an expanded file was read at, the path it imports), every import
     depth = 0
     while level:
         nxt: list[str] = []
         for f in level:
-            try:
-                text = tree.read_text(f)
-            except (OSError, ValueError, RuntimeError):  # RuntimeError: a link loop before Python 3.13
+            text = _import_text(tree, f, roots, rules)
+            if text is None:
                 continue
             here = f.rsplit("/", 1)[0] + "/" if "/" in f else ""
             for target in IMPORT.findall(_strip_code_spans(_CODE_BLOCK.sub("", text))):
                 if target.startswith("/"):
                     continue  # an absolute path names the host filesystem, not a file of the tree
                 path = _normalize(here + target)
-                if not path or path in seen or _target(tree, path) in reached:
+                if not path:
+                    continue
+                edges.append((f, path))
+                if path in seen:
+                    continue
+                t = _target(tree, path)
+                done = reached_by_rule if rules and RULE_GLOB.match(path) else reached
+                if t in done:
                     continue
                 if max_depth is not None and depth >= max_depth:
                     cut.append((f, path))
                     continue
                 seen.add(path)
-                reached.add(_target(tree, path))
+                done.add(t)
                 nxt.append(path)
         level = nxt
         depth += 1
-    return seen, [(f, p) for f, p in cut if p not in seen]
+    reach = _roots_reaching(tree, edges, roots, max_depth)
+    return seen, [(f, p, r) for f, p in cut if p not in seen for r in sorted(reach.get(f, ()))]
+
+
+def _import_text(tree: RepoTree, f: str, roots: list[str], rules: bool) -> str | None:
+    """The text whose @paths ``_imports`` follows from ``f``; None when ``f`` cannot be read."""
+    try:
+        text = tree.read_text(f)
+    except (OSError, ValueError, RuntimeError):  # RuntimeError: a link loop before Python 3.13
+        return None
+    if rules and f not in roots and (RULE_GLOB.match(f) or RULE_GLOB.match(_target(tree, f))):
+        text = _without_frontmatter(text)  # a rule's frontmatter is removed before it loads (as _rule counts)
+    return text
+
+
+def _roots_reaching(tree: RepoTree, edges: list[tuple[str, str]], roots: list[str],
+                    max_depth: int | None) -> dict[str, set[str]]:
+    """For each path a file is read at, the guidance roots whose import chains reach it within ``max_depth`` hops.
+
+    Routes are kept apart by the path they are read at, since a relative import is resolved from that path: a rule
+    link read at its own path imports from the link's directory, whatever file it resolves to. ``_imports`` reads a
+    file once per target, so a path that was not read has no edges of its own: it takes the edges of the path that
+    was read for the same file (as before routes were kept apart). Each root is walked over the edges with the same
+    hop limit, so a path past the limit for a root is not that root's (its import chain is cut there, not loaded).
+    """
+    adj: dict[str, list[str]] = {}
+    by_target: dict[str, list[str]] = {}
+    for src, dst in edges:
+        adj.setdefault(src, []).append(dst)
+        by_target.setdefault(_target(tree, src), []).append(dst)
+    reach: dict[str, set[str]] = {}
+    for r in roots:
+        reach.setdefault(r, set()).add(r)
+        seen = {r}
+        level = [r]
+        depth = 0
+        while level and (max_depth is None or depth < max_depth):
+            nxt: list[str] = []
+            for node in level:
+                for dst in adj[node] if node in adj else by_target.get(_target(tree, node), ()):
+                    if dst not in seen:
+                        seen.add(dst)
+                        reach.setdefault(dst, set()).add(r)
+                        nxt.append(dst)
+            level = nxt
+            depth += 1
+    return reach
 
 
 def _normalize(path: str) -> str:

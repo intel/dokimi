@@ -47,10 +47,16 @@ SPDX-License-Identifier: Apache-2.0
 > start (AGENTS.md files and their imports too, unless a root CLAUDE*, `.claude/CLAUDE.md` or
 > `CLAUDE.local.md` turns them off), nested guidance lazily, skill bodies on demand, and AGENTS.md
 > files a root CLAUDE* turns off, or a CLAUDE.md, `CLAUDE.local.md` or `.claude/CLAUDE.md` in the
-> AGENTS.md file's own directory (not one in a parent below the root; with a profile that sets
-> `guidance.claude_displaces_agents`, as `claude-code` does). The `start` total is not an upper bound: it is too low by what it does
-> not count (`.claude/rules/*.md` files, non-`.md` imports, skills behind a linked directory, nested
-> `.claude/skills/` skills, and
+> AGENTS.md file's own directory (not one in a parent below the root). Both rules hold only with a profile that sets
+> `guidance.claude_displaces_agents`, as `claude-code` does: with `copilot`, a root AGENTS.md is `start` beside a root CLAUDE.md. Imports are followed only with a profile that
+declares `guidance.imports` (`claude-code`; it is null for `codex` and `copilot`). For a profile with `guidance.claude_rules` (`claude-code`),
+> `.claude/rules/**/*.md` files are `rule` entries: at start in the root `.claude/rules/` unless
+> their frontmatter's `paths` names a pattern, lazily then and in a subdirectory's `.claude/rules/`; a rule a root CLAUDE.md or AGENTS.md
+> imports is `start` whatever its `paths`;
+> an `@` path in a rule is not followed, unless a CLAUDE.md or AGENTS.md imports the rule: then its `@` imports are followed, transitively and within the hop limit.
+> A root import loads the rule at start; a nested CLAUDE.md import loads it lazily, when that nested file is read. The `start` total is not an upper bound:
+> it is too low by what it does not count (non-`.md` imports, skills behind a linked directory, rules behind a
+> link at or below `.claude/rules` to a directory or a root `.claude` link, or a submodule there, which warns, nested `.claude/skills/` skills, and
 > imports past the profile's `guidance.import_max_depth`, four hops for Claude Code, which warns
 > naming what was skipped), and too high by whatever the harness cuts from the skill listing.
 > Usage:
@@ -79,7 +85,7 @@ SPDX-License-Identifier: Apache-2.0
 > and agent runs with their report:
 >
 > ```bash
-> python cli.py repo tasks check <source> --manifest <path> [--task <id>] [--warm] [--allow-unsupported]
+> python cli.py eval check <source> --manifest <path> [--task <id>] [--warm] [--allow-unsupported]
 > python cli.py repo run <source> --manifest <path> --arm guidance:raw --model <id> --reps N --batch NAME
 >     --agent-network host
 > python cli.py repo report <out>/<batch>
@@ -162,7 +168,7 @@ outside every workspace and passes its absolute path to entry points as
   as `.bazelversion`) is read at run time, not baked in. A build that runs
   past `--build-timeout` seconds (3 hours by default) fails as a container
   error rather than hanging the batch.
-- `tasks check` (§4.3) fails a task whose agent container can read any file
+- `eval check` (§4.3) fails a task whose agent container can read any file
   under `tasks` or `{source_dir}`.
 
 ### 1.2 Code index input
@@ -235,7 +241,7 @@ Rules:
 - Every path is relative to the repository root.
 - `eval_dir`, `tasks` and `entry_points` come together or not at all. Without them the
   manifest is *guidance-only*: `scan` and `reach` run on it and `validate` checks its
-  globs, while `tasks check` and `run` refuse it. `image` and `explore_tasks` need
+  globs, while `eval check` and `run` refuse it. `image` and `explore_tasks` need
   `eval_dir`, and so does `process_metrics`.
 - `entry_points.grade` is required only when some task's `grader` does not
   start with `dokimi:` (a grader built into the framework); `repo validate`
@@ -271,7 +277,7 @@ Rules:
   dependency into the image is better when it can be done.
 - **Caches** are mounted read-write in every run, because Bazel's disk cache
   writes. A run may depend on them for speed, never for correctness. With
-  `network: none` they are filled by `tasks check --warm` (§4.3): one base is
+  `network: none` they are filled by `eval check --warm` (§4.3): one base is
   not enough when bases pin different tool versions (7 Bazel versions on
   oneDAL).
 - **Container runtime.** The framework starts every container with an init
@@ -463,11 +469,15 @@ reads the upstream base (`base_sha`) and the workspace start commit
   8 KB keeps its first and last 4 KB around a `[... N bytes omitted ...]`
   line, and `output_truncated` is `true`; build errors are usually at the end.
 - `rc` is what the harness reports. Where it reports only success or failure
-  (Claude Code), `rc` is `0` or `1`. It is `null` when no result came back,
+  (Claude Code), `rc` is `0` or `1`; a Claude Code `Skill` tool event carries it
+  too (`1`: the skill was not loaded). It is `null` when no result came back,
   for example when the run stopped at its turn or budget limit; a grader
   must not count `null` as a failure.
 - `agent` is present on an event a subagent made: the id of the parent's
   `Agent`/`Task` call that started it. Events without it are the parent's.
+- A `read` event may have no `path`: a refused Claude Code Bash read of a
+  relative path after an earlier call moved the shell, whose file is not
+  known (`{"kind": "read", "denied": true}`).
 
 `result.json` reports the agent's tokens (`input_tokens`, `output_tokens`,
 `cache_read_tokens`, `cache_write_tokens`) over the same scope as `cost_usd`.
@@ -490,11 +500,12 @@ parent's and subagents' together, so a grader need not:
 
 | Key | Meaning |
 |---|---|
-| `tool_calls` | every event: each tool call the agent made |
+| `tool_calls` | every event: each tool call the agent made, and each shell-derived `read` event kept, a denied one or one of a failed multi-file read too (see `guidance_read` and §7) |
 | `commands` | `command` events |
 | `failed_commands` | commands not denied whose `rc` is neither `0` nor `null` |
 | `denied_commands` | commands with `denied: true` (a hook or the harness's permissions refused them) |
-| `guidance_read` | sorted, distinct workspace paths (normalized: `./a`, `a/../b`; not `~`) of `read` events (the Read tool only, in a Claude Code trace), neither denied nor failed (`rc` 1: the file does not exist), that `guidance.globs` match. Guidance opened through Bash (`cat AGENTS.md`) is not counted, so `[]` means no Read-tool read; to count it, add a `process_metrics` counter on the command text (§2), which also counts denied commands, unlike this row |
+| `guidance_read` | sorted, distinct workspace paths (normalized: `./a`, `a/../b`; not `~`) of `read` events, neither denied nor failed (`rc` 1: the file does not exist), that `guidance.globs` match. A read event is a read tool's (Claude Code's Read, Copilot's `view`) or a shell read: a Claude Code Bash call, Codex command or Copilot `bash` command that only prints files, as §7 lists (a bare `cat`, `head`, `tail`, `nl` or `sed -n`; `cd <dir>; cat AGENTS.md` reads `<dir>/AGENTS.md`). A command that is one such read naming one file, alone, the one command of a brace group (`{ cat AGENTS.md; }`) or after `cd` commands (`cd sub && cat AGENTS.md`; `time cd`, `command cd`, `builtin cd`, `X=1 cd`, a quoted or escaped `"cd"` or `\cd` too, not `env cd`), and fails is no read; one naming two keeps its reads, even when only one is known (`cd -; cat missing.md /ws/AGENTS.md`). Guidance seen through a pipe, `grep` or `rg` is not counted, nor a relative read after an earlier Claude Code Bash call ran a `cd` (`time cd` and `command cd` too), `pushd`, `popd`, or an `eval`, `source` or `.` (which may run one), its name quoted or escaped too (`"source" "$ENV"`, `\cd "$D"`), in its own shell, not in a subshell, pipeline or background job (the shell keeps its directory between calls, so the file is not known; a call a hook or the permissions refused ran nothing and moves nothing). That holds across agents: after the parent's `cd`, a subagent's relative reads are dropped too, and the reverse, since a subagent may share the parent's shell (not checked on a real trace; dropping a read is the safe side either way); to count those, add a `process_metrics` counter on the command text (§2), which also counts denied commands, unlike this row |
+| `unknown_reads` | the relative shell reads, of calls neither refused nor failed as one read of one file (see `guidance_read`; `cd -; cat missing.md` failing counts none), that the trace made at a directory the converter could not follow (after `source .venv/bin/activate`, `cd -`, or a `cd` in an earlier Claude Code Bash call): they have no `read` event, so `guidance_read` may miss them; `0` when there are none |
 | `counters` | each `process_metrics` name (§2) and its count |
 
 `process` is `null` when the trace could not be read, the agent left none (no event and no result record), or computing the metrics failed (the error is in `agent.trace_errors`).
@@ -532,7 +543,7 @@ row shows which.
 A cell of an arm that installs skills also has a `skills` object in
 `result.json`: `measured`, `skills_installed` (the installed skill names),
 `skills_used` (the installed skills the agent called with the `Skill` tool or
-whose `SKILL.md` it read, in order of first use), `expected_skill` (the task's,
+whose `SKILL.md` it read, the call or read neither denied nor failed, in order of first use), `expected_skill` (the task's,
 or `null`), `skill_invoked` (the expected skill was used; any installed skill
 when the task names none) and `skill_selected_correct` (the expected skill was
 the first one used; `null` when the task names none). When the trace could not
@@ -549,7 +560,7 @@ For a `patch:` arm with `added` files or `mcp_servers`, `result.json` has an
 command events that name an added file as a workspace path (`tools/fmt`,
 `./tools/fmt`, `/eval/run/workspace/tools/fmt`, not `cd tools && ./fmt`; a file
 with no `/` only as `./name`, under the workspace path or after an interpreter (a bare `name` resolves through `PATH`), so
-`npm run lint` does not name a `lint` file), `reads` the read events of one (a
+`npm run lint` does not name a `lint` file), `reads` the read events of one that did not fail (a
 read of an added script counts as use), `mcp_calls` the calls of the servers' tools
 (`mcp__<server>__<tool>`), none of them a call the harness denied; `used`
 is whether any is non-zero, and `measured` is
@@ -604,23 +615,24 @@ measure the patch's text, such as a guidance line, not the tool.
   [repo-evaluation-mergeability.md](repo-evaluation-mergeability.md)
   *(proposed)*. The judge is not deterministic. Instead of a determinism
   check, it reports agreement between two judges and must pass a calibration
-  gate (`repo rubric check`, a separate paid subcommand; `tasks check` stays
+  gate (`repo rubric check`, a separate paid subcommand; `eval check` stays
   free of LLM calls). The regrade sample bypasses the verdict cache. Whether
   one judge repeats its own verdict on the same input is not measured yet.
 
-### 4.3 Self-check (`tasks check`, no LLM)
+### 4.3 Self-check (`eval check`, no LLM)
 
 For every task, before any paid run:
 
 - the null workspace (prepared, untouched) must fail the gate
-- the workspace after `oracle` must pass the gate
+- the workspace after `oracle` must pass the gate (a `dokimi:typecheck` task with no `reference/`
+  has no oracle step: its null step alone must fail, §4.5)
 - for score-only tasks, the oracle must reach `score.max` on `score.metric`
 - the agent container must not be able to read any file under `tasks` or
   `{source_dir}` (§1.1)
 
 A task whose `host` requirements (§3) the probe container does not meet is
 `unsupported` with the reason, like a task whose `egress` needs the missing
-proxy, and `tasks check` exits 1 for it. With `--allow-unsupported` it is
+proxy, and `eval check` exits 1 for it. With `--allow-unsupported` it is
 still printed with its reason but does not make the exit code 1 unless no task
 is ok (below); broken tasks, tasks that need egress and tasks whose host probe
 failed still do. The probed facts are recorded in `check.json` `host`, and for
@@ -631,14 +643,14 @@ apart, neither failed nor missing. If the probe itself fails, a task with
 cells is left unrun; a cell that already has a `result.json` keeps it.
 
 Nothing checked is not a pass. Both commands refuse an export with no task, and
-exit 1 as `incomplete` when nothing was measured: `tasks check` when no task
+exit 1 as `incomplete` when nothing was measured: `eval check` when no task
 passed the self-check (every one unsupported, even with `--allow-unsupported`),
 `repo run` when no cell of the batch has a result (every one unsupported). The
 `repo run` summary line counts unsupported cells beside ran, done, crashed and
 not started.
 
 Each task runs with its own network (`image.network` plus its `egress`).
-`tasks check --warm` runs the same null and oracle steps with network and
+`eval check --warm` runs the same null and oracle steps with network and
 writable caches, to fill the caches before offline runs (§2); it judges task
 `host` requirements as an offline check does.
 
@@ -662,8 +674,9 @@ repository's checks with its own without knowing their rules.
 A task whose `grader` is `dokimi:<name>` is graded by the framework, not by
 the repository's `grade` and `oracle` entry points; any other name goes to
 those entry points. Such a task is data only: its directory holds
-`task.json`, the patch and the JSON files the grader reads. The `dokimi:`
-prefix is the framework's: an unknown `dokimi:` name fails `tasks check` and
+`task.json`, the patch and the JSON files the grader reads (and, for
+`dokimi:typecheck`, an optional `reference/` directory, §4.5 below). The `dokimi:`
+prefix is the framework's: an unknown `dokimi:` name fails `eval check` and
 the run's grade, and is never handed to the repository.
 
 A built-in grader runs where `grade` and `oracle` run: in the grading
@@ -672,7 +685,9 @@ framework's grader code is mounted read-only at `/eval/graders` (never into
 the agent's container) and runs as
 `python3 -I -B /eval/graders/main.py grade|oracle <name> <task dir> /eval/run`,
 where `<task dir>` is the task's directory under `{eval_dir}`. It uses the
-standard library only and the image's `python3` (3.8 or newer). `-I` keeps
+standard library only and the image's `python3` (3.8 or newer), except
+`dokimi:typecheck`, which imports the image's mypy (the pinned one, on Python
+3.10 or newer). `-I` keeps
 `PYTHONPATH` from `image.env` and the workspace off `sys.path`; `-B` prevents
 writing `.pyc` files to the read-only mount. An image with no `python3` on
 `PATH` is a grader failure that says so: the grader exits 127 and its
@@ -686,7 +701,8 @@ other exit 127 is reported as a plain `grade exited 127`.
   `pass: null` with `errors`. A metric the task's `gate` names that the grader
   did not produce is `null`.
 - `oracle` writes the reference answer to `answer.txt` and leaves the
-  workspace alone.
+  workspace alone, except `dokimi:typecheck`, whose `oracle` copies `reference/`
+  over the workspace (see its paragraph below).
 
 A review task with `pass: null` is scored, not gated: give it `score`. A `gate`
 on its metrics is not applied (`success` is null), and without `score` the run
@@ -715,6 +731,34 @@ failed the task, and on a task with `score` that is a failed run with score
 |---|---|---|---|---|
 | `dokimi:review_seeds` | `manifest.json` (`manifest`); oracle answer `oracle.json` (`oracle_answer`), a list of findings | `null`; for a manifest with no seeds (a clean-diff control), `true` when no finding is `blocker` or `major` | `n_findings`, `n_severe`, `n_decoys`, `unmatched`, `recall` (`null` with no seeds) | `seeds_hit`, `decoys_flagged`, `recall_by_class` (`"hit/total"`) |
 | `dokimi:review_replay` | `gold.json` (`gold`); `task.json` `window`, default 5 | `null` (score-only) | `n_findings`, `n_severe`, `n_threads`, `recall` (= `recall_all`), `recall_addressed`, `precision_proxy` | `threads_hit`, `matches`, `recall_by_kind`, `decoys_flagged` (always `[]`) |
+| `dokimi:typecheck` | none: the task's own fields `tool` (`mypy`), `version` (the image's mypy, exactly), `paths` (workspace-relative files) | `true` when no error is reported on a listed file, every listed file exists, and nothing silences mypy, else `false` | `n_errors`, `n_missing`, `n_suppressions`, `n_files` | `errors` (first 50, `file:line: message [code]`, and each silenced spot), `missing`, `tool`, `tool_version` |
+
+`dokimi:typecheck` checks the listed files only. Its pass is "no error on a
+listed file" (an error in a module a listed file imports belongs to that module,
+not to the listed file; an installed module without types is read as `Any`, not an error), and a listed file that is missing fails. Silencing mypy fails too: a `# type: ignore` or `# mypy:` comment, the name `no_type_check`, or a branch mypy never checks because it takes `TYPE_CHECKING` (or `MYPY`) as true (`if not TYPE_CHECKING:`, the `else` of `if TYPE_CHECKING:`, and the same for a condition that combines it with `not`, `and` or `or`, such as `if not TYPE_CHECKING and x:` or `if TYPE_CHECKING or x:` with an `else`) in a listed file, or a `.pyi` anywhere in the workspace (it would replace the module it names; a dot directory such as `.venv` or `.git` that holds no listed file is not read, as no import can name it), or a top-level module or package named as a standard-library one or one the image's site-packages provides (`json.py`, `requests/__init__.py`, the same replacement; the repository's own package is not one when the image installed it from the workspace directory, `pip install .` or `pip install -e .` there, which its `direct_url.json` records as `dir_info`, and is one when installed from any other directory), is a suppression, and the grade counts it in `n_suppressions`. A listed path
+reached through a symbolic link is missing, not read. A symbolic link in the workspace whose target
+lies outside it (outside such a dot directory) refuses the whole grade (a grader error, not a pass), listed or not, whenever mypy runs, that is
+when some listed file is present: mypy follows an import through a link, so an unlisted module could supply what a
+listed file imports. When every listed file is missing, mypy does not run, and the grade is a failure with
+`n_missing` set, not a grader error, even if a link lies outside. The exception
+is a blocking error (a syntax error, a duplicate module) that stops mypy before
+it reaches the listed files: then that error is the grade's, and the grade fails.
+Not counted, so not guarded: other code mypy takes as unreachable and does not check (under a `sys.version_info` or
+`sys.platform` guard the image's Python does not take, after `assert False`), and a change to an unlisted module that
+hides a listed file's error (a module `__getattr__` returning `Any`, a return type widened to `Any`). A repository's
+own code has both, and the grader cannot read the base to tell them from the agent's; `--warn-unreachable` would
+report only the `assert False` kind, along with the repository's own unreachable branches. A task that needs these
+guarded checks them in its own `grade` entry point.
+`reference/` is optional. The task's `oracle` copies its `reference/` directory, when it has one, over the
+workspace, so a reference repair is what gets graded; its answer is empty. Without `reference/` the grade
+reads the listed files as they are, and the self-check (§4.3) runs the null step only: the untouched
+listed files must fail, since there is no reference repair for the oracle step to pass.
+It runs mypy in-process in the grading container, so the image's `python3`
+must import the pinned mypy: a `version` other than the installed one is a
+grader failure, not a fail. It is not "no new errors against the base": the
+grader is stdlib-only and cannot run `git` to read the base, and it does not
+start basedpyright (the L0 check, §8.2, runs mypy or basedpyright on the host, as `--typecheck-tool` selects). A repository that
+needs that comparison writes it in its own `grade` entry point.
 
 `manifest.json` is `{"seeds": [{id, class, file, lines, kw}], "decoys":
 [{id, file, lines, kw}]}`; `file` `"*"` matches any file, and `kw` is a
@@ -906,7 +950,7 @@ on an error that is not one pull request's own: a malformed pull request, the
 source, the manifest, the prompt file, or a task it cannot write. Each prints
 `✗` and the reason. A git failure while one pull request is built skips that
 pull request with the reason.
-`repo tasks check` then runs the tasks, and two arms measure the guidance
+`eval check` then runs the tasks, and two arms measure the guidance
 (§9):
 
 ```bash
@@ -960,6 +1004,7 @@ invoke: ["{bin}", "-p", "{prompt}", "--model", "{model}", "--output-format", "st
 tools:                               # what the "{tools}" element expands to
   none: ["--tools", ""]
   read: ["--tools", "Read"]
+  bash: ["--tools", "Bash"]          # optional: repo reach --scenarios bash (§7)
   all:  ["--disallowedTools", "WebFetch", "WebSearch"]
 delegation:                          # --delegation none: these replace the tool mode's arguments
   none:
@@ -978,7 +1023,7 @@ guidance:                            # DECLARED; verified by the reach probe, ne
   resolution: ancestors-of-cwd + lazy-on-subtree-access
   imports: "@path"
   shadow_file: CLAUDE.local.md       # written by `repo reach --scenarios shadow` (§7)
-  claude_displaces_agents: true      # repo budget: a CLAUDE* turns off the AGENTS.md in its own directory
+  claude_displaces_agents: true      # repo budget: a root CLAUDE* turns off every AGENTS.md, a nested one its own directory's
 bridge: {for: AGENTS.md, write: CLAUDE.md, content: "@AGENTS.md"}
 args_if_present:                     # argv added after the "{tools}" element when the workspace file exists and the tool mode is `all`
   .mcp.json: ["--mcp-config", ".mcp.json"]
@@ -1027,7 +1072,8 @@ args_if_present:                     # argv added after the "{tools}" element wh
   `claude-stream-json`, `codex-json` (`codex exec --json`), `copilot-json`
   (`copilot -p --output-format json`) or `text` (stdout is the answer, no
   events). Codex has no read tool, so its `read` events come from shell
-  commands that only print files (`cat`, `head`, `tail`, `sed -n`, `nl`).
+  commands that only print files (`cat`, `head`, `tail`, `sed -n`, `nl`);
+  Copilot's shell commands and Claude Code's Bash calls give them too.
   Neither Codex nor Copilot reports a cost: `cost_usd` is `null` and a batch
   budget counts each cell's cap.
 - `bin_companions` names files the executable starts from its own directory.
@@ -1129,6 +1175,17 @@ Protocol:
     - `cwd=<dir>`: started in each guidance directory, tools off.
     - `read=<dir>`: started at the root, read tool on. The agent is told to
       read `<dir>/REACH_PROBE.txt`, then list tokens.
+    - `bash=<dir>`: started at the root, the profile's `bash` tool mode (Claude
+      Code: the Bash tool alone). The agent is told to run
+      `cat <dir>/REACH_PROBE.txt` (the path shell-quoted, `./` before a leading
+      `-`), then list tokens: it shows whether a shell
+      read of a file in `<dir>` loads that directory's guidance. Only with `--scenarios bash`
+      (the default is `root,cwd,read`); a profile without a `bash` tool mode
+      (Codex and Copilot, whose shell commands are already their reads) is a
+      usage error (exit 2) naming the profile. The shell runs on the host with
+      the harness's credentials, so the mode must refuse every other command:
+      Claude Code's gets the one `cat` in `DOKIMI_REACH_COMMAND`, and a
+      PreToolUse hook blocks any other call (and every call if the hook fails).
     - `shadow=.` and `shadow=<dir>`, only with `--scenarios shadow` (the
       default is `root,cwd,read`): the profile's `guidance.shadow_file` (§6)
       is written into the workspace for that one scenario, seeded with its own
@@ -1189,12 +1246,21 @@ per scenario).
 - `class` is one of:
     - `loaded`: both tokens reported;
     - `truncated`: one token reported;
-    - `fetched`: reported only after the agent read the file with a tool. For the
-      Codex and Copilot profiles a shell read counts only as a bare `cat`, `head`,
-      `tail`, `nl` or `sed -n`; for Codex, a command that is one such read of one
-      file and exits non-zero is not a read (the exit code of `cat a missing` does
-      not say which file failed, so both stay reads). A read through a pipe, `grep`
-      or `rg` is not seen, so such a file can be classed `loaded`;
+    - `fetched`: reported only after the agent read the file with a tool (a
+      read that was denied or failed is none). For the
+      Claude Code (its Bash tool), Codex and Copilot profiles a shell read counts
+      only as a bare `cat`, `head`, `tail`, `nl` or `sed -n`; a command that is one
+      such read naming one file, alone, in a brace group (`{ cat AGENTS.md; }`)
+      or after `cd` commands (`cd sub && cat AGENTS.md`; `time cd`, `command cd`, `builtin cd`, `X=1 cd`, `"cd"` too, not
+      `env cd`), and exits non-zero is not a read (the exit code of
+      `cat a missing` does not say which file failed, so both stay reads, as
+      the known one does when the other is at a directory not known). A read
+      through a pipe, `grep` or `rg`, or negated (`! cat AGENTS.md`, whose exit
+      says nothing of the file), is not seen, nor, under Claude Code, a relative
+      read after an earlier Bash call of any agent (the parent's or a
+      subagent's, which may share its shell) ran a `cd`, `pushd`, `popd`,
+      `eval`, `source` or `.` in its own shell (not in a subshell, pipeline or
+      background job, and not refused), so such a file can be classed `loaded`;
     - `not_loaded`;
     - `error`: the scenario produced no usable answer: no answer, a non-zero
       exit, or an error result.
@@ -1258,7 +1324,7 @@ hold, and the receipt describes the tree as committed. Their results stay in
 | `observed` | reach class | `loaded` → loaded, `fetched` → fetched, `not_loaded` → not_loaded, `truncated` and `error` → unknown |
 | `observation_method` | | `unknown` for every source: the thread vocabulary's method, since no runtime event, prompt capture or hook backs the probe |
 | `dokimi_method` | | `marker_self_report` for a source the probe recorded; null for a start-up file budget found and reach did not probe |
-| `states.accessed` | the harness's read events | `true` if the harness reported a read of the file (the Read tool; Codex and Copilot also report supported shell reads, §7); for a probed source `false` with tools off, else `unknown`; always `unknown` for a start-up file budget found and reach did not probe |
+| `states.accessed` | the harness's read events | `true` if the trace has a read event of the file, neither denied nor failed (a read tool, or a shell read §7 lists, under all three harnesses); for a probed source `false` with tools off, else `unknown`; always `unknown` for a start-up file budget found and reach did not probe |
 | `states.selected` | the class | `true` for loaded or fetched (the source entered the request, by the harness or a read), else `unknown` |
 | `states.loaded` | the class | `true` for loaded, `false` for not_loaded, `unknown` for fetched, truncated and error: a tool read is not proof that start-up loading did not happen |
 | `states.followed` | | always `unknown` (the schema's `const`) |
@@ -1302,19 +1368,37 @@ reported in a run, so it can support `loaded`, `fetched` and `not_loaded` as
 observations of that run. It cannot show:
 
 - that an instruction was followed (`followed` is always `unknown`);
-- a read through a shell that the harness does not normalise into a read
-  event (`cat`, `rg`, `grep` under Claude Code; Codex and Copilot normalise
-  only the shell commands §7 lists);
+- a shell read that the converter does not turn into a read event: under
+  Claude Code, Codex and Copilot alike, only the shell commands §7 lists are
+  read events, so `rg`, `grep` or a pipe stays unseen;
+- which directory a Claude Code subagent's Bash shell is in: the converter
+  assumes it shares the parent's, so a `cd` in either drops the later
+  relative reads of both (this only drops reads; no real trace was checked);
+- a `cd` inside a shell function the agent defined and then called: the call
+  is not followed, so a later relative read is taken from the directory
+  before it (an `eval`, `source` or `.` is taken as moving the shell). A
+  command the parser does not fully follow counts as moving the shell when
+  its command word, after `builtin`, `command` or `time` and their options
+  (and, after `time`, assignments: `time X=1 cd sub` runs the `cd` here),
+  names a directory builtin (`X="a b" cd "$D"`, `time -p cd sub`; not
+  `time git add .`), and so does one in a `case` arm. `time` is that
+  keyword only as the first word, unquoted (`X=1 time cd sub` and
+  `\time cd sub` run /usr/bin/time); the forms that only drop a read are listed in
+  [#374](https://github.com/intel/dokimi/issues/374);
 - when a source entered the request, or in what order (no timestamps);
-- start-up imports and skill listings from budget, which reach does not probe:
+- start-up imports, start-up rules and skill listings from budget, which reach does not probe:
   they appear with `observed: unknown`. A skill body is loaded on demand, so it
   is not listed; the receipt-level unknown says both;
 - anything a model under-reports; a prose-heavy answer is flagged.
 
 Each run lists its own `unknowns` (no usable answer, a source with one token
 reported, prose above the limit, unseeded tokens). The receipt-level `unknowns`
-repeat the limits above and carry the notice that start-up imports and skill
-listings are not probed.
+repeat the limits above and carry the notice that start-up imports, start-up rules and
+skill listings are not probed.
+
+The same receipt, run over the fixtures in `data/reach-conformance/` for several
+harnesses and versions, is the reach conformance matrix; see
+[reach-matrix.md](reach-matrix.md).
 
 ## 8. L0 scan (`repo_readiness.v1`)
 
@@ -1648,9 +1732,61 @@ oneDAL they tracked agent cost or error over 39 modules only, which cannot
 separate structure from question design.
 Whether the index is current is not checked: `not_observed` says so.
 
+### 8.2 Python fences (`repo scan --typecheck`)
+
+`--typecheck` type-checks every fence tagged
+`python`, `py` or `python3` in the guidance files, with `--typecheck-tool mypy|basedpyright`
+(default mypy). Each fence that parses is one
+`python_fence` claim, so the report and `--fail-on-fail` treat it like any other
+claim:
+
+- `ok`: the tool reports no error in the fence.
+- `fail`: a stale-API candidate. The claim's line is the error's line in the
+  guidance file, and its `why` names the first error (`mypy: line N: message`).
+- `unresolved`: the fence is not valid Python (a placeholder such as `f(<arg>)`),
+  is too deeply nested for the parser, or no `--python-env` was given, so nothing
+  was checked. It is also unresolved when its only errors are missing context (any
+  undefined name, as from an earlier fence or an omitted import, so a removed builtin such as
+  `unicode` is unresolved too; `await`/`return`/`yield`/`yield from`, `break`/`continue` outside a loop,
+  `async with`/`async for` outside a function, `nonlocal` at module level, a relative import above the fence's package), or a module the
+  environment does not have (see below), or when the
+  repository is older than the tool checks (mypy: Python 3.10). The reason says which.
+
+`--python-env PYTHON` names the repository's interpreter, a virtualenv with its
+pinned dependencies installed (and the repository itself, if its fences import
+it). The fences are checked against that site-packages with imports followed
+silently (`--follow-imports=silent`), so only errors in the fence count. A
+module the environment does not have is `unresolved`, not `fail`: the fence's own
+import fails, so nothing it says about that module can be checked, and a fence that
+imports an uninstalled package is not a stale-API candidate. Two missing modules are `fail` all the same: a
+standard-library one the repository's Python lacks (`import imp` on 3.13; the names are dokimi's Python's and
+those the pinned mypy's typeshed lists), and with mypy a submodule of a package the repository interpreter finds as a regular package (`json.nosuch`, `yaml.nosuch`; not a relative import, nor a namespace package such as `google`). A module the environment has without types
+(no `py.typed` or stubs) is `unresolved` too: mypy reads it as `Any`. A real error in the same fence still
+fails it. `pip install
+dokimi` does not install mypy: the tested pin is `requirements-test.txt`
+(`mypy==2.4.0`), and a missing mypy exits 2. basedpyright must be on `PATH` and
+is recorded with the version it reports, not pinned by dokimi. The report's
+`typecheck` block names the tool, its version, the interpreter (`null`: unknown) and the counts
+(`fences`, `checked`, `fail`, `unknown`, `syntax`); it is `null` without the
+flag. `--python-env` and `--typecheck-tool` need `--typecheck`. The fences are parsed with the
+grammar of the repository interpreter's version, and mypy runs with that
+`--python-version` and an explicit empty config, so the subject's and the host's
+mypy settings do not apply. basedpyright gets the same version as `pythonVersion`
+in its explicit project file, since `--pythonpath` alone sets the import paths. The tools run on the host through
+`dokimi.process`; one run covers every fence of the repository. When mypy stops on a blocking error, it runs
+again on the fences that error did not name, so one fence cannot leave the others unchecked.
+
+```bash
+python cli.py repo scan <source> --manifest <path> --typecheck --python-env <repo-venv>/bin/python
+```
+
+A guidance note under test can be scored the same way as any other content:
+feed the note as a `patch:<file>` arm (see §3) and grade the arm's workspace with
+the `dokimi:typecheck` grader above.
+
 ## 9. Running
 
-`repo tasks check` and `repo run` need docker. Both export `eval_dir` from the
+`eval check` and `repo run` need docker. Both export `eval_dir` from the
 eval tree to `<out>/_eval/content`, and build the image from the eval tree
 without its tasks directory (tag `dokimi/<id>:<sha>`) unless
 `--image` names one. Cache directories default to
@@ -1676,7 +1812,7 @@ line, else its last `error:` line, else its last line.
 ```bash
 # self-check: no LLM; exits 1 if any task is broken or unsupported, or none is ok
 # (with --allow-unsupported, a task this host cannot run does not fail it on its own)
-python cli.py repo tasks check ~/oneDAL@<sha> --manifest dev/agent_evals/repo-eval.yaml \
+python cli.py eval check ~/oneDAL@<sha> --manifest dev/agent_evals/repo-eval.yaml \
     --task fix_finiteness_mut --build-network host --cache bazel-repo-cache=/cache/bazel-repo -j 3
 
 # agents: one cell per (task, arm, model, rep) under repo-runs/<batch>/
@@ -1986,7 +2122,7 @@ that runs the no-LLM checks on the caller's checkout and needs no secret.
 
 - `validate` runs `repo validate` and gates the other two jobs; `scan` runs `repo scan`
   (report only: the claim counts and failing claims go to the job summary, the
-  `repo_readiness.v1` report to an artifact); `tasks-check` runs `repo tasks check`
+  `repo_readiness.v1` report to an artifact); `tasks-check` runs `eval check`
   for each selected task in a job of its own (docker; the image is built from the
   manifest's Dockerfile), and uploads `check.json` and the grade logs. If the job is
   cancelled by its `timeout-minutes` before the check finishes, the Summary step
@@ -2006,10 +2142,13 @@ that runs the no-LLM checks on the caller's checkout and needs no secret.
   `dokimi @ git+https://github.com/intel/dokimi@<sha>#subdirectory=dokimi` with
   that commit's `requirements.lock.txt` as constraints, so a rerun checks with the
   same framework and dependencies. Moving the pin is a change to the calling
-  workflow, so it runs the smoke set.
+  workflow, so it runs the smoke set. The ref must contain `actions/setup`: a
+  ref from before that action fails at "Set up dokimi".
 - Other inputs: `manifest`, `max-parallel` (4), `warm` (`--warm`, for a cache that
   starts empty on every runner), `runs-on` (`ubuntu-latest`), `timeout-minutes`
-  (180, per task) and `dokimi-repository` (`intel/dokimi`).
+  (180, per task), `dokimi-repository` (`intel/dokimi`, the package installed) and
+  `dokimi-action-repository` (`intel/dokimi`, where the setup action is checked out, at
+  `dokimi-ref`). Testing a fork's commit sets both to the fork.
 
 ```yaml
 # .github/workflows/agent-evals.yml in the repository

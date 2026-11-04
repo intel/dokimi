@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""repo tasks check / repo tasks replay / repo run / repo report / repo compare: the repository-mode runner
+"""eval check / repo tasks replay / repo run / repo report / repo compare: the repository-mode runner
 (contract §3, §4, §4.3, §4.5)."""
 
 from __future__ import annotations
@@ -20,10 +20,11 @@ if TYPE_CHECKING:
 
 from dokimi.repos.harness_profile import DELEGATION_MODES
 from dokimi.exit_codes import EXIT_USAGE
+from dokimi.utils import tree_digest
 
 
 def _context(args: argparse.Namespace, out: Path, pin: bool = False):
-    """Source, manifest, exported eval dir, image and caches shared by `tasks check` and `run`.
+    """Source, manifest, exported eval dir, image and caches shared by `eval check` and `run`.
 
     With ``pin`` (a batch), the batch keeps the eval tree it started with: a later invocation
     from another revision would grade new cells with other graders, so it is refused. A working
@@ -59,14 +60,14 @@ def _context(args: argparse.Namespace, out: Path, pin: bool = False):
         sha = getattr(tree, "sha", None)
         if sha is None:  # a working tree: tag by what is built, or an edited Dockerfile reuses a stale image
             ctx_dir = export_build_context(tree, manifest, out / "_eval" / "build-context")
-            tag = "worktree-" + context_digest(ctx_dir)[:12]
+            tag = "worktree-" + tree_digest(ctx_dir)[:12]
         else:
             tag = sha[:12]
         image = f"dokimi/{slug(manifest.id).lower()}:{tag}"
     elif not runner.image_exists(image):
         raise ValueError(f"--image {image} does not exist")
     if pin:
-        stamp = {"tree": tree.label, "eval_dir": context_digest(staged), "image": image}
+        stamp = {"tree": tree.label, "eval_dir": tree_digest(staged), "image": image}
         if _uses_builtin_graders(staged, manifest):  # else no score depends on them: an upgrade keeps the batch
             stamp["graders"] = graders_digest()
         _pin_batch(out, stamp)
@@ -93,24 +94,6 @@ def _context(args: argparse.Namespace, out: Path, pin: bool = False):
     ctx = EvalContext(manifest=manifest, git_dir=git_dir, content_dir=content, image=image, runner=runner,
                       caches=caches, source_dir=source_dir, entry_timeout_s=args.grade_timeout)
     return ctx, tree
-
-
-def context_digest(root: Path) -> str:
-    """sha256 over every path, mode bit and byte of a build context (a link by its target)."""
-    import hashlib
-    import os
-
-    h = hashlib.sha256()
-    for path in sorted(root.rglob("*")):
-        rel = path.relative_to(root).as_posix()
-        if path.is_symlink():
-            h.update(f"L {rel}\0{os.readlink(path)}\0".encode())
-        elif path.is_file():
-            h.update(f"F {rel}\0{int(os.access(path, os.X_OK))}\0".encode())
-            h.update(hashlib.sha256(path.read_bytes()).digest())
-        elif path.is_dir():
-            h.update(f"D {rel}\0".encode())
-    return h.hexdigest()
 
 
 def _require_grade(content: Path, manifest: RepoManifest, ids: list[str] | None) -> None:
@@ -352,8 +335,10 @@ def cmd_repo_report(args: argparse.Namespace) -> None:
 
 
 def cmd_repo_compare(args: argparse.Namespace) -> None:
-    """Per (treatment, model, measure): per-task deltas against the baseline, 95% CI, sign-flip p."""
+    """Per (treatment, model, measure): per-task deltas against the baseline, 95% CI, sign-flip p; ``--ledger``
+    adds one verdict per guidance rule."""
     from dokimi.repos.compare import CompareError, compare, format_compare
+    from dokimi.repos.ledger import LedgerError, evaluate, format_ledger, load_ledger
     from dokimi.repos.report import CellFileError
 
     dirs = [Path(d) for d in args.batch_dirs]
@@ -365,10 +350,19 @@ def cmd_repo_compare(args: argparse.Namespace) -> None:
     try:
         summary = compare(dirs, args.baseline, arms, args.model, tuple(args.metric or ()),
                           pass_k=args.pass_k, path_stability=args.path_stability, tasks=args.task)
-    except (CompareError, CellFileError) as exc:  # an unusable baseline, arm, metric or cell file: exit 2
+        if args.ledger is not None:
+            summary["ledger"] = evaluate(load_ledger(Path(args.ledger)), dirs, args.baseline, args.model,
+                                         ledger_name=args.ledger)
+    except (CompareError, CellFileError, LedgerError) as exc:  # an unusable baseline, arm, metric, cell or ledger
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
-    print(json.dumps(summary, indent=2) if args.json else format_compare(summary))
+    if args.json:
+        print(json.dumps(summary, indent=2))
+        return
+    text = format_compare(summary)
+    if "ledger" in summary:
+        text += "\n\n" + format_ledger(summary["ledger"])
+    print(text)
 
 
 def _usd(text: str) -> float:
@@ -408,10 +402,11 @@ def _common(p: argparse.ArgumentParser, source_help: str, cache_help: str, posit
     p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
 
 
-def register(repo_sub, positive_int, source_help: str, cache_help: str) -> None:
-    tasks_p = repo_sub.add_parser("tasks", help="Task self-checks, and review tasks built from past reviews (no LLM)")
+def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str) -> None:
+    tasks_p = repo_sub.add_parser("tasks", help="Review tasks built from past reviews (no LLM)")
     tasks_sub = tasks_p.add_subparsers(dest="repo_tasks_cmd", required=True)
-    check_p = tasks_sub.add_parser(
+    # eval check (#94 M1): the self-check that `repo tasks check` ran, now `eval check`
+    check_p = eval_sub.add_parser(
         "check", help="Per task: grade on the untouched workspace must fail the gate, oracle then grade must "
         "pass it (score-only: reach score.max), and the agent's container must not see tasks or source")
     _common(check_p, source_help, cache_help, positive_int)
@@ -520,6 +515,9 @@ def register(repo_sub, positive_int, source_help: str, cache_help: str) -> None:
                            help="Also compare pass^K: the chance K cells of a task all pass its gate")
     compare_p.add_argument("--path-stability", action="store_true", dest="path_stability",
                            help="Also compare path_distance: how much the tool paths of a task's cells differ")
+    compare_p.add_argument("--ledger", default=None, metavar="FILE",
+                           help="Also give each guidance rule of this repo_ledger.v1 file a verdict (keep, review or "
+                           "insufficient-evidence) from its linked cases, against its baseline (dokimi/docs/rule-ledger.md)")
     compare_p.add_argument("--json", action="store_true", help="Print the comparison as JSON")
     compare_p.set_defaults(func=cmd_repo_compare)
 

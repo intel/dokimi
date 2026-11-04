@@ -65,7 +65,7 @@ def test_run_isolates_the_agent_and_grades_each_cell(setup, capsys):
     assert result["agent"]["cost_usd"] == 0.01 and result["agent"]["num_turns"] == 3
     assert result["model_resolved"] == "m-1"
     assert result["process"] == {"tool_calls": 1, "commands": 0, "failed_commands": 0, "denied_commands": 0,
-                                 "guidance_read": [],
+                                 "guidance_read": [], "unknown_reads": 0,
                                  "counters": {"bazel": 0, "icpx_missing": 0}}
 
     agents = [s for s in setup["runner"].specs if s.argv and s.argv[0] == f"{HARNESS_DIR}/fake-agent"
@@ -100,8 +100,16 @@ def test_process_metrics_reach_result_json(setup, monkeypatch):
     _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
     rec = json.loads((setup["out"] / "b1/fix_add__guidance-raw__m-1__r1/result.json").read_text())
     assert rec["process"] == {"tool_calls": 3, "commands": 1, "failed_commands": 1, "denied_commands": 0,
-                              "guidance_read": ["AGENTS.md"],
+                              "guidance_read": ["AGENTS.md"], "unknown_reads": 0,
                               "counters": {"bazel": 1, "icpx_missing": 1}}
+
+
+def test_a_read_at_a_directory_not_known_is_counted_in_result_json(setup, monkeypatch):
+    calls = [["Bash", {"command": "source .venv/bin/activate && pytest"}], ["Bash", {"command": "cat AGENTS.md"}]]
+    monkeypatch.setenv("FAKE_TOOL_USES", json.dumps(calls))
+    _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
+    rec = json.loads((setup["out"] / "b1/fix_add__guidance-raw__m-1__r1/result.json").read_text())
+    assert rec["process"]["guidance_read"] == [] and rec["process"]["unknown_reads"] == 1
 
 
 def test_an_unreadable_trace_leaves_process_null_and_still_grades(setup, monkeypatch):
@@ -550,7 +558,7 @@ def test_worktree_image_tag_follows_the_build_context(setup, capsys):
     root, runner = setup["root"], setup["runner"]
 
     def check():
-        argv = ["repo", "tasks", "check", str(root), "--manifest", ".agent-eval/repo-eval.yaml",
+        argv = ["eval", "check", str(root), "--manifest", ".agent-eval/repo-eval.yaml",
                 "--out", str(setup["out"] / "chk"), "--cache-root", str(setup["out"] / "caches"), "--task", "fix_add"]
         args = build_parser().parse_args(argv)
         args.func(args)
@@ -570,7 +578,7 @@ def test_the_image_build_gets_the_build_timeout(setup):
     root, runner = setup["root"], setup["runner"]
 
     def check(*extra):
-        argv = ["repo", "tasks", "check", str(root), "--manifest", ".agent-eval/repo-eval.yaml",
+        argv = ["eval", "check", str(root), "--manifest", ".agent-eval/repo-eval.yaml",
                 "--out", str(setup["out"] / "chk"), "--cache-root", str(setup["out"] / "caches"),
                 "--task", "fix_add", "--rebuild-image", *extra]
         args = build_parser().parse_args(argv)
@@ -580,7 +588,7 @@ def test_the_image_build_gets_the_build_timeout(setup):
     check("--build-timeout", "36000")
     assert runner.build_timeouts == [BUILD_TIMEOUT_S, 36000]
     for parser_argv in (["repo", "run", str(root), "--arm", "guidance:none", "--model", "m", "--batch", "b"],
-                        ["repo", "tasks", "check", str(root)]):
+                        ["eval", "check", str(root)]):
         assert build_parser().parse_args(parser_argv).build_timeout == BUILD_TIMEOUT_S
 
 

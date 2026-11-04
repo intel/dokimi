@@ -35,7 +35,7 @@ content repository and are supplied to the framework by path —
 from `data/`.
 
 **Captured runs.** Answer runs, judge scores and static-benchmark snapshots are
-*outputs*, so none are committed. `cli.py answers generate`, `cli.py eval score` and
+*outputs*, so none are committed. `cli.py answers generate`, `cli.py eval score pointwise` and
 `cli.py run` write them to the git-ignored scratch dirs (`answers/`, `eval/`,
 `results/`, `reports/`, `baselines/`); the schema each one must satisfy is locked by
 `dokimi/schemas/*.json` and by `tests/test_artifacts.py`, not by a committed
@@ -54,7 +54,7 @@ Generated artifacts are the other case, and they do not land here. A question-ge
 run writes to the git-ignored scratch dir, and the result is evaluation content:
 
 ```bash
-python cli.py questions generate --product oneTBB \
+python cli.py eval questions generate --product oneTBB \
   --personas personas/onetbb.json \
   --output questions/onetbb.json      # git-ignored; commit it to the content repo
 ```

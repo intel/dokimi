@@ -5,14 +5,19 @@
 
 The framework counts what every repository asks of a trace:
 
-- ``tool_calls``: every event, so every tool call of the parent and its subagents;
+- ``tool_calls``: every event, so every tool call of the parent and its subagents, and each ``read`` event kept
+  from a shell command, a denied one or one of a failed multi-file read (``cat a missing``) too;
 - ``commands``: the ``command`` events;
 - ``failed_commands``: commands not denied whose ``rc`` is neither ``0`` nor ``null`` (``null`` means
   no result came back, which is not a failure; a permission denial carries ``rc`` 1 but never ran);
 - ``denied_commands``: commands a hook or the harness's permissions refused (``denied``);
-- ``guidance_read``: the sorted workspace paths of ``read`` events (the Read tool only; a Bash ``cat`` is not
-  counted, a ``process_metrics`` counter can) not denied that the manifest's guidance globs match; a path
-  outside the workspace (absolute, or with ``..``) is no repository file.
+- ``guidance_read``: the sorted workspace paths of ``read`` events (a read tool, or a shell command that only
+  prints files, ``cat`` / ``head`` / ``tail`` / ``nl`` / ``sed -n``; a pipe, ``grep`` or ``rg`` is not one) not
+  denied that the manifest's guidance globs match; a path outside the workspace (absolute, or with ``..``) is
+  no repository file;
+- ``unknown_reads``: the relative shell reads the trace made at a directory the converter could not follow
+  (after ``source env.sh``, say), which have no ``read`` event: ``guidance_read`` may miss them. It comes from
+  the converter (:attr:`~dokimi.repos.transcript.Transcript.unknown_reads`), not from the events.
 
 ``counters`` holds the manifest's ``process_metrics``: for each name, how many ``command`` events
 its regex finds a match in (``re.search``). A counter matches the command text unless it names
@@ -75,7 +80,7 @@ def _workspace_path(path: str) -> str | None:
 
 
 def process_metrics(events: Iterable[Mapping[str, Any]], is_guidance: Callable[[str], bool],
-                    counters: Mapping[str, Counter] | None = None) -> dict[str, Any]:
+                    counters: Mapping[str, Counter] | None = None, unknown_reads: int = 0) -> dict[str, Any]:
     """The ``process`` object of ``result.json`` for one run's events; ``is_guidance`` tells a guidance path."""
     events = list(events)
     commands = [e for e in events if e.get("kind") == "command"]
@@ -88,5 +93,6 @@ def process_metrics(events: Iterable[Mapping[str, Any]], is_guidance: Callable[[
         "failed_commands": sum(e.get("rc") not in (0, None) and not e.get("denied") for e in commands),
         "denied_commands": sum(bool(e.get("denied")) for e in commands),
         "guidance_read": sorted(p for p in reads if is_guidance(p)),
+        "unknown_reads": unknown_reads,
         "counters": {name: sum(c.hits(e) for e in commands) for name, c in (counters or {}).items()},
     }

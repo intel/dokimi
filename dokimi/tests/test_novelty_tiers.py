@@ -277,11 +277,16 @@ def test_shortening_under_a_cap_that_left_atoms_out_says_it_saw_only_a_spread_sa
     on = {"max_atoms": 60, "shorten_artifact": True, "paraphrases": 1, "reversals": True,
           "verify_faithfulness": True, "classify_content": True, "confirm_carriers": True}
     line = ("shortening candidates are scored against a spread sample of 60 of the extracted "
-            "atoms: a cut of a span with no sampled atom looks free")
+            "atoms: `knowledge` and `value` are retention of that sample, not of every atom, "
+            "though the sole carriers a safe candidate keeps come from every atom")
     assert line in forfeits(on, sampled=True)
     # Before extraction (an estimate) the cap is assumed to leave atoms out.
     assert line in forfeits(on)
     assert not any("opening" in f or "tail" in f for f in forfeits(on, sampled=True))
+    # Spans index every extracted atom, a capped run's too, so neither a cut nor the dead-token
+    # share is a property of the sample (#371).
+    assert not any("looks free" in f or "frac_carrying_nothing" in f
+                   for f in forfeits(on, sampled=True))
     # A cap that kept every atom (M <= n, the atoms meeting it exactly included) sampled none.
     assert not any("spread sample" in f for f in forfeits(on, sampled=False))
     assert not any("spread sample" in f for f in forfeits(dict(on, max_atoms=None)))

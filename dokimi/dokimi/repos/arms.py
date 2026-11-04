@@ -304,7 +304,8 @@ def skill_unmeasured(installed: list[str], expected: str | None) -> dict[str, An
 
 
 def skill_usage(events: list[dict[str, Any]], installed: list[str], expected: str | None) -> dict[str, Any]:
-    """Which installed skills the agent used: a ``Skill`` tool call naming it, or a read of its ``SKILL.md``.
+    """Which installed skills the agent used: a ``Skill`` tool call naming it, or a read of its ``SKILL.md``; neither
+    refused nor failed.
 
     ``skill_invoked``: the expected skill was used (any installed one when the task names none);
     ``skill_selected_correct``: the expected skill was the first one used, ``None`` without one.
@@ -312,6 +313,8 @@ def skill_usage(events: list[dict[str, Any]], installed: list[str], expected: st
     used: list[str] = []
     for e in events:
         name = None
+        if e.get("denied") or e.get("rc") not in (0, None):  # a refused or failed call ran or showed no skill
+            continue
         if e.get("kind") == "tool" and e.get("name") == "Skill":
             name = str(e.get("skill") or "").split(":")[-1]  # a plugin skill is plugin:name
         elif e.get("kind") == "read":

@@ -10,6 +10,7 @@ treating them as rival models reports that noise as a model ranking.
 
 import pytest
 
+from dokimi.utils import InputError
 from dokimi.report.model_compare import (
     check_run_consistency,
     group_replicates,
@@ -59,7 +60,7 @@ def test_group_replicates_separates_on_judge():
 # ── duplicate detection ─────────────────────────────────────────────────────
 def test_duplicate_configs_are_a_hard_error_when_not_pooling():
     runs = [("r1", _run("m1")), ("r2", _run("m1")), ("r3", _run("m2"))]
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(InputError) as exc:
         check_run_consistency(runs, "golden")
     msg = str(exc.value)
     assert "--pool-replicates" in msg
@@ -81,7 +82,7 @@ def test_all_same_model_is_an_error_not_just_a_warning():
     # Previously this only produced a soft stderr warning while the report
     # ranked a model against itself.
     runs = [("r1", _run("m1")), ("r2", _run("m1"))]
-    with pytest.raises(SystemExit):
+    with pytest.raises(InputError):
         check_run_consistency(runs, "golden")
 
 
@@ -315,7 +316,7 @@ def _model_compare(tmp_path, first, second, *extra):
     {"arms": ("baseline", "skill:s", "docs")},
 ])
 def test_runs_differing_in_plugin_set_harness_or_arms_are_not_replicates(tmp_path, other):
-    with pytest.raises(SystemExit, match="--pool-replicates"):
+    with pytest.raises(InputError, match="--pool-replicates"):
         _model_compare(tmp_path, _arms_v1(), _arms_v1())
     assert "pools 2 replicates" in _model_compare(tmp_path, _arms_v1(), _arms_v1(),
                                                   "--pool-replicates")

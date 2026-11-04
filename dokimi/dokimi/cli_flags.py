@@ -242,6 +242,7 @@ CONCEPTS: tuple[Concept, ...] = (
             Flag("--answers", "FILE", "path"),
             Flag("--registry", "FILE", "path"),
             Flag("--from", "RUN", "text"),
+            Flag("--ledger", "FILE", "path"),
             Flag("--index", "FILE", "path", meaning="a SCIP code index of the tree"),
         ),
         banned=("--product", "--library", "--libraries", "--target", "--root", "--repo-root",
@@ -249,6 +250,11 @@ CONCEPTS: tuple[Concept, ...] = (
                 "--custom-questions", "--atoms", "--novelty-artifact", "--from-eval"),
         note="The subject is a positional. --product, --library and --target name it, so new "
              "commands do not use them.",
+    ),
+    Concept(
+        name="catalog_impact",
+        help="the local base revision for catalog change selection",
+        canonical=(Flag("--changed-from", "REF", "text"),),
     ),
     Concept(
         name="retrieval",

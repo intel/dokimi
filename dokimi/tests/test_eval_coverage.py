@@ -17,6 +17,7 @@ from dokimi.eval_coverage import LabelledEval, coverage_report, exact_shares, gr
 from dokimi.novelty.needs import NeedGraph, NeedNode
 from dokimi.novelty.needs import load_graph as novelty_load_graph
 from dokimi.novelty.needs import save_graph
+from dokimi.utils import InputError
 
 NODES = [
     {"id": "n1", "text": "convert with asnumpy before numpy.save", "path_class": "core"},
@@ -142,8 +143,9 @@ def test_graph_with_unknown_path_class_is_rejected(tmp_path):
     path.write_text(json.dumps({"artifact_name": "x", "nodes": [
         {"id": "n1", "text": "t", "path_class": "critical"}]}))
 
-    with pytest.raises(ArtifactValidationError, match="path_class"):
+    with pytest.raises(InputError, match="path_class") as exc:  # load_artifact wraps the schema failure
         load_graph(path)
+    assert isinstance(exc.value.__cause__, ArtifactValidationError)
 
 
 def test_cli_writes_artifact_and_fails_under_floor(tmp_path, capsys):
@@ -300,6 +302,23 @@ def test_a_task_md_without_frontmatter_is_a_note_not_a_task(tmp_path, capsys):
 
     assert [e.id for e in labels] == ["t1"]
     assert res.returncode == 0, res.stderr
+
+
+def test_a_task_md_note_that_is_not_utf_8_is_still_a_note(tmp_path, capsys):
+    graph = _graph(tmp_path)
+    runs = {}
+    for name, note in (("utf8", b"# planning notes\n"), ("latin1", b"\xff\xfe# planning notes caf\xe9\n")):
+        tasks = tmp_path / name
+        (tasks / "notes").mkdir(parents=True)
+        (tasks / "notes" / "task.md").write_bytes(note)
+        (tasks / "t1").mkdir()
+        (tasks / "t1" / "task.toml").write_text('[metadata]\nneeds = ["n1"]\n')
+        runs[name] = ([e.id for e in read_labels(tasks)], _run(capsys, str(tasks), "--graph", str(graph)))
+
+    (labels, res), (utf8_labels, utf8_res) = runs["latin1"], runs["utf8"]
+    assert labels == utf8_labels == ["t1"]
+    assert (res.returncode, res.stdout, res.stderr) == (utf8_res.returncode, utf8_res.stdout, utf8_res.stderr)
+    assert res.returncode == 0 and "| t1 | task | n1 | relevant_core |" in res.stdout
 
 
 def test_exact_shares_are_the_hand_computed_figures():

@@ -22,7 +22,7 @@ from .grading import SCORE_BOUND
 
 
 #: ``result.json`` ``process`` keys that are counts (``guidance_read`` is a list of paths, counted).
-PROCESS_KEYS = ("tool_calls", "commands", "failed_commands", "denied_commands", "guidance_read")
+PROCESS_KEYS = ("tool_calls", "commands", "failed_commands", "denied_commands", "guidance_read", "unknown_reads")
 
 
 def process_lists(recs: list[dict[str, Any]]) -> dict[str, list[float | None]]:

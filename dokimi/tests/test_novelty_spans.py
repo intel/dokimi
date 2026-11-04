@@ -79,18 +79,15 @@ def test_span_summary_counts_tokens_carrying_nothing():
     assert summary["capped_atom_set"] is False
 
 
-def test_span_summary_flags_a_capped_atom_set_because_the_cap_inverts_the_metric():
-    """A cap does not make the dead-token share noisy, it makes it wrong.
-
-    In the study a 250-atom cap turned a real 0.064 into an apparent 0.743, so the flag
-    has to be in the payload rather than in a doc.
-    """
+def test_span_summary_indexes_every_atom_so_its_atom_set_is_never_capped():
+    """A cap does not make the dead-token share noisy, it makes it wrong (0.064 read 0.743 in
+    the study), so every run indexes all its extracted atoms and writes `capped_atom_set: false`;
+    the key stays because the gate still reads `true` on artifacts written before #371."""
     spans = segment(DOC)
     atoms = [
         Atom(statement=f"claim {i}", question="q", answer="a", span_ids=(spans[1].id,))
         for i in range(3)
     ]
-    # The run says whether its cap left atoms out; three atoms alone do not say it.
-    assert span_summary(spans, atoms, capped=True)["capped_atom_set"] is True
-    assert span_summary(spans, atoms)["capped_atom_set"] is False
+    summary = span_summary(spans, atoms)
+    assert (summary["capped_atom_set"], summary["n_atoms_indexed"]) == (False, 3)
     assert span_summary(spans)["n_atoms_indexed"] is None

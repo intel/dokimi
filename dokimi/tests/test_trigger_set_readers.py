@@ -123,7 +123,7 @@ def test_cli_reads_each_format_back_and_relints_against_the_catalog(tmp_path, ca
     sc.write_text(json.dumps([{"query": "use linux-perf on it", "should_trigger": True}]),
                   encoding="utf-8")
     out = tmp_path / "q.json"
-    _run(["catalog", "trigger-set", "--catalog", str(catalog), "--format", "questions",
+    _run(["eval", "triggers", "generate", "--catalog", str(catalog), "--format", "questions",
           "--trigger-set", str(reach), "--trigger-set", f"{sc}=linux-perf", "--out", str(out)])
     rows = load_questions(out).questions
     assert [r.get("expected_skill") for r in rows] == [
@@ -139,7 +139,7 @@ def test_cli_read_back_keeps_source_text(tmp_path, catalog):
                                               "source_text": "Scenario: original text",
                                               "expected_skill": "linux-perf"}]}), encoding="utf-8")
     out = tmp_path / "q.json"
-    _run(["catalog", "trigger-set", "--catalog", str(catalog), "--format", "questions",
+    _run(["eval", "triggers", "generate", "--catalog", str(catalog), "--format", "questions",
           "--trigger-set", str(src), "--out", str(out)])
     assert load_questions(out).questions[0]["source_text"] == "Scenario: original text"
     queries = ts.build_trigger_set([(ts.to_questions(ts.from_questions(json.loads(
@@ -154,7 +154,7 @@ def test_cli_reach_read_back_keeps_kind_and_notes(tmp_path, catalog):
                                             "expected_skill": "linux-perf", "kind": "neighbor_negative",
                                             "notes": "near dpnp-io"}]}), encoding="utf-8")
     out, q_out = tmp_path / "r.json", tmp_path / "q.json"
-    base = ["catalog", "trigger-set", "--catalog", str(catalog), "--trigger-set", str(src)]
+    base = ["eval", "triggers", "generate", "--catalog", str(catalog), "--trigger-set", str(src)]
     _run(base + ["--out", str(out)])
     row = json.loads(out.read_text(encoding="utf-8"))["queries"][0]
     assert (row["kind"], row["notes"]) == ("neighbor_negative", "near dpnp-io")
@@ -168,7 +168,7 @@ def test_cli_refuses_bad_trigger_set_specs(tmp_path, catalog):
     reach = tmp_path / "r.json"
     reach.write_text(json.dumps({"queries": [{"id": "1", "text": "a", "expected_skill": None}]}),
                      encoding="utf-8")
-    base = ["catalog", "trigger-set", "--catalog", str(catalog), "--out", str(tmp_path / "o.json")]
+    base = ["eval", "triggers", "generate", "--catalog", str(catalog), "--out", str(tmp_path / "o.json")]
     with pytest.raises(SystemExit, match="not a skill in --catalog"):
         _run(base + ["--trigger-set", f"{sc}=nope"])
     with pytest.raises(SystemExit, match="needs the target"):
@@ -195,7 +195,7 @@ def test_task_formats_name_the_reader_as_consumer(tmp_path, queries):
     sc.write_text(json.dumps(ts.to_skill_creator(queries, "linux-perf")), encoding="utf-8")
     for path in (reach, sc):
         report = detect(path)
-        assert report.consumers == ["catalog trigger-set"], report
+        assert report.consumers == ["eval triggers generate"], report
 
 
 def test_a_trigger_set_with_no_labels_is_valid_while_a_questions_typo_is_refused(catalog):

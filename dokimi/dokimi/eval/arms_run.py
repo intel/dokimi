@@ -28,7 +28,7 @@ from dokimi.defaults import (
 from dokimi.eval.arms_refusals import refuse_cli_arms, refuse_cli_cell, refuse_cli_cell_model
 from dokimi.eval.cells import HARNESS_ARMS_RUNNER, MatrixCellDescriptor
 from dokimi.eval.question_text import EmptyQuestionError
-from dokimi.utils import InputError, question_id
+from dokimi.utils import InputError, check_bedrock_model, question_id
 
 if TYPE_CHECKING:
     from dokimi.eval import Judge, JudgePanel
@@ -275,18 +275,14 @@ def _check_judge(config: ArmsRunConfig, questions: list[dict]) -> None:
     """Refuse what the judge would refuse on every score, before any answer is paid for."""
     from dokimi.eval.question_text import require_question_text
     from dokimi.llm import unsupported_sampling_params
-    from dokimi.utils import bedrock_litellm_model
 
     # The judge refuses a blank question; here, that is before any answer is paid for.
     # Every question is answered and then judged, so every one is checked.
     for i, q in enumerate(questions):
         require_question_text(q, i)
-    judge_model = config.judge_model
-    if config.judge_provider == "amazon-bedrock" and not config.judge_panel:
-        # A single Bedrock judge goes through get_llm, which maps a bare name first.
-        judge_model = bedrock_litellm_model(config.judge_model)
+    check_bedrock_model(config.judge_provider, config.judge_model)  # before any answer is paid for
     bad_judge = unsupported_sampling_params(
-        judge_model, config.judge_provider,
+        config.judge_model, config.judge_provider,
         temperature=config.judge_temperature,
     )
     if bad_judge:
@@ -295,7 +291,7 @@ def _check_judge(config: ArmsRunConfig, questions: list[dict]) -> None:
             f"{', '.join(bad_judge)} for model '{config.judge_model}'. Drop the "
             "flag; every score would otherwise be null."
         )
-    probe_sampling(judge_model, config.judge_provider, config.judge_temperature, None)
+    probe_sampling(config.judge_model, config.judge_provider, config.judge_temperature, None)
 
 
 def _build_judge(config: ArmsRunConfig):

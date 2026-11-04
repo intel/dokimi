@@ -33,7 +33,7 @@ credentials (`GOOGLE_APPLICATION_CREDENTIALS`, with `VERTEXAI_PROJECT` and
 gateway), use provider `openai` with `OPENAI_API_BASE` (or `OPENAI_BASE_URL`)
 set to its `/v1` URL. A model name that litellm does not take for OpenAI's own
 goes to that server, such as `glm-5.3` or `meta-llama/Llama-3.1-8B`
-(`--judges openai/glm-5.3` in `eval cross-judge`); so does a bare `claude-*`,
+(`--judges openai/glm-5.3` in `eval judge agreement`); so does a bare `claude-*`,
 Bedrock or Vertex id, which needs its cloud's provider to reach that cloud. A
 name that starts with a litellm provider prefix (`deepseek/`, `groq/`,
 `ollama/`) keeps that provider's route: write it as `openai/<name>` to send it
@@ -104,7 +104,7 @@ The full path with reading notes: [skill-novelty-walkthrough.md](skill-novelty-w
 | Step | Command | Cost |
 |---|---|---|
 | 1. Do the paths, links and commands named in the guidance exist? | `dokimi repo scan <repo>` | free |
-| 2. Which guidance files does the harness actually load? | `dokimi repo reach <repo> --model <id> --dry-run`, then a few `--only <scenario>` with `--budget` | capped by `--budget` (default $0.10) per scenario; needs the `claude` binary and `ANTHROPIC_API_KEY`, or `AWS_BEARER_TOKEN_BEDROCK` with `AWS_REGION` and `CLAUDE_CODE_USE_BEDROCK` |
+| 2. Which guidance files does the harness actually load? | `dokimi repo reach <repo> --model <id> --dry-run`, then a few `--only <scenario>` with `--budget`; to see whether a Bash read of a nested file loads its directory's guidance (agents that read with `cat`), `--scenarios bash` (or `--scenarios bash --only bash=<dir>`) | capped by `--budget` (default $0.10) per scenario; needs the `claude` binary and `ANTHROPIC_API_KEY`, or `AWS_BEARER_TOKEN_BEDROCK` with `AWS_REGION` and `CLAUDE_CODE_USE_BEDROCK` |
 | 3. What does the root guidance add? | `dokimi novelty analyze --artifact text:<repo>/AGENTS.md --tier triage …` | ~100 calls |
 | 4. Does the guidance change task outcomes? | `dokimi repo run <repo> --manifest-file … --model <id> --batch <name> --arm guidance:none,guidance:raw --agent-network host --budget <usd> --max-batch-usd <usd>`; a replay batch passes `guidance:rev:<sha>` instead of `guidance:raw` (see Past review comments below) | needs the repository's own tasks, Docker, `claude` binary on PATH (or `--bin`); `--budget` defaults to $2.00 per agent run with no batch cap unless you pass `--max-batch-usd` |
 
@@ -197,8 +197,12 @@ these, in order, before writing what it showed (the fields:
   that tree, not the cells'. Where a credit turns on it, read the cells'
   traces too. A nested `AGENTS.md` loads later if at all (reach's
   `cwd=<dir>`, `read=<dir>` show what loads it). `process:guidance_read`
-  counts Read-tool reads only: 0 from an agent that used Bash is not "never
-  read"; look for a `cat` or `grep` of a guidance file in `events.jsonl` or
+  counts a read tool's reads and a Claude Code Bash call, Codex command or
+  Copilot `bash` command that only prints files (§7's list: a bare `cat`,
+  `head`, `tail`, `nl` or `sed -n`), not a pipe, `grep`, `rg` or `! cat`, nor a
+  relative read after the shell moved; `process:unknown_reads` counts those
+  dropped relative reads, so `guidance_read: []` with `unknown_reads` above 0
+  is not "never read". For the rest, look in `events.jsonl` or
   `agent.stdout`, or add a `process_metrics` counter. Name what was delivered
   as what was tested ("the root `AGENTS.md`", not "the guidance").
 - **A leakage cut.** A task is out of sample for a guidance revision only when

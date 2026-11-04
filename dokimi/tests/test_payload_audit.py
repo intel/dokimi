@@ -12,7 +12,7 @@ from dokimi.eval.agent_runner import run_agent_loop
 from dokimi.harnesses import load_task
 from dokimi.harnesses.agent_sandbox import AgentWorkspace
 from dokimi.harnesses.container_agent import AGENT_BIN
-from dokimi.harnesses.docker_solver import _CONTAINER_PLUGIN, DockerSolverHarness
+from dokimi.harnesses.docker_solver import _CONTAINER_PLUGIN, DockerSolverHarness, _host_plugin_dir
 from dokimi.harnesses.payload_audit import added_framing, audit_payload, markers_for, new_leaks
 from dokimi.harnesses.skill_treatment import TREATMENT_NOTICE, Treatment
 from dokimi.skills import load_skill
@@ -151,7 +151,7 @@ def test_docker_claude_arms_send_no_harness_artifacts(tmp_path):
         # The host arm runs the binary on the host, with its plugin dir under the workspace root.
         host = DockerSolverHarness(harness_id="docker-claude-host", mode="claude",
                                    agent_location="host", skill_notice=True)
-        plugin = str(ws.root / "plugin")
+        plugin = str(_host_plugin_dir(ws))
         argv = host._claude_args(task, treatment, plugin, "haiku", out)
         assert audit_payload(["claude", *argv], markers, allowed=allowed) == []
     finally:

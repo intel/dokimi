@@ -7,13 +7,14 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import re
 import sys
 from pathlib import Path
 from typing import Any
 
+from dokimi.commands.repo_skill_reach import add_skill_reach_parser
 from dokimi.exit_codes import EXIT_USAGE
+from dokimi.commands.repo_scan import _print_scan_text, _typecheck_or_exit
 
 
 def _normalize_whitespace(text: str, max_len: int | None = 100) -> str:
@@ -126,11 +127,17 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
     """L0: check every mechanically checkable claim in the guidance against the same tree."""
     from dokimi.artifacts import save_artifact, stamp
     from dokimi.repos.l0 import scan_repo
+    from dokimi.repos.l0.typecheck import TypecheckError
 
     _, tree = _source_tree(args)
     manifest = _manifest_or_exit(tree, args, guidance_default=True, also_usage=(OSError,))
     static = _read_static(args.static) if args.static else None
-    payload = scan_repo(tree, manifest, static)
+    check = _typecheck_or_exit(args)
+    try:
+        payload = scan_repo(tree, manifest, static, typecheck=check)
+    except TypecheckError as exc:
+        print(f"✗ repo scan --typecheck: {exc}", file=sys.stderr)  # the error says whether the tool or the interpreter
+        sys.exit(EXIT_USAGE)
     if args.out:
         try:
             save_artifact("repo_readiness", payload, Path(args.out))
@@ -144,25 +151,7 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
     if args.json:
         print(json.dumps(stamp("repo_readiness", dict(payload)), indent=2))
     else:
-        c = payload["counts"]
-        detected = " (detected)" if payload["adapters_detected"] else ""
-        print(f"{manifest.id}: {len(payload['files'])} guidance files in {payload['repo']['tree']}; "
-              f"adapters: {', '.join(payload['adapters']) or 'none'}{detected}")
-        print(f"  claims: {c['total']} (ok {c['ok']}, unresolved {c['unresolved']}, fail {c['fail']})")
-        for warning in payload["warnings"]:
-            print(f"  warning: {warning}")
-        if payload["incomplete"]:
-            print(f"  incomplete: {'; '.join(payload['incomplete_reasons'])} (repo scan --fail-on-fail exits 1)")
-        if static_info is not None and not static_errors:
-            r = payload["by_source"]["repository"]
-            print(f"  repository static: {r['total']} claims, {r['fail']} fail; "
-                  f"{static_info['superseded']} framework claims replaced")
-        for claim in payload["claims"]:
-            if claim["status"].split("_", 1)[0] == "fail":
-                print(f"  FAIL {claim['file']}:{claim['line']} [{claim.get('kind')}] "
-                      f"{str(claim.get('claim'))[:90]} -- {claim.get('why')}")
-        if args.out:
-            print(f"wrote {args.out}")
+        _print_scan_text(manifest, payload, args.out)
     _scan_gate(payload, args.fail_on_fail)  # runs first: an invalid --static still gets the incomplete reason
     if static_errors:
         sys.exit(1)
@@ -271,20 +260,6 @@ def cmd_repo_fetch(args: argparse.Namespace) -> None:
         print(json.dumps({"sha": tree.sha, "git_dir": str(tree.git_dir)}, indent=2))
     else:
         print(f"{tree.sha}\t{tree.git_dir}")
-
-
-def _check_reach_flags(args: argparse.Namespace, kinds: tuple[str, ...]) -> None:
-    """Refuse a flag that would drop a scenario kind silently, or spend a budget that is not one."""
-    from dokimi.repos.reach import KINDS, ReachError
-
-    # A typo would otherwise drop a scenario kind silently and still spend the budget.
-    unknown_kinds = sorted(set(kinds) - set(KINDS))
-    if unknown_kinds:
-        raise ReachError(f"unknown --scenarios kind(s) {', '.join(unknown_kinds)} (known: {', '.join(KINDS)})")
-    if not math.isfinite(args.budget) or args.budget <= 0:
-        raise ReachError(f"--budget must be > 0, got {args.budget:g}")
-    if args.model is None:
-        raise ReachError("--model is required to probe (leave it out only with --from)")
 
 
 # The probe's flags, unset by default: --from refuses any of them given, even at its default value.
@@ -442,13 +417,14 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
     from dokimi.repos import RepoSource, SourceError, open_source
     from dokimi.repos.harness_profile import ProfileError, load_profile
     from dokimi.repos.source import SourceArgumentError
-    from dokimi.repos.reach import ReachError, check_shadow, run_reach, save_reach
+    from dokimi.repos.reach import ReachError, check_flags, check_kinds, check_shadow, run_reach, save_reach
 
     kinds = tuple(k.strip() for k in args.scenarios.split(",") if k.strip())
     only = tuple(args.only or ())
     try:  # the arguments as typed: a usage error
-        _check_reach_flags(args, kinds)
+        check_flags(kinds, args.budget, args.model)
         profile = load_profile(args.harness)
+        check_kinds(profile, kinds)
         check_shadow(profile, kinds)
         source = RepoSource.parse(args.source)
     except (SourceError, ProfileError, ReachError) as exc:
@@ -533,8 +509,9 @@ def _print_receipt(tree, profile, payload: dict, out_dir: Path) -> None:
     from dokimi.repos.budget import budget
     from dokimi.repos.receipt import build_receipt
 
-    receipt = build_receipt(payload, budget(tree, profile.guidance_names, profile.import_max_depth,
-                                            claude_displaces_agents=profile.claude_displaces_agents), tree)
+    receipt = build_receipt(payload, budget(tree, profile.guidance_names, profile.import_max_depth, profile.reads_claude_rules,
+                                            claude_displaces_agents=profile.claude_displaces_agents,
+                                            follow_imports=profile.follows_imports), tree)
     try:  # a directory that is not writable, or one already named effective_instructions.json: a runtime failure
         written = save_artifact("effective_instructions", receipt, out_dir / RECEIPT_NAME)
     except OSError as exc:
@@ -555,8 +532,9 @@ def cmd_repo_budget(args: argparse.Namespace) -> None:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
     _, tree = _source_tree(args)
-    payload = budget(tree, profile.guidance_names, profile.import_max_depth,
-                     claude_displaces_agents=profile.claude_displaces_agents)
+    payload = budget(tree, profile.guidance_names, profile.import_max_depth, profile.reads_claude_rules,
+                     claude_displaces_agents=profile.claude_displaces_agents,
+                     follow_imports=profile.follows_imports)
     if args.out:
         try:
             save_artifact("repo_budget", payload, Path(args.out))
@@ -634,12 +612,12 @@ def _cache_dir(args: argparse.Namespace) -> Path | None:
     return Path(args.cache_dir) if args.cache_dir else None
 
 
-def register(sub, positive_int) -> None:
-    """Add the `repo` subcommand group."""
+def register(sub, positive_int, eval_sub) -> None:
+    """Add the `repo` subcommand group. Its check moved to `eval check` (#94 M1)."""
     repo_p = sub.add_parser(
         "repo",
         help="Repositories as evaluation subjects: validate repo-eval.yaml, L0 scan, fetch sources, reach probe, budget, "
-        "task self-check, agent runs and their report",
+        "agent runs and their report",
     )
     repo_sub = repo_p.add_subparsers(dest="repo_cmd", required=True)
     source_help = (
@@ -687,6 +665,17 @@ def register(sub, positive_int) -> None:
                         "the report, its claims replacing the framework's on the same file, line and text. "
                         "A file that cannot be read or is not JSON exits 2; a schema-invalid document is "
                         "reported and makes the command exit 1")
+    scan_p.add_argument("--typecheck", action="store_true", default=False,
+                        help="Type-check each Python fence of the guidance (§8.2): one claim per fence, fail when the "
+                        "tool reports an error. The tool is mypy unless --typecheck-tool names basedpyright (on PATH). "
+                        "mypy is not installed by pip install dokimi: the tested pin is requirements-test.txt "
+                        "(mypy==2.4.0); a missing mypy exits 2. Without --python-env the fences are unknown (unresolved), "
+                        "not checked")
+    scan_p.add_argument("--typecheck-tool", default=None, dest="typecheck_tool", choices=("mypy", "basedpyright"),
+                        help="The tool --typecheck runs (default mypy). Needs --typecheck")
+    scan_p.add_argument("--python-env", default=None, dest="python_env", metavar="PYTHON",
+                        help="The repository's interpreter (a venv with its pinned dependencies installed); the fences "
+                        "are checked against its site-packages. Needs --typecheck")
     scan_p.add_argument("--out", default=None, help="Write the repo_readiness.v1 report to this file")
     scan_p.add_argument("--json", action="store_true", help="Print the full report as JSON")
     scan_p.add_argument("--fail-on-fail", action="store_true", dest="fail_on_fail",
@@ -745,7 +734,8 @@ def register(sub, positive_int) -> None:
     reach_p.add_argument("--bin", default=None, help="Harness executable (default: the profile's `bin`)")
     reach_p.add_argument("--out", default=None, help="Output directory: reach.json and traces/ (default: reach-out)")
     reach_p.add_argument("--scenarios", default=None,
-                         help="Comma list of scenario kinds: root, cwd, read, shadow (default: root,cwd,read). "
+                         help="Comma list of scenario kinds: root, cwd, read, bash, shadow (default: root,cwd,read). "
+                         "bash cats each probe file through the Bash tool, for a profile with a bash tool mode; "
                          "shadow writes the profile's guidance.shadow_file (CLAUDE.local.md for claude-code) "
                          "for one scenario at a time; a profile without one refuses it")
     reach_p.add_argument("--only", action="append", default=None, metavar="SCENARIO",
@@ -768,6 +758,8 @@ def register(sub, positive_int) -> None:
     reach_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
     reach_p.set_defaults(func=_reach_entry)
 
+    add_skill_reach_parser(repo_sub, positive_int)
+
     budget_p = repo_sub.add_parser(
         "budget",
         help="What the repository puts into an agent's context when it starts at the root: guidance "
@@ -780,8 +772,9 @@ def register(sub, positive_int) -> None:
     budget_p.add_argument("source", help=source_help)
     budget_p.add_argument("--harness", default="claude-code",
                           help="Built-in profile name or a harness_profile.v1 YAML path; its guidance names "
-                          "supply the file names, but the classification rules (root vs nested, off rule) are "
-                          "hardcoded to Claude Code until other harnesses are measured (default: claude-code)")
+                          "supply the file names, guidance.imports whether @ imports are followed (not when null) "
+                          "and guidance.claude_displaces_agents the off rules; root vs nested is Claude Code's "
+                          "(default: claude-code)")
     budget_p.add_argument("--out", default=None, help="Write the repo_budget.v1 inventory to this file")
     budget_p.add_argument("--json", action="store_true", help="Print the repo_budget.v1 inventory as JSON")
     budget_p.add_argument("--fail-on-warning", action="store_true", dest="fail_on_warning",
@@ -791,4 +784,4 @@ def register(sub, positive_int) -> None:
 
     from . import repo_run
 
-    repo_run.register(repo_sub, positive_int, source_help, cache_help)
+    repo_run.register(repo_sub, eval_sub, positive_int, source_help, cache_help)

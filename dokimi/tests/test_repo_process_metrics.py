@@ -52,7 +52,8 @@ def test_built_in_counts():
 
 def test_no_events_counts_zero():
     assert process_metrics([], _guidance) == {"tool_calls": 0, "commands": 0, "failed_commands": 0,
-                                              "denied_commands": 0, "guidance_read": [], "counters": {}}
+                                              "denied_commands": 0, "guidance_read": [], "unknown_reads": 0,
+                                              "counters": {}}
 
 
 def test_counters_search_text_output_or_both():
