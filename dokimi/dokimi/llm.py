@@ -97,6 +97,22 @@ PROVIDERS: Dict[str, str] = {
 #: ``--provider`` choices: the API providers, then the CLI backends.
 ANSWER_PROVIDERS: Tuple[str, ...] = (*PROVIDERS, *llm_cli.BACKENDS)
 
+#: Providers the answerer, judge and generators take: the table but openai-codex, with
+#: the spellings google, gemini and vertex_ai, then the CLI backends.
+CALLER_PROVIDERS: Tuple[str, ...] = (
+    "openai", "anthropic", "google", "gemini", "google-vertex", "openrouter", "amazon-bedrock",
+    "vertex_ai", *llm_cli.BACKENDS,
+)
+
+
+def check_caller_provider(provider: str) -> None:
+    """Raise ``ValueError`` for a provider the answerer, judge and generators do not take."""
+    if provider not in CALLER_PROVIDERS:
+        raise ValueError(
+            f"Unsupported provider: '{provider}'. "
+            "Use 'openai', 'anthropic', 'google', 'openrouter', 'amazon-bedrock' or 'claude-cli'."
+        )
+
 #: Other spellings of a canonical provider.
 PROVIDER_ALIASES: Dict[str, str] = {
     "google": "google-vertex",

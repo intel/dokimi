@@ -16,7 +16,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 from dokimi.artifacts import save_artifact
-from dokimi.llm import LLM, ChatModel, Invoker
+from dokimi.llm import LLM, ChatModel, Invoker, check_caller_provider
 from dokimi.judged import judged_reply
 from dokimi.llm_cli import BACKENDS as CLI_BACKENDS, check_sampling
 from dokimi.llm import LANGCHAIN_AVAILABLE
@@ -262,12 +262,7 @@ class Judge:
         self._resolved_models: set = set()
 
         check_sampling(provider, temperature, seed)
-        if provider not in ("openai", "anthropic", "google", "gemini", "google-vertex", "openrouter",
-                            "amazon-bedrock", "vertex_ai", *CLI_BACKENDS):
-            raise ValueError(
-                f"Unsupported provider: '{provider}'. "
-                "Use 'openai', 'anthropic', 'google', 'openrouter', 'amazon-bedrock' or 'claude-cli'."
-            )
+        check_caller_provider(provider)
         self.llm: ChatModel = Invoker(LLM(model, provider, api_key, temperature=temperature, seed=seed))
         
         logger.info(f"Judge initialized: {provider}/{model}")

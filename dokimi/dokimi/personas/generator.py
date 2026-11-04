@@ -8,8 +8,7 @@ from typing import Dict, Any, Optional
 from pathlib import Path
 import json
 
-from dokimi.llm import LLM, ChatModel, Invoker
-from dokimi.llm_cli import BACKENDS as CLI_BACKENDS
+from dokimi.llm import LLM, ChatModel, Invoker, check_caller_provider
 from dokimi.llm import LANGCHAIN_AVAILABLE
 from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
 
@@ -100,12 +99,7 @@ class PersonaGenerator:
         self.provider = provider
         self.api_key = api_key
 
-        if provider not in ("openai", "anthropic", "google", "gemini", "google-vertex", "openrouter",
-                            "amazon-bedrock", "vertex_ai", *CLI_BACKENDS):
-            raise ValueError(
-                f"Unsupported provider: '{provider}'. "
-                "Use 'openai', 'anthropic', 'google', 'openrouter', 'amazon-bedrock' or 'claude-cli'."
-            )
+        check_caller_provider(provider)
         self.llm: ChatModel = Invoker(LLM(model, provider, api_key))
 
         logger.info(f"Initialized PersonaGenerator with {provider}/{model}")
