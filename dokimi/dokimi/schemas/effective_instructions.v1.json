@@ -40,7 +40,7 @@
           "run_id": {"type": "string", "description": "The reach salt and the scenario id, so the receipt names its record in reach.json."},
           "runtime": {"$ref": "#/$defs/runtime"},
           "cwd": {"type": "string", "description": "The directory the run started in; `.` is the repository root."},
-          "target": {"type": ["string", "null"], "description": "The file the run was told to read (the probe file of a read= scenario), else null."},
+          "target": {"type": ["string", "null"], "description": "The file the run was told to read (the probe file of a read= or bash= scenario), else null."},
           "sources": {"type": "array", "items": {"$ref": "#/$defs/source"}},
           "precedence_observed": {
             "type": "array",

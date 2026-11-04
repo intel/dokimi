@@ -464,11 +464,15 @@ reads the upstream base (`base_sha`) and the workspace start commit
   8 KB keeps its first and last 4 KB around a `[... N bytes omitted ...]`
   line, and `output_truncated` is `true`; build errors are usually at the end.
 - `rc` is what the harness reports. Where it reports only success or failure
-  (Claude Code), `rc` is `0` or `1`. It is `null` when no result came back,
+  (Claude Code), `rc` is `0` or `1`; a Claude Code `Skill` tool event carries it
+  too (`1`: the skill was not loaded). It is `null` when no result came back,
   for example when the run stopped at its turn or budget limit; a grader
   must not count `null` as a failure.
 - `agent` is present on an event a subagent made: the id of the parent's
   `Agent`/`Task` call that started it. Events without it are the parent's.
+- A `read` event may have no `path`: a refused Claude Code Bash read of a
+  relative path after an earlier call moved the shell, whose file is not
+  known (`{"kind": "read", "denied": true}`).
 
 `result.json` reports the agent's tokens (`input_tokens`, `output_tokens`,
 `cache_read_tokens`, `cache_write_tokens`) over the same scope as `cost_usd`.
@@ -491,11 +495,12 @@ parent's and subagents' together, so a grader need not:
 
 | Key | Meaning |
 |---|---|
-| `tool_calls` | every event: each tool call the agent made |
+| `tool_calls` | every event: each tool call the agent made, and each shell-derived `read` event kept, a denied one or one of a failed multi-file read too (see `guidance_read` and §7) |
 | `commands` | `command` events |
 | `failed_commands` | commands not denied whose `rc` is neither `0` nor `null` |
 | `denied_commands` | commands with `denied: true` (a hook or the harness's permissions refused them) |
-| `guidance_read` | sorted, distinct workspace paths (normalized: `./a`, `a/../b`; not `~`) of `read` events (the Read tool only, in a Claude Code trace), neither denied nor failed (`rc` 1: the file does not exist), that `guidance.globs` match. Guidance opened through Bash (`cat AGENTS.md`) is not counted, so `[]` means no Read-tool read; to count it, add a `process_metrics` counter on the command text (§2), which also counts denied commands, unlike this row |
+| `guidance_read` | sorted, distinct workspace paths (normalized: `./a`, `a/../b`; not `~`) of `read` events, neither denied nor failed (`rc` 1: the file does not exist), that `guidance.globs` match. A read event is a read tool's (Claude Code's Read, Copilot's `view`) or a shell read: a Claude Code Bash call, Codex command or Copilot `bash` command that only prints files, as §7 lists (a bare `cat`, `head`, `tail`, `nl` or `sed -n`; `cd <dir>; cat AGENTS.md` reads `<dir>/AGENTS.md`). A command that is one such read naming one file, alone, the one command of a brace group (`{ cat AGENTS.md; }`) or after `cd` commands (`cd sub && cat AGENTS.md`; `time cd`, `command cd`, `builtin cd`, `X=1 cd`, a quoted or escaped `"cd"` or `\cd` too, not `env cd`), and fails is no read; one naming two keeps its reads, even when only one is known (`cd -; cat missing.md /ws/AGENTS.md`). Guidance seen through a pipe, `grep` or `rg` is not counted, nor a relative read after an earlier Claude Code Bash call ran a `cd` (`time cd` and `command cd` too), `pushd`, `popd`, or an `eval`, `source` or `.` (which may run one), its name quoted or escaped too (`"source" "$ENV"`, `\cd "$D"`), in its own shell, not in a subshell, pipeline or background job (the shell keeps its directory between calls, so the file is not known; a call a hook or the permissions refused ran nothing and moves nothing). That holds across agents: after the parent's `cd`, a subagent's relative reads are dropped too, and the reverse, since a subagent may share the parent's shell (not checked on a real trace; dropping a read is the safe side either way); to count those, add a `process_metrics` counter on the command text (§2), which also counts denied commands, unlike this row |
+| `unknown_reads` | the relative shell reads, of calls neither refused nor failed as one read of one file (see `guidance_read`; `cd -; cat missing.md` failing counts none), that the trace made at a directory the converter could not follow (after `source .venv/bin/activate`, `cd -`, or a `cd` in an earlier Claude Code Bash call): they have no `read` event, so `guidance_read` may miss them; `0` when there are none |
 | `counters` | each `process_metrics` name (§2) and its count |
 
 `process` is `null` when the trace could not be read, the agent left none (no event and no result record), or computing the metrics failed (the error is in `agent.trace_errors`).
@@ -533,7 +538,7 @@ row shows which.
 A cell of an arm that installs skills also has a `skills` object in
 `result.json`: `measured`, `skills_installed` (the installed skill names),
 `skills_used` (the installed skills the agent called with the `Skill` tool or
-whose `SKILL.md` it read, in order of first use), `expected_skill` (the task's,
+whose `SKILL.md` it read, the call or read neither denied nor failed, in order of first use), `expected_skill` (the task's,
 or `null`), `skill_invoked` (the expected skill was used; any installed skill
 when the task names none) and `skill_selected_correct` (the expected skill was
 the first one used; `null` when the task names none). When the trace could not
@@ -550,7 +555,7 @@ For a `patch:` arm with `added` files or `mcp_servers`, `result.json` has an
 command events that name an added file as a workspace path (`tools/fmt`,
 `./tools/fmt`, `/eval/run/workspace/tools/fmt`, not `cd tools && ./fmt`; a file
 with no `/` only as `./name`, under the workspace path or after an interpreter (a bare `name` resolves through `PATH`), so
-`npm run lint` does not name a `lint` file), `reads` the read events of one (a
+`npm run lint` does not name a `lint` file), `reads` the read events of one that did not fail (a
 read of an added script counts as use), `mcp_calls` the calls of the servers' tools
 (`mcp__<server>__<tool>`), none of them a call the harness denied; `used`
 is whether any is non-zero, and `measured` is
@@ -961,6 +966,7 @@ invoke: ["{bin}", "-p", "{prompt}", "--model", "{model}", "--output-format", "st
 tools:                               # what the "{tools}" element expands to
   none: ["--tools", ""]
   read: ["--tools", "Read"]
+  bash: ["--tools", "Bash"]          # optional: repo reach --scenarios bash (§7)
   all:  ["--disallowedTools", "WebFetch", "WebSearch"]
 delegation:                          # --delegation none: these replace the tool mode's arguments
   none:
@@ -1028,7 +1034,8 @@ args_if_present:                     # argv added after the "{tools}" element wh
   `claude-stream-json`, `codex-json` (`codex exec --json`), `copilot-json`
   (`copilot -p --output-format json`) or `text` (stdout is the answer, no
   events). Codex has no read tool, so its `read` events come from shell
-  commands that only print files (`cat`, `head`, `tail`, `sed -n`, `nl`).
+  commands that only print files (`cat`, `head`, `tail`, `sed -n`, `nl`);
+  Copilot's shell commands and Claude Code's Bash calls give them too.
   Neither Codex nor Copilot reports a cost: `cost_usd` is `null` and a batch
   budget counts each cell's cap.
 - `bin_companions` names files the executable starts from its own directory.
@@ -1129,6 +1136,17 @@ Protocol:
     - `cwd=<dir>`: started in each guidance directory, tools off.
     - `read=<dir>`: started at the root, read tool on. The agent is told to
       read `<dir>/REACH_PROBE.txt`, then list tokens.
+    - `bash=<dir>`: started at the root, the profile's `bash` tool mode (Claude
+      Code: the Bash tool alone). The agent is told to run
+      `cat <dir>/REACH_PROBE.txt` (the path shell-quoted, `./` before a leading
+      `-`), then list tokens: it shows whether a shell
+      read of a file in `<dir>` loads that directory's guidance. Only with `--scenarios bash`
+      (the default is `root,cwd,read`); a profile without a `bash` tool mode
+      (Codex and Copilot, whose shell commands are already their reads) is a
+      usage error (exit 2) naming the profile. The shell runs on the host with
+      the harness's credentials, so the mode must refuse every other command:
+      Claude Code's gets the one `cat` in `DOKIMI_REACH_COMMAND`, and a
+      PreToolUse hook blocks any other call (and every call if the hook fails).
     - `shadow=.` and `shadow=<dir>`, only with `--scenarios shadow` (the
       default is `root,cwd,read`): the profile's `guidance.shadow_file` (§6)
       is written into the workspace for that one scenario, seeded with its own
@@ -1189,12 +1207,21 @@ per scenario).
 - `class` is one of:
     - `loaded`: both tokens reported;
     - `truncated`: one token reported;
-    - `fetched`: reported only after the agent read the file with a tool. For the
-      Codex and Copilot profiles a shell read counts only as a bare `cat`, `head`,
-      `tail`, `nl` or `sed -n`; for Codex, a command that is one such read of one
-      file and exits non-zero is not a read (the exit code of `cat a missing` does
-      not say which file failed, so both stay reads). A read through a pipe, `grep`
-      or `rg` is not seen, so such a file can be classed `loaded`;
+    - `fetched`: reported only after the agent read the file with a tool (a
+      read that was denied or failed is none). For the
+      Claude Code (its Bash tool), Codex and Copilot profiles a shell read counts
+      only as a bare `cat`, `head`, `tail`, `nl` or `sed -n`; a command that is one
+      such read naming one file, alone, in a brace group (`{ cat AGENTS.md; }`)
+      or after `cd` commands (`cd sub && cat AGENTS.md`; `time cd`, `command cd`, `builtin cd`, `X=1 cd`, `"cd"` too, not
+      `env cd`), and exits non-zero is not a read (the exit code of
+      `cat a missing` does not say which file failed, so both stay reads, as
+      the known one does when the other is at a directory not known). A read
+      through a pipe, `grep` or `rg`, or negated (`! cat AGENTS.md`, whose exit
+      says nothing of the file), is not seen, nor, under Claude Code, a relative
+      read after an earlier Bash call of any agent (the parent's or a
+      subagent's, which may share its shell) ran a `cd`, `pushd`, `popd`,
+      `eval`, `source` or `.` in its own shell (not in a subshell, pipeline or
+      background job, and not refused), so such a file can be classed `loaded`;
     - `not_loaded`;
     - `error`: the scenario produced no usable answer: no answer, a non-zero
       exit, or an error result.
@@ -1258,7 +1285,7 @@ hold, and the receipt describes the tree as committed. Their results stay in
 | `observed` | reach class | `loaded` → loaded, `fetched` → fetched, `not_loaded` → not_loaded, `truncated` and `error` → unknown |
 | `observation_method` | | `unknown` for every source: the thread vocabulary's method, since no runtime event, prompt capture or hook backs the probe |
 | `dokimi_method` | | `marker_self_report` for a source the probe recorded; null for a start-up file budget found and reach did not probe |
-| `states.accessed` | the harness's read events | `true` if the harness reported a read of the file (the Read tool; Codex and Copilot also report supported shell reads, §7); for a probed source `false` with tools off, else `unknown`; always `unknown` for a start-up file budget found and reach did not probe |
+| `states.accessed` | the harness's read events | `true` if the trace has a read event of the file, neither denied nor failed (a read tool, or a shell read §7 lists, under all three harnesses); for a probed source `false` with tools off, else `unknown`; always `unknown` for a start-up file budget found and reach did not probe |
 | `states.selected` | the class | `true` for loaded or fetched (the source entered the request, by the harness or a read), else `unknown` |
 | `states.loaded` | the class | `true` for loaded, `false` for not_loaded, `unknown` for fetched, truncated and error: a tool read is not proof that start-up loading did not happen |
 | `states.followed` | | always `unknown` (the schema's `const`) |
@@ -1302,9 +1329,23 @@ reported in a run, so it can support `loaded`, `fetched` and `not_loaded` as
 observations of that run. It cannot show:
 
 - that an instruction was followed (`followed` is always `unknown`);
-- a read through a shell that the harness does not normalise into a read
-  event (`cat`, `rg`, `grep` under Claude Code; Codex and Copilot normalise
-  only the shell commands §7 lists);
+- a shell read that the converter does not turn into a read event: under
+  Claude Code, Codex and Copilot alike, only the shell commands §7 lists are
+  read events, so `rg`, `grep` or a pipe stays unseen;
+- which directory a Claude Code subagent's Bash shell is in: the converter
+  assumes it shares the parent's, so a `cd` in either drops the later
+  relative reads of both (this only drops reads; no real trace was checked);
+- a `cd` inside a shell function the agent defined and then called: the call
+  is not followed, so a later relative read is taken from the directory
+  before it (an `eval`, `source` or `.` is taken as moving the shell). A
+  command the parser does not fully follow counts as moving the shell when
+  its command word, after `builtin`, `command` or `time` and their options
+  (and, after `time`, assignments: `time X=1 cd sub` runs the `cd` here),
+  names a directory builtin (`X="a b" cd "$D"`, `time -p cd sub`; not
+  `time git add .`), and so does one in a `case` arm. `time` is that
+  keyword only as the first word, unquoted (`X=1 time cd sub` and
+  `\time cd sub` run /usr/bin/time); the forms that only drop a read are listed in
+  [#374](https://github.com/intel/dokimi/issues/374);
 - when a source entered the request, or in what order (no timestamps);
 - start-up imports and skill listings from budget, which reach does not probe:
   they appear with `observed: unknown`. A skill body is loaded on demand, so it

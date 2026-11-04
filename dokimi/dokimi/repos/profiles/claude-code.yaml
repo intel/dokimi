@@ -28,6 +28,16 @@ invoke:
 tools:
   none: ["--tools", ""]
   read: ["--tools", "Read"]
+  # repo reach --scenarios bash: what a shell read of a nested file loads. The probe runs on the host,
+  # so a hook refuses every command but the one reach names (a hook that fails refuses it too).
+  bash:
+    - "--tools"
+    - "Bash"
+    - "--settings"
+    - >-
+      {"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command",
+      "command": "python3 -c 'import json, os, sys; sys.exit(json.load(sys.stdin)[\"tool_input\"][\"command\"]
+      != os.environ[\"DOKIMI_REACH_COMMAND\"])' || exit 2"}]}]}}
   all: ["--disallowedTools", "WebFetch", "WebSearch"]
   # repo skill-reach: with no tools Claude Code lists no skills, so only the Skill tool is left.
   skills: ["--tools", "Skill"]
