@@ -233,6 +233,15 @@ def test_the_same_path_in_two_documents_is_one_file():
     assert [o.line for o in ix.occurrences("a.py")] == [1, 2]
 
 
+def test_an_occurrence_repeated_across_two_documents_of_one_path_is_kept_once():
+    defn = occurrence([1, 2, 5], SYM, roles=1)
+    ref = occurrence([3, 0, 1], SYM)
+    ix = _index(index(document("a.py", (defn, ref)), document("a.py", (defn, ref))))
+    assert [o.line for o in ix.occurrences("a.py")] == [1, 3]
+    assert [(o.line, o.start_col) for o in ix.references(SYM)] == [(3, 0)]
+    assert len(ix.definitions("f")) == 1
+
+
 def test_files_are_sorted_whatever_the_document_order():
     assert _index(index(document("b.py"), document("a.py"))).files() == ("a.py", "b.py")
 

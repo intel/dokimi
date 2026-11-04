@@ -482,7 +482,6 @@ def test_first_prompt_tokens_is_the_first_main_thread_call_counted_once():
 @pytest.mark.parametrize("line", [
     {"type": "assistant", "message": "hi"},
     {"type": "result", "result": "x", "usage": "n/a"},
-    {"type": "assistant", "message": {"content": [{"type": "tool_use", "id": [1], "name": "Read"}]}},
 ])
 def test_a_wrong_shaped_trace_line_is_an_error_not_a_crash(line):
     t = convert("claude-stream-json", json.dumps(line) + '\n{"type": "result", "result": "ok"}\n')

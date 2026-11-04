@@ -83,13 +83,15 @@ self-judge; `arms run` does not check, so name
   times arms, or tasks times harnesses. One measured example: triage on a
   19k-token skill with a mid-size model was 103 calls, about $1.80; `study` on
   the same skill was 1,900 calls, about $14.50.
-- **At triage** with `--include-resources`, the 25-atom cap takes atoms in
-  document order, and the entry point comes first: the flag reaches
-  `references/` only if `SKILL.md` has fewer than 25 atoms, and the run's cap
-  warning prints how far it reached through the input, the entry point and the files the budgets selected (span,
-  spans and token share). For such skills,
-  use `--tier standard` (60 atoms), or add `--all-atoms` to the tier command for
-  a full sweep; run `--estimate-only` first, it costs more.
+- **At triage** with `--include-resources`, the 25-atom cap strides over the
+  concatenated atom list of the files the budgets selected, in file order, so
+  `references/` can be probed, but a file with few atoms may get no probe: with
+  one atom in each of 100 files, triage probes 25 of them. The run's cap warning
+  says how many of the input's atoms it probed. Extraction still reads every
+  file, so a large bundle costs more extraction calls than its 25 probes suggest.
+  `--tier standard` (60 atoms) spreads more probes without promising each file
+  one; add `--all-atoms` to the tier command to probe every extracted atom, and
+  run `--estimate-only` first, it costs more.
 - Step 5 needs evaluation content: a golden question set for 5a, executable
   tasks for 5b. `arms run` takes no tasks. That content lives outside this repository
   ([external-content.md](external-content.md)). Without it, the
@@ -104,7 +106,7 @@ The full path with reading notes: [skill-novelty-walkthrough.md](skill-novelty-w
 | 1. Do the paths, links and commands named in the guidance exist? | `dokimi repo scan <repo>` | free |
 | 2. Which guidance files does the harness actually load? | `dokimi repo reach <repo> --model <id> --dry-run`, then a few `--only <scenario>` with `--budget` | capped by `--budget` (default $0.10) per scenario; needs the `claude` binary and `ANTHROPIC_API_KEY`, or `AWS_BEARER_TOKEN_BEDROCK` with `AWS_REGION` and `CLAUDE_CODE_USE_BEDROCK` |
 | 3. What does the root guidance add? | `dokimi novelty analyze --artifact text:<repo>/AGENTS.md --tier triage …` | ~100 calls |
-| 4. Does the guidance change task outcomes? | `dokimi repo run <repo> --manifest-file … --model <id> --batch <name> --arm guidance:none,guidance:raw --agent-network host --budget <usd> --max-batch-usd <usd>` | needs the repository's own tasks, Docker, `claude` binary on PATH (or `--bin`); `--budget` defaults to $2.00 per agent run with no batch cap unless you pass `--max-batch-usd` |
+| 4. Does the guidance change task outcomes? | `dokimi repo run <repo> --manifest-file … --model <id> --batch <name> --arm guidance:none,guidance:raw --agent-network host --budget <usd> --max-batch-usd <usd>`; a replay batch passes `guidance:rev:<sha>` instead of `guidance:raw` (see Past review comments below) | needs the repository's own tasks, Docker, `claude` binary on PATH (or `--bin`); `--budget` defaults to $2.00 per agent run with no batch cap unless you pass `--max-batch-usd` |
 
 With no `repo-eval.yaml` in the repository, steps 1 and 2 check the default
 guidance globs (`<repo>/**/AGENTS.md`, `<repo>/**/CLAUDE.md`,
@@ -147,7 +149,8 @@ How to read the results:
   the docs is a finding. `reach` probes the tree as it is: with no
   `CLAUDE.md` in the tree, it does not show what one would turn off.
 - **Step 4:** without tasks there is no outcome measurement. The review
-  should say so rather than infer one from steps 1–3.
+  should say so rather than infer one from steps 1–3. A batch of replayed
+  reviews is read as [Reading a replay batch](#reading-a-replay-batch) says.
 
 A review also says which of its points come from reading rather than from a command:
 
@@ -161,11 +164,98 @@ A review also says which of its points come from reading rather than from a comm
   ([preparing-a-repository.md](preparing-a-repository.md#6-review-rules-learned-from-past-reviews)),
   while the count asks what the guidance would have caught. To measure it
   instead, replay the merged pull requests as `dokimi:review_replay` tasks
-  and compare `guidance:none` with `guidance:raw` in step 4.
+  and compare `guidance:none` with `guidance:rev:<sha>` of the guidance under
+  review (the PR's head, or `main`) in step 4. Not `guidance:raw`: each task
+  starts from its PR's base, so `raw` gives it the guidance of that time,
+  another set per task, or none before the guidance was added.
 - **A rule the review proposes:** read every file it names; that the name
   exists is not enough (a workflow that calls another one holds no matrix of
   its own). Check it against the existing guidance: a nested `AGENTS.md` may
   keep old code on purpose. Put what applies to one directory in that
   directory's file.
+- **A replacement line the review proposes** for a stale claim: check it the
+  way you checked the claim, every file and name it states, in every place it
+  speaks for (all the workflows, not the first one found).
+
+### Reading a replay batch
+
+A step 4 batch of `dokimi:review_replay` tasks is easy to over-read. Check
+these, in order, before writing what it showed (the fields:
+[§4.5](repo-evaluation-contract.md#45-built-in-graders) and
+[§9](repo-evaluation-contract.md#9-running) of the contract).
+
+- **Delivery first.** Say what the cells started with before crediting any
+  file. The `first_prompt_tokens` delta of `repo compare` is evidence, not
+  proof: a mean over tasks and cells of a total, it names no file. A delta the
+  size of the root file points at that file alone. Confirm with reach (step 2)
+  on a cell's start commit (`meta.json` `start_sha`: the task's base with its
+  arm applied; `guidance:rev:` writes each link as a plain file), with the
+  run's manifest (the cell has no `eval_dir`), the profile `meta.json`
+  `harness` names and a binary of its `harness_version`:
+  `dokimi repo reach <cell>/workspace@<start_sha> --manifest-file <manifest> --harness <harness> --bin <path> --model <id>`.
+  Reach on the checkout or on `<repo>@<sha>` (links kept, no base) checks
+  that tree, not the cells'. Where a credit turns on it, read the cells'
+  traces too. A nested `AGENTS.md` loads later if at all (reach's
+  `cwd=<dir>`, `read=<dir>` show what loads it). `process:guidance_read`
+  counts Read-tool reads only: 0 from an agent that used Bash is not "never
+  read"; look for a `cat` or `grep` of a guidance file in `events.jsonl` or
+  `agent.stdout`, or add a `process_metrics` counter. Name what was delivered
+  as what was tested ("the root `AGENTS.md`", not "the guidance").
+- **A leakage cut.** A task is out of sample for a guidance revision only when
+  no guidance commit in it could have been written from the task's review; a
+  split at the first guidance commit's date is not that cut. A
+  `guidance:rev:` cell's `meta.json` `arm_rev` lists them in
+  `guidance_commits`: flag the tasks whose `task.json` `public_at` comes
+  before a commit's `committed` date. Log by hand
+  where that record falls short (`guidance_commits_truncated` true, no
+  `public_at`, another arm, or a commit under a name or link target no
+  guidance glob matches: the record follows no rename and only the links at
+  `<rev>`): each guidance file on its own, through its renames,
+  `git log --follow -p --format='%h %cI %B' <rev> -- <path>`, each link with
+  the file it resolves to and each it pointed to before
+  (`git log -p -- <link>`); flag a task whose PR a commit names
+  (`task.json` `source_pr`) or whose `public_at` it follows. Flagged
+  tasks can inflate a gain or mask a loss on the others, so read a gain, a
+  null and a loss alike without them (`repo compare --task` on the rest).
+- **Inconclusive, with the `mde`.** A gate or score row whose interval
+  includes 0 is inconclusive, not "no effect". Quote the interval and the
+  note's `mde`, and say what the data rules out at both ends: a gain above the
+  interval's upper end and a loss below its lower end. A smaller `target` needs about `n_tasks * (mde / target)^2`
+  tasks. Where the note says no effect can reach p < 0.05 here, say that.
+  Where the interval includes 0 but `p_holm` is below 0.05, compare prints
+  the disagreement note instead, with no `mde`: read `p_holm` there.
+- **No suggestion rests on a descriptive p.** A replay is decided on the
+  `score` row, read at `p_holm`: the task's score is `recall`, over all its
+  threads. Cost, turns, `first_prompt_tokens`, every `--metric` row
+  (`n_findings`, `n_severe`, `recall_addressed`) and the `process` rows are
+  descriptive: their p is uncorrected and outside Holm's family (the line
+  under the comparison names those below 0.05). Report them as descriptions.
+  A suggestion to change the guidance needs the score row at `p_holm`, also
+  where its interval disagrees; one about a section or a rule needs an arm that removes or
+  changes it (a `guidance:rev:` of that edit). Without one, say the suggestion
+  comes from reading.
+- **Read the hits before citing one.** Replay credits a finding by place, not
+  content: the same file, within `window` lines of a thread, with no judge.
+  `dokimi repo report <batch> --hits` finds the pairs but cuts each comment
+  and finding to 100 characters (200 with `--json`): read each pair you cite
+  in full, the thread's `comment` in the task's `gold.json` (or at its `url`),
+  then the finding in the cell's `answer.txt`.
+  `dokimi repo hits judge <batch> --judge PROVIDER/MODEL` has a judge label
+  every credited pair (`same point`, `related` or `unrelated`) and gives
+  `recall_judged` ([§9](repo-evaluation-contract.md#9-running)). That figure
+  is uncalibrated until a person labels a sample (`repo hits sheet`, then
+  `--labels`) and `uncalibrated_rows` is empty: it narrows which pairs to
+  read, it does not replace reading the pairs you cite. Cite only pairs that make the
+  same point; say how many credited pairs you read and how many held. To
+  attribute a hit to a guidance rule, check that the rule is in a file the
+  cell started with or read (above): a finding's `rule` is the agent's own
+  label. A hit cited without attribution (a `guidance:none` one) needs none.
+- **Totals from command output.** Copy counts, costs and turns from
+  `repo report --json` (`total_cost_usd`, a row's `n`, `cost_usd`, `turns`),
+  `repo compare --json` (`n_tasks`, `delta`, `mde`) and `grade.json` `metrics`
+  (`n_threads`, `n_findings`, `n_severe`). A total no command prints, such as
+  the gold threads (`n_threads`, once per task), is summed by a script over
+  those files, not by hand. A range is the lowest and highest per-cell value
+  (`result.json` `agent.num_turns`), not of row means.
 
 The contract a repository codes against: [repo-evaluation-contract.md](repo-evaluation-contract.md).

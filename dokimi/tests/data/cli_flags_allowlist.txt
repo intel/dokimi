@@ -79,6 +79,7 @@
 --hits  # repo report replay hits (#297) adds it: a view switch has no registry concept yet
 --image
 --include-disabled  # novelty routing (#172) adds it: no registry concept yet; a F1b migration names it
+--include-invalid  # novelty routing: keeps a skill with a spec error in the field; no registry concept yet
 --include-resources
 --input
 --intents
@@ -93,6 +94,7 @@
 --judges
 --keep
 --kind
+--labels  # repo hits judge (#291) adds it: a person's labels have no registry concept yet; a F1b migration names it
 --large-bytes
 --lexical-only
 --libraries
@@ -106,20 +108,24 @@
 --max-atoms
 --max-bases
 --max-batch-usd
+--max-context-drop  # baseline compare score tolerance in points, not a spend cap; moves to the gate policy (#94)
 --max-cost-usd
 --max-file-words
 --max-iterations
+--max-lift-drop  # baseline compare score tolerance in points, not a spend cap; moves to the gate policy (#94)
 --max-resource-words
 --max-tokens
 --max-turns
 --metric
 --min-accuracy
+--min-matched  # baseline compare gate: no registry concept yet; moves to the gate policy (#94)
 --mode
 --multi-run
 --no-classify
 --no-confirm-carriers
 --no-json
 --no-judge
+--no-known-positive  # catalog trigger-probe known-positive guard: no registry concept yet
 --no-paraphrase
 --no-plugin-deltas
 --no-recursive
@@ -139,6 +145,7 @@
 --pairwise
 --pass-k  # repo compare (#155) adds it: no registry concept yet; a F1b migration names it
 --path-stability  # repo compare (#155) adds it: no registry concept yet; a F1b migration names it
+--per-arm  # repo hits sheet (#291) adds it: a sample size has no registry concept yet; a F1b migration names it
 --personas
 --personas-count
 --placebo-text
@@ -223,5 +230,8 @@
 --work-output-dir
 --work-repeats
 -o
+--ceiling  # eval headroom (#279) adds it: no registry concept yet; a F1b migration names it
+--floor  # eval headroom (#279) adds it: no registry concept yet; a F1b migration names it
+--min-reps  # eval headroom (#279) adds it: no registry concept yet; a F1b migration names it
 --graph  # eval coverage: the frozen need graph input, a file no registry concept names yet (#331)
 --min  # eval coverage gate floor, [METRIC=]X like --timeout [PHASE=]SEC (#331)

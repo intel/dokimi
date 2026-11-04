@@ -65,7 +65,7 @@ validate-benchmark-spec:
 # added to CI is picked up here). The lock goes first: ci_local.py needs PyYAML.
 dev:
 	uv venv --python $(PYTHON_VERSION) --seed --allow-existing $(VENV_ABS)
-	uv pip install --python $(VPY) -r requirements.lock.txt
+	uv pip install --python $(VPY) --no-deps -r requirements.lock.txt
 	uv pip install --python $(VPY) $$($(VPY) scripts/ci_local.py tools)
 
 # Every step of the PR workflows, in file order, from each step's own cwd. It

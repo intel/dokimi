@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Any
 
-from .budget import _imports, _target
+from .budget import CLAUDE_ROOT, _imports, _target
 from .reach import PROSE_LIMIT, ReachError
 from .source import RepoTree
 
@@ -29,8 +29,6 @@ UNKNOWN = "unknown"
 OBSERVATION_METHOD = UNKNOWN
 # dokimi's own method: the model reports the marker tokens it can see; the request itself is not captured.
 DOKIMI_METHOD = "marker_self_report"
-# Root-level files that turn AGENTS.md off in Claude Code (budget.py): the displacing set.
-CLAUDE_ROOT = ("CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md")
 ROOT_NESTED = (".claude/CLAUDE.md", ".claude/AGENTS.md")  # project memory in .claude/ applies repo-wide
 SUBTREE_NAMES = ("AGENTS.md", "CLAUDE.md", "CLAUDE.local.md")
 _STATE: dict[str | None, str] = {"loaded": "loaded", "fetched": "fetched", "not_loaded": "not_loaded"}
@@ -53,7 +51,8 @@ class _Run:
 
 
 def build_receipt(reach: dict[str, Any], budget: dict[str, Any], tree: RepoTree) -> dict[str, Any]:
-    """The ``effective_instructions.v1`` artifact: one ``effective-instructions/v0`` receipt per reach scenario."""
+    """The ``effective_instructions.v1`` artifact: one ``effective-instructions/v0`` receipt per reach scenario, the
+    shadow scenarios left out."""
     harness = reach["harness"]
     rules = harness["name"] == "claude-code"  # budget's start-up rules are Claude Code's
     when_of = _budget_when(reach, budget) if rules else {}
@@ -64,6 +63,8 @@ def build_receipt(reach: dict[str, Any], budget: dict[str, Any], tree: RepoTree)
     runtime = {"name": harness["name"], "version": harness["version"]}
     receipts = []
     for row in reach["scenarios"]:
+        if row.get("shadow"):  # run with a file the tree lacks: the receipt describes the tree as committed
+            continue
         run = _Run(row, records, when_of, own, digests, _workdir(row), rules)
         receipts.append(_receipt(reach, run, runtime, start_up))
     return {
