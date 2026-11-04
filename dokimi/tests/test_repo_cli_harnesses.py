@@ -197,7 +197,9 @@ def test_convert_answer_without_a_finding_or_a_clean_verdict_gets_no_block(messa
 
 
 @pytest.mark.parametrize("answer", ["I did not find any issues in this change.", "Looks good to me.",
-                                    "I found no bugs.", "Checked the diff. No regressions."])
+                                    "I found no bugs.", "Checked the diff. No regressions.",
+                                    "I couldn't spot any bugs.", "I see no issues in the diff.",
+                                    "The diff looks good.", "No issues with the patch."])
 def test_convert_answer_a_clean_verdict_gets_an_empty_block(answer):
     assert _block(convert_answer("codex-review", answer, "/w")) == []
 
