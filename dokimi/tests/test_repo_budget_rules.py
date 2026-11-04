@@ -91,7 +91,7 @@ def test_a_root_rule_linked_to_an_off_agents_md_loads_it_at_start(tmp_path):
         (tmp_path / ".claude/rules/agents.md").symlink_to(tmp_path / "AGENTS.md")
     except OSError:
         pytest.skip("symlinks unavailable")
-    payload = budget(WorkTree(tmp_path), NAMES, rules=True)
+    payload = budget(WorkTree(tmp_path), NAMES, rules=True, claude_displaces_agents=True)
     assert _by_path(payload)[("AGENTS.md", "guidance")]["when"] == "start"
     assert not [e for e in payload["entries"] if e["when"] == "off"]
     assert payload["warnings"] == []
@@ -375,7 +375,7 @@ def test_a_root_rule_linked_to_an_off_agents_md_is_charged_its_body(tmp_path):
         (tmp_path / ".claude/rules/agents.md").symlink_to(tmp_path / "AGENTS.md")
     except OSError:
         pytest.skip("symlinks unavailable")
-    payload = budget(WorkTree(tmp_path), NAMES, rules=True)
+    payload = budget(WorkTree(tmp_path), NAMES, rules=True, claude_displaces_agents=True)
     assert _by_path(payload)[("AGENTS.md", "guidance")] == {
         "path": "AGENTS.md", "kind": "guidance", "when": "start", "chars": len("agents\n")}
     assert payload["totals"]["start"] == len("claude\n") + len("agents\n")
@@ -608,7 +608,7 @@ def test_a_scoped_rule_alias_of_agents_md_does_not_suppress_a_cut_import(tmp_pat
     except OSError:
         pytest.skip("symlinks unavailable")
 
-    payload = budget(tree, NAMES, import_max_depth=4, rules=True)
+    payload = budget(tree, NAMES, import_max_depth=4, rules=True, claude_displaces_agents=True)
 
     assert _by_path(payload)[("AGENTS.md", "guidance")]["when"] == "lazy"
     assert any("c4.md: import of AGENTS.md is past" in w for w in payload["warnings"])
@@ -623,7 +623,7 @@ def test_an_off_agents_md_reached_only_through_a_rule_link_is_charged_its_body(t
     except OSError:
         pytest.skip("symlinks unavailable")
 
-    payload = budget(tree, NAMES, rules=True)
+    payload = budget(tree, NAMES, rules=True, claude_displaces_agents=True)
 
     assert _by_path(payload)[("AGENTS.md", "guidance")] == {
         "path": "AGENTS.md", "kind": "guidance", "when": "start", "chars": len("agents\n")}
@@ -770,7 +770,7 @@ def test_the_receipt_budget_reads_rules_as_repo_budget_does(tmp_path, monkeypatc
     monkeypatch.setattr(receipt_module, "build_receipt", fake_build_receipt)
     monkeypatch.setattr("dokimi.artifacts.save_artifact", lambda name, data, path: {"path": str(path)})
     profile = SimpleNamespace(guidance_names=NAMES, import_max_depth=None, reads_claude_rules=True,
-                                 claude_displaces_agents=False)
+                                 claude_displaces_agents=True, follows_imports=True)
 
     repo_cmd._print_receipt(WorkTree(tmp_path), profile, {}, tmp_path)
 

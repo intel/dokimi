@@ -1,7 +1,8 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""`repo budget`: a nested AGENTS.md turned off by a CLAUDE* file in its own directory (Claude Code 2.1.316)."""
+"""`repo budget`: a nested AGENTS.md turned off by a CLAUDE* file in its own directory (Claude Code 2.1.316), and
+which profiles get Claude Code's rules."""
 
 from __future__ import annotations
 
@@ -50,6 +51,44 @@ def test_a_copilot_budget_keeps_a_nested_agents_md_beside_a_claude_md_lazy(tmp_p
     _tree(tmp_path, {"AGENTS.md": "a", "sub/AGENTS.md": "b" * 7, "sub/CLAUDE.md": "c"})
     assert _cli_when(tmp_path, capsys, harness) == {
         "AGENTS.md": "start", "sub/AGENTS.md": "lazy", "sub/CLAUDE.md": "lazy"}
+
+
+@pytest.mark.parametrize("harness", ["copilot", "copilot-review"])
+@pytest.mark.parametrize("root", ["CLAUDE.md", ".claude/CLAUDE.md"])
+def test_a_copilot_budget_reads_a_root_agents_md_beside_a_root_claude_md(tmp_path, capsys, harness, root):
+    """Copilot CLI 1.0.91 applied both (copilot.yaml's notes): the root rule is Claude Code's, not applied."""
+    _tree(tmp_path, {"AGENTS.md": "a", "sub/AGENTS.md": "b", root: "c"})
+    args = build_parser().parse_args(["repo", "budget", str(tmp_path), "--json", "--harness", harness])
+    args.func(args)
+    got = json.loads(capsys.readouterr().out)
+    assert _when(got) == {"AGENTS.md": "start", "sub/AGENTS.md": "lazy", root: "start"}
+    assert got["totals"]["off"] == 0 and not any("turns AGENTS.md loading off" in w for w in got["warnings"])
+
+
+@pytest.mark.parametrize("harness", ["copilot", "copilot-review"])
+@pytest.mark.parametrize("files", [{"AGENTS.md": "@x.md"}, {"AGENTS.md": "@x.md", "CLAUDE.md": "c"},
+                                   {"CLAUDE.md": "@x.md"}])
+def test_a_copilot_budget_follows_no_import(tmp_path, capsys, harness, files):
+    """copilot.yaml declares guidance.imports: null (Copilot CLI 1.0.91): what a guidance file @-imports is not counted."""
+    _tree(tmp_path, {**files, "x.md": "x"})
+    assert "x.md" not in _cli_when(tmp_path, capsys, harness)
+
+
+@pytest.mark.parametrize("importer", ["AGENTS.md", "CLAUDE.md"])
+def test_the_claude_code_budget_follows_an_import(tmp_path, capsys, importer):
+    _tree(tmp_path, {importer: "@x.md", "x.md": "x"})
+    assert _cli_when(tmp_path, capsys, "claude-code")["x.md"] == "start"
+
+
+def test_the_claude_code_budget_turns_every_agents_md_off_beside_a_root_claude_md(tmp_path, capsys):
+    _tree(tmp_path, {"AGENTS.md": "a", "sub/AGENTS.md": "b", "CLAUDE.md": "c"})
+    assert _cli_when(tmp_path, capsys, "claude-code") == {"AGENTS.md": "off", "sub/AGENTS.md": "off", "CLAUDE.md": "start"}
+
+
+def test_without_the_profile_flag_a_root_claude_md_turns_no_agents_md_off(tmp_path):
+    """budget's default is no profile's rules: an AGENTS.md and its imports load as the tree places them."""
+    got = budget(_tree(tmp_path, {"AGENTS.md": "@x.md", "x.md": "x", "CLAUDE.local.md": "c"}), NAMES)
+    assert _when(got) == {"AGENTS.md": "start", "CLAUDE.local.md": "start", "x.md": "start"}
 
 
 def test_the_claude_code_budget_turns_a_nested_agents_md_beside_a_claude_md_off(tmp_path, capsys):

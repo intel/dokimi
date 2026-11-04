@@ -295,7 +295,7 @@ next release.
   guidance and what nested CLAUDE.md and AGENTS.md files import load lazily;
   skill bodies on demand; with a CLAUDE.md, `.claude/CLAUDE.md` or `CLAUDE.local.md` at the root, an
   AGENTS.md no CLAUDE.md imports is reported off, and so is a nested one no CLAUDE.md imports whose own
-  directory holds one of those files (one in a parent below the root does not count; only with a profile that sets `guidance.claude_displaces_agents`, as `claude-code` does). A skill with no description is listed by its first
+  directory holds one of those files (one in a parent below the root does not count). Both rules hold only with a profile that sets `guidance.claude_displaces_agents`, as `claude-code` does. Imports are followed only with a profile that declares `guidance.imports` (`claude-code`; it is null for `codex` and `copilot`). A skill with no description is listed by its first
   non-empty body line, as Claude Code does. It warns on skills with no description or body text,
   skills with near-duplicate descriptions (identical descriptions, or Jaccard index >= 0.5
   after stop-word removal when both have 3+ words left), on AGENTS.md files turned off, on
@@ -346,6 +346,12 @@ next release.
   `repo run` (one agent per task × arm × model × rep cell, then `grade`, one
   `result.json` per cell) and `repo report` (gated success with a Wilson
   interval, grader failures, missing cells, cost).
+- `dokimi/repos/hits_judge.py` + `dokimi/repos/hits_calibration.py` —
+  `repo hits judge`: a judge model labels each credited pair of the replay
+  cells with their full texts, and each cell gets `hits_judged.json`
+  (`repo_hits_judged.v1`, `recall_judged`); `repo hits sheet` samples pairs
+  for a person, and the labels give agreement and Cohen's kappa per arm and
+  answer model.
 - `dokimi/repos/compare.py` — `repo compare`: treatment arms against a
   baseline arm over one or more batches, one value per task and arm (gate
   share, score, cost, turns, chosen `grade.json` metrics, `result.json`
@@ -355,7 +361,7 @@ next release.
   what its `--task` selection keeps; `dokimi/repos/compare_reach.py` how small
   an effect a row can find (`mde`, an uncorrected t-based estimate, and the
   lowest `p_holm` Holm's family leaves it).
-- `dokimi/repos/selfcheck.py` — `repo tasks check`: on each task
+- `dokimi/repos/selfcheck.py` — `eval check`: on each task
   `grade` must fail the untouched workspace and pass it after `oracle`, and an
   isolation probe must not see the tasks or the source from the agent's
   container.
@@ -365,7 +371,7 @@ next release.
   `addressed` from the PR's own later commits), read with git and no GitHub
   call. It is the one command that writes into a repository's tasks directory.
 
-Entry points: `python cli.py repo {validate,scan,fetch,reach,budget,tasks check,tasks replay,run,report}`
+Entry points: `python cli.py repo {validate,scan,fetch,reach,budget,tasks replay,run,report}`
 (`python cli.py repo --help` is the current list). The interface a repository
 codes against is [repo-evaluation-contract.md](repo-evaluation-contract.md),
 still marked PROPOSED: the per-host egress proxy (§2) is not implemented, so
@@ -428,6 +434,10 @@ Guide: [run-consistency.md](run-consistency.md).
   decides who owns each pipe, so an interrupted launch closes its streams exactly once
   and Windows reader threads close theirs at EOF. `FakeRunner` is its test adapter: code that spawns
   takes a `runner` argument.
+- Bad input: a library loader raises `dokimi.utils.InputError`, naming the file, and
+  never ends the process. `cli.main` prints `Error: <message>` and exits 2; exit 1 stays
+  the verdict of a gate. `tests/test_import_architecture.py` allows an exit only in the
+  frontend.
 - `dokimi/llm.py` — the entry point for LLM calls. `LLM` (one model at one provider:
   `complete`/`ask`/`chat`, retry, the response cache, usage) sits on one
   adapter seam: `LiteLLMAdapter` in production, `FakeAdapter` in tests (the
@@ -476,7 +486,7 @@ runs `pip check` and the installed-package smoke test,
 **`ci.yml`** — fast code checks:
 
 1. **static** — the checks that need no lock install, as steps of one job:
-   `ruff check .`, zizmor on the workflows, the license headers, the pre-commit
+   `ruff check .`, zizmor on the workflows and actions, the license headers, the pre-commit
    hooks and bandit (pip-audit is its own workflow, `pip-audit.yml`). Schema checks: `schema_check` validates
    `benchmarks/spec.v1.yaml`; `config_check` checks `products.yaml`/`intents.yaml`/
    `dokimi/config/products.yaml` drift. The `guidance self-scan (L0)` step runs

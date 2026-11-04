@@ -53,6 +53,7 @@ class HarnessProfile:
     egress: tuple[str, ...] = ()
     endpoint_env: str | None = None
     guidance: dict[str, Any] = field(default_factory=dict)
+    skills: dict[str, Any] = field(default_factory=dict)  # declared skill dirs; verified only by `repo skill-reach`
     bridge: dict[str, str] | None = None
     prompt_suffix: str = ""
     config_files: dict[str, str] = field(default_factory=dict)
@@ -80,8 +81,20 @@ class HarnessProfile:
         return bool(self.guidance.get("claude_rules"))
 
     @property
+    def follows_imports(self) -> bool:
+        """The harness declares an ``@`` import syntax (``guidance.imports`` not null); budget follows imports only then."""
+        return self.guidance.get("imports") is not None
+
+    @property
+    def shadow_file(self) -> str | None:
+        """A file the harness loads by convention that turns the other guidance of its directory off
+        (``guidance.shadow_file``); ``repo reach --scenarios shadow`` writes it. None: the profile declares none."""
+        name = self.guidance.get("shadow_file")
+        return str(name) if name else None
+
+    @property
     def claude_displaces_agents(self) -> bool:
-        """A CLAUDE* file turns off the AGENTS.md in its own directory (``guidance.claude_displaces_agents``)."""
+        """A root CLAUDE* turns every AGENTS.md off, a nested one its own directory's (``guidance.claude_displaces_agents``)."""
         return self.guidance.get("claude_displaces_agents") is True
 
     def applied_args(self, tools: str, present: frozenset[str]) -> list[str]:
@@ -260,6 +273,7 @@ def parse_profile(raw: Any, path: str = "<profile>") -> HarnessProfile:
         egress=tuple(raw.get("egress") or ()),
         endpoint_env=raw.get("endpoint_env"),
         guidance=dict(raw.get("guidance") or {}),
+        skills=dict(raw.get("skills") or {}),
         bridge=raw.get("bridge"),
         prompt_suffix=raw.get("prompt_suffix") or "",
         config_files=dict(raw.get("config_files") or {}),

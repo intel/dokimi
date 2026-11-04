@@ -49,7 +49,7 @@ The package exposes a console entry point:
 dokimi --help           # equivalent to `python -m dokimi`
 ```
 
-Optional feature sets are available as extras: `ragas` (`eval ragas`, which
+Optional feature sets are available as extras: `ragas` (`eval score ragas`, which
 `dev` includes), `ocr` (Docling ingestion), `mcp`, and `embeddings`. Install
 what you need, e.g. `pip install -e ".[dev,ocr]"`.
 
@@ -113,7 +113,7 @@ CI additionally holds a PR to:
   [traceability](docs/user-journeys/traceability.md#what-the-check-enforces).
 - **Docs build** — `mkdocs build --strict`, from `dokimi/`. `make dev` already
   installs its packages and `make ci-local` runs it; by hand, install them with
-  `pip install -r requirements.lock.txt -r requirements-docs.lock.txt`. It fails on
+  `pip install --no-deps -r requirements.lock.txt -r requirements-docs.lock.txt`. It fails on
   a link or `#anchor` between pages that does not resolve, on a link into the
   source tree whose file does not exist (an anchor into such a file is not
   checked), and on a list that nests differently on the site than on GitHub
@@ -128,8 +128,8 @@ CI additionally holds a PR to:
   nothing imports is dropped; the `dev` extra's tools are never imported by the
   package. A dependency that is declared only to cap a transitive version gets a
   `per_rule_ignores` entry with the reason.
-- **Workflow lint** — `zizmor --offline --min-severity medium .github/workflows` when you
-  edit a workflow.
+- **Workflow lint** — `zizmor --offline --min-severity medium .github/workflows actions`
+  (from the repo root) when you edit a workflow or a composite action.
 - **Changelog fragment** — a PR that changes the package (`dokimi/`) adds one to
   `changelog.d/` (`scriv create`) instead of editing `CHANGELOG.md`; see
   [changelog.d/README.md](changelog.d/README.md). A change with no user-visible
@@ -142,7 +142,7 @@ CI additionally holds a PR to:
 
 **pre-commit.** `.pre-commit-config.yaml` at the repo root runs the fast
 offline checks on the files a commit stages: `ruff check` (the version and
-config CI uses), zizmor on the workflows, YAML/JSON/TOML syntax, conflict
+config CI uses), zizmor on the workflows and actions, YAML/JSON/TOML syntax, conflict
 markers, files over 500 KB, and gitleaks on the staged changes (the
 `Scan commits` step in `ci.yml`'s `static` job scans a PR's commits the same way). From the repo root:
 
@@ -180,7 +180,10 @@ PyPI. The mutation workflow adds mutmut's closure
 nothing else installs, and pip-audit audits with the others. When you change a range in
 `requirements*.txt`, regenerate the lock with the command in its header: run it
 from `dokimi/`, and add `--upgrade` to pick up new versions (without it, uv
-keeps the current pins). The command's `--exclude-newer=P7D` skips releases
+keeps the current pins). The main and tools lock headers pass
+`--override=requirements-overrides.txt`, which keeps filelock at 4.2.1 or later
+against litellm's declared cap, and so every install of `requirements.lock.txt`
+passes `--no-deps` (`SECURITY.md` says why). The command's `--exclude-newer=P7D` skips releases
 less than 7 days old; if a security fix is newer than that, its vulnerability PR
 fails to resolve, so regenerate the lock by hand without the flag. The docs lock
 and the tools locks (`requirements-ci.lock.txt`, `requirements-mutation.lock.txt`) are constrained to the main one,
@@ -193,8 +196,8 @@ major, a monthly lock refresh, and security fixes as soon as an advisory
 appears. A pre-commit hook rev and the tool's pin in `requirements-ci.txt` (the
 tools lock CI and `.agent-eval/Dockerfile` install) come in one PR of their own
 for ruff and zizmor, with ruff's pin in the dev extra too; gitleaks in
-the gitleaks pin in `ci.yml` follows the same rule. Renovate does not update
-`requirements-docs.lock.txt` yet; pip-audit in CI still audits it.
+the gitleaks pin in `ci.yml` follows the same rule. Renovate refreshes
+`requirements-docs.lock.txt` with the other locks; pip-audit in CI audits it too.
 
 Guidelines:
 

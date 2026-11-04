@@ -54,7 +54,7 @@ def test_the_command_exits_2_before_any_judge_call_for_an_undecidable_gate(tmp_p
     answers = tmp_path / "a.json"
     answers.write_text(json.dumps({"answers": []}), encoding="utf-8")
     args = build_parser().parse_args(
-        ["eval", "judge-validity", "--answers", str(answers), "--sequential", "--min-accuracy", "0.99"]
+        ["eval", "judge", "validate", "--answers", str(answers), "--sequential", "--min-accuracy", "0.99"]
     )
     with pytest.raises(SystemExit) as exc:
         args.func(args)

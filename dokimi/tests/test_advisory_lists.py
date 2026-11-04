@@ -24,7 +24,7 @@ ADVISORY_ID = r"PYSEC-\d{4}-\d+|GHSA(?:-[0-9a-z]{4}){3}"
 
 def _osv_ids() -> set[str]:
     data = tomllib.loads(OSV_CONFIG.read_text(encoding="utf-8"))
-    return {entry["id"] for entry in data["IgnoredVulns"]}
+    return {entry["id"] for entry in data.get("IgnoredVulns", [])}
 
 
 def _pip_audit_ids() -> set[str]:
@@ -37,9 +37,9 @@ def _pip_audit_ids() -> set[str]:
 
 
 def _dependency_review_ids() -> set[str]:
+    """No allow-ghsas line means none allowed."""
     match = re.search(r"allow-ghsas:\s*(.+)", DEPENDENCY_REVIEW.read_text(encoding="utf-8"))
-    assert match, "dependency-review.yml has no allow-ghsas line"
-    return {i.strip() for i in match.group(1).split(",")}
+    return {i.strip() for i in match.group(1).split(",")} if match else set()
 
 
 def test_osv_and_pip_audit_ignore_the_same_ids():
@@ -77,11 +77,15 @@ def test_security_documents_every_ignored_id():
     )
 
 
+NO_LOCK_ADVISORY = "`requirements-mutation.lock.txt`) reports no advisory."
+
+
 def _lock_advisory_list() -> str:
     """The list after "pip-audit against the locks ... reports these advisories": the locks' ones."""
-    _, found, after = SECURITY.read_text(encoding="utf-8").partition(
-        "fix the locks can take:\n\n"
-    )
+    text = SECURITY.read_text(encoding="utf-8")
+    if NO_LOCK_ADVISORY in text:
+        return ""
+    _, found, after = text.partition("fix the locks can take:\n\n")
     assert found, "SECURITY.md no longer introduces the list of advisories in the locks"
     return after.split("\n\n", 1)[0]
 
@@ -91,6 +95,14 @@ def test_security_lists_no_advisory_the_lists_stopped_ignoring():
     listed = set(re.findall(ADVISORY_ID, _lock_advisory_list()))
     stale = sorted(listed - _osv_ids())
     assert not stale, f"SECURITY.md lists advisories no list ignores: {stale}"
+
+
+def test_security_says_no_lock_advisory_exactly_when_no_list_ignores_one():
+    """A list that ignores an ID while SECURITY.md says the locks have none hides that advisory."""
+    says_none = NO_LOCK_ADVISORY in SECURITY.read_text(encoding="utf-8")
+    assert says_none == (not _osv_ids()), (
+        f"SECURITY.md says the locks have no advisory: {says_none}; ignored: {sorted(_osv_ids())}"
+    )
 
 
 def test_hypothesis_example_database_is_git_ignored():

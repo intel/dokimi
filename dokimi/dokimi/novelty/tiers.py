@@ -34,8 +34,6 @@ FORFEITS: dict[str, list[str]] = {
         "`added` is a rate over the sample of extracted atoms the cap kept, not over every "
         "atom: usable as a sign, not as a figure, and not comparable with another "
         "artifact's; pass --all-atoms for the full sweep",
-        "`frac_carrying_nothing` is not interpretable on a capped atom set (0.064 read "
-        "as 0.743 on the study's largest artifact)",
     ],
     "verify_faithfulness": [
         "atoms are not checked against the spans they were extracted from, so "
@@ -75,7 +73,8 @@ def forfeits(settings: dict, *, sampled: bool | None = None) -> list[str]:
     if capped and settings.get("shorten_artifact"):
         out.append(
             f"shortening candidates are scored against a spread sample of {cap} of the "
-            "extracted atoms: a cut of a span with no sampled atom looks free"
+            "extracted atoms: `knowledge` and `value` are retention of that sample, not of "
+            "every atom, though the sole carriers a safe candidate keeps come from every atom"
         )
     for setting, lines in FORFEITS.items():
         if setting != "sampled" and not settings.get(setting):

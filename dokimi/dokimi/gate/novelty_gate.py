@@ -184,8 +184,8 @@ def _conflict_reading(artifact: dict, cfg: dict[str, Any]) -> tuple[int, int, bo
     has_coverage = "conflict_coverage" in artifact
     coverage = _pair_coverage(artifact.get("conflict_coverage"))
     compared, total = coverage or (0, 0)
-    spans = artifact.get("spans", {}) or {}
-    capped = bool(spans.get("capped_atom_set"))
+    sample = _conflict_sample(artifact)
+    capped = sample is not None
     if has_coverage and coverage is None:
         reason: str | None = "the conflict_coverage record is malformed, so a count of 0 is not a cleared check"
     elif coverage is not None and (compared / total if total else 1.0) < cfg["min_conflict_coverage"]:
@@ -194,13 +194,28 @@ def _conflict_reading(artifact: dict, cfg: dict[str, Any]) -> tuple[int, int, bo
             f"{cfg['min_conflict_coverage']:.0%} of pairs), so a count of 0 is not a cleared check"
         )
     elif capped:
-        reason = (
-            f"the atom set was capped ({spans.get('n_atoms_indexed')} indexed), so 0 conflicts "
-            "among the capped atoms is not a cleared check of the artifact"
-        )
+        reason = f"{sample} is not a cleared check of the artifact"
     else:
         reason = None
     return compared, total, capped, reason
+
+
+def _conflict_sample(artifact: dict) -> str | None:
+    """What the conflict check compared when it saw a sample of the atoms, up to "so 0 conflicts
+    among ..."; ``None`` when it saw every atom.
+
+    A run indexes every extracted atom since #371, so ``spans.capped_atom_set`` is false on a
+    capped run, but its conflict check still sees the cap's sample (``extraction.sampled``).
+    """
+    spans = artifact.get("spans", {}) or {}
+    if spans.get("capped_atom_set"):
+        return (f"the atom set was capped ({spans.get('n_atoms_indexed')} indexed), so 0 conflicts "
+                "among the capped atoms")
+    sampled = (artifact.get("extraction") or {}).get("sampled")
+    if not isinstance(sampled, dict) or not sampled:
+        return None
+    return (f"the conflict check compared the cap's sample of {sampled.get('atoms')} of the "
+            f"{sampled.get('of')} extracted atoms, so 0 conflicts among them")
 
 
 def uncleared_conflicts(artifact: dict, thresholds: dict[str, Any] | None = None) -> str | None:
@@ -275,7 +290,7 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
     if measured and compared < total:
         message += f"; {compared} of {total} atom pairs were compared"
     if measured and capped:
-        message += "; the atom set was capped, so this is a lower bound"
+        message += "; only the cap's sample of the atoms was compared, so this is a lower bound"
     if degraded is not None:
         message += f"; strict `degraded` {degraded:.3f}"
     if measured:

@@ -1,6 +1,6 @@
 ### Fixed
 
-- **`eval cross-judge` exits 2 on a `--pairwise` or `--checklist` entry of the wrong shape,
+- **`eval judge agreement` exits 2 on a `--pairwise` or `--checklist` entry of the wrong shape,
   before any judge call** — a verdict whose `score` is not a finite number (missing, null,
   a string, a bool, NaN, infinite or past a float's range), an arm that is not an object of
   verdicts, or a checklist question without a `question_id` (or with a null or bool one),

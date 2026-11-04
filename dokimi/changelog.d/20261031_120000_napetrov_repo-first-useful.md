@@ -14,7 +14,7 @@
   the share of the cells with a verdict that observed a hit as `first_useful_rate` (`unobserved` and `timeout`
   cells are unmeasured: neither a hit nor a miss); its header counts observed of measured cells per arm and
   how many are unmeasured.
-  A malformed `useful` is refused by `repo validate`, `repo tasks check` and `repo run`.
+  A malformed `useful` is refused by `repo validate`, `eval check` and `repo run`.
   Batches run before this change have no `first_useful` and no such rows.
 - A Codex `file_change` record whose `changes` has a malformed entry (not an object, or no path), or is a
   non-list value other than `null`, is one dropped line, as the other malformed records are. The whole record is dropped: its valid

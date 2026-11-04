@@ -1,0 +1,22 @@
+{
+  "schema": "reach_conformance.v1",
+  "cases": {
+    "nested-agents": {
+      "summary": "A root AGENTS.md and a packages/app/AGENTS.md below it.",
+      "codex": {
+        "why": "Codex walks from the git root down to cwd, one file per directory.",
+        "files": {
+          "AGENTS.md": {"cwd=.": "loaded", "cwd=packages/app": "loaded"},
+          "packages/app/AGENTS.md": {"cwd=.": "not_loaded", "cwd=packages/app": "loaded"}
+        }
+      }
+    },
+    "large-file": {
+      "summary": "A root AGENTS.md above the size cap.",
+      "claude-code": {
+        "why": "No size limit is documented.",
+        "files": {}
+      }
+    }
+  }
+}

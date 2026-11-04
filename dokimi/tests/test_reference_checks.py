@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Tests for the reference-check grader (``dokimi.eval.reference_checks``), ``eval reference``
+"""Tests for the reference-check grader (``dokimi.eval.reference_checks``), ``eval score reference``
 (``dokimi.eval.reference_run``) and native-log import (``task_formats.imports.native_logs``).
 
 Native semantics are the upstream ones the importers cite: Inspect ``match_str`` / ``exact`` /
@@ -14,10 +14,13 @@ from __future__ import annotations
 
 import json
 import time
+from types import SimpleNamespace
 
 import pytest
+import regex
 
 from dokimi.artifacts import save_artifact
+from dokimi.eval import reference_checks
 from dokimi.eval.checklist import ASK_COVERED
 from dokimi.eval.reference_checks import (
     REGEX_TIMEOUT, chosen_letters, grade, match_text, parse_json, validate_grading,
@@ -189,11 +192,26 @@ def test_an_all_mode_regex_is_not_settled_by_its_first_match():
     assert _one({"type": "regex", "values": ["a", "zzz"], "mode": "all"}, "a").passed is False
 
 
-def test_the_regex_limit_is_shared_by_every_pattern_of_one_check():
-    started = time.monotonic()
-    g = _one({"type": "regex", "values": ["(a|aa)+$", "(a|aa)+$"]}, "a" * 40 + "!")
+def test_the_regex_limit_is_shared_by_every_pattern_of_one_check(monkeypatch):
+    # One budget per check: a fake clock charges each search 0.6x the limit, so the second
+    # pattern has only 0.4x left and times out (a per-pattern budget would let it finish).
+    now = [0.0]
+    monkeypatch.setattr(reference_checks, "time", SimpleNamespace(monotonic=lambda: now[0]))
+    searched = []
+
+    def search(pattern, string, flags=0, timeout=None):
+        searched.append(pattern)
+        cost = 0.6 * REGEX_TIMEOUT
+        if cost > timeout:
+            now[0] += timeout
+            raise TimeoutError("regex search ran past its timeout")
+        now[0] += cost
+        return object()  # a match
+
+    monkeypatch.setattr(regex, "search", search)
+    g = _one({"type": "regex", "values": ["p1", "p2"], "mode": "all"}, "answer")
     assert g.checks[0].passed is None
-    assert time.monotonic() - started < 1.5 * REGEX_TIMEOUT
+    assert searched == ["p1", "p2"]
 
 
 def test_a_question_with_one_failing_check_fails_without_a_threshold():
@@ -269,12 +287,12 @@ def test_validate_grading_names_the_problem():
     ({"checks": [{"type": "match", "values": ["x"], "weight": -1}]}, "weight must not be negative"),
 ])
 def test_validate_grading_catches_what_grading_would_raise_on(block, problem):
-    # Each of these used to pass validation and then abort `eval reference` mid-run.
+    # Each of these used to pass validation and then abort `eval score reference` mid-run.
     found = validate_grading(block)
     assert len(found) == 1 and problem in found[0]
 
 
-# --- eval reference ------------------------------------------------------------------------------
+# --- eval score reference ------------------------------------------------------------------------------
 
 _QUESTIONS = [
     {"id": "1", "question": "Capital of France?", "grading": {"checks": [

@@ -5,7 +5,7 @@
   such as `meta-llama/Llama-3.1-8B`, a model newer than the installed litellm) was sent bare,
   and litellm refused it ("LLM Provider NOT provided") before any request. Such names now go
   out as `openai/<model>`, on every path that takes the openai provider: answers, the judge
-  and panel, `eval cross-judge --judges openai/<model>` (#136), whose arms read NOT MEASURED
+  and panel, `eval judge agreement --judges openai/<model>` (#136), whose arms read NOT MEASURED
   before, and question and persona generation. A name litellm takes for OpenAI's
   (`gpt-6.1-sol`, `o3`, a `ft:gpt-4o-mini:…` fine-tune), or one with a litellm provider prefix
   (`azure/…`, `ollama/…`), keeps its route. Every name keeps its response-cache entries: on

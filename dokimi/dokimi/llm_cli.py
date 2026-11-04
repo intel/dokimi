@@ -380,10 +380,6 @@ def _env(cli: CliBackend, extra: Optional[Dict[str, str]] = None) -> process.Env
     return process.Env.only([k for k in os.environ if _passed_on(k, cli)], set=extra)
 
 
-#: Git variables that name a repository outright: an inherited one would bypass the ceiling below.
-_GIT_REPO_OVERRIDES = frozenset({"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE"})
-
-
 def _call_env(cli: CliBackend, cwd: Path) -> process.Env:
     """The env of a call: the parent's, minus the drops, and git stopped at the work dir's parent.
 
@@ -393,7 +389,7 @@ def _call_env(cli: CliBackend, cwd: Path) -> process.Env:
     ``GIT_DIR`` or ``GIT_WORK_TREE`` is not searched for at all, so those are dropped too.
     """
     ceiling = [str(cwd.parent)] + [p for p in os.environ.get("GIT_CEILING_DIRECTORIES", "").split(os.pathsep) if p]
-    passed = [k for k in os.environ if _passed_on(k, cli) and k not in _GIT_REPO_OVERRIDES]
+    passed = [k for k in os.environ if _passed_on(k, cli) and k not in process.GIT_REPO_OVERRIDES]
     return process.Env.only(passed, set={"GIT_CEILING_DIRECTORIES": os.pathsep.join(ceiling)})
 
 

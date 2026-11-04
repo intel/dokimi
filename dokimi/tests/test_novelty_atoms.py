@@ -10,7 +10,8 @@ import re
 
 import pytest
 
-from dokimi.novelty.atoms import ExtractionError, ExtractionReport, extract_atoms, spread_sample
+from dokimi.novelty.atoms import (ExtractionError, ExtractionReport, extract_atoms, sample_atoms,
+                                  spread_sample)
 from dokimi.novelty.client import LLMClient
 from dokimi.novelty.spans import segment
 
@@ -211,7 +212,9 @@ def test_a_capped_extraction_sends_every_batch():
 
     report = ExtractionReport()
     client = LLMClient(model="x", transport=three_per_span_cut_above_13)
-    atoms = extract_atoms(spans, client=client, cap=120, report=report)
+    extracted = extract_atoms(spans, client=client, cap=120, report=report)
+    assert len(extracted) == 600  # every atom comes back; the cap picks the probed ones (#371)
+    atoms = sample_atoms(extracted, spans, 120)
     assert len(atoms) == 120
     # All eight 25-span batches were asked, though the first two held 150 atoms: each cost
     # one cut call and two halves.
@@ -261,9 +264,10 @@ def test_a_binding_cap_strides_in_document_order_whatever_the_reply_s_order(repl
     def out_of_order(prompt, system):
         return json.dumps([_cited(*span_ids) for span_ids in reply]), None
 
-    atoms = extract_atoms(segment(DOC), client=LLMClient(model="x", transport=out_of_order),
-                          cap=cap)
-    assert [atom.span_ids for atom in atoms] == probed
+    spans = segment(DOC)
+    atoms = extract_atoms(spans, client=LLMClient(model="x", transport=out_of_order), cap=cap)
+    assert [atom.span_ids for atom in atoms] == reply  # every atom, in the reply's order
+    assert [atom.span_ids for atom in sample_atoms(atoms, spans, cap)] == probed
 
 
 def test_a_cap_below_one_is_refused_before_any_call_or_change_to_the_spans():
@@ -294,8 +298,8 @@ def test_a_binding_cap_over_a_partly_read_input_makes_no_whole_input_claim():
         return json.dumps(_rows(prompt)), None
 
     report = ExtractionReport()
-    atoms = extract_atoms(spans, client=LLMClient(model="x", transport=second_empty), cap=2,
-                          report=report)
+    atoms = sample_atoms(extract_atoms(spans, client=LLMClient(model="x", transport=second_empty),
+                                       cap=2, report=report), spans, 2)
     assert [a.span_ids[0] for a in atoms] == ["s0007", "s0019"]  # both from the opening
     assert report.sampled == {"atoms": 2, "of": 25, "rule": "cap-spread"}
     assert len(report.unread_span_ids) == 25
@@ -333,22 +337,24 @@ def test_a_capped_extraction_reads_every_span_and_records_the_sample(tmp_path):
         return _three_per_span(prompt, system)
 
     report = ExtractionReport()
-    atoms = extract_atoms(spans, client=LLMClient(model="x", transport=counted),
-                          batch_spans=10, cap=25, report=report)
+    extracted = extract_atoms(spans, client=LLMClient(model="x", transport=counted),
+                              batch_spans=10, cap=25, report=report)
     assert (len(calls), report.batches, report.calls) == (6, 6, 6)
-    assert len(atoms) == 25
+    atoms = sample_atoms(extracted, spans, 25)
+    assert (len(extracted), len(atoms)) == (180, 25)
     # Every batch gives sampled atoms, the first from s0002 (atom 3) and the last from s0059 (176).
     assert {(int(a.span_ids[0][1:]) - 1) // 10 for a in atoms} == set(range(6))
     assert atoms[0].span_ids[0] == "s0002" and atoms[-1].span_ids[0] == "s0059"
     assert report.sampled == {"atoms": 25, "of": 180, "rule": "cap-spread"}
     path = tmp_path / "atoms.json"
-    save_atoms(atoms, spans, path, cap=25, extraction=report)
+    save_atoms(extracted, spans, path, cap=25, extraction=report, sample=atoms)
     saved = json.loads(path.read_text())["extraction"]
     assert (saved["sampled"], saved["reached"]) == (report.sampled, None)
     # Selection is a pure function of the extracted list: a second run picks the same atoms.
-    again = extract_atoms(segment(doc), client=LLMClient(model="x", transport=_three_per_span),
+    again_spans = segment(doc)
+    again = extract_atoms(again_spans, client=LLMClient(model="x", transport=_three_per_span),
                           batch_spans=10, cap=25)
-    assert [a.id for a in again] == [a.id for a in atoms]
+    assert [a.id for a in sample_atoms(again, again_spans, 25)] == [a.id for a in atoms]
 
 
 @pytest.mark.parametrize("cap", [None, 31, 30], ids=["no-cap", "above", "at-cap"])
@@ -644,10 +650,10 @@ def test_a_run_with_cut_off_and_unusable_splits_names_both_and_keeps_the_advice(
     )
 
 
-@pytest.mark.parametrize("cap, capped", [(3, False), (2, True)], ids=["cap-met", "cap-binds"])
-def test_novelty_atoms_flags_the_atom_set_only_when_the_cap_left_atoms_out(
-        tmp_path, monkeypatch, capsys, cap, capped):
-    """Three spans, one atom each: a cap of 3 keeps every atom, a cap of 2 samples them."""
+@pytest.mark.parametrize("cap, n_sampled", [(3, None), (2, 2)], ids=["cap-met", "cap-binds"])
+def test_novelty_atoms_indexes_every_atom_whether_or_not_the_cap_binds(
+        tmp_path, monkeypatch, capsys, cap, n_sampled):
+    """Three spans, one atom each: a cap of 3 keeps every atom, a cap of 2 samples them (#371)."""
     from tests import test_novelty_cli as novelty_cli
 
     skill = tmp_path / "s" / "SKILL.md"
@@ -669,8 +675,12 @@ def test_novelty_atoms_flags_the_atom_set_only_when_the_cap_left_atoms_out(
     args.func(args)
     out = capsys.readouterr().out
     summary = json.loads(out[out.index("{"):])
-    assert summary["n_atoms_indexed"] == cap
-    assert summary["capped_atom_set"] is capped
+    assert (summary["n_atoms_indexed"], summary["capped_atom_set"]) == (3, False)
+    assert summary["frac_carrying_nothing"] == 0.0
+    saved = json.loads((tmp_path / "atoms.json").read_text())
+    assert len(saved["atoms"]) == 3
+    sampled = saved["sampled_atom_ids"]
+    assert (None if sampled is None else len(sampled)) == n_sampled
 
 
 def test_novelty_atoms_saves_the_same_spread_sample_analyze_probes(tmp_path, monkeypatch, capsys):
@@ -699,7 +709,9 @@ def test_novelty_atoms_saves_the_same_spread_sample_analyze_probes(tmp_path, mon
     args.func(args)
     payload = json.loads(out.read_text())
     assert len(batches) == 2  # the cap no longer stops extraction after the first batch
-    assert [atom["span_ids"] for atom in payload["atoms"]] == [["s0013"], ["s0038"]]
+    assert len(payload["atoms"]) == 50  # every atom, the sample recorded beside them (#371)
+    span_of = {atom["id"]: atom["span_ids"] for atom in payload["atoms"]}
+    assert [span_of[i] for i in payload["sampled_atom_ids"]] == [["s0013"], ["s0038"]]
     assert payload["extraction"]["sampled"] == {"atoms": 2, "of": 50, "rule": "cap-spread"}
     assert ("WARNING atom extraction read the whole input, and the atom cap probes 2 of the "
             "input's 50 atoms") in capsys.readouterr().err

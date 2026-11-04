@@ -227,7 +227,8 @@ def test_the_receipt_is_a_valid_artifact_and_a_schema_rejects_a_followed_claim(t
 def _end_to_end_args(tmp_path, monkeypatch, *extra):
     monkeypatch.setenv("FAKE_MODE", "ok")
     root = _repo(tmp_path)
-    profile = _profile(tmp_path, name="claude-code", guidance={"names": ["CLAUDE.md", "AGENTS.md"]})
+    profile = _profile(tmp_path, name="claude-code", guidance={"names": ["CLAUDE.md", "AGENTS.md"],
+                                                               "claude_displaces_agents": True})
     work = tmp_path / "work"
     work.mkdir()
     return ["repo", "reach", str(root), "--manifest", "evals/repo-eval.yaml", "--harness", str(profile),
@@ -665,7 +666,7 @@ def test_a_scoped_rule_alias_of_a_nested_agents_md_is_not_expected_in_its_subtre
         (tmp_path / ".claude/rules/agents.md").symlink_to(tmp_path / "sub/AGENTS.md")
     except OSError:
         pytest.skip("symlinks unavailable")
-    payload = budget(tree, ("CLAUDE.md", "CLAUDE.local.md", "AGENTS.md"), None, True)
+    payload = budget(tree, ("CLAUDE.md", "CLAUDE.local.md", "AGENTS.md"), None, True, claude_displaces_agents=True)
     records = [_record("sub/AGENTS.md", s, "not_loaded") for s in ("cwd=.", "read=sub")]
     files = [{"path": "sub/AGENTS.md", "head": "RC000005", "tail": "RC000006"}]
     receipt = build_receipt(_reach(records, [ROOT_ROW, SUB_ROW], files=files), payload, tree)
