@@ -10,6 +10,7 @@ import subprocess
 from pathlib import Path
 
 from dokimi.repo_config import load_repo_config
+from dokimi.utils import git_tree, tree_digest
 
 HEADER = "schema_version: dokimi_config.v1\n"
 CONFIG = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: skills/a/evals\n"
@@ -101,3 +102,26 @@ def test_a_new_untracked_file_moves_the_hash(tmp_path):
     before = _hashes(root)
     (root / "skills/a/notes.md").write_text("not ignored\n")
     assert _hashes(root)[0] != before[0]
+
+
+def test_a_committed_crlf_file_hashes_the_same_in_an_autocrlf_clone(tmp_path):
+    src = _repo(tmp_path / "src", {**FILES, "skills/a/evals/t/test.bat": "echo a\r\necho b\r\n"})
+    clone = tmp_path / "clone"
+    subprocess.run(["git", "clone", "-q", str(src), str(clone)], check=True, capture_output=True)
+    _git(clone, "config", "core.autocrlf", "true")
+    assert _hashes(clone.resolve()) == _hashes(src)  # git keeps the committed CRLF blob in both clones
+
+
+def test_an_ignored_directory_above_the_root_does_not_hide_its_files(tmp_path):
+    outer = tmp_path / "outer"
+    outer.mkdir()
+    _git(outer, "init", "-q")
+    (outer / ".gitignore").write_text("build/\n")
+    root = outer / "build" / "skills-copy"
+    (root / "a").mkdir(parents=True)
+    (root / "a" / "SKILL.md").write_text("a\n")
+    _git(outer, "add", "-A")
+    _git(outer, "commit", "-q", "-m", "init")
+    before = tree_digest(root, git=git_tree(root))
+    (root / "a" / "SKILL.md").write_text("b\n")
+    assert tree_digest(root, git=git_tree(root)) != before  # build/ is git's, not the walk's: SKILL.md still counts

@@ -346,3 +346,11 @@ def test_crlf_text_digests_as_its_bytes_outside_git(tmp_path):
     crlf = _write(tmp_path / "crlf", {"SKILL.md": "a\r\nb\r\n"})
     assert tree_digest(lf) != tree_digest(crlf)  # the build context hashes bytes as they are
     assert tree_digest(lf, git=True) != tree_digest(crlf, git=True)  # no work tree: git-mode falls back to the bytes
+
+
+def test_a_relative_link_target_is_hashed_with_forward_slashes_on_any_os():
+    from dokimi.utils import _posix_separators
+
+    assert _posix_separators("..\\vendor\\a", "\\") == "../vendor/a"  # Windows: os.readlink gives the native separator
+    assert _posix_separators("../vendor/a", "/") == "../vendor/a"
+    assert _posix_separators("a\\b", "/") == "a\\b"  # POSIX: a backslash is part of the name

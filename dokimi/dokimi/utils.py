@@ -134,11 +134,14 @@ def _posix_separators(text: str, sep: str = os.sep) -> str:
 
 @dataclass(frozen=True)
 class GitTree:
-    """A work tree a digest reads through git: its top (a real path) and the untracked, ignored paths git leaves out
-    (top-relative; a directory by its name, as ``ls-files --directory`` gives it)."""
+    """A work tree a digest reads through git: its top (a real path), the walk's base (top-relative, "" for the top), the
+    untracked, ignored paths git leaves out (top-relative, a directory by its name as ``ls-files --directory`` gives it),
+    and the blob ids of the tracked files git finds unchanged (their index entries)."""
 
     top: Path
+    base: str
     ignored: frozenset[str]
+    indexed: Mapping[str, str]
 
     def top_rel(self, path: Path) -> str | None:
         """``path`` relative to the top, as POSIX, its own link (if it is one) not followed; None outside the tree."""
@@ -149,12 +152,14 @@ class GitTree:
             return None
 
     def skipped(self, path: Path) -> bool:
-        """True for what git leaves out: an ignored path, or anything under a ``.git`` (a nested repository's own)."""
+        """True for what git leaves out: an ignored path below the base, or anything under a ``.git`` (a nested repository's
+        own). An ignored directory above the base is not this walk's to apply."""
         rel = self.top_rel(path)
         if rel is None:
             return False
         parts = rel.split("/")
-        return ".git" in parts or any("/".join(parts[:i]) in self.ignored for i in range(1, len(parts) + 1))
+        first = len(self.base.split("/")) + 1 if self.base else 1
+        return ".git" in parts or any("/".join(parts[:i]) in self.ignored for i in range(first, len(parts) + 1))
 
 
 def _git_env() -> "Env":
@@ -181,8 +186,32 @@ def git_tree(base: Path) -> GitTree | None:
         return None
     if not listed.ok:
         return None
+    top_real = Path(os.path.realpath(top_dir))
+    try:
+        base_rel = Path(os.path.realpath(base)).relative_to(top_real).as_posix()
+    except ValueError:
+        return None
     ignored = frozenset(os.fsdecode(name).rstrip("/") for name in listed.stdout_bytes.split(b"\0") if name)
-    return GitTree(Path(os.path.realpath(top_dir)), ignored)
+    return GitTree(top_real, "" if base_rel == "." else base_rel, ignored, _index_blobs(top_dir))
+
+
+def _index_blobs(top: str) -> dict[str, str]:
+    """The index's blob id for each tracked file that git finds unchanged in the work tree. ``hash-object`` does not read
+    the index, so it would fold a committed CRLF file under core.autocrlf; the index keeps that blob as it is."""
+    from dokimi.process import run
+
+    staged = run(["git", "-C", top, "ls-files", "-s", "-z"], timeout=120, env=_git_env(), capture_limit=None)
+    dirty = run(["git", "-C", top, "diff-files", "--name-only", "-z"], timeout=120, env=_git_env(), capture_limit=None)
+    if not (staged.ok and dirty.ok):
+        return {}
+    changed = set(dirty.stdout_bytes.split(b"\0"))
+    out: dict[str, str] = {}
+    for entry in staged.stdout_bytes.split(b"\0"):
+        meta, _, name = entry.partition(b"\t")
+        mode_blob_stage = meta.split()
+        if name and name not in changed and len(mode_blob_stage) == 3 and mode_blob_stage[2] == b"0":
+            out[os.fsdecode(name)] = os.fsdecode(mode_blob_stage[1])
+    return out
 
 
 def _blob_ids(top: Path, rels: list[str]) -> list[str] | None:
@@ -200,20 +229,31 @@ def _blob_ids(top: Path, rels: list[str]) -> list[str] | None:
 
 
 def file_contents(paths: Iterable[Path], tree: GitTree | None) -> dict[Path, bytes]:
-    """What a digest holds for each file: git's blob id for a file in ``tree``, which git computes from the working file
-    with the work tree's filters, so a checkout with CRLF line ends (core.autocrlf) gives the LF blob. Otherwise the
-    sha256 of its bytes (no tree, a file outside it, or a name with a newline, or git failing). Git runs once."""
+    """What a digest holds for each file: git's blob id for a file in ``tree`` (the index's when git finds it unchanged,
+    else ``hash-object``'s with the work tree's filters). Otherwise the sha256 of its bytes: no tree, a file outside it,
+    a name git's stdin reader would misread, or git failing."""
     found = list(dict.fromkeys(paths))
-    out: dict[Path, bytes] = {}
-    if tree is not None:
-        rels = {path: tree.top_rel(path) for path in found}
-        inside = [(path, rel) for path, rel in rels.items() if rel is not None and "\n" not in rel]
-        ids = _blob_ids(tree.top, [rel for _, rel in inside]) if inside else []
-        if ids is not None:
-            out.update({path: bytes.fromhex(blob) for (path, _), blob in zip(inside, ids, strict=True)})
+    out = _blob_contents(found, tree) if tree is not None else {}
     for path in found:
         if path not in out:
             out[path] = hashlib.sha256(path.read_bytes()).digest()
+    return out
+
+
+def _blob_contents(paths: list[Path], tree: GitTree) -> dict[Path, bytes]:
+    out: dict[Path, bytes] = {}
+    hashed: list[tuple[Path, str]] = []
+    for path in paths:
+        rel = tree.top_rel(path)
+        if rel is None or "\n" in rel or rel.startswith('"') or rel.endswith("\r"):  # --stdin-paths would misread these
+            continue
+        if rel in tree.indexed:
+            out[path] = bytes.fromhex(tree.indexed[rel])
+        else:
+            hashed.append((path, rel))
+    ids = _blob_ids(tree.top, [rel for _, rel in hashed]) if hashed else []
+    if ids is not None:
+        out.update({path: bytes.fromhex(blob) for (path, _), blob in zip(hashed, ids, strict=True)})
     return out
 
 
