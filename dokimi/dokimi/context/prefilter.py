@@ -15,7 +15,8 @@ segmentation. Each claim gets three deterministic measures, read against session
 
 The output is a ranked list of **candidates for ablation**, never a verdict: an ablation run
 decides. A claim with a protection tag (negation, version gate, ordering, threshold) or with
-few triggers is listed but not ranked, since a rare safety rule looks like waste on a count.
+few triggers is listed but not ranked, since a rare safety rule looks like waste on a count. A rule
+with no words and only glob or ~ keys is listed as not measurable: its zero count is no measure.
 """
 
 from __future__ import annotations
