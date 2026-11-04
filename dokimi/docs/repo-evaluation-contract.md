@@ -1216,7 +1216,8 @@ per scenario).
       `env cd`), and exits non-zero is not a read (the exit code of
       `cat a missing` does not say which file failed, so both stay reads, as
       the known one does when the other is at a directory not known). A read
-      through a pipe, `grep` or `rg` is not seen, nor, under Claude Code, a relative
+      through a pipe, `grep` or `rg`, or negated (`! cat AGENTS.md`, whose exit
+      says nothing of the file), is not seen, nor, under Claude Code, a relative
       read after an earlier Bash call of any agent (the parent's or a
       subagent's, which may share its shell) ran a `cd`, `pushd`, `popd`,
       `eval`, `source` or `.` in its own shell (not in a subshell, pipeline or

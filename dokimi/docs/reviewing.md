@@ -199,7 +199,7 @@ these, in order, before writing what it showed (the fields:
   `cwd=<dir>`, `read=<dir>` show what loads it). `process:guidance_read`
   counts a read tool's reads and a Claude Code Bash call, Codex command or
   Copilot `bash` command that only prints files (§7's list: a bare `cat`,
-  `head`, `tail`, `nl` or `sed -n`), not a pipe, `grep` or `rg`, nor a
+  `head`, `tail`, `nl` or `sed -n`), not a pipe, `grep`, `rg` or `! cat`, nor a
   relative read after the shell moved; `process:unknown_reads` counts those
   dropped relative reads, so `guidance_read: []` with `unknown_reads` above 0
   is not "never read". For the rest, look in `events.jsonl` or

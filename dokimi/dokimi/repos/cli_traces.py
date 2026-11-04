@@ -277,9 +277,8 @@ class _Walk:
             self.gated |= chained
             if after != "&":  # a backgrounded cd runs in a subshell: this shell stays where it was
                 self.here, self.shell_moved, self.moved = _cd(self.here, words[1:]), True, True
-        elif name in _PRINTERS:
-            reads = self.printed(name, words[1:], chdir)
-            return [] if negated else reads  # ``! cat f`` inverts the exit, which no longer says f was printed
+        elif name in _PRINTERS and not negated:  # ``! cat f`` inverts the exit, which no longer says f was printed
+            return self.printed(name, words[1:], chdir)
         return []
 
     def printed(self, name: str, args: list[str], chdir: bool) -> list[str]:

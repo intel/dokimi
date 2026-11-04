@@ -757,3 +757,7 @@ def test_copilot_answer_falls_back_to_the_last_message_and_a_failed_exit_is_an_e
     t = convert("copilot-json", _jsonl({"type": "assistant.message", "data": {"content": "only"}},
                                        {"type": "result", "exitCode": 1}), None)
     assert t.answer == "only" and t.is_error
+
+
+def test_a_negated_read_at_a_directory_not_known_is_not_counted_as_unknown():
+    assert shell_walk("cd -; ! cat AGENTS.md") == ([], True, 0)
