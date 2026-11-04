@@ -346,6 +346,9 @@ def test_only_a_submodule_that_may_hold_rules_is_named(tmp_path):
     assert payload["warnings"] == [".claude: a git submodule; any rules in it are not counted",
                                    "sub/.claude/rules: a git submodule; any rules in it are not counted"]
     assert budget(WorkTree(tmp_path), NAMES, rules=False)["warnings"] == []
+    crlf = '[submodule "a"]\r\n\tpath=.claude/rules/\r\n\turl = ../a\r\n'
+    other = budget(_tree(tmp_path / "crlf", {".gitmodules": crlf}), NAMES, rules=True)
+    assert other["warnings"] == [".claude/rules: a git submodule; any rules in it are not counted"]
 
 
 def test_a_rule_with_a_utf8_bom_reads_its_frontmatter(tmp_path):
