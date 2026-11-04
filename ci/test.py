@@ -47,8 +47,9 @@ def installed_package() -> pathlib.Path:
 
 
 CHECK_DATA = (
-    "from dokimi import config; from dokimi.runner import spec;"
-    "paths = (config.DEFAULT_PRODUCTS_PATH, spec.DEFAULT_SCHEMA_PATH);"
+    "from dokimi import config, intents, registry; from dokimi.runner import spec;"
+    "paths = (registry._DEFAULT_REGISTRY, intents._DEFAULT_INTENTS,"
+    " config.DEFAULT_PRODUCTS_PATH, spec.DEFAULT_SCHEMA_PATH);"
     "print(*paths, sep=chr(10));"
     "raise SystemExit(not all(path.is_file() for path in paths))"
 )

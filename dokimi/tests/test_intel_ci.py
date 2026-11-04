@@ -6,11 +6,16 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
+import sys
 import types
 from pathlib import Path
 
 import pytest
 import yaml
+
+from dokimi import config, intents, registry
+from dokimi.runner import spec
 
 _REPO = Path(__file__).resolve().parents[2]
 _WORKFLOWS = _REPO / ".github" / "workflows"
@@ -47,3 +52,12 @@ def test_build_lists_only_the_packages_it_built(tmp_path: Path,
     (out / "dokimi-0.1.0-py3-none-any.whl").write_bytes(b"old")
     (scratch / "dokimi-0.2.0-py3-none-any.whl").write_bytes(b"new")
     assert build.collect(scratch.parent, out) == [out / "dokimi-0.2.0-py3-none-any.whl"]
+
+
+def test_the_data_check_covers_the_files_of_the_test_it_replaces(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ci/test.py deselects test_default_data_files_ship_in_the_wheel: it checks the same files."""
+    shown = subprocess.run([sys.executable, "-c", _script("test", monkeypatch).CHECK_DATA],
+                           cwd=_REPO / "dokimi", capture_output=True, text=True, check=True)
+    files = (registry._DEFAULT_REGISTRY, intents._DEFAULT_INTENTS, config.DEFAULT_PRODUCTS_PATH,
+             spec.DEFAULT_SCHEMA_PATH)
+    assert {Path(p).resolve() for p in shown.stdout.splitlines()} == {p.resolve() for p in files}
