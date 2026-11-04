@@ -54,7 +54,7 @@ jobs:
         with:
           python-version: '3.13'
       - name: Install dependencies
-        run: pip install -r requirements.lock.txt
+        run: pip install --no-deps -r requirements.lock.txt
       # The base is the merge base of HEAD and the base branch, as in the other
       # diff-against-base steps: on CI that is the merge commit's own base, even if
       # the base branch moved on since. git archive, not a worktree: no git state changes.

@@ -79,7 +79,7 @@ SPDX-License-Identifier: Apache-2.0
 > and agent runs with their report:
 >
 > ```bash
-> python cli.py repo tasks check <source> --manifest <path> [--task <id>] [--warm] [--allow-unsupported]
+> python cli.py eval check <source> --manifest <path> [--task <id>] [--warm] [--allow-unsupported]
 > python cli.py repo run <source> --manifest <path> --arm guidance:raw --model <id> --reps N --batch NAME
 >     --agent-network host
 > python cli.py repo report <out>/<batch>
@@ -162,7 +162,7 @@ outside every workspace and passes its absolute path to entry points as
   as `.bazelversion`) is read at run time, not baked in. A build that runs
   past `--build-timeout` seconds (3 hours by default) fails as a container
   error rather than hanging the batch.
-- `tasks check` (§4.3) fails a task whose agent container can read any file
+- `eval check` (§4.3) fails a task whose agent container can read any file
   under `tasks` or `{source_dir}`.
 
 ### 1.2 Code index input
@@ -235,7 +235,7 @@ Rules:
 - Every path is relative to the repository root.
 - `eval_dir`, `tasks` and `entry_points` come together or not at all. Without them the
   manifest is *guidance-only*: `scan` and `reach` run on it and `validate` checks its
-  globs, while `tasks check` and `run` refuse it. `image` and `explore_tasks` need
+  globs, while `eval check` and `run` refuse it. `image` and `explore_tasks` need
   `eval_dir`, and so does `process_metrics`.
 - `entry_points.grade` is required only when some task's `grader` does not
   start with `dokimi:` (a grader built into the framework); `repo validate`
@@ -271,7 +271,7 @@ Rules:
   dependency into the image is better when it can be done.
 - **Caches** are mounted read-write in every run, because Bazel's disk cache
   writes. A run may depend on them for speed, never for correctness. With
-  `network: none` they are filled by `tasks check --warm` (§4.3): one base is
+  `network: none` they are filled by `eval check --warm` (§4.3): one base is
   not enough when bases pin different tool versions (7 Bazel versions on
   oneDAL).
 - **Container runtime.** The framework starts every container with an init
@@ -308,7 +308,7 @@ belongs to the repository's grader and is passed through unread, except `grader`
 | `timeout_s`, `max_turns`, `budget_usd` | no | framework | per-task caps, overriding run defaults; each a finite number > 0 |
 | `host` | no | framework | `{"min_cpus": <int>, "cpu_vendors": [<str>], "cpu_flags": [<str>]}`, every key optional: what the hidden test needs to show the bug (a thread race that needs 3+ CPUs, an ISA path). Vendor and flag names are `/proc/cpuinfo`'s (`GenuineIntel`, `avx512f`); both match in any case, and a vendor other than `GenuineIntel`, `AuthenticAMD`, `HygonGenuine`, `CentaurHauls`, `Shanghai` is refused (`repo validate` too). A probe that read neither vendor nor flags from `/proc/cpuinfo` is a probe failure, not a miss They are checked against a probe container started like the grading one: CPUs are its affinity mask capped by its cgroup CPU quota (`docker --cpus`). On a host that misses them the task is unsupported (§4.3), and the probed facts go to `meta.json` `host` of a cell that runs, or to its `unsupported.json` `host` when it does not |
 | `egress` | no | framework | extra hosts (DNS names, optional `:port`; `*` stands for one whole label and the last two labels are literal, so `*.pythonhosted.org` passes and `*` or `*.org` does not) this task's agent and entry points reach through the proxy (§2), for example `["pypi.org", "files.pythonhosted.org"]` |
-| `expected_skill` | no | framework | the name (directory name) of the skill the agent should use; a `skill-catalog:` arm must install it, or the arm is refused before anything runs. `result.json` `skills` records whether the agent used it and whether it used it first |
+| `expected_skill` | no | framework | the name (directory name) of the skill the agent should use; a `skill-catalog:` arm must install it, or the arm is refused before anything runs. On a `guidance:as-skill` catalog arm the generated `<repo>-guidance` skill is refused too (its usage is `guidance_skill_loaded`). `result.json` `skills` records whether the agent used it and whether it used it first |
 | `useful` | no | framework | the definition of the run's first useful result, reported as `first_useful` in `result.json` (§4.1): `{"command": "<regex>"}` for a task whose grade runs the target tests, or `{"edit": "<glob>"}` (or a list of globs) for one that grades an edit to a target file. Omit it when no event is the useful result. A malformed value is refused by `repo validate`, `tasks check` and `repo run` |
 | anything else | — | repository | for example `hidden_files`, `targets`, `regression_targets`, `manifest` |
 
@@ -324,7 +324,10 @@ belongs to the repository's grader and is passed through unread, except `grader`
 3. `git init` and commit (no history, so fixes cannot leak)
 4. apply `setup_patches`
 5. apply the arm: `guidance:none`, `guidance:raw`, `guidance:bridge`,
-   `guidance:rev:<rev>` or `patch:<file>`
+   `guidance:rev:<rev>`, `patch:<file>`, `guidance:format=xml` (the guidance
+   files rendered as tagged sections, `dokimi/repos/guidance_format.py`) or
+   `guidance:as-skill` (the guidance files removed, their text packaged as one
+   skill, see [Guidance formats and packaging](benchmarking-and-comparison.md#guidance-formats-and-packaging))
 6. amend the commit
 7. apply `review_patch` with `git am` under a neutral author
 8. expire the reflog and prune unreachable objects: the
@@ -417,7 +420,9 @@ answer was public; the author date alone cannot show it, as an amend or a
 rebase keeps it. For `patch:` an `arm_patch` object (the
 file's absolute `path` and full `sha256`, `added`: the files the patch added
 that neither the guidance globs nor `.mcp.json` match, and `mcp_servers`: the servers
-the patch added to the `.mcp.json` at the root, read before the agent runs). `args_if_present` lists the profile's
+the patch added to the `.mcp.json` at the root, read before the agent runs); for `guidance:format=` a
+`guidance_links_kept` list of the guidance links that keep their raw bytes; for `guidance:as-skill` a
+`guidance_skill` object (`name`, `path`, `sha256`) that is not in `skills`. `args_if_present` lists the profile's
 `args_if_present` files the cell's command line carries (§6): `[]` when the
 workspace has none of them, and always outside the `all` tool mode.
 
@@ -534,6 +539,9 @@ the first one used; `null` when the task names none). When the trace could not
 be read (the harness never started), `measured` is `false` and `skill_invoked`
 and `skill_selected_correct` are `null`: the usage is unknown, not "did not use
 the skill". `repo report` leaves such cells out of its skill counts.
+A `guidance:as-skill` cell has no `skills` entry for its generated skill: its
+usage is `guidance_skill_loaded` (`true` when the agent called that skill or read
+its `SKILL.md`, `false` when not, `null` when the trace could not be read).
 
 For a `patch:` arm with `added` files or `mcp_servers`, `result.json` has an
 `uptake` object: whether the agent used what the arm added. `files` and
@@ -596,11 +604,11 @@ measure the patch's text, such as a guidance line, not the tool.
   [repo-evaluation-mergeability.md](repo-evaluation-mergeability.md)
   *(proposed)*. The judge is not deterministic. Instead of a determinism
   check, it reports agreement between two judges and must pass a calibration
-  gate (`repo rubric check`, a separate paid subcommand; `tasks check` stays
+  gate (`repo rubric check`, a separate paid subcommand; `eval check` stays
   free of LLM calls). The regrade sample bypasses the verdict cache. Whether
   one judge repeats its own verdict on the same input is not measured yet.
 
-### 4.3 Self-check (`tasks check`, no LLM)
+### 4.3 Self-check (`eval check`, no LLM)
 
 For every task, before any paid run:
 
@@ -612,7 +620,7 @@ For every task, before any paid run:
 
 A task whose `host` requirements (§3) the probe container does not meet is
 `unsupported` with the reason, like a task whose `egress` needs the missing
-proxy, and `tasks check` exits 1 for it. With `--allow-unsupported` it is
+proxy, and `eval check` exits 1 for it. With `--allow-unsupported` it is
 still printed with its reason but does not make the exit code 1 unless no task
 is ok (below); broken tasks, tasks that need egress and tasks whose host probe
 failed still do. The probed facts are recorded in `check.json` `host`, and for
@@ -623,14 +631,14 @@ apart, neither failed nor missing. If the probe itself fails, a task with
 cells is left unrun; a cell that already has a `result.json` keeps it.
 
 Nothing checked is not a pass. Both commands refuse an export with no task, and
-exit 1 as `incomplete` when nothing was measured: `tasks check` when no task
+exit 1 as `incomplete` when nothing was measured: `eval check` when no task
 passed the self-check (every one unsupported, even with `--allow-unsupported`),
 `repo run` when no cell of the batch has a result (every one unsupported). The
 `repo run` summary line counts unsupported cells beside ran, done, crashed and
 not started.
 
 Each task runs with its own network (`image.network` plus its `egress`).
-`tasks check --warm` runs the same null and oracle steps with network and
+`eval check --warm` runs the same null and oracle steps with network and
 writable caches, to fill the caches before offline runs (§2); it judges task
 `host` requirements as an offline check does.
 
@@ -655,7 +663,7 @@ A task whose `grader` is `dokimi:<name>` is graded by the framework, not by
 the repository's `grade` and `oracle` entry points; any other name goes to
 those entry points. Such a task is data only: its directory holds
 `task.json`, the patch and the JSON files the grader reads. The `dokimi:`
-prefix is the framework's: an unknown `dokimi:` name fails `tasks check` and
+prefix is the framework's: an unknown `dokimi:` name fails `eval check` and
 the run's grade, and is never handed to the repository.
 
 A built-in grader runs where `grade` and `oracle` run: in the grading
@@ -898,7 +906,7 @@ on an error that is not one pull request's own: a malformed pull request, the
 source, the manifest, the prompt file, or a task it cannot write. Each prints
 `✗` and the reason. A git failure while one pull request is built skips that
 pull request with the reason.
-`repo tasks check` then runs the tasks, and two arms measure the guidance
+`eval check` then runs the tasks, and two arms measure the guidance
 (§9):
 
 ```bash
@@ -1307,6 +1315,10 @@ reported, prose above the limit, unseeded tokens). The receipt-level `unknowns`
 repeat the limits above and carry the notice that start-up imports and skill
 listings are not probed.
 
+The same receipt, run over the fixtures in `data/reach-conformance/` for several
+harnesses and versions, is the reach conformance matrix; see
+[reach-matrix.md](reach-matrix.md).
+
 ## 8. L0 scan (`repo_readiness.v1`)
 
 `repo scan <source>` checks every mechanically checkable claim in the guidance
@@ -1641,7 +1653,7 @@ Whether the index is current is not checked: `not_observed` says so.
 
 ## 9. Running
 
-`repo tasks check` and `repo run` need docker. Both export `eval_dir` from the
+`eval check` and `repo run` need docker. Both export `eval_dir` from the
 eval tree to `<out>/_eval/content`, and build the image from the eval tree
 without its tasks directory (tag `dokimi/<id>:<sha>`) unless
 `--image` names one. Cache directories default to
@@ -1667,7 +1679,7 @@ line, else its last `error:` line, else its last line.
 ```bash
 # self-check: no LLM; exits 1 if any task is broken or unsupported, or none is ok
 # (with --allow-unsupported, a task this host cannot run does not fail it on its own)
-python cli.py repo tasks check ~/oneDAL@<sha> --manifest dev/agent_evals/repo-eval.yaml \
+python cli.py eval check ~/oneDAL@<sha> --manifest dev/agent_evals/repo-eval.yaml \
     --task fix_finiteness_mut --build-network host --cache bazel-repo-cache=/cache/bazel-repo -j 3
 
 # agents: one cell per (task, arm, model, rep) under repo-runs/<batch>/
@@ -1977,7 +1989,7 @@ that runs the no-LLM checks on the caller's checkout and needs no secret.
 
 - `validate` runs `repo validate` and gates the other two jobs; `scan` runs `repo scan`
   (report only: the claim counts and failing claims go to the job summary, the
-  `repo_readiness.v1` report to an artifact); `tasks-check` runs `repo tasks check`
+  `repo_readiness.v1` report to an artifact); `tasks-check` runs `eval check`
   for each selected task in a job of its own (docker; the image is built from the
   manifest's Dockerfile), and uploads `check.json` and the grade logs. If the job is
   cancelled by its `timeout-minutes` before the check finishes, the Summary step
@@ -1997,10 +2009,13 @@ that runs the no-LLM checks on the caller's checkout and needs no secret.
   `dokimi @ git+https://github.com/intel/dokimi@<sha>#subdirectory=dokimi` with
   that commit's `requirements.lock.txt` as constraints, so a rerun checks with the
   same framework and dependencies. Moving the pin is a change to the calling
-  workflow, so it runs the smoke set.
+  workflow, so it runs the smoke set. The ref must contain `actions/setup`: a
+  ref from before that action fails at "Set up dokimi".
 - Other inputs: `manifest`, `max-parallel` (4), `warm` (`--warm`, for a cache that
   starts empty on every runner), `runs-on` (`ubuntu-latest`), `timeout-minutes`
-  (180, per task) and `dokimi-repository` (`intel/dokimi`).
+  (180, per task), `dokimi-repository` (`intel/dokimi`, the package installed) and
+  `dokimi-action-repository` (`intel/dokimi`, where the setup action is checked out, at
+  `dokimi-ref`). Testing a fork's commit sets both to the fork.
 
 ```yaml
 # .github/workflows/agent-evals.yml in the repository

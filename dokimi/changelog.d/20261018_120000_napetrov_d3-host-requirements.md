@@ -3,7 +3,7 @@
 - **Task `host` requirements** — a `task.json` can declare
   `"host": {"min_cpus": 4, "cpu_vendors": ["GenuineIntel"], "cpu_flags": ["avx512f"]}`
   (every key optional) for a hidden test that can only show its bug on some hardware, such
-  as a thread race. `repo tasks check` and `repo run` probe once, in a container of the
+  as a thread race. `eval check` and `repo run` probe once, in a container of the
   evaluation's image, what such a container sees: CPUs are its affinity mask capped by its
   cgroup CPU quota (`docker --cpus`), vendor and flags come from `/proc/cpuinfo`. A task the
   host cannot show is `unsupported` with the reason in `tasks check` (which exits 1, as for

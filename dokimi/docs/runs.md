@@ -49,8 +49,8 @@ skipped: 1 JSON with no leading schema_version, 1 JSON of an unknown schema_vers
   fields depends on the kind: `product` of a questions set, `library_name` of
   an arms run, `artifact.ref` of a novelty run, `repo.id` of a reach run,
   `judge_model` and `evaluated_at` of an eval. An artifact that records no
-  subject shows `-` (an eval, a task run, a questions set from `questions
-  generate`, which records the model but not the product); nothing is guessed
+  subject shows `-` (an eval, a task run, a reach matrix, a questions set from
+  `questions generate`, which records the model but not the product); nothing is guessed
   from the path. Rows are newest first. When an artifact records no time, its
   file's mtime is used for the order and shown with `*`.
 - **Nothing is dropped silently.** The summary counts the files skipped, by
@@ -78,9 +78,9 @@ into runs and `run_id` is `null`. Files outside the root are not listed:
 
 - `repo run` writes its batches to `repo-runs/`, and its files carry no
   `schema_version`;
-- `answers generate` and `eval score` write to `answers/` and `eval/` unless
-  `--run-id` is given, and `eval panel-score` writes to `eval/`;
-- `questions generate` and `questions refine` write to `questions/`,
+- `answers generate` and `eval score pointwise` write to `answers/` and `eval/` unless
+  `--run-id` is given, and `eval score panel` writes to `eval/`;
+- `eval questions generate` and `eval questions refine` write to `questions/`,
   `repo reach` to `reach-out/`, `tools preference` to `tool_preference.json`
   in the working directory;
 - an output flag can point anywhere.

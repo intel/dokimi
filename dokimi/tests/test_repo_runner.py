@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Workspace preparation, containers and `repo tasks check` (contract §3, §4.3). No docker, no LLM."""
+"""Workspace preparation, containers and `eval check` (contract §3, §4.3). No docker, no LLM."""
 
 from __future__ import annotations
 
@@ -303,7 +303,7 @@ def _cli(argv, monkeypatch, runner):
 
 
 def _check_argv(root, out, *extra):
-    return ["repo", "tasks", "check", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml",
+    return ["eval", "check", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml",
             "--out", str(out), "--cache-root", str(out / "caches"), *extra]
 
 

@@ -51,6 +51,10 @@ header:
     - 'AGENTS.md'
     - 'dokimi/data/agent_profiles/**'
     - 'dokimi/data/skills/**'
+    # Reach conformance fixtures: the CLAUDE.md and AGENTS.override.md files a harness loads verbatim (AGENTS.md is
+    # ignored above, at any depth).
+    - 'dokimi/data/reach-conformance/**/CLAUDE.md'
+    - 'dokimi/data/reach-conformance/**/AGENTS.override.md'
     # Eval oracles: patches applied to the workspace and reference answers
     # written verbatim as the agent's answer (.agent-eval/run.py).
     - '.agent-eval/tasks/**/*.patch'

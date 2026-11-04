@@ -107,7 +107,7 @@ def _grading_identity(meta) -> Any:
 
 
 def _exit_on_mixed_scoring(runs, inputs) -> None:
-    """Exit 2 when some inputs were scored by ``eval reference`` and others by the judge, or two reference
+    """Exit 2 when some inputs were scored by ``eval score reference`` and others by the judge, or two reference
     scorings graded differently. A rescored file keeps the judge's metadata, so it passes the replicate check,
     yet its scores are a different measurement."""
     kinds = ["reference" if "reference_scoring" in run.meta else "judge" for run in runs]
@@ -122,7 +122,7 @@ def _exit_on_mixed_scoring(runs, inputs) -> None:
         odd = next((i for i in references[1:] if _grading_identity(runs[i].meta) != _grading_identity(runs[first].meta)),
                    None)
         if odd is not None:
-            print(f"Error: {inputs[odd]} was scored by eval reference against different grading than {inputs[first]} "
+            print(f"Error: {inputs[odd]} was scored by eval score reference against different grading than {inputs[first]} "
                   "(its scorer or questions file differ): the two scorings are different measurements, and are not pooled",
                   file=sys.stderr)
             sys.exit(2)

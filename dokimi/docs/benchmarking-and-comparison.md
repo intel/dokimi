@@ -78,19 +78,19 @@ context artifact improve answers?"
 ### Default models
 
 Every command takes its models from `dokimi/defaults.py`, and every surface
-(`benchmark`, `answers`, `eval`, `arms`, `subjects`, `evaluate`, `questions`,
-`personas`, `novelty`) uses the same three:
+(`benchmark`, `answers`, `eval`, `arms`, `subjects`, `evaluate`, `eval questions`,
+`eval personas`, `novelty`) uses the same three:
 
 | Role | Default | List price, input/output per MTok |
 | --- | --- | --- |
 | Answer model (the model under test) | `openai/gpt-6.1-sol` | $2 / $10 |
-| Judge (also RAGAS, `eval panel-score`, novelty extractor and retention adjudicator) | `anthropic/claude-sonnet-5-5` | $2 / $10 |
+| Judge (also RAGAS, `eval score panel`, novelty extractor and retention adjudicator) | `anthropic/claude-sonnet-5-5` | $2 / $10 |
 | Generator (personas, questions, validation, panel review, gap fill) | `openai/gpt-6.1-sol` | $2 / $10 |
 
 The judge is a different family from the answerer, so the judge-independence
 warning stays quiet on default flags; answering with `claude-sonnet-5-5` moves the
-novelty judge to `openai/gpt-6.1-sol` and makes `benchmark`, `eval score`,
-`eval panel-score` and `evaluate` warn (`arms` and `subjects` do not check). Escalation
+novelty judge to `openai/gpt-6.1-sol` and makes `benchmark`, `eval score pointwise`,
+`eval score panel` and `evaluate` warn (`arms` and `subjects` do not check). Escalation
 judges (`--escalate-model`) have no default; `claude-opus-5-5` ($4 / $20) is the
 natural tie-break above the Sonnet judge. On `--provider amazon-bedrock` the bare
 names `claude-sonnet-5-5`, `claude-opus-5-5` and `claude-haiku-5-5` resolve to the
@@ -112,7 +112,7 @@ checked), and on any other provider they exit before the first call and ask for
 **Defaults changed on 2026-10-13: results are not comparable with older baselines;
 re-baseline.** Before, `benchmark`/`answers`/`eval` answered with `gpt-5.5` and
 judged with `claude-sonnet-4-5-20250929`, while `arms`, `subjects`, `evaluate`,
-`questions`, `personas` and `novelty` answered, judged and generated with an
+`eval questions`, `eval personas` and `novelty` answered, judged and generated with an
 obsolete small OpenAI model. A score, delta or cost produced with default flags before that date
 is not comparable with one produced after: re-run the baseline (the same question
 set via `--questions-from`, the same arms) under the new defaults, or pin the old
@@ -232,7 +232,7 @@ python cli.py answers generate \
   --provider openai \
   --debug-retrieval
 
-python cli.py eval score \
+python cli.py eval score pointwise \
   --product oneTBB \
   --answers results/onetbb_golden/answers/onetbb.json \
   --output results/onetbb_golden/eval/onetbb.json \
@@ -290,7 +290,7 @@ guidance part keeps the repository's guidance (`guidance:raw`).
 ```bash
 dokimi repo run <repo>@<rev> --model <m1> --model <m2> --batch skills \
   --arm guidance:raw,guidance:raw+skill:skills/lint,guidance:none+skill-catalog:skills
-dokimi repo tasks check <repo>@<rev> --arm skill-catalog:skills   # paths exist, catalog has expected_skill
+dokimi eval check <repo>@<rev> --arm skill-catalog:skills   # paths exist, catalog has expected_skill
 ```
 
 When a cell installs skills, its `result.json` gets a `skills` object:
@@ -300,6 +300,43 @@ optional `expected_skill` was the first skill it used). `repo report` counts
 both per row. Every cell also records `cache_read_tokens` and
 `cache_write_tokens` with the input and output tokens, and
 `repo report --json` gives their means.
+
+### Guidance formats and packaging
+
+Two guidance arms answer "does the same content work better in another shape?"
+The model stays the same, so run them per model (one `--model` each) and compare
+the cells the way the skill arms are compared above.
+
+- `guidance:format=xml`: every guidance file of the base, rendered as XML tags.
+  Each Markdown heading becomes `<section level="N" title="...">`, closed before
+  the next heading of its level or above; `<guidance>` wraps the file. No other
+  line changes. The rendering is checked before it is written: it must restore to
+  the original file exactly, so a file with a line that looks like one of these
+  tags (or a heading the restore cannot rebuild) fails the cell's preparation
+  rather than measuring altered content. A heading inside a code fence is body
+  text. A heading line that is not `#`…`######`, one space, then the title, with no
+  carriage return, is body text too: a file with CRLF line endings has no sections
+  at all, only the wrapper. `guidance:format=md` is `guidance:raw`
+  and is refused as a second name for it. POML is not offered yet: its documented
+  components (`role`, `task`, `example`, ...) have no heading tag, so a POML arm
+  needs a decision about which element a heading maps to.
+- `guidance:as-skill`: the guidance files are removed (as `guidance:none` removes
+  them) and their text goes into `.claude/skills/<repo id>-guidance/SKILL.md`, each
+  file under a `## File: <path>` line with its text verbatim (a missing final newline is added); a symlink to another
+  guidance file (`CLAUDE.md` to `AGENTS.md`) is packaged once under that file, and a
+  symlink to any other file fails the cell. The frontmatter
+  description is one fixed sentence for every repository, so the skill is
+  selected on its description alone. Nested guidance files lose the directory
+  they applied to; the skill's name, path and sha256 are recorded in
+  `meta.json` under `guidance_skill`. Its usage is recorded separately in
+  `result.json` as `guidance_skill_loaded` (`null` if the trace is unreadable),
+  and is not currently aggregated by `repo report`.
+
+Reading the two together: `guidance:format=xml` against `guidance:raw` isolates
+the markup, and `guidance:as-skill` against `guidance:raw` isolates the packaging
+(always in context, or loaded on demand), with the fixed description a known
+confound of the second. The arms do not rewrite the content, so a difference
+comes from the format or the packaging, not from edited guidance.
 
 ### Reading the significance tables
 
@@ -383,12 +420,12 @@ pinned, only measured: run the same configuration several times
   `run_config`. Omitted from the request when unset.
 - `--judge-temperature`: sampling for the judge, recorded as
   `judge_temperature`. Applies to a single judge and to every role of a panel.
-  `eval judge-validity --judge-temperature` certifies the judge under the same
-  setting, and records it in the validity report. `eval score`, `eval
-  panel-score` (every panel judge) and `evaluate` take the same flag and record
-  it as `judge_temperature` in their output. So do `eval pairwise` (and its
-  escalation judge), `eval checklist`, `eval judge-wording`, `eval cross-judge`
-  (every `--judges` entry) and `eval judge-validity --mode pairwise`; each
+  `eval judge validate --judge-temperature` certifies the judge under the same
+  setting, and records it in the validity report. `eval score pointwise`, `eval
+  score panel` (every panel judge) and `evaluate` take the same flag and record
+  it as `judge_temperature` in their output. So do `eval score pairwise` (and its
+  escalation judge), `eval score checklist`, `eval judge wording`, `eval judge agreement`
+  (every `--judges` entry) and `eval judge validate --mode pairwise`; each
   probes every judge model with the setting first, before any judgement: a judge
   the provider table refuses exits 2 with no call made, and a probe call that the
   judge rejects exits 1, as `arms run` does.
@@ -452,7 +489,7 @@ does not say another judge would agree, and on the perf golden set it did not:
 the same skill-vs-baseline answers scored +1.7 under the stored judge and −3.4
 under Haiku 4.5 (both significant). Four commands make that visible.
 
-**1. Gate the judge first.** `eval judge-validity` checks that the judge orders
+**1. Gate the judge first.** `eval judge validate` checks that the judge orders
 answers whose order is known (an answer above its own damaged copy).
 `--sequential` adds bases until each degradation is decided instead of stopping
 at a fixed 20, which is usually inconclusive: across five seeds the fixed gate
@@ -477,7 +514,7 @@ and rows keep pair order. A throttled call that still fails becomes an errored
 pair, which counts as a miss, so lower it when the summary shows errors.
 
 ```bash
-python cli.py eval judge-validity --answers run.json --sequential \
+python cli.py eval judge validate --answers run.json --sequential \
   --judge-provider amazon-bedrock --judge-model openai.gpt-oss-120b-1:0 \
   --mode pairwise --output validity_pairwise.json
 ```
@@ -504,12 +541,12 @@ escalated). A gate pass is a floor, not a guarantee: gpt-oss was
 order-consistent on 95% of gate pairs but on only 44% of real skill-vs-baseline
 comparisons, which are much closer calls.
 
-**2. Compare arms the same way.** `eval pairwise` puts each arm's answer next
+**2. Compare arms the same way.** `eval score pairwise` puts each arm's answer next
 to the baseline's; `--escalate-model` is the same cheap-then-expensive cascade.
 
-**3. Check the verdict across judges.** `eval cross-judge` re-scores an arms run
+**3. Check the verdict across judges.** `eval judge agreement` re-scores an arms run
 under several judges (absolute, and with `--grounded` against each question's
-`expected_topics`), takes `eval pairwise` and `eval checklist` reports as more
+`expected_topics`), takes `eval score pairwise` and `eval score checklist` reports as more
 measures, and labels each arm `CONSISTENT ±`, `LEANING ±`, `JUDGE-DEPENDENT` or
 `NO DETECTABLE EFFECT`, on Holm-adjusted p over the measures that vote, or
 `NOT MEASURED` when no voting measure compared a single question (every call
@@ -517,7 +554,7 @@ errored, or every judge was gated out); `--strict` exits 1 on that too. A
 `--judges` judge that leaves answers unscored prints how many and its first
 error, which the report keeps under `unscored`; one that scored none of its
 answers exits 2 once the report is written, with or without `--strict`, as
-`eval pairwise` does when every comparison fails. With
+`eval score pairwise` does when every comparison fails. With
 `--validity` reports, a judge that failed its gate is shown but does not vote
 (its grounded and checklist measures included, in any context);
 `--require-validated` leaves only judges that passed. The stored measure is
@@ -532,8 +569,8 @@ judge sees what the stored judge saw. A file written before `judge_materials` ha
 only the report snippets; with stored scores on such material, `--judges` refuses
 (exit 2), and `--pairwise` or `--checklist` always do, since those judges see only
 the answers. `--no-stored` compares those judges with each other. The gate itself
-passes no context by default (`eval pairwise` and `eval checklist` never pass
-one), so it validates a judge in the no-context setting; `judge-validity --context
+passes no context by default (`eval score pairwise` and `eval score checklist` never pass
+one), so it validates a judge in the no-context setting; `eval judge validate --context
 stored` on an arms artifact gates it with each arm's stored material instead. That
 run exits 2 with a typed scorer or `--mode pairwise`, on a file with no non-empty
 verified material, when an arm loses all its bases, has only `padding` pairs or gets none sampled by
@@ -541,16 +578,16 @@ verified material, when an arm loses all its bases, has only `padding` pairs or 
 scored, or when no pair is usable. A label whose
 significant measures all rest on one judge says `(one judge)`; an escalated
 pairwise measure counts as its cheap judge's. Gate a judge on answers from the
-same answer model it will judge: `cross-judge` warns when the validity report was
+same answer model it will judge: `eval judge agreement` warns when the validity report was
 measured on another model's answers.
 
 ```bash
-python cli.py eval cross-judge --answers run.json --questions golden.json --grounded --both \
+python cli.py eval judge agreement --answers run.json --questions golden.json --grounded --both \
   --judges amazon-bedrock/us.anthropic.claude-haiku-5-5,amazon-bedrock/openai.gpt-oss-120b-1:0 \
   --pairwise run_pairwise.json --validity validity_haiku.json --validity validity_pairwise.json
 ```
 
-**4. When changing the judge prompt**, `eval judge-wording` re-runs the gate
+**4. When changing the judge prompt**, `eval judge wording` re-runs the gate
 under meaning-preserving rewrites of it and flags a degradation FRAGILE when a
 rewrite moves it on the same pairs: a paired sign test against the original
 prompt, Holm-adjusted over every rewrite and variant. Re-draws of the original
@@ -559,7 +596,7 @@ scored pair (every call errored) is reported NOT MEASURED, not as "no rewrite
 moves anything", and `--strict` exits 1 on it. Use at least 30 bases; at
 20 bases only a large wording effect is detectable.
 
-`eval checklist` asks, per expected topic and in both polarities, whether the
+`eval score checklist` asks, per expected topic and in both polarities, whether the
 answer covers it. Its sign was stable across judges, but it is the weakest of
 the measures (p ≈ 0.05 where pairwise reached 0.002) and costs about 2.7× an
 absolute judgement (Haiku, measured: $0.015 vs $0.0055 per answer); its value is
@@ -801,7 +838,7 @@ A custom dotted name (`alice.model`) is not a vendor prefix, and a `huggingface/
 A dated snapshot and its undated alias are neither: the alias does not record which snapshot answered, so the
 role is named on stderr as not verified, and `--strict` exits 1 on it. A baseline saved before a default-model
 change is such a baseline. A panel
-artifact (`eval panel-score`) is compared by its judge models: the panels must have the same number of judges
+artifact (`eval score panel`) is compared by its judge models: the panels must have the same number of judges
 and the same models, and a judge that matches the other panel's only through such an alias makes the role
 not verified. A role either
 side does not record (an older artifact, or answers with no model) is named on

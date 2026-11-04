@@ -19,13 +19,13 @@ Task definitions are evaluation content, so they live in a separate content
 repository, not here. This framework runs them from a checkout you name:
 
 ```bash
-python cli.py tasks list --tasks-root <checkout>/evaluation/harbor/tasks
+python cli.py eval tasks list --tasks-root <checkout>/evaluation/harbor/tasks
 python cli.py tasks run  --tasks-root <checkout>/evaluation/harbor/tasks \
   --tasks <task-name> --harnesses docker-oracle --out-json results/runs.json
 ```
 
 This page is the format reference: everything a task directory must contain for
-`tasks list`/`tasks run`, the `docker-*` harnesses and the coverage contract to
+`eval tasks list`/`tasks run`, the `docker-*` harnesses and the coverage contract to
 read it. Contribute the task itself to the content repository; contribute changes
 to this format here, next to the code that parses it
 ([`dokimi/harnesses/tasks.py`](../dokimi/harnesses/tasks.py),
@@ -108,8 +108,8 @@ Field by field, with the consumer that actually reads it:
 
 | Field | Read by | Meaning |
 | --- | --- | --- |
-| `metadata.tags` | `tasks list`, the coverage contract | Lowercased tag list. **This is the work signal**: a task counts as work for a product when its tags contain the product's key in `products.yaml` (or one of that product's `tag_aliases:`). Include the library key (`onetbb`, `dpnp`, `intel-performance-skills`), the concept (`parallel-reduce`), and any provenance tag (`parres`). |
-| `metadata.difficulty` | `tasks list`, the task-runs report | `easy` / `medium` / `hard`; drives the difficulty rollup in the Markdown report. Missing renders as `?`. |
+| `metadata.tags` | `eval tasks list`, the coverage contract | Lowercased tag list. **This is the work signal**: a task counts as work for a product when its tags contain the product's key in `products.yaml` (or one of that product's `tag_aliases:`). Include the library key (`onetbb`, `dpnp`, `intel-performance-skills`), the concept (`parallel-reduce`), and any provenance tag (`parres`). |
+| `metadata.difficulty` | `eval tasks list`, the task-runs report | `easy` / `medium` / `hard`; drives the difficulty rollup in the Markdown report. Missing renders as `?`. |
 | `metadata.level` | [`difficulty-rubric.md`](./difficulty-rubric.md) | Workflow depth: `triage`, `diagnosis`, `end_to_end`. Optional but recommended for skill evaluation. |
 | `metadata.difficulty_explanation`, `category`, `author_*` | humans | Provenance and review context; carried through in the run artifact. |
 | `agent.timeout_sec` | `TaskSpec.timeout_sec`, the solver harnesses | Wall-clock budget for the agent's attempt. Typically 300. |
@@ -250,7 +250,7 @@ tells you nothing about whether the verifier discriminates.
 Also confirm the task is discoverable and tagged as intended:
 
 ```bash
-python cli.py tasks list --tasks-root <checkout>/evaluation/harbor/tasks
+python cli.py eval tasks list --tasks-root <checkout>/evaluation/harbor/tasks
 python -m dokimi.coverage \
   --tasks-root <checkout>/evaluation/harbor/tasks \
   --questions-root <checkout>/questions

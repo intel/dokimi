@@ -8,7 +8,7 @@ run the tool itself -- ``inspect eval <task> --log-format json``, ``promptfoo ev
 -- and read its log here. The completions become an ``answers.v1`` artifact (one condition,
 ``without_docs``: the native run had no dokimi doc context) and the tool's own verdicts an
 ``eval.v1`` artifact, so the native score sits next to dokimi's on the same records and
-``eval reference`` can re-grade the same completions. Question ids follow the importers': the
+``eval score reference`` can re-grade the same completions. Question ids follow the importers': the
 Inspect sample id, ``<testIdx>`` / ``<testIdx>.p<promptIdx>`` for promptfoo.
 
 Read for Inspect AI log format ``json`` (inspect-ai 0.3.283; ``samples[].output.completion``,
@@ -56,7 +56,7 @@ def _add(run: NativeRun, qid: Any, text: str, completion: Optional[str], score: 
          passed: Optional[bool], detail: Any = None, error: Optional[str] = None) -> None:
     answer = None if completion is None else {"answer": completion, "model": run.model}
     if answer is not None and error:
-        answer["error"] = error  # a failed sample is counted under `errors` in `eval reference`
+        answer["error"] = error  # a failed sample is counted under `errors` in `eval score reference`
     run.answers.append({"question_id": str(qid), "question_text": text, "without_docs": answer})
     run.evaluations.append({"question_id": str(qid), "question_text": text,
                             NATIVE_CONDITION: _block(score, passed, run.tool, detail)})

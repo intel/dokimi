@@ -29,6 +29,8 @@ tools:
   none: ["--tools", ""]
   read: ["--tools", "Read"]
   all: ["--disallowedTools", "WebFetch", "WebSearch"]
+  # repo skill-reach: with no tools Claude Code lists no skills, so only the Skill tool is left.
+  skills: ["--tools", "Skill"]
 # --delegation none: the same tools without the ones that start subagents (Agent/Task, Workflow).
 delegation:
   none:
@@ -98,6 +100,14 @@ guidance:
     turns every AGENTS.md off for the whole session. 2.1.241 and 2.1.250 read no
     AGENTS.md beside a root CLAUDE.md; without one they were not measured. The
     reach probe measures this per version.
+skills:
+  project_dirs: [.claude/skills]
+  user_dirs: ["config:skills"]
+  notes: >-
+    Measured on CLI 2.1.304 (Linux): lists .claude/skills and
+    $CLAUDE_CONFIG_DIR/skills; not .agents/skills at either scope, not a
+    nested skills/group/<skill>. A symlinked skill dir is listed. When a
+    project and a user skill share a name, only the user one is listed.
 bridge:
   for: AGENTS.md
   write: CLAUDE.md
