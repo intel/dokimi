@@ -201,6 +201,19 @@ def task_format(path: Path) -> str | None:
     return None
 
 
+def not_a_task(path: Path) -> str | None:
+    """Why the directory at *path* is skipped by discovery (a note, another tool's file), else ``None``."""
+
+    fmt = task_format(path)
+    if fmt is None:
+        return "not a task directory"
+    if fmt == FORMAT_TASK_MD and not _has_frontmatter(path / "task.md"):
+        return "task.md has no YAML frontmatter"
+    if fmt == FORMAT_TBENCH_V1 and not tbench_v1.has_instruction(path, _load_yaml):
+        return "task.yaml has no instruction"
+    return None
+
+
 def _has_frontmatter(path: Path) -> bool:
     with path.open(encoding="utf-8", errors="replace") as fh:
         return fh.readline().strip() == "---"
@@ -279,17 +292,13 @@ def discover_tasks(root: Path | None = None) -> list[TaskSpec]:
         return []
     tasks = []
     for path in sorted(root.iterdir()):
-        fmt = task_format(path)
-        if fmt is None:
+        if not is_task_dir(path):
             continue
-        if fmt == FORMAT_TASK_MD and not _has_frontmatter(path / "task.md"):
-            # A lone task.md without frontmatter (planning notes, say) is not
-            # a task. BenchFlow's batch discovery skips it too; load_task on
-            # that directory still raises.
-            _warn_once(f"skipping {path}: task.md has no YAML frontmatter")
-            continue
-        if fmt == FORMAT_TBENCH_V1 and not tbench_v1.has_instruction(path, _load_yaml):
-            _warn_once(f"skipping {path}: task.yaml has no instruction")  # some other tool's task.yaml
+        reason = not_a_task(path)
+        if reason:
+            # A lone task.md without frontmatter (planning notes) or another tool's
+            # task.yaml is not a task; load_task on that directory still raises.
+            _warn_once(f"skipping {path}: {reason}")
             continue
         tasks.append(load_task(path))
     return tasks

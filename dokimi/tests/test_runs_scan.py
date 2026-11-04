@@ -56,6 +56,7 @@ EXPECTED: dict[str, tuple[dict, str | None, str | None, str | None]] = {
     "redteam.v1": ({}, "questions.json", None, None),
     "need_graph.v1": ({}, "dpnp-io", None, None),
     "eval_coverage.v1": ({}, "dpnp-io", None, None),
+    "catalog_eval.v1": ({}, "demo-catalog", None, None),
     "reach_matrix.v1": ({}, None, None, "2026-10-31T04:37:00+00:00"),
     "repo_hits_judged.v1": ({}, "review_replay_pr3098", "gpt-5.1", None),
 }

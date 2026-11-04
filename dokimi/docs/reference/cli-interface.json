@@ -2585,6 +2585,96 @@
       "path": "dokimi catalog",
       "subcommand_required": true,
       "subcommands": {
+        "eval": {
+          "allow_abbrev": true,
+          "params": [
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "catalog_root",
+              "kind": "argument",
+              "nargs": null,
+              "position": 0,
+              "required": true,
+              "type": "pathlib._local.Path#661d9498960e"
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--changed-from",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
+              "action": "_HelpAction",
+              "choices": null,
+              "const": null,
+              "default": "==SUPPRESS==",
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": true,
+              "key": "--help/-h",
+              "kind": "option",
+              "nargs": 0,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--out-dir",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": true,
+              "type": "pathlib._local.Path#661d9498960e"
+            },
+            {
+              "action": "_StoreAction",
+              "choices": [
+                "'static'"
+              ],
+              "const": null,
+              "default": "static",
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--tier",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": null
+            }
+          ],
+          "path": "dokimi catalog eval",
+          "subcommand_required": null,
+          "subcommands": {}
+        },
         "formats": {
           "allow_abbrev": true,
           "params": [
@@ -14051,6 +14141,7 @@
               "choices": [
                 "'answers'",
                 "'arms'",
+                "'catalog_eval'",
                 "'cli_routes'",
                 "'dokimi_config'",
                 "'effective_instructions'",

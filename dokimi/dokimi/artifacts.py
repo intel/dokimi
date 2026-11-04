@@ -70,6 +70,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "dokimi_config": "dokimi_config.v1",
     "need_graph": "need_graph.v1",
     "eval_coverage": "eval_coverage.v1",
+    "catalog_eval": "catalog_eval.v1",
     "reach_matrix": "reach_matrix.v1",
     "repo_hits_judged": "repo_hits_judged.v1",
 }
