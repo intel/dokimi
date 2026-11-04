@@ -436,7 +436,8 @@ Guide: [run-consistency.md](run-consistency.md).
   `complete`/`ask`/`chat`, retry, the response cache, usage) sits on one
   adapter seam: `LiteLLMAdapter` in production, `FakeAdapter` in tests (the
   `fake_llm` fixture). `ask_parsed` is the redraw-until-it-parses loop.
-  `llm_call`, `chat_completion` and `utils.get_llm` delegate to `LLM`.
+  `llm_call`, `chat_completion`, the judge, the persona and question generators and
+  the question validator go through `LLM` and its one provider table (`resolve_model`, `credential_env_var`).
   `dokimi/llm_cli.py` serves the CLI providers (`claude-cli`): `LiteLLMAdapter`
   hands their requests to it, and it runs the logged-in CLI through `process.run`
   ([subscription-backends.md](subscription-backends.md)). `dokimi/llm_json.py`

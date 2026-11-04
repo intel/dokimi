@@ -28,16 +28,19 @@ from dokimi.defaults import (
 from dokimi.commands.library import _load_registry
 from dokimi.exit_codes import EXIT_USAGE
 from dokimi.llm_cli import SamplingError, check_sampling
+from dokimi.utils import check_bedrock_model
 
 
 def _refuse_judge_sampling(args: argparse.Namespace) -> None:
-    """Exit 2 before any answer is paid for when a CLI judge is given a temperature (the judge would refuse later)."""
+    """Exit 2 before any answer is paid for when the judge would refuse later: a CLI judge given a
+    temperature, or a Bedrock name Bedrock cannot run."""
+    provider = getattr(args, "judge_provider", DEFAULT_JUDGE_PROVIDER)
     try:
-        check_sampling(getattr(args, "judge_provider", DEFAULT_JUDGE_PROVIDER),
-                       getattr(args, "judge_temperature", None), None)
+        check_sampling(provider, getattr(args, "judge_temperature", None), None)
     except SamplingError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
+    check_bedrock_model(provider, args.judge_model)
 
 
 def _run_single_library(entry, output_dir: str, model: str, provider: str, judge_model: str, judge_provider: str = DEFAULT_JUDGE_PROVIDER, doc_source_override=None, max_tokens_per_question: int = DEFAULT_MAX_TOKENS_PER_QUESTION, force_regen: bool = False, concurrency: int = DEFAULT_CONCURRENCY, questions_from=None, questions_root=None, judge_temperature=None, judge_placeholder=False, registry=None) -> dict:

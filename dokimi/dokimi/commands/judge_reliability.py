@@ -111,17 +111,14 @@ def _check_judge_temperature(judges: list[tuple[str, str]], temperature) -> None
         return
     from dokimi.eval.arms_run import ProbeError, probe_sampling
     from dokimi.llm import unsupported_sampling_params
-    from dokimi.utils import bedrock_litellm_model
 
     for model, provider in dict.fromkeys(judges):
-        # A Bedrock judge goes through get_llm, which maps a bare name first.
-        resolved = bedrock_litellm_model(model) if provider == "amazon-bedrock" else model
-        if unsupported_sampling_params(resolved, provider, temperature=temperature):
+        if unsupported_sampling_params(model, provider, temperature=temperature):
             print(f"Error: --judge-temperature {temperature} is rejected by judge {provider}/{model}: "
                   f"provider '{provider}' does not support temperature for model '{model}'", file=sys.stderr)
             sys.exit(EXIT_USAGE)
         try:
-            probe_sampling(resolved, provider, temperature, None)
+            probe_sampling(model, provider, temperature, None)
         except ProbeError as exc:
             print(f"Error: --judge-temperature {temperature} is rejected by judge {provider}/{model}: {exc}",
                   file=sys.stderr)

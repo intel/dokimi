@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import Tuple, Dict, Any
 
-from dokimi.defaults import bedrock_profile
+from dokimi.defaults import BEDROCK_MODEL_IDS, bedrock_profile
 
 
 def parse_frontmatter(text: str) -> "Tuple[Dict[str, Any], str]":
@@ -243,14 +243,14 @@ def get_llm(provider: str, model: str, api_key: str | None = None,
     A delegate to :class:`dokimi.llm.LLM` that keeps this path's own provider
     table (it differs from :func:`dokimi.llm.resolve_model`: a bare Bedrock name
     falls back to ``$ANTHROPIC_DEFAULT_SONNET_MODEL``, OpenRouter gets
-    ``max_tokens=2000``, Bedrock reads only its bearer token) and its cache keys,
-    until the judge, generator and validator move to ``LLM``.
+    ``max_tokens=2000``, Bedrock reads only its bearer token) and its cache keys.
+    No caller is left in the package; it goes with its tests.
     """
     from dokimi import llm_cli
-    from dokimi.llm import LLM, _GetLLMCompat, _Invoker
+    from dokimi.llm import LLM, _GetLLMCompat, Invoker
 
     if llm_cli.backend(provider) is not None:  # a logged-in CLI: no route, no key
-        return _Invoker(LLM(model, provider, temperature=temperature, seed=seed))
+        return Invoker(LLM(model, provider, temperature=temperature, seed=seed))
     api_key = _read_key(api_key) if api_key else api_key
     max_tokens: int | None = None
     key: str | None
@@ -274,7 +274,7 @@ def get_llm(provider: str, model: str, api_key: str | None = None,
     else:
         route = model if "/" in model else f"{provider}/{model}"
         key = api_key
-    return _Invoker(_GetLLMCompat(model, provider, max_tokens=max_tokens,
+    return Invoker(_GetLLMCompat(model, provider, max_tokens=max_tokens,
                                   temperature=temperature, seed=seed, route=route, key=key))
 
 
@@ -298,6 +298,23 @@ class InputError(ValueError):
     exit 1 stays the verdict of ``--strict`` gates and ``eval judge-validity``. A ``ValueError``,
     so code that already catches bad values keeps catching these.
     """
+
+
+_BEDROCK_ID = re.compile(r"[a-z0-9]+\.", re.IGNORECASE)
+
+
+def check_bedrock_model(provider: str, model: str) -> None:
+    """Raise :class:`InputError` for a judge name Bedrock cannot run, before a run pays for answers.
+
+    A Bedrock id starts with a region or vendor and a dot (``us.anthropic.``, ``amazon.``); a dot
+    after a hyphen is a version (``claude-sonnet-4.5``), not an id. An ARN or a litellm route has a
+    ``/``, and a bare name runs only when ``BEDROCK_MODEL_IDS`` maps it to a profile.
+    """
+    if (provider == "amazon-bedrock" and "/" not in model and not _BEDROCK_ID.match(model)
+            and model not in BEDROCK_MODEL_IDS):
+        raise InputError(f"Bedrock has no model '{model}': pass its inference profile id "
+                         f"(us.anthropic.<name>) or an ARN; the bare names that run are "
+                         f"{', '.join(BEDROCK_MODEL_IDS)}")
 
 
 def read_json_input(path: str | os.PathLike[str], *, flag: str | None = None) -> Any:
