@@ -27,7 +27,7 @@ skill, with no model. The result accounts for exactly those checks. The installe
 checker fingerprint and input bundle/task digests bind the receipts to the bytes
 checked (vendored and VCS directories such as `.git`, `node_modules` and `.venv` inside a skill
 or task are not part of its digest). A catalog root that is itself a symlink is refused; a
-symlink in a parent directory is resolved once, and no link below the root is followed. No model, Docker, skill script, oracle or task verifier runs here.
+symlink in a parent directory is resolved once, and no link below the root is followed (with no `skills.yaml`, a linked directory beside a discovered skill or under `skills/` is an `unsafe-path` finding, not skipped; links elsewhere, such as `.claude/skills`, are ignored). No model, Docker, skill script, oracle or task verifier runs here.
 
 Tasks are discovered on disk and assigned using their `metadata.skill` field.
 `evaluation/harbor/suites.json` is cross-checked: a task present on disk but absent

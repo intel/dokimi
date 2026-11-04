@@ -12,10 +12,10 @@ from typing import Any
 import yaml
 
 from dokimi.harnesses.tasks import load_task, not_a_task, read_task_config
-from dokimi.skills.loader import TEMPLATE_DIR_NAMES, walk_skill_files
+from dokimi.skills.loader import TEMPLATE_DIR_NAMES, VENDORED_DIR_NAMES, walk_skill_files
 
 from .catalog import DEFAULT_SUITES_MANIFEST, DEFAULT_TASKS_SUBDIR, SkillCatalogEntry, read_skill_manifest
-from .catalog_eval_inputs import Inputs, UnsafePath, checked_path, finding, relative_path
+from .catalog_eval_inputs import Inputs, UnsafePath, checked_path, finding, redirected, relative_path
 from .validate import review_skills
 
 
@@ -43,6 +43,30 @@ def _skill_specs(inputs: Inputs) -> list[dict]:
     if not isinstance(data, list) or not all(isinstance(item, dict) for item in data):
         raise ValueError(f"invalid skills list at {path}")
     return data
+
+
+def _hidden_links(root: Path, skills: list[str]) -> list[str]:
+    """Linked directories beside a discovered skill or under ``skills/``, where a skill would go unseen.
+
+    A link inside a skill bundle or the tasks root is refused there already."""
+    covered = [*skills, DEFAULT_TASKS_SUBDIR]
+    found = []
+    for parent in sorted({PurePosixPath(path).parent.as_posix() for path in skills} | {"skills"}):
+        directory = root / parent
+        if redirected(directory):
+            found.append(parent)
+            continue
+        try:
+            children = sorted(directory.iterdir()) if directory.is_dir() else []
+        except OSError as exc:
+            raise ValueError(f"cannot inspect {directory}: {exc}") from exc
+        for child in children:
+            path = child.relative_to(root).as_posix()
+            if (redirected(child) and child.is_dir() and child.name not in VENDORED_DIR_NAMES
+                    and not TEMPLATE_DIR_NAMES.intersection(PurePosixPath(path).parts)
+                    and not any(prefix in {".", path} or path.startswith(prefix + "/") for prefix in covered)):
+                found.append(path)
+    return sorted(found)
 
 
 def _skill_path(item: dict) -> str:
@@ -104,6 +128,9 @@ def inventory_skills(inputs: Inputs, problems: list[dict]) -> list[dict]:
         for item in rows:
             item["checks"]["findings"].append(finding(
                 "load-refused", "catalog contains an unsafe skill path; skill loading refused", item["path"]))
+    if not (inputs.root / "skills.yaml").exists():
+        problems.extend(finding("unsafe-path", f"symlink is not a catalog input: {link}", link)
+                        for link in _hidden_links(inputs.root, [item["path"] for item in rows if item["path"]]))
     seen: set[str] = set()
     for item in rows:
         if item["name"] in seen:

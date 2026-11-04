@@ -840,3 +840,19 @@ def test_a_moved_task_selects_the_skill_that_owned_it_at_the_base(tmp_path):
     report = untracked(tmp_path, changed, [], {f"{TASKS}/t1": "alpha"})
     assert report["selection"]["selected"] == ["alpha", "beta"]
     assert row(report)["evaluation"] == "no_tasks"
+
+
+def test_a_linked_skill_directory_without_a_manifest_is_refused_not_dropped(tmp_path):
+    root = tmp_path / "catalog"
+    real = skill(root, "real")
+    (root / "skills.yaml").unlink()
+    outside = tmp_path / "external/linked"
+    outside.mkdir(parents=True)
+    shutil.copy(real / "SKILL.md", outside / "SKILL.md")
+    _link(root / "skills/linked", outside)
+    _link(real / "docs", tmp_path / "external")
+    (root / ".claude").mkdir()
+    _link(root / ".claude/skills", root / "skills")
+    report = evaluate(root)
+    assert report["status"] == "fail"
+    assert sorted(f["path"] for f in report["problems"] if f["code"] == "unsafe-path") == ["skills/linked", "skills/real"]
