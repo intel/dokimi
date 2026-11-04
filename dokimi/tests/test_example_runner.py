@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import tempfile
 from pathlib import Path
 
@@ -13,6 +14,7 @@ import pytest
 
 from dokimi.metrics.example_runner import (
     ExecutionPolicy,
+    ExecutionRefused,
     extract_examples,
     run_example,
     score_examples,
@@ -20,6 +22,11 @@ from dokimi.metrics.example_runner import (
 from dokimi import process
 from dokimi.process import FakeRunner, Limits, reply
 
+
+# Trusted snippets opt out only on macOS; default-cap refusal has dedicated tests.
+HOST_MEMORY_MB = None if sys.platform == "darwin" else 512
+_NOT_WINDOWS = pytest.mark.skipif(sys.platform == "win32",
+                                  reason="host subprocess examples are refused on Windows")
 
 def test_extract_examples_with_metadata():
     md = "text\n```python title=\"x.py\"\nprint(1)\n```\nmore\n```bash\nls\n```\n"
@@ -97,14 +104,16 @@ def test_language_allow_list():
     assert "disallowed" in (res.error or "") or "Unsupported" in (res.error or "")
 
 
+@_NOT_WINDOWS
 def test_subprocess_executes_when_opted_in(tmp_path):
     res = run_example(
-        "python", "print('ok')", ExecutionPolicy(backend="subprocess", allow_host=True, timeout=10)
+        "python", "print('ok')", ExecutionPolicy(backend="subprocess", allow_host=True, mem_mb=HOST_MEMORY_MB, timeout=10)
     )
     assert res.status == "passed"
     assert res.passed is True
 
 
+@_NOT_WINDOWS
 @pytest.mark.parametrize("linked_tmp", [False, True])
 def test_subprocess_gets_its_own_home_and_no_parent_secrets(monkeypatch, tmp_path, linked_tmp):
     # The temp dir may sit behind a symlink (macOS /var -> /private/var), and
@@ -122,28 +131,31 @@ def test_subprocess_gets_its_own_home_and_no_parent_secrets(monkeypatch, tmp_pat
         "home = os.path.realpath(os.environ.get('HOME', '')); "
         "sys.exit(0 if home == os.path.realpath(os.getcwd()) and 'OPENAI_API_KEY' not in os.environ else 1)"
     )
-    res = run_example("python", code, ExecutionPolicy(backend="subprocess", allow_host=True, timeout=10))
+    res = run_example("python", code, ExecutionPolicy(backend="subprocess", allow_host=True, mem_mb=HOST_MEMORY_MB, timeout=10))
     assert res.status == "passed", res.error
 
 
+@_NOT_WINDOWS
 def test_subprocess_reports_failure(tmp_path):
     res = run_example(
         "python", "import sys; sys.exit(3)",
-        ExecutionPolicy(backend="subprocess", allow_host=True, timeout=10),
+        ExecutionPolicy(backend="subprocess", allow_host=True, mem_mb=HOST_MEMORY_MB, timeout=10),
     )
     assert res.status == "failed"
     assert "Exit code 3" in (res.error or "")
 
 
+@_NOT_WINDOWS
 def test_subprocess_timeout_enforced():
     res = run_example(
         "python", "import time; time.sleep(30)",
-        ExecutionPolicy(backend="subprocess", allow_host=True, timeout=1),
+        ExecutionPolicy(backend="subprocess", allow_host=True, mem_mb=HOST_MEMORY_MB, timeout=1),
     )
     assert res.status == "failed"
     assert "Timeout" in (res.error or "")
 
 
+@_NOT_WINDOWS
 def test_subprocess_stderr_flood_is_bounded_in_the_parent():
     """A snippet that floods stderr until its timeout: the parent keeps a bounded head and
     tail, not everything it wrote (it used to grow to gigabytes in a few seconds)."""
@@ -154,7 +166,7 @@ def test_subprocess_stderr_flood_is_bounded_in_the_parent():
         return seen[-1]
 
     code = "import sys\nwhile True:\n    sys.stderr.write('x' * 65536)\n"
-    res = run_example("python", code, ExecutionPolicy(backend="subprocess", allow_host=True, timeout=2),
+    res = run_example("python", code, ExecutionPolicy(backend="subprocess", allow_host=True, mem_mb=HOST_MEMORY_MB, timeout=2),
                       recording)
     assert res.status == "failed" and res.error == "Timeout after 2s"
     (done,) = seen
@@ -240,6 +252,7 @@ def test_docker_backend_reports_a_timeout():
 
 
 def test_subprocess_backend_asks_for_limits_and_a_scrubbed_env(monkeypatch):
+    monkeypatch.setattr(process.sys, "platform", "linux")
     monkeypatch.setenv("OPENAI_API_KEY", "x")
     runner = FakeRunner()
     res = run_example("python", "print(1)",
@@ -303,3 +316,84 @@ def test_extract_examples_tab_fence_with_nested_indent_compiles():
     [(lang, code)] = extract_examples(doc)
     assert code == "if x:\n    y()"
     compile(code, "<example>", "exec")
+
+
+def test_explicit_null_memory_keeps_cpu_limit(monkeypatch):
+    monkeypatch.setattr(process.sys, "platform", "linux")
+    policy = ExecutionPolicy.from_config({"execution": {
+        "backend": "subprocess", "allow_host": True, "mem_mb": None, "timeout": 3,
+    }})
+    runner = FakeRunner()
+    result = run_example("python", "print(1)", policy, runner)
+    assert result.status == "passed", result.error
+    assert runner.calls[0].limits == Limits(cpu_sec=3, memory_bytes=None)
+    assert ExecutionPolicy.from_config({}).mem_mb == 512
+
+
+@pytest.mark.parametrize("mem_mb", [None, 0, -1])
+def test_docker_requires_positive_memory_cap(mem_mb):
+    runner = FakeRunner()
+    with pytest.raises(ExecutionRefused, match="positive memory cap"):
+        run_example("python", "print(1)", ExecutionPolicy(backend="docker", mem_mb=mem_mb), runner)
+    assert runner.calls == []
+
+
+@pytest.mark.parametrize("platform,mem_mb,reason", [
+    ("darwin", 512, "RLIMIT_AS"),
+    ("win32", 512, "unsupported on Windows"),
+    ("win32", None, "unsupported on Windows"),
+])
+def test_unsupported_host_caps_fail_before_launch(monkeypatch, platform, mem_mb, reason):
+    monkeypatch.setattr(process.sys, "platform", platform)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("unsupported limits must refuse before launching a child")
+
+    monkeypatch.setattr(process.subprocess, "Popen", forbidden)
+    with pytest.raises(ExecutionRefused, match=reason):
+        run_example("python", "raise AssertionError('must not execute')",
+                    ExecutionPolicy(backend="subprocess", allow_host=True, mem_mb=mem_mb))
+
+
+@pytest.mark.parametrize("platform,policy", [
+    ("darwin", ExecutionPolicy(backend="subprocess", allow_host=True)),
+    ("win32", ExecutionPolicy(backend="subprocess", allow_host=True)),
+    ("linux", ExecutionPolicy(backend="docker", mem_mb=None)),
+])
+def test_refused_limits_stop_scoring_instead_of_a_perfect_rate(tmp_path, monkeypatch, platform, policy):
+    monkeypatch.setattr(process.sys, "platform", platform)
+    doc = tmp_path / "d.md"
+    doc.write_text("```python\nimport package_that_does_not_exist\n```\n", encoding="utf-8")
+    with pytest.raises(ExecutionRefused, match="python example not run: "):
+        score_examples(doc, policy)
+
+
+@_NOT_WINDOWS
+def test_a_rejected_setrlimit_stops_the_run_instead_of_failing_the_snippet(tmp_path, monkeypatch):
+    import resource
+
+    def reject(*args):
+        raise OverflowError("too large for rlim_t")
+
+    monkeypatch.setattr(process.sys, "platform", "linux")
+    monkeypatch.setattr(resource, "setrlimit", reject)
+    doc = tmp_path / "d.md"
+    doc.write_text("```python\nprint(1)\n```\n", encoding="utf-8")
+    with pytest.raises(ExecutionRefused,
+                       match=r"rejected Limits\(cpu_sec=5, memory_bytes=536870912\)"):
+        score_examples(doc, ExecutionPolicy(backend="subprocess", allow_host=True))
+
+
+def test_subprocess_refuses_a_non_positive_memory_cap():
+    runner = FakeRunner()
+    with pytest.raises(ExecutionRefused, match="mem_mb must be positive"):
+        run_example("python", "print(1)",
+                    ExecutionPolicy(backend="subprocess", allow_host=True, mem_mb=0), runner)
+    assert runner.calls == []
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="RLIMIT_AS is enforced on Linux")
+def test_subprocess_memory_cap_is_enforced():
+    res = run_example("python", "x = bytearray(900 * 1024 * 1024)",
+                      ExecutionPolicy(backend="subprocess", allow_host=True, mem_mb=400, timeout=10))
+    assert res.status == "failed" and "Exit code" in (res.error or "")

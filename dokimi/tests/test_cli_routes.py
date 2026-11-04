@@ -118,6 +118,7 @@ PAID_PATHS = {
     ("novelty", "routing"),
     ("repo", "reach"),
     ("repo", "run"),
+    ("repo", "hits", "judge"),
     ("personas", "discover"),
     ("questions", "generate"),
     ("questions", "analyze"),
@@ -131,6 +132,7 @@ PAID_PATHS = {
     ("eval", "cross-judge"),
     ("eval", "pairwise"),
     ("eval", "reference"),
+    ("eval", "redteam"),
     ("eval", "panel-score"),
     ("tools", "preference"),
 }

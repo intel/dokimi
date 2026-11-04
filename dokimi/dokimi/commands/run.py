@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 from dokimi.exit_codes import EXIT_USAGE
+from dokimi.metrics.example_runner import ExecutionRefused
 from dokimi.report.json_report import write_json
 from dokimi.report.markdown_report import write_compare_report, write_run_report
 from dokimi.runner.compare import CompareInputError, compare_snapshots
@@ -20,7 +21,8 @@ from dokimi.runner.spec import DocSelectionError
 
 
 def _run_or_exit(root: Path, spec_path: Path) -> dict:
-    """Run the benchmark; a bad spec, an unreadable doc or a doc selection it refuses exits 2.
+    """Run the benchmark; a bad spec, an unreadable doc, a doc selection it refuses or
+    example limits the host cannot apply exit 2.
 
     Exit 1 is the verdict code of --strict (see cmd_run).
     """
@@ -34,7 +36,7 @@ def _run_or_exit(root: Path, spec_path: Path) -> dict:
     except DocLoadError as exc:
         print(f"❌ {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
-    except DocSelectionError as exc:  # e.g. fewer documents than the manifest's min_docs
+    except (DocSelectionError, ExecutionRefused) as exc:  # e.g. fewer docs than min_docs, a cap the host lacks
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
 

@@ -29,15 +29,26 @@ def _py(code: str, *args: str, **kwargs) -> process.Completed:
 
 def _alive(pid: int) -> bool:
     """True while ``pid`` runs; a killed process nobody has reaped yet is a zombie, so not alive."""
+    if sys.platform == "win32":  # os.kill(pid, 0) succeeds on an exited process whose handle is open
+        import ctypes
+
+        kernel32 = ctypes.WinDLL("kernel32")
+        kernel32.OpenProcess.restype = ctypes.c_void_p
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return False
+        code = ctypes.c_ulong()
+        try:
+            return bool(kernel32.GetExitCodeProcess(ctypes.c_void_p(handle), ctypes.byref(code)))                 and code.value == 259  # STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(ctypes.c_void_p(handle))
     try:
         os.kill(pid, 0)
     except (ProcessLookupError, PermissionError, OSError):
         return False
     try:
         return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z"
-    except (FileNotFoundError, ProcessLookupError):
-        return False
-    except OSError:  # no /proc (macOS): kill(0) succeeded
+    except OSError:  # no /proc, or it exited after kill(0): conservatively live
         return True
 
 
@@ -407,8 +418,9 @@ def test_an_error_right_after_popen_kills_the_child(monkeypatch, where):
         monkeypatch.setattr(process.threading.Thread, "start", boom)
     with pytest.raises(RuntimeError):
         _py("import time; time.sleep(60)", input=b"x")
-    (child,) = _Recorded.started
+    (child,) = [p for p in _Recorded.started if p.args[0] == PY]
     assert child.poll() is not None and process._live == {}
+    assert all(p.poll() is not None for p in _Recorded.started)  # includes Windows taskkill
 
 
 @_POSIX_ONLY
@@ -568,6 +580,10 @@ def test_a_shutdown_is_not_an_oserror():
 
 @_POSIX_ONLY
 def test_limits_cap_memory():
+    if sys.platform == "darwin":
+        with pytest.raises(ValueError, match="RLIMIT_AS.*unsupported"):
+            _py("raise AssertionError('must not execute')", limits=Limits(memory_bytes=256 * 1024 * 1024))
+        return
     grab = "b = bytearray(512 * 1024 * 1024); print('allocated')"
     capped = _py(grab, limits=Limits(memory_bytes=256 * 1024 * 1024))
     assert capped.returncode != 0 and "MemoryError" in capped.stderr and "allocated" not in capped.stdout
@@ -850,3 +866,66 @@ def test_nothing_else_in_the_package_spawns_a_process():
              for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
              if spawn.search(line) and not line.lstrip().startswith("#")]
     assert found == []
+
+
+@pytest.mark.parametrize("platform, limits", [
+    ("darwin", Limits(memory_bytes=256 * 1024 * 1024)),
+    ("win32", Limits(memory_bytes=256 * 1024 * 1024)),
+    ("win32", Limits(cpu_sec=1)),
+])
+def test_unsupported_limits_refuse_before_launch(tmp_path, monkeypatch, platform, limits):
+    marker = tmp_path / "started"
+    monkeypatch.setattr(process.sys, "platform", platform)
+    with pytest.raises(ValueError, match="unsupported"):
+        _py("import pathlib, sys; pathlib.Path(sys.argv[1]).touch()", str(marker), limits=limits)
+    assert not marker.exists()
+
+
+@pytest.mark.parametrize("platform, limits", [
+    ("darwin", Limits(cpu_sec=2)),
+    ("linux", Limits(cpu_sec=2, memory_bytes=256 * 1024 * 1024)),
+    ("win32", Limits()),
+])
+def test_supported_limits_are_not_refused(monkeypatch, platform, limits):
+    monkeypatch.setattr(process.sys, "platform", platform)
+    assert process.check_limits(limits) is None
+
+
+@_POSIX_ONLY
+def test_a_lower_inherited_hard_limit_caps_the_request(monkeypatch):
+    import resource
+
+    applied = {}
+    monkeypatch.setattr(process.sys, "platform", "linux")
+    monkeypatch.setattr(resource, "getrlimit", lambda which: (resource.RLIM_INFINITY, 4000)
+                        if which == resource.RLIMIT_AS else (resource.RLIM_INFINITY, resource.RLIM_INFINITY))
+    monkeypatch.setattr(resource, "setrlimit", lambda which, pair: applied.update({which: pair}))
+    apply = process._limits_preexec(Limits(cpu_sec=2, memory_bytes=8000))
+    assert apply is not None
+    apply()
+    assert applied == {resource.RLIMIT_AS: (4000, 4000), resource.RLIMIT_CPU: (2, 3)}
+
+
+@_POSIX_ONLY
+def test_rejected_setrlimit_never_launches_user_work(tmp_path, monkeypatch):
+    import resource
+
+    def reject(*args):
+        raise ValueError("limit rejected")
+
+    monkeypatch.setattr(process.sys, "platform", "linux")
+    monkeypatch.setattr(resource, "setrlimit", reject)
+    marker = tmp_path / "started"
+    with pytest.raises(process.subprocess.SubprocessError, match="preexec_fn"):
+        _py("import pathlib, sys; pathlib.Path(sys.argv[1]).touch()", str(marker),
+            limits=Limits(memory_bytes=256 * 1024 * 1024))
+    assert not marker.exists()
+
+
+@_POSIX_ONLY
+def test_liveness_observer_without_proc_still_sees_live_process(monkeypatch):
+    def missing(*args, **kwargs):
+        raise FileNotFoundError("no proc filesystem")
+
+    monkeypatch.setattr(Path, "read_text", missing)
+    assert _alive(os.getpid())

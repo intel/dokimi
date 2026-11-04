@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/effective_instructions.v1.json",
+  "title": "Effective-instructions receipt v1",
+  "description": "The effective-instructions/v0 receipt (agentsmd/agents.md#213) of one `repo reach` probe (docs/repo-evaluation-contract.md §7.1): one receipt per scenario, each source's expected state from budget's start-up rules and its observed state from the probe's marker tokens. `followed` is always unknown: reach never proves it.",
+  "type": "object",
+  "required": ["schema_version", "generated_at", "repo", "runtime", "model", "observation", "unknowns", "receipts"],
+  "properties": {
+    "schema_version": {"const": "effective_instructions.v1"},
+    "generated_at": {"type": "string"},
+    "repo": {
+      "type": "object",
+      "required": ["id", "tree"],
+      "properties": {
+        "id": {"type": "string"},
+        "tree": {"type": "string"},
+        "sha": {"type": ["string", "null"]},
+        "manifest": {"type": "string"}
+      }
+    },
+    "runtime": {"$ref": "#/$defs/runtime"},
+    "model": {"type": "string"},
+    "observation": {
+      "type": "object",
+      "required": ["method", "dokimi_method", "detail"],
+      "properties": {
+        "method": {"enum": ["unknown"], "description": "The thread vocabulary's observation_method: no runtime event, prompt capture or hook backs the probe."},
+        "dokimi_method": {"const": "marker_self_report", "description": "dokimi's method: the model reports the marker tokens it can see; the request is not captured."},
+        "detail": {"type": "string"}
+      }
+    },
+    "unknowns": {"type": "array", "items": {"type": "string"}},
+    "receipts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["schema", "run_id", "runtime", "cwd", "target", "sources", "precedence_observed", "unknowns"],
+        "properties": {
+          "schema": {"const": "effective-instructions/v0"},
+          "run_id": {"type": "string", "description": "The reach salt and the scenario id, so the receipt names its record in reach.json."},
+          "runtime": {"$ref": "#/$defs/runtime"},
+          "cwd": {"type": "string", "description": "The directory the run started in; `.` is the repository root."},
+          "target": {"type": ["string", "null"], "description": "The file the run was told to read (the probe file of a read= scenario), else null."},
+          "sources": {"type": "array", "items": {"$ref": "#/$defs/source"}},
+          "precedence_observed": {
+            "type": "array",
+            "description": "Displacements seen in this run: a root CLAUDE* file loaded while the AGENTS.md it displaces was not.",
+            "items": {
+              "type": "object",
+              "required": ["winner", "displaced"],
+              "properties": {"winner": {"type": "string"}, "displaced": {"type": "string"}}
+            }
+          },
+          "unknowns": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "runtime": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {"name": {"type": "string"}, "version": {"type": "string"}}
+    },
+    "tristate": {"enum": [true, false, "unknown"]},
+    "source": {
+      "type": "object",
+      "required": ["path", "sha256", "scope", "expected", "observed", "observation_method", "dokimi_method", "states"],
+      "properties": {
+        "path": {"type": "string"},
+        "alias_of": {"type": "string", "description": "Set when the path is a link to another probed file; its tokens and its observation are the target's."},
+        "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$", "description": "Null when the file cannot be read as text."},
+        "scope": {"enum": ["repo", "subtree", "user", "adapter", "unknown"]},
+        "expected": {"$ref": "#/$defs/tristate", "description": "Budget's start-up rules: true for start, false for off, true for a lazy file whose subtree the run works in. unknown without Claude Code's rules."},
+        "observed": {"enum": ["loaded", "fetched", "not_loaded", "unknown"]},
+        "observation_method": {"enum": ["runtime_event", "prompt_capture", "hook", "unknown"], "description": "The thread vocabulary's method; unknown for every source, since no runtime event backs the probe."},
+        "dokimi_method": {"enum": ["marker_self_report", null], "description": "Set when the probe recorded the source in this run, whether or not a marker token came back; null for a source it did not probe."},
+        "states": {
+          "type": "object",
+          "required": ["accessed", "selected", "loaded", "followed"],
+          "properties": {
+            "accessed": {"$ref": "#/$defs/tristate"},
+            "selected": {"$ref": "#/$defs/tristate"},
+            "loaded": {"$ref": "#/$defs/tristate"},
+            "followed": {"const": "unknown", "description": "Reach never proves that an instruction was followed."}
+          }
+        }
+      }
+    }
+  }
+}

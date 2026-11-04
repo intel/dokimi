@@ -50,11 +50,11 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: '3.13'
       - name: Install dependencies
-        run: pip install -r requirements.lock.txt
+        run: pip install --no-deps -r requirements.lock.txt
       # The base is the merge base of HEAD and the base branch, as in the other
       # diff-against-base steps: on CI that is the merge commit's own base, even if
       # the base branch moved on since. git archive, not a worktree: no git state changes.

@@ -55,6 +55,8 @@ Code that spawns takes a ``runner`` argument defaulting to :func:`run`.
 
 from __future__ import annotations
 
+from .process_io import PipeReader, PipeReaderOwner
+
 import dataclasses
 import os
 import selectors
@@ -67,7 +69,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
-from typing import IO, Protocol
+from typing import cast, IO, Protocol
 
 TIMEOUT_RC = 124
 DRAIN_GRACE_SEC = 2.0
@@ -76,6 +78,7 @@ TRUNCATION_MARKER = "\n[... {dropped} bytes not kept: output over the capture li
 _POLL_SEC = 0.1
 _CHUNK = 1 << 16
 _POSIX = sys.platform != "win32"
+_LINUX = sys.platform == "linux"
 
 if sys.platform == "win32":
     import ctypes
@@ -114,7 +117,7 @@ class Env:
 
 @dataclass(frozen=True)
 class Limits:
-    """POSIX resource limits applied in the child (ignored on Windows)."""
+    """Resource limits applied before exec; unsupported requests raise ValueError."""
 
     cpu_sec: int | None = None
     memory_bytes: int | None = None
@@ -180,6 +183,7 @@ def run(
 ) -> Completed:
     """Run ``argv`` (no shell) to completion or ``timeout`` seconds; see the module doc."""
     args = _check(argv, timeout, capture_limit, term_grace)
+    preexec = _limits_preexec(limits) if limits else None
     data = input.encode("utf-8") if isinstance(input, str) else input
     with _Spool(stdout_to) as out_file, _Spool(stderr_to) as err_file:
         start = time.monotonic()
@@ -192,7 +196,7 @@ def run(
                 stdout=out_file or (subprocess.PIPE if capture_stdout else subprocess.DEVNULL),
                 stderr=err_file or subprocess.PIPE,
                 start_new_session=_POSIX,
-                preexec_fn=_limits_preexec(limits) if _POSIX and limits else None,
+                preexec_fn=preexec,
             )
         except BaseException:
             _replay_deferred_signals()  # no child started: a signal that came meanwhile acts now
@@ -487,7 +491,9 @@ def _thread_pipes(proc: subprocess.Popen[bytes], pipes: _Pipes, deadline: float,
                   term_grace: float = 0.0) -> bool:
     """Windows has no select() on pipes: one reader thread per pipe. No SIGTERM there either:
     ``term_grace`` is ignored and the job is terminated at once."""
-    readers = [threading.Thread(target=_pump, args=(pipe, cap), daemon=True) for pipe, cap in pipes]
+    owners = {pipe: PipeReader(pipe, cap.add, _CHUNK) for pipe, cap in pipes}
+    cast(PipeReaderOwner, proc)._dokimi_pipe_readers = owners
+    readers = [threading.Thread(target=owner.pump, daemon=True) for owner in owners.values()]
     for reader in readers:
         reader.start()
     timed_out = _wait(proc, deadline)
@@ -496,14 +502,6 @@ def _thread_pipes(proc: subprocess.Popen[bytes], pipes: _Pipes, deadline: float,
     for reader in readers:
         reader.join(max(0.0, grace_end - time.monotonic()))
     return timed_out
-
-
-def _pump(pipe: IO[bytes], cap: _Capture) -> None:
-    try:
-        while chunk := pipe.read1(_CHUNK):  # type: ignore[attr-defined]
-            cap.add(chunk)
-    except (OSError, ValueError):  # the pipe was closed under the reader
-        pass
 
 
 def _wait(proc: subprocess.Popen[bytes], deadline: float) -> bool:
@@ -549,13 +547,17 @@ def _group_alive(proc: subprocess.Popen[bytes]) -> bool:
     """
     if not _signal_group(proc, 0):
         return False
-    if sys.platform != "linux":
+    if not _LINUX:
         return True
+    return _linux_group_alive(proc.pid)
+
+
+def _linux_group_alive(pid: int) -> bool:
     try:
         entries = os.listdir("/proc")
     except OSError:
         return True
-    pgid = str(proc.pid)
+    pgid = str(pid)
     for entry in entries:
         if not entry.isdigit():
             continue
@@ -587,13 +589,18 @@ def _close_pipes(proc: subprocess.Popen[bytes]) -> None:
         proc.wait(timeout=DRAIN_GRACE_SEC)
     except subprocess.TimeoutExpired:
         pass
-    if _POSIX:  # Windows reader threads own the handles
-        for pipe in (proc.stdout, proc.stderr):
-            try:
-                if pipe:
-                    pipe.close()
-            except OSError:
-                pass
+    owners: dict[IO[bytes], PipeReader] = getattr(proc, "_dokimi_pipe_readers", {})
+    for pipe in (proc.stdout, proc.stderr):
+        if pipe is None:
+            continue
+        try:
+            owner = owners.get(pipe)
+            if owner is None:
+                pipe.close()
+            else:
+                owner.close_unclaimed()
+        except OSError:
+            pass
 
 
 def _assign_job(proc: subprocess.Popen[bytes]) -> int | None:
@@ -622,17 +629,39 @@ def _kill_tree(proc: subprocess.Popen[bytes], job: int | None) -> None:
         proc.kill()
 
 
-def _limits_preexec(limits: Limits) -> Callable[[], None]:
+def check_limits(limits: Limits) -> None:
+    """Raise ``ValueError`` when this platform cannot apply the requested ``limits``."""
+    if limits.cpu_sec is None and limits.memory_bytes is None:
+        return
+    if sys.platform == "win32":
+        raise ValueError("requested process limits are unsupported on Windows")
+    if sys.platform == "darwin" and limits.memory_bytes is not None:
+        raise ValueError("requested memory limit (RLIMIT_AS) is unsupported on macOS")
+
+
+def _limits_preexec(limits: Limits) -> Callable[[], None] | None:
+    check_limits(limits)
+    if limits.cpu_sec is None and limits.memory_bytes is None:
+        return None
     import resource
 
+    def capped(which: int, soft: int, hard: int) -> tuple[int, int]:
+        # An inherited hard limit below the request stays in force: it cannot be raised.
+        inherited = resource.getrlimit(which)[1]
+        if inherited == resource.RLIM_INFINITY:
+            return soft, hard
+        return min(soft, inherited), min(hard, inherited)
+
+    cpu = None if limits.cpu_sec is None else capped(
+        resource.RLIMIT_CPU, limits.cpu_sec, limits.cpu_sec + 1)
+    mem = None if limits.memory_bytes is None else capped(
+        resource.RLIMIT_AS, limits.memory_bytes, limits.memory_bytes)
+
     def apply() -> None:
-        if limits.cpu_sec is not None:
-            resource.setrlimit(resource.RLIMIT_CPU, (limits.cpu_sec, limits.cpu_sec + 1))
-        if limits.memory_bytes is not None:
-            try:
-                resource.setrlimit(resource.RLIMIT_AS, (limits.memory_bytes, limits.memory_bytes))
-            except (ValueError, OSError):  # pragma: no cover - platform dependent
-                pass
+        if cpu is not None:
+            resource.setrlimit(resource.RLIMIT_CPU, cpu)
+        if mem is not None:
+            resource.setrlimit(resource.RLIMIT_AS, mem)
 
     return apply
 

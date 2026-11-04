@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..source import RepoTree, SourceError
+from . import workflows
 from .gitignore import GitIgnore, Rule
 from .markdown import PYTHON_LANGS, SHELL_LANGS, STARLARK_LANGS, Fence, split
 
@@ -44,8 +45,8 @@ _ALLCAPS = re.compile(r"^[A-Z][A-Z0-9_]{3,}$")
 _ENV_ASSIGN = re.compile(r"^[A-Za-z_]\w*\+?=")
 _PROMPT = re.compile(r"^\s*(?:\$|>|#\s*\$)\s+")
 _PLACEHOLDER = re.compile(r"^(?:<[^>]+>|\{[^}]+\}|\$\w+|\$\{[^}]+\}|\.\.\.)$")
-# `actions/checkout@v6`, `owner/repo/sub@<sha>…`: a GitHub Action reference, not a path in the tree.
-# A ref ending in a file extension (`assets/icon@2x.png`) is a file name instead.
+# `actions/checkout@v6`, `owner/repo/sub@<sha>…`: a GitHub Action reference, not a path in the tree; without the ref,
+# an Action a workflow step uses is `ok`. A ref ending in a file extension (`assets/icon@2x.png`) is a file name.
 _ACTION_REF = re.compile(r"^[\w.-]+/[\w.-]+(?:/[\w./-]+)?@(?![\w.-]*\.[A-Za-z][A-Za-z0-9]{0,4}$)"
                          r"[\w.-]+?(?:\.\.\.|…)?$")
 _WRAPPED = re.compile(r"^`([^`]+)`(\s+#.*)?$")  # a whole command in backticks, maybe with a comment
@@ -293,9 +294,9 @@ class Scan:
             return None
         if any(c.startswith("..") for c in cands) and all(c.startswith("..") for c in cands):
             return "fail", f"resolves to {cands[0]}, outside the repository"
-        sub = self.submodule_of(cands)
-        if sub:
-            return "unresolved", f"inside the submodule {sub}, which this snapshot does not hold"
+        held = self._submodule_or_action(p, cands)
+        if held:
+            return held
         if any(c in rel for c in "*<>{"):
             return self._glob(bases, rel)
         for c in cands:
@@ -314,11 +315,35 @@ class Scan:
         for c in cands:
             parent = posixpath.dirname(c)
             if parent and parent in self.dir_set:
-                return self._missing([c], rel.endswith("/"), f"{parent}/ exists but {c} does not")
+                return self._missing([c], rel.endswith("/"), f"{parent}/ exists but {c} does not" + self._unread_note(p, cands))
         hits = [x for x in self.by_name.get(posixpath.basename(target), []) if x.endswith("/" + target)]
         if hits:
             return "ok_suffix", f"below a directory the text does not name; {len(hits)} match(es), e.g. {hits[0]}"
-        return self._missing(cands, rel.endswith("/"), "tried " + ", ".join(cands), "unresolved")
+        return self._missing(cands, rel.endswith("/"), "tried " + ", ".join(cands) + self._unread_note(p, cands), "unresolved")
+
+    def _submodule_or_action(self, name: str, cands: list[str]) -> tuple[str, str] | None:
+        """``unresolved`` for a path into a submodule, else ``ok`` for a used Action no candidate holds, else ``None``.
+
+        The Action is one a workflow step uses as ``uses: <name>@<ref>``, named here without the ref; the
+        submodule verdict comes first, as the snapshot does not hold what the name may be there. A name
+        whose directory the tree holds at the root (``tools/gone`` beside ``tools/``) is a path, stale or not.
+        """
+        sub = self.submodule_of(cands)
+        if sub:
+            return "unresolved", f"inside the submodule {sub}, which this snapshot does not hold"
+        used = workflows.action_users(self).get(name) if self._reads_as_action(name, cands) else None
+        return ("ok", f"used by {used}") if used else None
+
+    def _reads_as_action(self, name: str, cands: list[str]) -> bool:
+        """``name`` has an Action's shape, no candidate holds it and its directory is not one at the root."""
+        return (workflows.ACTION.match(name) is not None and not any(self.exists(c) for c in cands)
+                and posixpath.dirname(name) not in self.dir_set)
+
+    def _unread_note(self, name: str, cands: list[str]) -> str:
+        """``; <file> was not read (<why>)`` for each workflow or local action the Action reading of ``name`` skipped."""
+        if not self._reads_as_action(name, cands):
+            return ""
+        return "".join(f"; {f} was not read ({why})" for f, why in workflows.unread_action_files(self).items())
 
     def _glob(self, bases: list[str], rel: str) -> tuple[str, str]:
         """A glob is judged like the plain path it generalises (see :meth:`resolve_path`)."""

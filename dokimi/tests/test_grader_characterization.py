@@ -4,7 +4,7 @@
 """What one judge and one panel grading call sends and keeps (#229 P1-4).
 
 ``Judge._judge_answer`` and ``JudgePanel._call_judge`` each ran their own prompt,
-call, parse, redraw and cache loop. Both now run ``llm.ask_parsed``. These tests
+call, parse, redraw and cache loop. Both now run ``judged.judged_reply``, over ``llm.ask_parsed``. These tests
 pin what the loop must keep, byte for byte: each prompt sent (by digest), its draw,
 the ``cache_if`` verdict, the sampling, the replay probes, the response-cache
 keys, the number of provider calls, the format reminder, the parsed output, the

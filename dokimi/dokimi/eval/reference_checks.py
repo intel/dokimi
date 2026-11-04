@@ -51,6 +51,8 @@ from typing import Any, Callable, Mapping, Optional, Sequence
 
 import regex
 
+from dokimi.measure import as_float
+
 #: Seconds a ``regex`` check may run before it is left unscored (``re`` has no timeout).
 REGEX_TIMEOUT = 1.0
 
@@ -261,7 +263,7 @@ def parse_json(answer: str, *, contains: bool = False) -> tuple[bool, Any]:
 # --- one check ---------------------------------------------------------------------------------
 
 
-def _values(check: Mapping[str, Any]) -> list[Any]:
+def check_values(check: Mapping[str, Any]) -> list[Any]:
     raw = check.get("values", check.get("value"))
     if raw is None:
         return []
@@ -294,7 +296,7 @@ def _regex(check: Mapping[str, Any], values: list[Any], answer: str, mode: str) 
 
 def _deterministic(check: Mapping[str, Any], answer: str) -> tuple[Optional[bool], str]:
     kind = check["type"]
-    values = _values(check)
+    values = check_values(check)
     mode = str(check.get("mode", "any"))
     if kind == "match":
         location = str(check.get("location", "end"))
@@ -382,12 +384,8 @@ def validate_grading(grading: Any) -> list[str]:
     return problems
 
 
-def _is_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
-
-
 def _number_or_none(value: Any) -> bool:
-    return value is None or _is_number(value)
+    return value is None or as_float(value) is not None
 
 
 def blank_value(kind: str, c: Mapping[str, Any], value: Any) -> bool:
@@ -405,10 +403,10 @@ def blank_value(kind: str, c: Mapping[str, Any], value: Any) -> bool:
 def _check_problems(kind: str, c: Mapping[str, Any]) -> list[str]:
     # An absent weight is 1.0; an explicit null is not a number, and grade_check would raise on it.
     weight = c.get("weight", 1.0)
-    out = ["weight is not a number"] if not _is_number(weight) else (
+    out = ["weight is not a number"] if as_float(weight) is None else (
         ["weight must not be negative"] if weight < 0 else [])
     if kind in DETERMINISTIC and kind != "json":
-        values = _values(c)
+        values = check_values(c)
         if not values:
             out.append(f"{kind} has no values")
         elif any(blank_value(kind, c, v) for v in values):
@@ -419,7 +417,7 @@ def _check_problems(kind: str, c: Mapping[str, Any]) -> list[str]:
     if kind == "match" and str(c.get("location", "end")) not in _LOCATIONS:
         out.append(f"match location must be one of {', '.join(_LOCATIONS)}, not {c.get('location')!r}")
     if kind == "regex":
-        for v in _values(c):
+        for v in check_values(c):
             try:
                 regex.compile(str(v))
             except regex.error as exc:

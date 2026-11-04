@@ -331,7 +331,7 @@ The result is in `metrics.isolation_probe` and `isolation_probe.json`:
   by `docker cp`: the `claude` binary, the files named by the file-valued
   variables below (CA bundles, `AWS_SHARED_CREDENTIALS_FILE` with every
   profile in it, `AWS_CONFIG_FILE`, `GOOGLE_APPLICATION_CREDENTIALS`), and
-  the skill arm's plugin at `/opt/abskill` (built with symlinks followed, as
+  the skill arm's plugin at `/opt/claude-plugins` (built with symlinks followed, as
   for the host arm).
 - **Image needs.** A glibc image (the host's `claude` binary is copied in; a
   musl image fails the `--version` check), and a working tree in `/app` that
@@ -450,7 +450,7 @@ The `-host` variants run the agent on the host instead. The host cannot hide an
 absolute path or close the network, so these harnesses state what they seal in
 every run's `metrics.isolation`. What they do:
 
-- solve in a fresh `dokimi-run-*` temp tree outside any checkout;
+- solve in a fresh temp tree (a plain `mkdtemp` name) outside any checkout;
 - point `HOME` and `CLAUDE_CONFIG_DIR` at empty scratch dirs;
 - pass only an allowlist of variables;
 - reach `task_files`, `treatment`, `operator_config`, `network` and `env` by
@@ -579,10 +579,12 @@ a verdict. The rules mirror intel/skills' `tools/check_harbor_job.py`:
 | no trial file (with or without the job's), more than one trial, or not a JSON object | errored |
 
 An errored cell is out of the pass-rate denominator and the paired test, as
-for `docker-*` and BenchFlow. When every cell of a `tasks run` errored, it
-still writes the artifact and the report, then exits 1 as `incomplete`
-(`0 scored, N errored of N cells`); a run with some cells scored exits 0 and
-prints the errored count per harness. `metrics.n_trials` counts the trial files and
+for `docker-*` and BenchFlow. When any planned cell of a `tasks run` errors, lacks a finite score, or is missing,
+the command writes the artifact and report, then exits 1 as `incomplete`.
+It reports scored, errored, unscored and missing counts and names missing cells.
+A completed verifier failure (reward 0) is scored evidence and does not itself
+change the exit code. A supported `--dry-run` plan exits 0 without claiming
+execution; unsupported cells still fail. `metrics.n_trials` counts the trial files and
 `metrics.result_json` names the one read. A `harbor` that `dokimi` kills at
 the task budget is a failed cell (reward 0, returncode 124), as above.
 
@@ -604,8 +606,11 @@ refuses the task instead of running it with the internet the task forbade.
 Both now land as errored cells.
 
 A `command:` harness (including a `--command-template` that wraps `harbor`)
-keeps its own rule: a `reward.txt` / `reward.json` under the run dir, else a
-`reward: x` on its output, else exit code 0 is a pass.
+keeps its own rule: a `reward.txt` / `reward.json` under the run dir, else (no
+reward file) a `reward: x` on its output, else exit code 0 is a pass. Exit 126 or 127, a
+signal exit, a Windows crash status (an NTSTATUS error code such as `0xC0000409`), or a reward file with no reward in it is no verdict: the cell is
+errored (`metrics.solver_error`). Only a reward file with a reward in it outranks such an
+exit; a `reward: x` on the output does not.
 
 ### Network policy
 
@@ -634,6 +639,16 @@ decisions land in `metrics.network.verify_egress`). Later sources win:
    `--network verify=none` grades a public task offline, and
    `--network solve=allowlist:pypi.org,files.pythonhosted.org` lets every
    arm install packages.
+
+Under `allowlist`, HTTPS goes through the sidecar's CONNECT proxy. A bare
+allowlist entry is `host:443`, so a plain-HTTP request to that host (port 80) is
+refused with a 403, "not on the allowlist". A plain-HTTP apt or pip mirror needs
+its port-80 entry too, for example `--network verify=allowlist:mirror.corp,mirror.corp:80`,
+and, behind a host proxy, its host in the host's `NO_PROXY`: plain HTTP is never
+chained through the host's proxy, and a request that would be is refused with a 403.
+If the mirror cannot be allowlisted that way, a verifier that runs `apt-get` needs
+`--network verify=public` (or `allow_internet = true` in `task.toml`, Harbor's
+deprecated flag).
 
 A skill that needs the network at solve time declares it in its `SKILL.md`
 frontmatter as `metadata.network` (`allowlist:host,...` or `public`), with
@@ -914,7 +929,7 @@ python cli.py tasks run \
 The arms differ by the skill and one notice, and by nothing else:
 
 - **Delivery.** The skill directory is wrapped in a one-skill plugin and passed
-  with `--plugin-dir`, at `/opt/abskill` in the container (outside `/app`, and
+  with `--plugin-dir`, at `/opt/claude-plugins` in the container (outside `/app`, and
   removed before the verifier runs) or beside the scratch work tree on the
   host. The agent loads it with its own `Skill` tool. The skill's top-level
   `evals/` (its prompts and expected outputs) is not copied. Symlinks are
@@ -1313,3 +1328,13 @@ python cli.py tasks run --tasks parallel-tfidf-search \
   --baseline-harness benchflow:claude-agent-acp \
   --model aws-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0
 ```
+
+### Native host probe boundaries
+
+Container probes run against Linux tools and Linux process metadata. A native
+host probe uses only tools visible in the agent's environment: raw proxy and
+TCP checks require Bash and `timeout`, and inspection of ancestor environments
+requires Linux procfs. On macOS these checks can report `untested`; that result
+fails the isolation check and must not be interpreted as `closed`. An observed
+network leak still reports `open` even when another check lacks tools. Windows
+host shell probes are not qualified by the Linux-container tests.

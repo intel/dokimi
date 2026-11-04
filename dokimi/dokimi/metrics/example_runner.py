@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass, field
@@ -44,6 +45,10 @@ EXECUTORS: dict[str, tuple[str, list[str]]] = {
 
 _FENCE_OPEN_RE = re.compile(r"^(\s*)(`{3,}|~{3,})(.*)$")
 _FENCE_CLOSE_RE = re.compile(r"^\s*(`{3,}|~{3,})\s*$")
+
+
+class ExecutionRefused(RuntimeError):
+    """The host cannot apply the policy's limits; the run stops instead of scoring examples that never ran."""
 
 
 @dataclass
@@ -70,7 +75,7 @@ class ExecutionPolicy:
     timeout: int = 5
     allow_host: bool = False  # subprocess requires this explicit opt-in
     docker_image: str = "python:3.11-slim"
-    mem_mb: int = 512
+    mem_mb: int | None = 512
     cpus: float = 1.0
     allowed_langs: tuple[str, ...] = field(default_factory=lambda: tuple(EXECUTORS))
 
@@ -85,12 +90,13 @@ class ExecutionPolicy:
         cfg = cfg or {}
         execution = cfg.get("execution") or {}
         timeout = int(execution.get("timeout", cfg.get("timeout", 5)))
+        mem_mb = execution.get("mem_mb", 512)
         policy = cls(
             backend=str(execution.get("backend", "none")),
             timeout=timeout,
             allow_host=bool(execution.get("allow_host", False)),
             docker_image=str(execution.get("docker_image", "python:3.11-slim")),
-            mem_mb=int(execution.get("mem_mb", 512)),
+            mem_mb=None if mem_mb is None else int(mem_mb),
             cpus=float(execution.get("cpus", 1.0)),
         )
         override = os.environ.get("DOC_BENCH_EXAMPLE_BACKEND")
@@ -145,16 +151,16 @@ def extract_examples(markdown: str) -> list[tuple[str, str]]:
 
 
 def _run_subprocess(lang: str, code: str, policy: ExecutionPolicy,
-                    runner: process.Runner) -> tuple[bool, str | None]:
+                    runner: process.Runner) -> tuple[bool | None, str | None]:
     """Run code on the host in a resource-limited subprocess (trusted docs only).
 
-    CPU time and address space are capped (POSIX). There is no RLIMIT_NPROC: it
-    counts every process and thread of the real UID system-wide (and is not
+    CPU time is capped; address space is capped unless explicitly omitted.
+    There is no RLIMIT_NPROC: it counts every process and thread of the real UID system-wide (and is not
     enforced for root), not the snippet's own children, so a small cap makes every
     fork fail on a busy host. Capping the process count is the docker backend's job
     (``--pids-limit``). The runner kills the snippet's whole process group when it
     exits or times out, so a background job it started neither outlives it nor keeps
-    the run waiting.
+    the run waiting. ``None`` means the requested limits cannot be applied here, so nothing ran.
     """
     if not policy.allow_host:
         return False, (
@@ -166,7 +172,15 @@ def _run_subprocess(lang: str, code: str, policy: ExecutionPolicy,
     # Minimal environment — do not leak the parent's secrets/API keys. LD_LIBRARY_PATH
     # is preserved (not secret) because relocatable Python builds — e.g. actions/setup-python's
     # hostedtoolcache installs — need it so the dynamic loader can find libpython*.so.
-    limits = process.Limits(cpu_sec=max(1, policy.timeout), memory_bytes=policy.mem_mb * 1024 * 1024)
+    memory_bytes = None if policy.mem_mb is None else policy.mem_mb * 1024 * 1024
+    limits = process.Limits(cpu_sec=max(1, policy.timeout), memory_bytes=memory_bytes)
+    if memory_bytes is not None and memory_bytes <= 0:
+        return None, "not run: mem_mb must be positive"
+    try:
+        process.check_limits(limits)
+    except ValueError as exc:
+        hint = "; set mem_mb: null to keep only the CPU cap" if sys.platform == "darwin" else ""
+        return None, f"not run: {exc}{hint}"
     with tempfile.TemporaryDirectory() as tmp:
         # HOME points at the per-run temp dir rather than a shared /tmp.
         env = process.Env.only(("LD_LIBRARY_PATH",),
@@ -176,6 +190,8 @@ def _run_subprocess(lang: str, code: str, policy: ExecutionPolicy,
         try:  # stdout is not reported
             proc = runner(argv_prefix + [str(script)], cwd=tmp, env=env, timeout=policy.timeout,
                           capture_stdout=False, limits=limits)
+        except subprocess.SubprocessError:  # setrlimit failed in the child, before the snippet ran
+            return None, f"not run: the host rejected {limits}"
         except Exception as exc:  # noqa: BLE001 - report any spawn failure
             return False, f"Execution error: {type(exc).__name__}: {exc}"
 
@@ -187,8 +203,10 @@ def _run_subprocess(lang: str, code: str, policy: ExecutionPolicy,
 
 
 def _run_docker(lang: str, code: str, policy: ExecutionPolicy,
-                runner: process.Runner) -> tuple[bool, str | None]:
+                runner: process.Runner) -> tuple[bool | None, str | None]:
     """Run code inside a locked-down container (no network, no capabilities, read-only, limited)."""
+    if policy.mem_mb is None or policy.mem_mb <= 0:
+        return None, "not run: docker backend requires a positive memory cap (mem_mb)"
     suffix, argv_prefix = EXECUTORS[lang]
     with tempfile.TemporaryDirectory() as tmp:
         script = Path(tmp) / f"snippet{suffix}"
@@ -227,7 +245,10 @@ def _run_docker(lang: str, code: str, policy: ExecutionPolicy,
 
 def run_example(lang: str, code: str, policy: ExecutionPolicy,
                 runner: process.Runner = process.run) -> ExampleResult:
-    """Execute (or skip) a single example according to ``policy``."""
+    """Execute (or skip) a single example according to ``policy``.
+
+    Raises :class:`ExecutionRefused` when the host cannot apply the requested limits.
+    """
     if lang not in policy.allowed_langs or lang not in EXECUTORS:
         return ExampleResult(0, lang, code[:100], passed=None, status="skipped",
                              error=f"Unsupported or disallowed language: {lang}")
@@ -244,6 +265,8 @@ def run_example(lang: str, code: str, policy: ExecutionPolicy,
         return ExampleResult(0, lang, code[:100], passed=None, status="error",
                              error=f"Unknown execution backend: {policy.backend}")
 
+    if ok is None:  # neither 0.0 nor a perfect score for a snippet that never ran
+        raise ExecutionRefused(f"{lang} example {err}")
     return ExampleResult(0, lang, code[:100], passed=ok,
                          status="passed" if ok else "failed", error=err)
 
@@ -256,7 +279,8 @@ def score_examples(
     ``pass_rate`` is computed over *executed* examples only. A document with no
     examples — or whose examples were all skipped — scores 1.0 (nothing failed).
     For backward compatibility, a bare ``timeout`` may be passed instead of a
-    policy (implies the legacy host-subprocess behavior, opt-in).
+    policy (implies the legacy host-subprocess behavior, opt-in). Limits the host
+    cannot apply raise :class:`ExecutionRefused`.
     """
     if policy is None:
         policy = ExecutionPolicy(

@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any
 
 from dokimi.artifacts import schema_errors
+from dokimi.measure import SCORE_BOUND, as_float, is_finite
 
 from .container import (
     CONTENT_DIR,
@@ -53,7 +54,6 @@ from .manifest import RepoManifest
 from .workspace import Task
 
 GRADE_SCHEMA = "repo_grade.v1"
-SCORE_BOUND = 1e150  # the largest |score| `repo report` reads: squared deltas and sums stay finite
 _PLACEHOLDER_RE = re.compile(r"\{([a-z_]+)\}")
 CONTAINER_PATHS = {"run_dir": RUN_DIR, "eval_dir": CONTENT_DIR, "source_dir": SOURCE_DIR}
 GRADE_HOME = "grade-home"  # under {run_dir}, which the agent's container never mounts
@@ -255,7 +255,8 @@ def gate_ok(task: Task, grade: dict[str, Any]) -> bool:
     for entry in task.raw.get("gate", ["pass"]):
         if isinstance(entry, dict):
             value = metrics.get(entry["metric"])
-            if not _is_number(value) or value < entry["min"]:
+            # `not >=`, not `<`: a NaN minimum compares false both ways, and a NaN metric must not pass either
+            if not is_finite(value) or not value >= entry["min"]:
                 return False
         else:
             value = grade.get("pass") if entry == "pass" else metrics.get(entry)
@@ -267,15 +268,8 @@ def gate_ok(task: Task, grade: dict[str, Any]) -> bool:
 def score_value(task: Task, grade: dict[str, Any] | None) -> float | None:
     if not task.score or grade is None:
         return None
-    value = (grade.get("metrics") or {}).get(task.score["metric"])
-    if not isinstance(value, (int, float)) or isinstance(value, bool):
-        return None
-    try:
-        score = float(value)
-    except OverflowError:
-        return None
-    # NaN (no comparison holds), inf or a huge score is no measurement: `repo report` refuses such a cell
-    return score if abs(score) <= SCORE_BOUND else None
+    # NaN, inf, a bool or a score past SCORE_BOUND is no measurement: `repo report` refuses such a cell
+    return as_float((grade.get("metrics") or {}).get(task.score["metric"]), SCORE_BOUND)
 
 
 def outcome(task: Task, run_dir: Path, result: ContainerResult, error: str | None = None) -> dict[str, Any]:
@@ -328,7 +322,3 @@ def failed_outcome(reason: str) -> dict[str, Any]:
     around it): a grader failure that reads nothing from the run dir."""
     return {"status": "grader_failure", "pass": None, "success": False, "score": None, "score_only": False,
             "reasons": [reason], "rc": INFRA_EXIT, "timed_out": False, "wall_s": 0.0}
-
-
-def _is_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)

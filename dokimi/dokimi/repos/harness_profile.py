@@ -17,8 +17,6 @@ so the user's own settings and memory cannot leak into a run.
 
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -75,6 +73,18 @@ class HarnessProfile:
         """Hops the harness follows ``@`` imports (``guidance.import_max_depth``); None: unlimited."""
         depth = self.guidance.get("import_max_depth")
         return int(depth) if depth is not None else None
+
+    @property
+    def shadow_file(self) -> str | None:
+        """A file the harness loads by convention that turns the other guidance of its directory off
+        (``guidance.shadow_file``); ``repo reach --scenarios shadow`` writes it. None: the profile declares none."""
+        name = self.guidance.get("shadow_file")
+        return str(name) if name else None
+
+    @property
+    def claude_displaces_agents(self) -> bool:
+        """A CLAUDE* file turns off the AGENTS.md in its own directory (``guidance.claude_displaces_agents``)."""
+        return self.guidance.get("claude_displaces_agents") is True
 
     def applied_args(self, tools: str, present: frozenset[str]) -> list[str]:
         """The ``args_if_present`` names :meth:`argv` adds: those in ``present``, in the ``all`` tool mode only."""
@@ -138,34 +148,6 @@ class HarnessProfile:
         if delegation != "native" and self.tool_args(tools, delegation) == self.tools[tools]:
             return "native"
         return delegation
-
-    def execution_id(self, tools: str, delegation: str = "native", harness_sha256: str | None = None,
-                     harness_version: str | None = None, companion_sha256: dict[str, str | None] | None = None) -> str:
-        """Short hash of how the agent is started: the profile's ``invoke`` template with its tool arguments,
-        environment, config, prompt suffix, egress, bridge, trace, answer format and companions.
-
-        Two runs with the same id ran the same command line up to the per-cell values (prompt, model,
-        caps); ``repo run`` reuses a finished cell only when its id matches. Includes the harness
-        executable's digest and version to detect changes to the effective harness, wherever it lives,
-        and with ``companion_sha256`` the digest of each companion by name.
-        """
-        key: dict[str, Any] = {"profile": self.name, "invoke": list(self.invoke), "tools": list(self.tool_args(tools, delegation)),
-               "args_if_present": {n: list(a) for n, a in sorted(self.args_if_present.items())},
-               "env_set": dict(sorted(self.env_set.items())), "env_allow": list(self.env_allow),
-               "config_dir_env": self.config_dir_env, "config_files": dict(sorted(self.config_files.items())),
-               "egress": list(self.egress), "bridge": self.bridge,
-               "prompt_suffix": self.prompt_suffix, "harness_sha256": harness_sha256,
-               "harness_version": harness_version}
-        # a cell graded with another answer format or trace converter, or run with other companions, is another
-        # run; unset (or claude-stream-json) adds no key, so the ids of profiles that set none stay as they were
-        if self.trace != "claude-stream-json":
-            key["trace"] = self.trace
-        if self.answer_format:
-            key["answer_format"] = self.answer_format
-        if self.bin_companions:
-            key["bin_companions"] = (list(self.bin_companions) if companion_sha256 is None
-                                     else {n: companion_sha256.get(n) for n in self.bin_companions})
-        return hashlib.sha256(json.dumps(key, sort_keys=True).encode("utf-8")).hexdigest()[:12]
 
     def prompt(self, task_prompt: str) -> str:
         """The task prompt as the agent gets it: with ``prompt_suffix`` after a blank line."""

@@ -191,9 +191,9 @@ def test_pairwise_retries_an_unparseable_reply_and_never_caches_it(cache_dir, mo
     assert len(calls) == 3
     assert calls[1]["messages"] == calls[0]["messages"]  # the same prompt, a new draw
     assert len(list(cache_dir.glob("*.json"))) == 2  # "Verdict:" was not stored
-    # The re-run asks draw 0 live (nothing usable stored there); the rest replays.
+    # The re-run replays the stored redraw: draw 0 is not asked live first.
     assert judge.compare("L", "q", "x", "y").score == 1
-    assert len(calls) == 4
+    assert len(calls) == 3
 
 
 def test_checklist_retries_an_unparseable_reply_and_never_caches_it(cache_dir, monkeypatch):
@@ -206,7 +206,7 @@ def test_checklist_retries_an_unparseable_reply_and_never_caches_it(cache_dir, m
     assert (v.covered, v.absent, len(calls)) == (True, False, 3)
     assert len(list(cache_dir.glob("*.json"))) == 2
     (v,) = ck.check_answer(ask, "q", "a", ["point"])
-    assert (v.covered, v.absent, len(calls)) == (True, False, 4)
+    assert (v.covered, v.absent, len(calls)) == (True, False, 3)  # the rerun replays every stored redraw
 
 
 def test_panel_retry_escapes_a_cached_unparseable_reply(cache_dir, monkeypatch):

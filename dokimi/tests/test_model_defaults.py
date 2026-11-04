@@ -152,8 +152,18 @@ def test_independence_warning_sees_a_bedrock_alias_and_its_profile_as_one_model(
     assert _warn_judge_independence("amazon-bedrock", profile, "amazon-bedrock", bare)
     assert "independence warning" in capsys.readouterr().err
     assert not _warn_judge_independence("amazon-bedrock", "claude-haiku-5-5", "amazon-bedrock", bare)
-    # the alias only exists on Bedrock: the same strings on another provider stay distinct
-    assert not _warn_judge_independence("anthropic", profile, "anthropic", bare)
+    # the same model answering and judging is the same bias on any route, so it warns on the direct API too
+    capsys.readouterr()
+    assert _warn_judge_independence("anthropic", profile, "anthropic", bare)
+    assert "independence warning" in capsys.readouterr().err
+    assert _warn_judge_independence("anthropic", "claude-sonnet-5-5", "amazon-bedrock", "claude-sonnet-5-5")
+    assert "independence warning" in capsys.readouterr().err
+    assert not _warn_judge_independence("anthropic", "claude-sonnet-5-5", "anthropic", "claude-haiku-5-5")
+    assert capsys.readouterr().err == ""
+    # an unset model is not evidence of sameness
+    assert not _warn_judge_independence("anthropic", "", "anthropic", "")
+    assert not _warn_judge_independence("anthropic", "claude-sonnet-5-5", "anthropic", "")
+    assert capsys.readouterr().err == ""
 
 
 @pytest.mark.parametrize("model, provider", [
@@ -192,3 +202,11 @@ def test_a_model_priced_under_any_of_its_names_stays_a_known_zero(monkeypatch, l
     assert _has_price_entry(litellm_model, model)
     monkeypatch.setattr(litellm, "model_cost", {})
     assert not _has_price_entry(litellm_model, model)
+
+
+def test_independence_warning_names_the_judge_route_as_well_as_the_answer_route(capsys):
+    from dokimi.commands.evaluate import _warn_judge_independence
+
+    assert _warn_judge_independence("anthropic", "claude-haiku-5-5", "openai", "claude-haiku-5-5")
+    err = capsys.readouterr().err
+    assert "[anthropic/claude-haiku-5-5]" in err and "[openai/claude-haiku-5-5]" in err

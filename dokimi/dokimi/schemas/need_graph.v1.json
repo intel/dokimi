@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/need_graph.v1.json",
+  "title": "Need graph v1",
+  "description": "What a user of a subject needs, built from the subject's name and description only (dokimi.novelty.needs), frozen in a file so that `eval coverage` reads it instead of regenerating it. The graph `dokimi.novelty.needs.save_graph` writes is valid unstamped. `confirmed_by` says whether a person confirmed a node (`user`) or it is a model's guess (`hypothesis`, the default).",
+  "type": "object",
+  "required": ["artifact_name", "nodes"],
+  "properties": {
+    "schema_version": {"const": "need_graph.v1"},
+    "artifact_name": {"type": "string", "minLength": 1},
+    "description": {"type": "string"},
+    "nodes": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/node"}},
+    "edges": {"type": "array", "items": {"type": "object"}},
+    "provenance": {
+      "type": "object",
+      "description": "How the graph was made: model, prompt version, draws, and the coverage spread over the draws. Open: recorded, not interpreted.",
+      "properties": {
+        "model": {"type": "string"},
+        "prompt_version": {"type": "string"},
+        "draws": {"type": "integer", "minimum": 1}
+      }
+    }
+  },
+  "$defs": {
+    "node": {
+      "type": "object",
+      "required": ["id", "text", "path_class"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "text": {"type": "string", "minLength": 1},
+        "type": {"enum": ["intent", "evidence", "action", "constraint", "decision"]},
+        "path_class": {"enum": ["core", "branch", "rare_critical", "supporting", "out_of_scope"]},
+        "confirmed_by": {"enum": ["user", "hypothesis"]}
+      }
+    }
+  }
+}

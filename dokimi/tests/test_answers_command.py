@@ -308,3 +308,28 @@ def test_generate_unreadable_questions_exits_2_naming_the_path(tmp_path, monkeyp
         answers.cmd_answers_generate(_args(questions=str(path)))
     assert exc.value.code == 2
     assert f"Error: cannot read {path}" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("value", ["0", "-1", '"3"', "true"])
+def test_a_config_top_k_that_is_not_a_positive_int_exits_2(tmp_path, monkeypatch, capsys, value):
+    # top_k reaches the doc source as max_results: 0 would make every answer a placeholder.
+    path = tmp_path / "products.yaml"
+    path.write_text(f"retrieval:\n  top_k: {value}\n", encoding="utf-8")
+    _point_config(monkeypatch, path)
+    monkeypatch.setattr(dokimi.questions.artifact, "load_questions",
+                        lambda path: pytest.fail("questions loaded after a bad top_k"))
+    with pytest.raises(SystemExit) as exc:
+        answers.cmd_answers_generate(_args())
+    assert exc.value.code == 2
+    assert "retrieval.top_k in the config must be a positive integer" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("value", ["0", "-1"])
+def test_top_k_flag_below_one_is_refused(capsys, value):
+    from dokimi.cli import build_parser
+
+    with pytest.raises(SystemExit) as exc:
+        build_parser().parse_args(["answers", "generate", "--product", "L",
+                                   "--questions", "q.json", "--top-k", value])
+    assert exc.value.code == 2
+    assert "--top-k" in capsys.readouterr().err

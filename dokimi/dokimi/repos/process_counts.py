@@ -13,15 +13,22 @@ finite number within ``SCORE_BOUND``.
 
 from __future__ import annotations
 
-import math
 from collections import defaultdict
 from typing import Any
+
+from dokimi.measure import as_float
 
 from .grading import SCORE_BOUND
 
 
 #: ``result.json`` ``process`` keys that are counts (``guidance_read`` is a list of paths, counted).
 PROCESS_KEYS = ("tool_calls", "commands", "failed_commands", "denied_commands", "guidance_read")
+
+
+def process_lists(recs: list[dict[str, Any]]) -> dict[str, list[float | None]]:
+    """Each process measure any of ``recs`` reports, with every cell's value (``None`` where it has none)."""
+    values = [process_values(r) for r in recs]
+    return {name: [v.get(name) for v in values] for name in {k for v in values for k in v}}
 
 
 def process_values(rec: dict[str, Any]) -> dict[str, float]:
@@ -59,13 +66,7 @@ def process_order(key: str) -> tuple[int, str]:
 
 def as_measure(value: Any) -> float | None:
     """A finite number within ``SCORE_BOUND`` as a float; ``None`` for anything else (a bool, a string, NaN, 1e200)."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    try:
-        num = float(value)
-    except OverflowError:  # an int too large for a float
-        return None
-    return num if math.isfinite(num) and abs(num) <= SCORE_BOUND else None
+    return as_float(value, SCORE_BOUND)
 
 
 def process_line(means: dict[str, float] | None, width: int) -> list[str]:

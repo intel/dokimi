@@ -97,11 +97,10 @@ def test_sequential_reports_the_cap_as_inconclusive():
     seq = s["per_variant"]["truncate_20"]["sequential"]
     assert seq["decision"] == "continue" and seq["stopped_by"] == "cap"
     assert seq["n"] == 20  # the cap was reached, not an early decision
-    # Above the gate but undecided is an inconclusive pass (exit 0 with a warning), never a
-    # conclusive one: the verdict is flagged inconclusive and the report says so.
+    # An undecided sample is visibly INCONCLUSIVE, even above the point-estimate gate.
     assert s["conclusive"] is False
     summary = report.format_summary()
-    assert "RESULT: PASS (inconclusive" in summary and "answer pool exhausted" not in summary
+    assert "RESULT: INCONCLUSIVE" in summary and "answer pool exhausted" not in summary
 
 
 def test_sequential_says_when_the_pool_ran_out_before_the_cap():
@@ -1494,7 +1493,7 @@ def test_parse_yes_no_needs_one_verdict(reply, expected):
 
 def test_a_reply_naming_two_verdicts_is_redrawn_not_read_as_the_first():
     replies = iter(["Neither A nor B is wrong, so TIE", "TIE"])
-    verdict, raw = pw.ask_parsed(lambda p, **_: next(replies), "p", pw.parse_choice)
+    verdict, raw = pw.judged_reply(lambda p, **_: next(replies), "p", pw.parse_choice, pinned=False)
     assert (verdict, raw) == ("TIE", "TIE")
     judge = pw.PairwiseJudge(ask=lambda p, **_: "A or B?")
     with pytest.raises(pw.UnparseableVerdict):

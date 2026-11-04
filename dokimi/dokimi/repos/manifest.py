@@ -21,7 +21,6 @@ repository's grader and are not read.
 from __future__ import annotations
 
 import json
-import math
 import re
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
@@ -30,11 +29,13 @@ from typing import Any, Callable
 import yaml
 
 from dokimi.artifacts import schema_errors
+from dokimi.measure import SCORE_BOUND, as_float, is_finite
 
 from .graders import DATA_FILES, NAMES as BUILTIN_NAMES, PREFIX as BUILTIN_PREFIX
 from .host_spec import HostSpecError, parse_host
 from .process_metrics import Counter, parse_counter
 from .source import RepoTree
+from .useful_spec import UsefulSpecError, parse_useful
 
 SCHEMA_VERSION = "repo_manifest.v1"
 _RUN_KEYS = ("eval_dir", "tasks", "entry_points")
@@ -542,7 +543,7 @@ def _check_task(tree: RepoTree, task_dir: str, report: RepoCheckReport) -> None:
     if score is not None and not (
         isinstance(score, dict) and set(score) == {"metric", "max"}
         and isinstance(score["metric"], str) and score["metric"]
-        and _is_number(score["max"])
+        and as_float(score["max"], SCORE_BOUND) is not None  # `repo report` refuses a cell past the bound
     ):
         problems.append("score must be {\"metric\": <name>, \"max\": <number>}")
     egress = raw.get("egress", [])
@@ -559,6 +560,7 @@ def _check_task(tree: RepoTree, task_dir: str, report: RepoCheckReport) -> None:
         parse_host(raw.get("host"), name)
     except HostSpecError as exc:
         problems.append(str(exc).split("task.json ", 1)[-1])
+    problems += _useful_problems(raw)
     report.errors.extend(f"{where}: {p}" for p in problems)
     if not problems:
         report.tasks.append(TaskSummary(
@@ -577,20 +579,27 @@ def _parse_gate(gate: Any) -> tuple[tuple[str, ...], str | None]:
         if isinstance(entry, str) and entry:
             out.append(entry)
         elif (isinstance(entry, dict) and set(entry) == {"metric", "min"}
-              and isinstance(entry["metric"], str) and entry["metric"] and _is_number(entry["min"])):
+              and isinstance(entry["metric"], str) and entry["metric"] and is_finite(entry["min"])):
             out.append(f"{entry['metric']}>={entry['min']}")
         else:
             return ("pass",), problem
     return tuple(out), None
 
 
-def _is_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
-
-
 def _positive(value: Any) -> bool:
-    """A finite number > 0: JSON ``NaN`` passes ``<= 0`` checks and would disable a cap."""
-    return _is_number(value) and math.isfinite(value) and value > 0
+    """A finite number > 0: JSON ``NaN`` passes ``<= 0`` checks and would disable a cap; an int past the
+    float range is no number a cap can hold."""
+    num = as_float(value)
+    return num is not None and num > 0
+
+
+def _useful_problems(raw: dict[str, Any]) -> list[str]:
+    """The ``useful`` key's shape problem, if it has one (contract §3)."""
+    try:
+        parse_useful(raw.get("useful"))
+    except UsefulSpecError as exc:
+        return [str(exc)]
+    return []
 
 
 def _builtin_problems(tree: RepoTree, task_dir: str, raw: dict[str, Any], name: str) -> list[str]:

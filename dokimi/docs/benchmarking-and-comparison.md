@@ -301,6 +301,43 @@ both per row. Every cell also records `cache_read_tokens` and
 `cache_write_tokens` with the input and output tokens, and
 `repo report --json` gives their means.
 
+### Guidance formats and packaging
+
+Two guidance arms answer "does the same content work better in another shape?"
+The model stays the same, so run them per model (one `--model` each) and compare
+the cells the way the skill arms are compared above.
+
+- `guidance:format=xml`: every guidance file of the base, rendered as XML tags.
+  Each Markdown heading becomes `<section level="N" title="...">`, closed before
+  the next heading of its level or above; `<guidance>` wraps the file. No other
+  line changes. The rendering is checked before it is written: it must restore to
+  the original file exactly, so a file with a line that looks like one of these
+  tags (or a heading the restore cannot rebuild) fails the cell's preparation
+  rather than measuring altered content. A heading inside a code fence is body
+  text. A heading line that is not `#`…`######`, one space, then the title, with no
+  carriage return, is body text too: a file with CRLF line endings has no sections
+  at all, only the wrapper. `guidance:format=md` is `guidance:raw`
+  and is refused as a second name for it. POML is not offered yet: its documented
+  components (`role`, `task`, `example`, ...) have no heading tag, so a POML arm
+  needs a decision about which element a heading maps to.
+- `guidance:as-skill`: the guidance files are removed (as `guidance:none` removes
+  them) and their text goes into `.claude/skills/<repo id>-guidance/SKILL.md`, each
+  file under a `## File: <path>` line with its text verbatim (a missing final newline is added); a symlink to another
+  guidance file (`CLAUDE.md` to `AGENTS.md`) is packaged once under that file, and a
+  symlink to any other file fails the cell. The frontmatter
+  description is one fixed sentence for every repository, so the skill is
+  selected on its description alone. Nested guidance files lose the directory
+  they applied to; the skill's name, path and sha256 are recorded in
+  `meta.json` under `guidance_skill`. Its usage is recorded separately in
+  `result.json` as `guidance_skill_loaded` (`null` if the trace is unreadable),
+  and is not currently aggregated by `repo report`.
+
+Reading the two together: `guidance:format=xml` against `guidance:raw` isolates
+the markup, and `guidance:as-skill` against `guidance:raw` isolates the packaging
+(always in context, or loaded on demand), with the fixed description a known
+confound of the second. The arms do not rewrite the content, so a difference
+comes from the format or the packaging, not from edited guidance.
+
 ### Reading the significance tables
 
 Arms are compared **paired per question** against the one shared `baseline`
@@ -486,8 +523,12 @@ The report gives, per
 degradation, the pairs scored, the gate accuracy with its 95% CI and PASS or
 FAIL; `--sequential` adds a `mode` line and marks a degradation still undecided
 at the stop `continue`, with the reason under INCONCLUSIVE (cap reached, or the
-answer pool exhausted). Exit 1 on FAIL, and on an inconclusive pass with
-`--strict`. A malformed input, such as a record that would be judged with no
+answer pool exhausted). An undecided result prints `RESULT: INCONCLUSIVE`
+when it is above the gate and `RESULT: FAIL (INCONCLUSIVE, see above)` when it
+is below, never PASS. Exit policy is unchanged: a below-threshold point estimate exits 1;
+an above-threshold inconclusive result warns and exits 0 by default, or 1 with
+`--strict`. A settled PASS exits 0. JSON retains `passed` (the point-estimate
+check) and `conclusive`; promotion requires both to be true. A malformed input, such as a record that would be judged with no
 question text, exits 2, so it never reads as a failed gate.
 
 `--mode pairwise` shows the judge both answers, in both orders, and asks which
@@ -788,11 +829,18 @@ python cli.py baseline compare \
 ```
 
 When the answer or judge model recorded in the baseline differs from the
-current eval's (a Bedrock alias and its inference profile count as one model),
-`compare` prints a warning naming both before the table: the score changes then
+current eval's, `compare` prints a warning naming both before the table: the score changes then
 mix the model change with the content change. With `--strict` it exits 1
-instead. A baseline saved before a default-model change is such a baseline. A panel
-artifact (`eval panel-score`) is compared by its set of judge models. A role either
+instead. Two records name one model when they have the same id and snapshot: a Bedrock alias and its
+inference profile, a regional profile, a `-vN:M` revision or the same model behind another route count
+as the same model; two different dated snapshots, or the same name under another organization, are two models.
+A custom dotted name (`alice.model`) is not a vendor prefix, and a `huggingface/` route keeps its organization.
+A dated snapshot and its undated alias are neither: the alias does not record which snapshot answered, so the
+role is named on stderr as not verified, and `--strict` exits 1 on it. A baseline saved before a default-model
+change is such a baseline. A panel
+artifact (`eval panel-score`) is compared by its judge models: the panels must have the same number of judges
+and the same models, and a judge that matches the other panel's only through such an alias makes the role
+not verified. A role either
 side does not record (an older artifact, or answers with no model) is named on
 stderr as not compared, and `--strict` exits 1 on it as well, since it cannot
 vouch for that role. A malformed record in either file (no `question_id`) exits 2,
@@ -803,6 +851,28 @@ on a bad eval file or `manifest.json`, and `baseline list` exits 2 on a bad
 `manifest.json`. A `manifest.json` whose `baselines` is not a list, or whose entries
 lack a string `name` and `path` or have a `summary` that is not an object, is rejected
 the same way.
+
+Regression promotion is opt-in and separate from identity-only `--strict`:
+
+```bash
+python cli.py baseline compare --baseline onetbb-gpt55-docs \
+  --eval results/onetbb_candidate/eval/onetbb.json \
+  --max-context-drop 1 --max-lift-drop 0.5 --min-matched 20
+```
+
+`--max-context-drop` limits the mean saved-minus-current context score.
+`--max-lift-drop` limits the mean saved-minus-current paired lift, where lift
+is context score minus the no-context score for the same question. Both use
+unrounded per-question aggregates, not stored rounded deltas or manifest means.
+Thresholds are finite, non-negative score points; equality passes. Either flag
+enables the gate; when both are supplied both must pass. `--min-matched` defaults
+to 1 and needs a threshold flag (alone it exits 2). The gate exits 1 on a
+regression or an unknown or mismatched answer/judge identity. Insufficient
+evidence exits 2, since the input can be fixed: every question in both artifacts
+must match uniquely and have finite scores in both conditions, and at least
+`--min-matched` must match. Unmatched questions, duplicates, errors and partial
+scoring cannot promote a candidate. Invalid thresholds and malformed records
+exit 2. Issue #94 moves these thresholds to `gate`.
 
 Use baselines for release-to-release tracking. Use `--questions-from` for
 model-to-model fairness.

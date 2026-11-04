@@ -30,7 +30,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: '3.13'
           cache: pip
@@ -40,7 +40,7 @@ jobs:
       # The runtime lock for the tests, and mutmut's own lock (requirements-mutation.txt),
       # which no other workflow installs.
       - name: Install deps
-        run: pip install --require-hashes -r requirements.lock.txt -r requirements-mutation.lock.txt
+        run: pip install --no-deps --require-hashes -r requirements.lock.txt -r requirements-mutation.lock.txt
       - name: Run mutmut
         # Crashes are reported below, not failed on. The step timeout sits inside the job's 90 minutes, so the summary
         # step still runs; a job-level timeout would fail the whole job instead.

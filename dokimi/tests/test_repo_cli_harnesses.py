@@ -14,6 +14,7 @@ import yaml
 
 from dokimi.cli import build_parser
 from dokimi.repos.answers import codex_review_findings, convert_answer
+from dokimi.repos.batch_ledger import execution_id
 from dokimi.repos.harness_profile import ProfileError, builtin_profiles, load_profile, parse_profile
 from dokimi.repos.reach import ReachError, probe_files
 from repo_eval_fixture import FakeRunner, make_repo, write
@@ -155,7 +156,7 @@ def test_execution_id_pinned_by_trace(name):
     import dataclasses
 
     profile = load_profile(name)
-    assert dataclasses.replace(profile, trace="text").execution_id("all") != profile.execution_id("all")
+    assert execution_id(dataclasses.replace(profile, trace="text"), "all") != execution_id(profile, "all")
 
 
 def test_builtin_codex_profiles_do_not_forward_openai_api_key():

@@ -12,7 +12,8 @@ Every task runs in ``<run_dir>/workspace``, made from the task's ``base``:
 3. ``git init`` and commit (no history, so an upstream fix cannot leak)
 4. apply ``setup_patches``
 5. apply the arm (``guidance:none`` | ``guidance:raw`` | ``guidance:bridge`` |
-   ``guidance:rev:<sha>`` | ``patch:<name>@<digest>``, see :class:`Arm`), then its
+   ``guidance:as-skill`` | ``guidance:format=<fmt>`` | ``guidance:rev:<sha>`` |
+   ``patch:<name>@<digest>``, see :class:`Arm`), then its
    skills into ``.claude/skills/`` (:mod:`.arms`)
 6. amend the commit
 7. apply ``review_patch`` with ``git am`` under a neutral author
@@ -49,17 +50,24 @@ from typing import Any
 
 from dokimi import process
 
-from .arms import ArmError, Skill, resolve_skills, tree_sha256
+from .arms import SKILLS_DIR, ArmError, Skill, guidance_skill_name, resolve_skills, tree_sha256
 from .errors import PrepError
+from .guidance_format import FORMATS, FormatError, to_format
+from .guidance_history import arm_rev_history
 from .harness_profile import HarnessProfile
 from .manifest import RepoManifest, _is_within, match_glob
-from .source import GitTree, RepoSource, RepoTree, SourceError, cache_path, default_cache_dir, resolve_rev
+from .source import GitTree, RepoSource, RepoTree, SourceError, cache_path, default_cache_dir, isolated_git_env, resolve_rev
 from .uptake import MCP_CONFIG, base_servers, mcp_servers
+from .useful_spec import Useful, parse_useful
 
-ARMS = ("guidance:none", "guidance:raw", "guidance:bridge")  # the guidance parts
-REV_ARM, PATCH_ARM = "guidance:rev:", "patch:"
+ARMS = ("guidance:none", "guidance:raw", "guidance:bridge", "guidance:as-skill")  # the guidance parts
+#: The description of the skill ``guidance:as-skill`` packages the guidance into: the same for every repository.
+GUIDANCE_SKILL_DESCRIPTION = ("Repository guidance for working in this codebase, its conventions, build and test "
+                              "commands and rules. Load it before changing its code.")  # no ": " (YAML plain scalar)
+REV_ARM, PATCH_ARM, FORMAT_ARM = "guidance:rev:", "patch:", "guidance:format="
 #: Every form ``repo run --arm`` takes
-ARM_FORMS = (*ARMS, f"{REV_ARM}<rev>", f"{PATCH_ARM}<file>", "skill:<dir>", "skill-catalog:<dir>")
+ARM_FORMS = (*ARMS, f"{REV_ARM}<rev>", f"{PATCH_ARM}<file>", f"{FORMAT_ARM}<{'|'.join(FORMATS)}>",
+             "skill:<dir>", "skill-catalog:<dir>")
 SKILL_JOIN = "+"
 _SKILL_PREFIXES = ("skill:", "skill-catalog:")
 SNAPSHOT_AUTHOR = ("dokimi", "dokimi@example.invalid")
@@ -139,12 +147,18 @@ def parse_arm(spec: str) -> Arm:
 
 
 def _starts_part(text: str) -> bool:
-    return text in ARMS or text.startswith((REV_ARM, PATCH_ARM, *_SKILL_PREFIXES))
+    return text in ARMS or text.startswith((REV_ARM, PATCH_ARM, FORMAT_ARM, *_SKILL_PREFIXES))
 
 
 def _parse_guidance(spec: str) -> Arm:
-    """A guidance part: ``guidance:none|raw|bridge``, ``guidance:rev:<rev>`` or ``patch:<file>``."""
+    """A guidance part: ``guidance:none|raw|bridge|as-skill``, ``guidance:format=<fmt>``,
+    ``guidance:rev:<rev>`` or ``patch:<file>``."""
     if spec in ARMS:
+        return Arm(spec)
+    if spec.startswith(FORMAT_ARM):
+        fmt = spec[len(FORMAT_ARM):]
+        if fmt not in FORMATS:  # markdown is guidance:raw, a second name for it would be a duplicate arm
+            raise PrepError(f"arm {spec!r}: {fmt!r} is not a guidance format (known: {', '.join(FORMATS)})")
         return Arm(spec)
     if spec.startswith(REV_ARM):
         rev = spec[len(REV_ARM):]
@@ -234,6 +248,11 @@ class Task:
     @property
     def score(self) -> dict[str, Any] | None:
         return self.raw.get("score")
+
+    @property
+    def useful(self) -> Useful | None:
+        """The ``useful`` definition (contract §3); :class:`UsefulSpecError` on a bad shape."""
+        return parse_useful(self.raw.get("useful"))
 
 
 def load_tasks(content_dir: Path, manifest: RepoManifest, ids: list[str] | None = None) -> list[Task]:
@@ -385,7 +404,7 @@ def prepare_workspace(git_dir: Path, manifest: RepoManifest, task: Task, arm: st
         arm_files, arm_meta = _apply_arm(ws, env, git_dir, manifest, arm, bridge)            # 5
     except PrepError as exc:
         raise PrepError(f"task {task.id}: {exc}") from exc
-    installed = _install_skills(ws, task, skills)
+    installed = _install_skills(ws, task, skills)  # the catalog's skills; a guidance:as-skill skill is in arm_meta
     _git(ws, env, "add", "-A")                                                                # 6
     _git(ws, env, "commit", "-q", "--no-gpg-sign", "--no-verify", "--amend", "--allow-empty", "-m", "snapshot")
     _apply_review_patch(ws, task, patches)                                                    # 7
@@ -455,6 +474,10 @@ def _apply_arm(ws: Path, env: dict[str, str], git_dir: Path, manifest: RepoManif
         return _apply_patch(ws, env, manifest, arm)
     tracked = [p for p in _git(ws, env, "ls-files", "-z").split("\0") if p]
     matched = sorted(p for p in tracked if any(match_glob(g, p) for g in manifest.guidance_globs))
+    if arm.base == "guidance:as-skill":
+        return _apply_as_skill(ws, manifest, matched)
+    if arm.base.startswith(FORMAT_ARM):
+        return _apply_format(ws, matched, arm.base[len(FORMAT_ARM):])
     if arm.base == "guidance:none" or arm.rev_sha is not None:
         for rel in matched:
             (ws / rel).unlink()
@@ -465,11 +488,83 @@ def _apply_arm(ws: Path, env: dict[str, str], git_dir: Path, manifest: RepoManif
     return _apply_bridge(ws, matched, bridge)
 
 
+def _apply_format(ws: Path, matched: list[str], fmt: str) -> tuple[list[str], dict[str, Any]]:
+    """Each guidance file rewritten in ``fmt`` in place. A symlink is left alone: its target is rendered
+    once if it is a guidance file itself, and ``meta.json`` names the links that keep their raw bytes."""
+    if not matched:
+        raise PrepError(f"guidance:format={fmt}: the base has no guidance file to render")
+    written, links = [], []
+    for rel in matched:
+        if (ws / rel).is_symlink():
+            _link_file(ws, rel, matched)  # the link must reach a file that is rendered, not raw guidance
+            links.append(rel)
+            continue
+        try:
+            rendered = to_format(_guidance_text(ws, rel, f"guidance:format={fmt}"), fmt)
+        except FormatError as exc:
+            raise PrepError(f"guidance:format={fmt}: {rel}: {exc}") from exc
+        (ws / rel).write_bytes(rendered.encode("utf-8"))  # no newline translation: the restore check holds on disk
+        written.append(rel)
+    return written, ({"guidance_links_kept": links} if links else {})
+
+
+def _link_file(ws: Path, rel: str, matched: list[str]) -> None:
+    """The regular file a guidance link of the workspace reaches, resolved as the filesystem resolves it (a linked
+    directory on the way counts). PrepError when the link dangles or cycles, or reaches a file outside the workspace
+    or outside the matched guidance files: that file would be dropped or left unrendered."""
+    try:
+        target = (ws / rel).resolve(strict=True)
+    except (OSError, RuntimeError) as exc:  # RuntimeError: a symlink loop, before Python 3.13
+        raise PrepError(f"guidance link {rel} does not reach a file (a dangling link or a cycle): {exc}") from exc
+    root = ws.resolve()
+    if not target.is_relative_to(root) or not target.is_file():
+        raise PrepError(f"guidance link {rel} reaches {target}, which is outside the workspace or not a regular file")
+    reached = target.relative_to(root).as_posix()
+    if reached not in matched:
+        raise PrepError(f"guidance link {rel} reaches {reached}, which is not a guidance file")
+
+
+def _guidance_text(ws: Path, rel: str, arm: str) -> str:
+    """The text of a guidance file of the workspace; one that is not UTF-8 is a prep error of the cell."""
+    try:
+        return (ws / rel).read_bytes().decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise PrepError(f"{arm}: {rel} is not UTF-8: {exc}") from exc
+
+
+def _apply_as_skill(ws: Path, manifest: RepoManifest, matched: list[str]) -> tuple[list[str], dict[str, Any]]:
+    """The guidance files removed (as ``guidance:none`` removes them) and their text packaged as one skill,
+    ``.claude/skills/<repo>-guidance/SKILL.md``: each file under a ``## File: <path>`` line, its text verbatim."""
+    if not matched:
+        raise PrepError("guidance:as-skill: the base has no guidance file to package")
+    name = guidance_skill_name(manifest.id)
+    skill_dir = ws / SKILLS_DIR / name
+    for part in (ws / ".claude", ws / SKILLS_DIR):  # a repository link would write to the host
+        if part.is_symlink():
+            raise PrepError(f"guidance:as-skill: {part.relative_to(ws)} is a symlink in the repository")
+    if skill_dir.exists() or skill_dir.is_symlink():
+        raise PrepError(f"guidance:as-skill: the workspace already has {SKILLS_DIR}/{name}")
+    parts = []
+    for rel in matched:
+        if (ws / rel).is_symlink():  # packaged once under its target's name; a link to anything else would be lost
+            _link_file(ws, rel, matched)
+            continue
+        text = _guidance_text(ws, rel, "guidance:as-skill")
+        parts.append(f"## File: {rel}\n\n" + (text if text.endswith("\n") else text + "\n"))
+    for rel in matched:
+        (ws / rel).unlink()
+    skill_dir.mkdir(parents=True)
+    frontmatter = f"---\nname: {name}\ndescription: {GUIDANCE_SKILL_DESCRIPTION}\n---\n\n"
+    (skill_dir / "SKILL.md").write_bytes((frontmatter + "\n".join(parts)).encode("utf-8"))  # verbatim: no newline translation
+    return matched, {"guidance_skill": {"name": name, "path": f"{SKILLS_DIR}/{name}",
+                                        "sha256": tree_sha256(skill_dir)}}
+
+
 def _apply_rev(ws: Path, git_dir: Path, manifest: RepoManifest, arm: Arm,
                removed: list[str]) -> tuple[list[str], dict[str, Any]]:
     """The guidance files of ``arm.rev_sha`` into ``ws``, whose own were ``removed``."""
     assert arm.rev_sha is not None
-    written, links = _guidance_at(git_dir, manifest, arm.rev_sha)
+    written, links, chains = _guidance_at(git_dir, manifest, arm.rev_sha)
     files = [p for p in written if p not in links]
     if files:  # checked out as files, as in step 1: no object of the source is copied
         _checkout_tree(git_dir, arm.rev_sha, ws, paths=files)
@@ -504,8 +599,9 @@ def _apply_rev(ws: Path, git_dir: Path, manifest: RepoManifest, arm: Arm,
         if mode == "100755":
             dest_path.chmod(dest_path.stat().st_mode | 0o111)
     # arm_files: the files it wrote and the base's guidance it deleted (contract §3 meta.json)
+    history = arm_rev_history(git_dir, manifest.guidance_globs, manifest.run_paths()[0], arm.rev_sha, written, chains)
     return sorted(set(written) | set(removed)), {"arm_rev": {"rev": arm.rev, "sha": arm.rev_sha,
-                                                             "removed": sorted(set(removed) - set(written))}}
+                                                             "removed": sorted(set(removed) - set(written)), **history}}
 
 
 def _apply_bridge(ws: Path, matched: list[str], bridge: dict[str, str]) -> tuple[list[str], dict[str, Any]]:
@@ -522,10 +618,11 @@ def _apply_bridge(ws: Path, matched: list[str], bridge: dict[str, str]) -> tuple
     return written, ({"bridge_skipped": skipped} if skipped else {})
 
 
-def _guidance_at(git_dir: Path, manifest: RepoManifest, sha: str) -> tuple[list[str], dict[str, str]]:
+def _guidance_at(git_dir: Path, manifest: RepoManifest,
+                 sha: str) -> tuple[list[str], dict[str, str], dict[str, list[str]]]:
     """The files of commit ``sha`` the guidance globs match, outside ``eval_dir`` (step 2 deletes it), and for each
-    one that is a symbolic link the file it resolves to in that commit. A link out of the tree, into ``eval_dir``
-    or to nothing is refused."""
+    one that is a symbolic link the file it resolves to in that commit and every path its resolution goes through
+    (:func:`_link_chain`). A link out of the tree, into ``eval_dir`` or to nothing is refused."""
     eval_dir = manifest.run_paths()[0]
     listing = _run(["git", "-C", str(git_dir), "ls-tree", "-r", "-z", "--full-tree", sha], env=_git_env(SNAPSHOT_AUTHOR))
     entries = {}
@@ -536,32 +633,33 @@ def _guidance_at(git_dir: Path, manifest: RepoManifest, sha: str) -> tuple[list[
             entries[path] = (mode, oid)
     found = sorted(p for p in entries if not _is_within(p, eval_dir)
                    and any(match_glob(g, p) for g in manifest.guidance_globs))
-    links = {}
+    links, chains = {}, {}
     for path in found:
-        target = path
-        for _ in range(8):  # a chain of links; a loop runs out
-            mode, oid = entries.get(target, ("", ""))
-            if mode != "120000":
-                break
-            dest = _run(["git", "-C", str(git_dir), "cat-file", "blob", oid], env=_git_env(SNAPSHOT_AUTHOR))
-            target = posixpath.normpath(posixpath.join(posixpath.dirname(target), dest))
-            if dest.startswith("/") or target == ".." or target.startswith("../"):
-                raise PrepError(f"guidance {path} at {sha[:12]} links out of the tree ({dest})")
-            if _is_within(target, eval_dir):
-                raise PrepError(f"guidance {path} at {sha[:12]} links into eval_dir {eval_dir}")
-        # Always validate the final entry's mode, even if target == path (cyclic link)
-        final_mode = entries.get(target, ("",))[0]
-        if final_mode not in ("", "120000"):
-            # Normal case: target is a file (mode is a file blob mode)
-            if target != path:
-                links[path] = target
-        elif final_mode == "120000":
-            # Cyclic link: target is still a symlink after loop
-            raise PrepError(f"guidance {path} at {sha[:12]} links to {target}, which is not a file there")
-        else:
-            # Target doesn't exist
-            raise PrepError(f"guidance {path} at {sha[:12]} links to {target}, which is not a file there")
-    return found, links
+        if chain := _link_chain(git_dir, entries, path, sha, eval_dir):
+            links[path], chains[path] = chain[-1], chain
+    return found, links, chains
+
+
+def _link_chain(git_dir: Path, entries: dict[str, tuple[str, str]], path: str, sha: str, eval_dir: str) -> list[str]:
+    """The paths guidance ``path`` resolves through in commit ``sha`` (``entries``: its blobs' mode and id): each
+    link after ``path`` and, last, the file it resolves to; empty when ``path`` is a file."""
+    chain: list[str] = []
+    target = path
+    for _ in range(8):  # a chain of links; a loop runs out
+        mode, oid = entries.get(target, ("", ""))
+        if mode != "120000":
+            break
+        dest = _run(["git", "-C", str(git_dir), "cat-file", "blob", oid], env=_git_env(SNAPSHOT_AUTHOR))
+        target = posixpath.normpath(posixpath.join(posixpath.dirname(target), dest))
+        if dest.startswith("/") or target == ".." or target.startswith("../"):
+            raise PrepError(f"guidance {path} at {sha[:12]} links out of the tree ({dest})")
+        if _is_within(target, eval_dir):
+            raise PrepError(f"guidance {path} at {sha[:12]} links into eval_dir {eval_dir}")
+        chain.append(target)
+    # the final entry is a file: still a link after the loop is a cycle, no entry a dangling link
+    if entries.get(target, ("",))[0] in ("", "120000"):
+        raise PrepError(f"guidance {path} at {sha[:12]} links to {target}, which is not a file there")
+    return chain
 
 
 def _apply_patch(ws: Path, env: dict[str, str], manifest: RepoManifest, arm: Arm) -> tuple[list[str], dict[str, Any]]:
@@ -643,11 +741,9 @@ def _has_object(git_dir: Path, rev: str) -> bool:
 
 
 def _git_env(author: tuple[str, str]) -> dict[str, str]:
-    """git with no user or system configuration (hooks, signing, templates) and a fixed identity and date."""
+    """git with no user or system configuration (:func:`~.source.isolated_git_env`) and a fixed identity and date."""
     name, email = author
-    keep = {k: v for k, v in os.environ.items() if k in ("PATH", "LANG", "TMPDIR", "SYSTEMROOT")}
-    return {**keep, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_TERMINAL_PROMPT": "0",
-            "HOME": os.devnull, "GIT_AUTHOR_NAME": name, "GIT_AUTHOR_EMAIL": email, "GIT_COMMITTER_NAME": name,
+    return {**isolated_git_env(), "GIT_AUTHOR_NAME": name, "GIT_AUTHOR_EMAIL": email, "GIT_COMMITTER_NAME": name,
             "GIT_COMMITTER_EMAIL": email, "GIT_AUTHOR_DATE": FIXED_DATE, "GIT_COMMITTER_DATE": FIXED_DATE}
 
 

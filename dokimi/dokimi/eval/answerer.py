@@ -15,10 +15,14 @@ logger = logging.getLogger(__name__)
 
 from dokimi.utils import question_id
 from dokimi.artifacts import save_artifact
-from dokimi.llm import ChatModel
+from dokimi.defaults import (
+    ANSWERING_METHOD_VERSION,
+    DEFAULT_ANSWER_MODEL,
+    DEFAULT_ANSWER_PROVIDER,
+    DEFAULT_RETRIEVAL_TOP_K,
+)
+from dokimi.llm import llm_call_with_usage, LANGCHAIN_AVAILABLE
 from dokimi.llm_cli import BACKENDS as CLI_BACKENDS
-from dokimi.llm import llm_call_with_usage, ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
-from dokimi.defaults import DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER
 from dokimi.metrics.usage import UsageRecord, to_record
 
 from .reranker import SimpleReranker, SentenceTransformerReranker, SENTENCE_TRANSFORMERS_AVAILABLE
@@ -71,7 +75,7 @@ class Answerer:
         model: str = DEFAULT_ANSWER_MODEL,
         provider: str = DEFAULT_ANSWER_PROVIDER,
         api_key: Optional[str] = None,
-        top_k: int = 5,
+        top_k: Optional[int] = None,
         rerank_threshold: float = 0.3,
         debug_retrieval: bool = False
     ):
@@ -81,7 +85,7 @@ class Answerer:
             model: LLM model name
             provider: "openai" or "anthropic"
             api_key: Optional API key
-            top_k: Number of docs to retrieve before reranking
+            top_k: Number of docs to retrieve before reranking (default DEFAULT_RETRIEVAL_TOP_K)
             rerank_threshold: Minimum relevance score (0-1) to keep docs
             debug_retrieval: If True, include detailed retrieval metadata in output
         """
@@ -96,20 +100,15 @@ class Answerer:
         self.provider = provider
         self.api_key = api_key
 
-        self.llm: Optional[ChatModel]
-        if provider == "openai":
-            self.llm = ChatOpenAI(model=model, api_key=api_key)
-        elif provider == "anthropic":
-            self.llm = ChatAnthropic(model=model, api_key=api_key)
-        elif provider in ("google", "gemini", "google-vertex", "openrouter",
-                          "amazon-bedrock", "vertex_ai", *CLI_BACKENDS):
-            self.llm = None  # llm_call_with_usage handles these natively
-        else:
+        # The answer call goes through llm_call_with_usage, which picks the provider's client itself.
+        if provider not in ("openai", "anthropic", "google", "gemini", "google-vertex",
+                            "openrouter", "amazon-bedrock", "vertex_ai", *CLI_BACKENDS):
             raise ValueError(
                 f"Unsupported provider: '{provider}'. "
                 "Use 'openai', 'anthropic', 'google', 'openrouter', 'amazon-bedrock' or 'claude-cli'."
             )
-        self.top_k = top_k
+        # None means the default: the doc source must never get max_results=None (it would return every chunk).
+        self.top_k = DEFAULT_RETRIEVAL_TOP_K if top_k is None else top_k
         self.debug_retrieval = debug_retrieval
         
         # Initialize reranker (prefer semantic, fallback to lexical)
@@ -316,12 +315,11 @@ class Answerer:
         }
         
         try:
-            # Retrieve top-k docs
-            # Note: Context7 client returns single doc, so we call it once for now
-            # TODO: Update Context7 client to support top_k natively
+            # Retrieve top-k docs, the same request the arms stack sends (max_results=top_k)
             raw_docs = self.mcp_client.get_library_docs(
                 library_id=library_id,
                 query=question,
+                max_results=self.top_k,
                 max_tokens=max_tokens
             )
             metadata["raw_count"] = len(raw_docs)
@@ -359,24 +357,7 @@ class Answerer:
         retrieval_metadata: Optional[Dict[str, Any]] = None,
         verbatim: bool = False,
     ) -> Dict[str, Any]:
-        """Generate context-arm answer."""
-        if not docs:
-            # No LLM call is made — emit a zero-cost/zero-token metrics block so
-            # this row carries the same telemetry shape as answered rows.
-            empty = UsageRecord(model=self.model, provider=self.provider,
-                                cost_usd=0.0, n_calls=0)
-            token_usage = empty.as_token_usage_dict()
-            token_usage["context_chars"] = 0
-            return {
-                "answer": "[No documentation retrieved]",
-                "retrieved_docs": [],
-                "model": self.model,
-                "doc_source": "none",
-                "retrieval_metadata": retrieval_metadata if self.debug_retrieval else None,
-                "token_usage": token_usage,
-                "metrics": empty.as_metrics_dict(answer_chars=0),
-            }
-
+        """Generate context-arm answer. Called only with a non-empty *docs* (see ``_generate_answer_pair``)."""
         # ~4k tokens at ~4 chars/token; keeps prompt within most models' context window
         MAX_DOC_CHARS = 15_000
 
@@ -459,6 +440,7 @@ class Answerer:
 
         return {
             "generated_at": self._get_timestamp(),
+            "method_version": ANSWERING_METHOD_VERSION,
             "model": self.model,
             "provider": self.provider,
             "total_questions": len(answers),

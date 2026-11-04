@@ -42,14 +42,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: '3.13'
       # pip-audit comes from the hash-locked tools lock (requirements-ci.txt pins it).
       - name: Install tools
         run: pip install --require-hashes -r requirements-ci.lock.txt
       # Full-closure locks, so --no-deps --disable-pip audits them as written; markers are stripped (3.13 skips false ones).
-      # Each --ignore-vuln is in SECURITY.md and osv-scanner.toml: add or drop it in all three, together.
+      # An --ignore-vuln added here goes into SECURITY.md, osv-scanner.toml and dependency-review.yml too.
       - name: pip-audit
         run: |
           sed -e 's/ *\\$//' -e 's/ *;.*//' \
@@ -57,20 +57,7 @@ jobs:
               requirements-mutation.lock.txt | sort -u \
             | awk -F'==' '/^[A-Za-z0-9]/ { print > (ENVIRON["RUNNER_TEMP"] "/pins" seen[$1]++ ".txt") }'
           for f in "$RUNNER_TEMP"/pins*.txt; do
-            pip-audit -r "$f" --no-deps --disable-pip --progress-spinner off \
-              --ignore-vuln GHSA-v4x8-3wr5-3wq8 \
-              --ignore-vuln GHSA-9vhv-jxww-xfm5 \
-              --ignore-vuln GHSA-567q-5qvw-pf92 \
-              --ignore-vuln GHSA-j8f7-rjxc-mr56 \
-              --ignore-vuln GHSA-cwqr-hh33-gh44 \
-              --ignore-vuln GHSA-9c4x-gm8v-wgc4 \
-              --ignore-vuln GHSA-6627-m3xw-93mp \
-              --ignore-vuln GHSA-m462-7rxw-wvpg \
-              --ignore-vuln GHSA-69hj-f68j-2879 \
-              --ignore-vuln GHSA-8mx5-7m5m-r77g \
-              --ignore-vuln GHSA-9j6q-wvj5-jgjg \
-              --ignore-vuln GHSA-rfpc-qcw5-3pc4 \
-              --ignore-vuln GHSA-fq56-3cx3-fjxp
+            pip-audit -r "$f" --no-deps --disable-pip --progress-spinner off
           done
 
   # A scheduled run that finds an advisory opens one issue (or comments on the

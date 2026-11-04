@@ -131,10 +131,10 @@ marked. Read it as a review queue:
 - **Internal only.** It says the two statements disagree, not which is wrong. That needs a
   primary source, which this layer does not consult.
 - **Lower bound.** Only atoms in the same call are compared. `analyze` sends the whole
-  extracted atom set (at most `max_atoms`, 120 by default) in one call, so every pair is compared
+  probed atom set (at most `max_atoms`, 120 by default) in one call, so every pair is compared
   unless a call fails or its reply has to be split. The artifact records the share as
   `conflict_coverage` (`pairs_compared`, `pairs_total`) and warns `the conflict check compared X of
-  Y atom pairs` when it is short. `pairs_total` is over the extracted atoms, which are only the ones the cap kept when
+  Y atom pairs` when it is short. `pairs_total` is over the probed atoms, which are only the ones the cap kept when
   `spans.capped_atom_set` is true. The `harmful_atoms` gate check reads a count of 0 as cleared only
   when the share reaches `min_conflict_coverage` (1.0 by default) and the atom set was not capped;
   otherwise it is `measured: false`, as it is when `conflict_coverage` is present but malformed. A
@@ -605,8 +605,22 @@ lists except the artifact itself. A `skills.yaml` at the root decides what the c
 without one, every `SKILL.md` under it counts, except a `template/` copy and vendored or VCS
 directories such as `.git` and `node_modules`, which are not walked. A byte-identical copy under
 another path counts once. A declared skill that cannot be loaded is skipped with a warning. Two
-catalog skills with the same name and different content are refused, with both paths named:
-rename one, or delete the copy you do not mean to route against.
+catalog skills with the same name and different content are both skipped, with a warning that
+names every path of that name: the rest of the field stays. Only the copies the field lists count:
+a disabled copy (unless `--include-disabled`) or a spec-error copy (unless `--include-invalid`) is
+left out first, so it does not make its name a conflict. Rename one, or delete the copy you do
+not mean to route against, to route the name. `dokimi catalog scan` lists the same names as
+`name-conflict` warnings, for the copies it lists. A skill with a spec error (for example a description over 1024 characters, or a
+name that is not kebab-case or not its directory name) is also left out, with a warning naming the error; pass
+`--include-invalid` to keep it, as a harness that refuses to list such a skill would not. A `skill:`
+competitor with a spec error is skipped with the same warning.
+The directory-name check applies to a `skill:` competitor under a `skills/` directory
+(`skills/<dir>/SKILL.md`, `plugins/x/skills/<dir>/SKILL.md`), as it does in a catalog. A `skill:`
+competitor anywhere else is read as a root skill, and its name is not checked against its
+directory: `tools/database/SKILL.md` named `db` is routed when passed explicitly, while a
+`--catalog` scan of its tree leaves it out with a name error. Keep the directory name and the
+`name` field equal to get the same field from both.
+A name that conflicts with another catalog skill leaves the field whatever the flag says.
 A `skill:` competitor that is not a `SKILL.md`, or a directory without one, is skipped with a
 warning. A shell glob must be expanded first, with the prefix on each path
 (`skill:dir/a/SKILL.md skill:dir/b/SKILL.md`): an unexpanded `skill:dir/*` is refused as a missing
@@ -618,6 +632,10 @@ A catalog that holds the same `SKILL.md` under two paths (a plugin copy of its `
 tree) counts it once: the copy nearest the catalog root stands for the card, and the
 others are named on stderr.
 
+`--estimate-only` prints, as JSON, the calls, input and output tokens and the list-price `expected_usd` the
+`--model` arm would make, and makes no model call. Without `--model` the run is lexical and the bill
+is zero. Input is the selection prompt sized at chars / 4, so it is a projection, not a count.
+
 Two numbers, reported side by side and never merged:
 
 - **Lexical** — BM25 over each candidate's `name + description`, which is exactly the text
@@ -626,7 +644,9 @@ Two numbers, reported side by side and never merged:
   a **seeded random permutation per query** (`--seed`), so a model that always picks the
   first option tends to `1/N` rather than to a figure set by how the query count lines up
   with the candidate count. It *tends* to it: at five queries the realised rate is a fixed
-  offset from `1/N`, so read small query sets as such. Each permutation and the position
+  offset from `1/N`, so read small query sets as such. `--seed` fixes that card order and
+  nothing else: the model's answers are still sampled and can differ between runs, so measure
+  that spread with `--repeats`. Each permutation and the position
   the gold card was shown at are recorded per query. **An abstention counts against
   `selection_rate`** — not picking anything is the routing failure — with
   `selection_rate_among_answered` beside it; a failed call is excluded from both and
@@ -642,7 +662,8 @@ Two numbers, reported side by side and never merged:
   fresh sample, so under `DOKIMI_RESPONSE_CACHE` a repeat is not a
   replay. Repeats need `--model`, and cost N times the calls. With repeats, `n_calls` is
   queries x repeats, `n_abstained` and `n_failed` count calls, and each `per_query` row
-  carries its `repeat` index.
+  carries its `repeat` index. In an `--all-vs-all` run each `noise` row also names its `gold`
+  skill, since two skills can list the same request.
 
 A single-artifact `--model` run also writes a `cost` block (calls, input and output tokens, cache read and
 write tokens, and `usd`, which is `null` when any call this run paid for had no known price) and prints the
@@ -651,7 +672,7 @@ the provider they may or may not be counted inside `input_tokens`. A run without
 no calls and has no `cost` block. `usd` is also `null` when a call returned no usage, and a
 call that raised is not counted. A call replayed from the response cache is counted in
 `replayed_calls` and left out of the token and `usd` totals, since this run did not pay for it;
-`llm_calls` still counts it. `--all-vs-all` writes no `cost` block.
+`llm_calls` still counts it. `--all-vs-all` writes the same `cost` block over its model arm.
 
 `recall_at_3` comes back `null` with three or fewer candidates, where every rank is `<= 3`
 and the figure would be a structural 1.0. The lexical arm also reports `n_queries_given`
@@ -673,17 +694,23 @@ is no attractor, and a tied skill's own rate is lower by the picks inside its gr
 `n_scored` and `n_unscored` per skill say how many, a query with no content word or a failed
 model call is unscored, and a skill with none scored has an own rate of `null`, not 0.0. A run
 with any failed model call writes the result and exits non-zero. The saved file records the
-field rule under `field` (`include_disabled`, the `competitors` and what was `left_out`); a
-single-artifact run records it too. It takes no `--artifact`, `--queries`,
-`--queries-from-headings` or `--repeats` (one model call per query). The model arm also records the selector `model`, so two runs with
+field rule under `field` (`include_disabled`, `include_invalid`, the `competitors` and what was `left_out`, which
+also names each skill left out for a conflicting name or a spec error); a
+single-artifact run records it too. It takes no `--artifact`, `--queries` or `--queries-from-headings`. `--repeats` needs `--model`
+and asks each query that many times, as a single-artifact run does: the model arm then carries a
+`noise` block (agreement per query, the rate of each repeat, `half_range`), and its counts are
+calls, one per query per repeat. The model arm also records the selector `model`, so two runs with
 different models can be told apart. It is refused with fewer than two skills, a name repeated
-in the field, a query file that names a skill outside the field, or no queries at all.
+in the field, or no queries at all. A query file that names a skill outside the field is refused;
+when the field leaves that skill out for `disable-model-invocation`, a spec error or a name that two
+different skills share, the message names each such skill with every reason that applies, and
+`--include-disabled` or `--include-invalid` where a flag keeps it.
 
-**Cost of `--model` in all-vs-all.** The model arm makes one selector call per query, across
-every skill in the field: the call count is the number of queries in `queries.json` that have a
-content word (one without is unscored in both arms and not sent), and a failed call still counts. Each call sends the whole field's cards, so a large field costs
+**Cost of `--model` in all-vs-all.** The model arm makes one selector call per query and repeat,
+across every skill in the field: the call count is the number of queries in `queries.json` that have a
+content word (one without is unscored in both arms and not sent) times `--repeats`, and a failed call still counts. Each call sends the whole field's cards, so a large field costs
 more per call as well as in calls. Before the first call the run prints that count to stderr
-(`all-vs-all: --model makes N model calls, one per query, ...`). The run does not pause for it,
+(`all-vs-all: --model makes N model calls, one per query and repeat, ...`). The run does not pause for it,
 so count the queries first, or pass `--max-usd` to stop the run at a spend limit. A lexical-only run (no `--model`) makes no model calls.
 A stored response in `DOKIMI_RESPONSE_CACHE` is replayed without a call, so a rerun can make
 fewer calls than the printed count.
@@ -698,7 +725,10 @@ Three properties worth knowing before quoting either:
   and its own relevance. `--queries-from-headings` exists for triage, warns, and stamps
   `queries_self_derived: true` into the result; corpus-wide those self-derived queries gave
   recall@1 0.225, and a skill's own bundled `evals/` questions gave 0.667. Headings inside
-  fenced code blocks are not offered as queries. A run with no usable query exits non-zero,
+  fenced code blocks are not offered as queries. Only `##` and `###` headings of two or more
+  content words count, and a skill whose headings give none has no self-derived query: its
+  description is not used as one. `queries_source` (`headings`, `none`, or `null` for `--queries`) says what was used.
+  A run with no usable query exits non-zero,
   says why, and still writes the result with `"status": "no_queries"`. Every rate line
   prints its `n_queries` (and `triage: self-derived` when it is self-derived), and fewer
   than five scored queries draw a warning.
@@ -885,6 +915,12 @@ tokens: above that the dollar figure extrapolates, and the payload says so
 arm that carries the artifact (every arm but `no_artifact`), so a three-arm run costs more
 per answerer call than a two-arm one; a `--placebo-text` of another length is not read. Only
 three of the 12 are standard runs, so the standard profile rests on little data.
+The measured runs, the tier table above among them, predate the spread cap: their extraction
+stopped at the cap. A capped run now asks every extraction batch, and the projection counts
+one extraction call per batch of 25 spans, as the run asks them, while the probes stay at the
+cap. On an
+artifact with more atoms than the cap that adds extractor calls no measured run has checked
+yet; the held-out figures above are for the runs as they were measured.
 An explicit flag always beats the tier, and the override is recorded — a
 `--tier triage --max-atoms 90` run is not a stock triage run and does not get to be
 read as one.
@@ -892,36 +928,66 @@ read as one.
 Each tier carries the **claims it forfeits**, and those strings are written into
 `run_config.tier` *and* appended to the artifact's warnings. They follow the settings the
 run used and the atoms it extracted, not the tier's name: `--no-verify` adds the
-faithfulness forfeit, and `--all-atoms` or a skill with fewer atoms than the cap drops the
-cap's ones (that `added` is a rate over the atoms the cap kept, not the whole input, and
+faithfulness forfeit, and `--all-atoms` or a skill with no more atoms than the cap (which
+keeps every atom: `extraction.sampled` is `null` and `spans.capped_atom_set` false) drops the
+cap's ones (that `added` is a rate over the sample of extracted atoms the cap kept, not over
+every atom, and
 that `frac_carrying_nothing` is not interpretable on a capped atom set). They do not depend on
-how far the cap reached (`--estimate-only` lists them before it is known), and neither does
-the `harmful_atoms` gate reason (`0 conflicts among the capped atoms`).
-`--estimate-only` cannot know the atom count yet, so it lists them:
+which atoms the cap kept (`--estimate-only` lists them before it is known), and neither does
+the `harmful_atoms` gate reason (`0 conflicts among the capped atoms`). With shortening on, a
+cap that left atoms out adds that `shortening candidates are scored against a spread sample of 60 of the
+extracted atoms: a cut of a span with no sampled atom looks free` (60 at `standard`, 120 at
+`study`). `--estimate-only` cannot know the atom count yet, so it lists them:
 
 > tier `triage` forfeits: no paraphrase probe, so a `redundant` verdict is unprotected
 > against the model matching the artifact's own wording
 
-The cap is not a sample: extraction walks the spans in document order and stops at it, so a
-capped run measures the input up to the span it stopped at. The input is the text that was segmented: the
-entry point, plus on a bundle run the files its roles and budgets selected, so a bundled file
-left out is in none of the reach's spans or tokens (the `coverage:` line says how much of the
-artifact went into the input). The warning says how far the cap reached, as in `atom
-extraction hit the cap of 25 at span s0012 (12 of the input's 61 spans, 23% of its tokens):
-rates describe the opening of the input, not all of it; pass --all-atoms for the full sweep`,
-`extraction.reached` records it, and the headline's `coverage:` line then says the words
-went into the input and the capped atoms come from the first 23% of the input's tokens (the
-warning under that line, when half or less of the words went in, says "went into the input"
-too). `novelty atoms` prints the same warning on stderr; `probe` and `shorten`, which read its
-`atoms.json`, do not repeat it.
+The cap is a spread sample, not the opening. Extraction reads every span of the input, and when
+it yields M atoms, more than the cap n, the run probes the atoms at indices
+`floor((i + 0.5) * M / n)` for `i` in `0..n-1` of the extracted list sorted by the earliest span
+each atom cites (`spread_sample` in `dokimi/novelty/atoms.py`): every (M/n)-th atom in document
+order, starting in the middle of the first stride, so the sample estimates the per-atom rate an
+uncapped run reports. Like any fixed stride, it can fall in step with a repeated structure: with
+M = 100 and n = 25 it always takes atoms 2, 6, ..., 98 (from 0), so an input of four-atom
+sections of the same shape, each with its new fact in the same place, can give a sampled rate
+far from the whole input's, and re-extracting the same atoms gives the same sample, so it cannot
+show the gap. For an artifact of repeated, same-shaped sections (a template per item), or a
+rate that decides something, pass `--all-atoms`. The sort is needed because the extractor's
+reply lists a batch's atoms in its own order; it is stable, so atoms citing the same span keep
+that order, and with M ≤ n nothing is sorted and every atom is probed in extraction order. A
+stride needs no seed: the same extracted atom list gives the same sample. A fresh extraction is new model calls, so the
+same text can give other atoms and so another sample; to probe identical atoms across runs or
+models, extract once with `novelty atoms` and pass its `atoms.json` to `novelty probe --atoms`
+(and `novelty shorten --atoms`), which probe the saved atoms without sampling again. The input
+is the text that was segmented: the entry point, plus on a bundle run the files its roles and
+budgets selected, in that order. The stride runs over the concatenated atom list of those
+files, so a file's expected share of the probes is its share of the atoms, but a file with few
+atoms can fall between two sampled indices and get no probe; a higher cap spreads more probes
+without promising each file one, and `--all-atoms` probes every extracted atom. A bundled file
+left out has no atom in it (the `coverage:` line says how much of the artifact went into the
+input). The run records `atoms.sampling` as `cap-spread:<n>` and `extraction.sampled` as
+`{"atoms": n, "of": M, "rule": "cap-spread"}`; a run whose cap kept every atom (M ≤ n) records
+`full`, as an uncapped run does, and `null`. When every span was read it warns `atom
+extraction read the whole input, and the atom cap probes 25 of the input's 61 atoms, spread over
+all of it (a stride of 2.44 atoms in document order): rates are estimated from that sample; pass
+--all-atoms to probe every atom`. When some spans were left unread (`extraction.unread_span_ids`:
+a failed call, an empty or unparseable reply), M counts only the atoms of the spans that were
+read, and the warning says so instead: `atom extraction could not read 25 of the input's spans,
+and the atom cap probes 2 of the 25 atoms extracted from the spans that were read, spread over
+those (a stride of 12.5 atoms in document order; 25 of the input's spans were not read, see
+extraction.unread_span_ids): ...`. The `novelty.md` header says the same, and the headline's
+`coverage:` line says the words went into the input and the cap probed 25 of the input's 61
+atoms, or of the atoms extracted from the spans that were read (the warning under that line,
+when half or less of the words went in, says "went into the input" too). `novelty atoms` prints
+the same warning on stderr and saves the same sample in `atoms.json`; `probe` and `shorten`,
+which read it, do not repeat the warning.
 
-A cap met on the input's last span leaves no stretch of the input out: what it cut is any atoms
-past the cap in that last reply. The warning then reads `atom extraction hit the cap of 30 at
-span s0010 (10 of the input's 10 spans, 100% of its tokens): any atoms past the cap in its last
-reply were dropped; pass --all-atoms for the full sweep`, the `novelty.md` header says the
-atoms reach the input's last span and the cap dropped any atoms past it in the last reply, and
-the `coverage:` line ends `the capped atoms reach the input's last span, and the cap dropped
-any atoms past it`; none of them says "the opening".
+Runs written before the spread rule recorded `cap-per-artifact:<n>`: extraction walked the spans
+in document order and stopped at the cap, so their atoms cover the input up to the span it
+stopped at, and `extraction.reached` says how far (`extraction.sampled` is absent). Their
+`novelty.md` header and `coverage:` line still say so, as in `the capped atoms come from the
+first 23% of the input's tokens`, or, for a cap met on the input's last span, `the capped atoms
+reach the input's last span, and the cap dropped any atoms past it`.
 
 That is the point of naming tiers at all. The cheap run is useful; a cheap run quoted as a
 sweep is not.
@@ -968,7 +1034,7 @@ at exactly 4096 tokens, cut mid-array. Extraction recovers by splitting an unpar
 all unusable) in half and re-asking, down to one span per call, so a truncation costs extra calls rather than
 atoms: up to 2n−1 calls for an n-span batch that never parses. The artifact's `extraction`
 block counts them (`calls` against `batches`, the calls the run would make with no splitting; a
-capped run counts only the batches it reached), and a warning (`atom extraction re-asked N
+capped run asks every batch too), and a warning (`atom extraction re-asked N
 unparseable batches as halves`) says what they cost; `--max-tokens 16000` avoids the truncated ones, not those with unusable rows. A call
 that fails or returns an empty reply is not split, since half a batch fails the same way.
 
@@ -989,7 +1055,8 @@ lost to a failed call (with its error). The
 | `retried_batches` | batches whose reply did not parse, or had no usable atom, and were split and re-asked |
 | `calls`, `batches` | calls made, splits included, against the calls the run would make with no splitting |
 | `last_error` | the error behind the unread spans (a failed call first); errors a split recovered from are not recorded |
-| `reached` | on a capped run, how far through the input (the spans segmented, not the files the bundle left out) the cap reached: `last_span`, the last span any kept atom cites among the spans some call was sent (a batch the cap cut mid-reply was sent whole, but its later spans gave no atom; a cited span no call was sent does not count); `spans`, the spans up to and including it, `of` all the input's spans; `tokens_share`, those spans' share of the input's span tokens. `null` when the cap did not bind |
+| `sampled` | on a run whose cap left atoms out, what it probed: `atoms`, the cap; `of`, the atoms extracted from every span some call read; `rule`, `cap-spread`. `null` when every atom was probed |
+| `reached` | `null` on a `cap-spread` run. On a run before it, how far through the input (the spans segmented, not the files the bundle left out) the cap reached: `last_span`, the last span any kept atom cites among the spans some call was sent (a batch the cap cut mid-reply was sent whole, but its later spans gave no atom; a cited span no call was sent does not count); `spans`, the spans up to and including it, `of` all the input's spans; `tokens_share`, those spans' share of the input's span tokens. `null` when the cap did not bind |
 
 `probe`, `shorten` and `view` read `atoms.json` and repeat the warning. Unread spans are left out
 of `frac_carrying_nothing` (numerator and denominator) and dead weight, reported as
