@@ -251,6 +251,11 @@ CONCEPTS: tuple[Concept, ...] = (
              "commands do not use them.",
     ),
     Concept(
+        name="catalog_impact",
+        help="the local base revision for catalog change selection",
+        canonical=(Flag("--changed-from", "REF", "text"),),
+    ),
+    Concept(
         name="retrieval",
         help="documentation retrieval",
         canonical=(

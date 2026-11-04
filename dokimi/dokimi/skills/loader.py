@@ -15,7 +15,7 @@ import hashlib
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from dokimi.utils import parse_frontmatter
 
@@ -159,13 +159,13 @@ def load_skill(path) -> Skill:
     )
 
 
-def walk_skill_files(root: Path) -> List[Path]:
+def walk_skill_files(root: Path, onerror: Optional[Callable[[OSError], object]] = None) -> List[Path]:
     """Every entry named ``SKILL.md`` below *root*, sorted, without walking :data:`VENDORED_DIR_NAMES`.
 
     A dangling symlink or a directory is kept: ``catalog scan`` reports it as an error row.
     """
     found: List[Path] = []
-    for dirpath, dirnames, filenames in os.walk(root):
+    for dirpath, dirnames, filenames in os.walk(root, onerror=onerror):
         dirnames[:] = [d for d in dirnames if d not in VENDORED_DIR_NAMES]
         if "SKILL.md" in filenames or "SKILL.md" in dirnames:
             found.append(Path(dirpath) / "SKILL.md")
