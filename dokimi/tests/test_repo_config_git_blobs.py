@@ -146,6 +146,30 @@ def test_an_edit_under_skip_worktree_moves_the_hash(tmp_path):
     assert _hashes(root) != before  # git does not look at a skip-worktree file; the hash must still read the disk
 
 
+def test_an_edit_under_assume_unchanged_moves_the_hash(tmp_path):
+    root = _repo(tmp_path / "r", FILES)
+    before = _hashes(root)
+    _git(root, "update-index", "--assume-unchanged", "skills/a/SKILL.md")
+    (root / "skills/a/SKILL.md").write_text("changed\n")
+    assert _hashes(root) != before  # git status skips the file; its index blob is stale
+
+
+REPO_CONFIG = HEADER + "subjects:\n  - id: repo\n    kind: repo\n    manifest: m.yaml\n    suite: evals\n"
+REPO_FILES = {".github/dokimi/config.yaml": REPO_CONFIG, "m.yaml": "a: 1\n", "evals/t/test.bat": "echo a\n"}
+
+
+def test_a_repository_suite_hashes_what_git_stores(tmp_path):
+    root = _repo(tmp_path / "r", REPO_FILES)
+    (root / "m.yaml").chmod(0o755)
+    _git(root, "update-index", "--chmod=+x", "m.yaml")
+    _git(root, "commit", "-q", "-m", "exec")
+    before = _hashes(root)[1]
+    (root / "evals/__pycache__").mkdir()
+    (root / "evals/__pycache__/x.pyc").write_bytes(b"ignored\n")
+    (root / "m.yaml").chmod(0o644)  # the manifest is digested on its own; its bit is the index's
+    assert _hashes(root)[1] == before
+
+
 def test_a_rename_in_the_work_tree_column_hashes_the_work_tree(tmp_path):
     root = _repo(tmp_path / "r", {**FILES, "README.md": "readme\n"})
     (root / "README.md").rename(root / "README2.md")  # an origin path starting with R must not swallow the next entry
