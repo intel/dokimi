@@ -641,3 +641,30 @@ def test_a_broken_skill_outside_the_selection_does_not_fail_the_cli(tmp_path):
     done = _run(root, out, "--changed-from", sha)
     assert done.returncode == 0, done.stderr
     assert _statuses(out) == {"catalog-integrity": "pass", "skill/alpha": "pass"}
+
+
+@pytest.mark.parametrize("stray", ["planned-task-file", "nested-repository-skill"])
+def test_an_untracked_entry_at_an_owned_path_selects_its_skill_and_replaces_receipts(tmp_path, stray):
+    root = _catalog(tmp_path)
+    suites = root / "evaluation/harbor/suites.json"
+    suites.parent.mkdir(parents=True)
+    suites.write_text(json.dumps({"suites": [{"skill": "alpha", "tasks": [{"name": "later", "status": "planned"}]}]}))
+    sha = _commit(root)
+    out = tmp_path / "out"
+    assert _run(root, out).returncode == 0
+    old = (out / "catalog.json").read_bytes()
+    if stray == "planned-task-file":
+        (root / "evaluation/harbor/tasks").mkdir()
+        (root / "evaluation/harbor/tasks/later").write_text("x")
+        expected = ["alpha"]
+    else:
+        with (root / "skills.yaml").open("a") as manifest:
+            manifest.write("- name: gamma\n")
+        (root / "skills/gamma").mkdir()
+        (root / "skills/gamma/SKILL.md").write_text("---\nname: gamma\ndescription: Use for gamma tasks.\n---\nRun.\n")
+        _git(root / "skills/gamma", "init", "-q")
+        expected = ["alpha", "beta", "gamma"]
+    done = _run(root, out, "--changed-from", sha)
+    assert done.returncode == 0, done.stderr
+    assert _selected(out) == expected
+    assert (out / "catalog.json").read_bytes() != old

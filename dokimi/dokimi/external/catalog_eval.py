@@ -63,7 +63,8 @@ def hashed_paths(rows: list[dict], paths: list[str]) -> list[str]:
 def _bundled(path: str, prefix: str) -> bool:
     """Whether a file below *prefix* is hashed: no vendored directory on the way and not a ``.git``."""
     rest = PurePosixPath(path if prefix == "." else path[len(prefix) + 1:]).parts
-    return rest[-1] != ".git" and not VENDORED_DIR_NAMES.intersection(rest[:-1])
+    # The prefix itself: a file a bundle reads, or a nested repository git lists as one entry.
+    return not rest or (rest[-1] != ".git" and not VENDORED_DIR_NAMES.intersection(rest[:-1]))
 
 
 def _owners(path: str, rows: list[dict], hashed: bool = False) -> tuple[list[str], str]:
