@@ -7,7 +7,8 @@
   path in a rule is not followed, unless a CLAUDE.md or AGENTS.md imports the rule: then its `@` imports are followed, transitively and within the hop limit. A root import loads the rule at start; a nested CLAUDE.md import loads it lazily, when that nested file is read. A link to a directory under `.claude/rules` is a
   warning: the rules behind it are not counted. A link under `.claude/rules` that does not resolve in
   the tree is named too, whatever its suffix, since the tree cannot tell a dangling file from a directory, and so is a root `.claude`
-  link out of the tree or to a directory with `rules/`; a
+  link out of the tree or to a directory with `rules/`, and a git submodule at `.claude` or at or below
+  `.claude/rules`, whose files neither tree lists; a
   `CLAUDE.md` under `.claude/rules` is a rule, not guidance. Measured on Claude Code 2.1.304: a root rule
   raised the first prompt by its size, `paths: []` included; a scoped or nested one loaded only
   once the agent read a file it covers; a rule's `@extra.md` was not expanded. `start` was too

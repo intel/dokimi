@@ -323,6 +323,31 @@ def test_a_root_claude_link_out_of_the_tree_is_named(tmp_path, kind):
         ".claude: a link that does not resolve in the tree; any rules behind it are not counted"]
 
 
+@pytest.mark.parametrize("kind", ["worktree", "git"])
+def test_a_rules_submodule_is_named(tmp_path, kind):
+    # sharing one rules set across repositories as a submodule: neither tree lists the files in it
+    shared = tmp_path / "shared"
+    _tree(shared, {"plain.md": "plain body\n"})
+    _source(shared, "git")
+    repo = tmp_path / "repo"
+    _tree(repo, {"CLAUDE.md": "# root\n"})
+    subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
+    subprocess.run(["git", "-C", str(repo), "-c", "protocol.file.allow=always", "submodule", "add", "-q",
+                    str(shared), ".claude/rules"], check=True, capture_output=True)
+    payload = budget(_source(repo, kind), NAMES, rules=True)
+    assert [e["path"] for e in payload["entries"]] == ["CLAUDE.md"]
+    assert payload["warnings"] == [".claude/rules: a git submodule; any rules in it are not counted"]
+
+
+def test_only_a_submodule_that_may_hold_rules_is_named(tmp_path):
+    gitmodules = "".join(f'[submodule "{p}"]\n	path = {p}\n	url = ../{i}\n'
+                         for i, p in enumerate(["lib", ".claude", "sub/.claude/rules", ".claude/skills"]))
+    payload = budget(_tree(tmp_path, {".gitmodules": gitmodules}), NAMES, rules=True)
+    assert payload["warnings"] == [".claude: a git submodule; any rules in it are not counted",
+                                   "sub/.claude/rules: a git submodule; any rules in it are not counted"]
+    assert budget(WorkTree(tmp_path), NAMES, rules=False)["warnings"] == []
+
+
 def test_a_rule_with_a_utf8_bom_reads_its_frontmatter(tmp_path):
     payload = budget(_tree(tmp_path, {".claude/rules/r.md": "\ufeff---\npaths: src/**\n---\nbody\n"}),
                      NAMES, rules=True)
