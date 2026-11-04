@@ -197,7 +197,8 @@ documented in `dokimi/repos/code_index/index.py`.
 The decoder uses only the standard library. A malformed, empty, or garbled
 file raises `CodeIndexError`. A file cut at a document boundary still reads,
 with fewer documents, so compare the indexed files with the tree. `repo
-inspect --index` reads one (§8.1); nothing in the eval flow does yet.
+inspect --index` reads one (§8.1), and `eval tasks generate --from graph`
+builds tasks from one (§4.7).
 
 ## 2. `repo-eval.yaml`
 
@@ -748,6 +749,7 @@ failed the task, and on a task with `score` that is a failed run with score
 |---|---|---|---|---|
 | `dokimi:review_seeds` | `manifest.json` (`manifest`); oracle answer `oracle.json` (`oracle_answer`), a list of findings | `null`; for a manifest with no seeds (a clean-diff control), `true` when no finding is `blocker` or `major` | `n_findings`, `n_severe`, `n_decoys`, `unmatched`, `recall` (`null` with no seeds) | `seeds_hit`, `decoys_flagged`, `recall_by_class` (`"hit/total"`) |
 | `dokimi:review_replay` | `gold.json` (`gold`); `task.json` `window`, default 5 | `null` (score-only) | `n_findings`, `n_severe`, `n_threads`, `recall` (= `recall_all`), `recall_addressed`, `precision_proxy` | `threads_hit`, `matches`, `recall_by_kind`, `decoys_flagged` (always `[]`) |
+| `dokimi:graph_enum` | `gold.json` (`gold`): `answer_key` (`files`, `functions` or `classes`), `gold`, `exclude`, `accepted` | `null` (score-only) | `f1`, `recall`, `precision`, `n_gold`, `n_answer`, `n_false_positive` | `missed`, `false_positive`, `accepted_extra` (first 50 each) |
 | `dokimi:typecheck` | none: the task's own fields `tool` (`mypy`), `version` (the image's mypy, exactly), `paths` (workspace-relative files) | `true` when no error is reported on a listed file, every listed file exists, and nothing silences mypy, else `false` | `n_errors`, `n_missing`, `n_suppressions`, `n_files` | `errors` (first 50, `file:line: message [code]`, and each silenced spot), `missing`, `tool`, `tool_version` |
 
 `dokimi:typecheck` checks the listed files only. Its pass is "no error on a
@@ -975,6 +977,59 @@ pull request with the reason.
 ```bash
 python cli.py repo compare repo-runs/replay --baseline guidance:none --metric recall_addressed
 ```
+
+
+### 4.7 Graph tasks from a code index
+
+`eval tasks generate --from graph` writes `dokimi:graph_enum` tasks (§4.5)
+whose gold is read from a SCIP index of the source (§1.2). No LLM, no docker:
+a task is as right as the index it came from.
+
+```bash
+# the index must be built at the revision the source names; that SHA is each task's base
+python cli.py eval tasks generate ~/repo@<sha> --from graph --index index.scip \
+    --out ~/repo/.agent-eval/tasks [--callers 9] [--derives 3] [--seed 7] [--dry-run]
+```
+
+Two questions:
+
+- **callers**: every file that references one function, outside the files
+  that define it. On an index with enclosing ranges (scip-python) the answer is
+  functions, `path::name`, the innermost function holding each reference;
+  module-level code and class bodies are not a function. Test files count.
+  SCIP does not tell a call from another use, so the prompt says "references".
+- **derives**: every class whose listed bases include one class, answered as
+  `path::Class`. On scip-clang the bases are the reader's minimal set (§1.2),
+  so a class that also lists an intermediate base is not counted as direct.
+
+**Targets.** A function or class defined in a tree file that is neither a
+test nor generated; dunder methods and C++ operators are never targets. A
+target with a reference (or, for derives, a subclass) outside the tree's files
+or defined only in a test is dropped, since the gold would be incomplete. The
+gold size must be between 5 and 40 (derives: at least 2 subclasses). The
+index paths are mapped onto the tree as `repo inspect --index` does (§8.1).
+
+**Choice.** Seeded (`--seed`): about half the tasks of each kind have a name
+other symbols share (the prompt says how many and which one counts), since
+telling one `run` from another is what a text search gets wrong. Names and
+task ids are distinct; an id is `graph_<kind>_<name>`.
+
+**Files.** `<out>/<id>/task.json` (`family: explore`, `base`, `grader`,
+`score {metric: f1, max: 1.0}`, `max_turns`, and the provenance fields
+`question`, `answer_key`, `symbol`, `ambiguous_name`, `code_index`) and
+`gold.json` (`answer_key`, `gold`, `exclude`: the defining files for callers,
+`accepted`: empty, for a person to add right answers the index missed). The
+manifest needs `entry_points: {}` when every task uses a built-in grader. A
+task directory that has a `task.json` is kept; `--force` rewrites it.
+
+**Grading.** The agent's last ```` ```json ```` fence is the answer; one
+without the answer key as a list gives `pass: false`, `parse_error: true` and
+every metric 0, a failed run. Paths are normalised as in review grading; an item in `exclude` is
+dropped, an item in `accepted` counts neither way. Score is F1 against `gold`.
+
+The command exits 2 without `--index`, on an unpinned source, an index that
+does not read, or one that maps to no file of the tree; 1 when no target gave a
+task or a task cannot be written.
 
 ## 5. Aligning oneDAL `dev/agent_evals` (uxlfoundation/oneDAL#3818)
 
@@ -1860,6 +1915,11 @@ python cli.py repo run ~/oneDAL@<sha> --manifest dev/agent_evals/repo-eval.yaml 
     --bin /opt/claude-2.1.286/claude --agent-network host --budget 1 --max-batch-usd 20
 python cli.py repo report repo-runs/pilot
 python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric root_cause_fixed
+```
+
+```bash
+# enumeration tasks with gold from a SCIP index built at <sha> (§4.7): no LLM, no docker
+python cli.py eval tasks generate ~/dpnp@<sha> --from graph --index index.scip --out ~/dpnp/.agent-eval/tasks
 ```
 
 ```bash

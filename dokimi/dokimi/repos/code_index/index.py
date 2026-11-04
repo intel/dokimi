@@ -65,6 +65,10 @@ class CodeIndex:
         """The repo-relative paths of the indexed documents, sorted. A file the index does not list is not covered."""
         return tuple(self._docs)
 
+    def symbols(self) -> tuple[str, ...]:
+        """The global symbols the index defines (some occurrence is a definition), sorted."""
+        return tuple(sorted(s for s, occs in self._by_symbol.items() if any(o.is_definition for o in occs)))
+
     def occurrences(self, path: str) -> tuple[Occurrence, ...]:
         """Every occurrence in one document, in the order the index holds them, an identical repeat kept once."""
         return self._docs.get(path, ())
