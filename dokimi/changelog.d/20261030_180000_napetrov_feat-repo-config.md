@@ -24,3 +24,7 @@ SPDX-License-Identifier: Apache-2.0
   directory as a link, when that links inside the repository; a repository's manifest may be reached through links),
   so its retargeting is never attributed to the suite. Nothing reads the file yet: the commands that use it come later,
   and existing `.agent-eval/` lookups are unchanged.
+
+### Changed
+
+- **An absolute link inside a build context digests by a relative target** — a pinned batch or `worktree-` image tag for such a context changes once.
