@@ -357,7 +357,7 @@ def test_a_rule_with_a_utf8_bom_reads_its_frontmatter(tmp_path):
 
 def test_a_paths_value_is_never_stringified(monkeypatch):
     # a YAML alias chain expands on str(); only strings are patterns, so a container is never converted
-    from dokimi.repos import budget as module
+    from dokimi.repos import rule_frontmatter as module
 
     class Bomb:
         def __str__(self):
