@@ -3,10 +3,8 @@
 
 """The entry point for LLM calls in the framework.
 
-``llm_call``, ``chat_completion``, the shims, the judge, generators and validator go
-through here. Not yet moved: ``utils.get_llm`` (no caller left but tests),
-``commands/benchmark.py``'s ``_credential_env_var``, ``eval/ragas_eval.py``'s
-``_resolve_key``, and the persona and validator redraw loops.
+``llm_call``, ``chat_completion``, the judge, generators and validator go through
+here. Not yet moved: the persona and validator redraw loops.
 
 Interface
 ---------
@@ -698,7 +696,7 @@ class LLM:
                                 default_factory=lambda: UsageRecord(n_calls=0, role=""))
 
     def __post_init__(self) -> None:
-        self.litellm_model = self._route()
+        self.litellm_model = resolve_model(self.model, self.provider)
 
     def complete(
         self,
@@ -732,7 +730,7 @@ class LLM:
         """
         if max_tokens is None:
             max_tokens = self.max_tokens
-        api_key = self._key()
+        api_key = resolve_api_key(self.provider, self.api_key)
         messages, _ = caching.build_messages(
             prompt, system=system, cache_prefix=cache_prefix,
             model=self.model, provider=self.provider,
@@ -778,7 +776,7 @@ class LLM:
         replaying a stored completion would skip the tool calls the loop is
         measuring, so a hit would be a different run, not a cheaper one.
         """
-        api_key = self._key()
+        api_key = resolve_api_key(self.provider, self.api_key)
         messages, _ = caching.annotate_system_breakpoint(
             messages, model=self.model, provider=self.provider,
         )
@@ -798,13 +796,6 @@ class LLM:
         with self._lock:
             return self._total
 
-    # Overridden only by the ``utils.get_llm`` delegate (``_GetLLMCompat``).
-    def _route(self) -> str:
-        return resolve_model(self.model, self.provider)
-
-    def _key(self) -> Optional[str]:
-        return resolve_api_key(self.provider, self.api_key)
-
     def _cache_extra(self, stream: bool, max_tokens: Optional[int]) -> Dict[str, Any]:
         # max_tokens belongs in the key: it changes the response (a truncated or
         # reasoning-starved completion is a different answer). temperature/seed
@@ -813,15 +804,10 @@ class LLM:
         return {"stream": stream, "max_tokens": max_tokens, **llm_cli.cache_extra(self.provider),
                 **_sampling_kwargs(temperature=self.temperature, seed=self.seed)}
 
-    def _labels(self) -> Tuple[str, str]:
-        """The ``(model, provider)`` the reply's usage records."""
-        return self.model, self.provider
-
     def _request(self, messages: List[Dict[str, Any]], api_key: Optional[str],
                  **kwargs: Any) -> Request:
-        model, provider = self._labels()
         return Request(
-            model=model, provider=provider, litellm_model=self.litellm_model,
+            model=self.model, provider=self.provider, litellm_model=self.litellm_model,
             messages=messages, api_key=api_key,
             temperature=self.temperature, seed=self.seed, **kwargs,
         )
@@ -927,8 +913,7 @@ class ChatResponse(Protocol):
 class ChatModel(Protocol):
     """A chat model the eval and question stages call: ``invoke(prompt).content``.
 
-    ``ChatOpenAI``/``ChatAnthropic`` below and the wrapper ``utils.get_llm``
-    returns all satisfy it.
+    :class:`Invoker` satisfies it.
     """
 
     def invoke(self, prompt: str, draw: int = 0,
@@ -955,68 +940,6 @@ class Invoker:
                cache_if: Optional[Callable[[str], bool]] = None) -> _Resp:
         reply = self.llm.complete(prompt, draw=draw, cache_if=cache_if)
         return _Resp(reply.text, usage=reply.usage)
-
-
-@dataclass(eq=False)
-class _GetLLMCompat(LLM):
-    """The transport ``utils.get_llm`` had, on :class:`LLM`; goes with ``get_llm``.
-
-    ``get_llm`` keeps its own provider table, so it hands in the litellm *route* and
-    the *key* it resolved. Its cache entries were keyed without ``stream``, and its
-    usage records the route as the model and ``"litellm"`` as the provider.
-    """
-
-    route: str = ""
-    key: Optional[str] = field(default=None, repr=False)
-
-    def _route(self) -> str:
-        return self.route
-
-    def _key(self) -> Optional[str]:
-        return self.key
-
-    def _cache_extra(self, stream: bool, max_tokens: Optional[int]) -> Dict[str, Any]:
-        return {"max_tokens": max_tokens,
-                **_sampling_kwargs(temperature=self.temperature, seed=self.seed)}
-
-    def _labels(self) -> Tuple[str, str]:
-        return self.litellm_model, "litellm"
-
-
-class _Shim:
-    """LangChain-compatible shim over :class:`LLM` (``invoke(prompt).content``)."""
-
-    provider = "openai"
-
-    def __init__(self, model: str, api_key: Optional[str] = None,
-                 temperature: Optional[float] = None, seed: Optional[int] = None,
-                 **kwargs: Any):
-        self.model = model
-        self.api_key = api_key
-        self.temperature = temperature
-        self.seed = seed
-
-    def invoke(self, prompt: str, draw: int = 0,
-               cache_if: Optional[Callable[[str], bool]] = None) -> _Resp:
-        """Invoke the model with a prompt; response carries a UsageRecord."""
-        text, usage = llm_call_with_usage(
-            prompt, self.model, provider=self.provider, api_key=self.api_key,
-            temperature=self.temperature, seed=self.seed,
-            draw=draw, cache_if=cache_if,
-        )
-        return _Resp(text, usage=usage)
-
-
-class ChatOpenAI(_Shim):
-    """LangChain-compatible shim over :class:`LLM` at ``openai``."""
-
-    provider = "openai"
-
-
-class ChatAnthropic(_Shim):
-    """LangChain-compatible shim over :class:`LLM` at ``anthropic``."""
-
-    provider = "anthropic"
 
 
 def llm_call(

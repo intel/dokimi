@@ -201,7 +201,7 @@ def test_panel_rerun_on_a_cache_hit_makes_0_provider_calls(provider_calls, cache
 def test_judge_transient_error_makes_4_provider_calls_then_fails_the_record(
     provider_calls, provider, model
 ):
-    # max_retries=3 on both transports (the llm_call default and the get_llm one):
+    # max_retries=3 (the LLM default) on both routes:
     # 1 attempt + 3 retries, then the record fails. The baseline arm is not judged
     # once the context arm raised.
     provider_calls.push(*[RATE_LIMITED] * 4)

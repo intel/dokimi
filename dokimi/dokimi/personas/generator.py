@@ -10,7 +10,7 @@ import json
 
 from dokimi.llm import LLM, ChatModel, Invoker
 from dokimi.llm_cli import BACKENDS as CLI_BACKENDS
-from dokimi.llm import ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
+from dokimi.llm import LANGCHAIN_AVAILABLE
 from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
 
 logger = logging.getLogger(__name__)
@@ -100,19 +100,13 @@ class PersonaGenerator:
         self.provider = provider
         self.api_key = api_key
 
-        self.llm: ChatModel
-        if provider == "openai":
-            self.llm = ChatOpenAI(model=model, api_key=api_key)
-        elif provider == "anthropic":
-            self.llm = ChatAnthropic(model=model, api_key=api_key)
-        elif provider in ("google", "gemini", "google-vertex", "openrouter",
-                          "amazon-bedrock", "vertex_ai", *CLI_BACKENDS):
-            self.llm = Invoker(LLM(model, provider, api_key))
-        else:
+        if provider not in ("openai", "anthropic", "google", "gemini", "google-vertex", "openrouter",
+                            "amazon-bedrock", "vertex_ai", *CLI_BACKENDS):
             raise ValueError(
                 f"Unsupported provider: '{provider}'. "
                 "Use 'openai', 'anthropic', 'google', 'openrouter', 'amazon-bedrock' or 'claude-cli'."
             )
+        self.llm: ChatModel = Invoker(LLM(model, provider, api_key))
 
         logger.info(f"Initialized PersonaGenerator with {provider}/{model}")
     

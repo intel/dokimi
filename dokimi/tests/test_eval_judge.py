@@ -71,29 +71,22 @@ def mock_llm(mock_judge_response):
 
 class TestJudgeInit:
     def test_init_openai(self):
-        mock_cls = Mock()
-        with patch('dokimi.eval.judge.ChatOpenAI', mock_cls, create=True), \
-             patch('dokimi.eval.judge.LANGCHAIN_AVAILABLE', True):
-            judge = Judge(model="gpt-4o", provider="openai")
-            mock_cls.assert_called_once_with(model="gpt-4o", api_key=None,
-                                             temperature=None, seed=None)
-            assert judge.llm is mock_cls.return_value
-            assert judge.provider == "openai"
-    
+        judge = Judge(model="gpt-4o", provider="openai")
+        llm = judge.llm.llm
+        assert (llm.model, llm.provider, llm.api_key, llm.temperature, llm.seed) == (
+            "gpt-4o", "openai", None, None, None)
+        assert judge.llm.litellm_model == "gpt-4o"
+
     def test_init_anthropic(self):
-        mock_cls = Mock()
-        with patch('dokimi.eval.judge.ChatAnthropic', mock_cls, create=True), \
-             patch('dokimi.eval.judge.LANGCHAIN_AVAILABLE', True):
-            judge = Judge(model="claude-sonnet", provider="anthropic", api_key="test",
-                          temperature=0.0, seed=7)
-            mock_cls.assert_called_once_with(model="claude-sonnet", api_key="test",
-                                             temperature=0.0, seed=7)
-            assert judge.llm is mock_cls.return_value
-            assert judge.provider == "anthropic"
-    
+        judge = Judge(model="claude-sonnet", provider="anthropic", api_key="test",
+                      temperature=0.0, seed=7)
+        llm = judge.llm.llm
+        assert (llm.provider, llm.api_key, llm.temperature, llm.seed) == ("anthropic", "test", 0.0, 7)
+        assert judge.llm.litellm_model == "anthropic/claude-sonnet"
+
     def test_init_unsupported_provider(self):
         mock_cls = Mock()
-        with patch('dokimi.eval.judge.ChatOpenAI', mock_cls, create=True), \
+        with patch('dokimi.eval.judge.Invoker', mock_cls), \
              patch('dokimi.eval.judge.LANGCHAIN_AVAILABLE', True):
             with pytest.raises(ValueError) as exc:
                 Judge(provider="unsupported")
@@ -108,7 +101,7 @@ class TestJudgeInit:
 class TestEvaluateAnswers:
     def test_returns_list(self, sample_answers, mock_llm):
         mock_cls = Mock(return_value=mock_llm)
-        with patch('dokimi.eval.judge.ChatAnthropic', mock_cls, create=True), \
+        with patch('dokimi.eval.judge.Invoker', mock_cls), \
              patch('dokimi.eval.judge.LANGCHAIN_AVAILABLE', True):
             judge = Judge()
             evals = judge.evaluate_answers("oneTBB", sample_answers)
@@ -118,7 +111,7 @@ class TestEvaluateAnswers:
     
     def test_includes_required_fields(self, sample_answers, mock_llm):
         mock_cls = Mock(return_value=mock_llm)
-        with patch('dokimi.eval.judge.ChatAnthropic', mock_cls, create=True), \
+        with patch('dokimi.eval.judge.Invoker', mock_cls), \
              patch('dokimi.eval.judge.LANGCHAIN_AVAILABLE', True):
             judge = Judge()
             evals = judge.evaluate_answers("oneTBB", sample_answers)
@@ -139,7 +132,7 @@ class TestEvaluateAnswers:
         mock_llm.invoke.side_effect = [Mock(content=r) for r in responses]
         
         mock_cls = Mock(return_value=mock_llm)
-        with patch('dokimi.eval.judge.ChatAnthropic', mock_cls, create=True), \
+        with patch('dokimi.eval.judge.Invoker', mock_cls), \
              patch('dokimi.eval.judge.LANGCHAIN_AVAILABLE', True):
             judge = Judge()
             evals = judge.evaluate_answers("oneTBB", sample_answers)
@@ -153,7 +146,7 @@ class TestEvaluateAnswers:
         mock_llm.invoke.side_effect = Exception("Judge error")
         mock_cls = Mock(return_value=mock_llm)
         
-        with patch('dokimi.eval.judge.ChatAnthropic', mock_cls, create=True), \
+        with patch('dokimi.eval.judge.Invoker', mock_cls), \
              patch('dokimi.eval.judge.LANGCHAIN_AVAILABLE', True):
             judge = Judge()
             evals = judge.evaluate_answers("oneTBB", sample_answers)
@@ -165,7 +158,7 @@ class TestEvaluateAnswers:
 class TestJudgeAnswer:
     def test_parses_scores(self, mock_llm):
         mock_cls = Mock(return_value=mock_llm)
-        with patch('dokimi.eval.judge.ChatAnthropic', mock_cls, create=True), \
+        with patch('dokimi.eval.judge.Invoker', mock_cls), \
              patch('dokimi.eval.judge.LANGCHAIN_AVAILABLE', True):
             judge = Judge()
             result = judge._judge_answer("oneTBB", "Q?", "A.", "context")
@@ -183,7 +176,7 @@ class TestJudgeAnswer:
             "code_quality": 50, "actionability": 50, "aggregate": 100,
         })
         mock_cls = Mock(return_value=mock_llm)
-        with patch('dokimi.eval.judge.ChatAnthropic', mock_cls, create=True), \
+        with patch('dokimi.eval.judge.Invoker', mock_cls), \
              patch('dokimi.eval.judge.LANGCHAIN_AVAILABLE', True):
             result = Judge()._judge_answer("oneTBB", "Q?", "A.", "context")
         assert result["aggregate"] == 50.0
@@ -199,7 +192,7 @@ class TestJudgeAnswer:
                 "code_quality": 70, "actionability": 80}
         got = []
         mock_cls = Mock(return_value=mock_llm)
-        with patch('dokimi.eval.judge.ChatAnthropic', mock_cls, create=True), \
+        with patch('dokimi.eval.judge.Invoker', mock_cls), \
              patch('dokimi.eval.judge.LANGCHAIN_AVAILABLE', True):
             judge = Judge()
             for spec in (0, 100):
@@ -215,7 +208,7 @@ class TestJudgeAnswer:
         mock_cls = Mock(return_value=mock_llm)
         dims = ("correctness", "completeness", "code_quality", "actionability")
         moved = {}
-        with patch('dokimi.eval.judge.ChatAnthropic', mock_cls, create=True), \
+        with patch('dokimi.eval.judge.Invoker', mock_cls), \
              patch('dokimi.eval.judge.LANGCHAIN_AVAILABLE', True):
             judge = Judge()
             for dim in dims:
@@ -233,7 +226,7 @@ class TestJudgeAnswer:
             "specificity": 90, "code_quality": 90, "actionability": 90, "aggregate": 0,
         })
         mock_cls = Mock(return_value=mock_llm)
-        with patch('dokimi.eval.judge.ChatAnthropic', mock_cls, create=True), \
+        with patch('dokimi.eval.judge.Invoker', mock_cls), \
              patch('dokimi.eval.judge.LANGCHAIN_AVAILABLE', True):
             return Judge()._judge_answer("oneTBB", "Q?", "A.", "context")
 
@@ -463,7 +456,7 @@ class TestJudgeAnswer:
             "factual_grounding": 0, "aggregate": 0,
         })
         mock_cls = Mock(return_value=mock_llm)
-        with patch('dokimi.eval.judge.ChatAnthropic', mock_cls, create=True), \
+        with patch('dokimi.eval.judge.Invoker', mock_cls), \
              patch('dokimi.eval.judge.LANGCHAIN_AVAILABLE', True):
             result = Judge()._judge_answer(
                 "oneTBB", "Q?", "A.", "context", ground_truth="excerpt")
@@ -476,7 +469,7 @@ class TestJudgeAnswer:
         mock_llm.invoke.return_value.content = "Not JSON"
         mock_cls = Mock(return_value=mock_llm)
         
-        with patch('dokimi.eval.judge.ChatAnthropic', mock_cls, create=True), \
+        with patch('dokimi.eval.judge.Invoker', mock_cls), \
              patch('dokimi.eval.judge.LANGCHAIN_AVAILABLE', True):
             judge = Judge()
             with pytest.raises(ValueError):
@@ -488,7 +481,7 @@ class TestJudgeAnswer:
         mock_llm.invoke.side_effect = [bad, good]
         mock_cls = Mock(return_value=mock_llm)
 
-        with patch('dokimi.eval.judge.ChatAnthropic', mock_cls, create=True), \
+        with patch('dokimi.eval.judge.Invoker', mock_cls), \
              patch('dokimi.eval.judge.LANGCHAIN_AVAILABLE', True):
             scores = Judge()._judge_answer("oneTBB", "Q?", "A.", "context")
         assert mock_llm.invoke.call_count == 2
@@ -498,7 +491,7 @@ class TestJudgeAnswer:
         mock_llm.invoke.return_value.content = json.dumps({"correctness": 85})  # Missing other keys
         mock_cls = Mock(return_value=mock_llm)
         
-        with patch('dokimi.eval.judge.ChatAnthropic', mock_cls, create=True), \
+        with patch('dokimi.eval.judge.Invoker', mock_cls), \
              patch('dokimi.eval.judge.LANGCHAIN_AVAILABLE', True):
             judge = Judge()
             with pytest.raises(ValueError) as exc:
@@ -524,7 +517,7 @@ class TestFormatContext:
 class TestSaveLoadEvaluations:
     def test_save_evaluations(self, tmp_path, sample_answers, mock_llm):
         mock_cls = Mock(return_value=mock_llm)
-        with patch('dokimi.eval.judge.ChatAnthropic', mock_cls, create=True), \
+        with patch('dokimi.eval.judge.Invoker', mock_cls), \
              patch('dokimi.eval.judge.LANGCHAIN_AVAILABLE', True):
             judge = Judge()
             evals = judge.evaluate_answers("oneTBB", sample_answers)
