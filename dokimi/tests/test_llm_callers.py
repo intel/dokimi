@@ -120,7 +120,7 @@ def test_the_answerer_table_routes_a_bedrock_arn_and_vertex_ai():
 BARE = "claude-sonnet-4"  # off BEDROCK_MODEL_IDS: get_llm ran the box's default Sonnet for it
 
 
-@pytest.mark.parametrize("model", [BARE, "claude", "sonnet"])
+@pytest.mark.parametrize("model", [BARE, "claude", "sonnet", "claude-sonnet-4.5"])
 def test_a_bare_bedrock_name_off_the_table_is_refused(model):
     with pytest.raises(InputError, match=f"Bedrock has no model '{model}'"):
         check_bedrock_model("amazon-bedrock", model)
@@ -128,7 +128,8 @@ def test_a_bare_bedrock_name_off_the_table_is_refused(model):
 
 @pytest.mark.parametrize("provider, model", [
     ("amazon-bedrock", "claude-sonnet-5-5"), ("amazon-bedrock", "us.anthropic.claude-sonnet-4-6"),
-    ("amazon-bedrock", "amazon.nova-pro-v1:0"), ("amazon-bedrock", ARN),
+    ("amazon-bedrock", "amazon.nova-pro-v1:0"), ("amazon-bedrock", "ai21.jamba-1-5-large-v1:0"),
+    ("amazon-bedrock", ARN),
     ("amazon-bedrock", "bedrock/us.anthropic.x"), ("anthropic", BARE), ("openrouter", BARE),
 ])
 def test_a_name_bedrock_can_run_or_another_provider_passes(provider, model):

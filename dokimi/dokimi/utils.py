@@ -300,13 +300,18 @@ class InputError(ValueError):
     """
 
 
+_BEDROCK_ID = re.compile(r"[a-z0-9]+\.", re.IGNORECASE)
+
+
 def check_bedrock_model(provider: str, model: str) -> None:
     """Raise :class:`InputError` for a judge name Bedrock cannot run, before a run pays for answers.
 
-    A Bedrock id has a dot (``us.anthropic.``, ``amazon.``), an ARN or a litellm route has a
+    A Bedrock id starts with a region or vendor and a dot (``us.anthropic.``, ``amazon.``); a dot
+    after a hyphen is a version (``claude-sonnet-4.5``), not an id. An ARN or a litellm route has a
     ``/``, and a bare name runs only when ``BEDROCK_MODEL_IDS`` maps it to a profile.
     """
-    if provider == "amazon-bedrock" and not any(c in model for c in "./") and model not in BEDROCK_MODEL_IDS:
+    if (provider == "amazon-bedrock" and "/" not in model and not _BEDROCK_ID.match(model)
+            and model not in BEDROCK_MODEL_IDS):
         raise InputError(f"Bedrock has no model '{model}': pass its inference profile id "
                          f"(us.anthropic.<name>) or an ARN; the bare names that run are "
                          f"{', '.join(BEDROCK_MODEL_IDS)}")

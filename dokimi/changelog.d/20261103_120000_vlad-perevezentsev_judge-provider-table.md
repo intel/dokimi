@@ -7,7 +7,8 @@
     `$ANTHROPIC_DEFAULT_SONNET_MODEL`, so the judge ran a model other than the one its record
     names. Bedrock runs no such name. As a judge, `arms run`, `arms matrix-run`, `subjects run`,
     `evaluate` and `benchmark run`/`batch` now refuse it with exit 2 before any answer is paid for,
-    and the error names the fix: the inference profile id (`us.anthropic.claude-sonnet-4-6`) or an
+    as they do a dotted one (`claude-sonnet-4.5`, which is no Bedrock id either), and the error
+    names the fix: the inference profile id (`us.anthropic.claude-sonnet-4-6`) or an
     ARN. The commands that judge stored answers send it as given, and every judge call fails; with
     `--judge-temperature`, `eval pairwise`/`checklist`/`judge-wording`/`cross-judge` and `eval
     judge-validity --mode pairwise` refuse it with exit 2 first, as a temperature litellm does not
