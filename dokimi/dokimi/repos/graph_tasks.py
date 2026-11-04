@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from dokimi.repos.code_index import CodeIndex
-from dokimi.repos.code_index.symbols import descriptor_names
+from dokimi.repos.code_index.symbols import descriptor_names, descriptors
 from dokimi.repos.environment.files import is_generated, is_test_file
 from dokimi.repos.environment.structure import detect_prefix, function_like, is_protocol_name
 
@@ -130,12 +130,13 @@ def task_id(c: Candidate) -> str:
 
 
 def in_file_name(symbol: str) -> str | None:
-    """The name inside its file: the descriptors after the first (the module, or the outer namespace), joined
-    by ``.``; ``Impl.run`` for a method, ``run`` for a module function."""
-    names = descriptor_names(symbol)
-    if not names:
+    """The name inside its file: the descriptors after the leading namespaces (the module, a C++ namespace),
+    joined by ``.``; ``Impl.run`` for a method, ``run`` for a module function."""
+    found = descriptors(symbol)
+    if not found:
         return None
-    return ".".join(names[1:] if len(names) > 1 else names)
+    inner = [name for i, (name, _) in enumerate(found) if any(mark != "/" for _, mark in found[:i + 1])]
+    return ".".join(inner) or found[-1][0]
 
 
 def _target_files(index: CodeIndex, symbol: str, repo_path: dict[str, str]) -> tuple[str, ...] | None:

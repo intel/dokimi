@@ -68,21 +68,26 @@ def _path(item):
     return item.partition("::")[0]
 
 
-def _last(item):
-    path, _, name = item.partition("::")
-    return path, name.rsplit(".", 1)[-1]
+def _names_agree(a, b):
+    """One dotted name ends with the other, whole parts only: ``run`` and ``A.run``, ``A`` and ``ns.A``."""
+    x, y = a.split("."), b.split(".")
+    short, long = (x, y) if len(x) <= len(y) else (y, x)
+    return long[len(long) - len(short):] == short
 
 
 def _resolve(items, known):
     """Map an answer item to the known item it names: exact, else the one item of ``known`` in that file whose
-    last name part is the same (``run`` or ``Other.run`` for ``Impl.run``, when the file has no other ``run``)."""
-    by_last: dict = {}
+    name agrees with it (:func:`_names_agree`): ``run`` names ``Impl.run`` when the file has no other ``run``,
+    ``B.run`` never names ``A.run``."""
+    by_path: dict = {}
     for k in known:
-        if "::" in k:
-            by_last.setdefault(_last(k), []).append(k)
+        path, sep, name = k.partition("::")
+        if sep:
+            by_path.setdefault(path, []).append((name, k))
     out = set()
     for x in items:
-        hits = [] if x in known or "::" not in x else by_last.get(_last(x), [])
+        path, sep, name = x.partition("::")
+        hits = [] if x in known or not sep else [k for n, k in by_path.get(path, ()) if _names_agree(name, n)]
         out.add(hits[0] if len(hits) == 1 else x)
     return out
 

@@ -31,13 +31,21 @@ def descriptor_name(symbol: str) -> str | None:
 def descriptor_names(symbol: str) -> tuple[str, ...] | None:
     """The names of the symbol's descriptors, outermost first: ``a/Impl#run().`` gives ``(a, Impl, run)``.
     ``None`` as for :func:`descriptor_name`."""
+    found = descriptors(symbol)
+    return tuple(name for name, _ in found) if found else None
+
+
+def descriptors(symbol: str) -> tuple[tuple[str, str], ...] | None:
+    """Each descriptor as ``(name, suffix)``, outermost first: ``/`` namespace, ``#`` type, ``.`` term,
+    ``(`` method, ``:`` meta, ``!`` macro, ``)`` parameter, ``]`` type parameter. ``None`` as for
+    :func:`descriptor_name`."""
     if is_local(symbol) or not symbol:
         return None
     start = _descriptors_start(symbol)
     if start is None:
         return None
     desc = symbol[start:]
-    names: list[str] = []
+    names: list[tuple[str, str]] = []
     pos = 0
     while pos < len(desc):
         read = _read_name(desc, pos)
@@ -46,13 +54,13 @@ def descriptor_names(symbol: str) -> tuple[str, ...] | None:
         name, pos = read
         mark = desc[pos]
         if name and mark in _DEFINING_SUFFIXES:
-            names.append(name)
+            names.append((name, mark))
             pos += 1
         elif name and mark == "(":
             end = _method_end(desc, pos)
             if end is None:
                 return None
-            names.append(name)
+            names.append((name, "("))
             pos = end
         elif not name and mark in "([":
             # a parameter `(name)` or a type parameter `[name]`: the name is inside the brackets
@@ -60,7 +68,7 @@ def descriptor_names(symbol: str) -> tuple[str, ...] | None:
             closing = ")" if mark == "(" else "]"
             if inner is None or not inner[0] or inner[1] >= len(desc) or desc[inner[1]] != closing:
                 return None
-            names.append(inner[0])
+            names.append((inner[0], closing))
             pos = inner[1] + 1
         else:
             return None

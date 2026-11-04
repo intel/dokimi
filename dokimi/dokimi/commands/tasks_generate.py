@@ -69,7 +69,11 @@ def cmd_eval_tasks_generate(args: argparse.Namespace) -> None:
 def _sha256(path: str) -> str:
     import hashlib
 
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def _count(value: str) -> int:

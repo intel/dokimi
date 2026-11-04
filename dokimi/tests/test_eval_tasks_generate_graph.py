@@ -227,6 +227,14 @@ def test_derives_respects_the_gold_size_cap(tmp_path):
     assert len(plan(_index(docs, bases), list(docs), _opts(tmp_path, references=0, max_gold=4)).outcomes) == 1
 
 
+def test_in_file_name_drops_the_leading_namespaces_only():
+    assert graph_tasks.in_file_name("cxx . . $ Impl#run().") == "Impl.run"
+    assert graph_tasks.in_file_name("cxx . . $ ns/inner/Impl#run(1a).") == "Impl.run"
+    assert graph_tasks.in_file_name("cxx . . $ ns/foo(001).") == "foo"
+    assert graph_tasks.in_file_name(_fn("A#run", mod="cli")) == "A.run"
+    assert graph_tasks.in_file_name(_fn("run")) == "run"
+
+
 def test_descriptor_names_are_outermost_first():
     assert descriptor_names(_fn("run")) == ("p.m", "run")
     assert descriptor_names("scip-python python p 0.1 `p.m`/Impl#run().(value)") == ("p.m", "Impl", "run", "value")
@@ -293,6 +301,16 @@ def test_a_method_answered_qualified_or_bare_matches_its_gold_item(tmp_path):
     assert exact["f1"] == 1.0
     bare = _grade(tmp_path, fence({"functions": ["src/a.py::run"]}), gold)  # two run in a.py: no guess
     assert bare["n_false_positive"] == 1 and bare["recall"] == 0.0
+
+
+def test_a_method_of_another_class_never_names_the_gold_method(tmp_path):
+    gold = {"answer_key": "functions", "gold": ["src/cli.py::A.run", "src/ns.py::ns.Impl"]}
+    wrong = _grade(tmp_path, fence({"functions": ["src/cli.py::B.run", "src/cli.py::XA.run"]}), gold)
+    assert wrong["recall"] == 0.0 and wrong["n_false_positive"] == 2
+    shorter = _grade(tmp_path, fence({"functions": ["src/cli.py::run", "src/ns.py::Impl"]}), gold)
+    assert shorter["f1"] == 1.0
+    longer = _grade(tmp_path, fence({"functions": ["src/cli.py::pkg.A.run"]}), gold)
+    assert longer["n_false_positive"] == 0 and longer["recall"] == 0.5
 
 
 def test_a_repo_directory_in_a_path_is_kept(tmp_path):

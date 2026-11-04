@@ -1004,8 +1004,10 @@ Two questions:
   so they are one target and the prompt says how many overloads count.
 - **derives**: every class whose bases (as the reader gives them, §1.2) include
   one class, answered as `path::Class`. On scip-clang the bases are the
-  reader's minimal set, so a class that lists the target and also an
-  intermediate base of it is not required; it goes to `accepted`.
+  reader's minimal set, and the index cannot tell a class that names the
+  target next to an intermediate base from one that derives through it: every
+  class that lists the target but is not in that set goes to `accepted`, so
+  naming it is neither a hit nor a false positive.
 
 **Targets.** A function or class defined in a tree file that is neither a
 test nor generated; dunder methods and C++ operators are never targets. A
@@ -1018,8 +1020,9 @@ paths are mapped onto the tree as `repo inspect --index` does (§8.1).
 other targets share (the prompt says how many and which one counts), since
 telling one `run` from another is what a text search gets wrong. Names and
 task ids are distinct. An id is `graph_<kind>_<name>_<hash>`, the hash over
-the target's symbols, so another seed or revision that picks another `run`
-writes another directory.
+the target's SCIP symbols, so another seed or revision that picks another
+`run` writes another directory (as does the same function after the package
+version in its symbol changes).
 
 **Files.** `<out>/<id>/task.json` (`family: navigate`, `base`, `grader`,
 `score {metric: f1, max: 1.0}`, `max_turns`, and the provenance fields
@@ -1035,8 +1038,10 @@ task directory that has a `task.json` is kept and printed as `kept <id>`;
 without the answer key as a list gives `pass: false`, `parse_error: true` and
 every metric 0, a failed run. A path is cut after the agent's workspace and
 loses a leading `./`; in a name `::` reads as `.` and a trailing `()` is
-dropped. A name that matches no item exactly matches the one item of its file
-with the same last part (`go` for `Impl.go`), when there is one. An item in an
+dropped. A name that matches no item exactly names the one item of its file
+whose name ends with it, or that it ends with, in whole parts (`go` for
+`Impl.go`, `ns.Impl` for `Impl`), when there is one; `B.go` never names
+`Impl.go`. An item in an
 `exclude` file is dropped, an item in `accepted` counts neither way. The score
 is F1 against `gold`. A gold file with an unknown `answer_key`, an empty
 `gold`, or an `exclude` or `accepted` that is not a list of strings is a
