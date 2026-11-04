@@ -113,7 +113,7 @@ CI additionally holds a PR to:
   [traceability](docs/user-journeys/traceability.md#what-the-check-enforces).
 - **Docs build** — `mkdocs build --strict`, from `dokimi/`. `make dev` already
   installs its packages and `make ci-local` runs it; by hand, install them with
-  `pip install -r requirements.lock.txt -r requirements-docs.lock.txt`. It fails on
+  `pip install --no-deps -r requirements.lock.txt -r requirements-docs.lock.txt`. It fails on
   a link or `#anchor` between pages that does not resolve, on a link into the
   source tree whose file does not exist (an anchor into such a file is not
   checked), and on a list that nests differently on the site than on GitHub
@@ -180,7 +180,10 @@ PyPI. The mutation workflow adds mutmut's closure
 nothing else installs, and pip-audit audits with the others. When you change a range in
 `requirements*.txt`, regenerate the lock with the command in its header: run it
 from `dokimi/`, and add `--upgrade` to pick up new versions (without it, uv
-keeps the current pins). The command's `--exclude-newer=P7D` skips releases
+keeps the current pins). The main and tools lock headers pass
+`--override=requirements-overrides.txt`, which keeps filelock at 4.2.1 or later
+against litellm's declared cap, and so every install of `requirements.lock.txt`
+passes `--no-deps` (`SECURITY.md` says why). The command's `--exclude-newer=P7D` skips releases
 less than 7 days old; if a security fix is newer than that, its vulnerability PR
 fails to resolve, so regenerate the lock by hand without the flag. The docs lock
 and the tools locks (`requirements-ci.lock.txt`, `requirements-mutation.lock.txt`) are constrained to the main one,

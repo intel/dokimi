@@ -1,0 +1,42 @@
+{
+  "schema_version": "repo_hits_judged.v1",
+  "cell": "review_replay_pr3098__guidance-raw__claude-sonnet-5-5__r1",
+  "task": "review_replay_pr3098",
+  "arm": "guidance:raw",
+  "model": "claude-sonnet-5-5",
+  "rep": 1,
+  "judge": {
+    "provider": "openai",
+    "model": "gpt-5.1"
+  },
+  "pairs": [
+    {
+      "thread": "t_todo",
+      "finding": 0,
+      "label": "unrelated",
+      "reason": "The thread asks for a TODO; the finding says the TODO is repeated."
+    },
+    {
+      "thread": "t_op",
+      "finding": 1,
+      "label": "same point",
+      "reason": "Both say mul adds instead of multiplying."
+    },
+    {
+      "thread": 7,
+      "finding": 2,
+      "label": null,
+      "reason": null,
+      "error": "no reply parsed: No JSON object found in LLM response: 'no idea'"
+    }
+  ],
+  "counts": {
+    "same point": 1,
+    "related": 0,
+    "unrelated": 1,
+    "unjudged": 1
+  },
+  "n_threads": 4,
+  "recall": 0.75,
+  "recall_judged": 0.25
+}

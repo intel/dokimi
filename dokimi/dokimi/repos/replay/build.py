@@ -24,6 +24,7 @@ import base64
 import json
 from collections import Counter
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -118,7 +119,8 @@ def _make(h: History, manifest: RepoManifest, pr: PullRequest, opts: Options,
     gold = _gold(h, manifest, pr, threads, rev, opts.window, notes)
     if not gold:
         raise _Skip("no gold thread is left")
-    return _task(pr, base, rev, leave_out, opts), gold, _mbox(pr, rev, h.patch(base, rev, leave_out))
+    task = _task(pr, base, rev, leave_out, opts, _public_at(threads, {g["id"] for g in gold}, notes))
+    return task, gold, _mbox(pr, rev, h.patch(base, rev, leave_out))
 
 
 def _needed(pr: PullRequest) -> list[str]:
@@ -204,7 +206,28 @@ def _where(t: Thread) -> str:
     return f"{t.path}:{t.line}" if t.line else (t.path or "no path")
 
 
-def _task(pr: PullRequest, base: str, rev: str, leave_out: list[str], opts: Options) -> dict[str, Any]:
+def _public_at(threads: list[Thread], gold: set[str], notes: list[str]) -> str | None:
+    """The earliest first-comment ``createdAt`` of the threads whose id is in ``gold``, as the input gives it.
+    ``None``, with a note naming them, when any of them has no usable time: missing, not ISO 8601 or with no
+    offset (GitHub's ``Z`` is one, UTC). The minimum of the others could be later than the real one."""
+    times, unusable = [], []
+    for t in (t for t in threads if t.id in gold):
+        try:
+            at = datetime.fromisoformat(t.created)
+        except ValueError:
+            at = None
+        if at is None or at.tzinfo is None:  # a time with no offset is not comparable with one that has it
+            unusable.append(t.id)
+        else:
+            times.append((at, t.created))
+    if unusable:
+        notes.append(f"no public_at: no first-comment createdAt with an offset on {', '.join(unusable)}")
+        return None
+    return min(times)[1] if times else None
+
+
+def _task(pr: PullRequest, base: str, rev: str, leave_out: list[str], opts: Options,
+          public: str | None) -> dict[str, Any]:
     task: dict[str, Any] = {
         "id": task_id(pr), "family": "review", "base": base, "grader": "dokimi:review_replay",
         "score": {"metric": "recall", "max": 1.0}, "review_patch": PATCH, "gold": GOLD, "window": opts.window,
@@ -214,6 +237,8 @@ def _task(pr: PullRequest, base: str, rev: str, leave_out: list[str], opts: Opti
         task["source_url"] = pr.url
     if leave_out:
         task["left_out_files"] = leave_out
+    if public:
+        task["public_at"] = public  # when the gold's answer was public (contract §4.6)
     return task
 
 

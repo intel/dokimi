@@ -19,6 +19,10 @@
 - **uptake**: for an arm that added a file or an MCP server, the cells whose
   agent used it (``result.json`` ``uptake``, see :mod:`.uptake`) over the
   cells with a trace to count from.
+- **first useful**: for a task that declares a ``useful`` definition, the cells that observed the first useful
+  result (``result.json`` ``first_useful``, see :mod:`.useful`): how many, their median seconds and steps, and why the
+  others did not (``never``, ``unobserved``, ``untimed``, ``timeout``). Cells that name both kinds get one such line
+  per kind.
 - skill arms add ``skill_invoked`` (cells whose agent used the expected skill,
   or any installed one when the task names none) and, when the task has an
   ``expected_skill``, ``skill_selected_correct`` (cells that used it first; ``skill_expected``
@@ -61,6 +65,7 @@ from dokimi.utils import same_model
 from .grading import SCORE_BOUND, read_grade_json
 from .process_counts import process_line, process_means
 from .runner import UNSUPPORTED_FILE, slug
+from .useful import useful_line, useful_summary
 
 _TOKENS = ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens")
 
@@ -239,6 +244,9 @@ def summarize(batch_dir: Path) -> dict[str, Any]:
             uptake = uptake_counts(recs)
             if uptake is not None:
                 row["uptake"] = uptake
+            first = useful_summary(recs)
+            if first is not None:
+                row["first_useful"] = first
             if score_only:
                 scores = [0.0 if r["grade"]["status"] == "grader_failure" else r["grade"]["score"] for r in recs]
                 row.update(kind="score", score=_mean([0.0 if s is None else s for s in scores]))
@@ -286,6 +294,7 @@ def format_report(summary: dict[str, Any]) -> str:
         if notes:
             lines.append(" " * (width + 2) + "  " + ", ".join(notes))
         lines += process_line(r.get("process"), width)
+        lines += useful_line(r.get("first_useful"), width)
     if summary["missing"]:
         shown = summary["missing"][:10]
         lines.append("missing (no result.json; rerun the batch): " + ", ".join(shown)
@@ -331,29 +340,41 @@ REPLAY = "dokimi:review_replay"
 def load_hits(batch_dir: Path) -> dict[str, Any]:
     """``repo report --hits``: each credited pair of the batch's ``dokimi:review_replay`` cells, from their
     ``grade.json`` ``details.matches``, by task, arm, model and rep. ``replay_cells`` counts the cells whose
-    ``grade.json`` names that grader; ``without_matches`` those graded before ``matches`` was recorded."""
+    ``grade.json`` names that grader; ``without_matches`` those graded before ``matches`` was recorded;
+    ``grader_failures`` those ``result.json`` calls a grader failure. ``cells`` lists the cells whose ``matches``
+    was read, a credited pair or none, and those whose answer had no findings JSON (``parse_error``: no pair,
+    recall 0), with their ``n_threads`` and ``recall`` from ``grade.json``."""
     cells, _ = load_cells(batch_dir)
     bad = next((r for r in cells if not isinstance(r.get("rep"), int)), None)  # load_cells checks the rest of the key
     if bad is not None:
         raise CellFileError(f"{batch_dir / bad['cell'] / 'result.json'} has no usable `rep`")
     hits: list[dict[str, Any]] = []
-    replay = without = 0
+    read: list[dict[str, Any]] = []
+    replay = without = failed = 0
     for rec in sorted(cells, key=lambda r: (r["task"], r["arm"], r["model"], r["rep"])):
         grade = _grade_doc(batch_dir / rec["cell"])
         if grade.get("grader") != REPLAY:
             continue
         replay += 1
         if rec["grade"]["status"] == "grader_failure":  # the table scores this cell 0: no hit is credited to it
+            failed += 1
             continue
         details = grade.get("details")
         details = details if isinstance(details, dict) else {}
         matches = details.get("matches")
-        if not isinstance(matches, list):  # a parse error or a grader error credits no thread: nothing is missing
+        metrics = grade.get("metrics")
+        metrics = metrics if isinstance(metrics, dict) else {}
+        unparsed = metrics.get("parse_error") is True  # no findings JSON: a measured 0 that the arm's mean keeps
+        if not isinstance(matches, list) and not unparsed:  # a grader error credits no thread: nothing is missing
             without += "threads_hit" in details
             continue
-        hits += [{**m, "task": rec["task"], "arm": rec["arm"], "model": rec["model"], "rep": rec["rep"],
-                  "cell": rec["cell"]} for m in matches if isinstance(m, dict)]  # result.json's key wins over a match's
-    return {"batch": str(batch_dir), "replay_cells": replay, "without_matches": without, "hits": hits}
+        key = {"task": rec["task"], "arm": rec["arm"], "model": rec["model"], "rep": rec["rep"], "cell": rec["cell"]}
+        read.append({**key, "n_threads": metrics.get("n_threads"), "recall": metrics.get("recall"),
+                     "parse_error": unparsed})
+        matches = matches if isinstance(matches, list) else []
+        hits += [{**m, **key} for m in matches if isinstance(m, dict)]  # result.json's key wins over a match's
+    return {"batch": str(batch_dir), "replay_cells": replay, "without_matches": without,
+            "grader_failures": failed, "cells": read, "hits": hits}
 
 
 def format_hits(found: dict[str, Any], width: int = 100) -> str:
