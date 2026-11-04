@@ -19,6 +19,7 @@ from dokimi.context.prefilter import (
     IN_USE,
     INSUFFICIENT,
     KEPT,
+    NOT_MEASURABLE,
     RARE,
     STATUSES,
     Tally,
@@ -160,6 +161,17 @@ def test_a_claim_without_a_named_command_is_not_measured_as_acted():
     session = _session(_prompt("keep the changelog fragment current"))
     row = _row(_report([session]), CHANGELOG)
     assert row["acted"] is None and "acted_not_measurable" in row["flags"]
+
+
+def test_a_rule_with_only_glob_or_home_keys_is_not_measurable_and_not_ranked():
+    # the review's case: no words, and its keys are a glob and a ~ path, so it can never trigger
+    rule = "- `tests/outcomes/*.json`\n- Run `make ci-local` when pushing a branch.\n"
+    sessions = [_session(_prompt("fix the parser"), name=f"s{i}") for i in range(6)]
+    report = _report(sessions, rule, min_sessions=5)
+    glob = _row(report, "tests/outcomes")
+    assert glob["status"] == NOT_MEASURABLE and glob["rank"] is None
+    assert glob["sessions_triggered"] == 0 and glob["acted"] is None
+    assert _row(report, "make ci-local")["status"] == CANDIDATE and _row(report, "make ci-local")["rank"] == 1
 
 
 def test_one_shared_word_of_a_three_word_rule_is_not_a_trigger():

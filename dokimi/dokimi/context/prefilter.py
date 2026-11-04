@@ -32,11 +32,12 @@ from dokimi.novelty.spans import segment
 CANDIDATE = "candidate_for_ablation"
 IN_USE = "in_use"
 RARE = "rare_not_ranked"
+NOT_MEASURABLE = "not_measurable"
 KEPT = "kept_protected"
 INSUFFICIENT = "insufficient_corpus"
-STATUSES = (CANDIDATE, IN_USE, RARE, KEPT, INSUFFICIENT)
+STATUSES = (CANDIDATE, IN_USE, RARE, NOT_MEASURABLE, KEPT, INSUFFICIENT)
 NOTE = ("Candidates for ablation, not verdicts: a candidate is a rule the sessions rarely brought up. "
-        "Run an ablation before changing any rule. Protected and rare rules are listed, not ranked.")
+        "Run an ablation before changing any rule. Protected, rare and unmeasurable rules are listed, not ranked.")
 
 _GLOB = re.compile(r"[*?\[]")
 _RULE_KINDS = frozenset({"sentence", "list_item", "table_row"})
@@ -626,6 +627,8 @@ def status_of(claim: Claim, tally_: Tally, sessions_total: int, *, min_sessions:
         return KEPT
     if sessions_total < min_sessions:
         return INSUFFICIENT
+    if not claim.keywords and not claim.has_keys:
+        return NOT_MEASURABLE  # no words and no matchable key: it cannot trigger, so a zero is not a measure
     if tally_.sessions_acted and tally_.sessions_acted / sessions_total >= in_use_rate:
         return IN_USE  # its command ran or its path was touched that often, whatever words the sessions used
     if tally_.sessions_triggered == 0:
