@@ -35,6 +35,7 @@ from dokimi.harnesses.agent_sandbox import (
     run_probe,
     solver_cli_flags,
 )
+from dokimi.harnesses.docker_solver import _host_plugin_dir
 from dokimi.harnesses.registry import create_harness
 from dokimi.process import reply
 from docker_cli_fake import DockerCLI
@@ -389,6 +390,7 @@ def test_claude_solve_runs_in_scratch_with_sealed_env(tmp_path, monkeypatch, arm
     # The skill is a plugin beside the work tree, never inside it.
     assert seen["skill_seen"] is True and seen["manifest"]["name"] == "demo"
     assert cwd not in seen["plugin"].parents
+    assert seen["plugin"] == _host_plugin_dir(AgentWorkspace(root=cwd.parent))  # the path the audit test checks
     prompt = seen["cmd"][seen["cmd"].index("-p") + 1]
     # The discovery arm installs the same plugin and only drops the notice.
     notice = arm == "skill"

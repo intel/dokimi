@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
 from dokimi.commands.inputs import placebo_text_for_arms_or_exit
+from dokimi.commands.novelty_routing_inputs import load_all_vs_all_field, load_routing_field
 from dokimi.commands.novelty_routing_report import (
     exit_partial_all_vs_all,
     print_all_vs_all_model,
@@ -39,8 +40,8 @@ from dokimi.defaults import (
     DEFAULT_JUDGE_MODEL,
     DEFAULT_JUDGE_PROVIDER,
 )
-from dokimi.exit_codes import usage_exit
 from dokimi.llm import ANSWER_PROVIDERS as PROVIDERS
+from dokimi.utils import InputError
 
 if TYPE_CHECKING:
     from dokimi.novelty.tiers import RunSettings
@@ -130,7 +131,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
                          extractor=extractor, answerer=answerer, judge=judge,
                          artifact_bundle=artifact_bundle)
     except SelfJudgeError as exc:  # the judge is the answering model: the flags contradict
-        usage_exit(str(exc))
+        raise InputError(str(exc)) from exc
     except (ExtractionError, ValueError) as exc:  # a model failure under way
         raise SystemExit(str(exc)) from None
 
@@ -153,8 +154,8 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
 
 def cmd_novelty_atoms(args: argparse.Namespace) -> None:
     """Extract atoms and spans only — the expensive stage, cached for reuse."""
-    from dokimi.novelty.atoms import (ExtractionError, ExtractionReport, extract_atoms, save_atoms,
-                                      verify_atoms)
+    from dokimi.novelty.atoms import (ExtractionError, ExtractionReport, extract_atoms, sample_atoms,
+                                      save_atoms, verify_atoms)
     from dokimi.novelty.report import cap_warning
     from dokimi.novelty.spans import segment, span_summary
 
@@ -168,32 +169,35 @@ def cmd_novelty_atoms(args: argparse.Namespace) -> None:
         atoms = extract_atoms(spans, client=extractor, cap=cap, report=extraction)
     except ExtractionError as exc:
         raise SystemExit(str(exc)) from None
+    sample = sample_atoms(atoms, spans, cap)  # what the run probes; atoms.json holds every atom
     # The cap warning analyze records; probe and shorten, which read atoms.json, do not repeat it.
     sampled = [cap_warning(extraction.as_dict())] if extraction.sampled else []
     for warning in extraction.warnings(len(spans)) + sampled:
         print(f"WARNING {warning}", file=sys.stderr)
     if settings.values["verify_faithfulness"]:
-        verify_atoms(atoms, spans, client=extractor)
+        verify_atoms(sample, spans, client=extractor)
     out = Path(args.out) if args.out else _default_dir(args.artifact) / "atoms.json"
     save_atoms(atoms, spans, out, extractor=extractor.model, cap=cap,
-               bundle=artifact_bundle.summary(), extraction=extraction)
-    print(f"OK Saved {len(atoms)} atoms over {len(spans)} spans: {out}")
-    print(json.dumps(span_summary(spans, atoms, capped=extraction.sampled is not None), indent=2))
+               bundle=artifact_bundle.summary(), extraction=extraction, sample=sample)
+    print(f"OK Saved {len(atoms)} atoms ({len(sample)} sampled) over {len(spans)} spans: {out}")
+    print(json.dumps(span_summary(spans, atoms), indent=2))
 
 
 def cmd_novelty_probe(args: argparse.Namespace) -> None:
     """Run the paired probes against a saved atom set and print the 2×2."""
-    from dokimi.novelty.atoms import load_atoms_or_exit
+    from dokimi.commands.novelty_atoms_file import measured_atoms, sampling_record, warn_unread
+    from dokimi.novelty.atoms import load_atoms_record
     from dokimi.novelty.bundle import check_answer_key
     from dokimi.novelty.measure import SelfJudgeError, check_self_judge, run_measurement
     from dokimi.novelty.probes import build_probe_set
     from dokimi.novelty.report import build_probe_record
 
-    atoms, saved_spans, saved = load_atoms_or_exit(args.atoms)
-    _warn_unread(saved_spans, "the atoms probed here leave out whatever those spans assert")
+    atoms, saved_spans, saved = load_atoms_record(args.atoms)
+    atoms = measured_atoms(args, atoms, saved, "probe")
+    warn_unread(saved_spans, "the atoms probed here leave out whatever those spans assert")
     verdict = check_answer_key(args.artifact, saved.get("bundle"), source=args.atoms)
     if not verdict.ok:
-        usage_exit(verdict.message)
+        raise InputError(verdict.message)
     for note in verdict.notes:
         print(note, file=sys.stderr)
     settings = _settings(args)
@@ -206,7 +210,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
     try:  # before the paraphrase calls below, which are paid
         check_self_judge(judge, answerer, args.allow_self_judge)
     except SelfJudgeError as exc:
-        usage_exit(str(exc))
+        raise InputError(str(exc)) from exc
     paraphrases, reversals = settings.values["paraphrases"], settings.values["reversals"]
     probe_set = build_probe_set(
         atoms, client=extractor if paraphrases or reversals else None,
@@ -232,6 +236,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
         artifact_ref=args.artifact, model=answerer.model, judge_model=judge.model,
         probed_bundle=verdict.bundle, atoms_bundle=saved.get("bundle"),
         probe_set=probe_set, measure_result=result,
+        sampling=sampling_record(args, atoms, saved),
     )
     out = Path(args.out) if args.out else _default_dir(args.artifact) / "probes.json"
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -253,7 +258,7 @@ def cmd_novelty_items(args: argparse.Namespace) -> None:
     try:
         cells, warnings = load_probe_cells(args.probes)
     except ProbeFileError as exc:
-        usage_exit(str(exc))
+        raise InputError(str(exc)) from exc
     for warning in warnings:
         print(f"WARNING: {warning}", file=sys.stderr)
 
@@ -294,112 +299,33 @@ def cmd_novelty_items(args: argparse.Namespace) -> None:
                   f"{agreement['n_atoms_multi_kind']} atoms asked by several kinds")
 
 
-def _routing_card(ref: str):
-    """An artifact or competitor reference as the selector sees it: ``(candidate, body)``."""
-    from dokimi.novelty.routing import load_candidate
-
-    candidate, body, warning = load_candidate(ref)
-    if warning:
-        print(f"WARNING: {warning}", file=sys.stderr)
-    return candidate, body
-
-
-def _named_competitors(args: argparse.Namespace, left_out: list[str] | None,
-                      dropped: dict[str, set[str]] | None) -> list:
-    """The ``--competitors`` references that stay in the field, each as a candidate."""
-    from dokimi.novelty.routing import competitor_left_out, left_out_rules, non_skill_reason
-
-    competitors = []
-    for ref in args.competitors or []:
-        reason = non_skill_reason(ref)
-        if reason:
-            print(f"WARNING: skipped competitor {ref}: {reason}", file=sys.stderr)
-            if left_out is not None:
-                left_out.append(f"{ref}: {reason}")
-            continue
-        candidate = _routing_card(ref)[0]
-        reason = competitor_left_out(ref, include_disabled=args.include_disabled,
-                                     include_invalid=args.include_invalid)
-        if reason:
-            print(f"WARNING: skipped competitor {ref}: {reason}", file=sys.stderr)
-            if left_out is not None:
-                left_out.append(f"{ref}: {reason}")
-            if dropped is not None:
-                dropped.setdefault(candidate.name, set()).update(
-                    left_out_rules(ref, reason, include_invalid=args.include_invalid))
-            continue
-        competitors.append(candidate)
-    return competitors
-
-
-def _routing_field(args: argparse.Namespace, exclude: set[str],
-                   left_out: list[str] | None = None,
-                   dropped: dict[str, set[str]] | None = None) -> list:
-    """The field ``--competitors`` and ``--catalog`` name, without the names in ``exclude``.
-
-    What was left out of the field, and why, is appended to ``left_out`` when given. Each
-    name a rule leaves out maps to its rules in ``dropped`` (when given).
-
-    Raises:
-        OSError, ValueError, RecursionError: A reference or the catalog cannot be loaded.
-    """
-    from dokimi.novelty.routing import catalog_competitors
-
-    competitors = _named_competitors(args, left_out, dropped)
-    if args.catalog:
-        notes: list[str] = []
-        catalog = catalog_competitors(args.catalog, exclude | {c.name for c in competitors},
-                                      notes, include_disabled=args.include_disabled,
-                                      include_invalid=args.include_invalid, dropped=dropped)
-        for note in notes:
-            print(f"WARNING: {note}", file=sys.stderr)
-        if left_out is not None:
-            left_out.extend(notes)
-        no_description = [c.name for c in catalog if not c.description]
-        if no_description:
-            print(f"WARNING: {len(no_description)} catalog skill(s) have no description, "
-                  f"so their card is a name only: {', '.join(sorted(no_description))}",
-                  file=sys.stderr)
-        print(f"--catalog {args.catalog}: {len(catalog)} competitors", file=sys.stderr)
-        competitors += catalog
-    return competitors
-
-
 def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     """Every skill in the field is the gold in turn: confusion matrix and attractors."""
     from dokimi.novelty.all_vs_all import all_vs_all, load_queries_by_skill
     from dokimi.novelty.client import roll_up_cost
-    from dokimi.novelty.routing import RoutingInputError, tokenize
+    from dokimi.novelty.routing import tokenize
 
     _check_all_vs_all_args(args)
     left_out: list[str] = []
     dropped: dict[str, set[str]] = {}
+    field = load_all_vs_all_field(args, left_out, dropped)
     try:
-        field = _routing_field(args, set(), left_out, dropped)
-    except RoutingInputError as exc:
-        usage_exit(str(exc))
-    except (OSError, ValueError, RecursionError) as exc:
-        usage_exit(f"cannot load the field: {exc}")
-    try:
-        try:
-            queries_by_skill = load_queries_by_skill(args.queries_by_skill)
-        except (OSError, UnicodeDecodeError) as exc:
-            usage_exit(f"cannot read the queries: {exc}")
-        refuse_queries_naming_left_out(field, queries_by_skill, dropped)
-        selector = _client(args.model, args.provider, "selector", args) if args.model else None
-        if selector is not None:
-            # One call per query with a content word and per repeat, each sending every card.
-            calls = sum(bool(tokenize(q)) for qs in queries_by_skill.values() for q in qs)
-            calls *= args.repeats
-            print(
-                f"all-vs-all: --model makes {calls} model calls, one per query and repeat, over "
-                f"{len(field)} cards each",
-                file=sys.stderr,
-            )
-        result = all_vs_all(field, queries_by_skill, client=selector, seed=args.seed,
-                            repeats=args.repeats)
-    except RoutingInputError as exc:
-        usage_exit(str(exc))
+        queries_by_skill = load_queries_by_skill(args.queries_by_skill)
+    except (OSError, UnicodeDecodeError) as exc:
+        raise InputError(f"cannot read the queries: {exc}") from exc
+    refuse_queries_naming_left_out(field, queries_by_skill, dropped)
+    selector = _client(args.model, args.provider, "selector", args) if args.model else None
+    if selector is not None:
+        # One call per query with a content word and per repeat, each sending every card.
+        calls = sum(bool(tokenize(q)) for qs in queries_by_skill.values() for q in qs)
+        calls *= args.repeats
+        print(
+            f"all-vs-all: --model makes {calls} model calls, one per query and repeat, over "
+            f"{len(field)} cards each",
+            file=sys.stderr,
+        )
+    result = all_vs_all(field, queries_by_skill, client=selector, seed=args.seed,
+                        repeats=args.repeats)
     without = [c.name for c in field if c.name not in queries_by_skill]
     if without:
         print(f"WARNING: {len(without)} skill(s) in the field have no queries, so they only "
@@ -440,17 +366,17 @@ def _field_record(args: argparse.Namespace, competitors: list, left_out: list[st
 def _check_all_vs_all_args(args: argparse.Namespace) -> None:
     """Refuse the flag combinations ``--all-vs-all`` cannot run with."""
     if args.artifact:
-        usage_exit("--all-vs-all takes no --artifact: every skill in the field is the gold in turn")
+        raise InputError("--all-vs-all takes no --artifact: every skill in the field is the gold in turn")
     if args.queries or args.queries_from_headings:
-        usage_exit("--all-vs-all takes --queries-by-skill, not --queries or --queries-from-headings")
+        raise InputError("--all-vs-all takes --queries-by-skill, not --queries or --queries-from-headings")
     if args.estimate_only:
-        usage_exit("--all-vs-all takes no --estimate-only: it would make the calls it was asked "
+        raise InputError("--all-vs-all takes no --estimate-only: it would make the calls it was asked "
                    "to price; drop the flag, or estimate one artifact with routing --artifact")
     if not args.queries_by_skill:
-        usage_exit("--all-vs-all needs --queries-by-skill <file>: a JSON object of skill "
+        raise InputError("--all-vs-all needs --queries-by-skill <file>: a JSON object of skill "
                    "name to the requests that should select it")
     if not args.out:
-        usage_exit("--all-vs-all needs --out <file>")
+        raise InputError("--all-vs-all needs --out <file>")
 
 
 def _warn_blind_skills(result: dict, queries_by_skill: dict[str, list[str]]) -> None:
@@ -467,38 +393,20 @@ def _warn_blind_skills(result: dict, queries_by_skill: dict[str, list[str]]) -> 
 def cmd_novelty_routing(args: argparse.Namespace) -> None:
     """Can this artifact be selected against its competitors? Lexical floor, model on top."""
     if args.repeats > 1 and not args.model:
-        usage_exit("--repeats needs --model: the lexical floor is deterministic, so repeating it measures nothing")
+        raise InputError("--repeats needs --model: the lexical floor is deterministic, so repeating it measures nothing")
     from dokimi.novelty.routing import (
-        RoutingInputError,
         check_field,
-        disables_model_invocation,
         lexical_routing,
         model_routing,
-        skill_file,
     )
 
     if args.all_vs_all:
         return _cmd_routing_all_vs_all(args)
     if not args.artifact:
-        usage_exit("pass --artifact <skill:path>, or --all-vs-all for the whole field")
-    try:
-        gold, body = _routing_card(args.artifact)
-        artifact_file = skill_file(args.artifact)
-        if artifact_file and disables_model_invocation(artifact_file):
-            print(f"WARNING: {args.artifact} sets disable-model-invocation, so no harness lists "
-                  "it and the model cannot select it; its routing rate is not a harness rate",
-                  file=sys.stderr)
-        left_out: list[str] = []
-        competitors = _routing_field(args, {gold.name}, left_out)
-    except RoutingInputError as exc:
-        usage_exit(str(exc))
-    except (OSError, ValueError, RecursionError) as exc:
-        usage_exit(f"cannot load an artifact: {exc}")
+        raise InputError("pass --artifact <skill:path>, or --all-vs-all for the whole field")
+    gold, body, competitors, left_out = load_routing_field(args)
     # Checked before the query file is read, so the message is about the real problem.
-    try:
-        check_field(gold, competitors)
-    except RoutingInputError as exc:
-        usage_exit(str(exc))
+    check_field(gold, competitors)
 
     queries, self_derived, queries_source = routing_queries(args, body)
     candidates = [gold, *competitors]
@@ -550,47 +458,47 @@ def _refuse_no_queries(args: argparse.Namespace, queries: list[str], self_derive
                                "queries_source": queries_source or ("none" if self_derived else None),
                                "n_candidates": n_candidates}, indent=2),
                    encoding="utf-8")
-    usage_exit(f"no usable queries: {reason}. Pass --queries <file> with requests written independently "
+    raise InputError(f"no usable queries: {reason}. Pass --queries <file> with requests written independently "
                f"of the artifact, one per line or a JSON list. Wrote {out} with status no_queries")
 
 
 def cmd_novelty_shorten(args: argparse.Namespace) -> None:
     """Score shortening candidates on the five axes and optionally write the best one."""
-    from dokimi.novelty.artifact import load_artifact_or_exit
-    from dokimi.novelty.atoms import load_atoms_or_exit
+    from dokimi.commands.novelty_atoms_file import measured_atoms, no_candidate_line, warn_unread
+    from dokimi.novelty.artifact import load_artifact_ref
+    from dokimi.novelty.atoms import load_atoms_record
     from dokimi.novelty.bundle import entry_point_only
     from dokimi.novelty.retention import RetentionOracle, error_warning
     from dokimi.novelty.shorten import build_candidates, pick_best
 
-    atoms, spans, saved = load_atoms_or_exit(args.atoms)
-    _kind, _name, _description, frontmatter, _body = load_artifact_or_exit(args.artifact)
+    atoms, spans, saved = load_atoms_record(args.atoms)
+    _kind, _name, _description, frontmatter, _body = load_artifact_ref(args.artifact)
     try:
         spans, atoms, note = entry_point_only(saved.get("bundle"), spans, atoms)
     except ValueError as exc:
-        usage_exit(f"{args.atoms}: {exc}")
+        raise InputError(f"{args.atoms}: {exc}") from exc
     if note:
         print(note, file=sys.stderr)
-    _warn_unread(spans, "every candidate keeps them, since what they carry is unknown")
+    warn_unread(spans, "every candidate keeps them, since what they carry is unknown")
+    scored = measured_atoms(args, atoms, saved, "shorten")
     client = _client(args.extract_model or args.model, args.provider, "oracle", args) \
         if not args.lexical_only else None
     oracle = RetentionOracle(
         client=client, cache_dir=Path(args.cache_dir) if args.cache_dir else None
     )
-    candidates = build_candidates(
-        spans, atoms, oracle=oracle, budgets=tuple(args.budgets), seed=args.seed
-    )
+    candidates = build_candidates(spans, atoms, oracle=oracle, budgets=tuple(args.budgets),
+                                  seed=args.seed, scored_atoms=scored)
     oracle_warning = error_warning(oracle)
     if oracle_warning:
         print(f"WARNING {oracle_warning}", file=sys.stderr)
-    print(
-        f"{'strategy':20s} {'budget':>7s} {'tok':>6s} {'know':>6s} "
-        f"{'value':>6s} {'prot':>6s} safe"
-    )
+    print(f"{'strategy':20s} {'budget':>7s} {'tok':>6s} {'know':>6s} "
+          f"{'value':>6s} {'prot':>6s} {'lost':>4s} safe")
     for candidate in candidates:
         row = candidate.as_dict()
         print(
             f"{row['strategy']:20s} {row['budget_frac']:7.2f} {row['token_frac']:6.2f} "
-            f"{row['knowledge']:6.3f} {row['value']:6.3f} {row['protection']:6.3f} {row['safe']}"
+            f"{row['knowledge']:6.3f} {row['value']:6.3f} {row['protection']:6.3f} "
+            f"{row['dropped_unscored_atoms']:4d} {row['safe']}"
         )
     if args.lexical_only:
         print(
@@ -599,7 +507,7 @@ def cmd_novelty_shorten(args: argparse.Namespace) -> None:
         )
     best = pick_best(candidates, require_safe=not args.allow_unsafe)
     if best is None:
-        print("No candidate kept every protected span; the artifact's length is its content.")
+        print(no_candidate_line(candidates, scored, atoms))
         return
     print(
         f"Best safe candidate: {best.strategy} @ {best.budget_frac} → {best.token_frac} tokens, "
@@ -619,12 +527,13 @@ def cmd_novelty_shorten(args: argparse.Namespace) -> None:
 
 def cmd_novelty_view(args: argparse.Namespace) -> None:
     """Re-render the annotated view from a saved novelty artifact plus its atoms."""
+    from dokimi.commands.novelty_atoms_file import warn_unread
     from dokimi.commands.novelty_view_inputs import load_view_inputs
     from dokimi.novelty.attribute import attribute_spans
     from dokimi.novelty.report import render_annotated_html, render_annotated_markdown
 
     artifact, atoms, spans = load_view_inputs(args.novelty, args.atoms)
-    _warn_unread(spans, "they render as `unread`, not as text that carries nothing")
+    warn_unread(spans, "they render as `unread`, not as text that carries nothing")
     # Re-rendering needs per-atom outcomes; the artifact carries aggregates, so a view
     # rebuilt from it alone would colour by category only. Say so instead of implying the
     # colours mean more than they do.
@@ -641,20 +550,6 @@ def cmd_novelty_view(args: argparse.Namespace) -> None:
     )
 
 
-def _warn_unread(spans: list, consequence: str) -> None:
-    """Say on stderr that ``atoms.json`` records spans extraction never read.
-
-    The record is the only trace of them after ``novelty atoms``, so each stage that
-    reads the file repeats it, with what it means for that stage.
-    """
-    unread = [span for span in spans if span.unread]
-    if unread:
-        print(f"WARNING: {len(unread)} of {len(spans)} spans "
-              f"({sum(span.tokens for span in unread)} tokens) were never read by "
-              f"extraction (see `extraction` in the atoms file); {consequence}",
-              file=sys.stderr)
-
-
 def _bundle_from_args(args: argparse.Namespace):
     """Resolve `--artifact` to a bundle, with the note that keeps a cheap run honest."""
     from dokimi.novelty.bundle import load_bundle
@@ -668,7 +563,7 @@ def _bundle_from_args(args: argparse.Namespace):
             max_total_words=args.max_resource_words,
         )
     except (OSError, ValueError, RecursionError) as exc:
-        usage_exit(f"cannot load --artifact {args.artifact}: {exc}")
+        raise InputError(f"cannot load --artifact {args.artifact}: {exc}") from exc
     note = artifact_bundle.coverage_note()
     if note:
         print(f"NOTE: {note}", file=sys.stderr)
@@ -884,7 +779,8 @@ def _add_common(parser: argparse.ArgumentParser, positive_int) -> None:
                              "Unset by default so that passing the default value explicitly "
                              "still overrides a --tier cap")
     parser.add_argument("--all-atoms", action="store_true", dest="all_atoms",
-                        help="Probe every extracted atom (opt-in: this is the expensive sweep)")
+                        help="Probe every extracted atom (opt-in: the expensive sweep); with "
+                             "--atoms, every atom in the file, not only the cap's sample")
     parser.add_argument("--budgets", type=float, nargs="+", default=[0.75, 0.5],
                         help="Target token fractions for shortening candidates")
     parser.add_argument("--cache-dir", default=None, dest="cache_dir",
@@ -987,7 +883,7 @@ def _clients(args: argparse.Namespace):
     try:
         models = _role_models(args)
     except ValueError as exc:
-        usage_exit(str(exc))
+        raise InputError(str(exc)) from exc
     return (
         _client(*models["extractor"], "extractor", args),
         _client(*models["answerer"], "answerer", args),
@@ -1062,7 +958,7 @@ def _arms(spec: str) -> tuple[str, ...]:
     try:
         return parse_arms(spec)
     except ValueError as exc:
-        usage_exit(str(exc))
+        raise InputError(str(exc)) from exc
 
 
 def _default_dir(ref: str) -> Path:

@@ -72,11 +72,14 @@ FIELDS: dict[str, KindFields] = {
     "task_inspect": KindFields(subject=("root",), counts=("items",)),
     "cli_routes": KindFields(counts=("roots", "leaves", "tombstones")),
     "repo_ledger": KindFields(counts=("rules",)),
+    "dokimi_config": KindFields(subject=("subjects[].id",), counts=("subjects", "shared")),
     "headroom": KindFields(counts=("items", "inputs")),
     "redteam": KindFields(subject=("questions_path",), model=("judge_model",),
                           counts=("violations", "questions")),
     "need_graph": KindFields(subject=("artifact_name",), counts=("nodes", "edges")),
     "eval_coverage": KindFields(subject=("graph.artifact_name",), counts=("gaps", "evals", "problems")),
+    "catalog_eval": KindFields(subject=("root",), counts=("skills", "problems")),
+    "reach_matrix": KindFields(time=("generated_at",), counts=("runs", "cells")),
     "repo_hits_judged": KindFields(subject=("task",), model=("judge.model",), counts=("pairs",)),
 }
 

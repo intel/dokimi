@@ -16,7 +16,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 from dokimi.artifacts import save_artifact
-from dokimi.llm import ChatModel
+from dokimi.llm import LLM, ChatModel, Invoker
 from dokimi.judged import judged_reply
 from dokimi.llm_cli import BACKENDS as CLI_BACKENDS, check_sampling
 from dokimi.llm import ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
@@ -271,11 +271,7 @@ class Judge:
                                      temperature=temperature, seed=seed)
         elif provider in ("google", "gemini", "google-vertex", "openrouter",
                           "amazon-bedrock", "vertex_ai", *CLI_BACKENDS):
-            from dokimi.utils import get_llm
-            import os
-            fallback_key = os.environ.get("OPENROUTER_API_KEY") if provider == "openrouter" else None
-            self.llm = get_llm(provider, model, api_key or fallback_key,
-                               temperature=temperature, seed=seed)
+            self.llm = Invoker(LLM(model, provider, api_key, temperature=temperature, seed=seed))
         else:
             raise ValueError(
                 f"Unsupported provider: '{provider}'. "

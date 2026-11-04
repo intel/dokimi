@@ -227,7 +227,7 @@ def _budget_only(path: str, run: _Run) -> dict[str, Any]:
 
 
 def _states(cls: str | None, tools_off: bool, read_by_tool: bool) -> dict[str, Any]:
-    """accessed: a Read-tool read was seen (false with no tools at all); selected: the probe saw the source enter the
+    """accessed: a read event was seen, by a read tool or a shell read (false with no tools at all); selected: the probe saw the source enter the
     request, by the harness or by the agent's own read; loaded: at the harness's own load step, not through a read."""
     accessed: bool | str = True if read_by_tool else (False if tools_off else UNKNOWN)
     selected: bool | str = True if cls in ("loaded", "fetched") else UNKNOWN

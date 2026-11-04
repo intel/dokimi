@@ -757,14 +757,13 @@ DOKIMI_RESPONSE_CACHE=.cache/responses python cli.py arms run ...
 
 A byte-identical request (same model, message text, streaming flag, `max_tokens`,
 and `temperature`/`seed` when set) replays the stored completion instead of
-calling the provider. The `utils.get_llm` path (Bedrock, Vertex, OpenRouter)
-keys on model, text, `max_tokens` and `temperature`/`seed` when set, without the
-streaming flag, so its entries never collide with `llm_call`'s; a given judge
-always goes down one path, so this costs nothing. It
+calling the provider. Entries the judge, the persona and question generators and
+the validator stored on Bedrock, Vertex or OpenRouter before they moved to
+`dokimi.llm` were keyed without the streaming flag, so they are not hit: those
+calls are paid once more. It
 pays off mainly for the `baseline` arm, which is identical across treatment runs,
 and for re-running a pipeline after changing only the reporting code. The judge
-is covered on every provider, including Bedrock, Vertex and OpenRouter, which
-reach the model through a separate wrapper.
+is covered on every provider.
 
 A request can also carry a **draw** index, for when a caller wants a second,
 independent sample of the same prompt: the judge's retry after an unparseable
@@ -779,12 +778,10 @@ when the score came from a retry: the judge looks up the stored entry of every
 attempt before it asks the model, so the unparseable first reply, which was never
 stored, is not asked again.
 
-The cache is not judge-only. It applies to every caller of `llm_call` and
-`utils.get_llm`, which includes question generation (`questions/llm_gen.py`),
-persona generation (`personas/generator.py`) and the question validator
-(`questions/validator.py`), on every provider; for `openai` and `anthropic`
-those already went through the cached `llm_call` path before the judge was
-covered. With the variable set, regenerating questions or personas from the
+The cache is not judge-only. It applies to every caller of `dokimi.llm`, which
+includes question generation (`questions/llm_gen.py`), persona generation
+(`personas/generator.py`) and the question validator (`questions/validator.py`),
+on every provider. With the variable set, regenerating questions or personas from the
 same inputs returns the previous set. Unset it (or point it at an empty
 directory) when you want new ones.
 

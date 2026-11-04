@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import re
 import sys
 from pathlib import Path
@@ -274,20 +273,6 @@ def cmd_repo_fetch(args: argparse.Namespace) -> None:
         print(f"{tree.sha}\t{tree.git_dir}")
 
 
-def _check_reach_flags(args: argparse.Namespace, kinds: tuple[str, ...]) -> None:
-    """Refuse a flag that would drop a scenario kind silently, or spend a budget that is not one."""
-    from dokimi.repos.reach import KINDS, ReachError
-
-    # A typo would otherwise drop a scenario kind silently and still spend the budget.
-    unknown_kinds = sorted(set(kinds) - set(KINDS))
-    if unknown_kinds:
-        raise ReachError(f"unknown --scenarios kind(s) {', '.join(unknown_kinds)} (known: {', '.join(KINDS)})")
-    if not math.isfinite(args.budget) or args.budget <= 0:
-        raise ReachError(f"--budget must be > 0, got {args.budget:g}")
-    if args.model is None:
-        raise ReachError("--model is required to probe (leave it out only with --from)")
-
-
 # The probe's flags, unset by default: --from refuses any of them given, even at its default value.
 _PROBE_ONLY = {"only": None, "salt": None, "work_dir": None, "keep": False, "bin": None, "dry_run": False,
                "model": None, "scenarios": None, "max_turns": None, "budget": None, "timeout": None, "out": None}
@@ -443,13 +428,14 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
     from dokimi.repos import RepoSource, SourceError, open_source
     from dokimi.repos.harness_profile import ProfileError, load_profile
     from dokimi.repos.source import SourceArgumentError
-    from dokimi.repos.reach import ReachError, check_shadow, run_reach, save_reach
+    from dokimi.repos.reach import ReachError, check_flags, check_kinds, check_shadow, run_reach, save_reach
 
     kinds = tuple(k.strip() for k in args.scenarios.split(",") if k.strip())
     only = tuple(args.only or ())
     try:  # the arguments as typed: a usage error
-        _check_reach_flags(args, kinds)
+        check_flags(kinds, args.budget, args.model)
         profile = load_profile(args.harness)
+        check_kinds(profile, kinds)
         check_shadow(profile, kinds)
         source = RepoSource.parse(args.source)
     except (SourceError, ProfileError, ReachError) as exc:
@@ -535,7 +521,8 @@ def _print_receipt(tree, profile, payload: dict, out_dir: Path) -> None:
     from dokimi.repos.receipt import build_receipt
 
     receipt = build_receipt(payload, budget(tree, profile.guidance_names, profile.import_max_depth,
-                                            claude_displaces_agents=profile.claude_displaces_agents), tree)
+                                            claude_displaces_agents=profile.claude_displaces_agents,
+                                            follow_imports=profile.follows_imports), tree)
     try:  # a directory that is not writable, or one already named effective_instructions.json: a runtime failure
         written = save_artifact("effective_instructions", receipt, out_dir / RECEIPT_NAME)
     except OSError as exc:
@@ -557,7 +544,8 @@ def cmd_repo_budget(args: argparse.Namespace) -> None:
         sys.exit(EXIT_USAGE)
     _, tree = _source_tree(args)
     payload = budget(tree, profile.guidance_names, profile.import_max_depth,
-                     claude_displaces_agents=profile.claude_displaces_agents)
+                     claude_displaces_agents=profile.claude_displaces_agents,
+                     follow_imports=profile.follows_imports)
     if args.out:
         try:
             save_artifact("repo_budget", payload, Path(args.out))
@@ -746,7 +734,8 @@ def register(sub, positive_int, eval_sub) -> None:
     reach_p.add_argument("--bin", default=None, help="Harness executable (default: the profile's `bin`)")
     reach_p.add_argument("--out", default=None, help="Output directory: reach.json and traces/ (default: reach-out)")
     reach_p.add_argument("--scenarios", default=None,
-                         help="Comma list of scenario kinds: root, cwd, read, shadow (default: root,cwd,read). "
+                         help="Comma list of scenario kinds: root, cwd, read, bash, shadow (default: root,cwd,read). "
+                         "bash cats each probe file through the Bash tool, for a profile with a bash tool mode; "
                          "shadow writes the profile's guidance.shadow_file (CLAUDE.local.md for claude-code) "
                          "for one scenario at a time; a profile without one refuses it")
     reach_p.add_argument("--only", action="append", default=None, metavar="SCENARIO",
@@ -783,8 +772,9 @@ def register(sub, positive_int, eval_sub) -> None:
     budget_p.add_argument("source", help=source_help)
     budget_p.add_argument("--harness", default="claude-code",
                           help="Built-in profile name or a harness_profile.v1 YAML path; its guidance names "
-                          "supply the file names, but the classification rules (root vs nested, off rule) are "
-                          "hardcoded to Claude Code until other harnesses are measured (default: claude-code)")
+                          "supply the file names, guidance.imports whether @ imports are followed (not when null) "
+                          "and guidance.claude_displaces_agents the off rules; root vs nested is Claude Code's "
+                          "(default: claude-code)")
     budget_p.add_argument("--out", default=None, help="Write the repo_budget.v1 inventory to this file")
     budget_p.add_argument("--json", action="store_true", help="Print the repo_budget.v1 inventory as JSON")
     budget_p.add_argument("--fail-on-warning", action="store_true", dest="fail_on_warning",

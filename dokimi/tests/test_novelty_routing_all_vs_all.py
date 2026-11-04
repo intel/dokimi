@@ -10,6 +10,7 @@ import json
 
 import pytest
 
+from dokimi.utils import InputError
 from dokimi.cli import build_parser
 from dokimi.novelty.client import LLMClient
 from dokimi.novelty.all_vs_all import all_vs_all, load_queries_by_skill
@@ -144,7 +145,7 @@ def test_a_queries_file_nested_too_deeply_exits_with_a_message(tmp_path, monkeyp
     _catalog_skill(root, "perf", "profile a slow binary with perf record and report")
     args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
                   "--queries-by-skill", str(path), "--out", str(tmp_path / "o.json"))
-    with pytest.raises(SystemExit, match="nested too deeply") as exc:
+    with pytest.raises(InputError, match="nested too deeply") as exc:
         args.func(args)
     assert "RecursionError" not in str(exc.value)
 
@@ -240,13 +241,13 @@ def test_all_vs_all_takes_no_artifact(tmp_path):
     queries = _write_queries(tmp_path, {"linux-perf": ["q"]})
     args = _parse("novelty", "routing", "--all-vs-all", "--artifact", "skill:/x",
                   "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
-    with pytest.raises(SystemExit, match="takes no --artifact"):
+    with pytest.raises(InputError, match="takes no --artifact"):
         args.func(args)
 
 
 def test_a_single_routing_run_still_needs_an_artifact(tmp_path):
     args = _parse("novelty", "routing", "--out", str(tmp_path / "o.json"))
-    with pytest.raises(SystemExit, match="--all-vs-all for the whole field"):
+    with pytest.raises(InputError, match="--all-vs-all for the whole field"):
         args.func(args)
 
 
@@ -466,7 +467,7 @@ def test_an_unreadable_queries_file_is_a_message_not_a_traceback(tmp_path, make)
         queries.write_bytes(b"\xff\xfe\x00bad")
     args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
                   "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
-    with pytest.raises(SystemExit, match="cannot read the queries"):
+    with pytest.raises(InputError, match="cannot read the queries"):
         args.func(args)
 
 
@@ -487,7 +488,7 @@ def test_queries_for_a_skill_the_field_left_out_are_refused_with_the_real_reason
     args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
                   "--include-disabled", "--queries-by-skill", str(queries),
                   "--out", str(tmp_path / "o.json"))
-    with pytest.raises(SystemExit, match="not in the field: `db`") as exc:
+    with pytest.raises(InputError, match="not in the field: `db`") as exc:
         args.func(args)
     assert says in str(exc.value)
 
@@ -584,7 +585,7 @@ def test_all_vs_all_refuses_the_single_artifact_query_flags(tmp_path, flag):
     queries = _write_queries(tmp_path, {"perf": ["profile"]})
     args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(tmp_path),
                   "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"), *flag)
-    with pytest.raises(SystemExit, match="takes --queries-by-skill, not --queries"):
+    with pytest.raises(InputError, match="takes --queries-by-skill, not --queries"):
         args.func(args)
 
 
@@ -624,7 +625,7 @@ def test_all_vs_all_repeats_still_need_a_model(tmp_path):
     args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
                   "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"),
                   "--repeats", "3")
-    with pytest.raises(SystemExit, match="--repeats needs --model"):
+    with pytest.raises(InputError, match="--repeats needs --model"):
         args.func(args)
     assert not (tmp_path / "o.json").exists()
 
@@ -891,7 +892,7 @@ def test_all_vs_all_refuses_estimate_only_before_it_calls_the_model(tmp_path, mo
     args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
                   "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"),
                   "--model", "m", "--estimate-only")
-    with pytest.raises(SystemExit, match="takes no --estimate-only"):
+    with pytest.raises(InputError, match="takes no --estimate-only"):
         args.func(args)
     assert not (tmp_path / "o.json").exists()
 

@@ -279,7 +279,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
             subagent_calls=transcript.subagent_calls, plugins=transcript.plugins,
             over_budget=cost is not None and cost > caps["budget_usd"], trace_errors=transcript.errors[:5])
         if events is not None:  # after the cost is recorded: a metric that fails must not cost the cell its record
-            process = _process_or_null(ctx, events, agent["trace_errors"])
+            process = _process_or_null(ctx, events, agent["trace_errors"], transcript.unknown_reads)
         if meta.get("skills") and started:
             skills = skill_usage(transcript.events, [s["name"] for s in meta["skills"]], task.expected_skill)
         graded = run_entry(ctx, "grade", task, rd, grade_network, container_name(rd.name, "grade"))
@@ -304,17 +304,18 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     return record
 
 
-def run_process_metrics(ctx: EvalContext, events: list[dict[str, Any]]) -> dict[str, Any]:
+def run_process_metrics(ctx: EvalContext, events: list[dict[str, Any]], unknown_reads: int = 0) -> dict[str, Any]:
     """``result.json`` ``process``: the framework's counts and the manifest's ``process_metrics`` (contract §4.1)."""
     globs = ctx.manifest.guidance_globs
     return process_metrics(events, lambda path: any(match_glob(g, path) for g in globs),
-                           ctx.manifest.process_metrics)
+                           ctx.manifest.process_metrics, unknown_reads)
 
 
-def _process_or_null(ctx: EvalContext, events: list[dict[str, Any]], errors: list[str]) -> dict[str, Any] | None:
+def _process_or_null(ctx: EvalContext, events: list[dict[str, Any]], errors: list[str],
+                     unknown_reads: int = 0) -> dict[str, Any] | None:
     """The cell's ``process``, or None when its metrics raise: a best-effort count must not fail the task."""
     try:
-        return run_process_metrics(ctx, events)
+        return run_process_metrics(ctx, events, unknown_reads)
     except Exception as exc:  # noqa: BLE001  # a metric that fails is recorded, the grade still counts
         errors.append(f"process metrics failed ({type(exc).__name__}): {str(exc)[:200]}")
         return None

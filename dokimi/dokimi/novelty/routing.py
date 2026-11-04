@@ -42,7 +42,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from dokimi.skills import Skill
-from dokimi.utils import parse_frontmatter
+from dokimi.utils import InputError, parse_frontmatter
 
 from .client import LLMClient, parse_json_object
 
@@ -546,7 +546,7 @@ def disables_model_invocation(skill_md: Path) -> bool:
         "1", "true", "yes", "on")
 
 
-class RoutingInputError(ValueError):
+class RoutingInputError(InputError):
     """A competitor field or query file in which selection is not a measurement."""
 
 

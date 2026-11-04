@@ -18,6 +18,7 @@ import pytest
 import dokimi
 from dokimi import _version, config, intents, registry
 from dokimi.cli import build_parser
+from dokimi.repos import conformance
 from dokimi.runner import spec
 
 PROJECT = Path(__file__).resolve().parents[1]
@@ -100,6 +101,7 @@ def _stray(package: Path) -> list[str]:
     intents._DEFAULT_INTENTS,
     config.DEFAULT_PRODUCTS_PATH,
     spec.DEFAULT_SCHEMA_PATH,
+    conformance.CODEX_PROFILE,
 ], ids=lambda p: p.name)
 def test_default_data_files_ship_in_the_wheel(path):
     assert path.is_file()

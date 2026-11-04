@@ -3,8 +3,8 @@
 
 """The entry point for LLM calls in the framework.
 
-``llm_call``, ``chat_completion``, the shims and ``utils.get_llm`` already delegate
-here. Not yet moved: ``utils.get_llm``'s route and key table,
+``llm_call``, ``chat_completion``, the shims, the judge, generators and validator go
+through here. Not yet moved: ``utils.get_llm`` (no caller left but tests),
 ``commands/benchmark.py``'s ``_credential_env_var``, ``eval/ragas_eval.py``'s
 ``_resolve_key``, and the persona and validator redraw loops.
 
@@ -26,7 +26,7 @@ What a caller can rely on:
 
 - **Providers.** :data:`PROVIDERS` (canonical name -> key variable) plus
   :data:`PROVIDER_ALIASES`. :func:`resolve_model` is this module's model-name map and
-  :func:`api_key_env` its key-variable map. A provider outside the table is
+  :func:`credential_env_var` its key-variable map. A provider outside the table is
   passed to litellm as its own route prefix (``azure/<model>``), reading
   ``OPENAI_API_KEY``. A provider in :data:`dokimi.llm_cli.BACKENDS` (``claude-cli``)
   is a logged-in coding-agent CLI, not an API: no key, no tools, no sampling
@@ -103,6 +103,7 @@ ANSWER_PROVIDERS: Tuple[str, ...] = (*PROVIDERS, *llm_cli.BACKENDS)
 PROVIDER_ALIASES: Dict[str, str] = {
     "google": "google-vertex",
     "gemini": "google-vertex",
+    "vertex_ai": "google-vertex",
 }
 
 
@@ -110,7 +111,7 @@ def _canonical(provider: str) -> str:
     return PROVIDER_ALIASES.get(provider, provider)
 
 
-def api_key_env(provider: str) -> str:
+def credential_env_var(provider: str) -> str:
     """The environment variable holding *provider*'s key (``OPENAI_API_KEY`` off the table)."""
     return PROVIDERS.get(_canonical(provider), "OPENAI_API_KEY")
 
@@ -123,13 +124,13 @@ def resolve_api_key(provider: str, api_key: Optional[str] = None) -> Optional[st
     Raises:
         ValueError: a ``file:`` key is unreadable.
     """
-    key = "" if llm_cli.backend(provider) else (api_key or os.environ.get(api_key_env(provider), ""))
+    key = "" if llm_cli.backend(provider) else (api_key or os.environ.get(credential_env_var(provider), ""))
     if key.startswith("file:"):
         path = os.path.expanduser(key[len("file:"):])
         try:
             with open(path, encoding="utf-8") as fh:
                 key = fh.read().strip()
-        except OSError as exc:
+        except (OSError, UnicodeDecodeError) as exc:
             raise ValueError(f"Cannot read API key from file '{path}': {exc}") from exc
     return key or None
 
@@ -137,8 +138,8 @@ def resolve_api_key(provider: str, api_key: Optional[str] = None) -> Optional[st
 def resolve_model(model: str, provider: str) -> str:
     """The litellm model string for *model* at *provider*.
 
-    A name with a ``/`` passes through, except on OpenRouter and openai-codex, which
-    add their own prefix, and on openai, where only a litellm provider prefix counts.
+    A name with a ``/`` passes through, except on OpenRouter and openai-codex, which add
+    their own prefix, on openai and Vertex, where only a litellm route counts, and on Bedrock.
     """
     name = _canonical(provider)
     if name == "openrouter":
@@ -152,14 +153,13 @@ def resolve_model(model: str, provider: str) -> str:
         ours = model in known or "ft:gpt-3.5-turbo" in model or "ft:gpt-4" in model  # as litellm
         routed = (p := model.split("/", 1)[0]) in litellm.provider_list or litellm.JSONProviderRegistry.exists(p) if "/" in model else ours
         return model if routed else f"openai/{model}"
-    if "/" in model:
-        return model
-    if name == "google-vertex":
-        return f"vertex_ai/{model}"
+    if name == "google-vertex":  # a Model Garden name (meta/llama-...) has a "/" but no route
+        return model if model.startswith(("gemini/", "vertex_ai/")) else f"vertex_ai/{model}"
+    if "/" in model and (name != "amazon-bedrock" or model.startswith("bedrock/")):
+        return model  # on Bedrock, another "/" name (ARN, gemini/x) gets bedrock/: the key stays
     if name == "amazon-bedrock":
-        # Bedrock's openai.* model namespace only accepts invocations via the
-        # Converse API; the plain bedrock/<model> route 404s on it (Anthropic
-        # models on Bedrock work fine either way, so this is scoped narrowly).
+        # Bedrock's openai.* namespace answers only via the Converse API; the plain
+        # bedrock/<model> route 404s on it (Anthropic models work either way).
         if "openai." in model:
             return f"bedrock/converse/{model}"
         return f"bedrock/{bedrock_profile(model) or model}"
@@ -941,8 +941,8 @@ class _Resp:
         self.usage = usage   # UsageRecord | None — lets callers (judge) track cost
 
 
-class _Invoker:
-    """``invoke(prompt, draw=, cache_if=)`` over an :class:`LLM`, the shape ``get_llm`` returns."""
+class Invoker:
+    """``invoke(prompt, draw=, cache_if=)`` over an :class:`LLM`: the :class:`ChatModel` shape."""
 
     def __init__(self, llm: LLM):
         self.llm = llm
@@ -959,7 +959,7 @@ class _Invoker:
 
 @dataclass(eq=False)
 class _GetLLMCompat(LLM):
-    """The transport ``utils.get_llm`` had, on :class:`LLM`; goes when the judge moves.
+    """The transport ``utils.get_llm`` had, on :class:`LLM`; goes with ``get_llm``.
 
     ``get_llm`` keeps its own provider table, so it hands in the litellm *route* and
     the *key* it resolved. Its cache entries were keyed without ``stream``, and its

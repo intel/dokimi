@@ -16,9 +16,9 @@ repository offers an agent), ``plan`` (the cells a run promises to measure),
 into an agent's context), ``effective_instructions`` (the effective-instructions/v0
 receipt of a reach probe), ``need_graph`` and ``eval_coverage`` (a frozen need graph and an
 eval set's coverage of it), ``task_inspect`` (which eval-task format each
-path under a tree is) and ``repo_hits_judged`` (a judge's labels of one replay
-cell's credited pairs). This module stamps each with a
-``schema_version`` and validates it against the JSON Schema in
+path under a tree is), ``repo_hits_judged`` (a judge's labels of one replay cell's credited pairs)
+and ``dokimi_config`` (a repository's subjects and where their evals are) and ``reach_matrix`` (the reach
+conformance matrix). This module stamps each with a ``schema_version`` and validates it against the JSON Schema in
 ``dokimi/schemas/`` on save and load, so fixtures and baselines stay
 forward-compatible and self-describing.
 
@@ -36,6 +36,8 @@ import os
 import threading
 from pathlib import Path
 from typing import Any
+
+from dokimi.utils import InputError, read_json_input
 
 logger = logging.getLogger(__name__)
 
@@ -68,8 +70,11 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "redteam": "redteam.v1",
     "cli_routes": "cli_routes.v1",
     "repo_ledger": "repo_ledger.v1",
+    "dokimi_config": "dokimi_config.v1",
     "need_graph": "need_graph.v1",
     "eval_coverage": "eval_coverage.v1",
+    "catalog_eval": "catalog_eval.v1",
+    "reach_matrix": "reach_matrix.v1",
     "repo_hits_judged": "repo_hits_judged.v1",
 }
 
@@ -217,11 +222,18 @@ def _write_target(path: Path) -> Path:
     return target
 
 
-def load_artifact(kind: str, path: Path, *, validate: bool = True) -> dict:
-    """Read and (optionally) validate an artifact from ``path``."""
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
+def load_artifact(kind: str, path: Path | str, *, validate: bool = True) -> dict:
+    """Read and (optionally) validate an artifact of ``kind`` from ``path``.
+
+    Every failure is an :class:`~dokimi.utils.InputError` naming ``path``: a file that is
+    missing, unreadable, not UTF-8 or JSON, not a JSON object, or that fails the schema.
+    """
+    data = read_json_input(path)
     if not isinstance(data, dict):
-        raise ValueError(f"Artifact must be a JSON object, got {type(data).__name__}")
+        raise InputError(f"{path} is not a {kind} artifact: expected a JSON object, got {type(data).__name__}")
     if validate:
-        validate_artifact(kind, data)
+        try:
+            validate_artifact(kind, data)
+        except ArtifactValidationError as exc:
+            raise InputError(f"{path} is not a valid {kind} artifact: {exc}") from exc
     return data

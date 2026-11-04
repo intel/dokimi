@@ -23,8 +23,9 @@ from dokimi.defaults import (
 )
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY, NoUsablePairs
-from dokimi.utils import same_evaluator, write_text_or_exit
+from dokimi.commands._output import write_text_or_exit
 from dokimi.exit_codes import EXIT_USAGE
+from dokimi.utils import same_evaluator
 
 
 def _warn_judge_independence(
@@ -47,14 +48,10 @@ def _warn_judge_independence(
 
 
 def _load_answers(path: str):
-    """The answers artifact at ``path`` (read by dokimi/records.py), or a clean exit."""
-    from dokimi.records import RecordError, load
+    """The answers artifact at ``path`` (read by dokimi/records.py); a RecordError (an InputError) if not."""
+    from dokimi.records import load
 
-    try:
-        return load(path, section="answers")
-    except RecordError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(2)
+    return load(path, section="answers")
 
 
 def _write_json_or_exit(path: Path, payload: dict, code: int = EXIT_USAGE) -> None:

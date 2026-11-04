@@ -20,3 +20,16 @@ def exit_on_unwritable(path: Path):
     except OSError as exc:
         print(f"Error: cannot write {path}: {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
+
+
+def write_text_or_exit(path: Path, text: str, code: int = EXIT_USAGE) -> None:
+    """Write ``text`` to ``path`` (creating parents), or exit ``code`` naming ``path`` when it cannot be written.
+
+    A command helper: library code that cannot write raises, and the command decides the exit.
+    """
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    except OSError as exc:
+        print(f"Error: cannot write {path}: {exc}", file=sys.stderr)
+        sys.exit(code)

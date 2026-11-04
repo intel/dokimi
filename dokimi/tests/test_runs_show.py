@@ -34,6 +34,7 @@ CONTENTS = {
     "questions.v2": {"questions": 3},
     "repo_budget.v1": {"entries": 9},
     "effective_instructions.v1": {"receipts": 1},
+    "reach_matrix.v1": {"runs": 2, "cells": 3},
     "repo_environment.v1": {"instructions": 4, "findings": 13},
     "repo_hits_judged.v1": {"pairs": 3},
     "repo_readiness.v1": {"files": 2, "claims": 52},
@@ -45,8 +46,10 @@ CONTENTS = {
     "headroom.v1": {"items": 2, "inputs": 1},
     "redteam.v1": {"violations": 2, "questions": 2},
     "eval_coverage.v1": {"gaps": 1, "evals": 2, "problems": 0},
+    "catalog_eval.v1": {"skills": 1, "problems": 0},
     "need_graph.v1": {"nodes": 3, "edges": 1},
     "task_inspect.v1": {"items": 4},
+    "dokimi_config.v1": {"subjects": 2, "shared": 1},
     "task_runs.v1": {"tasks": 6, "harnesses": 2, "results": 24},
     "tool_preference.v1": {"items": 16, "results": 16},
 }

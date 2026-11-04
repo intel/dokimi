@@ -2,6 +2,7 @@
 depends_on:
   - dokimi/dokimi/external/**
   - dokimi/dokimi/commands/catalog.py
+  - dokimi/dokimi/commands/catalog_eval.py
 ---
 <!--
 Copyright (C) 2026 Intel Corporation
@@ -9,6 +10,65 @@ SPDX-License-Identifier: Apache-2.0
 -->
 
 # Pointing Dokimi At An External Content Repository
+
+## Key-free catalog planning and checks
+
+Run the deterministic catalog path against a local checkout:
+
+```bash
+dokimi catalog eval /path/to/catalog --tier static --out-dir /path/to/receipts
+dokimi catalog eval /path/to/catalog --tier static --out-dir /path/to/receipts --changed-from BASE
+```
+
+The dedicated output directory contains `catalog.json` (`catalog_eval.v1`),
+`plan.json` (`plan.v1`), `result.json` (`result.v1`) and `report.md`. The plan
+declares the always-run catalog integrity check and one static check per selected
+skill, with no model. The result accounts for exactly those checks. The installed
+checker fingerprint and input bundle/task digests bind the receipts to the bytes
+checked (vendored and VCS directories such as `.git`, `node_modules` and `.venv` inside a skill
+or task are not part of its digest). A catalog root that is itself a symlink is refused; a
+symlink in a parent directory is resolved once, and no link below the root is followed (with no `skills.yaml`, a linked directory beside a discovered skill or under `skills/` is an `unsafe-path` finding, not skipped; links elsewhere, such as `.claude/skills`, are ignored). No model, Docker, skill script, oracle or task verifier runs here.
+
+Tasks are discovered on disk and assigned using their `metadata.skill` field.
+`evaluation/harbor/suites.json` is cross-checked: a task present on disk but absent
+from a suite remains visible with a warning; a missing declared implemented task,
+unknown owner or contradictory ownership fails validation. A task that cannot be
+loaded (for example invalid TOML) is a `task-load` finding on its declaring skill, or on
+the catalog when no suite declares it. Planned tasks remain
+listed separately. Imported skills or suites with `evaluated_here: false` receive
+`checks_only`; local skills without actual tasks receive `no_tasks`; other skills
+receive `not_measured`. A static pass establishes none of their runtime outcomes,
+skill usefulness, discovery rate or hardware performance, and changes no catalog
+promotion status.
+
+`--changed-from` compares a locally available base commit with working-tree bytes,
+including untracked and ignored files that a skill or task bundle hashes (files
+under a vendored directory such as `node_modules` and any `.git` are not hashed, so
+they select nothing). Skill resources and owned tasks select their skill, and a
+changed or removed task also selects the skill that owned it at the base;
+registry, suite, shared machinery and unclaimed changes select conservatively.
+Selection limits what can fail: a finding in a skill that is not selected is
+listed in the report but does not fail the run, while a catalog-wide problem
+(manifest, suites, tasks root, a task with no known owner) always does.
+Removed skill paths remain visible in the selection receipt. An unavailable base
+selects all skills with an explicit note. A docs-only change can select no skills;
+the catalog integrity check still runs. Git paths are read as NUL-delimited data,
+and candidate hooks, external diff tools and filesystem monitors are not run.
+
+Exit 0 means the deterministic checks passed, exit 1 reports validation findings,
+and exit 2 reports unusable input or output. A failed validation rewrites the
+receipts with failure; an input error removes earlier success receipts and leaves
+an error report when the output directory is usable. The directory must be empty
+or contain only this command's earlier receipts, and must be outside the entire
+catalog checkout and its ancestors. The directory itself is never renamed or
+removed, so it may be a mount point, the current directory or sit under a
+read-only parent; receipts are staged in a scratch directory inside it. Linked catalog roots and inputs are refused.
+Successful outputs are prepared and schema-checked before replacement.
+
+This path can run in a read-only, key-free catalog workflow. It is not a substitute
+for qualified oracle/negative controls and complete paired trials before a scored
+skill promotion. The existing `repo-eval.yml` workflow reads repository task
+manifests rather than a Harbor skill catalog.
 
 This repository is the measuring instrument. The things it measures —
 skills, question sets, executable tasks, exploration tasks, agent profiles —
@@ -132,6 +192,19 @@ the whole catalog. Of identical copies, the one nearest the root (fewest path pa
 order) is the original, the copy the `skill-catalog:` arm offers; each other copy is the `warn` and
 names it. Warnings never change the exit code. `disable-model-invocation: true` is printed as a
 `note`, because the model is never offered that skill.
+
+The scan also checks the bundle and the description. A relative Markdown link
+to a file the skill does not have is a `warn` (`link-missing`), and says when the
+file exists from the catalog root instead. Example links such as `[Title](URL)`
+are common, so `--strict` does not fail on them. A link, or a `../` code span,
+that reaches a file outside the skill directory is a `warn`
+(`link-escapes-skill`, `path-escapes-skill`), since it breaks when the skill is
+installed alone. A description with no "when" clause (`use when ...`, `when deploying ...`) is a `warn`
+(`description-no-when`), and so is one that overlaps another skill's by at least
+half and shares three words (`description-near-duplicate`). Two skills in different paths with the same
+directory name and description but different `SKILL.md` text are a `warn` on both
+(`mirror-drift`), naming the other copies. Skills with
+`disable-model-invocation: true` are exempt from the description checks.
 
 Frontmatter that is not valid YAML (a bare colon in `description:`, say) stops
 the skill from loading, since the loader reads it as having no description. The
