@@ -249,6 +249,15 @@ def test_a_directory_inside_a_broken_work_tree_is_an_error_not_a_silent_fallback
         git_tree(root / "pkg")
 
 
+def test_a_broken_inner_repository_under_a_readable_one_is_an_error_not_the_outer_tree(tmp_path):
+    # the outer repository reads fine; git -C inner would skip the broken inner .git and hash the outer tree instead
+    root = _repo(tmp_path / "r", FILES)
+    _nested(root, "vendor/inner", {"x.py": "x = 1\n"})
+    (root / "vendor" / "inner" / ".git" / "HEAD").unlink()
+    with pytest.raises(OSError, match="rev-parse failed"):
+        git_tree(root / "vendor" / "inner")
+
+
 def test_a_directory_outside_any_work_tree_hashes_its_bytes(tmp_path):
     # no .git and git says it is in no work tree: nothing for git to say, so the bytes on disk are hashed
     root = tmp_path / "plain"

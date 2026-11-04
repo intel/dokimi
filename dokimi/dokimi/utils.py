@@ -252,9 +252,11 @@ def git_tree(base: Path) -> GitTree | None:
     """The work tree holding ``base``, with what git leaves out of it. None when ``base`` is in no work tree: the digest
     then hashes the bytes on disk and leaves nothing out. A work tree git cannot read raises OSError naming it and git's
     own words (no silent fallback: the digest would count other bytes than git stores)."""
-    if not _in_work_tree(base):
+    marker = _work_marker(base)
+    if marker is None:
         return None
-    top_dir = os.fsdecode(_work_git(base, ["rev-parse", "--show-toplevel"], 60).stdout_bytes).strip()
+    # read the nearest .git as the repository: plain discovery skips a broken one and finds an enclosing repository
+    top_dir = os.fsdecode(_work_git(base, ["rev-parse", "--show-toplevel"], 60, marker=marker).stdout_bytes).strip()
     # the ignored paths git would not descend into; a tracked file is never listed here
     listed = _work_git(base, ["ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"], 120,
                        cwd=Path(top_dir))
@@ -267,30 +269,32 @@ def git_tree(base: Path) -> GitTree | None:
     return GitTree(top_real, "" if base_rel == "." else base_rel, ignored, _index_blobs(top_dir))
 
 
-def _in_work_tree(base: Path) -> bool:
-    """True when ``base`` or a directory above it, on its filesystem, holds a ``.git`` (a directory, or a file in a worktree):
-    where git looks for a work tree, and it does not look past a filesystem boundary. False for a plain directory tree."""
+def _work_marker(base: Path) -> Path | None:
+    """The nearest ``.git`` (a directory, or a file in a worktree) at ``base`` or above it, on its filesystem: where git
+    looks for a work tree, and it does not look past a filesystem boundary. None for a plain directory tree."""
     here = base.resolve()
     try:
         dev = os.stat(here).st_dev
         for directory in (here, *here.parents):
             if os.stat(directory).st_dev != dev:
-                return False
+                return None
             if os.path.lexists(directory / ".git"):
-                return True
+                return directory / ".git"
     except OSError:
-        return False
-    return False
+        return None
+    return None
 
 
-def _work_git(base: Path, args: list[str], timeout: float, cwd: Path | None = None) -> "Completed":
-    """The result of one git call in the work tree of ``base`` (run in ``cwd`` when given). A git that cannot run, fails or
-    times out raises OSError naming ``base`` and git's own words."""
+def _work_git(base: Path, args: list[str], timeout: float, cwd: Path | None = None,
+              marker: Path | None = None) -> "Completed":
+    """The result of one git call in the work tree of ``base`` (run in ``cwd`` when given), with ``marker`` (a ``.git``)
+    as the only repository it may read. A git that cannot run, fails or times out raises OSError naming ``base``."""
     from dokimi.process import run
 
     where = os.fspath(cwd or base)
+    pinned = [f"--git-dir={marker}", f"--work-tree={marker.parent}"] if marker is not None else []
     try:
-        done = run(["git", "-C", where, *args], timeout=timeout, env=_git_env(), capture_limit=None)
+        done = run(["git", "-C", where, *pinned, *args], timeout=timeout, env=_git_env(), capture_limit=None)
     except OSError as exc:
         raise OSError(None, f"git {args[0]} could not run: {exc.strerror or exc}", os.fspath(base)) from exc
     if not done.ok:
