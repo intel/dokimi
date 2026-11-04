@@ -231,12 +231,13 @@ def _nested_allowed(repo: Path, rel: str) -> _Allowed:
             continue
         text = os.fsdecode(name)
         path = f"{rel}/{text.rstrip('/')}"
+        parts = path.split("/")
+        # the directories on the way down to the entry are kept too, so the walk reaches it
+        dirs.update("/".join(parts[:i]) for i in range(depth + 1, len(parts)))
         if text.endswith("/"):  # an untracked repository, as ls-files gives it: a directory
             dirs.add(path)
             continue
         files.add(path)
-        parts = path.split("/")
-        dirs.update("/".join(parts[:i]) for i in range(depth + 1, len(parts)))
     return _Allowed(frozenset(files), frozenset(dirs))
 
 

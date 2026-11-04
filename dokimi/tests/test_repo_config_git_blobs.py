@@ -233,3 +233,14 @@ def test_a_tracked_or_untracked_change_inside_a_nested_repository_moves_a_hash(t
     before = _hashes(root)
     (root / rel / "notes.md").write_text("not ignored by the nested repository\n")  # untracked, kept
     assert _hashes(root) != before
+
+
+@pytest.mark.parametrize("rel", ["skills/a/tools", "skills/a/evals/tools"])
+def test_a_change_inside_an_untracked_repository_under_a_nested_repository_moves_a_hash(tmp_path, rel):
+    # the nested repository lists its untracked repository as a directory (vendor/inner/); the walk must reach it
+    root = _repo(tmp_path / "r", FILES)
+    _nested(root, rel, {"run.py": "print(1)\n"})
+    _nested(root, f"{rel}/vendor/inner", {"x.py": "x = 1\n"})
+    before = _hashes(root)
+    (root / rel / "vendor" / "inner" / "x.py").write_text("x = 2\n")
+    assert _hashes(root) != before
