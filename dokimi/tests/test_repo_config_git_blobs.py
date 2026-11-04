@@ -6,13 +6,14 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import time
 from pathlib import Path
 
 import pytest
 
-from dokimi.repo_config import load_repo_config
+from dokimi.repo_config import ConfigError, load_repo_config
 from dokimi.utils import git_tree, tree_digest
 
 HEADER = "schema_version: dokimi_config.v1\n"
@@ -209,6 +210,17 @@ def test_an_ignored_file_inside_a_nested_repository_moves_no_hash(tmp_path, rel)
     (root / rel / "build").mkdir()
     (root / rel / "build" / "out.o").write_text("x\n")
     assert _hashes(root) == before
+
+
+@pytest.mark.parametrize("rel", ["skills/a/tools", "skills/a/evals/tools"])
+def test_a_nested_repository_git_cannot_read_is_an_error_not_a_silent_fallback(tmp_path, rel):
+    # git fails inside the nested repository: its ignored files must not count again without a word about it
+    root = _repo(tmp_path / "r", FILES)
+    _nested(root, rel, {"run.py": "print(1)\n"})
+    (root / rel / ".git" / "HEAD").unlink()  # a repository git cannot read as one
+    with pytest.raises(ConfigError, match=rf"cannot read .*{re.escape(rel)}") as err:
+        _hashes(root)
+    assert "git" in str(err.value)
 
 
 @pytest.mark.parametrize("rel", ["skills/a/tools", "skills/a/evals/tools"])

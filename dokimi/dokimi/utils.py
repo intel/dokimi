@@ -143,7 +143,7 @@ class GitTree:
     base: str
     ignored: frozenset[str]
     indexed: Mapping[str, str] = field(hash=False)
-    nested: dict[str, "_Allowed | None"] = field(default_factory=dict, hash=False, compare=False, repr=False)
+    nested: dict[str, "_Allowed"] = field(default_factory=dict, hash=False, compare=False, repr=False)
 
     def top_rel(self, path: Path) -> str | None:
         """``path`` relative to the top, as POSIX, its own link (if it is one) not followed; None outside the tree."""
@@ -168,15 +168,13 @@ class GitTree:
 
     def _nested_skipped(self, path: Path, rel: str, parts: list[str]) -> bool:
         """True when the innermost nested repository holding ``path`` leaves it out (it is ignored there). False outside
-        any nested repository, and where git cannot say what that repository stores."""
+        any nested repository. Raises OSError when git cannot say what that repository stores."""
         repo = self._innermost_repo(parts)
         if repo is None:
             return False
         if repo not in self.nested:
             self.nested[repo] = _nested_allowed(self.top / repo, repo)
         allowed = self.nested[repo]
-        if allowed is None:
-            return False
         if path.is_dir() and not path.is_symlink():  # a directory is kept when something under it is kept
             return rel not in allowed.dirs and rel not in allowed.files
         return rel not in allowed.files
@@ -200,27 +198,35 @@ class _Allowed:
     dirs: frozenset[str]
 
 
-def _nested_allowed(repo: Path, rel: str) -> _Allowed | None:
-    """The nested repository at ``repo`` (``rel`` is its place in the top), read by its own git: one ``git ls-files``
-    of the tracked and untracked paths its ``.gitignore`` rules and exclude files leave in. None when ``repo`` is not a
-    repository of its own (git would read the enclosing one instead) or git cannot say."""
+def _nested_git(repo: Path, args: list[str], timeout: float) -> bytes:
+    """The stdout of one git call in the nested repository ``repo``. A git that cannot run, fails or times out raises
+    an OSError naming ``repo`` and git's own words: the digest must not count what the nested rules leave out by guess."""
     from dokimi.process import run
 
-    env = _git_env()
     try:
-        top = run(["git", "-C", os.fspath(repo), "rev-parse", "--show-toplevel"], timeout=60, env=env)
-        if not top.ok or Path(os.path.realpath(os.fsdecode(top.stdout_bytes).strip())) != repo:
-            return None
-        listed = run(["git", "-C", os.fspath(repo), "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
-                     timeout=120, env=env, capture_limit=None)
-    except OSError:
-        return None
-    if not listed.ok:
-        return None
+        done = run(["git", "-C", os.fspath(repo), *args], timeout=timeout, env=_git_env(), capture_limit=None)
+    except OSError as exc:
+        raise OSError(None, f"git {args[0]} could not run: {exc.strerror or exc}", os.fspath(repo)) from exc
+    if not done.ok:
+        why = done.stderr.strip() or ("timed out" if done.timed_out else f"exit {done.returncode}")
+        raise OSError(None, f"git {args[0]} failed in this nested repository: {why}", os.fspath(repo))
+    return done.stdout_bytes
+
+
+def _nested_allowed(repo: Path, rel: str) -> _Allowed:
+    """The nested repository at ``repo`` (``rel`` is its place in the top), read by its own git: one ``git ls-files``
+    of the tracked and untracked paths its ``.gitignore`` rules and exclude files leave in. Its ``.git`` is passed as the
+    git dir, so a ``.git`` git cannot read fails here instead of letting git walk up to the enclosing repository. A git
+    failure raises an OSError naming the repository (see :func:`_nested_git`)."""
+    git_dir = f"--git-dir={os.fspath(repo / '.git')}"
+    top = _nested_git(repo, [git_dir, "rev-parse", "--show-toplevel"], timeout=60)
+    if Path(os.path.realpath(os.fsdecode(top).strip())) != repo:
+        raise OSError(None, "git reads this .git as a repository elsewhere", os.fspath(repo))
+    listed = _nested_git(repo, ["ls-files", "--cached", "--others", "--exclude-standard", "-z"], timeout=120)
     files: set[str] = set()
     dirs: set[str] = set()
     depth = len(rel.split("/"))
-    for name in listed.stdout_bytes.split(b"\0"):
+    for name in listed.split(b"\0"):
         if not name:
             continue
         text = os.fsdecode(name)
