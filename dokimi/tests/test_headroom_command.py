@@ -26,6 +26,8 @@ from dokimi.eval.headroom import (
 from tests.headroom_fixtures import _flags, _run
 
 
+from tests.cli_refusal import refusal
+
 def _args(paths, **overrides):
     base = {"arms": [str(p) for p in paths], "no_skill_arm": None, "ceiling": 0.9, "floor": 0.0,
             "min_reps": 3, "output": None}
@@ -95,10 +97,10 @@ def test_an_arm_the_run_declares_but_an_item_lacks_is_unscored_for_that_item():
 
 def test_command_refuses_an_unknown_no_skill_arm_and_lists_the_arms(tmp_path, capsys):
     path = _arms_file(tmp_path / "arms.json", {"1": {"baseline": 99, "skill": 99}})
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_headroom(_args([path], no_skill_arm="basline"))
-    assert exc.value.code == 2
-    err = capsys.readouterr().err
+    assert exc.code == 2
+    err = exc.err
     assert "'basline'" in err and "the arms are: baseline, skill" in err
 
 
@@ -134,10 +136,10 @@ def test_command_refuses_runs_of_different_configurations(tmp_path, capsys, fiel
         path.write_text(json.dumps({**data, "model": "m", "judge_model": "j", "library_name": "lib",
                                     "run_config": {"max_tokens": 5, "seed": 1}, **extra}), encoding="utf-8")
     out = tmp_path / "headroom.json"
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_headroom(_args([one, two], output=out))
-    assert exc.value.code == 2 and not out.exists()
-    assert f"Error: {two} is not a repetition of {one}" in capsys.readouterr().err
+    assert exc.code == 2 and not out.exists()
+    assert f"Error: {two} is not a repetition of {one}" in exc.err
 
 
 def test_runs_that_differ_only_in_the_seed_are_repetitions(tmp_path):
@@ -158,10 +160,10 @@ def test_command_exits_2_when_the_output_cannot_be_written(tmp_path, capsys):
     path = _arms_file(tmp_path / "arms.json", {"1": {"baseline": 95, "skill": 95}})
     blocker = tmp_path / "a-file"
     blocker.write_text("not a directory, so --out cannot be written beneath it", encoding="utf-8")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_headroom(_args([path], output=blocker / "headroom.json"))
-    assert exc.value.code == 2  # the exit-code table in docs/quickstart.md: an unwritable output is 2
-    assert capsys.readouterr().err.startswith(f"Error: cannot write {blocker / 'headroom.json'}: ")
+    assert exc.code == 2  # the exit-code table in docs/quickstart.md: an unwritable output is 2
+    assert exc.err.startswith(f"Error: cannot write {blocker / 'headroom.json'}: ")
 
 
 @pytest.mark.parametrize("spelling", ["dir", "dot", "dot-slash", "absent-with-slash", "absent-with-slash-dot",
@@ -177,10 +179,10 @@ def test_command_exits_2_when_the_output_is_a_directory(tmp_path, monkeypatch, c
            "absent-with-slash": str(tmp_path / "newdir") + "/",
            "absent-with-slash-dot": str(tmp_path / "newdir") + "/.",
            "file-with-slash": str(tmp_path / "existing.json") + "/"}[spelling]
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_headroom(_args([path], output=out))
-    assert exc.value.code == 2
-    assert "is not a file name" in capsys.readouterr().err
+    assert exc.code == 2
+    assert "is not a file name" in exc.err
     assert not (tmp_path / "newdir").exists()
     assert (tmp_path / "existing.json").read_text(encoding="utf-8") == "keep"
 
@@ -213,11 +215,11 @@ def test_command_refuses_an_output_spelled_through_a_dotdot_to_an_input(tmp_path
     path = _arms_file(tmp_path / "arms.json", {"1": {"baseline": 99, "skill": 99}})
     (tmp_path / "sub").mkdir()
     before = path.read_bytes()
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_headroom(_args([str(path)], output=str(tmp_path / "sub" / ".." / "arms.json")))
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert path.read_bytes() == before
-    assert "overwrite" in capsys.readouterr().err
+    assert "overwrite" in exc.err
 
 
 def test_command_refuses_a_question_id_repeated_within_one_file(tmp_path, capsys):
@@ -225,10 +227,10 @@ def test_command_refuses_a_question_id_repeated_within_one_file(tmp_path, capsys
     path.write_text(json.dumps({"baseline_arm": "baseline", "answers": [
         {"question_id": "1", "question_text": "q", "arms": {"baseline": {"answer": "a"}}},
         {"question_id": "1", "question_text": "q", "arms": {"baseline": {"answer": "b"}}}]}))
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_headroom(_args([path]))
-    assert exc.value.code == 2
-    err = capsys.readouterr().err
+    assert exc.code == 2
+    err = exc.err
     assert str(path) in err and "question_id '1' appears more than once" in err
 
 
@@ -279,18 +281,18 @@ def test_command_refuses_a_file_nothing_was_judged_in(tmp_path, capsys):
         {"question_id": "1", "question_text": "q", "arms": {"baseline": {"answer": "a"}, "skill": {"answer": "b"}}}]}),
         encoding="utf-8")
     out = tmp_path / "headroom.json"
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_headroom(_args([path], output=out))
-    assert exc.value.code == 2 and not out.exists()
-    assert "no run scored the no-skill arm 'baseline'" in capsys.readouterr().err
+    assert exc.code == 2 and not out.exists()
+    assert "no run scored the no-skill arm 'baseline'" in exc.err
 
 
 def test_command_refuses_a_wrong_baseline_name_with_exit_2(tmp_path, capsys):
     path = _arms_file(tmp_path / "arms.json", {"1": {"no_skill": 100, "skill": 50}}, baseline="control")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_headroom(_args([path]))
-    assert exc.value.code == 2
-    assert "pass --baseline-arm" in capsys.readouterr().err
+    assert exc.code == 2
+    assert "pass --baseline-arm" in exc.err
 
 
 def test_command_exits_2_on_an_input_nested_too_deep_to_read(tmp_path, capsys):
@@ -309,10 +311,10 @@ def test_command_exits_2_when_top_level_metadata_has_the_wrong_shape(tmp_path, c
     path = _arms_file(tmp_path / "run.json", {"1": {"baseline": 95}})
     data = json.loads(path.read_text(encoding="utf-8"))
     path.write_text(json.dumps({**data, field: value}), encoding="utf-8")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_headroom(_args([path]))
-    assert exc.value.code == 2
-    assert f"Error: {path}: {field} must be a JSON {kind}" in capsys.readouterr().err
+    assert exc.code == 2
+    assert f"Error: {path}: {field} must be a JSON {kind}" in exc.err
 
 
 def test_command_exits_2_when_runs_were_judged_under_different_contexts(tmp_path, capsys):
@@ -320,10 +322,10 @@ def test_command_exits_2_when_runs_were_judged_under_different_contexts(tmp_path
     other = tmp_path / "b.json"
     data = json.loads(base.read_text(encoding="utf-8"))
     other.write_text(json.dumps({**data, "judge_context": "treatment_material.v1"}), encoding="utf-8")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_headroom(_args([base, other]))
-    assert exc.value.code == 2
-    assert f"Error: {other} is not a repetition of {base}" in capsys.readouterr().err
+    assert exc.code == 2
+    assert f"Error: {other} is not a repetition of {base}" in exc.err
 
 
 def test_command_exits_2_on_a_mixed_judge_context(tmp_path, capsys):
@@ -332,27 +334,27 @@ def test_command_exits_2_on_a_mixed_judge_context(tmp_path, capsys):
     path = _arms_file(tmp_path / "run.json", {"1": {"baseline": 95}})
     data = json.loads(path.read_text(encoding="utf-8"))
     path.write_text(json.dumps({**data, "judge_context": PROTOCOL_MIXED}), encoding="utf-8")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_headroom(_args([path]))
-    assert exc.value.code == 2
-    assert f"Error: {path}: judged some answers on the stored treatment material" in capsys.readouterr().err
+    assert exc.code == 2
+    assert f"Error: {path}: judged some answers on the stored treatment material" in exc.err
 
 
 def test_min_reps_must_be_a_positive_integer_at_the_parser(tmp_path, capsys):
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         build_parser().parse_args(["eval", "headroom", str(tmp_path / "a.json"), "--min-reps", "0"])
-    assert exc.value.code == 2
-    assert "--min-reps" in capsys.readouterr().err
+    assert exc.code == 2
+    assert "--min-reps" in exc.err
 
 
 def test_command_refuses_an_output_that_is_one_of_its_inputs(tmp_path, capsys):
     path = _arms_file(tmp_path / "arms.json", {"1": {"baseline": 99, "skill": 99}})
     before = path.read_bytes()
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_headroom(_args([path], output=path))
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert path.read_bytes() == before
-    assert "overwrite" in capsys.readouterr().err
+    assert "overwrite" in exc.err
 
 
 def test_command_refuses_an_output_whose_rejected_sibling_is_an_input(tmp_path, capsys):
@@ -361,11 +363,11 @@ def test_command_refuses_an_output_whose_rejected_sibling_is_an_input(tmp_path, 
     stale = tmp_path / "headroom.json.rejected"
     stale.write_bytes(run.read_bytes())
     before = stale.read_bytes()
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_headroom(_args([stale], output=tmp_path / "headroom.json"))
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert stale.read_bytes() == before
-    assert "overwrite" in capsys.readouterr().err
+    assert "overwrite" in exc.err
 
 
 def test_an_output_whose_path_cannot_be_resolved_does_not_crash_the_guard(tmp_path, monkeypatch):
@@ -393,11 +395,11 @@ def test_an_output_that_is_a_symlink_to_an_input_is_refused(tmp_path, capsys):
     alias = tmp_path / "alias.json"
     os.symlink(path.name, alias)
     before = path.read_bytes()
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_headroom(_args([path], output=alias))
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert path.read_bytes() == before
-    assert "overwrite" in capsys.readouterr().err
+    assert "overwrite" in exc.err
 
 
 def test_a_reserialized_copy_of_a_run_counts_once(tmp_path, capsys):
@@ -428,10 +430,10 @@ def test_floor_is_not_flagged_when_the_no_skill_arm_was_never_scored_on_the_item
 def test_an_empty_out_is_refused_with_exit_2_through_the_real_parser(tmp_path, capsys):
     path = _arms_file(tmp_path / "arms.json", {"1": {"baseline": 95, "skill": 95}})
     args = build_parser().parse_args(["eval", "headroom", str(path), "--out", ""])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
-    assert "not a file name" in capsys.readouterr().err
+    assert exc.code == 2
+    assert "not a file name" in exc.err
 
 
 def _arms_file_with_text(path, questions, baseline="baseline"):
@@ -452,10 +454,10 @@ def test_command_exits_2_when_two_inputs_give_one_id_different_question_text(tmp
     # pooled under id "1" they would average to a mid score, so the command refuses the pair.
     first = _arms_file_with_text(tmp_path / "a.json", [("1", "What is X?", 100)])
     second = _arms_file_with_text(tmp_path / "b.json", [("1", "What is Y?", 0)])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_headroom(_args([first, second]))
-    assert exc.value.code == 2
-    err = capsys.readouterr().err
+    assert exc.code == 2
+    err = exc.err
     assert "question_id '1' has a different question text" in err and str(second) in err
 
 
@@ -507,19 +509,19 @@ def _stamped_file(path, *, digest=None, reference=False, grounded=None, ground_t
 def test_command_refuses_a_reference_scored_file_pooled_with_a_judged_one(tmp_path, capsys):
     judged = _stamped_file(tmp_path / "judged.json")
     rescored = _stamped_file(tmp_path / "rescored.json", reference=True)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_headroom(_args([judged, rescored]))
-    assert exc.value.code == 2
-    assert f"{rescored} was scored by the reference and {judged} by the judge" in capsys.readouterr().err
+    assert exc.code == 2
+    assert f"{rescored} was scored by the reference and {judged} by the judge" in exc.err
 
 
 def test_command_refuses_a_profile_prompt_that_changed_under_the_same_arm_name(tmp_path, capsys):
     before = _stamped_file(tmp_path / "before.json", digest="a" * 64)
     after = _stamped_file(tmp_path / "after.json", digest="b" * 64)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_headroom(_args([before, after]))
-    assert exc.value.code == 2
-    assert "arm 'skill' ran with a different profile prompt" in capsys.readouterr().err
+    assert exc.code == 2
+    assert "arm 'skill' ran with a different profile prompt" in exc.err
 
 
 def test_command_pools_runs_whose_profile_prompt_digests_agree(tmp_path):
@@ -534,10 +536,10 @@ def test_command_pools_runs_whose_profile_prompt_digests_agree(tmp_path):
 def test_command_refuses_a_grounded_question_judged_ungrounded_in_another_run(tmp_path, capsys):
     grounded = _stamped_file(tmp_path / "grounded.json", grounded=1, ground_truth="the chunk")
     ungrounded = _stamped_file(tmp_path / "ungrounded.json", grounded=0)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_headroom(_args([grounded, ungrounded]))
-    assert exc.value.code == 2
-    assert f"is ungrounded in {ungrounded} but grounded in {grounded}" in capsys.readouterr().err
+    assert exc.code == 2
+    assert f"is ungrounded in {ungrounded} but grounded in {grounded}" in exc.err
 
 
 def test_a_legacy_run_without_a_grounding_count_is_not_compared_for_grounding(tmp_path):
@@ -569,10 +571,10 @@ def test_command_exits_2_on_a_bare_record_list_instead_of_a_traceback(tmp_path, 
     path = tmp_path / "bare.json"
     path.write_text(json.dumps([{"question_id": "1", "scores": {"baseline": {"aggregate": 100},
                                                                 "skill": {"aggregate": 100}}}]), encoding="utf-8")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_headroom(_args([path]))
-    assert exc.value.code == 2
-    assert f"Error: {path}: expected a JSON object" in capsys.readouterr().err
+    assert exc.code == 2
+    assert f"Error: {path}: expected a JSON object" in exc.err
 
 
 @pytest.mark.parametrize(("metadata", "message"), [
@@ -585,10 +587,10 @@ def test_command_exits_2_when_an_answers_metadata_has_the_wrong_shape(tmp_path, 
     data = json.loads(path.read_text(encoding="utf-8"))
     data["answers"][0]["arms"]["skill"]["metadata"] = metadata
     path.write_text(json.dumps(data), encoding="utf-8")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_headroom(_args([path]))
-    assert exc.value.code == 2
-    assert f"Error: {path}: {message}" in capsys.readouterr().err
+    assert exc.code == 2
+    assert f"Error: {path}: {message}" in exc.err
 
 
 def test_command_refuses_a_profile_prompt_that_changes_between_two_questions_of_one_file(tmp_path, capsys):
@@ -597,10 +599,10 @@ def test_command_refuses_a_profile_prompt_that_changes_between_two_questions_of_
     for answer, digest in zip(data["answers"], ("a" * 64, "b" * 64), strict=True):
         answer["arms"]["skill"]["metadata"] = {"profile_prompt_sha256": digest}
     path.write_text(json.dumps(data), encoding="utf-8")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_headroom(_args([path]))
-    assert exc.value.code == 2
-    assert "arm 'skill' ran with a different profile prompt" in capsys.readouterr().err
+    assert exc.code == 2
+    assert "arm 'skill' ran with a different profile prompt" in exc.err
 
 
 def test_command_exits_1_when_the_payload_fails_the_artifact_schema(tmp_path, monkeypatch, capsys):
@@ -611,19 +613,19 @@ def test_command_exits_1_when_the_payload_fails_the_artifact_schema(tmp_path, mo
 
     monkeypatch.setattr(artifacts, "save_artifact", refuse)
     path = _arms_file(tmp_path / "arms.json", {"1": {"baseline": 95}})
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_headroom(_args([path], output=tmp_path / "headroom.json"))
-    assert exc.value.code == 1
-    assert "Error: headroom.v1: items: refused by the schema" in capsys.readouterr().err
+    assert exc.code == 1
+    assert "Error: headroom.v1: items: refused by the schema" in exc.err
 
 
 def test_command_refuses_legacy_runs_without_a_top_level_arms_list_whose_arms_differ(tmp_path, capsys):
     one = _arms_file(tmp_path / "one.json", {"1": {"baseline": 100, "skill:a": 100}})
     two = _arms_file(tmp_path / "two.json", {"1": {"baseline": 50, "skill:b": 50}})
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_headroom(_args([one, two]))
-    assert exc.value.code == 2
-    assert f"{two} is not a repetition of {one}" in capsys.readouterr().err
+    assert exc.code == 2
+    assert f"{two} is not a repetition of {one}" in exc.err
 
 
 def test_command_pools_legacy_runs_without_a_top_level_arms_list_whose_arms_agree(tmp_path):
@@ -647,10 +649,10 @@ def _reference_file(path, questions, scores, ungraded=0):
 def test_command_refuses_reference_scored_runs_graded_against_different_question_files(tmp_path, capsys):
     first = _reference_file(tmp_path / "first.json", "x1.json", 90)
     second = _reference_file(tmp_path / "second.json", "x2.json", 10)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_headroom(_args([first, second]))
-    assert exc.value.code == 2
-    assert f"{second} was scored by eval score reference against different grading than {first}" in capsys.readouterr().err
+    assert exc.code == 2
+    assert f"{second} was scored by eval score reference against different grading than {first}" in exc.err
 
 
 def test_command_pools_reference_scored_runs_that_share_their_grading_and_differ_in_tallies(tmp_path):
@@ -673,10 +675,10 @@ def test_command_checks_every_reference_scored_file_not_only_the_second(tmp_path
     first = _reference_file(tmp_path / "first.json", "x1.json", 90)
     second = _reference_file(tmp_path / "second.json", "x1.json", 10)
     third = _reference_file(tmp_path / "third.json", "x2.json", 50)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_headroom(_args([first, second, third]))
-    assert exc.value.code == 2
-    assert f"{third} was scored by eval score reference against different grading than {first}" in capsys.readouterr().err
+    assert exc.code == 2
+    assert f"{third} was scored by eval score reference against different grading than {first}" in exc.err
 
 
 def test_a_baseline_a_hair_below_the_ceiling_at_any_score_precision_is_not_a_ceiling():
@@ -700,7 +702,7 @@ def test_command_refuses_legacy_runs_whose_empty_top_level_arms_list_hides_diffe
         data = json.loads(path.read_text(encoding="utf-8"))
         data["arms"] = []  # an empty list is absent to replicate_key, so the arms the records show must count
         path.write_text(json.dumps(data), encoding="utf-8")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_headroom(_args([one, two]))
-    assert exc.value.code == 2
-    assert f"{two} is not a repetition of {one}" in capsys.readouterr().err
+    assert exc.code == 2
+    assert f"{two} is not a repetition of {one}" in exc.err

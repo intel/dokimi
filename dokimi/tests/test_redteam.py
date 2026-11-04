@@ -25,6 +25,8 @@ from dokimi.eval.reference_checks import CheckResult, Grade, check_values, grade
 
 
 # The self-check of grade_check that stuffed_for is (not an attack, so it lives with the tests).
+from tests.cli_refusal import refusal
+
 JSON_DECOYS = ('{"planted": "wrong"}', '{"planted": "other"}')
 
 
@@ -373,42 +375,42 @@ def test_command_passes_and_writes_a_redteam_artifact(tmp_path, monkeypatch, cap
 
 def test_command_exits_1_when_the_run_is_blocked(tmp_path, monkeypatch):
     _patch_questions(monkeypatch, [_q("1", {"checks": [{"type": "regex", "values": [".*"]}]})])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_redteam(_args(tmp_path / "questions.json"))
-    assert exc.value.code == 1
+    assert exc.code == 1
 
 
 def test_command_exits_1_when_nothing_was_graded(tmp_path, monkeypatch):
     _patch_questions(monkeypatch, [{"id": "1", "question": "Capital of France?"}])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_redteam(_args(tmp_path / "questions.json"))
-    assert exc.value.code == 1
+    assert exc.code == 1
 
 
 def test_command_exits_2_when_the_artifact_cannot_be_written(tmp_path, monkeypatch, capsys):
     _patch_questions(monkeypatch, [_q("1", _match("Paris"))])
     blocker = tmp_path / "a_file"
     blocker.write_text("not a directory", encoding="utf-8")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_redteam(_args(tmp_path / "questions.json", out=blocker / "out.json"))
-    assert exc.value.code == 2  # not 1: CI must not read an unwritable --out as a blocked run
-    assert capsys.readouterr().err.startswith("Error:")
+    assert exc.code == 2  # not 1: CI must not read an unwritable --out as a blocked run
+    assert exc.err.startswith("Error:")
 
 
 def test_command_exits_2_on_a_question_set_nested_too_deep_to_read(tmp_path, capsys):
     path = tmp_path / "deep.json"
     path.write_text("[" * 100_000 + "]" * 100_000, encoding="utf-8")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_redteam(_args(path))
-    assert exc.value.code == 2  # not a traceback and exit 1: CI reads exit 1 as a blocked run
-    assert capsys.readouterr().err.startswith("Error:")
+    assert exc.code == 2  # not a traceback and exit 1: CI reads exit 1 as a blocked run
+    assert exc.err.startswith("Error:")
 
 
 def test_command_exits_2_on_an_unreadable_question_set(tmp_path, capsys):
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_redteam(_args(tmp_path / "missing.json"))
-    assert exc.value.code == 2
-    assert capsys.readouterr().err.startswith("Error:")
+    assert exc.code == 2
+    assert exc.err.startswith("Error:")
 
 
 def test_a_negated_check_is_not_blocked_by_the_answers_it_passes_by_design():
@@ -661,9 +663,9 @@ def test_the_table_points_to_the_artifact_when_dash_o_was_given(tmp_path):
 
 def test_the_command_prints_the_cut_violations_with_the_output_path_it_wrote(tmp_path, monkeypatch, capsys):
     _patch_questions(monkeypatch, [_q(str(i), {"checks": [{"type": "regex", "values": [".*"]}]}) for i in range(8)])
-    with pytest.raises(SystemExit):
+    with refusal() as _r:
         cmd_eval_redteam(_args(tmp_path / "questions.json", out=tmp_path / "r.json"))
-    assert "4 more violations in the artifact" in capsys.readouterr().out
+    assert _r.code == 1 and "4 more violations in the artifact" in _r.out  # the violations verdict, not bad input
 
 
 @pytest.mark.parametrize("check", [
@@ -722,9 +724,9 @@ def test_the_judge_flag_grades_judge_checks_with_the_named_model(tmp_path, monke
     _patch_questions(monkeypatch, [_q("1", _JUDGE_ONLY)])
     monkeypatch.setattr("dokimi.eval.judge.Judge", fake_judge)
     out = tmp_path / "judged.json"
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_redteam(_args(tmp_path / "questions.json", out=out, judge=("openai", "judge-x")))
-    assert exc.value.code == 1  # the stub judge accepts every attack
+    assert exc.code == 1  # the stub judge accepts every attack
     assert made == {"model": "judge-x", "provider": "openai"}
     saved = json.loads(out.read_text(encoding="utf-8"))
     assert saved["status"] == "blocked" and saved["summary"]["unscored"] == 0
@@ -737,9 +739,9 @@ def test_without_the_judge_flag_no_judge_is_built_and_judge_checks_stay_unscored
     _patch_questions(monkeypatch, [_q("1", _JUDGE_ONLY)])
     monkeypatch.setattr("dokimi.eval.judge.Judge", refuse)
     out = tmp_path / "plain.json"
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_redteam(_args(tmp_path / "questions.json", out=out))
-    assert exc.value.code == 1
+    assert exc.code == 1
     assert json.loads(out.read_text(encoding="utf-8"))["summary"]["unscored"] == 3
 
 
@@ -762,35 +764,35 @@ def test_an_empty_question_list_is_inconclusive_not_pass():
 def test_command_exits_2_with_the_problem_when_a_grading_block_cannot_be_graded(tmp_path, monkeypatch, capsys):
     _patch_questions(monkeypatch, [_q("7", {"checks": [{"type": "match", "values": []}]})])
     out = tmp_path / "redteam.json"
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_redteam(_args(tmp_path / "questions.json", out=out))
-    assert exc.value.code == 2
-    assert "7: check 0: match has no values" in capsys.readouterr().err
+    assert exc.code == 2
+    assert "7: check 0: match has no values" in exc.err
     assert not out.exists()
 
 
 def test_command_exits_1_on_an_empty_question_set(tmp_path, monkeypatch):
     _patch_questions(monkeypatch, [])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_redteam(_args(tmp_path / "questions.json"))
-    assert exc.value.code == 1
+    assert exc.code == 1
 
 
 def test_a_blocked_run_still_writes_the_artifact(tmp_path, monkeypatch):
     _patch_questions(monkeypatch, [_q("1", {"checks": [{"type": "regex", "values": [".*"]}]})])
     out = tmp_path / "blocked.json"
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_redteam(_args(tmp_path / "questions.json", out=out))
-    assert exc.value.code == 1
+    assert exc.code == 1
     assert json.loads(out.read_text(encoding="utf-8"))["status"] == "blocked"
 
 
 def test_an_inconclusive_run_still_writes_the_artifact(tmp_path, monkeypatch):
     _patch_questions(monkeypatch, [{"id": "1", "question": "Capital of France?"}])
     out = tmp_path / "inconclusive.json"
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_eval_redteam(_args(tmp_path / "questions.json", out=out))
-    assert exc.value.code == 1
+    assert exc.code == 1
     assert json.loads(out.read_text(encoding="utf-8"))["status"] == "inconclusive"
 
 
@@ -858,9 +860,9 @@ def test_judge_takes_a_provider_model_reference_and_a_bad_one_is_a_usage_error(c
     assert (args.judge, args.out) == (("openai", "gpt-x"), "r.json")
     assert parse_args(["eval", "redteam", "q.json"]).judge is None
     for bad in ("gpt-x", "nosuch/gpt-x", "openai/"):
-        with pytest.raises(SystemExit) as exc:
+        with refusal() as exc:
             parse_args(["eval", "redteam", "q.json", "--judge", bad])
-        assert exc.value.code == 2, bad
+        assert exc.code == 2, bad
 
 
 def test_docs_name_the_redteam_output_flag_as_out():

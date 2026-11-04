@@ -18,6 +18,8 @@ from dokimi.eval.validity_scoring import INTACT_ATTEMPTS, _score_pairs
 from tests.test_judge_reliability import _many_answers
 
 
+from tests.cli_refusal import refusal
+
 def _decide(gate, accuracy, rng, cap=120, batch=10):
     outcomes = []
     while len(outcomes) < cap:
@@ -56,9 +58,9 @@ def test_the_command_exits_2_before_any_judge_call_for_an_undecidable_gate(tmp_p
     args = build_parser().parse_args(
         ["eval", "judge", "validate", "--answers", str(answers), "--sequential", "--min-accuracy", "0.99"]
     )
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2 and "--min-accuracy 0.99" in capsys.readouterr().err
+    assert exc.code == 2 and "--min-accuracy 0.99" in exc.err
 
 
 def test_error_rates_hold_at_a_high_gate_where_the_upper_clamp_used_to_bite():
