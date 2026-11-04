@@ -49,6 +49,7 @@ only; reading pyproject.toml needs Python 3.11 or newer for tomllib.
 import argparse
 import ast
 import json
+import operator
 import os
 import re
 import sys
@@ -79,9 +80,9 @@ SYSTEMS = {
 
 # The platforms gh-ci builds and tests, and how artifact names spell them.
 PLATFORMS = {"linux": "Linux", "windows": "Windows", "macos": "macOS"}
-# The platforms the workflow can build on: GitHub-hosted runners have all
-# three. A declared platform missing here is reported and left out.
-BUILT_PLATFORMS = ("linux", "windows", "macos")
+# The platforms the workflow can build on: intel-ci.yml runs on Linux only.
+# A declared platform missing here is reported and left out.
+BUILT_PLATFORMS = ("linux",)
 # What a platform-only selector means on each platform, for both conda-build and
 # rattler-build.
 SELECTORS = {
@@ -135,7 +136,10 @@ SELECTORS = {
         "s390x": False,
     },
 }
-CONDA_SKIP_RE = re.compile(r"\s*skip\s*:\s*(?:true|True|yes)\s*#\s*\[(.+)\]\s*")
+# conda-build's selector rule (sel_pat): a trailing comment may follow it.
+CONDA_SKIP_RE = re.compile(
+    r"\s*skip\s*:\s*(?:true|True|yes)\s*(#.*)?\[([^\[\]]+)\](?(1)[^()]*)\s*"
+)
 OS_CLASSIFIERS = {
     "Operating System :: OS Independent": tuple(PLATFORMS),
     "Operating System :: POSIX": ("linux",),
@@ -144,6 +148,12 @@ OS_CLASSIFIERS = {
     "Operating System :: Microsoft :: Windows": ("windows",),
     "Operating System :: MacOS": ("macos",),
 }
+# Matched exactly: POSIX's sub-classifiers name other systems, such as FreeBSD.
+EXACT_OS_CLASSIFIERS = (
+    "Operating System :: OS Independent",
+    "Operating System :: POSIX",
+    "Operating System :: Unix",
+)
 
 PULL_REQUEST_EVENTS = ("pull_request",)
 OLDEST_MINOR = 10
@@ -159,7 +169,20 @@ CONDA_SPEC_RE = re.compile(
 )
 CLASSIFIER_RE = re.compile(r"Programming Language :: Python :: 3\.(\d+)")
 FREE_THREADING_CLASSIFIER = "Programming Language :: Python :: Free Threading"
-LOWER_BOUND_RE = re.compile(r">=\s*3\.(\d+)")
+# One requires-python clause, such as >=3.11, <3.15 or !=3.12.*
+REQUIRES_PYTHON_RE = re.compile(
+    r"\s*(~=|==|!=|<=|>=|<|>)\s*(\d+(?:\.\d+)*)(\.\*)?\s*"
+)
+# CI tests a classified 3.N on its newest patch release; this stands in for it.
+NEWEST_PATCH = 999
+COMPARISONS = {
+    "==": operator.eq,
+    "!=": operator.ne,
+    "<": operator.lt,
+    "<=": operator.le,
+    ">": operator.gt,
+    ">=": operator.ge,
+}
 
 
 class DeclarationError(Exception):
@@ -292,6 +315,48 @@ def from_conda_variants(path: Path) -> list[Python]:
     return pythons
 
 
+def requires_python_clause(
+    clause: str, requires: str
+) -> tuple[str, tuple[int, ...], bool]:
+    """One requires-python clause: (operator, release, ends in .*)."""
+    match = REQUIRES_PYTHON_RE.fullmatch(clause)
+    release = tuple(int(part) for part in match[2].split(".")) if match else ()
+    if (
+        not match
+        or (match[3] and match[1] not in ("==", "!="))
+        or (match[1] == "~=" and len(release) < 2)
+    ):
+        raise DeclarationError(
+            f"pyproject.toml: cannot read requires-python {requires!r}"
+        )
+    return match[1], release, bool(match[3])
+
+
+def admits(requires: str, minor: int) -> bool:
+    """
+    Whether requires-python admits 3.minor's newest patch release, by PEP 440
+    on release versions.
+    """
+    version = (3, minor, NEWEST_PATCH)
+    for clause in filter(str.strip, requires.split(",")):
+        compare, release, wildcard = requires_python_clause(clause, requires)
+        width = max(len(version), len(release))
+        left = version + (0,) * (width - len(version))
+        right = release + (0,) * (width - len(release))
+        if compare == "~=":  # ~=3.N is >=3.N with ==3.*
+            admitted = (
+                left >= right
+                and version[: len(release) - 1] == release[:-1]
+            )
+        elif wildcard:
+            admitted = (version[: len(release)] == release) == (compare == "==")
+        else:
+            admitted = COMPARISONS[compare](left, right)
+        if not admitted:
+            return False
+    return True
+
+
 def from_pyproject(path: Path) -> list[Python]:
     """
     The 3.N classifiers in pyproject.toml, plus 3.Nt from 3.14 if free-threading
@@ -315,11 +380,14 @@ def from_pyproject(path: Path) -> list[Python]:
             "pyproject.toml lists no Programming Language :: Python :: 3.N "
             "classifiers"
         )
-    bound = LOWER_BOUND_RE.search(project.get("requires-python", ""))
-    if bound and minors[0] < int(bound[1]):
+    requires = project.get("requires-python", "")
+    excluded = [
+        f"3.{minor}" for minor in minors if not admits(requires, minor)
+    ]
+    if excluded:
         raise DeclarationError(
-            f"pyproject.toml classifies 3.{minors[0]}, below requires-python "
-            f'{project["requires-python"]}'
+            f'pyproject.toml classifies {", ".join(excluded)}, which '
+            f"requires-python {requires} excludes"
         )
     threaded = any(
         classifier.startswith(FREE_THREADING_CLASSIFIER)
@@ -459,7 +527,7 @@ def from_conda_recipe(recipe: Path) -> list[str]:
         else str(recipe)
     )
     skips = [
-        match[1]
+        match[2]
         for line in recipe.read_text(encoding="utf-8").splitlines()
         if (match := CONDA_SKIP_RE.fullmatch(line))
     ]
@@ -491,7 +559,11 @@ def from_os_classifiers(path: Path) -> list[str] | None:
         platform
         for classifier in named
         for prefix, platforms in OS_CLASSIFIERS.items()
-        if classifier == prefix or classifier.startswith(prefix + " ::")
+        if classifier == prefix
+        or (
+            prefix not in EXACT_OS_CLASSIFIERS
+            and classifier.startswith(prefix + " ::")
+        )
         for platform in platforms
     }
     if not found:

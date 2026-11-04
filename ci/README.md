@@ -18,7 +18,7 @@ Intel Python CI (gh-ci) builds and tests dokimi's conda package and wheel in Git
 | `config.yml` | Tells gh-ci which workflow builds the packages, what its artifacts are called, and what the tests need. |
 | `test.py` | Runs dokimi's own test suite, `dokimi/tests`, from the checkout against the installed package, in Actions and again in Jenkins. |
 
-`matrix.py`, `build.py` and `hooks.py` are the shared gh-ci scripts. Here `matrix.py` and `build.py` also find the only `pyproject.toml` one directory down, as dokimi's lives in `dokimi/`, and `build.py` builds a pure Python wheel when `pyproject.toml` has no `[tool.cibuildwheel]`.
+`matrix.py`, `build.py` and `hooks.py` are the shared gh-ci scripts. Here `matrix.py` and `build.py` also find the only `pyproject.toml` one directory down, as dokimi's lives in `dokimi/`, and `build.py` builds a pure Python wheel when `pyproject.toml` has no `[tool.cibuildwheel]`. `matrix.py` keeps Linux only, the one platform the workflow has runners for.
 
 **What `test.py` proves.** It prints where `dokimi` was imported from and fails if that is inside the checkout. The suite's `conftest.py` puts the checkout on `sys.path`, so pytest imports `dokimi` first (`-p dokimi`), in every xdist worker too. The suite stays offline, as `dokimi/pyproject.toml` makes it. The suite runs with `dokimi/` as the working directory, so the tests that read `data/` and `docs/` find them there. It also checks that the installed package ships its default data files.
 
