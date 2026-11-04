@@ -795,9 +795,9 @@ def test_the_modal_pick_is_the_most_frequent_not_the_first():
 
 
 def test_a_single_usable_repeat_has_no_half_range():
-    from dokimi.novelty.routing import _noise
+    from dokimi.novelty.routing import repeat_noise
 
-    noise = _noise([[{"query": "q", "repeat": 0, "picked": PERF.name, "correct": True}]])
+    noise = repeat_noise([[{"query": "q", "repeat": 0, "picked": PERF.name, "correct": True}]])
     assert noise["selection_rate_by_repeat"] == [1.0]
     assert noise["half_range"] is None
 
@@ -805,7 +805,7 @@ def test_a_single_usable_repeat_has_no_half_range():
 def test_headings_inside_code_only_refuse_the_run_and_say_why(tmp_path):
     out = tmp_path / "routing.json"
     args = _parse("novelty", "routing",
-                  "--artifact", _skill(tmp_path, "a", "profile a binary",
+                  "--artifact", _skill(tmp_path, "a", "Tune.",
                                        body="```\n## only in code\n```\n"),
                   "--competitors", _skill(tmp_path, "b", "tune a database"),
                   "--queries-from-headings", "--out", str(out))
@@ -814,6 +814,7 @@ def test_headings_inside_code_only_refuse_the_run_and_say_why(tmp_path):
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["status"] == "no_queries"
     assert "code fences" in payload["reason"]
+    assert payload["queries_source"] == "none"
 
 
 def test_a_query_file_with_nothing_in_it_refuses_the_run(tmp_path):
