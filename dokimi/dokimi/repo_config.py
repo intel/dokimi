@@ -31,7 +31,8 @@ from dokimi.artifacts import ArtifactValidationError, validate_artifact
 from dokimi.repo_claims import _ancestor_of, _claims, _suite_only_dirs, _suite_prefixes
 from dokimi.repo_glob import glob_links as _glob_links, glob_paths as _glob_paths
 from dokimi.repo_links import _declared_links, _hops, _inside, _real, _under, _walk, _within
-from dokimi.utils import _tracked_modes, link_text, tree_digest
+from dokimi.digest_entries import target_digest
+from dokimi.utils import GitTree, _tracked_modes, file_contents, git_tree, link_text, tree_digest
 
 KIND = "dokimi_config"
 CONFIG_CANDIDATES = (".github/dokimi/config.yaml", ".dokimi/config.yaml")
@@ -97,7 +98,8 @@ class RepoConfig:
             if not hashes:
                 return resolved
             modes = _tracked_modes(self.root, ".")  # the index is read once for every subject's suite files
-            return [_hashed(s, self.root, resolved, modes) for s in resolved]
+            tree = git_tree(self.root)  # likewise the work tree, and what git leaves out of it
+            return [_hashed(s, self.root, resolved, modes, tree) for s in resolved]
         except OSError as exc:
             raise _unreadable(exc) from exc
 
@@ -571,12 +573,14 @@ def _suite_files(root: Path, globs: tuple[str, ...]) -> dict[str, Path]:
     return {rel: path for rel, path in found.items() if not any(other != rel and _within(rel, other) for other in found)}
 
 
-def _digest_files(files: dict[str, Path], root: Path, modes: Mapping[str, bool] | None = None) -> str:
+def _digest_files(files: dict[str, Path], root: Path, modes: Mapping[str, bool] | None = None,
+                  tree: GitTree | None = None) -> str:
     """One digest over the suite's files. A directory is walked file by file; a symlink counts by its target text
     (as tree_digest does) and by what it points to, so retargeting a link moves the hash even between identical trees.
     Every link met on the way to a match or a file counts too (a link above it, or one on the way to its target), so
     retargeting a link on the way to a suite moves the hash even when the files behind it are identical, or there are
-    none. ``modes`` are the index's executable bits keyed by repository-relative path, read once by the caller."""
+    none. ``modes`` are the index's executable bits keyed by repository-relative path, read once by the caller. With
+    ``tree`` a file digests as its blob id and what git leaves out (ignored paths, a nested ``.git``) is not hashed."""
     h = hashlib.sha256()
     root_real = _real(root) or root
     seen: set[tuple[str, ...]] = set()  # a link on the way to several matches is hashed once
@@ -588,44 +592,22 @@ def _digest_files(files: dict[str, Path], root: Path, modes: Mapping[str, bool] 
                 text = link_text(root.joinpath(*hop), root)  # the same spelling of the tree as the symlink lines below
                 h.update(os.fsencode(f"link {'/'.join(hop)}\0-> {text}\n"))
 
+    walked = {rel: [(name, path) for name, path in _walk(files[rel], rel) if tree is None or not tree.skipped(path)]
+              for rel in sorted(files)}
+    # what each entry points to: a link to a file hashes that file, a dangling link is its own target
+    targets = {path: (path.resolve() if path.exists() else path)
+               for found in walked.values() for _, path in found if not path.is_dir()}
+    holds = file_contents([t for t in targets.values() if t.is_file()], tree)
     for rel in sorted(files):
         hop_lines(files[rel])  # a directory match with no file under it reads its links too
-        for name, path in _walk(files[rel], rel):
+        for name, path in walked[rel]:
             hop_lines(path)
             if path.is_symlink():
                 h.update(os.fsencode(f"{name}\0-> {link_text(path, root)}\n"))  # names may hold undecodable bytes
             if path.is_dir():
                 continue  # a linked directory: its files are walked and hashed one by one
-            target = path.resolve() if path.exists() else path
-            h.update(os.fsencode(f"{name}\0{tree_digest(target, tracked=_file_modes(target, root_real, modes), crlf_as_lf=True)}\n"))
+            h.update(os.fsencode(f"{name}\0{target_digest(targets[path], root_real, modes, holds)}\n"))
     return "sha256:" + h.hexdigest()
-
-
-def _file_modes(target: Path, root_real: Path, modes: Mapping[str, bool] | None) -> dict[str, bool] | None:
-    """The index's executable bit for one file, keyed as tree_digest keys a file it digests by itself. None when the
-    index was not read (tree_digest then asks git). A file the index does not hold (untracked, outside the repository)
-    gives no bit and digests by its disk bit, as tree_digest does for an untracked file; asking git for each one is
-    the per-file process this avoids."""
-    if modes is None:
-        return None
-    try:
-        key = target.relative_to(root_real).as_posix()
-    except ValueError:
-        return {}
-    if key in modes:
-        return {target.name: modes[key]}
-    # the outer index does not hold a file of a nested checkout: its own repository records the bit, so git is asked
-    return None if _in_nested_repo(target, root_real) else {}
-
-
-def _in_nested_repo(target: Path, root_real: Path) -> bool:
-    """True when a directory between ``target`` and the repository root holds a ``.git`` of its own."""
-    for parent in target.parents:
-        if parent == root_real or not parent.is_relative_to(root_real):
-            return False
-        if (parent / ".git").exists():
-            return True
-    return False
 
 
 def _check_suite(subject: Subject, root: Path) -> None:
@@ -775,13 +757,14 @@ def _check_claims(subject: Subject, matches: dict[str, Path], real_skill: Path) 
         )
 
 
-def _hashed(subject: Subject, root: Path, all_subjects: list[Subject], modes: Mapping[str, bool] | None) -> Subject:
+def _hashed(subject: Subject, root: Path, all_subjects: list[Subject], modes: Mapping[str, bool] | None,
+            tree: GitTree | None) -> Subject:
     files = _suite_files(root, subject.suite_globs)
     if subject.kind == "repo":
         assert subject.manifest is not None  # set by _subject for kind repo
         if not any(_within(subject.manifest, rel) for rel in files):  # a suite directory already walks it
             files.setdefault(subject.manifest, root / subject.manifest)
-        return replace(subject, suite_hash=_digest_files(files, root, modes))
+        return replace(subject, suite_hash=_digest_files(files, root, modes, tree))
     inside = [rel[len(subject.path) + 1:] for rel in files if _within(rel, subject.path) and rel != subject.path]
     # a nested skill is its own subject: its files belong to its own skill_sha, not to the outer one
     nested = [
@@ -792,5 +775,5 @@ def _hashed(subject: Subject, root: Path, all_subjects: list[Subject], modes: Ma
     # A skill directory that is a symlink is its target's content (a suite match is hashed by its link instead).
     base = (root / subject.path).resolve()
     emptied = _suite_only_dirs(base, inside, _suite_prefixes(subject.suite_globs, subject.path))
-    skill_sha = "sha256:" + tree_digest(base, exclude=[*inside, *nested, *emptied], strict=True, crlf_as_lf=True)
-    return replace(subject, skill_sha=skill_sha, suite_hash=_digest_files(files, root, modes))
+    skill_sha = "sha256:" + tree_digest(base, exclude=[*inside, *nested, *emptied], strict=True, git=tree)
+    return replace(subject, skill_sha=skill_sha, suite_hash=_digest_files(files, root, modes, tree))

@@ -220,12 +220,3 @@ def test_a_deleted_skill_file_under_a_star_double_star_suite_is_named_for_both(t
     assert list(impact.skills) == ["skill/a"] and list(impact.suites) == ["skill/a"]
 
 
-def test_crlf_and_lf_checkouts_of_the_same_text_digest_the_same(tmp_path):
-    # core.autocrlf=true on Windows checks text out with CRLF; skill_sha and suite_hash must not move with it
-    files = {"skills/a/SKILL.md": "a\nb\n", "skills/a/evals/q.json": "[]\n"}
-    lf = _tree(tmp_path / "lf", {".github/dokimi/config.yaml": HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n", **files})
-    crlf_files = {rel: text.replace("\n", "\r\n") for rel, text in files.items()}
-    crlf = _tree(tmp_path / "crlf", {".github/dokimi/config.yaml": HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n",
-                                     **crlf_files})
-    a, b = load_repo_config(lf).subjects()[0], load_repo_config(crlf).subjects()[0]
-    assert (a.skill_sha, a.suite_hash) == (b.skill_sha, b.suite_hash)

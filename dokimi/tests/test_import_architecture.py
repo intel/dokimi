@@ -62,7 +62,7 @@ LAYERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     # Content loaders and pure scoring: doc sources, skills, agent profiles, Markdown
     # ingest, static metrics, gates.
     ("components", (
-        "dokimi.agent_profiles", "dokimi.gate", "dokimi.ingest", "dokimi.mcp",
+        "dokimi.agent_profiles", "dokimi.digest_entries", "dokimi.gate", "dokimi.ingest", "dokimi.mcp",
         "dokimi.metrics", "dokimi.repo_claims", "dokimi.repo_config", "dokimi.repo_glob", "dokimi.repo_links",
         "dokimi.skills",
     )),

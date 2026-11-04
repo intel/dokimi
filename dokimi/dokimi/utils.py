@@ -6,11 +6,15 @@ import json
 import os
 import re
 import stat
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, Mapping, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Mapping, Tuple
 
 from dokimi.defaults import bedrock_profile
 from dokimi.exit_codes import EXIT_USAGE
+
+if TYPE_CHECKING:
+    from dokimi.process import Env
 
 
 def parse_frontmatter(text: str) -> "Tuple[Dict[str, Any], str]":
@@ -128,11 +132,94 @@ def _posix_separators(text: str, sep: str = os.sep) -> str:
     return text if sep == "/" else text.replace(sep, "/")
 
 
-def _digest_bytes(path: Path, crlf_as_lf: bool) -> bytes:
-    """A file's bytes for a digest. With ``crlf_as_lf`` a text file (no NUL byte) reads with its CRLF line ends as LF, so
-    a checkout that converts line ends (core.autocrlf on Windows) digests as the LF text git stores. Binary files are kept."""
-    data = path.read_bytes()
-    return data.replace(b"\r\n", b"\n") if crlf_as_lf and b"\0" not in data else data
+@dataclass(frozen=True)
+class GitTree:
+    """A work tree a digest reads through git: its top (a real path) and the untracked, ignored paths git leaves out
+    (top-relative; a directory by its name, as ``ls-files --directory`` gives it)."""
+
+    top: Path
+    ignored: frozenset[str]
+
+    def top_rel(self, path: Path) -> str | None:
+        """``path`` relative to the top, as POSIX, its own link (if it is one) not followed; None outside the tree."""
+        real = Path(os.path.realpath(path.parent)) / path.name
+        try:
+            return real.relative_to(self.top).as_posix()
+        except ValueError:
+            return None
+
+    def skipped(self, path: Path) -> bool:
+        """True for what git leaves out: an ignored path, or anything under a ``.git`` (a nested repository's own)."""
+        rel = self.top_rel(path)
+        if rel is None:
+            return False
+        parts = rel.split("/")
+        return ".git" in parts or any("/".join(parts[:i]) in self.ignored for i in range(1, len(parts) + 1))
+
+
+def _git_env() -> "Env":
+    from dokimi.process import Env
+
+    # GIT_* variables (a hook's GIT_DIR or GIT_INDEX_FILE) would point git at some other repository
+    return Env.only(allow=[k for k in os.environ if not k.startswith("GIT_")])
+
+
+def git_tree(base: Path) -> GitTree | None:
+    """The work tree holding ``base``, with what git leaves out of it. None when ``base`` is in no work tree (or git
+    cannot say): the digest then hashes the bytes on disk and leaves nothing out."""
+    from dokimi.process import run
+
+    try:
+        top = run(["git", "-C", os.fspath(base), "rev-parse", "--show-toplevel"], timeout=60, env=_git_env())
+        if not top.ok:
+            return None
+        top_dir = os.fsdecode(top.stdout_bytes).strip()
+        # the ignored paths git would not descend into; a tracked file is never listed here
+        listed = run(["git", "-C", top_dir, "ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"],
+                     timeout=120, env=_git_env(), capture_limit=None)
+    except OSError:
+        return None
+    if not listed.ok:
+        return None
+    ignored = frozenset(os.fsdecode(name).rstrip("/") for name in listed.stdout_bytes.split(b"\0") if name)
+    return GitTree(Path(os.path.realpath(top_dir)), ignored)
+
+
+def _blob_ids(top: Path, rels: list[str]) -> list[str] | None:
+    """``git hash-object`` of each path (relative to ``top``) with the work tree's filters, in one call. None if git fails."""
+    from dokimi.process import run
+
+    data = b"".join(os.fsencode(rel) + b"\n" for rel in rels)
+    try:
+        done = run(["git", "-C", os.fspath(top), "hash-object", "--stdin-paths"], timeout=600, env=_git_env(),
+                   input=data, capture_limit=None)
+    except OSError:
+        return None
+    ids = [os.fsdecode(i) for i in done.stdout_bytes.split()]
+    return ids if done.ok and len(ids) == len(rels) else None
+
+
+def file_contents(paths: Iterable[Path], tree: GitTree | None) -> dict[Path, bytes]:
+    """What a digest holds for each file: git's blob id for a file in ``tree``, which git computes from the working file
+    with the work tree's filters, so a checkout with CRLF line ends (core.autocrlf) gives the LF blob. Otherwise the
+    sha256 of its bytes (no tree, a file outside it, or a name with a newline, or git failing). Git runs once."""
+    found = list(dict.fromkeys(paths))
+    out: dict[Path, bytes] = {}
+    if tree is not None:
+        rels = {path: tree.top_rel(path) for path in found}
+        inside = [(path, rel) for path, rel in rels.items() if rel is not None and "\n" not in rel]
+        ids = _blob_ids(tree.top, [rel for _, rel in inside]) if inside else []
+        if ids is not None:
+            out.update({path: bytes.fromhex(blob) for (path, _), blob in zip(inside, ids, strict=True)})
+    for path in found:
+        if path not in out:
+            out[path] = hashlib.sha256(path.read_bytes()).digest()
+    return out
+
+
+def file_digest(content: bytes, executable: bool) -> str:
+    """The digest of one file alone, as :func:`tree_digest` gives a file ``root`` (its path is ``.``)."""
+    return hashlib.sha256(b"F .\0" + f"{int(executable)}\0".encode() + content).hexdigest()
 
 
 def link_text(link: Path, root: Path) -> str:
@@ -203,12 +290,12 @@ def _tracked_modes(base: Path, spec: str) -> dict[str, bool]:
     return modes
 
 
-def _entries(root: Path, skip: tuple[str, ...], *, strict: bool) -> list[Path]:
+def _entries(root: Path, skip: tuple[str, ...], *, strict: bool, drop: Callable[[Path], bool] | None = None) -> list[Path]:
     """Every entry under ``root``, directories included, a symlink as itself and never descended into. Entries under
-    a ``skip`` prefix are not read. Non-strict is ``rglob``, which skips a directory it cannot read (and the files
-    behind it); strict raises that error, so a digest cannot leave out what it could not read."""
+    a ``skip`` prefix, and those ``drop`` names, are not read. Non-strict is ``rglob``, which skips a directory it cannot
+    read (and the files behind it); strict raises that error, so a digest cannot leave out what it could not read."""
     if not strict:
-        return list(root.rglob("*"))
+        return [p for p in root.rglob("*") if drop is None or not drop(p)]
     found: list[Path] = []
     pending = [root]
     while pending:
@@ -216,7 +303,7 @@ def _entries(root: Path, skip: tuple[str, ...], *, strict: bool) -> list[Path]:
             for entry in it:
                 path = Path(entry.path)
                 rel = path.relative_to(root).as_posix()
-                if any(rel == e or rel.startswith(e + "/") for e in skip):
+                if any(rel == e or rel.startswith(e + "/") for e in skip) or (drop is not None and drop(path)):
                     continue
                 found.append(path)
                 if entry.is_dir(follow_symlinks=False):
@@ -225,7 +312,7 @@ def _entries(root: Path, skip: tuple[str, ...], *, strict: bool) -> list[Path]:
 
 
 def tree_digest(root: Path, *, exclude: Iterable[str] = (), strict: bool = False,
-                tracked: Mapping[str, bool] | None = None, crlf_as_lf: bool = False) -> str:
+                tracked: Mapping[str, bool] | None = None, git: GitTree | bool | None = False) -> str:
     """sha256 (bare hex) over every path, mode bit and byte under ``root``; a link by its target.
 
     A file ``root`` digests as itself (its path is ``.``), and so does a symlink ``root``
@@ -241,22 +328,33 @@ def tree_digest(root: Path, *, exclude: Iterable[str] = (), strict: bool = False
     ``strict``: a directory under ``root`` that cannot be read raises its OSError (the default skips it silently).
     ``tracked``: the executable bits git records, keyed by path relative to ``root`` (to its parent for a file root),
     as :func:`_tracked_modes` returns them; None reads them from git. A caller digesting many files reads them once.
-    ``crlf_as_lf``: a text file's CRLF line ends digest as LF (see ``_digest_bytes``), so a CRLF checkout matches the LF one.
+    ``git``: hash what git stores, not the bytes on disk. A file digests as its blob id (:func:`file_contents`), so a
+    CRLF checkout with core.autocrlf matches the LF one; what git leaves out (ignored paths, a nested ``.git``) is
+    skipped, and so are directories, which git does not store. A ``GitTree`` is a work tree already read; True reads
+    it from ``root``; None (or no work tree) hashes the bytes on disk and leaves nothing out.
     """
     skip = tuple(e.strip("/") for e in exclude)
     # a symlink is never looked through here: its target may be unreadable (or gone), and it digests by its text
     is_link = root.is_symlink()
     as_file = not is_link and root.is_file()
+    if isinstance(git, GitTree):
+        tree: GitTree | None = git
+    else:
+        tree = git_tree(root.parent if is_link or as_file else root) if git else None
     # sorted by the parts of the relative path, compared as code points: the same order on every OS (Path
     # ordering folds case on Windows)
     entries = ([root] if is_link or as_file
-               else sorted(_entries(root, skip, strict=strict), key=lambda p: p.relative_to(root).parts))
+               else sorted(_entries(root, skip, strict=strict, drop=tree.skipped if tree else None),
+                           key=lambda p: p.relative_to(root).parts))
+    if tree is not None:
+        entries = [p for p in entries if p.is_symlink() or not p.is_dir()]
     base, spec = (root.parent, root.name) if as_file else (root, ".")
     modes: Mapping[str, bool]
     if tracked is None:
         modes = _tracked_modes(base, spec) if any(not p.is_symlink() and p.is_file() for p in entries) else {}
     else:  # the caller read the index already: keyed as below, by the path relative to ``base``
         modes = tracked
+    holds = file_contents([p for p in entries if not p.is_symlink() and p.is_file()], tree)
     h = hashlib.sha256()
     for path in entries:
         rel = "." if path == root else path.relative_to(root).as_posix()
@@ -273,7 +371,7 @@ def tree_digest(root: Path, *, exclude: Iterable[str] = (), strict: bool = False
             else:
                 executable = bool(os.lstat(path).st_mode & stat.S_IXUSR)
             h.update(b"F " + name + f"\0{int(executable)}\0".encode())
-            h.update(hashlib.sha256(_digest_bytes(path, crlf_as_lf)).digest())
+            h.update(holds[path])
         elif path.is_dir():
             h.update(b"D " + name + b"\0")
     return h.hexdigest()
