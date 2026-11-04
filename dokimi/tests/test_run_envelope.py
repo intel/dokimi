@@ -64,6 +64,11 @@ def test_every_run_kind_schema_declares_the_same_envelope(kind):
     assert not set(ENVELOPE_KEYS) & set(_schema(kind).get("required", []))  # older files stay valid
 
 
+def test_the_schema_pattern_is_the_one_run_id_accepts():
+    """A loaded file's run_id can name a directory too, as a written one can."""
+    assert _schema("answers")["properties"]["run_id"]["pattern"] == f"^{artifacts._RUN_ID.pattern}$"
+
+
 @pytest.mark.parametrize("kind", sorted(INPUT_KINDS))
 def test_no_input_kind_schema_declares_the_envelope(kind):
     assert not set(ENVELOPE_KEYS) & set(_schema(kind).get("properties", {}))
@@ -115,7 +120,8 @@ def test_an_artifact_saved_before_the_envelope_is_valid_and_lists_with_no_run_id
     assert found.run_id is None and found.to_json()["run_id"] is None
 
 
-@pytest.mark.parametrize("key, value", [("run_id", 7), ("run_id", ""), ("dokimi_version", None)])
+@pytest.mark.parametrize("key, value", [("run_id", 7), ("run_id", ""), ("run_id", "../x y"),
+                                        ("run_id", "x" * 129), ("dokimi_version", None)])
 def test_the_schema_types_the_envelope(key, value):
     with pytest.raises(ArtifactValidationError, match=key):
         validate_artifact("arms", {**_fixture("arms"), key: value})
