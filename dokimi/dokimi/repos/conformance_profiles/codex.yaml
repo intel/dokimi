@@ -82,3 +82,4 @@ skills:
     and .codex/skills in the project, $CODEX_HOME/skills and ~/.agents/skills,
     nested skills/group/<skill> and symlinked skill dirs. Skills that share
     a name are all listed (identity is name + path).
+overlay: codex   # AGENTS.codex.md, the guidance:overlay arm (agentsmd/agents.md#185)
