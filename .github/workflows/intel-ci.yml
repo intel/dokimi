@@ -13,8 +13,9 @@ on:
 permissions:
   contents: read
 
+# As in ci.yml: a push or tag run gets a group of its own, so a queued main push is never dropped.
 concurrency:
-  group: intel-ci-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
