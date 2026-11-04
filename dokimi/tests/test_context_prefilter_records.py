@@ -61,3 +61,18 @@ def test_a_rule_acted_on_in_the_in_use_share_of_sessions_is_in_use_though_its_wo
     idle = [_session(_prompt("fix the typo"), name=f"i{i}") for i in range(10 - acting if acting < 5 else 0)]
     row = _row(_report(ran + idle, rule, min_sessions=5, rare_max=3, in_use_rate=0.2), "Run")
     assert (row["status"], row["rank"], row["sessions_triggered"], row["sessions_acted"]) == (status, rank, 0, acting)
+
+
+@pytest.mark.parametrize(("rule", "acting", "triggering", "total", "rate", "status"), [
+    ("- Never run `make ci-local` when pushing a branch.\n", 2, 0, 10, 0.2, "kept_protected"),
+    ("- Run `make ci-local` when pushing a branch.\n", 3, 0, 3, 0.2, "insufficient_corpus"),
+    ("- Run `make ci-local` when pushing a branch.\n", 0, 0, 10, 0.0, "candidate_for_ablation"),
+    ("- Run `make ci-local` when pushing a branch.\n", 2, 1, 10, 0.2, "in_use"),  # outranks rare_not_ranked
+])
+def test_the_acted_share_comes_after_protection_and_corpus_size_and_before_rarity(rule, acting, triggering, total,
+                                                                                    rate, status):
+    ran = [_session(_prompt("fix the typo"), _tool("Bash", command="make ci-local"), name=f"r{i}") for i in range(acting)]
+    pushed = [_session(_prompt("push the branch now"), name=f"p{i}") for i in range(triggering)]
+    idle = [_session(_prompt("fix the typo"), name=f"i{i}") for i in range(total - acting - triggering)]
+    row = _row(_report(ran + pushed + idle, rule, min_sessions=5, rare_max=3, in_use_rate=rate), "ci-local")
+    assert (row["status"], row["sessions_acted"], row["sessions_triggered"]) == (status, acting, triggering)

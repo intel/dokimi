@@ -8,6 +8,7 @@ from __future__ import annotations
 import pytest
 
 from dokimi.commands.context import _read_sessions
+from dokimi.context.session_log import read_session_tree
 from tests.test_context_prefilter import _prompt, _report, _row, _tool, _write
 
 RULE = "- Run `make ci-local` when pushing a branch.\n"
@@ -39,6 +40,36 @@ def test_a_subagent_transcript_is_read_as_part_of_its_session_in_time_order(tmp_
     row = _row(_report(sessions, RULE, min_sessions=5, rare_max=3), "Run")
     assert (len(sessions), failed, row["status"], row["acted"], row["episodes"]) == (10, False, "in_use", 4, 4)
     assert "subagent" not in capsys.readouterr().err
+
+
+def test_the_subagent_events_sit_between_the_task_call_and_the_parent_calls_after_it(tmp_path):
+    _subagent_corpus(tmp_path)
+    events = read_session_tree(tmp_path / "s0.jsonl").events
+    assert [e.timestamp for e in events] == sorted(e.timestamp for e in events)
+    assert [e.command for e in events] == ["", "", "make ci-local", *["ls"] * 12] and "gate" in events[1].text
+
+
+def test_the_pushback_after_the_subagent_is_the_next_prompt_of_the_trigger(tmp_path):
+    _write(tmp_path / "s.jsonl", [_at(1, _prompt("push the branch now")),
+                                  _at(2, _tool("Task", description="gate", prompt="run the gate")),
+                                  _at(9, _prompt("no, run make ci-local before you push"))])
+    (tmp_path / "s" / "subagents").mkdir(parents=True)
+    _write(tmp_path / "s" / "subagents" / "agent-1.jsonl", [_at(3, _tool("Bash", command="ls"), isSidechain=True)])
+    row = _row(_report([read_session_tree(tmp_path / "s.jsonl")], RULE), "Run")
+    assert (row["episodes"], row["corrected"]) == (1, 1)
+
+
+@pytest.mark.parametrize(("before", "acted"), [(8, 1), (9, 0)])
+def test_a_subagent_run_counts_within_the_window_of_the_parent_trigger(tmp_path, before, acted):
+    _write(tmp_path / "s.jsonl", [_at(1, _prompt("push the branch now")),
+                                  _at(2, _tool("Task", description="gate", prompt="run the gate")),
+                                  *[_at(40 + k, _tool("Bash", command="ls")) for k in range(12)]])
+    (tmp_path / "s" / "subagents").mkdir(parents=True)
+    _write(tmp_path / "s" / "subagents" / "agent-1.jsonl",
+           [*[_at(3 + k, _tool("Bash", command="pwd"), isSidechain=True) for k in range(before)],
+            _at(30, _tool("Bash", command="make ci-local"), isSidechain=True)])
+    row = _row(_report([read_session_tree(tmp_path / "s.jsonl")], RULE), "Run")
+    assert row["acted"] == acted  # the run is event before + 2 after the trigger; the window is 10
 
 
 def test_a_subagent_transcript_named_without_its_session_log_is_skipped_with_a_warning(tmp_path, capsys):
