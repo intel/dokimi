@@ -7,14 +7,16 @@ from __future__ import annotations
 
 import json
 import subprocess
+from functools import partial
 
 import pytest
 
 from dokimi.cli import build_parser
-from dokimi.repos.budget import budget
+from dokimi.repos.budget import budget as _budget
 from dokimi.repos.source import GitTree, SourceError, WorkTree
 
 NAMES = ("CLAUDE.md", "CLAUDE.local.md", "AGENTS.md")
+budget = partial(_budget, claude_displaces_agents=True)  # as `repo budget --harness claude-code` calls it
 
 
 def _skill(name, description, body="Do the thing.\n"):
