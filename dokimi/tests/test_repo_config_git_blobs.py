@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import time
 from pathlib import Path
 
 from dokimi.repo_config import load_repo_config
@@ -125,3 +126,22 @@ def test_an_ignored_directory_above_the_root_does_not_hide_its_files(tmp_path):
     before = tree_digest(root, git=git_tree(root))
     (root / "a" / "SKILL.md").write_text("b\n")
     assert tree_digest(root, git=git_tree(root)) != before  # build/ is git's, not the walk's: SKILL.md still counts
+
+
+def test_a_touched_crlf_file_keeps_its_hash_in_an_autocrlf_clone(tmp_path):
+    src = _repo(tmp_path / "src", {**FILES, "skills/a/evals/t/test.bat": "echo a\r\necho b\r\n"})
+    clone = tmp_path / "clone"
+    subprocess.run(["git", "clone", "-q", str(src), str(clone)], check=True, capture_output=True)
+    _git(clone, "config", "core.autocrlf", "true")
+    later = time.time() + 60  # the same bytes, a clearly newer mtime (git would then compare the content)
+    os.utime(clone / "skills/a/evals/t/test.bat", (later, later))
+    assert _hashes(clone.resolve()) == _hashes(src)
+
+
+def test_an_edit_under_skip_worktree_moves_the_hash(tmp_path):
+    root = _repo(tmp_path / "r", FILES)
+    before = _hashes(root)
+    _git(root, "update-index", "--skip-worktree", "skills/a/SKILL.md")
+    (root / "skills/a/SKILL.md").write_text("changed\n")
+    assert _hashes(root) != before  # git does not look at a skip-worktree file; the hash must still read the disk
+

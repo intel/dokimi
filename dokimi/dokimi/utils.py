@@ -6,7 +6,7 @@ import json
 import os
 import re
 import stat
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Mapping, Tuple
 
@@ -136,12 +136,13 @@ def _posix_separators(text: str, sep: str = os.sep) -> str:
 class GitTree:
     """A work tree a digest reads through git: its top (a real path), the walk's base (top-relative, "" for the top), the
     untracked, ignored paths git leaves out (top-relative, a directory by its name as ``ls-files --directory`` gives it),
-    and the blob ids of the tracked files git finds unchanged (their index entries)."""
+    and the blob ids of the tracked files git finds unchanged (their index entries). A tree is a snapshot: build one per
+    digest. ``indexed`` is left out of hash and equality: a mapping cannot hash."""
 
     top: Path
     base: str
     ignored: frozenset[str]
-    indexed: Mapping[str, str]
+    indexed: Mapping[str, str] = field(hash=False, compare=False)
 
     def top_rel(self, path: Path) -> str | None:
         """``path`` relative to the top, as POSIX, its own link (if it is one) not followed; None outside the tree."""
@@ -197,21 +198,46 @@ def git_tree(base: Path) -> GitTree | None:
 
 def _index_blobs(top: str) -> dict[str, str]:
     """The index's blob id for each tracked file that git finds unchanged in the work tree. ``hash-object`` does not read
-    the index, so it would fold a committed CRLF file under core.autocrlf; the index keeps that blob as it is."""
+    the index, so it would fold a committed CRLF file under core.autocrlf. Flagged entries (skip-worktree, assume-unchanged)
+    are left out: git does not look at those files, so their disk content is hashed."""
     from dokimi.process import run
 
-    staged = run(["git", "-C", top, "ls-files", "-s", "-z"], timeout=120, env=_git_env(), capture_limit=None)
-    dirty = run(["git", "-C", top, "diff-files", "--name-only", "-z"], timeout=120, env=_git_env(), capture_limit=None)
-    if not (staged.ok and dirty.ok):
+    env = _git_env()
+    staged = run(["git", "-C", top, "ls-files", "-s", "-z"], timeout=120, env=env, capture_limit=None)
+    tags = run(["git", "-C", top, "ls-files", "-v", "-z"], timeout=120, env=env, capture_limit=None)
+    # --no-optional-locks: status refreshes its view in memory and does not rewrite the index
+    dirty = run(["git", "-C", top, "--no-optional-locks", "status", "--porcelain=v1", "-z", "-uno"], timeout=120,
+                env=env, capture_limit=None)
+    if not (staged.ok and tags.ok and dirty.ok):
         return {}
-    changed = set(dirty.stdout_bytes.split(b"\0"))
+    changed = _worktree_changed(dirty.stdout_bytes) | _flagged(tags.stdout_bytes)
     out: dict[str, str] = {}
     for entry in staged.stdout_bytes.split(b"\0"):
         meta, _, name = entry.partition(b"\t")
-        mode_blob_stage = meta.split()
-        if name and name not in changed and len(mode_blob_stage) == 3 and mode_blob_stage[2] == b"0":
-            out[os.fsdecode(name)] = os.fsdecode(mode_blob_stage[1])
+        fields = meta.split()
+        if name and len(fields) == 3 and fields[2] == b"0" and os.fsdecode(name) not in changed:
+            out[os.fsdecode(name)] = os.fsdecode(fields[1])
     return out
+
+
+def _worktree_changed(status: bytes) -> set[str]:
+    """The tracked paths whose work tree differs from the index, from ``git status --porcelain=v1 -z``: an entry is
+    ``XY path``, and a rename or copy in the index is followed by its origin path."""
+    changed: set[str] = set()
+    items = iter(status.split(b"\0"))
+    for entry in items:
+        if len(entry) < 4:
+            continue
+        if entry[:1] in (b"R", b"C"):
+            next(items, None)
+        if entry[1:2] != b" ":
+            changed.add(os.fsdecode(entry[3:]))
+    return changed
+
+
+def _flagged(tags: bytes) -> set[str]:
+    """The index entries git does not check against the disk: skip-worktree (``S``) and assume-unchanged (lower case)."""
+    return {os.fsdecode(entry[2:]) for entry in tags.split(b"\0") if entry[:1] == b"S" or entry[:1].islower()}
 
 
 def _blob_ids(top: Path, rels: list[str]) -> list[str] | None:
@@ -245,11 +271,11 @@ def _blob_contents(paths: list[Path], tree: GitTree) -> dict[Path, bytes]:
     hashed: list[tuple[Path, str]] = []
     for path in paths:
         rel = tree.top_rel(path)
-        if rel is None or "\n" in rel or rel.startswith('"') or rel.endswith("\r"):  # --stdin-paths would misread these
+        if rel is None:
             continue
         if rel in tree.indexed:
             out[path] = bytes.fromhex(tree.indexed[rel])
-        else:
+        elif "\n" not in rel and not rel.startswith('"') and not rel.endswith("\r"):  # --stdin-paths misreads the rest
             hashed.append((path, rel))
     ids = _blob_ids(tree.top, [rel for _, rel in hashed]) if hashed else []
     if ids is not None:
