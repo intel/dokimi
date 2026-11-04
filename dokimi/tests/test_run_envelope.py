@@ -166,9 +166,11 @@ def test_a_malformed_dokimi_run_id_is_an_input_error(fresh_id, monkeypatch, tmp_
     monkeypatch.setenv(artifacts.RUN_ID_ENV, value)
     with pytest.raises(InputError, match="DOKIMI_RUN_ID"):
         run_id()
-    with pytest.raises(InputError):
+    with pytest.raises(InputError, match="payload kept at"):
         save_artifact("arms", _fixture("arms"), tmp_path / "a.json")
-    assert not list(tmp_path.iterdir())
+    assert [p.name for p in tmp_path.iterdir()] == ["a.json.rejected"]  # a paid run is not lost
+    kept = json.loads((tmp_path / "a.json.rejected").read_text(encoding="utf-8"))
+    assert kept == {"schema_version": "arms.v1", **_fixture("arms")}
 
 
 def test_the_cli_refuses_a_malformed_dokimi_run_id_before_the_command_runs(monkeypatch, capsys):

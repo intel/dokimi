@@ -228,7 +228,9 @@ def save_artifact(kind: str, data: dict, path: Path | str) -> dict:
       at ``<name>.rejected`` so a paid run is not lost to a schema problem. A later valid
       save to ``path`` removes that ``<name>.rejected`` (only that sibling), so a leftover
       always belongs to the latest attempt; if it cannot be removed the save still stands and
-      a warning is logged. ``KeyError`` means ``kind`` is not registered in
+      a warning is logged. :class:`~dokimi.utils.InputError` means ``DOKIMI_RUN_ID`` is malformed
+      (``cli.main`` refuses it before a command runs): nothing is written at ``path`` and the payload
+      is kept at ``<name>.rejected`` the same way. ``KeyError`` means ``kind`` is not registered in
       :data:`SCHEMA_VERSIONS`.
     - The write is atomic (a ``<name>.<pid>.<thread>.tmp`` sibling, then ``os.replace``), so a
       reader or a crash never sees half a file, and concurrent saves to one path (threads or
@@ -243,10 +245,15 @@ def save_artifact(kind: str, data: dict, path: Path | str) -> dict:
     """
     if kind not in SCHEMA_VERSIONS:
         raise KeyError(f"Unknown artifact kind: {kind!r}")
-    head = {"schema_version": SCHEMA_VERSIONS[kind], **envelope(kind)}
-    payload = {**head, **{k: v for k, v in data.items() if k not in head}}
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        head = {"schema_version": SCHEMA_VERSIONS[kind], **envelope(kind)}
+    except InputError as exc:  # a malformed DOKIMI_RUN_ID in library use: keep the paid payload
+        rejected = path.with_name(path.name + ".rejected")
+        rejected.write_text(json.dumps({"schema_version": SCHEMA_VERSIONS[kind], **data}, indent=2), encoding="utf-8")
+        raise InputError(f"{exc}\n(not written to {path}; payload kept at {rejected})") from exc
+    payload = {**head, **{k: v for k, v in data.items() if k not in head}}
     text = json.dumps(payload, indent=2)
     try:
         validate_artifact(kind, payload)
