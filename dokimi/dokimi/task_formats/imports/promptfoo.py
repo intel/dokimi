@@ -12,17 +12,25 @@ have no counterpart: those become ``unsupported`` checks, listed and not counted
 
 Files a config points to (``file://`` prompts and tests) are read only when they are JSON,
 YAML or text inside the config's directory.
+
+A config written as code (``promptfooconfig.js``/``.ts``/``.mjs``/``.cjs``) is read by running
+``node`` on it once, to get the object it exports as JSON. That runs the config's own code, as
+promptfoo itself does; without ``node`` on PATH the import refuses and says so.
 """
 
 from __future__ import annotations
 
 import csv
 import io
+import json
 import math
+import os
 import re
+import shutil
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
+from dokimi.task_formats.configs import PROMPTFOO_CODE_SUFFIXES
 from dokimi.task_formats.imports.common import (
     Imported, as_list, judge, match, question, render_chat, render_template, unsupported,
 )
@@ -30,6 +38,39 @@ from dokimi.task_formats.imports.promptfoo_csv import assertion_from_cell
 from dokimi.task_formats.source import FileSource
 
 FORMAT = "promptfoo"
+
+#: Imports the config module and prints its default export (or the module) as JSON; functions
+#: and other values JSON cannot hold are left out. ``argv[1]`` is the config's absolute path.
+_NODE_READER = (
+    "import { pathToFileURL } from 'node:url';"
+    "const m = await import(pathToFileURL(process.argv[1]).href);"
+    "process.stdout.write(JSON.stringify(m.default ?? m));"
+)
+
+
+def _code_config(path: Path) -> Any:
+    node = shutil.which("node")
+    if node is None:
+        raise ValueError(f"{path}: a promptfoo config written as code is read with node, which is not on PATH; "
+                         "install node, or export the config to YAML or JSON")
+    from dokimi.process import Env, run
+
+    target = os.fspath(path.resolve())
+    done = run([node, "--input-type=module", "-e", _NODE_READER, target], timeout=60, env=Env.inherit(),
+               cwd=path.resolve().parent)
+    if not done.ok:
+        named = re.search(r"^\w*Error: .*$", done.stderr, re.M)
+        raise ValueError(f"{path}: node could not read the config: {named.group(0) if named else 'no error text'}")
+    try:
+        return json.loads(done.stdout)
+    except ValueError as exc:
+        raise ValueError(f"{path}: node printed no JSON for the config ({exc})") from exc
+
+
+def _config(path: Path) -> Any:
+    if path.suffix.lower() in PROMPTFOO_CODE_SUFFIXES:
+        return _code_config(path)
+    return FileSource(path).data
 
 _CONTAINS = {
     "contains": ("any", False), "icontains": ("any", True),
@@ -202,7 +243,7 @@ def _render(template: Any, variables: Mapping[str, Any], imp: Imported) -> str:
 
 
 def import_file(path: Path) -> Imported:
-    data = FileSource(path).data
+    data = _config(path)
     if not isinstance(data, Mapping):
         raise ValueError(f"{path}: not a promptfoo config mapping")
     imp = Imported(FORMAT, path, native_scorer="assert")

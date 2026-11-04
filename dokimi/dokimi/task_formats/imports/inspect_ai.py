@@ -9,8 +9,10 @@ A samples file (JSON/JSONL rows of ``Sample`` fields: ``input``, ``target``, ``c
 imported or run. What it says in literals is read -- ``Sample(...)`` lists,
 ``json_dataset("<file>", FieldSpec(...))``, ``scorer=<name>(<literal kwargs>)``,
 ``multiple_choice()`` / ``system_message("...")`` solvers -- and anything computed is refused
-or counted as lossy. Scorer semantics follow ``inspect_ai/scorer`` (``match_str``, ``exact``,
-``choice``, ``model_graded_qa``) at inspect-ai 0.3.283.
+or counted as lossy. ``hf_dataset(...)`` is loaded with the optional ``datasets`` package (data,
+not the task's code). Scorer semantics follow ``inspect_ai/scorer`` (``match_str``, ``exact``,
+``choice``, ``model_graded_qa``) at inspect-ai 0.3.283. A custom ``@scorer`` the file defines has
+no translation: it is judged on its docstring, the criterion, or stays unsupported without one.
 """
 
 from __future__ import annotations
@@ -75,8 +77,12 @@ def _checks(scorer: str, kwargs: Mapping[str, Any], targets: list[str], imp: Imp
     if scorer in ("model_graded_qa", "model_graded_fact"):
         imp.note(f"{scorer}: C/P/I grade approximated by a yes/no judge")
         return [judge(reference=" | ".join(targets), native=scorer)]
-    imp.note(f"scorer `{scorer}` has no translation")
-    return [unsupported(scorer)]
+    doc = imp.native_docs.get(scorer)
+    if not doc:
+        imp.note(f"scorer `{scorer}` has no translation")
+        return [unsupported(scorer)]
+    imp.note(f"scorer `{scorer}` approximated by a judge on its docstring")
+    return [judge(criterion=doc, reference=" | ".join(targets), native=scorer)]
 
 
 def _sample_question(row: Mapping[str, Any], idx: int, *, scorer: Optional[str], kwargs: Mapping[str, Any],
@@ -219,6 +225,48 @@ def _scorer(node: Optional[ast.AST], imp: Imported) -> tuple[str, dict[str, Any]
     return _name(first), kwargs
 
 
+def _hf_rows(node: ast.Call, base: Path) -> list[dict[str, Any]]:
+    """Rows of ``hf_dataset(path, split=..., ...)``, mapped through its FieldSpec.
+
+    The optional ``datasets`` package loads them (a local ``data_files=`` must sit in the task's
+    directory). A ``split=`` must be a literal: the default split is not read here.
+    """
+    args = [_literal(a) for a in node.args]
+    kwargs = {k: v for k, v in _kwargs(node).items() if k != "sample_fields"}
+    if not args or not all(isinstance(a, str) for a in args) or not isinstance(kwargs.get("split"), str):
+        raise ValueError("hf_dataset: the path and split= must be literal strings")
+    if kwargs.get("trust_remote_code"):
+        raise ValueError("hf_dataset: trust_remote_code= would run the dataset's own loader code on import; refused")
+    try:
+        import datasets
+    except ImportError as exc:
+        raise ValueError("hf_dataset needs the optional `datasets` package (pip install datasets); "
+                         "or run the task natively and import its log") from exc
+    if isinstance(kwargs.get("data_files"), str):
+        files = (base / kwargs["data_files"]).resolve()
+        if not files.is_relative_to(base.resolve()):
+            raise ValueError(f"hf_dataset data_files {kwargs['data_files']} is outside the task's directory")
+        kwargs["data_files"] = str(files)
+    try:
+        loaded = datasets.load_dataset(*args, **kwargs)  # nosec B615 - the task names its dataset and revision=
+    except Exception as exc:  # the loader's own errors (network, schema) are the user's to read
+        raise ValueError(f"hf_dataset could not load {args[0]}: {exc}") from exc
+    fields = _field_spec(node)
+    spec = {**_FIELD_DEFAULTS, **fields} if fields else {}
+    return [{k: r.get(v) for k, v in spec.items() if v in r} if spec else r for r in (dict(r) for r in loaded)]
+
+
+def _scorer_docs(tree: ast.AST) -> dict[str, str]:
+    """The docstrings of the ``@scorer`` functions a file defines: what each custom scorer says it grades."""
+    docs: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and any(_name(d) == "scorer" for d in node.decorator_list):
+            doc = ast.get_docstring(node)
+            if doc:
+                docs[node.name] = " ".join(doc.split())
+    return docs
+
+
 def _dataset(node: Optional[ast.AST], base: Path, imp: Imported) -> tuple[Optional[Path], dict[str, str], list[dict[str, Any]]]:
     """``(file, field spec, inline rows)`` of a Task's ``dataset=``."""
     if isinstance(node, (ast.List, ast.Tuple)):
@@ -230,6 +278,8 @@ def _dataset(node: Optional[ast.AST], base: Path, imp: Imported) -> tuple[Option
                     imp.note("Sample field that is not a literal dropped")
                 rows.append({k: v for k, v in row.items() if v is not None})
         return None, {}, rows
+    if isinstance(node, ast.Call) and _name(node) == "hf_dataset":
+        return None, {}, _hf_rows(node, base)
     if isinstance(node, ast.Call) and _name(node) in ("json_dataset", "csv_dataset") and node.args:
         rel = _literal(node.args[0])
         if not isinstance(rel, str):
@@ -257,7 +307,7 @@ def import_task(path: Path, *, task: Optional[str] = None) -> Imported:
     if call is None:
         raise ValueError(f"{path}: @task {chosen[0].name} builds no Task(...) literally")  # type: ignore[attr-defined]
     kw = {k.arg: k.value for k in call.keywords if k.arg}
-    imp = Imported(FORMAT_TASK, path)
+    imp = Imported(FORMAT_TASK, path, native_docs=_scorer_docs(tree))
     if "sandbox" in kw:
         imp.note("sandbox not provided (answer-only)")
     mcq, multiple, system = _read_solver(_solvers(kw.get("solver") or kw.get("plan")), imp)
