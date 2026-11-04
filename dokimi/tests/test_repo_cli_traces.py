@@ -383,6 +383,14 @@ def test_copilot_native_tool_paths_start_in_the_given_directory():
     assert convert("copilot-json", win, "/ws", "sub").events[0]["path"] == "AGENTS.md"
 
 
+@pytest.mark.parametrize(("path", "cwd", "want"), [
+    ("C:\\ws\\x.md", "sub", "C:\\ws\\x.md"), ("/ws/x.md", "sub", "/ws/x.md"), ("dir\\f.py", "sub", "sub/dir/f.py")])
+def test_from_cwd_keeps_an_absolute_path_and_joins_a_relative_one(path, cwd, want):
+    from dokimi.repos.transcript import _from_cwd
+
+    assert _from_cwd(path, cwd) == want
+
+
 def test_codex_json_keeps_every_agent_message_and_the_last_is_the_answer():
     raw = _jsonl(
         {"type": "item.completed", "item": {"type": "agent_message", "text": "first"}},
