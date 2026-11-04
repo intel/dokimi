@@ -892,7 +892,7 @@ def test_all_vs_all_refuses_estimate_only_before_it_calls_the_model(tmp_path, mo
     args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
                   "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"),
                   "--model", "m", "--estimate-only")
-    with pytest.raises(SystemExit, match="takes no --estimate-only"):
+    with pytest.raises(InputError, match="takes no --estimate-only"):
         args.func(args)
     assert not (tmp_path / "o.json").exists()
 

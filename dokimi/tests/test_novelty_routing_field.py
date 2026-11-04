@@ -461,7 +461,7 @@ def test_a_disabled_skill_named_by_a_query_warns_once_and_counts_the_field_once(
                                    "grill": ["interview me about my plan"]}), encoding="utf-8")
     args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
                   "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
-    with pytest.raises(SystemExit):
+    with pytest.raises(InputError):
         args.func(args)
     err = capsys.readouterr().err
     assert err.count("competitors") == 1
@@ -537,7 +537,7 @@ def test_queries_naming_a_disabled_skill_say_so_and_suggest_the_flag(tmp_path):
                                         "grill": ["interview me about my plan"]})
     args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
                   "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(InputError) as exc:
         args.func(args)
     message = str(exc.value)
     assert "not in the field: `grill`" in message
@@ -577,7 +577,7 @@ def test_one_refusal_names_each_left_out_skill_with_every_rule_that_left_it_out(
     queries = _write_queries(tmp_path, {name: ["q"] for name in names})
     args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
                   "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(InputError) as exc:
         args.func(args)
     message = str(exc.value)
     assert "not in the field: `both`, `db`, `ghost`, `grill`, `long`." in message
