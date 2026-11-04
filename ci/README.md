@@ -14,7 +14,7 @@ Intel Python CI (gh-ci) builds and tests dokimi's conda package and wheel in Git
 | `../.github/workflows/intel-ci.yml` | One job reads both matrices. One job per Python version builds and uploads `dokimi Linux Python <version>`, and one builds `dokimi Linux Wheels Python <version>`. Then one job per package tests it. |
 | `matrix.py` | Reads the platforms and Python versions from the recipe, or with `--system wheel` from `dokimi/pyproject.toml`. A pull request gets the oldest and the newest versions. |
 | `build.py` | Builds one Python version: with conda-build, which runs the recipe's own tests, or with `--system wheel` with `pip wheel`. |
-| `hooks.py` | The workflow's test jobs: installs one package into a clean environment with the requirements in `config.yml`, and runs `test.py` the way Jenkins does. A conda package's environment comes from conda-forge; a wheel's has only Python from conda-forge and everything else from PyPI. |
+| `hooks.py` | The workflow's test jobs: installs one package into a clean environment with the requirements in `config.yml`, and runs `test.py` the way Jenkins does. A conda package's environment comes from conda-forge; a wheel's has only Python from conda-forge and everything else from PyPI, pinned by `dokimi/requirements.lock.txt` except on a release tag. |
 | `config.yml` | Tells gh-ci which workflow builds the packages, what its artifacts are called, and what the tests need. |
 | `test.py` | Runs dokimi's own test suite, `dokimi/tests`, from the checkout against the installed package, in Actions and again in Jenkins. |
 

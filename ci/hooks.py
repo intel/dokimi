@@ -11,7 +11,9 @@ a local channel plus conda-forge, pinned to its exact build, with the test
 requirements ci/config.yml lists, and the test runs with that environment's
 Python from an empty working directory, on Linux or Windows. A wheel's
 environment has only Python from conda-forge: the wheel and the test
-requirements install with pip, as in the wheel's users' environments. The
+requirements install with pip, as in the wheel's users' environments. A tag
+resolves them from PyPI; any other event installs dokimi/requirements.lock.txt
+first, so a new upstream release cannot fail a pull request. The
 interpreter spec and the requirements are the ones Jenkins uses. It gets the
 same variables, and nothing else from the runner, as it does in Jenkins, so a
 test that passes here passes there. Jenkins runs ci/test.py again on its own
@@ -62,6 +64,7 @@ elif sys.platform == "darwin":
 else:
     PLATFORM, HOST_SUBDIR = "linux", "linux-64"
 CONDA_SUFFIXES = (".conda", ".tar.bz2")
+LOCK = ROOT / "dokimi" / "requirements.lock.txt"
 # All the test sees of the runner's environment, so no tokens reach it
 KEEP = (
     "PATH",
@@ -306,7 +309,15 @@ def install(args: argparse.Namespace) -> Path:
     if args.kind == "wheel":
         conda_create(env_dir, python, "pip")
         wheel_specs = requires if wheel_requires is None else wheel_requires
-        run([*pip, *map(str, packages), *wheel_specs])
+        if args.event == "tag":
+            run([*pip, *map(str, packages), *wheel_specs])
+        else:
+            # Only a tag tests the latest PyPI releases, as ci.yml keeps
+            # its latest-deps run off pull requests
+            run([*pip, "--no-deps", "--require-hashes", "-r", str(LOCK)])
+            run([*pip, "--no-deps", *map(str, packages)])
+            if wheel_specs:
+                run([*pip, *wheel_specs])
     else:
         channel = args.work / "channel"
         stage_channel(packages, channel)
