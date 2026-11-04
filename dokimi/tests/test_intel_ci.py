@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import email
 import importlib.util
 import subprocess
 import sys
@@ -140,3 +141,15 @@ def test_a_posix_sub_classifier_names_its_own_system_not_linux(
     with pytest.raises(matrix.DeclarationError, match="names no Operating System"):
         matrix.from_os_classifiers(path)
 
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_wheel_requires_land_in_the_metadata_headers(newline: str,
+                                                     monkeypatch: pytest.MonkeyPatch) -> None:
+    """Requires-Dist goes before the blank line that starts the description, LF or CRLF."""
+    build = _script("build", monkeypatch)
+    metadata = newline.join(["Metadata-Version: 2.4", "Name: dokimi", "", "Description.", ""])
+    text = build.with_requirements(metadata, ["mkl", "numpy >=2"])
+    message = email.message_from_string(text)
+    assert message.get_all("Requires-Dist") == ["mkl", "numpy >=2"]
+    assert message.get_payload().strip() == "Description."
+    assert text.count(newline * 2) == 1 and ("\r\n" in text) == (newline == "\r\n")

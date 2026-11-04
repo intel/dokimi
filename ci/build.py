@@ -46,6 +46,7 @@ import base64
 import hashlib
 import os
 import platform
+import re
 import shlex
 import shutil
 import subprocess
@@ -156,6 +157,16 @@ def record_hash(data: bytes) -> str:
     return "sha256=" + digest.rstrip(b"=").decode("ascii")
 
 
+def with_requirements(metadata: str, requirements: list[str]) -> str:
+    """METADATA with Requires-Dist lines added to its headers, LF or CRLF."""
+    newline = "\r\n" if "\r\n" in metadata else "\n"
+    head, *body = re.split(r"\r?\n\r?\n", metadata, maxsplit=1)
+    head = head.rstrip("\r\n") + "".join(
+        f"{newline}Requires-Dist: {r}" for r in requirements
+    )
+    return head + newline + (newline + body[0] if body else "")
+
+
 def add_requirements(wheel: Path, requirements: list[str]) -> None:
     """Adds Requires-Dist lines to a built wheel, and updates its RECORD."""
     with zipfile.ZipFile(wheel) as source:
@@ -165,12 +176,9 @@ def add_requirements(wheel: Path, requirements: list[str]) -> None:
     record = metadata.removesuffix("METADATA") + "RECORD"
     for index, (info, data) in enumerate(members):
         if info.filename == metadata:
-            head, blank, body = data.decode("utf-8").partition("\n\n")
-            head = head.rstrip("\n") + "".join(
-                f"\nRequires-Dist: {r}" for r in requirements
-            )
-            text = head + ("\n\n" + body if blank else "\n")
-            new_metadata = text.encode("utf-8")
+            new_metadata = with_requirements(
+                data.decode("utf-8"), requirements
+            ).encode("utf-8")
             members[index] = (info, new_metadata)
     for index, (info, data) in enumerate(members):
         if info.filename == record:
