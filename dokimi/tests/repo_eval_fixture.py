@@ -107,6 +107,8 @@ if action != "idle":  # idle: the agent starts and ends without a tool call
     lines.append({"type": "assistant", "message": {"model": answered, "content": [
         {"type": "tool_use", "id": "t1", "name": "Edit",
          "input": {"file_path": os.environ.get("FAKE_CONTAINER_CWD", str(cwd)) + "/src/calc.py"}}]}})
+    lines.append({"type": "user", "message": {"content": [  # the edit succeeded: a hit needs its result (rc 0)
+        {"type": "tool_result", "tool_use_id": "t1", "is_error": False, "content": "ok"}]}})
 if os.environ.get("FAKE_PROCESS"):  # a guidance read and one build command, for the process metrics
     lines.append({"type": "assistant", "message": {"content": [
         {"type": "tool_use", "id": "t3", "name": "Read",
