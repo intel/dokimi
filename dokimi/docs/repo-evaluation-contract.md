@@ -330,7 +330,7 @@ belongs to the repository's grader and is passed through unread, except `grader`
 3. `git init` and commit (no history, so fixes cannot leak)
 4. apply `setup_patches`
 5. apply the arm: `guidance:none`, `guidance:raw`, `guidance:bridge`,
-   `guidance:rev:<rev>`, `patch:<file>`, `guidance:format=xml` (the guidance
+   `guidance:overlay`, `guidance:rev:<rev>`, `patch:<file>`, `guidance:format=xml` (the guidance
    files rendered as tagged sections, `dokimi/repos/guidance_format.py`) or
    `guidance:as-skill` (the guidance files removed, their text packaged as one
    skill, see [Guidance formats and packaging](benchmarking-and-comparison.md#guidance-formats-and-packaging))
@@ -346,13 +346,30 @@ Every `guidance:*` arm is made by the framework from `guidance.globs`, the
 harness profile and the source's own history; a repository supplies no arm
 content:
 
-- `none` deletes every file the globs match at the base; `raw` keeps them.
+- `none` deletes every file the globs match at the base and every overlay
+  `AGENTS.<agent>.md`, which is matched by its name, not by the globs; `as-skill`
+  drops the same files, packaging only the matched ones; `raw` keeps them. The `rev:` arm keeps the overlays: a repository with overlays that wants a
+  revision without them lists `**/AGENTS.*.md` in `guidance.globs` too.
 - `bridge` exists only for a profile with a `bridge` key. It writes that file
   (for Claude Code, a `CLAUDE.md` containing `@AGENTS.md`) next to every
   matched `AGENTS.md`, not only at the root. Whether a harness needs it
   depends on its version: Claude Code 2.1.286 loads `AGENTS.md` itself, but
   only when no `CLAUDE.md` is in its start-up chain, so a repository-side
   bridge arm would mean different things on different versions.
+- `overlay` exists only for a profile with an `overlay` key (the agent name, for
+  Claude Code `claude`). It is the per-agent overlay of agentsmd/agents.md#185:
+  `AGENTS.<agent>.md` beside an `AGENTS.md`, at any depth. The workspace keeps
+  the base `AGENTS.md` and the `AGENTS.<overlay>.md` files and removes every
+  other `AGENTS.<name>.md` (not the harness's own names such as
+  `AGENTS.override.md`, nor files under `.claude`). The files are recognised by
+  name, not by `guidance.globs`. The name must be the `overlay` key of a builtin
+  profile (`claude`, `codex`, `copilot`): `AGENTS.ja.md` is an ordinary file. A
+  profile loaded from a path can reuse one of those names (a copy of `claude-code.yaml`
+  keeps `overlay: claude`), but one whose `overlay` key is not a builtin name has no
+  recognised overlay, so its arm is refused. A base with no `AGENTS.md` at its root, or
+  with no `AGENTS.<overlay>.md`, is a preparation error, so a cell cannot be the base alone
+  or an overlay with no base by accident. The arm
+  does not make a harness load its overlay: the reach probe reports that.
 - `rev:<rev>` keeps the base's code and replaces its guidance with that of
   another revision of the source: the base's matched files are deleted and the
   files the globs match at `<rev>` (outside `eval_dir`) are written. It answers
@@ -909,8 +926,10 @@ that a commit on the first-parent path up to the reviewed revision answered (as
 
 **Guidance and `eval_dir` are left out.** Workspace preparation applies the
 arm before the review patch (§3, steps 5 and 7): `guidance:none` deletes the
-files the guidance globs match and `guidance:rev:` replaces them, so a hunk on
-one would not apply, and a guidance file the PR adds would reach every arm.
+files the guidance globs match and every `AGENTS.<agent>.md` overlay,
+`guidance:overlay` deletes the overlays of other agents and `guidance:rev:`
+replaces the matched files, so a hunk on one would not apply, and a guidance
+file the PR adds would reach every arm. Overlays count as guidance here.
 `eval_dir` is never in a workspace. Files of either kind are left out of the
 patch and listed in `left_out_files`, and their threads are left out of
 `gold.json`. A pull request that changes nothing else gets no task.
@@ -1025,6 +1044,7 @@ guidance:                            # DECLARED; verified by the reach probe, ne
   shadow_file: CLAUDE.local.md       # written by `repo reach --scenarios shadow` (§7)
   claude_displaces_agents: true      # repo budget: a root CLAUDE* turns off every AGENTS.md, a nested one its own directory's
 bridge: {for: AGENTS.md, write: CLAUDE.md, content: "@AGENTS.md"}
+overlay: claude                      # the AGENTS.claude.md the guidance:overlay arm keeps (agentsmd/agents.md#185)
 args_if_present:                     # argv added after the "{tools}" element when the workspace file exists and the tool mode is `all`
   .mcp.json: ["--mcp-config", ".mcp.json"]
 ```
@@ -1274,6 +1294,25 @@ per scenario).
       It is not a tree file, so it has no `files` entry, no records and no
       matrix row; the matrix prints one line per shadow scenario with its
       class.
+- Overlays (`overlays` in `guidance_reach.v1`, the design note of §3): every
+  `AGENTS.<name>.md` is probed, even where the globs miss it, so a foreign overlay
+  is tested rather than assumed absent. The expectation is that foreign overlays are
+  `not_loaded`. `cross_loaded` lists each foreign overlay some scenario reported
+  as `loaded`, `truncated` or `fetched`; the text report prints it as a `finding:`
+  line. `own_loaded` lists the harness's own overlays that loaded in some scenario;
+  when none did, the text report says so, but only if some own-overlay scenario
+  read as `not_loaded` and every own-overlay scenario gave a usable answer (none
+  errored, none was a refusal); otherwise it says loading could not be
+  determined. `own` is the profile's `overlay`.
+  `ambiguous` lists the names of a load that could have been read under another
+  name: a file with aliases when any harness-native guidance file is present in
+  the probe (it could import the target), or when the alias group holds two
+  overlay names. Those loads are neither own nor cross loads. The rule does not
+  depend on the profile's `guidance.imports`: codex and copilot (`imports: null`)
+  have it too, so with their `AGENTS.md` in the probe every overlay link is
+  ambiguous and never a `finding:`. The text
+  report prints no own-overlay note for them, and a foreign target with an own
+  alias is listed there too, not reported as a cross load.
 - If payload capture is available, a `payload` field records whether each
   token was in the request bytes. This settles cells where the model
   under-reports, which is how a small model produces false `truncated` cells.

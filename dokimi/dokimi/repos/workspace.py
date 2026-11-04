@@ -12,7 +12,7 @@ Every task runs in ``<run_dir>/workspace``, made from the task's ``base``:
 3. ``git init`` and commit (no history, so an upstream fix cannot leak)
 4. apply ``setup_patches``
 5. apply the arm (``guidance:none`` | ``guidance:raw`` | ``guidance:bridge`` |
-   ``guidance:as-skill`` | ``guidance:format=<fmt>`` | ``guidance:rev:<sha>`` |
+   ``guidance:as-skill`` | ``guidance:overlay`` | ``guidance:format=<fmt>`` | ``guidance:rev:<sha>`` |
    ``patch:<name>@<digest>``, see :class:`Arm`), then its
    skills into ``.claude/skills/`` (:mod:`.arms`)
 6. amend the commit
@@ -50,20 +50,21 @@ from typing import Any
 
 from dokimi import process
 
-from .arms import SKILLS_DIR, ArmError, Skill, guidance_skill_name, resolve_skills, tree_sha256
+from .arms import ArmError, Skill, resolve_skills, tree_sha256
 from .errors import PrepError
-from .guidance_format import FORMATS, FormatError, to_format
+from .guidance_arms import GUIDANCE_SKILL_DESCRIPTION, _apply_as_skill, _apply_format  # noqa: F401
+from .guidance_format import FORMATS
 from .guidance_history import arm_rev_history
 from .harness_profile import HarnessProfile
 from .manifest import RepoManifest, _is_within, match_glob
+from .overlay_paths import _link_target, _overlay_targets, _path_hits, _supplies_a_file  # noqa: F401
+from .overlays import overlay_names, overlay_of
 from .source import GitTree, RepoSource, RepoTree, SourceError, cache_path, default_cache_dir, isolated_git_env, resolve_rev
 from .uptake import MCP_CONFIG, base_servers, mcp_servers
 from .useful_spec import Useful, parse_useful
 
-ARMS = ("guidance:none", "guidance:raw", "guidance:bridge", "guidance:as-skill")  # the guidance parts
-#: The description of the skill ``guidance:as-skill`` packages the guidance into: the same for every repository.
-GUIDANCE_SKILL_DESCRIPTION = ("Repository guidance for working in this codebase, its conventions, build and test "
-                              "commands and rules. Load it before changing its code.")  # no ": " (YAML plain scalar)
+ARMS = ("guidance:none", "guidance:raw", "guidance:bridge", "guidance:as-skill", "guidance:overlay")  # the guidance parts
+OVERLAY_ARM = "guidance:overlay"  # base + the profile's AGENTS.<overlay>.md, other overlays removed (repos/overlays.py)
 REV_ARM, PATCH_ARM, FORMAT_ARM = "guidance:rev:", "patch:", "guidance:format="
 #: Every form ``repo run --arm`` takes
 ARM_FORMS = (*ARMS, f"{REV_ARM}<rev>", f"{PATCH_ARM}<file>", f"{FORMAT_ARM}<{'|'.join(FORMATS)}>",
@@ -151,7 +152,7 @@ def _starts_part(text: str) -> bool:
 
 
 def _parse_guidance(spec: str) -> Arm:
-    """A guidance part: ``guidance:none|raw|bridge|as-skill``, ``guidance:format=<fmt>``,
+    """A guidance part: ``guidance:none|raw|bridge|as-skill|overlay``, ``guidance:format=<fmt>``,
     ``guidance:rev:<rev>`` or ``patch:<file>``."""
     if spec in ARMS:
         return Arm(spec)
@@ -383,6 +384,13 @@ def prepare_workspace(git_dir: Path, manifest: RepoManifest, task: Task, arm: st
     if arm.base == "guidance:bridge" and not bridge:
         name = profile.name if profile is not None else "no harness"
         raise PrepError(f"guidance:bridge needs a harness profile with a `bridge` key; {name} has none")
+    overlay = profile.overlay if profile is not None else None
+    if arm.base == OVERLAY_ARM and not overlay:
+        name = profile.name if profile is not None else "no harness"
+        raise PrepError(f"guidance:overlay needs a harness profile with an `overlay` key; {name} has none")
+    if arm.base == OVERLAY_ARM and overlay not in overlay_names():
+        names = ", ".join(sorted(overlay_names()))
+        raise PrepError(f"guidance:overlay: overlay {overlay!r} is not a builtin overlay name ({names})")
     try:
         base_sha = resolve_rev(git_dir, task.base)
     except SourceError as exc:
@@ -401,7 +409,7 @@ def prepare_workspace(git_dir: Path, manifest: RepoManifest, task: Task, arm: st
     _git(ws, env, "commit", "-q", "--no-gpg-sign", "--allow-empty", "--no-verify", "-m", "snapshot")
     patches = _apply_setup_patches(ws, env, task)                                            # 4
     try:
-        arm_files, arm_meta = _apply_arm(ws, env, git_dir, manifest, arm, bridge)            # 5
+        arm_files, arm_meta = _apply_arm(ws, env, git_dir, manifest, arm, bridge, overlay)   # 5
     except PrepError as exc:
         raise PrepError(f"task {task.id}: {exc}") from exc
     installed = _install_skills(ws, task, skills)  # the catalog's skills; a guidance:as-skill skill is in arm_meta
@@ -465,99 +473,47 @@ def _forget(ws: Path, env: dict[str, str]) -> None:
 
 
 def _apply_arm(ws: Path, env: dict[str, str], git_dir: Path, manifest: RepoManifest, arm: Arm,
-               bridge: dict[str, str] | None) -> tuple[list[str], dict[str, Any]]:
+               bridge: dict[str, str] | None, overlay: str | None = None) -> tuple[list[str], dict[str, Any]]:
     """The files the arm removed (none), wrote (bridge, rev) or changed (patch), and its other
-    ``meta.json`` fields: bridge targets left alone, the revision, the patch file."""
+    ``meta.json`` fields: bridge targets left alone, the revision, the patch file, the overlay kept."""
     if arm.base == "guidance:raw":
         return [], {}
     if arm.patch is not None:
         return _apply_patch(ws, env, manifest, arm)
+    if arm.base == OVERLAY_ARM:
+        return _apply_overlay(ws, _workspace_files(ws, env), overlay or "")
     tracked = [p for p in _git(ws, env, "ls-files", "-z").split("\0") if p]
     matched = sorted(p for p in tracked if any(match_glob(g, p) for g in manifest.guidance_globs))
-    if arm.base == "guidance:as-skill":
-        return _apply_as_skill(ws, manifest, matched)
     if arm.base.startswith(FORMAT_ARM):
         return _apply_format(ws, matched, arm.base[len(FORMAT_ARM):])
-    if arm.base == "guidance:none" or arm.rev_sha is not None:
-        for rel in matched:
-            (ws / rel).unlink()
-        if arm.rev_sha is None:
-            return matched, {}
-        return _apply_rev(ws, git_dir, manifest, arm, matched)
+    if arm.base in ("guidance:none", "guidance:as-skill") or arm.rev_sha is not None:
+        return _apply_removal(ws, env, git_dir, manifest, arm, matched)
     assert bridge is not None
     return _apply_bridge(ws, matched, bridge)
 
 
-def _apply_format(ws: Path, matched: list[str], fmt: str) -> tuple[list[str], dict[str, Any]]:
-    """Each guidance file rewritten in ``fmt`` in place. A symlink is left alone: its target is rendered
-    once if it is a guidance file itself, and ``meta.json`` names the links that keep their raw bytes."""
-    if not matched:
-        raise PrepError(f"guidance:format={fmt}: the base has no guidance file to render")
-    written, links = [], []
-    for rel in matched:
-        if (ws / rel).is_symlink():
-            _link_file(ws, rel, matched)  # the link must reach a file that is rendered, not raw guidance
-            links.append(rel)
-            continue
-        try:
-            rendered = to_format(_guidance_text(ws, rel, f"guidance:format={fmt}"), fmt)
-        except FormatError as exc:
-            raise PrepError(f"guidance:format={fmt}: {rel}: {exc}") from exc
-        (ws / rel).write_bytes(rendered.encode("utf-8"))  # no newline translation: the restore check holds on disk
-        written.append(rel)
-    return written, ({"guidance_links_kept": links} if links else {})
+def _dropped_overlays(ws: Path, env: dict[str, str], matched: list[str], arm: str) -> dict[Path, str]:
+    """The overlays the globs miss (a setup patch's too), by canonical path; refused before any unlink."""
+    return _overlay_targets(ws, [p for p in _workspace_files(ws, env)
+                                 if overlay_of(p) is not None and p not in matched], arm)
 
 
-def _link_file(ws: Path, rel: str, matched: list[str]) -> None:
-    """The regular file a guidance link of the workspace reaches, resolved as the filesystem resolves it (a linked
-    directory on the way counts). PrepError when the link dangles or cycles, or reaches a file outside the workspace
-    or outside the matched guidance files: that file would be dropped or left unrendered."""
-    try:
-        target = (ws / rel).resolve(strict=True)
-    except (OSError, RuntimeError) as exc:  # RuntimeError: a symlink loop, before Python 3.13
-        raise PrepError(f"guidance link {rel} does not reach a file (a dangling link or a cycle): {exc}") from exc
-    root = ws.resolve()
-    if not target.is_relative_to(root) or not target.is_file():
-        raise PrepError(f"guidance link {rel} reaches {target}, which is outside the workspace or not a regular file")
-    reached = target.relative_to(root).as_posix()
-    if reached not in matched:
-        raise PrepError(f"guidance link {rel} reaches {reached}, which is not a guidance file")
-
-
-def _guidance_text(ws: Path, rel: str, arm: str) -> str:
-    """The text of a guidance file of the workspace; one that is not UTF-8 is a prep error of the cell."""
-    try:
-        return (ws / rel).read_bytes().decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise PrepError(f"{arm}: {rel} is not UTF-8: {exc}") from exc
-
-
-def _apply_as_skill(ws: Path, manifest: RepoManifest, matched: list[str]) -> tuple[list[str], dict[str, Any]]:
-    """The guidance files removed (as ``guidance:none`` removes them) and their text packaged as one skill,
-    ``.claude/skills/<repo>-guidance/SKILL.md``: each file under a ``## File: <path>`` line, its text verbatim."""
-    if not matched:
-        raise PrepError("guidance:as-skill: the base has no guidance file to package")
-    name = guidance_skill_name(manifest.id)
-    skill_dir = ws / SKILLS_DIR / name
-    for part in (ws / ".claude", ws / SKILLS_DIR):  # a repository link would write to the host
-        if part.is_symlink():
-            raise PrepError(f"guidance:as-skill: {part.relative_to(ws)} is a symlink in the repository")
-    if skill_dir.exists() or skill_dir.is_symlink():
-        raise PrepError(f"guidance:as-skill: the workspace already has {SKILLS_DIR}/{name}")
-    parts = []
-    for rel in matched:
-        if (ws / rel).is_symlink():  # packaged once under its target's name; a link to anything else would be lost
-            _link_file(ws, rel, matched)
-            continue
-        text = _guidance_text(ws, rel, "guidance:as-skill")
-        parts.append(f"## File: {rel}\n\n" + (text if text.endswith("\n") else text + "\n"))
-    for rel in matched:
-        (ws / rel).unlink()
-    skill_dir.mkdir(parents=True)
-    frontmatter = f"---\nname: {name}\ndescription: {GUIDANCE_SKILL_DESCRIPTION}\n---\n\n"
-    (skill_dir / "SKILL.md").write_bytes((frontmatter + "\n".join(parts)).encode("utf-8"))  # verbatim: no newline translation
-    return matched, {"guidance_skill": {"name": name, "path": f"{SKILLS_DIR}/{name}",
-                                        "sha256": tree_sha256(skill_dir)}}
+def _apply_removal(ws: Path, env: dict[str, str], git_dir: Path, manifest: RepoManifest, arm: Arm,
+                   matched: list[str]) -> tuple[list[str], dict[str, Any]]:
+    """``guidance:none`` and ``guidance:as-skill`` (the matched files and every overlay removed, as-skill packaging
+    the matched ones) or a pinned revision (the matched files replaced, the overlays kept)."""
+    dropped = _dropped_overlays(ws, env, matched, arm.base) if arm.rev_sha is None else {}
+    meta: dict[str, Any] = {}
+    if arm.base == "guidance:as-skill":
+        meta = _apply_as_skill(ws, manifest, matched)[1]  # it removes the matched files
+    else:
+        for rel in matched:
+            (ws / rel).unlink()
+    for canon in dropped:
+        canon.unlink()
+    if arm.rev_sha is None:
+        return sorted([*matched, *dropped.values()]), meta
+    return _apply_rev(ws, git_dir, manifest, arm, matched)
 
 
 def _apply_rev(ws: Path, git_dir: Path, manifest: RepoManifest, arm: Arm,
@@ -616,6 +572,60 @@ def _apply_bridge(ws: Path, matched: list[str], bridge: dict[str, str]) -> tuple
         (ws / target).write_text(bridge["content"] + "\n", encoding="utf-8")
         written.append(target.as_posix())
     return written, ({"bridge_skipped": skipped} if skipped else {})
+
+
+def _workspace_files(ws: Path, env: dict[str, str]) -> list[str]:
+    """The paths the workspace holds now: the indexed ones and the untracked ones (ignored ones too), since a setup
+    patch applied with ``git apply`` changes the tree and not the index. A path that is gone is no path."""
+    listed = _git(ws, env, "ls-files", "-z", "--cached", "--others").split("\0")
+    return sorted({p for p in listed if p and os.path.lexists(ws / p)})
+
+
+def _kept_overlays(ws: Path, tracked: list[str], own: str) -> list[str]:
+    """The overlay ``own`` of the base, which the arm keeps; refused without the base ``AGENTS.md`` or without that
+    overlay. Each kept file must supply a file: a dangling, cyclic or directory link does not."""
+    if "AGENTS.md" not in tracked:
+        raise PrepError("guidance:overlay: the base has no AGENTS.md to keep")
+    kept = sorted(p for p in tracked if overlay_of(p) == own)
+    if not kept:
+        raise PrepError(f"guidance:overlay: the base has no AGENTS.{own}.md to keep")
+    for rel in kept:  # the arm keeps it, so it must supply a file: a dangling, cyclic or directory link does not
+        if not _supplies_a_file(ws, rel):
+            raise PrepError(f"guidance:overlay: {rel} does not resolve to a usable file in the workspace")
+    return kept
+
+
+def _refuse_dangling(ws: Path, tracked: list[str], listed: set[str], gone: set[Path]) -> None:
+    """Refuse a path of the base that runs through an overlay the arm removes: the base would dangle."""
+    for rel in tracked:
+        if rel not in listed and _path_hits(ws, rel, gone):
+            raise PrepError(f"guidance:overlay: {rel} resolves through an overlay the arm removes; "
+                            "the base would dangle")
+
+
+def _check_removable(ws: Path, targets: dict[Path, str]) -> None:
+    """Refuse a removal that leaves the base without a file, or that would remove a directory."""
+    if not _supplies_a_file(ws, "AGENTS.md"):  # the base is kept too, so it must supply a file as well
+        raise PrepError("guidance:overlay: AGENTS.md does not resolve to a usable file in the workspace")
+    for canon, rel in targets.items():  # all checks before the first unlink: a refusal leaves the workspace as it was
+        if canon.is_dir() and not canon.is_symlink():
+            raise PrepError(f"guidance:overlay: {rel} is a directory, not an overlay file")
+
+
+def _apply_overlay(ws: Path, tracked: list[str], own: str) -> tuple[list[str], dict[str, Any]]:
+    """Remove the overlays of other agents, keeping the base ``AGENTS.md`` and the ``own`` overlay; refused without
+    either (the arm's cell would be the base alone, or an overlay with no base to sit beside)."""
+    kept = _kept_overlays(ws, tracked, own)
+    listed = [p for p in tracked if overlay_of(p) not in (None, own)]
+    targets = _overlay_targets(ws, listed)
+    if targets:  # the walk is only needed when some overlay is removed
+        _refuse_dangling(ws, tracked, set(listed), set(targets))
+    _check_removable(ws, targets)
+    # Each canonical path has real directories only as its parents, so removing one leaves the others valid, whatever
+    # order the aliases sort in (a name under a link is unlinked by its canonical path, not through the link)
+    for canon in targets:
+        canon.unlink()
+    return sorted(targets.values()), {"arm_overlay": {"name": own, "kept": kept}}
 
 
 def _guidance_at(git_dir: Path, manifest: RepoManifest,
