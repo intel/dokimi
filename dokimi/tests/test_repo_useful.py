@@ -254,23 +254,6 @@ def test_the_hit_is_timed_from_the_claude_stream_it_came_from():
     }
 
 
-def test_a_claude_bash_read_is_one_more_step_before_the_first_useful_command():
-    def call(i: str, command: str, t: str) -> list[dict]:
-        use = {"type": "tool_use", "id": i, "name": "Bash", "input": {"command": command}}
-        res = {"type": "tool_result", "tool_use_id": i, "is_error": False, "content": "ok"}
-        return [
-            {"type": "assistant", "timestamp": t, "message": {"content": [use]}},
-            {"type": "user", "timestamp": t, "message": {"content": [res]}},
-        ]
-
-    lines = call("a", "cat AGENTS.md", "2026-10-31T10:00:01.000Z")
-    lines += call("b", "pytest tests/test_x.py", "2026-10-31T10:00:05.000Z")
-    raw = "\n".join(json.dumps(x) for x in lines)
-    events = convert("claude-stream-json", raw, "/ws").events
-    assert [e["kind"] for e in events] == ["read", "command", "command"]
-    assert first_useful(parse_useful({"command": TEST_CMD}), events)["steps"] == 3
-
-
 # -- report and compare rows -------------------------------------------------------------------------------------
 
 

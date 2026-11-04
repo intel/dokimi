@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import re
 import sys
 from pathlib import Path
@@ -274,20 +273,6 @@ def cmd_repo_fetch(args: argparse.Namespace) -> None:
         print(f"{tree.sha}\t{tree.git_dir}")
 
 
-def _check_reach_flags(args: argparse.Namespace, kinds: tuple[str, ...]) -> None:
-    """Refuse a flag that would drop a scenario kind silently, or spend a budget that is not one."""
-    from dokimi.repos.reach import KINDS, ReachError
-
-    # A typo would otherwise drop a scenario kind silently and still spend the budget.
-    unknown_kinds = sorted(set(kinds) - set(KINDS))
-    if unknown_kinds:
-        raise ReachError(f"unknown --scenarios kind(s) {', '.join(unknown_kinds)} (known: {', '.join(KINDS)})")
-    if not math.isfinite(args.budget) or args.budget <= 0:
-        raise ReachError(f"--budget must be > 0, got {args.budget:g}")
-    if args.model is None:
-        raise ReachError("--model is required to probe (leave it out only with --from)")
-
-
 # The probe's flags, unset by default: --from refuses any of them given, even at its default value.
 _PROBE_ONLY = {"only": None, "salt": None, "work_dir": None, "keep": False, "bin": None, "dry_run": False,
                "model": None, "scenarios": None, "max_turns": None, "budget": None, "timeout": None, "out": None}
@@ -443,12 +428,12 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
     from dokimi.repos import RepoSource, SourceError, open_source
     from dokimi.repos.harness_profile import ProfileError, load_profile
     from dokimi.repos.source import SourceArgumentError
-    from dokimi.repos.reach import ReachError, check_kinds, check_shadow, run_reach, save_reach
+    from dokimi.repos.reach import ReachError, check_flags, check_kinds, check_shadow, run_reach, save_reach
 
     kinds = tuple(k.strip() for k in args.scenarios.split(",") if k.strip())
     only = tuple(args.only or ())
     try:  # the arguments as typed: a usage error
-        _check_reach_flags(args, kinds)
+        check_flags(kinds, args.budget, args.model)
         profile = load_profile(args.harness)
         check_kinds(profile, kinds)
         check_shadow(profile, kinds)

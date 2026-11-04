@@ -12,6 +12,8 @@ import pytest
 from dokimi.repos.cli_traces import shell_reads_moved, shell_walk
 from dokimi.repos.events import convert
 from dokimi.repos.process_metrics import process_metrics
+from dokimi.repos.useful import first_useful
+from dokimi.repos.useful_spec import parse_useful
 
 WS = "/ws"
 
@@ -408,3 +410,20 @@ def test_guidance_printed_through_bash_is_guidance_read():
     got = process_metrics(events, lambda p: p.endswith("AGENTS.md"))
     assert got["guidance_read"] == ["benchmarks/AGENTS.md"]
     assert got["commands"] == 3 and got["failed_commands"] == 1
+
+
+def test_a_claude_bash_read_is_one_more_step_before_the_first_useful_command():
+    def call(i: str, command: str, t: str) -> list[dict]:
+        use = {"type": "tool_use", "id": i, "name": "Bash", "input": {"command": command}}
+        res = {"type": "tool_result", "tool_use_id": i, "is_error": False, "content": "ok"}
+        return [
+            {"type": "assistant", "timestamp": t, "message": {"content": [use]}},
+            {"type": "user", "timestamp": t, "message": {"content": [res]}},
+        ]
+
+    lines = call("a", "cat AGENTS.md", "2026-10-31T10:00:01.000Z")
+    lines += call("b", "pytest tests/test_x.py", "2026-10-31T10:00:05.000Z")
+    raw = "\n".join(json.dumps(x) for x in lines)
+    events = convert("claude-stream-json", raw, "/ws").events
+    assert [e["kind"] for e in events] == ["read", "command", "command"]
+    assert first_useful(parse_useful({"command": r"pytest tests/test_x\.py"}), events)["steps"] == 3

@@ -42,6 +42,7 @@ from fetching the whole repository.
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 import re
 import shlex
@@ -96,6 +97,18 @@ ONLY_COMMAND_ENV = "DOKIMI_REACH_COMMAND"
 
 class ReachError(RuntimeError):
     """The probe cannot run safely (for example a guidance file above the workspace)."""
+
+
+def check_flags(kinds: tuple[str, ...], budget: float, model: str | None) -> None:
+    """Refuse a flag that would drop a scenario kind silently, or spend a budget that is not one."""
+    # A typo would otherwise drop a scenario kind silently and still spend the budget.
+    unknown_kinds = sorted(set(kinds) - set(KINDS))
+    if unknown_kinds:
+        raise ReachError(f"unknown --scenarios kind(s) {', '.join(unknown_kinds)} (known: {', '.join(KINDS)})")
+    if not math.isfinite(budget) or budget <= 0:
+        raise ReachError(f"--budget must be > 0, got {budget:g}")
+    if model is None:
+        raise ReachError("--model is required to probe (leave it out only with --from)")
 
 
 def check_kinds(profile: HarnessProfile, kinds: tuple[str, ...]) -> None:
