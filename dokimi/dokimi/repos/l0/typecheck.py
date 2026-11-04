@@ -41,6 +41,7 @@ _FRAGMENT = re.compile(r'^(?:Name "[^"]+"|"[^"]+") is not defined(?: \[reportUnd
                        r'|^"async (?:with|for)" outside async function$'
                        r'|^(?:Nonlocal|nonlocal) declaration not allowed at module level(?: \[\w+\])?$'
                        r'|^Relative import climbs too many namespaces$'
+                       r'|^No parent module -- cannot perform relative import$'
                        r'|^Use of "async" not allowed outside of async function(?: \[\w+\])?$'
                        r'|^"await" allowed only within async function(?: \[\w+\])?$'
                        r'|^"return" can be used only within a function(?: \[\w+\])?$'

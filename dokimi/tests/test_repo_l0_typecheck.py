@@ -814,6 +814,15 @@ def test_a_submodule_of_a_package_the_environment_lacks_is_unresolved(tmp_path, 
     assert [c["status"] for c in claims] == ["unresolved"]
 
 
+@pytest.mark.parametrize("statement", ["from . import z", "from .. import z"])
+def test_a_bare_relative_import_in_a_top_level_fence_is_unresolved(tmp_path, statement):
+    # mypy says "No parent module -- cannot perform relative import": a fragment of a package-relative example
+    fence = f"{FENCE}python\n{statement}\n{FENCE}\n"
+    claims = _fence_claims(scan_repo(_tree(tmp_path, fence), parse_manifest(MANIFEST),
+                                     typecheck=Check("mypy", sys.executable)))
+    assert [c["status"] for c in claims] == ["unresolved"]
+
+
 def test_the_package_probe_does_not_count_a_namespace_package(tmp_path, monkeypatch):
     # a namespace directory (no __init__.py) is found, but proves nothing about a submodule under it
     import io
