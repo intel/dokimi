@@ -741,7 +741,7 @@ def test_basedpyright_top_level_await_return_and_yield_are_fragments_not_stale(t
     assert payload["typecheck"]["fail"] == 0
 
 
-@pytest.mark.parametrize("statement", ["yield from range(3)", "continue", "break", "nonlocal x"])
+@pytest.mark.parametrize("statement", ["yield from range(3)", "continue", "break", "nonlocal x", "from ..x import y"])
 def test_a_statement_that_needs_a_function_or_loop_around_it_is_a_fragment_not_stale(tmp_path, statement):
     # mypy's wording for each outside a function or loop: the fence is a piece of a longer example
     claims = _fence_claims(scan_repo(_tree(tmp_path, f"{FENCE}python\n{statement}\n{FENCE}\n"),

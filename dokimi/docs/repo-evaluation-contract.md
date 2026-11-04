@@ -1700,7 +1700,7 @@ claim:
   was checked. It is also unresolved when its only errors are missing context (any
   undefined name, as from an earlier fence or an omitted import, so a removed builtin such as
   `unicode` is unresolved too; `await`/`return`/`yield`/`yield from`, `break`/`continue` outside a loop,
-  `async with`/`async for` outside a function, `nonlocal` at module level), or a module the
+  `async with`/`async for` outside a function, `nonlocal` at module level, a relative import above the fence's package), or a module the
   environment does not have (see below), or when the
   repository is older than the tool checks (mypy: Python 3.10). The reason says which.
 

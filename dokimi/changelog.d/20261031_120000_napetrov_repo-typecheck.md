@@ -13,7 +13,7 @@
 - A fence that imports a module the environment lacks, or has without types (no `py.typed`), is `unresolved`, not `fail`,
   unless the module is a standard-library one (`import imp` on 3.13) or a missing submodule of a package the repository interpreter finds (`json.nosuch`);
   the grader reads such an installed module as `Any`, not as an error. A fence whose only errors are
-  a statement that needs a function or loop around it (`break`, `continue`, `yield from`, `nonlocal`) is unresolved too.
+  a statement that needs a function or loop around it (`break`, `continue`, `yield from`, `nonlocal`, `from ..x import y`) is unresolved too.
 - The grader refuses a workspace module named as one the image's site-packages provides, as it does a standard-library name,
   except the repository's own package when the image installed it from the workspace directory (`pip install .` there).
 - A branch mypy never checks because of `TYPE_CHECKING` (`if not TYPE_CHECKING:`, the `else` of `if TYPE_CHECKING:`,
