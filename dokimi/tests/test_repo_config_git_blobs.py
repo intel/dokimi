@@ -145,3 +145,17 @@ def test_an_edit_under_skip_worktree_moves_the_hash(tmp_path):
     (root / "skills/a/SKILL.md").write_text("changed\n")
     assert _hashes(root) != before  # git does not look at a skip-worktree file; the hash must still read the disk
 
+
+def test_a_rename_in_the_work_tree_column_hashes_the_work_tree(tmp_path):
+    root = _repo(tmp_path / "r", {**FILES, "README.md": "readme\n"})
+    (root / "README.md").rename(root / "README2.md")  # an origin path starting with R must not swallow the next entry
+    (root / "skills/a/evals/q.json").rename(root / "skills/a/evals/n.json")
+    _git(root, "add", "-N", "README2.md", "skills/a/evals/n.json")  # the index holds n.json as an empty blob
+    status = subprocess.run(["git", "-C", str(root), "status", "--porcelain=v1", "-z", "-uno"], capture_output=True,
+                            check=True).stdout
+    assert b" R skills/a/evals/n.json\0skills/a/evals/q.json\0" in status
+    dirty = _hashes(root)
+    _git(root, "add", "-A")
+    _git(root, "commit", "-q", "-m", "rename")
+    assert dirty == _hashes(root)
+
