@@ -10,6 +10,7 @@ these without importing the dispatcher that imports them back.
 from __future__ import annotations
 
 import json
+import posixpath
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import PurePosixPath, PureWindowsPath
@@ -88,6 +89,14 @@ def relative_path(path: str, workdir: str | None) -> str:
         if target.is_absolute() and target.is_relative_to(base):
             return target.relative_to(base).as_posix()
     return path
+
+
+def _from_cwd(path: str, cwd: str) -> str:
+    """A tool's relative ``path`` joined to ``cwd``, the workspace-relative directory the CLI started in."""
+    if not cwd or path.startswith("/") or PureWindowsPath(path).is_absolute():
+        return path
+    # a Windows CLI separates with backslashes, which posixpath keeps as part of a name
+    return posixpath.normpath(posixpath.join(cwd, PureWindowsPath(path).as_posix()))
 
 
 def _parse_time(value: Any) -> datetime | None:
