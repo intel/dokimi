@@ -112,6 +112,14 @@ def _show_json(shown: Shown, root: str) -> dict:
             "siblings_total": shown.siblings_total, "siblings_error": shown.siblings_error}
 
 
+def _no_run_id(shown: Shown) -> str:
+    if shown.artifact.kind in INPUT_KINDS:
+        return "- (an input kind: no envelope)"
+    if any(e.startswith("run_id:") for e in shown.errors):
+        return "- (not a run id: see the schema errors)"
+    return "- (saved before the envelope)"
+
+
 def _show_text(shown: Shown) -> list[str]:
     a = shown.artifact
     errors = _count(len(shown.errors), "error")
@@ -127,8 +135,7 @@ def _show_text(shown: Shown) -> list[str]:
         ("subject", a.subject or "-"),
         ("model", a.model or "-"),
         ("time", when),
-        ("run_id", a.run_id or ("- (an input kind: no envelope)" if a.kind in INPUT_KINDS
-                                else "- (saved before the envelope)")),
+        ("run_id", a.run_id or _no_run_id(shown)),
         ("size", f"{a.size_bytes:,} bytes"),
         ("contents", ", ".join(f"{key}: {n}" for key, n in shown.contents.items()) or "-"),
         ("next to it", shown.siblings_error or ", ".join(beside) or "-"),

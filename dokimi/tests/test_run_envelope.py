@@ -190,11 +190,14 @@ def test_runs_show_says_why_a_file_has_no_run_id(tmp_path, monkeypatch, capsys):
     (tmp_path / "old.json").write_text(json.dumps({"schema_version": "arms.v1", **_fixture("arms")}),
                                        encoding="utf-8")
     save_artifact("arms", _fixture("arms"), tmp_path / "new.json")
+    (tmp_path / "bad.json").write_text(json.dumps({"schema_version": "arms.v1", "run_id": 7, **_fixture("arms")}),
+                                       encoding="utf-8")
     shown = {}
-    for name in ("plan.json", "old.json", "new.json"):
+    for name in ("plan.json", "old.json", "new.json", "bad.json"):
         monkeypatch.setattr("sys.argv", ["dokimi", "runs", "show", name])
         cli.main()
         shown[name] = next(line for line in capsys.readouterr().out.splitlines() if line.startswith("run_id:"))
     assert shown == {"plan.json": "run_id:     - (an input kind: no envelope)",
                      "old.json": "run_id:     - (saved before the envelope)",
-                     "new.json": f"run_id:     {run_id()}"}
+                     "new.json": f"run_id:     {run_id()}",
+                     "bad.json": "run_id:     - (not a run id: see the schema errors)"}
