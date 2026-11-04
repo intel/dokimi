@@ -18,9 +18,10 @@ class Part(NamedTuple):
 
 
 def split_script(script: str) -> list[Part]:
-    """Each part of ``script``, split at unquoted ``&&``, ``||``, ``;``, ``&`` and newlines. A ``#`` that
-    starts a word begins a comment, which runs to the end of the line and is dropped. A part inside
-    ``( ... )``, or holding a parenthesis, is in a subshell."""
+    """Each part of ``script``, split at unquoted ``&&``, ``||``, ``;``, ``&`` and newlines; not inside a ``$( ... )`` or
+    backtick substitution, whose separators are its own (``cd $(printf sub; true) | cat`` is one part, piped). A ``#``
+    that starts a word begins a comment, which runs to the end of the line and is dropped. A part inside ``( ... )``,
+    or holding a parenthesis, is in a subshell."""
     splitter = _Splitter(script)
     i = 0
     while i < len(script):
@@ -38,23 +39,23 @@ class _Splitter:
         self.cur: list[str] = []
         self.outer: list[str] = []  # the text of the part being built that is outside any parenthesis or backtick
         self.quote = ""
-        self.depth = 0  # open parentheses
+        self.opened: list[bool] = []  # the open parentheses, innermost last: True for a ``$(`` substitution
         self.paren = False  # the part being built holds a parenthesis
         self.tick = False  # inside a backtick substitution, a subshell as ``$( )`` is
 
     def add(self, text: str) -> None:
         self.cur.append(text)
-        if not self.depth and not self.tick:
+        if not self.opened and not self.tick:
             self.outer.append(text)
 
     def flush(self, op: str) -> None:
         """End the part being built at ``op``."""
         text = "".join(self.cur).strip()
         if text:
-            in_subshell = self.paren or self.depth > 0 or self.tick
+            in_subshell = self.paren or bool(self.opened) or self.tick
             self.parts.append(Part(text, op if op != "\n" else ";", in_subshell, "".join(self.outer).strip()))
         self.cur, self.outer = [], []
-        self.paren = self.depth > 0 or self.tick
+        self.paren = bool(self.opened) or self.tick
 
     def step(self, i: int) -> int:
         """Take the text at ``i``; the index to continue at."""
@@ -75,7 +76,10 @@ class _Splitter:
             self.cur.append(c)
         elif c in "()":
             self.paren = True
-            self.depth = max(0, self.depth + (1 if c == "(" else -1))
+            if c == "(":
+                self.opened.append(script[i - 1:i] == "$")
+            elif self.opened:
+                self.opened.pop()
             self.cur.append(c)
         else:
             return self._operator(i)
@@ -97,7 +101,7 @@ class _Splitter:
         op = two if two in ("&&", "||") else c if c in ";\n" else ""
         if c == "&" and not op and script[i - 1:i] not in (">", "<") and script[i + 1:i + 2] != ">":
             op = "&"
-        if not op:
+        if not op or self.tick or any(self.opened):  # a substitution's own list: its text stays in the part
             self.add(c)
             return i + 1
         self.flush(op)

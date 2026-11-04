@@ -2,13 +2,15 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """A shell command's words, for :func:`~dokimi.repos.cli_traces.shell_reads`: the command word past what comes before
-it (``NAME=value``, a redirection, ``builtin``, ``command``, ``time``, ``env``), and whether it runs a directory builtin."""
+it (``NAME=value``, a redirection, ``builtin``, ``command``, ``time``, ``env``), whether it runs a directory builtin, and
+the ``case ... esac`` a part opens or closes."""
 
 from __future__ import annotations
 
 import posixpath
 import re
 import shlex
+from collections.abc import Collection
 
 _SYSTEM_BIN = {"/bin", "/usr/bin", "/usr/local/bin"}
 _ASSIGN = re.compile(r"[A-Za-z_]\w*=")  # a NAME=value word: a variable set for the command that follows
@@ -21,6 +23,11 @@ _DIRS = {"cd"} | _DIR_LOST  # the builtins that change, or may change, the direc
 _PREFIXES = {"builtin", "command", "time"}  # each runs the directory builtin named after it in this shell
 # ``time`` is bash's keyword only as the first word, unquoted; else (``X=1 time``, ``\time``) it is /usr/bin/time, a child
 _TIME = re.compile(r"\s*(?:(?:[{!]|if|then|else|elif|do|while|until)\s+)*time(?=\s|$)")
+# a word after which a ``case`` is a command word; with ``)``, ``(`` and ``|`` always, else only at the start
+_LEAD = _KEYWORDS | {"{", "time"}
+# what a ``case`` count leaves out: quoted text and escapes (each one ``q``), then backtick and ``$( )`` substitutions
+_QUOTED = re.compile(r"\\.|'[^']*'|\"(?:\\.|[^\"\\])*\"", re.S)
+_SUBSTITUTION = re.compile(r"`[^`]*`|\$\([^()]*\)")
 
 
 def _time_keyword(text: str) -> bool:
@@ -54,11 +61,12 @@ def _cd(here: str | None, args: list[str]) -> str | None:
     return None if here is None else posixpath.normpath(posixpath.join(here, target))
 
 
-def _runs_dir(outer: str) -> bool:
+def _runs_dir(outer: str, dirs: Collection[str] = _DIRS) -> bool:
     """Whether a part's text, or its outer text (:class:`~dokimi.repos.shell_split.Part`), runs a directory builtin, as
     ``cd $(...)`` and ``X="a b" cd "$D"`` do, or may (:func:`_may_run_dir`); a subshell ``(cd x; ...)`` has no such
     text, so it changes nothing outside itself. Text shlex cannot split is read word by word (:func:`_unquoted`): its
-    command word counts, and when a quote up to it does not close (``X="a b c" cd``), any builtin's name in it counts."""
+    command word counts, and when a quote up to it does not close (``X="a b c" cd``), any builtin's name in it counts.
+    ``dirs`` are those names: ``_DIRS``, and the script's functions that name one (``f > log`` of ``f() { cd x; }``)."""
     try:
         words, told = shlex.split(outer), None
     except ValueError:
@@ -72,8 +80,8 @@ def _runs_dir(outer: str) -> bool:
     if at is None or at >= len(rest):
         return False
     if told is not None and not all(told[:len(words) - len(rest) + at + 1]):
-        return any(w in _DIRS for w in words)
-    return not via_env and rest[at] in _DIRS
+        return any(w in dirs for w in words)
+    return not via_env and rest[at] in dirs
 
 
 def _may_run_dir(words: list[str], timed: bool) -> bool:
@@ -163,17 +171,23 @@ def _prefix(word: str, timed: bool) -> bool:
 
 
 def _command_words(words: list[str], timed: bool) -> tuple[list[str], bool, bool]:
-    """The words from the command's name on; whether ``env`` runs it; and whether that ``env`` changes
-    directory (``-C`` / ``--chdir``). ``NAME=value`` words, redirections (``> log cd sub``), ``builtin``, ``command`` or
-    a first ``time`` (``timed``: the keyword) before a directory builtin (which runs it; ``time X=1 cd``), and ``env``
-    with its options and assignments come before the name and are skipped. ``words`` are unquoted: ``shlex.split``'s,
-    or :func:`_unquoted`'s for a part shlex does not split."""
+    """The words from the command's name on; whether ``env``, or /usr/bin/time, runs it as a child; and whether that
+    ``env`` changes directory (``-C`` / ``--chdir``). ``NAME=value`` words, redirections (``> log cd sub``),
+    ``builtin`` or ``command`` before a directory builtin (which runs it), a first ``time`` (``timed``: the keyword,
+    which runs what it times here) with its ``-p``, assignments and redirections (``time X=1 cat a``; not before a
+    directory builtin after an option, ``time -p cd``, which stays for :func:`_may_run_dir`), /usr/bin/time
+    (``X=1 time cat a``, ``\\time cat a``; the word after it is the name, so an option or an assignment there names no
+    printer), and ``env`` with its options and assignments come before the name and are skipped. ``words`` are unquoted: ``shlex.split``'s, or :func:`_unquoted`'s for a part shlex does not split."""
     via_env = chdir = False
     while words:
         if _ASSIGN.match(words[0]) or _REDIRECT.fullmatch(words[0]):
             words = words[_past_redirections(words, 0):]
         elif _prefix_runs_dir(words, timed):  # ``./command`` is a program
             words = words[1:]
+        elif timed and words[0] == "time" and (at := _past_time(words)):
+            words = words[at:]
+        elif not timed and _program(words[0]) == "time":
+            return words[1:], True, chdir  # a child runs the next word as a program (``X=1`` too): no builtin moves here
         elif _program(words[0]) == "env":
             words, via_env = words[1:], True
             while words and (words[0].startswith("-") or _ASSIGN.match(words[0])):
@@ -186,8 +200,65 @@ def _command_words(words: list[str], timed: bool) -> tuple[list[str], bool, bool
     return words, via_env, chdir
 
 
+def _past_time(words: list[str]) -> int:
+    """The index of the command bash's ``time`` keyword (``words[0]``) times, past its ``-p``, ``NAME=value`` words and
+    redirections; 0 when that command is a directory builtin after an option (``time -p cd sub``)."""
+    at = _past_prefix(words, 0) or 0
+    return 0 if at < len(words) and words[at] in _DIRS else at
+
+
+def _activates(name: str, args: list[str]) -> bool:
+    """Whether ``name`` and its unquoted ``args`` are ``source`` or ``.`` of a virtualenv's activate script and nothing
+    more: one operand whose last two components are ``bin/activate`` (``.venv/bin/activate``, ``"/opt/v/bin/activate"``).
+    Assumed to move no shell: the scripts venv, virtualenv and uv write set variables and ``PATH`` and run no ``cd``."""
+    return name in ("source", ".") and len(args) == 1 and args[0].split("/")[-2:] == ["bin", "activate"]
+
+
 def _is_cd(part: str) -> bool:
     """Whether ``part`` runs the ``cd`` builtin, past what the walker skips (``time cd``, ``X=1 cd``, ``"cd"``; not
     ``env cd``, nor ``X=1 time cd`` or ``\\time cd``, which run /usr/bin/time)."""
     words, via_env, _ = _command_words(_unquoted(part.split()), _time_keyword(part))
     return words[:1] == ["cd"] and not via_env
+
+
+def _is_activate(part: str) -> bool:
+    """Whether ``part`` sources a virtualenv's activate script (:func:`_activates`), past what the walker skips."""
+    words, via_env, _ = _command_words(_unquoted(part.split()), _time_keyword(part))
+    return not via_env and bool(words) and _activates(words[0], words[1:])
+
+
+def _loses(name: str, words: list[str], conditional: bool, timed: bool) -> bool:
+    """Whether the followed command ``words``, run as ``name``, leaves the directory not known: a ``pushd``, ``popd``,
+    ``eval``, ``source`` or ``.`` (not of an activate script, :func:`_activates`), a ``cd`` that may not run
+    (``conditional``), or a part not fully followed (:func:`_may_run_dir`)."""
+    if name in _DIR_LOST:
+        return not _activates(name, words[1:])
+    return (conditional and name == "cd") or _may_run_dir(words, timed)
+
+
+def _case_tokens(text: str) -> list[str]:
+    """The words and ``(``, ``)``, ``|`` of a part's ``text`` that the shell reads as syntax: a quoted or escaped
+    word (``"case"``, ``\\case``) is none, and a substitution's text is left out (one nested in another may stay)."""
+    text = _QUOTED.sub("q", text)
+    while (inner := _SUBSTITUTION.sub("q", text)) != text:
+        text = inner
+    return re.findall(r"[()|]|[^\s()|]+", text)
+
+
+def _case_opens(text: str) -> int:
+    """How many ``case ... esac`` open in a part's ``text``: a ``case`` as a command word (first, past ``{``, ``time``
+    and the keywords, or after ``(``, ``|`` or a pattern's ``)``), not followed by ``)`` or ``|``, which ends a pattern
+    (``a|case)``). A miscount is on the side of more: ``case`` after any ``|`` counts."""
+    tokens, opens, command = _case_tokens(text), 0, True
+    for tok, nxt in zip(tokens, [*tokens[1:], ""], strict=True):
+        opens += command and tok == "case" and nxt not in (")", "|")
+        command = tok in ("(", ")", "|") or (command and tok in _LEAD)
+    return opens
+
+
+def _case_closes(text: str) -> bool:
+    """Whether a part's ``text`` starts with ``esac`` as a word of syntax, past ``{``, ``time`` and the keywords."""
+    tokens = _case_tokens(text)
+    while tokens[:1] and tokens[0] in _LEAD:
+        tokens = tokens[1:]
+    return tokens[:1] == ["esac"]

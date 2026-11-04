@@ -325,7 +325,8 @@ next release.
   Copilot JSON converters and the parser of the files a shell command prints
   (`dokimi/repos/shell_split.py` splits the command into its parts, and
   `dokimi/repos/shell_words.py` finds a part's command word and the
-  directory builtins it runs),
+  directory builtins it runs, and `dokimi/repos/shell_functions.py` the
+  shell functions whose call may move the shell),
   and `dokimi/repos/answers.py` the `answer_format`
   conversions that turn a native review answer into a findings block.
 - `dokimi/repos/l0/` — `repo scan` (L0): checks the links, paths,

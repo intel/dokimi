@@ -22,7 +22,8 @@ A shell command that only prints files (:func:`~dokimi.repos.cli_traces.shell_re
 ``read`` event per file, before its ``command`` event: a Codex or Copilot shell command, and
 Claude Code's ``Bash`` tool. Claude Code keeps the shell's directory from one ``Bash`` call to the
 next, so once any call ran a ``cd`` in that shell (not in a subshell, a pipeline or a background
-job), later relative reads are not recorded, the parent's and every subagent's alike: subagents may
+job), or called a function that an earlier call (or itself) defined with a ``cd`` in its body, later relative
+reads are not recorded, the parent's and every subagent's alike: subagents may
 share the parent's shell, and dropping a read is the safe side either way. A refused call ran nothing:
 it moves no shell, and its reads stay, ``denied``, after a move too (a relative one then has no
 ``path``: which file it named is not known; ``guidance_read``, reach and skill use skip a denied read). The reads are settled when the trace ends,
@@ -45,6 +46,7 @@ from typing import Any
 from dokimi.context.trace import parse_trace
 
 from .cli_traces import _failed_read, codex_json, copilot_json, shell_walk
+from .shell_functions import Functions
 from .transcript import Transcript, _parse_time, clip_output, relative_path
 
 TRACE_FORMATS = ("claude-stream-json", "codex-json", "copilot-json", "text")
@@ -91,6 +93,7 @@ class _Stream:
     cwd: str  # where the Bash shell starts, relative to workdir
     by_id: dict[str, dict[str, Any]] = field(default_factory=dict)  # tool_use id -> its event
     bash: dict[int, _BashCall] = field(default_factory=dict)  # id() of a Bash call's command event -> the call
+    functions: Functions = field(default_factory=dict)  # the shell functions Bash calls defined: the shell keeps them
 
 
 def _claude_stream_json(raw: str, workdir: str | None, cwd: str = "") -> Transcript:
@@ -226,7 +229,7 @@ def _tool_use(out: Transcript, block: dict[str, Any], t: float | None, agent: st
 
 def _bash_call(event: dict[str, Any], stream: _Stream) -> _BashCall:
     """A Bash command's call, with a read event for each file it names; :func:`_settle_bash` keeps or drops them."""
-    named, moves, unknown = shell_walk(str(event["text"]), stream.cwd)
+    named, moves, unknown = shell_walk(str(event["text"]), stream.cwd, stream.functions)
     reads = [{"t": event["t"], "kind": "read", "path": relative_path(p, stream.workdir)} for p in named]
     stream.bash[id(event)] = call = _BashCall(str(event["text"]), named, reads, moves, unknown)
     return call
