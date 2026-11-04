@@ -113,7 +113,8 @@ reads anything outside the root. The artifact is checked against the schema of
 the version it declares. An artifact that fails the check prints
 `schema: invalid, N errors` and each error, and the command still exits 0:
 `runs show` reads, it does not gate. A file with no `run_id` shows
-`- (saved before the envelope)`, or `- (an input kind: no envelope)`. `contents` gives the length of the lists
+`- (saved before the envelope)`, `- (an input kind: no envelope)`, or
+`- (not a run id: see the schema errors)`. `contents` gives the length of the lists
 the kind holds, and `next to it` the first 20 entries of the artifact's
 directory. `--json` prints the fields of a `runs list` row plus `root`,
 `schema`, `schema_valid`, `schema_errors`, `contents`, `siblings`,

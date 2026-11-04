@@ -900,29 +900,39 @@ producers write, so a fixture cannot invent one.
 
 ### The run envelope
 
-An artifact a run writes carries the run's envelope right after its `schema_version`
-([#277](https://github.com/intel/dokimi/issues/277)):
+An artifact of a registered run kind carries the run's envelope right after its
+`schema_version` ([#277](https://github.com/intel/dokimi/issues/277)):
 
 ```json
 {"schema_version": "arms.v1", "run_id": "20261104T153012Z-1a2b3c4d", "dokimi_version": "0.1.0", ...}
 ```
 
-- `run_id` is made once per process from the UTC start time and 8 random hex digits, so every
-  file one command writes shares it (a pipeline's questions, answers and eval; a catalog run's
-  report and result). `runs list` and `runs show` print it.
+- `run_id` is made once per process, when it is first needed (a CLI command makes it at start),
+  from the UTC time and 8 random hex digits. So every file one process writes shares it: a
+  pipeline's questions, answers and eval, or a catalog run's report and result. `runs list --json`
+  and `runs show` print it.
 - `DOKIMI_RUN_ID` gives several commands one id, for example the steps of a CI job. It is 1-128
   letters, digits, `.`, `_` or `-` and starts with a letter or a digit, so it can name a
-  directory. Any other value exits 2 before the command does anything.
-- A file saved again records the process that saved it: a run resumed from a partial file takes
-  the resuming run's id, and so does an artifact built from a loaded one.
-- The input kinds carry no envelope: `plan`, `dokimi_config`, `repo_ledger`, `need_graph` and
-  `cli_routes` say what a run is given. A plan's digest, which resume compares, would otherwise
-  change with every process that saved it. `harness_profile`, `repo_manifest` and
-  `tool_preference_groups` are inputs too, validated but never saved.
+  directory. Any other value exits 2 before the command does anything, whatever the command.
+  A dokimi process started by another (`scripts/reach_conformance.py` runs `repo reach` per
+  fixture) makes its own id unless `DOKIMI_RUN_ID` is set; that script passes it through.
+- A file saved again records the process that saved it, and so does an artifact built from a
+  loaded one (`repo reach --from`).
+- The `--run-id` flag of `answers generate`, `eval score pointwise` and `report eval` names the
+  output directory only; the envelope's `run_id` is the process's. The `run_id` of each
+  `effective_instructions` receipt is that receipt's own, not the envelope.
+- The input kinds carry no envelope: `plan`, `dokimi_config`, `repo_ledger` and `need_graph` are
+  what a run is given, and `cli_routes` describes the CLI. A plan in particular is hashed whole:
+  the completeness check compares its digest with the result's `plan_digest`, and a `run_id` in
+  the plan would change that digest with every process that saved it. `harness_profile`,
+  `repo_manifest` and `tool_preference_groups` are inputs too, validated but never saved.
+- Run outputs that are not a registered kind (a repo run's `grade.json` and batch files) carry
+  no envelope.
 - A file saved before the envelope has neither key and stays valid; so do the superseded
   versions (`questions.v1`, `subject_scorecard.v1`), which declare no envelope.
 - The `--json` output of `repo scan`, `repo inspect`, `repo budget` and `eval inspect`
-  carries the same envelope as the file their `--out` writes.
+  carries the same envelope as the file their `--out` writes, at the end of the document
+  rather than after `schema_version`.
 - The run's cost is not in the envelope yet.
 
 A schema version only widens in place; a narrowing is a new version. Writers always

@@ -97,8 +97,8 @@ SUPERSEDED_VERSIONS: dict[str, tuple[str, ...]] = {
 }
 
 
-#: Kinds that say what a run is given, not what it produced: a plan, a repository's config, a rule
-#: ledger, a frozen need graph, the CLI's route table. :func:`save_artifact` gives them no envelope.
+#: Kinds that are not a run's product: what a run is given (a plan, a repository's config, a rule
+#: ledger, a frozen need graph) and the CLI's route table. :func:`save_artifact` gives them no envelope.
 INPUT_KINDS: frozenset[str] = frozenset({"plan", "dokimi_config", "repo_ledger", "need_graph", "cli_routes"})
 
 #: The envelope keys :func:`save_artifact` writes on a run kind, after ``schema_version``.
@@ -206,8 +206,8 @@ def validate_artifact(kind: str, data: dict) -> None:
 
 
 def stamp(kind: str, data: dict) -> dict:
-    """Return ``data`` with its ``schema_version`` and :func:`envelope` set for ``kind``, as
-    :func:`save_artifact` writes them (a ``--json`` print of what ``--out`` saves)."""
+    """Return ``data`` with its ``schema_version`` and :func:`envelope` set for ``kind``: the keys
+    :func:`save_artifact` writes, appended rather than first (a ``--json`` print of what ``--out`` saves)."""
     if kind not in SCHEMA_VERSIONS:
         raise KeyError(f"Unknown artifact kind: {kind!r}")
     data["schema_version"] = SCHEMA_VERSIONS[kind]
@@ -221,7 +221,7 @@ def save_artifact(kind: str, data: dict, path: Path | str) -> dict:
     - ``schema_version`` is set to the current version for ``kind`` and leads the document,
       followed by the :func:`envelope` (``run_id``, ``dokimi_version``) unless ``kind`` is an
       input kind. Values already in ``data`` under these keys are replaced: the file records the
-      process that last saved it, so a run resumed from a partial file takes the new run's id.
+      process that last saved it, so an artifact built from a loaded one takes the new run's id.
       ``data`` itself is not mutated.
     - The payload is validated first. :class:`ArtifactValidationError` means nothing was
       written at ``path`` (a file already there is untouched); the rejected payload is kept

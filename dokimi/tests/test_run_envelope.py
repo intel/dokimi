@@ -92,8 +92,8 @@ def test_an_input_kind_is_saved_with_no_envelope(tmp_path, kind):
 
 
 def test_a_plan_keeps_its_digest_when_saved_in_another_process(tmp_path, monkeypatch):
-    """Why a plan is an input: resume compares plan digests, and a run id in the plan would change
-    its digest in every process."""
+    """Why a plan is an input: the completeness check compares the plan's digest with the result's
+    plan_digest, and a run id in the plan would change that digest in every process."""
     plan = _fixture("plan")
     monkeypatch.setenv(artifacts.RUN_ID_ENV, "first")
     save_artifact("plan", plan, tmp_path / "plan.json")
@@ -102,8 +102,7 @@ def test_a_plan_keeps_its_digest_when_saved_in_another_process(tmp_path, monkeyp
 
 
 def test_an_envelope_in_the_data_is_replaced_by_this_run(tmp_path):
-    """A run resumed from a partial file, or a payload built from a loaded artifact, records the
-    process that saved it."""
+    """A payload built from a loaded artifact records the process that saved it."""
     stale = {**_fixture("arms"), "run_id": "an-earlier-run", "dokimi_version": "0.0.1"}
     written = save_artifact("arms", stale, tmp_path / "a.json")
     assert (written["run_id"], written["dokimi_version"]) == (run_id(), __version__)
