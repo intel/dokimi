@@ -28,15 +28,16 @@ import traceback
 from pathlib import Path
 
 if __package__:
-    from . import review
+    from . import review, typecheck
 else:  # a script under -I: its own directory is not on sys.path
     # By name, not `import review`: dependency hygiene (deptry) reads a bare import as a third-party package.
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     review = importlib.import_module("review")
+    typecheck = importlib.import_module("typecheck")
 
-GRADERS = dict(review.GRADERS)
-ORACLES = dict(review.ORACLES)
-VERSIONS = {name: review.VERSION for name in review.GRADERS}
+GRADERS = {**review.GRADERS, **typecheck.GRADERS}
+ORACLES = {**review.ORACLES, **typecheck.ORACLES}
+VERSIONS = {**{name: review.VERSION for name in review.GRADERS}, **{name: typecheck.VERSION for name in typecheck.GRADERS}}
 RUN_DIR = "/eval/run"
 
 
@@ -76,7 +77,7 @@ def grade(name, task_dir, run_dir):
     try:
         answer = run_dir / "answer.txt"
         text = answer.read_text(encoding="utf-8") if answer.exists() else ""
-        g = GRADERS[name](t, task_dir, text)
+        g = GRADERS[name](t, task_dir, text, run_dir)
         out["metrics"], out["details"] = split_result(g)
         for k in gate_names(t):  # a gate metric the grader did not reach is unmeasured, not failed
             out["metrics"].setdefault(k, None)
@@ -92,7 +93,7 @@ def grade(name, task_dir, run_dir):
 
 def oracle(name, task_dir, run_dir):
     """Write the reference answer to ``run_dir/answer.txt``; returns it."""
-    text = ORACLES[name](_read_task(run_dir), task_dir)
+    text = ORACLES[name](_read_task(run_dir), task_dir, run_dir)
     if text:
         (run_dir / "answer.txt").write_text(text, encoding="utf-8")
     return text

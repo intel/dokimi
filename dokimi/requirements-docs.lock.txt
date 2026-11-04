@@ -494,6 +494,7 @@ pathspec==1.1.1 \
     --hash=sha256:a00ce642f577bf7f473932318056212bc4f8bfdf53128c78bbd5af0b9b20b189
     # via
     #   -c requirements-ci.lock.txt
+    #   -c requirements.lock.txt
     #   mkdocs
     #   properdocs
 platformdirs==4.13.5 \

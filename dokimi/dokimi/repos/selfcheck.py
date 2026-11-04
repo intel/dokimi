@@ -31,7 +31,9 @@ from pathlib import Path
 from typing import Any
 
 from .container import CONTENT_DIR, RUN_DIR, SOURCE_DIR, ContainerError, ContainerSpec, docker_network
-from .grading import EvalContext, outcome, run_entry
+from .graders import builtin_name
+from .graders.typecheck import REFERENCE_DIR
+from .grading import EvalContext, outcome, read_grade_json, run_entry
 from .host import probe_host, shortfall_kinds, unmet, validate_tasks
 from .runner import agent_layout, container_name
 from .workspace import PrepError, Task, prepare_workspace
@@ -82,7 +84,8 @@ def check_task(ctx: EvalContext, task: Task, work_dir: Path, warm: bool = False,
     reason, unsupported_by, facts = _host_reason(ctx, task, work_dir, host)
     # Only what the hardware decides is skipped: the null check (it passes where the bug cannot show) and,
     # unless the miss is CPUs alone, the oracle. Preparing the workspace and isolation hold anywhere.
-    run_oracle = not reason or (unsupported_by == "host" and shortfall_kinds(task, facts) <= {"cpus"})
+    run_oracle = _oracle_applies(task) and (
+        not reason or (unsupported_by == "host" and shortfall_kinds(task, facts) <= {"cpus"}))
     for kind, run_it in (("null", not reason), ("oracle", run_oracle)):
         _check_step(ctx, task, work_dir / f"{task.id}__{kind}", kind, run_it, net, res)
     if not res["problems"]:
@@ -93,6 +96,15 @@ def check_task(ctx: EvalContext, task: Task, work_dir: Path, warm: bool = False,
     else:
         res["verdict"] = "broken" if res["problems"] else "ok"
     return res
+
+
+def _oracle_applies(task: Task) -> bool:
+    """False for a built-in ``dokimi:typecheck`` task with no ``reference/``: its oracle has no repair to apply
+    (the grade reads the workspace as it is), so the self-check runs the null step only, and the untouched
+    listed files must fail the gate."""
+    if builtin_name(task.raw.get("grader")) != "typecheck":
+        return True
+    return (task.dir / REFERENCE_DIR).is_dir()
 
 
 def _host_reason(ctx: EvalContext, task: Task, work_dir: Path,
@@ -136,6 +148,22 @@ def _prepare(ctx: EvalContext, task: Task, rd: Path) -> None:
     (rd / "events.jsonl").write_text("", encoding="utf-8")
 
 
+def _missing_listed(rd: Path) -> list[str]:
+    """For a typecheck task with no reference the null grade is the only step: a listed path it reports missing,
+    or a suppression already in the workspace, fails that step, so no run that repairs the code could pass."""
+    doc, _ = read_grade_json(rd / "grade.json")
+    details = doc.get("details") if isinstance(doc, dict) else None  # the grader's lists are under details
+    metrics = doc.get("metrics") if isinstance(doc, dict) else None
+    missing = details.get("missing") if isinstance(details, dict) else None
+    out = []
+    if isinstance(missing, list) and missing:
+        out.append(f"null: listed path {', '.join(str(p) for p in missing)} is missing; with no reference no run "
+                   "can pass")
+    if isinstance(metrics, dict) and isinstance(metrics.get("n_suppressions"), int) and metrics["n_suppressions"] > 0:
+        out.append("null: the untouched workspace already silences mypy; with no reference a code repair cannot pass")
+    return out
+
+
 def _verdict_problems(task: Task, kind: str, grade: dict[str, Any], rd: Path) -> list[str]:
     if grade["status"] == "grader_failure":
         return [f"{kind}: grader failure ({'; '.join(grade['reasons'])}); see {rd / 'grade.log'}"]
@@ -143,7 +171,8 @@ def _verdict_problems(task: Task, kind: str, grade: dict[str, Any], rd: Path) ->
     reached = top is not None and grade["score"] is not None and grade["score"] >= top
     if kind == "null":
         out = ["null: the untouched workspace passes the gate"] if grade["success"] else []
-        return out + ([f"null: the untouched workspace reaches score.max {top}"] if reached else [])
+        out += [f"null: the untouched workspace reaches score.max {top}"] if reached else []
+        return out + ([] if _oracle_applies(task) else _missing_listed(rd))
     if grade["score_only"] and task.score:  # outcome() fails pass: null when the task has no `score`
         return [] if reached else [f"oracle: {task.score['metric']} = {grade['score']}, below score.max {top}"]
     out = [] if grade["success"] else ["oracle: the reference solution does not pass the gate"]

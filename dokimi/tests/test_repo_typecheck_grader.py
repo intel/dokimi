@@ -1,0 +1,804 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""The built-in grader ``dokimi:typecheck`` (contract §4.5): listed files type-check clean under the pinned mypy."""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+from pathlib import Path
+
+import mypy.version
+import pytest
+
+from dokimi.repos.graders import main, typecheck
+
+PINNED = mypy.version.__version__
+
+
+def _task(**over) -> dict:
+    task = {"id": "typed", "grader": "dokimi:typecheck", "version": PINNED, "paths": ["pkg/api.py"]}
+    task.update(over)
+    return task
+
+
+def _run(tmp_path: Path, files: dict[str, str], task: dict) -> Path:
+    """A run directory whose workspace holds ``files``; returns the run directory."""
+    run = tmp_path / "run"
+    for name, text in files.items():
+        path = run / "workspace" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    (run / "task.json").write_text(json.dumps(task), encoding="utf-8")
+    return run
+
+
+CLEAN = "def add(a: int, b: int) -> int:\n    return a + b\n"
+WRONG = "def add(a: int, b: int) -> int:\n    return f'{a}{b}'\n"
+
+
+def test_listed_file_that_type_checks_passes(tmp_path):
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": CLEAN}, _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is True
+    assert result["n_errors"] == 0
+    assert result["tool_version"] == PINNED
+
+
+def test_grading_leaves_the_recursion_limit_as_it_was(tmp_path):
+    # mypy's main raises the process-wide recursion limit; in-process, that leaked into later code.
+    before = sys.getrecursionlimit()
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": CLEAN}, _task())
+    typecheck.grade(_task(), tmp_path, "", run)
+    assert sys.getrecursionlimit() == before
+
+
+def test_listed_file_with_a_type_error_fails_and_names_the_error(tmp_path):
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": WRONG}, _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is False
+    assert result["n_errors"] == 1
+    assert result["errors"][0].startswith("pkg/api.py:2:")
+    assert "[return-value]" in result["errors"][0]
+
+
+def test_an_error_in_an_unlisted_module_is_not_counted(tmp_path):
+    other = "def broken() -> int:\n    return 'no'\n"
+    api = "from pkg.other import broken\n\ndef use() -> int:\n    return broken()\n"
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/other.py": other, "pkg/api.py": api}, _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is True
+    assert result["n_errors"] == 0
+
+
+def test_a_listed_file_that_is_missing_fails_without_running_the_tool(tmp_path):
+    run = _run(tmp_path, {"pkg/__init__.py": ""}, _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is False
+    assert result["missing"] == ["pkg/api.py"]
+    assert result["n_errors"] == 0
+
+
+def test_a_pinned_version_other_than_the_image_is_a_grader_error(tmp_path):
+    run = _run(tmp_path, {"pkg/api.py": CLEAN}, _task(version="0.0.1"))
+    with pytest.raises(ValueError, match="pins 0.0.1"):
+        typecheck.grade(_task(version="0.0.1"), tmp_path, "", run)
+
+
+def test_the_entry_point_turns_a_grader_error_into_pass_none_with_errors(tmp_path):
+    run = _run(tmp_path, {"pkg/api.py": CLEAN}, _task(version="0.0.1"))
+    out = main.grade("typecheck", tmp_path, run)
+    assert out["pass"] is None
+    assert out["errors"] and "pins 0.0.1" in out["errors"][0]
+    assert json.loads((run / "grade.json").read_text(encoding="utf-8"))["pass"] is None
+
+
+def test_the_entry_point_writes_the_metrics_that_the_gate_reads(tmp_path):
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": WRONG}, _task())
+    out = main.grade("typecheck", tmp_path, run)
+    assert out["pass"] is False
+    assert out["metrics"]["n_errors"] == 1
+    assert out["metrics"]["n_missing"] == 0
+    assert out["details"]["grader_version"] == typecheck.VERSION
+
+
+@pytest.mark.parametrize("over", [
+    {"tool": "basedpyright"},
+    {"version": ""},
+    {"version": None},
+    {"paths": []},
+    {"paths": ["/etc/passwd"]},
+    {"paths": ["../outside.py"]},
+    {"paths": "pkg/api.py"},
+    {"paths": ["odd\nname/api.py"]},  # a line separator splits the name in mypy's output
+    {"paths": ["odd\u2028name/api.py"]},
+])
+def test_task_problems_refuse_bad_fields(over):
+    task = _task()
+    task.update(over)
+    assert typecheck.task_problems(task)
+
+
+def test_task_problems_accept_a_well_formed_task():
+    assert typecheck.task_problems(_task()) == []
+
+
+def test_the_manifest_checks_the_task_fields_at_parse_time():
+    from dokimi.repos.manifest import _builtin_problems
+
+    raw = _task(version="")
+    assert _builtin_problems(None, "tasks/typed", raw, "typecheck")
+    assert _builtin_problems(None, "tasks/typed", _task(), "typecheck") == []
+
+
+def test_the_grader_script_loads_its_siblings_by_name(monkeypatch):
+    import runpy
+    import sys
+
+    from dokimi.repos.graders import main as grader_main
+
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    for name in ("review", "typecheck"):
+        monkeypatch.delitem(sys.modules, name, raising=False)
+    script = runpy.run_path(grader_main.__file__, run_name="grader_script")  # a script: no package
+    assert script["GRADERS"]["typecheck"] is script["typecheck"].GRADERS["typecheck"]
+    assert script["VERSIONS"]["typecheck"] == typecheck.VERSION
+
+
+def test_the_subjects_mypy_ini_cannot_suppress_a_listed_file(tmp_path):
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": WRONG,
+                          "mypy.ini": "[mypy-pkg.api]\nignore_errors = True\n"}, _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is False
+    assert result["n_errors"] == 1
+
+
+def test_a_colored_mypy_image_still_fails_a_listed_file_with_a_type_error(tmp_path, monkeypatch):
+    # the image's env is kept for the grade: MYPY_FORCE_COLOR puts ANSI escapes around the file name and the marker
+    monkeypatch.setenv("MYPY_FORCE_COLOR", "1")
+    run = _run(tmp_path, {"pkg/api.py": WRONG}, _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is False
+    assert result["n_errors"] == 1
+
+
+def test_a_listed_path_with_a_colon_is_matched():
+    out = typecheck._errors("a:b.py:3: error: boom  [misc]", {"a:b.py"}, "")
+    assert [(e["file"], e["line"]) for e in out] == [("a:b.py", 3)]
+
+
+def test_a_listed_path_containing_the_error_separator_is_matched():
+    # the name itself holds ": error: "; the first separator in the line is not the end of the name
+    out = typecheck._errors("pkg/a: error: b.py:2: error: incompatible return value  [return-value]",
+                            {"pkg/a: error: b.py"}, "")
+    assert [(e["file"], e["line"], e["code"]) for e in out] == [("pkg/a: error: b.py", 2, "return-value")]
+
+
+def test_a_listed_name_that_is_a_prefix_of_another_does_not_take_its_errors():
+    out = typecheck._errors("pkg/a: error: b.py:2: error: boom", {"pkg/a", "pkg/a: error: b.py"}, "")
+    assert [(e["file"], e["line"]) for e in out] == [("pkg/a: error: b.py", 2)]
+
+
+def test_a_mypy_spelling_of_a_listed_file_is_normalised_before_matching():
+    out = typecheck._errors("./pkg//a.py:3: error: boom  [misc]", {"pkg/a.py"}, "")
+    assert [(e["file"], e["line"]) for e in out] == [("pkg/a.py", 3)]
+
+
+def test_a_line_less_error_on_a_listed_file_is_counted():
+    out = typecheck._errors("pkg/a.py: error: Duplicate module named 'a'", {"pkg/a.py"}, "")
+    assert [(e["file"], e["line"]) for e in out] == [("pkg/a.py", 0)]
+
+
+NAMESPACE_API = "from pkg.other import broken\n\ndef use() -> int:\n    return broken()\n"
+NAMESPACE_OTHER = "def broken() -> int:\n    return 1\n"
+
+
+def test_a_relative_run_directory_is_graded(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": CLEAN}, _task())
+    result = typecheck.grade(_task(), tmp_path, "", Path("run"))
+    assert result["pass"] is True
+    assert result["missing"] == []
+
+
+def test_a_namespace_package_resolves_from_the_workspace_root(tmp_path):
+    # both files listed: a listed other.py must be named pkg.other, the name api.py imports it by
+    task = _task(paths=["pkg/api.py", "pkg/other.py"])
+    run = _run(tmp_path, {"pkg/api.py": NAMESPACE_API, "pkg/other.py": NAMESPACE_OTHER}, task)
+    result = typecheck.grade(task, tmp_path, "", run)
+    assert result["pass"] is True, result["errors"]
+
+
+def test_a_src_layout_package_resolves_when_both_files_are_listed(tmp_path):
+    # a regular package under src/: pkg.x is imported from src/, so src/ is a root with the workspace
+    files = {"src/pkg/__init__.py": "", "src/pkg/x.py": "val: int = 1\n",
+             "src/pkg/y.py": "from pkg.x import val\n\nprint(val + 1)\n"}
+    task = _task(paths=["src/pkg/x.py", "src/pkg/y.py"])
+    run = _run(tmp_path, files, task)
+    result = typecheck.grade(task, tmp_path, "", run)
+    assert result["pass"] is True, result["errors"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a directory named src:lib cannot be created on Windows")
+@pytest.mark.parametrize("sep", [",", ":"])
+def test_a_source_root_with_a_mypy_path_delimiter_is_a_task_error(tmp_path, sep):
+    files = {f"src{sep}lib/pkg/__init__.py": "", f"src{sep}lib/pkg/x.py": "val: int = 1\n",
+             f"src{sep}lib/pkg/y.py": "from pkg.x import val\n\nprint(val + 1)\n"}
+    task = _task(paths=[f"src{sep}lib/pkg/x.py", f"src{sep}lib/pkg/y.py"])
+    run = _run(tmp_path, files, task)
+    with pytest.raises(ValueError, match="mypy_path"):
+        typecheck.grade(task, tmp_path, "", run)
+
+
+def test_a_blocking_syntax_error_in_a_listed_file_fails_the_grade(tmp_path):
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": "def broken(:\n    pass\n"}, _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is False
+    assert result["n_errors"] >= 1
+    assert result["errors"][0].startswith("pkg/api.py:1:")
+
+
+def test_mypy_failing_without_a_diagnostic_is_a_grader_error(tmp_path, monkeypatch):
+    run = _run(tmp_path, {"pkg/api.py": CLEAN}, _task())
+    import mypy.api
+
+    monkeypatch.setattr(mypy.api, "run", lambda args: ("", "cannot start", 2))
+    with pytest.raises(RuntimeError, match="mypy exited 2"):
+        typecheck.grade(_task(), tmp_path, "", run)
+
+
+def test_the_reference_directory_repairs_the_workspace_before_grading(tmp_path):
+    task_dir = tmp_path / "task"
+    (task_dir / "reference" / "pkg").mkdir(parents=True)
+    (task_dir / "reference" / "pkg" / "api.py").write_text(CLEAN, encoding="utf-8")
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": WRONG}, _task())
+    assert typecheck.grade(_task(), tmp_path, "", run)["pass"] is False
+    assert typecheck.oracle(_task(), task_dir, run) == ""
+    assert typecheck.grade(_task(), tmp_path, "", run)["pass"] is True
+
+
+def test_the_entry_point_oracle_repairs_the_workspace_too(tmp_path):
+    task_dir = tmp_path / "task"
+    (task_dir / "reference" / "pkg").mkdir(parents=True)
+    (task_dir / "reference" / "pkg" / "api.py").write_text(CLEAN, encoding="utf-8")
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": WRONG}, _task())
+    main.oracle("typecheck", task_dir, run)
+    assert main.grade("typecheck", task_dir, run)["pass"] is True
+
+
+def test_a_blocking_error_in_an_imported_module_fails_the_listed_file(tmp_path):
+    # mypy stops at the syntax error and never reaches api.py, so the listed file is not checked
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/other.py": "def broken(:\n    pass\n",
+                          "pkg/api.py": "from pkg.other import broken\n\ndef use() -> int:\n    return 'x'\n"},
+               _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is False
+    assert result["n_errors"] >= 1
+
+
+def test_an_external_mypypath_cannot_supply_a_module_the_image_lacks(tmp_path, monkeypatch):
+    stubs = tmp_path / "stubs"  # outside the workspace, as an image's or the environment's MYPYPATH would be
+    stubs.mkdir()
+    (stubs / "unavailable.pyi").write_text("def value() -> int: ...\n", encoding="utf-8")
+    monkeypatch.setenv("MYPYPATH", str(stubs))
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": "from unavailable import value\n"}, _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is False
+    assert any("unavailable" in error for error in result["errors"])
+    assert os.environ["MYPYPATH"] == str(stubs)  # restored for the caller
+
+
+def test_a_listed_file_importing_an_unlisted_link_to_a_hidden_repair_is_refused(tmp_path):
+    # api.py stays a regular file and imports pkg.repair, which is not listed and is a link to a clean repair outside
+    # the workspace: mypy follows the import through the link and would pass api.py on a module this run cannot see
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "repair.py").write_text(CLEAN, encoding="utf-8")
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": "from pkg.repair import add\nassert add(1, 2) == 3\n"},
+               _task())
+    (run / "workspace" / "pkg" / "repair.py").symlink_to(outside / "repair.py")
+    with pytest.raises(ValueError, match="pkg/repair.py is a symbolic link to a file outside the workspace"):
+        typecheck.grade(_task(), tmp_path, "", run)
+
+
+@pytest.mark.parametrize("linked", ["file", "directory", "workspace"])
+def test_a_listed_path_reached_through_a_link_is_missing_not_graded(tmp_path, linked):
+    # The agent links the listed file (or its directory, or the workspace) to a clean repair outside the workspace:
+    # is_file() and mypy would follow the link and pass it. The link is refused, so the file is missing.
+    outside = tmp_path / "outside"
+    (outside / "pkg").mkdir(parents=True)
+    (outside / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+    (outside / "pkg" / "api.py").write_text(CLEAN, encoding="utf-8")
+    workspace = tmp_path / "run" / "workspace"
+    if linked == "file":
+        (workspace / "pkg").mkdir(parents=True)
+        (workspace / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+        (workspace / "pkg" / "api.py").symlink_to(outside / "pkg" / "api.py")
+    elif linked == "directory":
+        workspace.mkdir(parents=True)
+        (workspace / "pkg").symlink_to(outside / "pkg", target_is_directory=True)
+    else:
+        workspace.parent.mkdir(parents=True)
+        workspace.symlink_to(outside, target_is_directory=True)
+    result = typecheck.grade(_task(), tmp_path, "", tmp_path / "run")
+    assert result["pass"] is False and result["n_missing"] == 1 and result["missing"] == ["pkg/api.py"]
+
+
+@pytest.mark.parametrize("linked", ["file", "directory", "workspace"])
+def test_the_oracle_refuses_to_write_through_a_symbolic_link(tmp_path, linked):
+    outside = tmp_path / "outside"
+    (outside / "pkg").mkdir(parents=True)
+    sentinel = outside / "pkg" / "api.py"
+    sentinel.write_text("ORIGINAL", encoding="utf-8")
+    task_dir = tmp_path / "task"
+    (task_dir / "reference" / "pkg").mkdir(parents=True)
+    (task_dir / "reference" / "pkg" / "api.py").write_text("REFERENCE", encoding="utf-8")
+    run = tmp_path / "run"
+    run.mkdir()
+    workspace = run / "workspace"
+    if linked == "file":
+        (workspace / "pkg").mkdir(parents=True)
+        (workspace / "pkg" / "api.py").symlink_to(sentinel)
+    elif linked == "directory":
+        workspace.mkdir()
+        (workspace / "pkg").symlink_to(outside / "pkg", target_is_directory=True)
+    else:
+        workspace.symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ValueError, match="symbolic link"):
+        typecheck.oracle(_task(), task_dir, run)
+    assert sentinel.read_text(encoding="utf-8") == "ORIGINAL"
+
+
+def test_the_oracle_refuses_a_linked_reference_directory_with_a_linked_destination(tmp_path):
+    # copytree follows a linked reference directory and writes its entries through a linked destination
+    # file; the walk of the reference does not see inside the link, so the link itself is refused.
+    repairs = tmp_path / "repairs"
+    repairs.mkdir()
+    (repairs / "api.py").write_text("REFERENCE", encoding="utf-8")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    sentinel = outside / "api.py"
+    sentinel.write_text("ORIGINAL", encoding="utf-8")
+    task_dir = tmp_path / "task"
+    (task_dir / "reference").mkdir(parents=True)
+    (task_dir / "reference" / "pkg").symlink_to(repairs, target_is_directory=True)
+    run = tmp_path / "run"
+    (run / "workspace" / "pkg").mkdir(parents=True)
+    (run / "workspace" / "pkg" / "api.py").symlink_to(sentinel)
+    with pytest.raises(ValueError, match="symbolic link"):
+        typecheck.oracle(_task(), task_dir, run)
+    assert sentinel.read_text(encoding="utf-8") == "ORIGINAL"
+
+
+def test_the_oracle_copies_the_reference_when_no_link_is_on_the_way(tmp_path):
+    task_dir = tmp_path / "task"
+    (task_dir / "reference" / "pkg").mkdir(parents=True)
+    (task_dir / "reference" / "pkg" / "api.py").write_text(CLEAN, encoding="utf-8")
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": WRONG}, _task())
+    typecheck.oracle(_task(), task_dir, run)
+    assert (run / "workspace" / "pkg" / "api.py").read_text(encoding="utf-8") == CLEAN
+
+
+def test_the_oracle_refuses_an_empty_reference_directory_created_through_a_link(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    task_dir = tmp_path / "task"
+    (task_dir / "reference" / "pkg" / "sub").mkdir(parents=True)  # no file under it
+    run = tmp_path / "run"
+    (run / "workspace").mkdir(parents=True)
+    (run / "workspace" / "pkg").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ValueError, match="symbolic link"):
+        typecheck.oracle(_task(), task_dir, run)
+    assert not (outside / "sub").exists()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows does not keep the 0700 mode this checks")
+def test_the_oracle_refuses_a_linked_workspace_even_with_an_empty_reference(tmp_path):
+    # no entry in reference/, so the walk checks nothing; copytree still copies the mode onto the linked root
+    outside = tmp_path / "outside"
+    outside.mkdir(mode=0o700)
+    task_dir = tmp_path / "task"
+    (task_dir / "reference").mkdir(parents=True)
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "workspace").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ValueError, match="symbolic link"):
+        typecheck.oracle(_task(), task_dir, run)
+    assert outside.stat().st_mode & 0o777 == 0o700
+
+
+def test_linked_on_the_way_sees_a_link_in_the_middle_of_a_path(tmp_path):
+    # the oracle's walk also reaches this through the reference's directories; the helper is pinned on its own
+    outside = tmp_path / "outside"
+    (outside / "c").mkdir(parents=True)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "a").symlink_to(outside, target_is_directory=True)
+    assert typecheck._linked_on_the_way(workspace, workspace / "a" / "b" / "c.py") is True
+    assert typecheck._linked_on_the_way(workspace, workspace / "d" / "c.py") is False
+
+
+def test_check_task_runs_no_oracle_step_for_a_typecheck_task_without_reference(tmp_path, monkeypatch):
+    # the gate in check_task itself: a mutated `_oracle_applies(...) and` would run the oracle here
+    from types import SimpleNamespace
+
+    from dokimi.repos import selfcheck
+    from dokimi.repos.workspace import Task
+
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    raw = {"grader": "dokimi:typecheck", "tool": "mypy", "version": "1", "paths": ["pkg/api.py"]}
+    ran = []
+    monkeypatch.setattr(selfcheck, "_host_reason", lambda ctx, task, work_dir, host: (None, None, None))
+    monkeypatch.setattr(selfcheck, "_check_step",
+                        lambda ctx, task, rd, kind, run_it, net, res: ran.append((kind, run_it)))
+    monkeypatch.setattr(selfcheck, "isolation_probe", lambda *args, **kwargs: [])
+    ctx = SimpleNamespace(manifest=SimpleNamespace(image=None))
+    res = selfcheck.check_task(ctx, Task("t", raw, bare), tmp_path / "work")
+    assert ran == [("null", True), ("oracle", False)]
+    assert res["verdict"] == "ok"
+
+
+def test_check_task_runs_the_oracle_step_for_a_typecheck_task_with_reference(tmp_path, monkeypatch):
+    # the mirror of the test above: a `False and (...)` gate would skip the oracle of a task that has a repair
+    from types import SimpleNamespace
+
+    from dokimi.repos import selfcheck
+    from dokimi.repos.workspace import Task
+
+    with_reference = tmp_path / "with"
+    (with_reference / "reference").mkdir(parents=True)
+    raw = {"grader": "dokimi:typecheck", "tool": "mypy", "version": "1", "paths": ["pkg/api.py"]}
+    ran = []
+    monkeypatch.setattr(selfcheck, "_host_reason", lambda ctx, task, work_dir, host: (None, None, None))
+    monkeypatch.setattr(selfcheck, "_check_step",
+                        lambda ctx, task, rd, kind, run_it, net, res: ran.append((kind, run_it)))
+    monkeypatch.setattr(selfcheck, "isolation_probe", lambda *args, **kwargs: [])
+    ctx = SimpleNamespace(manifest=SimpleNamespace(image=None))
+    selfcheck.check_task(ctx, Task("t", raw, with_reference), tmp_path / "work")
+    assert ran == [("null", True), ("oracle", True)]
+
+
+def test_a_typecheck_task_without_reference_runs_no_oracle_step(tmp_path):
+    # reference/ is optional: without it the grade reads the workspace as it is, and the self-check has no
+    # repair to apply, so it runs the null step alone (the untouched listed files must fail the gate).
+    from dokimi.repos import selfcheck
+    from dokimi.repos.workspace import Task
+
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    with_reference = tmp_path / "with"
+    (with_reference / "reference").mkdir(parents=True)
+    raw = {"grader": "dokimi:typecheck", "tool": "mypy", "version": "1", "paths": ["pkg/api.py"]}
+    assert selfcheck._oracle_applies(Task("t", raw, bare)) is False
+    assert selfcheck._oracle_applies(Task("t", raw, with_reference)) is True
+    assert selfcheck._oracle_applies(Task("t", {"grader": "dokimi:review_seeds"}, bare)) is True
+    assert selfcheck._oracle_applies(Task("t", {}, bare)) is True
+
+
+@pytest.mark.parametrize("source", [
+    "def add(a: int, b: int) -> int:\n    return f'{a}{b}'  # type: ignore\n",
+    "# mypy: ignore-errors\n" + WRONG,
+    "# mypy: disable-error-code=return-value\n" + WRONG,
+])
+def test_a_suppression_in_a_listed_file_fails_the_grade(tmp_path, source):
+    # the agent must fix the code, not hide the error: a listed file with a suppression never passes
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": source}, _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is False
+    assert result["n_suppressions"] == 1
+
+
+def test_a_stub_in_the_workspace_that_hides_a_module_fails_the_grade(tmp_path):
+    # mypy_path puts the workspace first: a stub there replaces json, and its __getattr__ hides json.nosuch()
+    stub = "from typing import Any\n\ndef __getattr__(name: str) -> Any: ...\n"
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": "import json\n\nprint(json.nosuch())\n",
+                          "json.pyi": stub}, _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is False
+    assert result["n_suppressions"] == 1
+
+
+def test_an_error_in_an_unannotated_function_still_fails_the_grade(tmp_path):
+    # without --check-untyped-defs mypy skips the body: deleting the annotations would turn a fail into a pass
+    source = "def add(a, b):\n    n: int = 'x'\n    return a + n\n"
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": source}, _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is False
+    assert result["n_errors"] == 1
+
+
+@pytest.mark.parametrize("source", [
+    "from typing import no_type_check\n\n@no_type_check\n" + WRONG,
+    "import typing\n\n@typing.no_type_check\n" + WRONG,
+    "from typing import no_type_check as ok\n\n@ok\n" + WRONG,
+    "from typing import no_type_check\n\n@no_type_check\ndef add(:\n    return 1\n",  # not tokenizable: by line
+])
+def test_no_type_check_in_a_listed_file_is_a_suppression(tmp_path, source):
+    # mypy skips a function under @no_type_check: the error is hidden, not fixed
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": source}, _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is False
+    assert result["n_suppressions"] >= 1
+
+
+@pytest.mark.parametrize("head", [
+    "from typing import TYPE_CHECKING\n\nif not TYPE_CHECKING:\n",
+    "import typing\n\nif not typing.TYPE_CHECKING:\n",
+    "MYPY = False\nif not MYPY:\n",
+    "from typing import TYPE_CHECKING\n\nif TYPE_CHECKING:\n    pass\nelse:\n",
+    "from typing import TYPE_CHECKING\n\nif len('a'):\n    pass\nelif not TYPE_CHECKING:\n",
+    "from typing import TYPE_CHECKING\n\nif TYPE_CHECKING or len('a'):\n    pass\nelse:\n",
+    "from typing import TYPE_CHECKING\n\nif len('a') or TYPE_CHECKING:\n    pass\nelse:\n",
+    "from typing import TYPE_CHECKING\n\nif not TYPE_CHECKING and len('a'):\n",
+    "from typing import TYPE_CHECKING\n\nif not not TYPE_CHECKING:\n    pass\nelse:\n",
+])
+def test_a_branch_mypy_never_checks_is_a_suppression(tmp_path, head):
+    # mypy takes TYPE_CHECKING as true: the bad line under it grades clean unless the guard is counted
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": head + "    x: int = 'a'\n"}, _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert (result["pass"], result["n_errors"], result["n_suppressions"]) == (False, 0, 1)
+
+
+@pytest.mark.parametrize("text", [
+    "from typing import TYPE_CHECKING\n\nif TYPE_CHECKING:\n    import json\n",
+    "import sys\n\nif not sys.argv:\n    pass\n",
+    "def f(:\n",
+    "from typing import TYPE_CHECKING\n\nif TYPE_CHECKING and len('a'):\n    pass\nelse:\n    pass\n",
+    "from typing import TYPE_CHECKING\n\nif not TYPE_CHECKING or len('a'):\n    pass\n",
+    "from typing import TYPE_CHECKING\n\nif not not TYPE_CHECKING:\n    pass\n",
+])
+def test_unchecked_finds_no_branch_in_a_plain_type_checking_import(text):
+    assert typecheck._unchecked(text) == []
+
+
+def test_no_type_check_in_a_string_is_not_a_suppression(tmp_path):
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": 'NOTE = "no_type_check"\n' + CLEAN}, _task())
+    assert typecheck.grade(_task(), tmp_path, "", run)["pass"] is True
+
+
+@pytest.mark.parametrize("shadow", [
+    {"json.py": "from typing import Any\n\ndef __getattr__(name: str) -> Any: ...\n"},
+    {"json.py": "def nosuch() -> None: ...\n"},
+    {"json/__init__.py": "def nosuch() -> None: ...\n"},
+])
+def test_a_workspace_module_named_as_a_standard_library_one_fails_the_grade(tmp_path, shadow):
+    # the .py twin of a json.pyi: the workspace is first on mypy_path, so it replaces json and hides json.nosuch()
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": "import json\n\nprint(json.nosuch())\n", **shadow},
+               _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is False
+    assert result["n_suppressions"] == 1
+
+
+@pytest.mark.parametrize("shadow", [
+    {"mypy.py": "def __getattr__(name: str) -> int: ...\n"},
+    {"mypy/__init__.py": "def __getattr__(name: str) -> int: ...\n"},
+])
+def test_a_workspace_module_named_as_an_installed_package_fails_the_grade(tmp_path, shadow):
+    # mypy is in the image's site-packages: a workspace mypy.py would stand in for it, as json.py does for json
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": "import mypy\n\nprint(mypy.nosuch)\n", **shadow},
+               _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is False
+    assert result["n_suppressions"] == 1
+
+
+def test_image_provides_finds_an_installed_module_and_not_a_workspace_name():
+    assert typecheck._image_provides("mypy") is True
+    assert typecheck._image_provides("pkg") is False
+    assert typecheck._image_provides("not-an-identifier") is False
+    assert typecheck._image_provides("mypy.version") is False  # a dotted name is not looked up
+
+
+def test_image_provides_is_false_for_a_module_found_outside_site_packages(tmp_path, monkeypatch):
+    # find_spec finds it on sys.path, but not under purelib or platlib: not the image's package
+    (tmp_path / "outside_mod.py").write_text("", encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    assert typecheck._image_provides("outside_mod") is False
+
+
+def _install(tmp_path: Path, monkeypatch, *direct_urls: dict | None) -> None:
+    """A site-packages holding ``minipkg``, claimed by one distribution per ``direct_urls`` entry (None: from an index,
+    no such file; no entry: no distribution claims it)."""
+    site = tmp_path / "site"
+    (site / "minipkg").mkdir(parents=True)
+    (site / "minipkg" / "__init__.py").write_text("", encoding="utf-8")
+    for i, direct_url in enumerate(direct_urls):
+        name = f"minipkg{i or ''}"
+        info = site / f"{name}-0.1.dist-info"
+        info.mkdir()
+        (info / "METADATA").write_text(f"Metadata-Version: 2.1\nName: {name}\nVersion: 0.1\n", encoding="utf-8")
+        (info / "RECORD").write_text("minipkg/__init__.py,,\n", encoding="utf-8")
+        if direct_url is not None:
+            (info / "direct_url.json").write_text(json.dumps(direct_url), encoding="utf-8")
+    monkeypatch.syspath_prepend(str(site))
+    get_path = typecheck.sysconfig.get_path
+    monkeypatch.setattr(typecheck.sysconfig, "get_path",
+                        lambda key, *a, **k: str(site) if key in ("purelib", "platlib") else get_path(key, *a, **k))
+
+
+MINIPKG = {"minipkg/__init__.py": "", "minipkg/api.py": CLEAN}
+
+
+@pytest.mark.parametrize("dir_info", [{}, {"editable": True}])
+def test_the_repositorys_own_package_installed_from_the_workspace_passes(tmp_path, monkeypatch, dir_info):
+    # pip install . in the workspace: the image's copy is the repository, not a package the workspace shadows
+    run = _run(tmp_path, MINIPKG, _task(paths=["minipkg/api.py"]))
+    _install(tmp_path, monkeypatch, {"url": (run / "workspace").resolve().as_uri(), "dir_info": dir_info})
+    result = typecheck.grade(_task(paths=["minipkg/api.py"]), tmp_path, "", run)
+    assert result["pass"] is True, result["errors"]
+
+
+@pytest.mark.parametrize("where", ["elsewhere", "archive", "index"])
+def test_an_installed_package_not_installed_from_the_workspace_is_still_shadowed(tmp_path, monkeypatch, where):
+    run = _run(tmp_path, MINIPKG, _task(paths=["minipkg/api.py"]))
+    url = (run / "workspace").resolve().as_uri()
+    direct_url = {"elsewhere": {"url": tmp_path.resolve().as_uri() + "/src", "dir_info": {}},
+                  "archive": {"url": url, "archive_info": {}}, "index": None}[where]
+    _install(tmp_path, monkeypatch, direct_url)
+    result = typecheck.grade(_task(paths=["minipkg/api.py"]), tmp_path, "", run)
+    assert result["pass"] is False
+    assert result["errors"] == ["minipkg: mypy is silenced here (fix the code instead)"]
+
+
+@pytest.mark.parametrize("second", ["none", "index"])
+def test_a_site_packages_module_not_claimed_by_the_workspace_alone_is_still_shadowed(tmp_path, monkeypatch, second):
+    # "none": no distribution claims it; "index": a second distribution, from an index, provides it too
+    run = _run(tmp_path, MINIPKG, _task(paths=["minipkg/api.py"]))
+    mine = {"url": (run / "workspace").resolve().as_uri(), "dir_info": {}}
+    _install(tmp_path, monkeypatch, *({"none": [], "index": [mine, None]}[second]))
+    result = typecheck.grade(_task(paths=["minipkg/api.py"]), tmp_path, "", run)
+    assert result["errors"] == ["minipkg: mypy is silenced here (fix the code instead)"]
+
+
+def test_a_workspace_module_shadowing_an_installed_pypi_package_fails_the_grade(tmp_path):
+    # PyYAML comes from the index (no dir_info), so a workspace yaml.py stands in for it and is refused
+    files = {"pkg/__init__.py": "", "pkg/api.py": "import yaml\n\nprint(yaml.nosuch())\n",
+             "yaml.py": "from typing import Any\n\ndef __getattr__(name: str) -> Any: ...\n"}
+    run = _run(tmp_path, files, _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is False
+    assert result["errors"] == ["yaml.py: mypy is silenced here (fix the code instead)"]
+
+
+def test_a_standard_library_name_on_a_source_root_fails_the_grade(tmp_path):
+    files = {"src/pkg/__init__.py": "", "src/pkg/api.py": "import json\n\nprint(json.nosuch())\n",
+             "src/json.py": "def nosuch() -> None: ...\n"}
+    run = _run(tmp_path, files, _task(paths=["src/pkg/api.py"]))
+    result = typecheck.grade(_task(paths=["src/pkg/api.py"]), tmp_path, "", run)
+    assert result["pass"] is False
+    assert "src/json.py: mypy is silenced here (fix the code instead)" in result["errors"]
+
+
+def test_a_clean_listed_file_has_no_suppressions(tmp_path):
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": CLEAN}, _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is True
+    assert result["n_suppressions"] == 0
+
+
+@pytest.mark.parametrize("source", [
+    'MESSAGE = "# type: ignore"\n' + CLEAN,
+    '"""Show the marker:\n\n    # mypy: ignore-errors\n    x = 1  # type: ignore\n"""\n' + CLEAN,
+])
+def test_a_marker_inside_a_string_is_not_a_suppression(tmp_path, source):
+    # mypy reads comments only: the text of a string or a docstring that shows a marker silences nothing
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": source}, _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is True
+    assert result["n_suppressions"] == 0
+
+
+def test_a_genuine_suppression_after_a_docstring_is_named_on_its_own_line(tmp_path):
+    source = '"""Show:\n\n    # mypy: ignore-errors\n"""\nVALUE: int = 1  # type: ignore\n'
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": source}, _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is False
+    assert result["n_suppressions"] == 1
+    assert result["errors"] == ["pkg/api.py:5: mypy is silenced here (fix the code instead)"]
+
+
+def test_a_source_that_does_not_tokenize_still_counts_its_marker(tmp_path):
+    # no comment stream to read: the marker is found line by line, and the file fails mypy's parse anyway
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": "def add(:\n    return 1  # type: ignore\n"}, _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is False
+    assert result["n_suppressions"] == 1
+
+
+def test_a_type_error_is_graded_from_any_working_directory(tmp_path, monkeypatch):
+    # mypy prints names relative to the cwd: "workspace/pkg/api.py" matched no listed name, so the error was dropped
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": WRONG}, _task())
+    monkeypatch.chdir(run)
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is False
+    assert result["n_errors"] == 1
+
+
+def test_a_windows_diagnostic_path_matches_the_listed_name():
+    # mypy on Windows prints backslash paths; the listed name is POSIX, so the error is still this file's
+    stdout = "C:\\run\\workspace\\pkg\\api.py:2: error: boom\n"
+    errors = typecheck._errors(stdout, {"pkg/api.py"}, "C:\\run\\workspace\\", sep="\\")
+    assert errors == [{"file": "pkg/api.py", "line": 2, "code": "", "message": "boom"}]
+
+
+def test_a_backslash_in_a_posix_name_is_a_literal_character():
+    # only the native separator is converted: on POSIX a file may be named with a backslash
+    errors = typecheck._errors("ws/a\\b.py:1: error: boom\n", {"a\\b.py"}, "ws/", sep="/")
+    assert [e["file"] for e in errors] == ["a\\b.py"]
+
+
+def test_two_listed_names_for_one_file_are_a_task_error():
+    # "a.py" and "./a.py" are one file: mypy reports it as a duplicate module, so the task could never pass
+    problems = typecheck.task_problems(_task(paths=["pkg/api.py", "./pkg/api.py"]))
+    assert any("distinct" in p for p in problems)
+
+
+def test_a_typecheck_task_without_reference_whose_listed_path_is_missing_is_a_problem(tmp_path):
+    # with no reference the null grade is the only step: a typo'd path fails it, so no run could ever pass
+    from dokimi.repos import selfcheck
+    from dokimi.repos.workspace import Task
+
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    raw = {"grader": "dokimi:typecheck", "tool": "mypy", "version": PINNED, "paths": ["src/pkg/modle.py"]}
+    rd = tmp_path / "rd"
+    rd.mkdir()
+    # the shape main.grade writes: a list is under details, not at the top level
+    mets, det = main.split_result({"pass": False, "n_missing": 1, "missing": ["src/pkg/modle.py"]})
+    (rd / "grade.json").write_text(json.dumps({"pass": False, "metrics": mets, "details": det}), encoding="utf-8")
+    grade = {"status": "graded", "success": False, "score": None, "score_only": False, "pass": False}
+    problems = selfcheck._verdict_problems(Task("t", raw, bare), "null", grade, rd)
+    assert any("missing" in p and "src/pkg/modle.py" in p for p in problems)
+
+
+def test_a_typecheck_task_without_reference_whose_workspace_already_silences_mypy_is_a_problem(tmp_path):
+    # a repository stub fails every grade, so with no reference even a run that repairs the code cannot pass
+    from dokimi.repos import selfcheck
+    from dokimi.repos.workspace import Task
+
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    files = {"pkg/__init__.py": "", "pkg/api.py": CLEAN, "pkg/_ext.pyi": "def f() -> int: ...\n"}
+    run = _run(tmp_path, files, _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["n_errors"] == 0 and result["n_suppressions"] == 1  # repaired, and still failing
+    mets, det = main.split_result(result)
+    (run / "grade.json").write_text(json.dumps({"pass": False, "metrics": mets, "details": det}), encoding="utf-8")
+    grade = {"status": "graded", "success": False, "score": None, "score_only": False, "pass": False}
+    problems = selfcheck._verdict_problems(Task("t", _task(tool="mypy"), bare), "null", grade, run)
+    assert any("silences mypy" in p for p in problems)
+
+
+def test_an_installed_module_without_types_is_not_an_error_but_a_missing_one_is(tmp_path):
+    pytest.importorskip("pygments")  # installed with pytest, and it ships no py.typed
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": "import pygments\n\nprint(pygments.__version__)\n"},
+               _task())
+    assert typecheck.grade(_task(), tmp_path, "", run)["pass"] is True
+    (run / "workspace" / "pkg" / "api.py").write_text("import nosuchmodule_dokimi\n", encoding="utf-8")
+    assert typecheck.grade(_task(), tmp_path, "", run)["pass"] is False
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a symbolic link needs privileges on Windows")
+def test_a_workspace_venv_neither_fails_nor_refuses_a_clean_grade(tmp_path):
+    venv = ".venv/lib/python3.13/site-packages"
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": CLEAN, f"{venv}/foo/__init__.pyi": "x: int\n",
+                          ".git/hooks/x.pyi": ""}, _task())
+    (run / "workspace" / ".venv" / "bin").mkdir()
+    os.symlink(sys.executable, run / "workspace" / ".venv" / "bin" / "python")
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is True and result["n_suppressions"] == 0
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a symbolic link needs privileges on Windows")
+def test_a_dot_directory_with_a_listed_file_is_still_read(tmp_path):
+    task = _task(paths=[".tools/api.py"])
+    run = _run(tmp_path, {".tools/api.py": CLEAN, ".tools/json.pyi": ""}, task)
+    assert typecheck.grade(task, tmp_path, "", run)["n_suppressions"] == 1
+    (run / "workspace" / ".tools" / "json.pyi").unlink()
+    os.symlink(tmp_path, run / "workspace" / ".tools" / "out")
+    with pytest.raises(ValueError, match="outside the workspace"):
+        typecheck.grade(task, tmp_path, "", run)
