@@ -35,6 +35,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable, Iterable, List, Optional, Sequence
 
+from dokimi import process
 from dokimi.harnesses.payload_audit import Leak, new_leaks
 
 #: The Claude Code release the golden is captured with; CI installs this one.
@@ -212,41 +213,47 @@ _TOKEN_BUDGET = re.compile(r"\n*<total_tokens>.*?</total_tokens>", re.DOTALL)
 _SKILLS_HEADER = "The following skills are available for use with the Skill tool:"
 
 
+def _keep_text(text: str, keep_skills: Sequence[str]) -> Optional[str]:
+    """The text of one block with the operator extras out; None drops the block."""
+    if any(marker in text for marker in OPERATOR_REMINDERS):
+        return None
+    if _SKILLS_HEADER not in text:
+        return text
+    kept = [ln for ln in text.split("\n") if not ln.startswith("- ") or any(n in ln for n in keep_skills)]
+    return "\n".join(kept) if any(ln.startswith("- ") for ln in kept) else None
+
+
+def _strip_content(content: Any, keep_skills: Sequence[str]) -> Any:
+    if not isinstance(content, list):
+        return content
+    blocks = []
+    for block in content:
+        text = block.get("text") if isinstance(block, dict) else None
+        if isinstance(text, str):
+            new_text = _keep_text(text, keep_skills)
+            if new_text is None:
+                continue
+            block = {**block, "text": new_text}
+        blocks.append(block)
+    return blocks
+
+
+def _strip_system(system: Any) -> Any:
+    """This build also appends a token budget to the system prompt; drop it."""
+    if not isinstance(system, list):
+        return system
+    return [{**blk, "text": _TOKEN_BUDGET.sub("", blk["text"])}
+            if isinstance(blk, dict) and isinstance(blk.get("text"), str) else blk
+            for blk in system]
+
+
 def _strip_operator_extras(body: dict, keep_skills: Sequence[str]) -> dict:
     """Drop :data:`OPERATOR_REMINDERS` and every skill-listing entry but *keep_skills*."""
-    def keep(text: str) -> Optional[str]:
-        if any(marker in text for marker in OPERATOR_REMINDERS):
-            return None
-        if _SKILLS_HEADER in text:
-            lines = text.split("\n")
-            kept = [ln for ln in lines if not ln.startswith("- ") or any(n in ln for n in keep_skills)]
-            if not any(ln.startswith("- ") for ln in kept):
-                return None
-            return "\n".join(kept)
-        return text
-
     out = dict(body)
-    system = body.get("system")
-    if isinstance(system, list):  # this build also appends a token budget to the system prompt
-        out["system"] = [{**blk, "text": _TOKEN_BUDGET.sub("", blk["text"])}
-                         if isinstance(blk, dict) and isinstance(blk.get("text"), str) else blk
-                         for blk in system]
-    messages = []
-    for msg in body.get("messages", []):
-        content = msg.get("content")
-        if isinstance(content, list):
-            blocks = []
-            for block in content:
-                text = block.get("text") if isinstance(block, dict) else None
-                if isinstance(text, str):
-                    new_text = keep(text)
-                    if new_text is None:
-                        continue
-                    block = {**block, "text": new_text}
-                blocks.append(block)
-            content = blocks
-        messages.append({**msg, "content": content})
-    out["messages"] = messages
+    if "system" in out:
+        out["system"] = _strip_system(out["system"])
+    out["messages"] = [{**msg, "content": _strip_content(msg.get("content"), keep_skills)}
+                       for msg in body.get("messages", [])]
     return out
 
 
@@ -345,15 +352,12 @@ def client_env(base_url: str, home: str, config: str) -> dict:
 def run_host(binary: str, args: List[str], *, workdir: Path, scratch: Path,
              timeout: float = 300.0) -> Callable[[str], None]:
     """A runner for :func:`record` that runs *binary* on this host, in *workdir*."""
-    import subprocess
-
     def run(base_url: str) -> None:
         home = scratch / "home"
         config = home / "config"
         config.mkdir(parents=True, exist_ok=True)
         env = client_env(base_url, str(home), str(config))
-        subprocess.run([binary, *args], cwd=str(workdir), env=env, stdin=subprocess.DEVNULL,
-                       capture_output=True, timeout=timeout, check=False)
+        process.run([binary, *args], timeout=timeout, env=process.Env.only(set=env), cwd=str(workdir))
 
     return run
 
@@ -366,8 +370,6 @@ def run_docker(image: str, binary: str, args: List[str], *, workdir: Path, plugi
     argv and the cwd the model sees are the ones :func:`run_host` gives. The home is a
     tmpfs, so nothing from the operator's host reaches the request.
     """
-    import subprocess
-
     def run(base_url: str) -> None:
         mounts = ["-v", f"{binary}:/opt/agent/claude:ro", "-v", f"{workdir}:{workdir}"]
         if plugin_dir is not None:
@@ -379,7 +381,7 @@ def run_docker(image: str, binary: str, args: List[str], *, workdir: Path, plugi
         cmd = ["docker", "run", "--rm", "--network", "host", "-u", f"{uid}:{gid}",
                "--tmpfs", f"{_CONTAINER_HOME}:uid={uid},gid={gid}", "-w", str(workdir),
                *mounts, *env_args, image, "/opt/agent/claude", *args]
-        subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, timeout=timeout, check=False)
+        process.run(cmd, timeout=timeout, env=process.Env.inherit())
 
     return run
 
