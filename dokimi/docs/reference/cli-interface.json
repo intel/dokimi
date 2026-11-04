@@ -14279,6 +14279,7 @@
                 "'arms'",
                 "'catalog_eval'",
                 "'cli_routes'",
+                "'dokimi_config'",
                 "'effective_instructions'",
                 "'eval'",
                 "'eval_coverage'",

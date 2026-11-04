@@ -19,34 +19,28 @@ from dokimi.defaults import (
 )
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY
+from dokimi.utils import InputError, read_json_input
+from dokimi.commands._output import write_text_or_exit
 from dokimi.exit_codes import EXIT_FAILURE, EXIT_USAGE
-from dokimi.utils import write_text_or_exit
 
 if TYPE_CHECKING:
     from dokimi.eval.cross_judge import Measure
 
 
 def _read_json(path: str):
-    """The parsed JSON at ``path``, or exit 2 (bad input, not a failed gate) naming the file."""
-    try:
-        return json.loads(Path(path).read_text(encoding="utf-8"))
-    except OSError as exc:
-        print(f"Error: cannot read {path}: {exc}", file=sys.stderr)
-    except (ValueError, RecursionError) as exc:  # JSONDecodeError, bad UTF-8, deep nesting
-        print(f"Error: {path} is not valid JSON: {exc}", file=sys.stderr)
-    sys.exit(2)
+    """The parsed JSON at ``path``; an InputError naming the file when it cannot be read (exit 2)."""
+    return read_json_input(path)
 
 
 def _load_json_object(path: str, key: str, kind: type = dict) -> dict:
-    """The JSON object at ``path``, or exit 2 naming the file.
+    """The JSON object at ``path``, or InputError naming the file.
 
     The object must also hold a ``kind`` (object or list) under ``key``.
     """
     data = _read_json(path)
     if not isinstance(data, dict) or not isinstance(data.get(key), kind):
         what = f"a JSON object with a `{key}` {'list' if kind is list else 'object'}"
-        print(f"Error: {path} is not {what}", file=sys.stderr)
-        sys.exit(2)
+        raise InputError(f"{path} is not {what}")
     return data
 
 
@@ -57,7 +51,7 @@ def _judge_name(doc: dict, path: str) -> str:
 
 
 def _result_measure(path: str, key: str, kind: type, build):
-    """The measure an `eval score pairwise` or `eval score checklist` file gives, or exit 2 naming the file.
+    """The measure an `eval score pairwise` or `eval score checklist` file gives, or an InputError naming the file.
 
     *build* is ``(doc, name) -> Measure``; it raises ValueError on an entry of the wrong shape.
     """
@@ -65,32 +59,25 @@ def _result_measure(path: str, key: str, kind: type, build):
     try:
         return build(doc, _judge_name(doc, path))
     except ValueError as exc:
-        print(f"Error: {path}: {exc}", file=sys.stderr)
-        sys.exit(2)
+        raise InputError(f"{path}: {exc}") from exc
 
 
 def _load_answers(path: str):
-    """The parsed file and its answers records (dokimi/records.py), or a clean exit."""
-    from dokimi.records import RecordError, read
+    """The parsed file and its answers records (dokimi/records.py); a RecordError (an InputError) if not."""
+    from dokimi.records import read
 
     data = _read_json(path)
-    try:
-        answers = list(read(data, source=path, section="answers").records)
-    except RecordError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(2)  # 1 is the verdict code of judge-validity and the --strict gates
-    return data, answers
+    return data, list(read(data, source=path, section="answers").records)
 
 
 def _load_points(path: str):
-    """question_id -> required points from a questions file, or exit 2 naming the file."""
+    """question_id -> required points from a questions file, or an InputError naming the file."""
     from dokimi.eval.checklist import load_points
 
     try:
         return load_points(path)
     except (OSError, ValueError) as exc:  # ValueError covers bad JSON, bad UTF-8 and a refused set
-        print(f"Error: cannot read questions {path}: {exc}", file=sys.stderr)
-        sys.exit(2)
+        raise InputError(f"cannot read questions {path}: {exc}") from exc
 
 
 def _require_arms(path: str, records, command: str) -> None:
@@ -102,10 +89,9 @@ def _require_arms(path: str, records, command: str) -> None:
     from dokimi.records import has_arms
 
     if not has_arms(records):
-        print(f"Error: {path} has no arms answers (no record has an `arms` field); "
-              f"{command} reads an arms run (arms run --out-json), not a binary "
-              "with_docs/without_docs answers file", file=sys.stderr)
-        sys.exit(2)
+        raise InputError(f"{path} has no arms answers (no record has an `arms` field); "
+                         f"eval {command} reads an arms run (arms run --out-json), not a binary "
+                         "with_docs/without_docs answers file")
 
 
 def _progress(label: str = ""):
@@ -125,17 +111,14 @@ def _check_judge_temperature(judges: list[tuple[str, str]], temperature) -> None
         return
     from dokimi.eval.arms_run import ProbeError, probe_sampling
     from dokimi.llm import unsupported_sampling_params
-    from dokimi.utils import bedrock_litellm_model
 
     for model, provider in dict.fromkeys(judges):
-        # A Bedrock judge goes through get_llm, which maps a bare name first.
-        resolved = bedrock_litellm_model(model) if provider == "amazon-bedrock" else model
-        if unsupported_sampling_params(resolved, provider, temperature=temperature):
+        if unsupported_sampling_params(model, provider, temperature=temperature):
             print(f"Error: --judge-temperature {temperature} is rejected by judge {provider}/{model}: "
                   f"provider '{provider}' does not support temperature for model '{model}'", file=sys.stderr)
             sys.exit(EXIT_USAGE)
         try:
-            probe_sampling(resolved, provider, temperature, None)
+            probe_sampling(model, provider, temperature, None)
         except ProbeError as exc:
             print(f"Error: --judge-temperature {temperature} is rejected by judge {provider}/{model}: {exc}",
                   file=sys.stderr)

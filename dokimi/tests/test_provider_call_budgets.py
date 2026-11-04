@@ -72,9 +72,9 @@ def _run(argv):
 @pytest.mark.parametrize(
     "provider, model, labels",
     [
-        # The shim path records the model it was given; the get_llm path the litellm route.
+        # Both paths record the provider and model they were given.
         ("openai", "gpt-x", ("openai", "gpt-x")),
-        ("amazon-bedrock", "us.anthropic.x", ("litellm", "bedrock/us.anthropic.x")),
+        ("amazon-bedrock", "us.anthropic.x", ("amazon-bedrock", "us.anthropic.x")),
     ],
 )
 def test_judge_one_record_makes_2_provider_calls(provider_calls, provider, model, labels):

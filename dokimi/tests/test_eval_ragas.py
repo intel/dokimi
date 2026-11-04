@@ -156,7 +156,9 @@ class TestRagasEvaluator:
         with patch('dokimi.eval.ragas_eval.RagasEvaluator._build_ragas_llm',
                    return_value=mock_llm), \
              patch('dokimi.eval.ragas_eval.RagasEvaluator._build_metrics',
-                   return_value=[mock_metric]):
+                   return_value=[mock_metric]), \
+             patch('dokimi.eval.ragas_eval.RagasEvaluator._build_ragas_embeddings',
+                   return_value=None):
             evaluator = RagasEvaluator(metrics=metrics or ["faithfulness", "answer_relevancy"])
         evaluator._ragas_llm = mock_llm
         evaluator._metric_objects = [mock_metric]

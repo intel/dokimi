@@ -14,7 +14,7 @@ import json
 import sys
 from typing import TYPE_CHECKING, NoReturn
 
-from dokimi.exit_codes import usage_exit
+from dokimi.utils import InputError
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -32,9 +32,9 @@ def routing_queries(args: argparse.Namespace, body: str) -> tuple[list[str], boo
         try:
             return load_queries(args.queries), False, None
         except RoutingInputError as exc:
-            usage_exit(str(exc))
+            raise InputError(str(exc)) from exc
     if not args.queries_from_headings:
-        usage_exit("pass --queries <file> with requests written independently of the artifact, or "
+        raise InputError("pass --queries <file> with requests written independently of the artifact, or "
                    "--queries-from-headings for a self-derived triage run")
     queries = headings_as_queries(body)
     if not queries:
@@ -83,7 +83,7 @@ def refuse_estimate_without_queries(args: argparse.Namespace, queries: list[str]
     from dokimi.novelty.routing import tokenize
 
     if not any(tokenize(query) for query in queries):
-        usage_exit(f"no usable queries: {no_queries_reason(args, queries, self_derived)}. "
+        raise InputError(f"no usable queries: {no_queries_reason(args, queries, self_derived)}. "
                    "Nothing is estimated, since the run would be refused")
 
 
@@ -113,7 +113,7 @@ def refuse_queries_naming_left_out(field: list, queries_by_skill: dict[str, list
         whys = [text for why, text in _LEFT_OUT_BECAUSE.items() if why in dropped.get(name, ())]
         reasons.append(f"`{name}` {' and '.join(whys)}, so the field leaves it out" if whys
                        else f"`{name}` is not a loadable skill the field was given")
-    usage_exit("the queries name skills that are not in the field: "
+    raise InputError("the queries name skills that are not in the field: "
                + ", ".join(f"`{n}`" for n in unknown) + ". " + "; ".join(reasons))
 
 

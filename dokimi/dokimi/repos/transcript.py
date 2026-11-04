@@ -26,6 +26,7 @@ class Transcript:
     answer: str = ""
     agent_messages: list[str] = field(default_factory=list)  # codex: every agent message in order; answer is the last
     events: list[dict[str, Any]] = field(default_factory=list)
+    unknown_reads: int = 0  # relative shell reads at a directory the converter could not follow: no read event
     cost_usd: float | None = None
     num_turns: int | None = None
     result_seen: bool = False  # the harness wrote its final result record, so the agent started
@@ -54,10 +55,16 @@ class Transcript:
         return (found[0] if len(found) == 1 else found) if found else None
 
     def reads(self) -> set[str]:
-        return {e["path"] for e in self.events if e["kind"] == "read" and e.get("path")}
+        """The paths the agent was shown (:func:`shown_read`); a refused or failed read stays in the events only."""
+        return {e["path"] for e in self.events if shown_read(e) and e.get("path")}
 
     def events_jsonl(self) -> str:
         return "".join(json.dumps(e, sort_keys=True) + "\n" for e in self.events)
+
+
+def shown_read(event: dict[str, Any]) -> bool:
+    """A read event that showed the agent its file: not refused (``denied``), not failed (``rc`` 0, or no result)."""
+    return event.get("kind") == "read" and not event.get("denied") and event.get("rc") in (0, None)
 
 
 def clip_output(text: str) -> tuple[str, bool]:

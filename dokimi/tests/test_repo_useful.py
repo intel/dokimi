@@ -10,8 +10,9 @@ from pathlib import Path
 
 import pytest
 
-from dokimi.repos.events import _apply_result, convert
+from dokimi.repos.events import _apply_result, _Stream, convert
 from dokimi.repos.host import validate_tasks
+from dokimi.repos.transcript import Transcript
 from dokimi.repos.report import format_report, summarize
 from dokimi.repos.useful import (
     first_useful,
@@ -259,11 +260,13 @@ def test_the_hit_is_timed_from_the_claude_stream_it_came_from():
 def test_a_failed_edit_changed_nothing_so_the_next_successful_one_is_the_first_useful_result():
     failed = {"t": 4.0, "kind": "edit", "path": "src/foo.py"}
     _apply_result(
+        Transcript(),
         {"tool_use_id": "u1", "is_error": True, "content": "String to replace not found in file."},
-        {"u1": failed},
+        _Stream(None, "", {"u1": failed}),
     )
     ok = {"t": 5.0, "kind": "edit", "path": "src/foo.py"}
-    _apply_result({"tool_use_id": "u2", "is_error": False, "content": "edited"}, {"u2": ok})
+    _apply_result(Transcript(), {"tool_use_id": "u2", "is_error": False, "content": "edited"},
+                  _Stream(None, "", {"u2": ok}))
     u = parse_useful({"edit": "src/*.py"})
     assert first_useful(u, [failed]) == {
         "kind": "edit",

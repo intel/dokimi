@@ -153,6 +153,7 @@ def build_probe_record(
     atoms_bundle: dict | None,
     probe_set,
     measure_result,
+    sampling: dict | None = None,
 ) -> dict:
     """The ``novelty probe`` output: the paired runs of one model over a saved answer key.
 
@@ -160,7 +161,9 @@ def build_probe_record(
     the atoms were extracted from (that is ``atoms_ref_digest``): the re-measure step probes
     an edited ``SKILL.md`` with the original atoms, and a digest copied from extraction
     would make the two runs look like the same text. ``probed_bundle`` is ``None`` for an
-    answer key that predates bundle provenance, which leaves both empty.
+    answer key that predates bundle provenance, which leaves both empty. ``sampling`` is
+    ``{"atoms": probed, "of": in the file, "all_atoms": --all-atoms}``, so a rate over the
+    recorded sample is not read as one over every atom (#371).
     """
     return {
         "artifact": artifact_ref,
@@ -169,6 +172,7 @@ def build_probe_record(
         "bundle": {} if probed_bundle is None else probed_bundle.summary(),
         "ref_digest": None if probed_bundle is None else probed_bundle.measured_digest(),
         "atoms_ref_digest": (atoms_bundle or {}).get("measured_digest"),
+        "sampling": sampling,
         "probes": probe_set.as_dict(),
         "paired": {s: measure_result.paired(s) for s in ("lenient", "strict")},
         "arms": {s: measure_result.arm_means(s) for s in ("lenient", "strict")},
@@ -376,9 +380,10 @@ def _render_bundle(artifact: dict) -> list[str]:
         if row.get("unread"):
             atoms_s = "not read"
         else:
+            sampled = row.get("n_sampled")
             atoms_s = str(row.get("n_atoms", 0)) + (
-                f" ({row['n_spans_unread']} spans unread)" if row.get("n_spans_unread") else ""
-            )
+                f" ({sampled} sampled)" if sampled is not None and sampled != row.get("n_atoms", 0) else ""
+            ) + (f" ({row['n_spans_unread']} spans unread)" if row.get("n_spans_unread") else "")
         lines.append(
             f"| `{row['source']}` | {row.get('role', '')} | {row.get('words', 0)} | "
             f"{atoms_s} | {row.get('added', 0)} | {row.get('redundant', 0)} |"
@@ -570,17 +575,21 @@ def render_novelty_markdown(artifact: dict) -> str:
     if candidates:
         lines.append("## Shortening candidates")
         lines.append("")
-        lines.append("| strategy | budget | tok frac | knowledge | value | protection | safe |")
-        lines.append("|---|---|---|---|---|---|---|")
+        lines.append(
+            "| strategy | budget | tok frac | knowledge | value | protection | lost | safe |")
+        lines.append("|---|---|---|---|---|---|---|---|")
         for row in candidates:
             lines.append(
                 f"| {row['strategy']} | {row['budget_frac']} | {row['token_frac']} | "
-                f"{row['knowledge']} | {row['value']} | {row['protection']} | {row['safe']} |"
+                f"{row['knowledge']} | {row['value']} | {row['protection']} | "
+                f"{row.get('dropped_unscored_atoms', '—')} | {row['safe']} |"
             )
         lines.append("")
         lines.append(
-            "A candidate with `safe: false` dropped a protected span. Knowledge can read "
-            "high while protection collapses — that pair is the reason the axes stay apart."
+            "A candidate with `safe: false` dropped a protected span, or every span of an "
+            "atom outside the cap's sample (`lost`, a loss `knowledge` does not score). "
+            "Knowledge can read high while protection collapses — that pair is the reason "
+            "the axes stay apart."
         )
         lines.append("")
 

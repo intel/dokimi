@@ -26,6 +26,9 @@ import shlex
 from datetime import datetime
 from typing import Any
 
+from .shell_split import split_script
+from .shell_words import (_DIR_LOST, _DIRS, _KEYWORDS, _cd, _command_words, _is_cd, _may_run_dir, _run_name, _runs_dir,
+                          _time_keyword, _unquoted)
 from .transcript import Transcript, _parse_time, clip_output, relative_path
 
 _BASH_WRAP = re.compile(r"^(?:/\S*/)?(?:ba|z)?sh -lc (.+)$", re.S)
@@ -46,11 +49,6 @@ _PRINT_ONLY = re.compile(r"\s*(?:(?:\d+|\$)(?:\s*,\s*(?:\d+|\$))?)?\s*p\s*")  # 
 _STDERR_FILE = re.compile(r"(?<![^\s;&|(])2>>?[ \t]*[^\s;&|<>()]+")
 # redirects apply in order: after ``2>/dev/null`` or ``2>file``, a ``1>&2`` sends stdout there too, away from the agent
 _STDOUT_AFTER_STDERR = re.compile(r"(?<![^\s;&|(])2>>?(?!&)[ \t]*[^\s;&|<>()]+.*?(?<![^\s;&|(])1?>&2(?!\d)")
-_SYSTEM_BIN = {"/bin", "/usr/bin", "/usr/local/bin"}
-_ASSIGN = re.compile(r"[A-Za-z_]\w*=")  # a NAME=value word: a variable set for the command that follows
-_KEYWORDS = {"if", "then", "else", "elif", "do", "while", "until", "!"}
-_DIR_STACK = {"pushd", "popd"}
-_DIRS = {"cd"} | _DIR_STACK  # the builtins that change the directory
 _PIPE = re.compile(r"(?<!\|)\|(?!\|)")  # a pipe, not ||
 _GROUP_OPEN = re.compile(r"(?:^|[\s;&|(])\{(?=\s|$)")  # a brace group opens: ``{`` as a word
 _GROUP_CLOSE = re.compile(r"(?:^|\s)\}(?=\s|$|[;&|])")
@@ -86,67 +84,104 @@ def shell_reads(script: str, cwd: str = "") -> list[str]:
     script starts in, relative to the workspace root. ``cd`` moves it for the parts that follow: a
     relative path is joined to it and normalised (no ``.`` or ``..``). The directory is unknown (a
     relative read is not recorded) after ``cd -``, a bare ``cd``, a ``cd`` to a computed path, a
-    ``pushd`` / ``popd``, ``env -C`` / ``--chdir`` (the command's reads, but absolute ones), a ``cd``
-    after ``if`` / ``then`` / ``do`` / ``else`` (it may not run), a ``cd`` after ``&&`` / ``||`` once the chain
-    holding it ends with ``;``, ``&`` or a newline (it may have been skipped), or a glob or brace expansion (the
-    files are not known). A subshell ``( ... )`` or `` `...` `` records no reads: its directory is not kept. A brace
-    group or an ``&&`` / ``||`` list that is backgrounded, or a piped group, runs in a subshell, so the directory is
-    restored after it; the reads of a
+    ``pushd`` / ``popd``, an ``eval``, ``source`` or ``.`` (it may run a ``cd``; none of these when backgrounded or
+    piped, as it then ran in a subshell: ``source env.sh & false || cat a`` reads a), a part the walker does not
+    follow whose command word is one of these (``time -p cd sub``, ``X="a b" cd "$D"``: :func:`_may_run_dir`), a ``case``
+    arm that names one (``case`` is not followed: its reads are not kept either), ``env -C`` / ``--chdir`` (the
+    command's reads, but absolute ones), a ``cd`` after ``if`` / ``then`` / ``do`` / ``else`` (it may not run), a
+    ``cd`` after ``&&`` / ``||`` once the chain holding it ends with ``;``, ``&`` or a newline (it may have been
+    skipped), or a glob or brace expansion (the files are not known). A subshell ``( ... )`` or `` `...` `` records
+    no reads, and a ``cd`` in it moves nothing here. A brace group (``{ cd $(pwd); }``, ``{ { cd x; }; }`` too) or an
+    ``&&`` / ``||`` list that is backgrounded, or a piped
+    group, runs in a subshell, so the directory is restored after it; the reads of a
     group whose output feeds a pipe after it is dropped, as a pipeline is not a read here; a group whose stdout is
     redirected to a file or /dev/null is dropped, as that output is not shown to the agent. ``--help`` and
     ``--version`` print and open no file. A function definition is skipped whole. Absolute paths are kept.
     """
+    return _walk_script(script, cwd)[0]
+
+
+def shell_reads_moved(script: str, cwd: str = "") -> tuple[list[str], bool]:
+    """:func:`shell_reads`, and whether the script may leave its shell in another directory: it ran a ``cd``,
+    ``pushd``, ``popd``, ``eval``, ``source`` or ``.`` in that shell, not in a subshell (``( ... )``, a pipeline
+    or a backgrounded command, list or group: ``cd sub &``, ``{ cd sub; } | cat``, ``cd sub && make &``,
+    ``cd "$X" &``, ``cd sub | cat``, ``{ cd $(pwd); } &``)."""
+    return shell_walk(script, cwd)[:2]
+
+
+def shell_walk(script: str, cwd: str = "") -> tuple[list[str], bool, int]:
+    """:func:`shell_reads_moved`, and how many relative files its printing commands named at a directory not known."""
+    reads, walk = _walk_script(script, cwd)
+    return reads, walk.shell_moved, walk.unknown
+
+
+def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
     out: list[str] = []
     walk = _Walk(posixpath.normpath(cwd) if cwd else "")
     previous = ""
     # a line continuation is removed, not made a space (``cat AGENTS\<newline>.md`` reads AGENTS.md); a heredoc body
     # is input, not commands
     script = _HEREDOC.sub(lambda m: m.group(3), _CONTINUATION.sub("", script))
-    for part, after, in_subshell in _split_script(script):
+    for part, after, in_subshell, outer in split_script(script):
         op, previous = previous, after
         chained = op in ("&&", "||")
         if not chained and walk.gated:  # a cd after && or || may not have run: the next chain starts in no known directory
-            walk.lose()
-            walk.gated = False
+            walk.here, walk.gated = None, False
         walk.chain(op, chained)
-        if walk.in_function(_bare(part)):  # a definition runs nothing
+        if walk.in_function(_bare(part)) or walk.in_case(outer, after, out):  # a definition runs nothing; a case is not followed
             continue
         if op == "||" and walk.moved:
             walk.here = None
+        walk.track_groups(_bare(outer), after, out)  # ``{ cd $(pwd); } | cat``: the group is in this shell
         if in_subshell:  # a subshell: its reads are not tracked
-            if _runs_dir_before_parens(part):  # ``cd $(dirname f)``: the cd is outside the parentheses
-                walk.lose()
+            if _runs_dir(outer):  # ``cd $(dirname f)``: the cd is outside the parentheses
+                walk.lose(_in_own_shell(outer, after))
             continue
-        walk.track_groups(_bare(part), after, out)
-        words = walk.words(part)
+        words = walk.words(part, after)
         if words:
-            out.extend(walk.command(words, after, chained))
-    return out
+            out.extend(walk.command(words, after, chained, _time_keyword(part)))
+    walk.chain(previous, False)  # a list backgrounded at the end (``cd sub && make &``) ran in a subshell too
+    return out, walk
+
+
+_Spot = tuple[str | None, bool, bool]  # (here, shell_moved, moved): what the end of a subshell restores
 
 
 class _Walk:
-    """Where ``shell_reads`` is in the script: the directory (``None``: unknown), whether a ``cd`` was seen, and
-    the open brace groups as (directory before it, in a pipeline)."""
+    """Where ``shell_reads`` is in the script: the directory (``None``: unknown), whether a ``cd`` was seen, whether
+    the script's own shell may have moved, and the open brace groups."""
 
     def __init__(self, here: str | None) -> None:
         self.here = here
-        self.moved = False  # a cd was seen: after ||, the directory is not known
+        self.moved = False  # a cd was seen in this shell: after ||, the directory is not known
+        self.shell_moved = False  # a directory builtin ran in the script's shell, not in a subshell
         self.gated = False  # a cd after && or || was seen in this chain: it may not have run for the next chain
-        # the open brace groups: (directory before it, in a pipeline, index in the reads where it began)
-        self.groups: list[tuple[str | None, bool, int]] = []
-        self.list_start: str | None = here  # the directory where the current && / || list began
+        # the open brace groups: the spot before it, in a pipeline, (index in the reads, ``unknown``) where it began,
+        # the enclosing && / || list's (list_start, listed), which the group's own separators do not end
+        self.groups: list[tuple[_Spot, bool, tuple[int, int], tuple[_Spot, bool]]] = []
+        self.list_start: _Spot = (here, False, False)  # the spot where the && / || list began
         self.listed = False  # that list has more than one command
         self.function = 0  # the brace depth inside a function definition
+        self.case = 0  # the depth inside ``case ... esac``
+        self.operands: int | None = None  # how many files the last printing command named
+        self.unknown = 0  # the relative files printing commands named at a directory not known
+
+    def spot(self) -> _Spot:
+        return self.here, self.shell_moved, self.moved
+
+    def back(self, spot: _Spot) -> None:
+        """Back to ``spot`` after a subshell: what ran in it moved neither this shell nor its ``||`` fallbacks."""
+        self.here, self.shell_moved, self.moved = spot
 
     def chain(self, op: str, chained: bool) -> None:
         """A list of more than one command ended by ``&`` ran in a subshell, so this shell did not move: ``cd sub &&
         cat f & cat g`` reads sub/f and g (a lone ``cd x &`` and a ``{ ...; } &`` group are handled where they end)."""
         if op == "&" and self.listed:
-            self.here = self.list_start
+            self.back(self.list_start)
         if chained:
             self.listed = True
         else:
-            self.list_start, self.listed = self.here, False
+            self.list_start, self.listed = self.spot(), False
 
     def in_function(self, bare: str) -> bool:
         """Whether ``bare`` is part of a function definition (``f() { cd x; cat a; }``): its body is skipped, as
@@ -156,33 +191,58 @@ class _Walk:
         self.function = max(self.function + len(_GROUP_OPEN.findall(bare)) - len(_GROUP_CLOSE.findall(bare)), 0)
         return True
 
-    def lose(self) -> None:
-        self.here, self.moved = None, True
+    def in_case(self, outer: str, after: str, out: list[str]) -> bool:
+        """Whether ``outer`` is part of a ``case ... esac``, which is not followed: an arm may run or not, so one naming a
+        directory builtin (as any word: ``case x in a) cd sub;; esac``) may move the shell, and its reads are not kept.
+        Inside one, each ``case`` word opens another, so a miscount stays inside; its braces still open and close groups."""
+        words = _unquoted(outer.split())
+        while words[:1] and (words[0] in _KEYWORDS or words[0] == "{"):
+            words = words[1:]
+        if not self.case and words[:1] != ["case"]:
+            return False
+        self.case += words.count("case")
+        self.track_groups(_bare(outer), after, out)  # before lose: a backgrounded group around the case restores it
+        if any(w in _DIRS for w in words):
+            self.lose()
+        self.case -= words[:1] == ["esac"]
+        return True
+
+    def lose(self, own_shell: bool = True) -> None:
+        """A directory builtin went where it is not known. Not ``own_shell`` (backgrounded, or a pipeline stage):
+        it ran in a subshell, so this shell's directory stays known (``source env.sh & false || cat a`` reads a)."""
+        if own_shell:
+            self.here, self.shell_moved, self.moved = None, True, True
 
     def track_groups(self, bare: str, after: str, out: list[str]) -> None:
-        """A brace group opening or closing in ``bare``; one that ran in a subshell restores the directory. The
-        reads of a group whose output feeds a pipe after it, or a file, are dropped from ``out``: its output is not
-        the agent's."""
-        opened = _GROUP_OPEN.search(bare)
-        if opened:
-            piped = bool(_PIPE.search(bare[:opened.start()]))
-            self.groups.append((self.here, piped, len(out)))
-            if piped:  # the group runs in a pipeline's subshell: where it ends up is not tracked
-                self.here = None
-        closed = _GROUP_CLOSE.search(bare)
-        if closed and self.groups:
-            before, piped, mark = self.groups.pop()
-            after_close = bare[closed.start():]
-            redirects = bare[closed.end():]
-            if _PIPE.search(after_close) or _STDOUT_FILE.search(redirects) or _STDOUT_AFTER_STDERR.search(redirects):
-                del out[mark:]
-            if piped or _PIPE.search(after_close):  # the group ran in a pipeline's subshell
-                self.here = before
-            elif after == "&":  # the group ran in a subshell
-                self.here = before
+        """A brace group opening or closing in ``bare``; one that ran in a subshell restores the directory. A group is
+        one command of the list around it: ``cd sub && { a; b; } &`` backgrounds the whole list. The reads of a group
+        whose output feeds a pipe after it, or a file, are dropped from ``out``, and so are those it counted in
+        ``unknown``: its output is not the agent's. Each brace of ``bare`` counts, in order (``{ { cd x``,
+        ``} | { cat a``)."""
+        braces = [(m.end() - 1, m) for m in _GROUP_OPEN.finditer(bare)] + [(m.end(), m) for m in _GROUP_CLOSE.finditer(bare)]
+        for _, m in sorted(braces, key=lambda b: b[0]):
+            if m.re is _GROUP_OPEN:
+                self.open_group(bare[:m.end() - 1], len(out))
+            elif self.groups:
+                self.close_group(bare[m.start():], bare[m.end():], after, out)
 
-    def words(self, part: str) -> list[str]:
-        """The words of ``part``; none when it cannot be split or is computed (a computed ``cd`` loses the directory)."""
+    def open_group(self, before_brace: str, mark: int) -> None:
+        piped = bool(_PIPE.search(before_brace))
+        self.groups.append((self.spot(), piped, (mark, self.unknown), (self.list_start, self.listed)))
+        if piped:  # the group runs in a pipeline's subshell: where it ends up is not tracked
+            self.here = None
+
+    def close_group(self, after_close: str, redirects: str, after: str, out: list[str]) -> None:
+        before, piped, (mark, unknown), (self.list_start, self.listed) = self.groups.pop()
+        if _PIPE.search(after_close) or _STDOUT_FILE.search(redirects) or _STDOUT_AFTER_STDERR.search(redirects):
+            del out[mark:]
+            self.unknown = unknown
+        if piped or _PIPE.search(after_close) or after == "&":  # the group ran in a pipeline's or a job's subshell
+            self.back(before)
+
+    def words(self, part: str, after: str = "") -> list[str]:
+        """The words of ``part``; none when it cannot be split or is computed (a computed ``cd`` loses the directory,
+        and moves this shell unless ``part`` is a pipeline or is backgrounded by ``after``: then it ran in a subshell)."""
         if not _STDOUT_AFTER_STDERR.search(_bare(part)):  # else ``>&2`` stays: a redirect, so no read
             part = _outside_quotes(part, _HARMLESS_REDIRECT)
         part = _outside_quotes(part, _STDERR_FILE)
@@ -191,80 +251,55 @@ class _Walk:
         except ValueError:
             return []
         if words is None:
-            rough = part.split()
-            while rough and (rough[0] in _KEYWORDS or rough[0] == "{"):
-                rough = rough[1:]
-            rough, via_env, _ = _command_words(rough)
-            if rough[:1] and rough[0] in _DIRS and not via_env:  # ``builtin cd "$D"``: where it went is not known
-                self.lose()
+            if _runs_dir(part):  # ``builtin cd "$D"``: where it went is not known
+                self.lose(_in_own_shell(part, after))
             return []
-        return words[1:] if words[:1] == ["{"] else words  # a brace group runs in this shell: its cd and reads count
+        while words[:1] == ["{"]:  # a brace group runs in this shell: its cd and reads count
+            words = words[1:]
+        return words
 
-    def command(self, words: list[str], after: str, chained: bool = False) -> list[str]:
+    def command(self, words: list[str], after: str, chained: bool = False, timed: bool = False) -> list[str]:
         """Move the directory for a ``cd``; the files a printing command reads. ``chained``: the command follows
-        ``&&`` or ``||``, so a ``cd`` in it runs only if the command before it succeeded."""
-        conditional = False
+        ``&&`` or ``||``, so a ``cd`` in it runs only if the command before it succeeded; ``timed``: it starts with
+        bash's ``time`` keyword (:func:`~dokimi.repos.shell_words._time_keyword`)."""
+        conditional = negated = False
         while words and words[0] in _KEYWORDS:  # ``then cd x``: the cd may not run
-            words, conditional = words[1:], True
-        words, via_env, chdir = _command_words(words)
+            words, conditional, negated = words[1:], True, negated or words[0] == "!"
+        words, via_env, chdir = _command_words(words, timed)
         if not words:
             return []
         name = _run_name(words[0], via_env)
         if name is None:
             return []
-        if name in _DIR_STACK or (conditional and name == "cd"):
-            self.lose()
+        if name in _DIR_LOST or (conditional and name == "cd") or _may_run_dir(words, timed):
+            self.lose(after != "&")
         elif name == "cd":
-            self.moved = True
             self.gated |= chained
             if after != "&":  # a backgrounded cd runs in a subshell: this shell stays where it was
-                self.here = _cd(self.here, words[1:])
-        elif name in _PRINTERS:
-            if _asks_for_help(words[1:]):  # ``cat --help AGENTS.md`` prints the help and opens no file
-                return []
-            files = _sed_files(words[1:]) if name == "sed" else _print_files(name, words[1:])
-            # ``env -C dir cat f`` reads dir/f, which is not known: only an absolute path is the same
-            return [self.resolve(f) for f in files if f.startswith("/") or (self.here is not None and not chdir)]
+                self.here, self.shell_moved, self.moved = _cd(self.here, words[1:]), True, True
+        elif name in _PRINTERS and not negated:  # ``! cat f`` inverts the exit, which no longer says f was printed
+            return self.printed(name, words[1:], chdir)
         return []
+
+    def printed(self, name: str, args: list[str], chdir: bool) -> list[str]:
+        """The files a printing command reads; ``unknown`` counts those it names at a directory not known."""
+        if _asks_for_help(args):  # ``cat --help AGENTS.md`` prints the help and opens no file
+            return []
+        files = _sed_files(args) if name == "sed" else _print_files(name, args)
+        self.operands = len(files)  # all it names, those at an unknown directory too
+        # ``env -C dir cat f`` reads dir/f, which is not known: only an absolute path is the same
+        known = [f for f in files if f.startswith("/") or (self.here is not None and not chdir)]
+        self.unknown += len(files) - len(known)
+        return [self.resolve(f) for f in known]
 
     def resolve(self, f: str) -> str:
         return posixpath.normpath(f if f.startswith("/") else posixpath.join(self.here or "", f))
 
 
-def _run_name(name: str, via_env: bool) -> str | None:
-    """The name a command runs as, or None when it is a ``cd`` or directory-stack builtin that does not run."""
-    if via_env and (name == "cd" or name in _DIR_STACK):  # ``env cd x`` runs no builtin: nothing moves
-        return None
-    if "/" in name:  # ``/bin/cat`` is cat; ``./cat`` or ``/bin/cd`` is some other program
-        name = posixpath.basename(name) if posixpath.dirname(name) in _SYSTEM_BIN else ""
-        if name == "cd" or name in _DIR_STACK:
-            return None
-    return name
-
-
-def _cd(here: str | None, args: list[str]) -> str | None:
-    """The directory after ``cd <args>`` from ``here`` (``None``: unknown)."""
-    rest = list(args)
-    while rest and rest[0] in ("-L", "-P", "-e", "-@"):
-        rest.pop(0)
-    if rest and rest[0] == "--":
-        rest.pop(0)
-    if len(rest) != 1 or rest[0] == "-" or rest[0].startswith("~"):
-        return None  # home, the previous directory, or something we do not track
-    target = rest[0]
-    if target.startswith("/"):
-        return posixpath.normpath(target)
-    return None if here is None else posixpath.normpath(posixpath.join(here, target))
-
-
-def _runs_dir_before_parens(part: str) -> bool:
-    """Whether the command text before its first parenthesis runs a directory builtin, as ``cd $(...)`` does
-    (a subshell ``(cd x; ...)`` has no such text, so it changes nothing outside itself)."""
-    words = re.split(r"[()`]", part, maxsplit=1)[0].split()
-    while words and (words[0] in _KEYWORDS or words[0] == "{"):
-        words = words[1:]
-    words, via_env, _ = _command_words(words)
-    return bool(words) and words[0] in _DIRS and not via_env
+def _in_own_shell(outer: str, after: str) -> bool:
+    """Whether the part with this outer text runs in the script's shell: not backgrounded by ``after``, nor a
+    pipeline stage (a pipe in quotes or escaped, ``\\|``, is not one)."""
+    return after != "&" and not _PIPE.search(re.sub(r"\\.", "", _bare(outer)))
 
 
 def _computed(part: str) -> bool:
@@ -412,119 +447,11 @@ def _outside_quotes(part: str, rx: re.Pattern[str]) -> str:
     return "".join(out) + part[last:]
 
 
-def _program(word: str) -> str:
-    """The program a word names when it is a bare name or a system path (``env``, ``/usr/bin/env``); ``""`` for a
-    path elsewhere (``./env``), which is some program of the repository, not the one the system has."""
-    return posixpath.basename(word) if posixpath.dirname(word) in ("", *_SYSTEM_BIN) else ""
-
-
-def _command_words(words: list[str]) -> tuple[list[str], bool, bool]:
-    """The words from the command's name on; whether ``env`` runs it; and whether that ``env`` changes
-    directory (``-C`` / ``--chdir``). ``NAME=value`` words, ``builtin`` or ``command`` before a directory
-    builtin (which runs it), and ``env`` with its options and assignments come before the name and are skipped."""
-    via_env = chdir = False
-    while words:
-        if _ASSIGN.match(words[0]):
-            words = words[1:]
-        elif words[0] in ("builtin", "command") and len(words) > 1 and words[1] in _DIRS:  # ``./command`` is a program
-            words = words[1:]
-        elif _program(words[0]) == "env":
-            words, via_env = words[1:], True
-            while words and (words[0].startswith("-") or _ASSIGN.match(words[0])):
-                opt = words[0]
-                chdir |= opt.startswith(("-C", "--chdir"))
-                words = words[2:] if opt in ("-C", "-u", "--chdir", "--unset") else words[1:]  # these take the next word as a value
-        else:
-            break
-    return words, via_env, chdir
-
-
-def _split_script(script: str) -> list[tuple[str, str, bool]]:
-    """``(part, operator after it, in a subshell)`` for each part of ``script`` split at unquoted ``&&``,
-    ``||``, ``;``, ``&`` and newlines (the operator is ``""`` after the last part). A ``#`` that starts a
-    word begins a comment, which runs to the end of the line and is dropped. A part inside ``( ... )``,
-    or holding a parenthesis, is in a subshell."""
-    splitter = _Splitter(script)
-    i = 0
-    while i < len(script):
-        i = splitter.step(i)
-    splitter.flush("")
-    return splitter.parts
-
-
-class _Splitter:
-    """The state of ``_split_script``: the parts so far, the one being built, the open quote and parentheses."""
-
-    def __init__(self, script: str) -> None:
-        self.script = script
-        self.parts: list[tuple[str, str, bool]] = []
-        self.cur: list[str] = []
-        self.quote = ""
-        self.depth = 0  # open parentheses
-        self.paren = False  # the part being built holds a parenthesis
-        self.tick = False  # inside a backtick substitution, a subshell as ``$( )`` is
-
-    def flush(self, op: str) -> None:
-        """End the part being built at ``op``."""
-        text = "".join(self.cur).strip()
-        if text:
-            self.parts.append((text, op if op != "\n" else ";", self.paren or self.depth > 0 or self.tick))
-        self.cur = []
-        self.paren = self.depth > 0 or self.tick
-
-    def step(self, i: int) -> int:
-        """Take the text at ``i``; the index to continue at."""
-        script, c = self.script, self.script[i]
-        if self.quote:
-            return self._quoted(i)
-        if c in "'\"":
-            self.quote = c
-            self.cur.append(c)
-        elif c == "\\" and i + 1 < len(script):
-            self.cur.append(c + script[i + 1])
-            return i + 2
-        elif c == "#" and (i == 0 or script[i - 1] in " \t\n;&|()"):
-            end = script.find("\n", i)  # the comment ends at the newline, which still splits
-            return len(script) if end < 0 else end
-        elif c == "`":
-            self.paren, self.tick = True, not self.tick
-            self.cur.append(c)
-        elif c in "()":
-            self.paren = True
-            self.depth = max(0, self.depth + (1 if c == "(" else -1))
-            self.cur.append(c)
-        else:
-            return self._operator(i)
-        return i + 1
-
-    def _quoted(self, i: int) -> int:
-        script, c = self.script, self.script[i]
-        self.cur.append(c)
-        if c == "\\" and self.quote == '"' and i + 1 < len(script):
-            i += 1
-            self.cur.append(script[i])
-        elif c == self.quote:
-            self.quote = ""
-        return i + 1
-
-    def _operator(self, i: int) -> int:
-        script, c = self.script, self.script[i]
-        two = script[i:i + 2]
-        op = two if two in ("&&", "||") else c if c in ";\n" else ""
-        if c == "&" and not op and script[i - 1:i] not in (">", "<") and script[i + 1:i + 2] != ">":
-            op = "&"
-        if not op:
-            self.cur.append(c)
-            return i + 1
-        self.flush(op)
-        return i + len(op)
-
-
 def codex_json(raw: str, workdir: str | None, cwd: str = "") -> Transcript:
     out = Transcript()
     messages: list[str] = []
     by_id: dict[str, dict[str, Any]] = {}  # Track started items by ID to update on completion
-    event_reads: dict[int, list[dict[str, Any]]] = {}  # command event -> the read events derived from it
+    event_reads: dict[int, _Derived] = {}  # command event -> the read events derived from it
     for n, line in enumerate(raw.split("\n"), 1):  # a JSON string may hold U+2028: splitlines would cut it
         if not line.strip():
             continue
@@ -550,7 +477,7 @@ def codex_json(raw: str, workdir: str | None, cwd: str = "") -> Transcript:
 
 def _codex_apply(out: Transcript, rec: dict[str, Any], messages: list[str], workdir: str | None,
                   by_id: dict[str, dict[str, Any]] | None = None, cwd: str = "",
-                  event_reads: dict[int, list[dict[str, Any]]] | None = None) -> None:
+                  event_reads: dict[int, _Derived] | None = None) -> None:
     if by_id is None:
         by_id = {}
     if event_reads is None:
@@ -596,20 +523,20 @@ def _codex_key(item: dict[str, Any], script: str) -> str:
 
 def _codex_command_started(out: Transcript, item: dict[str, Any], workdir: str | None,
                            by_id: dict[str, dict[str, Any]], cwd: str,
-                           event_reads: dict[int, list[dict[str, Any]]]) -> None:
+                           event_reads: dict[int, _Derived]) -> None:
     script = unwrap_shell(str(item.get("command") or ""))
-    read_events = [{"t": None, "kind": "read", "path": relative_path(path, workdir)}
-                   for path in shell_reads(script, cwd)]
+    paths, unknown = _counted_reads(out, script, cwd)
+    read_events = [{"t": None, "kind": "read", "path": relative_path(path, workdir)} for path in paths]
     out.events.extend(read_events)
     event: dict[str, Any] = {"t": None, "kind": "command", "text": script, "rc": None}
-    event_reads[id(event)] = read_events
+    event_reads[id(event)] = (read_events, unknown)
     by_id[_codex_key(item, script)] = event
     out.events.append(event)
 
 
 def _codex_item_completed(out: Transcript, item: dict[str, Any], messages: list[str], workdir: str | None,
                           by_id: dict[str, dict[str, Any]], cwd: str,
-                          event_reads: dict[int, list[dict[str, Any]]]) -> None:
+                          event_reads: dict[int, _Derived]) -> None:
     itype = item.get("type")
     if itype == "agent_message":
         messages.append(str(item.get("text") or ""))
@@ -641,13 +568,14 @@ def _codex_item_completed(out: Transcript, item: dict[str, Any], messages: list[
 
 
 def _codex_command_finished(out: Transcript, item: dict[str, Any], event: dict[str, Any],
-                            event_reads: dict[int, list[dict[str, Any]]]) -> None:
+                            event_reads: dict[int, _Derived]) -> None:
     """Update the event from item.started with completion data."""
     event["rc"] = item.get("exit_code")
     if item.get("aggregated_output"):
         event["output"], event["output_truncated"] = clip_output(str(item["aggregated_output"]))
-    derived = event_reads.get(id(event), [])
-    if _failed_read(str(event["text"]), derived, event["rc"]):  # drop the read events derived from it
+    derived, unknown = event_reads.get(id(event), ([], 0))
+    if _failed_read(str(event["text"]), event["rc"]):  # drop the read events derived from it, and its unknown ones
+        out.unknown_reads -= unknown
         dropped = {id(e) for e in derived}
         out.events[:] = [e for e in out.events if id(e) not in dropped]
 
@@ -655,8 +583,9 @@ def _codex_command_finished(out: Transcript, item: dict[str, Any], event: dict[s
 def _codex_command_unstarted(out: Transcript, item: dict[str, Any], script: str, workdir: str | None,
                              cwd: str) -> None:
     """Fallback for item.completed without item.started."""
-    paths = shell_reads(script, cwd)
-    if not _failed_read(script, paths, item.get("exit_code")):
+    paths, _, unknown = shell_walk(script, cwd)
+    if not _failed_read(script, item.get("exit_code")):
+        out.unknown_reads += unknown
         for path in paths:
             out.events.append({"t": None, "kind": "read", "path": relative_path(path, workdir)})
     event = {"t": None, "kind": "command", "text": script, "rc": item.get("exit_code")}
@@ -665,13 +594,37 @@ def _codex_command_unstarted(out: Transcript, item: dict[str, Any], script: str,
     out.events.append(event)
 
 
-def _failed_read(script: str, reads: list[Any], rc: Any) -> bool:
-    """A non-zero exit of a command that is one part naming one file: that file was not read.
+_Derived = tuple[list[dict[str, Any]], int]  # a command's read events, and how many files it named at a directory not known
+
+
+def _counted_reads(out: Transcript, script: str, cwd: str) -> tuple[list[str], int]:
+    """:func:`shell_reads`, and the files it named at a directory not known, which ``out.unknown_reads`` counts
+    until the command's result says it failed (:func:`_failed_read`)."""
+    reads, _, unknown = shell_walk(script, cwd)
+    out.unknown_reads += unknown
+    return reads, unknown
+
+
+def _failed_read(script: str, rc: Any) -> bool:
+    """A non-zero exit of a command that is one part naming one file, alone or after ``cd`` parts
+    (``cd sub && cat AGENTS.md``: the cd or the cat failed): that file was not read, known or not
+    (``cd -; cat missing``: no read, and no ``unknown_reads``).
 
     Otherwise the exit code does not say which read failed (``cat a missing`` prints ``a`` and
-    exits 1), so the reads are kept.
+    exits 1), so the reads are kept: also when only one of the files is known (``cd -; cat missing /ws/a``). A part
+    before it that is not surely a ``cd`` (``X="a b" cd sub``, ``time -p cd sub``) keeps them too: its exit may be
+    the one that failed, and a read is dropped only when that file surely was not printed. A brace group's braces are
+    not parts: ``{ cat AGENTS.md; }`` and ``cd sub && { cat AGENTS.md; }`` are one read.
     """
-    return rc not in (None, 0) and len(reads) == 1 and len(_split_script(script)) == 1
+    parts = [p for p in (_ungrouped(part.text) for part in split_script(script)) if p]
+    if rc in (None, 0) or not all(_is_cd(p) for p in parts[:-1]):
+        return False
+    return _walk_script(script, "")[1].operands == 1  # the printer's own operands, not the reads kept of them
+
+
+def _ungrouped(text: str) -> str:
+    """A part's ``text`` past the ``{`` that open brace groups in it; ``""`` for the ``}`` that closes one."""
+    return "" if _GROUP_CLOSE.match(text) else re.sub(r"^(?:\{\s+)+", "", text)
 
 
 class _CopilotRun:
@@ -680,7 +633,7 @@ class _CopilotRun:
 
     def __init__(self) -> None:
         self.start: datetime | None = None
-        self.by_id: dict[str, list[dict[str, Any]]] = {}
+        self.by_id: dict[str, _Derived] = {}  # a call's events, and the files it named at a directory not known
         self.final = self.last = ""
         self.turns = 0
         self.result = False  # the final ``result`` record came: the agent started even with no turn
@@ -708,11 +661,12 @@ class _CopilotRun:
         elif kind == "assistant.message":
             self.message(data)
         elif kind == "tool.execution_start":
-            events = _copilot_tool(data, t, workdir, cwd)
+            counted = out.unknown_reads
+            events = _copilot_tool(data, t, workdir, cwd, out)
             out.events.extend(events)
-            self.by_id[str(data.get("toolCallId"))] = events
+            self.by_id[str(data.get("toolCallId"))] = (events, out.unknown_reads - counted)
         elif kind == "tool.execution_complete":
-            _copilot_result(out, self.by_id.get(str(data.get("toolCallId")), []), data)
+            _copilot_result(out, self.by_id.get(str(data.get("toolCallId")), ([], 0)), data)
         elif kind == "result":
             self.result = True
             out.is_error = rec.get("exitCode") not in (0, None)
@@ -746,7 +700,8 @@ def copilot_json(raw: str, workdir: str | None, cwd: str = "") -> Transcript:
     return out
 
 
-def _copilot_tool(data: dict[str, Any], t: float | None, workdir: str | None, cwd: str = "") -> list[dict[str, Any]]:
+def _copilot_tool(data: dict[str, Any], t: float | None, workdir: str | None, cwd: str,
+                  out: Transcript) -> list[dict[str, Any]]:
     name = str(data.get("toolName") or "")
     args = data.get("arguments")
     if name in _COPILOT_SHELL | _COPILOT_READ | _COPILOT_EDIT and not isinstance(args, dict):
@@ -755,7 +710,7 @@ def _copilot_tool(data: dict[str, Any], t: float | None, workdir: str | None, cw
     if name in _COPILOT_SHELL:
         command = str(obj.get("command", ""))
         # only bash is a POSIX script; a PowerShell command is not parsed for the files it reads
-        scripts = shell_reads(command, cwd) if name == "bash" else []
+        scripts = _counted_reads(out, command, cwd)[0] if name == "bash" else []
         reads = [{"t": t, "kind": "read", "path": relative_path(p, workdir)} for p in scripts]
         return [*reads, {"t": t, "kind": "command", "text": command, "rc": None}]
     if name in _COPILOT_READ | _COPILOT_EDIT:
@@ -771,8 +726,10 @@ def _copilot_tool(data: dict[str, Any], t: float | None, workdir: str | None, cw
     return [{"t": t, "kind": "tool", "name": name}]
 
 
-def _copilot_result(out: Transcript, events: list[dict[str, Any]], data: dict[str, Any]) -> None:
-    """Fill in the completion; drop the reads of a failed ``view`` and of a failed one-file command."""
+def _copilot_result(out: Transcript, call: _Derived, data: dict[str, Any]) -> None:
+    """Fill in the completion; drop the reads of a failed ``view`` and of a failed one-file command, and take back
+    the files that command named at a directory not known."""
+    events, unknown = call
     reads = [e for e in events if e["kind"] == "read"]
     failed = data.get("success") is False
     for event in events:
@@ -785,11 +742,12 @@ def _copilot_result(out: Transcript, events: list[dict[str, Any]], data: dict[st
         code = shell.get("exitCode") if isinstance(shell, dict) else None
         event["rc"] = code if isinstance(code, int) else (None if data.get("success") is None
                                                           else 0 if data.get("success") else 1)
-        failed = _failed_read(str(event["text"]), reads, event["rc"])
+        failed = _failed_read(str(event["text"]), event["rc"])
         result = data.get("result") or {}
         output = result.get("content") if isinstance(result, dict) else None
         if isinstance(output, str) and output:
             event["output"], event["output_truncated"] = clip_output(output)
-    if failed and reads:
+    if failed:
+        out.unknown_reads -= unknown
         dropped = {id(e) for e in reads}
         out.events[:] = [e for e in out.events if id(e) not in dropped]

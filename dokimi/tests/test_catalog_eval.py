@@ -26,7 +26,7 @@ def skill(root: Path, name: str = "alpha", **metadata) -> Path:
     path = root / "skills" / name
     path.mkdir(parents=True, exist_ok=True)
     (path / "SKILL.md").write_text(
-        f"---\nname: {name}\ndescription: Use to inspect {name} inputs.\n---\nInspect safely.\n",
+        f"---\nname: {name}\ndescription: Use when inspecting {name} inputs.\n---\nInspect safely.\n",
         encoding="utf-8",
     )
     manifest = root / "skills.yaml"
@@ -568,7 +568,7 @@ def test_discovered_skills_keep_the_loader_order_for_prefixed_names(tmp_path):
     for name in ("alpha", "alpha-beta"):
         d = tmp_path / "skills" / name
         d.mkdir(parents=True)
-        (d / "SKILL.md").write_text(f"---\nname: {name}\ndescription: Use to inspect {name} inputs.\n---\nbody\n")
+        (d / "SKILL.md").write_text(f"---\nname: {name}\ndescription: Use when inspecting {name} inputs.\n---\nbody\n")
     report = evaluate(tmp_path)
     assert {r["name"]: r["path"] for r in report["skills"]} == {"alpha": "skills/alpha", "alpha-beta": "skills/alpha-beta"}
 

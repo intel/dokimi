@@ -20,7 +20,7 @@ def _blocked(tmp_path):
 
 
 def test_write_text_or_exit_names_the_path_and_exits_with_the_code(tmp_path, capsys):
-    from dokimi.utils import write_text_or_exit
+    from dokimi.commands._output import write_text_or_exit
 
     target = _blocked(tmp_path)
     with pytest.raises(SystemExit) as exc:

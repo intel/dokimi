@@ -948,10 +948,12 @@ def test_a_bare_bedrock_judge_name_is_checked_as_the_judge_will_call_it(monkeypa
     import litellm
     import dokimi.eval.arms_run as arms_run
     from dokimi.commands.arms import run_config_from_args
-    from dokimi.utils import get_llm
+    from dokimi.eval.judge import Judge
 
-    mapped = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
-    monkeypatch.setenv("ANTHROPIC_DEFAULT_SONNET_MODEL", mapped)
+    # A variable naming another model does not move a bare name off its profile (#229 P1-2).
+    monkeypatch.setenv("ANTHROPIC_DEFAULT_SONNET_MODEL", "us.anthropic.claude-haiku-4-5-20251001-v1:0")
+    monkeypatch.delenv("DOKIMI_RESPONSE_CACHE", raising=False)  # both calls must reach the provider
+    route = "bedrock/us.anthropic.claude-sonnet-5-5"
     checked, sent = [], []
 
     def supported(model=None, **kw):
@@ -960,8 +962,6 @@ def test_a_bare_bedrock_judge_name_is_checked_as_the_judge_will_call_it(monkeypa
 
     def completion(model, messages, **kw):
         sent.append((model, kw.get("temperature")))
-        if model != f"bedrock/{mapped}":
-            raise Exception("BadRequestError: The provided model identifier is invalid.")
         return _litellm_resp("OK")
 
     monkeypatch.setattr(litellm, "get_supported_openai_params", supported)
@@ -969,12 +969,12 @@ def test_a_bare_bedrock_judge_name_is_checked_as_the_judge_will_call_it(monkeypa
     monkeypatch.setattr(ArmRunner, "run", lambda self, *a, **kw: [])
     arms_run.probe_sampling.cache_clear()
     args = _parse_arms_run(["--judge", "--judge-provider", "amazon-bedrock",
-                            "--judge-model", "claude-sonnet-4-5", "--judge-temperature", "0"])
+                            "--judge-model", "claude-sonnet-5-5", "--judge-temperature", "0"])
     arms_run.run_arms(run_config_from_args(args), ["baseline"], QUESTIONS[:1])
-    get_llm("amazon-bedrock", "claude-sonnet-4-5", temperature=0.0).invoke("p")
+    Judge(model="claude-sonnet-5-5", provider="amazon-bedrock", temperature=0.0).llm.invoke("p")
 
-    assert [m for m in checked if m.startswith("bedrock/")] == [f"bedrock/{mapped}"]
-    assert sent == [(f"bedrock/{mapped}", 0.0), (f"bedrock/{mapped}", 0.0)]
+    assert [m for m in checked if m.startswith("bedrock/")] == [route]
+    assert sent == [(route, 0.0), (route, 0.0)]
 
 
 # ── The stamp follows what the judge actually saw ─────────────────────────

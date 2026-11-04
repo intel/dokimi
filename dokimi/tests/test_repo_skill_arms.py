@@ -94,6 +94,57 @@ def test_skill_usage_from_skill_calls_and_skill_md_reads():
     assert plugin["skill_invoked"] is True and plugin["skill_selected_correct"] is True
 
 
+@pytest.mark.parametrize("result, final", [
+    ("PreToolUse:Bash hook error: no", {}),  # a hook refused it
+    ("Permission to use Bash has been denied", {"permission_denials": [{"tool_name": "Bash", "tool_use_id": "a"}]}),
+])
+def test_a_refused_read_of_skill_md_is_no_use_of_the_skill(result, final):
+    lines = [{"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "a", "name": "Bash",
+                                                              "input": {"command": "cat .claude/skills/lint/SKILL.md"}}]}},
+             {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "a", "is_error": True,
+                                                         "content": result}]}},
+             {"type": "result", "result": "ok", **final}]
+    events = convert("claude-stream-json", "\n".join(json.dumps(x) for x in lines), "/ws").events
+    assert [e.get("denied") for e in events if e["kind"] == "read"] == [True]  # kept in the trace, for audit
+    assert skill_usage(events, ["lint"], "lint")["skills_used"] == []
+
+
+@pytest.mark.parametrize("result, final", [
+    ("PreToolUse:Skill hook error: no", {}),
+    ("Permission to use Skill has been denied", {"permission_denials": [{"tool_name": "Skill", "tool_use_id": "a"}]}),
+])
+def test_a_refused_skill_call_is_no_use_of_the_skill(result, final):
+    lines = [{"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "a", "name": "Skill",
+                                                              "input": {"skill": "lint"}}]}},
+             {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "a", "is_error": True,
+                                                         "content": result}]}},
+             {"type": "result", "result": "ok", **final}]
+    events = convert("claude-stream-json", "\n".join(json.dumps(x) for x in lines), "/ws").events
+    assert [(e["name"], e.get("denied")) for e in events] == [("Skill", True)]
+    assert skill_usage(events, ["lint"], "lint")["skills_used"] == []
+    # a permission denial also comes back as an error result: rc 1, as a denied command has
+    assert skill_usage([{**events[0], "denied": False, "rc": 0}], ["lint"], "lint")["skills_used"] == ["lint"]
+
+
+@pytest.mark.parametrize("is_error, used", [(True, []), (False, ["lint"])])
+def test_a_failed_skill_call_is_no_use_of_the_skill(is_error, used):
+    lines = [{"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "a", "name": "Skill",
+                                                              "input": {"skill": "lint"}}]}},
+             {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "a", "is_error": is_error,
+                                                         "content": "Skill lint could not be loaded"}]}},
+             {"type": "result", "result": "ok"}]
+    events = convert("claude-stream-json", "\n".join(json.dumps(x) for x in lines), "/ws").events
+    assert [(e["name"], e.get("denied"), e["rc"]) for e in events] == [("Skill", None, int(is_error))]
+    usage = skill_usage(events, ["lint"], "lint")
+    assert usage["skills_used"] == used and usage["skill_invoked"] is bool(used)
+
+
+def test_a_failed_read_of_skill_md_is_no_use_of_the_skill():
+    failed = {"kind": "read", "path": ".claude/skills/lint/SKILL.md", "rc": 1}
+    assert skill_usage([failed], ["lint"], "lint")["skills_used"] == []
+    assert skill_usage([{**failed, "rc": 0}], ["lint"], "lint")["skills_used"] == ["lint"]
+
+
 def test_only_a_read_of_skill_md_counts_as_using_a_skill():
     for path in (".claude/skills/lint/references/x.md", ".claude/skills/lint/notes.md"):
         used = skill_usage([{"kind": "read", "path": path}], ["lint"], "lint")

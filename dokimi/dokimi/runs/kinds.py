@@ -71,6 +71,7 @@ FIELDS: dict[str, KindFields] = {
                                          counts=("receipts",)),
     "task_inspect": KindFields(subject=("root",), counts=("items",)),
     "cli_routes": KindFields(counts=("roots", "leaves", "tombstones")),
+    "dokimi_config": KindFields(subject=("subjects[].id",), counts=("subjects", "shared")),
     "headroom": KindFields(counts=("items", "inputs")),
     "redteam": KindFields(subject=("questions_path",), model=("judge_model",),
                           counts=("violations", "questions")),

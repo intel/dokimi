@@ -11,12 +11,13 @@ from pathlib import Path
 from typing import Any
 
 from dokimi.gate.regression import detect_regressions
+from dokimi.utils import InputError
 
 
 _REQUIRED_SUMMARY_KEYS = {"docs", "score", "coverage", "freshness_lite", "readability"}
 
 
-class CompareInputError(ValueError):
+class CompareInputError(InputError):
     """A snapshot or spec that ``compare`` cannot read or that has the wrong shape."""
 
 

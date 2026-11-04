@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from dokimi.repos.cli_traces import _LONG_VALUE, shell_reads, unwrap_shell
+from dokimi.repos.cli_traces import _LONG_VALUE, shell_reads, shell_walk, unwrap_shell
 from dokimi.repos.events import convert
 
 # --- traces ------------------------------------------------------------------
@@ -76,6 +76,7 @@ from dokimi.repos.events import convert
     ("{ cd x; } & cat f", ["f"]),                         # a backgrounded group runs in a subshell
     ("{ cd x; } 2>&1 | cat; cat f", ["f"]),               # so does a piped one
     ("{ cd x; cat f; } & cat g", ["x/f", "g"]),
+    ("cd x && { cat f; cat h; } & cat g", ["x/f", "x/h", "g"]),  # the group is one command of the backgrounded list
     ("cat a | { cd x; cat b; }", []),                     # a group in a pipeline: directory unknown after it
     ("if true; then cd sub; fi; cat AGENTS.md", []),      # a conditional cd may not run
     ("for d in sub; do cd sub; done; cat AGENTS.md", []),
@@ -206,6 +207,70 @@ def test_a_computed_directory_change_in_a_group_or_a_stack_loses_the_directory(c
     assert shell_reads(command, "sub") == []
 
 
+@pytest.mark.parametrize("command", [
+    '"source" "$ENV"; cat AGENTS.md', "'cd' \"$D\" && cat AGENTS.md", r'\eval "$X"; cat AGENTS.md',
+    '"." env.sh; cat AGENTS.md', 'c"d" "$D"; cat AGENTS.md', '"pushd" "$D"; cat AGENTS.md',
+    '"builtin" cd "$D"; cat AGENTS.md', 'builtin "cd" "$D"; cat AGENTS.md', '"cd" $(pwd); cat AGENTS.md',
+    "'cd' `pwd`; cat AGENTS.md", r'\pushd sub; cat AGENTS.md',
+])
+def test_a_quoted_or_escaped_directory_builtin_loses_the_directory(command):
+    # quoting or escaping a builtin's name still runs the builtin; nothing in it is expanded to see that
+    assert shell_reads(command, "sub") == []
+
+
+@pytest.mark.parametrize("command", [
+    'X="a b" cd "$D"; cat AGENTS.md', "time -p cd sub; cat AGENTS.md", "command -p cd sub && cat AGENTS.md",
+    "builtin -- cd sub; cat AGENTS.md", 'time -p "cd" sub; cat AGENTS.md', 'X="a b" source "$E"; cat AGENTS.md',
+    "time -p pushd sub; cat AGENTS.md", "command -p cd $(pwd); cat AGENTS.md",
+])
+def test_a_directory_builtin_the_walker_does_not_follow_loses_the_directory(command):
+    # an assignment with a blank before it, or an option after ``time`` / ``command`` / ``builtin``: it may move
+    assert shell_reads(command, "sub") == []
+
+
+@pytest.mark.parametrize("command", ["time -p cd sub & cat AGENTS.md", 'X="a b" cd "$D" | cat; cat AGENTS.md',
+                                     "time -p make; cat AGENTS.md", "command -v git; cat AGENTS.md",
+                                     "time git add .; cat AGENTS.md", "command -v cd; cat AGENTS.md",
+                                     "builtin printf '%s' . && cat AGENTS.md", "time find . -name x; cat AGENTS.md"])
+def test_an_unfollowed_builtin_in_a_job_or_a_pipe_or_none_keeps_the_directory(command):
+    assert shell_reads(command, "sub") == ["sub/AGENTS.md"]
+
+
+@pytest.mark.parametrize("command", [
+    '"env" cd "$D"; cat AGENTS.md', "'\\cd' \"$D\"; cat AGENTS.md", '"./cd" "$D"; cat AGENTS.md',
+    '"source" "$E" & cat AGENTS.md', '"cd" "$D" | cat; cat AGENTS.md',
+])
+def test_a_quoted_name_that_runs_no_builtin_in_this_shell_keeps_the_directory(command):
+    assert shell_reads(command, "sub") == ["sub/AGENTS.md"]
+
+
+@pytest.mark.parametrize("command", [
+    "source env.sh & cat AGENTS.md", 'eval "$CMD" & cat AGENTS.md', ". env.sh & cat AGENTS.md",
+    "source env.sh | cat; cat AGENTS.md", "pushd sub & cat AGENTS.md", 'cd "$X" & cat AGENTS.md',
+    "cd x | cat; cat AGENTS.md", "cd $(pwd) | cat; cat AGENTS.md", "cd `pwd` & cat AGENTS.md",
+])
+def test_a_directory_builtin_in_a_job_or_a_pipeline_keeps_the_directory(command):
+    # it runs in a subshell: the cat after it is still in sub
+    assert shell_reads(command, "sub") == ["sub/AGENTS.md"]
+
+
+@pytest.mark.parametrize("command, reads", [
+    ("source env.sh & false || cat AGENTS.md", ["sub/AGENTS.md"]),
+    ("source env.sh | false || cat AGENTS.md", ["sub/AGENTS.md"]),
+    ('eval "$X" & false || cat AGENTS.md', ["sub/AGENTS.md"]), (". env.sh & false || cat AGENTS.md", ["sub/AGENTS.md"]),
+    ("pushd x & false || cat AGENTS.md", ["sub/AGENTS.md"]), ("cd x & false || cat AGENTS.md", ["sub/AGENTS.md"]),
+    ('cd "$X" | false || cat AGENTS.md', ["sub/AGENTS.md"]), ("cd $(pwd) & false || cat AGENTS.md", ["sub/AGENTS.md"]),
+    ("{ cd x; } & false || cat AGENTS.md", ["sub/AGENTS.md"]),
+    ("{ cd x; } | cat; false || cat AGENTS.md", ["sub/AGENTS.md"]),
+    ("cd x && make & false || cat AGENTS.md", ["sub/AGENTS.md"]),
+    ("source env.sh; false || cat AGENTS.md", []), ("cd x; false || cat AGENTS.md", []),
+    ("{ cd x; }; false || cat AGENTS.md", []), ("cd x; source env.sh & false || cat AGENTS.md", []),
+])
+def test_only_a_directory_builtin_in_this_shell_loses_the_directory_after_a_later_or(command, reads):
+    # the || branch runs where a failed cd left this shell; one in a job or a pipe left it alone
+    assert shell_reads(command, "sub") == reads
+
+
 def test_shell_reads_start_in_the_given_directory():
     assert shell_reads("cat AGENTS.md", "sub") == ["sub/AGENTS.md"]
     assert shell_reads("cd inner && cat ../x", "sub") == ["sub/x"]
@@ -220,10 +285,21 @@ def test_shell_reads_joins_a_line_continuation_without_a_space(command, reads):
 
 
 @pytest.mark.parametrize(("command", "reads"), [
-    ("echo `true; cd sub; pwd`; cat AGENTS.md", []),  # as with $( ): a cd inside it is not this shell's
+    ("echo `true; cd sub; pwd`; cat AGENTS.md", ["AGENTS.md"]),  # as with $( ): a cd inside it is not this shell's
     ("echo `pwd`; cat AGENTS.md", ["AGENTS.md"]), ("cd `dirname a/b`; cat AGENTS.md", []),
     ("echo \\`; cd sub; cat AGENTS.md", ["sub/AGENTS.md"])])  # an escaped backtick opens nothing
 def test_shell_reads_a_backtick_substitution_is_a_subshell(command, reads):
+    assert shell_reads(command) == reads
+
+
+@pytest.mark.parametrize(("command", "reads"), [
+    ("echo $(true; cd sub; pwd); cat AGENTS.md", ["AGENTS.md"]), ("(true; cd sub); cat AGENTS.md", ["AGENTS.md"]),
+    ("{ cd $(pwd); } | cat; cat AGENTS.md", ["AGENTS.md"]), ("{ cd `pwd`; } & cat AGENTS.md", ["AGENTS.md"]),
+    ("{ (cd x); cd y; } | cat; cat AGENTS.md", ["AGENTS.md"]), ("{ cd $(pwd); }; cat AGENTS.md", []),
+    ("{ cd sub; } | grep $(echo x); cat AGENTS.md", ["AGENTS.md"]),
+    ("{ { cd sub; }; }; cat a", ["sub/a"]), ("{ { cat a; }; }", ["a"]), ("{ cat a; } | { cat b; }; cat c", ["c"])])
+def test_shell_reads_tracks_a_group_past_its_substitutions_and_the_groups_in_it(command, reads):
+    # a part holding $( ) or a nested { is still in this shell outside them: its braces open and close groups
     assert shell_reads(command) == reads
 
 
@@ -469,6 +545,58 @@ def test_codex_failed_command_does_not_count_as_a_read():
     assert [e["rc"] for e in t.events if e["kind"] == "command"] == [1, 0, 2]
 
 
+def test_codex_and_copilot_count_a_read_at_a_directory_not_known():
+    codex = {"id": "a", "type": "command_execution", "command": "cd -; cat AGENTS.md"}
+    raw = _jsonl({"type": "item.started", "item": codex}, {"type": "item.completed", "item": {**codex, "exit_code": 0}},
+                 {"type": "item.completed", "item": {**codex, "id": "b", "command": "cd -; cat a.md", "exit_code": 0}})
+    assert convert("codex-json", raw, None).unknown_reads == 2
+    copilot = {"toolCallId": "a", "toolName": "bash", "arguments": {"command": "cd -; cat AGENTS.md"}}
+    assert convert("copilot-json", _jsonl({"type": "tool.execution_start", "data": copilot}), None).unknown_reads == 1
+    assert convert("copilot-json", _jsonl({"type": "tool.execution_start", "data": {
+        **copilot, "arguments": {"command": "cat AGENTS.md"}}}), None).unknown_reads == 0
+
+
+_UNKNOWN_ONE = "cd -; cat missing.md"  # one file, named at a directory not known
+
+
+@pytest.mark.parametrize("fmt, records", [
+    ("codex-json", lambda rc: [{"type": "item.completed", "item": {
+        "type": "command_execution", "command": _UNKNOWN_ONE, "exit_code": rc}}]),
+    ("codex-json", lambda rc: [{"type": "item.started", "item": {"id": "a", "type": "command_execution",
+                                                                 "command": _UNKNOWN_ONE}},
+                               {"type": "item.completed", "item": {"id": "a", "type": "command_execution",
+                                                                   "command": _UNKNOWN_ONE, "exit_code": rc}}]),
+    ("copilot-json", lambda rc: [
+        {"type": "tool.execution_start", "data": {"toolCallId": "a", "toolName": "bash",
+                                                  "arguments": {"command": _UNKNOWN_ONE}}},
+        {"type": "tool.execution_complete", "data": {"toolCallId": "a", "success": rc == 0,
+                                                     "shellExecution": {"exitCode": rc}}}]),
+], ids=["codex-completed", "codex-started", "copilot"])
+def test_a_failed_one_file_read_at_a_directory_not_known_counts_no_unknown_read(fmt, records):
+    # its exit says the one file it named was not printed: settled with the result, as a known read is
+    assert convert(fmt, _jsonl(*records(1)), None).unknown_reads == 0
+    assert convert(fmt, _jsonl(*records(0)), None).unknown_reads == 1
+
+
+@pytest.mark.parametrize("command, unknown", [
+    ("{ source env.sh; cat AGENTS.md; } > /dev/null", 0),  # the group's output is hidden: not the agent's
+    ("{ source env.sh; cat AGENTS.md; } | head", 0),
+    ("source env.sh; { cat AGENTS.md; } > /dev/null", 0),
+    ("{ source env.sh; { cat a; } > /dev/null; cat b; }", 1),  # only the inner group is hidden
+    ("{ source env.sh; cat AGENTS.md; }", 1),
+    ("source env.sh; { cat AGENTS.md; }", 1),
+])
+def test_a_hidden_groups_reads_are_not_counted_at_a_directory_not_known(command, unknown):
+    reads, _, got = shell_walk(command)
+    assert (reads, got) == ([], unknown)
+
+
+def test_codex_failed_brace_group_holding_one_read_is_no_read():
+    cmd = {"id": "a", "type": "command_execution", "command": "{ cat AGENTS.md; }"}
+    raw = _jsonl({"type": "item.started", "item": cmd}, {"type": "item.completed", "item": {**cmd, "exit_code": 1}})
+    assert [e["kind"] for e in convert("codex-json", raw, None).events] == ["command"]
+
+
 def test_codex_failed_command_drops_only_its_own_reads():
     """A read that succeeded earlier stays when a later command fails: reach would class the file `fetched`."""
     ok = {"type": "command_execution", "command": "cat AGENTS.md"}
@@ -508,9 +636,12 @@ def test_codex_failed_command_keeps_the_reads_it_may_have_made():
         {"type": "item.started", "item": cmd("b", "cat b.md; false")},
         {"type": "item.completed", "item": {**cmd("b", "cat b.md; false"), "exit_code": 1}},
         {"type": "item.completed", "item": {**cmd("c", "head c.md d.md"), "exit_code": 1}},
+        # two operands, of which only the absolute one is known after ``cd -``: it may be the one printed
+        {"type": "item.started", "item": cmd("d", "cd /ws/sub; cd -; cat missing.md /ws/AGENTS.md")},
+        {"type": "item.completed", "item": {**cmd("d", "cd /ws/sub; cd -; cat missing.md /ws/AGENTS.md"), "exit_code": 1}},
     )
     reads = [e["path"] for e in convert("codex-json", raw, None).events if e["kind"] == "read"]
-    assert reads == ["sub/AGENTS.md", "sub/CLAUDE.md", "b.md", "c.md", "d.md"]
+    assert reads == ["sub/AGENTS.md", "sub/CLAUDE.md", "b.md", "c.md", "d.md", "/ws/AGENTS.md"]
 
 
 def test_answer_format_lists_agree():
@@ -572,7 +703,11 @@ def test_copilot_command_exit_code_falls_back_to_success(done, rc):
     ("cat AGENTS.md", {"success": False}, set()),
     ("cat AGENTS.md", {"shellExecution": {"exitCode": 0}}, {"AGENTS.md"}),
     ("cat a; cat b", {"shellExecution": {"exitCode": 1}}, {"a", "b"}),  # which part failed is not known
-], ids=["exit-1", "success-false", "exit-0", "compound"])
+    ("cd sub && cat AGENTS.md", {"shellExecution": {"exitCode": 1}}, set()),  # the cd or the cat failed
+    # cat names two files, one at a directory not known: the known one may be what it printed
+    ("cd /ws/sub; cd -; cat missing.md /ws/AGENTS.md", {"shellExecution": {"exitCode": 1}}, {"/ws/AGENTS.md"}),
+    ("cd sub && { cat AGENTS.md; }", {"shellExecution": {"exitCode": 1}}, set()),  # a group holding one read is it
+], ids=["exit-1", "success-false", "exit-0", "compound", "cd-then-cat", "two-operands-one-known", "brace-group"])
 def test_copilot_failed_bash_read_is_not_a_read(command, done, reads):
     raw = _jsonl(
         {"type": "tool.execution_start",
@@ -622,3 +757,7 @@ def test_copilot_answer_falls_back_to_the_last_message_and_a_failed_exit_is_an_e
     t = convert("copilot-json", _jsonl({"type": "assistant.message", "data": {"content": "only"}},
                                        {"type": "result", "exitCode": 1}), None)
     assert t.answer == "only" and t.is_error
+
+
+def test_a_negated_read_at_a_directory_not_known_is_not_counted_as_unknown():
+    assert shell_walk("cd -; ! cat AGENTS.md") == ([], True, 0)
