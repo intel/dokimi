@@ -35,14 +35,16 @@ def test_process_counters_are_descriptive_measures(tmp_path):
         raw = "__guidance-raw__" in name
         return {"tool_calls": 10 if raw else 14, "commands": 4, "failed_commands": 0 if raw else 2,
                 "denied_commands": 0, "guidance_read": ["AGENTS.md"] if raw else [],
-                "counters": {"bazel": 3 if raw else 1}}
+                "unknown_reads": 0 if raw else 2, "counters": {"bazel": 3 if raw else 1}}
 
     _with_process(tmp_path, process)
     summary = compare([tmp_path], "guidance:none")
     measures = [r["measure"] for r in summary["comparisons"]]
     assert measures[:3] == ["gate", "cost_usd", "turns"]
     assert measures[3:] == ["process:tool_calls", "process:commands", "process:failed_commands",
-                            "process:denied_commands", "process:guidance_read", "counter:bazel"]
+                            "process:denied_commands", "process:guidance_read", "process:unknown_reads",
+                            "counter:bazel"]
+    assert _row(summary, "process:unknown_reads")["delta"]["mean"] == pytest.approx(-2.0)
     row = _row(summary, "process:tool_calls")
     assert (row["n_tasks"], row["baseline_mean"], row["treatment_mean"]) == (3, 14.0, 10.0)
     assert row["delta"]["mean"] == pytest.approx(-4.0) and row["down"] == 3 and row["p_holm"] is None
@@ -144,6 +146,18 @@ def test_report_shows_mean_process_counters(tmp_path):
     assert "process tool_calls 6, commands 2, failed_commands 1, denied_commands 0, guidance_read 2, " \
            "counter:bazel 1" in text
     assert text.count("process ") == 1
+
+
+def test_unknown_reads_is_a_process_measure_beside_guidance_read(tmp_path):
+    # An empty guidance_read with reads the converter could not place is not "never read": both are shown.
+    assert process_values({"process": {"guidance_read": [], "unknown_reads": 3}}) == {
+        "process:guidance_read": 0.0, "process:unknown_reads": 3.0}
+    for rep in (1, 2):
+        _cell(tmp_path, "a", "guidance:raw", rep)
+    _with_process(tmp_path, lambda name: {"tool_calls": 4, "guidance_read": [], "unknown_reads": int(name[-1]),
+                                          "counters": {"bazel": 1}})
+    assert "process tool_calls 4, guidance_read 0, unknown_reads 1.5, counter:bazel 1" in \
+        format_report(summarize(tmp_path))
 
 
 def test_process_values_skip_what_is_not_a_count():

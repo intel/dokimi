@@ -281,7 +281,25 @@ CAP_FORFEIT = ("`added` is a rate over the sample of extracted atoms the cap kep
 SHORTEN_FORFEIT_ON_MAIN = ("shortening candidates are scored only against the capped atoms, i.e. "
                            "the opening of the artifact: a cut of the uncovered tail looks free")
 SHORTEN_FORFEIT = ("shortening candidates are scored against a spread sample of <cap> of the "
-                   "extracted atoms: a cut of a span with no sampled atom looks free")
+                   "extracted atoms: `knowledge` and `value` are retention of that sample, not of "
+                   "every atom, though the sole carriers a safe candidate keeps come from every atom")
+# Intended change (#371): spans index every extracted atom under a cap too, so the dead-token
+# share is no longer forfeit, and `atoms.json` holds every atom (those outside the sample unchecked).
+FRAC_FORFEIT_ON_MAIN = "`frac_carrying_nothing` is not interpretable on a capped atom set"
+CAPPED_ATOMS_FILE = {"n_atoms": 2, "faithfulness": ["supported", "unchecked"]}
+
+
+def _without_frac_forfeit(value: Any) -> Any:
+    """``value`` without main's dead-token forfeit: the list items and the text lines naming it."""
+    if isinstance(value, dict):
+        return {key: _without_frac_forfeit(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_without_frac_forfeit(item) for item in value
+                if not (isinstance(item, str) and FRAC_FORFEIT_ON_MAIN in item)]
+    if isinstance(value, str):
+        return "".join(line for line in value.splitlines(keepends=True)
+                       if FRAC_FORFEIT_ON_MAIN not in line)
+    return value
 
 
 # Intended change (#293): a cap of 1 on two atoms probes the second (s0003, mid-stride), not the first,
@@ -315,17 +333,18 @@ def test_no_setting_bill_or_tier_record_differs_from_main(name, tmp_path):
                 for step in golden[name]]
     if name.startswith("estimate/"):
         assert [_kept_estimate(step) for step in steps] == [
-            _kept_estimate(step) for step in expected]
+            _without_frac_forfeit(_kept_estimate(step)) for step in expected]
     else:
-        expected = json.loads(json.dumps(expected).replace(CAP_WARNING_ON_MAIN, CAP_WARNING))
+        expected = _without_frac_forfeit(
+            json.loads(json.dumps(expected).replace(CAP_WARNING_ON_MAIN, CAP_WARNING)))
         if name in REFUSED_BEFORE_ANY_CALL:
             # Intended change: the arm and placebo checks now run before the clients are
             # built, so the refusal makes no model call. Same status and output as on main.
             expected = [*expected[:-1], dict(expected[-1], calls=[])]  # the refused step is the last
         if name in CAPPED_ATOMS:
             # Intended change: `novelty atoms` prints the cap warning `analyze` records.
-            expected = [dict(step, stderr=f"{step['stderr']}WARNING {CAP_WARNING}\n")
-                        for step in expected]
+            expected = [dict(step, stderr=f"{step['stderr']}WARNING {CAP_WARNING}\n",
+                             **CAPPED_ATOMS_FILE) for step in expected]
         if name in SPREAD_RUNS:
             steps, expected = ([_settings_only(step) for step in side] for side in (steps, expected))
             assert any(CAP_WARNING in step["warnings"] for step in steps)

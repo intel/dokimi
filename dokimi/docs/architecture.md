@@ -295,7 +295,7 @@ next release.
   guidance and what nested CLAUDE.md and AGENTS.md files import load lazily;
   skill bodies on demand; with a CLAUDE.md, `.claude/CLAUDE.md` or `CLAUDE.local.md` at the root, an
   AGENTS.md no CLAUDE.md imports is reported off, and so is a nested one no CLAUDE.md imports whose own
-  directory holds one of those files (one in a parent below the root does not count; only with a profile that sets `guidance.claude_displaces_agents`, as `claude-code` does). A skill with no description is listed by its first
+  directory holds one of those files (one in a parent below the root does not count). Both rules hold only with a profile that sets `guidance.claude_displaces_agents`, as `claude-code` does. Imports are followed only with a profile that declares `guidance.imports` (`claude-code`; it is null for `codex` and `copilot`). A skill with no description is listed by its first
   non-empty body line, as Claude Code does. It warns on skills with no description or body text,
   skills with near-duplicate descriptions (identical descriptions, or Jaccard index >= 0.5
   after stop-word removal when both have 3+ words left), on AGENTS.md files turned off, on
@@ -316,7 +316,11 @@ next release.
   `base` must resolve, and the guidance globs are evaluated at each base.
 - `dokimi/repos/events.py` — converts a harness trace to the
   `events.jsonl` run trace; `dokimi/repos/cli_traces.py` holds the Codex and
-  Copilot JSON converters, and `dokimi/repos/answers.py` the `answer_format`
+  Copilot JSON converters and the parser of the files a shell command prints
+  (`dokimi/repos/shell_split.py` splits the command into its parts, and
+  `dokimi/repos/shell_words.py` finds a part's command word and the
+  directory builtins it runs),
+  and `dokimi/repos/answers.py` the `answer_format`
   conversions that turn a native review answer into a findings block.
 - `dokimi/repos/l0/` — `repo scan` (L0): checks the links, paths,
   identifiers, commands and build labels the guidance names against the same
@@ -436,7 +440,8 @@ Guide: [run-consistency.md](run-consistency.md).
   `complete`/`ask`/`chat`, retry, the response cache, usage) sits on one
   adapter seam: `LiteLLMAdapter` in production, `FakeAdapter` in tests (the
   `fake_llm` fixture). `ask_parsed` is the redraw-until-it-parses loop.
-  `llm_call`, `chat_completion` and `utils.get_llm` delegate to `LLM`.
+  `llm_call`, `chat_completion`, the judge, the persona and question generators and
+  the question validator go through `LLM` and its one provider table (`resolve_model`, `credential_env_var`).
   `dokimi/llm_cli.py` serves the CLI providers (`claude-cli`): `LiteLLMAdapter`
   hands their requests to it, and it runs the logged-in CLI through `process.run`
   ([subscription-backends.md](subscription-backends.md)). `dokimi/llm_json.py`

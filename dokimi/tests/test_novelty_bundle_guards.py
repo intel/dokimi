@@ -154,6 +154,23 @@ def test_report_render_with_include_resources_and_no_excluded(tmp_path):
     assert "0 resource files measured, 0 of 100 measurable bundled words read" in rendered[2]
 
 
+
+def test_the_atoms_column_names_a_capped_files_sample():
+    """On a capped run `added` / `already knew` are over the sample, so the atoms cell says its size (#371)."""
+    record = {
+        "include_resources": True, "n_files": 2, "entry_point_words": 100,
+        "resource_words_on_disk": 100, "resource_words_measured": 100,
+        "files": [{"path": "SKILL.md", "start": 0, "end": 100}],
+        "by_source": [
+            {"source": "references/a.md", "role": "reference", "words": 100, "n_atoms": 5, "n_sampled": 0},
+            {"source": "SKILL.md", "role": "entry_point", "words": 100, "n_atoms": 3, "n_sampled": 3,
+             "added": 2},
+        ],
+    }
+    rendered = "\n".join(report._render_bundle({"bundle": record}))
+    assert "| `references/a.md` | reference | 100 | 5 (0 sampled) | 0 | 0 |" in rendered
+    assert "| `SKILL.md` | entry_point | 100 | 3 | 2 | 0 |" in rendered
+
 def test_answer_key_entry_point_note_for_legacy_record(tmp_path):
     """Legacy record returns entry-point note."""
     skill = tmp_path / "s" / "SKILL.md"

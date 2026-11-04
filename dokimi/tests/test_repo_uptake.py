@@ -75,6 +75,8 @@ def test_reads_and_calls_of_the_arms_mcp_servers_count_others_do_not():
     got = arm_uptake(events, ["tools/fmt"], ["code.graph"], WS)
     assert (got["reads"], got["mcp_calls"], got["commands"], got["used"], got["measured"]) == (1, 1, 0, True, True)
     assert arm_uptake([], ["tools/fmt"], [], WS)["used"] is False
+    failed = arm_uptake([{"kind": "read", "path": "tools/fmt", "rc": 1}], ["tools/fmt"], [], WS)  # no such file
+    assert (failed["reads"], failed["used"]) == (0, False)
     unmeasured = arm_uptake(None, ["tools/fmt"], [], WS)
     assert unmeasured["measured"] is False and unmeasured["used"] is False
 

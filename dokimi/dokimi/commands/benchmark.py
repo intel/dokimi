@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 from typing import Any, Callable, List, cast
 
-from dokimi.llm import ANSWER_PROVIDERS
+from dokimi.llm import ANSWER_PROVIDERS, credential_env_var, resolve_api_key
 from dokimi.commands.evaluate import _warn_judge_independence
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
@@ -28,16 +28,19 @@ from dokimi.defaults import (
 from dokimi.commands.library import _load_registry
 from dokimi.exit_codes import EXIT_USAGE
 from dokimi.llm_cli import SamplingError, check_sampling
+from dokimi.utils import check_bedrock_model
 
 
 def _refuse_judge_sampling(args: argparse.Namespace) -> None:
-    """Exit 2 before any answer is paid for when a CLI judge is given a temperature (the judge would refuse later)."""
+    """Exit 2 before any answer is paid for when the judge would refuse later: a CLI judge given a
+    temperature, or a Bedrock name Bedrock cannot run."""
+    provider = getattr(args, "judge_provider", DEFAULT_JUDGE_PROVIDER)
     try:
-        check_sampling(getattr(args, "judge_provider", DEFAULT_JUDGE_PROVIDER),
-                       getattr(args, "judge_temperature", None), None)
+        check_sampling(provider, getattr(args, "judge_temperature", None), None)
     except SamplingError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
+    check_bedrock_model(provider, args.judge_model)
 
 
 def _run_single_library(entry, output_dir: str, model: str, provider: str, judge_model: str, judge_provider: str = DEFAULT_JUDGE_PROVIDER, doc_source_override=None, max_tokens_per_question: int = DEFAULT_MAX_TOKENS_PER_QUESTION, force_regen: bool = False, concurrency: int = DEFAULT_CONCURRENCY, questions_from=None, questions_root=None, judge_temperature=None, judge_placeholder=False, registry=None) -> dict:
@@ -86,28 +89,28 @@ def _run_single_library(entry, output_dir: str, model: str, provider: str, judge
     return {"library": entry.key, "name": entry.name, "status": "ok", "result": result}
 
 
-def _credential_env_var(provider: str) -> str:
-    return {
-        "openai": "OPENAI_API_KEY",
-        "anthropic": "ANTHROPIC_API_KEY",
-        "openrouter": "OPENROUTER_API_KEY",
-        "amazon-bedrock": "AWS_BEARER_TOKEN_BEDROCK",
-        "google": "GEMINI_API_KEY",
-        "google-vertex": "GEMINI_API_KEY",
-        "openai-codex": "OPENAI_API_KEY",
-    }.get(provider, "OPENAI_API_KEY")
+def _key_error(provider: str) -> str | None:
+    """Why *provider* has no key to send, or ``None``: the key is read as the run reads it."""
+    var = credential_env_var(provider)
+    try:
+        if resolve_api_key(provider):
+            return None
+    except ValueError as exc:
+        return f"{exc} ({var}, provider {provider})"
+    if os.environ.get(var):
+        return f"{var} for provider {provider} names an empty key file"
+    return f"missing {var} for provider {provider}"
 
 
 def _credential_error(provider: str, status=None) -> str | None:
-    """Why *provider* cannot run here, or ``None``: a missing key, or a CLI not signed in.
+    """Why *provider* cannot run here, or ``None``: no key to send, or a CLI not signed in.
 
     *status* is the provider's ``llm_cli.detect`` result when the caller already has it.
     """
     from dokimi import llm_cli
 
     if llm_cli.backend(provider) is None:
-        key = _credential_env_var(provider)
-        return None if os.environ.get(key) else f"missing {key} for provider {provider}"
+        return _key_error(provider)
     status = status or llm_cli.detect(provider)
     if not status.installed:
         return f"{provider}: '{status.binary}' is not installed"

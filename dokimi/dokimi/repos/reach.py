@@ -13,6 +13,9 @@ token it can see:
 - ``cwd=<dir>``: started in each directory that holds guidance, tools disabled
 - ``read=<dir>``: started at the root, told to read one file in ``<dir>`` with
   the read tool and then list tokens (finds lazy, subtree-triggered loading)
+- ``bash=<dir>``: as ``read=<dir>``, but the file is printed with ``cat`` through
+  the Bash tool (whether a shell read triggers that loading); only when asked for,
+  and only for a profile with a ``bash`` tool mode
 - ``shadow=.`` and ``shadow=<dir>`` (only when asked for): as ``cwd=.`` and
   ``read=<dir>``, with the profile's ``guidance.shadow_file`` written, seeded, at
   the root or in ``<dir>`` for that scenario only, to show what it turns off in a
@@ -39,8 +42,10 @@ from fetching the whole repository.
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 import re
+import shlex
 import shutil
 import tempfile
 from collections.abc import Iterator
@@ -66,8 +71,9 @@ PROSE_LIMIT = 8
 # Haiku's lead-in had 10 words; a longer ':' line is an explanation or a refusal, so it counts.
 LEAD_IN_WORDS = 12
 CLASSES = ("loaded", "truncated", "fetched", "not_loaded", "error")
-KINDS = ("root", "cwd", "read", "shadow")
-DEFAULT_KINDS = ("root", "cwd", "read")  # shadow adds a file the tree lacks: only on request
+KINDS = ("root", "cwd", "read", "bash", "shadow")
+# bash needs a profile's bash tool mode, shadow adds a file the tree lacks: each only on request
+DEFAULT_KINDS = ("root", "cwd", "read")
 SHADOW_TEXT = "# Local instructions\n"
 # Names some harness loads by convention. Any of them in an ancestor of the
 # workspace would be read by the harness and pollute every scenario.
@@ -84,10 +90,32 @@ ASK = ("This is a configuration check run by the owner of this repository. Your 
        "and nothing else. Report only what is already in your context; do not search for "
        "files. If there are none, answer NONE.")
 ASK_AFTER_READ = "First use the Read tool to read the file {path}, and read no other file. Then: "
+ASK_AFTER_BASH = "First use the Bash tool to run `{command}`, and run no other command. Then: "
+# The one shell command a bash scenario's harness may run; the profile's bash tool mode must refuse any other.
+ONLY_COMMAND_ENV = "DOKIMI_REACH_COMMAND"
 
 
 class ReachError(RuntimeError):
     """The probe cannot run safely (for example a guidance file above the workspace)."""
+
+
+def check_flags(kinds: tuple[str, ...], budget: float, model: str | None) -> None:
+    """Refuse a flag that would drop a scenario kind silently, or spend a budget that is not one."""
+    # A typo would otherwise drop a scenario kind silently and still spend the budget.
+    unknown_kinds = sorted(set(kinds) - set(KINDS))
+    if unknown_kinds:
+        raise ReachError(f"unknown --scenarios kind(s) {', '.join(unknown_kinds)} (known: {', '.join(KINDS)})")
+    if not math.isfinite(budget) or budget <= 0:
+        raise ReachError(f"--budget must be > 0, got {budget:g}")
+    if model is None:
+        raise ReachError("--model is required to probe (leave it out only with --from)")
+
+
+def check_kinds(profile: HarnessProfile, kinds: tuple[str, ...]) -> None:
+    """Refuse a ``bash`` scenario for a profile without a ``bash`` tool mode, before any scenario runs."""
+    if "bash" in kinds and "bash" not in profile.tools:
+        raise ReachError(f"profile {profile.name} has no `bash` tool mode, so it cannot run the bash scenarios "
+                         f"(its tool modes: {', '.join(sorted(profile.tools))})")
 
 
 @dataclass(frozen=True)
@@ -104,12 +132,27 @@ class Scenario:
     id: str
     cwd: str  # relative to the workspace root; "" is the root
     tools: str
-    read: str | None = None  # file the agent is told to read first
+    read: str | None = None  # file the agent is told to read first (with ``cat`` in the bash tool mode)
     shadow: str | None = None  # the shadow file written for this scenario only
 
     @property
+    def command(self) -> str | None:
+        """The shell command a ``bash`` scenario names, the only one its harness may run."""
+        return f"cat {shell_word(self.read)}" if self.read and self.tools == "bash" else None
+
+    @property
     def prompt(self) -> str:
-        return (ASK_AFTER_READ.format(path=self.read) if self.read else "") + ASK
+        if not self.read:
+            return ASK
+        if self.command:
+            return ASK_AFTER_BASH.format(command=self.command) + ASK
+        return ASK_AFTER_READ.format(path=self.read) + ASK
+
+
+def shell_word(path: str) -> str:
+    """``path`` as one operand of a POSIX command: quoted (a space, ``$`` or ``;`` in a directory name), and with
+    ``./`` before a leading ``-``, which would make it an option."""
+    return shlex.quote(f"./{path}" if path.startswith("-") else path)
 
 
 @dataclass(frozen=True)
@@ -183,8 +226,9 @@ def scenarios(files: list[str], kinds: tuple[str, ...] = DEFAULT_KINDS,
         out.append(Scenario("cwd=.", "", "none"))
     if "cwd" in kinds:
         out.extend(Scenario(f"cwd={d}", d, "none") for d in dirs)
-    if "read" in kinds:
-        out.extend(Scenario(f"read={d}", "", "read", read=f"{d}/{PROBE_FILE}") for d in dirs)
+    for kind in ("read", "bash"):  # started at the root, told to read the probe file of each directory
+        if kind in kinds:
+            out.extend(Scenario(f"{kind}={d}", "", kind, read=f"{d}/{PROBE_FILE}") for d in dirs)
     if "shadow" in kinds:
         out.extend(_shadow_scenarios(files, shadow))
     return [s for s in out if s.id in only] if only else out
@@ -470,6 +514,7 @@ def run_reach(
     With ``dry_run``, stop before the first harness call (the version command) and return ``{"files", "runs"}``,
     the files and the planned runs: the dry run makes every check a run makes up to there, the built workspace
     included, so it refuses what the run would refuse."""
+    check_kinds(profile, kinds)
     files = probe_files(tree, manifest, profile)
     check_files(files, profile)
     probed, groups, unresolved = followable(tree, files)
@@ -582,7 +627,7 @@ def _run_one(profile: HarnessProfile, scenario: Scenario, model: str, workspace:
                            "read": scenario.read, "returncode": None, "error": None,
                            "cost_usd": None, "num_turns": None, "reported": [], "unknown": [], "prose": None}
     try:
-        proc = process.run(argv, cwd=workspace / scenario.cwd, env=profile.env(config_dir),
+        proc = process.run(argv, cwd=workspace / scenario.cwd, env=scenario_env(profile, scenario, config_dir),
                            timeout=timeout_s, capture_limit=None)  # the trace is parsed whole
     except OSError as exc:
         row.update(error=f"{type(exc).__name__}: {exc}", _stdout="")
@@ -600,6 +645,14 @@ def _run_one(profile: HarnessProfile, scenario: Scenario, model: str, workspace:
                         + (f": {proc.stderr.strip()[:300]}" if proc.stderr.strip() else ""))
         return None, row
     return transcript, row
+
+
+def scenario_env(profile: HarnessProfile, scenario: Scenario, config_dir: Path) -> process.Env:
+    """The profile's child environment, plus, in a bash scenario, the one command its shell may run."""
+    env = profile.env(config_dir)
+    if not scenario.command:
+        return env
+    return process.Env(env.allow, {**env.set, ONLY_COMMAND_ENV: scenario.command})
 
 
 def _matrix(records: list[dict[str, Any]]) -> dict[str, dict[str, str]]:

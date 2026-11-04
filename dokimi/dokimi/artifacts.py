@@ -17,8 +17,8 @@ into an agent's context), ``effective_instructions`` (the effective-instructions
 receipt of a reach probe), ``need_graph`` and ``eval_coverage`` (a frozen need graph and an
 eval set's coverage of it), ``task_inspect`` (which eval-task format each
 path under a tree is), ``repo_hits_judged`` (a judge's labels of one replay cell's credited pairs)
-and ``reach_matrix`` (the reach conformance matrix). This module stamps each with a
-``schema_version`` and validates it against the JSON Schema in
+and ``dokimi_config`` (a repository's subjects and where their evals are) and ``reach_matrix`` (the reach
+conformance matrix). This module stamps each with a ``schema_version`` and validates it against the JSON Schema in
 ``dokimi/schemas/`` on save and load, so fixtures and baselines stay
 forward-compatible and self-describing.
 
@@ -69,6 +69,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "headroom": "headroom.v1",
     "redteam": "redteam.v1",
     "cli_routes": "cli_routes.v1",
+    "dokimi_config": "dokimi_config.v1",
     "need_graph": "need_graph.v1",
     "eval_coverage": "eval_coverage.v1",
     "catalog_eval": "catalog_eval.v1",
