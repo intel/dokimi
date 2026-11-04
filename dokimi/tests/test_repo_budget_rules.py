@@ -687,6 +687,14 @@ def test_a_root_cut_of_a_nested_rule_is_named_when_a_nested_claude_md_cuts_the_s
         "sub/mid.md: import of sub/.claude/rules/r.md is past the harness's 1-hop import limit, not followed"]
 
 
+def test_a_cut_import_of_a_nested_rule_is_named_by_a_profile_that_does_not_read_rules(tmp_path):
+    # without rules the file is no rule that loads with sub/CLAUDE.md anyway, so the cut import still warns
+    files = {"sub/CLAUDE.md": "@.claude/rules/r.md\n", "sub/.claude/rules/r.md": "rule\n"}
+    payload = budget(_tree(tmp_path, files), NAMES, import_max_depth=0, rules=False)
+    assert payload["warnings"] == [
+        "sub/CLAUDE.md: import of sub/.claude/rules/r.md is past the harness's 0-hop import limit, not followed"]
+
+
 @pytest.mark.parametrize(("importer", "link"), [
     ("sub/CLAUDE.md", "@../.claude/rules/r.md\n"),
     ("sub/AGENTS.md", "@../.claude/rules/r.md\n"),
