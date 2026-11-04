@@ -44,7 +44,7 @@ def _text_check(base: str, value: Any, negate: bool) -> Optional[dict[str, Any]]
     """The deterministic check for a text assert, or None when ``base`` is not one."""
     if base in _CONTAINS or base in ("equals", "starts-with", "regex"):
         # No value to compare (`regex` would search for "None"), a blank one, or an empty
-        # `contains-*` list, which eval reference refuses: left unsupported instead.
+        # `contains-*` list, which eval score reference refuses: left unsupported instead.
         if value is None or any(not str(v).strip() for v in as_list(value)):
             return None
         if base in _CONTAINS and not as_list(value):
@@ -75,7 +75,7 @@ def _other_check(base: str, value: Any, negate: bool, imp: Imported) -> Optional
         return check
     if base in _JUDGED and not negate:
         if not str(value or "").strip():
-            return None  # a judge check with no criterion or reference is refused by eval reference
+            return None  # a judge check with no criterion or reference is refused by eval score reference
         imp.note(f"{base}: graded by the yes/no checklist judge")
         return judge(native=base, **{_JUDGED[base]: str(value or "")})
     return None

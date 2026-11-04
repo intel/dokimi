@@ -308,7 +308,7 @@ def test_bad_skill_arms_are_refused_before_any_cell(setup, capsys):
 
 
 def test_tasks_check_validates_skill_arms(setup, capsys):
-    argv = ["repo", "tasks", "check", f"{setup['root']}@HEAD", "--out", str(setup["out"] / "chk"),
+    argv = ["eval", "check", f"{setup['root']}@HEAD", "--out", str(setup["out"] / "chk"),
             "--cache-root", str(setup["out"] / "caches"), "--arm", "skill:skills/nope"]
     args = build_parser().parse_args(argv)
     with pytest.raises(SystemExit):
@@ -530,8 +530,8 @@ def test_a_skill_the_task_base_already_ships_is_refused_before_any_cell(tmp_path
     task = Task("t", {"base": base}, root)
     with pytest.raises(ArmError, match="base of task t already has .claude/skills/lint"):
         check_arms([parse_arm("skill:skills/lint")], root / ".agent-eval", [task], root / ".git")
-    with pytest.raises(SystemExit):  # `repo tasks check --arm` goes through the same check
-        args = build_parser().parse_args(["repo", "tasks", "check", f"{root}@HEAD", "--out", str(tmp_path / "chk"),
+    with pytest.raises(SystemExit):  # `eval check --arm` goes through the same check
+        args = build_parser().parse_args(["eval", "check", f"{root}@HEAD", "--out", str(tmp_path / "chk"),
                                           "--cache-root", str(tmp_path / "caches"), "--arm", "skill:skills/lint"])
         args.func(args)
     assert "already has .claude/skills/lint" in capsys.readouterr().err
@@ -880,7 +880,7 @@ def test_tasks_check_refuses_an_as_skill_arm_whose_generated_skill_the_arm_also_
     _skill(setup["root"], ".agent-eval/skills/toy-guidance", "toy-guidance")
     git(setup["root"], "add", "-A")
     git(setup["root"], "commit", "-qm", "generated skill")
-    argv = ["repo", "tasks", "check", f"{setup['root']}@HEAD", "--out", str(setup["out"] / "chk"),
+    argv = ["eval", "check", f"{setup['root']}@HEAD", "--out", str(setup["out"] / "chk"),
             "--cache-root", str(setup["out"] / "caches"), "--arm", "guidance:as-skill+skill:skills/toy-guidance"]
     args = build_parser().parse_args(argv)
     with pytest.raises(SystemExit):

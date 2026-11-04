@@ -638,7 +638,7 @@ def test_command_pools_legacy_runs_without_a_top_level_arms_list_whose_arms_agre
 
 
 def _reference_file(path, questions, scores, ungraded=0):
-    """An arms file rescored by ``eval reference`` against ``questions``: a summary per run, as the real artifact has."""
+    """An arms file rescored by ``eval score reference`` against ``questions``: a summary per run, as the real artifact has."""
     data = json.loads(_arms_file(path, {"1": {"baseline": scores, "skill": scores}}).read_text(encoding="utf-8"))
     data["reference_scoring"] = {"scorer": "reference", "questions": questions,
                                  "summary": {"baseline": {"correct": int(scores >= 50)}},
@@ -653,7 +653,7 @@ def test_command_refuses_reference_scored_runs_graded_against_different_question
     with pytest.raises(SystemExit) as exc:
         cmd_eval_headroom(_args([first, second]))
     assert exc.value.code == 2
-    assert f"{second} was scored by eval reference against different grading than {first}" in capsys.readouterr().err
+    assert f"{second} was scored by eval score reference against different grading than {first}" in capsys.readouterr().err
 
 
 def test_command_pools_reference_scored_runs_that_share_their_grading_and_differ_in_tallies(tmp_path):
@@ -679,7 +679,7 @@ def test_command_checks_every_reference_scored_file_not_only_the_second(tmp_path
     with pytest.raises(SystemExit) as exc:
         cmd_eval_headroom(_args([first, second, third]))
     assert exc.value.code == 2
-    assert f"{third} was scored by eval reference against different grading than {first}" in capsys.readouterr().err
+    assert f"{third} was scored by eval score reference against different grading than {first}" in capsys.readouterr().err
 
 
 def test_a_baseline_a_hair_below_the_ceiling_at_any_score_precision_is_not_a_ceiling():

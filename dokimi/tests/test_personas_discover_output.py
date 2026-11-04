@@ -105,7 +105,7 @@ def test_analyze_exits_2_when_the_report_cannot_be_written(tmp_path, monkeypatch
     qfile = tmp_path / "q.json"
     qfile.write_text('["a?"]', encoding="utf-8")
     out = _outputs(tmp_path)[kind]
-    monkeypatch.setattr("sys.argv", ["dokimi", "questions", "analyze", "--questions", str(qfile),
+    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "questions", "analyze", "--questions", str(qfile),
                                      "--product", "p", "--output", str(out)])
     with pytest.raises(SystemExit) as exc:
         cli.main()

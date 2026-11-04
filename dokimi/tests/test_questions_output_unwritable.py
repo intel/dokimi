@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""questions refine and panel-review: an unwritable --output is a clean exit, not a traceback."""
+"""questions refine and review: an unwritable --output is a clean exit, not a traceback."""
 
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ def out(tmp_path, request):
 
 
 def _run(monkeypatch, *argv):
-    monkeypatch.setattr("sys.argv", ["dokimi", "questions", *argv])
+    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "questions", *argv])
     with pytest.raises(SystemExit) as exc:
         cli.main()
     return exc.value.code
@@ -71,7 +71,7 @@ def test_refine_exits_2_when_the_output_cannot_be_written(monkeypatch, capsys, q
 @pytest.mark.parametrize("out", ["under-a-file", "is-a-directory"], indirect=True)
 def test_panel_review_exits_2_when_the_output_cannot_be_written(monkeypatch, capsys, questions_file, out):
     monkeypatch.setattr("dokimi.questions.panel_reviewer.QuestionPanelReviewer", _FakeReviewer)
-    assert _run(monkeypatch, "panel-review", "--product", "p", "--questions", str(questions_file),
+    assert _run(monkeypatch, "review", "--product", "p", "--questions", str(questions_file),
                 "--output", str(out)) == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: cannot write ") and str(out) in err

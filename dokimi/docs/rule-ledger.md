@@ -19,7 +19,7 @@ in [agentsmd/agents.md#213](https://github.com/agentsmd/agents.md/issues/213).
 |---|---|---|
 | Replay tasks from review threads | `dokimi/repos/replay/`, `repo tasks replay` ([contract §4.6](repo-evaluation-contract.md#46-replay-tasks-from-review-threads)) | One `dokimi:review_replay` task per merged PR, with the change as reviewed and the reviewers' threads as gold. No GitHub call. |
 | Deterministic review grader | `dokimi/repos/graders/review.py` | Matches the agent's findings JSON to gold threads by file and a line window (`window`, default 5). No LLM. |
-| Executable tasks and self-check | `repo tasks check` (`dokimi/repos/selfcheck.py`, [contract §4.3](repo-evaluation-contract.md#43-self-check-tasks-check-no-llm)) | Checks that a task fails on the untouched workspace and passes after its oracle. Run this check and resolve broken cases before starting paid runs; `repo run` does not enforce its results. |
+| Executable tasks and self-check | `eval check` (`dokimi/repos/selfcheck.py`, [contract §4.3](repo-evaluation-contract.md#43-self-check-eval-check-no-llm)) | Checks that a task fails on the untouched workspace and passes after its oracle. Run this check and resolve broken cases before starting paid runs; `repo run` does not enforce its results. |
 | Arms | `dokimi/repos/arms.py` | `guidance:none`, `guidance:raw`, `guidance:rev:`, `patch:` and the rest. |
 | Repetitions | `repo run --reps` | Several reps per (task, arm, model). |
 | Paired statistics | `repo compare` (`dokimi/repos/compare.py`) | Per-task deltas, sign-flip p, Holm over the gate and score rows of one invocation. |
@@ -38,7 +38,7 @@ planned:
    recall of the gold threads, so the check is deterministic.
 2. **A failed agent run, or a bug a fix PR corrected.** Write an executable task
    in the content repository: a test that fails on the base commit and passes
-   with the oracle. `repo tasks check` enforces both halves. No scaffold command
+   with the oracle. `eval check` enforces both halves. No scaffold command
    exists yet; the task is written by hand.
 3. **A transcript slice.** A transcript shows what the agent did, not what
    should have happened. It is evidence for case 1 or 2, not a case: a case
@@ -52,7 +52,7 @@ Then, per rule:
 2. Put the case ids in `cases`. Use cases the rule was not written from: a
    rule checked on the failure it was mined from only shows it can repeat
    itself.
-3. Run `repo tasks check` on the cases, then the rule's arm and its baseline
+3. Run `eval check` on the cases, then the rule's arm and its baseline
    with `--reps 3` to `5`.
 4. Compare with `repo compare --ledger`.
 

@@ -359,7 +359,7 @@ next release.
   file (rules with their hypothesis, arm, linked cases and review date) and gives
   each rule a verdict from `repo compare` over its own cases, Holm-corrected
   across the rules. [rule-ledger.md](rule-ledger.md).
-- `dokimi/repos/selfcheck.py` — `repo tasks check`: on each task
+- `dokimi/repos/selfcheck.py` — `eval check`: on each task
   `grade` must fail the untouched workspace and pass it after `oracle`, and an
   isolation probe must not see the tasks or the source from the agent's
   container.
@@ -369,7 +369,7 @@ next release.
   `addressed` from the PR's own later commits), read with git and no GitHub
   call. It is the one command that writes into a repository's tasks directory.
 
-Entry points: `python cli.py repo {validate,scan,fetch,reach,budget,tasks check,tasks replay,run,report}`
+Entry points: `python cli.py repo {validate,scan,fetch,reach,budget,tasks replay,run,report}`
 (`python cli.py repo --help` is the current list). The interface a repository
 codes against is [repo-evaluation-contract.md](repo-evaluation-contract.md),
 still marked PROPOSED: the per-host egress proxy (§2) is not implemented, so

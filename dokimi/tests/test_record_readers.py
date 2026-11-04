@@ -443,9 +443,9 @@ def test_the_arm_judges_send_no_binary_answer_to_a_judge():
 
 
 @pytest.mark.parametrize("command", [
-    ["pairwise", "--baseline-arm", "without_docs"],
-    ["checklist", "--baseline-arm", "without_docs"],
-    ["cross-judge", "--judges", "amazon-bedrock/m", "--baseline-arm", "without_docs"],
+    ["score", "pairwise", "--baseline-arm", "without_docs"],
+    ["score", "checklist", "--baseline-arm", "without_docs"],
+    ["judge", "agreement", "--judges", "amazon-bedrock/m", "--baseline-arm", "without_docs"],
 ])
 def test_the_arm_judges_refuse_a_binary_answers_file_before_any_call(tmp_path, monkeypatch, capsys, command):
     """Base: no judge call and exit 2 (pairwise, checklist) or an empty table; never paid calls."""
@@ -461,7 +461,7 @@ def test_the_arm_judges_refuse_a_binary_answers_file_before_any_call(tmp_path, m
     judge = MagicMock()
     monkeypatch.setattr("dokimi.eval.judge.Judge", judge)
     monkeypatch.setattr("dokimi.commands.judge_reliability.pairwise_judge", lambda args: (judge, "stub/judge"))
-    extra = ["--questions", str(questions)] if command[0] == "checklist" else []
+    extra = ["--questions", str(questions)] if command[1] == "checklist" else []
     args = build_parser().parse_args(["eval", *command, "--answers", str(answers), *extra,
                                       "--output", str(tmp_path / "out.json")])
     with pytest.raises(SystemExit) as exc:
@@ -492,7 +492,7 @@ def test_cross_judge_on_a_legacy_inline_score_run_has_nothing_to_compare(tmp_pat
 
     path = tmp_path / "run.json"
     path.write_text(json.dumps(_legacy_arms_run()), encoding="utf-8")
-    args = build_parser().parse_args(["eval", "cross-judge", "--answers", str(path),
+    args = build_parser().parse_args(["eval", "judge", "agreement", "--answers", str(path),
                                       "--output", str(tmp_path / "cj.json")])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
@@ -516,7 +516,7 @@ def test_cross_judge_exits_2_on_a_malformed_arms_file(tmp_path, monkeypatch, cap
 
     answers = tmp_path / "arms.json"
     answers.write_text(json.dumps({"answers": [{"arms": {"skill": {"answer": "s"}}}]}), encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "cross-judge", "--answers", str(answers)])
+    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "judge", "agreement", "--answers", str(answers)])
     with pytest.raises(SystemExit) as exc:
         cli.main()
     assert exc.value.code == 2  # bad input; 1 is the verdict code of the gates
@@ -544,9 +544,9 @@ def test_cross_judge_exits_2_on_an_unreadable_input_file(tmp_path, monkeypatch, 
     if content is not None:
         bad.write_text(content, encoding="utf-8")
     if flag == "--answers":
-        argv = ["dokimi", "eval", "cross-judge", "--answers", str(bad), "--no-stored"]
+        argv = ["dokimi", "eval", "judge", "agreement", "--answers", str(bad), "--no-stored"]
     else:
-        argv = ["dokimi", "eval", "cross-judge", "--answers", str(arms), "--no-stored", flag, str(bad)]
+        argv = ["dokimi", "eval", "judge", "agreement", "--answers", str(arms), "--no-stored", flag, str(bad)]
     monkeypatch.setattr("sys.argv", argv)
     with pytest.raises(SystemExit) as exc:
         cli.main()
@@ -561,7 +561,7 @@ def test_cross_judge_exits_2_on_an_unreadable_input_file(tmp_path, monkeypatch, 
         assert "cannot read" in err
 
 
-@pytest.mark.parametrize("command", [["cross-judge"], ["checklist"], ["judge-wording"]],
+@pytest.mark.parametrize("command", [["judge", "agreement"], ["score", "checklist"], ["judge", "wording"]],
                          ids=["cross-judge", "checklist", "judge-wording"])
 @pytest.mark.parametrize("content", [None, "{not json"], ids=["missing", "malformed"])
 def test_every_answers_reader_exits_2_on_an_unreadable_answers_file(tmp_path, monkeypatch, capsys, command, content):
@@ -572,8 +572,8 @@ def test_every_answers_reader_exits_2_on_an_unreadable_answers_file(tmp_path, mo
         bad.write_text(content, encoding="utf-8")
     questions = tmp_path / "q.json"
     questions.write_text(json.dumps({"questions": []}), encoding="utf-8")
-    extra = ["--questions", str(questions)] if command[0] == "checklist" else []
-    monkeypatch.setattr("sys.argv", ["dokimi", "eval", command[0], "--answers", str(bad), *extra])
+    extra = ["--questions", str(questions)] if command[1] == "checklist" else []
+    monkeypatch.setattr("sys.argv", ["dokimi", "eval", *command, "--answers", str(bad), *extra])
     with pytest.raises(SystemExit) as exc:
         cli.main()
     assert exc.value.code == 2
@@ -605,7 +605,7 @@ def test_cross_judge_exits_2_on_a_validity_file_without_a_summary_object(tmp_pat
                     encoding="utf-8")
     validity = tmp_path / "validity.json"
     validity.write_text(json.dumps(content), encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "cross-judge", "--answers", str(arms), "--no-stored",
+    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "judge", "agreement", "--answers", str(arms), "--no-stored",
                                      "--validity", str(validity)])
     with pytest.raises(SystemExit) as exc:
         cli.main()
@@ -627,7 +627,7 @@ def test_cross_judge_exits_2_on_a_result_file_of_the_wrong_shape(tmp_path, monke
                     encoding="utf-8")
     wrong = tmp_path / "wrong.json"
     wrong.write_text(json.dumps(content), encoding="utf-8")
-    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "cross-judge", "--answers", str(arms), "--no-stored",
+    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "judge", "agreement", "--answers", str(arms), "--no-stored",
                                      flag, str(wrong)])
     with pytest.raises(SystemExit) as exc:
         cli.main()
@@ -653,7 +653,7 @@ def test_cross_judge_names_a_result_file_measure_after_its_stem_without_a_usable
     result = tmp_path / "result.json"
     result.write_text(json.dumps({**doc, **({} if summary is None else {"summary": summary})}), encoding="utf-8")
     out = tmp_path / "out.json"
-    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "cross-judge", "--answers", str(arms), "--no-stored",
+    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "judge", "agreement", "--answers", str(arms), "--no-stored",
                                      flag, str(result), "--output", str(out)])
     cli.main()
     assert " · result |" in out.with_suffix(".md").read_text(encoding="utf-8")  # named after result.json
@@ -669,7 +669,7 @@ def test_cross_judge_names_a_result_file_measure_after_its_summary_judge(tmp_pat
     result = tmp_path / "result.json"
     result.write_text(json.dumps({**doc, "summary": {"judge": "judge-a"}}), encoding="utf-8")
     out = tmp_path / "out.json"
-    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "cross-judge", "--answers", str(arms), "--no-stored",
+    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "judge", "agreement", "--answers", str(arms), "--no-stored",
                                      flag, str(result), "--output", str(out)])
     cli.main()
     md = out.with_suffix(".md").read_text(encoding="utf-8")
@@ -739,7 +739,7 @@ def test_cross_judge_names_a_result_entry_of_the_wrong_shape_before_any_judge_ca
 
 
 def test_cross_judge_takes_a_checklist_arm_with_a_null_coverage(tmp_path, monkeypatch):
-    """`eval checklist` writes a null coverage for an arm with no scored point."""
+    """`eval score checklist` writes a null coverage for an arm with no scored point."""
     from dokimi import cli
 
     arms = tmp_path / "arms.json"
@@ -749,7 +749,7 @@ def test_cross_judge_takes_a_checklist_arm_with_a_null_coverage(tmp_path, monkey
     result.write_text(json.dumps(_checklist({"question_id": "q1", "arms": {"skill": {"coverage": None}}})),
                       encoding="utf-8")
     out = tmp_path / "out.json"
-    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "cross-judge", "--answers", str(arms), "--no-stored",
+    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "judge", "agreement", "--answers", str(arms), "--no-stored",
                                      "--checklist", str(result), "--output", str(out)])
     cli.main()
     assert " · result |" in out.with_suffix(".md").read_text(encoding="utf-8")
