@@ -539,6 +539,12 @@ def _inside(path: Path, base: Path) -> bool:
     return Path(os.path.abspath(path)).is_relative_to(os.path.abspath(base))
 
 
+def _in_checkout(path: Path, source_root: Path) -> Optional[Path]:
+    """``path`` resolved, or None unless it lies in the checkout both as written and where it resolves."""
+    target = _resolved(path) if _inside(path, source_root) else None
+    return target if target is not None and target.is_relative_to(source_root.resolve()) else None
+
+
 def _link_finding(raw: str, skill_dir: Path, source_root: Path, real_dir: Path) -> Optional[Finding]:
     """The finding for one link destination (inline or reference), or None when it is fine."""
     text = _file_ref(raw, link=True)
@@ -548,10 +554,13 @@ def _link_finding(raw: str, skill_dir: Path, source_root: Path, real_dir: Path) 
     if not _inside(named, skill_dir):
         return _escapes_link(raw)
     target = _resolved(named)
+    if target is not None and not target.is_relative_to(real_dir):
+        return _escapes_link(raw)
     if target is not None and _exists(target):
-        return None if target.is_relative_to(real_dir) else _escapes_link(raw)
+        return None
     from_root = ""
-    if _inside(source_root / text, source_root) and _exists(source_root / text):
+    rooted = _in_checkout(source_root / text, source_root)
+    if rooted is not None and _exists(rooted):
         from_root = " (it exists from the catalog root: the base is wrong)"
     return Finding("warn", "link-missing", f"link {raw!r} names no file relative to the skill directory{from_root}")
 
@@ -561,12 +570,9 @@ def _span_finding(raw: str, skill_dir: Path, source_root: Path, real_dir: Path) 
     text = _file_ref(raw)
     if text is None or not raw.startswith("../"):
         return None
-    named = skill_dir / text
-    if not _inside(named, source_root):
-        return None  # outside the checkout: not read
-    target = _resolved(named)
+    target = _in_checkout(skill_dir / text, source_root)
     if target is None or not _exists(target) or target.is_relative_to(real_dir):
-        return None
+        return None  # outside the checkout, as written or resolved: not read
     return Finding(
         "warn",
         "path-escapes-skill",
@@ -578,9 +584,9 @@ def _span_finding(raw: str, skill_dir: Path, source_root: Path, real_dir: Path) 
 def _bundle_findings(skill: Skill, source_root: Path) -> list[Finding]:
     """Link and path checks on the body of ``skill``: missing targets, or targets outside it.
 
-    A target is classed by its written name before any file is read: one outside the skill
-    directory is ``link-escapes-skill`` whether or not it exists, and one outside the catalog
-    checkout is never probed.
+    A target is classed by its written name, then by where it resolves, before any file is read:
+    one outside the skill directory is ``link-escapes-skill`` whether or not it exists, and one
+    outside the catalog checkout (through a symlink too) is never stat-ed.
     """
     skill_dir = skill.path.parent
     real_dir = skill_dir.resolve()

@@ -4,7 +4,9 @@
   a relative Markdown link in `SKILL.md` to a file that does not exist is a `warn`
   (`link-missing`), and says so when the file exists from the catalog root instead (a wrong
   base). A link or `../` code span that reaches a file outside the skill directory is a `warn`
-  (`link-escapes-skill`, `path-escapes-skill`): it breaks when the skill is installed alone.
+  (`link-escapes-skill`, `path-escapes-skill`): it breaks when the skill is installed alone. A
+  target is classed by where it resolves too, so a symlink cannot reveal whether a file
+  outside the checkout exists.
   A description with no "when" clause is a `warn` (`description-no-when`), as is one
   whose words overlap another skill's by at least half (`description-near-duplicate`). Two
   skills in different paths with the same directory name and description but different

@@ -277,3 +277,24 @@ def test_a_use_phrase_that_only_starts_like_a_trigger_is_still_a_description_war
 
     [review] = review_skills(read_skill_manifest(tmp_path))
     assert _codes(review) == ["description-no-when"]
+
+
+@pytest.mark.parametrize(
+    ("link", "body", "codes"),
+    [
+        ("skills/probe/refs", "[a](refs/{})", ["link-escapes-skill"] * 2),
+        ("references", "[a](references/{})", ["link-missing"] * 2),
+        ("skills/shared", "`../shared/{}`", []),
+    ],
+)
+def test_a_symlink_out_of_the_checkout_does_not_tell_which_host_files_exist(tmp_path, link, body, codes):
+    host, root = tmp_path / "host", tmp_path / "catalog"
+    host.mkdir()
+    (host / "present.md").write_text("# Host\n", encoding="utf-8")
+    _skill(root / "skills", "probe", name="probe", description="Use when probing.",
+           body=f"{body.format('present.md')} {body.format('absent.md')}\n")
+    (root / link).symlink_to(host, target_is_directory=True)
+
+    [review] = review_skills(read_skill_manifest(root))
+    assert _codes(review) == codes
+    assert len({f.message.replace("present", "absent") for f in review.findings}) <= 1
