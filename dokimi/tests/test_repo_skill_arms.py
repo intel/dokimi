@@ -880,7 +880,7 @@ def test_tasks_check_refuses_an_as_skill_arm_whose_generated_skill_the_arm_also_
     _skill(setup["root"], ".agent-eval/skills/toy-guidance", "toy-guidance")
     git(setup["root"], "add", "-A")
     git(setup["root"], "commit", "-qm", "generated skill")
-    argv = ["repo", "tasks", "check", f"{setup['root']}@HEAD", "--out", str(setup["out"] / "chk"),
+    argv = ["eval", "check", f"{setup['root']}@HEAD", "--out", str(setup["out"] / "chk"),
             "--cache-root", str(setup["out"] / "caches"), "--arm", "guidance:as-skill+skill:skills/toy-guidance"]
     args = build_parser().parse_args(argv)
     with pytest.raises(SystemExit):
