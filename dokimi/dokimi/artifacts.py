@@ -91,8 +91,8 @@ SUPERSEDED_VERSIONS: dict[str, tuple[str, ...]] = {
 
 
 #: Kinds that record a run or a diagnostic, so they carry the run envelope (``run_id``, #277).
-#: The authored ``dokimi_config`` and the generated ``cli_routes`` table do not.
-RUN_KINDS: frozenset[str] = frozenset(SCHEMA_VERSIONS) - {"dokimi_config", "cli_routes"}
+#: Inputs get none: ``questions`` (its hash digests the bytes), ``dokimi_config``, ``cli_routes``.
+RUN_KINDS: frozenset[str] = frozenset(SCHEMA_VERSIONS) - {"dokimi_config", "cli_routes", "questions"}
 
 _run_id_lock = threading.Lock()
 _process_run_id: str | None = None

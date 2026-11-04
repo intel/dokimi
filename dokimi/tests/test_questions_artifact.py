@@ -260,7 +260,7 @@ def test_an_upgraded_curated_set_round_trips_as_v2(path, tmp_path):
     save_questions_artifact(load_questions(path).artifact, out)
     again = load_questions(out)
     assert again.source_version == "questions.v2"
-    assert {k: v for k, v in again.artifact.items() if k != "run_id"} == load_questions(path).artifact
+    assert again.artifact == load_questions(path).artifact
 
 
 def test_load_questions_reads_a_v2_file_unchanged(tmp_path):

@@ -40,9 +40,40 @@ def _ledger() -> dict:
     return {k: v for k, v in data.items() if k not in ("schema_version", "run_id")}
 
 
+def _questions() -> dict:
+    return {"questions": [{"id": "q1", "question": "How do I install it?"}]}
+
+
 def test_input_and_generated_kinds_are_not_run_kinds():
-    assert RUN_KINDS == frozenset(SCHEMA_VERSIONS) - {"dokimi_config", "cli_routes"}
-    assert "dokimi_config" not in RUN_KINDS and "cli_routes" not in RUN_KINDS
+    assert RUN_KINDS == frozenset(SCHEMA_VERSIONS) - {"dokimi_config", "cli_routes", "questions"}
+    assert {"dokimi_config", "cli_routes", "questions"}.isdisjoint(RUN_KINDS)
+
+
+def test_a_question_set_is_an_input_and_carries_no_run_id(tmp_path):
+    path = tmp_path / "questions.json"
+    written = save_artifact("questions", _questions(), path)
+    assert "run_id" not in written
+    assert list(_read(path)) == ["schema_version", "questions"]
+
+
+def test_re_saving_a_question_set_keeps_its_hash(tmp_path, monkeypatch):
+    """scorecard's question_set_hash digests the file's bytes, so a re-save in another run keeps them."""
+    from dokimi.subjects.scorecard import _digest_values
+
+    path = tmp_path / "questions.json"
+    monkeypatch.setattr("dokimi.artifacts.current_run_id", lambda: "20260101T000000Z-aaaaaaaa")
+    save_artifact("questions", _questions(), path)
+    before = _digest_values((str(path),))
+    monkeypatch.setattr("dokimi.artifacts.current_run_id", lambda: "20260102T000000Z-bbbbbbbb")
+    save_artifact("questions", _questions(), path)
+    assert _digest_values((str(path),)) == before
+
+
+def test_a_question_set_written_with_a_run_id_still_loads(tmp_path):
+    path = tmp_path / "questions.json"
+    path.write_text(json.dumps({"schema_version": "questions.v2", "run_id": "20260101T000000Z-aaaaaaaa",
+                                **_questions()}), encoding="utf-8")
+    assert load_artifact("questions", path)["run_id"] == "20260101T000000Z-aaaaaaaa"
 
 
 def test_a_run_kind_is_stamped_right_after_schema_version(tmp_path):
