@@ -692,3 +692,9 @@ def test_the_time_keywords_end_of_options_reads_the_file(command):
 def test_a_cd_after_a_dash_word_the_time_keyword_takes_as_no_option_still_loses_the_directory(first):
     # bash runs ``-x``, but every dash word is taken as an option where only a directory may be lost
     assert shell_walk(f"{first}; cat AGENTS.md") == ([], True, 1)
+
+
+def test_a_definition_whose_close_is_not_seen_keeps_the_rest_of_the_script_as_its_body():
+    # bash closes the body at ``}>``, which is not seen here: the body runs to the end, its cd included
+    events = _events(_call("a", "f() { cd sub; }>/dev/null"), _result("a"), _call("b", "f; cat AGENTS.md"), _result("b"))
+    assert _reads(events) == []
