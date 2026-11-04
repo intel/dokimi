@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import subprocess
@@ -14,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from dokimi import utils
 from dokimi.repo_config import load_repo_config
 from dokimi.utils import git_tree, tree_digest
 
@@ -93,6 +95,43 @@ def test_a_name_git_stdin_misreads_digests_the_same_edited_and_committed(tmp_pat
     edited = tree_digest(root, git=True)
     _git(root, "commit", "-qam", "two")
     assert tree_digest(root, git=True) == edited  # the same content: the blob id both ways, not raw bytes once edited
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+@pytest.mark.skipif(os.name == "nt", reason="Windows file names cannot hold a newline")
+def test_odd_names_beyond_one_command_line_digest_the_same_edited_and_committed(tmp_path, monkeypatch):
+    monkeypatch.setattr("dokimi.utils._ARG_BUDGET", 120)  # a few names per git call: several batches
+    names = {f"we\nird{i}.txt": "one\n" for i in range(12)}
+    root = _repo(tmp_path / "r", {**FILES, **names})
+    for name in names:
+        (root / name).write_text("two\n")
+    edited = tree_digest(root, git=True)
+    _git(root, "commit", "-qam", "two")
+    assert tree_digest(root, git=True) == edited
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+@pytest.mark.skipif(os.name == "nt", reason="Windows file names cannot hold a newline")
+def test_a_failed_batch_of_odd_names_hashes_their_bytes(tmp_path, monkeypatch):
+    monkeypatch.setattr("dokimi.utils._ARG_BUDGET", 30)
+    root = _repo(tmp_path / "r", {**FILES, **{f"we\nird{i}.txt": "one\n" for i in range(4)}})
+    odd = [p for p in root.iterdir() if "\n" in p.name]
+    for path in odd:
+        path.write_text("two\n")  # edited: git's index no longer holds the blob id
+    tree = git_tree(root)
+    real = utils._hash_objects
+    calls = []
+
+    def second_fails(top, rels, *, as_args):
+        calls.append(as_args)
+        if as_args and calls.count(True) == 2:
+            return None
+        return real(top, rels, as_args=as_args)
+
+    monkeypatch.setattr(utils, "_hash_objects", second_fails)
+    got = utils.file_contents(odd, tree)
+    assert calls.count(True) == 2  # the batches were tried in turn, and the failure stopped them
+    assert got == {p: hashlib.sha256(p.read_bytes()).digest() for p in odd}
 
 
 def test_a_committed_lf_to_crlf_change_moves_suite_hash(tmp_path):

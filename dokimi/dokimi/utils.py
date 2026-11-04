@@ -271,9 +271,32 @@ def _flagged(tags: bytes) -> set[str]:
     return {os.fsdecode(entry[2:]) for entry in tags.split(b"\0") if entry[:1] == b"S" or entry[:1].islower()}
 
 
+_ARG_BUDGET = 24_000  # bytes of path arguments per git call: under the smallest command line limit (Windows, 32 KB)
+
+
 def _blob_ids(top: Path, rels: list[str], *, as_args: bool = False) -> list[str] | None:
-    """``git hash-object`` of each path (relative to ``top``) with the work tree's filters, in one call: on stdin, or
-    with ``as_args`` on the command line, for a name ``--stdin-paths`` misreads (it splits lines, unquotes, drops a CR)."""
+    """``git hash-object`` of each path (relative to ``top``) with the work tree's filters: on stdin in one call, or
+    with ``as_args`` on the command line in batches under ``_ARG_BUDGET``, for a name ``--stdin-paths`` misreads (it
+    splits lines, unquotes, drops a CR). A batch that fails fails them all."""
+    if not as_args:
+        return _hash_objects(top, rels, as_args=False)
+    ids: list[str] = []
+    batch: list[str] = []
+    size = 0
+    for rel in [*rels, None]:
+        if rel is None or (batch and size + len(os.fsencode(rel)) + 1 > _ARG_BUDGET):
+            got = _hash_objects(top, batch, as_args=True)
+            if got is None:
+                return None
+            ids += got
+            batch, size = [], 0
+        if rel is not None:
+            batch.append(rel)
+            size += len(os.fsencode(rel)) + 1
+    return ids
+
+
+def _hash_objects(top: Path, rels: list[str], *, as_args: bool) -> list[str] | None:
     from dokimi.process import run
 
     names = ["--", *rels] if as_args else ["--stdin-paths"]
