@@ -7,7 +7,10 @@ after ``schema_version`` on every kind a run produces, and on no input kind."""
 from __future__ import annotations
 
 import json
+import os
 import re
+import subprocess
+import sys
 import threading
 from pathlib import Path
 
@@ -200,3 +203,21 @@ def test_runs_show_says_why_a_file_has_no_run_id(tmp_path, monkeypatch, capsys):
                      "old.json": "run_id:     - (saved before the envelope)",
                      "new.json": f"run_id:     {run_id()}",
                      "bad.json": "run_id:     - (not a run id: see the schema errors)"}
+
+
+def _save_in_a_new_process(path, environ) -> str:
+    code = ("import json, sys; from dokimi.artifacts import save_artifact; "
+            "print(save_artifact('arms', json.load(sys.stdin), sys.argv[1])['run_id'])")
+    done = subprocess.run([sys.executable, "-c", code, str(path)], input=json.dumps(_fixture("arms")),
+                          capture_output=True, text=True, env=environ, check=True, timeout=120)
+    return done.stdout.strip()
+
+
+def test_each_process_has_its_own_run_id_and_dokimi_run_id_joins_them(tmp_path):
+    environ = {k: v for k, v in os.environ.items() if k != artifacts.RUN_ID_ENV}
+    own = {_save_in_a_new_process(tmp_path / f"{n}.json", environ) for n in "ab"}
+    joined = {_save_in_a_new_process(tmp_path / f"{n}.json", {**environ, artifacts.RUN_ID_ENV: "ci-42"})
+              for n in "cd"}
+    assert len(own) == 2 and run_id() not in own
+    assert joined == {"ci-42"}
+    assert json.loads((tmp_path / "d.json").read_text(encoding="utf-8"))["run_id"] == "ci-42"
