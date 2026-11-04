@@ -7,7 +7,7 @@ tests/test_eval_ragas.py mocks ragas out, and other test modules put stub
 ``langchain_*`` modules into ``sys.modules``, so the real import runs in a
 fresh interpreter. Every ragas release imports
 ``langchain_community.chat_models.vertexai``; langchain-community 0.4.2 removed
-it, and nothing else noticed that ``eval ragas`` could not start.
+it, and nothing else noticed that ``eval score ragas`` could not start.
 """
 
 from __future__ import annotations

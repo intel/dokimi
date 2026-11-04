@@ -46,7 +46,7 @@ def _eval_score(tmp_path, *flag):
     answers = tmp_path / "answers.json"
     answers.write_text(json.dumps(ANSWERS), encoding="utf-8")
     out = tmp_path / "eval.json"
-    _run(["eval", "score", "--product", "L", "--answers", str(answers), "--output", str(out),
+    _run(["eval", "score", "pointwise", "--product", "L", "--answers", str(answers), "--output", str(out),
           "--concurrency", "1", *JUDGE, *flag])
     return json.loads(out.read_text(encoding="utf-8"))
 

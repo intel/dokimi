@@ -14,6 +14,7 @@ import yaml
 
 from dokimi import config, defaults
 from dokimi.cli import build_parser
+from dokimi.llm import credential_env_var
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -58,16 +59,16 @@ def test_no_source_file_still_names_gpt_4o_mini():
     (["subjects", "run", "s.toml"], {"model": ANSWER, "judge": JUDGE}),
     (["evaluate", "--product", "p"], {"model": ANSWER, "judge": JUDGE}),
     (["benchmark", "run", "--target", "t"], {"model": ANSWER, "judge": JUDGE}),
-    (["eval", "score", "--answers", "a", "--product", "p"], {"judge": JUDGE}),
-    (["eval", "panel-score", "--answers", "a", "--product", "p"], {"model": JUDGE}),
-    (["eval", "ragas", "--answers", "a"], {"ragas": JUDGE}),
+    (["eval", "score", "pointwise", "--answers", "a", "--product", "p"], {"judge": JUDGE}),
+    (["eval", "score", "panel", "--answers", "a", "--product", "p"], {"model": JUDGE}),
+    (["eval", "score", "ragas", "--answers", "a"], {"ragas": JUDGE}),
     (["answers", "generate", "--product", "p", "--questions", "q"],
      {"model": ANSWER, "ragas": JUDGE}),
-    (["questions", "generate", "--product", "p", "--personas", "x"], {"model": GENERATOR}),
-    (["questions", "analyze", "--questions", "q", "--product", "p"], {"model": GENERATOR}),
-    (["questions", "refine", "--questions", "q", "--product", "p"], {"fill": GENERATOR}),
-    (["questions", "panel-review", "--questions", "q", "--product", "p"], {"model": GENERATOR}),
-    (["personas", "discover", "--product", "p"], {"model": GENERATOR}),
+    (["eval", "questions", "generate", "--product", "p", "--personas", "x"], {"model": GENERATOR}),
+    (["eval", "questions", "analyze", "--questions", "q", "--product", "p"], {"model": GENERATOR}),
+    (["eval", "questions", "refine", "--questions", "q", "--product", "p"], {"fill": GENERATOR}),
+    (["eval", "questions", "review", "--questions", "q", "--product", "p"], {"model": GENERATOR}),
+    (["eval", "personas", "discover", "--product", "p"], {"model": GENERATOR}),
     (["novelty", "analyze", "--artifact", "skill:x"], {"model": ANSWER}),
     (["novelty", "probe", "--artifact", "skill:x", "--atoms", "a"], {"model": ANSWER}),
     (["novelty", "atoms", "--artifact", "skill:x"], {"model": JUDGE}),
@@ -139,10 +140,12 @@ def test_ragas_falls_back_to_the_default_judge_for_an_unsupported_provider(monke
     monkeypatch.setitem(sys.modules, "langchain_anthropic", anthropic_mod)
     monkeypatch.setitem(sys.modules, "langchain_core.language_models", core_models)
 
+    monkeypatch.delenv(credential_env_var(JUDGE[1]), raising=False)
+
     evaluator = RagasEvaluator.__new__(RagasEvaluator)
     evaluator.llm_model, evaluator.provider, evaluator.api_key = "gemini-x", "google", None
     evaluator._build_ragas_llm()
-    assert built == [(JUDGE[1], {"model": JUDGE[0]})]
+    assert built == [(JUDGE[1], {"model": JUDGE[0], "api_key": None})]
 
 
 def test_independence_warning_sees_a_bedrock_alias_and_its_profile_as_one_model(capsys):

@@ -29,6 +29,8 @@ GOLDEN_CLAUDE_CODE_IDS = {
     ("none", "none"): "7d8aa618677b",
     ("read", "native"): "e9dbd28050f2",
     ("read", "none"): "e9dbd28050f2",
+    # The `skills` tool mode (repo skill-reach) is new; the six ids above did not move.
+    ("skills", "native"): "19531943895a",
 }
 
 # The sample batch (the fake profile and binary of the fixture): every cell's execution record, by cell name.

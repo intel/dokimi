@@ -398,12 +398,11 @@ class DockerSolverHarness:
             return self._solve_claude_in_container(task, container, output_dir, model, timeout,
                                                    operations, log, extra_metrics, sandbox)
         workdir = _require_agent_workdir(task, container, log, self._docker)
-        workspace, treatment = self._prepare_workspace(task, container, log, extra_metrics,
-                                                       output_dir=output_dir)
+        workspace, treatment = self._prepare_workspace(task, container, log, extra_metrics, output_dir=output_dir)
         extra_metrics["isolation"] = workspace.isolation()
         try:
             work = workspace.work
-            plugin = str(workspace.root / "plugin") if treatment else None
+            plugin = str(_host_plugin_dir(workspace)) if treatment else None
             cmd = ["claude", *self._claude_args(task, treatment, plugin, model, output_dir)]
             before = workspace.state()
             t0 = time.time()
@@ -419,8 +418,7 @@ class DockerSolverHarness:
             back = work / posixpath.relpath(workdir, _AGENT_TREE)
             self._docker(["cp", f"{back}/.", f"{container}:{workdir}/"], log)
         finally:
-            # Keep the agent's tree with the run (also after a timeout); the plugin is
-            # beside it, not in it.
+            # Keep the agent's tree with the run (also after a timeout); the plugin is beside it, not in it.
             _rmtree(output_dir / "work")
             try:
                 shutil.copytree(workspace.work, output_dir / "work", symlinks=True)
@@ -491,24 +489,21 @@ class DockerSolverHarness:
         note(self._docker(["exec", "-u", "root", container, "rm", "-rf", FILES_DIR], log, check=False))
         return stuck
 
-    def _prepare_workspace(self, task: TaskSpec, container: str, log,
-                           extra_metrics: Optional[dict[str, Any]] = None,
-                           output_dir: Optional[Path] = None,
-                           ) -> tuple[AgentWorkspace, Optional[Treatment]]:
+    def _prepare_workspace(self, task: TaskSpec, container: str, log, extra_metrics: Optional[dict[str, Any]] = None,
+                           output_dir: Optional[Path] = None) -> tuple[AgentWorkspace, Optional[Treatment]]:
         """Snapshot ``/app`` into a scratch work tree; install the arm's skill beside it.
 
         In probe mode the skill is not offered: it joins the paths the probe must not reach.
         """
         skill_dir = self._resolve_skill_dir()
         probing = self.mode == "probe" and skill_dir is not None
-        forbidden = default_forbidden(task.path, [skill_dir] if probing and skill_dir else [],
-                                      output_dir=output_dir)
+        forbidden = default_forbidden(task.path, [skill_dir] if probing and skill_dir else [], output_dir=output_dir)
         workspace = AgentWorkspace.create(forbidden=forbidden)
         try:
             self._docker(["cp", f"{container}:/app/.", str(workspace.work)], log)
             treatment = None
             if skill_dir is not None and not probing:
-                treatment = build_plugin(skill_dir, workspace.root / "plugin")
+                treatment = build_plugin(skill_dir, _host_plugin_dir(workspace))
                 if extra_metrics is not None:
                     self._record_treatment(treatment, skill_dir, extra_metrics, log)
         except BaseException:  # also Ctrl-C: don't leave the snapshot behind
@@ -891,6 +886,11 @@ def _docker(args: list[str], log, *, check: bool = True, timeout: Optional[float
 
 def _rmtree(path: Path) -> None:
     shutil.rmtree(path, ignore_errors=True)
+
+
+def _host_plugin_dir(workspace: AgentWorkspace) -> Path:
+    """The ``-host`` arm's plugin directory: under the workspace root, beside its work tree."""
+    return workspace.root / "plugin"
 
 
 def _tail(text: str, limit: int = 4000) -> str:

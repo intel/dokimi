@@ -1,0 +1,241 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""Guidance rendered in another format: the ``guidance:format=<fmt>`` arm (contract §3, step 5).
+
+``xml`` wraps a guidance file in a ``<guidance>`` element and turns each ATX heading into a
+``<section level=".." title="..">`` element, closed before the next heading of its level or
+above. No other line changes, and :func:`restore` undoes the wrapping exactly. :func:`to_format`
+refuses a file whose rendering does not restore to it (a body line that looks like one of the
+tags, a heading the restore could not rebuild), so the arm never measures altered content.
+Headings inside code fences and HTML comment blocks are body text. A leading YAML front matter block
+(``---`` to ``---``) stays verbatim above ``<guidance>``, where the harness that reads it still finds it.
+"""
+
+from __future__ import annotations
+
+import re
+
+#: The formats of ``guidance:format=<fmt>``. Markdown is ``guidance:raw``, not a format of its own.
+FORMATS = ("xml",)
+
+_ROOT, _ROOT_CLOSE, _CLOSE = "<guidance>", "</guidance>", "</section>"
+_HEADING = re.compile(r"^(#{1,6}) (\S[^\r]*)$")  # canonical only: one space, no CR; anything else is body text
+_FENCE = re.compile(r"^( *)(`{3,}|~{3,})(.*)$")  # the indentation, a run of ``` or ~~~, and what follows it
+_ITEM = re.compile(r" *(?:[-*+]|(\d{1,9})[.)])(?: {1,4}(?=\S)|(?=\s*$))")  # a list marker (its number if ordered), then 1-4 spaces and content, or nothing (an empty item)
+_RULE = re.compile(r" *([-*_])(?: *\1){2,} *$")  # a thematic break: no list item, though ``- - -`` looks like two
+_OPENER = re.compile(r" {0,3}(`{3,}|~{3,})(.*)$")  # up to three spaces, then a run that opens a fence
+_BLOCK = re.compile(r" *(?:#{1,6}(?: |$)|>|([-*_])( *\1){2,} *$)")  # a heading, quote or rule: a line that starts a block
+_QUOTE_MARK = re.compile(r" *> ?")  # one ``>`` of a block quote, and the space after it
+_OPEN = re.compile(r'^<section level="([1-6])" title="([^"]*)">$')
+_COMMENT = re.compile(r" {0,3}<!--")  # an HTML comment block starts a line (it can run on to a later line)
+_FRONT = "---"  # the delimiter of a YAML front matter block, which stays verbatim above the root element
+_ESCAPES = {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}
+_UNESCAPES = {v: k for k, v in _ESCAPES.items()}
+
+
+class FormatError(ValueError):
+    """A guidance file that cannot be rendered in the format, or a rendering that would not restore."""
+
+
+def to_format(text: str, fmt: str) -> str:
+    """``text`` (Markdown) rendered as ``fmt``; raises :class:`FormatError` unless :func:`restore` gives ``text``."""
+    if fmt not in FORMATS:
+        raise FormatError(f"unknown guidance format {fmt!r} (known: {', '.join(FORMATS)})")
+    rendered = _render_xml(text)
+    if restore(rendered) != text:
+        raise FormatError(f"the {fmt} rendering would not restore to the file (a line of it looks like a tag)")
+    return rendered
+
+
+def restore(rendered: str) -> str:
+    """The Markdown a rendering came from: the wrapper lines removed, each section tag back to its heading."""
+    lines = rendered.split("\n")
+    end = _front_matter_end(lines)
+    head, body = lines[:end + 1], lines[end + 1:]
+    if len(body) < 2 or body[0] != _ROOT or body[-1] != _ROOT_CLOSE:
+        raise FormatError("not a guidance rendering: the root element is missing")
+    out = []
+    for line in body[1:-1]:
+        if line == _CLOSE:
+            continue
+        match = _OPEN.match(line)
+        out.append(f"{'#' * int(match.group(1))} {_unescape(match.group(2))}" if match else line)
+    return "\n".join(head + out)
+
+
+def _marker_columns(line: str, para: bool = False) -> tuple[int, ...]:
+    """The content columns of the list markers that start a line, outermost first (``- - x`` gives two). A thematic
+    break starts none. After paragraph text (``para``) the outermost marker starts an item only if CommonMark lets it
+    interrupt a paragraph: a bullet with content, or an ordered marker numbered 1; otherwise the line is paragraph
+    text and no marker starts."""
+    expanded = line.expandtabs(4)  # a tab after a marker is spaces up to the next column, as in _opened
+    if _RULE.match(expanded):
+        return ()
+    columns: list[int] = []
+    while (item := _ITEM.match(expanded, columns[-1] if columns else 0)) is not None:
+        empty = not expanded[item.end():].strip()  # an empty item's content starts one column past its marker
+        if not columns and para and (empty or (item.group(1) is not None and int(item.group(1)) != 1)):
+            return ()
+        columns.append(item.end() + (1 if empty else 0))
+    return tuple(columns)
+
+
+def _markers(items: tuple[int, ...], line: str, para: bool) -> tuple[int, ...]:
+    """The list markers a line starts, given the items open before it. The interrupt rule of `_marker_columns` applies
+    only when the paragraph is inside the containers the line continues: an item the line is indented less than is
+    not continued, and a marker that follows its paragraph there starts a list."""
+    expanded = line.expandtabs(4)
+    indent = len(expanded) - len(expanded.lstrip(" "))
+    return _marker_columns(line, para and (not items or indent >= items[-1]))
+
+
+def _items_after(items: tuple[int, ...], line: str, para: bool = False) -> tuple[int, ...]:
+    """The list items open after a line read outside a fence, outermost first. A blank line keeps them. A non-blank line
+    ends the items whose content column it is indented less than, and a list marker it starts opens one item per
+    marker at its content column. A line that continues paragraph text (``para``) ends nothing, unless it starts a
+    block (a heading, quote or rule, a fence or an HTML comment) or a list item."""
+    if not line.strip():
+        return items
+    expanded = line.expandtabs(4)
+    indent = len(expanded) - len(expanded.lstrip(" "))
+    markers = _markers(items, line, para)
+    if (not markers and para and not _BLOCK.match(expanded) and not _OPENER.match(expanded)
+            and not _COMMENT.match(expanded)):
+        return items
+    return tuple(column for column in items if column <= indent) + markers
+
+
+def _opened(line: str, items: tuple[int, ...]) -> tuple[str, int] | None:
+    """The fence a line opens, as (its run, the column its content starts at), or None. The fence takes the content
+    column of the innermost item open at the line (``items``, from `_items_after`), so a fence on a list marker line
+    (``- ```, ``- - ```) and one on a continuation line both sit inside their item. The line is read expanded, a tab
+    counting to four columns. As in CommonMark, a backtick fence's info string has no backtick."""
+    column = items[-1] if items else 0
+    match = _OPENER.match(line.expandtabs(4), column)
+    if match is None or (match.group(1)[0] == "`" and "`" in match.group(2)):
+        return None
+    return match.group(1), column
+
+
+def _closes(fence: tuple[str, int], line: str) -> bool:
+    """Whether a line closes the fence: a run of its character, at least as long as the opening one, followed by
+    nothing but whitespace, indented at most three columns past the item's content column."""
+    run, column = fence
+    match = _FENCE.match(line.expandtabs(4))
+    return bool(match and match.group(2)[0] == run[0] and len(match.group(2)) >= len(run)
+                and not match.group(3).strip() and len(match.group(1)) <= column + 3)
+
+
+def _quoted_paragraph(text: str, para: bool) -> bool:
+    """Whether a block quote's content is paragraph text: after its ``>`` markers it is not a heading, rule, fence or
+    list item, nor indented code (four columns, unless a paragraph is already open: it continues). Such a quote is
+    paragraph text too, so a following line that continues it lazily stays in its item."""
+    inner, quoted = text, False
+    while (mark := _QUOTE_MARK.match(inner)) is not None:
+        inner, quoted = inner[mark.end():], True
+    if not para and len(inner) - len(inner.lstrip(" ")) >= 4:
+        return False
+    return (quoted and bool(inner.strip()) and not _BLOCK.match(inner) and not _OPENER.match(inner)
+            and _ITEM.match(inner) is None)
+
+
+def _advance(fence: tuple[str, int] | None, items: tuple[int, ...], line: str, para: bool = False,
+             empty: bool = False) -> tuple[tuple[str, int] | None, tuple[int, ...], bool, bool]:
+    """The fence open after a line, the list items open after it, whether the line is paragraph text (a block quote's
+    paragraph too, which a following less indented line may continue lazily), and whether it is an empty list item.
+    A line indented less than the column of the item that opened the fence ends the item, and the fence with it; the
+    line is then read as any other line. An indented code block is not paragraph text. A blank line ends an empty item
+    (CommonMark: an item begins with at most one blank line)."""
+    if fence is not None:
+        expanded = line.expandtabs(4)  # a tab is indentation up to the next multiple of four
+        if not (line.strip() and len(expanded) - len(expanded.lstrip(" ")) < fence[1]):
+            return (None if _closes(fence, line) else fence), items, False, False
+    if not line.strip():
+        return None, (items[:-1] if empty else items), False, False
+    markers = _markers(items, line, para)
+    items = _items_after(items, line, para)
+    opened = _opened(line, items)
+    expanded = line.expandtabs(4)
+    rest = expanded[markers[-1]:] if markers else expanded  # the line after its list markers, if any
+    text = rest.strip()
+    indent = len(expanded) - len(expanded.lstrip(" "))
+    code = not para and indent - (items[-1] if items else 0) >= 4  # four columns past the content column: code
+    block = _starts_block(rest, 0 if markers else (items[-1] if items else 0))
+    return (opened, items, opened is None and bool(text) and (not block or _quoted_paragraph(text, para and not markers))  # a new list item does not continue the paragraph
+            and not code,
+            bool(markers) and not text)
+
+
+def _starts_block(rest: str, base: int) -> bool:
+    """Whether a line's text starts a heading, quote or rule, which interrupts paragraph text. Its indent is counted past
+    ``base`` (the column its container starts at): four columns in is paragraph text, as in CommonMark."""
+    return len(rest) - len(rest.lstrip(" ")) - base < 4 and _BLOCK.match(rest) is not None
+
+
+def _comment_column(line: str, before: tuple[int, ...], para: bool, after: tuple[int, ...]) -> int | None:
+    """The column of the item an HTML comment block that starts on a line belongs to, or None if no block starts there.
+    A block starts after the list markers the line starts (``- <!-- c``, read against the items ``before`` the line),
+    or on a line indented up to three columns. Its item is the innermost one open after the line (``after``), so a
+    lazy line is in none and the block ends with the item."""
+    markers = _markers(before, line, para)
+    starts = line.expandtabs(4)[markers[-1]:].startswith("<!--") if markers else _COMMENT.match(line) is not None
+    if not starts or "-->" in line:
+        return None
+    return after[-1] if after else 0
+
+
+def _front_matter_end(lines: list[str]) -> int:
+    """The index of the line that closes a leading YAML front matter block (``---`` to ``---``), or -1 if none."""
+    if lines and lines[0].rstrip("\r") == _FRONT:  # a CRLF file's delimiter keeps its CR in the lines, not in the match
+        for index in range(1, len(lines)):
+            if lines[index].rstrip("\r") == _FRONT:
+                return index
+    return -1
+
+
+def _render_xml(text: str) -> str:
+    lines = text.split("\n")
+    end = _front_matter_end(lines)
+    out = lines[:end + 1] + [_ROOT]  # the front matter stays verbatim above the root, where its reader finds it
+    fence: tuple[str, int] | None = None
+    items: tuple[int, ...] = ()
+    para = empty = comment = False
+    comment_column = 0  # the content column of the item a comment block is in: a line indented less ends both
+    open_levels: list[int] = []
+    for line in lines[end + 1:]:
+        if comment:  # inside an HTML comment block: body text up to the line that closes it or leaves its item
+            expanded = line.expandtabs(4)
+            if line.strip() and len(expanded) - len(expanded.lstrip(" ")) < comment_column:
+                comment = False  # the item ends with the block, so the line is read as any other
+            else:
+                comment = "-->" not in line
+                out.append(line)
+                continue
+        before, before_para = items, para
+        fence, items, para, empty = _advance(fence, items, line, para, empty)
+        heading = _HEADING.match(line) if fence is None else None  # a line of a fence is body text
+        if heading is None:
+            out.append(line)
+            column = _comment_column(line, before, before_para, items) if fence is None else None
+            if column is not None:
+                comment, para, empty = True, False, False  # a comment block is not paragraph text
+                comment_column = column  # a lazy line is in no item
+            continue
+        level = len(heading.group(1))
+        while open_levels and open_levels[-1] >= level:
+            out.append(_CLOSE)
+            open_levels.pop()
+        out.append(f'<section level="{level}" title="{_escape(heading.group(2))}">')
+        open_levels.append(level)
+    out.extend([_CLOSE] * len(open_levels))
+    out.append(_ROOT_CLOSE)
+    return "\n".join(out)
+
+
+def _escape(title: str) -> str:
+    return re.sub(r'[&<>"]', lambda m: _ESCAPES[m.group()], title)
+
+
+def _unescape(title: str) -> str:
+    return re.sub(r"&(?:amp|lt|gt|quot);", lambda m: _UNESCAPES[m.group()], title)

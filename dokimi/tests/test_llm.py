@@ -20,7 +20,7 @@ from dokimi import caching, llm as llm_mod
 from dokimi.defaults import bedrock_profile
 from dokimi.llm import (
     LLM, PROVIDERS, FakeAdapter, LiteLLMAdapter, Reply, Request, ToolCall, Unparseable,
-    api_key_env, ask_parsed, chat_completion, is_retryable, llm_call, llm_call_with_usage,
+    credential_env_var, ask_parsed, chat_completion, is_retryable, llm_call, llm_call_with_usage,
     resolve_api_key, resolve_model, unsupported_sampling_params, use_adapter,
 )
 from dokimi.metrics.usage import UsageRecord
@@ -103,7 +103,7 @@ def test_a_known_bare_bedrock_name_runs_under_the_defaults_profile(monkeypatch, 
 def test_each_provider_reads_its_own_key(provider, env, monkeypatch, fake_llm, no_cache):
     for var in set(PROVIDERS.values()):
         monkeypatch.delenv(var, raising=False)
-    assert api_key_env(provider) == env
+    assert credential_env_var(provider) == env
     monkeypatch.setenv(env, "from-env")
     fake_llm.push("a", "b")
     LLM("m.x", provider).complete("p")

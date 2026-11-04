@@ -22,6 +22,7 @@ import pytest
 from tests.test_novelty_analyze import SKILL, _scripted
 
 from dokimi.cli import build_parser
+from dokimi.utils import InputError
 from dokimi.novelty import client as client_mod
 
 
@@ -186,11 +187,10 @@ def test_probing_atoms_from_a_changed_artifact_is_refused(tmp_path, skill, stub_
     _run("novelty", "atoms", "--artifact", f"skill:{skill}", "--include-resources",
          "--extract-model", "extractor-m", "--out", str(atoms_out))
     (skill / "references" / "new.md").write_text("Another reference.\n", encoding="utf-8")
-    with pytest.raises(SystemExit, match="files changed") as exc:
+    with pytest.raises(InputError, match="files changed"):
         _run("novelty", "probe", "--artifact", f"skill:{skill}", "--atoms", str(atoms_out),
              "--model", "model-a", "--judge-model", "judge-m",
              "--out", str(tmp_path / "p.json"))
-    assert exc.value.code == 2  # an atoms file this artifact cannot use: an input refusal
 
 
 @pytest.mark.parametrize("command", ["analyze", "probe"])
@@ -212,11 +212,10 @@ def test_a_judge_that_is_the_answering_model_is_refused_with_exit_2(command, tmp
     monkeypatch.setattr(client_mod, "LLMClient", recording_client)
     extra = ["--atoms", str(atoms_out), "--out", str(tmp_path / "p.json")] if command == "probe" else \
         ["--out-dir", str(tmp_path / "out")]
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(InputError) as exc:
         _run("novelty", command, "--artifact", f"skill:{skill}", "--model", "model-a",
              "--judge-model", "model-a", *extra)
-    assert exc.value.code == 2
-    assert "is the answering model" in capsys.readouterr().err
+    assert "is the answering model" in str(exc.value)
     assert prompts == [], "a model was called before the self-judge check refused"
 
 
@@ -320,3 +319,38 @@ def test_documented_estimate_flags_match_the_run_it_prices():
     """The walkthrough's estimate commands carry the flags of the run they price (doc reference)."""
     estimates = [c for c in _documented_novelty_commands() if "--estimate-only" in c]
     assert estimates and all("--include-resources" in c for c in estimates)
+
+
+@pytest.mark.parametrize("command", ["analyze", "probe"])
+def test_a_model_failure_exits_1_with_its_message_through_cli_main(command, tmp_path, skill, stub_models,
+                                                                   monkeypatch):
+    # A model failure is a runtime failure: SystemExit(message), which exits 1, not the bad-input 2.
+    import importlib
+    import sys
+
+    from dokimi import cli
+    from dokimi.novelty import measure as measure_mod
+    from dokimi.novelty.atoms import ExtractionError
+
+    common = ["--artifact", f"skill:{skill}", "--model", "model-a", "--judge-model", "judge-m"]
+    if command == "analyze":
+        def failing_analyze(*args, **kwargs):
+            raise ExtractionError("extractor unavailable")
+        # importlib: ``dokimi.novelty.analyze`` the attribute is the function, not the module
+        monkeypatch.setattr(importlib.import_module("dokimi.novelty.analyze"), "analyze", failing_analyze)
+        argv = ["novelty", "analyze", *common, "--out-dir", str(tmp_path / "out")]
+        message = "extractor unavailable"
+    else:
+        atoms_out = tmp_path / "atoms.json"
+        _run("novelty", "atoms", "--artifact", f"skill:{skill}", "--extract-model", "extractor-m",
+             "--out", str(atoms_out))
+
+        def failing_measurement(*args, **kwargs):
+            raise ValueError("answerer unavailable")
+        monkeypatch.setattr(measure_mod, "run_measurement", failing_measurement)
+        argv = ["novelty", "probe", *common, "--atoms", str(atoms_out), "--out", str(tmp_path / "p.json")]
+        message = "answerer unavailable"
+    monkeypatch.setattr(sys, "argv", ["dokimi", *argv])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == message

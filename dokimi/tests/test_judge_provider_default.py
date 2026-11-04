@@ -47,9 +47,9 @@ COMMANDS = _judge_commands()
 
 def test_the_commands_that_take_a_judge_provider_are_all_covered():
     assert set(COMMANDS) == {
-        "evaluate", "eval score", "eval judge-validity", "eval checklist", "eval judge-wording",
-        "eval pairwise", "benchmark run", "benchmark preflight", "benchmark batch", "arms run",
-        "arms matrix-run", "subjects run", "eval reference",
+        "evaluate", "eval score pointwise", "eval judge validate", "eval score checklist",
+        "eval judge wording", "eval score pairwise", "benchmark run", "benchmark preflight",
+        "benchmark batch", "arms run", "arms matrix-run", "subjects run", "eval score reference",
     }
 
 
@@ -66,7 +66,7 @@ def test_every_judge_command_defaults_the_model_to_its_provider(command):
     ("openai", DEFAULT_GENERATOR_MODEL),
 ])
 def test_a_provider_alone_takes_the_default_judge_that_runs_there(provider, model):
-    args = parse_args([*COMMANDS["eval score"], "--judge-provider", provider])
+    args = parse_args([*COMMANDS["eval score pointwise"], "--judge-provider", provider])
     assert (args.judge_provider, args.judge_model) == (provider, model)
     assert type(args.judge_model) is str
 
@@ -88,7 +88,7 @@ def test_an_explicit_judge_model_wins_in_either_order(order):
 
 def test_an_explicit_default_name_is_kept_on_another_provider():
     # Naming the default judge yourself is a choice, not a left-out flag.
-    args = parse_args([*COMMANDS["eval score"], "--judge-provider", "openai",
+    args = parse_args([*COMMANDS["eval score pointwise"], "--judge-provider", "openai",
                        "--judge-model", DEFAULT_JUDGE_MODEL])
     assert args.judge_model == DEFAULT_JUDGE_MODEL
 
@@ -120,5 +120,5 @@ def test_the_legacy_cli_shim_exports_the_resolving_parse_args():
     spec.loader.exec_module(shim)
     assert "parse_args" in shim.__all__
     assert shim.parse_args is parse_args
-    args = shim.parse_args([*COMMANDS["eval score"], "--judge-provider", "openai"])
+    args = shim.parse_args([*COMMANDS["eval score pointwise"], "--judge-provider", "openai"])
     assert args.judge_model == DEFAULT_GENERATOR_MODEL
