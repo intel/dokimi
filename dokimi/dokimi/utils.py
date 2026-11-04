@@ -137,12 +137,12 @@ class GitTree:
     """A work tree a digest reads through git: its top (a real path), the walk's base (top-relative, "" for the top), the
     untracked, ignored paths git leaves out (top-relative, a directory by its name as ``ls-files --directory`` gives it),
     and the blob ids of the tracked files git finds unchanged (their index entries). A tree is a snapshot: build one per
-    digest. ``indexed`` is left out of hash and equality: a mapping cannot hash."""
+    digest. ``indexed`` is left out of the hash only: a mapping cannot hash, and equality must see the snapshot."""
 
     top: Path
     base: str
     ignored: frozenset[str]
-    indexed: Mapping[str, str] = field(hash=False, compare=False)
+    indexed: Mapping[str, str] = field(hash=False)
 
     def top_rel(self, path: Path) -> str | None:
         """``path`` relative to the top, as POSIX, its own link (if it is one) not followed; None outside the tree."""
@@ -228,7 +228,7 @@ def _worktree_changed(status: bytes) -> set[str]:
     for entry in items:
         if len(entry) < 4:
             continue
-        if entry[:1] in (b"R", b"C"):
+        if b"R" in entry[:2] or b"C" in entry[:2]:
             next(items, None)
         if entry[1:2] != b" ":
             changed.add(os.fsdecode(entry[3:]))
