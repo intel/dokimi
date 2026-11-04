@@ -3,8 +3,8 @@
 
 """The entry point for LLM calls in the framework.
 
-``llm_call``, ``chat_completion``, the judge, generators and validator go through
-here. Not yet moved: the persona and validator redraw loops.
+``llm_call``, ``chat_completion``, the answerer, judge, generators and validator go
+through here.
 
 Interface
 ---------
