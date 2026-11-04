@@ -105,7 +105,7 @@ def ensure_rattler_build(tools: Path) -> None:
         "https://github.com/prefix-dev/rattler-build/releases/download/"
         f"{RATTLER_BUILD_VERSION}/{asset}"
     )
-    with urllib.request.urlopen(url, timeout=300) as reply:
+    with urllib.request.urlopen(url, timeout=300) as reply:  # nosec B310 - a fixed https URL
         binary = reply.read()
     if hashlib.sha256(binary).hexdigest() != sha256:
         raise BuildError(
