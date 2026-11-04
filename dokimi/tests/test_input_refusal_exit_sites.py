@@ -102,9 +102,10 @@ def _code_value(arg: ast.expr, consts: dict[str, int]) -> object:
 
 
 def literal_exit_2_lines(source: str) -> list[int]:
-    """The lines of an exit call whose code is 2: the literal, or a module constant that holds 2.
+    """The lines of an exit call whose code is 2: the literal, or a module-level name that holds 2.
 
-    Covers ``sys.exit``, ``os._exit``, ``exit``/``quit``, ``SystemExit`` (raised or not).
+    Covers ``sys.exit``, ``os._exit``, ``exit``/``quit``, ``SystemExit`` (raised or not). Not resolved:
+    attribute access (``exit_codes.EXIT_USAGE``) and names bound inside a function or an ``if``.
     """
     tree = ast.parse(source)
     consts = _module_int_constants(tree)
