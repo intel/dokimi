@@ -282,7 +282,7 @@ def is_empty_reply(text: Optional[str]) -> bool:
     """Whether a reply carries no answer: no content (``None``) or only whitespace.
 
     The one test every path shares (response cache, single-turn and session arms,
-    ``eval reference``, the judge). An empty reply is an error on the cell: it is
+    ``eval score reference``, the judge). An empty reply is an error on the cell: it is
     never scored, never counted as a 0, and never stored or replayed.
     """
     return text is None or not text.strip()

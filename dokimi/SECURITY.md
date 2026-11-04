@@ -61,7 +61,7 @@ otherwise refuse litellm's declared cap (`pip check` reports that one mismatch).
 litellm releases the change. Drop the override file and those `--no-deps` flags
 once a litellm release allows filelock 4.
 
-The locks do not contain ragas: it is the optional `[ragas]` extra (`eval ragas`,
+The locks do not contain ragas: it is the optional `[ragas]` extra (`eval score ragas`,
 `answers generate --ragas`), which installs ragas 0.3.9 and diskcache 5.6.3. Their
 advisories do not affect Dokimi:
 

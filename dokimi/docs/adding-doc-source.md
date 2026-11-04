@@ -70,7 +70,7 @@ python cli.py evaluate --product oneTBB \
   --doc-source okf:/path/to/onetbb-okf-bundle
 ```
 
-`--doc-source` is supported by `answers generate`, `questions generate`, and `evaluate`.
+`--doc-source` is supported by `answers generate`, `eval questions generate`, and `evaluate`.
 
 ---
 

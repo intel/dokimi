@@ -56,7 +56,7 @@ class _FakeGenerator:
 
 def test_personas_discover_next_step_parses(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(personas_cmd, "PersonaGenerator", _FakeGenerator)
-    args = cli.parse_args(["personas", "discover", "--product", "P", "--description", "d",
+    args = cli.parse_args(["eval", "personas", "discover", "--product", "P", "--description", "d",
                            "--output", str(tmp_path / "P.json")])
     args.func(args)
     _assert_hints_parse(capsys.readouterr().out)
@@ -66,7 +66,7 @@ def test_personas_approve_next_step_parses(tmp_path, capsys):
     persona_file = tmp_path / "P.json"
     persona_file.write_text(json.dumps({"product": "P", "personas": [
         {"id": "p1", "name": "n", "skill_level": "novice"}]}), encoding="utf-8")
-    args = cli.parse_args(["personas", "approve", "--file", str(persona_file)])
+    args = cli.parse_args(["eval", "personas", "validate", "--file", str(persona_file)])
     args.func(args)
     _assert_hints_parse(capsys.readouterr().out)
 

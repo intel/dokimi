@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from dokimi.commands.repo_skill_reach import add_skill_reach_parser
 from dokimi.exit_codes import EXIT_USAGE
 
 
@@ -634,12 +635,12 @@ def _cache_dir(args: argparse.Namespace) -> Path | None:
     return Path(args.cache_dir) if args.cache_dir else None
 
 
-def register(sub, positive_int) -> None:
-    """Add the `repo` subcommand group."""
+def register(sub, positive_int, eval_sub) -> None:
+    """Add the `repo` subcommand group. Its check moved to `eval check` (#94 M1)."""
     repo_p = sub.add_parser(
         "repo",
         help="Repositories as evaluation subjects: validate repo-eval.yaml, L0 scan, fetch sources, reach probe, budget, "
-        "task self-check, agent runs and their report",
+        "agent runs and their report",
     )
     repo_sub = repo_p.add_subparsers(dest="repo_cmd", required=True)
     source_help = (
@@ -768,6 +769,8 @@ def register(sub, positive_int) -> None:
     reach_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
     reach_p.set_defaults(func=_reach_entry)
 
+    add_skill_reach_parser(repo_sub, positive_int)
+
     budget_p = repo_sub.add_parser(
         "budget",
         help="What the repository puts into an agent's context when it starts at the root: guidance "
@@ -791,4 +794,4 @@ def register(sub, positive_int) -> None:
 
     from . import repo_run
 
-    repo_run.register(repo_sub, positive_int, source_help, cache_help)
+    repo_run.register(repo_sub, eval_sub, positive_int, source_help, cache_help)
