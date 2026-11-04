@@ -151,7 +151,7 @@ jobs:
           DOKIMI_REPO: ${{ inputs.dokimi-repository }}
         run: |
           # The lock is hashed, and pip cannot hash a git URL: install the lock, then dokimi without deps.
-          pip install --require-hashes -r "https://raw.githubusercontent.com/$DOKIMI_REPO/$SHA/dokimi/requirements.lock.txt"
+          pip install --no-deps --require-hashes -r "https://raw.githubusercontent.com/$DOKIMI_REPO/$SHA/dokimi/requirements.lock.txt"
           pip install --no-deps "dokimi @ git+https://github.com/$DOKIMI_REPO@$SHA#subdirectory=dokimi"
       - name: repo validate
         env:
@@ -303,7 +303,7 @@ jobs:
           DOKIMI_REPO: ${{ inputs.dokimi-repository }}
         run: |
           # The lock is hashed, and pip cannot hash a git URL: install the lock, then dokimi without deps.
-          pip install --require-hashes -r "https://raw.githubusercontent.com/$DOKIMI_REPO/$SHA/dokimi/requirements.lock.txt"
+          pip install --no-deps --require-hashes -r "https://raw.githubusercontent.com/$DOKIMI_REPO/$SHA/dokimi/requirements.lock.txt"
           pip install --no-deps "dokimi @ git+https://github.com/$DOKIMI_REPO@$SHA#subdirectory=dokimi"
       # Report only: a failing claim does not fail the job (an unreadable
       # manifest still does). The table lists the failing claims.
@@ -371,7 +371,7 @@ jobs:
           DOKIMI_REPO: ${{ inputs.dokimi-repository }}
         run: |
           # The lock is hashed, and pip cannot hash a git URL: install the lock, then dokimi without deps.
-          pip install --require-hashes -r "https://raw.githubusercontent.com/$DOKIMI_REPO/$SHA/dokimi/requirements.lock.txt"
+          pip install --no-deps --require-hashes -r "https://raw.githubusercontent.com/$DOKIMI_REPO/$SHA/dokimi/requirements.lock.txt"
           pip install --no-deps "dokimi @ git+https://github.com/$DOKIMI_REPO@$SHA#subdirectory=dokimi"
       # Builds the image from the manifest's Dockerfile (the tree without its
       # tasks), then grades the null and the oracle workspace in it.

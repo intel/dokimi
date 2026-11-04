@@ -211,7 +211,7 @@ def test_all_vs_all_with_model_names_its_model_calls_on_stderr(tmp_path, capsys,
     )
     args.func(args)
     assert (
-        "all-vs-all: --model makes 4 model calls, one per query, over 3 cards each"
+        "all-vs-all: --model makes 4 model calls, one per query and repeat, over 3 cards each"
         in capsys.readouterr().err
     )
 
@@ -470,6 +470,28 @@ def test_an_unreadable_queries_file_is_a_message_not_a_traceback(tmp_path, make)
         args.func(args)
 
 
+@pytest.mark.parametrize("left_out, says", [
+    ("spec_error", "--include-invalid keeps it"),
+    ("name_conflict", "every copy of a name that two different skills share"),
+])
+def test_queries_for_a_skill_the_field_left_out_are_refused_with_the_real_reason(
+        tmp_path, left_out, says):
+    root = tmp_path / "catalog"
+    _cat(root, {"cache": "cache slow lookups", "queue": "queue background jobs"})
+    if left_out == "spec_error":
+        _catalog_skill(root, "db", "x" * 1100)
+    else:
+        _catalog_skill(root, "db", "tune a slow database query")
+        _catalog_skill(root / "plugins" / "p", "db", "migrate a database schema")
+    queries = _write_queries(tmp_path, {"cache": ["q"], "queue": ["q"], "db": ["q"]})
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--include-disabled", "--queries-by-skill", str(queries),
+                  "--out", str(tmp_path / "o.json"))
+    with pytest.raises(SystemExit, match="not in the field: `db`") as exc:
+        args.func(args)
+    assert says in str(exc.value)
+
+
 def _cat(root, names_descriptions):
     for name, description in names_descriptions.items():
         _catalog_skill(root, name, description)
@@ -566,8 +588,10 @@ def test_all_vs_all_refuses_the_single_artifact_query_flags(tmp_path, flag):
         args.func(args)
 
 
-def test_all_vs_all_refuses_repeats_it_would_not_make(tmp_path, monkeypatch):
-    # all_vs_all makes one call per query, so --repeats 3 would be dropped without a word.
+def test_all_vs_all_takes_repeats_and_prints_the_noise_and_the_cost(tmp_path, capsys,
+                                                                    monkeypatch):
+    # Three repeats of one query: three calls, the same card order each time, so the
+    # selector agrees with itself and the noise block says so.
     import dokimi.commands.novelty as novelty_cmd
 
     calls = []
@@ -577,12 +601,43 @@ def test_all_vs_all_refuses_repeats_it_would_not_make(tmp_path, monkeypatch):
     root = tmp_path / "catalog"
     _cat(root, {"perf": "profile a slow binary", "db": "tune a slow database query"})
     queries = _write_queries(tmp_path, {"perf": ["profile my slow binary"]})
+    out = tmp_path / "o.json"
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(out), "--model", "m",
+                  "--repeats", "3")
+    args.func(args)
+    assert len(calls) == 3
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    noise = payload["result"]["model"]["noise"]
+    assert payload["result"]["model"]["repeats"] == 3
+    assert (noise["mean_agreement"], noise["unstable_queries"]) == (1.0, 0)
+    assert payload["cost"]["llm_calls"] == 3
+    stdout = capsys.readouterr().out
+    assert "noise    3 repeats per query" in stdout
+    assert "cost     3 calls" in stdout
+
+
+def test_all_vs_all_repeats_still_need_a_model(tmp_path):
+    root = tmp_path / "catalog"
+    _cat(root, {"perf": "profile a slow binary", "db": "tune a slow database query"})
+    queries = _write_queries(tmp_path, {"perf": ["profile my slow binary"]})
     args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
                   "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"),
-                  "--model", "m", "--repeats", "3")
-    with pytest.raises(SystemExit, match="takes no --repeats"):
+                  "--repeats", "3")
+    with pytest.raises(SystemExit, match="--repeats needs --model"):
         args.func(args)
-    assert calls == [] and not (tmp_path / "o.json").exists()
+    assert not (tmp_path / "o.json").exists()
+
+
+def test_all_vs_all_without_model_writes_no_cost_block(tmp_path):
+    root = tmp_path / "catalog"
+    _cat(root, {"perf": "profile a slow binary", "db": "tune a slow database query"})
+    queries = _write_queries(tmp_path, {"perf": ["profile my slow binary"]})
+    out = tmp_path / "o.json"
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(out))
+    args.func(args)
+    assert "cost" not in json.loads(out.read_text(encoding="utf-8"))
 
 
 def test_a_single_artifact_routing_run_records_the_field_rule_too(tmp_path):
@@ -596,7 +651,8 @@ def test_a_single_artifact_routing_run_records_the_field_rule_too(tmp_path):
                   "--out", str(out))
     args.func(args)
     field = json.loads(out.read_text(encoding="utf-8"))["field"]
-    assert field == {"include_disabled": True, "competitors": ["db"], "left_out": []}
+    assert field == {"include_disabled": True, "include_invalid": False,
+                     "competitors": ["db"], "left_out": []}
 
 
 def test_console_says_how_many_tied_and_unscored_queries_are_not_counted_as_picks(
@@ -814,3 +870,117 @@ def test_attractors_tied_on_count_and_golds_tied_in_from_are_in_name_order():
          "from": ["mu"]},
         {"skill": "zeta", "wrongly_picked": 2, "sibling_queries": 4, "rate": 0.5,
          "from": ["beta", "mu"]}]
+
+
+def _model_client_for_repeats(monkeypatch):
+    import dokimi.commands.novelty as novelty_cmd
+
+    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+        model=model, provider=provider, role=role,
+        transport=lambda prompt, system: (json.dumps({"pick": 1}), None)))
+
+
+def test_all_vs_all_refuses_estimate_only_before_it_calls_the_model(tmp_path, monkeypatch):
+    import dokimi.commands.novelty as novelty_cmd
+
+    monkeypatch.setattr(novelty_cmd, "_client",
+                        lambda *a, **k: pytest.fail("--estimate-only run made a model call"))
+    root = tmp_path / "catalog"
+    _cat(root, {"perf": "profile a slow binary", "db": "tune a slow database query"})
+    queries = _write_queries(tmp_path, {"perf": ["profile my slow binary"]})
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"),
+                  "--model", "m", "--estimate-only")
+    with pytest.raises(SystemExit, match="takes no --estimate-only"):
+        args.func(args)
+    assert not (tmp_path / "o.json").exists()
+
+
+def test_all_vs_all_announces_every_call_it_makes_with_repeats(tmp_path, capsys, monkeypatch):
+    _model_client_for_repeats(monkeypatch)
+    root = tmp_path / "catalog"
+    _cat(root, {"perf": "profile a slow binary", "db": "tune a slow database query"})
+    queries = _write_queries(tmp_path, {"perf": ["profile my slow binary"]})
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"),
+                  "--model", "m", "--repeats", "3")
+    args.func(args)
+    assert "--model makes 3 model calls, one per query and repeat" in capsys.readouterr().err
+
+
+def test_console_counts_unscored_model_calls_when_repeats_are_set(tmp_path, capsys, monkeypatch):
+    # One contentless query, three repeats: three calls not made, so the model line says calls.
+    _model_client_for_repeats(monkeypatch)
+    root = tmp_path / "catalog"
+    _cat(root, {"perf": "profile a slow binary", "db": "tune a slow database query"})
+    queries = _write_queries(tmp_path, {"perf": ["the a of"]})
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"),
+                  "--model", "m", "--repeats", "3")
+    args.func(args)
+    assert "model: 0 tied and 3 unscored calls are not counted as picks" in capsys.readouterr().out
+
+
+def test_a_partial_failure_still_prints_the_cost_of_the_calls_that_ran(tmp_path, capsys,
+                                                                      monkeypatch):
+    import dokimi.commands.novelty as novelty_cmd
+    from dokimi.metrics.usage import UsageRecord
+
+    replies = iter([('{"pick": 1}', UsageRecord(cost_usd=0.01))])
+
+    def transport(prompt: str, system: str | None = None):
+        try:
+            return next(replies)
+        except StopIteration:
+            raise RuntimeError("boom") from None
+
+    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+        model=model, provider=provider, role=role, transport=transport))
+    root = tmp_path / "catalog"
+    _catalog_skill(root, "perf", "profile a slow binary with perf record and report")
+    _catalog_skill(root, "db", "tune a slow database query with an index")
+    queries = _write_queries(tmp_path, {"perf": ["profile a slow program"],
+                                        "db": ["add an index"]})
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"),
+                  "--model", "m")
+    with pytest.raises(SystemExit, match="1 of 2 model call.s. failed"):
+        args.func(args)
+    out = capsys.readouterr().out
+    assert "OK Saved" not in out
+    assert any(line.startswith("cost") for line in out.splitlines()), out
+
+
+def test_a_clean_all_vs_all_run_still_prints_its_cost_after_the_summary(tmp_path, capsys,
+                                                                       monkeypatch):
+    import dokimi.commands.novelty as novelty_cmd
+    from dokimi.metrics.usage import UsageRecord
+
+    def transport(prompt: str, system: str | None = None):
+        return '{"pick": 1}', UsageRecord(cost_usd=0.01)
+
+    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+        model=model, provider=provider, role=role, transport=transport))
+    root = tmp_path / "catalog"
+    _catalog_skill(root, "perf", "profile a slow binary with perf record and report")
+    _catalog_skill(root, "db", "tune a slow database query with an index")
+    queries = _write_queries(tmp_path, {"perf": ["profile a slow program"],
+                                        "db": ["add an index"]})
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"),
+                  "--model", "m")
+    args.func(args)
+    lines = capsys.readouterr().out.splitlines()
+    saved = next(i for i, line in enumerate(lines) if line.startswith("OK Saved"))
+    cost = [i for i, line in enumerate(lines) if line.startswith("cost")]
+    assert cost and cost[-1] > saved
+
+
+def test_every_noise_row_names_the_gold_skill_it_belongs_to():
+    same = "profile a slow program"
+    queries = {"linux-perf": [same], "mkl-advisor": [same]}
+    result = all_vs_all(ALL_FIELD, queries, client=_positional_client(lambda p: 1),
+                        seed=0, repeats=2)
+    rows = result["model"]["noise"]["per_query"]
+    assert sorted(row["gold"] for row in rows) == ["linux-perf", "mkl-advisor"]
+    assert all(row["query"] == same for row in rows)
