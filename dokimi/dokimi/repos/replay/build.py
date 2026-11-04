@@ -120,6 +120,7 @@ def _make(h: History, manifest: RepoManifest, pr: PullRequest, opts: Options,
     if not gold:
         raise _Skip("no gold thread is left")
     task = _task(pr, base, rev, leave_out, opts, _public_at(threads, {g["id"] for g in gold}, notes))
+    task["patch_files"] = sorted(set(changed) - set(leave_out))  # the paths of h.patch's diff, a rename as both
     return task, gold, _mbox(pr, rev, h.patch(base, rev, leave_out))
 
 

@@ -420,10 +420,11 @@ git dir (a local checkout cloned with `--depth`) fails the cell's preparation
 path when its result differs there from every parent: a conflict resolution,
 an edit made in the merge, or a clean merge of its parents' edits to
 different parts of one file; a merge that takes the path as one parent has
-it does not, and the commits it merged count. A reader can compare `committed` with a replay task's
-`public_at` (§4.6) to see whether a guidance commit came after the task's
-answer was public; the author date alone cannot show it, as an amend or a
-rebase keeps it. For `patch:` an `arm_patch` object (the
+it does not, and the commits it merged count. `repo compare` (§9) reads
+`guidance_latest` against a replay task's `public_at` (§4.6) and flags the
+task when a guidance file that applies to it was committed after the task's
+answer was public, and reads the `guidance_commits` subjects for the task's
+PR; it reads `committed`, as an amend or a rebase keeps the author date. For `patch:` an `arm_patch` object (the
 file's absolute `path` and full `sha256`, `added`: the files the patch added
 that neither the guidance globs nor `.mcp.json` match, and `mcp_servers`: the servers
 the patch added to the `.mcp.json` at the root, read before the agent runs); for `guidance:format=` a
@@ -884,13 +885,19 @@ by a reviewer: it has no line and is never gold.
   (`--window`, default 5) and the prompt (`--prompt-file` replaces the default,
   which asks for the findings JSON of §4.5). For the reader it adds
   `source_pr`, `source_url`, `reviewed_commit`, `merge_commit`,
-  `left_out_files` and `public_at`: the earliest `createdAt` of a gold
+  `left_out_files`, `patch_files` and `public_at`. `patch_files` is the
+  sorted paths `change.patch` changes, from the same diff (a rename as both
+  its paths, since the diff follows none; the `left_out_files` not among
+  them). `public_at` is the earliest `createdAt` of a gold
   thread's first comment, as the threads file gives it, the time the task's
   answer was public. It is absent when any gold thread's `createdAt` is
   missing, not ISO 8601 or has no offset (`Z` is one), as the earliest time
-  is then unknown; the build's notes name those threads. Against the
-  `committed` dates a `guidance:rev:` arm records (§3), it shows whether a
-  guidance commit came after it.
+  is then unknown; the build's notes name those threads. `repo compare` (§9)
+  reads both from a cell's copy of `task.json`: it flags the task when a
+  guidance file that applies to a path of `patch_files` was committed, by the
+  `committed` date a `guidance:rev:` arm records (§3), after `public_at`. A
+  task built before `patch_files` was written is read as if every guidance
+  file applied to it.
 - `gold.json` holds `{id, file, line, kind, comment, addressed, reply, url}`
   per thread. `id` is `pr<number>-t<n>`, `n` being the thread's position among
   all the PR's threads, so ids stay the same when a thread is dropped. `kind`
@@ -2115,6 +2122,42 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   `@20250929`) or its provider-prefixed form is the same model, `-v2` against
   `-v3` is not. `repo compare` warns the same way when the two arms of a
   comparison were answered by different models.
+  A `guidance:rev:` arm may have seen a replay task: guidance written after
+  the task's review can encode it (issue #290). `repo compare` checks every compared
+  arm, baseline or treatment, whose cells' `meta.json` has `arm_rev` (or whose
+  name starts with `guidance:rev:`), over its tasks whose cell `task.json` has
+  `public_at` or `source_pr` (§4.6; a cell with no `task.json` is not read),
+  and `--task` narrows it as it does the comparison. A task is flagged **by
+  date** when a guidance file that applies to it has its `guidance_latest`
+  commit `committed` after the task's `public_at`, compared as times. A file
+  named `AGENTS.md`, `CLAUDE.md`, `CLAUDE.local.md` or `GEMINI.md` below the
+  root applies to a task whose `patch_files` has a path under its directory
+  (one in a `.claude/` directory counts for that directory's parent); any
+  other guidance path (`.claude/rules/*`, `.github/copilot-instructions.md`,
+  a skill) applies to every task, which errs on the strict side, and so does
+  every file to a task with no `patch_files` (its entry says `scoped: false`).
+  A task is flagged **by name** when a `guidance_commits` subject names its
+  PR: `#<source_pr>` not preceded by a word character or `/`,
+  `<owner>/<repo>#<source_pr>` of the task's own `source_url`, or that PR's
+  URL, none followed by a digit (`#31030` and `other/repo#3103` do not name
+  `#3103`); no other text is compared, and a task with no `source_pr` has no
+  PR to be named. With `guidance_commits_truncated` the
+  name check covered only the newest 200 commits, and the output says so. A
+  task is **unknown** when a flag cannot be read: no `public_at` (unknown by
+  date, still checked by name), a `patch:` arm (it has no history), an
+  `arm_rev` with no `guidance_latest` (a batch from before it was recorded),
+  or a `meta.json` or `task.json` of the wrong shape; the reason is given.
+  Cells of one task may differ (pooled batches): a flag any cell sets counts.
+  The `--json` summary's `leak` holds one entry per checked arm (`[]` when
+  none is): `arm`, `kind` (`guidance:rev` or `patch`), `revisions` (each
+  `rev` and `sha`), `checked`, `by_date` (task → the latest applicable
+  commit that tripped it: `path`, `sha`, `committed`, `public_at`,
+  `scoped`), `by_name` (task → the commit shas), `unknown` (task → reason),
+  `clean` (flagged by neither and not unknown) and `names_truncated`. The
+  text prints per checked arm a line of the counts, the tasks flagged by name
+  with their commits, and, when some tasks are flagged and some clean, the
+  clean ones as `--task` options, to compare without the flagged tasks. The
+  flags change no delta, interval, p or exit code.
 
 CI for a repository: `.github/workflows/repo-eval.yml` is a reusable workflow
 that runs the no-LLM checks on the caller's checkout and needs no secret.
