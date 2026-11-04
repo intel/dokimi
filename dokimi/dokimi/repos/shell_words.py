@@ -171,9 +171,10 @@ def _prefix(word: str, timed: bool) -> bool:
 
 
 def _command_words(words: list[str], timed: bool) -> tuple[list[str], bool, bool]:
-    """The words from the command's name on; whether ``env``, or /usr/bin/time, runs it as a child; and whether that
-    ``env`` changes directory (``-C`` / ``--chdir``). ``NAME=value`` words, redirections (``> log cd sub``),
-    ``builtin`` or ``command`` before a directory builtin (which runs it), a first ``time`` (``timed``: the keyword,
+    """The words from the command's name on; whether ``env``, /usr/bin/time or ``command`` runs it as no shell function
+    (as a child, but for ``command``'s builtins); and whether that ``env`` changes directory (``-C`` / ``--chdir``).
+    ``NAME=value`` words, redirections (``> log cd sub``), ``builtin`` or ``command`` before a directory builtin (which
+    runs it), ``command`` before another name (:func:`_runs_program`), a first ``time`` (``timed``: the keyword,
     which runs what it times here) with its ``-p``, assignments and redirections (``time X=1 cat a``; not before a
     directory builtin after an option, ``time -p cd``, which stays for :func:`_may_run_dir`), /usr/bin/time
     (``X=1 time cat a``, ``\\time cat a``; the word after it is the name, so an option or an assignment there names no
@@ -188,6 +189,8 @@ def _command_words(words: list[str], timed: bool) -> tuple[list[str], bool, bool
             words = words[at:]
         elif not timed and _program(words[0]) == "time":
             return words[1:], True, chdir  # a child runs the next word as a program (``X=1`` too): no builtin moves here
+        elif _runs_program(words):
+            words, via_env = words[1:], True
         elif _program(words[0]) == "env":
             words, via_env = words[1:], True
             while words and (words[0].startswith("-") or _ASSIGN.match(words[0])):
@@ -198,6 +201,14 @@ def _command_words(words: list[str], timed: bool) -> tuple[list[str], bool, bool
             break
         timed = False  # past the first word, ``time`` is a program
     return words, via_env, chdir
+
+
+def _runs_program(words: list[str]) -> bool:
+    """Whether ``words`` are ``command`` and a command's name (``command cat a``), which it runs as a builtin or a
+    program, never as the shell function of that name; not before an option (``command -v``), ``NAME=value``, a
+    redirection or another prefix, which stay as they are (a directory builtin after it: :func:`_prefix_runs_dir`)."""
+    return words[0] == "command" and len(words) > 1 and not (
+        words[1].startswith("-") or _ASSIGN.match(words[1]) or _REDIRECT.fullmatch(words[1]) or words[1] in _PREFIXES)
 
 
 def _past_time(words: list[str]) -> int:

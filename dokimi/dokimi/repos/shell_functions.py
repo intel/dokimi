@@ -1,8 +1,9 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""The shell functions a script defines, for :func:`~dokimi.repos.cli_traces.shell_walk`: a call of one whose body names
-a directory builtin may move the shell, as an ``eval`` may, so the walker loses the directory there."""
+"""The shell functions a script defines, for :func:`~dokimi.repos.cli_traces.shell_walk`: a call of one runs the function,
+not the command of its name (``cat() { echo hi; }; cat a`` reads nothing), and a call of one whose body names a
+directory builtin may move the shell, as an ``eval`` may, so the walker loses the directory there."""
 
 from __future__ import annotations
 
@@ -12,8 +13,10 @@ from .shell_words import _DIRS, _unquote, _unquoted
 
 Functions = dict[str, frozenset[str]]  # a function's name -> the words of its body
 
-_MASK = re.compile(r"\\.|'[^']*'|\"(?:\\.|[^\"\\])*\"", re.S)  # quoted text and escapes: no syntax, masked
-# ``f() {`` or ``function f {`` (``function f() {``), where a command may start; group 1 or 2 is the name
+# quoted text and escapes: no syntax, masked; a comment (a ``#`` starting a word, to the line's end) is blanked
+_MASK = re.compile(r"\\.|'[^']*'|\"(?:\\.|[^\"\\])*\"|(?<![^\s;&|()])#[^\n]*", re.S)
+# ``f() {`` or ``function f {`` (``function f() {``), where a command may start, the ``{`` on a later line too, past
+# blank lines and comments (``f()\n# c\n{``); group 1 or 2 is the name
 _DEF = re.compile(r"(?<![^\s;&|(){}])(?:function\s+([^\s(){};&|<>]+)(?:\s*\(\s*\))?|([^\s(){};&|<>=$`]+)\s*\(\s*\))"
                   r"\s*\{(?=\s|$)")
 _BRACE = re.compile(r"(?<![^\s;&|(){}])(?:\{(?=\s|$)|\}(?=[\s;&|)]|$))")  # a brace group's ``{`` or ``}`` as a word
@@ -25,7 +28,7 @@ def define(known: Functions, script: str) -> frozenset[str]:
     names in ``known`` whose call may move the shell: the body names a directory builtin, or a function that does
     (``g() { f; }``), as any word (``case x in a) cd sub;; esac`` too). A definition is found anywhere outside quotes,
     in a subshell or never run too, and a name defined again keeps what each definition named: both drop reads only."""
-    masked = _MASK.sub(lambda m: "q" * len(m.group()), script)
+    masked = _MASK.sub(lambda m: (" " if m.group()[0] == "#" else "q") * len(m.group()), script)
     for m in _DEF.finditer(masked):
         start, end = m.span(1) if m.group(1) else m.span(2)
         name = script[start:end]

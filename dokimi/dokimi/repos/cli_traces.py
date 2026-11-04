@@ -53,7 +53,8 @@ _STDOUT_AFTER_STDERR = re.compile(r"(?<![^\s;&|(])2>>?(?!&)[ \t]*[^\s;&|<>()]+.*
 _PIPE = re.compile(r"(?<!\|)\|(?!\|)")  # a pipe, not ||
 _GROUP_OPEN = re.compile(r"(?:^|[\s;&|(])\{(?=\s|$)")  # a brace group opens: ``{`` as a word
 _GROUP_CLOSE = re.compile(r"(?:^|\s)\}(?=\s|$|[;&|])")
-_FUNCTION_DEF = re.compile(r"\s*(?:function\s+[^\s(){}]+(?:\s*\(\s*\))?|[^\s(){}=$`]+\s*\(\s*\))\s*\{(?=\s|$)")
+_FUNCTION_HEAD = re.compile(r"\s*(?:function\s+[^\s(){}]+(?:\s*\(\s*\))?|[^\s(){}=$`]+\s*\(\s*\))\s*")  # ``f()``, ``function f``
+_FUNCTION_DEF = re.compile(_FUNCTION_HEAD.pattern + r"\{(?=\s|$)")
 _STDOUT_FILE = re.compile(r"&>>?|(?<![\w&>])1?>>?(?!&)|(?<![\w&>])1?>&(?!\d)")  # a group's stdout to a file: not the agent's
 # the values of long options that take a separate word (``head --lines 5``), by command
 _LONG_VALUE = {
@@ -88,7 +89,7 @@ def shell_reads(script: str, cwd: str = "") -> list[str]:
     ``pushd`` / ``popd``, an ``eval``, ``source`` or ``.`` (it may run a ``cd``; not ``source .venv/bin/activate``,
     a virtualenv's activate script alone, assumed to run none; none of these when backgrounded or piped, as it then ran
     in a subshell: ``source env.sh & false || cat a`` reads a), a call of a function the script defines whose body names
-    one of these (``f() { cd sub; }; f``), a part the walker does not
+    one of these or that has the name of one (``f() { cd sub; }; f``, ``cd() { ...; }; cd x``), a part the walker does not
     follow whose command word is one of these (``time -p cd sub``, ``X="a b" cd "$D"``: :func:`~.shell_words._may_run_dir`), a ``case``
     arm that names one (``case`` is not followed: its reads are not kept either; a ``case`` opens one only as a command
     word, not in ``echo case``), ``env -C`` / ``--chdir`` (the
@@ -96,12 +97,14 @@ def shell_reads(script: str, cwd: str = "") -> list[str]:
     ``cd`` after ``&&`` / ``||`` once the chain holding it ends with ``;``, ``&`` or a newline (it may have been
     skipped), or a glob or brace expansion (the files are not known). A subshell ``( ... )`` or `` `...` `` records
     no reads, and a ``cd`` in it moves nothing here; a ``$( )`` or backtick's own ``;`` does not end the part around it
-    (``cd $(x; y) | cat`` is piped). ``time cat a`` and ``X=1 time cat a`` read a. A brace group (``{ cd $(pwd); }``,
+    (``cd $(x; y) | cat`` is piped). ``time cat a``, ``X=1 time cat a`` and ``command cat a`` read a; a call of a
+    function the script defines is no read (``cat() { echo hi; }; cat a``, ``\\cat a`` too). A brace group (``{ cd $(pwd); }``,
     ``{ { cd x; }; }`` too) or an ``&&`` / ``||`` list that is backgrounded, or a piped
     group, runs in a subshell, so the directory is restored after it; the reads of a
     group whose output feeds a pipe after it is dropped, as a pipeline is not a read here; a group whose stdout is
     redirected to a file or /dev/null is dropped, as that output is not shown to the agent. ``--help`` and
-    ``--version`` print and open no file. A function definition is skipped whole. Absolute paths are kept.
+    ``--version`` print and open no file. A function definition is skipped whole, its ``{`` on a later line too
+    (``f()\\n{``). Absolute paths are kept.
     """
     return _walk_script(script, cwd)[0]
 
@@ -110,14 +113,15 @@ def shell_reads_moved(script: str, cwd: str = "") -> tuple[list[str], bool]:
     """:func:`shell_reads`, and whether the script may leave its shell in another directory: it ran a ``cd``,
     ``pushd``, ``popd``, ``eval``, ``source`` or ``.`` in that shell, not in a subshell (``( ... )``, a pipeline
     or a backgrounded command, list or group: ``cd sub &``, ``{ cd sub; } | cat``, ``cd sub && make &``,
-    ``cd "$X" &``, ``cd sub | cat``, ``{ cd $(pwd); } &``), or called a function whose body names one of these
-    (``f() { cd sub; }; f``; not ``f &`` or ``f | cat``)."""
+    ``cd "$X" &``, ``cd sub | cat``, ``{ cd $(pwd); } &``), or called a function whose body names one of these, or
+    that has the name of one (``f() { cd sub; }; f``, ``cd() { ...; }; cd x``; not ``f &`` or ``f | cat``)."""
     return shell_walk(script, cwd)[:2]
 
 
 def shell_walk(script: str, cwd: str = "", functions: Functions | None = None) -> tuple[list[str], bool, int]:
     """:func:`shell_reads_moved`, and how many relative files its printing commands named at a directory not known.
-    ``functions``: those an earlier script defined in the same shell; this script's definitions are added to it."""
+    ``functions``: those an earlier script defined in the same shell; this script's definitions are added to it, and a
+    call of any of them is no read."""
     reads, walk = _walk_script(script, cwd, functions)
     return reads, walk.shell_moved, walk.unknown
 
@@ -128,7 +132,8 @@ def _walk_script(script: str, cwd: str, functions: Functions | None = None) -> t
     # a line continuation is removed, not made a space (``cat AGENTS\<newline>.md`` reads AGENTS.md); a heredoc body
     # is input, not commands
     script = _HEREDOC.sub(lambda m: m.group(3), _CONTINUATION.sub("", script))
-    walk = _Walk(posixpath.normpath(cwd) if cwd else "", define({} if functions is None else functions, script))
+    known: Functions = {} if functions is None else functions
+    walk = _Walk(posixpath.normpath(cwd) if cwd else "", define(known, script), known)
     for part, after, in_subshell, outer in split_script(script):
         op, previous = previous, after
         chained = op in ("&&", "||")
@@ -158,10 +163,10 @@ class _Walk:
     """Where ``shell_reads`` is in the script: the directory (``None``: unknown), whether a ``cd`` was seen, whether
     the script's own shell may have moved, and the open brace groups."""
 
-    def __init__(self, here: str | None, movers: frozenset[str] = frozenset()) -> None:
+    def __init__(self, here: str | None, movers: frozenset[str] = frozenset(), functions: Functions | None = None) -> None:
         self.here = here
-        self.movers = movers  # the functions whose call may move the shell (``shell_functions.define``)
-        self.dirs = _DIRS | movers
+        self.functions = {} if functions is None else functions  # the shell functions the script, or an earlier one, defined
+        self.dirs = _DIRS | movers  # and those whose call may move the shell (``shell_functions.define``)
         self.moved = False  # a cd was seen in this shell: after ||, the directory is not known
         self.shell_moved = False  # a directory builtin ran in the script's shell, not in a subshell
         self.gated = False  # a cd after && or || was seen in this chain: it may not have run for the next chain
@@ -171,6 +176,7 @@ class _Walk:
         self.list_start: _Spot = (here, False, False)  # the spot where the && / || list began
         self.listed = False  # that list has more than one command
         self.function = 0  # the brace depth inside a function definition
+        self.head = False  # the last part was a function's name alone (``f()``): its body's ``{`` comes next
         self.case = 0  # the depth inside ``case ... esac``
         self.operands: int | None = None  # how many files the last printing command named
         self.unknown = 0  # the relative files printing commands named at a directory not known
@@ -195,9 +201,12 @@ class _Walk:
     def in_function(self, bare: str) -> bool:
         """Whether ``bare`` is part of a function definition (``f() { cd x; cat a; }``): its body is skipped, as
         defining it runs nothing (a later call of it loses the directory when its body names a directory builtin:
-        :func:`~dokimi.repos.shell_functions.define`)."""
-        if not self.function and not _FUNCTION_DEF.match(bare):
-            return False
+        :func:`~dokimi.repos.shell_functions.define`). The ``{`` may come on a later line (``f()\\n{``): blank lines and
+        comments are no parts, so the part after a name alone opens the body."""
+        head, self.head = self.head, False
+        if not self.function and not _FUNCTION_DEF.match(bare) and not (head and _GROUP_OPEN.match(bare)):
+            self.head = bool(_FUNCTION_HEAD.fullmatch(bare))
+            return self.head
         self.function = max(self.function + len(_GROUP_OPEN.findall(bare)) - len(_GROUP_CLOSE.findall(bare)), 0)
         return True
 
@@ -280,7 +289,10 @@ class _Walk:
         name = _run_name(words[0], via_env)
         if name is None:
             return []
-        if (name in self.movers and not via_env) or _loses(name, words, conditional, timed):
+        if words[0] in self.functions and not via_env:  # ``cat() { ...; }; \cat a`` runs the function: no read
+            if words[0] in self.dirs:  # a ``cd() { ...; }``, or a body naming one: definitions are found script-wide
+                self.lose(after != "&")
+        elif _loses(name, words, conditional, timed):
             self.lose(after != "&")
         elif name == "cd":
             self.gated |= chained

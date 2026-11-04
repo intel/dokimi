@@ -515,6 +515,67 @@ def test_a_function_an_earlier_call_defined_with_no_cd_keeps_the_later_read():
     assert _reads(events) == ["AGENTS.md"]
 
 
+_LATER_BRACE = ["f()\n{\n  cd sub\n}\n", "function f\n{\n  cd sub\n}\n", "f()\n\n# it's the body\n{\n  cd sub\n}\n",
+                "f() # c\n{ cd sub; }\n", "function f()\n{\n  pushd sub\n}\n"]
+
+
+@pytest.mark.parametrize("definition", _LATER_BRACE)
+def test_a_function_whose_brace_is_on_a_later_line_is_only_defined(definition):
+    # bash only defines f: its cd does not run, so the cat is at the start directory
+    assert shell_walk(definition + "cat AGENTS.md") == (["AGENTS.md"], False, 0)
+
+
+@pytest.mark.parametrize("definition", _LATER_BRACE)
+def test_a_call_of_a_function_whose_brace_is_on_a_later_line_loses_the_directory(definition):
+    assert shell_walk(definition + "f\ncat AGENTS.md") == ([], True, 1)
+
+
+@pytest.mark.parametrize("command", [
+    "cat() { echo hi; }; cat AGENTS.md", r"cat() { echo hi; }; \cat AGENTS.md", 'cat() { echo hi; }; "cat" AGENTS.md',
+    "function head { echo hi; }; head AGENTS.md", "cat()\n{\n  echo hi\n}\ncat AGENTS.md",
+    "cat() { echo hi; }; X=1 cat AGENTS.md", "cat() { echo hi; }; time cat AGENTS.md",
+    "cat() { echo hi; }; { cat AGENTS.md; }", "cat AGENTS.md; cat() { echo hi; }",
+])
+def test_a_call_of_a_function_named_like_a_printer_is_no_read(command):
+    # bash looks a function up after quote removal (``\cat`` too): it prints hi, not the file
+    assert shell_walk(command) == ([], False, 0)
+
+
+@pytest.mark.parametrize("command", [
+    "cat() { echo hi; }; command cat AGENTS.md", "cat() { echo hi; }; env cat AGENTS.md",
+    "cat() { echo hi; }; /bin/cat AGENTS.md", "command cat AGENTS.md", "time command cat AGENTS.md",
+])
+def test_command_env_or_a_path_runs_the_printer_not_the_function(command):
+    assert shell_walk(command) == (["AGENTS.md"], False, 0)
+
+
+@pytest.mark.parametrize("command", ["command -v cat AGENTS.md", "command -p cat AGENTS.md",
+                                     "command X=1 cat AGENTS.md", "command builtin cat AGENTS.md"])
+def test_command_before_an_option_an_assignment_or_a_prefix_reads_nothing(command):
+    assert shell_walk(command) == ([], False, 0)
+
+
+@pytest.mark.parametrize("command", ["command builtin cd sub; cat AGENTS.md", "command > log builtin cd sub; cat AGENTS.md"])
+def test_command_before_another_prefix_still_runs_the_directory_builtin(command):
+    # ``command`` is not taken as running a program there: the builtin's cd may move this shell
+    assert shell_walk(command) == ([], True, 1)
+
+
+@pytest.mark.parametrize("command", [
+    "cat() { cd sub; }; cat x; head AGENTS.md", "cd() { echo hi; }; cd sub; cat AGENTS.md",
+    'cd() { builtin cd "$@"; }; cd sub; cat AGENTS.md', r"cd() { echo hi; }; \cd sub; cat AGENTS.md",
+])
+def test_a_function_named_like_a_directory_builtin_or_naming_one_loses_the_directory(command):
+    # the function, not the builtin, runs; a definition later in the script counts too, so its cd may not be the one
+    assert shell_walk(command) == ([], True, 1)
+
+
+def test_a_function_an_earlier_call_defined_shadows_a_printer_in_a_later_call():
+    events = _events(_call("a", "cat() { echo hi; }"), _result("a"), _call("b", "cat AGENTS.md"), _result("b"),
+                     _call("c", "command cat README.md"), _result("c"))
+    assert _reads(events) == ["README.md"]
+
+
 @pytest.mark.parametrize("command", [
     "case $x in a) echo case;; esac; cat AGENTS.md", "case $x in a|case) echo;; esac; cat AGENTS.md",
     'case $x in a) echo "case";; esac; cat AGENTS.md', r"case $x in a) echo \case;; esac; cat AGENTS.md",
