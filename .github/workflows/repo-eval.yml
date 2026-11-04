@@ -14,9 +14,8 @@ name: repo-eval
 # Nothing here calls a model or reads a secret. The caller pins dokimi twice,
 # by the same commit SHA (or tag): in `uses: ...@<sha>` and in `dokimi-ref`. The
 # ref installs dokimi and, through its requirements.lock.txt, every dependency,
-# so a rerun checks with the same framework. A branch name is refused. The ref
-# must also contain `actions/setup`: a ref from before that action fails at
-# "Set up dokimi". The calling job grants `contents: read`, all any job here asks for.
+# so a rerun checks with the same framework. A branch name is refused. The
+# calling job grants `contents: read`, all any job here asks for.
 #
 # Task selection (`tasks`): `changed` on a pull request is the tasks whose
 # directories it touches, plus `smoke-tasks` when it changes anything else the
