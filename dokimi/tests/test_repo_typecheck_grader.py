@@ -586,6 +586,13 @@ def test_image_provides_finds_an_installed_module_and_not_a_workspace_name():
     assert typecheck._image_provides("mypy.version") is False  # a dotted name is not looked up
 
 
+def test_image_provides_is_false_for_a_module_found_outside_site_packages(tmp_path, monkeypatch):
+    # find_spec finds it on sys.path, but not under purelib or platlib: not the image's package
+    (tmp_path / "outside_mod.py").write_text("", encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    assert typecheck._image_provides("outside_mod") is False
+
+
 def _install(tmp_path: Path, monkeypatch, direct_url: dict | None) -> None:
     """A site-packages holding an installed ``minipkg`` with ``direct_url`` (None: from an index, no such file)."""
     site = tmp_path / "site"
