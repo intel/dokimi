@@ -291,3 +291,81 @@ def test_a_change_inside_an_untracked_repository_under_a_nested_repository_moves
     before = _hashes(root)
     (root / rel / "vendor" / "inner" / "x.py").write_text("x = 2\n")
     assert _hashes(root) != before
+
+
+@pytest.mark.parametrize("rel", ["skills/a/tools", "skills/a/evals/tools"])
+def test_a_nested_repository_inside_a_nested_repository_follows_its_own_ignore_rules(tmp_path, rel):
+    # the outer nested repository ignores *.tmp (_nested); the innermost one ignores only *.log, so *.tmp is kept there
+    root = _repo(tmp_path / "r", FILES)
+    _nested(root, rel, {"run.py": "print(1)\n"})
+    inner = root / rel / "vendor" / "inner"
+    _nested(root, f"{rel}/vendor/inner", {".gitignore": "*.log\n", "x.py": "x = 1\n"})
+    before = _hashes(root)
+    (inner / "y.log").write_text("x\n")  # ignored by the innermost repository
+    assert _hashes(root) == before
+    (inner / "z.tmp").write_text("x\n")  # kept: the outer repository's *.tmp rule does not reach inside
+    assert _hashes(root) != before
+    (inner / "z.tmp").unlink()
+    before = _hashes(root)
+    (inner / "x.py").write_text("x = 2\n")  # tracked by the innermost repository
+    assert _hashes(root) != before
+
+
+def test_a_submodule_inside_a_nested_repository_is_hashed_by_its_checked_out_files(tmp_path):
+    # pinned: the files checked out in the submodule count, not the gitlink commit the skill's index records for it
+    rel = "skills/a/tools"
+    lib = tmp_path / "lib"
+    lib.mkdir()
+    _git(lib, "init", "-q")
+    (lib / "lib.py").write_text("x = 1\n")
+    _git(lib, "add", "-A")
+    _git(lib, "commit", "-q", "-m", "lib")
+    root = _repo(tmp_path / "r", FILES)
+    _nested(root, rel, {"run.py": "print(1)\n"})
+    tools = root / rel
+    _git(tools, "-c", "protocol.file.allow=always", "submodule", "add", str(lib), "sub")
+    _git(tools, "commit", "-q", "-m", "submodule")
+    before = _hashes(root)
+    (tools / "sub" / "lib.py").write_text("x = 2\n")  # a file checked out in the submodule
+    assert _hashes(root) != before
+    (tools / "sub" / "lib.py").write_text("x = 1\n")
+    assert _hashes(root) == before
+    # a new commit in the submodule moves its HEAD, not the gitlink the skill's index records: the hash must not move
+    _git(tools / "sub", "commit", "-q", "--allow-empty", "-m", "same tree")
+    assert _hashes(root) == before
+
+
+def _owned_by_another_user(monkeypatch, repo: Path) -> None:
+    """Git refuses the repository at ``repo`` as owned by another user (safe.directory), through git's own test knob, on
+    every git call whose arguments name ``repo`` (or a path under it): the call sites see git's refusal, as for a real owner."""
+    from dokimi import process, utils
+
+    base = utils._git_env()
+    named = re.compile(re.escape(str(repo)) + r"(?![\w.-])")
+    real_run = process.run
+
+    def run(argv, **kwargs):
+        if any(named.search(arg) for arg in argv):
+            kwargs["env"] = process.Env.only(allow=base.allow,
+                                             set={**base.set, "GIT_TEST_ASSUME_DIFFERENT_OWNER": "1", "LC_ALL": "C"})
+        return real_run(argv, **kwargs)
+
+    monkeypatch.setattr(process, "run", run)
+
+
+@pytest.mark.parametrize("rel", ["skills/a/tools", "skills/a/evals/tools"])
+def test_a_nested_repository_owned_by_another_user_is_an_error_not_a_silent_fallback(tmp_path, monkeypatch, rel):
+    root = _repo(tmp_path / "r", FILES)
+    _nested(root, rel, {"run.py": "print(1)\n"})
+    _owned_by_another_user(monkeypatch, root / rel)
+    with pytest.raises(ConfigError, match=rf"cannot read .*{re.escape(rel)}") as err:
+        _hashes(root)
+    assert "dubious ownership" in str(err.value)
+
+
+def test_a_work_tree_owned_by_another_user_is_an_error_not_a_silent_fallback(tmp_path, monkeypatch):
+    root = _repo(tmp_path / "r", FILES)
+    _owned_by_another_user(monkeypatch, root)
+    with pytest.raises(ConfigError, match=rf"cannot read .*{re.escape(str(root))}") as err:
+        _hashes(root)
+    assert "dubious ownership" in str(err.value)
