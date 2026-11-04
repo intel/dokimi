@@ -670,3 +670,12 @@ def test_a_typecheck_task_without_reference_whose_workspace_already_silences_myp
     grade = {"status": "graded", "success": False, "score": None, "score_only": False, "pass": False}
     problems = selfcheck._verdict_problems(Task("t", _task(tool="mypy"), bare), "null", grade, run)
     assert any("silences mypy" in p for p in problems)
+
+
+def test_an_installed_module_without_types_is_not_an_error_but_a_missing_one_is(tmp_path):
+    pytest.importorskip("pygments")  # installed with pytest, and it ships no py.typed
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": "import pygments\n\nprint(pygments.__version__)\n"},
+               _task())
+    assert typecheck.grade(_task(), tmp_path, "", run)["pass"] is True
+    (run / "workspace" / "pkg" / "api.py").write_text("import nosuchmodule_dokimi\n", encoding="utf-8")
+    assert typecheck.grade(_task(), tmp_path, "", run)["pass"] is False

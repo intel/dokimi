@@ -240,6 +240,7 @@ def grade(task: dict[str, Any], task_dir: Path, answer: str, run_dir: Path | Non
             stdout, stderr, status = api.run(["--no-incremental", "--no-color-output", f"--cache-dir={cache}",
                                               f"--config-file={config}", "--explicit-package-bases",
                                               "--check-untyped-defs",  # as L0: stripped annotations hide nothing
+                                              "--disable-error-code=import-untyped",  # no py.typed: Any, not an error
                                               "--show-absolute-path",  # cwd-independent names, matched to the listed ones
                                               *[str(workspace / p) for p in present]])
         finally:

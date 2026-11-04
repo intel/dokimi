@@ -43,9 +43,12 @@ _FRAGMENT = re.compile(r'^(?:Name "[^"]+"|"[^"]+") is not defined(?: \[reportUnd
                        r'|^"return" can be used only within a function(?: \[\w+\])?$'
                        r'|^"(?:break|continue)" can be used only within a loop(?: \[\w+\])?$'
                        r'|^"(?:yield|yield from)" not allowed outside of a function or lambda(?: \[\w+\])?$')
-# A module the repository environment does not have: the fence's own import fails, so nothing it says about that
-# module can be checked (in mypy's or basedpyright's wording). A missing module is not a stale call.
+# A module the repository environment does not have, or has without types (no py.typed): mypy reads it as Any,
+# so nothing a fence says about it can be checked (mypy's or basedpyright's wording). Neither is a stale call.
 _MISSING_MODULE = re.compile(r'^Cannot find implementation or library stub for module named "[^"]+"$'
+                             r'|^Library stubs not installed for "[^"]+"$'
+                             r'|^Skipping analyzing "[^"]+": module is installed, but missing library stubs'
+                             r' or py\.typed marker$'
                              r'|^Import "[^"]+" could not be resolved(?: \[\w+\])?$')
 
 
@@ -158,9 +161,9 @@ def _unchecked_reason(errors: list[tuple[int, str]]) -> str:
     """Why the fence is not checked, for the claim: the fence is a fragment, or a module is missing (or both)."""
     missing = [m for _, m in errors if _MISSING_MODULE.match(m)]
     if len(missing) == len(errors):
-        return "a module the repository environment lacks"
+        return "a module the repository environment lacks or has without types"
     if missing:
-        return "a fragment of a longer example, or a module the repository environment lacks"
+        return "a fragment of a longer example, or a module the repository environment lacks or has without types"
     return "a fragment of a longer example"
 
 

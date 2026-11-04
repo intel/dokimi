@@ -775,6 +775,23 @@ def test_a_module_the_repository_environment_lacks_is_unresolved_not_stale(tmp_p
     assert "not type-checked" in claims[0]["why"] and "lacks" in claims[0]["why"]
 
 
+
+def test_an_installed_module_without_types_is_unresolved_not_stale(tmp_path):
+    pytest.importorskip("pygments")  # installed with pytest, and it ships no py.typed
+    fence = f"{FENCE}python\nimport pygments\nprint(pygments.__version__)\n{FENCE}\n"
+    [claim] = _fence_claims(scan_repo(_tree(tmp_path, fence), parse_manifest(MANIFEST),
+                                      typecheck=Check("mypy", sys.executable)))
+    assert claim["status"] == "unresolved" and "without types" in claim["why"]
+
+
+@pytest.mark.parametrize("message", ['Library stubs not installed for "yaml"',
+                                     'Skipping analyzing "yaml": module is installed, but missing library stubs '
+                                     'or py.typed marker'])
+def test_mypy_wordings_of_an_untyped_module_are_not_stale(message):
+    from dokimi.repos.l0 import typecheck as l0_typecheck
+
+    assert l0_typecheck._is_unchecked([(1, message)])
+
 def test_a_missing_module_with_a_real_error_fails_on_the_real_error(tmp_path):
     fence = f"{FENCE}python\nimport nosuchmodule_dokimi\nx: int = 'a'\n{FENCE}\n"
     [claim] = _fence_claims(scan_repo(_tree(tmp_path, fence), parse_manifest(MANIFEST),
