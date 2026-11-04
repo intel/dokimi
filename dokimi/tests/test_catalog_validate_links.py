@@ -298,3 +298,27 @@ def test_a_symlink_out_of_the_checkout_does_not_tell_which_host_files_exist(tmp_
     [review] = review_skills(read_skill_manifest(root))
     assert _codes(review) == codes
     assert len({f.message.replace("present", "absent") for f in review.findings}) <= 1
+
+
+def test_same_named_skills_with_other_descriptions_are_near_duplicates_not_drift(tmp_path):
+    _skill(tmp_path / "plugins/a/skills", "review", name="review",
+           description="Use when reviewing Python pull requests for style issues.")
+    _skill(tmp_path / "plugins/b/skills", "review", name="review",
+           description="Use when reviewing Python pull requests for security issues.")
+
+    reviews = review_skills(read_skill_manifest(tmp_path))
+    assert len(reviews) == 2
+    assert all("description-near-duplicate" in _codes(r) for r in reviews)
+    assert all("mirror-drift" not in _codes(r) for r in reviews)
+
+
+def test_a_link_that_reaches_a_file_only_from_above_the_catalog_root_gets_no_root_note(tmp_path):
+    (tmp_path / "skills" / "probe").mkdir(parents=True)
+    (tmp_path / "skills" / "probe" / "x.md").write_text("# Above\n", encoding="utf-8")
+    root = tmp_path / "a" / "catalog"
+    _skill(root / "skills", "probe", name="probe", description="Use when probing.",
+           body="See [a](../../skills/probe/x.md).\n")
+
+    [review] = review_skills(read_skill_manifest(root))
+    assert _codes(review) == ["link-missing"]
+    assert "catalog root" not in review.findings[0].message
