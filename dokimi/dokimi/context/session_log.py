@@ -9,7 +9,8 @@ in a ``user`` record this reader skips. Records Claude Code injects itself (``is
 CLAUDE.md echoed into the context) are not prompts, nor is the summary Claude Code writes after a
 compaction (``isCompactSummary``). A subagent's brief (a ``user`` record with
 ``isSidechain``) is the parent agent's words, not the user's, so it is not a prompt either; the
-subagent's own tool calls still count as the agent acting.
+subagent's own tool calls still count as the agent acting. Claude Code writes a subagent's records to
+``<session>/subagents/*.jsonl`` next to ``<session>.jsonl``; ``read_session_tree`` folds them into that session.
 
 Tool inputs are kept as text for matching, except the bodies of an edit or a write, which would
 echo file content into the match, and a ``prompt`` input (the brief a Task call sends a subagent),
@@ -20,7 +21,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +52,7 @@ class Event:
     text: str  # a prompt's text, or a tool call's string inputs (no file bodies)
     command: str = ""  # a Bash call's command line
     paths: tuple[str, ...] = ()  # file paths a tool call named
+    timestamp: str = field(default="", compare=False)  # the record's ISO time, when it has one
 
 
 @dataclass
@@ -60,6 +62,7 @@ class Session:
     name: str
     events: list[Event] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    sidechain_only: bool = False  # every prompt and tool record is a subagent's: a transcript without its session
 
 
 def read_session(path: Path) -> Session:
@@ -73,8 +76,31 @@ def read_session(path: Path) -> Session:
     return session
 
 
+def subagent_files(path: Path) -> list[Path]:
+    """The subagent transcripts Claude Code wrote for the session log ``path``."""
+    return sorted((path.parent / path.stem / "subagents").glob("*.jsonl")) if path.suffix == ".jsonl" else []
+
+
+def read_session_tree(path: Path) -> Session:
+    """A session log with its subagents' transcripts folded in, in time order: their tool calls are the agent acting."""
+    session = read_session(path)
+    for sub in subagent_files(path):
+        try:
+            session.events.extend(read_session(sub).events)
+        except SessionError as exc:
+            add_error(session, str(exc))
+    session.events[:] = in_time_order(session.events)
+    return session
+
+
+def in_time_order(events: list[Event]) -> list[Event]:
+    """The events sorted by time when every one has a timestamp, else in the order given."""
+    return sorted(events, key=lambda e: e.timestamp) if all(e.timestamp for e in events) else events
+
+
 def parse_session(raw: str, name: str = "") -> Session:
     session = Session(name=name)
+    turns = sidechain = 0
     for n, line in enumerate(raw.split("\n"), 1):  # not splitlines(): it breaks at a raw U+2028
         if not line.strip():
             continue
@@ -90,7 +116,12 @@ def parse_session(raw: str, name: str = "") -> Session:
         if problem:
             add_error(session, f"line {n}: {problem}")
             continue
-        session.events.extend(_events_of(rec))
+        if rec.get("type") in ("user", "assistant"):
+            turns += 1
+            sidechain += bool(rec.get("isSidechain"))
+        stamp = rec.get("timestamp")
+        session.events.extend(replace(e, timestamp=stamp) if isinstance(stamp, str) else e for e in _events_of(rec))
+    session.sidechain_only = turns > 0 and sidechain == turns
     return session
 
 

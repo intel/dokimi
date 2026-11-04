@@ -175,12 +175,41 @@ def cmd_context_prefilter(args: argparse.Namespace) -> None:
 def _read_sessions(names: list[str]) -> tuple[list, bool]:
     """Every readable session of ``names``: JSONL logs or Goose stores; a quoted glob expands.
 
-    A file is read once however often it is named (a repeat, a glob that overlaps, a symlink to it).
+    A file is read once however often it is named (a repeat, a glob that overlaps, a symlink to it). A Claude Code
+    session is read with its subagents' transcripts; such a transcript named on its own is skipped with a warning.
     """
     from dokimi.context.goose_log import is_goose_store, read_goose_store
-    from dokimi.context.session_log import SessionError, read_session
+    from dokimi.context.session_log import SessionError, read_session_tree, subagent_files
 
-    loaded, failed, seen = [], False, set()
+    paths = _session_paths(names)
+    folded = {os.path.realpath(sub) for path in paths for sub in subagent_files(Path(path))}
+    loaded, failed = [], False
+    for path in paths:
+        if os.path.realpath(path) in folded:  # read with its session
+            continue
+        unreadable: list = []  # Goose sessions of unreadable messages only: not counted, still reported
+        try:
+            source = Path(path)
+            sessions = (read_goose_store(source, unreadable) if is_goose_store(source)
+                        else [read_session_tree(source)])
+        except SessionError as exc:  # report it, and still read the sessions that do
+            print(f"✗ {exc}", file=sys.stderr)
+            failed = True
+            sessions = []
+        for session in [*sessions, *unreadable]:
+            for problem in session.errors:
+                print(f"warning: {session.name}: {problem}", file=sys.stderr)
+        for session in sessions:
+            if session.sidechain_only:
+                print(f"warning: {path}: a subagent transcript without its session log; skipped", file=sys.stderr)
+            else:
+                loaded.append(session)
+    return loaded, failed
+
+
+def _session_paths(names: list[str]) -> list[str]:
+    """The files ``names`` stand for, each once: ``~`` expanded, a literal file kept, a glob expanded."""
+    paths, seen = [], set()
     for name in names:
         expanded = os.path.expanduser(name)  # a literal file is checked after ~ is expanded, before any glob
         matches = [expanded] if os.path.exists(expanded) else sorted(glob.glob(expanded, recursive=True))
@@ -190,20 +219,8 @@ def _read_sessions(names: list[str]) -> tuple[list, bool]:
                 print(f"warning: {path} given twice; counted once", file=sys.stderr)
                 continue
             seen.add(real)
-            unreadable: list = []  # Goose sessions of unreadable messages only: not counted, still reported
-            try:
-                source = Path(path)
-                sessions = (read_goose_store(source, unreadable) if is_goose_store(source)
-                            else [read_session(source)])
-            except SessionError as exc:  # report it, and still read the sessions that do
-                print(f"✗ {exc}", file=sys.stderr)
-                failed = True
-                sessions = []
-            for session in [*sessions, *unreadable]:
-                for problem in session.errors:
-                    print(f"warning: {session.name}: {problem}", file=sys.stderr)
-            loaded.extend(sessions)
-    return loaded, failed
+            paths.append(path)
+    return paths
 
 
 def _non_negative_int(value: str) -> int:
