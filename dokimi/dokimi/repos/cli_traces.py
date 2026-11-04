@@ -30,7 +30,7 @@ from .shell_functions import Functions, define
 from .shell_split import split_script
 from .shell_words import (_DIRS, _KEYWORDS, _case_closes, _case_opens, _cd, _command_words, _is_activate, _is_cd, _loses,
                           _run_name, _runs_dir, _time_keyword, _unquoted)
-from .transcript import Transcript, _parse_time, clip_output, relative_path
+from .transcript import Transcript, _from_cwd, _parse_time, clip_output, relative_path
 
 _BASH_WRAP = re.compile(r"^(?:/\S*/)?(?:ba|z)?sh -lc (.+)$", re.S)
 _PRINTERS = {"cat", "head", "tail", "nl", "sed"}
@@ -744,10 +744,11 @@ def _copilot_tool(data: dict[str, Any], t: float | None, workdir: str | None, cw
         path = str(obj.get("path") or obj.get("file_path") or "")
         if not path:  # a call without a path names no file
             return []
-        return [{"t": t, "kind": "read" if name in _COPILOT_READ else "edit", "path": relative_path(path, workdir)}]
+        kind = "read" if name in _COPILOT_READ else "edit"
+        return [{"t": t, "kind": kind, "path": relative_path(_from_cwd(path, cwd), workdir)}]
     if name == "apply_patch":
         text = args if isinstance(args, str) else str((args or {}).get("input", ""))
-        return [{"t": t, "kind": "edit", "path": relative_path(p.strip(), workdir),
+        return [{"t": t, "kind": "edit", "path": relative_path(_from_cwd(p.strip(), cwd), workdir),
                  **({"deleted": True} if verb == "Delete" else {})}
                 for verb, p in _PATCH_FILE.findall(text)]
     return [{"t": t, "kind": "tool", "name": name}]

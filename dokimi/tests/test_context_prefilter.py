@@ -349,7 +349,8 @@ def test_a_quoted_argument_of_the_named_command_is_an_action():
     assert _row(_report([session], rule), "Run")["acted"] == 1
 
 
-@pytest.mark.parametrize("command", ["echo 'changelog.d/x.md'", "ls # changelog.d/x.md", "echo changelog.d/x.md"])
+@pytest.mark.parametrize("command", ["echo 'changelog.d/x.md'", "ls # changelog.d/x.md", "echo changelog.d/x.md",
+                                     "sudo echo changelog.d/x.md"])  # the printing program is read after the wrappers
 def test_a_path_printed_or_commented_by_a_shell_command_is_not_acted_on(command):
     rule = "- Keep `changelog.d/` current.\n"
     session = _session(_prompt("keep the changelog current"), _tool("Bash", command=command))
@@ -447,6 +448,14 @@ def test_a_bare_file_name_claim_is_acted_on_when_an_edit_touches_that_file(name)
     rule = f"- Edit `{name}` carefully.\n"
     session = _session(_prompt("edit the file carefully"), _tool("Edit", file_path=f"/repo/{name}"))
     assert _row(_report([session], rule), "Edit")["acted"] == 1
+
+
+@pytest.mark.parametrize(("path", "acted"), [("/repo/Makefile.bak", 0), ("/repo/GNUMakefile", 0),
+                                             ("C:\\r\\Makefile", 1)])
+def test_a_bare_file_name_claim_counts_an_edit_of_that_name_only_on_any_separator(path, acted):
+    rule = "- Edit `Makefile` carefully.\n"
+    session = _session(_prompt("edit the file carefully"), _tool("Edit", file_path=path))
+    assert _row(_report([session], rule), "Edit")["acted"] == acted
 
 
 @pytest.mark.parametrize("command", ['git commit -m "update docs/guide.md"', "gh pr create --body 'see docs/guide.md'",
