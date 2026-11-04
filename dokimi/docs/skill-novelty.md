@@ -651,8 +651,10 @@ copy and suggests `--catalog <dir>` for one of them, or `--keep-copies-under <di
 keeps only the copies under `<dir>`, a directory relative to `--catalog`, and only for a name whose copies differ
 and that have one content under `<dir>`; the others of that name are named on stderr and left out, and the rest of
 the field is unchanged (unlike `--catalog <dir>`, which leaves out every skill outside that directory). An absolute
-path, a path that leaves `--catalog` (`../`), a file, or an empty value is refused with exit 2. A copy at the catalog
-root cannot be picked by `--catalog`: dedupe or rename it.
+path, a path that leaves `--catalog` (`../`), a file, or an empty value is refused with exit 2. A skill directory
+directly beneath the catalog (`review/SKILL.md`) is kept by its own name, `--keep-copies-under review`, since
+`--catalog` has no directory to point at for it. A `SKILL.md` in the catalog root itself cannot be picked by
+`--catalog` or `--keep-copies-under`: dedupe or rename it.
 A `skill:` competitor that is not a `SKILL.md`, or a directory without one, is skipped with a
 warning. A shell glob must be expanded first, with the prefix on each path
 (`skill:dir/a/SKILL.md skill:dir/b/SKILL.md`): an unexpanded `skill:dir/*` is refused as a missing

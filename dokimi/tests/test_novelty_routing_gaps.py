@@ -143,7 +143,10 @@ def test_the_catalog_subdir_the_error_names_routes_the_field(tmp_path, capsys):
 
 def test_the_hint_for_a_copy_at_the_catalog_root_names_the_root_not_a_dot_path(tmp_path, capsys):
     root = tmp_path / "catalog"
-    _skill(root, ".", "review", "review a change, copied at the root")
+    root.mkdir(parents=True)
+    (root / "SKILL.md").write_text(
+        "---\nname: review\ndescription: review a change, copied at the root\n---\n\n# B\n",
+        encoding="utf-8")
     _skill(root, "skills", "review", "review a change, under skills")
     _skill(root, "skills", "cache", "cache slow lookups")
     args = _parse("novelty", "routing", "--catalog", str(root),
@@ -342,6 +345,57 @@ def test_all_vs_all_estimate_drops_left_out_queries_like_the_run(tmp_path, capsy
                   "--queries-by-skill", str(queries), "--estimate-only")
     args.func(args)
     assert json.loads(capsys.readouterr().out)["n_queries"] == 1
+
+
+def test_a_skill_directory_directly_under_the_catalog_is_kept_by_its_own_name(tmp_path):
+    root = tmp_path / "catalog"
+    _skill(root, ".", "review", "review a change, copied beside the skills")
+    _skill(root, "skills", "review", "review a change, under skills")
+    _skill(root, "skills", "cache", "cache slow lookups")
+    args = _parse("novelty", "routing", "--catalog", str(root),
+                  "--artifact", f"skill:{root}/skills/cache", "--queries-from-headings")
+    with pytest.raises(InputError) as exc:
+        args.func(args)
+    message = str(exc.value)
+    # review/SKILL.md is a skill directory beneath the catalog: its own name keeps it, and no
+    # --catalog picks it. It is not a copy at the catalog root, so no dedupe advice.
+    assert "--keep-copies-under review" in message
+    assert "the catalog root" not in message and "dedupe" not in message
+    assert f"--catalog {root}/." not in message
+
+
+def test_the_suggested_keep_for_a_skill_directory_beneath_the_catalog_routes_the_field(tmp_path):
+    root = tmp_path / "catalog"
+    _skill(root, ".", "review", "review a change, copied beside the skills")
+    _skill(root, "skills", "review", "review a change, under skills")
+    _skill(root, "skills", "cache", "cache slow lookups")
+    out = tmp_path / "routing.json"
+    args = _parse("novelty", "routing", "--catalog", str(root), "--keep-copies-under", "review",
+                  "--artifact", f"skill:{root}/skills/cache", "--queries-from-headings",
+                  "--out", str(out))
+    args.func(args)
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["field"]["competitors"] == ["review"]
+
+
+def test_all_vs_all_estimate_refuses_a_competitor_named_twice_as_the_run_does(tmp_path, capsys,
+                                                                             monkeypatch):
+    _no_client(monkeypatch)
+    root = tmp_path / "catalog"
+    _skill(root, "skills", "cache", "cache slow lookups")
+    _skill(root, "skills", "queue", "queue background jobs")
+    queries = _queries(tmp_path, {"cache": ["cache my lookups"]})
+    cache = f"skill:{root}/skills/cache"
+    base = ["novelty", "routing", "--all-vs-all", "--competitors", cache, cache,
+            "--queries-by-skill", str(queries)]
+    # The estimate prices a run only when the run can start: both refuse the same field.
+    estimate = _parse(*base, "--estimate-only")
+    with pytest.raises(InputError, match="more than once"):
+        estimate.func(estimate)
+    assert capsys.readouterr().out == ""
+    run = _parse(*base, "--out", str(tmp_path / "o.json"))
+    with pytest.raises(InputError, match="more than once"):
+        run.func(run)
 
 
 # Gap 4: every missing required flag of --all-vs-all is named in one error.

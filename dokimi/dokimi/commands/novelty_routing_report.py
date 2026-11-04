@@ -103,28 +103,49 @@ _LEFT_OUT = {
 def conflict_hint(catalog: str, conflicts: dict[str, list[str]]) -> str:
     """Where the copies of the conflicting names sit, and the ways out of the conflict.
 
-    A directory under the catalog is a ``--catalog`` to point at, and a ``--keep-copies-under``
-    to keep. The catalog root is neither: its copies only route once they are deduped or renamed.
+    A skill directory under another directory of the catalog (``skills/review``) is a
+    ``--catalog`` to point at, and a ``--keep-copies-under`` to keep. A skill directory directly
+    beneath the catalog (``review``) is only a ``--keep-copies-under``: its name is the directory
+    to keep. A ``SKILL.md`` in the catalog root is neither: its copy routes only once it is
+    deduped or renamed.
     """
-    dirs = sorted({_copy_dir(path, catalog) for paths in conflicts.values() for path in paths})
-    where = " and ".join("at the catalog root" if d == "." else f"under {d}" for d in dirs)
-    sub = [d for d in dirs if d != "."]
-    if not sub:
+    places = {_copy_place(path, catalog) for paths in conflicts.values() for path in paths}
+    holders = sorted({d for kind, d in places if kind == "holder"})
+    skills = sorted({d for kind, d in places if kind == "skill"})
+    at_root = any(kind == "root" for kind, _ in places)
+    if not holders and not skills:
         return ("The copies sit at the catalog root, so no --catalog or --keep-copies-under picks "
                 "one of them: dedupe or rename them.")
-    picks = " or ".join(f"--catalog {os.path.join(catalog, d)}" for d in sub)
-    keeps = " or ".join(f"--keep-copies-under {d}" for d in sub)
-    text = (f"The copies sit {where}: point --catalog at one of those directories ({picks}), "
-            f"or keep only one directory's copies with {keeps}.")
-    if "." in dirs:
+    keeps = " or ".join(f"--keep-copies-under {d}" for d in holders + skills)
+    where = [f"under {d}" for d in holders] + [f"in the skill directory {d}" for d in skills]
+    if at_root:
+        where.append("at the catalog root")
+    if holders:
+        picks = " or ".join(f"--catalog {os.path.join(catalog, d)}" for d in holders)
+        text = (f"The copies sit {' and '.join(where)}: point --catalog at one of those "
+                f"directories ({picks}), or keep only one directory's copies with {keeps}.")
+    else:
+        text = f"The copies sit {' and '.join(where)}: keep only one with {keeps}."
+    if at_root:
         text += " The copy at the catalog root routes only once it is deduped or renamed."
     return text
 
 
-def _copy_dir(path: str, catalog: str) -> str:
-    """The directory under the catalog that holds a skill directory, e.g. ``skills``."""
+def _copy_place(path: str, catalog: str) -> tuple[str, str]:
+    """Where a copy of a skill sits under the catalog, as ``(kind, directory)``.
+
+    ``root``: a ``SKILL.md`` directly in the catalog (the directory is ``.``, which no flag picks).
+    ``skill``: a skill directory directly beneath the catalog, e.g. ``review/SKILL.md``; the
+    directory is the skill's own, and ``--keep-copies-under`` keeps it. ``holder``: a skill
+    directory under another directory, e.g. ``skills/review/SKILL.md``; the directory holds it,
+    and both ``--catalog`` and ``--keep-copies-under`` take it.
+    """
     rel = Path(os.path.relpath(os.path.abspath(path), os.path.abspath(catalog)))
-    return rel.parent.parent.as_posix()
+    if len(rel.parts) <= 1:
+        return "root", "."
+    if len(rel.parts) == 2:
+        return "skill", rel.parent.as_posix()
+    return "holder", rel.parent.parent.as_posix()
 
 
 def no_competitors_conflict(args: argparse.Namespace, conflicts: dict[str, list[str]]) -> str:
@@ -157,7 +178,14 @@ def check_all_vs_all_args(args: argparse.Namespace) -> None:
 
 def check_all_vs_all_field(args: argparse.Namespace, field: list, dropped: dict[str, set[str]],
                            conflicts: dict[str, list[str]]) -> None:
-    """Refuse a field of fewer than two skills, naming each skill the field left out and why."""
+    """Refuse a field of fewer than two skills, naming each skill the field left out and why.
+
+    A field that names a skill twice is refused too, before the estimate prices it, as the
+    measured run refuses it (:func:`check_field_names`).
+    """
+    from dokimi.novelty.all_vs_all import check_field_names
+
+    check_field_names([c.name for c in field])
     if len(field) >= 2:
         return
     left = _left_out_list(_left_out_only(dropped, field))
