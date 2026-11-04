@@ -10,6 +10,8 @@ import subprocess
 import time
 from pathlib import Path
 
+import pytest
+
 from dokimi.repo_config import load_repo_config
 from dokimi.utils import git_tree, tree_digest
 
@@ -183,3 +185,39 @@ def test_a_rename_in_the_work_tree_column_hashes_the_work_tree(tmp_path):
     _git(root, "commit", "-q", "-m", "rename")
     assert dirty == _hashes(root)
 
+
+
+def _nested(root: Path, rel: str, files: dict[str, str]) -> None:
+    """A repository of its own at ``root/rel``: its own ``.gitignore`` (``*.tmp``, ``build/``) and committed ``files``."""
+    repo = root / rel
+    repo.mkdir(parents=True)
+    _git(repo, "init", "-q")
+    for name, text in {".gitignore": "*.tmp\nbuild/\n", **files}.items():
+        (repo / name).parent.mkdir(parents=True, exist_ok=True)
+        (repo / name).write_text(text)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "init")
+
+
+@pytest.mark.parametrize("rel", ["skills/a/tools", "skills/a/evals/tools"])
+def test_an_ignored_file_inside_a_nested_repository_moves_no_hash(tmp_path, rel):
+    # the nested repository's own ignore rules apply inside it: skill_sha (outside evals) and suite_hash (inside) both
+    root = _repo(tmp_path / "r", FILES)
+    _nested(root, rel, {"run.py": "print(1)\n"})
+    before = _hashes(root)
+    (root / rel / "scratch.tmp").write_text("x\n")
+    (root / rel / "build").mkdir()
+    (root / rel / "build" / "out.o").write_text("x\n")
+    assert _hashes(root) == before
+
+
+@pytest.mark.parametrize("rel", ["skills/a/tools", "skills/a/evals/tools"])
+def test_a_tracked_or_untracked_change_inside_a_nested_repository_moves_a_hash(tmp_path, rel):
+    root = _repo(tmp_path / "r", FILES)
+    _nested(root, rel, {"run.py": "print(1)\n"})
+    before = _hashes(root)
+    (root / rel / "run.py").write_text("print(2)\n")  # tracked by the nested repository
+    assert _hashes(root) != before
+    before = _hashes(root)
+    (root / rel / "notes.md").write_text("not ignored by the nested repository\n")  # untracked, kept
+    assert _hashes(root) != before

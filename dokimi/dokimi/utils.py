@@ -136,12 +136,14 @@ class GitTree:
     """A work tree a digest reads through git: its top (a real path), the walk's base (top-relative, "" for the top), the
     untracked, ignored paths git leaves out (top-relative, a directory by its name as ``ls-files --directory`` gives it),
     and the blob ids of the tracked files git finds unchanged (their index entries). A tree is a snapshot: build one per
-    digest. ``indexed`` is left out of the hash only: a mapping cannot hash, and equality must see the snapshot."""
+    digest. ``indexed`` is left out of the hash only: a mapping cannot hash, and equality must see the snapshot.
+    ``nested`` caches what each nested repository (top-relative) stores or does not ignore, read on first use."""
 
     top: Path
     base: str
     ignored: frozenset[str]
     indexed: Mapping[str, str] = field(hash=False)
+    nested: dict[str, "_Allowed | None"] = field(default_factory=dict, hash=False, compare=False, repr=False)
 
     def top_rel(self, path: Path) -> str | None:
         """``path`` relative to the top, as POSIX, its own link (if it is one) not followed; None outside the tree."""
@@ -153,13 +155,83 @@ class GitTree:
 
     def skipped(self, path: Path) -> bool:
         """True for what git leaves out: an ignored path below the base, or anything under a ``.git`` (a nested repository's
-        own). An ignored directory above the base is not this walk's to apply."""
+        own). Inside a nested repository, what that repository's own ignore rules leave out. An ignored directory above the
+        base is not this walk's to apply."""
         rel = self.top_rel(path)
         if rel is None:
             return False
         parts = rel.split("/")
         first = len(self.base.split("/")) + 1 if self.base else 1
-        return ".git" in parts or any("/".join(parts[:i]) in self.ignored for i in range(first, len(parts) + 1))
+        if ".git" in parts or any("/".join(parts[:i]) in self.ignored for i in range(first, len(parts) + 1)):
+            return True
+        return self._nested_skipped(path, rel, parts)
+
+    def _nested_skipped(self, path: Path, rel: str, parts: list[str]) -> bool:
+        """True when the innermost nested repository holding ``path`` leaves it out (it is ignored there). False outside
+        any nested repository, and where git cannot say what that repository stores."""
+        repo = self._innermost_repo(parts)
+        if repo is None:
+            return False
+        if repo not in self.nested:
+            self.nested[repo] = _nested_allowed(self.top / repo, repo)
+        allowed = self.nested[repo]
+        if allowed is None:
+            return False
+        if path.is_dir() and not path.is_symlink():  # a directory is kept when something under it is kept
+            return rel not in allowed.dirs and rel not in allowed.files
+        return rel not in allowed.files
+
+    def _innermost_repo(self, parts: list[str]) -> str | None:
+        """The deepest directory above the path (below the top) that holds a ``.git``: a nested repository, or None."""
+        found = None
+        for i in range(1, len(parts)):
+            anc = "/".join(parts[:i])
+            if (self.top / anc / ".git").exists():
+                found = anc
+        return found
+
+
+@dataclass(frozen=True)
+class _Allowed:
+    """What one nested repository stores or does not ignore, top-relative: its files (tracked, or untracked and not
+    ignored, and a tracked submodule), and the directories on the way to them or holding an untracked repository."""
+
+    files: frozenset[str]
+    dirs: frozenset[str]
+
+
+def _nested_allowed(repo: Path, rel: str) -> _Allowed | None:
+    """The nested repository at ``repo`` (``rel`` is its place in the top), read by its own git: one ``git ls-files``
+    of the tracked and untracked paths its ``.gitignore`` rules and exclude files leave in. None when ``repo`` is not a
+    repository of its own (git would read the enclosing one instead) or git cannot say."""
+    from dokimi.process import run
+
+    env = _git_env()
+    try:
+        top = run(["git", "-C", os.fspath(repo), "rev-parse", "--show-toplevel"], timeout=60, env=env)
+        if not top.ok or Path(os.path.realpath(os.fsdecode(top.stdout_bytes).strip())) != repo:
+            return None
+        listed = run(["git", "-C", os.fspath(repo), "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+                     timeout=120, env=env, capture_limit=None)
+    except OSError:
+        return None
+    if not listed.ok:
+        return None
+    files: set[str] = set()
+    dirs: set[str] = set()
+    depth = len(rel.split("/"))
+    for name in listed.stdout_bytes.split(b"\0"):
+        if not name:
+            continue
+        text = os.fsdecode(name)
+        path = f"{rel}/{text.rstrip('/')}"
+        if text.endswith("/"):  # an untracked repository, as ls-files gives it: a directory
+            dirs.add(path)
+            continue
+        files.add(path)
+        parts = path.split("/")
+        dirs.update("/".join(parts[:i]) for i in range(depth + 1, len(parts)))
+    return _Allowed(frozenset(files), frozenset(dirs))
 
 
 def _git_env() -> "Env":
@@ -394,8 +466,9 @@ def tree_digest(root: Path, *, exclude: Iterable[str] = (), strict: bool = False
     ``tracked``: the executable bits git records, keyed by path relative to ``root`` (to its parent for a file root),
     as :func:`_tracked_modes` returns them; None reads them from git. A caller digesting many files reads them once.
     ``git``: hash what git stores, not the bytes on disk. A file digests as its blob id (:func:`file_contents`), so a
-    CRLF checkout with core.autocrlf matches the LF one; what git leaves out (ignored paths, a nested ``.git``) is
-    skipped, and so are directories, which git does not store. A ``GitTree`` is a work tree already read; True reads
+    CRLF checkout with core.autocrlf matches the LF one; what git leaves out (ignored paths, a nested ``.git``, and what a
+    nested repository's own ignore rules leave out) is skipped,
+    and so are directories, which git does not store. A ``GitTree`` is a work tree already read; True reads
     it from ``root``; None (or no work tree) hashes the bytes on disk and leaves nothing out.
     """
     skip = tuple(e.strip("/") for e in exclude)
