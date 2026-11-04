@@ -1279,7 +1279,7 @@ per scenario).
       `env command cd sub` moves nothing); a call of a
       shell function the agent defined with a printer's name (`cat() { echo
       hi; }; cat AGENTS.md`, `\cat` too, or a body in parentheses: `cat() (
-      echo hi )`; bash runs the function) is no read,
+      echo hi )`, `function cat ( echo hi )`; bash runs the function) is no read,
       unlike `command cat`, `env cat` or `/bin/cat`, and so is a printer after
       a function named `command`, `env`, `builtin` or `time` (not the keyword:
       `command() { echo hi; }; command cat AGENTS.md`); a command that is one
@@ -1446,7 +1446,7 @@ observations of that run. It cannot show:
   run the builtin, and are followed). A definition's body is skipped, as
   defining a function runs nothing, also with its `{` on a later line
   (`f()`, a newline or a comment line, `{`). A body in parentheses (`f() (
-  cd sub )`) runs in a subshell, so a call of it moves nothing. A call of
+  cd sub )`, `function f ( cd sub )`) runs in a subshell, so a call of it moves nothing. A call of
   any function the agent defined is no read (`cat() { echo hi; }; cat
   AGENTS.md`), and a function named like a wrapper runs in its place
   (`command() { ...; }; command cat AGENTS.md` reads nothing). A body whose

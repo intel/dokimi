@@ -726,6 +726,43 @@ def test_a_function_with_a_subshell_body_moves_nothing(command):
     assert shell_walk(command) == (["AGENTS.md"], False, 0)
 
 
+@pytest.mark.parametrize("command", ["function cat ( echo FN ); time cat AGENTS.md", "function cat ( echo FN )\ncat AGENTS.md",
+                                     "function cat (echo FN); cat AGENTS.md", "function cat (\n  echo FN\n)\ncat AGENTS.md",
+                                     "function cat { echo FN; }; time cat AGENTS.md"])
+def test_the_function_keyword_with_a_subshell_body_and_no_parentheses_defines_a_printer_name(command):
+    # bash takes ``function NAME (`` as a definition whose body is the subshell: ``cat`` prints FN, opens no file
+    assert shell_walk(command) == ([], False, 0)
+
+
+@pytest.mark.parametrize("command", ["function f ( cd sub ); f; cat AGENTS.md", "function f (\n  cd sub\n)\nf\ncat AGENTS.md",
+                                     "function f ( cd sub ); g() { f; }; g; cat AGENTS.md"])
+def test_the_function_keyword_with_a_subshell_body_moves_nothing(command):
+    assert shell_walk(command) == (["AGENTS.md"], False, 0)
+
+
+@pytest.mark.parametrize("command", ["function cd ( echo hi ); cd sub; cat AGENTS.md",
+                                     "function cd ( echo hi )\ncd sub\ncat AGENTS.md"])
+def test_a_call_of_a_subshell_function_named_cd_is_not_followed_as_the_builtin(command):
+    # bash runs the function, so the shell stays at the root: ``sub/AGENTS.md`` would be a read it never made
+    assert shell_walk(command) == ([], True, 1)
+
+
+@pytest.mark.parametrize("command", ["function f ( echo { ); cd sub; cat AGENTS.md", "f() ( echo { ); cd sub; cat AGENTS.md",
+                                     "function f ( echo { )\ncd sub\ncat AGENTS.md"])
+def test_a_brace_word_in_a_subshell_body_opens_no_body_that_hides_the_cd_after_it(command):
+    # bash prints ``{`` there: the definition ends at ``)``, and the cd after it runs in this shell
+    assert shell_walk(command) == (["sub/AGENTS.md"], True, 0)
+
+
+def test_a_function_keyword_subshell_definition_in_an_earlier_call_shadows_and_moves_nothing():
+    events = _events(_call("a", "function cat ( echo FN )"), _result("a"), _call("b", "cat AGENTS.md"), _result("b"),
+                     _call("c", "head README.md"), _result("c"))
+    assert _reads(events) == ["README.md"]
+    events = _events(_call("a", "function f ( cd sub ); f"), _result("a"), _call("b", "cat AGENTS.md"), _result("b"),
+                     _call("c", "f"), _result("c"), _call("d", "head README.md"), _result("d"))
+    assert _reads(events) == ["AGENTS.md", "README.md"]
+
+
 @pytest.mark.parametrize("command", ["time -x cat AGENTS.md; true", "time --help cat AGENTS.md; true",
                                      "time -pp cat AGENTS.md; true", "time -p -p cat AGENTS.md", "time -- -p cat AGENTS.md"])
 def test_a_dash_word_the_time_keyword_takes_as_no_option_is_the_command_name(command):

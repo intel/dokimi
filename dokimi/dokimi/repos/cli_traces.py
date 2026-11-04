@@ -54,8 +54,9 @@ _PIPE = re.compile(r"(?<!\|)\|(?!\|)")  # a pipe, not ||
 _GROUP_OPEN = re.compile(r"(?:^|[\s;&|(])\{(?=\s|$)")  # a brace group opens: ``{`` as a word
 _GROUP_CLOSE = re.compile(r"(?:^|\s)\}(?=\s|$|[;&|])")
 _FUNCTION_HEAD = re.compile(r"\s*(?:function\s+[^\s(){}]+(?:\s*\(\s*\))?|[^\s(){}=$`]+\s*\(\s*\))\s*")  # ``f()``, ``function f``
-# a definition opening its body: ``f() {``, ``function f {``, or ``f() (``, a body in a subshell
-_FUNCTION_DEF = re.compile(_FUNCTION_HEAD.pattern + r"\{(?=\s|$)|\s*(?:function\s+)?[^\s(){}=$`]+\s*\(\s*\)\s*\(")
+_FUNCTION_DEF = re.compile(_FUNCTION_HEAD.pattern + r"\{(?=\s|$)")  # a definition opening its body: ``f() {``, ``function f {``
+# ``f() (`` or ``function f (`` (no ``()``: bash takes the ``(`` as the body's), a definition whose body is a subshell
+_SUBSHELL_DEF = re.compile(r"\s*(?:function\s+)?[^\s(){}=$`]+\s*\(\s*\)\s*\(|\s*function\s+[^\s(){}]+\s*\((?!\s*\))")
 _STDOUT_FILE = re.compile(r"&>>?|(?<![\w&>])1?>>?(?!&)|(?<![\w&>])1?>&(?!\d)")  # a group's stdout to a file: not the agent's
 # the values of long options that take a separate word (``head --lines 5``), by command
 _LONG_VALUE = {
@@ -101,7 +102,7 @@ def shell_reads(script: str, cwd: str = "") -> list[str]:
     (``cd $(x; y) | cat`` is piped). ``time cat a``, ``X=1 time cat a`` and ``command cat a`` read a (``time -x cat a``
     runs ``-x``; ``env`` runs a program, never a builtin, so ``env command cat a`` reads no file and ``env command cd x``
     moves no shell: both run a program named ``command``); a call of a function the script defines is no read (``cat() { echo hi; }; cat a``, ``\\cat a``,
-    ``cat() ( ... )`` too), nor what follows a function named like a wrapper (``command() { ...; }; command cat a``),
+    ``cat() ( ... )`` and ``function cat ( ... )`` too), nor what follows a function named like a wrapper (``command() { ...; }; command cat a``),
     and ``command cd x`` or ``builtin cd x`` runs the builtin past a function ``cd``. A brace group (``{ cd $(pwd); }``,
     ``{ { cd x; }; }`` too) or an ``&&`` / ``||`` list that is backgrounded, or a piped
     group, runs in a subshell, so the directory is restored after it; the reads of a
@@ -207,9 +208,12 @@ class _Walk:
         """Whether ``bare`` is part of a function definition (``f() { cd x; cat a; }``): its body is skipped, as
         defining it runs nothing (a later call of it loses the directory when its body names a directory builtin:
         :func:`~dokimi.repos.shell_functions.define`). The ``{`` may come on a later line (``f()\\n{``): blank lines and
-        comments are no parts, so the part after a name alone opens the body. A body in parentheses (``cd() ( ... )``)
-        is a subshell's, so its parts record nothing; the head is skipped, so a name ``cd`` there moves nothing."""
+        comments are no parts, so the part after a name alone opens the body. A body in parentheses (``cd() ( ... )``,
+        ``function cd ( ... )``) is a subshell's, so its parts record nothing; the head is skipped, so a name ``cd`` there
+        moves nothing, and a ``{`` word in it (``f() ( echo { ); cd sub``) opens no body that would hide the ``cd``."""
         head, self.head = self.head, False
+        if not self.function and _SUBSHELL_DEF.match(bare):
+            return True
         if not self.function and not _FUNCTION_DEF.match(bare) and not (head and _GROUP_OPEN.match(bare)):
             self.head = bool(_FUNCTION_HEAD.fullmatch(bare))
             return self.head

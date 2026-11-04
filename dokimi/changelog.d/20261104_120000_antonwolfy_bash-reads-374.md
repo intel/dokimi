@@ -13,7 +13,7 @@
   Code Bash call defined it. A definition whose `{` is on a later line (`f()`, a newline, `{ cd
   sub; }`) no longer runs its body's `cd`: it is only defined. A call of a function named like a
   printer (`cat() { echo hi; }; cat AGENTS.md`, `\cat AGENTS.md` and a body in parentheses,
-  `cat() ( echo hi )`, too) is no read, while `command
+  `cat() ( echo hi )` or `function cat ( echo hi )`, too) is no read, while `command
   cat` and `env cat`, which run the program, read the file; one named like a directory builtin (`cd() { ...; }`)
   loses the directory, while `command cd sub` and `builtin cd sub` run the builtin and are followed.
   A function named `command`, `env`, `builtin` or `time` (not the keyword) runs in place of that

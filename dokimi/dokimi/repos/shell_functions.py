@@ -19,8 +19,10 @@ _MASK = re.compile(r"\\.|'[^']*'|\"(?:\\.|[^\"\\])*\"|(?<![^\s;&|()])#[^\n]*", r
 # blank lines and comments (``f()\n# c\n{``); group 1 or 2 is the name
 _DEF = re.compile(r"(?<![^\s;&|(){}])(?:function\s+([^\s(){};&|<>]+)(?:\s*\(\s*\))?|([^\s(){};&|<>=$`]+)\s*\(\s*\))"
                   r"\s*\{(?=\s|$)")
-# ``f() ( ... )``, whose body runs in a subshell; ``function f() (`` matches at ``f`` (``function f (`` is no definition)
-_SUBSHELL_DEF = re.compile(r"(?<![^\s;&|(){}])([^\s(){};&|<>=$`]+)\s*\(\s*\)\s*\(")
+# ``f() ( ... )`` or ``function f ( ... )`` (no ``()`` after the name: bash takes the ``(`` as the body's), whose body
+# runs in a subshell; ``function f() (`` matches at ``f``; group 1 or 2 is the name
+_SUBSHELL_DEF = re.compile(r"(?<![^\s;&|(){}])(?:function\s+([^\s(){};&|<>]+)\s*\((?!\s*\))"
+                           r"|([^\s(){};&|<>=$`]+)\s*\(\s*\)\s*\()")
 _BRACE = re.compile(r"(?<![^\s;&|(){}])(?:\{(?=\s|$)|\}(?=[\s;&|)]|$))")  # a brace group's ``{`` or ``}`` as a word
 _BREAK = re.compile(r"[\s;&|()<>`{}$]+")
 
@@ -28,8 +30,8 @@ _BREAK = re.compile(r"[\s;&|()<>`{}$]+")
 def define(known: Functions, script: str) -> frozenset[str]:
     """Add the functions ``script`` defines (``f() { ...; }``, ``function f { ...; }``) to ``known``, and return the
     names in ``known`` whose call may move the shell: the body names a directory builtin, or a function that does
-    (``g() { f; }``), as any word (``case x in a) cd sub;; esac`` too). A body in parentheses (``f() ( cd sub )``)
-    runs in a subshell: its name is known, so a call of it is no read, but it moves nothing. A definition is found
+    (``g() { f; }``), as any word (``case x in a) cd sub;; esac`` too). A body in parentheses (``f() ( cd sub )``,
+    ``function f ( cd sub )``) runs in a subshell: its name is known, so a call of it is no read, but it moves nothing. A definition is found
     anywhere outside quotes, in a subshell or never run too, and a name defined again keeps what each definition
     named: both drop reads only."""
     masked = _MASK.sub(lambda m: (" " if m.group()[0] == "#" else "q") * len(m.group()), script)
