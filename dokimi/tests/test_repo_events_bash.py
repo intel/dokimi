@@ -550,6 +550,26 @@ def test_command_env_or_a_path_runs_the_printer_not_the_function(command):
     assert shell_walk(command) == (["AGENTS.md"], False, 0)
 
 
+@pytest.mark.parametrize("command", ["env command cat AGENTS.md; true", "/usr/bin/env command cat AGENTS.md; true",
+                                     "env builtin cat AGENTS.md; true", "env env command cat AGENTS.md"])
+def test_command_or_builtin_after_env_is_a_programs_name_so_no_read(command):
+    # env runs a PATH program, never a builtin: ``env: 'command': No such file or directory``, cat never runs
+    assert shell_walk(command) == ([], False, 0)
+
+
+@pytest.mark.parametrize("command", ["env time cat AGENTS.md", "command env cat AGENTS.md", "/usr/bin/env cat AGENTS.md",
+                                     "X=1 env cat AGENTS.md"])
+def test_env_before_a_real_program_or_after_command_still_reads(command):
+    assert shell_walk(command) == (["AGENTS.md"], False, 0)
+
+
+@pytest.mark.parametrize("first", ["env command -p cd sub", "time env command -p cd sub", "env command cd sub",
+                                   "env builtin cd sub"])
+def test_a_directory_builtin_behind_command_after_env_moves_no_shell(first):
+    # the child runs the program ``command`` or ``builtin``: no cd runs in this shell
+    assert shell_walk(f"{first}; cat AGENTS.md") == (["AGENTS.md"], False, 0)
+
+
 @pytest.mark.parametrize("command", ["command -v cat AGENTS.md", "command -p cat AGENTS.md",
                                      "command X=1 cat AGENTS.md", "command builtin cat AGENTS.md"])
 def test_command_before_an_option_an_assignment_or_a_prefix_reads_nothing(command):
@@ -575,6 +595,36 @@ def test_a_function_an_earlier_call_defined_shadows_a_printer_in_a_later_call():
     events = _events(_call("a", "cat() { echo hi; }"), _result("a"), _call("b", "cat AGENTS.md"), _result("b"),
                      _call("c", "command cat README.md"), _result("c"))
     assert _reads(events) == ["README.md"]
+
+
+_REFUSAL_TEXT = {"hook": "PreToolUse:Bash hook error: no", "permissions": "Permission to use Bash has been denied"}
+
+
+def _refused_first(refusal: str | None, first: str, then: str) -> tuple[dict, ...]:
+    """``first`` refused by a hook's result or the final record's ``permission_denials`` (None: it ran), then ``then``."""
+    return (_call("a", first), _result("a", _REFUSAL_TEXT.get(refusal, ""), bool(refusal)), _call("b", then),
+            _result("b"), _denials("a") if refusal == "permissions" else {})
+
+
+@pytest.mark.parametrize("refusal, later", [("hook", [("read", "AGENTS.md", None)]),
+                                            ("permissions", [("read", "AGENTS.md", None)]), (None, [])])
+def test_a_refused_call_defines_no_function_that_shadows_a_later_printer(refusal, later):
+    events = _events(*_refused_first(refusal, "cat() { echo hi; }", "cat AGENTS.md"))
+    assert [(e["kind"], e.get("path"), e.get("denied")) for e in events] == [
+        ("command", None, True if refusal else None), *later, ("command", None, None)]
+
+
+@pytest.mark.parametrize("refusal, got", [("hook", (0, ["AGENTS.md"])), ("permissions", (0, ["AGENTS.md"])),
+                                          (None, (1, []))])  # None: f ran in this shell, its cd may have moved it
+def test_a_refused_call_defines_no_function_that_moves_the_shell(refusal, got):
+    metrics = _process(*_refused_first(refusal, "f() { cd sub; }", "f; cat AGENTS.md"))
+    assert (metrics["unknown_reads"], metrics["guidance_read"]) == got
+
+
+def test_a_refused_call_keeps_the_functions_an_earlier_call_defined():
+    events = _events(_call("a", "cat() { echo hi; }"), _result("a"), _call("b", "g() { echo; }"),
+                     _result("b", "PreToolUse:Bash hook error: no", True), _call("c", "cat AGENTS.md"), _result("c"))
+    assert _reads(events) == []
 
 
 @pytest.mark.parametrize("command", [

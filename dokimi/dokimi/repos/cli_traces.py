@@ -99,7 +99,8 @@ def shell_reads(script: str, cwd: str = "") -> list[str]:
     skipped), or a glob or brace expansion (the files are not known). A subshell ``( ... )`` or `` `...` `` records
     no reads, and a ``cd`` in it moves nothing here; a ``$( )`` or backtick's own ``;`` does not end the part around it
     (``cd $(x; y) | cat`` is piped). ``time cat a``, ``X=1 time cat a`` and ``command cat a`` read a (``time -x cat a``
-    runs ``-x``); a call of a function the script defines is no read (``cat() { echo hi; }; cat a``, ``\\cat a``,
+    runs ``-x``; ``env`` runs a program, never a builtin, so ``env command cat a`` reads no file and ``env command cd x``
+    moves no shell: both run a program named ``command``); a call of a function the script defines is no read (``cat() { echo hi; }; cat a``, ``\\cat a``,
     ``cat() ( ... )`` too), nor what follows a function named like a wrapper (``command() { ...; }; command cat a``),
     and ``command cd x`` or ``builtin cd x`` runs the builtin past a function ``cd``. A brace group (``{ cd $(pwd); }``,
     ``{ { cd x; }; }`` too) or an ``&&`` / ``||`` list that is backgrounded, or a piped
@@ -297,7 +298,7 @@ class _Walk:
         if words[0] in self.functions and not bypassed:  # ``cat() { ...; }; \cat a`` runs the function: no read
             if words[0] in self.dirs:  # a ``cd() { ...; }``, or a body naming one: definitions are found script-wide
                 self.lose(after != "&")
-        elif _loses(name, words, conditional, timed):
+        elif _loses(name, words, conditional, timed, via_env):
             self.lose(after != "&")
         elif name == "cd":
             self.gated |= chained

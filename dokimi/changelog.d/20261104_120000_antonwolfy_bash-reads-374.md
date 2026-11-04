@@ -20,4 +20,8 @@
   wrapper: `command() { echo hi; }; command cat AGENTS.md` and `command cd sub` read and move
   nothing. `time -x cat AGENTS.md` and `time --help cat AGENTS.md` are no read (the keyword takes
   only `-p` and `--`), and a failed `source 'my env/bin/activate' && cat AGENTS.md` is no read.
-  So `guidance_read` and `unknown_reads` can change for such traces.
+  `env command cat AGENTS.md` and `/usr/bin/env command cat AGENTS.md` are no read, and `env
+  command -p cd sub` moves no shell: `env` runs a program named `command`, not the builtin. A
+  Bash call that a hook or the permissions refused defines no function for the later calls: a
+  refused `cat() { echo hi; }` leaves the next `cat AGENTS.md` a read. So `guidance_read` and
+  `unknown_reads` can change for such traces.

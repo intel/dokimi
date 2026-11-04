@@ -25,7 +25,7 @@ next, so once any call ran a ``cd`` in that shell (not in a subshell, a pipeline
 job), or called a function that an earlier call (or itself) defined with a ``cd`` in its body, later relative
 reads are not recorded, the parent's and every subagent's alike: subagents may
 share the parent's shell, and dropping a read is the safe side either way. A refused call ran nothing:
-it moves no shell, and its reads stay, ``denied``, after a move too (a relative one then has no
+it moves no shell, defines no function for the later calls, and its reads stay, ``denied``, after a move too (a relative one then has no
 ``path``: which file it named is not known; ``guidance_read``, reach and skill use skip a denied read). The reads are settled when the trace ends,
 since a ``permission_denials`` entry comes only in the final result.
 
@@ -75,12 +75,13 @@ def convert(fmt: str, raw: str, workdir: str | None = None, cwd: str = "") -> Tr
 
 @dataclass
 class _BashCall:
-    """A Bash call, settled when the trace ends: what came back for it decides its reads."""
+    """A Bash call, walked and settled when the trace ends: what came back for it decides its reads."""
 
     text: str
-    named: list[str]  # the files its command prints, from the start directory
-    reads: list[dict[str, Any]]  # their read events, in place before the command event
-    moves: bool  # the command may leave its shell in another directory
+    event: dict[str, Any]  # its command event
+    named: list[str] = field(default_factory=list)  # the files its command prints, from the start directory
+    reads: list[dict[str, Any]] = field(default_factory=list)  # their read events, put before the command event
+    moves: bool = False  # the command may leave its shell in another directory
     unknown: int = 0  # the relative files it named after a directory change it could not follow, in itself
     result: str | None = None  # "ok", "error" or "denied"; None while nothing came back
 
@@ -93,7 +94,6 @@ class _Stream:
     cwd: str  # where the Bash shell starts, relative to workdir
     by_id: dict[str, dict[str, Any]] = field(default_factory=dict)  # tool_use id -> its event
     bash: dict[int, _BashCall] = field(default_factory=dict)  # id() of a Bash call's command event -> the call
-    functions: Functions = field(default_factory=dict)  # the shell functions Bash calls defined: the shell keeps them
 
 
 def _claude_stream_json(raw: str, workdir: str | None, cwd: str = "") -> Transcript:
@@ -123,6 +123,7 @@ def _claude_stream_json(raw: str, workdir: str | None, cwd: str = "") -> Transcr
         except (AttributeError, TypeError) as exc:  # valid JSON of an unexpected shape
             out.dropped_lines += 1
             out.errors.append(f"line {n}: unexpected shape ({exc})")
+    _walk_bash(out, stream)
     _settle_bash(out, stream.bash.values())
     main = parse_trace(raw).main_calls()
     out.first_prompt_tokens = main[0]["prompt_tokens"] if main else None
@@ -171,6 +172,32 @@ def _deny(stream: _Stream, tool_id: Any) -> None:
         stream.bash[id(event)].result = "denied"
 
 
+def _walk_bash(out: Transcript, stream: _Stream) -> None:
+    """Each Bash call's command walked (:func:`~dokimi.repos.cli_traces.shell_walk`), once every result and denial
+    is in, in the trace's order, and a read event put before its command event for each file it names. The shell
+    keeps the functions a call defines for the later calls, but a refused call ran nothing, so it defines none: each
+    call is walked on a copy of the functions the calls before it defined, kept only when it was not denied
+    (``cat() { echo hi; }`` refused, then ``cat AGENTS.md``, reads the file)."""
+    functions: Functions = {}
+    for call in stream.bash.values():
+        defined = dict(functions)
+        call.named, call.moves, call.unknown = shell_walk(call.text, stream.cwd, defined)
+        call.reads = [_read(call.event, p, stream.workdir) for p in call.named]
+        if call.result != "denied":
+            functions = defined
+    if stream.bash:
+        out.events[:] = [e for event in out.events
+                         for e in (*(stream.bash[id(event)].reads if id(event) in stream.bash else ()), event)]
+
+
+def _read(event: dict[str, Any], path: str, workdir: str | None) -> dict[str, Any]:
+    """The read event of a file a Bash call's command prints, at the call's time and in its agent."""
+    read = {"t": event["t"], "kind": "read", "path": relative_path(path, workdir)}
+    if "agent" in event:
+        read["agent"] = event["agent"]
+    return read
+
+
 def _settle_bash(out: Transcript, calls: Iterable[_BashCall]) -> None:
     """Each Bash call's reads, once every result and denial is in. In the trace's order:
 
@@ -214,25 +241,17 @@ def _deny_read(read: dict[str, Any], unknown: bool) -> None:
 
 
 def _tool_use(out: Transcript, block: dict[str, Any], t: float | None, agent: str, stream: _Stream) -> None:
-    """The events of one tool_use block: a Bash call's derived reads, then its own event."""
+    """The event of one tool_use block; a Bash call's derived reads come before it when the trace ends (:func:`_walk_bash`)."""
     event = _tool_event(block, t, stream.workdir)
-    reads = _bash_call(event, stream).reads if block.get("name") == _SHELL_TOOL else []
     if agent:
-        for e in (*reads, event):
-            e["agent"] = agent
+        event["agent"] = agent
+    if block.get("name") == _SHELL_TOOL:
+        stream.bash[id(event)] = _BashCall(str(event["text"]), event)
     if block.get("name") in _AGENT_TOOLS:
         out.subagent_calls = (out.subagent_calls or 0) + 1
-    out.events.extend([*reads, event])
+    out.events.append(event)
     if block.get("id"):
         stream.by_id[block["id"]] = event
-
-
-def _bash_call(event: dict[str, Any], stream: _Stream) -> _BashCall:
-    """A Bash command's call, with a read event for each file it names; :func:`_settle_bash` keeps or drops them."""
-    named, moves, unknown = shell_walk(str(event["text"]), stream.cwd, stream.functions)
-    reads = [{"t": event["t"], "kind": "read", "path": relative_path(p, stream.workdir)} for p in named]
-    stream.bash[id(event)] = call = _BashCall(str(event["text"]), named, reads, moves, unknown)
-    return call
 
 
 def _apply(out: Transcript, rec: dict[str, Any], t: float | None, stream: _Stream) -> None:

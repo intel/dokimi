@@ -193,25 +193,28 @@ def _command_words(words: list[str], timed: bool, functions: Collection[str] = (
     an option, ``time -p cd``, which stays for :func:`_may_run_dir`), /usr/bin/time (``X=1 time cat a``, ``\\time cat
     a``; the word after it is the name, so an option or an assignment there names no printer), and ``env`` with its
     options and assignments come before the name and are skipped; not such a wrapper that is one of the script's
-    ``functions`` (``command() { ...; }; command cat a`` runs the function), but for the keyword. ``words`` are unquoted:
-    ``shlex.split``'s, or :func:`_unquoted`'s for a part shlex does not split."""
-    via_env = chdir = bypassed = False
+    ``functions`` (``command() { ...; }; command cat a`` runs the function), but for the keyword. Past ``env`` the
+    next word is a program's name, never a shell builtin: ``env command cat a`` and ``env builtin cd x`` run the
+    programs ``command`` and ``builtin``, which do not exist, so ``command`` and ``builtin`` stay as the name there
+    (``env time cat a`` runs /usr/bin/time, which does). ``words`` are unquoted: ``shlex.split``'s, or
+    :func:`_unquoted`'s for a part shlex does not split."""
+    via_env = chdir = bypassed = child = False
     while words:
         if _ASSIGN.match(words[0]) or _REDIRECT.fullmatch(words[0]):
             words = words[_past_redirections(words, 0):]
         elif words[0] in functions and not bypassed and not (timed and words[0] == "time"):
             break  # the function runs, whatever its name wraps
-        elif _prefix_runs_dir(words, timed):  # ``./command`` is a program
+        elif not child and _prefix_runs_dir(words, timed):  # ``./command`` is a program
             words, bypassed = words[1:], words[0] != "time"
         elif timed and words[0] == "time" and (at := _past_time(words)):
             words = words[at:]
         elif not timed and _program(words[0]) == "time":
             return words[1:], True, chdir, True  # a child runs the next word as a program (``X=1`` too): no builtin moves here
-        elif _runs_program(words):
+        elif not child and _runs_program(words):
             words, via_env, bypassed = words[1:], True, True
         elif _program(words[0]) == "env":
             words, moves = _past_env(words[1:])
-            via_env, bypassed, chdir = True, True, chdir or moves
+            via_env, bypassed, chdir, child = True, True, chdir or moves, True
         else:
             bypassed |= timed and words[0] == "time"  # the keyword left for ``time -p cd``: no function of its name runs
             break
@@ -277,13 +280,14 @@ def _split(part: str) -> list[str]:
         return _unquoted(part.split())
 
 
-def _loses(name: str, words: list[str], conditional: bool, timed: bool) -> bool:
+def _loses(name: str, words: list[str], conditional: bool, timed: bool, via_env: bool = False) -> bool:
     """Whether the followed command ``words``, run as ``name``, leaves the directory not known: a ``pushd``, ``popd``,
     ``eval``, ``source`` or ``.`` (not of an activate script, :func:`_activates`), a ``cd`` that may not run
-    (``conditional``), or a part not fully followed (:func:`_may_run_dir`)."""
+    (``conditional``), or a part not fully followed (:func:`_may_run_dir`), but for one a child runs (``via_env``:
+    ``env command -p cd sub`` runs a program, so it moves no shell)."""
     if name in _DIR_LOST:
         return not _activates(name, words[1:])
-    return (conditional and name == "cd") or _may_run_dir(words, timed)
+    return (conditional and name == "cd") or (not via_env and _may_run_dir(words, timed))
 
 
 def _case_tokens(text: str) -> list[str]:
