@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Mapping, Tuple
 from dokimi.defaults import BEDROCK_MODEL_IDS, bedrock_profile
 
 if TYPE_CHECKING:
-    from dokimi.process import Env
+    from dokimi.process import Completed, Env
 
 
 def parse_frontmatter(text: str) -> "Tuple[Dict[str, Any], str]":
@@ -249,22 +249,15 @@ def _git_env() -> "Env":
 
 
 def git_tree(base: Path) -> GitTree | None:
-    """The work tree holding ``base``, with what git leaves out of it. None when ``base`` is in no work tree (or git
-    cannot say): the digest then hashes the bytes on disk and leaves nothing out."""
-    from dokimi.process import run
-
-    try:
-        top = run(["git", "-C", os.fspath(base), "rev-parse", "--show-toplevel"], timeout=60, env=_git_env())
-        if not top.ok:
-            return None
-        top_dir = os.fsdecode(top.stdout_bytes).strip()
-        # the ignored paths git would not descend into; a tracked file is never listed here
-        listed = run(["git", "-C", top_dir, "ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"],
-                     timeout=120, env=_git_env(), capture_limit=None)
-    except OSError:
+    """The work tree holding ``base``, with what git leaves out of it. None when ``base`` is in no work tree: the digest
+    then hashes the bytes on disk and leaves nothing out. A work tree git cannot read raises OSError naming it and git's
+    own words (no silent fallback: the digest would count other bytes than git stores)."""
+    if not _in_work_tree(base):
         return None
-    if not listed.ok:
-        return None
+    top_dir = os.fsdecode(_work_git(base, ["rev-parse", "--show-toplevel"], 60).stdout_bytes).strip()
+    # the ignored paths git would not descend into; a tracked file is never listed here
+    listed = _work_git(base, ["ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"], 120,
+                       cwd=Path(top_dir))
     top_real = Path(os.path.realpath(top_dir))
     try:
         base_rel = Path(os.path.realpath(base)).relative_to(top_real).as_posix()
@@ -274,20 +267,46 @@ def git_tree(base: Path) -> GitTree | None:
     return GitTree(top_real, "" if base_rel == "." else base_rel, ignored, _index_blobs(top_dir))
 
 
+def _in_work_tree(base: Path) -> bool:
+    """True when ``base`` or a directory above it, on its filesystem, holds a ``.git`` (a directory, or a file in a worktree):
+    where git looks for a work tree, and it does not look past a filesystem boundary. False for a plain directory tree."""
+    here = base.resolve()
+    try:
+        dev = os.stat(here).st_dev
+        for directory in (here, *here.parents):
+            if os.stat(directory).st_dev != dev:
+                return False
+            if os.path.lexists(directory / ".git"):
+                return True
+    except OSError:
+        return False
+    return False
+
+
+def _work_git(base: Path, args: list[str], timeout: float, cwd: Path | None = None) -> "Completed":
+    """The result of one git call in the work tree of ``base`` (run in ``cwd`` when given). A git that cannot run, fails or
+    times out raises OSError naming ``base`` and git's own words."""
+    from dokimi.process import run
+
+    where = os.fspath(cwd or base)
+    try:
+        done = run(["git", "-C", where, *args], timeout=timeout, env=_git_env(), capture_limit=None)
+    except OSError as exc:
+        raise OSError(None, f"git {args[0]} could not run: {exc.strerror or exc}", os.fspath(base)) from exc
+    if not done.ok:
+        why = done.stderr.strip() or ("timed out" if done.timed_out else f"exit {done.returncode}")
+        raise OSError(None, f"git {args[0]} failed in this work tree: {why}", os.fspath(base))
+    return done
+
+
 def _index_blobs(top: str) -> dict[str, str]:
     """The index's blob id for each tracked file that git finds unchanged in the work tree. ``hash-object`` does not read
     the index, so it would fold a committed CRLF file under core.autocrlf. Flagged entries (skip-worktree, assume-unchanged)
     are left out: git does not look at those files, so their disk content is hashed."""
-    from dokimi.process import run
-
-    env = _git_env()
-    staged = run(["git", "-C", top, "ls-files", "-s", "-z"], timeout=120, env=env, capture_limit=None)
-    tags = run(["git", "-C", top, "ls-files", "-v", "-z"], timeout=120, env=env, capture_limit=None)
+    staged = _work_git(Path(top), ["ls-files", "-s", "-z"], 120)
+    tags = _work_git(Path(top), ["ls-files", "-v", "-z"], 120)
     # --no-optional-locks: status refreshes its view in memory and does not rewrite the index
-    dirty = run(["git", "-C", top, "--no-optional-locks", "status", "--porcelain=v1", "-z", "-uno"], timeout=120,
-                env=env, capture_limit=None)
-    if not (staged.ok and tags.ok and dirty.ok):
-        return {}
+    dirty = _work_git(Path(top), ["--no-optional-locks", "status", "--porcelain=v1", "-z", "-uno"], 120)
     changed = _worktree_changed(dirty.stdout_bytes) | _flagged(tags.stdout_bytes)
     out: dict[str, str] = {}
     for entry in staged.stdout_bytes.split(b"\0"):

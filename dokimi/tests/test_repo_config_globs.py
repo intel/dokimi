@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 
 import pytest
 
@@ -16,7 +17,9 @@ HEADER = "schema_version: dokimi_config.v1\n"
 
 def _tree(root, files):
     """A repository at ``root`` (it always has a ``.git``) holding ``files``; returns the resolved root."""
-    (root / ".git").mkdir(parents=True, exist_ok=True)
+    if not (root / ".git").exists():  # a real git repository: a .git git cannot read is a config error
+        subprocess.run(["git", "init", "-q", str(root)], check=True, capture_output=True,
+                       env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
     for rel, text in files.items():
         path = root / rel
         path.parent.mkdir(parents=True, exist_ok=True)

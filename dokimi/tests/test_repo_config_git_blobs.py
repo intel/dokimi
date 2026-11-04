@@ -223,6 +223,44 @@ def test_a_nested_repository_git_cannot_read_is_an_error_not_a_silent_fallback(t
     assert "git" in str(err.value)
 
 
+def test_a_broken_top_level_git_is_an_error_not_a_silent_fallback(tmp_path):
+    # the root is a work tree and git cannot read its .git: the digest must not hash the bytes on disk in its place
+    root = _repo(tmp_path / "r", FILES)
+    (root / ".git" / "HEAD").unlink()
+    with pytest.raises(ConfigError, match=rf"cannot read .*{re.escape(str(root))}") as err:
+        _hashes(root)
+    assert "git" in str(err.value)
+
+
+def test_a_corrupt_index_is_an_error_not_a_silent_fallback(tmp_path):
+    # rev-parse finds the work tree, but git cannot read its index: the blob ids are not to be guessed from the disk
+    root = _repo(tmp_path / "r", FILES)
+    (root / ".git" / "index").write_bytes(b"not an index\n")
+    with pytest.raises(ConfigError, match=rf"cannot read .*{re.escape(str(root))}"):
+        _hashes(root)
+
+
+def test_a_directory_inside_a_broken_work_tree_is_an_error_not_a_silent_fallback(tmp_path):
+    # the root holds no .git of its own, but the repository above it is one git cannot read
+    root = _repo(tmp_path / "r", FILES)
+    (root / "pkg").mkdir()
+    (root / ".git" / "HEAD").unlink()
+    with pytest.raises(OSError, match="rev-parse failed"):
+        git_tree(root / "pkg")
+
+
+def test_a_directory_outside_any_work_tree_hashes_its_bytes(tmp_path):
+    # no .git and git says it is in no work tree: nothing for git to say, so the bytes on disk are hashed
+    root = tmp_path / "plain"
+    for rel, text in {".github/dokimi/config.yaml": CONFIG, **FILES}.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_bytes(text.encode("utf-8"))
+    assert git_tree(root) is None
+    before = _hashes(root)
+    (root / "skills/a/SKILL.md").write_bytes(b"a\r\nb\r\n")  # bytes on disk, not a git blob id
+    assert _hashes(root) != before
+
+
 @pytest.mark.parametrize("rel", ["skills/a/tools", "skills/a/evals/tools"])
 def test_a_tracked_or_untracked_change_inside_a_nested_repository_moves_a_hash(tmp_path, rel):
     root = _repo(tmp_path / "r", FILES)

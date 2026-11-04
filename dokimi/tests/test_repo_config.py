@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -43,8 +45,11 @@ CENTRAL = {
 
 
 def _tree(root: Path, files: dict[str, str]) -> Path:
-    """A repository at ``root`` (it always has a ``.git``) holding ``files``; returns the resolved root."""
-    (root / ".git").mkdir(parents=True, exist_ok=True)
+    """A git repository at ``root`` holding ``files``; returns the resolved root. A real ``git init``: a ``.git`` git cannot
+    read is a config error now, not a fallback to the bytes on disk."""
+    if not (root / ".git").exists():
+        subprocess.run(["git", "init", "-q", str(root)], check=True, capture_output=True,
+                       env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
     for rel, text in files.items():
         path = root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -94,7 +99,7 @@ def test_the_root_is_found_from_a_subdirectory(tmp_path):
 
 def test_the_root_is_found_through_a_git_file_as_in_a_worktree(tmp_path):
     root = _tree(tmp_path / "wt", {**BESIDE})
-    (root / ".git").rmdir()
+    shutil.rmtree(root / ".git")
     (root / ".git").write_text("gitdir: /elsewhere/.git/worktrees/wt\n", encoding="utf-8")
     assert find_repo_root(root / "skills" / "onetbb" / "evals") == root
     assert load_repo_config(root / "skills" / "onetbb").root == root
