@@ -280,6 +280,7 @@ def test_the_cells_of_one_task_flag_it_together(tmp_path):
     (None, "{", "its task.json is not readable JSON"),
     (None, _spec(1) | {"public_at": 20260301}, "public_at is not a date with a UTC offset"),
     (None, _spec(1) | {"public_at": "2026-03-01T12:00:00"}, "public_at is not a date with a UTC offset"),
+    (None, _spec(1) | {"public_at": "yesterday"}, "public_at is not a date with a UTC offset"),
     (None, _spec(1) | {"patch_files": "src/x.py"}, "patch_files is not a list of paths"),
     (None, _spec(1) | {"source_pr": "1x"}, "source_pr is not a PR number"),
     ({"arm": REV, "arm_rev": {"guidance_latest": {"AGENTS.md": {"sha": SHA["root"], "committed": 5}},
@@ -298,3 +299,22 @@ def test_a_cell_file_of_the_wrong_shape_makes_its_task_unknown(tmp_path, meta, s
         (next(batch.glob(f"*{REV.replace(':', '-')}*")) / "meta.json").write_text(meta)
     leak = _leak(compare([batch], "guidance:none"))
     assert leak["unknown"] == {"review_replay_pr1": reason} and leak["clean"] == []
+
+
+def test_a_task_with_no_source_pr_has_no_pr_to_be_named_and_no_source_url_leaves_the_number_form(tmp_path):
+    meta = _rev({"AGENTS.md": _commit(SHA["root"], EARLY)},
+                [_commit(SHA["named"], EARLY, "Rules from #4 and numpy/dpnp#5")])
+    specs = {"review_replay_pr4": {"id": "review_replay_pr4", "public_at": PUBLIC, "source_url": "not a PR url"},
+             "review_replay_pr5": {"id": "review_replay_pr5", "public_at": PUBLIC, "source_pr": 5},
+             "review_replay_pr6": {"id": "review_replay_pr6", "public_at": PUBLIC}}
+    specs["review_replay_pr4"]["source_pr"] = 4
+    leak = _leak(compare([_batch(tmp_path, meta, specs)], "guidance:none"))
+    assert leak["by_name"] == {"review_replay_pr4": [SHA["named"]]}  # #4 alone; numpy/dpnp#5 needs a source_url
+    assert leak["clean"] == ["review_replay_pr5", "review_replay_pr6"]
+
+
+def test_a_cell_with_a_task_but_no_meta_json_is_unknown(tmp_path):
+    batch = _batch(tmp_path, _rev({}), {"review_replay_pr1": _spec(1)})
+    next(batch.glob(f"*{REV.replace(':', '-')}*")).joinpath("meta.json").unlink()
+    leak = _leak(compare([batch], "guidance:none"))
+    assert leak["unknown"] == {"review_replay_pr1": "its meta.json has no arm_rev object"}
