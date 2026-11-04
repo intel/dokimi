@@ -100,7 +100,11 @@ def _run_config(config: "AnalyzeConfig") -> dict:
 
 @dataclass
 class AnalyzeResult:
-    """Everything one analysis produced, plus the renderable views."""
+    """Everything one analysis produced, plus the renderable views.
+
+    ``atoms`` are the atoms the run probed (a capped run's sample); ``extracted_atoms`` are every
+    extracted atom, the set ``spans`` and ``attributions`` index, so each atom id they cite is there.
+    """
 
     artifact: dict
     attributions: list = field(default_factory=list)
@@ -108,6 +112,7 @@ class AnalyzeResult:
     atoms: list = field(default_factory=list)
     spans: list = field(default_factory=list)
     measure_result: object | None = None
+    extracted_atoms: list = field(default_factory=list)
 
 
 def kind_agreement_warnings(rows: dict[str, dict]) -> list[str]:
@@ -169,9 +174,12 @@ def analyze(
     warnings: list[str] = []
     span_list = spans.segment(text)
     extraction = atoms_mod.ExtractionReport()
-    atom_list = atoms_mod.extract_atoms(
+    extracted = atoms_mod.extract_atoms(
         span_list, client=extractor, cap=config.max_atoms, report=extraction
     )
+    # Spans, attribution and shortening's structure index every atom; the paid stages see the
+    # cap's sample: https://github.com/intel/dokimi/issues/371
+    atom_list = atoms_mod.sample_atoms(extracted, span_list, config.max_atoms)
     warnings.extend(extraction.warnings(len(span_list)))
     settings = RunSettings.of(config)
     if tier:
@@ -279,7 +287,7 @@ def analyze(
         warnings.append("content categories were not judged (--no-classify)")
 
     attributions = attribute.attribute_spans(
-        span_list, atom_list, outcomes=outcomes, categories=categories
+        span_list, extracted, outcomes=outcomes, categories=categories
     )
     oracle = RetentionOracle(client=extractor, cache_dir=config.cache_dir)
     confirmation: dict | None = None
@@ -300,19 +308,15 @@ def analyze(
     candidates: list = []
     if config.shorten_artifact and atom_list:
         candidates = shorten.build_candidates(
-            span_list, atom_list, oracle=oracle, budgets=config.budgets,
+            span_list, extracted, oracle=oracle, budgets=config.budgets,
             relevance=relevance, outcomes=outcomes, categories=categories, seed=config.seed,
+            scored_atoms=atom_list,
         )
         for candidate in candidates:
             candidate.text = shorten.render(
                 span_list, candidate.kept_span_ids, frontmatter=config.frontmatter
             )
-        unsafe = [c for c in candidates if not c.safe]
-        if unsafe:
-            warnings.append(
-                f"{len(unsafe)} shortening candidates drop protected spans; they are reported "
-                "so the knowledge-vs-protection gap is visible, not offered as accepted output"
-            )
+        warnings.extend(_unsafe_candidate_warnings(candidates))
 
     # Does an atom's own question and its rewording agree? A `redundant` that survives only
     # the artifact's phrasing is not prior knowledge (open question the kind split exists for).
@@ -341,7 +345,7 @@ def analyze(
             "tokens": sum(s.tokens for s in span_list if s.id in pointer_ids),
         }
         bundle_summary["by_source"] = _outcomes_by_source(
-            span_list, atom_list, outcomes, artifact_bundle
+            span_list, extracted, {atom.id for atom in atom_list}, outcomes, artifact_bundle
         )
         warnings.extend(artifact_bundle.coverage_warnings())
         if ref_digest is None:
@@ -362,7 +366,7 @@ def analyze(
         atoms=atom_list,
         sampling=sampling,
         measure_result=measure_result,
-        span_summary=spans.span_summary(span_list, atom_list, capped=capped),
+        span_summary=spans.span_summary(span_list, extracted),
         by_knowledge_kind=by_knowledge_kind,
         probe_fidelity=probe_set.as_dict(),
         items=item_stats,
@@ -394,11 +398,33 @@ def analyze(
         atoms=atom_list,
         spans=span_list,
         measure_result=measure_result,
+        extracted_atoms=extracted,
     )
 
 
+def _unsafe_candidate_warnings(candidates: list) -> list[str]:
+    """Why some shortening candidates are reported but not offered: a dropped protected span,
+    or every span of an atom outside the cap's sample, which ``knowledge`` does not score."""
+    warnings = []
+    leaky = [c for c in candidates if c.protection < 1.0]
+    if leaky:
+        warnings.append(
+            f"{len(leaky)} shortening candidates drop protected spans; they are reported "
+            "so the knowledge-vs-protection gap is visible, not offered as accepted output"
+        )
+    lossy = [c for c in candidates if c.dropped_unscored_atoms]
+    if lossy:
+        warnings.append(
+            f"{len(lossy)} shortening candidates drop every span of an atom outside the cap's "
+            "sample, a loss `knowledge` does not score; they are reported, not offered as "
+            "accepted output"
+        )
+    return warnings
+
+
 def _outcomes_by_source(
-    span_list: list, atom_list: list, outcomes: dict[str, str], artifact_bundle
+    span_list: list, atom_list: list, sampled_ids: set[str], outcomes: dict[str, str],
+    artifact_bundle,
 ) -> list[dict]:
     """The paired 2x2 cut by which bundle file carried the atom.
 
@@ -407,6 +433,10 @@ def _outcomes_by_source(
     of `added` is knowledge that may belong where the agent will actually read it. An atom
     is attributed to the file of its first cited span; an atom citing spans in two files
     is rare and counted once, at the first.
+
+    ``n_atoms`` counts every extracted atom (``atom_list``); the outcome counts are over the
+    probed ones (``sampled_ids``, a capped run's sample), and ``n_sampled`` is their number,
+    so a file whose atoms all fell outside the sample reads ``n_atoms > 0, n_sampled: 0``.
 
     A file with spans no extraction call read carries ``n_spans_unread`` /
     ``tokens_unread``, and one that was not read at all has ``n_atoms: null`` and
@@ -419,8 +449,9 @@ def _outcomes_by_source(
         source = next(
             (source_of_span[sid] for sid in atom.span_ids if sid in source_of_span), ""
         )
-        row = rows.setdefault(source, {"source": source, "n_atoms": 0})
+        row = rows.setdefault(source, {"source": source, "n_atoms": 0, "n_sampled": 0})
         row["n_atoms"] += 1
+        row["n_sampled"] += atom.id in sampled_ids
         verdict = outcomes.get(atom.id)
         if verdict:
             row[verdict] = row.get(verdict, 0) + 1
@@ -428,7 +459,7 @@ def _outcomes_by_source(
     # pointers and prose, or knowledge the extractor could not formalize -- unless no
     # extraction call read it, which is said below.
     for item in artifact_bundle.files:
-        rows.setdefault(item.path, {"source": item.path, "n_atoms": 0})
+        rows.setdefault(item.path, {"source": item.path, "n_atoms": 0, "n_sampled": 0})
     spans_of: dict[str, list] = {}
     for span in span_list:
         spans_of.setdefault(source_of_span[span.id], []).append(span)
@@ -443,6 +474,6 @@ def _outcomes_by_source(
             row["n_spans_unread"] = len(unknown)
             row["tokens_unread"] = sum(span.tokens for span in unknown)
         if own and not row["n_atoms"] and all(span.unread for span in own):
-            row["n_atoms"] = None
+            row["n_atoms"] = row["n_sampled"] = None
             row["unread"] = True
     return sorted(rows.values(), key=lambda r: (-r.get("added", 0), r["source"]))

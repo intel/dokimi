@@ -481,6 +481,37 @@ def test_a_capped_atom_set_does_not_clear_harmful_atoms():
     assert "lower bound" in found.message
 
 
+# A capped run since #371: spans indexed from all 200 atoms, the conflict check over the 60 sampled.
+SAMPLED_RUN = {"spans": {"n": 200, "tokens": 2000, "frac_carrying_nothing": 0.35,
+                         "capped_atom_set": False, "n_atoms_indexed": 200},
+               "extraction": {"sampled": {"atoms": 60, "of": 200, "rule": "cap-spread"}},
+               "conflict_coverage": {"pairs_compared": 1770, "pairs_total": 1770}}
+
+
+@pytest.mark.outcome("cjm-novelty-uncleared-conflicts")
+def test_a_sampled_run_whose_spans_index_every_atom_still_does_not_clear_harmful_atoms():
+    sampled = _named(evaluate_novelty(_artifact(**SAMPLED_RUN)), "harmful_atoms")
+    assert sampled.measured is False and sampled.value is None
+    assert sampled.message.startswith(
+        "not measured: the conflict check compared the cap's sample of 60 of the 200 extracted "
+        "atoms, so 0 conflicts among them is not a cleared check of the artifact;")
+    found = _named(evaluate_novelty(_artifact(**SAMPLED_RUN, categories={"harmful_conflicting": 1})),
+                   "harmful_atoms")
+    assert found.measured is True and found.passed is False
+    assert "only the cap's sample of the atoms was compared, so this is a lower bound" in found.message
+
+
+def test_a_sampled_run_whose_spans_index_every_atom_checks_its_dead_tokens():
+    # The dead-token share of a capped run is over every extracted atom now, so it is judged;
+    # an artifact written before that (`capped_atom_set: true`) is still not.
+    check = _named(evaluate_novelty(_artifact(**SAMPLED_RUN)), "dead_tokens")
+    assert (check.measured, check.passed, check.value) == (True, False, 0.35)
+    old = dict(SAMPLED_RUN, spans=dict(SAMPLED_RUN["spans"], capped_atom_set=True, n_atoms_indexed=60))
+    check = _named(evaluate_novelty(_artifact(**old)), "dead_tokens")
+    assert (check.measured, check.passed) == (False, True)
+    assert check.message.startswith("not checked: the atom set was capped (60 indexed)")
+
+
 def test_an_artifact_with_no_check_measured_is_not_a_pass():
     # `{}` carries no stage: every check passed unmeasured and the cell read PASS.
     empty = evaluate_novelty({})

@@ -61,6 +61,9 @@ class Candidate:
     # so the axis read as "value" was mostly coverage. The number ships next to the rate.
     value_coverage: float = 0.0
     dropped_protected_spans: list[str] = field(default_factory=list)
+    # Atoms outside the oracle's scored sample whose every cited span this candidate drops:
+    # knowledge the oracle never scores, so a cut that loses one is not safe (#371).
+    dropped_unscored_atoms: int = 0
 
     @property
     def token_frac(self) -> float:
@@ -72,9 +75,10 @@ class Candidate:
         """Whether this candidate may be accepted at all.
 
         A candidate that drops a protected span is not a smaller artifact; it is a
-        different one, with a failure mode the knowledge score cannot see.
+        different one, with a failure mode the knowledge score cannot see. Nor is one that
+        drops every span citing an atom the oracle did not score: its loss is not in ``knowledge``.
         """
-        return self.protection >= 1.0
+        return self.protection >= 1.0 and self.dropped_unscored_atoms == 0
 
     def as_dict(self) -> dict:
         """Serializable form."""
@@ -93,6 +97,7 @@ class Candidate:
             "safe": self.safe,
             "kept_spans": len(self.kept_span_ids),
             "dropped_protected_spans": list(self.dropped_protected_spans),
+            "dropped_unscored_atoms": self.dropped_unscored_atoms,
         }
 
 
@@ -108,7 +113,8 @@ def span_value(
 
     A conflicting atom contributes *negatively*: keeping the span is worse than dropping
     it, and a selector that treated harm as merely worthless would keep it whenever it
-    was cheap.
+    was cheap. An atom with no outcome (unprobed, such as one outside a capped run's sample)
+    counts at novelty 0.5, and one with no relevance at 0.5.
     """
     relevance = relevance or {}
     outcomes = outcomes or {}
@@ -138,10 +144,21 @@ def build_candidates(
     categories: dict[str, str] | None = None,
     pin_kinds: tuple[str, ...] = ("heading",),
     seed: int = 0,
+    scored_atoms: list[Atom] | None = None,
 ) -> list[Candidate]:
     """Build and score one candidate per (strategy, budget).
 
     Args:
+        atoms: Every extracted atom. Sole carriers, deduplication and each span's value
+            density come from these, so a span whose atoms are all outside ``scored_atoms``
+            still carries knowledge (and is a sole carrier when no other span cites its atom).
+            Such an atom has no outcome, so it adds :func:`span_value`'s no-outcome default
+            (novelty 0.5, at relevance 0.5 when unmatched) to its span's density.
+        scored_atoms: The atoms the oracle scores ``knowledge`` and ``value`` over: a capped
+            run's sample, so the oracle's pairs grow with the cap, not with the atom count.
+            ``None``: ``atoms``. A candidate that keeps no span cited by an atom outside them
+            counts it in ``dropped_unscored_atoms`` and is not ``safe``; ``greedy_value_safe``
+            pins the cheapest cited span of each such atom, so it never drops one.
         budgets: Target token fractions. A budget is a target, not a promise: the safe
             strategies refuse to go below what protection and sole carriers require, and
             report the token fraction they actually reached.
@@ -168,6 +185,10 @@ def build_candidates(
     tokens_full = sum(span.tokens for span in spans)
     protected_ids = {span.id for span in spans if span.protected}
     unread_ids = {span.id for span in spans if span.unread and not atoms_by_span[span.id]}
+    scored = atoms if scored_atoms is None else scored_atoms
+    scored_ids = {atom.id for atom in scored}
+    unscored_carriers = [{s for s in atom.span_ids if s in atoms_by_span}
+                         for atom in atoms if atom.id not in scored_ids]
     candidates: list[Candidate] = []
 
     for strategy in strategies:
@@ -176,14 +197,17 @@ def build_candidates(
                 strategy, spans, atoms_by_span,
                 budget=budget, tokens_full=tokens_full, pin_kinds=pin_kinds,
                 protected_ids=protected_ids, sole_span_ids=sole_span_ids,
-                unread_ids=unread_ids,
+                unread_ids=unread_ids, unscored_carriers=unscored_carriers,
                 relevance=relevance, outcomes=outcomes, categories=categories, seed=seed,
             )
-            candidates.append(_score(
-                strategy, budget, kept, spans, atoms, oracle,
+            candidate = _score(
+                strategy, budget, kept, spans, scored, oracle,
                 tokens_full=tokens_full, protected_ids=protected_ids,
                 relevance=relevance, outcomes=outcomes,
-            ))
+            )
+            candidate.dropped_unscored_atoms = sum(
+                1 for cited in unscored_carriers if cited and cited.isdisjoint(kept))
+            candidates.append(candidate)
             if strategy == "dedupe_only":
                 break  # deduplication ignores the budget; one candidate is the answer
     return candidates
@@ -204,12 +228,14 @@ def _select(
     categories: dict[str, str] | None,
     seed: int,
     unread_ids: set[str] | frozenset[str] = frozenset(),
+    unscored_carriers: list[set[str]] | None = None,
 ) -> list[str]:
     target = budget * tokens_full
     by_id = {span.id: span for span in spans}
     pinned = [s.id for s in spans if s.kind in pin_kinds or s.id in unread_ids]
     if strategy == "greedy_value_safe":
         pinned += [s for s in protected_ids] + [s for s in sole_span_ids]
+        pinned += _unscored_pins(spans, unscored_carriers or [], set(pinned))
     pinned_set = set(pinned)
     spent = sum(by_id[s].tokens for s in pinned_set)
 
@@ -245,6 +271,20 @@ def _select(
         kept_set.add(span.id)
         spent += span.tokens
     return [s.id for s in spans if s.id in kept_set]
+
+
+def _unscored_pins(spans: list[Span], unscored_carriers: list[set[str]],
+                   pinned: set[str]) -> list[str]:
+    """The cheapest cited span (fewest tokens, then span order) of each unscored atom that
+    has no cited span pinned yet: the oracle cannot see such an atom go, so a safe cut keeps one."""
+    order = {span.id: (span.tokens, i) for i, span in enumerate(spans)}
+    pins: list[str] = []
+    for cited in unscored_carriers:
+        if cited and cited.isdisjoint(pinned):
+            cheapest = min(cited, key=order.__getitem__)
+            pins.append(cheapest)
+            pinned.add(cheapest)
+    return pins
 
 
 def render(spans: list[Span], kept_span_ids: list[str], *, frontmatter: str = "") -> str:

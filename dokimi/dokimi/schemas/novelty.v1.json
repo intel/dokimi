@@ -175,7 +175,7 @@
         "pointer_spans": {"type": "object"},
         "by_source": {
           "type": "array",
-          "description": "Per-file atom counts and paired outcomes. An atom is attributed to the file of its first cited span. A file with spans no extraction call read carries n_spans_unread and tokens_unread; a file none of whose spans was read has n_atoms null and unread true, rather than reading as a file that yields no knowledge.",
+          "description": "Per-file atom counts and paired outcomes. An atom is attributed to the file of its first cited span. n_atoms counts every extracted atom; the outcome counts are over the probed atoms, a capped run's sample, and n_sampled (absent from artifacts written before it) is their number, so a file whose atoms all fell outside the sample has n_atoms above 0 and n_sampled 0. A file with spans no extraction call read carries n_spans_unread and tokens_unread; a file none of whose spans was read has n_atoms and n_sampled null and unread true, rather than reading as a file that yields no knowledge.",
           "items": {"type": "object"}
         }
       }
@@ -270,7 +270,7 @@
     },
     "conflict_coverage": {
       "type": "object",
-      "description": "How much of the atom-pair space the conflict check compared. pairs_compared counts pairs that shared an answered call; pairs_total is every pair among the probed atoms, which is the capped sample when spans.capped_atom_set is true. pairs_compared <= pairs_total is not expressible here and is enforced by the gate. A run that left pairs_compared below pairs_total, or capped the atom set, does not clear harmful_atoms at a count of 0.",
+      "description": "How much of the atom-pair space the conflict check compared. pairs_compared counts pairs that shared an answered call; pairs_total is every pair among the probed atoms, which is the cap's sample when extraction.sampled is set (or, on artifacts written before spans indexed every extracted atom, when spans.capped_atom_set is true). pairs_compared <= pairs_total is not expressible here and is enforced by the gate. A run that left pairs_compared below pairs_total, or whose conflict check saw only the cap's sample, does not clear harmful_atoms at a count of 0.",
       "additionalProperties": false,
       "required": ["pairs_compared", "pairs_total"],
       "properties": {
@@ -287,7 +287,7 @@
         "tokens_carrying_nothing": {"type": "integer", "minimum": 0},
         "frac_carrying_nothing": {
           "type": "number",
-          "description": "Upper bound on dead weight, not a measurement of it. Over the text extraction read: spans no extraction call could read (n_unread) are outside both the numerator and the denominator. Read it only together with capped_atom_set: derived from a capped atom set it does not approximate the full-set figure but inverts it (0.064 became 0.743 on the study's largest artifact). Extractor recall is not the limit here: three extractors cited the same spans, Jaccard 0.87-0.99."
+          "description": "Upper bound on dead weight, not a measurement of it. Over the text extraction read: spans no extraction call could read (n_unread) are outside both the numerator and the denominator. Read it only together with capped_atom_set: derived from a capped atom set it does not approximate the full-set figure but inverts it (0.064 became 0.743 on the study's largest artifact). A capped run indexes every extracted atom, so its figure is the artifact's and capped_atom_set is false. Extractor recall is not the limit here: three extractors cited the same spans, Jaccard 0.87-0.99."
         },
         "n_unread": {
           "type": "integer",
@@ -298,11 +298,11 @@
         "n_atoms_indexed": {
           "type": ["integer", "null"],
           "minimum": 0,
-          "description": "How many atoms were indexed onto the spans to compute the dead-token share. Its ratio to the artifact's full atom count is what makes the figure readable."
+          "description": "How many atoms were indexed onto the spans to compute the dead-token share: every extracted atom, a capped run's included (extraction.sampled.of when it is set), so it can exceed atoms.n, the probed set. Its ratio to the artifact's full atom count is what makes the figure readable."
         },
         "capped_atom_set": {
           "type": "boolean",
-          "description": "True when the atom cap left extracted atoms out, so the indexed atoms are a sample (extraction.sampled is set); an input with as many atoms as the cap, or fewer, keeps every atom and is false. Runs written before the spread rule (#293) set it when the indexed atoms reached the cap. The dead-token share is then a property of the sample, not of the artifact, and must not be quoted as the latter."
+          "description": "True when the indexed atoms are a sample of the extracted ones. Every run indexes every extracted atom since #371, a capped one too (its probes are the sample extraction.sampled describes), so it is false; it is true only on artifacts written before that, by a run whose cap left atoms out (or, before the spread rule of #293, whose indexed atoms reached the cap). The dead-token share is then a property of the sample, not of the artifact, and must not be quoted as the latter."
         },
         "sole_carrier": {"type": "integer", "minimum": 0},
         "protected": {"type": "integer", "minimum": 0},
@@ -449,9 +449,10 @@
             "description": "Share of protected spans kept. A candidate below 1.0 is a different artifact, not a smaller one."
           },
           "routing": {"type": "number"},
-          "safe": {"type": "boolean"},
+          "safe": {"type": "boolean", "description": "Protection is 1.0 and `dropped_unscored_atoms` is 0 (or absent): only a safe candidate is picked as the best one by default."},
           "kept_spans": {"type": "integer"},
-          "dropped_protected_spans": {"type": "array", "items": {"type": "string"}}
+          "dropped_protected_spans": {"type": "array", "items": {"type": "string"}},
+          "dropped_unscored_atoms": {"type": "integer", "minimum": 0, "description": "Atoms outside the scored sample (a capped run's unsampled atoms) none of whose cited spans the candidate keeps. The oracle never scores them, so `knowledge` cannot show their loss; above 0 the candidate is not `safe`. Absent on artifacts written before it existed."}
         }
       }
     },

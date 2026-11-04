@@ -134,10 +134,12 @@ marked. Read it as a review queue:
   probed atom set (at most `max_atoms`, 120 by default) in one call, so every pair is compared
   unless a call fails or its reply has to be split. The artifact records the share as
   `conflict_coverage` (`pairs_compared`, `pairs_total`) and warns `the conflict check compared X of
-  Y atom pairs` when it is short. `pairs_total` is over the probed atoms, which are only the ones the cap kept when
-  `spans.capped_atom_set` is true. The `harmful_atoms` gate check reads a count of 0 as cleared only
-  when the share reaches `min_conflict_coverage` (1.0 by default) and the atom set was not capped;
-  otherwise it is `measured: false`, as it is when `conflict_coverage` is present but malformed. A
+  Y atom pairs` when it is short. `pairs_total` is over the probed atoms, which are only the cap's
+  sample when `extraction.sampled` is set (or, on an artifact written before spans indexed every
+  atom, when `spans.capped_atom_set` is true). The `harmful_atoms` gate check reads a count of 0 as
+  cleared only when the share reaches `min_conflict_coverage` (1.0 by default) and the conflict check
+  saw every atom; otherwise it is `measured: false` (`the conflict check compared the cap's sample of
+  60 of the 200 extracted atoms`), as it is when `conflict_coverage` is present but malformed. A
   conflict that was found is always reported. The Markdown report `analyze` writes next to the
   artifact says the same: in place of the `Conflicts first` line it gives the gate's reason, and its
   `harmful_conflicting` row reads `not measured (0 found)`. An artifact written before
@@ -289,7 +291,10 @@ Read it in this order:
    extracted atom set this was ≤0.14 on every artifact in the study. **Only trust it when the atom
    set behind it is complete:** the study's two apparent outliers (0.50 and 0.74) turned out to be
    artifacts of a 250-atom-per-artifact judging cap on the two largest artifacts, whose real figures
-   are 0.068 and 0.064. Always read this metric next to its judged/extracted atom ratio.
+   are 0.068 and 0.064. Always read this metric next to its judged/extracted atom ratio. A run indexes
+   spans from every extracted atom, a capped one too: `spans.n_atoms_indexed` is every atom and
+   `spans.capped_atom_set` is false, so the figure is the artifact's. An artifact written before that
+   with `capped_atom_set: true` indexed only the atoms the cap kept, and its figure is not.
 4. **`added` last** — it tells you whether the artifact is worth its tokens, but the three checks
    above tell you what to do.
 
@@ -305,7 +310,7 @@ then rendered as the artifact's own text with colour:
 | red (`harmful`, `degraded`) | carries a `harmful_conflicting` or `degraded` atom |
 | amber (`protected`) | **protected**: expresses a negation, version gate, ordering constraint, or threshold |
 | blue (`still_missing`) | states something the model got wrong with and without it, and nothing it already knew — rephrase or promote it |
-| plain (`unscored`) | carries atoms with no measured outcome and none judged inert or scaffolding: unprobed atoms judged useful (including atoms whose probe runs all errored), or atoms the value judge did not answer for — so no colour is claimed |
+| plain (`unscored`) | carries atoms with no measured outcome and none judged inert or scaffolding: unprobed atoms judged useful (including atoms whose probe runs all errored), atoms the value judge did not answer for, or atoms outside a capped run's sample — so no colour is claimed |
 | hatched (`unread`) | no extraction call could read it, so what it carries is unknown — not dead weight |
 | dim (`empty`) | carries no extracted atom at all |
 
@@ -365,6 +370,23 @@ measured `K0`, which only probed atoms have. In the study that left per-model va
 ranking were, in practice, atom *coverage* per token. Candidates therefore ship `value_coverage` and a
 `value_is_coverage_proxy` flag, and `pick_best` tie-breaks on `knowledge` rather than `value` when the
 flag is set. Coverage per token is a fine selection rule; it is just not a relevance claim.
+
+**On a capped run, structure comes from every atom and scores from the sample.** Sole carriers,
+deduplication and each span's value density are built from every extracted atom, so a span whose
+atoms all fell outside the cap's sample still carries knowledge: it is not dim, not dead weight, and a
+sole carrier when no other span cites its atom, so the safe strategy keeps it. Its atoms have no
+outcome, so they count at the no-outcome default (novelty 0.5, at relevance 0.5 when the need graph
+did not match them) in its density. `knowledge` and `value` are retention of the sampled atoms only
+(`build_candidates` takes them as `scored_atoms`), so the oracle's pairs grow with the cap, not with
+the atom count. With no cap, or a cap the atoms do not exceed, the two sets are the same. Since
+the oracle cannot see an unsampled atom go, each candidate counts the unsampled atoms none of whose
+cited spans it keeps (`dropped_unscored_atoms`), and a candidate is `safe` only when that is 0 and it
+keeps every protected span. `greedy_value_safe` pins, besides protected spans and sole carriers, the
+cheapest cited span (fewest tokens, then the earliest) of each unsampled atom none of whose cited
+spans is pinned yet, so an unsampled atom cited by two spans keeps one of them. Without
+`--allow-unsafe`, `pick_best` (the one `shorten --out` writes) takes only safe ones, so a
+`greedy_value` or `random` cut that drops an unsampled fact is still built, scored and listed, but
+not chosen.
 
 Rule of thumb from the measurements: a safety-pinned strategy at 0.60 token fraction held
 `protection = 1.000` with knowledge 0.81–0.96, and pooled across the behavioural sweep every
@@ -536,7 +558,10 @@ Things to know before reading a bundle result:
 The payoff is `bundle.by_source`: the paired 2×2 cut by the file that carried each atom. A
 reference whose atoms are all `redundant` is a file the model already knows; one full of
 `added` is knowledge that may belong where the agent will actually read it; one with zero
-atoms is pointers and prose. A file with spans extraction could not read says how many
+atoms is pointers and prose. `n_atoms` counts every extracted atom of the file; the outcome counts
+are over the atoms the run probed, and `n_sampled` is how many of the file's atoms that is, so on a
+capped run a file whose atoms all fell outside the sample reads `n_sampled: 0` with its `n_atoms`
+above 0, rendered `5 (0 sampled)` in novelty.md (without a cap the two are equal). A file with spans extraction could not read says how many
 (`n_spans_unread`, `tokens_unread`), and a file it read none of has `n_atoms: null` and `unread:
 true` (rendered `not read`), not zero atoms. **Pointer spans** — spans whose content is just a path into
 the bundle (53 of 2,600 spans in the corpus, 19 of 33 skills), and the per-file headings
@@ -929,15 +954,14 @@ Each tier carries the **claims it forfeits**, and those strings are written into
 `run_config.tier` *and* appended to the artifact's warnings. They follow the settings the
 run used and the atoms it extracted, not the tier's name: `--no-verify` adds the
 faithfulness forfeit, and `--all-atoms` or a skill with no more atoms than the cap (which
-keeps every atom: `extraction.sampled` is `null` and `spans.capped_atom_set` false) drops the
-cap's ones (that `added` is a rate over the sample of extracted atoms the cap kept, not over
-every atom, and
-that `frac_carrying_nothing` is not interpretable on a capped atom set). They do not depend on
-which atoms the cap kept (`--estimate-only` lists them before it is known), and neither does
-the `harmful_atoms` gate reason (`0 conflicts among the capped atoms`). With shortening on, a
-cap that left atoms out adds that `shortening candidates are scored against a spread sample of 60 of the
-extracted atoms: a cut of a span with no sampled atom looks free` (60 at `standard`, 120 at
-`study`). `--estimate-only` cannot know the atom count yet, so it lists them:
+keeps every atom: `extraction.sampled` is `null`) drops the cap's one (that `added` is a rate
+over the sample of extracted atoms the cap kept, not over every atom). A capped run indexes its
+spans from every extracted atom, so `frac_carrying_nothing` is not forfeit. The forfeits do not
+depend on which atoms the cap kept (`--estimate-only` lists them before it is known). With
+shortening on, a cap that left atoms out adds that ``shortening candidates are scored against a
+spread sample of 60 of the extracted atoms: `knowledge` and `value` are retention of that sample,
+not of every atom, though the sole carriers a safe candidate keeps come from every atom`` (60 at
+`standard`, 120 at `study`). `--estimate-only` cannot know the atom count yet, so it lists them:
 
 > tier `triage` forfeits: no paraphrase probe, so a `redundant` verdict is unprotected
 > against the model matching the artifact's own wording
@@ -958,7 +982,7 @@ that order, and with M ≤ n nothing is sorted and every atom is probed in extra
 stride needs no seed: the same extracted atom list gives the same sample. A fresh extraction is new model calls, so the
 same text can give other atoms and so another sample; to probe identical atoms across runs or
 models, extract once with `novelty atoms` and pass its `atoms.json` to `novelty probe --atoms`
-(and `novelty shorten --atoms`), which probe the saved atoms without sampling again. The input
+(and `novelty shorten --atoms`), which measure the sample it records without sampling again. The input
 is the text that was segmented: the entry point, plus on a bundle run the files its roles and
 budgets selected, in that order. The stride runs over the concatenated atom list of those
 files, so a file's expected share of the probes is its share of the atoms, but a file with few
@@ -979,8 +1003,40 @@ extraction.unread_span_ids): ...`. The `novelty.md` header says the same, and th
 `coverage:` line says the words went into the input and the cap probed 25 of the input's 61
 atoms, or of the atoms extracted from the spans that were read (the warning under that line,
 when half or less of the words went in, says "went into the input" too). `novelty atoms` prints
-the same warning on stderr and saves the same sample in `atoms.json`; `probe` and `shorten`,
+the same warning on stderr and records the same sample in `atoms.json`; `probe` and `shorten`,
 which read it, do not repeat the warning.
+
+What a capped run probes is the sample; what it indexes and writes is every extracted atom.
+Faithfulness, the need-graph match, the probes, the conflict check, carrier confirmation and the
+shortening oracle run on the n sampled atoms, so the bill stays at the cap. The spans' `atom_ids`,
+`spans` (`frac_carrying_nothing`, `sole_carrier`, `n_atoms_indexed`, which is M), the span labels,
+dead weight, sole carriers and shortening's structure come from all M: a span whose atoms fell
+outside the sample reads `unscored` (or `protected`), not `empty`. `atoms.json` holds all M atoms,
+the ones outside the sample with `faithfulness: "unchecked"`, and `sampled_atom_ids` lists the
+sample's ids in probe order (`null` when the cap kept every atom). `novelty probe` and `novelty
+shorten` measure only those atoms by default, say so on stderr (`NOTE probe measures the 60 atoms
+atoms.json records as the cap's sample, of its 200`), and index spans from all of them;
+`--all-atoms` measures every atom in the file, reusing the extraction instead of paying for a new
+one. Those outside the sample were never checked for faithfulness, so when any of them reads
+`unchecked`, `--all-atoms` prints a `WARNING` with how many, and that `novelty atoms --all-atoms`
+(a new, uncapped extraction) verifies every atom it extracts. On a bundle, `novelty shorten` keeps only the entry point's atoms; when none of the sample is
+among them it would score nothing, so it exits 2 and asks for `--all-atoms`.
+`novelty view` colours spans from every atom. An `atoms.json` with no `sampled_atom_ids`,
+written before the record existed, held only the atoms its run probed, and is read as all of them
+sampled; one whose `sampled_atom_ids` names an atom the file does not hold, or names one twice,
+is refused (exit 2).
+When such an older file's record shows a cap that bound (`extraction.sampled` set, or `cap` set
+with any `extraction.reached` object, which a document-order cap wrote only when it bound),
+`novelty probe`, `novelty shorten` and `novelty view` print a `WARNING` on stderr: the file holds
+only the atoms its run probed, so spans whose atoms fell outside them read as carrying nothing and
+a shortening can cut them; re-run `novelty atoms` to index every atom. A document-order cap whose
+`reached` is the input's last span (`spans` equal to `of`) may still have cut atoms from that last
+reply, so the warning says the file *may* hold only the atoms its run probed. A file from before
+`extraction.reached` existed (#299), with `cap` set, no `reached` key and at least `cap` atoms, gets
+the same "may hold" warning, since its document-order cap stopped at exactly `cap` atoms when it
+bound and the file cannot say whether it did; one with fewer atoms than `cap` gets none. A file this
+version wrote always has the key, so one whose cap kept every atom (`sampled_atom_ids: null`) gets
+no warning.
 
 Runs written before the spread rule recorded `cap-per-artifact:<n>`: extraction walked the spans
 in document order and stopped at the cap, so their atoms cover the input up to the span it
@@ -1009,7 +1065,10 @@ the wrong reason. If the artifact's files changed since extraction — edited, r
 new text file added — `probe` refuses instead of mis-scoring (a new image or symlink is not
 text any mode reads, so it does not). The entry point alone may
 change (that is the re-measure step); the result's `ref_digest` and `bundle` then describe
-the text that was probed, and `atoms_ref_digest` the text the atoms came from. Every novelty
+the text that was probed, and `atoms_ref_digest` the text the atoms came from. Its `sampling`,
+`{"atoms": n, "of": M, "all_atoms": false}`, says `probe` measured n of the file's M atoms (the
+recorded sample) or, with `all_atoms: true`, every one, so a rate over a sample is not quoted as
+the file's; records written before it have no `sampling`. Every novelty
 `ref_digest` is the bundle's `measured_digest` (the measured files' paths and text digests);
 the subject scorecard's `subject.ref_digest` is a different hash, of every file under the
 subject path, and the two are not meant to match. `shorten`
