@@ -75,6 +75,8 @@ def test_a_capped_run_indexes_every_atom_and_probes_only_the_sample():
     assert lossy and not any(c["safe"] for c in lossy)
     assert any("drop every span of an atom outside the cap's sample" in line
                for line in artifact["warnings"])
+    assert all(c["protection"] == 1.0 for c in artifact["shortening"])
+    assert not any("drop protected spans" in line for line in artifact["warnings"])
     forfeits = artifact["run_config"]["tier"]["forfeits"]
     assert not any("frac_carrying_nothing" in line or "looks free" in line for line in forfeits)
     assert any(line.startswith("shortening candidates are scored against a spread sample of 60")

@@ -260,3 +260,22 @@ def test_the_safe_strategy_keeps_the_cheapest_span_of_an_unsampled_atom_cited_tw
     uncapped = build_candidates(spans, atoms, oracle=RetentionOracle(client=None), budgets=(0.5,),
                                 strategies=("greedy_value_safe",))
     assert not {"s0002", "s0003"} & set(uncapped[0].kept_span_ids)
+
+
+def test_the_safe_strategy_pins_nothing_for_an_unsampled_atom_already_kept():
+    """Unsampled a2 cites s0001, which is pinned as a1's sole carrier: s0002 stays droppable."""
+    from dokimi.novelty.spans import Span
+
+    words = ("alpha", "bravo", "charlie", "delta", "echo", "foxtrot")
+    spans = [Span(id=f"s{i:04d}", kind="sentence", text=" ".join([w] * 20)[:80 if i == 1 else 40],
+                  start=0, end=80 if i == 1 else 40) for i, w in enumerate(words, start=1)]
+    cites = (("s0001",), ("s0001", "s0002"), ("s0003",), ("s0004",), ("s0005",), ("s0006",))
+    atoms = [Atom(statement=f"fact {i}", question=f"Q {i}", answer="a", span_ids=ids)
+             for i, ids in enumerate(cites, start=1)]
+    index_atoms(spans, atoms)
+    assert [span.tokens for span in spans] == [20, 10, 10, 10, 10, 10]
+    sample = [atom for atom in atoms if atom is not atoms[1]]
+    safe = build_candidates(spans, atoms, oracle=RetentionOracle(client=None), budgets=(0.3,),
+                            strategies=("greedy_value_safe",), scored_atoms=sample)[0]
+    assert safe.kept_span_ids == ["s0001", "s0003", "s0004", "s0005", "s0006"]
+    assert (safe.dropped_unscored_atoms, safe.safe) == (0, True)
