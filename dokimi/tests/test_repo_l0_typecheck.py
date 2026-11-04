@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -197,7 +198,7 @@ def test_the_scan_text_report_names_the_tool_and_the_interpreter(tmp_path, capsy
     args = _scan_args(tmp_path, "--typecheck", "--python-env", sys.executable)
     args.func(args)
     out = capsys.readouterr().out
-    assert f"({sys.executable}): 3 python fences, 2 checked, 1 fail, 0 unknown, 1 not Python" in out
+    assert f"({os.path.abspath(sys.executable)}): 3 python fences, 2 checked, 1 fail, 0 unknown, 1 not Python" in out
     assert "FAIL AGENTS.md:12 [python_fence]" in out
 
 
