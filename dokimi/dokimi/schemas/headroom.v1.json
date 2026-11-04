@@ -8,6 +8,8 @@
   "additionalProperties": false,
   "properties": {
     "schema_version": {"const": "headroom.v1"},
+    "run_id": {"type": "string", "minLength": 1, "description": "The envelope: the id of the run that saved this file (dokimi.artifacts.run_id). Absent from files saved before the envelope."},
+    "dokimi_version": {"type": "string", "minLength": 1, "description": "The envelope: the dokimi version that saved this file. Absent from files saved before the envelope."},
     "no_skill_arm": {"type": "string", "description": "The control arm read as no-skill."},
     "thresholds": {
       "type": "object",

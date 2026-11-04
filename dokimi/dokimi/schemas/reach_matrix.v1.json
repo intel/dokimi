@@ -7,6 +7,8 @@
   "required": ["schema_version", "generated_at", "expectations", "expectations_digest", "fixtures_digest", "runs", "cells", "summary"],
   "properties": {
     "schema_version": {"const": "reach_matrix.v1"},
+    "run_id": {"type": "string", "minLength": 1, "description": "The envelope: the id of the run that saved this file (dokimi.artifacts.run_id). Absent from files saved before the envelope."},
+    "dokimi_version": {"type": "string", "minLength": 1, "description": "The envelope: the dokimi version that saved this file. Absent from files saved before the envelope."},
     "generated_at": {"type": "string"},
     "expectations": {"const": "reach_conformance.v1", "description": "The schema of the expectations file the documented states come from."},
     "expectations_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "The sha256 of the expectations file's content as canonical JSON (sorted keys, no spaces); matrices with different digests are not merged."},

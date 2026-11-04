@@ -213,7 +213,7 @@ def test_save_puts_the_current_version_first_and_returns_what_it_wrote(tmp_path)
     written = save_artifact("questions", {"questions": [], "schema_version": "questions.v0"}, out)
     on_disk = json.loads(out.read_text(encoding="utf-8"))
     assert on_disk == written
-    assert list(on_disk) == ["schema_version", "questions"]
+    assert list(on_disk) == ["schema_version", "run_id", "dokimi_version", "questions"]
     assert on_disk["schema_version"] == SCHEMA_VERSIONS["questions"]
     assert [p.name for p in out.parent.iterdir()] == ["q.json"]  # the .tmp sibling is gone
 

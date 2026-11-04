@@ -898,6 +898,33 @@ save. A reader's test builds its input with `tests/artifact_fixtures.py`, which 
 rejects keys the schema does not declare: the schema lists every record key its
 producers write, so a fixture cannot invent one.
 
+### The run envelope
+
+An artifact a run writes carries the run's envelope right after its `schema_version`
+([#277](https://github.com/intel/dokimi/issues/277)):
+
+```json
+{"schema_version": "arms.v1", "run_id": "20261104T153012Z-1a2b3c4d", "dokimi_version": "0.1.0", ...}
+```
+
+- `run_id` is made once per process from the UTC start time and 8 random hex digits, so every
+  file one command writes shares it (a pipeline's questions, answers and eval; a catalog run's
+  report and result). `runs list` and `runs show` print it.
+- `DOKIMI_RUN_ID` gives several commands one id, for example the steps of a CI job. It is 1-128
+  letters, digits, `.`, `_` or `-` and starts with a letter or a digit, so it can name a
+  directory. Any other value exits 2 before the command does anything.
+- A file saved again records the process that saved it: a run resumed from a partial file takes
+  the resuming run's id, and so does an artifact built from a loaded one.
+- The input kinds carry no envelope: `plan`, `dokimi_config`, `repo_ledger`, `need_graph` and
+  `cli_routes` say what a run is given. A plan's digest, which resume compares, would otherwise
+  change with every process that saved it. `harness_profile`, `repo_manifest` and
+  `tool_preference_groups` are inputs too, validated but never saved.
+- A file saved before the envelope has neither key and stays valid; so do the superseded
+  versions (`questions.v1`, `subject_scorecard.v1`), which declare no envelope.
+- The `--json` output of `repo scan`, `repo inspect`, `repo budget` and `eval inspect`
+  carries the same envelope as the file their `--out` writes.
+- The run's cost is not in the envelope yet.
+
 A schema version only widens in place; a narrowing is a new version. Writers always
 stamp the current version (`SCHEMA_VERSIONS` in `dokimi/artifacts.py`), and
 superseded versions (`SUPERSEDED_VERSIONS`) keep loading: a file is validated against

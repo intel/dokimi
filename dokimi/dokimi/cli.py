@@ -193,9 +193,11 @@ def main() -> None:
         process.install_signal_handlers()  # SIGTERM/SIGHUP: kill the process groups we started, then exit
     tolerate_console_encoding()
     args = parse_args()
+    from dokimi.artifacts import run_id
     from dokimi.utils import InputError
 
     try:
+        run_id()  # a malformed DOKIMI_RUN_ID stops here, not at the first save after paid calls
         args.func(args)
     except (InputError, llm_cli.SamplingError) as exc:  # bad input, not a bug: no traceback
         print(f"Error: {exc}", file=sys.stderr)

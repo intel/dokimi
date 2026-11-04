@@ -9,7 +9,7 @@ import argparse
 import json
 from datetime import datetime, timezone
 
-from dokimi.artifacts import SCHEMA_VERSIONS
+from dokimi.artifacts import INPUT_KINDS, SCHEMA_VERSIONS
 from dokimi.runs.scan import (
     SKIP_REASONS,
     Artifact,
@@ -127,7 +127,8 @@ def _show_text(shown: Shown) -> list[str]:
         ("subject", a.subject or "-"),
         ("model", a.model or "-"),
         ("time", when),
-        ("run_id", "- (no artifact records one yet)"),
+        ("run_id", a.run_id or ("- (an input kind: no envelope)" if a.kind in INPUT_KINDS
+                                else "- (saved before the envelope)")),
         ("size", f"{a.size_bytes:,} bytes"),
         ("contents", ", ".join(f"{key}: {n}" for key, n in shown.contents.items()) or "-"),
         ("next to it", shown.siblings_error or ", ".join(beside) or "-"),

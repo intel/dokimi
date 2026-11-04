@@ -17,7 +17,15 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from dokimi.artifacts import SCHEMA_DIR, SCHEMA_VERSIONS, validate_artifact
+from dokimi.artifacts import ENVELOPE_KEYS, SCHEMA_DIR, SCHEMA_VERSIONS, validate_artifact
+
+
+def without_envelope(document: Any) -> Any:
+    """A JSON object without the run envelope ``save_artifact`` adds (``run_id``, ``dokimi_version``),
+    which changes per run, so a committed copy of a producer's output compares; anything else as is."""
+    if not isinstance(document, dict):
+        return document
+    return {k: v for k, v in document.items() if k not in ENVELOPE_KEYS}
 
 
 def undeclared_keys(schema: Any, instance: Any, path: str = "", root: Any = None) -> list[str]:

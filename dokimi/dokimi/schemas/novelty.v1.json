@@ -18,6 +18,16 @@
     "schema_version": {
       "const": "novelty.v1"
     },
+    "run_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The envelope: the id of the run that saved this file (dokimi.artifacts.run_id). Absent from files saved before the envelope."
+    },
+    "dokimi_version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The envelope: the dokimi version that saved this file. Absent from files saved before the envelope."
+    },
     "run_config": {
       "type": "object",
       "description": "Seed, probe arms and budgets, stage switches, which files of the artifact were read, and a digest of the stage prompts. Two cells compare only when this block matches. `tier` is the named cost tier the run was launched at, if any, and carries `forfeits`: the claims a run at that tier may not make. The cost is probe-budget bound (~4 model calls per paired probe, measured), so a cheap tier buys its saving by giving up probe kinds and atoms, not by skipping cheap stages -- the forfeits say which."

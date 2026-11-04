@@ -7,6 +7,8 @@
   "required": ["schema_version", "harness", "model", "cases", "scenarios", "records", "collisions", "summary"],
   "properties": {
     "schema_version": {"const": "skill_discovery.v1"},
+    "run_id": {"type": "string", "minLength": 1, "description": "The envelope: the id of the run that saved this file (dokimi.artifacts.run_id). Absent from files saved before the envelope."},
+    "dokimi_version": {"type": "string", "minLength": 1, "description": "The envelope: the dokimi version that saved this file. Absent from files saved before the envelope."},
     "generated_at": {"type": "string"},
     "harness": {
       "type": "object",

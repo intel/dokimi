@@ -24,7 +24,7 @@ from dokimi.cli import build_parser
 from dokimi.datasets_export import export_artifact
 from dokimi.questions.artifact import load_questions, save_questions_artifact, upgrade_questions
 from dokimi.questions.normalizer import canonical_question, normalize_question
-from tests.artifact_fixtures import artifact_fixture
+from tests.artifact_fixtures import artifact_fixture, without_envelope
 
 GOLDEN = Path(__file__).resolve().parent / "fixtures" / "questions"
 GOLDEN_EXCERPTS = sorted(GOLDEN.glob("*_golden.excerpt.json"))
@@ -260,7 +260,7 @@ def test_an_upgraded_curated_set_round_trips_as_v2(path, tmp_path):
     save_questions_artifact(load_questions(path).artifact, out)
     again = load_questions(out)
     assert again.source_version == "questions.v2"
-    assert again.artifact == load_questions(path).artifact
+    assert without_envelope(again.artifact) == load_questions(path).artifact
 
 
 def test_load_questions_reads_a_v2_file_unchanged(tmp_path):
