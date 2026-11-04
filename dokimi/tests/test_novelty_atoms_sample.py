@@ -226,6 +226,32 @@ def test_both_shorten_tables_show_the_unsampled_atoms_a_candidate_loses(
     assert "or every span of an atom outside the cap's sample (`lost`" in markdown
 
 
+@pytest.mark.parametrize("flags, made, line", [
+    ([], None, "No safe candidate is shorter than the artifact; its length is its content."),
+    ([], {"protection": 1.0, "dropped_unscored_atoms": 2},
+     "No safe candidate (none kept every protected span and unsampled atom)."),
+    (["--all-atoms"], {"protection": 0.5, "dropped_unscored_atoms": 0},
+     "No safe candidate (none kept every protected span)."),
+], ids=["safe-but-not-shorter", "capped-none-safe", "all-atoms-none-safe"])
+def test_shorten_says_why_it_offers_no_candidate(tmp_path, monkeypatch, capsys, flags, made, line):
+    """Every span is a sole carrier, so the safe cuts keep it all; or no cut is safe."""
+    from dokimi.novelty import shorten
+
+    skill, atoms_json, _saved = _capped_atoms_json(tmp_path, monkeypatch)
+    if made is not None:
+        unsafe = shorten.Candidate(strategy="greedy_value", budget_frac=0.5, text="t", tokens=5,
+                                   kept_span_ids=["s0001"], tokens_full=10, knowledge=1.0,
+                                   value=1.0, **made)
+        monkeypatch.setattr(shorten, "build_candidates", lambda spans, atoms, **kwargs: [unsafe])
+    capsys.readouterr()
+    _cli(monkeypatch, "shorten", "--artifact", f"skill:{skill}", "--atoms", str(atoms_json),
+         "--lexical-only", *flags)
+    out = capsys.readouterr().out.splitlines()
+    assert out[-1] == line
+    if made is None:
+        assert any(row.split()[-1] == "True" for row in out[1:-2])
+
+
 @pytest.mark.parametrize("flags, probed", [([], 2), (["--all-atoms"], 6)],
                          ids=["the-sample", "all-atoms"])
 def test_probe_measures_the_recorded_sample_or_with_all_atoms_every_atom(

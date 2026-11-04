@@ -126,3 +126,11 @@ def measured_atoms(args: argparse.Namespace, atoms: list, saved: dict, stage: st
           f"sample, of its {len(atoms)}; spans are indexed from all {len(atoms)}. Pass "
           "--all-atoms to measure every atom, reusing the extraction", file=sys.stderr)
     return sample
+
+
+def no_candidate_line(candidates: list, scored: list, atoms: list) -> str:
+    """Why ``shorten`` offers nothing: every safe cut keeps the whole artifact, or none is safe."""
+    if any(candidate.safe for candidate in candidates):
+        return "No safe candidate is shorter than the artifact; its length is its content."
+    unsampled = " and unsampled atom" if len(scored) < len(atoms) else ""
+    return f"No safe candidate (none kept every protected span{unsampled})."

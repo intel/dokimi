@@ -628,7 +628,7 @@ def _refuse_no_queries(args: argparse.Namespace, queries: list[str], self_derive
 
 def cmd_novelty_shorten(args: argparse.Namespace) -> None:
     """Score shortening candidates on the five axes and optionally write the best one."""
-    from dokimi.commands.novelty_atoms_file import measured_atoms, warn_unread
+    from dokimi.commands.novelty_atoms_file import measured_atoms, no_candidate_line, warn_unread
     from dokimi.novelty.artifact import load_artifact_or_exit
     from dokimi.novelty.atoms import load_atoms_or_exit
     from dokimi.novelty.bundle import entry_point_only
@@ -671,7 +671,7 @@ def cmd_novelty_shorten(args: argparse.Namespace) -> None:
         )
     best = pick_best(candidates, require_safe=not args.allow_unsafe)
     if best is None:
-        print("No safe candidate (none kept every protected span and unsampled atom).")
+        print(no_candidate_line(candidates, scored, atoms))
         return
     print(
         f"Best safe candidate: {best.strategy} @ {best.budget_frac} → {best.token_frac} tokens, "
