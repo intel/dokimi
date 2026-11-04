@@ -126,6 +126,8 @@ def test_long_lists_of_the_text_are_cut_at_ten(tmp_path):
     ("sub/CLAUDE.md", ["review_replay_pr1"]),
     ("sub/.claude/CLAUDE.md", ["review_replay_pr1"]),  # .claude/ is its parent directory's
     ("sub/GEMINI.md", ["review_replay_pr1"]),
+    (".claude/rules/CLAUDE.md", ["review_replay_pr1", "review_replay_pr2", "review_replay_pr3"]),  # a rule, not memory
+    ("sub/.claude/rules/AGENTS.md", ["review_replay_pr1", "review_replay_pr2", "review_replay_pr3"]),
     (".claude/rules/x.md", ["review_replay_pr1", "review_replay_pr2", "review_replay_pr3"]),  # not scoped: strict
     ("sub/docs/guide.md", ["review_replay_pr1", "review_replay_pr2", "review_replay_pr3"]),
 ])
@@ -176,6 +178,8 @@ def test_the_latest_applicable_commit_is_the_one_recorded(tmp_path):
     ("See https://github.com/numpy/dpnp/pull/3103 for why", True),
     ("(#3103)", True),
     ("Fix #31030", False),
+    ("Rules from other/repo-#3103", False),  # - and . are repository-name characters
+    ("Rules from other/repo.#3103", False),
     ("Rules from other/repo#3103", False),
     ("Rules from https://example.invalid/tracker/#3103", False),  # a path's #3103 is not this PR's
     ("Rules from xnumpy/dpnp#3103", False),

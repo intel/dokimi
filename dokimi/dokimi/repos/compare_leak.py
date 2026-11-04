@@ -14,13 +14,15 @@ thread because a rule was written from it (https://github.com/intel/dokimi/issue
   ``committed`` (the committer date: an amend or a rebase keeps the author date) later than the task's
   ``public_at``, compared as times. A file applies to every task unless it is a directory-scoped instruction
   file (:data:`SCOPED_NAMES`) below the root: then it applies to a task whose ``patch_files`` has a path
-  under its directory (``.claude/`` counts as its parent). Every other guidance path (``.claude/rules/*``,
-  ``.github/copilot-instructions.md``, a skill, ...) applies to every task, the strict side; so does every
-  file to a task with no ``patch_files`` (one built before ``repo tasks replay`` wrote it), and its entry
-  says ``scoped: false``. A task with no ``public_at`` is unknown by date.
+  under its directory (``.claude/`` counts as its parent). Every other guidance path (``.claude/rules/*``
+  whatever its name, ``.github/copilot-instructions.md``, a skill, ...) applies to every task, the strict side;
+  so does every file to a task with no ``patch_files`` (one built before ``repo tasks replay`` wrote it), and its entry
+  says ``scoped: false``. A task with no ``public_at`` is unknown by date. ``@`` imports are not followed:
+  ``guidance_latest`` holds no import graph, so a nested file a root file imports counts as scoped.
 - **by name**: an ``arm_rev.guidance_commits`` subject names the task's PR: ``#<source_pr>`` not preceded
-  by a word character or ``/``, ``<owner>/<repo>#<source_pr>`` of the task's own ``source_url``, or that
-  PR's URL, none followed by a digit. ``other/repo#<n>`` does not count, no text is compared, and a task
+  by a word character, ``/``, ``.`` or ``-`` (what a repository name holds), ``<owner>/<repo>#<source_pr>``
+  of the task's own ``source_url``, or that PR's URL, none followed by a digit. ``other/repo#<n>`` does not
+  count, no text is compared, and a task
   with no ``source_pr`` has no PR to be named. With
   ``guidance_commits_truncated`` the check covered only the newest commits the list kept.
 
@@ -39,6 +41,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .budget import RULE_GLOB
 from .guidance_history import GUIDANCE_COMMITS_CAP
 from .receipt import SUBTREE_NAMES
 
@@ -181,8 +184,8 @@ def _by_date(rev: dict[str, Any], spec: dict[str, Any]) -> _State:
 
 def applies(path: str, patch_files: list[str] | None) -> bool:
     """Whether a guidance file at ``path`` applies to a task patching ``patch_files`` (``None``: not known)."""
-    if patch_files is None or posixpath.basename(path) not in SCOPED_NAMES:
-        return True
+    if patch_files is None or posixpath.basename(path) not in SCOPED_NAMES or RULE_GLOB.match(path):
+        return True  # a file under .claude/rules/ is a rule whatever its name, loaded at start
     scope = posixpath.dirname(path)
     if posixpath.basename(scope) == ".claude":  # .claude/CLAUDE.md is its parent directory's memory
         scope = posixpath.dirname(scope)
@@ -214,7 +217,7 @@ def _by_name(rev: dict[str, Any], spec: dict[str, Any]) -> _State:
 def names_pr(pr: int, source_url: Any) -> re.Pattern[str]:
     """What names PR ``pr`` in a subject: ``#<pr>``, and with a ``.../<owner>/<repo>/pull/<n>`` ``source_url``
     ``<owner>/<repo>#<pr>`` and the PR's URL with nothing glued before its host; never followed by a digit."""
-    forms = [rf"(?<![\w/])#{pr}(?!\d)"]
+    forms = [rf"(?<![\w/.-])#{pr}(?!\d)"]
     found = re.fullmatch(r"https?://([^/]+)/([^/]+)/([^/]+)/pull/\d+/?", source_url) \
         if isinstance(source_url, str) else None
     if found:

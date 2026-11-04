@@ -2172,14 +2172,16 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   named `AGENTS.md`, `CLAUDE.md`, `CLAUDE.local.md` or `GEMINI.md` below the
   root applies to a task whose `patch_files` has a path under its directory
   (one in a `.claude/` directory counts for that directory's parent); any
-  other guidance path (`.claude/rules/*`, `.github/copilot-instructions.md`,
+  other guidance path (`.claude/rules/*` whatever its name, `.github/copilot-instructions.md`,
   a skill) applies to every task, which errs on the strict side, and so does
   every file to a task with no `patch_files` (its entry says `scoped: false`).
+  `@` imports are not followed (`guidance_latest` holds no import graph): a nested
+  file that a root file imports counts as scoped, so it can be missed.
   A task is flagged **by name** when a `guidance_commits` subject names its
-  PR: `#<source_pr>` not preceded by a word character or `/`,
+  PR: `#<source_pr>` not preceded by a word character, `/`, `.` or `-`,
   `<owner>/<repo>#<source_pr>` of the task's own `source_url`, or that PR's
   URL (its host not glued to a longer name), none followed by a digit
-  (`#31030`, `other/repo#3103` and `notgithub.com/<owner>/<repo>/pull/3103`
+  (`#31030`, `other/repo#3103`, `other/repo-#3103` and `notgithub.com/<owner>/<repo>/pull/3103`
   do not name `#3103`); no other text is compared, and a task with no `source_pr` has no
   PR to be named. With `guidance_commits_truncated` the
   name check covered only the newest 200 commits, and the output says so. A
