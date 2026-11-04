@@ -1315,6 +1315,10 @@ reported, prose above the limit, unseeded tokens). The receipt-level `unknowns`
 repeat the limits above and carry the notice that start-up imports and skill
 listings are not probed.
 
+The same receipt, run over the fixtures in `data/reach-conformance/` for several
+harnesses and versions, is the reach conformance matrix; see
+[reach-matrix.md](reach-matrix.md).
+
 ## 8. L0 scan (`repo_readiness.v1`)
 
 `repo scan <source>` checks every mechanically checkable claim in the guidance

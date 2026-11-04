@@ -14064,6 +14064,7 @@
                 "'plan'",
                 "'plugin_delta'",
                 "'questions'",
+                "'reach_matrix'",
                 "'redteam'",
                 "'repo_budget'",
                 "'repo_environment'",
