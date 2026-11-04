@@ -163,7 +163,7 @@ def test_cli_reports_the_record_and_exits_2(tmp_path, monkeypatch, capsys):
     answers = tmp_path / "answers.json"
     answers.write_text(json.dumps({"baseline_arm": "baseline",
                                    "answers": [_arms_record("q2", "")]}), encoding="utf-8")
-    monkeypatch.setattr(sys, "argv", ["dokimi", "eval", "pairwise", "--answers", str(answers)])
+    monkeypatch.setattr(sys, "argv", ["dokimi", "eval", "score", "pairwise", "--answers", str(answers)])
     monkeypatch.setattr("dokimi.commands.judge_reliability.pairwise_judge",
                         lambda args: (MagicMock(), "stub/judge"))
     with pytest.raises(SystemExit) as exc:
@@ -335,9 +335,9 @@ def test_ragas_refusal_propagates_through_the_command_wrapper(monkeypatch, capsy
 # ── no billed sampling probe before the refusal ──────────────────────────
 
 @pytest.mark.parametrize("cmd", [
-    ["eval", "pairwise"],
-    ["eval", "checklist", "--questions", "{questions}"],
-    ["eval", "cross-judge", "--no-stored", "--judges", "anthropic/claude-haiku-4-5"],
+    ["eval", "score", "pairwise"],
+    ["eval", "score", "checklist", "--questions", "{questions}"],
+    ["eval", "judge", "agreement", "--no-stored", "--judges", "anthropic/claude-haiku-4-5"],
 ])
 def test_no_probe_call_before_the_refusal(cmd, tmp_path, monkeypatch, capsys):
     from dokimi import cli

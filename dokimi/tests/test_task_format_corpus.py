@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""`tasks inspect` over real files of every format (tests/fixtures/task_formats/).
+"""`eval inspect` over real files of every format (tests/fixtures/task_formats/).
 
 MANIFEST.yaml says what each file must be reported as; the whole corpus is one
 mixed tree, inspected once. Every report must validate as task_inspect.v1, and the

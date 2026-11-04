@@ -283,8 +283,7 @@ def test_eval_score_of_2_records_makes_4_provider_calls(provider_calls, tmp_path
     out = tmp_path / "eval.json"
     _run(
         [
-            "eval",
-            "score",
+            "eval", "score", "pointwise",
             "--product",
             "lib",
             "--answers",
@@ -307,8 +306,7 @@ def test_eval_panel_score_of_1_record_with_3_judges_makes_6_provider_calls(
     out = tmp_path / "panel.json"
     _run(
         [
-            "eval",
-            "panel-score",
+            "eval", "score", "panel",
             "--product",
             "lib",
             "--answers",

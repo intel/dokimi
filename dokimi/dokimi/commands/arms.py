@@ -490,7 +490,7 @@ def _load_questions(path: str) -> list[dict]:
 def _refuse_external_trigger_set(path: str) -> None:
     """Point a skill-reach or skill-creator trigger set at the command that reads it.
 
-    Those sets are read through ``catalog trigger-set --trigger-set``, which also
+    Those sets are read through ``eval triggers generate --trigger-set``, which also
     lints them against the catalog the arm will offer; a questions loader that
     guessed at them would drop that lint and, for skill-creator, the target skill.
     """
@@ -507,7 +507,7 @@ def _refuse_external_trigger_set(path: str) -> None:
         target = "=<skill>" if fmt == "skill-creator" else ""
         raise ValueError(
             f"{path} is a {fmt} trigger set, not a questions set; convert it with "
-            f"`dokimi catalog trigger-set --catalog <skills> --trigger-set {path}{target} "
+            f"`dokimi eval triggers generate --catalog <skills> --trigger-set {path}{target} "
             f"--format questions --out q.json`, then run the skill-catalog: arm on q.json")
 
 

@@ -13,7 +13,7 @@ GOOD_PERSONAS = {"personas": [{"id": "p1", "name": "dev", "skill_level": "beginn
 
 
 def _generate(monkeypatch, *extra):
-    monkeypatch.setattr("sys.argv", ["dokimi", "questions", "generate", "--product", "p", *extra])
+    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "questions", "generate", "--product", "p", *extra])
     with pytest.raises(SystemExit) as exc:
         cli.main()
     return exc.value.code
@@ -112,7 +112,7 @@ def test_generate_completes_when_a_config_section_is_empty(tmp_path, monkeypatch
     topics.write_text("[]", encoding="utf-8")
     out = tmp_path / "q.json"
     monkeypatch.setattr("dokimi.questions.QuestionGenerator", _FakeGenerator)
-    monkeypatch.setattr("sys.argv", ["dokimi", "questions", "generate", "--product", "p",
+    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "questions", "generate", "--product", "p",
                                      "--personas", str(personas), "--topics", str(topics),
                                      "--output", str(out)])
     cli.main()

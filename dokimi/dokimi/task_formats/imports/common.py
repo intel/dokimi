@@ -64,7 +64,7 @@ def question(qid: Any, text: str, grading: dict[str, Any], *, source_format: str
         "metadata": {"source_format": source_format, "source_path": str(path), **(metadata or {})},
     }
     if refs:
-        # The stock judge and `eval checklist` read reference points from here.
+        # The stock judge and `eval score checklist` read reference points from here.
         record["expected_topics"] = refs
     return record
 
