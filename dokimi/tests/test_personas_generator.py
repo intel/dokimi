@@ -111,9 +111,7 @@ class TestPersonaGenerator:
 
     def test_init_unsupported_provider(self):
         """Test initialization with unsupported provider."""
-        mock_cls = Mock()
-        with patch('dokimi.personas.generator.Invoker', mock_cls), \
-             patch('dokimi.personas.generator.LANGCHAIN_AVAILABLE', True):
+        with patch('dokimi.personas.generator.LANGCHAIN_AVAILABLE', True):
             with pytest.raises(ValueError) as exc_info:
                 PersonaGenerator(provider="unsupported")
             assert "Unsupported provider" in str(exc_info.value)

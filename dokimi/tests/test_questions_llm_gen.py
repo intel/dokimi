@@ -67,9 +67,7 @@ class TestQuestionGeneratorInit:
         assert gen.llm.litellm_model == "anthropic/claude-haiku"
 
     def test_init_unsupported_provider(self):
-        mock_cls = Mock()
-        with patch('dokimi.questions.llm_gen.Invoker', mock_cls), \
-             patch('dokimi.questions.llm_gen.LANGCHAIN_AVAILABLE', True):
+        with patch('dokimi.questions.llm_gen.LANGCHAIN_AVAILABLE', True):
             with pytest.raises(ValueError) as exc:
                 QuestionGenerator(provider="unsupported")
             assert "Unsupported provider" in str(exc.value)

@@ -85,9 +85,7 @@ class TestJudgeInit:
         assert judge.llm.litellm_model == "anthropic/claude-sonnet"
 
     def test_init_unsupported_provider(self):
-        mock_cls = Mock()
-        with patch('dokimi.eval.judge.Invoker', mock_cls), \
-             patch('dokimi.eval.judge.LANGCHAIN_AVAILABLE', True):
+        with patch('dokimi.eval.judge.LANGCHAIN_AVAILABLE', True):
             with pytest.raises(ValueError) as exc:
                 Judge(provider="unsupported")
             assert "Unsupported provider" in str(exc.value)
