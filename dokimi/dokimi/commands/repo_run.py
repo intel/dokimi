@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 
 from dokimi.repos.harness_profile import DELEGATION_MODES
 from dokimi.exit_codes import EXIT_USAGE
+from dokimi.utils import tree_digest
 
 
 def _context(args: argparse.Namespace, out: Path, pin: bool = False):
@@ -59,14 +60,14 @@ def _context(args: argparse.Namespace, out: Path, pin: bool = False):
         sha = getattr(tree, "sha", None)
         if sha is None:  # a working tree: tag by what is built, or an edited Dockerfile reuses a stale image
             ctx_dir = export_build_context(tree, manifest, out / "_eval" / "build-context")
-            tag = "worktree-" + context_digest(ctx_dir)[:12]
+            tag = "worktree-" + tree_digest(ctx_dir)[:12]
         else:
             tag = sha[:12]
         image = f"dokimi/{slug(manifest.id).lower()}:{tag}"
     elif not runner.image_exists(image):
         raise ValueError(f"--image {image} does not exist")
     if pin:
-        stamp = {"tree": tree.label, "eval_dir": context_digest(staged), "image": image}
+        stamp = {"tree": tree.label, "eval_dir": tree_digest(staged), "image": image}
         if _uses_builtin_graders(staged, manifest):  # else no score depends on them: an upgrade keeps the batch
             stamp["graders"] = graders_digest()
         _pin_batch(out, stamp)
@@ -93,24 +94,6 @@ def _context(args: argparse.Namespace, out: Path, pin: bool = False):
     ctx = EvalContext(manifest=manifest, git_dir=git_dir, content_dir=content, image=image, runner=runner,
                       caches=caches, source_dir=source_dir, entry_timeout_s=args.grade_timeout)
     return ctx, tree
-
-
-def context_digest(root: Path) -> str:
-    """sha256 over every path, mode bit and byte of a build context (a link by its target)."""
-    import hashlib
-    import os
-
-    h = hashlib.sha256()
-    for path in sorted(root.rglob("*")):
-        rel = path.relative_to(root).as_posix()
-        if path.is_symlink():
-            h.update(f"L {rel}\0{os.readlink(path)}\0".encode())
-        elif path.is_file():
-            h.update(f"F {rel}\0{int(os.access(path, os.X_OK))}\0".encode())
-            h.update(hashlib.sha256(path.read_bytes()).digest())
-        elif path.is_dir():
-            h.update(f"D {rel}\0".encode())
-    return h.hexdigest()
 
 
 def _require_grade(content: Path, manifest: RepoManifest, ids: list[str] | None) -> None:
