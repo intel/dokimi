@@ -177,9 +177,10 @@ def _read_sessions(names: list[str]) -> tuple[list, bool]:
 
     A file is read once however often it is named (a repeat, a glob that overlaps, a symlink to it). A Claude Code
     session is read with its subagents' transcripts; such a transcript named on its own is skipped with a warning.
+    Logs that share a record (a resumed or forked session) are one session.
     """
     from dokimi.context.goose_log import is_goose_store, read_goose_store
-    from dokimi.context.session_log import SessionError, read_session_tree, subagent_files
+    from dokimi.context.session_log import SessionError, merge_repeats, read_session_tree, subagent_files
 
     paths = _session_paths(names)
     folded = {os.path.realpath(sub) for path in paths for sub in subagent_files(Path(path))}
@@ -204,6 +205,9 @@ def _read_sessions(names: list[str]) -> tuple[list, bool]:
                 print(f"warning: {path}: a subagent transcript without its session log; skipped", file=sys.stderr)
             else:
                 loaded.append(session)
+    loaded, notes = merge_repeats(loaded)
+    for note in notes:
+        print(f"warning: {note}", file=sys.stderr)
     return loaded, failed
 
 

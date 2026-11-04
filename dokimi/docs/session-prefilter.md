@@ -102,7 +102,8 @@ This slice reads **Claude Code** session logs: JSON lines under
 (`<session>/subagents/*.jsonl` next to `<session>.jsonl`) is read as part of that session, its
 records merged in time order, so its tool calls count as the agent acting and `**/*.jsonl` still
 gives one session per log; a subagent transcript named without its session log is skipped with a
-warning. A file that cannot be read, or holds
+warning. A resumed or forked session log repeats the records it continues, with the same
+`uuid`: logs that share a record are read as one session, each record once. A file that cannot be read, or holds
 no prompt and no tool call, is reported and the rest are still read; the exit
 code is 1 when any file failed. A line that is valid JSON but not an object, or a
 record whose message or content has the wrong shape, is reported by line number and

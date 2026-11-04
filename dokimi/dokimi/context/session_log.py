@@ -53,6 +53,7 @@ class Event:
     command: str = ""  # a Bash call's command line
     paths: tuple[str, ...] = ()  # file paths a tool call named
     timestamp: str = field(default="", compare=False)  # the record's ISO time, when it has one
+    uuid: str = field(default="", compare=False)  # the record's id: a resumed log repeats it
 
 
 @dataclass
@@ -98,6 +99,35 @@ def in_time_order(events: list[Event]) -> list[Event]:
     return sorted(events, key=lambda e: e.timestamp) if all(e.timestamp for e in events) else events
 
 
+def merge_repeats(sessions: list[Session]) -> tuple[list[Session], list[str]]:
+    """Logs that share a record ``uuid`` as one session, each record once: a resumed or forked log repeats the records
+    of the session it continues. Also a note per log merged into an earlier one."""
+    root = list(range(len(sessions)))
+    owner: dict[str, int] = {}
+    for i, session in enumerate(sessions):
+        for uuid in {e.uuid for e in session.events if e.uuid}:
+            a, b = _root(root, owner.setdefault(uuid, i)), _root(root, i)
+            root[max(a, b)] = min(a, b)
+    groups: dict[int, list[Session]] = {}
+    for i, session in enumerate(sessions):
+        groups.setdefault(_root(root, i), []).append(session)
+    merged, notes = [], []
+    for first, *rest in groups.values():
+        events, seen = list(first.events), {e.uuid for e in first.events}
+        for session in rest:
+            events += [e for e in session.events if not e.uuid or e.uuid not in seen]
+            seen |= {e.uuid for e in session.events}
+            notes.append(f"{session.name}: repeats records of {first.name} (a resumed or forked session); read as one")
+        merged.append(Session(first.name, in_time_order(events)) if rest else first)
+    return merged, notes
+
+
+def _root(root: list[int], i: int) -> int:
+    while root[i] != i:
+        i = root[i]
+    return i
+
+
 def parse_session(raw: str, name: str = "") -> Session:
     session = Session(name=name)
     turns = sidechain = 0
@@ -119,8 +149,8 @@ def parse_session(raw: str, name: str = "") -> Session:
         if rec.get("type") in ("user", "assistant"):
             turns += 1
             sidechain += bool(rec.get("isSidechain"))
-        stamp = rec.get("timestamp")
-        session.events.extend(replace(e, timestamp=stamp) if isinstance(stamp, str) else e for e in _events_of(rec))
+        stamp, uuid = (v if isinstance(v, str) else "" for v in (rec.get("timestamp"), rec.get("uuid")))
+        session.events.extend(replace(e, timestamp=stamp, uuid=uuid) if stamp or uuid else e for e in _events_of(rec))
     session.sidechain_only = turns > 0 and sidechain == turns
     return session
 

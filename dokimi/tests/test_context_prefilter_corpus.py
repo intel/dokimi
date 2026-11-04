@@ -46,3 +46,18 @@ def test_a_subagent_transcript_named_without_its_session_log_is_skipped_with_a_w
     sessions, failed = _read_sessions([str(tmp_path / "s0" / "subagents" / "agent-1.jsonl")])
     assert (sessions, failed) == ([], False)
     assert "a subagent transcript without its session log; skipped" in capsys.readouterr().err
+
+
+def test_a_resumed_log_that_repeats_records_is_one_session_with_each_record_once(tmp_path, capsys):
+    for i in range(3):
+        earlier = [_at(1, _prompt("push the branch now"), uuid=f"p{i}"),
+                   _at(2, _tool("Bash", command="git push"), uuid=f"t{i}")]
+        _write(tmp_path / f"a{i}.jsonl", earlier)
+        _write(tmp_path / f"b{i}.jsonl", [*earlier, _at(3, _prompt("thanks"), uuid=f"n{i}")])
+    for i in range(9):
+        _write(tmp_path / f"c{i}.jsonl", [_at(1, _prompt("fix the typo"), uuid=f"c{i}")])
+    sessions, _ = _read_sessions([str(tmp_path / "*.jsonl")])
+    row = _row(_report(sessions, RULE, min_sessions=5, rare_max=3), "Run")
+    assert (len(sessions), row["sessions_triggered"], row["episodes"], row["status"]) == (12, 3, 3, "rare_not_ranked")
+    assert [len(s.events) for s in sessions[:3]] == [3, 3, 3]
+    assert "b0.jsonl: repeats records of" in capsys.readouterr().err
