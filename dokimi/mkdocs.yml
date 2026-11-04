@@ -133,6 +133,7 @@ nav:
       - reach-matrix.md
       - preparing-a-repository.md
       - preparing-a-repository-evidence.md
+      - rule-ledger.md
   - Extending Dokimi:
       - architecture.md
       - contributing-metric.md
