@@ -10,7 +10,8 @@
   exit 2 with `Error: <message>` on stderr. For a bad file the message names the file and
   the reason; for a refused field it names the skill or option at fault. The `novelty`
   file refusals keep the exit code 2 they had, `--artifact` and `--atoms` among them; the
-  `model-compare`, `routing` and `view` refusals keep that code too. Exit 1 stays the verdict of the gates
+  `model-compare`, `routing` and `view` refusals keep that code too, and `eval headroom`
+  refuses an input it cannot read or parse the same way. Exit 1 stays the verdict of the gates
   (`--strict`, `eval judge-validity`) and the code of a model failure (an extractor or judge
   that errors), so a script that branches on the code must treat 2 as "fix the input".
   `subjects run --novelty-artifact` still prints its own `Error loading novelty artifact:` message

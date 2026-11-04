@@ -51,6 +51,10 @@ def _novelty_routing_flag_combination(tmp_path):
     return ["novelty", "routing", "--all-vs-all", "--artifact", _missing(tmp_path)]
 
 
+def _headroom_unreadable_arms(tmp_path):
+    return ["eval", "headroom", str(tmp_path / "missing.json")]
+
+
 def _library_list_unknown_domain(tmp_path):
     return ["library", "list", "--domain", "no-such-domain"]
 
@@ -69,6 +73,8 @@ def _library_list_unknown_domain(tmp_path):
                      id="novelty_routing_flag_combination"),
         pytest.param(_library_list_unknown_domain, "Intent domain 'no-such-domain' not found",
                      id="library_list_unknown_domain"),
+        pytest.param(_headroom_unreadable_arms, "cannot read",
+                     id="headroom_unreadable_arms"),
     ],
 )
 def test_input_or_usage_refusal_exits_2_with_a_message(argv_for, needle, tmp_path, monkeypatch, capsys):
