@@ -199,7 +199,7 @@ class RetentionOracle:
 def error_warning(oracle: RetentionOracle) -> str | None:
     """The warning for adjudications with no usable verdict, or ``None`` when there were none.
 
-    Shared by ``analyze`` and ``novelty shorten``, which both score candidates with the
+    Shared by ``analyze`` and ``skill shorten``, which both score candidates with the
     oracle, so a throttled adjudicator is never silent in either.
     """
     if not oracle.errors:

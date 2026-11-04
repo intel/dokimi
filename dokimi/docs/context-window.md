@@ -18,7 +18,7 @@ reads a trace file and calls no model.
 
 ```bash
 claude -p "<task>" --output-format stream-json --verbose > run.jsonl
-python cli.py context trace run.jsonl --window 200000 --calls
+python cli.py trace inspect run.jsonl --window 200000 --calls
 ```
 
 ```text

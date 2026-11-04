@@ -340,7 +340,7 @@ def test_upgrade_questions_does_not_mutate_and_keeps_top_level_keys():
 # ── dataset export ────────────────────────────────────────────────────────────
 
 def _export(src: Path, out: Path, *extra: str) -> list[dict]:
-    args = build_parser().parse_args(["dataset", "export", "--kind", "questions",
+    args = build_parser().parse_args(["data", "export", "--kind", "questions",
                                       "--input", str(src), "--out-dir", str(out), *extra])
     args.func(args)
     return [json.loads(line) for line in (out / "questions.jsonl").read_text(encoding="utf-8").splitlines()]

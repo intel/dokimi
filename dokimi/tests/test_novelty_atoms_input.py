@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""`novelty probe` and `novelty shorten` on an --atoms file they cannot read."""
+"""`skill novelty probe` and `skill shorten` on an --atoms file they cannot read."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import json
 import pytest
 
 from dokimi.utils import InputError
+from tests.cli_paths import novelty_argv
 
 
 def _bundle(extra, end="5"):
@@ -128,7 +129,7 @@ def test_an_unreadable_atoms_file_exits_2_with_a_message_naming_it(tmp_path, mon
     skill.write_text("---\nname: s\ndescription: d\n---\n\n# H\n\nText.\n", encoding="utf-8")
     atoms = _atoms_file(tmp_path, kind)
     monkeypatch.setattr(
-        "sys.argv", ["dokimi", "novelty", sub, "--artifact", f"skill:{skill}", "--atoms", str(atoms)]
+        "sys.argv", ["dokimi", *novelty_argv(sub), "--artifact", f"skill:{skill}", "--atoms", str(atoms)]
     )
     with pytest.raises(SystemExit) as excinfo:
         cli.main()

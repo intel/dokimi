@@ -39,7 +39,7 @@ def test_a_registry_that_cannot_be_parsed_is_named(tmp_path, capsys, kind, comma
 @pytest.mark.parametrize("kind", ["binary", "broken"])
 def test_an_intents_file_that_cannot_be_parsed_is_named(tmp_path, capsys, kind):
     bad = _bad_files(tmp_path)[kind]
-    err = _run(["library", "intents", "--intents", str(bad)], capsys)
+    err = _run(["catalog", "intents", "--intents", str(bad)], capsys)
     assert f"Error: cannot read --intents {bad}" in err
 
 
@@ -59,5 +59,5 @@ def test_a_missing_registry_is_not_an_empty_registry(tmp_path, capsys):
 
 
 def test_a_directory_as_intents_is_rejected(tmp_path, capsys):
-    err = _run(["library", "intents", "--intents", str(tmp_path)], capsys)
+    err = _run(["catalog", "intents", "--intents", str(tmp_path)], capsys)
     assert f"Error: --intents {tmp_path}: not a file" in err

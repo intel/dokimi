@@ -195,7 +195,8 @@ whose absolute calibration is poor.
    annotated HTML view of the artifact; `dokimi/gate/novelty_gate.py`
    turns the numbers into soft gates (the novelty track's use of `gate/`).
 
-Entry points: `python cli.py novelty {analyze,atoms,probe,shorten,view}`, and
+Entry points: `python cli.py skill novelty {analyze,atoms,probe,items}`, `python cli.py skill shorten`,
+`python cli.py novelty view`, and
 `python cli.py subjects run` to attach the result to the subject scorecard it
 builds for that run.
 
@@ -250,7 +251,7 @@ comparisons.
 Skills and tasks don't have to live in this repo: `dokimi/external/`
 reads another checkout's own manifests (`skills.yaml`,
 `evaluation/harbor/suites.json` — the uxlfoundation/skills convention) and
-reports what loads via `python cli.py catalog scan --root <path>`; loaded
+reports what loads via `python cli.py catalog check --root <path>`; loaded
 entries then plug into the same `--tasks-root` / `docker-claude-skill:<path>`
 flags as local ones. [external-content.md](external-content.md) is the
 end-to-end walkthrough of that; the "External Sources" section of
@@ -411,18 +412,18 @@ into a `tool_preference.v1` artifact. Entry point:
 `dokimi/context/trace.py` reads a Claude Code `stream-json` trace into the
 prompt size of every model call (`input + cache_creation + cache_read`
 tokens, one call per message id), the compaction events, tool-result sizes and
-failures per tool, and repeated tool calls. `python cli.py context trace`
+failures per tool, and repeated tool calls. `python cli.py trace inspect`
 prints one or more traces as a comparison table; it calls no model. Guide:
 [context-window.md](context-window.md).
 `dokimi/context/consistency.py` reads repeated runs of one task into three
 separate profiles: result (`pass@k`, `pass^k`), path (tool-mix JSD, edit
 distance of tool and action sequences, resource spread, strategy groups) and
-conformance to a YAML process contract; `python cli.py context consistency`.
+conformance to a YAML process contract; `python cli.py trace consistency`.
 Guide: [run-consistency.md](run-consistency.md).
 `dokimi/context/session_log.py` reads a Claude Code session log into prompt and
 tool events; `dokimi/context/prefilter.py` matches a guidance file's rules
 against them (trigger, acted, corrected) and ranks candidates for ablation.
-Both are deterministic; `python cli.py context prefilter`. Guide:
+Both are deterministic; `python cli.py trace prefilter`. Guide:
 [session-prefilter.md](session-prefilter.md).
 
 ## Shared building blocks
@@ -468,7 +469,7 @@ Both are deterministic; `python cli.py context prefilter`. Guide:
 - `dokimi/metrics/usage.py` — `UsageRecord`, the tokens, cache, cost and latency
   of one LLM call. It sits in `metrics/` but depends on nothing, and every LLM
   caller reads it.
-- `dokimi/datasets_export.py` — `python cli.py dataset export`: questions,
+- `dokimi/datasets_export.py` — `python cli.py data export`: questions,
   answers, eval, arms and task-run artifacts to JSONL, Parquet or a Hugging Face
   dataset, with a dataset card.
 - `dokimi/registry.py` — product registry loaded from
@@ -520,7 +521,7 @@ runs `pip check` and the installed-package smoke test,
 **`agent-quality.yml`** — task and benchmark checks:
 
 5. **external-catalog-smoke** — clones a pinned external content catalog, runs
-   `catalog scan` over it, then drives one of its real tasks through the
+   `catalog check` over it, then drives one of its real tasks through the
    `docker-oracle` harness (build + solve + verify, with the task's own
    `network_mode`, bridge for this public task) and the `docker-probe`
    isolation probe. It asserts both pass

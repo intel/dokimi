@@ -13,17 +13,18 @@ re-render. A break between two steps -- a file one command writes and the next c
 from __future__ import annotations
 
 import json
-from decimal import ROUND_FLOOR, Decimal
 import re
 import shlex
+from decimal import ROUND_FLOOR, Decimal
 from pathlib import Path
 
 import pytest
-from tests.test_novelty_analyze import SKILL, _scripted
 
 from dokimi.cli import build_parser
-from dokimi.utils import InputError
 from dokimi.novelty import client as client_mod
+from dokimi.utils import InputError
+from tests.cli_paths import novelty_argv
+from tests.test_novelty_analyze import SKILL, _scripted
 
 
 @pytest.fixture
@@ -82,7 +83,7 @@ def test_the_authoring_path_runs_end_to_end(tmp_path, skill, stub_models, capsys
     capsys.readouterr()                      # drop step 1's chatter
 
     # 2. What will the measurement cost? Still no model. The walkthrough's own form.
-    _run("novelty", "analyze", "--artifact", f"skill:{skill}",
+    _run("skill", "novelty", "analyze", "--artifact", f"skill:{skill}",
          "--tier", "study", "--estimate-only")
     printed = capsys.readouterr().out
     estimate = json.loads(printed[printed.index("{"):])
@@ -91,7 +92,7 @@ def test_the_authoring_path_runs_end_to_end(tmp_path, skill, stub_models, capsys
 
     # 3. Extract the answer key once, over the whole bundle.
     atoms_out = tmp_path / "atoms.json"
-    _run("novelty", "atoms", "--artifact", f"skill:{skill}", "--include-resources",
+    _run("skill", "novelty", "atoms", "--artifact", f"skill:{skill}", "--include-resources",
          "--extract-model", "extractor-m", "--out", str(atoms_out))
     atoms = json.loads(atoms_out.read_text(encoding="utf-8"))
     assert atoms["atoms"] and atoms["bundle"]["include_resources"] is True
@@ -100,7 +101,7 @@ def test_the_authoring_path_runs_end_to_end(tmp_path, skill, stub_models, capsys
     probe_files = []
     for model in ("model-a", "model-b"):
         out = tmp_path / f"{model}.json"
-        _run("novelty", "probe", "--artifact", f"skill:{skill}", "--atoms", str(atoms_out),
+        _run("skill", "novelty", "probe", "--artifact", f"skill:{skill}", "--atoms", str(atoms_out),
              "--model", model, "--judge-model", "judge-m", "--out", str(out))
         payload = json.loads(out.read_text(encoding="utf-8"))
         assert payload["runs"] and payload["model"] == model
@@ -109,14 +110,14 @@ def test_the_authoring_path_runs_end_to_end(tmp_path, skill, stub_models, capsys
     # 5. Which probes measured anything? Two cells is below the discrimination floor, and
     #    the command must say so rather than print a number.
     items_out = tmp_path / "items.json"
-    _run("novelty", "items", "--probes", *probe_files, "--out", str(items_out))
+    _run("skill", "novelty", "items", "--probes", *probe_files, "--out", str(items_out))
     items = json.loads(items_out.read_text(encoding="utf-8"))
     assert items["discrimination"]["lenient"]["measured"] is False
     assert "at least 3" in items["discrimination"]["lenient"]["reason"]
 
     # 6. Shorten. The atoms came from a bundle, so this is restricted to the entry point.
     shortened = tmp_path / "short" / "SKILL.md"
-    _run("novelty", "shorten", "--artifact", f"skill:{skill}", "--atoms", str(atoms_out),
+    _run("skill", "shorten", "--artifact", f"skill:{skill}", "--atoms", str(atoms_out),
          "--lexical-only", "--out", str(shortened))
     captured = capsys.readouterr()
     assert "bundle spans" in captured.err
@@ -127,7 +128,7 @@ def test_the_authoring_path_runs_end_to_end(tmp_path, skill, stub_models, capsys
 
     # 7. The full run, and the views and artifact it writes.
     out_dir = tmp_path / "run"
-    _run("novelty", "analyze", "--artifact", f"skill:{skill}", "--tier", "study",
+    _run("skill", "novelty", "analyze", "--artifact", f"skill:{skill}", "--tier", "study",
          "--model", "model-a", "--judge-model", "judge-m", "--out-dir", str(out_dir))
     novelty_json = out_dir / "novelty.json"
     artifact = json.loads(novelty_json.read_text(encoding="utf-8"))
@@ -147,7 +148,7 @@ def test_the_authoring_path_runs_end_to_end(tmp_path, skill, stub_models, capsys
 
 def test_a_cheap_tier_run_writes_its_forfeits_into_the_artifact(tmp_path, skill, stub_models):
     out_dir = tmp_path / "triage"
-    _run("novelty", "analyze", "--artifact", f"skill:{skill}", "--tier", "triage",
+    _run("skill", "novelty", "analyze", "--artifact", f"skill:{skill}", "--tier", "triage",
          "--model", "model-a", "--judge-model", "judge-m", "--out-dir", str(out_dir))
     artifact = json.loads((out_dir / "novelty.json").read_text(encoding="utf-8"))
     assert artifact["run_config"]["tier"]["name"] == "triage"
@@ -161,7 +162,7 @@ def test_the_stdout_headline_says_how_much_of_the_artifact_was_read(tmp_path, sk
                                                                      stub_models, capsys):
     # The fixture's reference is larger than the body: an entry-point run reads under half.
     entry_out = tmp_path / "entry"
-    _run("novelty", "analyze", "--artifact", f"skill:{skill}", "--tier", "triage",
+    _run("skill", "novelty", "analyze", "--artifact", f"skill:{skill}", "--tier", "triage",
          "--model", "model-a", "--judge-model", "judge-m", "--out-dir", str(entry_out))
     printed = capsys.readouterr().out
     measured = json.loads((entry_out / "novelty.json").read_text(encoding="utf-8"))[
@@ -173,7 +174,7 @@ def test_the_stdout_headline_says_how_much_of_the_artifact_was_read(tmp_path, sk
 
     # A bundle run that reads everything it can says so, and does not warn.
     bundle_out = tmp_path / "bundle"
-    _run("novelty", "analyze", "--artifact", f"skill:{skill}", "--tier", "triage",
+    _run("skill", "novelty", "analyze", "--artifact", f"skill:{skill}", "--tier", "triage",
          "--include-resources", "--model", "model-a", "--judge-model", "judge-m",
          "--out-dir", str(bundle_out))
     printed = capsys.readouterr().out
@@ -184,11 +185,11 @@ def test_the_stdout_headline_says_how_much_of_the_artifact_was_read(tmp_path, sk
 @pytest.mark.outcome("cjm-novelty-stale-inventory")
 def test_probing_atoms_from_a_changed_artifact_is_refused(tmp_path, skill, stub_models):
     atoms_out = tmp_path / "atoms.json"
-    _run("novelty", "atoms", "--artifact", f"skill:{skill}", "--include-resources",
+    _run("skill", "novelty", "atoms", "--artifact", f"skill:{skill}", "--include-resources",
          "--extract-model", "extractor-m", "--out", str(atoms_out))
     (skill / "references" / "new.md").write_text("Another reference.\n", encoding="utf-8")
     with pytest.raises(InputError, match="files changed"):
-        _run("novelty", "probe", "--artifact", f"skill:{skill}", "--atoms", str(atoms_out),
+        _run("skill", "novelty", "probe", "--artifact", f"skill:{skill}", "--atoms", str(atoms_out),
              "--model", "model-a", "--judge-model", "judge-m",
              "--out", str(tmp_path / "p.json"))
 
@@ -197,7 +198,7 @@ def test_probing_atoms_from_a_changed_artifact_is_refused(tmp_path, skill, stub_
 def test_a_judge_that_is_the_answering_model_is_refused_with_exit_2(command, tmp_path, skill, stub_models,
                                                                     monkeypatch, capsys):
     atoms_out = tmp_path / "atoms.json"
-    _run("novelty", "atoms", "--artifact", f"skill:{skill}", "--extract-model", "extractor-m",
+    _run("skill", "novelty", "atoms", "--artifact", f"skill:{skill}", "--extract-model", "extractor-m",
          "--out", str(atoms_out))
     # Count the prompts from here on: the refusal must come before any extraction or paraphrase call.
     prompts = []
@@ -213,7 +214,7 @@ def test_a_judge_that_is_the_answering_model_is_refused_with_exit_2(command, tmp
     extra = ["--atoms", str(atoms_out), "--out", str(tmp_path / "p.json")] if command == "probe" else \
         ["--out-dir", str(tmp_path / "out")]
     with pytest.raises(InputError) as exc:
-        _run("novelty", command, "--artifact", f"skill:{skill}", "--model", "model-a",
+        _run(*novelty_argv(command), "--artifact", f"skill:{skill}", "--model", "model-a",
              "--judge-model", "model-a", *extra)
     assert "is the answering model" in str(exc.value)
     assert prompts == [], "a model was called before the self-judge check refused"
@@ -221,7 +222,7 @@ def test_a_judge_that_is_the_answering_model_is_refused_with_exit_2(command, tmp
 
 def test_probe_refuses_an_unknown_arm_before_any_model_call(tmp_path, skill, stub_models, monkeypatch, capsys):
     atoms_out = tmp_path / "atoms.json"
-    _run("novelty", "atoms", "--artifact", f"skill:{skill}", "--extract-model", "extractor-m",
+    _run("skill", "novelty", "atoms", "--artifact", f"skill:{skill}", "--extract-model", "extractor-m",
          "--out", str(atoms_out))
     # Count the prompts the probe sends from here on: the atoms step above is not part of the refusal.
     prompts = []
@@ -235,7 +236,7 @@ def test_probe_refuses_an_unknown_arm_before_any_model_call(tmp_path, skill, stu
 
     monkeypatch.setattr(client_mod, "LLMClient", recording_client)
     with pytest.raises(SystemExit) as exc:
-        _run("novelty", "probe", "--artifact", f"skill:{skill}", "--atoms", str(atoms_out),
+        _run("skill", "novelty", "probe", "--artifact", f"skill:{skill}", "--atoms", str(atoms_out),
              "--model", "model-a", "--judge-model", "judge-m", "--arms", "no_artifact,full,no-such-arm",
              "--out", str(tmp_path / "p.json"))
     assert exc.value.code == 2
@@ -254,7 +255,7 @@ def test_the_re_measure_step_probes_a_shortened_entry_point(tmp_path, skill, stu
     import shutil
 
     atoms_out = tmp_path / "atoms.json"
-    _run("novelty", "atoms", "--artifact", f"skill:{skill}", "--include-resources",
+    _run("skill", "novelty", "atoms", "--artifact", f"skill:{skill}", "--include-resources",
          "--extract-model", "extractor-m", "--out", str(atoms_out))
 
     shortened = tmp_path / "shortened"
@@ -266,7 +267,7 @@ def test_the_re_measure_step_probes_a_shortened_entry_point(tmp_path, skill, stu
     assert "Background" not in (shortened / "SKILL.md").read_text(encoding="utf-8")
 
     out = tmp_path / "after.json"
-    _run("novelty", "probe", "--artifact", f"skill:{shortened}", "--atoms", str(atoms_out),
+    _run("skill", "novelty", "probe", "--artifact", f"skill:{shortened}", "--atoms", str(atoms_out),
          "--model", "model-a", "--judge-model", "judge-m", "--out", str(out))
     after = json.loads(out.read_text(encoding="utf-8"))
     assert after["runs"]
@@ -279,7 +280,7 @@ def _documented_novelty_commands():
     commands = []
     for block in re.findall(r"```bash\n(.*?)```", text, re.S):
         for line in re.sub(r"\\s*\n", " ", block).splitlines():
-            if line.strip().startswith("python cli.py novelty"):
+            if line.strip().startswith(("python cli.py novelty", "python cli.py skill")):
                 line = re.sub(r"<[^>]+>", "X", line).replace(" ...", "")
                 commands.append(shlex.split(line)[2:])
     return commands
@@ -306,7 +307,7 @@ def test_the_estimate_prices_the_bundled_files_when_they_are_included(tmp_path, 
 
     def estimate(*extra):
         args = build_parser().parse_args(
-            ["novelty", "analyze", "--artifact", f"skill:{skill / 'SKILL.md'}", "--estimate-only", *extra])
+            ["skill", "novelty", "analyze", "--artifact", f"skill:{skill / 'SKILL.md'}", "--estimate-only", *extra])
         args.func(args)
         return json.loads(capsys.readouterr().out)
 
@@ -338,17 +339,17 @@ def test_a_model_failure_exits_1_with_its_message_through_cli_main(command, tmp_
             raise ExtractionError("extractor unavailable")
         # importlib: ``dokimi.novelty.analyze`` the attribute is the function, not the module
         monkeypatch.setattr(importlib.import_module("dokimi.novelty.analyze"), "analyze", failing_analyze)
-        argv = ["novelty", "analyze", *common, "--out-dir", str(tmp_path / "out")]
+        argv = ["skill", "novelty", "analyze", *common, "--out-dir", str(tmp_path / "out")]
         message = "extractor unavailable"
     else:
         atoms_out = tmp_path / "atoms.json"
-        _run("novelty", "atoms", "--artifact", f"skill:{skill}", "--extract-model", "extractor-m",
+        _run("skill", "novelty", "atoms", "--artifact", f"skill:{skill}", "--extract-model", "extractor-m",
              "--out", str(atoms_out))
 
         def failing_measurement(*args, **kwargs):
             raise ValueError("answerer unavailable")
         monkeypatch.setattr(measure_mod, "run_measurement", failing_measurement)
-        argv = ["novelty", "probe", *common, "--atoms", str(atoms_out), "--out", str(tmp_path / "p.json")]
+        argv = ["skill", "novelty", "probe", *common, "--atoms", str(atoms_out), "--out", str(tmp_path / "p.json")]
         message = "answerer unavailable"
     monkeypatch.setattr(sys, "argv", ["dokimi", *argv])
     with pytest.raises(SystemExit) as exc:

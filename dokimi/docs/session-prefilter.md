@@ -18,8 +18,8 @@ that prevents the costly failure, so a rare or protected rule is listed and
 never ranked as waste.
 
 ```bash
-python cli.py context prefilter AGENTS.md "$HOME/.claude/projects/<project>/*.jsonl"
-python cli.py context prefilter AGENTS.md "$HOME/.claude/projects/<project>/*.jsonl" --json
+python cli.py trace prefilter AGENTS.md "$HOME/.claude/projects/<project>/*.jsonl"
+python cli.py trace prefilter AGENTS.md "$HOME/.claude/projects/<project>/*.jsonl" --json
 ```
 
 The guidance file is split into rules with the span segmentation the novelty

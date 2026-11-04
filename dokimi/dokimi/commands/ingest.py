@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""ingest subcommand group: materialize Markdown from other document formats."""
+"""Materialize Markdown from other document formats: ``data import docling`` (#94 M2)."""
 
 from __future__ import annotations
 
@@ -41,11 +41,9 @@ def cmd_ingest_docling(args: argparse.Namespace) -> None:
     print(f"✅ Materialized {len(written)} Markdown file(s)")
 
 
-def register(sub, positive_int) -> None:
-    ingest_p = sub.add_parser("ingest", help="Materialize Markdown from other formats")
-    ingest_sub = ingest_p.add_subparsers(dest="ingest_cmd", required=True)
-
-    docling_p = ingest_sub.add_parser(
+def add_docling(import_sub) -> None:
+    """Add `data import docling` (#94 M2: it was `ingest docling`)."""
+    docling_p = import_sub.add_parser(
         "docling", help="Convert PDF/Office/HTML/scans to Markdown via Docling (ocr extra)"
     )
     docling_p.add_argument("--input", required=True, help="Document file or directory")
