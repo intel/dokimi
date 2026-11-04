@@ -16,6 +16,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -110,3 +111,92 @@ def test_docker_claude_payload_matches_golden(case, tmp_path):
     leaks = fd.leaks_against(actual, golden, allowed=[fd.FIXTURE_INSTRUCTION, skill_text])
     assert [lk.as_dict() for lk in leaks] == []
     assert fd.diff_requests(actual, golden) == [], "\n".join(fd.diff_requests(actual, golden))
+
+
+# -- the runners and the recording server, without a real client -------------------------
+
+FAKE_CLIENT = """#!PYTHON
+import json, os, urllib.request
+base = os.environ["ANTHROPIC_BASE_URL"]
+main = {"model": "claude-haiku-4-5", "stream": False,
+        "system": [{"type": "text", "text": "You are an agent."}],
+        "tools": [{"name": "Bash", "input_schema": {"type": "object"}}],
+        "messages": [{"role": "user", "content": [{"type": "text", "text": "Fix the off-by-one in sum()."}]}]}
+side = {"model": "claude-haiku-4-5", "stream": True, "messages": [{"role": "user", "content": "title"}]}
+for body in (main, side):
+    req = urllib.request.Request(base + "/v1/messages", data=json.dumps(body).encode(),
+                                 headers={"content-type": "application/json", "x-app": "cli"}, method="POST")
+    urllib.request.urlopen(req, timeout=30).read()
+"""
+
+
+def _fake_client(directory: Path) -> str:
+    directory.mkdir(parents=True, exist_ok=True)
+    script = directory / "fake-claude"
+    script.write_text(FAKE_CLIENT.replace("PYTHON", sys.executable), encoding="utf-8")
+    script.chmod(0o755)
+    return str(script)
+
+
+def test_record_keeps_every_request_and_the_main_turn(tmp_path):
+    binary = _fake_client(tmp_path)
+    env = {"PATH": os.environ.get("PATH", ""), "ANTHROPIC_BASE_URL": ""}
+
+    def run(base_url: str) -> None:
+        subprocess.run([binary], env={**env, "ANTHROPIC_BASE_URL": base_url}, check=True, timeout=60)
+
+    records = fd.record(run)
+    assert [rec["path"] for rec in records] == ["/v1/messages", "/v1/messages"]
+    assert fd.messages_request(records)["body"]["tools"][0]["name"] == "Bash"
+    assert records[1]["body"]["stream"] is True
+
+
+def test_messages_request_refuses_a_client_with_no_tools_request():
+    with pytest.raises(ValueError):
+        fd.messages_request([{"path": "/v1/messages", "body": {"stream": True}}])
+
+
+def test_capture_arm_runs_the_arm_argv_through_a_client(tmp_path):
+    binary = _fake_client(tmp_path / "bin")
+    request = fd.capture_arm("skill", binary=binary, scratch=tmp_path / "scratch")
+    assert [tool["name"] for tool in request["tools"]] == ["Bash"]
+    assert request["model"] == "<MODEL>"
+    assert request["messages"][0]["content"][0]["text"] == fd.FIXTURE_INSTRUCTION
+    with pytest.raises(ValueError):
+        fd.capture_arm("nope", binary=binary, scratch=tmp_path / "other")
+
+
+def test_run_host_gives_the_client_only_the_fixed_environment(tmp_path, monkeypatch):
+    seen: dict = {}
+    monkeypatch.setattr(fd.process, "run", lambda argv, **kw: seen.update(argv=list(argv), **kw))
+    fd.run_host("/bin/claude", ["-p", "x"], workdir=tmp_path, scratch=tmp_path / "s")("http://127.0.0.1:9")
+    assert seen["argv"] == ["/bin/claude", "-p", "x"]
+    assert seen["env"].allow == ()
+    assert seen["env"].set["HOME"] == str(tmp_path / "s" / "home")
+    assert seen["env"].set["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:9"
+
+
+def test_run_docker_builds_the_container_command(tmp_path, monkeypatch):
+    seen: dict = {}
+    monkeypatch.setattr(fd.process, "run", lambda argv, **kw: seen.update(argv=list(argv), **kw))
+    runner = fd.run_docker("img:1", "/bin/claude", ["-p", "x"], workdir=tmp_path,
+                           plugin_dir=tmp_path / "plugin", uid=1001, gid=1002)
+    runner("http://127.0.0.1:9")
+    argv = seen["argv"]
+    assert argv[:5] == ["docker", "run", "--rm", "--network", "host"]
+    assert "/bin/claude:/opt/agent/claude:ro" in argv
+    assert f"{tmp_path}:{tmp_path}" in argv
+    assert f"{tmp_path / 'plugin'}:{tmp_path / 'plugin'}:ro" in argv
+    assert "1001:1002" in argv and "ANTHROPIC_BASE_URL=http://127.0.0.1:9" in argv
+    assert argv[-4:] == ["img:1", "/opt/agent/claude", "-p", "x"]
+    assert seen["env"].allow is None  # the docker client inherits the parent environment
+
+
+def test_golden_round_trip_and_diff(tmp_path):
+    request = {"model": "<MODEL>", "tools": []}
+    path = tmp_path / "g" / "bare.json"
+    fd.write_golden(path, request, version="2.1.318", case="bare")
+    doc = fd.load_golden(path)
+    assert doc["_meta"]["case"] == "bare" and doc["request"] == request
+    assert fd.diff_requests(request, doc["request"]) == []
+    assert any(line.startswith(("-", "+")) for line in fd.diff_requests({"model": "<MODEL>", "tools": [1]}, doc["request"]))
