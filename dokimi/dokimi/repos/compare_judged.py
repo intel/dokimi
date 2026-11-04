@@ -9,8 +9,8 @@
 
 A cell reports ``judge:recall_judged`` only when its file is a ``repo_hits_judged.v1`` JSON object whose ``cell``,
 ``task``, ``arm`` and ``model`` are the cell's own (a copied or misplaced file is not this cell's), whose ``recall``
-equals the cell's ``grade.json`` ``metrics.recall`` now (else it was regraded since judging: the file is stale), and
-whose ``recall_judged`` is a finite number. Any other cell does not report it, as a cell lacking a ``grade.json``
+equals the cell's ``grade.json`` ``metrics.recall``, ``n_threads`` and credited ``(thread, finding)`` pairs now
+(else it was regraded since judging: the file is stale, even when the recall is the same), and whose ``recall_judged`` is a finite number. Any other cell does not report it, as a cell lacking a ``grade.json``
 metric does: it is left out of its task's mean and ``n``. A null ``recall_judged`` (an unjudged pair) is absent,
 never 0. Each cell gets one of :data:`REASONS`, and the summary counts them per compared arm (``judged_cells``).
 
@@ -75,7 +75,10 @@ def _judged(cell_dir: Path, rec: dict[str, Any]) -> tuple[float | None, str]:
     if any(doc.get(k) != rec.get(k) for k in ("cell", "task", "arm", "model")):
         return None, "other_cell"
     recall = as_measure(doc.get("recall"))
-    if recall is None or recall != as_measure(_grade_recall(cell_dir / "grade.json")):
+    metrics, matches = _grade(cell_dir / "grade.json")
+    saved = _pairs(doc.get("pairs"))
+    if (recall is None or recall != as_measure(metrics.get("recall")) or doc.get("n_threads") != metrics.get("n_threads")
+            or saved is None or saved != _pairs(matches)):
         return None, "stale"
     if doc.get("recall_judged") is None:
         return None, "unjudged"
@@ -90,10 +93,21 @@ def _json(path: Path) -> Any:
         return None
 
 
-def _grade_recall(path: Path) -> Any:
+def _grade(path: Path) -> tuple[dict[str, Any], Any]:
+    """The grade's ``metrics`` and ``details.matches`` (``{}`` and ``None`` when it has none)."""
     grade = _json(path)
-    metrics = grade.get("metrics") if isinstance(grade, dict) else None
-    return metrics.get("recall") if isinstance(metrics, dict) else None
+    grade = grade if isinstance(grade, dict) else {}
+    metrics, details = grade.get("metrics"), grade.get("details")
+    return (metrics if isinstance(metrics, dict) else {}), (details.get("matches") if isinstance(details, dict) else None)
+
+
+def _pairs(items: Any) -> list[tuple[Any, Any]] | None:
+    """The ``(thread, finding)`` of each entry, in order; no entries (a parse-error cell) is an empty list."""
+    if items is None:
+        return []
+    if not isinstance(items, list) or not all(isinstance(i, dict) for i in items):
+        return None
+    return [(i.get("thread"), i.get("finding")) for i in items]
 
 
 def check_reported(metrics: tuple[str, ...], cells: list[dict[str, Any]], scope: str = "") -> None:

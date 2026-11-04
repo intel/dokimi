@@ -2136,9 +2136,9 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   reads each cell's `hits_judged.json` (`repo hits judge`, above) instead of
   `grade.json`; any other `judge:` name is refused with exit 2. A cell reports
   it only when the file is a `repo_hits_judged.v1` JSON object whose `cell`,
-  `task`, `arm` and `model` are the cell's own, whose `recall` equals the
-  cell's `grade.json` `metrics.recall` now (else the cell was regraded since
-  judging: the file is stale, and `repo hits judge` removes such files only
+  `task`, `arm` and `model` are the cell's own, whose `recall`, `n_threads`
+  and credited (thread, finding) pairs equal the cell's `grade.json` ones now
+  (else the cell was regraded since judging, even to the same recall: the file is stale, and `repo hits judge` removes such files only
   when it runs again), and whose `recall_judged` is a finite number. Any other
   cell (no file, a stale file, another cell's file, a null `recall_judged`
   from an unjudged pair, a file that cannot be read, is not JSON or is not
