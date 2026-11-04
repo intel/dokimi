@@ -20,18 +20,18 @@ JUDGED = "metric:judge:recall_judged"
 NONE, RAW = "guidance:none", "guidance:raw"
 
 
-def _name(task: str, arm: str, rep: int) -> str:
-    return f"{task}__{arm.replace(':', '-')}__m-1__r{rep}"
+def _name(task: str, arm: str, rep: int, model: str = "m-1") -> str:
+    return f"{task}__{arm.replace(':', '-')}__{model}__r{rep}"
 
 
 def _judged(batch: Path, task: str, arm: str, rep: int, same: int, *, recall: float = 1.0,
             unjudged: int = 0, write: bool = True, grade: dict | None = None,
-            credited: list[tuple[int, int]] | None = None) -> Path:
+            credited: list[tuple[int, int]] | None = None, model: str = "m-1") -> Path:
     """A replay cell graded with ``recall`` over 4 threads and, with ``write``, its hits_judged.json from the
     real writer: ``same`` pairs labelled same point and ``unjudged`` pairs with no label. ``credited`` is the
 (thread, finding) pairs grade.json credits now (default: the judged ones)."""
-    _cell(batch, task, arm, rep, metrics={"recall": recall, "n_threads": 4, **(grade or {})})
-    rd = batch / _name(task, arm, rep)
+    _cell(batch, task, arm, rep, metrics={"recall": recall, "n_threads": 4, **(grade or {})}, model=model)
+    rd = batch / _name(task, arm, rep, model)
     pairs = ([{"thread": i, "finding": i, "label": "same point", "reason": "same"} for i in range(same)]
              + [{"thread": 10 + i, "finding": 10 + i, "label": None, "reason": None, "error": "judge call failed"}
                 for i in range(unjudged)])
@@ -40,7 +40,7 @@ def _judged(batch: Path, task: str, arm: str, rep: int, same: int, *, recall: fl
     doc["details"] = {"matches": [{"thread": t, "finding": f} for t, f in now]}
     (rd / "grade.json").write_text(json.dumps(doc))
     if write:
-        rec = {"cell": rd.name, "task": task, "arm": arm, "model": "m-1", "rep": rep, "n_threads": 4,
+        rec = {"cell": rd.name, "task": task, "arm": arm, "model": model, "rep": rep, "n_threads": 4,
                "recall": recall, "parse_error": False}
         save_artifact("repo_hits_judged", cell_doc(rec, ("openai", "judge-1"), pairs), rd / "hits_judged.json")
     return rd
@@ -166,6 +166,22 @@ def test_no_cell_with_a_usable_file_is_refused_with_the_hits_judge_hint(tmp_path
                               "PROVIDER/MODEL` first")
     with pytest.raises(CompareError, match=r"reports a numeric or boolean --metric typo$"):  # plain wording kept
         compare([b], NONE, metrics=("typo",))
+
+
+def test_a_file_only_an_excluded_arm_or_model_has_does_not_satisfy_the_metric(tmp_path):
+    b = tmp_path / "b1"
+    _judged(b, "t1", NONE, 1, 1, write=False)
+    _judged(b, "t1", RAW, 1, 2, write=False)
+    _judged(b, "t1", "guidance:other", 1, 2)
+    with pytest.raises(CompareError, match=r"no finished cell reports --metric judge:recall_judged \(2 no "):
+        compare([b], NONE, treatments=[RAW], metrics=("judge:recall_judged",))
+    assert compare([b], NONE, metrics=("judge:recall_judged",))["judged_cells"]["arms"]["guidance:other"]["read"] == 1
+    c = tmp_path / "b2"
+    for arm in (NONE, RAW):
+        _judged(c, "t1", arm, 1, 1, write=False)
+        _judged(c, "t1", arm, 1, 1, model="m-2")
+    with pytest.raises(CompareError, match=r"no finished cell reports --metric judge:recall_judged"):
+        compare([c], NONE, metrics=("judge:recall_judged",), models=["m-1"])
 
 
 def test_task_narrows_the_cells_read_and_the_refusal(tmp_path):

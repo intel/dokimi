@@ -194,7 +194,6 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
     cells, missing, task_filter = select_tasks(found, missing, tasks, batch_dirs)
     # the arms and metrics are checked among the selected cells, so a miss may be the selection's doing
     scope = " among the --task selection" if task_filter else ""
-    check_reported(metrics, cells, scope)
     _check_metrics(metrics, cells, scope)
     base_sel = parse_selector(baseline)
     if not any(selector_matches(base_sel, c) for c in cells):
@@ -203,6 +202,9 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
         task_filter["dropped_arms"] = ([] if treatments is not None
                                        else sorted(_other_arms(found, base_sel) - _other_arms(cells, base_sel)))
     treatments = _treatments(cells, baseline, base_sel, treatments, scope)
+    compared = _in_models([c for c in cells if any(selector_matches(parse_selector(t), c) for t in [baseline, *treatments])],
+                          models)  # a judged-recall file of an excluded arm or model does not count
+    check_reported(metrics, compared, scope)
     measures = ["gate", "score", *([f"pass^{pass_k}"] if pass_k else []),
                 *(["path_distance"] if path_stability else []), "cost_usd", "turns", "first_prompt_tokens",
                 *USEFUL_MEASURES, *(f"metric:{m}" for m in metrics)]
@@ -349,7 +351,8 @@ def _process_measures(cells: list[dict[str, Any]], selectors: list[str]) -> list
 
 def _check_metrics(metrics: tuple[str, ...], cells: list[dict[str, Any]], scope: str = "") -> None:
     """A ``--metric`` that no finished cell reports is a typo or not a number: refuse it, not print nothing."""
-    unknown = [m for m in metrics if not any(m in c["metrics"] for c in cells)]
+    judged = judge_names(metrics)  # read after the arms are resolved, by check_reported
+    unknown = [m for m in metrics if m not in judged and not any(m in c["metrics"] for c in cells)]
     if unknown:
         raise CompareError(f"no finished cell reports a numeric or boolean --metric {', '.join(unknown)}{scope}")
 
