@@ -106,7 +106,7 @@ def check_fences(scan: Scan, files: list[str], check: Check) -> dict[str, Any]:
         block["unknown"] = len(runnable)
         return block
     found_errors = _run_past_blocking(check, [code for _, _, code in runnable], target) if runnable else {}
-    fails, unchecked = _claims(scan, check.tool, runnable, found_errors)
+    fails, unchecked = _claims(scan, check.tool, runnable, found_errors, _found_packages(check, found_errors))
     block["fail"] = fails
     block["checked"] = len(runnable) - unchecked
     block["unknown"] += unchecked  # "unknown" is every fence that was not checked
@@ -114,7 +114,7 @@ def check_fences(scan: Scan, files: list[str], check: Check) -> dict[str, Any]:
 
 
 def _claims(scan: Scan, tool: str, runnable: list[tuple[str, Fence, str]],
-            found_errors: dict[int, list[tuple[int, str]]]) -> tuple[int, int]:
+            found_errors: dict[int, list[tuple[int, str]]], found: set[str]) -> tuple[int, int]:
     """One claim per runnable fence from the tool's errors; (failing fences, fences not checked)."""
     fails = unchecked = 0
     for i, (f, fence, code) in enumerate(runnable):
@@ -122,14 +122,14 @@ def _claims(scan: Scan, tool: str, runnable: list[tuple[str, Fence, str]],
         if not errors:
             scan.add(f, fence.line, "python_fence", _label(code), "ok", f"{tool}: no error")
             continue
-        if _is_unchecked(errors):
+        if _is_unchecked(errors, found):
             unchecked += 1
             scan.add(f, fence.line, "python_fence", _label(code), "unresolved",
                      f"{tool}: {errors[0][1]} ({_unchecked_reason(errors)}: not type-checked)"[:MAX_WHY])
             continue
         fails += 1
         # the first real error names the claim: a fragment or missing-module error of the same fence is only counted
-        line, message = _real(errors)[0]
+        line, message = _real(errors, found)[0]
         more = f" (+{len(errors) - 1} more)" if len(errors) > 1 else ""
         where = f"line {line}: " if line else ""  # 0: the tool gave no line, so the claim is the fence itself
         scan.add(f, fence.line + line, "python_fence", _label(code), "fail",
@@ -170,29 +170,56 @@ def _stdlib() -> frozenset[str]:
     return frozenset(names)
 
 
-def _stale_import(message: str, missing: set[str]) -> bool:
+def _stale_import(message: str, found: set[str]) -> bool:
     """True for a module not found that is a stale call after all: a standard-library one the repository's Python
-    lacks (``imp`` on 3.13), or a submodule of a module the environment has (``json.nosuch``: mypy names a missing parent
-    too, so a parent it does not name was found)."""
+    lacks (``imp`` on 3.13), or with mypy a submodule of a package the repository interpreter finds (``found``)."""
     m = _NOT_FOUND.match(message)
     if m is None:
         return False
-    name = m.group("name")
-    if name.split(".")[0] in _stdlib():
+    top = m.group("name").split(".")[0]  # "" for a relative import: never found
+    if top in _stdlib():
         return True
-    return message.startswith("Cannot find") and "." in name and name.rpartition(".")[0] not in missing
+    return message.startswith("Cannot find") and "." in m.group("name") and top in found
 
 
-def _real(errors: list[tuple[int, str]]) -> list[tuple[int, str]]:
+def _real(errors: list[tuple[int, str]], found: set[str]) -> list[tuple[int, str]]:
     """The errors of a fence that are neither missing context nor a module the environment lacks (``_stale_import``
     keeps the stale ones)."""
-    missing = {m.group("name") for _, msg in errors if (m := _NOT_FOUND.match(msg))}
-    return [e for e in errors if not _missing_context(e[1]) or _stale_import(e[1], missing)]
+    return [e for e in errors if not _missing_context(e[1]) or _stale_import(e[1], found)]
 
 
-def _is_unchecked(errors: list[tuple[int, str]]) -> bool:
+def _is_unchecked(errors: list[tuple[int, str]], found: set[str] | None = None) -> bool:
     """True when every error of a fence is one of those (see ``_missing_context``): nothing real was found."""
-    return not _real(errors)
+    return not _real(errors, found or set())
+
+
+_FIND = """import importlib.util, json, sys
+def found(name):
+    try:
+        spec = importlib.util.find_spec(name)
+    except (ImportError, ValueError):
+        return False
+    return spec is not None and spec.origin not in (None, "namespace")  # a namespace package proves no submodule
+print(json.dumps([found(n) for n in json.load(sys.stdin)]))
+"""
+
+
+def _found_packages(check: Check, found_errors: dict[int, list[tuple[int, str]]]) -> set[str]:
+    """The top-level packages of the submodules mypy did not find that the repository interpreter finds, as a regular
+    package: ``from a.b import c`` names only ``a.b``, so whether ``a`` exists is asked here. Empty if it cannot say."""
+    names = sorted({m.group("name").split(".")[0] for errors in found_errors.values() for _, message in errors
+                    if message.startswith("Cannot find") and (m := _NOT_FOUND.match(message)) and "." in m.group("name")})
+    names = [n for n in names if n and n not in _stdlib()]
+    if not names or check.python is None:
+        return set()
+    done = _run_tool([check.python, "-I", "-c", _FIND], tempfile.gettempdir(), stdin=json.dumps(names))
+    try:
+        answers = json.loads(done.stdout) if done.returncode == 0 and not done.timed_out else None
+    except ValueError:
+        answers = None
+    if not isinstance(answers, list) or len(answers) != len(names):
+        return set()
+    return {n for n, ok in zip(names, answers, strict=True) if ok is True}
 
 
 def _unchecked_reason(errors: list[tuple[int, str]]) -> str:

@@ -804,11 +804,31 @@ def test_a_removed_standard_library_module_or_a_missing_submodule_is_stale(tmp_p
     assert [c["status"] for c in claims] == ["fail"]
 
 
-def test_a_submodule_of_a_package_the_environment_lacks_is_unresolved(tmp_path):
-    fence = f"{FENCE}python\nimport nosuchmodule_dokimi.sub\n{FENCE}\n"
+@pytest.mark.parametrize("statement", ["import nosuchmodule_dokimi.sub", "from nosuchmodule_dokimi.sub import c",
+                                       "from .x import y"])
+def test_a_submodule_of_a_package_the_environment_lacks_is_unresolved(tmp_path, statement):
+    # `from a.b import c` names only a.b, and a relative import names ".x": neither says the parent exists
+    fence = f"{FENCE}python\n{statement}\n{FENCE}\n"
     claims = _fence_claims(scan_repo(_tree(tmp_path, fence), parse_manifest(MANIFEST),
                                      typecheck=Check("mypy", sys.executable)))
     assert [c["status"] for c in claims] == ["unresolved"]
+
+
+def test_the_package_probe_does_not_count_a_namespace_package(tmp_path, monkeypatch):
+    # a namespace directory (no __init__.py) is found, but proves nothing about a submodule under it
+    import io
+
+    from dokimi.repos.l0 import typecheck as l0_typecheck
+
+    (tmp_path / "nsdokimi").mkdir()
+    (tmp_path / "regdokimi").mkdir()
+    (tmp_path / "regdokimi" / "__init__.py").write_text("", encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(["nsdokimi", "regdokimi", "nosuch_dokimi"])))
+    out = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", out)
+    exec(compile(l0_typecheck._FIND, "<find>", "exec"), {"__name__": "__main__"})  # nosec B102 - our own constant
+    assert json.loads(out.getvalue()) == [False, True, False]
 
 
 def test_a_missing_module_with_a_real_error_fails_on_the_real_error(tmp_path):

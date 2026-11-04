@@ -1712,7 +1712,7 @@ module the environment does not have is `unresolved`, not `fail`: the fence's ow
 import fails, so nothing it says about that module can be checked, and a fence that
 imports an uninstalled package is not a stale-API candidate. Two missing modules are `fail` all the same: a
 standard-library one the repository's Python lacks (`import imp` on 3.13; the names are dokimi's Python's and
-those the pinned mypy's typeshed lists), and with mypy a submodule of a module the environment has (`json.nosuch`). A module the environment has without types
+those the pinned mypy's typeshed lists), and with mypy a submodule of a package the repository interpreter finds as a regular package (`json.nosuch`, `yaml.nosuch`; not a relative import, nor a namespace package such as `google`). A module the environment has without types
 (no `py.typed` or stubs) is `unresolved` too: mypy reads it as `Any`. A real error in the same fence still
 fails it. `pip install
 dokimi` does not install mypy: the tested pin is `requirements-test.txt`
