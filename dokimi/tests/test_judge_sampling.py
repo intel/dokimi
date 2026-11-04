@@ -52,7 +52,7 @@ def test_judge_defaults_leave_sampling_unset():
 
 @pytest.fixture
 def completion(monkeypatch):
-    """litellm.completion, recording each call's kwargs and answering *payload*."""
+    """litellm.completion, recording each call's kwargs and answering ``seen["payload"]``."""
     import litellm
     from litellm import ModelResponse
 
