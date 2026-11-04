@@ -254,7 +254,7 @@ def index_atoms(spans: list[Span], atoms: list) -> None:
                 target.atom_ids.append(atom.id)
 
 
-def span_summary(spans: list[Span], atoms: list | None = None, *, atom_cap: int | None = None) -> dict:
+def span_summary(spans: list[Span], atoms: list | None = None, *, capped: bool = False) -> dict:
     """Aggregate span statistics for the ``novelty.v1`` ``spans{}`` block.
 
     ``tokens_carrying_nothing`` counts tokens in spans from which the extractor drew no
@@ -281,8 +281,9 @@ def span_summary(spans: list[Span], atoms: list | None = None, *, atom_cap: int 
     Args:
         spans: Segmented artifact spans.
         atoms: Atoms to index onto the spans. Pass the full extracted set.
-        atom_cap: The cap the extraction ran under, if any, so a capped set is flagged
-            rather than silently averaged.
+        capped: Whether the cap left atoms out (``ExtractionReport.sampled`` is set), so a
+            sampled set is flagged rather than silently averaged. An input with as many atoms
+            as the cap, or fewer, keeps every atom and is not capped.
     """
     if atoms is not None:
         index_atoms(spans, atoms)
@@ -305,7 +306,7 @@ def span_summary(spans: list[Span], atoms: list | None = None, *, atom_cap: int 
         "n_unread": len(unknown),
         "tokens_unread": unknown_tokens,
         "n_atoms_indexed": len(atoms) if atoms is not None else None,
-        "capped_atom_set": bool(atom_cap and atoms is not None and len(atoms) >= atom_cap),
+        "capped_atom_set": capped,
         "sole_carrier": len(sole),
         "protected": sum(1 for s in spans if s.protected),
         "by_kind": {

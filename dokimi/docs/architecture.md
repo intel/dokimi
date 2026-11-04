@@ -294,7 +294,8 @@ next release.
   the skill listing (without skills marked `disable-model-invocation: true`) load at start; nested
   guidance and what nested CLAUDE.md and AGENTS.md files import load lazily;
   skill bodies on demand; with a CLAUDE.md, `.claude/CLAUDE.md` or `CLAUDE.local.md` at the root, an
-  AGENTS.md no CLAUDE.md imports is reported off. A skill with no description is listed by its first
+  AGENTS.md no CLAUDE.md imports is reported off, and so is a nested one no CLAUDE.md imports whose own
+  directory holds one of those files (one in a parent below the root does not count; only with a profile that sets `guidance.claude_displaces_agents`, as `claude-code` does). A skill with no description is listed by its first
   non-empty body line, as Claude Code does. It warns on skills with no description or body text,
   skills with near-duplicate descriptions (identical descriptions, or Jaccard index >= 0.5
   after stop-word removal when both have 3+ words left), on AGENTS.md files turned off, on
@@ -339,6 +340,12 @@ next release.
   `repo run` (one agent per task × arm × model × rep cell, then `grade`, one
   `result.json` per cell) and `repo report` (gated success with a Wilson
   interval, grader failures, missing cells, cost).
+- `dokimi/repos/hits_judge.py` + `dokimi/repos/hits_calibration.py` —
+  `repo hits judge`: a judge model labels each credited pair of the replay
+  cells with their full texts, and each cell gets `hits_judged.json`
+  (`repo_hits_judged.v1`, `recall_judged`); `repo hits sheet` samples pairs
+  for a person, and the labels give agreement and Cohen's kappa per arm and
+  answer model.
 - `dokimi/repos/compare.py` — `repo compare`: treatment arms against a
   baseline arm over one or more batches, one value per task and arm (gate
   share, score, cost, turns, chosen `grade.json` metrics, `result.json`

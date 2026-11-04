@@ -331,7 +331,7 @@ def model_routing(
         "selection_rate_among_answered": (
             round(hits / len(answered), 4) if answered else None
         ),
-        "noise": _noise(groups) if repeats > 1 else None,
+        "noise": repeat_noise(groups) if repeats > 1 else None,
         "per_query": picks,
         "note": (
             "An upper bound on harness behaviour, not a harness measurement: a harness "
@@ -341,7 +341,7 @@ def model_routing(
     }
 
 
-def _noise(groups: list[list[dict]]) -> dict:
+def repeat_noise(groups: list[list[dict]]) -> dict:
     """Agreement across the repeats of each query, and the run-to-run spread of the rate.
 
     A query's agreement is the share of its answered repeats that gave its most common
@@ -429,6 +429,41 @@ def headings_as_queries(body: str, *, limit: int = 40) -> list[str]:
     return [h for h in headings if len(tokenize(h)) >= 2][:limit]
 
 
+# A selection reply is one JSON object, ``{"pick": N}``: a few tokens.
+PICK_REPLY_TOKENS = 10
+
+
+def selection_prompt_tokens(candidates: list[Candidate], queries: list[str]) -> list[int]:
+    """The prompt tokens (chars / 4) of each call one repeat of :func:`model_routing` makes.
+
+    One entry per sent query, in query order. :func:`model_routing` sends every query, contentless
+    ones too, unless none has a content word: then the run refuses before any call, and the list
+    is empty. Each call carries the whole field's cards in the selection prompt.
+    """
+    cards = "\n".join(f"{position}. {candidate.card}"
+                       for position, candidate in enumerate(candidates, 1))
+    sent = list(queries) if any(tokenize(query) for query in queries) else []
+    return [len(_SELECT_PROMPT.format(query=query, cards=cards)) // 4 for query in sent]
+
+
+def selection_estimate(candidates: list[Candidate], queries: list[str], *,
+                       repeats: int = 1) -> dict:
+    """The calls and tokens :func:`model_routing` would make, counted without making them.
+
+    Every repeat sends the same prompts (see :func:`selection_prompt_tokens`). The reply is one
+    JSON pick, :data:`PICK_REPLY_TOKENS`. Zero repeats send nothing, so no query is sent.
+    """
+    prompts = selection_prompt_tokens(candidates, queries) if repeats else []
+    calls = len(prompts) * repeats
+    return {
+        "n_queries": len(queries),
+        "n_queries_sent": len(prompts),
+        "n_calls": calls,
+        "input_tokens": sum(prompts) * repeats,
+        "output_tokens": calls * PICK_REPLY_TOKENS,
+    }
+
+
 def non_skill_reason(ref: str) -> str | None:
     """Why a ``skill:`` reference names something other than a skill, or ``None``.
 
@@ -480,6 +515,18 @@ def competitor_left_out(ref: str, *, include_disabled: bool, include_invalid: bo
     return f"spec error ({problems}; --include-invalid keeps it)"
 
 
+def left_out_rules(ref: str, reason: str, *, include_invalid: bool) -> set[str]:
+    """Each rule (``disabled``, ``invalid``) that leaves a ``skill:`` competitor out of the field.
+
+    ``reason`` is what :func:`competitor_left_out` returned for ``ref``. It names the first rule
+    only, since a disabled skill is not checked for a spec error, so that check is made here.
+    """
+    if reason.startswith("spec error"):
+        return {"invalid"}
+    also = competitor_left_out(ref, include_disabled=True, include_invalid=include_invalid)
+    return {"disabled", "invalid"} if also else {"disabled"}
+
+
 def skill_file(ref: str) -> Path | None:
     """The ``SKILL.md`` a ``skill:`` reference names, or ``None`` for any other reference."""
     if not ref.startswith("skill:"):
@@ -522,7 +569,8 @@ def load_candidate(ref: str) -> tuple[Candidate, str, str | None]:
 def catalog_competitors(root: str, exclude: set[str],
                         notes: list[str] | None = None, *,
                         include_disabled: bool = False,
-                        include_invalid: bool = False) -> list[Candidate]:
+                        include_invalid: bool = False,
+                        dropped: dict[str, set[str]] | None = None) -> list[Candidate]:
     """Every skill under ``root`` whose name is not in ``exclude``.
 
     The field a harness would list next to the artifact, rather than one the caller picks.
@@ -535,7 +583,9 @@ def catalog_competitors(root: str, exclude: set[str],
     ``SKILL.md`` under another path (a plugin copy of the ``skills/`` tree), is left out too:
     the copy nearest the catalog root stands for the card. Disabled and spec-error copies are
     filtered according to the flags first. A name whose remaining copies differ in content leaves
-    the field whole, with a note naming every remaining path of that name.
+    the field whole, with a note naming every remaining path of that name. Each name a flag or a
+    conflict leaves out is mapped in ``dropped`` (when given) to why: ``disabled``, ``invalid``
+    or ``conflict``, so a caller need not read the catalog again.
 
     Raises:
         ValueError: ``root`` is not a directory, or its ``skills.yaml`` is invalid (with no
@@ -543,7 +593,8 @@ def catalog_competitors(root: str, exclude: set[str],
     """
     if not Path(root).is_dir():
         raise ValueError(f"--catalog is not a directory: {root}")
-    eligible = _eligible_catalog_skills(root, exclude, notes, include_disabled, include_invalid)
+    eligible = _eligible_catalog_skills(root, exclude, notes, include_disabled, include_invalid,
+                                        dropped)
     keeper = _keepers_by_copy(eligible)
     candidates: list[Candidate] = []
     for skill, digest in eligible:
@@ -558,7 +609,8 @@ def catalog_competitors(root: str, exclude: set[str],
 
 def _eligible_catalog_skills(root: str, exclude: set[str], notes: list[str] | None,
                              include_disabled: bool,
-                             include_invalid: bool = False) -> list[tuple[Skill, str]]:
+                             include_invalid: bool = False,
+                             dropped: dict[str, set[str]] | None = None) -> list[tuple[Skill, str]]:
     """Each loadable, non-excluded catalog skill with the sha256 of its ``SKILL.md``.
 
     Disabled and spec-error copies are filtered according to the flags first. A name whose
@@ -584,21 +636,30 @@ def _eligible_catalog_skills(root: str, exclude: set[str], notes: list[str] | No
     # the flags first: a copy no harness lists (disabled, or a spec error) does not make its name a conflict
     listed: list[tuple[Skill, str]] = []
     for skill, digest, review in loaded:
-        if not _left_out_by_flag(skill, review, include_disabled, include_invalid, notes):
+        if not _left_out_by_flag(skill, review, include_disabled, include_invalid, notes, dropped):
             listed.append((skill, digest))
-    conflicting = _conflicting_names(listed, notes)
+    conflicting = _conflicting_names(listed, notes, dropped)
     return [(skill, digest) for skill, digest in listed if skill.name not in conflicting]
 
 
 def _left_out_by_flag(skill: Skill, review: SkillReview, include_disabled: bool,
-                      include_invalid: bool, notes: list[str] | None) -> bool:
-    """Whether a disabled or spec-error skill is left out, with the note that says why."""
-    if not include_disabled and review.disable_model_invocation:
+                      include_invalid: bool, notes: list[str] | None,
+                      dropped: dict[str, set[str]] | None = None) -> bool:
+    """Whether a disabled or spec-error skill is left out, with the note that says why.
+
+    The note names the first rule; ``dropped`` (when given) gets every rule that applies.
+    """
+    disabled = not include_disabled and review.disable_model_invocation
+    invalid = not include_invalid and review.state == "error"
+    if dropped is not None and (disabled or invalid):
+        dropped.setdefault(skill.name, set()).update(
+            why for why, hit in (("disabled", disabled), ("invalid", invalid)) if hit)
+    if disabled:
         if notes is not None:
             notes.append(f"left out catalog skill {skill.name!r}: "
                          "disable-model-invocation (--include-disabled keeps it)")
         return True
-    if not include_invalid and review.state == "error":
+    if invalid:
         if notes is not None:
             problems = "; ".join(f.message for f in review.findings if f.level == "error")
             notes.append(f"left out catalog skill {skill.name!r} at {skill.path}: "
@@ -607,7 +668,8 @@ def _left_out_by_flag(skill: Skill, review: SkillReview, include_disabled: bool,
     return False
 
 
-def _conflicting_names(listed: list[tuple[Skill, str]], notes: list[str] | None) -> set[str]:
+def _conflicting_names(listed: list[tuple[Skill, str]], notes: list[str] | None,
+                       dropped: dict[str, set[str]] | None = None) -> set[str]:
     """The names that two different files among ``listed`` share, with a note naming each path.
 
     Two skills with one name and different bytes cannot both stand for the card, so the name
@@ -618,6 +680,9 @@ def _conflicting_names(listed: list[tuple[Skill, str]], notes: list[str] | None)
     for skill, digest in listed:
         digests.setdefault(skill.name, set()).add(digest)
     conflicting = {name for name, found in digests.items() if len(found) > 1}
+    if dropped is not None:
+        for name in conflicting:
+            dropped.setdefault(name, set()).add("conflict")
     if notes is not None:
         for name in sorted(conflicting):
             paths = ", ".join(sorted(skill.path.as_posix() for skill, _ in listed

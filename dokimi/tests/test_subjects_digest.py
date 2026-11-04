@@ -36,6 +36,23 @@ def test_distribution_digest_matches_a_well_known_skill_md_entry(tmp_path: Path)
     assert distribution_digest("notes.md", base=tmp_path) is None
 
 
+def test_a_resource_listed_after_skill_md_still_makes_an_archive(tmp_path: Path, monkeypatch):
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_bytes(b"body")
+    (skill / "ref.md").write_text("more", encoding="utf-8")
+    real_iterdir = Path.iterdir
+
+    def skill_md_first(self: Path):
+        if self == skill:  # the order a filesystem may list them in, whatever this one does
+            return iter([skill / "SKILL.md", skill / "ref.md"])
+        return real_iterdir(self)
+
+    monkeypatch.setattr(Path, "iterdir", skill_md_first)
+    assert distribution_digest("skill", base=tmp_path) is None
+    assert distribution_digest("skill/SKILL.md", base=tmp_path) is None
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="a colon is invalid in a Windows directory name")
 def test_a_ref_with_a_scheme_gets_no_digest_even_when_a_directory_collides(tmp_path: Path):
     colliding = tmp_path / "context7:" / "org" / "lib"
