@@ -81,7 +81,7 @@ runs:
         DOKIMI_REPO: ${{ inputs.dokimi-repository }}
       run: |
         # The lock is hashed, and pip cannot hash a git URL: install the lock, then dokimi without deps.
-        pip install --require-hashes -r "https://raw.githubusercontent.com/$DOKIMI_REPO/$SHA/dokimi/requirements.lock.txt"
+        pip install --no-deps --require-hashes -r "https://raw.githubusercontent.com/$DOKIMI_REPO/$SHA/dokimi/requirements.lock.txt"
         pip install --no-deps "dokimi @ git+https://github.com/$DOKIMI_REPO@$SHA#subdirectory=dokimi"
 
     - name: Output directory and environment
