@@ -679,3 +679,25 @@ def test_an_installed_module_without_types_is_not_an_error_but_a_missing_one_is(
     assert typecheck.grade(_task(), tmp_path, "", run)["pass"] is True
     (run / "workspace" / "pkg" / "api.py").write_text("import nosuchmodule_dokimi\n", encoding="utf-8")
     assert typecheck.grade(_task(), tmp_path, "", run)["pass"] is False
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a symbolic link needs privileges on Windows")
+def test_a_workspace_venv_neither_fails_nor_refuses_a_clean_grade(tmp_path):
+    venv = ".venv/lib/python3.13/site-packages"
+    run = _run(tmp_path, {"pkg/__init__.py": "", "pkg/api.py": CLEAN, f"{venv}/foo/__init__.pyi": "x: int\n",
+                          ".git/hooks/x.pyi": ""}, _task())
+    (run / "workspace" / ".venv" / "bin").mkdir()
+    os.symlink(sys.executable, run / "workspace" / ".venv" / "bin" / "python")
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is True and result["n_suppressions"] == 0
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a symbolic link needs privileges on Windows")
+def test_a_dot_directory_with_a_listed_file_is_still_read(tmp_path):
+    task = _task(paths=[".tools/api.py"])
+    run = _run(tmp_path, {".tools/api.py": CLEAN, ".tools/json.pyi": ""}, task)
+    assert typecheck.grade(task, tmp_path, "", run)["n_suppressions"] == 1
+    (run / "workspace" / ".tools" / "json.pyi").unlink()
+    os.symlink(tmp_path, run / "workspace" / ".tools" / "out")
+    with pytest.raises(ValueError, match="outside the workspace"):
+        typecheck.grade(task, tmp_path, "", run)

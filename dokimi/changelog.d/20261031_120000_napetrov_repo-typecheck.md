@@ -14,3 +14,5 @@
   the grader reads such an installed module as `Any`, not as an error. A fence whose only errors are
   a statement that needs a function or loop around it (`break`, `continue`, `yield from`, `nonlocal`) is unresolved too.
 - The grader refuses a workspace module named as one the image's site-packages provides, as it does a standard-library name.
+- The grader does not read a dot directory (`.venv`, `.git`) that holds no listed file: its `.pyi` files and links
+  outside the workspace no longer fail or refuse a clean grade.

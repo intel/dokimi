@@ -162,6 +162,16 @@ def _image_provides(name: str) -> bool:
     return any(os.path.isabs(loc) and Path(loc).resolve().is_relative_to(d) for loc in found for d in site)
 
 
+def _reachable(workspace: Path, listed: list[str]):
+    """``os.walk`` of the workspace without a dot directory (``.venv``, ``.git``) that holds no listed file: no import
+    names a dot directory, so mypy reads nothing under it."""
+    keep = [workspace / p for p in listed]
+    for dirpath, dirnames, filenames in os.walk(workspace):
+        dirnames[:] = [d for d in dirnames
+                       if not d.startswith(".") or any(k.is_relative_to(Path(dirpath, d)) for k in keep)]
+        yield dirpath, dirnames, filenames
+
+
 def _silenced(workspace: Path, listed: list[str]) -> list[str]:
     """Where the workspace silences mypy: ``file:line`` for a comment, the path for a stub (``.pyi`` shadows a module)
     or for a top-level module named as a standard-library one or one the image's site-packages provides
@@ -173,7 +183,7 @@ def _silenced(workspace: Path, listed: list[str]) -> list[str]:
         text = (workspace / p).read_text(encoding="utf-8", errors="replace")
         found += [f"{p}:{n}" for n, comment in _comments(text) if _SILENCE.search(comment)]
         found += [f"{p}:{n}" for n in _no_type_check(text)]
-    for dirpath, _, filenames in os.walk(workspace):
+    for dirpath, _, filenames in _reachable(workspace, listed):
         found += [Path(dirpath, name).relative_to(workspace).as_posix() for name in filenames if name.endswith(".pyi")]
     for base in (workspace, *_package_roots(workspace, listed)):
         for entry in sorted(base.iterdir()) if base.is_dir() else []:
@@ -183,12 +193,12 @@ def _silenced(workspace: Path, listed: list[str]) -> list[str]:
     return found
 
 
-def _links_outside(workspace: Path) -> list[str]:
+def _links_outside(workspace: Path, listed: list[str]) -> list[str]:
     """The symbolic links under the (resolved) workspace, a link to a directory included, whose target lies outside
     it. mypy follows an import through a link, so a link to a file this run cannot see (a hidden repair) would be read
     as the agent's own code, unlisted modules included. A link whose target stays inside is read as the file it names."""
     found = []
-    for dirpath, dirnames, filenames in os.walk(workspace):
+    for dirpath, dirnames, filenames in _reachable(workspace, listed):
         for name in (*dirnames, *filenames):
             path = Path(dirpath, name)
             if path.is_symlink() and not path.resolve().is_relative_to(workspace):
@@ -217,7 +227,7 @@ def grade(task: dict[str, Any], task_dir: Path, answer: str, run_dir: Path | Non
     present = [p for p in paths if p not in missing]
     errors: list[dict[str, Any]] = []
     if present:
-        outside = _links_outside(workspace)
+        outside = _links_outside(workspace, present)
         if outside:  # refused, not missing: the import of an unlisted module through it would be graded
             raise ValueError(f"{outside[0]} is a symbolic link to a file outside the workspace; mypy would follow it "
                              "to content this run cannot see")
