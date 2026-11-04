@@ -545,6 +545,7 @@ def test_a_code_span_naming_a_path_outside_the_checkout_is_never_read(tmp_path):
     "See [a](URL#section) and [b](URL?x=1).\n",
     "See [a](...) and [b](<...>).\n",
     "[a]: URL\n",
+    "See [a](url) [b](Todo) [c](tbd) [d](Uri) [e](HREF) [f](link).\n",
 ])
 def test_a_placeholder_target_is_not_checked(tmp_path, body):
     _skill(tmp_path / "skills", "placeholder", name="placeholder", description="Use for placeholders.", body=body)
@@ -553,8 +554,10 @@ def test_a_placeholder_target_is_not_checked(tmp_path, body):
     assert review.findings == []
 
 
-@pytest.mark.parametrize("target", ["url", "Url", "some/URL", "URL.md", "URL-x.md"])
-def test_a_target_that_is_not_an_all_caps_placeholder_is_checked(tmp_path, target):
+@pytest.mark.parametrize("target", [
+    "LICENSE", "README", "CHANGELOG", "NOTICE", "URLS", "PATH-x", "some/URL", "URL.md", "URL-x.md",
+])
+def test_a_target_outside_the_placeholder_list_is_checked(tmp_path, target):
     _skill(tmp_path / "skills", "lookalike", name="lookalike", description="Use for lookalikes.",
            body=f"See [a]({target}).\n")
 

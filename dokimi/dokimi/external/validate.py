@@ -490,7 +490,7 @@ def _file_ref(raw: str, link: bool = False) -> Optional[str]:
     """The skill-relative file a reference names, or None if it names no file to check.
 
     None for a URL or any other URI (``tel:``, ``urn:``, ``MAILTO:``), a bare anchor, an
-    absolute path, a placeholder (``URL``, ``...``), or a template with a variable other than ``${CLAUDE_SKILL_DIR}``. A
+    absolute path, a placeholder (``URL``, ``TBD``, ``...``), or a template variable (not ``${CLAUDE_SKILL_DIR}``). A
     ``<...>`` destination (CommonMark) is read as the path inside the brackets. A link
     destination (``link``) is a URL: its ``#fragment`` and ``?query`` are not part of the path,
     its backslash escapes of ASCII punctuation (``guide\\_notes.md``) are decoded, and its
@@ -510,7 +510,7 @@ def _file_ref(raw: str, link: bool = False) -> Optional[str]:
     if scheme and not ("." in scheme.group() and FILE_SUFFIX_RE.fullmatch(text[scheme.end() :])):
         return None
     text = LOCATION_SUFFIX_RE.sub("", text)  # the file is named before its line or symbol suffix
-    if not text or re.fullmatch(r"\.{3}|[A-Z][A-Z0-9_-]*", text):  # a stand-in target: URL, PATH, ...
+    if not text or text.lower() in {"url", "link", "path", "uri", "href", "todo", "tbd", "..."}:  # a stand-in
         return None
     if text.startswith(SKILL_DIR_VAR):
         text = text[len(SKILL_DIR_VAR) :]
