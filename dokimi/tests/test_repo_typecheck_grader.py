@@ -563,6 +563,57 @@ def test_image_provides_finds_an_installed_module_and_not_a_workspace_name():
     assert typecheck._image_provides("mypy.version") is False  # a dotted name is not looked up
 
 
+def _install(tmp_path: Path, monkeypatch, direct_url: dict | None) -> None:
+    """A site-packages holding an installed ``minipkg`` with ``direct_url`` (None: from an index, no such file)."""
+    site = tmp_path / "site"
+    info = site / "minipkg-0.1.dist-info"
+    info.mkdir(parents=True)
+    (site / "minipkg").mkdir()
+    (site / "minipkg" / "__init__.py").write_text("", encoding="utf-8")
+    (info / "METADATA").write_text("Metadata-Version: 2.1\nName: minipkg\nVersion: 0.1\n", encoding="utf-8")
+    (info / "RECORD").write_text("minipkg/__init__.py,,\n", encoding="utf-8")
+    if direct_url is not None:
+        (info / "direct_url.json").write_text(json.dumps(direct_url), encoding="utf-8")
+    monkeypatch.syspath_prepend(str(site))
+    get_path = typecheck.sysconfig.get_path
+    monkeypatch.setattr(typecheck.sysconfig, "get_path",
+                        lambda key, *a, **k: str(site) if key in ("purelib", "platlib") else get_path(key, *a, **k))
+
+
+MINIPKG = {"minipkg/__init__.py": "", "minipkg/api.py": CLEAN}
+
+
+@pytest.mark.parametrize("dir_info", [{}, {"editable": True}])
+def test_the_repositorys_own_package_installed_from_the_workspace_passes(tmp_path, monkeypatch, dir_info):
+    # pip install . in the workspace: the image's copy is the repository, not a package the workspace shadows
+    run = _run(tmp_path, MINIPKG, _task(paths=["minipkg/api.py"]))
+    _install(tmp_path, monkeypatch, {"url": (run / "workspace").resolve().as_uri(), "dir_info": dir_info})
+    result = typecheck.grade(_task(paths=["minipkg/api.py"]), tmp_path, "", run)
+    assert result["pass"] is True, result["errors"]
+
+
+@pytest.mark.parametrize("where", ["elsewhere", "archive", "index"])
+def test_an_installed_package_not_installed_from_the_workspace_is_still_shadowed(tmp_path, monkeypatch, where):
+    run = _run(tmp_path, MINIPKG, _task(paths=["minipkg/api.py"]))
+    url = (run / "workspace").resolve().as_uri()
+    direct_url = {"elsewhere": {"url": tmp_path.resolve().as_uri() + "/src", "dir_info": {}},
+                  "archive": {"url": url, "archive_info": {}}, "index": None}[where]
+    _install(tmp_path, monkeypatch, direct_url)
+    result = typecheck.grade(_task(paths=["minipkg/api.py"]), tmp_path, "", run)
+    assert result["pass"] is False
+    assert result["errors"] == ["minipkg: mypy is silenced here (fix the code instead)"]
+
+
+def test_a_workspace_module_shadowing_an_installed_pypi_package_fails_the_grade(tmp_path):
+    # PyYAML comes from the index (no dir_info), so a workspace yaml.py stands in for it and is refused
+    files = {"pkg/__init__.py": "", "pkg/api.py": "import yaml\n\nprint(yaml.nosuch())\n",
+             "yaml.py": "from typing import Any\n\ndef __getattr__(name: str) -> Any: ...\n"}
+    run = _run(tmp_path, files, _task())
+    result = typecheck.grade(_task(), tmp_path, "", run)
+    assert result["pass"] is False
+    assert result["errors"] == ["yaml.py: mypy is silenced here (fix the code instead)"]
+
+
 def test_a_standard_library_name_on_a_source_root_fails_the_grade(tmp_path):
     files = {"src/pkg/__init__.py": "", "src/pkg/api.py": "import json\n\nprint(json.nosuch())\n",
              "src/json.py": "def nosuch() -> None: ...\n"}
