@@ -13,8 +13,8 @@
   confirmation and the shortening oracle still run on the n sampled atoms, so
   the cost stays at the cap. A shortening candidate that keeps no span of an
   unsampled atom counts it in `dropped_unscored_atoms` and is not `safe`, so
-  `shorten --out` and the offered candidates never lose such an atom unscored
-  (without `--allow-unsafe`). `atoms.json` holds every atom and lists the
+  `shorten --out` never writes one (without `--allow-unsafe`); the candidate
+  list still shows it, marked not `safe`. `atoms.json` holds every atom and lists the
   sample in `sampled_atom_ids`: `novelty probe` and `novelty shorten` measure
   that sample by default and say so, and `--all-atoms` measures every atom in
   the file, reusing the extraction, with a stderr warning counting the added
