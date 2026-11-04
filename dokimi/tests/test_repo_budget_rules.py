@@ -524,6 +524,14 @@ def test_a_cut_import_of_an_unscoped_nested_rule_does_not_warn(tmp_path):
     assert payload["warnings"] == []
 
 
+def test_a_cut_import_in_a_subtree_with_an_unscoped_rule_still_warns(tmp_path):
+    # the rule is not what cuts sub/notes.md: an ordinary cut import in sub/ is named even with an unscoped rule there
+    files = {"sub/CLAUDE.md": "@notes.md\n", "sub/notes.md": "notes\n", "sub/.claude/rules/r.md": "rule\n"}
+    payload = budget(_tree(tmp_path, files), NAMES, import_max_depth=0, rules=True)
+    assert payload["warnings"] == [
+        "sub/CLAUDE.md: import of sub/notes.md is past the harness's 0-hop import limit, not followed"]
+
+
 def test_a_cut_import_of_an_unscoped_nested_rule_from_outside_its_subtree_still_warns(tmp_path):
     # other/ does not load sub/'s rule: only the agent working in sub/ does, so the cut import from other/ is named
     files = {"other/CLAUDE.md": "@../sub/.claude/rules/r.md\n", "sub/.claude/rules/r.md": "rule\n"}
