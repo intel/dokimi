@@ -57,6 +57,13 @@ def test_a_failed_cat_of_one_file_is_no_read():
                        "output": "cat: AGENTS.md: No such file or directory", "output_truncated": False}]
 
 
+@pytest.mark.parametrize("command", ["! cat AGENTS.md", "if ! cat AGENTS.md; then echo none; fi"])
+@pytest.mark.parametrize("is_error", [False, True])
+def test_a_negated_read_is_no_read(command, is_error):
+    # ``! cat`` of a missing file exits 0, of a present one 1: its status says nothing of the file
+    assert _reads(_events(_call("a", command), _result("a", "", is_error))) == []
+
+
 @pytest.mark.parametrize("command", ["cd sub && cat AGENTS.md", "cd sub; cat AGENTS.md", "cd a && cd b && cat AGENTS.md",
                                      "cd $(git rev-parse --show-toplevel) && cat /ws/AGENTS.md",
                                      "cd /ws/sub || cat /ws/AGENTS.md", "cd sub & cat AGENTS.md",  # the exit is the cat's

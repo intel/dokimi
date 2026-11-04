@@ -262,9 +262,9 @@ class _Walk:
         """Move the directory for a ``cd``; the files a printing command reads. ``chained``: the command follows
         ``&&`` or ``||``, so a ``cd`` in it runs only if the command before it succeeded; ``timed``: it starts with
         bash's ``time`` keyword (:func:`~dokimi.repos.shell_words._time_keyword`)."""
-        conditional = False
+        conditional = negated = False
         while words and words[0] in _KEYWORDS:  # ``then cd x``: the cd may not run
-            words, conditional = words[1:], True
+            words, conditional, negated = words[1:], True, negated or words[0] == "!"
         words, via_env, chdir = _command_words(words, timed)
         if not words:
             return []
@@ -278,7 +278,8 @@ class _Walk:
             if after != "&":  # a backgrounded cd runs in a subshell: this shell stays where it was
                 self.here, self.shell_moved, self.moved = _cd(self.here, words[1:]), True, True
         elif name in _PRINTERS:
-            return self.printed(name, words[1:], chdir)
+            reads = self.printed(name, words[1:], chdir)
+            return [] if negated else reads  # ``! cat f`` inverts the exit, which no longer says f was printed
         return []
 
     def printed(self, name: str, args: list[str], chdir: bool) -> list[str]:
