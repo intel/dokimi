@@ -50,3 +50,14 @@ def test_an_interruption_marker_is_not_the_next_prompt_so_the_pushback_after_it_
     assert [e.text for e in session.events if e.kind == "prompt"] == [
         "push the branch now", "no, run make ci-local before you push"]
     assert _row(_report([session], rule), "Run")["corrected"] == 1
+
+
+@pytest.mark.parametrize(("acting", "status", "rank"), [(5, "in_use", None), (2, "in_use", None),
+                                                        (1, "candidate_for_ablation", 1)])
+def test_a_rule_acted_on_in_the_in_use_share_of_sessions_is_in_use_though_its_words_never_come_up(acting, status,
+                                                                                                    rank):
+    rule = "- Run `make ci-local` when pushing a branch.\n"
+    ran = [_session(_prompt("fix the typo"), _tool("Bash", command="make ci-local"), name=f"r{i}") for i in range(acting)]
+    idle = [_session(_prompt("fix the typo"), name=f"i{i}") for i in range(10 - acting if acting < 5 else 0)]
+    row = _row(_report(ran + idle, rule, min_sessions=5, rare_max=3, in_use_rate=0.2), "Run")
+    assert (row["status"], row["rank"], row["sessions_triggered"], row["sessions_acted"]) == (status, rank, 0, acting)

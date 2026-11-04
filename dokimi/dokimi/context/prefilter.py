@@ -106,6 +106,7 @@ class Tally:
     episodes: int = 0
     acted: int = 0
     corrected: int = 0
+    sessions_acted: int = 0  # sessions with an action on the claim anywhere, triggered or not
 
 
 def _stem(word: str) -> str:
@@ -440,11 +441,12 @@ def _without_redirections(words: list[str]) -> list[str]:
     return out
 
 
-def _key_words(key: str) -> list[str]:
+@functools.cache  # keyed by the guidance's keys: every claim with a key checks every tool call of the corpus
+def _key_words(key: str) -> tuple[str, ...]:
     """A guidance key as shell words, with its wrappers stripped the way a command's are (``python -m pytest``
     is ``pytest``), unless that leaves nothing."""
     words = shell.tokens(key)
-    return shell.strip_wrappers(words) or words
+    return tuple(shell.strip_wrappers(words) or words)
 
 
 # a descriptor is glued to its operator (``2>log``); a number before a spaced one (``2 >log``) is an argument
@@ -466,7 +468,7 @@ def _invokes(key: str, commands: tuple[tuple[str, ...], ...]) -> bool:
     argument with a space is one word on both sides. The key ends where its last word ends: ``make ci-local``
     does not run ``make ci-local.debug``, while a redirection after it (``make ci-local>log``) still runs it.
     ``commands`` is the command's ``_command_words``."""
-    words = tuple(_key_words(key))
+    words = _key_words(key)
     if not words:
         return False
     return any(command[:len(words)] == words for command in commands)
@@ -532,12 +534,17 @@ def _slashes(text: str) -> str:
 
 def _at_path(key: str, text: str) -> bool:
     """Whether ``key`` occurs in ``text`` from a path-segment start, so ``a.md`` does not match ``data.md``."""
+    pattern = _path_pattern(key)
+    return pattern is not None and pattern.search(_slashes(text)) is not None
+
+
+@functools.cache  # keyed by the guidance's keys, like ``_key_words``
+def _path_pattern(key: str) -> re.Pattern[str] | None:
     name = _slashes(key).removeprefix("./")
-    text = _slashes(text)
     # a file name ends where the name ends (``a.md`` is not ``a.mdx`` or ``a.md.bak``); a directory
     # (``docs/``) is followed by its entries, so it has no end boundary
     end = "" if name.endswith("/") else r"(?![\w-]|\.\w)"
-    return bool(name) and re.search(rf"(?<![\w.-]){re.escape(name)}{end}", text) is not None
+    return re.compile(rf"(?<![\w.-]){re.escape(name)}{end}") if name else None
 
 
 def _path_named(claim: Claim, texts: tuple[str, ...]) -> bool:
@@ -609,6 +616,7 @@ def tally(claim: Claim, sessions: list[list[_Read]], window: int) -> Tally:
         out.acted += acted
         out.corrected += corrected
         out.sessions_triggered += int(episodes > 0)
+        out.sessions_acted += int(acted > 0 or (claim.has_keys and any(_acts(claim, r) for r in reads)))
     return out
 
 
@@ -618,6 +626,8 @@ def status_of(claim: Claim, tally_: Tally, sessions_total: int, *, min_sessions:
         return KEPT
     if sessions_total < min_sessions:
         return INSUFFICIENT
+    if tally_.sessions_acted and tally_.sessions_acted / sessions_total >= in_use_rate:
+        return IN_USE  # its command ran or its path was touched that often, whatever words the sessions used
     if tally_.sessions_triggered == 0:
         return CANDIDATE
     if tally_.sessions_triggered <= rare_max:
@@ -654,6 +664,7 @@ def _row(claim: Claim, t: Tally, status: str, sessions_total: int) -> dict[str, 
         "episodes": t.episodes,
         "acted": t.acted if claim.has_keys else None,
         "acted_rate": _ratio(t.acted, t.episodes) if claim.has_keys else None,
+        "sessions_acted": t.sessions_acted if claim.has_keys else None,
         "corrected": t.corrected,
         "correction_rate": _ratio(t.corrected, t.episodes),
         "flags": _flags(claim, t),

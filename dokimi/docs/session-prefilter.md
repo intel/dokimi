@@ -76,12 +76,12 @@ memory echo of a rule would otherwise trigger that rule on every session.
 | Status | Meaning | Ranked |
 | --- | --- | --- |
 | `candidate_for_ablation` | Triggered in fewer than `--in-use-rate` of the sessions, or never. Ranked fewest triggered sessions first, then lowest acted share. | yes |
-| `in_use` | Triggered in at least `--in-use-rate` of the sessions. | no |
+| `in_use` | Triggered in at least `--in-use-rate` of the sessions, or acted on in at least that share (`sessions_acted`: a tool call ran its command or touched its path anywhere in the session, triggered or not). | no |
 | `rare_not_ranked` | Triggered in 1 through `--rare-max` sessions. Few sessions are too little evidence to call a rule unused. | no |
 | `kept_protected` | The rule carries a protection tag: a negation, a version gate, an ordering constraint or a threshold (the same tags the novelty layer uses). Its failure case is rare by design. | no |
 | `insufficient_corpus` | Fewer than `--min-sessions` sessions were read. | no |
 
-Precedence: `kept_protected`, then `insufficient_corpus`, then a rule with no trigger
+Precedence: `kept_protected`, then `insufficient_corpus`, then `in_use` by acted share, then a rule with no trigger
 (a candidate), then `rare_not_ranked`, then `in_use`; the rest are candidates. `--rare-max`
 takes 0 or more and `--in-use-rate` a number from 0 to 1. A file named twice (a repeat, an
 overlapping glob, a symlink to it) is read once.
