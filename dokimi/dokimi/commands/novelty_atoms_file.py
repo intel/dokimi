@@ -123,7 +123,8 @@ def measured_atoms(args: argparse.Namespace, atoms: list, saved: dict, stage: st
                    f"atoms {stage} measures here, so it would score nothing; pass --all-atoms "
                    f"to measure those {len(atoms)}")
     print(f"NOTE {stage} measures the {len(sample)} atoms {args.atoms} records as the cap's "
-          f"sample, of its {len(atoms)}; spans are indexed from all {len(atoms)}. Pass "
+          f"sample, of its {len(saved['atoms'])}; spans are indexed from all "
+          f"{len(saved['atoms'])}. Pass "
           "--all-atoms to measure every atom, reusing the extraction", file=sys.stderr)
     return sample
 

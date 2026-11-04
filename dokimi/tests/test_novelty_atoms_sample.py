@@ -323,6 +323,24 @@ def test_shorten_refuses_a_sample_the_entry_point_leaves_empty(tmp_path, monkeyp
     assert "OK Wrote candidate" in capsys.readouterr().out and out.exists()
 
 
+def test_the_shorten_note_counts_the_file_atoms_not_the_entry_point_subset(
+        tmp_path, monkeypatch, capsys):
+    """Seven atoms in the file, four in the entry point, three sampled: the note says 7, not 2."""
+    skill = tmp_path / "s" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("---\nname: s\ndescription: d\n---\n\nbody\n", encoding="utf-8")
+    path, atoms, sample = _capped_file(tmp_path, n=7, cap=3)
+    data = json.loads(path.read_text())
+    data["bundle"] = {"include_resources": True, "n_files": 2, "files": [
+        {"path": "SKILL.md", "start": 0, "end": data["spans"][4]["start"]},
+        {"path": "references/r.md", "start": data["spans"][4]["start"]}]}
+    path.write_text(json.dumps(data))
+    _cli(monkeypatch, "shorten", "--artifact", f"skill:{skill}", "--atoms", str(path),
+         "--lexical-only", "--budgets", "0.5", "--out", str(tmp_path / "short.md"))
+    err = capsys.readouterr().err
+    assert f"{path} records as the cap's sample, of its 7; spans are indexed from all 7." in err
+
+
 HOLDS_THE_SAMPLE = "it holds only the atoms its run probed"
 MAY_HOLD_THE_SAMPLE = ("it may hold only the atoms its run probed (its cap was met at the input's "
                        "last span and may have cut that reply)")
