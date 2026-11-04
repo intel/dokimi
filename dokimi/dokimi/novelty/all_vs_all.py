@@ -84,10 +84,10 @@ def all_vs_all(candidates: list[Candidate], queries_by_skill: dict[str, list[str
         ``confusion`` (gold skill to picked skill to count, ``(none)`` and ``(tie)`` included),
         ``own_rate`` per gold skill (``None`` when none of its queries was scored), ``n_scored``
         and ``n_unscored`` per gold skill, and ``attractors`` ordered by ``wrongly_picked``. The
-        model arm also records ``model``, ``seed``, ``repeats``, ``noise`` (``None`` for one
-        repeat; otherwise as :func:`dokimi.novelty.routing.model_routing` reports it, pooled over
-        every skill's queries), ``n_failed``, ``n_abstained`` and ``first_error``. With repeats
-        the model arm's counts are calls, one per query per repeat.
+        model arm also records ``model``, ``seed``, ``repeats``, ``noise`` (always an object: as
+        :func:`dokimi.novelty.routing.repeat_noise` reports it, pooled over every skill's queries,
+        with ``n_repeats`` 1 and null agreement for one repeat), ``n_failed``, ``n_abstained`` and
+        ``first_error``. With repeats the model arm's counts are calls, one per query per repeat.
 
     Raises:
         RoutingInputError: Fewer than two skills in the field; a name repeated in the field; a
@@ -217,10 +217,9 @@ def _model_arm(candidates: list[Candidate], queries_by_skill: dict[str, list[str
         model[name] = Counter(row.get("picked") or NO_PICK for row in rows if not row.get("error"))
         if routed["n_failed"]:
             unscored[name] = unscored.get(name, 0) + routed["n_failed"]
-    noise = repeat_noise(groups) if repeats > 1 and groups else None
-    if noise is not None:
-        for row, gold in zip(noise["per_query"], golds, strict=True):
-            row["gold"] = gold
+    noise = repeat_noise(groups, repeats)
+    for row, gold in zip(noise["per_query"], golds, strict=True):
+        row["gold"] = gold
     return dict(_attractor_table(model, unscored, names, _tied_groups(candidates)),
                 model=client.model, seed=seed, repeats=repeats, noise=noise,
                 n_failed=n_failed, n_abstained=n_abstained, first_error=first_error)

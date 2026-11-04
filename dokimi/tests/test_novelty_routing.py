@@ -573,11 +573,15 @@ def test_repeats_below_one_are_refused():
         model_routing([PERF, TBB], ["q1"], client=client, repeats=0)
 
 
-def test_one_repeat_has_no_noise_block():
+def test_one_repeat_has_a_noise_block_with_nothing_to_measure():
     client = LLMClient(model="m", role="selector",
                        transport=lambda p, s: (json.dumps({"pick": 1}), None))
     result = model_routing([PERF, TBB], ["q1", "q2"], client=client)
-    assert (result["repeats"], result["noise"]) == (1, None)
+    noise = result["noise"]
+    assert (result["repeats"], noise["n_repeats"]) == (1, 1)
+    assert (noise["mean_agreement"], noise["unstable_queries"], noise["half_range"]) == (None, 0, None)
+    assert noise["selection_rate_by_repeat"] == [result["selection_rate"]]
+    assert all(row["agreement"] is None for row in noise["per_query"])
     assert [row["repeat"] for row in result["per_query"]] == [0, 0]
 
 
@@ -611,7 +615,7 @@ def test_a_query_that_failed_on_every_repeat_has_no_agreement_to_report():
     client = LLMClient(model="m", role="selector", transport=transport)
     noise = model_routing([PERF, TBB], ["q1"], client=client, repeats=2)["noise"]
     assert noise == {
-        "mean_agreement": None, "unstable_queries": 0,
+        "n_repeats": 2, "mean_agreement": None, "unstable_queries": 0,
         "selection_rate_by_repeat": [None, None], "half_range": None,
         "n_queries_compared": 0,
         "per_query": [{"query": "q1", "modal_pick": None, "agreement": None, "picks": [],
@@ -793,6 +797,14 @@ def test_the_modal_pick_is_the_most_frequent_not_the_first():
         "per_query"]
     assert query["modal_pick"] == PERF.name
     assert query["agreement"] == pytest.approx(2 / 3, abs=1e-4)
+
+
+def test_repeat_noise_takes_the_requested_repeats_even_with_no_query():
+    from dokimi.novelty.routing import repeat_noise
+
+    noise = repeat_noise([], repeats=2)
+    assert (noise["n_repeats"], noise["selection_rate_by_repeat"], noise["mean_agreement"]) == (
+        2, [None, None], None)
 
 
 def test_a_single_usable_repeat_has_no_half_range():

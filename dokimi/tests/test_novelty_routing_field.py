@@ -603,3 +603,17 @@ def test_a_skill_competitor_records_every_rule_that_left_it_out(tmp_path):
     dropped: dict[str, set[str]] = {}
     assert routing_field(args, set(), [], dropped) == []
     assert dropped == {"long": {"invalid"}, "both": {"disabled", "invalid"}}
+
+
+def test_routing_artifact_with_broken_frontmatter_names_the_yaml_line(tmp_path):
+    from dokimi.commands.novelty_routing_inputs import load_routing_field
+
+    broken = tmp_path / "software-factory"
+    broken.mkdir()
+    (broken / "SKILL.md").write_text(
+        "---\nname: software-factory\ndescription: Use when: the user wants a factory\n---\n\n# b\n",
+        encoding="utf-8")
+    args = _parse("novelty", "routing", "--artifact", f"skill:{broken}")
+    with pytest.raises(InputError, match="line 3") as info:
+        load_routing_field(args)
+    assert "quote" in str(info.value) and "missing a 'description'" not in str(info.value)

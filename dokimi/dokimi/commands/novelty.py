@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
 from dokimi.commands.inputs import placebo_text_for_arms_or_exit
-from dokimi.commands.novelty_routing_inputs import load_all_vs_all_field, load_routing_field
+from dokimi.commands.novelty_routing_inputs import checked_out_path, load_all_vs_all_field, load_routing_field
 from dokimi.commands.novelty_routing_report import (
     exit_partial_all_vs_all,
     print_all_vs_all_model,
@@ -375,8 +375,7 @@ def _check_all_vs_all_args(args: argparse.Namespace) -> None:
     if not args.queries_by_skill:
         raise InputError("--all-vs-all needs --queries-by-skill <file>: a JSON object of skill "
                    "name to the requests that should select it")
-    if not args.out:
-        raise InputError("--all-vs-all needs --out <file>")
+    checked_out_path(args.out, "--all-vs-all")
 
 
 def _warn_blind_skills(result: dict, queries_by_skill: dict[str, list[str]]) -> None:
@@ -416,7 +415,7 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
         return
     lexical = dict(lexical_routing(candidates, queries, gold=0),
                    queries_self_derived=self_derived)
-    out = Path(args.out) if args.out else _default_dir(args.artifact) / "routing.json"
+    out = checked_out_path(args.out, "routing") if args.out else _default_dir(args.artifact) / "routing.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     if not lexical["n_queries_scored"]:
         _refuse_no_queries(args, queries, self_derived, out, len(candidates), queries_source)

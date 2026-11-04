@@ -206,3 +206,110 @@ def test_the_estimate_counts_the_prompts_the_run_sends():
 
     model_routing(field, queries, client=Recorder(), gold=0, repeats=1)
     assert [len(prompt) // 4 for prompt in sent] == selection_prompt_tokens(field, queries)
+
+
+def _two_skill_field(tmp_path):
+    return _skill(tmp_path, "perf", "profile a slow binary"), _skill(
+        tmp_path, "db", "tune a slow database query")
+
+
+def test_routing_refuses_an_out_directory_before_it_calls_the_model(tmp_path, monkeypatch):
+    import dokimi.commands.novelty as novelty_cmd
+
+    monkeypatch.setattr(novelty_cmd, "_client",
+                        lambda *a, **k: pytest.fail("a model call was made before --out was checked"))
+    artifact, competitor = _two_skill_field(tmp_path)
+    queries = tmp_path / "queries.txt"
+    queries.write_text("profile my slow binary\n", encoding="utf-8")
+    args = _parse("novelty", "routing", "--artifact", artifact, "--competitors", competitor,
+                  "--queries", str(queries), "--model", "m", "--out", str(tmp_path))
+    with pytest.raises(InputError, match="is a directory"):
+        args.func(args)
+
+
+def test_a_missing_out_directory_is_accepted_and_left_for_the_writer_to_create(tmp_path):
+    from dokimi.commands.novelty_routing_inputs import checked_out_path
+
+    missing = tmp_path / "new" / "deeper" / "routing.json"
+    assert checked_out_path(str(missing), "routing") == missing
+    assert not missing.parent.exists()
+
+
+def test_an_out_under_a_file_is_refused_before_the_call(tmp_path):
+    from dokimi.commands.novelty_routing_inputs import checked_out_path
+
+    blocker = tmp_path / "not-a-dir"
+    blocker.write_text("x", encoding="utf-8")
+    with pytest.raises(InputError, match="is not a directory"):
+        checked_out_path(str(blocker / "sub" / "routing.json"), "routing")
+
+
+def test_an_out_file_that_cannot_be_written_is_refused_up_front(tmp_path, monkeypatch):
+    import os
+
+    from dokimi.commands.novelty_routing_inputs import checked_out_path
+
+    monkeypatch.setattr(os, "access", lambda path, mode: False)
+    with pytest.raises(InputError, match="not writable"):
+        checked_out_path(str(tmp_path / "routing.json"), "routing")
+
+
+def test_a_valid_out_file_is_returned_as_a_path(tmp_path):
+    from dokimi.commands.novelty_routing_inputs import checked_out_path
+
+    assert checked_out_path(str(tmp_path / "routing.json"), "routing") == tmp_path / "routing.json"
+
+
+def test_all_vs_all_refuses_an_out_directory_before_it_calls_the_model(tmp_path, monkeypatch):
+    import dokimi.commands.novelty as novelty_cmd
+
+    monkeypatch.setattr(novelty_cmd, "_client",
+                        lambda *a, **k: pytest.fail("a model call was made before --out was checked"))
+    root = tmp_path / "catalog"
+    for name, text in {"perf": "profile a slow binary", "db": "tune a slow database query"}.items():
+        (root / "skills" / name).mkdir(parents=True)
+        (root / "skills" / name / "SKILL.md").write_text(
+            f"---\nname: {name}\ndescription: {text}\n---\n\n# B\n", encoding="utf-8")
+    queries = tmp_path / "queries.json"
+    queries.write_text('{"perf": ["profile my slow binary"]}', encoding="utf-8")
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(tmp_path), "--model", "m")
+    with pytest.raises(InputError, match="is a directory"):
+        args.func(args)
+
+
+def test_the_estimate_prices_the_reply_the_model_sends_not_one_json_pick():
+    from dokimi.novelty.routing import Candidate, selection_estimate
+
+    field = [Candidate(name="a", description="profile a slow binary"),
+             Candidate(name="b", description="tune a slow database")]
+    # 360 calls: the measured run drew 23.3k output tokens for them, where one pick per call
+    # (about 10 tokens) would have estimated 3.6k.
+    estimate = selection_estimate(field, ["profile my slow binary"] * 360, repeats=1)
+    assert estimate["n_calls"] == 360
+    assert estimate["output_tokens"] == 360 * estimate["output_tokens_per_call"]
+    assert estimate["output_tokens"] == pytest.approx(23_300, rel=0.05)
+
+
+
+def test_all_vs_all_with_one_repeat_keeps_the_noise_block_and_prints_no_noise_line(
+        tmp_path, capsys, monkeypatch):
+    import dokimi.commands.novelty as novelty_cmd
+
+    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+        model=model, provider=provider, role=role,
+        transport=lambda prompt, system: (json.dumps({"pick": 1}), None)))
+    root = tmp_path / "catalog"
+    for name, text in {"perf": "profile a slow binary", "db": "tune a slow database query"}.items():
+        (root / "skills" / name).mkdir(parents=True)
+        (root / "skills" / name / "SKILL.md").write_text(
+            f"---\nname: {name}\ndescription: {text}\n---\n\n# B\n", encoding="utf-8")
+    queries = tmp_path / "queries.json"
+    queries.write_text('{"perf": ["profile my slow binary"]}', encoding="utf-8")
+    out = tmp_path / "o.json"
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(out), "--model", "m")
+    args.func(args)
+    noise = json.loads(out.read_text(encoding="utf-8"))["result"]["model"]["noise"]
+    assert (noise["n_repeats"], noise["mean_agreement"], noise["half_range"]) == (1, None, None)
+    assert "noise    " not in capsys.readouterr().out

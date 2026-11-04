@@ -6,13 +6,43 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from dokimi.utils import InputError
 
 if TYPE_CHECKING:
     from dokimi.novelty.routing import Candidate
+
+
+def checked_out_path(out: str | None, command: str) -> Path:
+    """The ``--out`` file of a routing run, refused before any model call when it cannot be written.
+
+    The file must not be a directory. Its missing parent directories are fine: the writer creates
+    them. But the nearest existing ancestor must be a directory the run can write into, and an
+    existing file must itself be writable.
+
+    Raises:
+        InputError: ``--out`` is missing, is a directory, sits under a path that is not a
+            directory, or is not writable.
+    """
+    if not out:
+        raise InputError(f"{command} needs --out <file>")
+    path = Path(out)
+    if path.is_dir():
+        raise InputError(f"--out {out} is a directory: pass a file path, e.g. {path / 'routing.json'}")
+    ancestor = next((p for p in path.parents if p.exists()), path.parent)
+    if not ancestor.is_dir():
+        raise InputError(f"--out {out}: {ancestor} is not a directory, so the file cannot be created under it")
+    if path.exists():
+        writable = os.access(path, os.W_OK)
+    else:
+        writable = os.access(ancestor, os.W_OK | os.X_OK)
+    if not writable:
+        raise InputError(f"--out {out} is not writable")
+    return path
 
 
 def routing_card(ref: str) -> tuple[Candidate, str]:
