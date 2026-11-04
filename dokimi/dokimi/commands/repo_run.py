@@ -511,7 +511,8 @@ def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str
     compare_p.add_argument("--task", action="append", default=None,
                            help="Only this task id; repeatable (default: every task of the batches)")
     compare_p.add_argument("--metric", action="append", default=None,
-                           help="Also compare this numeric or boolean grade.json metric; repeatable")
+                           help="Also compare this numeric or boolean grade.json metric, or judge:recall_judged "
+                           "from each cell's hits_judged.json (repo hits judge); repeatable")
     compare_p.add_argument("--pass-k", type=positive_int, default=None, dest="pass_k", metavar="K",
                            help="Also compare pass^K: the chance K cells of a task all pass its gate")
     compare_p.add_argument("--path-stability", action="store_true", dest="path_stability",

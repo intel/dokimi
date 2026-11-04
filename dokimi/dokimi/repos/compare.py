@@ -20,8 +20,8 @@ cells are first reduced to one value per (task, arm, model):
 - **first_useful_rate**: the share of the cells that declare a first useful result, and have a verdict (not
   `unobserved` or `timeout`), that observed one, per task; the header counts observed of measured cells per arm and
   the unmeasured ones;
-- **metric:<name>**: the mean of ``grade.json`` ``metrics.<name>`` over the
-  cells that report it (``true`` is 1), for ``--metric``;
+- **metric:<name>**: the mean of ``grade.json`` ``metrics.<name>`` over the cells that report it (``true`` is 1),
+  for ``--metric``; ``judge:recall_judged`` reads the cell's ``hits_judged.json`` instead (:mod:`.compare_judged`);
 - **pass^k**: for ``--pass-k K``, the chance that K cells drawn from the
   task's n all pass its gate, ``C(c,K)/C(n,K)`` over c passes (τ-bench). The
   gate is the per-cell rate; pass^k says whether the task passes every time.
@@ -114,6 +114,7 @@ from dokimi.context.consistency import Run, run_from_events
 from dokimi.eval.stats import bootstrap_ci, correct_family, mean_ci
 from dokimi.utils import same_model
 
+from .compare_judged import check_reported, judge_names, judged_cells, judged_lines, read_judged
 from .compare_reach import ALPHA, holm_floor, min_detectable
 from .compare_tasks import CompareError, select_tasks
 from .compare_values import finite_values, task_values
@@ -164,6 +165,7 @@ def load_batches(batch_dirs: list[Path], metrics: tuple[str, ...] = (),
         for rec in found:
             rec["batch"] = name
             rec["metrics"] = _grade_metrics(batch_dir / rec["cell"] / "grade.json", metrics) if metrics else {}
+            read_judged(batch_dir / rec["cell"], rec, metrics)  # judge:<field>, from hits_judged.json
             if paths:
                 rec["path"] = _cell_path(batch_dir / rec["cell"] / "events.jsonl")
             cells.append(rec)
@@ -185,12 +187,14 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
             *, exact: bool = False) -> dict[str, Any]:
     """``exact``: the statistics at full precision (the ledger's verdicts read them); otherwise rounded as printed."""
     metrics = tuple(dict.fromkeys(metrics))
+    judge_names(metrics)  # a judge: field it cannot read is refused before any cell is
     if pass_k is not None and pass_k < 1:
         raise CompareError(f"--pass-k must be at least 1, got {pass_k}")
     found, missing = load_batches(batch_dirs, metrics, path_stability)
     cells, missing, task_filter = select_tasks(found, missing, tasks, batch_dirs)
     # the arms and metrics are checked among the selected cells, so a miss may be the selection's doing
     scope = " among the --task selection" if task_filter else ""
+    check_reported(metrics, cells, scope)
     _check_metrics(metrics, cells, scope)
     base_sel = parse_selector(baseline)
     if not any(selector_matches(base_sel, c) for c in cells):
@@ -224,9 +228,11 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
     _holm(rows)
     provenance = _provenance(batch_dirs, cells, baseline, treatments, models)
     provenance["warnings"] += one_arm
+    judged = judged_cells(metrics, {text: _in_models([c for c in cells if selector_matches(parse_selector(text), c)],
+                                                     models) for text in [baseline, *treatments]})
     return {"batches": [str(d) for d in batch_dirs], "baseline": baseline, "treatments": treatments,
             "task_filter": task_filter, "cells": len(cells), "missing": missing, **provenance,
-            "first_useful": useful, "comparisons": rows, "unpaired": unpaired}
+            "first_useful": useful, "judged_cells": judged, "comparisons": rows, "unpaired": unpaired}
 
 
 def _one_arm_models(treatment: str, base_vals: dict[tuple[str, str], dict[str, Any]],
@@ -646,6 +652,7 @@ def format_compare(summary: dict[str, Any]) -> str:
             + (f" and {len(summary['unpaired']) - len(shown)} more" if len(summary["unpaired"]) > 10 else ""))
     if summary["missing"]:
         lines.append(f"{len(summary['missing'])} cells missing (no result.json): `repo report` lists them")
+    lines += judged_lines(summary.get("judged_cells"))
     lines += [f"uptake: {text} used what its arm added in {u['used']}/{u['cells']} cell(s){unmeasured_note(u)}"
               for text, u in summary.get("uptake", {}).items()]
     lines += [f"warning: {w}" for w in summary["warnings"]]
