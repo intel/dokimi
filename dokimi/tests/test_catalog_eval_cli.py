@@ -523,6 +523,38 @@ def test_partial_clone_never_fetches_through_its_configured_transport(tmp_path):
     assert not marker.exists()
 
 
+def test_blobless_clone_without_the_base_task_config_checks_every_skill(tmp_path):
+    origin = _catalog(tmp_path)
+    task = origin / "evaluation/harbor/tasks/t1"
+    task.mkdir(parents=True)
+    (task / "task.toml").write_text('[metadata]\nskill = "alpha"\n')
+    (task / "instruction.md").write_text("Read.")
+    base = _commit(origin)
+    (task / "task.toml").write_text('[metadata]\nskill = "beta"\n')
+    _git(origin, "commit", "-qam", "move t1 to beta")
+    _git(origin, "config", "uploadpack.allowFilter", "true")
+    clone = tmp_path / "clone"
+    subprocess.check_call(["git", "clone", "-q", "--filter=blob:none", "--no-local", origin.as_uri(), str(clone)])
+    out = tmp_path / "out"
+    done = _run(clone, out, "--changed-from", base)
+    assert done.returncode == 0, done.stderr
+    assert _selected(out) == ["alpha", "beta"]
+    assert "partial clone" in (out / "report.md").read_text()
+
+
+def test_a_task_config_absent_at_the_base_does_not_widen_the_selection(tmp_path):
+    root = _catalog(tmp_path)
+    task = root / "evaluation/harbor/tasks/t1"
+    task.mkdir(parents=True)
+    (task / "task.toml").write_text('[metadata]\nskill = "alpha"\n')
+    (task / "instruction.md").write_text("Read.")
+    base = _commit(root)
+    (task / "instruction.md").write_text("Read again.")
+    out = tmp_path / "out"
+    assert _run(root, out, "--changed-from", base).returncode == 0
+    assert _selected(out) == ["alpha"]
+
+
 def test_out_dir_that_is_the_current_directory_survives(tmp_path, monkeypatch):
     root = _catalog(tmp_path)
     out = tmp_path / "receipts"

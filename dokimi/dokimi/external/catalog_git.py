@@ -40,15 +40,23 @@ def _others(root: Path) -> list[str]:
     return _paths(_git(root, "ls-files", "--others", "-z", "--", "."))
 
 
-def _base_owners(root: Path, base: str, paths: list[str]) -> dict[str, str]:
-    """The ``metadata.skill`` owner at *base* of each changed task directory that existed there."""
+def _base_owners(root: Path, base: str, paths: list[str]) -> dict[str, str] | None:
+    """The ``metadata.skill`` owner at *base* of each changed task directory that existed there.
+
+    ``None`` when a task config the base tree lists cannot be read (a blob missing from a partial clone).
+    """
     owners: dict[str, str] = {}
     for name in sorted({task for path in paths if (task := task_dir(path))}):
+        listing = _git(root, "ls-tree", "-z", "--name-only", f"{base}:./{name}")
+        present = set(_paths(listing)) if listing.returncode == 0 else set()
         with tempfile.TemporaryDirectory() as scratch:
             for config in ("task.toml", "task.md", "task.yaml"):
+                if config not in present:
+                    continue
                 shown = _git(root, "show", "--no-textconv", f"{base}:./{name}/{config}")
-                if shown.returncode == 0:
-                    (Path(scratch) / config).write_bytes(shown.stdout_bytes)
+                if shown.returncode:
+                    return None
+                (Path(scratch) / config).write_bytes(shown.stdout_bytes)
             try:
                 skill = read_task_config(Path(scratch)).get("metadata", {}).get("skill")
             except (ValueError, OSError, UnicodeError, RecursionError, TypeError, AttributeError):
@@ -94,7 +102,11 @@ def source_and_changes(root: Path, base: str | None, out: Path) -> tuple[
         return source, None, untracked, {}, f"Base {base!r} unavailable; conservatively checking every skill."
     tracked = _git(root, "diff", "--ignore-submodules=all", "--no-ext-diff", "--no-textconv", "--name-only", "-z",
                    "--no-renames", "--relative", resolved.stdout.strip(), "--", ".")
+    partial = f"Base {base!r} is not fully available in this partial clone; conservatively checking every skill."
     if tracked.returncode and _git(root, "config", "--get-regexp", r"^remote\..*\.(promisor|partialclonefilter)$").returncode == 0:
-        return source, None, untracked, {}, f"Base {base!r} is not fully available in this partial clone; conservatively checking every skill."
+        return source, None, untracked, {}, partial
     paths = sorted(path for path in set(_paths(tracked)) if not (root / path).is_relative_to(out))
-    return source, paths, untracked, _base_owners(root, resolved.stdout.strip(), paths), None
+    owners = _base_owners(root, resolved.stdout.strip(), paths)
+    if owners is None:
+        return source, None, untracked, {}, partial
+    return source, paths, untracked, owners, None
