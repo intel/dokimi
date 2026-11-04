@@ -1038,8 +1038,8 @@ task directory that has a `task.json` is kept and printed as `kept <id>`;
 without the answer key as a list gives `pass: false`, `parse_error: true` and
 every metric 0, a failed run. A path is cut after the agent's workspace and
 loses a leading `./`; in a name `::` reads as `.` and a trailing `()` is
-dropped. A name that matches no item exactly names the one item of its file
-whose name ends with it, or that it ends with, in whole parts (`go` for
+dropped. A name that matches no item exactly names the one gold or accepted
+item of its file whose name ends with it, or that it ends with, in whole parts (`go` for
 `Impl.go`, `ns.Impl` for `Impl`), when there is one; `B.go` never names
 `Impl.go`. An item in an
 `exclude` file is dropped, an item in `accepted` counts neither way. The score

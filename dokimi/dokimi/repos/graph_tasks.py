@@ -245,6 +245,15 @@ def _class_items(index: CodeIndex, symbol: str, repo_path: dict[str, str]) -> li
     return [f"{f}::{name}" for f in files]
 
 
+def _listed_items(index: CodeIndex, symbol: str, repo_path: dict[str, str]) -> list[str]:
+    """``path::Class`` for every file that defines a class only accepted, a test's or one outside the tree
+    included (its index path then): it is never required, so naming it must not count against the answer."""
+    name = in_file_name(symbol)
+    if name is None:
+        return []
+    return [f"{repo_path.get(occ.path, occ.path)}::{name}" for occ in index.definitions(symbol)]
+
+
 def _derives(index: CodeIndex, repo_path: dict[str, str], sep: str, opts: Options) -> list[Candidate]:
     classes = [s for s in index.symbols() if s.endswith("#")]
     subs: dict[str, list[str]] = {}
@@ -273,7 +282,7 @@ def _derives(index: CodeIndex, repo_path: dict[str, str], sep: str, opts: Option
         # reduction dropped this one from: right to name, not required
         accepted = {x for i in items if i for x in i[1:]}
         for other in set(listed.get(base, ())) - set(children):
-            accepted.update(_class_items(index, other, repo_path) or ())
+            accepted.update(_listed_items(index, other, repo_path))
         out.append(Candidate("derives", (base,), named[0], named[1], defined, tuple(sorted(gold)),
                              tuple(sorted(accepted - gold)), same.get(named[0], 1)))
     return out

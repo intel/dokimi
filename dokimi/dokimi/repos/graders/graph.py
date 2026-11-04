@@ -76,9 +76,9 @@ def _names_agree(a, b):
 
 
 def _resolve(items, known):
-    """Map an answer item to the known item it names: exact, else the one item of ``known`` in that file whose
-    name agrees with it (:func:`_names_agree`): ``run`` names ``Impl.run`` when the file has no other ``run``,
-    ``B.run`` never names ``A.run``."""
+    """Map an answer item to the known item it names: exact, else the one item of ``known`` (gold and accepted)
+    in that file whose name agrees with it (:func:`_names_agree`): ``run`` names ``Impl.run`` when no other
+    known item of the file is a ``run``; ``B.run`` never names ``A.run``."""
     by_path: dict = {}
     for k in known:
         path, sep, name = k.partition("::")

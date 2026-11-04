@@ -217,6 +217,16 @@ def test_derives_accepts_a_second_defining_file_and_a_class_a_reduction_dropped(
     assert cand.accepted == ("src/a.pyi::A", "src/c.py::C")
 
 
+def test_derives_accepts_a_listed_class_in_a_test_file(tmp_path):
+    base, a, b, c = _cls("Base"), _cls("A", mod="a"), _cls("B", mod="b"), _cls("C", mod="test_c")
+    docs = {"src/base.py": [_occ("src/base.py", 0, base, True)], "src/a.py": [_occ("src/a.py", 0, a, True)],
+            "src/b.py": [_occ("src/b.py", 0, b, True)], "tests/test_c.py": [_occ("tests/test_c.py", 0, c, True)]}
+    bases = {a: (base,), b: (base,), c: (b, base)}
+    p = plan(_index(docs, bases, tool="scip-clang 0.4.0"), list(docs), _opts(tmp_path, references=0))
+    (cand,) = [o.candidate for o in p.outcomes if o.candidate.name == "Base"]
+    assert cand.gold == ("src/a.py::A", "src/b.py::B") and cand.accepted == ("tests/test_c.py::C",)
+
+
 def test_derives_respects_the_gold_size_cap(tmp_path):
     base = _cls("Base")
     subs = {_cls(f"S{i}", mod=f"s{i}"): f"src/s{i}.py" for i in range(4)}
