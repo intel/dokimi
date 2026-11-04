@@ -593,17 +593,20 @@ def test_image_provides_is_false_for_a_module_found_outside_site_packages(tmp_pa
     assert typecheck._image_provides("outside_mod") is False
 
 
-def _install(tmp_path: Path, monkeypatch, direct_url: dict | None) -> None:
-    """A site-packages holding an installed ``minipkg`` with ``direct_url`` (None: from an index, no such file)."""
+def _install(tmp_path: Path, monkeypatch, *direct_urls: dict | None) -> None:
+    """A site-packages holding ``minipkg``, claimed by one distribution per ``direct_urls`` entry (None: from an index,
+    no such file; no entry: no distribution claims it)."""
     site = tmp_path / "site"
-    info = site / "minipkg-0.1.dist-info"
-    info.mkdir(parents=True)
-    (site / "minipkg").mkdir()
+    (site / "minipkg").mkdir(parents=True)
     (site / "minipkg" / "__init__.py").write_text("", encoding="utf-8")
-    (info / "METADATA").write_text("Metadata-Version: 2.1\nName: minipkg\nVersion: 0.1\n", encoding="utf-8")
-    (info / "RECORD").write_text("minipkg/__init__.py,,\n", encoding="utf-8")
-    if direct_url is not None:
-        (info / "direct_url.json").write_text(json.dumps(direct_url), encoding="utf-8")
+    for i, direct_url in enumerate(direct_urls):
+        name = f"minipkg{i or ''}"
+        info = site / f"{name}-0.1.dist-info"
+        info.mkdir()
+        (info / "METADATA").write_text(f"Metadata-Version: 2.1\nName: {name}\nVersion: 0.1\n", encoding="utf-8")
+        (info / "RECORD").write_text("minipkg/__init__.py,,\n", encoding="utf-8")
+        if direct_url is not None:
+            (info / "direct_url.json").write_text(json.dumps(direct_url), encoding="utf-8")
     monkeypatch.syspath_prepend(str(site))
     get_path = typecheck.sysconfig.get_path
     monkeypatch.setattr(typecheck.sysconfig, "get_path",
@@ -631,6 +634,16 @@ def test_an_installed_package_not_installed_from_the_workspace_is_still_shadowed
     _install(tmp_path, monkeypatch, direct_url)
     result = typecheck.grade(_task(paths=["minipkg/api.py"]), tmp_path, "", run)
     assert result["pass"] is False
+    assert result["errors"] == ["minipkg: mypy is silenced here (fix the code instead)"]
+
+
+@pytest.mark.parametrize("second", ["none", "index"])
+def test_a_site_packages_module_not_claimed_by_the_workspace_alone_is_still_shadowed(tmp_path, monkeypatch, second):
+    # "none": no distribution claims it; "index": a second distribution, from an index, provides it too
+    run = _run(tmp_path, MINIPKG, _task(paths=["minipkg/api.py"]))
+    mine = {"url": (run / "workspace").resolve().as_uri(), "dir_info": {}}
+    _install(tmp_path, monkeypatch, *({"none": [], "index": [mine, None]}[second]))
+    result = typecheck.grade(_task(paths=["minipkg/api.py"]), tmp_path, "", run)
     assert result["errors"] == ["minipkg: mypy is silenced here (fix the code instead)"]
 
 
