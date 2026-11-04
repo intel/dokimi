@@ -19,6 +19,7 @@ from dokimi.report.model_compare import (
     prompt_digests,
     scored_arms,
 )
+from dokimi.utils import InputError
 
 
 # ---------------------------------------------------------------------------
@@ -72,26 +73,26 @@ def test_load_run_valid(tmp_path):
 
 
 def test_load_run_missing_file():
-    with pytest.raises(SystemExit, match="File not found"):
+    with pytest.raises(InputError, match="cannot read .*No such file"):
         load_run("/nonexistent/path/run.json")
 
 
 def test_load_run_invalid_json(tmp_path):
     p = tmp_path / "bad.json"
     p.write_text("{not valid json}", encoding="utf-8")
-    with pytest.raises(SystemExit, match="Invalid JSON"):
+    with pytest.raises(InputError, match="is not valid JSON"):
         load_run(str(p))
 
 
 def test_load_run_non_utf8_file_names_the_file(tmp_path):
     p = tmp_path / "latin1.json"
     p.write_bytes(b'{"note": "caf\xe9"}')
-    with pytest.raises(SystemExit, match=r"Error: Invalid JSON in .*latin1\.json: .*utf-8"):
+    with pytest.raises(InputError, match=r"latin1\.json is not UTF-8 text: .*utf-8"):
         load_run(str(p))
 
 
 def test_load_run_directory_is_an_error_message_not_a_traceback(tmp_path):
-    with pytest.raises(SystemExit, match=r"Error: cannot read .*Is a directory"):
+    with pytest.raises(InputError, match=r"cannot read .*Is a directory"):
         load_run(str(tmp_path))
 
 
@@ -111,7 +112,7 @@ def test_consistency_single_run_no_warnings():
 
 
 def test_consistency_baseline_mismatch_raises():
-    with pytest.raises(SystemExit, match="different baseline_arm"):
+    with pytest.raises(InputError, match="different baseline_arm"):
         check_run_consistency(
             [_run_pair("a", baseline="no-context"), _run_pair("b", baseline="baseline")], "g"
         )
@@ -131,7 +132,7 @@ def test_consistency_identical_model_is_an_error_unless_pooling():
     # to be a soft warning while the report still ranked them against each
     # other, which reported sampling noise as a model difference.
     runs = [_run_pair("a", model="same"), _run_pair("b", model="same")]
-    with pytest.raises(SystemExit, match="--pool-replicates"):
+    with pytest.raises(InputError, match="--pool-replicates"):
         check_run_consistency(runs, "g")
     # Opting into pooling makes it acceptable.
     assert check_run_consistency(runs, "g", pool_replicates=True) == []
@@ -221,7 +222,7 @@ def test_null_treatment_arm_in_every_record_still_counts_as_an_arm():
         {"question_id": "q1", "question_text": "Q?",
          "arms": {"baseline": {"answer": "b"}, "skill": {"answer": "s"}}}]}
     assert non_baseline_arms(run_a) == {"docs"}
-    with pytest.raises(SystemExit, match="different treatment arms"):
+    with pytest.raises(InputError, match="different treatment arms"):
         check_run_consistency([("a", run_a), ("b", run_b)], "regular")
 
 
@@ -272,7 +273,7 @@ def _profile_run(run_id, digest, arm="profile:p", n=2, **kw):
 def test_consistency_rejects_runs_measuring_different_treatments():
     """A `profile:` delta beside a `skill:` delta is confounded, not a model comparison."""
     runs = [_armed_run("a", "profile:concise_expert"), _armed_run("b", "skill:demo-skill")]
-    with pytest.raises(SystemExit, match="different treatment arms"):
+    with pytest.raises(InputError, match="different treatment arms"):
         check_run_consistency(runs, "regular")
 
 
@@ -313,7 +314,7 @@ def test_consistency_rejects_different_treatments_even_when_one_run_is_ambiguous
         _scored_run("a", "profile:concise_expert"),
         _scored_run("b", "skill:demo-skill", declared_extra=("docs",)),
     ]
-    with pytest.raises(SystemExit, match="different treatment arms"):
+    with pytest.raises(InputError, match="different treatment arms"):
         check_run_consistency(runs, "regular")
 
 
@@ -325,7 +326,7 @@ def test_consistency_rejects_a_group_whose_third_run_is_baseline_only():
         _scored_run("b", "skill:demo-skill"),
         ("c", {"baseline_arm": "baseline", "arms": ["baseline"], "model": "c", "provider": "p"}),
     ]
-    with pytest.raises(SystemExit, match="different treatment arms"):
+    with pytest.raises(InputError, match="different treatment arms"):
         check_run_consistency(runs, "regular")
 
 
@@ -365,7 +366,7 @@ def test_combined_arm_digests_are_read_from_the_nested_metadata():
         })
 
     runs = [combined("a", "sha256:" + "1" * 64), combined("b", "sha256:" + "2" * 64)]
-    with pytest.raises(SystemExit, match="different prompt digests"):
+    with pytest.raises(InputError, match="different prompt digests"):
         check_run_consistency(runs, "regular")
 
 
@@ -382,7 +383,7 @@ def test_consistency_rejects_one_arm_name_carrying_two_prompts():
         ("a", _profile_run("a", digest="sha256:" + "1" * 64)),
         ("b", _profile_run("b", digest="sha256:" + "2" * 64)),
     ]
-    with pytest.raises(SystemExit, match="different prompt digests"):
+    with pytest.raises(InputError, match="different prompt digests"):
         check_run_consistency(runs, "regular")
 
 
@@ -559,7 +560,7 @@ def test_extract_scores_refuses_a_record_without_question_id():
         {"id": "", "scores": {"baseline": {"aggregate": 60}, "with-ctx": {"aggregate": 80}}},
         {"id": "Q1", "scores": {"baseline": {"aggregate": 60}, "with-ctx": {"aggregate": 80}}},
     ])
-    with pytest.raises(SystemExit, match=r"evaluations\[0\]: missing question_id"):
+    with pytest.raises(InputError, match=r"evaluations\[0\]: missing question_id"):
         extract_scores(run)
 
 
@@ -917,7 +918,7 @@ def test_consistency_refuses_judge_context_that_differs(stamp_a, stamp_b):
     """Unstamped runs were judged on report snippets; pooling them with stamped runs
     puts two judge protocols in one comparison."""
     runs = [_stamped("a", stamp_a), _stamped("b", stamp_b)]
-    with pytest.raises(SystemExit, match="judge_context"):
+    with pytest.raises(InputError, match="judge_context"):
         check_run_consistency(runs, "regular")
 
 
@@ -925,13 +926,13 @@ def test_consistency_refuses_judge_context_that_differs(stamp_a, stamp_b):
 def test_consistency_refuses_a_mixed_run_even_against_another_mixed_one(other):
     """Two mixed runs fell back on different answers; they share a label, not evidence."""
     runs = [_stamped("a", _V1 + "+snippet_fallback"), _stamped("b", other)]
-    with pytest.raises(SystemExit, match="pools with nothing"):
+    with pytest.raises(InputError, match="pools with nothing"):
         check_run_consistency(runs, "regular")
 
 
 def test_consistency_message_says_to_rerun_not_rejudge():
     runs = [_stamped("a", None), _stamped("b", _V1)]
-    with pytest.raises(SystemExit, match="Re-run answering and judging"):
+    with pytest.raises(InputError, match="Re-run answering and judging"):
         check_run_consistency(runs, "regular")
 
 
