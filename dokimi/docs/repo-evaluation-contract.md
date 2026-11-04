@@ -188,7 +188,8 @@ documented in `dokimi/repos/code_index/index.py`.
   direct bases. scip-python lists direct bases, so its result is those.
   scip-clang lists every ancestor, which the reader reduces to a minimal set of bases that
   still reaches each ancestor (`C : B, A` with `B : A` gives `B` alone). An
-  inherited base can therefore be absent. The reader knows both tools by
+  inherited base can therefore be absent. `bases(symbol, minimal=False)` gives the
+  list unreduced. The reader knows both tools by
   name; for another tool it decides from the relationships themselves.
 - An occurrence repeated identically in one document is kept once.
 - A `local N` id is scoped to one document, so only per-document reads
@@ -304,7 +305,7 @@ belongs to the repository's grader and is passed through unread, except `grader`
 | Key | Required | Read by | Meaning |
 |---|---|---|---|
 | `id` | yes | framework | equals the directory name, and contains no whitespace or comma: the workflow's `tasks`, `smoke-tasks` and `exclude-tasks` inputs are lists of ids split on whitespace and commas, so `repo validate` refuses an id containing either |
-| `family` | yes | framework (reporting) | free string; common values: `build`, `fix`, `feature`, `test`, `review` |
+| `family` | yes | framework (reporting) | free string; common values: `build`, `fix`, `feature`, `test`, `review`, `navigate` (§4.7) |
 | `base` | yes | framework | commit to snapshot: a hex SHA, optionally followed by `^` (the parent, the usual form for a mined fix). Branch names, tags and `HEAD` are refused, because repetitions of one task must get one snapshot. Use the full 40-character SHA; a shorter one is accepted with a warning. It must resolve in the source. `meta.json` records it as `base_rev` and the resolved full SHA as `base_sha` |
 | `prompt` | yes | framework | what the agent is told |
 | `grader` | yes | framework for `dokimi:<name>` (§4.5); repository otherwise | grader name; any other name is interpreted by the `grade` entry point |
@@ -749,7 +750,7 @@ failed the task, and on a task with `score` that is a failed run with score
 |---|---|---|---|---|
 | `dokimi:review_seeds` | `manifest.json` (`manifest`); oracle answer `oracle.json` (`oracle_answer`), a list of findings | `null`; for a manifest with no seeds (a clean-diff control), `true` when no finding is `blocker` or `major` | `n_findings`, `n_severe`, `n_decoys`, `unmatched`, `recall` (`null` with no seeds) | `seeds_hit`, `decoys_flagged`, `recall_by_class` (`"hit/total"`) |
 | `dokimi:review_replay` | `gold.json` (`gold`); `task.json` `window`, default 5 | `null` (score-only) | `n_findings`, `n_severe`, `n_threads`, `recall` (= `recall_all`), `recall_addressed`, `precision_proxy` | `threads_hit`, `matches`, `recall_by_kind`, `decoys_flagged` (always `[]`) |
-| `dokimi:graph_enum` | `gold.json` (`gold`): `answer_key` (`files`, `functions` or `classes`), `gold`, `exclude`, `accepted` | `null` (score-only) | `f1`, `recall`, `precision`, `n_gold`, `n_answer`, `n_false_positive` | `missed`, `false_positive`, `accepted_extra` (first 50 each) |
+| `dokimi:graph_enum` | `gold.json` (`gold`): `answer_key` (`files`, `functions` or `classes`), `gold`, `exclude`, `accepted` (§4.7) | `null` (score-only); `false` with `parse_error: true` and every metric 0 when the answer has no list under the key | `f1`, `recall`, `precision`, `n_gold`, `n_answer`, `n_false_positive` | `missed`, `false_positive`, `accepted_extra` (first 50 each) |
 | `dokimi:typecheck` | none: the task's own fields `tool` (`mypy`), `version` (the image's mypy, exactly), `paths` (workspace-relative files) | `true` when no error is reported on a listed file, every listed file exists, and nothing silences mypy, else `false` | `n_errors`, `n_missing`, `n_suppressions`, `n_files` | `errors` (first 50, `file:line: message [code]`, and each silenced spot), `missing`, `tool`, `tool_version` |
 
 `dokimi:typecheck` checks the listed files only. Its pass is "no error on a
@@ -988,48 +989,62 @@ a task is as right as the index it came from.
 ```bash
 # the index must be built at the revision the source names; that SHA is each task's base
 python cli.py eval tasks generate ~/repo@<sha> --from graph --index index.scip \
-    --out ~/repo/.agent-eval/tasks [--callers 9] [--derives 3] [--seed 7] [--dry-run]
+    --out ~/repo/.agent-eval/tasks [--references 9] [--derives 3] [--seed 7] [--dry-run]
 ```
 
 Two questions:
 
-- **callers**: every file that references one function, outside the files
+- **references**: every file that references one function, outside the files
   that define it. On an index with enclosing ranges (scip-python) the answer is
-  functions, `path::name`, the innermost function holding each reference;
-  module-level code and class bodies are not a function. Test files count.
-  SCIP does not tell a call from another use, so the prompt says "references".
-- **derives**: every class whose listed bases include one class, answered as
-  `path::Class`. On scip-clang the bases are the reader's minimal set (§1.2),
-  so a class that also lists an intermediate base is not counted as direct.
+  functions, `path::name` with the name as it reads inside its file
+  (`Impl.run` for a method), the innermost function holding each reference;
+  module-level code and class bodies are not a function. Test files count. SCIP
+  does not tell a call from another use, so the question is references, not
+  calls. C++ overloads share one qualified name the prompt cannot tell apart,
+  so they are one target and the prompt says how many overloads count.
+- **derives**: every class whose bases (as the reader gives them, §1.2) include
+  one class, answered as `path::Class`. On scip-clang the bases are the
+  reader's minimal set, so a class that lists the target and also an
+  intermediate base of it is not required; it goes to `accepted`.
 
 **Targets.** A function or class defined in a tree file that is neither a
 test nor generated; dunder methods and C++ operators are never targets. A
 target with a reference (or, for derives, a subclass) outside the tree's files
 or defined only in a test is dropped, since the gold would be incomplete. The
-gold size must be between 5 and 40 (derives: at least 2 subclasses). The
-index paths are mapped onto the tree as `repo inspect --index` does (§8.1).
+gold size must be between 5 and 40 (derives: 2 to 40 subclasses). The index
+paths are mapped onto the tree as `repo inspect --index` does (§8.1).
 
 **Choice.** Seeded (`--seed`): about half the tasks of each kind have a name
-other symbols share (the prompt says how many and which one counts), since
+other targets share (the prompt says how many and which one counts), since
 telling one `run` from another is what a text search gets wrong. Names and
-task ids are distinct; an id is `graph_<kind>_<name>`.
+task ids are distinct. An id is `graph_<kind>_<name>_<hash>`, the hash over
+the target's symbols, so another seed or revision that picks another `run`
+writes another directory.
 
-**Files.** `<out>/<id>/task.json` (`family: explore`, `base`, `grader`,
+**Files.** `<out>/<id>/task.json` (`family: navigate`, `base`, `grader`,
 `score {metric: f1, max: 1.0}`, `max_turns`, and the provenance fields
-`question`, `answer_key`, `symbol`, `ambiguous_name`, `code_index`) and
-`gold.json` (`answer_key`, `gold`, `exclude`: the defining files for callers,
-`accepted`: empty, for a person to add right answers the index missed). The
+`question`, `answer_key`, `symbols`, `ambiguous_name`, `code_index {tool,
+sha256}`) and `gold.json` (`answer_key`, `gold`, `exclude`: the defining files
+for references, `accepted`: right answers not required, such as a class's
+second defining file (a `.pyi` next to its `.py`); a person may add more). The
 manifest needs `entry_points: {}` when every task uses a built-in grader. A
-task directory that has a `task.json` is kept; `--force` rewrites it.
+task directory that has a `task.json` is kept and printed as `kept <id>`;
+`--force` rewrites it.
 
 **Grading.** The agent's last ```` ```json ```` fence is the answer; one
 without the answer key as a list gives `pass: false`, `parse_error: true` and
-every metric 0, a failed run. Paths are normalised as in review grading; an item in `exclude` is
-dropped, an item in `accepted` counts neither way. Score is F1 against `gold`.
+every metric 0, a failed run. A path is cut after the agent's workspace and
+loses a leading `./`; in a name `::` reads as `.` and a trailing `()` is
+dropped. A name that matches no item exactly matches the one item of its file
+with the same last part (`go` for `Impl.go`), when there is one. An item in an
+`exclude` file is dropped, an item in `accepted` counts neither way. The score
+is F1 against `gold`. A gold file with an unknown `answer_key`, an empty
+`gold`, or an `exclude` or `accepted` that is not a list of strings is a
+grader error.
 
-The command exits 2 without `--index`, on an unpinned source, an index that
-does not read, or one that maps to no file of the tree; 1 when no target gave a
-task or a task cannot be written.
+The command exits 2 without `--index`, with `--references 0 --derives 0`, on
+an unpinned source, an index that does not read, or one that maps to no file
+of the tree; 1 when no target gave a task or a task cannot be written.
 
 ## 5. Aligning oneDAL `dev/agent_evals` (uxlfoundation/oneDAL#3818)
 

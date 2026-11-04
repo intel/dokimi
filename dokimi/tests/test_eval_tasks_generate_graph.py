@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -69,7 +70,7 @@ def test_file_gold_is_the_referencing_files_outside_the_definition_tests_include
     p = plan(_index(_callers_docs()), TREE, _opts(tmp_path))
     assert p.granularity == "files" and p.root_prefix == "" and p.documents_in_tree == 5
     (c,) = [o.candidate for o in p.outcomes]
-    assert (c.kind, c.name, c.qualified) == ("callers", "run", "p.m.run")
+    assert (c.kind, c.name, c.qualified) == ("references", "run", "p.m.run")
     assert c.defined_in == ("src/core.py",)
     assert c.gold == ("src/api.py", "src/cli.py", "tests/test_core.py")
     assert c.same_name == 2 and c.ambiguous
@@ -93,7 +94,7 @@ def test_a_protocol_method_is_not_a_target(tmp_path):
     init = _fn("__init__")
     docs = {"src/a.py": [_occ("src/a.py", 0, init, True)],
             **{f"src/u{i}.py": [_occ(f"src/u{i}.py", 0, init)] for i in range(3)}}
-    assert plan(_index(docs), list(docs), _opts(tmp_path)).candidates["callers"] == 0
+    assert plan(_index(docs), list(docs), _opts(tmp_path)).candidates["references"] == 0
 
 
 def test_the_gold_size_gate_holds_both_ends(tmp_path):
@@ -129,18 +130,18 @@ def test_derives_gold_is_the_direct_subclasses(tmp_path):
     docs = {"src/base.py": [_occ("src/base.py", 0, base, True)], "src/a.py": [_occ("src/a.py", 0, a, True)],
             "src/b.py": [_occ("src/b.py", 0, b, True)], "src/g.py": [_occ("src/g.py", 0, grand, True)]}
     bases = {a: (base,), b: (base,), grand: (a,)}
-    p = plan(_index(docs, bases), list(docs), _opts(tmp_path, callers=0))
+    p = plan(_index(docs, bases), list(docs), _opts(tmp_path, references=0))
     (c,) = [o.candidate for o in p.outcomes]
     assert (c.kind, c.name, c.gold) == ("derives", "Base", ("src/a.py::A", "src/b.py::B"))
     # a subclass a test defines cannot be graded against the tree's code: the base is no target
     docs["tests/test_x.py"] = [_occ("tests/test_x.py", 0, _cls("T", mod="t"), True)]
     bases[_cls("T", mod="t")] = (base,)
-    assert plan(_index(docs, bases), list(docs), _opts(tmp_path, callers=0)).outcomes == []
+    assert plan(_index(docs, bases), list(docs), _opts(tmp_path, references=0)).outcomes == []
 
 
 def _pool(n_ambiguous: int, n_unique: int) -> list[graph_tasks.Candidate]:
     def cand(name: str, same: int) -> graph_tasks.Candidate:
-        return graph_tasks.Candidate("callers", _fn(name), name, name, ("a.py",), ("b.py",), same)
+        return graph_tasks.Candidate("references", (_fn(name),), name, name, ("a.py",), ("b.py",), (), same)
     return [cand(f"amb{i}", 2) for i in range(n_ambiguous)] + [cand(f"uni{i}", 1) for i in range(n_unique)]
 
 
@@ -158,18 +159,72 @@ def test_choice_is_seeded_takes_half_ambiguous_and_fills_from_either_pool():
 def test_write_keeps_an_existing_task_unless_forced(tmp_path):
     opts = _opts(tmp_path)
     p = plan(_index(_callers_docs()), TREE, opts)
-    write(p, opts, "scip-python 0.6.8")
+    write(p, opts, {"tool": "scip-python 0.6.8", "sha256": "0" * 64})
     tid = p.outcomes[0].task
     task = json.loads((opts.out / tid / "task.json").read_text())
     gold = json.loads((opts.out / tid / "gold.json").read_text())
     assert task["grader"] == "dokimi:graph_enum" and task["base"] == "a" * 40 and task["id"] == tid
     assert task["score"] == {"metric": "f1", "max": 1.0} and task["answer_key"] == "files"
+    assert task["symbols"] == [RUN] and task["family"] == "navigate" and tid.startswith("graph_references_run_")
     assert "2 symbols named `run`" in task["prompt"] and '{"files": [' in task["prompt"]
     assert gold["gold"] == ["src/api.py", "src/cli.py", "tests/test_core.py"] and gold["exclude"] == ["src/core.py"]
     (opts.out / tid / "task.json").write_text("{}")
     assert plan(_index(_callers_docs()), TREE, opts).outcomes[0].status == "kept"
     forced = Options(out=opts.out, base=opts.base, min_gold=2, force=True)
     assert plan(_index(_callers_docs()), TREE, forced).outcomes[0].status == "written"
+
+
+def test_cxx_overloads_are_one_target_named_with_the_index_separator(tmp_path):
+    foo1, foo2 = "cxx . . $ ns/foo(001).", "cxx . . $ ns/foo(002)."
+    docs = {"src/foo.cpp": [_occ("src/foo.cpp", 0, foo1, True), _occ("src/foo.cpp", 5, foo2, True)],
+            "src/a.cpp": [_occ("src/a.cpp", 0, foo1)], "src/b.cpp": [_occ("src/b.cpp", 0, foo2)]}
+    p = plan(_index(docs, tool="scip-clang 0.4.0"), list(docs), _opts(tmp_path))
+    (c,) = [o.candidate for o in p.outcomes]
+    assert c.symbols == (foo1, foo2) and c.qualified == "ns::foo" and c.gold == ("src/a.cpp", "src/b.cpp")
+    write(p, _opts(tmp_path), {"tool": "scip-clang 0.4.0", "sha256": "0" * 64})
+    assert "any of its 2 overloads" in json.loads((tmp_path / "tasks" / p.outcomes[0].task / "task.json")
+                                                    .read_text())["prompt"]
+
+
+def test_two_methods_of_one_name_in_a_file_are_two_gold_items(tmp_path):
+    a_run, b_run = _fn("A#run", mod="cli"), _fn("B#run", mod="cli")
+    docs = {"src/core.py": [_occ("src/core.py", 0, RUN, True, (0, 3))],
+            "src/cli.py": [_occ("src/cli.py", 0, a_run, True, (0, 4)), _occ("src/cli.py", 2, RUN),
+                           _occ("src/cli.py", 6, b_run, True, (6, 9)), _occ("src/cli.py", 8, RUN)]}
+    p = plan(_index(docs), list(docs), _opts(tmp_path))
+    (c,) = [o.candidate for o in p.outcomes if o.candidate.name == "run" and o.candidate.symbols == (RUN,)]
+    assert c.gold == ("src/cli.py::A.run", "src/cli.py::B.run")
+
+
+def test_task_ids_of_two_targets_with_one_name_differ():
+    one = graph_tasks.Candidate("references", (RUN,), "run", "p.m.run", ("a.py",), ("b.py",), (), 2)
+    other = graph_tasks.Candidate("references", (ALT_RUN,), "run", "p.alt.run", ("a.py",), ("b.py",), (), 2)
+    assert task_id(one) != task_id(other) and task_id(one).startswith("graph_references_run_")
+    long = graph_tasks.Candidate("references", (RUN,), "x" * 200, "x", ("a.py",), ("b.py",), (), 1)
+    assert len(task_id(long)) == graph_tasks.ID_MAX
+
+
+def test_derives_accepts_a_second_defining_file_and_a_class_a_reduction_dropped(tmp_path):
+    base, a, b, c = _cls("Base"), _cls("A", mod="a"), _cls("B", mod="b"), _cls("C", mod="c")
+    docs = {"src/base.py": [_occ("src/base.py", 0, base, True)],
+            "src/a.py": [_occ("src/a.py", 0, a, True)], "src/a.pyi": [_occ("src/a.pyi", 0, a, True)],
+            "src/b.py": [_occ("src/b.py", 0, b, True)], "src/c.py": [_occ("src/c.py", 0, c, True)]}
+    # C lists Base and B, and B lists Base: on an index that lists ancestors the minimal bases of C are (B,)
+    bases = {a: (base,), b: (base,), c: (b, base)}
+    p = plan(_index(docs, bases, tool="scip-clang 0.4.0"), list(docs), _opts(tmp_path, references=0))
+    (cand,) = [o.candidate for o in p.outcomes if o.candidate.name == "Base"]
+    assert cand.gold == ("src/a.py::A", "src/b.py::B")
+    assert cand.accepted == ("src/a.pyi::A", "src/c.py::C")
+
+
+def test_derives_respects_the_gold_size_cap(tmp_path):
+    base = _cls("Base")
+    subs = {_cls(f"S{i}", mod=f"s{i}"): f"src/s{i}.py" for i in range(4)}
+    docs = {"src/base.py": [_occ("src/base.py", 0, base, True)],
+            **{path: [_occ(path, 0, sym, True)] for sym, path in subs.items()}}
+    bases = {sym: (base,) for sym in subs}
+    assert plan(_index(docs, bases), list(docs), _opts(tmp_path, references=0, max_gold=3)).outcomes == []
+    assert len(plan(_index(docs, bases), list(docs), _opts(tmp_path, references=0, max_gold=4)).outcomes) == 1
 
 
 def test_descriptor_names_are_outermost_first():
@@ -232,6 +287,25 @@ def test_a_gold_with_an_unknown_answer_key_is_a_grader_error(tmp_path):
         _grade(tmp_path, fence({"x": []}), {"answer_key": "x", "gold": []})
 
 
+def test_a_method_answered_qualified_or_bare_matches_its_gold_item(tmp_path):
+    gold = {"answer_key": "functions", "gold": ["src/a.py::A.run", "src/a.py::B.run", "src/b.py::Impl.go"]}
+    exact = _grade(tmp_path, fence({"functions": ["src/a.py::A::run()", "src/a.py::B.run", "src/b.py::go"]}), gold)
+    assert exact["f1"] == 1.0
+    bare = _grade(tmp_path, fence({"functions": ["src/a.py::run"]}), gold)  # two run in a.py: no guess
+    assert bare["n_false_positive"] == 1 and bare["recall"] == 0.0
+
+
+def test_a_repo_directory_in_a_path_is_kept(tmp_path):
+    gold = {"answer_key": "files", "gold": ["tests/fixtures/repo/a.py"], "exclude": ["src/repo/a.py"]}
+    assert _grade(tmp_path, fence({"files": gold["gold"]}), gold)["f1"] == 1.0
+
+
+@pytest.mark.parametrize("bad", [{"gold": []}, {"exclude": "src/def.py"}, {"accepted": None}, {"gold": [1]}])
+def test_a_malformed_gold_is_a_grader_error(tmp_path, bad):
+    with pytest.raises(ValueError, match="must be a"):
+        _grade(tmp_path, fence({"files": []}), {**GOLD, **bad})
+
+
 def test_graph_enum_is_a_known_builtin_and_runs_as_the_container_runs_it(tmp_path):
     assert "graph_enum" in NAMES and "graph_enum" in main.GRADERS
     task_dir, run_dir = tmp_path / "task", tmp_path / "run"
@@ -278,13 +352,16 @@ def test_cli_writes_a_task_whose_base_is_the_pinned_revision(tmp_path, capsys):
     _run(["eval", "tasks", "generate", f"{root}@HEAD", "--from", "graph", "--index", str(tmp_path / "index.scip"),
           "--out", str(out)])
     printed = capsys.readouterr().out
-    assert "6/6 index documents in the tree; files; candidates: 1 callers, 0 derives" in printed
+    assert "6/6 index documents in the tree; files; candidates: 1 references, 0 derives" in printed
     assert "1 task(s) written, 0 kept" in printed
-    task = json.loads((out / "graph_callers_run" / "task.json").read_text())
-    assert task["base"] == sha and task["code_index"] == "scip-test 0.1"
+    (task_file,) = out.glob("graph_references_run_*/task.json")
+    task = json.loads(task_file.read_text())
+    digest = hashlib.sha256((tmp_path / "index.scip").read_bytes()).hexdigest()
+    assert task["base"] == sha and task["code_index"] == {"tool": "scip-test 0.1", "sha256": digest}
     _run(["eval", "tasks", "generate", f"{root}@HEAD", "--from", "graph", "--index", str(tmp_path / "index.scip"),
           "--out", str(out), "--dry-run"])
-    assert "0 task(s) to write, 1 kept" in capsys.readouterr().out
+    printed = capsys.readouterr().out
+    assert f"kept {task_file.parent.name}\n" in printed and "0 task(s) to write, 1 kept" in printed
 
 
 @pytest.mark.parametrize("pinned, index, error", [
@@ -292,6 +369,7 @@ def test_cli_writes_a_task_whose_base_is_the_pinned_revision(tmp_path, capsys):
     (True, False, "needs --index"),
     (True, "garbled", "cannot read the code index"),
     (True, "elsewhere", "no document of the code index"),
+    (True, "none asked", "asks for no task"),
 ])
 def test_cli_exits_2_on_a_usage_error(tmp_path, capsys, pinned, index, error):
     root, _ = _toy(tmp_path)
@@ -302,8 +380,12 @@ def test_cli_exits_2_on_a_usage_error(tmp_path, capsys, pinned, index, error):
         path.write_bytes(b"\xff\xff\xff")
     elif index == "elsewhere":
         path.write_bytes(scip_index(document("lib/other.py")))
+    elif index == "none asked":
+        _scip(path)
     argv = ["eval", "tasks", "generate", f"{root}@HEAD" if pinned else str(root), "--from", "graph",
             "--out", str(tmp_path / "tasks")] + (["--index", str(path)] if index else [])
+    if index == "none asked":
+        argv += ["--references", "0", "--derives", "0"]
     with pytest.raises(SystemExit) as exc:
         _run(argv)
     assert exc.value.code == 2 and error in capsys.readouterr().err

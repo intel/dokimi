@@ -26,13 +26,16 @@ def cmd_eval_tasks_generate(args: argparse.Namespace) -> None:
     if not args.index:
         print("✗ --from graph needs --index FILE, a SCIP index of the source", file=sys.stderr)
         sys.exit(EXIT_USAGE)
+    if not args.references and not args.derives:
+        print("✗ --references 0 --derives 0 asks for no task", file=sys.stderr)
+        sys.exit(EXIT_USAGE)
     _, tree = _source_tree(args)
     if not isinstance(tree, GitTree):
         print(f"✗ pin the revision the index was built from: {args.source}@<rev>; a task's base is a commit",
               file=sys.stderr)
         sys.exit(EXIT_USAGE)
     index = _code_index(args.index)
-    opts = Options(out=Path(args.out), base=tree.sha, callers=args.callers, derives=args.derives, seed=args.seed,
+    opts = Options(out=Path(args.out), base=tree.sha, references=args.references, derives=args.derives, seed=args.seed,
                    max_turns=args.max_turns, force=args.force)
     p = plan(index, tree.files(), opts)
     if not p.documents_in_tree:
@@ -40,17 +43,20 @@ def cmd_eval_tasks_generate(args: argparse.Namespace) -> None:
         sys.exit(EXIT_USAGE)
     print(f"{p.documents_in_tree}/{p.documents} index documents in the tree"
           + (f" under {p.root_prefix}" if p.root_prefix else "")
-          + f"; {p.granularity}; candidates: {p.candidates['callers']} callers, {p.candidates['derives']} derives")
+          + f"; {p.granularity}; candidates: {p.candidates['references']} references, {p.candidates['derives']} derives")
     if not args.dry_run:
         try:
-            write(p, opts, index.tool)
+            write(p, opts, {"tool": index.tool, "sha256": _sha256(args.index)})
         except OSError as exc:
             print(f"✗ cannot write the tasks to {args.out}: {exc}", file=sys.stderr)
             sys.exit(1)
     for o in p.outcomes:
         c = o.candidate
-        status = "would write" if args.dry_run and o.status == "written" else o.status
-        print(f"{status} {o.task}: {len(c.gold)} gold, `{_normalize_whitespace(c.qualified, max_len=None)}`"
+        if o.status == "kept":  # what is on disk may come from another revision: say nothing about its gold
+            print(f"kept {o.task}")
+            continue
+        print(f"{'would write' if args.dry_run else 'written'} {o.task}: {len(c.gold)} gold, "
+              f"`{_normalize_whitespace(c.qualified, max_len=None)}`"
               + (f" ({c.same_name} symbols of this name)" if c.ambiguous else ""))
     n = {k: sum(o.status == k for o in p.outcomes) for k in ("written", "kept")}
     verb = "to write" if args.dry_run else "written"
@@ -58,6 +64,12 @@ def cmd_eval_tasks_generate(args: argparse.Namespace) -> None:
     if not p.outcomes:
         print("✗ no target of the index has a gold list of the allowed size", file=sys.stderr)
         sys.exit(1)
+
+
+def _sha256(path: str) -> str:
+    import hashlib
+
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
 def _count(value: str) -> int:
@@ -75,7 +87,7 @@ def add_parser(eval_tasks_sub, positive_int) -> None:
         "generate", help="Write repository tasks from a source, no LLM: --from graph writes dokimi:graph_enum "
         "tasks (which files or functions reference a function, which classes derive from a class) with gold "
         "from a SCIP code index. Exits 2 on a usage error or an index that does not read or matches no file "
-        "of the source, 1 when no target gave a task")
+        "of the source, 1 when no target gave a task or a task cannot be written")
     gen_p.add_argument("source", help=SOURCE_HELP)
     gen_p.add_argument("--from", required=True, choices=SOURCES, dest="from_kind",
                        help="What the tasks are built from: graph (a code index)")
@@ -84,7 +96,7 @@ def add_parser(eval_tasks_sub, positive_int) -> None:
                        "dokimi never builds one")
     gen_p.add_argument("--out", required=True,
                        help="Directory that gets one <task id>/ per task, usually the manifest's `tasks`")
-    gen_p.add_argument("--callers", type=_count, default=9, metavar="N",
+    gen_p.add_argument("--references", type=_count, default=9, metavar="N",
                        help="Reference tasks to write (default 9); about half with a name other symbols share")
     gen_p.add_argument("--derives", type=_count, default=3, metavar="N",
                        help="Direct-subclass tasks to write (default 3)")

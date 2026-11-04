@@ -106,7 +106,7 @@ class CodeIndex:
                 best, best_span, best_lines = occ, span, (first, last)
         return best
 
-    def bases(self, symbol: str) -> tuple[str, ...]:
+    def bases(self, symbol: str, *, minimal: bool = True) -> tuple[str, ...]:
         """The bases of ``symbol`` the index lists; on an index that lists every ancestor (scip-clang) a truncated
         ancestor graph, not its declared direct bases.
 
@@ -114,10 +114,10 @@ class CodeIndex:
         those. scip-clang lists every ancestor; on an index that does (:attr:`lists_ancestors`) a listed symbol that
         is a base of another listed one is dropped, leaving a minimal set that still reaches every ancestor
         (``C : B, A`` with ``B : A`` gives ``(B,)``). So an inherited base can be absent. Both stay when each lists
-        the other."""
+        the other. ``minimal=False`` returns every base the index lists, unreduced."""
         _refuse_local(symbol)
         listed = self._bases.get(symbol, ())
-        if len(listed) < 2 or not self.lists_ancestors:
+        if not minimal or len(listed) < 2 or not self.lists_ancestors:
             return listed
         above = {base: set(self._bases.get(base, ())) for base in listed}
         return tuple(base for base in listed
