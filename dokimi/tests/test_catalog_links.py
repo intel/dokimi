@@ -536,3 +536,48 @@ def test_a_code_span_naming_a_path_outside_the_checkout_is_never_read(tmp_path):
 
     [review] = review_skills(read_skill_manifest(tmp_path))
     assert review.findings == []
+
+
+@pytest.mark.parametrize("body", [
+    "> You might also find this helpful: [Title](URL) — one-sentence description.\n",
+    "See [a](LINK) and [b](PATH).\n",
+    "See [a](<URL>) and [b](< PATH >).\n",
+    "See [a](URL#section) and [b](URL?x=1).\n",
+    "See [a](...) and [b](<...>).\n",
+    "[a]: URL\n",
+])
+def test_a_placeholder_target_is_not_checked(tmp_path, body):
+    _skill(tmp_path / "skills", "placeholder", name="placeholder", description="Use for placeholders.", body=body)
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.findings == []
+
+
+@pytest.mark.parametrize("target", ["url", "Url", "some/URL", "URL.md", "URL-x.md"])
+def test_a_target_that_is_not_an_all_caps_placeholder_is_checked(tmp_path, target):
+    _skill(tmp_path / "skills", "lookalike", name="lookalike", description="Use for lookalikes.",
+           body=f"See [a]({target}).\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == ["link-missing"]
+
+
+def test_a_placeholder_next_to_a_real_missing_link_leaves_that_link_checked(tmp_path):
+    _skill(tmp_path / "skills", "mixed", name="mixed", description="Use for mixed links.",
+           body="Try [Title](URL) or [real](gone.md).\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == ["link-missing"]
+    assert "'gone.md'" in review.findings[0].message
+
+
+@pytest.mark.parametrize("body", [
+    "Example: `[Title](URL)`\n",
+    "```markdown\n> You might also find this helpful: [Title](URL) — one-sentence description.\n```\n",
+    "> ```\n> [Title](URL)\n> ```\n",
+])
+def test_a_placeholder_link_in_a_code_span_or_fence_is_not_checked(tmp_path, body):
+    _skill(tmp_path / "skills", "in-code", name="in-code", description="Use for code.", body=body)
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.findings == []
