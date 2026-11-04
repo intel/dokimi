@@ -13,7 +13,7 @@ SPDX-License-Identifier: Apache-2.0
     with exit 2, as it refuses a missing key: "Cannot read API key from file '…'
     (ANTHROPIC_API_KEY, provider anthropic)" or "ANTHROPIC_API_KEY for provider anthropic names
     an empty key file".
-  - The RAGAS step (`answers generate --ragas`, `eval ragas`) sent the `file:…` string itself
+  - The RAGAS step (`answers generate --ragas`, `eval score ragas`) sent the `file:…` string itself
     as the key, from the environment or from an explicit `api_key`, so every RAGAS call failed
     authentication. That was the judge's key, and also `OPENAI_API_KEY`, which ragas uses to embed
     for `answer_relevancy` whatever the judge. Both now send the file's contents; the embeddings
