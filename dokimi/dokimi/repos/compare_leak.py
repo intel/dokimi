@@ -213,13 +213,13 @@ def _by_name(rev: dict[str, Any], spec: dict[str, Any]) -> _State:
 
 def names_pr(pr: int, source_url: Any) -> re.Pattern[str]:
     """What names PR ``pr`` in a subject: ``#<pr>``, and with a ``.../<owner>/<repo>/pull/<n>`` ``source_url``
-    ``<owner>/<repo>#<pr>`` and the PR's URL; never followed by a digit."""
+    ``<owner>/<repo>#<pr>`` and the PR's URL with nothing glued before its host; never followed by a digit."""
     forms = [rf"(?<![\w/])#{pr}(?!\d)"]
     found = re.fullmatch(r"https?://([^/]+)/([^/]+)/([^/]+)/pull/\d+/?", source_url) \
         if isinstance(source_url, str) else None
     if found:
         host, repo = (re.escape(p) for p in (found[1], f"{found[2]}/{found[3]}"))
-        forms += [rf"(?<![\w./-]){repo}#{pr}(?!\d)", rf"{host}/{repo}/pull/{pr}(?!\d)"]
+        forms += [rf"(?<![\w./-]){repo}#{pr}(?!\d)", rf"(?<![\w./+-])(?:https?://)?{host}/{repo}/pull/{pr}(?!\d)"]
     return re.compile("|".join(forms), re.IGNORECASE)
 
 

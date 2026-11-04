@@ -182,6 +182,11 @@ def test_the_latest_applicable_commit_is_the_one_recorded(tmp_path):
     ("abc#3103", False),
     ("See https://github.com/numpy/dpnp/pull/31030", False),
     ("See https://github.com/other/repo/pull/3103", False),
+    ("See https://notgithub.com/numpy/dpnp/pull/3103", False),  # host must match whole
+    ("See https://evil.github.com/numpy/dpnp/pull/3103", False),
+    ("See https://evil.invalid/github.com/numpy/dpnp/pull/3103", False),
+    ("See github.com/numpy/dpnp/pull/3103", True),  # no scheme still names it
+    ("See xhttps://github.com/numpy/dpnp/pull/3103", False),
 ])
 def test_a_subject_names_the_pr_by_its_number_its_repo_or_its_url(tmp_path, subject, named):
     meta = _rev({"AGENTS.md": _commit(SHA["root"], EARLY)}, [_commit(SHA["named"], EARLY, subject)])
