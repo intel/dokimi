@@ -55,6 +55,8 @@ FIELDS: dict[str, KindFields] = {
                                counts=("tasks", "arms", "results")),
     "guidance_reach": KindFields(subject=("repo.id",), model=("model",), time=("generated_at",),
                                  counts=("files", "scenarios", "records")),
+    "skill_discovery": KindFields(model=("model",), time=("generated_at",),
+                                  counts=("cases", "scenarios", "records")),
     "repo_readiness": KindFields(subject=("repo.id",), time=("generated_at",),
                                  counts=("files", "claims")),
     "tool_preference": KindFields(model=("model",), time=("generated_at",),

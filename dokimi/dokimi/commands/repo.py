@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from dokimi.commands.repo_skill_reach import add_skill_reach_parser
 from dokimi.exit_codes import EXIT_USAGE
 
 
@@ -767,6 +768,8 @@ def register(sub, positive_int) -> None:
                          "checks a run makes before its first harness call, so it builds the workspace and removes it")
     reach_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
     reach_p.set_defaults(func=_reach_entry)
+
+    add_skill_reach_parser(repo_sub, positive_int)
 
     budget_p = repo_sub.add_parser(
         "budget",
