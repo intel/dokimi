@@ -281,6 +281,7 @@ def test_a_bundle_run_reports_which_file_carried_each_atom(tmp_path):
     assert {row["source"] for row in reported["by_source"]} <= {"SKILL.md",
                                                                 "references/tuning.md"}
     assert sum(row["n_atoms"] for row in reported["by_source"]) == artifact["atoms"]["n"]
+    assert all(row["n_sampled"] == row["n_atoms"] for row in reported["by_source"])  # no cap
     assert artifact["run_config"]["include_resources"] is True
     # One meaning for `ref_digest`: the files this cell measured, as the record says.
     assert artifact["artifact"]["ref_digest"] == bundle.measured_digest()
@@ -623,15 +624,16 @@ def test_a_capped_run_probes_a_spread_sample_and_says_so(tmp_path, monkeypatch):
     build = shorten.build_candidates
 
     def recording(span_list, atom_list, **kwargs):
-        scored.append([atom.span_ids for atom in atom_list])
+        scored.append(([atom.span_ids for atom in atom_list],
+                       [atom.span_ids for atom in kwargs["scored_atoms"]]))
         return build(span_list, atom_list, **kwargs)
 
     monkeypatch.setattr(shorten, "build_candidates", recording)
     result = _analyze(tmp_path, max_atoms=1)
     artifact = result.artifact
     assert [atom.span_ids for atom in result.atoms] == [("s0003",)]
-    # Shortening candidates are judged against the sampled atom only.
-    assert scored == [[("s0003",)]]
+    # Shortening's structure is every atom; its candidates are judged against the sampled one.
+    assert scored == [([("s0002",), ("s0003",)], [("s0003",)])]
     assert artifact["atoms"]["sampling"] == "cap-spread:1"
     assert artifact["extraction"]["sampled"] == {"atoms": 1, "of": 2, "rule": "cap-spread"}
     assert artifact["extraction"]["reached"] is None
@@ -717,10 +719,12 @@ def test_only_a_cap_that_leaves_atoms_out_counts_as_capped(tmp_path, cap, capped
     settings = resolve_settings("study", {"max_atoms": cap})
     artifact = _analyze(tmp_path, **settings.config_fields()).artifact
     assert (artifact["extraction"]["sampled"] is not None) is capped
-    assert artifact["spans"]["capped_atom_set"] is capped
+    # The spans index every atom either way, so the indexed set is never the cap's (#371).
+    assert (artifact["spans"]["capped_atom_set"], artifact["spans"]["n_atoms_indexed"]) == (False, 2)
     assert artifact["atoms"]["sampling"] == (f"cap-spread:{cap}" if capped else "full")
     shortening = (f"shortening candidates are scored against a spread sample of {cap} of the "
-                  "extracted atoms: a cut of a span with no sampled atom looks free")
+                  "extracted atoms: `knowledge` and `value` are retention of that sample, not of "
+                  "every atom, though the sole carriers a safe candidate keeps come from every atom")
     warned = "\n".join(artifact["warnings"])
     recorded = artifact["run_config"]["tier"]["forfeits"]
     for line in [*FORFEITS["sampled"], shortening]:
@@ -731,9 +735,10 @@ def test_only_a_cap_that_leaves_atoms_out_counts_as_capped(tmp_path, cap, capped
 
 @pytest.mark.parametrize("cap, probed, by_file", [
     # 8 atoms, one per span; SKILL.md holds s0001-s0005, references/tuning.md s0006-s0008.
+    (1, ["s0005"], {"SKILL.md": 1, "references/tuning.md": 0}),
     (2, ["s0003", "s0007"], {"SKILL.md": 1, "references/tuning.md": 1}),
     (3, ["s0002", "s0005", "s0007"], {"SKILL.md": 2, "references/tuning.md": 1}),
-], ids=["cap-2", "cap-3"])
+], ids=["cap-1", "cap-2", "cap-3"])
 def test_a_capped_bundle_run_strides_across_its_files_in_file_order(tmp_path, capsys, cap, probed,
                                                                      by_file):
     from dokimi.commands import novelty as novelty_cmd
@@ -769,7 +774,12 @@ def test_a_capped_bundle_run_strides_across_its_files_in_file_order(tmp_path, ca
                      judge=judge, artifact_bundle=bundle)
     artifact = result.artifact
     assert [atom.span_ids[0] for atom in result.atoms] == probed
-    assert {row["source"]: row["n_atoms"] for row in artifact["bundle"]["by_source"]} == by_file
+    # Outcomes are over the sample, atom counts over every extracted atom: at cap 1 none of
+    # tuning.md's three atoms is probed, yet it carries them.
+    rows = artifact["bundle"]["by_source"]
+    assert {row["source"]: row["n_sampled"] for row in rows} == by_file
+    assert {row["source"]: row["n_atoms"] for row in rows} == {"SKILL.md": 5,
+                                                               "references/tuning.md": 3}
     assert artifact["extraction"]["sampled"] == {"atoms": cap, "of": 8, "rule": "cap-spread"}
     novelty_cmd._print_coverage(artifact["bundle"], artifact["extraction"])
     # 6% of the artifact went into the input; the sample is of the input's atoms.

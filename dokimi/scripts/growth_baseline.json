@@ -1,6 +1,6 @@
 {
   "files": {
-    "dokimi/commands/novelty.py": {"lines": 1029, "rationale": "estimate-only projection and W1 routing cost output (#164) from main, plus the #172 routing field, --all-vs-all, tied/unscored caveat and blind-skill warning, --all-vs-all with --repeats (noise and cost block); routing output in commands/novelty_routing_report.py; file split tracked separately"},
+    "dokimi/commands/novelty.py": {"lines": 1021, "rationale": "estimate-only projection and W1 routing cost output (#164) from main, plus the #172 routing field, --all-vs-all, tied/unscored caveat and blind-skill warning, --all-vs-all with --repeats (noise and cost block); routing output in commands/novelty_routing_report.py; file split tracked separately"},
     "dokimi/harnesses/benchflow.py": {"lines": 869},
     "dokimi/harnesses/docker_solver.py": {"lines": 897, "rationale": "pre-existing when the gate was introduced"},
     "dokimi/llm.py": {"lines": 1093, "rationale": "grew on main in #180 (replay a stored retry) after #93 seeded this baseline; split it in its own PR"},
@@ -47,7 +47,7 @@
     "dokimi/harnesses/skill_treatment.py::stream_stats": {"complexity": 16},
     "dokimi/harnesses/tasks.py::harbor_task_problem": {"complexity": 11},
     "dokimi/mcp/context7.py::Context7Client.get_library_docs": {"complexity": 12},
-    "dokimi/novelty/analyze.py::analyze": {"complexity": 22},
+    "dokimi/novelty/analyze.py::analyze": {"complexity": 21},
     "dokimi/novelty/atoms.py::extract_atoms": {"complexity": 14},
     "dokimi/novelty/bundle.py::load_bundle": {"complexity": 14},
     "dokimi/novelty/items.py::discrimination": {"complexity": 11},
