@@ -308,7 +308,7 @@ belongs to the repository's grader and is passed through unread, except `grader`
 | `timeout_s`, `max_turns`, `budget_usd` | no | framework | per-task caps, overriding run defaults; each a finite number > 0 |
 | `host` | no | framework | `{"min_cpus": <int>, "cpu_vendors": [<str>], "cpu_flags": [<str>]}`, every key optional: what the hidden test needs to show the bug (a thread race that needs 3+ CPUs, an ISA path). Vendor and flag names are `/proc/cpuinfo`'s (`GenuineIntel`, `avx512f`); both match in any case, and a vendor other than `GenuineIntel`, `AuthenticAMD`, `HygonGenuine`, `CentaurHauls`, `Shanghai` is refused (`repo validate` too). A probe that read neither vendor nor flags from `/proc/cpuinfo` is a probe failure, not a miss They are checked against a probe container started like the grading one: CPUs are its affinity mask capped by its cgroup CPU quota (`docker --cpus`). On a host that misses them the task is unsupported (§4.3), and the probed facts go to `meta.json` `host` of a cell that runs, or to its `unsupported.json` `host` when it does not |
 | `egress` | no | framework | extra hosts (DNS names, optional `:port`; `*` stands for one whole label and the last two labels are literal, so `*.pythonhosted.org` passes and `*` or `*.org` does not) this task's agent and entry points reach through the proxy (§2), for example `["pypi.org", "files.pythonhosted.org"]` |
-| `expected_skill` | no | framework | the name (directory name) of the skill the agent should use; a `skill-catalog:` arm must install it, or the arm is refused before anything runs. `result.json` `skills` records whether the agent used it and whether it used it first |
+| `expected_skill` | no | framework | the name (directory name) of the skill the agent should use; a `skill-catalog:` arm must install it, or the arm is refused before anything runs. On a `guidance:as-skill` catalog arm the generated `<repo>-guidance` skill is refused too (its usage is `guidance_skill_loaded`). `result.json` `skills` records whether the agent used it and whether it used it first |
 | `useful` | no | framework | the definition of the run's first useful result, reported as `first_useful` in `result.json` (§4.1): `{"command": "<regex>"}` for a task whose grade runs the target tests, or `{"edit": "<glob>"}` (or a list of globs) for one that grades an edit to a target file. Omit it when no event is the useful result. A malformed value is refused by `repo validate`, `tasks check` and `repo run` |
 | anything else | — | repository | for example `hidden_files`, `targets`, `regression_targets`, `manifest` |
 
@@ -324,7 +324,10 @@ belongs to the repository's grader and is passed through unread, except `grader`
 3. `git init` and commit (no history, so fixes cannot leak)
 4. apply `setup_patches`
 5. apply the arm: `guidance:none`, `guidance:raw`, `guidance:bridge`,
-   `guidance:rev:<rev>` or `patch:<file>`
+   `guidance:rev:<rev>`, `patch:<file>`, `guidance:format=xml` (the guidance
+   files rendered as tagged sections, `dokimi/repos/guidance_format.py`) or
+   `guidance:as-skill` (the guidance files removed, their text packaged as one
+   skill, see [Guidance formats and packaging](benchmarking-and-comparison.md#guidance-formats-and-packaging))
 6. amend the commit
 7. apply `review_patch` with `git am` under a neutral author
 8. expire the reflog and prune unreachable objects: the
@@ -417,7 +420,9 @@ answer was public; the author date alone cannot show it, as an amend or a
 rebase keeps it. For `patch:` an `arm_patch` object (the
 file's absolute `path` and full `sha256`, `added`: the files the patch added
 that neither the guidance globs nor `.mcp.json` match, and `mcp_servers`: the servers
-the patch added to the `.mcp.json` at the root, read before the agent runs). `args_if_present` lists the profile's
+the patch added to the `.mcp.json` at the root, read before the agent runs); for `guidance:format=` a
+`guidance_links_kept` list of the guidance links that keep their raw bytes; for `guidance:as-skill` a
+`guidance_skill` object (`name`, `path`, `sha256`) that is not in `skills`. `args_if_present` lists the profile's
 `args_if_present` files the cell's command line carries (§6): `[]` when the
 workspace has none of them, and always outside the `all` tool mode.
 
@@ -534,6 +539,9 @@ the first one used; `null` when the task names none). When the trace could not
 be read (the harness never started), `measured` is `false` and `skill_invoked`
 and `skill_selected_correct` are `null`: the usage is unknown, not "did not use
 the skill". `repo report` leaves such cells out of its skill counts.
+A `guidance:as-skill` cell has no `skills` entry for its generated skill: its
+usage is `guidance_skill_loaded` (`true` when the agent called that skill or read
+its `SKILL.md`, `false` when not, `null` when the trace could not be read).
 
 For a `patch:` arm with `added` files or `mcp_servers`, `result.json` has an
 `uptake` object: whether the agent used what the arm added. `files` and
