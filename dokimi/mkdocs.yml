@@ -121,6 +121,7 @@ nav:
       - subscription-backends.md
       - answer-formats.md
       - context-window.md
+      - session-prefilter.md
   - Content novelty:
       - skill-novelty.md
       - skill-novelty-walkthrough.md
