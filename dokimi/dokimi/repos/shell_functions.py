@@ -19,6 +19,8 @@ _MASK = re.compile(r"\\.|'[^']*'|\"(?:\\.|[^\"\\])*\"|(?<![^\s;&|()])#[^\n]*", r
 # blank lines and comments (``f()\n# c\n{``); group 1 or 2 is the name
 _DEF = re.compile(r"(?<![^\s;&|(){}])(?:function\s+([^\s(){};&|<>]+)(?:\s*\(\s*\))?|([^\s(){};&|<>=$`]+)\s*\(\s*\))"
                   r"\s*\{(?=\s|$)")
+# ``f() ( ... )``, whose body runs in a subshell; ``function f() (`` matches at ``f`` (``function f (`` is no definition)
+_SUBSHELL_DEF = re.compile(r"(?<![^\s;&|(){}])([^\s(){};&|<>=$`]+)\s*\(\s*\)\s*\(")
 _BRACE = re.compile(r"(?<![^\s;&|(){}])(?:\{(?=\s|$)|\}(?=[\s;&|)]|$))")  # a brace group's ``{`` or ``}`` as a word
 _BREAK = re.compile(r"[\s;&|()<>`{}$]+")
 
@@ -26,18 +28,27 @@ _BREAK = re.compile(r"[\s;&|()<>`{}$]+")
 def define(known: Functions, script: str) -> frozenset[str]:
     """Add the functions ``script`` defines (``f() { ...; }``, ``function f { ...; }``) to ``known``, and return the
     names in ``known`` whose call may move the shell: the body names a directory builtin, or a function that does
-    (``g() { f; }``), as any word (``case x in a) cd sub;; esac`` too). A definition is found anywhere outside quotes,
-    in a subshell or never run too, and a name defined again keeps what each definition named: both drop reads only."""
+    (``g() { f; }``), as any word (``case x in a) cd sub;; esac`` too). A body in parentheses (``f() ( cd sub )``)
+    runs in a subshell: its name is known, so a call of it is no read, but it moves nothing. A definition is found
+    anywhere outside quotes, in a subshell or never run too, and a name defined again keeps what each definition
+    named: both drop reads only."""
     masked = _MASK.sub(lambda m: (" " if m.group()[0] == "#" else "q") * len(m.group()), script)
     for m in _DEF.finditer(masked):
-        start, end = m.span(1) if m.group(1) else m.span(2)
-        name = script[start:end]
-        name = _unquote(name) or name
+        name = _name(script, m)
         known[name] = known.get(name, frozenset()) | _words(script[m.end():_body_end(masked, m.end())])
+    for m in _SUBSHELL_DEF.finditer(masked):
+        name = _name(script, m)
+        known[name] = known.get(name, frozenset())
     movers: frozenset[str] = frozenset()
     while (more := frozenset(n for n, words in known.items() if words & (_DIRS | movers))) != movers:
         movers = more
     return movers
+
+
+def _name(script: str, m: re.Match[str]) -> str:
+    """The name a definition's match gives (group 1 or 2), unquoted as a call's command word is (``"f"`` is ``f``)."""
+    start, end = m.span(1) if m.group(1) else m.span(2)
+    return _unquote(script[start:end]) or script[start:end]
 
 
 def _body_end(masked: str, start: int) -> int:

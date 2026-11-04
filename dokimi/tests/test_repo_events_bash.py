@@ -270,10 +270,11 @@ def test_a_directory_builtin_the_parser_does_not_follow_moves_the_shell(first):
     assert _reads(events) == []
 
 
-def test_a_failed_read_after_a_part_not_surely_a_cd_keeps_its_read():
-    # ``_is_cd`` splits at blanks: ``X="a b" cd sub`` is not surely a cd, so the exit may be its own
-    events = _events(_call("a", 'X="a b" cd sub && cat AGENTS.md'), _result("a", "error", True))
-    assert [(e["kind"], e.get("path"), e["rc"]) for e in events] == [("read", "sub/AGENTS.md", 0), ("command", None, 1)]
+@pytest.mark.parametrize("first", ['X="a b" cd sub', "source 'missing env/bin/activate'", "cd sub\\ "])
+def test_a_failed_read_after_a_quoted_cd_or_activate_is_no_read(first):
+    # ``_is_cd`` / ``_is_activate`` split as the walker does (shlex; at blanks when it cannot: ``cd sub\``)
+    events = _events(_call("a", f"{first} && cat AGENTS.md"), _result("a", "error", True))
+    assert [(e["kind"], e.get("path"), e["rc"]) for e in events] == [("command", None, 1)]
 
 
 @pytest.mark.parametrize("first", ["time find . -name x", "time wc -l AGENTS.md .", "time git add .", "time make -C .",
@@ -611,3 +612,83 @@ def test_a_timed_printing_command_reads_its_file(command):
 def test_usr_bin_time_with_an_option_or_an_assignment_after_it_reads_nothing(command):
     # an option is not parsed (``-o log`` takes a value), and /usr/bin/time runs ``X=1`` as a program
     assert shell_walk(command) == ([], False, 0)
+
+
+@pytest.mark.parametrize("command", ["cd() { echo hi; }; command cd sub; cat AGENTS.md",
+                                     "cd() { echo hi; }; builtin cd sub; cat AGENTS.md",
+                                     "cd() { echo hi; }; time command cd sub; cat AGENTS.md"])
+def test_command_or_builtin_runs_the_cd_builtin_past_a_function_named_cd(command):
+    # bash runs the builtin, not the function: the shell is in sub (a plain ``cd sub`` still loses the directory)
+    assert shell_walk(command) == (["sub/AGENTS.md"], True, 0)
+
+
+@pytest.mark.parametrize("command", [
+    "command() { echo F; }; command cat AGENTS.md", "env() { echo F; }; env cat AGENTS.md",
+    "time() { echo F; }; X=1 time cat AGENTS.md", r"time() { echo F; }; \time cat AGENTS.md",
+    "command() { echo F; }; time command cat AGENTS.md",
+])
+def test_a_function_named_like_a_wrapper_runs_instead_of_the_wrapper(command):
+    # the function prints F: the printer after its name is only an argument
+    assert shell_walk(command) == ([], False, 0)
+
+
+@pytest.mark.parametrize("command", ["command() { echo F; }; command cd sub; cat AGENTS.md",
+                                     "builtin() { echo F; }; builtin cd sub; cat AGENTS.md"])
+def test_a_function_named_like_a_wrapper_runs_no_cd_after_its_name(command):
+    assert shell_walk(command) == (["AGENTS.md"], False, 0)
+
+
+@pytest.mark.parametrize("command", [
+    "command() { echo F; }; /usr/bin/env cat AGENTS.md", "time() { echo F; }; time cat AGENTS.md",
+    "time() { echo F; }; time -p cat AGENTS.md", "env() { echo F; }; command env cat AGENTS.md",
+])
+def test_the_time_keyword_or_a_wrapper_no_function_shadows_runs_the_printer(command):
+    # the keyword is no function call, ``/usr/bin/env`` is a path, and ``command env`` passes over a function ``env``
+    assert shell_walk(command) == (["AGENTS.md"], False, 0)
+
+
+@pytest.mark.parametrize("command", [
+    "command() { cd sub; }; command cat x; cat AGENTS.md", "time() { cd sub; }; X=1 time cat x; cat AGENTS.md",
+    'command() { cd sub; }; command cat "$X"; cat AGENTS.md', "time() { cd sub; }; time -p time; cat AGENTS.md",
+])
+def test_a_function_named_like_a_wrapper_that_names_a_cd_loses_the_directory(command):
+    assert shell_walk(command) == ([], True, 1)
+
+
+@pytest.mark.parametrize("first, second", [("command() { echo F; }", "command cat AGENTS.md"),
+                                           ("cat() ( echo FN )", "time cat AGENTS.md")])
+def test_a_wrapper_or_subshell_function_an_earlier_call_defined_shadows_a_later_read(first, second):
+    events = _events(_call("a", first), _result("a"), _call("b", second), _result("b"),
+                     _call("c", "head README.md"), _result("c"))
+    assert _reads(events) == ["README.md"]
+
+
+@pytest.mark.parametrize("command", ["cat() ( echo FN ); time cat AGENTS.md", "cat() ( echo FN ); cat AGENTS.md",
+                                     "function cat() ( echo FN ); cat AGENTS.md", "cat()\n(\n  echo FN\n)\ncat AGENTS.md"])
+def test_a_function_with_a_subshell_body_named_like_a_printer_is_no_read(command):
+    assert shell_walk(command) == ([], False, 0)
+
+
+@pytest.mark.parametrize("command", ["f() ( cd sub ); f; cat AGENTS.md", "cd() ( echo hi ); cat AGENTS.md",
+                                     "f() ( cd sub ); g() { f; }; g; cat AGENTS.md", "f()\n(\n  cd sub\n)\nf\ncat AGENTS.md"])
+def test_a_function_with_a_subshell_body_moves_nothing(command):
+    # the body runs in a subshell, so its cd leaves this shell where it was; defining ``cd`` runs nothing
+    assert shell_walk(command) == (["AGENTS.md"], False, 0)
+
+
+@pytest.mark.parametrize("command", ["time -x cat AGENTS.md; true", "time --help cat AGENTS.md; true",
+                                     "time -pp cat AGENTS.md; true", "time -p -p cat AGENTS.md", "time -- -p cat AGENTS.md"])
+def test_a_dash_word_the_time_keyword_takes_as_no_option_is_the_command_name(command):
+    # bash's ``time`` takes one ``-p``, then one ``--``: ``-x`` is run as the command, a non-printer
+    assert shell_walk(command) == ([], False, 0)
+
+
+@pytest.mark.parametrize("command", ["time -- cat AGENTS.md", "time -p -- cat AGENTS.md"])
+def test_the_time_keywords_end_of_options_reads_the_file(command):
+    assert shell_walk(command) == (["AGENTS.md"], False, 0)
+
+
+@pytest.mark.parametrize("first", ["time -x cd sub", "time -p -p cd sub"])
+def test_a_cd_after_a_dash_word_the_time_keyword_takes_as_no_option_still_loses_the_directory(first):
+    # bash runs ``-x``, but every dash word is taken as an option where only a directory may be lost
+    assert shell_walk(f"{first}; cat AGENTS.md") == ([], True, 1)

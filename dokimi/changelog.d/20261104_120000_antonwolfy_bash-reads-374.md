@@ -12,6 +12,12 @@
   `eval`, `source` or `.` now loses the directory as an `eval` does, also when an earlier Claude
   Code Bash call defined it. A definition whose `{` is on a later line (`f()`, a newline, `{ cd
   sub; }`) no longer runs its body's `cd`: it is only defined. A call of a function named like a
-  printer (`cat() { echo hi; }; cat AGENTS.md`, `\cat AGENTS.md` too) is no read, while `command
+  printer (`cat() { echo hi; }; cat AGENTS.md`, `\cat AGENTS.md` and a body in parentheses,
+  `cat() ( echo hi )`, too) is no read, while `command
   cat` and `env cat`, which run the program, read the file; one named like a directory builtin (`cd() { ...; }`)
-  loses the directory. So `guidance_read` and `unknown_reads` can change for such traces.
+  loses the directory, while `command cd sub` and `builtin cd sub` run the builtin and are followed.
+  A function named `command`, `env`, `builtin` or `time` (not the keyword) runs in place of that
+  wrapper: `command() { echo hi; }; command cat AGENTS.md` and `command cd sub` read and move
+  nothing. `time -x cat AGENTS.md` and `time --help cat AGENTS.md` are no read (the keyword takes
+  only `-p` and `--`), and a failed `source 'my env/bin/activate' && cat AGENTS.md` is no read.
+  So `guidance_read` and `unknown_reads` can change for such traces.
