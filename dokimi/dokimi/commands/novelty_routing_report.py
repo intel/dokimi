@@ -89,21 +89,36 @@ def refuse_estimate_without_queries(args: argparse.Namespace, queries: list[str]
                    "Nothing is estimated, since the run would be refused")
 
 
-# Why a field rule left a skill out, and the flag that keeps it, in the order they are named.
+# Why a field rule left a skill out: the phrase for the reason, the flag that keeps the skill, and
+# the words that name that flag, in the order they are named.
 _LEFT_OUT = {
-    "disabled": ("sets disable-model-invocation", "--include-disabled keeps it"),
-    "invalid": ("has a spec error", "--include-invalid keeps it"),
-    "conflict": ("has copies with different content",
-                 "--prefer-path <dir> keeps the one copy under <dir>"),
+    "disabled": ("sets disable-model-invocation", "--include-disabled",
+                 "--include-disabled keeps it"),
+    "invalid": ("has a spec error", "--include-invalid", "--include-invalid keeps it"),
+    "conflict": ("has copies with different content", "--keep-copies-under",
+                 "--keep-copies-under <dir> keeps only the copies under <dir>"),
 }
 
 
 def conflict_hint(catalog: str, conflicts: dict[str, list[str]]) -> str:
-    """Where the copies of the conflicting names sit, and the ways out of the conflict."""
+    """Where the copies of the conflicting names sit, and the ways out of the conflict.
+
+    A directory under the catalog is a ``--catalog`` to point at, and a ``--keep-copies-under``
+    to keep. The catalog root is neither: its copies only route once they are deduped or renamed.
+    """
     dirs = sorted({_copy_dir(path, catalog) for paths in conflicts.values() for path in paths})
-    picks = " or ".join(f"--catalog {os.path.join(catalog, d)}" for d in dirs)
-    return (f"The copies sit under {', '.join(dirs)}: point --catalog at one of those "
-            f"directories ({picks}), or keep one copy with --prefer-path <dir>.")
+    where = " and ".join("at the catalog root" if d == "." else f"under {d}" for d in dirs)
+    sub = [d for d in dirs if d != "."]
+    if not sub:
+        return ("The copies sit at the catalog root, so no --catalog or --keep-copies-under picks "
+                "one of them: dedupe or rename them.")
+    picks = " or ".join(f"--catalog {os.path.join(catalog, d)}" for d in sub)
+    keeps = " or ".join(f"--keep-copies-under {d}" for d in sub)
+    text = (f"The copies sit {where}: point --catalog at one of those directories ({picks}), "
+            f"or keep only one directory's copies with {keeps}.")
+    if "." in dirs:
+        text += " The copy at the catalog root routes only once it is deduped or renamed."
+    return text
 
 
 def _copy_dir(path: str, catalog: str) -> str:
@@ -145,7 +160,7 @@ def check_all_vs_all_field(args: argparse.Namespace, field: list, dropped: dict[
     """Refuse a field of fewer than two skills, naming each skill the field left out and why."""
     if len(field) >= 2:
         return
-    left = _left_out_list(dropped)
+    left = _left_out_list(_left_out_only(dropped, field))
     hint = f" {conflict_hint(args.catalog, conflicts)}" if conflicts else ""
     raise InputError("all-vs-all needs at least two skills in the field"
                      + (f": the field leaves out {left}" if left else "") + "." + hint)
@@ -154,7 +169,13 @@ def check_all_vs_all_field(args: argparse.Namespace, field: list, dropped: dict[
 def _left_out_reasons(name: str, dropped: dict[str, set[str]]) -> tuple[str, str]:
     """Why the field leaves ``name`` out, and the flags that keep it, as two phrases."""
     reasons = [_LEFT_OUT[why] for why in _LEFT_OUT if why in dropped.get(name, ())]
-    return " and ".join(why for why, _ in reasons), "; ".join(keep for _, keep in reasons)
+    return " and ".join(why for why, _, _ in reasons), "; ".join(keep for _, _, keep in reasons)
+
+
+def _left_out_only(dropped: dict[str, set[str]], field: list[Candidate]) -> dict[str, set[str]]:
+    """``dropped`` without the names the field still has: a skill with one copy left in is in it."""
+    names = {c.name for c in field}
+    return {name: why for name, why in dropped.items() if name not in names}
 
 
 def _left_out_list(dropped: dict[str, set[str]]) -> str:
@@ -163,33 +184,54 @@ def _left_out_list(dropped: dict[str, set[str]]) -> str:
                      for why, keep in [_left_out_reasons(name, dropped)])
 
 
+def _unexplained_message(names: list[str], unloaded: dict[str, str]) -> str:
+    """The refusal for queries naming skills no field rule explains.
+
+    A catalog skill that failed to load is named with why it did not load, since it is in the
+    catalog. Any other name is more likely a misspelling.
+    """
+    sentences = [f"`{n}` is a catalog skill that failed to load: {unloaded[n]}"
+                 for n in names if n in unloaded]
+    missing = [n for n in names if n not in unloaded]
+    if missing:
+        which = "that name" if missing == names and len(missing) == 1 else (
+            ", ".join(f"`{n}`" for n in missing))
+        sentences.append(f"No catalog skill or --competitors has {which}; check the spelling")
+    return ("the queries name skills that are not in the field: "
+            + ", ".join(f"`{n}`" for n in names) + ". " + ". ".join(sentences))
+
+
 def drop_queries_left_out(queries_by_skill: dict[str, list[str]], field: list[Candidate],
-                          dropped: dict[str, set[str]]) -> tuple[dict[str, list[str]], list[str]]:
+                          dropped: dict[str, set[str]], unloaded: dict[str, str],
+                          ) -> tuple[dict[str, list[str]], list[dict]]:
     """The queries of the skills the field left out dropped, each with a WARNING naming its flag.
 
     A name the field left out for a rule (``dropped``) loses its queries; the run goes on with the
-    rest. A name no rule explains is refused, since it is more likely a misspelling than a skill the
-    field dropped. Refused too when no query is left to route. Returns the kept queries and one note
-    per dropped skill, for the saved field record.
+    rest. A name no rule explains is refused: a catalog skill that failed to load says why, and any
+    other name is more likely a misspelling. Refused too when no query is left to route. Returns the
+    kept queries and one record per skill and reason it was dropped for, for the saved field record:
+    ``{"skill", "reason", "keep_flag", "queries"}``.
     """
     names = {c.name for c in field}
     unexplained = sorted(n for n in queries_by_skill if n not in names and n not in dropped)
     if unexplained:
-        raise InputError("the queries name skills that are not in the field: "
-                         + ", ".join(f"`{n}`" for n in unexplained)
-                         + ". No catalog skill or --competitors has that name; check the spelling")
+        raise InputError(_unexplained_message(unexplained, unloaded))
     kept = {name: queries for name, queries in queries_by_skill.items() if name in names}
-    notes = []
+    records: list[dict] = []
     for name in sorted(set(queries_by_skill) - names):
         why, keep = _left_out_reasons(name, dropped)
         count = len(queries_by_skill[name])
         print(f"WARNING: dropped {count} {'query' if count == 1 else 'queries'} of `{name}`: the "
               f"field leaves it out, since it {why}; {keep}", file=sys.stderr)
-        notes.append(f"dropped the queries of {name!r}: it {why}")
+        for reason in _LEFT_OUT:
+            if reason in dropped.get(name, ()):
+                records.append({"skill": name, "reason": reason,
+                                "keep_flag": _LEFT_OUT[reason][1], "queries": count})
     if not kept:
         raise InputError("no skill in the field has queries to route: the queries name only "
-                         f"skills the field leaves out ({_left_out_list(dropped)})")
-    return kept, notes
+                         "skills the field leaves out "
+                         f"({_left_out_list(_left_out_only(dropped, field))})")
+    return kept, records
 
 
 def _print_estimate(args: argparse.Namespace, candidates: list, sent: list[str],
@@ -352,3 +394,18 @@ def exit_partial_all_vs_all(model_arm: dict, cost: dict | None, failed: int, sen
                      f"({model_arm['first_error']}); the partial result leaves the failed calls "
                      "out of model-arm scoring, and a query with a failed repeat out of the "
                      f"repeat-noise rates, is in {out}")
+
+
+def field_record(args: argparse.Namespace, competitors: list, left_out: list[str],
+                  dropped_queries: list[dict] | None = None) -> dict:
+    """The field rule a routing result was measured under, saved next to the result.
+
+    ``dropped_queries`` (all-vs-all only) lists each skill whose queries were dropped, with the
+    reason and the flag that keeps it.
+    """
+    record = {**{name: bool(getattr(args, name)) for name in ("include_disabled", "include_invalid")},
+              "keep_copies_under": args.keep_copies_under,
+              "competitors": [c.name for c in competitors], "left_out": left_out}
+    if dropped_queries is not None:
+        record["dropped_queries"] = dropped_queries
+    return record

@@ -633,8 +633,9 @@ another path counts once. A declared skill that cannot be loaded is skipped with
 catalog skills with the same name and different content are both skipped, with a warning that
 names every path of that name: the rest of the field stays. Only the copies the field lists count:
 a disabled copy (unless `--include-disabled`) or a spec-error copy (unless `--include-invalid`) is
-left out first, so it does not make its name a conflict. Rename one, or delete the copy you do
-not mean to route against, to route the name. `dokimi catalog scan` lists the same names as
+left out first, so it does not make its name a conflict. Rename one, delete the copy you do not
+mean to route against, or keep only one directory's copies with `--keep-copies-under <dir>`, to
+route the name. `dokimi catalog scan` lists the same names as
 `name-conflict` warnings, for the copies it lists. A skill with a spec error (for example a description over 1024 characters, or a
 name that is not kebab-case or not its directory name) is also left out, with a warning naming the error; pass
 `--include-invalid` to keep it, as a harness that refuses to list such a skill would not. A `skill:`
@@ -646,8 +647,12 @@ directory: `tools/database/SKILL.md` named `db` is routed when passed explicitly
 `--catalog` scan of its tree leaves it out with a name error. Keep the directory name and the
 `name` field equal to get the same field from both.
 A name that conflicts with another catalog skill leaves the field, and the error names the directory of each
-copy and suggests `--catalog <dir>` for one of them. `--prefer-path <dir>` keeps the one copy under that
-directory (a directory under `--catalog`) when the copies under it agree; the others are named on stderr.
+copy and suggests `--catalog <dir>` for one of them, or `--keep-copies-under <dir>`. `--keep-copies-under <dir>`
+keeps only the copies under `<dir>`, a directory relative to `--catalog`, and only for a name whose copies differ
+and that have one content under `<dir>`; the others of that name are named on stderr and left out, and the rest of
+the field is unchanged (unlike `--catalog <dir>`, which leaves out every skill outside that directory). An absolute
+path, a path that leaves `--catalog` (`../`), a file, or an empty value is refused with exit 2. A copy at the catalog
+root cannot be picked by `--catalog`: dedupe or rename it.
 A `skill:` competitor that is not a `SKILL.md`, or a directory without one, is skipped with a
 warning. A shell glob must be expanded first, with the prefix on each path
 (`skill:dir/a/SKILL.md skill:dir/b/SKILL.md`): an unexpanded `skill:dir/*` is refused as a missing
@@ -721,9 +726,11 @@ is no attractor, and a tied skill's own rate is lower by the picks inside its gr
 `n_scored` and `n_unscored` per skill say how many, a query with no content word or a failed
 model call is unscored, and a skill with none scored has an own rate of `null`, not 0.0. A run
 with any failed model call writes the result and exits non-zero. The saved file records the
-field rule under `field` (`include_disabled`, `include_invalid`, the `competitors` and what was `left_out`, which
-also names each skill left out for a conflicting name or a spec error); a
-single-artifact run records it too. It takes no `--artifact`, `--queries` or `--queries-from-headings`. `--estimate-only` prints the calls and the
+field rule under `field` (`include_disabled`, `include_invalid`, `keep_copies_under`, the `competitors` and what was
+`left_out`, which also names each skill left out for a conflicting name or a spec error); a single-artifact run records
+it too. An all-vs-all run also lists in `field.dropped_queries` each skill whose queries it dropped, as
+`{skill, reason, keep_flag, queries}`, with `reason` `disabled`, `invalid` or `conflict`. A query for a catalog skill
+that failed to load refuses the run and names the load error. It takes no `--artifact`, `--queries` or `--queries-from-headings`. `--estimate-only` prints the calls and the
 list-price cost of the whole run as JSON, in the shape of a single-artifact estimate, with no client built and
 no query sent; it needs no `--out`. `--repeats` needs `--model`
 and asks each query that many times, as a single-artifact run does: the model arm then carries a

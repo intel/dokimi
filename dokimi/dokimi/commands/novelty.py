@@ -26,6 +26,7 @@ from dokimi.commands.novelty_routing_report import (
     check_all_vs_all_field,
     drop_queries_left_out,
     exit_partial_all_vs_all,
+    field_record,
     no_competitors_conflict,
     no_queries_reason,
     print_all_vs_all_estimate,
@@ -313,14 +314,15 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     left_out: list[str] = []
     dropped: dict[str, set[str]] = {}
     conflicts: dict[str, list[str]] = {}
-    field = load_all_vs_all_field(args, left_out, dropped, conflicts)
+    unloaded: dict[str, str] = {}
+    field = load_all_vs_all_field(args, left_out, dropped, conflicts, unloaded)
     try:
         queries_by_skill = load_queries_by_skill(args.queries_by_skill)
     except (OSError, UnicodeDecodeError) as exc:
         raise InputError(f"cannot read the queries: {exc}") from exc
     check_all_vs_all_field(args, field, dropped, conflicts)
-    queries_by_skill, dropped_notes = drop_queries_left_out(queries_by_skill, field, dropped)
-    left_out += dropped_notes
+    queries_by_skill, dropped_queries = drop_queries_left_out(queries_by_skill, field, dropped,
+                                                              unloaded)
     if args.estimate_only:
         print_all_vs_all_estimate(args, field, queries_by_skill)
         return
@@ -354,7 +356,7 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     payload = {"mode": "all_vs_all", "queries_by_skill": args.queries_by_skill,
                "n_candidates": len(field), "result": result}
-    payload["field"] = _field_record(args, field, left_out)
+    payload["field"] = field_record(args, field, left_out, dropped_queries)
     if selector is not None:
         payload["cost"] = roll_up_cost([selector])
     out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -365,12 +367,6 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
           f"{len(queries_by_skill)} skills with queries")
     print_attractors(result)
     print_all_vs_all_model(model_arm, payload.get("cost"))
-
-
-def _field_record(args: argparse.Namespace, competitors: list, left_out: list[str]) -> dict:
-    """The field rule a routing result was measured under, saved next to the result."""
-    return {**{name: bool(getattr(args, name)) for name in ("include_disabled", "include_invalid")},
-            "competitors": [c.name for c in competitors], "left_out": left_out}
 
 
 def _warn_blind_skills(result: dict, queries_by_skill: dict[str, list[str]]) -> None:
@@ -423,7 +419,7 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
         "n_candidates": len(candidates),
         "queries_self_derived": self_derived,
         "queries_source": queries_source,
-        "field": _field_record(args, competitors, left_out),
+        "field": field_record(args, competitors, left_out),
         "lexical": lexical,
     }
     if args.model:
@@ -684,10 +680,12 @@ def register(sub, positive_int) -> None:
                                 "Off by default: no harness lists them, so the model cannot "
                                 "select them and a card for one measures a choice that does "
                                 "not exist")
-    routing_p.add_argument("--prefer-path", default=None, dest="prefer_path", metavar="DIR",
-                           help="With --catalog: a directory under it. A catalog name with copies "
-                                "that differ is routed when the copies under DIR have one content: "
-                                "that copy stands for the name and the others are left out")
+    routing_p.add_argument("--keep-copies-under", default=None, dest="keep_copies_under",
+                           metavar="DIR",
+                           help="With --catalog: a directory under it, relative to it. For a catalog "
+                                "name whose copies differ, keep only the copies under DIR and leave "
+                                "out the others; the copies under DIR must have one content. Names "
+                                "whose copies agree are not affected")
     routing_p.add_argument("--include-invalid", action="store_true", dest="include_invalid",
                            help="Keep catalog and skill: competitors with a spec error in the field")
     routing_p.add_argument("--queries", default=None,

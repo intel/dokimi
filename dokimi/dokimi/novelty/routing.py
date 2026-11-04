@@ -44,7 +44,7 @@ from typing import TYPE_CHECKING
 from dokimi.skills import Skill
 from dokimi.utils import InputError, parse_frontmatter
 
-from .catalog_prefer import resolve_by_prefer
+from .catalog_keep import check_keep_copies_under, resolve_kept_copies
 from .client import LLMClient, parse_json_object
 
 if TYPE_CHECKING:
@@ -572,8 +572,9 @@ def catalog_competitors(root: str, exclude: set[str],
                         include_disabled: bool = False,
                         include_invalid: bool = False,
                         dropped: dict[str, set[str]] | None = None,
-                        prefer_path: str | None = None,
-                        conflicts: dict[str, list[str]] | None = None) -> list[Candidate]:
+                        keep_copies_under: str | None = None,
+                        conflicts: dict[str, list[str]] | None = None,
+                        unloaded: dict[str, str] | None = None) -> list[Candidate]:
     """Every skill under ``root`` whose name is not in ``exclude``.
 
     The field a harness would list next to the artifact, rather than one the caller picks.
@@ -590,21 +591,22 @@ def catalog_competitors(root: str, exclude: set[str],
     conflict leaves out is mapped in ``dropped`` (when given) to why: ``disabled``, ``invalid``
     or ``conflict``, so a caller need not read the catalog again.
 
-    ``prefer_path`` (a directory under ``root``) resolves a conflict whose copies under it have one
-    content between them: those copies stand for the name and the others are left out with a note.
-    ``conflicts`` (when given) gets each name still in conflict, mapped to the paths of its copies.
+    ``keep_copies_under`` (a directory under ``root``) keeps only the copies under it for a name
+    whose copies differ and that have one content under it; the others of that name are left out
+    with a note. ``conflicts`` (when given) gets each name still in conflict, mapped to the paths of
+    its copies. ``unloaded`` (when given) gets each declared skill that failed to load, mapped to why.
 
     Raises:
-        ValueError: ``root`` is not a directory, ``prefer_path`` is not a directory under it, or
-            its ``skills.yaml`` is invalid (with no manifest every ``SKILL.md`` is read, and a
-            broken one is skipped with a note).
+        ValueError: ``root`` is not a directory, ``keep_copies_under`` is not a directory inside
+            it (see :func:`check_keep_copies_under`), or its ``skills.yaml`` is invalid (with no
+            manifest every ``SKILL.md`` is read, and a broken one is skipped with a note).
     """
     if not Path(root).is_dir():
         raise ValueError(f"--catalog is not a directory: {root}")
-    if prefer_path is not None and not (Path(root) / prefer_path).is_dir():
-        raise ValueError(f"--prefer-path is not a directory under --catalog: {prefer_path}")
+    if keep_copies_under is not None:
+        check_keep_copies_under(root, keep_copies_under)
     eligible = _eligible_catalog_skills(root, exclude, notes, include_disabled, include_invalid,
-                                        dropped, prefer_path, conflicts)
+                                        dropped, keep_copies_under, conflicts, unloaded)
     keeper = _keepers_by_copy(eligible)
     candidates: list[Candidate] = []
     for skill, digest in eligible:
@@ -621,8 +623,9 @@ def _eligible_catalog_skills(root: str, exclude: set[str], notes: list[str] | No
                              include_disabled: bool,
                              include_invalid: bool = False,
                              dropped: dict[str, set[str]] | None = None,
-                             prefer_path: str | None = None,
+                             keep_copies_under: str | None = None,
                              conflicts: dict[str, list[str]] | None = None,
+                             unloaded: dict[str, str] | None = None,
                              ) -> list[tuple[Skill, str]]:
     """Each loadable, non-excluded catalog skill with the sha256 of its ``SKILL.md``.
 
@@ -639,6 +642,8 @@ def _eligible_catalog_skills(root: str, exclude: set[str], notes: list[str] | No
     for entry, review in zip(entries, reviews, strict=True):
         skill = entry.skill
         if skill is None or not entry.loaded or review is None:
+            if unloaded is not None:
+                unloaded[entry.name] = entry.error or "it did not load"
             if notes is not None:
                 notes.append(f"skipped catalog entry {entry.name!r}: {entry.error}")
             continue
@@ -651,7 +656,7 @@ def _eligible_catalog_skills(root: str, exclude: set[str], notes: list[str] | No
     for skill, digest, review in loaded:
         if not _left_out_by_flag(skill, review, include_disabled, include_invalid, notes, dropped):
             listed.append((skill, digest))
-    listed = resolve_by_prefer(listed, root, prefer_path, notes)
+    listed = resolve_kept_copies(listed, root, keep_copies_under, notes)
     conflicting = _conflicting_names(listed, notes, dropped, conflicts)
     return [(skill, digest) for skill, digest in listed if skill.name not in conflicting]
 
@@ -707,7 +712,8 @@ def _conflicting_names(listed: list[tuple[Skill, str]], notes: list[str] | None,
             paths = ", ".join(sorted(skill.path.as_posix() for skill, _ in listed
                                      if skill.name == name))
             notes.append(f"skipped catalog name {name!r}: it has different content at "
-                         f"{paths}; dedupe or rename them to route them")
+                         f"{paths}; keep one directory's copies with --keep-copies-under <dir>, "
+                         "or dedupe or rename them to route them")
     return conflicting
 
 

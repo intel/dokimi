@@ -471,12 +471,13 @@ def test_an_unreadable_queries_file_is_a_message_not_a_traceback(tmp_path, make)
         args.func(args)
 
 
-@pytest.mark.parametrize("left_out, says", [
-    ("spec_error", "--include-invalid keeps it"),
-    ("name_conflict", "--prefer-path <dir> keeps the one copy under <dir>"),
+@pytest.mark.parametrize("left_out, says, reason, keep_flag", [
+    ("spec_error", "--include-invalid keeps it", "invalid", "--include-invalid"),
+    ("name_conflict", "--keep-copies-under <dir> keeps only the copies under <dir>",
+     "conflict", "--keep-copies-under"),
 ])
 def test_queries_for_a_skill_the_field_left_out_are_dropped_with_a_warning_naming_the_flag(
-        tmp_path, capsys, left_out, says):
+        tmp_path, capsys, left_out, says, reason, keep_flag):
     root = tmp_path / "catalog"
     _cat(root, {"cache": "cache slow lookups", "queue": "queue background jobs"})
     if left_out == "spec_error":
@@ -492,8 +493,8 @@ def test_queries_for_a_skill_the_field_left_out_are_dropped_with_a_warning_namin
     args.func(args)
     err = capsys.readouterr().err
     assert "WARNING" in err and "`db`" in err and says in err
-    assert "dropped the queries of 'db'" in json.loads(out.read_text(encoding="utf-8"))[
-        "field"]["left_out"][-1]
+    assert json.loads(out.read_text(encoding="utf-8"))["field"]["dropped_queries"] == [
+        {"skill": "db", "reason": reason, "keep_flag": keep_flag, "queries": 1}]
     assert set(json.loads(out.read_text(encoding="utf-8"))["result"]["lexical"]["confusion"]) == {
         "cache", "queue"}
 
@@ -658,7 +659,7 @@ def test_a_single_artifact_routing_run_records_the_field_rule_too(tmp_path):
     args.func(args)
     field = json.loads(out.read_text(encoding="utf-8"))["field"]
     assert field == {"include_disabled": True, "include_invalid": False,
-                     "competitors": ["db"], "left_out": []}
+                     "keep_copies_under": None, "competitors": ["db"], "left_out": []}
 
 
 def test_console_says_how_many_tied_and_unscored_queries_are_not_counted_as_picks(

@@ -586,7 +586,7 @@ def test_a_name_no_rule_left_out_is_refused_alone_and_the_left_out_names_are_dro
                   "--queries-by-skill", str(queries), "--out", str(out))
     args.func(args)
     err = capsys.readouterr().err
-    assert "`db`" in err and "--prefer-path" in err
+    assert "`db`" in err and "--keep-copies-under" in err
     assert "`grill`" in err and "--include-disabled keeps it" in err
     assert "`both`" in err and "--include-disabled keeps it; --include-invalid keeps it" in err
     assert "`long`" in err and "--include-invalid keeps it" in err

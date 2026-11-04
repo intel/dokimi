@@ -56,28 +56,39 @@ def named_competitors(args: argparse.Namespace, left_out: list[str] | None,
 def routing_field(args: argparse.Namespace, exclude: set[str],
                   left_out: list[str] | None = None,
                   dropped: dict[str, set[str]] | None = None,
-                  conflicts: dict[str, list[str]] | None = None) -> list[Candidate]:
+                  conflicts: dict[str, list[str]] | None = None,
+                  unloaded: dict[str, str] | None = None) -> list[Candidate]:
     """The field ``--competitors`` and ``--catalog`` name, without the names in ``exclude``.
 
     What was left out of the field, and why, is appended to ``left_out`` when given. Each
     name a rule leaves out maps to its rules in ``dropped`` (when given), and each name still in
-    conflict maps to the paths of its copies in ``conflicts`` (when given).
+    conflict maps to the paths of its copies in ``conflicts`` (when given). Each declared catalog
+    skill that failed to load maps to why in ``unloaded`` (when given).
 
     Raises:
-        InputError: ``--prefer-path`` is given without ``--catalog``.
+        InputError: ``--keep-copies-under`` is given without ``--catalog``, or is not a directory
+            inside it.
         OSError, ValueError, RecursionError: A reference or the catalog cannot be loaded.
     """
+    from dokimi.novelty.catalog_keep import check_keep_copies_under
     from dokimi.novelty.routing import catalog_competitors
 
-    if args.prefer_path and not args.catalog:
-        raise InputError("--prefer-path needs --catalog: it picks between the copies of a catalog")
+    if args.keep_copies_under is not None:
+        if not args.catalog:
+            raise InputError("--keep-copies-under needs --catalog: it picks between the copies of "
+                             "a catalog")
+        try:
+            check_keep_copies_under(args.catalog, args.keep_copies_under)
+        except ValueError as exc:
+            raise InputError(str(exc)) from exc
     competitors = named_competitors(args, left_out, dropped)
     if args.catalog:
         notes: list[str] = []
         catalog = catalog_competitors(args.catalog, exclude | {c.name for c in competitors},
                                       notes, include_disabled=args.include_disabled,
                                       include_invalid=args.include_invalid, dropped=dropped,
-                                      prefer_path=args.prefer_path, conflicts=conflicts)
+                                      keep_copies_under=args.keep_copies_under,
+                                      conflicts=conflicts, unloaded=unloaded)
         for note in notes:
             print(f"WARNING: {note}", file=sys.stderr)
         if left_out is not None:
@@ -93,11 +104,11 @@ def routing_field(args: argparse.Namespace, exclude: set[str],
 
 
 def load_all_vs_all_field(args: argparse.Namespace, left_out: list[str],
-                          dropped: dict[str, set[str]],
-                          conflicts: dict[str, list[str]]) -> list[Candidate]:
+                          dropped: dict[str, set[str]], conflicts: dict[str, list[str]],
+                          unloaded: dict[str, str]) -> list[Candidate]:
     """The all-vs-all field, or InputError naming the cause."""
     try:
-        return routing_field(args, set(), left_out, dropped, conflicts)
+        return routing_field(args, set(), left_out, dropped, conflicts, unloaded)
     except InputError:
         raise
     except (OSError, ValueError, RecursionError) as exc:

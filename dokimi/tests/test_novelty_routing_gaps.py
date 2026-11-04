@@ -62,26 +62,27 @@ def test_a_field_emptied_by_name_conflicts_says_so_and_suggests_a_subdir(tmp_pat
     assert "`audit`" in message
     assert f"--catalog {root}/skills" in message
     assert f"--catalog {root}/.openclaw/skills" in message
-    assert "--prefer-path" in message
+    assert "--keep-copies-under" in message
 
 
-def test_prefer_path_keeps_the_copy_under_that_path_for_a_same_name_conflict(tmp_path, capsys):
+def test_keep_copies_under_keeps_the_copy_under_that_path_for_a_same_name_conflict(tmp_path, capsys):
     root = _ponytail(tmp_path / "ponytail")
     out = tmp_path / "routing.json"
-    args = _parse("novelty", "routing", "--catalog", str(root), "--prefer-path", "skills",
+    args = _parse("novelty", "routing", "--catalog", str(root), "--keep-copies-under", "skills",
                   "--artifact", f"skill:{root}/skills/review", "--queries-from-headings",
                   "--out", str(out))
     args.func(args)
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["field"]["competitors"] == ["audit"]
     assert any("kept catalog skill 'audit'" in note for note in payload["field"]["left_out"])
+    assert payload["field"]["keep_copies_under"] == "skills"
     assert "vs 1 competitors" in capsys.readouterr().out
 
 
-def test_prefer_path_keeps_the_copy_under_the_other_directory_when_asked(tmp_path):
+def test_keep_copies_under_keeps_the_copy_under_the_other_directory_when_asked(tmp_path):
     root = _ponytail(tmp_path / "ponytail")
     out = tmp_path / "routing.json"
-    args = _parse("novelty", "routing", "--catalog", str(root), "--prefer-path", ".openclaw/skills",
+    args = _parse("novelty", "routing", "--catalog", str(root), "--keep-copies-under", ".openclaw/skills",
                   "--artifact", f"skill:{root}/skills/review", "--queries-from-headings",
                   "--out", str(out))
     args.func(args)
@@ -90,37 +91,107 @@ def test_prefer_path_keeps_the_copy_under_the_other_directory_when_asked(tmp_pat
     assert any("openclaw" in note for note in payload["field"]["left_out"])
 
 
-def test_prefer_path_that_matches_no_copy_leaves_the_name_a_conflict(tmp_path):
+def test_keep_copies_under_that_matches_no_copy_leaves_the_name_a_conflict(tmp_path):
     root = _ponytail(tmp_path / "ponytail")
     (root / "docs").mkdir()
-    args = _parse("novelty", "routing", "--catalog", str(root), "--prefer-path", "docs",
+    args = _parse("novelty", "routing", "--catalog", str(root), "--keep-copies-under", "docs",
                   "--artifact", f"skill:{root}/skills/review", "--queries-from-headings")
     with pytest.raises(InputError, match="copies with different content"):
         args.func(args)
 
 
-def test_prefer_path_must_be_a_directory_under_the_catalog(tmp_path):
+@pytest.mark.parametrize("value, match", [
+    ("", "is empty"),
+    ("nope", "is not a directory under --catalog"),
+    ("../outside", "leaves --catalog"),
+    ("ABSOLUTE", "is an absolute path"),
+])
+def test_keep_copies_under_must_name_a_directory_inside_the_catalog(tmp_path, value, match):
     root = _ponytail(tmp_path / "ponytail")
-    args = _parse("novelty", "routing", "--catalog", str(root), "--prefer-path", "nope",
+    (tmp_path / "outside").mkdir()
+    if value == "ABSOLUTE":
+        value = str(root / "skills")
+    args = _parse("novelty", "routing", "--catalog", str(root), "--keep-copies-under", value,
                   "--artifact", f"skill:{root}/skills/review", "--queries-from-headings")
-    with pytest.raises(InputError, match="--prefer-path is not a directory under --catalog"):
+    with pytest.raises(InputError, match=f"--keep-copies-under .*{match}"):
         args.func(args)
 
 
-def test_prefer_path_needs_a_catalog(tmp_path):
+def test_keep_copies_under_needs_a_catalog(tmp_path):
     _skill(tmp_path, "skills", "review", "review a change for correctness")
-    args = _parse("novelty", "routing", "--prefer-path", "skills",
+    args = _parse("novelty", "routing", "--keep-copies-under", "skills",
                   "--artifact", f"skill:{tmp_path}/skills/review", "--queries-from-headings")
-    with pytest.raises(InputError, match="--prefer-path needs --catalog"):
+    with pytest.raises(InputError, match="--keep-copies-under needs --catalog"):
         args.func(args)
 
 
 def test_the_catalog_subdir_the_error_names_routes_the_field(tmp_path, capsys):
     root = _ponytail(tmp_path / "ponytail")
-    args = _parse("novelty", "routing", "--catalog", str(root / "skills"),
-                  "--artifact", f"skill:{root}/skills/review", "--queries-from-headings")
+    artifact = f"skill:{root}/skills/review"
+    args = _parse("novelty", "routing", "--catalog", str(root), "--artifact", artifact,
+                  "--queries-from-headings")
+    with pytest.raises(InputError) as exc:
+        args.func(args)
+    suggested = f"{root}/skills"
+    assert f"--catalog {suggested}" in str(exc.value)
+    # the suggested command is the one that routes: the copies under that directory are the field
+    args = _parse("novelty", "routing", "--catalog", suggested, "--artifact", artifact,
+                  "--queries-from-headings")
     args.func(args)
     assert "1 competitors" in capsys.readouterr().err
+
+
+def test_the_hint_for_a_copy_at_the_catalog_root_names_the_root_not_a_dot_path(tmp_path, capsys):
+    root = tmp_path / "catalog"
+    _skill(root, ".", "review", "review a change, copied at the root")
+    _skill(root, "skills", "review", "review a change, under skills")
+    _skill(root, "skills", "cache", "cache slow lookups")
+    args = _parse("novelty", "routing", "--catalog", str(root),
+                  "--artifact", f"skill:{root}/skills/cache", "--queries-from-headings")
+    with pytest.raises(InputError) as exc:
+        args.func(args)
+    message = str(exc.value)
+    assert f"--catalog {root}/." not in message
+    assert "the catalog root" in message
+    assert "--keep-copies-under skills" in message
+    assert f"--catalog {root}/skills" in message
+    # the warning that names the conflict says how to keep one copy
+    assert "--keep-copies-under" in capsys.readouterr().err
+
+
+def test_all_vs_all_does_not_name_a_skill_the_field_still_has_as_left_out(tmp_path):
+    root = tmp_path / "catalog"
+    _skill(root, "skills", "cache", "cache slow lookups")
+    off = root / "off" / "cache"
+    off.mkdir(parents=True)
+    (off / "SKILL.md").write_text("---\nname: cache\ndescription: cache another way\n"
+                                  "disable-model-invocation: true\n---\n\n# B\n", encoding="utf-8")
+    queries = _queries(tmp_path, {"cache": ["cache my lookups"]})
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
+    with pytest.raises(InputError, match="at least two skills") as exc:
+        args.func(args)
+    # the disabled copy is left out, but the enabled one is still in the field: not "left out"
+    assert "`cache`" not in str(exc.value)
+
+
+def test_all_vs_all_says_a_queried_skill_failed_to_load_and_why(tmp_path):
+    root = tmp_path / "catalog"
+    _skill(root, "skills", "cache", "cache slow lookups")
+    _skill(root, "skills", "queue", "queue background jobs")
+    broken = root / "skills" / "broken"
+    broken.mkdir(parents=True)
+    (broken / "SKILL.md").write_text("---\nname: broken\ndescription: [unclosed\n---\n\n# B\n",
+                                     encoding="utf-8")
+    queries = _queries(tmp_path, {"cache": ["cache my lookups"], "queue": ["queue my jobs"],
+                                  "broken": ["break my build"]})
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
+    with pytest.raises(InputError) as exc:
+        args.func(args)
+    message = str(exc.value)
+    assert "`broken`" in message and "failed to load" in message
+    assert "no catalog skill" not in message
 
 
 # Gap 2: a queries file naming a skill the field left out drops those queries, with a warning.
@@ -141,7 +212,8 @@ def test_all_vs_all_drops_the_queries_of_a_spec_error_skill_and_runs_the_rest(tm
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["result"]["n_queries"] == 2
     assert set(payload["result"]["lexical"]["confusion"]) == {"cache", "queue"}
-    assert any("db" in note and "dropped" in note for note in payload["field"]["left_out"])
+    assert payload["field"]["dropped_queries"] == [
+        {"skill": "db", "reason": "invalid", "keep_flag": "--include-invalid", "queries": 1}]
 
 
 def test_all_vs_all_names_the_flag_that_keeps_each_dropped_skill(tmp_path, capsys):
@@ -161,7 +233,7 @@ def test_all_vs_all_names_the_flag_that_keeps_each_dropped_skill(tmp_path, capsy
     args.func(args)
     err = capsys.readouterr().err
     assert "`old`" in err and "--include-disabled" in err
-    assert "`queue`" in err and "--prefer-path" in err
+    assert "`queue`" in err and "--keep-copies-under" in err
 
 
 def test_all_vs_all_refuses_only_when_no_query_remains(tmp_path):
@@ -281,12 +353,3 @@ def test_all_vs_all_names_every_missing_required_flag_in_one_error(tmp_path):
     message = str(exc.value)
     assert "--queries-by-skill" in message and "--out" in message
     assert message.count("--all-vs-all needs") == 1
-
-
-def test_all_vs_all_names_the_one_missing_flag_when_only_one_is_missing(tmp_path):
-    queries = _queries(tmp_path, {"cache": ["cache my lookups"]})
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(tmp_path),
-                  "--queries-by-skill", str(queries))
-    with pytest.raises(InputError, match="--all-vs-all needs --out <file>") as exc:
-        args.func(args)
-    assert "--queries-by-skill" not in str(exc.value)
