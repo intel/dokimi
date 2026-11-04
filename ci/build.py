@@ -4,11 +4,12 @@
 """
 Builds this repository's packages for one Python version.
 
-For the gh-ci GitHub Actions workflow, and for Coverity in Jenkins.
+For the intel-ci.yml GitHub Actions workflow, and for Intel's internal CI.
 
-Copy this file and ci/matrix.py into any repository gh-ci tests. They work out
-the build system from the files present, and the Python versions from that
-build system's own declaration, so most repositories need no changes to them:
+Copy this file and ci/matrix.py into any repository Intel's internal CI tests.
+They work out the build system from the files present, and the Python versions
+from that build system's own declaration, so most repositories need no changes
+to them:
 
   rattler-build    .conda  recipe.yaml or recipe/recipe.yaml, versions in
                            variants.yaml
@@ -25,10 +26,10 @@ Usage:
 
 Packages land directly in OUT, ready for actions/upload-artifact, which like
 ci/hooks.py takes every package there: give each build an empty OUT. A conda
-recipe's own tests run during the build; Jenkins later runs ci/test.py against
-the uploaded artifacts, and builds with this script once more under Coverity for
-intel-innersource tags. Needs only the Python standard library. rattler-build is
-used from PATH, or downloaded at a pinned version for Linux or Windows and
+recipe's own tests run during the build; Intel's internal CI later runs
+ci/test.py against the uploaded artifacts, and may build with this script once
+more for static analysis. Needs only the Python standard library. rattler-build
+is used from PATH, or downloaded at a pinned version for Linux or Windows and
 checked against its published sha256; conda-build, or cibuildwheel for wheels,
 must already be installed for this interpreter, so run it with the conda base
 install's Python to build with conda-build.
@@ -318,7 +319,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     default_tools = (
         Path(os.environ.get("RUNNER_TEMP", tempfile.gettempdir()))
-        / "gh-ci-tools"
+        / "ci-tools"
     )
     parser.add_argument(
         "--tools",

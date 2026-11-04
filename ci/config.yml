@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-# Intel Python CI (gh-ci) settings for dokimi, see ci/README.md
+# Intel CI settings for dokimi, see ci/README.md
 version: 1
 workflow: intel-ci.yml
 artifacts:

@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""The conda recipe Intel Python CI builds (conda-recipe/meta.yaml) matches pyproject.toml."""
+"""The conda recipe Intel CI builds (conda-recipe/meta.yaml) matches pyproject.toml."""
 
 from __future__ import annotations
 

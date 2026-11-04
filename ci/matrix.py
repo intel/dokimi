@@ -7,8 +7,8 @@ The platforms and Python versions this repository builds.
 Both are read from the repository's own build files.
 
 Every build system already has a standard place for both, so each is written
-once, where the build reads it, and the GitHub Actions matrix and Intel Python
-CI (gh-ci) both follow it:
+once, where the build reads it, and the GitHub Actions matrix and Intel's
+internal CI both follow it:
 
   rattler-build, selected by recipe.yaml
     Python versions  python: in variants.yaml next to the recipe
@@ -21,14 +21,15 @@ CI (gh-ci) both follow it:
                      any Free Threading classifier adds 3.Nt for each from 3.14
     platforms        the Operating System :: classifiers, else the recipe's
 
-A recipe builds on every platform gh-ci builds, Linux, Windows and macOS on
+A recipe builds on every platform in PLATFORMS, Linux, Windows and macOS on
 Intel, unless a skip that depends on the platform alone rules one out, such as
 `skip: [win]` or `skip: true  # [osx]`; a skip that also depends on something
 else, such as `win and py < 311` or `osx and arm64`, skips some builds, not the
 platform. A pyproject.toml with OS Independent builds on all three, and one without
 Operating System classifiers on the platforms of the recipe, if there is one. Of the declared platforms, the matrix holds
 those GitHub Actions has runners for, BUILT_PLATFORMS. macOS builds and tests in
-GitHub Actions only: Jenkins tests, scans and releases Linux and Windows.
+GitHub Actions only: Intel's internal CI tests, scans and releases Linux and
+Windows.
 
 meson-python, scikit-build-core and every other PEP 517 backend declare these in
 pyproject.toml too, so the wheel row covers them. Another convention, such as
@@ -41,9 +42,10 @@ Usage:
 Prints the build matrix as JSON for strategy.matrix: {"include": [{"platform":
 "linux", "name": "Linux", "python": "3.14"}, ...]}, every platform with every
 Python version. For a pull_request event only the oldest and the newest regular
-versions are listed, which is all gh-ci tests on a pull request. --github-output
-also writes NAME=<matrix> to $GITHUB_OUTPUT, for later jobs. Standard library
-only; reading pyproject.toml needs Python 3.11 or newer for tomllib.
+versions are listed, which is all Intel's internal CI tests on a pull request.
+--github-output also writes NAME=<matrix> to $GITHUB_OUTPUT, for later jobs.
+Standard library only; reading pyproject.toml needs Python 3.11 or newer for
+tomllib.
 """
 
 import argparse
@@ -66,7 +68,7 @@ except ModuleNotFoundError:
 ROOT = Path(__file__).resolve().parent.parent
 
 # Build system -> files that select it, in the order they are looked for;
-# conda-forge's recipe first, as gh-ci tests from conda-forge alone.
+# conda-forge's recipe first, as the tests use conda-forge alone.
 SYSTEMS = {
     "rattler-build": ("recipe.yaml", "recipe/recipe.yaml"),
     "conda-build": (
@@ -78,7 +80,7 @@ SYSTEMS = {
     "wheel": ("pyproject.toml", "*/pyproject.toml"),
 }
 
-# The platforms gh-ci builds and tests, and how artifact names spell them.
+# The platforms CI builds and tests, and how artifact names spell them.
 PLATFORMS = {"linux": "Linux", "windows": "Windows", "macos": "macOS"}
 # The platforms the workflow can build on: intel-ci.yml runs on Linux only.
 # A declared platform missing here is reported and left out.
@@ -196,7 +198,7 @@ class DeclarationError(Exception):
 class Python:
     """One declared Python version."""
 
-    version: str  # as artifact names and gh-ci spell it: 3.14 or 3.14t
+    version: str  # as artifact names spell it: 3.14 or 3.14t
     spec: str  # as the build system spells it, passed back to it unchanged
 
 
@@ -206,7 +208,7 @@ def version_key(version: str) -> tuple[int, bool]:
 
 
 def checked(minor: int, threaded: bool, where: str) -> str:
-    """The version string, once it is one gh-ci can test."""
+    """The version string, once it is one CI can test."""
     if minor < OLDEST_MINOR or (threaded and minor < FREE_THREADED_MINOR):
         raise DeclarationError(
             f'{where}: 3.{minor}{"t" if threaded else ""} is not supported; '
@@ -435,7 +437,7 @@ def skips_platform(expression: str, platform: str) -> bool | None:
 
 
 def platforms_without(skips: list[str], where: str) -> list[str]:
-    """Every platform gh-ci builds, but those a platform-only skip rules out."""
+    """Every platform in PLATFORMS, but those a platform-only skip rules out."""
     kept = [
         platform
         for platform in PLATFORMS
@@ -443,7 +445,7 @@ def platforms_without(skips: list[str], where: str) -> list[str]:
     ]
     if not kept:
         raise DeclarationError(
-            f"{where} skips every platform gh-ci builds: "
+            f"{where} skips every platform CI builds: "
             + ", ".join(PLATFORMS.values())
         )
     return kept
@@ -568,7 +570,7 @@ def from_os_classifiers(path: Path) -> list[str] | None:
     }
     if not found:
         raise DeclarationError(
-            "pyproject.toml names no Operating System gh-ci builds: "
+            "pyproject.toml names no Operating System CI builds: "
             + ", ".join(PLATFORMS.values())
         )
     return [platform for platform in PLATFORMS if platform in found]

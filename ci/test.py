@@ -2,13 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Intel Python CI (gh-ci) test for dokimi.
+Intel CI test for dokimi.
 
-GitHub Actions, through ci/hooks.py, and Intel's Jenkins both run this with one
+GitHub Actions, through ci/hooks.py, and Intel's internal CI both run this with one
 built package installed in a clean environment. It runs dokimi's own test
 suite from the checkout's dokimi/ directory against that installed package,
 offline as dokimi's pytest settings make it, and writes a JUnit report for
-Jenkins.
+the internal CI.
 """
 
 import os
@@ -29,7 +29,7 @@ SOURCE_ONLY = (
 
 
 def running_python() -> str:
-    """This interpreter's version as gh-ci spells it, such as 3.14t."""
+    """This interpreter's version as artifact names spell it, such as 3.14t."""
     version = f"{sys.version_info.major}.{sys.version_info.minor}"
     threaded = sysconfig.get_config_var("Py_GIL_DISABLED")
     return version + ("t" if threaded else "")
@@ -83,8 +83,8 @@ def main() -> int:
     if data.returncode:
         print(data.stderr or "a default data file is missing from the installed package")
         return 1
-    # Every cell of a Jenkins build reports into the same build, so each names
-    # its own suite.
+    # Every package the internal CI tests reports into the same build, so each
+    # names its own suite.
     platform = os.environ.get("GH_CI_PLATFORM", "linux")
     cell = f"{platform}.py{expected}.{os.environ.get('GH_CI_KIND', 'conda')}"
     print("deselected, they need the source checkout: " + ", ".join(SOURCE_ONLY))
@@ -92,7 +92,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as home:
         # Tests that commit to scratch repositories need a git identity.
         gitconfig = pathlib.Path(home) / "gitconfig"
-        gitconfig.write_text("[user]\n\tname = gh-ci\n\temail = gh-ci@example.com\n")
+        gitconfig.write_text("[user]\n\tname = dokimi-ci\n\temail = dokimi-ci@example.com\n")
         os.environ["GIT_CONFIG_GLOBAL"] = str(gitconfig)
         return pytest.main(
             [

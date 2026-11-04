@@ -1,8 +1,8 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-# Intel Python CI (gh-ci): builds and tests the conda packages and wheels for Intel's Jenkins, see ci/README.md
-name: Intel Python CI
+# Builds and tests the conda packages and wheels that Intel's internal CI tests again, see ci/README.md
+name: Intel CI
 
 on:
   push:

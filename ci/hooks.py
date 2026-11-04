@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Runs ci/test.py against one built artifact, the way Intel Python CI does.
+Runs ci/test.py against one built artifact, the way Intel's internal CI does.
 
 For the GitHub Actions test job.
 
@@ -14,10 +14,10 @@ environment has only Python from conda-forge: the wheel and the test
 requirements install with pip, as in the wheel's users' environments. A tag
 resolves them from PyPI; any other event installs dokimi/requirements.lock.txt
 first, so a new upstream release cannot fail a pull request. The
-interpreter spec and the requirements are the ones Jenkins uses. It gets the
-same variables, and nothing else from the runner, as it does in Jenkins, so a
-test that passes here passes there. Jenkins runs ci/test.py again on its own
-machines, GPUs included; the scans are Jenkins' own and never run here.
+interpreter spec and the requirements are the ones Intel's internal CI uses. It
+gets the same variables, and nothing else from the runner, as it does there, so
+a test that passes here passes there. The internal CI runs ci/test.py again on
+its own machines, GPUs included; its scans never run here.
 
 Usage, from any Python 3.10 or newer; it runs itself again with the conda base
 install's Python, from $CONDA, which setup-miniconda sets, or the conda on PATH:
@@ -155,7 +155,8 @@ def package_record(package: Path) -> tuple[str, dict]:
 def stage_channel(packages: list[Path], channel: Path) -> None:
     """
     Lays the packages out as a local channel, by the subdir each one declares,
-    and writes its repodata.json the way Jenkins does, without conda-index.
+    and writes its repodata.json the way Intel's internal CI does, without
+    conda-index.
     """
     repodata = {
         subdir: empty_repodata(subdir) for subdir in ("noarch", HOST_SUBDIR)
@@ -178,7 +179,7 @@ def stage_channel(packages: list[Path], channel: Path) -> None:
 
 
 def test_python(version: str) -> str:
-    """The interpreter spec for the test environment, as Jenkins spells it."""
+    """The interpreter spec for the test environment, as the internal CI's."""
     minor, threaded = matrix.version_key(version)
     # The .* matters: conda reads a bare 3.11 as exactly 3.11.0
     if minor < matrix.FREE_THREADED_MINOR:
@@ -249,7 +250,7 @@ def env_path(env_dir: Path) -> list[Path]:
 def test_env(
     env_dir: Path, artifacts: Path, results: Path, args: argparse.Namespace
 ) -> dict:
-    """The variables Jenkins gives ci/test.py, and no runner tokens."""
+    """The variables the internal CI gives ci/test.py, and no runner tokens."""
     env = {key: value for key, value in os.environ.items() if key in KEEP}
     env["PATH"] = os.pathsep.join(
         [*map(str, env_path(env_dir)), env.get("PATH", "")]

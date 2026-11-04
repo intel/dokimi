@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Intel Python CI (ci/ and .github/workflows/intel-ci.yml) keeps what Jenkins relies on."""
+"""Intel CI (ci/ and .github/workflows/intel-ci.yml) keeps what Intel's internal CI relies on."""
 
 from __future__ import annotations
 
@@ -29,14 +29,14 @@ def _workflow(name: str) -> dict:
 
 
 def test_every_push_and_tag_run_keeps_its_own_concurrency_group() -> None:
-    """Jenkins tests every main push: a shared group would drop a queued one, so group as ci.yml does."""
+    """Each main push is tested: a shared group would drop a queued one, so group as ci.yml does."""
     assert _workflow("intel-ci.yml")["concurrency"] == _workflow("ci.yml")["concurrency"]
 
 
 def _script(name: str, monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
     """A ci/ script as a module; build.py imports matrix.py from next to it."""
     monkeypatch.syspath_prepend(str(_REPO / "ci"))
-    spec = importlib.util.spec_from_file_location(f"gh_ci_{name}", _REPO / "ci" / f"{name}.py")
+    spec = importlib.util.spec_from_file_location(f"ci_{name}", _REPO / "ci" / f"{name}.py")
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
