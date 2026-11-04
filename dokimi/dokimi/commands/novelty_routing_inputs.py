@@ -55,23 +55,29 @@ def named_competitors(args: argparse.Namespace, left_out: list[str] | None,
 
 def routing_field(args: argparse.Namespace, exclude: set[str],
                   left_out: list[str] | None = None,
-                  dropped: dict[str, set[str]] | None = None) -> list[Candidate]:
+                  dropped: dict[str, set[str]] | None = None,
+                  conflicts: dict[str, list[str]] | None = None) -> list[Candidate]:
     """The field ``--competitors`` and ``--catalog`` name, without the names in ``exclude``.
 
     What was left out of the field, and why, is appended to ``left_out`` when given. Each
-    name a rule leaves out maps to its rules in ``dropped`` (when given).
+    name a rule leaves out maps to its rules in ``dropped`` (when given), and each name still in
+    conflict maps to the paths of its copies in ``conflicts`` (when given).
 
     Raises:
+        InputError: ``--prefer-path`` is given without ``--catalog``.
         OSError, ValueError, RecursionError: A reference or the catalog cannot be loaded.
     """
     from dokimi.novelty.routing import catalog_competitors
 
+    if args.prefer_path and not args.catalog:
+        raise InputError("--prefer-path needs --catalog: it picks between the copies of a catalog")
     competitors = named_competitors(args, left_out, dropped)
     if args.catalog:
         notes: list[str] = []
         catalog = catalog_competitors(args.catalog, exclude | {c.name for c in competitors},
                                       notes, include_disabled=args.include_disabled,
-                                      include_invalid=args.include_invalid, dropped=dropped)
+                                      include_invalid=args.include_invalid, dropped=dropped,
+                                      prefer_path=args.prefer_path, conflicts=conflicts)
         for note in notes:
             print(f"WARNING: {note}", file=sys.stderr)
         if left_out is not None:
@@ -87,10 +93,11 @@ def routing_field(args: argparse.Namespace, exclude: set[str],
 
 
 def load_all_vs_all_field(args: argparse.Namespace, left_out: list[str],
-                          dropped: dict[str, set[str]]) -> list[Candidate]:
+                          dropped: dict[str, set[str]],
+                          conflicts: dict[str, list[str]]) -> list[Candidate]:
     """The all-vs-all field, or InputError naming the cause."""
     try:
-        return routing_field(args, set(), left_out, dropped)
+        return routing_field(args, set(), left_out, dropped, conflicts)
     except InputError:
         raise
     except (OSError, ValueError, RecursionError) as exc:
@@ -99,8 +106,11 @@ def load_all_vs_all_field(args: argparse.Namespace, left_out: list[str],
 
 def load_routing_field(
     args: argparse.Namespace,
-) -> tuple[Candidate, str, list[Candidate], list[str]]:
-    """The gold card, its body, the competitors and the ones left out, or InputError naming the cause."""
+) -> tuple[Candidate, str, list[Candidate], list[str], dict[str, list[str]]]:
+    """The gold card, its body, the competitors, the ones left out and the names in conflict.
+
+    The last is each conflicting name with the paths of its copies, or InputError naming the cause.
+    """
     from dokimi.novelty.routing import disables_model_invocation, skill_file
 
     try:
@@ -111,9 +121,10 @@ def load_routing_field(
                   "it and the model cannot select it; its routing rate is not a harness rate",
                   file=sys.stderr)
         left_out: list[str] = []
-        competitors = routing_field(args, {gold.name}, left_out)
+        conflicts: dict[str, list[str]] = {}
+        competitors = routing_field(args, {gold.name}, left_out, conflicts=conflicts)
     except InputError:
         raise
     except (OSError, ValueError, RecursionError) as exc:
         raise InputError(f"cannot load an artifact: {exc}") from exc
-    return gold, body, competitors, left_out
+    return gold, body, competitors, left_out, conflicts

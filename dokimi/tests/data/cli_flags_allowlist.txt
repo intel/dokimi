@@ -152,6 +152,7 @@
 --plugin-json
 --plugins
 --pool-replicates
+--prefer-path  # novelty routing: keeps one copy of a same-name catalog skill; no registry concept yet
 --probes
 --product
 --prompt-file  # repo tasks replay (#265) adds it: no registry concept yet; a F1b migration names it

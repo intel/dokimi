@@ -193,7 +193,7 @@ def test_all_vs_all_names_the_flag_when_queries_name_a_disabled_skill(shape_path
     argv = ["novelty", "routing", "--all-vs-all", "--catalog", str(root),
             "--queries-by-skill", str(by_skill), "--out", str(tmp_path / "avsa.json")]
     code, _, err = _run(argv, capsys)
-    assert code == 2 and "--include-disabled" in err
+    assert code == 0 and "WARNING" in err and "gizmo-lint" in err and "--include-disabled" in err
     code, _, _ = _run([*argv, "--include-disabled"], capsys)
     assert code == 0
 

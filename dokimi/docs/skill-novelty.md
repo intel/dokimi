@@ -645,7 +645,9 @@ competitor anywhere else is read as a root skill, and its name is not checked ag
 directory: `tools/database/SKILL.md` named `db` is routed when passed explicitly, while a
 `--catalog` scan of its tree leaves it out with a name error. Keep the directory name and the
 `name` field equal to get the same field from both.
-A name that conflicts with another catalog skill leaves the field whatever the flag says.
+A name that conflicts with another catalog skill leaves the field, and the error names the directory of each
+copy and suggests `--catalog <dir>` for one of them. `--prefer-path <dir>` keeps the one copy under that
+directory (a directory under `--catalog`) when the copies under it agree; the others are named on stderr.
 A `skill:` competitor that is not a `SKILL.md`, or a directory without one, is skipped with a
 warning. A shell glob must be expanded first, with the prefix on each path
 (`skill:dir/a/SKILL.md skill:dir/b/SKILL.md`): an unexpanded `skill:dir/*` is refused as a missing
@@ -721,15 +723,17 @@ model call is unscored, and a skill with none scored has an own rate of `null`, 
 with any failed model call writes the result and exits non-zero. The saved file records the
 field rule under `field` (`include_disabled`, `include_invalid`, the `competitors` and what was `left_out`, which
 also names each skill left out for a conflicting name or a spec error); a
-single-artifact run records it too. It takes no `--artifact`, `--queries` or `--queries-from-headings`. `--repeats` needs `--model`
+single-artifact run records it too. It takes no `--artifact`, `--queries` or `--queries-from-headings`. `--estimate-only` prints the calls and the
+list-price cost of the whole run as JSON, in the shape of a single-artifact estimate, with no client built and
+no query sent; it needs no `--out`. `--repeats` needs `--model`
 and asks each query that many times, as a single-artifact run does: the model arm then carries a
 `noise` block (agreement per query, the rate of each repeat, `half_range`), and its counts are
 calls, one per query per repeat. The model arm also records the selector `model`, so two runs with
 different models can be told apart. It is refused with fewer than two skills, a name repeated
-in the field, or no queries at all. A query file that names a skill outside the field is refused;
-when the field leaves that skill out for `disable-model-invocation`, a spec error or a name that two
-different skills share, the message names each such skill with every reason that applies, and
-`--include-disabled` or `--include-invalid` where a flag keeps it.
+in the field, or no queries at all. A query file that names a skill the field leaves out (`disable-model-invocation`, a spec error or a name that
+two different skills share) drops that skill's queries with a WARNING naming the flag that keeps it; the run
+goes on with the rest, and is refused only when no query is left. A name no rule explains is refused, since
+it is more likely a typo. Missing `--queries-by-skill` and `--out` are reported in one error.
 
 **Cost of `--model` in all-vs-all.** The model arm makes one selector call per query and repeat,
 across every skill in the field: the call count is the number of queries in `queries.json` that have a

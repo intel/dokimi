@@ -10687,6 +10687,22 @@
             },
             {
               "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--prefer-path",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
+              "action": "_StoreAction",
               "choices": [
                 "'amazon-bedrock'",
                 "'anthropic'",

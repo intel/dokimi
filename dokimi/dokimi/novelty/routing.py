@@ -44,6 +44,7 @@ from typing import TYPE_CHECKING
 from dokimi.skills import Skill
 from dokimi.utils import InputError, parse_frontmatter
 
+from .catalog_prefer import resolve_by_prefer
 from .client import LLMClient, parse_json_object
 
 if TYPE_CHECKING:
@@ -570,7 +571,9 @@ def catalog_competitors(root: str, exclude: set[str],
                         notes: list[str] | None = None, *,
                         include_disabled: bool = False,
                         include_invalid: bool = False,
-                        dropped: dict[str, set[str]] | None = None) -> list[Candidate]:
+                        dropped: dict[str, set[str]] | None = None,
+                        prefer_path: str | None = None,
+                        conflicts: dict[str, list[str]] | None = None) -> list[Candidate]:
     """Every skill under ``root`` whose name is not in ``exclude``.
 
     The field a harness would list next to the artifact, rather than one the caller picks.
@@ -587,14 +590,21 @@ def catalog_competitors(root: str, exclude: set[str],
     conflict leaves out is mapped in ``dropped`` (when given) to why: ``disabled``, ``invalid``
     or ``conflict``, so a caller need not read the catalog again.
 
+    ``prefer_path`` (a directory under ``root``) resolves a conflict whose copies under it have one
+    content between them: those copies stand for the name and the others are left out with a note.
+    ``conflicts`` (when given) gets each name still in conflict, mapped to the paths of its copies.
+
     Raises:
-        ValueError: ``root`` is not a directory, or its ``skills.yaml`` is invalid (with no
-            manifest every ``SKILL.md`` is read, and a broken one is skipped with a note).
+        ValueError: ``root`` is not a directory, ``prefer_path`` is not a directory under it, or
+            its ``skills.yaml`` is invalid (with no manifest every ``SKILL.md`` is read, and a
+            broken one is skipped with a note).
     """
     if not Path(root).is_dir():
         raise ValueError(f"--catalog is not a directory: {root}")
+    if prefer_path is not None and not (Path(root) / prefer_path).is_dir():
+        raise ValueError(f"--prefer-path is not a directory under --catalog: {prefer_path}")
     eligible = _eligible_catalog_skills(root, exclude, notes, include_disabled, include_invalid,
-                                        dropped)
+                                        dropped, prefer_path, conflicts)
     keeper = _keepers_by_copy(eligible)
     candidates: list[Candidate] = []
     for skill, digest in eligible:
@@ -610,7 +620,10 @@ def catalog_competitors(root: str, exclude: set[str],
 def _eligible_catalog_skills(root: str, exclude: set[str], notes: list[str] | None,
                              include_disabled: bool,
                              include_invalid: bool = False,
-                             dropped: dict[str, set[str]] | None = None) -> list[tuple[Skill, str]]:
+                             dropped: dict[str, set[str]] | None = None,
+                             prefer_path: str | None = None,
+                             conflicts: dict[str, list[str]] | None = None,
+                             ) -> list[tuple[Skill, str]]:
     """Each loadable, non-excluded catalog skill with the sha256 of its ``SKILL.md``.
 
     Disabled and spec-error copies are filtered according to the flags first. A name whose
@@ -638,7 +651,8 @@ def _eligible_catalog_skills(root: str, exclude: set[str], notes: list[str] | No
     for skill, digest, review in loaded:
         if not _left_out_by_flag(skill, review, include_disabled, include_invalid, notes, dropped):
             listed.append((skill, digest))
-    conflicting = _conflicting_names(listed, notes, dropped)
+    listed = resolve_by_prefer(listed, root, prefer_path, notes)
+    conflicting = _conflicting_names(listed, notes, dropped, conflicts)
     return [(skill, digest) for skill, digest in listed if skill.name not in conflicting]
 
 
@@ -669,7 +683,8 @@ def _left_out_by_flag(skill: Skill, review: SkillReview, include_disabled: bool,
 
 
 def _conflicting_names(listed: list[tuple[Skill, str]], notes: list[str] | None,
-                       dropped: dict[str, set[str]] | None = None) -> set[str]:
+                       dropped: dict[str, set[str]] | None = None,
+                       conflicts: dict[str, list[str]] | None = None) -> set[str]:
     """The names that two different files among ``listed`` share, with a note naming each path.
 
     Two skills with one name and different bytes cannot both stand for the card, so the name
@@ -683,6 +698,10 @@ def _conflicting_names(listed: list[tuple[Skill, str]], notes: list[str] | None,
     if dropped is not None:
         for name in conflicting:
             dropped.setdefault(name, set()).add("conflict")
+    if conflicts is not None:
+        for name in conflicting:
+            conflicts[name] = sorted(skill.path.as_posix() for skill, _ in listed
+                                     if skill.name == name)
     if notes is not None:
         for name in sorted(conflicting):
             paths = ", ".join(sorted(skill.path.as_posix() for skill, _ in listed

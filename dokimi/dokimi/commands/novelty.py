@@ -22,14 +22,18 @@ from typing import TYPE_CHECKING, NoReturn
 from dokimi.commands.inputs import placebo_text_for_arms_or_exit
 from dokimi.commands.novelty_routing_inputs import load_all_vs_all_field, load_routing_field
 from dokimi.commands.novelty_routing_report import (
+    check_all_vs_all_args,
+    check_all_vs_all_field,
+    drop_queries_left_out,
     exit_partial_all_vs_all,
+    no_competitors_conflict,
+    no_queries_reason,
+    print_all_vs_all_estimate,
     print_all_vs_all_model,
     print_attractors,
     print_routing_estimate,
     print_routing_summary,
-    no_queries_reason,
     refuse_estimate_without_queries,
-    refuse_queries_naming_left_out,
     routing_queries,
 )
 from dokimi.defaults import (
@@ -305,15 +309,21 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     from dokimi.novelty.client import roll_up_cost
     from dokimi.novelty.routing import tokenize
 
-    _check_all_vs_all_args(args)
+    check_all_vs_all_args(args)
     left_out: list[str] = []
     dropped: dict[str, set[str]] = {}
-    field = load_all_vs_all_field(args, left_out, dropped)
+    conflicts: dict[str, list[str]] = {}
+    field = load_all_vs_all_field(args, left_out, dropped, conflicts)
     try:
         queries_by_skill = load_queries_by_skill(args.queries_by_skill)
     except (OSError, UnicodeDecodeError) as exc:
         raise InputError(f"cannot read the queries: {exc}") from exc
-    refuse_queries_naming_left_out(field, queries_by_skill, dropped)
+    check_all_vs_all_field(args, field, dropped, conflicts)
+    queries_by_skill, dropped_notes = drop_queries_left_out(queries_by_skill, field, dropped)
+    left_out += dropped_notes
+    if args.estimate_only:
+        print_all_vs_all_estimate(args, field, queries_by_skill)
+        return
     selector = _client(args.model, args.provider, "selector", args) if args.model else None
     if selector is not None:
         # One call per query with a content word and per repeat, each sending every card.
@@ -363,22 +373,6 @@ def _field_record(args: argparse.Namespace, competitors: list, left_out: list[st
             "competitors": [c.name for c in competitors], "left_out": left_out}
 
 
-def _check_all_vs_all_args(args: argparse.Namespace) -> None:
-    """Refuse the flag combinations ``--all-vs-all`` cannot run with."""
-    if args.artifact:
-        raise InputError("--all-vs-all takes no --artifact: every skill in the field is the gold in turn")
-    if args.queries or args.queries_from_headings:
-        raise InputError("--all-vs-all takes --queries-by-skill, not --queries or --queries-from-headings")
-    if args.estimate_only:
-        raise InputError("--all-vs-all takes no --estimate-only: it would make the calls it was asked "
-                   "to price; drop the flag, or estimate one artifact with routing --artifact")
-    if not args.queries_by_skill:
-        raise InputError("--all-vs-all needs --queries-by-skill <file>: a JSON object of skill "
-                   "name to the requests that should select it")
-    if not args.out:
-        raise InputError("--all-vs-all needs --out <file>")
-
-
 def _warn_blind_skills(result: dict, queries_by_skill: dict[str, list[str]]) -> None:
     """Warn when the lexical arm scores none of a skill's queries: its own rate is then None."""
     lexical = result.get("lexical")
@@ -404,8 +398,10 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
         return _cmd_routing_all_vs_all(args)
     if not args.artifact:
         raise InputError("pass --artifact <skill:path>, or --all-vs-all for the whole field")
-    gold, body, competitors, left_out = load_routing_field(args)
+    gold, body, competitors, left_out, conflicts = load_routing_field(args)
     # Checked before the query file is read, so the message is about the real problem.
+    if not competitors and conflicts:
+        raise InputError(no_competitors_conflict(args, conflicts))
     check_field(gold, competitors)
 
     queries, self_derived, queries_source = routing_queries(args, body)
@@ -688,6 +684,10 @@ def register(sub, positive_int) -> None:
                                 "Off by default: no harness lists them, so the model cannot "
                                 "select them and a card for one measures a choice that does "
                                 "not exist")
+    routing_p.add_argument("--prefer-path", default=None, dest="prefer_path", metavar="DIR",
+                           help="With --catalog: a directory under it. A catalog name with copies "
+                                "that differ is routed when the copies under DIR have one content: "
+                                "that copy stands for the name and the others are left out")
     routing_p.add_argument("--include-invalid", action="store_true", dest="include_invalid",
                            help="Keep catalog and skill: competitors with a spec error in the field")
     routing_p.add_argument("--queries", default=None,
