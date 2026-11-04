@@ -5,8 +5,11 @@
 
 from __future__ import annotations
 
+import time
+
 import pytest
 
+from dokimi.context.prefilter import _without_heredoc_bodies
 from tests.test_context_prefilter import CI, _prompt, _report, _row, _session, _tool
 
 
@@ -112,3 +115,17 @@ def test_a_path_read_by_a_substitution_inside_double_quotes_counts_as_touched():
     rule = "- Update `docs/guide.md` when behaviour changes.\n"
     session = _session(_prompt("update behaviour changes"), _tool("Bash", command='echo "$(cat docs/guide.md)"'))
     assert _row(_report([session], rule), "Update")["acted"] == 1
+
+
+def test_a_quote_that_closes_on_a_later_line_hides_the_heredoc_sign_inside_it():
+    command = 'echo "note\ncat <<EOF\nend"\nmake ci-local'
+    session = _session(_prompt("push the branch now"), _tool("Bash", command=command))
+    assert _row(_report([session]), CI)["acted"] == 1
+
+
+def test_the_heredoc_scan_takes_linear_time_in_the_lines_with_a_heredoc_sign():
+    command = "\n".join([": <<< x"] * 6000 + ["cat <<EOF", "body", "EOF", "make ci-local"])
+    start = time.perf_counter()
+    kept = _without_heredoc_bodies(command)
+    assert time.perf_counter() - start < 1.0  # a re-scan of the command per line took about 5 s here
+    assert kept.endswith("cat <<EOF\nmake ci-local")

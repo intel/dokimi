@@ -222,18 +222,41 @@ def _blank(match: re.Match[str]) -> str:
     return "_" * len(match.group(0))  # same length: positions in the line are kept
 
 
-def _heredoc_words(text: str) -> list[tuple[str, bool]]:
-    """The heredocs the last line of ``text`` opens, as (WORD, whether ``<<-`` strips tabs). ``text`` is the command
-    up to and including that line, so a quote that opens on an earlier line still hides a ``<<`` on this one. A
-    ``<<`` inside quotes, in a comment or in arithmetic is text and opens none."""
-    line = text.rsplit("\n", 1)[-1]
-    masked = _ARITHMETIC.sub(_blank, _COMMENT_OR_QUOTED.sub(_blank, text)[len(text) - len(line):])
+# one line's quoted piece, escape or comment; a quote that does not close on the line runs to its end and stays open
+_LINE_TEXT = re.compile(r"\\[\s\S]?|'[^']*(?P<sq>')?|\"(?:\\[\s\S]?|[^\"\\])*(?P<dq>\")?|(?:^|(?<=[\s;&|()]))#.*")
+_QUOTE_REST = {"'": re.compile(r"[^']*(')?"), '"': re.compile(r"(?:\\[\s\S]?|[^\"\\])*(\")?")}
+
+
+def _masked_line(line: str, quote: str) -> tuple[str, str]:
+    """``line`` with its quoted text, escapes and comment blanked, given the quote (``'``, ``"`` or none) open at its
+    start; and the quote still open at its end. Carrying the quote from line to line reads each line once."""
+    start = 0
+    if quote:
+        rest = _QUOTE_REST[quote].match(line)
+        if rest is None or rest.group(1) is None:
+            return "_" * len(line), quote
+        start, quote = rest.end(), ""
+    pieces, pos = ["_" * start], start
+    for match in _LINE_TEXT.finditer(line, start):
+        pieces += [line[pos:match.start()], _blank(match)]
+        pos = match.end()
+        text = match.group(0)
+        if text[0] in "'\"" and match.group("sq" if text[0] == "'" else "dq") is None:
+            quote = text[0]
+    return "".join(pieces) + line[pos:], quote
+
+
+def _heredoc_words(line: str, quote: str) -> tuple[list[tuple[str, bool]], str]:
+    """The heredocs ``line`` opens, as (WORD, whether ``<<-`` strips tabs), and the quote open at its end. ``quote`` is
+    the one an earlier line left open, so it still hides a ``<<`` here. A ``<<`` inside quotes, in a comment or in
+    arithmetic is text and opens none."""
+    masked, quote = _masked_line(line, quote)
     opened_words = []
-    for opened in _HEREDOC_OPEN.finditer(masked):
+    for opened in _HEREDOC_OPEN.finditer(_ARITHMETIC.sub(_blank, masked)):
         word = _HEREDOC_WORD.match(line, opened.end())
         if word:
             opened_words.append((_dequote(word.group(2)), word.group(1) == "-"))
-    return opened_words
+    return opened_words, quote
 
 
 def _without_heredoc_bodies(command: str) -> str:
@@ -243,6 +266,7 @@ def _without_heredoc_bodies(command: str) -> str:
         return command
     out: list[str] = []
     pending: list[tuple[str, bool]] = []  # the WORDs of the bodies still to skip, in order
+    quote = ""  # the quote the kept lines so far leave open
     for line in command.split("\n"):
         if pending:
             name, strip_tabs = pending[0]
@@ -251,8 +275,8 @@ def _without_heredoc_bodies(command: str) -> str:
                 pending.pop(0)
             continue
         out.append(line)
-        if "<<" in line:  # only a line with a ``<<`` can open a heredoc; the others skip the re-scan of the command
-            pending.extend(_heredoc_words("\n".join(out)))
+        opened, quote = _heredoc_words(line, quote)
+        pending.extend(opened)
     return "\n".join(out)
 
 
