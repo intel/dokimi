@@ -39,8 +39,8 @@ def test_every_judge_provider_flag_offers_exactly_judge_providers():
     actions = dict(_judge_provider_actions(build_parser()))
     for flag in ("benchmark run --judge-provider", "arms run --judge-provider",
                  "arms matrix-run --judge-provider", "subjects run --judge-provider",
-                 "evaluate --judge-provider", "eval score --judge-provider",
-                 "eval judge-validity --escalate-provider"):
+                 "evaluate --judge-provider", "eval score pointwise --judge-provider",
+                 "eval judge validate --escalate-provider"):
         assert flag in actions
     assert NOT_THE_JUDGE_CLASS <= actions.keys()
     for flag in NOT_THE_JUDGE_CLASS:

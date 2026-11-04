@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""questions subcommand group: generate, analyze, refine, panel-review."""
+"""questions subcommand group: generate, analyze, refine, review (was panel-review)."""
 
 from __future__ import annotations
 
@@ -374,9 +374,9 @@ def cmd_questions_generate(args: argparse.Namespace) -> None:
     print(f"\n✅ Saved {len(questions)} questions to {output_path}")
 
 
-def register(sub, positive_int) -> None:
-    """Add the `questions` subcommand group."""
-    questions_p = sub.add_parser("questions", help="Question generation")
+def register(eval_sub, positive_int) -> None:
+    """Add the `eval questions` group and `eval import` (#94 M1)."""
+    questions_p = eval_sub.add_parser("questions", help="Question generation")
     questions_sub = questions_p.add_subparsers(dest="questions_cmd", required=True)
 
     # questions generate
@@ -429,8 +429,8 @@ def register(sub, positive_int) -> None:
                              choices=["openai", "anthropic", "google"])
     refine_q_p.set_defaults(func=cmd_questions_refine)
 
-    # questions panel-review
-    panel_q_p = questions_sub.add_parser("panel-review",
+    # questions review (was panel-review)
+    panel_q_p = questions_sub.add_parser("review",
                                           help="Multi-agent panel review of question quality")
     panel_q_p.add_argument("--questions", required=True, help="Path to questions JSON file")
     panel_q_p.add_argument("--product", required=True, help="Product name (e.g., oneDAL)")
@@ -447,4 +447,4 @@ def register(sub, positive_int) -> None:
 
     from dokimi.commands import answer_formats
 
-    answer_formats.register_questions(questions_sub)  # questions import
+    answer_formats.register_import(eval_sub)  # eval import

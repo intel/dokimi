@@ -59,7 +59,7 @@ sibling — and route straight to the matching pattern. See the trigger axis bel
 Orthogonal to level and difficulty. Tag each item with the kind of input that
 begins the task, recorded as `metadata.trigger`.
 
-Not to be confused with *trigger sets* (`catalog trigger-set`, see
+Not to be confused with *trigger sets* (`eval triggers generate`, see
 [Skill selection](evaluating-treatments.md#skill-selection-does-the-agent-load-the-right-skill)).
 Those label which skill a message should load and measure selection. This axis tags
 what input starts the work once the skill is in play.

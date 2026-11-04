@@ -1,0 +1,13 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+# The guidance-only manifest every conformance case is probed with (`repo reach --manifest-file`).
+# AGENTS.override.md is named here so every harness probes it, not only the ones whose profile names it.
+schema: repo_manifest.v1
+id: reach-conformance
+guidance:
+  globs:
+    - "**/AGENTS.md"
+    - "**/AGENTS.override.md"
+    - "**/CLAUDE.md"
+    - "**/CLAUDE.local.md"

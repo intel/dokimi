@@ -71,7 +71,7 @@ All commands run from the repo root and use `python cli.py …`. Use
 ### Step 1 — Discover personas
 
 ```bash
-python cli.py personas discover \
+python cli.py eval personas discover \
   --product oneTBB \
   --repo uxlfoundation/oneTBB \
   --count 5 \
@@ -86,13 +86,13 @@ Review and approve:
 
 ```bash
 $EDITOR personas/oneTBB.json
-python cli.py personas approve --file personas/oneTBB.json
+python cli.py eval personas validate --file personas/oneTBB.json
 ```
 
 ### Step 2 — Generate questions
 
 ```bash
-python cli.py questions generate \
+python cli.py eval questions generate \
   --product oneTBB \
   --personas personas/oneTBB.json \
   --count 2 \
@@ -127,7 +127,7 @@ alternative sources — see [adding-doc-source.md](adding-doc-source.md).
 ### Step 4 — Score answers
 
 ```bash
-python cli.py eval score \
+python cli.py eval score pointwise \
   --product oneTBB \
   --answers answers/oneTBB.json \
   --output eval/oneTBB.json \
@@ -142,7 +142,7 @@ computes an aggregate and the context-arm minus baseline delta.
 Multi-judge panel:
 
 ```bash
-python cli.py eval panel-score \
+python cli.py eval score panel \
   --product oneTBB \
   --answers answers/oneTBB.json \
   --output eval/oneTBB.panel.json
@@ -183,11 +183,11 @@ both arms; a run that scored one arm only shows that arm's mean.
 PRODUCT=oneTBB
 REPO=uxlfoundation/oneTBB
 
-python cli.py personas discover --product $PRODUCT --repo $REPO --count 5 && \
-python cli.py personas approve --file personas/$PRODUCT.json && \
-python cli.py questions generate --product $PRODUCT --personas personas/$PRODUCT.json --validate && \
+python cli.py eval personas discover --product $PRODUCT --repo $REPO --count 5 && \
+python cli.py eval personas validate --file personas/$PRODUCT.json && \
+python cli.py eval questions generate --product $PRODUCT --personas personas/$PRODUCT.json --validate && \
 python cli.py answers generate --product $PRODUCT --questions questions/$PRODUCT.json --model gpt-6.1-sol && \
-python cli.py eval score --product $PRODUCT --answers answers/$PRODUCT.json --judge-model claude-sonnet-5-5 --judge-provider anthropic && \
+python cli.py eval score pointwise --product $PRODUCT --answers answers/$PRODUCT.json --judge-model claude-sonnet-5-5 --judge-provider anthropic && \
 python cli.py report generate --product $PRODUCT --eval eval/$PRODUCT.json --questions questions/$PRODUCT.json --output reports/$PRODUCT.md
 ```
 
@@ -250,19 +250,19 @@ failed check.
 | Code | Meaning | Examples |
 |------|---------|----------|
 | 0 | The command ran and, if it checks something, the check passed. | |
-| 1 | A verdict or a gate that ran and failed, or a runtime failure (a model call, a run, a clone or fetch). | `baseline compare --strict` over a changed model, `repo reach` with a harness binary that cannot run, `catalog trigger-set --strict` over a lint finding |
+| 1 | A verdict or a gate that ran and failed, or a runtime failure (a model call, a run, a clone or fetch). | `baseline compare --strict` over a changed model, `repo reach` with a harness binary that cannot run, `eval triggers generate --strict` over a lint finding |
 | 2 | A bad invocation: a missing, unreadable or malformed input file, a flag combination the command refuses, an output file that cannot be written, a missing provider credential, a source string that is malformed, unpinned or not a repository root. | `baseline save` on a bad eval file, `benchmark preflight` with no golden set, `repo scan --manifest ../x.yaml` |
 
 A command that validates its input and then runs exits 2 for the first and 1
 for the second. Not every command follows this yet: `repo run` and
-`repo tasks check` still exit 1 for their input refusals, and `tools preference`
+`eval check` still exit 1 for their input refusals, and `tools preference`
 exits 2 when every call failed or `--max-cost-usd` skipped calls.
 
 ## Troubleshooting
 
 | Symptom | Fix |
 | --- | --- |
-| LLM calls fail / wrong provider | All providers go through LiteLLM (`dokimi/llm.py`); set the matching `*_API_KEY` and pass `--provider`/`--model`. LangChain is used only by `eval ragas`, which wraps its judge in `ChatOpenAI`/`ChatAnthropic`; it and ragas come with the `ragas` extra (`pip install 'dokimi[ragas]'`). |
+| LLM calls fail / wrong provider | All providers go through LiteLLM (`dokimi/llm.py`); set the matching `*_API_KEY` and pass `--provider`/`--model`. LangChain is used only by `eval score ragas`, which wraps its judge in `ChatOpenAI`/`ChatAnthropic`; it and ragas come with the `ragas` extra (`pip install 'dokimi[ragas]'`). |
 | `No module named numpy` | Pipeline falls back to exact-text dedup; install numpy for embedding-based dedup |
 | `GitHub client not available` | Pipeline uses `gh` CLI fallback; `pip install PyGithub` to silence |
 | Context7 timeout | Raise `context7.timeout` in `dokimi/config/products.yaml` (or in a config/products.yaml of your own in the working directory) |

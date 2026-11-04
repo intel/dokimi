@@ -49,7 +49,7 @@ def _safe_path(path: object) -> bool:
 
 
 def task_problems(raw: dict[str, Any]) -> list[str]:
-    """Problems with a ``dokimi:typecheck`` task's own fields (checked by ``tasks check``)."""
+    """Problems with a ``dokimi:typecheck`` task's own fields (checked by ``eval check``)."""
     problems = []
     if raw.get("tool", TOOL) != TOOL:
         problems.append(f"tool must be {TOOL!r}: basedpyright starts a process, which the grader does not "

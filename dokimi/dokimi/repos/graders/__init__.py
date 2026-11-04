@@ -22,7 +22,7 @@ PREFIX = "dokimi:"
 NAMES = (*REVIEW_GRADERS, *typecheck.GRADERS)
 # the data file each built-in grader reads next to task.json: the task key that renames it, and its default
 DATA_FILES = {"review_seeds": ("manifest", "manifest.json"), "review_replay": ("gold", "gold.json")}
-# graders whose options are the task's own fields, checked by ``tasks check`` instead of a data file
+# graders whose options are the task's own fields, checked by ``eval check`` instead of a data file
 TASK_PROBLEMS = {"typecheck": typecheck.task_problems}
 HOST_DIR = Path(__file__).resolve().parent
 ENTRY = "main.py"

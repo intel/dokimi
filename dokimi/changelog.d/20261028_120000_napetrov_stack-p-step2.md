@@ -21,7 +21,7 @@
   arm has a judge error); a miss with an error leaves the doc score alone. `report eval` and `report generate` show `—` for the arm means and delta when
   no question is scored in both arms (the `report generate --format json` `stats` block carries
   `null` for `avg`, `min` and `max`), and the run summary prints no means then. `benchmark run`,
-  `evaluate` and `eval score` take the same flag; `benchmark batch` has none and never judges
+  `evaluate` and `eval score pointwise` take the same flag; `benchmark batch` has none and never judges
   the placeholder. Scores from before this change are not comparable with new ones.
 - **Trust gate** — `retrieval_hit_rate` counts every evaluation's recorded retrieval outcome,
   not only the ones scored in both arms, so unjudged misses still count against the rate, and a
@@ -34,11 +34,11 @@
 - **Stamped artifacts** — the answers and eval artifacts carry `method_version` (2). Artifacts
   from before this change have no stamp and represent the legacy method (version 1); readers do
   not yet normalize or enforce the version, so it does not yet stop a comparison of mixed methods.
-  `eval score` stamps its eval with the version of the answers file it judges, so legacy answers
-  re-judged today stay version 1. An `eval score` artifact also carries `judge_placeholder`, so two
-  files of one version that differ in it are told apart. `eval panel-score` (the JudgePanel path)
+  `eval score pointwise` stamps its eval with the version of the answers file it judges, so legacy answers
+  re-judged today stay version 1. An `eval score pointwise` artifact also carries `judge_placeholder`, so two
+  files of one version that differ in it are told apart. `eval score panel` (the JudgePanel path)
   writes neither stamp yet, so its artifact reads as version 1 whatever answers it judged. An absent
-  or null stamp means version 1; any other value must be a positive integer, or `eval score` exits
+  or null stamp means version 1; any other value must be a positive integer, or `eval score pointwise` exits
   2 before any judge call.
 
 ### Fixed
