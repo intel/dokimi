@@ -213,7 +213,8 @@ def test_the_receipt_is_a_valid_artifact_and_a_schema_rejects_a_followed_claim(t
 def _end_to_end_args(tmp_path, monkeypatch, *extra):
     monkeypatch.setenv("FAKE_MODE", "ok")
     root = _repo(tmp_path)
-    profile = _profile(tmp_path, name="claude-code", guidance={"names": ["CLAUDE.md", "AGENTS.md"]})
+    profile = _profile(tmp_path, name="claude-code", guidance={"names": ["CLAUDE.md", "AGENTS.md"],
+                                                               "claude_displaces_agents": True})
     work = tmp_path / "work"
     work.mkdir()
     return ["repo", "reach", str(root), "--manifest", "evals/repo-eval.yaml", "--harness", str(profile),

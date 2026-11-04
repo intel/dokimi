@@ -88,7 +88,7 @@ guidance:
   import_max_depth: 4
   # repo reach --scenarios shadow writes it to measure what it turns off.
   shadow_file: CLAUDE.local.md
-  # repo budget: a CLAUDE* file turns off the AGENTS.md in its own directory (notes below).
+  # repo budget: a root CLAUDE* file turns off every AGENTS.md, a nested one its own directory's (notes below).
   claude_displaces_agents: true
   notes: >-
     Measured on CLI 2.1.286: it reads AGENTS.md only
