@@ -105,6 +105,16 @@ def test_command_harness_id_includes_template_to_avoid_collisions():
     assert second.harness_id == "command:cat {task_path}"
 
 
+def test_command_prompt_is_the_raw_instruction(tmp_path):
+    # No dokimi wrapper ("Solve this coding task…", "# Task: <name>") around the instruction.
+    task_path = _fixture_task(tmp_path)
+    (task_path / "instruction.md").write_text("Fix the off-by-one in sum().", encoding="utf-8")
+    task = load_task(task_path)
+    harness = CommandHarness("fake", "echo {prompt_quoted}")
+    argv = harness.build_command(task, model=None, output_dir=tmp_path / "out")
+    assert argv == ["echo", "Fix the off-by-one in sum()."]
+
+
 def test_command_template_allows_code_braces_in_template_and_prompt(tmp_path):
     task_path = _fixture_task(tmp_path)
     (task_path / "instruction.md").write_text(
