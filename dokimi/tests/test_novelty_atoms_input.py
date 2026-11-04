@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from dokimi.cli import build_parser
+from dokimi.utils import InputError
 
 
 def _bundle(extra, end="5"):
@@ -121,39 +121,41 @@ def _atoms_file(tmp_path, kind):
 
 @pytest.mark.parametrize("sub", ["probe", "shorten"])
 @pytest.mark.parametrize("kind", ["missing", "invalid_json", "not_utf8", "directory", *_WRONG_SHAPES])
-def test_an_unreadable_atoms_file_exits_with_a_message_naming_it(tmp_path, sub, kind):
+def test_an_unreadable_atoms_file_exits_2_with_a_message_naming_it(tmp_path, monkeypatch, capsys, sub, kind):
+    from dokimi import cli
+
     skill = tmp_path / "SKILL.md"
     skill.write_text("---\nname: s\ndescription: d\n---\n\n# H\n\nText.\n", encoding="utf-8")
     atoms = _atoms_file(tmp_path, kind)
-    args = build_parser().parse_args(
-        ["novelty", sub, "--artifact", f"skill:{skill}", "--atoms", str(atoms)]
+    monkeypatch.setattr(
+        "sys.argv", ["dokimi", "novelty", sub, "--artifact", f"skill:{skill}", "--atoms", str(atoms)]
     )
     with pytest.raises(SystemExit) as excinfo:
-        args.func(args)
-    message = str(excinfo.value)
-    assert message.startswith("cannot read atoms from ")
-    assert str(atoms) in message
-    assert "has no attribute" not in message
+        cli.main()
+    assert excinfo.value.code == 2
+    err = capsys.readouterr().err
+    assert err.startswith("Error: ") and str(atoms) in err
+    assert "Traceback" not in err and "has no attribute" not in err
 
 
 @pytest.mark.parametrize("bundle", ['null', '{}', '{"files": []}',
                                     '{"files": [{"path": "SKILL.md", "sha256": null}]}'])
 def test_a_bundle_block_of_the_right_shape_is_not_refused(tmp_path, bundle):
-    from dokimi.novelty.atoms import load_atoms_or_exit
+    from dokimi.novelty.atoms import load_atoms_record
 
     path = tmp_path / "atoms.json"
     path.write_text('{"atoms": [], "spans": [], "bundle": %s}' % bundle, encoding="utf-8")
-    atoms, spans, record = load_atoms_or_exit(path)
+    atoms, spans, record = load_atoms_record(path)
     assert (atoms, spans, record["bundle"]) == ([], [], json.loads(bundle))
 
 
 def test_an_atom_with_only_a_statement_is_accepted(tmp_path):
-    from dokimi.novelty.atoms import load_atoms_or_exit
+    from dokimi.novelty.atoms import load_atoms_record
 
     path = tmp_path / "atoms.json"
     span = {"id": "s0001", "kind": "sentence", "text": "S.", "start": 0, "end": 2}
     path.write_text(json.dumps({"atoms": [{"statement": "S."}], "spans": [span]}), encoding="utf-8")
-    atoms, spans, _ = load_atoms_or_exit(path)
+    atoms, spans, _ = load_atoms_record(path)
     assert [(a.statement, a.question, a.span_ids) for a in atoms] == [("S.", "", ())]
     assert [(s.id, s.heading_path, s.protection) for s in spans] == [("s0001", (), ())]
 
@@ -184,12 +186,12 @@ def test_an_atom_with_only_a_statement_is_accepted(tmp_path):
                  id="atoms_has_a_number"),
 ])
 def test_a_wrong_span_or_atom_field_is_named_in_the_refusal(tmp_path, record, fragment):
-    from dokimi.novelty.atoms import load_atoms_or_exit
+    from dokimi.novelty.atoms import load_atoms_record
 
     path = tmp_path / "atoms.json"
     path.write_text(record, encoding="utf-8")
-    with pytest.raises(SystemExit) as exc:
-        load_atoms_or_exit(path)
+    with pytest.raises(InputError) as exc:
+        load_atoms_record(path)
     assert fragment in str(exc.value)
 
 
@@ -213,17 +215,17 @@ def test_a_wrong_span_or_atom_field_is_named_in_the_refusal(tmp_path, record, fr
     ("bundle_excluded_words_is_a_string", "'bundle.excluded' has a row whose 'words'"),
 ])
 def test_every_field_a_reader_uses_is_checked(tmp_path, kind, fragment):
-    from dokimi.novelty.atoms import load_atoms_or_exit
+    from dokimi.novelty.atoms import load_atoms_record
 
-    with pytest.raises(SystemExit) as exc:
-        load_atoms_or_exit(_atoms_file(tmp_path, kind))
+    with pytest.raises(InputError) as exc:
+        load_atoms_record(_atoms_file(tmp_path, kind))
     assert fragment in str(exc.value)
 
 
 def test_a_file_row_without_a_role_is_left_to_the_answer_key_check(tmp_path):
-    from dokimi.novelty.atoms import load_atoms_or_exit
+    from dokimi.novelty.atoms import load_atoms_record
 
     path = tmp_path / "atoms.json"
     path.write_text(json.dumps({"atoms": [], "spans": [], "bundle": {
         "files": [{"path": "SKILL.md", "end": 5}]}}), encoding="utf-8")
-    assert load_atoms_or_exit(path)[2]["bundle"]["files"][0]["path"] == "SKILL.md"
+    assert load_atoms_record(path)[2]["bundle"]["files"][0]["path"] == "SKILL.md"

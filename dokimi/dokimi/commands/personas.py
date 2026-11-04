@@ -72,7 +72,7 @@ def cmd_personas_discover(args: argparse.Namespace) -> None:
     print("\nNext steps:")
     print(f"  1. Review: cat {output_path}")
     print("  2. Edit if needed")
-    print(f"  3. Approve: dokimi personas approve --file {output_path}")
+    print(f"  3. Approve: dokimi eval personas validate --file {output_path}")
 
 
 def cmd_personas_approve(args: argparse.Namespace) -> None:
@@ -119,15 +119,15 @@ def cmd_personas_approve(args: argparse.Namespace) -> None:
     print(f"✓ Validated {len(personas['personas'])} personas")
     print(f"✓ File approved: {persona_file}")
     print("\nReady for question generation:")
-    print(f"  dokimi questions generate --product {personas['product']} --personas {persona_file}")
+    print(f"  dokimi eval questions generate --product {personas['product']} --personas {persona_file}")
 
 
-def register(sub, positive_int) -> None:
-    """Add the `personas` subcommand group."""
-    personas_p = sub.add_parser("personas", help="Persona discovery and management")
+def register(eval_sub, positive_int) -> None:
+    """Add `eval personas discover` and `eval personas validate` (#94 M1)."""
+    personas_p = eval_sub.add_parser("personas", help="Persona discovery and management")
     personas_sub = personas_p.add_subparsers(dest="personas_cmd", required=True)
 
-    # personas discover
+    # eval personas discover
     discover_p = personas_sub.add_parser("discover", help="Discover personas from a GitHub repo or product description")
     discover_p.add_argument("--product", required=True, help="Product name (e.g., oneTBB)")
     discover_p.add_argument("--repo", default=None, help="GitHub repo (e.g., uxlfoundation/oneTBB). Optional if --description is given.")
@@ -140,7 +140,7 @@ def register(sub, positive_int) -> None:
     discover_p.add_argument("--save-analysis", action="store_true", help="Save intermediate analysis JSON")
     discover_p.set_defaults(func=cmd_personas_discover)
 
-    # personas approve
-    approve_p = personas_sub.add_parser("approve", help="Validate and approve persona file")
+    # eval personas validate
+    approve_p = personas_sub.add_parser("validate", help="Validate and approve persona file")
     approve_p.add_argument("--file", required=True, help="Persona JSON file to approve")
     approve_p.set_defaults(func=cmd_personas_approve)

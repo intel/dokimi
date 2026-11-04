@@ -1,0 +1,38 @@
+{
+  "schema_version": "catalog_eval.v1",
+  "tier": "static",
+  "root": "demo-catalog",
+  "catalog_digest": "5b1d8747435c57baa616c53bd6ede1c9c6cb41665a188ba4a785f1cb41e45e8e",
+  "selection": {
+    "mode": "all",
+    "changed_paths": [],
+    "selected": [
+      "alpha"
+    ],
+    "reasons": {
+      "alpha": [
+        "full catalog requested"
+      ]
+    },
+    "unclaimed": [],
+    "removed": []
+  },
+  "skills": [
+    {
+      "name": "alpha",
+      "path": "skills/alpha",
+      "bundle_digest": "b09fb16719d5fea51b910c1a997e643a50824944307c24bbad38cb3091b915cf",
+      "checks": {
+        "status": "pass",
+        "findings": []
+      },
+      "evaluation": "no_tasks",
+      "evaluated_here": true,
+      "tasks": [],
+      "planned_tasks": [],
+      "evaluation_reason": "no loadable executable tasks owned by metadata.skill"
+    }
+  ],
+  "problems": [],
+  "status": "pass"
+}

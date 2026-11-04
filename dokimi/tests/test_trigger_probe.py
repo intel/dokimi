@@ -513,6 +513,14 @@ def test_known_positive_fails_when_the_target_call_timed_out_before_its_result(t
     assert r["passed"] is False and r["error"] == "timeout" and r["loaded"] == ["sum-fast"]
 
 
+def test_known_positive_fails_when_the_run_timed_out_after_the_target_loaded(tmp_path):
+    # The target's result arrived (it loaded), then the run hung until --timeout with no result event.
+    stream = _skill_stream("sum-fast", result=False)
+    assert tp.parse_stream(stream)["loaded_ok"] == ["sum-fast"]
+    r = _known(tmp_path, stream, timed_out=True)
+    assert r["passed"] is False and r["error"] == "timeout"
+
+
 def test_known_positive_keeps_a_terminal_error_after_the_target_loaded(tmp_path):
     final = {"type": "result", "subtype": "error_during_execution", "is_error": True, "num_turns": 2}
     r = _known(tmp_path, _skill_stream("sum-fast", final=final))

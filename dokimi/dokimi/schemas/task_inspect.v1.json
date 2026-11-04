@@ -2,13 +2,13 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/intel/dokimi/schemas/task_inspect.v1.json",
   "title": "Eval-task format inspection v1",
-  "description": "What `tasks inspect <path>` found under a path, from the files alone: nothing is imported, run or converted (dokimi/docs/coding-harnesses.md). One item per task directory or dataset file a format probe claims; a path nothing claims is a single `unknown` item. `details` is per format and open; every other level is closed.",
+  "description": "What `eval inspect <path>` found under a path, from the files alone: nothing is imported, run or converted (dokimi/docs/coding-harnesses.md). One item per task directory or dataset file a format probe claims; a path nothing claims is a single `unknown` item. `details` is per format and open; every other level is closed.",
   "type": "object",
   "required": ["schema_version", "root", "items"],
   "additionalProperties": false,
   "properties": {
     "schema_version": {"const": "task_inspect.v1"},
-    "root": {"type": "string", "description": "The path given to `tasks inspect`, as given."},
+    "root": {"type": "string", "description": "The path given to `eval inspect`, as given."},
     "items": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/item"}}
   },
   "$defs": {
@@ -41,7 +41,7 @@
         "consumers": {
           "type": "array",
           "minItems": 1,
-          "items": {"enum": ["harbor", "docker-*", "benchflow", "questions track", "explore track", "catalog trigger-set", "questions import", "none-yet"]},
+          "items": {"enum": ["harbor", "docker-*", "benchflow", "questions track", "explore track", "catalog trigger-set", "questions import", "eval triggers generate", "eval import", "none-yet"]},
           "description": "What in dokimi reads the item today; `none-yet` when nothing does."
         },
         "alternatives": {

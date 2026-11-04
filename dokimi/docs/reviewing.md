@@ -33,7 +33,7 @@ credentials (`GOOGLE_APPLICATION_CREDENTIALS`, with `VERTEXAI_PROJECT` and
 gateway), use provider `openai` with `OPENAI_API_BASE` (or `OPENAI_BASE_URL`)
 set to its `/v1` URL. A model name that litellm does not take for OpenAI's own
 goes to that server, such as `glm-5.3` or `meta-llama/Llama-3.1-8B`
-(`--judges openai/glm-5.3` in `eval cross-judge`); so does a bare `claude-*`,
+(`--judges openai/glm-5.3` in `eval judge agreement`); so does a bare `claude-*`,
 Bedrock or Vertex id, which needs its cloud's provider to reach that cloud. A
 name that starts with a litellm provider prefix (`deepseek/`, `groq/`,
 `ollama/`) keeps that provider's route: write it as `openai/<name>` to send it
@@ -239,7 +239,13 @@ these, in order, before writing what it showed (the fields:
   `dokimi repo report <batch> --hits` finds the pairs but cuts each comment
   and finding to 100 characters (200 with `--json`): read each pair you cite
   in full, the thread's `comment` in the task's `gold.json` (or at its `url`),
-  then the finding in the cell's `answer.txt`. Cite only pairs that make the
+  then the finding in the cell's `answer.txt`.
+  `dokimi repo hits judge <batch> --judge PROVIDER/MODEL` has a judge label
+  every credited pair (`same point`, `related` or `unrelated`) and gives
+  `recall_judged` ([§9](repo-evaluation-contract.md#9-running)). That figure
+  is uncalibrated until a person labels a sample (`repo hits sheet`, then
+  `--labels`) and `uncalibrated_rows` is empty: it narrows which pairs to
+  read, it does not replace reading the pairs you cite. Cite only pairs that make the
   same point; say how many credited pairs you read and how many held. To
   attribute a hit to a guidance rule, check that the rule is in a file the
   cell started with or read (above): a finding's `rule` is the agent's own

@@ -26,9 +26,10 @@ import json
 from collections import Counter
 from dataclasses import dataclass, field
 
+from dokimi.utils import InputError, read_json_input
+
 from .client import LLMClient, accepting
 from .spans import Span
-from dokimi.exit_codes import usage_exit
 
 ATOM_KINDS = ("proposition", "edge", "motif", "contract", "example")
 ATOM_TAGS = (
@@ -591,19 +592,11 @@ def load_atoms(path) -> tuple[list[Atom], list[Span]]:
 
     An ``atoms.json`` written before the ``extraction`` record existed marks nothing; it
     cannot say whether a span went unread. A ``sampled_atom_ids`` that names an atom the file
-    does not hold, or names one twice, raises ``ValueError`` (:func:`recorded_sample` reads it).
+    does not hold, or names one twice, is not a valid atoms file (:func:`recorded_sample` reads
+    it). Raises :class:`~dokimi.utils.InputError`, see :func:`load_atoms_record`.
     """
-    atoms, spans, _data = load_atoms_record(path)
+    atoms, spans, _record = load_atoms_record(path)
     return atoms, spans
-
-
-def load_atoms_record(path) -> tuple[list[Atom], list[Span], dict]:
-    """:func:`load_atoms` plus the parsed record, for a reader of its other keys."""
-    from pathlib import Path
-
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
-    atoms, spans = _atoms_from_record(data)
-    return atoms, spans, data
 
 
 def _is_int(value) -> bool:
@@ -704,7 +697,7 @@ def recorded_sample(data: dict, atoms: list[Atom]) -> list[Atom]:
     Those ``sampled_atom_ids`` names, in its order. Without the record, every atom: a file
     written before it existed holds only the atoms its run probed, and a run whose cap kept
     every atom writes ``null``. An id whose atom the caller left out of ``atoms`` (shortening
-    keeps the entry point's) is left out too. ``data`` is the record :func:`load_atoms_or_exit`
+    keeps the entry point's) is left out too. ``data`` is the record :func:`load_atoms_record`
     returned, so every id is in the file.
     """
     ids = data.get("sampled_atom_ids")
@@ -733,15 +726,17 @@ def _check_bundle_shape(bundle) -> None:
         _check_rows("bundle.excluded", bundle["excluded"], _EXCLUDED_FIELDS)
 
 
-def load_atoms_or_exit(path) -> tuple[list[Atom], list[Span], dict]:
-    """:func:`load_atoms` plus the parsed record, for a command.
+def load_atoms_record(path) -> tuple[list[Atom], list[Span], dict]:
+    """The atoms, the spans and the parsed record of an atoms file: the one entry point to read it.
 
-    Exits with the file named when it cannot be read or is not an atom set, including a
-    ``bundle`` whose fields do not have the types its readers use.
+    Raises :class:`~dokimi.utils.InputError` naming the file when it cannot be read, is not
+    JSON or UTF-8, or is not an atom set, including a ``bundle`` whose fields do not have the
+    types its readers use.
     """
+    data = read_json_input(path)
     try:
-        atoms, spans, data = load_atoms_record(path)
+        atoms, spans = _atoms_from_record(data)
         _check_bundle_shape(data.get("bundle"))
-    except (OSError, ValueError, RecursionError) as exc:
-        usage_exit(f"cannot read atoms from {path}: {exc}")
+    except ValueError as exc:
+        raise InputError(f"{path} is not a valid atoms file: {exc}") from exc
     return atoms, spans, data

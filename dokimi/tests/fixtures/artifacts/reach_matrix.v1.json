@@ -1,0 +1,68 @@
+{
+  "schema_version": "reach_matrix.v1",
+  "generated_at": "2026-10-31T04:37:00+00:00",
+  "expectations": "reach_conformance.v1",
+  "expectations_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+  "fixtures_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+  "runs": [
+    {
+      "harness": "codex",
+      "version": "0.166.0",
+      "model": "example-model",
+      "case": "nested-agents",
+      "status": "ran",
+      "reason": null,
+      "scenarios": 2
+    },
+    {
+      "harness": "codex",
+      "version": "unknown",
+      "model": "",
+      "case": "nested-agents",
+      "status": "skipped",
+      "reason": "none of CODEX_API_KEY is set",
+      "scenarios": 0
+    }
+  ],
+  "cells": [
+    {
+      "harness": "codex",
+      "version": "0.166.0",
+      "case": "nested-agents",
+      "scenario": "cwd=packages/app",
+      "path": "packages/app/AGENTS.md",
+      "observed": "loaded",
+      "documented": "loaded",
+      "agreement": "agrees"
+    },
+    {
+      "harness": "codex",
+      "version": "0.166.0",
+      "case": "nested-agents",
+      "scenario": "cwd=.",
+      "path": "AGENTS.md",
+      "observed": "not_loaded",
+      "documented": "loaded",
+      "agreement": "disagrees"
+    },
+    {
+      "harness": "codex",
+      "version": "0.166.0",
+      "case": "nested-agents",
+      "scenario": "cwd=.",
+      "path": "LINK.md",
+      "alias_of": "AGENTS.md",
+      "observed": "loaded",
+      "documented": "unknown",
+      "agreement": "alias"
+    }
+  ],
+  "summary": {
+    "agrees": 1,
+    "disagrees": 1,
+    "inconclusive": 0,
+    "no_claim": 0,
+    "alias": 1,
+    "runs": {"ran": 1, "errors": 0, "failed": 0, "skipped": 1}
+  }
+}

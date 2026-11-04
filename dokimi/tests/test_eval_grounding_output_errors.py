@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""`eval grounding` and `eval judge-validity` exit 2 naming the path when --output cannot be written."""
+"""`eval score grounding` and `eval judge validate` exit 2 naming the path when --output cannot be written."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ def _grounding(tmp_path: Path, output: Path) -> None:
          "with_docs": {"answer": "use parallel_for",
                        "retrieved_docs": [{"snippet": "parallel_for runs tasks"}]}},
     ]}), encoding="utf-8")
-    args = build_parser().parse_args(["eval", "grounding", "--answers", str(answers), "--output", str(output)])
+    args = build_parser().parse_args(["eval", "score", "grounding", "--answers", str(answers), "--output", str(output)])
     args.func(args)
 
 
@@ -58,7 +58,7 @@ def test_judge_validity_output_below_a_file_exits_2_naming_the_path(tmp_path, mo
     blocker = tmp_path / "blocker"
     blocker.write_text("x", encoding="utf-8")
     target = blocker / "validity.json"
-    args = build_parser().parse_args(["eval", "judge-validity", "--answers", str(answers), "--bases", "20",
+    args = build_parser().parse_args(["eval", "judge", "validate", "--answers", str(answers), "--bases", "20",
                                       "--variants", "truncate_20", "--output", str(target)])
     with pytest.raises(SystemExit) as exc:
         args.func(args)

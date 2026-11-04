@@ -11,11 +11,12 @@ import re
 import pytest
 
 from dokimi.novelty.analyze import AnalyzeConfig, analyze
-from dokimi.novelty.atoms import (Atom, load_atoms, load_atoms_or_exit, recorded_sample,
+from dokimi.novelty.atoms import (Atom, load_atoms, load_atoms_record, recorded_sample,
                                   sample_atoms, save_atoms)
 from dokimi.novelty.client import LLMClient
 from dokimi.novelty.spans import segment
 from dokimi.novelty.tiers import resolve_settings
+from dokimi.utils import InputError
 from tests import test_novelty_cli as novelty_cli
 from tests.test_novelty_analyze import _scripted
 from tests.test_novelty_report import _artifact as _report_artifact
@@ -98,7 +99,7 @@ def test_atoms_json_holds_every_atom_and_names_the_sample(tmp_path):
     saved = json.loads(path.read_text())
     assert len(saved["atoms"]) == 6
     assert saved["sampled_atom_ids"] == [atom.id for atom in sample]
-    loaded, spans, data = load_atoms_or_exit(path)
+    loaded, spans, data = load_atoms_record(path)
     assert [atom.id for atom in loaded] == [atom.id for atom in atoms]
     assert [atom.span_ids for atom in recorded_sample(data, loaded)] == [("s0002",), ("s0005",)]
     # A cap that kept every atom records no sample: probe and shorten then measure them all.
@@ -112,7 +113,7 @@ def test_an_atoms_file_without_a_sample_record_reads_as_every_atom_sampled(tmp_p
     data = json.loads(path.read_text())
     del data["sampled_atom_ids"]
     path.write_text(json.dumps(data))
-    loaded, _spans, data = load_atoms_or_exit(path)
+    loaded, _spans, data = load_atoms_record(path)
     assert [atom.id for atom in recorded_sample(data, loaded)] == [atom.id for atom in atoms]
 
 
@@ -121,30 +122,25 @@ def test_an_atoms_file_without_a_sample_record_reads_as_every_atom_sampled(tmp_p
                       "a0000000000"),
     ("a0000000000", "'sampled_atom_ids' is not a list of strings"),
 ], ids=["unknown-id", "not-a-list"])
-def test_a_sample_record_the_atoms_do_not_hold_is_refused(tmp_path, capsys, record, error):
+def test_a_sample_record_the_atoms_do_not_hold_is_refused(tmp_path, record, error):
     path, _atoms, _sample = _capped_file(tmp_path)
     data = json.loads(path.read_text())
     data["sampled_atom_ids"] = record
     path.write_text(json.dumps(data))
-    with pytest.raises(ValueError, match=re.escape(error)):
-        load_atoms(path)
-    with pytest.raises(SystemExit) as exit_info:
-        load_atoms_or_exit(path)
-    assert exit_info.value.code == 2
-    assert f"cannot read atoms from {path}: {error}" in capsys.readouterr().err
+    for load in (load_atoms, load_atoms_record):  # InputError: cli.main exits 2 with it
+        with pytest.raises(InputError, match=re.escape(f"{path} is not a valid atoms file: {error}")):
+            load(path)
 
 
-def test_a_sample_record_that_repeats_an_id_is_refused(tmp_path, capsys):
+def test_a_sample_record_that_repeats_an_id_is_refused(tmp_path):
     """Counted twice, one retained atom would read as half the sample's knowledge."""
     path, atoms, _sample = _capped_file(tmp_path, n=3, cap=2)
     data = json.loads(path.read_text())
     data["sampled_atom_ids"] = [atoms[0].id, atoms[0].id]
     path.write_text(json.dumps(data))
     error = f"'sampled_atom_ids' repeats 1 atom id(s): {atoms[0].id}"
-    with pytest.raises(SystemExit) as exit_info:
-        load_atoms_or_exit(path)
-    assert exit_info.value.code == 2
-    assert f"cannot read atoms from {path}: {error}" in capsys.readouterr().err
+    with pytest.raises(InputError, match=re.escape(f"{path} is not a valid atoms file: {error}")):
+        load_atoms_record(path)
 
 
 @pytest.mark.parametrize("cap", [0, -1])

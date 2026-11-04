@@ -6,33 +6,33 @@
   with a `RecordError` naming the file and the record (`answers.json
   answers[3]: missing question_id`); `dashboard` leaves such a file out with a
   warning. Before, a record with no `question_id` was skipped
-  (`report model-compare`, `eval judge-validity`, `eval checklist`), judged
-  under a made-up id (`eval panel-score`) or crashed `eval score` part-way
+  (`report model-compare`, `eval judge validate`, `eval score checklist`), judged
+  under a made-up id (`eval score panel`) or crashed `eval score pointwise` part-way
   through a paid run; a condition or arm payload that is neither an object nor
   `null` (which the schemas do not allow), or an `expected_skill` that is not a
   name, a list of names or `null`, was skipped.
   A `question_id` that is present but neither a string nor an integer is
   reported as such (`question_id must be a string or an integer, got 1.5`);
   where a record carries both `question_id` and `id`, `question_id` is read.
-  `eval score` now checks every record, including that it has a
+  `eval score pointwise` now checks every record, including that it has a
   `question_text`, before the first judge call, and exits 2 naming the record;
   `arms run` refuses such an id in the questions file before the first call.
   `report eval` leaves a malformed answers record out of its Q&A sidecar with a
   warning, keeping the others. Files written by dokimi carry these fields; no
   score changes for them. Arms files written with the runner's `unknown_q`
-  fallback id still read in `eval cross-judge`'s stored scores.
-  `eval score`, `eval panel-score`, `eval ragas`, `eval grounding`,
-  `eval judge-validity`, `eval checklist`, `eval pairwise`, `eval judge-wording`,
-  `eval cross-judge` and `baseline compare` exit 2 on a `RecordError`, naming
+  fallback id still read in `eval judge agreement`'s stored scores.
+  `eval score pointwise`, `eval score panel`, `eval score ragas`, `eval score grounding`,
+  `eval judge validate`, `eval score checklist`, `eval score pairwise`, `eval judge wording`,
+  `eval judge agreement` and `baseline compare` exit 2 on a `RecordError`, naming
   the record on stderr, so exit 1 stays the verdict of the gates. `report
   generate`, `report eval`, `baseline save`, `report model-compare` and
-  `questions panel-review` exit 1 on one, as on their other input errors.
-- **`eval cross-judge --judges` refuses a binary answers file** — like
-  `eval checklist` and `eval pairwise`, which already exited 2 on a file with
+  `eval questions review` exit 1 on one, as on their other input errors.
+- **`eval judge agreement --judges` refuses a binary answers file** — like
+  `eval score checklist` and `eval score pairwise`, which already exited 2 on a file with
   no `arms` (`answers generate` output), it now exits 2 naming the file
   before any judge call, where it printed an empty table. No command sends a
   binary file's `with_docs`/`without_docs` answers to a judge as two arms, and
-  `eval cross-judge` still takes its stored scores from `evaluations` only,
+  `eval judge agreement` still takes its stored scores from `evaluations` only,
   not from a legacy inline `arms[name].evaluation`.
 - **A non-numeric aggregate is unscored** — an aggregate written as a string
   (`"80"`) or a bool counts as no score in every reader; `dashboard` used to
@@ -58,7 +58,7 @@
   `non_baseline_arms` still counts it as a treatment that produced nothing.
 - **`baseline save` refuses a malformed eval file before writing** — it no
   longer leaves a baseline file on disk with no manifest entry.
-- **Reports read the question of a panel eval file** — `eval panel-score` writes
+- **Reports read the question of a panel eval file** — `eval score panel` writes
   each question as `question`; `report generate` and `report eval` read only
   `question_text`, so their tables (and the `report eval` Q&A sidecar) showed
   blank questions for a panel run.
@@ -66,7 +66,7 @@
   every panel vote of a question failed, the panel writes `aggregate: null` and
   the report raised `TypeError`; the question is now left out of that arm's
   figures, as the other reports already did.
-- **`questions panel-review` reads an answers file** — it read `question`/`text`,
+- **`eval questions review` reads an answers file** — it read `question`/`text`,
   but answers records carry `question_text`, so it reviewed no questions.
 - **`report model-compare` reads a legacy arms file with a failed arm** — an arm
   payload of `null` raised `AttributeError`; that question is now skipped, as

@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""``eval score`` stamps the eval artifact with the method version of the answers it judged."""
+"""``eval score pointwise`` stamps the eval artifact with the method version of the answers it judged."""
 
 import json
 from types import SimpleNamespace
@@ -39,7 +39,7 @@ def _eval_score(tmp_path, answers_doc):
     answers = tmp_path / "answers.json"
     answers.write_text(json.dumps(answers_doc), encoding="utf-8")
     out = tmp_path / "eval.json"
-    args = build_parser().parse_args(["eval", "score", "--product", "L", "--answers", str(answers),
+    args = build_parser().parse_args(["eval", "score", "pointwise", "--product", "L", "--answers", str(answers),
                                       "--output", str(out), "--concurrency", "1", *JUDGE])
     args.func(args)
     return json.loads(out.read_text(encoding="utf-8"))

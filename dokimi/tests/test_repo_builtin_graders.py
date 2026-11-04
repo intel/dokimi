@@ -342,7 +342,7 @@ def _repo(tmp_path, extra=None):
 
 def _check(root, out, runner, monkeypatch, *tasks):
     monkeypatch.setattr("dokimi.repos.container.DockerRunner", lambda *a, **k: runner)
-    argv = ["repo", "tasks", "check", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml",
+    argv = ["eval", "check", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml",
             "--out", str(out), "--cache-root", str(out / "caches")]
     for t in tasks:
         argv += ["--task", t]
