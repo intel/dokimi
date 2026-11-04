@@ -485,11 +485,12 @@ def test_cli_run_refuses_a_profile_without_a_skills_block(tmp_path, capsys):
     assert "declares no `skills` block" in err and "cases," not in err
 
 
-def test_cli_dry_run_refuses_a_profile_skill_dir_that_escapes(tmp_path, capsys):
+@pytest.mark.parametrize("only", [["--only", "user-client"], []], ids=["only-the-user-case", "whole-catalogue"])
+def test_cli_dry_run_refuses_a_profile_skill_dir_that_escapes(tmp_path, capsys, only):
     profile = _edit_profile(tmp_path, "escape.yaml", skills={"project_dirs": [".fake/skills"],
                                                              "user_dirs": ["config:../x"]})
     with pytest.raises(SystemExit) as exc:
-        _cli("--harness", str(profile), "--only", "user-client", "--dry-run")
+        _cli("--harness", str(profile), *only, "--dry-run")
     assert exc.value.code == EXIT_USAGE and "must be project:|home:|config:" in capsys.readouterr().err
 
 

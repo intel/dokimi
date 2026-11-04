@@ -83,7 +83,8 @@ def _refuse_what_a_run_would_refuse(args: argparse.Namespace, profile, selected:
 
     check_profile(profile)
     dirs = skill_dirs(profile)
-    if all(resolve_at(case, dirs) is None for case in selected):
+    resolved = [resolve_at(case, dirs) for case in selected]  # every case: all() would stop at the first placeable
+    if all(r is None for r in resolved):
         raise SkillReachError("no case could be placed: the profile declares no skill dir that a selected case names")
     if args.work_dir and not Path(args.work_dir).is_dir():
         raise SkillReachError(f"--work-dir {args.work_dir} is not a directory")
