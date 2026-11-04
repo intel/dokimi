@@ -23,7 +23,7 @@ implicit default that points at a sibling checkout:
 |---|---|---|
 | `--root` | a whole content checkout to scan | `catalog scan` |
 | `--questions-root` | directory holding `<product_key>_golden.json` | `benchmark preflight/run/batch`, `evaluate`, `coverage`, `config_check` |
-| `--tasks-root` | directory of executable task dirs (each with `task.toml` or a BenchFlow `task.md`), or of exploration task YAML files | `tasks list/run`, `explore list/run`, `coverage`, `config_check` |
+| `--tasks-root` | directory of executable task dirs (each with `task.toml` or a BenchFlow `task.md`), or of exploration task YAML files | `eval tasks list`/`tasks run`, `explore list/run`, `coverage`, `config_check` |
 | `--repo-root` | the source tree an exploration task is scored against | `explore run` |
 | `--registry` | a `products.yaml` describing products this repo has never heard of | `benchmark preflight/run` |
 | `--questions` | one question-set file | `arms run`, `answers generate` |
@@ -113,21 +113,25 @@ Read that output as three outcomes, not two:
 
 Only load errors change the exit code, so `catalog scan` exiting 0 means
 "everything declared as runnable is runnable". A spec error (below) changes it
-only under `--strict`. Note the asymmetry above: a `planned` *task*
+only under `--strict`. A root with no `SKILL.md` at all (and no skills.yaml entry)
+prints `no SKILL.md found under <root>` to stderr and exits 1. With `--kind all`, a
+tasks-only root only warns, and exits 1 under `--strict`. Note the asymmetry above: a `planned` *task*
 with no directory is skipped, while a `planned` *skill* with no directory is an
 error — the skill reader has no notion of a not-yet-written entry. Either drop
 such a skill from `skills.yaml` or expect the non-zero exit.
 
-A loaded skill is also checked against the Agent Skills spec. Its `name` must be
-its directory name and kebab-case (at most 64 characters; a `SKILL.md` directly in the scanned root is not compared with the root directory's name), and its `description`
-at most 1024 characters: a violation is an `error`, printed under the skill. It
-exits 1 only with `--strict`; without it, the scan reports the error and still
-exits 0. A `name` missing from the frontmatter, or a `SKILL.md` byte-identical to
-another skill's, is a `warn`. Of identical copies, the one nearest the root (fewest
-path parts, ties to path order) is the original, the copy the `skill-catalog:` arm
-offers; each other copy is the `warn` and names it. Warnings never change
-the exit code. `disable-model-invocation: true` is printed as a `note`, because
-the model is never offered that skill.
+A loaded skill is also checked against the Agent Skills spec. Its `name` must be its directory name
+and kebab-case (at most 64 characters; a `SKILL.md` directly in the scanned root is not compared
+with the root directory's name), and its `description` at most 1024 characters: a violation is an
+`error`, printed under the skill. It exits 1 only with `--strict`; without it, the scan reports the
+error and still exits 0. A `name` missing from the frontmatter, or a `SKILL.md` byte-identical to
+another skill's, is a `warn`. So is a skill whose `name` another skill shares with different content
+(`name-conflict`), when both are listed: neither is `disable-model-invocation` or has a spec error.
+The finding names the other path, and `dokimi novelty routing --catalog` skips that name rather than
+the whole catalog. Of identical copies, the one nearest the root (fewest path parts, ties to path
+order) is the original, the copy the `skill-catalog:` arm offers; each other copy is the `warn` and
+names it. Warnings never change the exit code. `disable-model-invocation: true` is printed as a
+`note`, because the model is never offered that skill.
 
 Frontmatter that is not valid YAML (a bare colon in `description:`, say) stops
 the skill from loading, since the loader reads it as having no description. The
@@ -234,7 +238,7 @@ report. Section 5 shows how to check the arm specs resolve first.
 `--tasks-root` is the directory that *contains* task directories:
 
 ```console
-$ python cli.py tasks list --tasks-root C:/Users/Public/content-repo/evaluation/harbor/tasks
+$ python cli.py eval tasks list --tasks-root C:/Users/Public/content-repo/evaluation/harbor/tasks
 demo-widget     easy    demo,widget
 onetbb-parallel-reduce  medium  onetbb
 ```
@@ -391,16 +395,17 @@ Worth knowing before you read a suspiciously clean result:
 
 | Command | Root missing | Exit |
 |---|---|---|
-| `catalog scan --root <missing>` | `--root is not a directory: <path>` | 1 |
-| `tasks run --tasks-root <missing>` | `FileNotFoundError: Task directory not found: demo-widget` | 1 |
-| `tasks list --tasks-root <missing>` | prints nothing | 0 |
+| `catalog scan --root <missing>` | `--root is not a directory: <path>` | 2 |
+| `catalog scan --root <no SKILL.md> --kind skills` | `no SKILL.md found under <path>` | 1 |
+| `tasks run --tasks-root <missing>` | `--tasks-root is not a directory: <path>` | 2 |
+| `eval tasks list --tasks-root <missing>` | `--tasks-root is not a directory: <path>` | 2 |
 | `explore list --tasks-root <missing>` | `--tasks-root is not a directory: <path>` | 2 |
 | `coverage` with no roots | every product reads `no`/`0`, plus an explicit note | 0 |
 | `evaluate`/`benchmark run` with a root lacking the golden set | `WARNING ... has no golden set for <product>` and continues | — |
 
-`tasks list` is the trap: an empty listing and a correct listing both exit 0,
-so a typo in a path looks like an empty checkout. `explore list` refuses an
-empty root with exit 2. The `coverage` matrix is explicit about it instead:
+`eval tasks list` is the trap for an existing directory: an empty listing and a correct listing
+both exit 0, so an empty checkout looks like a correct one. A missing root is refused with exit 2,
+not a silent success. `explore list` refuses an empty root with exit 2. The `coverage` matrix is explicit about it instead:
 
 ```console
 $ python -m dokimi.coverage

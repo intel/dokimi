@@ -131,6 +131,15 @@ def cmd_catalog_scan(args: argparse.Namespace) -> None:
         any_failure = _scan_skills(args, root, report, as_json)
     if args.kind in ("tasks", "all"):
         any_failure = _scan_tasks(args, root, report, as_json) or any_failure
+    if args.kind in ("skills", "all") and not report["skills"]:
+        # Nothing to scan is a wrong root or an empty checkout, so a skills scan fails on it. A
+        # --kind all scan of a tasks-only catalog is a warning, which --strict makes a failure.
+        if (root / "skills.yaml").is_file():
+            print(f"skills.yaml under {root} has no skill that can be scanned", file=sys.stderr)
+        else:
+            print(f"no SKILL.md found under {root}", file=sys.stderr)
+        if args.kind == "skills" or args.strict or not report["tasks"]:
+            any_failure = True
     if as_json:
         print(json.dumps(report, indent=2))
     if any_failure:
@@ -314,8 +323,8 @@ def _trigger_set_sources(specs: list, catalog) -> list:
     return out
 
 
-def register(sub, positive_int) -> None:
-    """Add the `catalog` subcommand group."""
+def register(sub, positive_int, eval_sub) -> None:
+    """Add the `catalog` subcommand group, and `eval triggers generate` under `eval` (#94 M1)."""
 
     catalog_p = sub.add_parser(
         "catalog",
@@ -335,7 +344,8 @@ def register(sub, positive_int) -> None:
         "--strict",
         action="store_true",
         help="Exit 1 on a skill spec error (name not the directory name or not kebab-case, "
-        "description over 1024 characters) as well as on a skill that does not load",
+        "description over 1024 characters) as well as on a skill that does not load; with "
+        "--kind all, also on a tasks-only root with no SKILL.md",
     )
     scan_p.add_argument(
         "--format",
@@ -359,8 +369,10 @@ def register(sub, positive_int) -> None:
     fm_p.add_argument("--json", action="store_true", help="Print JSON instead of a table")
     fm_p.set_defaults(func=cmd_catalog_formats)
 
-    ts_p = catalog_sub.add_parser(
-        "trigger-set",
+    triggers_sub = eval_sub.add_parser("triggers", help="Trigger sets: build them from question sets").add_subparsers(
+        dest="eval_triggers_cmd", required=True)
+    ts_p = triggers_sub.add_parser(
+        "generate",
         help="Build a skill-selection query set (labels + leakage/framing lint) from question sets",
     )
     ts_p.add_argument("--catalog", required=True, help="Directory of the skills the agent will see")

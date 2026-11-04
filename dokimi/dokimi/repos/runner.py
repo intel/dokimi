@@ -71,6 +71,7 @@ from .batch_ledger import (  # re-exported: the names callers and tests take fro
 from .bases import MCP_CONFIG, NOT_UTF8, mcp_config_error
 from .events import convert
 from .uptake import arm_uptake
+from .useful import first_useful
 from .grading import EvalContext, failed_outcome, outcome, run_entry
 from .harness_profile import HarnessProfile
 from .host import probe_host, unmet, validate_tasks
@@ -175,6 +176,9 @@ def _add_arm_use(record: dict[str, Any], meta: dict[str, Any], task: Task, skill
     if meta.get("skills"):  # without a trace the usage is unmeasured, not zero
         record["skills"] = skills if skills is not None else skill_unmeasured(
             [s["name"] for s in meta["skills"]], task.expected_skill)
+    if meta.get("guidance_skill"):  # apart from the catalog's usage: it is not in the names the catalog's usage counts
+        record["guidance_skill_loaded"] = (None if events is None else
+                                           bool(skill_usage(events, [meta["guidance_skill"]["name"]], None)["skills_used"]))
     if any(uptake_of):  # an arm that added something to use: did the agent use it (#41 D4)
         record["uptake"] = arm_uptake(events, *uptake_of, WORKSPACE)
 
@@ -247,6 +251,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     added = meta.get("arm_patch") or {}
     uptake_of = (added.get("added") or [], added.get("mcp_servers") or [])
     events = None  # the trace's events once it parsed; none: the uptake is unmeasured
+    useful_events = None  # the same events when no line of the trace was dropped: a dropped line may hold the hit
     try:
         raw = (rd / "agent.stdout").read_text(encoding="utf-8", errors="replace")
         transcript = convert(opts.profile.trace, raw, WORKSPACE)
@@ -262,6 +267,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
         started = bool(transcript.events) or transcript.result_seen  # else the agent never started
         if started:
             events = transcript.events
+            useful_events = None if transcript.dropped_lines else events
         cost = transcript.cost_usd
         agent.update(
             cost_usd=cost, charged_usd=cost if cost is not None else caps["budget_usd"],
@@ -288,7 +294,7 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
                               "harness": opts.profile.name, "harness_version": meta["harness_version"],
                               "base_date": meta["base_date"], "execution": execution, "score_task": bool(task.score),
                               "score_max": task.score["max"] if task.score else None, "agent": agent,
-                              "process": process, "grade": grade}
+                              "process": process, "first_useful": first_useful(task.useful, useful_events), "grade": grade}
     _add_arm_use(record, meta, task, skills, uptake_of, events)
     try:
         _own_dir(rd)  # the grader had the run dir read-write, and may have taken write access away

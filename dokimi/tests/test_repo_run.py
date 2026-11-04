@@ -57,7 +57,7 @@ def test_run_isolates_the_agent_and_grades_each_cell(setup, capsys):
     assert meta["agent_network"] == "host"
     assert meta["egress_proxy"] is False and len(meta["start_sha"]) == 40
     events = [json.loads(line) for line in (rd / "events.jsonl").read_text().splitlines()]
-    assert events == [{"kind": "edit", "path": "src/calc.py", "t": None}]  # relative to /eval/run/workspace
+    assert events == [{"kind": "edit", "path": "src/calc.py", "rc": 0, "t": None}]  # relative to /eval/run/workspace
     assert (rd / "answer.txt").read_text() == "done: src/calc.py"
     assert (rd / "config/settings.json").read_text() == '{"hook": "python3 /eval/support/no_background.py"}'
     result = json.loads((rd / "result.json").read_text())
@@ -550,7 +550,7 @@ def test_worktree_image_tag_follows_the_build_context(setup, capsys):
     root, runner = setup["root"], setup["runner"]
 
     def check():
-        argv = ["repo", "tasks", "check", str(root), "--manifest", ".agent-eval/repo-eval.yaml",
+        argv = ["eval", "check", str(root), "--manifest", ".agent-eval/repo-eval.yaml",
                 "--out", str(setup["out"] / "chk"), "--cache-root", str(setup["out"] / "caches"), "--task", "fix_add"]
         args = build_parser().parse_args(argv)
         args.func(args)
@@ -570,7 +570,7 @@ def test_the_image_build_gets_the_build_timeout(setup):
     root, runner = setup["root"], setup["runner"]
 
     def check(*extra):
-        argv = ["repo", "tasks", "check", str(root), "--manifest", ".agent-eval/repo-eval.yaml",
+        argv = ["eval", "check", str(root), "--manifest", ".agent-eval/repo-eval.yaml",
                 "--out", str(setup["out"] / "chk"), "--cache-root", str(setup["out"] / "caches"),
                 "--task", "fix_add", "--rebuild-image", *extra]
         args = build_parser().parse_args(argv)
@@ -580,7 +580,7 @@ def test_the_image_build_gets_the_build_timeout(setup):
     check("--build-timeout", "36000")
     assert runner.build_timeouts == [BUILD_TIMEOUT_S, 36000]
     for parser_argv in (["repo", "run", str(root), "--arm", "guidance:none", "--model", "m", "--batch", "b"],
-                        ["repo", "tasks", "check", str(root)]):
+                        ["eval", "check", str(root)]):
         assert build_parser().parse_args(parser_argv).build_timeout == BUILD_TIMEOUT_S
 
 

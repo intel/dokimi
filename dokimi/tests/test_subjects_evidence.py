@@ -211,6 +211,55 @@ def test_the_recorded_baseline_wins_over_an_arm_that_has_no_pairs():
     assert any("no single baseline arm" in w for w in evidence["warnings"])
 
 
+def test_an_older_cell_takes_its_one_delta_less_arm_as_the_baseline():
+    scorecard = _scorecard()
+    del scorecard["cells"][0]["baseline_arm"]  # recorded before baseline_arm existed
+
+    evidence = build_skill_evidence(scorecard)
+    assert [r["arm"] for r in evidence["results"]] == ["skill:s", "placebo"]
+    assert evidence["warnings"] == []
+
+
+def test_a_delta_less_arm_with_a_paired_test_is_not_taken_as_the_baseline():
+    scorecard = _scorecard()
+    cell = scorecard["cells"][0]
+    del cell["baseline_arm"]
+    per_arm = cell["summary"]["per_arm"]
+    del per_arm["baseline"]
+    per_arm["skill:s"]["delta_vs_baseline"] = None  # still measured against a baseline: it has significance
+
+    evidence = build_skill_evidence(scorecard)
+    assert evidence["results"] == []
+    assert evidence["warnings"] == ["matrix cell 'c1': no single baseline arm, skipped"]
+
+
+def test_an_interval_with_no_lower_bound_is_null_and_one_with_no_upper_bound_is_kept():
+    scorecard = _scorecard()
+    per_arm = scorecard["cells"][0]["summary"]["per_arm"]
+    per_arm["skill:s"]["significance"]["ci_lo"] = None  # too few pairs for an interval
+    per_arm["placebo"]["significance"]["ci_hi"] = None
+
+    by_arm = {r["arm"]: r for r in build_skill_evidence(scorecard)["results"]}
+    assert by_arm["skill:s"]["ci"] is None
+    assert by_arm["placebo"]["ci"] == {"lo": -0.5, "hi": None, "confidence": 0.95, "method": "student_t"}
+
+
+def test_the_subject_kind_the_work_results_and_the_scorecard_warnings_are_flagged():
+    assert build_skill_evidence(_scorecard())["warnings"] == []
+
+    assert build_skill_evidence(_scorecard(kind="doc-source"))["warnings"] == [
+        "subject kind is 'doc-source', not 'skill'"]
+
+    with_work = _scorecard()
+    with_work["work"]["status"] = "run"
+    assert build_skill_evidence(with_work)["warnings"] == [
+        "task-suite (work) results are not in this document; only the awareness arms are"]
+
+    carried = _scorecard()
+    carried["warnings"] = ["rollup: cell c2 has no summary", "a run warning"]
+    assert build_skill_evidence(carried)["warnings"] == ["a run warning", "rollup: cell c2 has no summary"]
+
+
 def test_subjects_evidence_refuses_to_overwrite_the_scorecard_or_publish_nothing(tmp_path: Path, monkeypatch):
     from dokimi.cli import main
 

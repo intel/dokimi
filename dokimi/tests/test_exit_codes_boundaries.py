@@ -554,7 +554,7 @@ def test_external_content_walkthrough_states_the_exit_of_a_preflight_without_key
     assert "missing OPENAI_API_KEY for provider openai" in capsys.readouterr().err
 
 
-# ── catalog trigger-set: input refusals are 2; a rewrite that returns nothing is 1 ─────────
+# ── eval triggers generate: input refusals are 2; a rewrite that returns nothing is 1 ─────────
 
 def _skill_root(tmp_path):
     root = tmp_path / "skills"
@@ -578,7 +578,7 @@ def test_trigger_set_rewrite_returning_nothing_keeps_exit_1(tmp_path, monkeypatc
     spec = _trigger_questions(tmp_path, [
         {"id": "1", "text": "perf shows low IPC", "metadata": {"skill_under_test": "linux-perf"}},
     ])
-    _argv(monkeypatch, "catalog", "trigger-set", "--catalog", str(_skill_root(tmp_path)),
+    _argv(monkeypatch, "eval", "triggers", "generate", "--catalog", str(_skill_root(tmp_path)),
           "--questions", spec, "--rewrite", "--model", "m", "--out", str(tmp_path / "o.json"))
     with pytest.raises(SystemExit) as exc:
         cli.main()
@@ -595,7 +595,7 @@ def test_trigger_set_question_without_text_exits_2(text_fields, tmp_path, monkey
     spec = _trigger_questions(tmp_path, [
         {"id": "1", **text_fields, "metadata": {"skill_under_test": "linux-perf"}},
     ])
-    _argv(monkeypatch, "catalog", "trigger-set", "--catalog", str(_skill_root(tmp_path)),
+    _argv(monkeypatch, "eval", "triggers", "generate", "--catalog", str(_skill_root(tmp_path)),
           "--questions", spec, "--out", str(tmp_path / "o.json"))
     with pytest.raises(SystemExit) as exc:
         cli.main()
@@ -611,7 +611,7 @@ def test_trigger_set_no_text_refused_before_any_rewrite_call(tmp_path, monkeypat
         {"id": "1", "text": "perf shows low IPC", "metadata": {"skill_under_test": "linux-perf"}},
         {"id": "2", "metadata": {"skill_under_test": "linux-perf"}},
     ])
-    _argv(monkeypatch, "catalog", "trigger-set", "--catalog", str(_skill_root(tmp_path)),
+    _argv(monkeypatch, "eval", "triggers", "generate", "--catalog", str(_skill_root(tmp_path)),
           "--questions", spec, "--rewrite", "--model", "m", "--out", str(tmp_path / "o.json"))
     with pytest.raises(SystemExit) as exc:
         cli.main()
@@ -625,7 +625,7 @@ def test_trigger_set_file_without_labels_is_valid_and_its_questions_stay_unlabel
     # A --trigger-set file whose questions carry no expected_skill is valid: they are read unlabelled.
     path = tmp_path / "unlabelled.json"
     path.write_text(json.dumps({"questions": [{"id": "u1", "question": "How do I cook rice?"}]}), encoding="utf-8")
-    _argv(monkeypatch, "catalog", "trigger-set", "--catalog", str(_skill_root(tmp_path)),
+    _argv(monkeypatch, "eval", "triggers", "generate", "--catalog", str(_skill_root(tmp_path)),
           "--format", "questions", "--trigger-set", str(path), "--out", str(tmp_path / "o.json"))
     cli.main()
     assert (tmp_path / "o.json").exists()
@@ -640,7 +640,7 @@ def test_trigger_set_file_without_labels_is_refused_where_it_would_write_an_empt
     # would be written out as an empty set with exit 0.
     path = tmp_path / "unlabelled.json"
     path.write_text(json.dumps({"questions": [{"id": "u1", "question": "How do I cook rice?"}]}), encoding="utf-8")
-    _argv(monkeypatch, "catalog", "trigger-set", "--catalog", str(_skill_root(tmp_path)),
+    _argv(monkeypatch, "eval", "triggers", "generate", "--catalog", str(_skill_root(tmp_path)),
           "--trigger-set", str(path), *fmt, "--out", str(tmp_path / "o.json"))
     with pytest.raises(SystemExit) as exc:
         cli.main()
@@ -654,7 +654,7 @@ def test_trigger_set_of_negatives_only_is_still_written_as_reach(tmp_path, monke
     path = tmp_path / "negatives.json"
     path.write_text(json.dumps({"queries": [{"id": "n1", "text": "What is the weather?", "expected_skill": None}]}),
                     encoding="utf-8")
-    _argv(monkeypatch, "catalog", "trigger-set", "--catalog", str(_skill_root(tmp_path)),
+    _argv(monkeypatch, "eval", "triggers", "generate", "--catalog", str(_skill_root(tmp_path)),
           "--trigger-set", str(path), "--out", str(tmp_path / "o.json"))
     cli.main()
     assert [q["id"] for q in json.loads((tmp_path / "o.json").read_text(encoding="utf-8"))["queries"]] == ["n1"]
@@ -665,7 +665,7 @@ def test_questions_file_with_a_field_label_and_no_labels_is_refused_and_says_so(
     # negatives: exit 2, and the message says the file has no labels.
     path = tmp_path / "unlabelled.json"
     path.write_text(json.dumps({"questions": [{"id": "u1", "question": "How do I cook rice?"}]}), encoding="utf-8")
-    _argv(monkeypatch, "catalog", "trigger-set", "--catalog", str(_skill_root(tmp_path)),
+    _argv(monkeypatch, "eval", "triggers", "generate", "--catalog", str(_skill_root(tmp_path)),
           "--format", "questions", "--questions", f"{path}=@expected_skill", "--out", str(tmp_path / "o.json"))
     with pytest.raises(SystemExit) as exc:
         cli.main()
@@ -682,7 +682,7 @@ def test_trigger_set_unresolved_field_rule_is_refused_before_any_rewrite_call(tm
     path.write_text(json.dumps({"questions": [
         {"id": str(i), "text": f"question {i}", "metadata": {"skill_under_test": "linux-perf"}} for i in range(3)
     ]}), encoding="utf-8")
-    _argv(monkeypatch, "catalog", "trigger-set", "--catalog", str(_skill_root(tmp_path)),
+    _argv(monkeypatch, "eval", "triggers", "generate", "--catalog", str(_skill_root(tmp_path)),
           "--questions", f"{path}=@metadata.skil_under_test", "--rewrite", "--model", "m",
           "--out", str(tmp_path / "o.json"))
     with pytest.raises(SystemExit) as exc:
@@ -700,7 +700,7 @@ def test_trigger_set_strict_refusal_exits_1(tmp_path, monkeypatch, capsys):
         {"id": "1", "text": "perf shows low IPC", "metadata": {"skill_under_test": "linux-perf"}},
         {"id": "2", "text": "what is the weather"},
     ])
-    _argv(monkeypatch, "catalog", "trigger-set", "--catalog", str(_skill_root(tmp_path)),
+    _argv(monkeypatch, "eval", "triggers", "generate", "--catalog", str(_skill_root(tmp_path)),
           "--questions", spec, "--strict", "--out", str(tmp_path / "o.json"))
     with pytest.raises(SystemExit) as exc:
         cli.main()
@@ -736,7 +736,7 @@ def test_refine_runtime_value_error_is_not_a_usage_refusal(tmp_path, monkeypatch
         raise ValueError("similarity backend returned NaN")
 
     monkeypatch.setattr(QuestionRefiner, "_deduplicate", similarity_failed)
-    _argv(monkeypatch, "questions", "refine", "--questions", _questions(tmp_path),
+    _argv(monkeypatch, "eval", "questions", "refine", "--questions", _questions(tmp_path),
           "--product", "numba", "--dry-run")
     with pytest.raises(ValueError, match="similarity backend returned NaN"):
         cli.main()

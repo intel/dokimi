@@ -7,15 +7,17 @@ The benchmark produces long-lived JSON artifact kinds: ``questions``,
 ``answers``, ``eval`` (LLM-judge scores), ``arms`` (treatment-arm comparisons),
 ``task_runs`` (executable task results), ``explore_runs`` (ExploreBench
 localization results), ``novelty`` (what an artifact's content adds to one
-model), ``guidance_reach`` (L1 reach probes), ``repo_readiness`` (L0 claim
+model), ``guidance_reach`` (L1 reach probes), ``skill_discovery`` (which
+skills a harness lists, from where), ``repo_readiness`` (L0 claim
 checks), ``tool_preference`` (which of two equal tools a model picks, and
 what moves it), ``repo_environment`` (static inspection of what a
 repository offers an agent), ``plan`` (the cells a run promises to measure),
 ``result`` (one status per planned cell), ``repo_budget`` (what a repository puts
 into an agent's context), ``effective_instructions`` (the effective-instructions/v0
 receipt of a reach probe), ``need_graph`` and ``eval_coverage`` (a frozen need graph and an
-eval set's coverage of it) and ``task_inspect`` (which eval-task format each
-path under a tree is). This module stamps each with a
+eval set's coverage of it), ``task_inspect`` (which eval-task format each
+path under a tree is), ``repo_hits_judged`` (a judge's labels of one replay cell's credited pairs)
+and ``reach_matrix`` (the reach conformance matrix). This module stamps each with a
 ``schema_version`` and validates it against the JSON Schema in
 ``dokimi/schemas/`` on save and load, so fixtures and baselines stay
 forward-compatible and self-describing.
@@ -53,6 +55,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "task_runs": "task_runs.v1",
     "explore_runs": "explore_runs.v1",
     "guidance_reach": "guidance_reach.v1",
+    "skill_discovery": "skill_discovery.v1",
     "repo_readiness": "repo_readiness.v1",
     "tool_preference": "tool_preference.v1",
     "repo_environment": "repo_environment.v1",
@@ -66,6 +69,8 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "cli_routes": "cli_routes.v1",
     "need_graph": "need_graph.v1",
     "eval_coverage": "eval_coverage.v1",
+    "reach_matrix": "reach_matrix.v1",
+    "repo_hits_judged": "repo_hits_judged.v1",
 }
 
 # kind -> superseded versions still accepted on *load*, newest first. An artifact written under an

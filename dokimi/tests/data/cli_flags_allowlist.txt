@@ -79,6 +79,7 @@
 --hits  # repo report replay hits (#297) adds it: a view switch has no registry concept yet
 --image
 --include-disabled  # novelty routing (#172) adds it: no registry concept yet; a F1b migration names it
+--include-invalid  # novelty routing: keeps a skill with a spec error in the field; no registry concept yet
 --include-resources
 --input
 --intents
@@ -93,6 +94,7 @@
 --judges
 --keep
 --kind
+--labels  # repo hits judge (#291) adds it: a person's labels have no registry concept yet; a F1b migration names it
 --large-bytes
 --lexical-only
 --libraries
@@ -143,6 +145,7 @@
 --pairwise
 --pass-k  # repo compare (#155) adds it: no registry concept yet; a F1b migration names it
 --path-stability  # repo compare (#155) adds it: no registry concept yet; a F1b migration names it
+--per-arm  # repo hits sheet (#291) adds it: a sample size has no registry concept yet; a F1b migration names it
 --personas
 --personas-count
 --placebo-text
@@ -230,6 +233,7 @@
 --min-sessions  # context prefilter threshold: no registry concept yet
 --rare-max  # context prefilter threshold: no registry concept yet
 --in-use-rate  # context prefilter threshold: no registry concept yet
+--catalogue  # repo skill-reach: the skill_fixtures.v1 YAML of SKILL.md placements; no registry concept covers a fixture catalogue
 --ceiling  # eval headroom (#279) adds it: no registry concept yet; a F1b migration names it
 --floor  # eval headroom (#279) adds it: no registry concept yet; a F1b migration names it
 --min-reps  # eval headroom (#279) adds it: no registry concept yet; a F1b migration names it

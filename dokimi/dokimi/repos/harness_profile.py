@@ -53,6 +53,7 @@ class HarnessProfile:
     egress: tuple[str, ...] = ()
     endpoint_env: str | None = None
     guidance: dict[str, Any] = field(default_factory=dict)
+    skills: dict[str, Any] = field(default_factory=dict)  # declared skill dirs; verified only by `repo skill-reach`
     bridge: dict[str, str] | None = None
     prompt_suffix: str = ""
     config_files: dict[str, str] = field(default_factory=dict)
@@ -73,6 +74,18 @@ class HarnessProfile:
         """Hops the harness follows ``@`` imports (``guidance.import_max_depth``); None: unlimited."""
         depth = self.guidance.get("import_max_depth")
         return int(depth) if depth is not None else None
+
+    @property
+    def shadow_file(self) -> str | None:
+        """A file the harness loads by convention that turns the other guidance of its directory off
+        (``guidance.shadow_file``); ``repo reach --scenarios shadow`` writes it. None: the profile declares none."""
+        name = self.guidance.get("shadow_file")
+        return str(name) if name else None
+
+    @property
+    def claude_displaces_agents(self) -> bool:
+        """A CLAUDE* file turns off the AGENTS.md in its own directory (``guidance.claude_displaces_agents``)."""
+        return self.guidance.get("claude_displaces_agents") is True
 
     def applied_args(self, tools: str, present: frozenset[str]) -> list[str]:
         """The ``args_if_present`` names :meth:`argv` adds: those in ``present``, in the ``all`` tool mode only."""
@@ -250,6 +263,7 @@ def parse_profile(raw: Any, path: str = "<profile>") -> HarnessProfile:
         egress=tuple(raw.get("egress") or ()),
         endpoint_env=raw.get("endpoint_env"),
         guidance=dict(raw.get("guidance") or {}),
+        skills=dict(raw.get("skills") or {}),
         bridge=raw.get("bridge"),
         prompt_suffix=raw.get("prompt_suffix") or "",
         config_files=dict(raw.get("config_files") or {}),

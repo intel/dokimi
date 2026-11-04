@@ -29,7 +29,7 @@ class EmptyQuestionError(ValueError):
 
     A ``ValueError`` meaning a bad input record, which the CLI reports as
     ``Error: ...`` with exit 2, the code the commands use for bad input (1 is
-    the verdict code of ``--strict`` gates and ``eval judge-validity``).
+    the verdict code of ``--strict`` gates and ``eval judge validate``).
     """
 
 
