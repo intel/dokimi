@@ -62,6 +62,8 @@ from .events import convert
 from .transcript import Transcript
 from .harness_profile import HarnessProfile
 from .manifest import RepoManifest, check_repo
+from .overlays import overlay_of
+from .reach_overlays import native_in_probe, overlay_report
 from .runner import SUPPORT_HOST
 from .source import RepoTree, SourceError
 
@@ -208,7 +210,9 @@ def probe_files(tree: RepoTree, manifest: RepoManifest, profile: HarnessProfile)
     declared = set(check_repo(tree, manifest).guidance_files)
     names = set(profile.guidance_names)
     native = {p for p in tree.files() if PurePosixPath(p).name in names}
-    return sorted(p for p in declared | native if not manifest.in_eval_dir(p))
+    # Every overlay, even where the globs miss it: whether a foreign one loads is the question (repos/overlays.py)
+    overlays = {p for p in tree.files() if overlay_of(p) is not None}
+    return sorted(p for p in declared | native | overlays if not manifest.in_eval_dir(p))
 
 
 def check_files(files: list[str], profile: HarnessProfile) -> None:
@@ -573,6 +577,8 @@ def run_reach(
         "unresolved": unresolved,
         "scenarios": scenario_rows,
         "records": records,
+        "overlays": overlay_report(records, profile.overlay, {s.path: s.aliases for s in seeded},
+                                   native_in_probe(seeded, profile.guidance_names)),
         "summary": {
             "cost_usd": round(sum(r.get("cost_usd") or 0 for r in scenario_rows), 6),
             "by_class": by_class,
@@ -663,6 +669,23 @@ def _matrix(records: list[dict[str, Any]]) -> dict[str, dict[str, str]]:
     return matrix
 
 
+def _own_overlay_note(payload: dict[str, Any], overlays: dict[str, Any]) -> str:
+    """A "not loaded" note needs a usable negative record and no error: an errored scenario says nothing about loading."""
+    group = {f["path"]: (f["path"], *f.get("aliases", ())) for f in payload["files"]}
+    own = set(overlays["own_files"])
+    own_records = [r for r in payload["records"] if own & set(group.get(r["file"], (r["file"],)))]
+    seen = {r["class"] for r in own_records}
+    probed = {r["scenario"] for r in own_records}
+    # a scenario that errored, or answered with prose (a refusal), says nothing about what it loaded
+    usable = {s["id"] for s in payload["scenarios"] if not s.get("error") and (s.get("prose") or 0) <= PROSE_LIMIT}
+    negative = {r["class"] for r in own_records if r["scenario"] in usable}
+    files = ", ".join(overlays["own_files"])
+    # a usable negative in one scenario does not clear a refusal in another: every probed scenario must be usable
+    if "not_loaded" in negative and "error" not in seen and probed <= usable:
+        return f"note: no {overlays['own']} overlay ({files}) was loaded in any scenario"
+    return f"note: could not determine whether the {overlays['own']} overlay ({files}) was loaded"
+
+
 def saved_gaps(payload: dict[str, Any], fmt: str) -> list[str]:
     """The fields a saved probe must carry to be rendered as ``fmt``: the schema leaves them optional."""
     if fmt == "receipt":
@@ -688,6 +711,19 @@ def saved_matrix_problem(payload: dict[str, Any]) -> str | None:
     return None
 
 
+def _overlay_lines(payload: dict[str, Any]) -> list[str]:
+    """The overlay lines of the table: a ``finding:`` per foreign overlay that loaded, and the own-overlay note."""
+    lines: list[str] = []
+    overlays = payload.get("overlays") or {}
+    for path, seen in (overlays.get("cross_loaded") or {}).items():
+        where = ", ".join(f"{sid} ({cls})" for sid, cls in seen.items())
+        lines.append(f"finding: {path}, an overlay for another agent, was loaded by {payload['harness']['name']} in {where}")
+    own_ambiguous = set(overlays.get("own_files") or ()) & set(overlays.get("ambiguous") or ())
+    if overlays.get("own_files") and not overlays.get("own_loaded") and not own_ambiguous:
+        lines.append(_own_overlay_note(payload, overlays))
+    return lines
+
+
 def format_matrix(payload: dict[str, Any]) -> str:
     """A plain-text table: one row per guidance file, one column per scenario."""
     short = _SHORT
@@ -703,6 +739,7 @@ def format_matrix(payload: dict[str, Any]) -> str:
         row = payload["summary"]["matrix"].get(f["path"], {})
         lines.append(f"{label[f['path']]:<{width}}  " + " ".join(f"{short[row.get(s, 'error')]:>2}" for s in ids))
     lines.append("L loaded  T truncated  F fetched (after a tool read)  . not loaded  E error")
+    lines += _overlay_lines(payload)
     if any(f.get("alias_kind") == "copy" for f in payload["files"]):
         lines.append("note: the paths after = are copies, not links (this OS refused a symlink); "
                      "a harness that skips symlinks would still load them")
