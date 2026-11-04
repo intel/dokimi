@@ -12,6 +12,8 @@ and imports are not followed past the fence.
 
 from __future__ import annotations
 
+import functools
+import importlib.util
 import json
 import os
 import re
@@ -50,6 +52,7 @@ _MISSING_MODULE = re.compile(r'^Cannot find implementation or library stub for m
                              r'|^Skipping analyzing "[^"]+": module is installed, but missing library stubs'
                              r' or py\.typed marker$'
                              r'|^Import "[^"]+" could not be resolved(?: \[\w+\])?$')
+_NOT_FOUND = re.compile(r'^(?:Cannot find implementation or library stub for module named|Import) "(?P<name>[^"]+)"')
 
 
 class TypecheckError(RuntimeError):
@@ -126,7 +129,7 @@ def _claims(scan: Scan, tool: str, runnable: list[tuple[str, Fence, str]],
             continue
         fails += 1
         # the first real error names the claim: a fragment or missing-module error of the same fence is only counted
-        line, message = next(e for e in errors if not _missing_context(e[1]))
+        line, message = _real(errors)[0]
         more = f" (+{len(errors) - 1} more)" if len(errors) > 1 else ""
         where = f"line {line}: " if line else ""  # 0: the tool gave no line, so the claim is the fence itself
         scan.add(f, fence.line + line, "python_fence", _label(code), "fail",
@@ -152,9 +155,44 @@ def _missing_context(message: str) -> bool:
     return _FRAGMENT.match(message) is not None or _MISSING_MODULE.match(message) is not None
 
 
+@functools.cache
+def _stdlib() -> frozenset[str]:
+    """Every top-level standard-library name, removed ones included: this Python's, and each one the pinned mypy's
+    typeshed ``VERSIONS`` lists (``imp: 3.0-3.11``)."""
+    names = set(sys.stdlib_module_names)
+    spec = importlib.util.find_spec("mypy")
+    versions = Path(spec.origin).parent / "typeshed" / "stdlib" / "VERSIONS" if spec and spec.origin else None
+    if versions is not None and versions.is_file():
+        for line in versions.read_text(encoding="utf-8").splitlines():
+            name = line.split("#")[0].split(":")[0].strip()
+            if name:
+                names.add(name.split(".")[0])
+    return frozenset(names)
+
+
+def _stale_import(message: str, missing: set[str]) -> bool:
+    """True for a module not found that is a stale call after all: a standard-library one the repository's Python
+    lacks (``imp`` on 3.13), or a submodule of a module the environment has (``json.nosuch``: mypy names a missing parent
+    too, so a parent it does not name was found)."""
+    m = _NOT_FOUND.match(message)
+    if m is None:
+        return False
+    name = m.group("name")
+    if name.split(".")[0] in _stdlib():
+        return True
+    return message.startswith("Cannot find") and "." in name and name.rpartition(".")[0] not in missing
+
+
+def _real(errors: list[tuple[int, str]]) -> list[tuple[int, str]]:
+    """The errors of a fence that are neither missing context nor a module the environment lacks (``_stale_import``
+    keeps the stale ones)."""
+    missing = {m.group("name") for _, msg in errors if (m := _NOT_FOUND.match(msg))}
+    return [e for e in errors if not _missing_context(e[1]) or _stale_import(e[1], missing)]
+
+
 def _is_unchecked(errors: list[tuple[int, str]]) -> bool:
     """True when every error of a fence is one of those (see ``_missing_context``): nothing real was found."""
-    return all(_missing_context(message) for _, message in errors)
+    return not _real(errors)
 
 
 def _unchecked_reason(errors: list[tuple[int, str]]) -> str:

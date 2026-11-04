@@ -792,6 +792,25 @@ def test_mypy_wordings_of_an_untyped_module_are_not_stale(message):
 
     assert l0_typecheck._is_unchecked([(1, message)])
 
+@pytest.mark.parametrize("fence", ["import imp", "import distutils.core", "from json.nosuch import loads",
+                                   "from asyncio.compat import x", "from mypy.nosuch import x"])
+def test_a_removed_standard_library_module_or_a_missing_submodule_is_stale(tmp_path, monkeypatch, fence):
+    # imp and distutils left the standard library in 3.12; json and mypy are there, so their submodule is the stale call
+    from dokimi.repos.l0 import typecheck as l0_typecheck
+
+    monkeypatch.setattr(l0_typecheck, "python_version", lambda check: (3, 13))
+    claims = _fence_claims(scan_repo(_tree(tmp_path, f"{FENCE}python\n{fence}\n{FENCE}\n"),
+                                     parse_manifest(MANIFEST), typecheck=Check("mypy", sys.executable)))
+    assert [c["status"] for c in claims] == ["fail"]
+
+
+def test_a_submodule_of_a_package_the_environment_lacks_is_unresolved(tmp_path):
+    fence = f"{FENCE}python\nimport nosuchmodule_dokimi.sub\n{FENCE}\n"
+    claims = _fence_claims(scan_repo(_tree(tmp_path, fence), parse_manifest(MANIFEST),
+                                     typecheck=Check("mypy", sys.executable)))
+    assert [c["status"] for c in claims] == ["unresolved"]
+
+
 def test_a_missing_module_with_a_real_error_fails_on_the_real_error(tmp_path):
     fence = f"{FENCE}python\nimport nosuchmodule_dokimi\nx: int = 'a'\n{FENCE}\n"
     [claim] = _fence_claims(scan_repo(_tree(tmp_path, fence), parse_manifest(MANIFEST),
