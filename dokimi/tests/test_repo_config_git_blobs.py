@@ -337,17 +337,19 @@ def test_a_submodule_inside_a_nested_repository_is_hashed_by_its_checked_out_fil
 
 def _owned_by_another_user(monkeypatch, repo: Path) -> None:
     """Git refuses the repository at ``repo`` as owned by another user (safe.directory), through git's own test knob, on
-    every git call whose arguments name ``repo`` (or a path under it): the call sites see git's refusal, as for a real owner."""
+    every git call whose arguments name ``repo`` (or a path under it). An empty safe.directory entry clears any allow-list
+    (a runner's global ``safe.directory = *`` would otherwise lift the refusal)."""
     from dokimi import process, utils
 
     base = utils._git_env()
     named = re.compile(re.escape(str(repo)) + r"(?![\w.-])")
     real_run = process.run
+    refuse = {"GIT_TEST_ASSUME_DIFFERENT_OWNER": "1", "LC_ALL": "C", "GIT_CONFIG_COUNT": "1",
+              "GIT_CONFIG_KEY_0": "safe.directory", "GIT_CONFIG_VALUE_0": ""}
 
     def run(argv, **kwargs):
         if any(named.search(arg) for arg in argv):
-            kwargs["env"] = process.Env.only(allow=base.allow,
-                                             set={**base.set, "GIT_TEST_ASSUME_DIFFERENT_OWNER": "1", "LC_ALL": "C"})
+            kwargs["env"] = process.Env.only(allow=base.allow, set={**base.set, **refuse})
         return real_run(argv, **kwargs)
 
     monkeypatch.setattr(process, "run", run)
