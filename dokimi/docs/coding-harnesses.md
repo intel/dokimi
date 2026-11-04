@@ -21,7 +21,7 @@ pass rate against a baseline harness.
 ## Task Layouts
 
 Two layouts are read, and a root may mix them. `task.md` is read by
-`tasks list`, `coverage` and `catalog scan`; it is run by `docker-oracle` and
+`eval tasks list`, `coverage` and `catalog scan`; it is run by `docker-oracle` and
 by the `benchflow*:<agent>` harnesses (BenchFlow reads it natively), and a
 `command:` harness runs whatever it is given. What each harness refuses
 follows the files it reads, and a refused cell is an error (missing data),
@@ -128,9 +128,9 @@ checks live links), and the six Harbor's SWE-bench adapter lists as failing unde
 oracle (harbor 6099b8c, `adapters/swebench/README.md`, Known Issues). Naming
 one in `--tasks` still runs it.
 
-### Other eval formats: `tasks inspect`
+### Other eval formats: `eval inspect`
 
-`python cli.py tasks inspect <path> [--json] [--out FILE]` names the eval-task format of a
+`python cli.py eval inspect <path> [--json] [--out FILE]` names the eval-task format of a
 file, a task directory, or every item under a tree, and reports its structure:
 kind, item count, which parts are present or missing (instruction,
 environment, oracle, verifier, metadata), lint problems, and what in dokimi
@@ -159,14 +159,14 @@ real files in each format, with their sources in its `MANIFEST.yaml`.
 | `task-md` | directory with a BenchFlow `task.md` | executable | `benchflow*`, `docker-*` (with `environment/Dockerfile`) |
 | `terminal-bench-v1` | directory with `task.yaml` + `run-tests.sh` / `Dockerfile` / `solution.sh` | executable | `docker-*` run it as it is; `harbor`, `benchflow` through a cached Harbor export (not a `solution.yaml` task) |
 | `swe-bench` | JSON/JSONL rows with `instance_id`, `repo`, `base_commit`, `problem_statement` (`FAIL_TO_PASS`) | executable | `docker-*` via `tasks run --swe-bench` (Python SWE-bench repos) |
-| `inspect-samples` | JSON/JSONL/CSV rows with `input` and `target` (or the keys a `FieldSpec` names) | answer-only | `questions import` ([answer-only formats](answer-formats.md)) |
-| `inspect-task` | `.py` importing `inspect_ai` with a `@task` function | answer-only (executable with a `sandbox=`) | `questions import` ([answer-only formats](answer-formats.md)) |
-| `openai-evals` | JSONL rows with `input` (chat messages) and `ideal` | answer-only | `questions import` ([answer-only formats](answer-formats.md)) |
+| `inspect-samples` | JSON/JSONL/CSV rows with `input` and `target` (or the keys a `FieldSpec` names) | answer-only | `eval import` ([answer-only formats](answer-formats.md)) |
+| `inspect-task` | `.py` importing `inspect_ai` with a `@task` function | answer-only (executable with a `sandbox=`) | `eval import` ([answer-only formats](answer-formats.md)) |
+| `openai-evals` | JSONL rows with `input` (chat messages) and `ideal` | answer-only | `eval import` ([answer-only formats](answer-formats.md)) |
 | `openai-evals-spec` | registry YAML with `class: evals.elsuite.*` run specs | answer-only | none yet |
-| `skill-creator-evals` | `evals.json` with `skill_name` and `evals[].prompt` | answer-only | `questions import` ([answer-only formats](answer-formats.md)) |
-| `promptfoo` | `promptfooconfig*.yaml`/`.json`, or a config with `prompts`, `providers`/`targets` and `tests`/`scenarios`/`redteam` | answer-only | `questions import` ([answer-only formats](answer-formats.md)) |
-| `skill-creator-trigger` | rows with `query` and `should_trigger` | trigger | `catalog trigger-set` |
-| `skill-reach` | `QuerySet` (`queries[]` with `query_id`/`id`, `text`, `expected_skill`) | trigger | `catalog trigger-set` |
+| `skill-creator-evals` | `evals.json` with `skill_name` and `evals[].prompt` | answer-only | `eval import` ([answer-only formats](answer-formats.md)) |
+| `promptfoo` | `promptfooconfig*.yaml`/`.json`, or a config with `prompts`, `providers`/`targets` and `tests`/`scenarios`/`redteam` | answer-only | `eval import` ([answer-only formats](answer-formats.md)) |
+| `skill-creator-trigger` | rows with `query` and `should_trigger` | trigger | `eval triggers generate` |
+| `skill-reach` | `QuerySet` (`queries[]` with `query_id`/`id`, `text`, `expected_skill`) | trigger | `eval triggers generate` |
 | `promptfoo-tests` | CSV with `__expected` columns, or rows of `{vars, assert}` | answer-only | none yet |
 | `dokimi-questions` | questions.v1/v2 JSON | answer-only (trigger with `expected_skill`) | questions track |
 | `dokimi-explore-task` | YAML with `id`, `query` and `references[].path` | localization | explore track |
@@ -195,7 +195,7 @@ sets `deploy.resources.limits.memory`, which `docker compose` honours and
 dokimi reads as the task's own value. `DOKIMI_TBENCH_V1_MEMORY_MB` changes the
 8192 default. The Harbor export writes the same value to `task.toml`.
 
-`tasks list` and `tasks run` still read only the first three; `tasks run --swe-bench`
+`eval tasks list` and `tasks run` still read only the first three; `tasks run --swe-bench`
 also takes a SWE-bench file.
 
 The `docker-*` harnesses mount the oracle at `/solution` and `/oracle` and the

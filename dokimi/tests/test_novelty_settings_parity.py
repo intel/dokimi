@@ -37,6 +37,7 @@ import pytest
 
 from dokimi.cli import build_parser
 from dokimi.commands import novelty as novelty_cmd
+from dokimi.utils import InputError
 from tests.test_novelty_analyze import SKILL, _scripted
 
 GOLDEN = Path(__file__).resolve().parent / "fixtures" / "novelty_settings_main.json"
@@ -191,6 +192,9 @@ def _capture(name: str, tmp_path: Path) -> list[dict[str, Any]]:
                     args.func(args)
                 except SystemExit as exc:
                     status = exc.code if isinstance(exc.code, int) else str(exc.code)
+                except InputError as exc:  # cli.main's shape: exit 2, the message on stderr
+                    status = 2
+                    err.write(f"{exc}\n")
             steps.append({
                 "status": status,
                 "stdout": (_without_coverage_headline(out.getvalue())

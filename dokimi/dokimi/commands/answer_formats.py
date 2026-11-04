@@ -1,11 +1,11 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""`questions import`, `eval reference` and `eval native-import`: answer-only eval formats.
+"""`eval import`, `eval score reference` and `eval native-import`: answer-only eval formats.
 
 Inspect AI, OpenAI evals, skill-creator evals.json and promptfoo sets are imported as
 questions.v2 with ``grading`` checks, answered by the answer track (``answers generate`` or
-``arms run``) and scored by ``eval reference``. A native tool's own log is read by
+``arms run``) and scored by ``eval score reference``. A native tool's own log is read by
 ``eval native-import`` so its completions and verdicts sit next to dokimi's.
 """
 
@@ -88,12 +88,12 @@ def cmd_eval_native_import(args: argparse.Namespace) -> None:
     print(f"{run.tool} ({run.model}): {len(run.answers)} samples, native pass {rate}")
 
 
-def register_questions(questions_sub) -> None:
-    p = questions_sub.add_parser(
+def register_import(eval_sub) -> None:
+    p = eval_sub.add_parser(
         "import",
         help="Import an answer-only eval (Inspect samples/@task, OpenAI evals, skill-creator, promptfoo) "
              "as questions with grading checks")
-    p.add_argument("path", help="Eval file (format detected as by `tasks inspect`)")
+    p.add_argument("path", help="Eval file (format detected as by `eval inspect`)")
     p.add_argument("--format", default=None, help="Force a format name (default: detected)")
     p.add_argument("--scorer", default=None, help="Inspect samples: scorer to translate (match, choice, ...)")
     p.add_argument("--task", default=None, help="Inspect @task file: which task function")
@@ -103,14 +103,14 @@ def register_questions(questions_sub) -> None:
     p.set_defaults(func=cmd_questions_import)
 
 
-def register_eval(eval_sub, positive_int) -> None:
+def register_eval(score_sub, eval_sub, positive_int) -> None:
     from dokimi.defaults import DEFAULT_JUDGE_PROVIDER, JUDGE_MODEL_FOR_PROVIDER, JUDGE_MODEL_HELP
     from dokimi.eval.judge import JUDGE_PROVIDERS
 
-    r = eval_sub.add_parser("reference", help="Score answers against imported grading checks "
+    r = score_sub.add_parser("reference", help="Score answers against imported grading checks "
                                               "(match/exact/choice/... deterministic, judge checks via the judge)")
     r.add_argument("--answers", required=True, help="answers.v1 or arms output JSON")
-    r.add_argument("--questions", required=True, help="Questions JSON from `questions import`")
+    r.add_argument("--questions", required=True, help="Questions JSON from `eval import`")
     r.add_argument("-o", "--output", required=True, help="eval.v1 (answers) or arms (arms run) JSON to write")
     r.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, help=JUDGE_MODEL_HELP)
     r.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, choices=JUDGE_PROVIDERS)

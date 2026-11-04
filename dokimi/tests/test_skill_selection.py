@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Skill selection: the skill-catalog: arm, its scoring, and `catalog trigger-set`."""
+"""Skill selection: the skill-catalog: arm, its scoring, and `eval triggers generate`."""
 
 from __future__ import annotations
 
@@ -221,19 +221,19 @@ def test_trigger_set_cli(tmp_path, catalog, capsys):
         {"id": "2", "text": "fix my oneDAL kmeans", "metadata": {"skill_under_test": None}},
     ]}), encoding="utf-8")
     out = tmp_path / "set.json"
-    _run_cli(["catalog", "trigger-set", "--catalog", str(catalog),
+    _run_cli(["eval", "triggers", "generate", "--catalog", str(catalog),
               "--questions", f"{qfile}=@metadata.skill_under_test", "--out", str(out)])
     data = json.loads(out.read_text(encoding="utf-8"))
     assert [q["expected_skill"] for q in data["queries"]] == ["linux-perf", None]
     assert '"exam_framing": 1' in capsys.readouterr().out
     with pytest.raises(SystemExit):
-        _run_cli(["catalog", "trigger-set", "--catalog", str(catalog), "--strict",
+        _run_cli(["eval", "triggers", "generate", "--catalog", str(catalog), "--strict",
                   "--questions", f"{qfile}=@metadata.skill_under_test", "--out", str(out)])
     with pytest.raises(SystemExit, match="PATH=LABEL"):
-        _run_cli(["catalog", "trigger-set", "--catalog", str(catalog),
+        _run_cli(["eval", "triggers", "generate", "--catalog", str(catalog),
                   "--questions", str(qfile), "--out", str(out)])
     with pytest.raises(SystemExit, match="--target"):
-        _run_cli(["catalog", "trigger-set", "--catalog", str(catalog), "--format", "skill-creator",
+        _run_cli(["eval", "triggers", "generate", "--catalog", str(catalog), "--format", "skill-creator",
                   "--questions", f"{qfile}=none", "--out", str(out)])
 
 
@@ -258,7 +258,7 @@ def test_trigger_set_cli_rejects_a_label_path_that_never_resolves(tmp_path, cata
         {"id": "1", "text": "perf shows low IPC", "metadata": {"skill_under_test": "linux-perf"}},
     ]}), encoding="utf-8")
     with pytest.raises(SystemExit, match="resolves for none of 1 questions") as exc:
-        _run_cli(["catalog", "trigger-set", "--catalog", str(catalog),
+        _run_cli(["eval", "triggers", "generate", "--catalog", str(catalog),
                   "--questions", f"{qfile}=@metadata.skil_under_test", "--out", str(tmp_path / "o.json")])
     assert exc.value.code == 2  # a path typo is an input refusal (docs/quickstart.md)
 
@@ -286,7 +286,7 @@ def test_trigger_set_exits_2_with_a_message_on_an_unreadable_questions_file(
     elif content is not None:
         qfile.write_bytes(content)
     out = tmp_path / "o.json"
-    monkeypatch.setattr("sys.argv", ["dokimi", "catalog", "trigger-set", "--catalog", str(catalog),
+    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "triggers", "generate", "--catalog", str(catalog),
                                      "--questions", f"{qfile}=none", "--out", str(out)])
     with pytest.raises(SystemExit) as exc:
         cli.main()
@@ -381,12 +381,12 @@ def test_trigger_set_cli_paths_with_equals_and_no_write_on_bad_label(tmp_path, c
     qfile = d / "q.json"
     qfile.write_text(json.dumps({"questions": [{"id": "1", "text": "x"}]}), encoding="utf-8")
     out = tmp_path / "o.json"
-    _run_cli(["catalog", "trigger-set", "--catalog", str(catalog),
+    _run_cli(["eval", "triggers", "generate", "--catalog", str(catalog),
               "--questions", f"{qfile}=linux-perf", "--out", str(out)])
     assert out.exists()
     out.unlink()
     with pytest.raises(SystemExit):
-        _run_cli(["catalog", "trigger-set", "--catalog", str(catalog),
+        _run_cli(["eval", "triggers", "generate", "--catalog", str(catalog),
                   "--questions", f"{qfile}=linux-pref", "--out", str(out)])
     assert not out.exists()
 
@@ -452,14 +452,14 @@ def test_trigger_set_cli_checks_each_source_and_inputs(tmp_path, catalog, capsys
     good = _qfile(tmp_path, "good.json", [{"id": "1", "text": "x", "metadata": {"skill_under_test": "linux-perf"}}])
     typo = _qfile(tmp_path, "typo.json", [{"id": "2", "text": "y", "metadata": {"skill": "linux-perf"}}])
     out = tmp_path / "o.json"
-    base = ["catalog", "trigger-set", "--catalog", str(catalog), "--out", str(out)]
+    base = ["eval", "triggers", "generate", "--catalog", str(catalog), "--out", str(out)]
     with pytest.raises(SystemExit, match=r"typo\.json=@metadata\.skill_under_test: .* none of 1"):
         _run_cli(base + ["--questions", f"{good}=@metadata.skill_under_test",
                          "--questions", f"{typo}=@metadata.skill_under_test"])
     with pytest.raises(SystemExit, match="--rewrite needs --model"):
         _run_cli(base + ["--questions", f"{good}=none", "--rewrite"])
     with pytest.raises(SystemExit, match="not a directory"):
-        _run_cli(["catalog", "trigger-set", "--catalog", str(tmp_path / "nope"),
+        _run_cli(["eval", "triggers", "generate", "--catalog", str(tmp_path / "nope"),
                   "--questions", f"{good}=none", "--out", str(out)])
     bad = tmp_path / "bad.json"
     bad.write_text(json.dumps({"questions": ["just a string"]}), encoding="utf-8")
@@ -475,7 +475,7 @@ def test_trigger_set_cli_writes_each_format(tmp_path, catalog, capsys):
     q = _qfile(tmp_path, "q.json", [{"id": "1", "text": "profile it", "skills": ["linux-perf", "dpnp-io"]},
                                     {"id": "2", "text": "unrelated"}])
     out = tmp_path / "o.json"
-    base = ["catalog", "trigger-set", "--catalog", str(catalog), "--out", str(out),
+    base = ["eval", "triggers", "generate", "--catalog", str(catalog), "--out", str(out),
             "--questions", f"{q}=@skills"]
     _run_cli(base + ["--format", "skill-creator", "--target", "linux-perf"])
     assert json.loads(out.read_text()) == [{"query": "profile it", "should_trigger": True}]
@@ -492,7 +492,7 @@ def test_trigger_set_cli_exits_with_a_message_when_out_cannot_be_written(tmp_pat
     out = tmp_path / "taken"
     out.mkdir()  # a directory where the file should go
     with pytest.raises(SystemExit, match=rf"Error: cannot write --out {re.escape(str(out))}: ") as exc:
-        _run_cli(["catalog", "trigger-set", "--catalog", str(catalog), "--out", str(out),
+        _run_cli(["eval", "triggers", "generate", "--catalog", str(catalog), "--out", str(out),
                   "--questions", f"{q}=@skills", "--format", fmt, "--target", "linux-perf"])
     assert exc.value.code == 2
     assert list(out.iterdir()) == []
@@ -508,7 +508,7 @@ def test_trigger_set_cli_reports_a_schema_rejection_not_a_write_failure(tmp_path
     monkeypatch.setattr(artifact, "save_questions_artifact", reject)
     q = _qfile(tmp_path, "q.json", [{"id": "1", "text": "profile it", "skills": ["linux-perf"]}])
     with pytest.raises(SystemExit, match=r"Error: questions set rejected: record 1: bad shape") as exc:
-        _run_cli(["catalog", "trigger-set", "--catalog", str(catalog), "--out", str(tmp_path / "o.json"),
+        _run_cli(["eval", "triggers", "generate", "--catalog", str(catalog), "--out", str(tmp_path / "o.json"),
                   "--questions", f"{q}=@skills", "--format", "questions"])
     assert "cannot write" not in str(exc.value)
 
@@ -517,7 +517,7 @@ def test_trigger_set_cli_reports_a_schema_rejection_not_a_write_failure(tmp_path
 def test_trigger_set_cli_exits_with_a_message_when_out_is_empty(tmp_path, catalog, fmt):
     q = _qfile(tmp_path, "q.json", [{"id": "1", "text": "profile it", "skills": ["linux-perf"]}])
     with pytest.raises(SystemExit, match=r"Error: cannot write --out : ") as exc:
-        _run_cli(["catalog", "trigger-set", "--catalog", str(catalog), "--out", "",
+        _run_cli(["eval", "triggers", "generate", "--catalog", str(catalog), "--out", "",
                   "--questions", f"{q}=@skills", "--format", fmt, "--target", "linux-perf"])
     assert exc.value.code == 2
 
@@ -668,7 +668,7 @@ def test_trigger_set_reads_a_prompt_field(catalog):
 
 # ── trigger-set CLI: refuse input that would write a silently wrong set ──
 def _ts(catalog, out, *extra):
-    return ["catalog", "trigger-set", "--catalog", str(catalog), "--out", str(out), *extra]
+    return ["eval", "triggers", "generate", "--catalog", str(catalog), "--out", str(out), *extra]
 
 
 def test_trigger_set_cli_rejects_an_unknown_skill_creator_target(tmp_path, catalog):

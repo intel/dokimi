@@ -367,7 +367,7 @@ class TestWhatTheChecksCount:
         assert v.not_measured == ["retrieval_hit_rate"]
 
     def test_legacy_judge_error_rows_leave_a_stored_rate_measured(self):
-        # A judge-error row as eval score wrote it before error rows carried retrieval_hit.
+        # A judge-error row as ``eval score pointwise`` wrote it before error rows carried retrieval_hit.
         legacy_error = {"question_id": "q", "error": "judge failed", "with_docs": None,
                         "without_docs": None, "delta": None}
         evals = ([_row(70, 50, hit=True)] * 5 + [_row(70, 50, hit=False)] * 10

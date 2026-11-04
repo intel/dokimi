@@ -15,7 +15,7 @@ from dokimi.cli import parse_args
 from dokimi.eval import arms_run
 from dokimi.eval.arms_run import ArmsRunConfig
 from dokimi.eval.judge import Judge
-from dokimi.llm import PROVIDERS, api_key_env, resolve_model
+from dokimi.llm import PROVIDERS, credential_env_var, resolve_model
 from dokimi.personas.generator import PersonaGenerator
 from dokimi.questions.llm_gen import QuestionGenerator
 from dokimi.questions.validator import QuestionValidator
@@ -110,7 +110,7 @@ def test_a_vertex_model_garden_name_keeps_the_vertex_route(caller, model, fake_l
 def test_the_answerer_table_routes_a_bedrock_arn_and_vertex_ai():
     # An ARN has a "/", which the table passed through without a route; litellm cannot place it.
     assert resolve_model(ARN, "amazon-bedrock") == f"bedrock/{ARN}"
-    assert api_key_env("vertex_ai") == "GEMINI_API_KEY"
+    assert credential_env_var("vertex_ai") == "GEMINI_API_KEY"
     assert resolve_model("meta/llama-3.1-405b-instruct-maas", "google") == "vertex_ai/meta/llama-3.1-405b-instruct-maas"
     # A litellm route of its own passes through: Google AI Studio, or an explicit Vertex one.
     assert [resolve_model(m, "google-vertex") for m in ("gemini/gemini-2.5-pro", "vertex_ai/x")] == [

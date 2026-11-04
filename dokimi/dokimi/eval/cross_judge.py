@@ -37,7 +37,7 @@ counts as X's for this check, and X's absolute and grounded measures are X's
 too.
 
 A judge's verdict should only count if the judge can order answers whose order
-is known. Pass ``eval judge-validity`` reports with :meth:`CrossJudgeReport.
+is known. Pass ``eval judge validate`` reports with :meth:`CrossJudgeReport.
 apply_validity` and every measure from a judge that FAILED its gate — its
 grounded scoring included — is shown but left out of the label. With
 ``require_validated`` only judges that PASSED vote. On the Opus-answer perf run
@@ -212,11 +212,11 @@ def unreproducible_arms(data: Dict[str, Any]) -> List[str]:
 
     This is the gate for pairwise and checklist judges, which are shown the answers
     alone, so every arm the stored judge saw material for is unreproducible. A
-    re-scored judge (``cross-judge --judges``) is gated per question instead, on
+    re-scored judge (``eval judge agreement --judges``) is gated per question instead, on
     what :meth:`JudgeContextStore.from_artifact` serves it.
 
     The arms run stores its judge's view of treatment material in ``judge_materials``
-    (:mod:`dokimi.eval.judge_context`). ``cross-judge --judges`` gives its judge
+    (:mod:`dokimi.eval.judge_context`). ``eval judge agreement --judges`` gives its judge
     that same material by using the artifact's ``judge_materials``. Pairwise and
     checklist judges see the answers alone. In review, the same judge on the same
     answers read +24.2 (p 0.0006) with the full material (11,079 chars) and +1.4
@@ -268,7 +268,7 @@ def _number(x: Any) -> float:
 
 
 def coverage_measure(checklist: Dict[str, Any], name: str) -> Measure:
-    """An `eval checklist` report as a measure: each arm scores its coverage.
+    """An `eval score checklist` report as a measure: each arm scores its coverage.
 
     Raises ValueError naming the first question that is not ``{question_id, arms: {arm:
     {coverage}}}`` with a finite number or null as the coverage.
@@ -289,7 +289,7 @@ def coverage_measure(checklist: Dict[str, Any], name: str) -> Measure:
 
 
 def pairwise_measure(pairwise: Dict[str, Any], name: str, baseline_arm: str) -> Measure:
-    """An `eval pairwise` report as a measure: the arm scores its verdict, the baseline 0.
+    """An `eval score pairwise` report as a measure: the arm scores its verdict, the baseline 0.
 
     Raises ValueError naming the first verdict that is not an object with a finite number as
     its ``score``.
@@ -413,7 +413,7 @@ class CrossJudgeReport:
     def apply_validity(self, validity: Sequence[Dict[str, Any]]) -> List[str]:
         """Mark measures with their judge's gate result; returns validity labels that matched nothing.
 
-        ``validity`` holds ``eval judge-validity`` summaries. A PASS marks the
+        ``validity`` holds ``eval judge validate`` summaries. A PASS marks the
         absolute or pairwise measure of the same judge label and the same
         context (``none`` or ``stored``; a report without ``context`` counts as
         ``none``): the gate only validated the setting it ran in. A FAIL reaches
@@ -474,7 +474,7 @@ class CrossJudgeReport:
             "## Verdict robustness",
             "",
             f"Every arm against `{s['baseline_arm']}`, under each judge and axis. A verdict that holds under "
-            "one judge only is a property of that judge. Gate: the judge's own `judge-validity` result; "
+            "one judge only is a property of that judge. Gate: the judge's own `eval judge validate` result; "
             "a measure whose judge failed it (✗) is shown but does not vote"
             + (", and neither does an unvalidated one (—)." if self.require_validated else "."),
             "",

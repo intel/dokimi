@@ -340,6 +340,12 @@ next release.
   `repo run` (one agent per task × arm × model × rep cell, then `grade`, one
   `result.json` per cell) and `repo report` (gated success with a Wilson
   interval, grader failures, missing cells, cost).
+- `dokimi/repos/hits_judge.py` + `dokimi/repos/hits_calibration.py` —
+  `repo hits judge`: a judge model labels each credited pair of the replay
+  cells with their full texts, and each cell gets `hits_judged.json`
+  (`repo_hits_judged.v1`, `recall_judged`); `repo hits sheet` samples pairs
+  for a person, and the labels give agreement and Cohen's kappa per arm and
+  answer model.
 - `dokimi/repos/compare.py` — `repo compare`: treatment arms against a
   baseline arm over one or more batches, one value per task and arm (gate
   share, score, cost, turns, chosen `grade.json` metrics, `result.json`
@@ -349,7 +355,7 @@ next release.
   what its `--task` selection keeps; `dokimi/repos/compare_reach.py` how small
   an effect a row can find (`mde`, an uncorrected t-based estimate, and the
   lowest `p_holm` Holm's family leaves it).
-- `dokimi/repos/selfcheck.py` — `repo tasks check`: on each task
+- `dokimi/repos/selfcheck.py` — `eval check`: on each task
   `grade` must fail the untouched workspace and pass it after `oracle`, and an
   isolation probe must not see the tasks or the source from the agent's
   container.
@@ -359,7 +365,7 @@ next release.
   `addressed` from the PR's own later commits), read with git and no GitHub
   call. It is the one command that writes into a repository's tasks directory.
 
-Entry points: `python cli.py repo {validate,scan,fetch,reach,budget,tasks check,tasks replay,run,report}`
+Entry points: `python cli.py repo {validate,scan,fetch,reach,budget,tasks replay,run,report}`
 (`python cli.py repo --help` is the current list). The interface a repository
 codes against is [repo-evaluation-contract.md](repo-evaluation-contract.md),
 still marked PROPOSED: the per-host egress proxy (§2) is not implemented, so
@@ -422,12 +428,16 @@ Guide: [run-consistency.md](run-consistency.md).
   decides who owns each pipe, so an interrupted launch closes its streams exactly once
   and Windows reader threads close theirs at EOF. `FakeRunner` is its test adapter: code that spawns
   takes a `runner` argument.
+- Bad input: a library loader raises `dokimi.utils.InputError`, naming the file, and
+  never ends the process. `cli.main` prints `Error: <message>` and exits 2; exit 1 stays
+  the verdict of a gate. `tests/test_import_architecture.py` allows an exit only in the
+  frontend.
 - `dokimi/llm.py` — the entry point for LLM calls. `LLM` (one model at one provider:
   `complete`/`ask`/`chat`, retry, the response cache, usage) sits on one
   adapter seam: `LiteLLMAdapter` in production, `FakeAdapter` in tests (the
   `fake_llm` fixture). `ask_parsed` is the redraw-until-it-parses loop.
   `llm_call`, `chat_completion`, the judge, the persona and question generators and
-  the question validator go through `LLM` and its one provider table (`resolve_model`, `api_key_env`).
+  the question validator go through `LLM` and its one provider table (`resolve_model`, `credential_env_var`).
   `dokimi/llm_cli.py` serves the CLI providers (`claude-cli`): `LiteLLMAdapter`
   hands their requests to it, and it runs the logged-in CLI through `process.run`
   ([subscription-backends.md](subscription-backends.md)). `dokimi/llm_json.py`
@@ -471,7 +481,7 @@ runs `pip check` and the installed-package smoke test,
 **`ci.yml`** — fast code checks:
 
 1. **static** — the checks that need no lock install, as steps of one job:
-   `ruff check .`, zizmor on the workflows, the license headers, the pre-commit
+   `ruff check .`, zizmor on the workflows and actions, the license headers, the pre-commit
    hooks and bandit (pip-audit is its own workflow, `pip-audit.yml`). Schema checks: `schema_check` validates
    `benchmarks/spec.v1.yaml`; `config_check` checks `products.yaml`/`intents.yaml`/
    `dokimi/config/products.yaml` drift. The `guidance self-scan (L0)` step runs

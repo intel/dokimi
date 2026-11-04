@@ -27,10 +27,10 @@ BY_DOCKER = "docker-*"
 BY_BENCHFLOW = "benchflow"
 BY_QUESTIONS = "questions track"
 BY_EXPLORE = "explore track"
-# Read back by `catalog trigger-set --trigger-set`, then run by the skill-catalog: arm.
-BY_TRIGGER_SET = "catalog trigger-set"
-BY_IMPORT = "questions import"
-#: Formats ``questions import`` translates (the keys of ``task_formats.imports.ADAPTERS``).
+# Read back by `eval triggers generate --trigger-set`, then run by the skill-catalog: arm.
+BY_TRIGGER_SET = "eval triggers generate"
+BY_IMPORT = "eval import"
+#: Formats ``eval import`` translates (the keys of ``task_formats.imports.ADAPTERS``).
 IMPORTABLE = frozenset({"inspect-samples", "inspect-task", "openai-evals", "skill-creator-evals", "promptfoo"})
 NONE_YET = "none-yet"
 
@@ -117,7 +117,7 @@ class Probe(Protocol):
 
 
 def mark_importable(report: Report) -> Report:
-    """Name ``questions import`` as a consumer of a format it translates."""
+    """Name ``eval import`` as a consumer of a format it translates."""
     if report.format in IMPORTABLE and BY_IMPORT not in report.consumers:
         report.consumers.append(BY_IMPORT)
     return report

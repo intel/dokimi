@@ -1,6 +1,6 @@
 ### Added
 
-- **`tasks inspect <path> [--json] [--out FILE]`** — detects the eval-task
+- **`eval inspect <path> [--json] [--out FILE]`** — detects the eval-task
   format of a file, a task directory or a whole tree and reports its
   structure: kind (executable, answer-only, trigger, localization), item
   count, present and missing parts, lint problems and which dokimi backends

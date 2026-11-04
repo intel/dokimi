@@ -323,14 +323,18 @@ def _trigger_set_sources(specs: list, catalog) -> list:
     return out
 
 
-def register(sub, positive_int) -> None:
-    """Add the `catalog` subcommand group."""
+def register(sub, positive_int, eval_sub) -> None:
+    """Add the `catalog` subcommand group, and `eval triggers generate` under `eval` (#94 M1)."""
 
     catalog_p = sub.add_parser(
         "catalog",
         help="Scan an external skill/task catalog (e.g. a local uxlfoundation/skills or intel/skills checkout)",
     )
     catalog_sub = catalog_p.add_subparsers(dest="catalog_cmd", required=True)
+
+    from dokimi.commands import catalog_eval
+
+    catalog_eval.register(catalog_sub)
 
     scan_p = catalog_sub.add_parser(
         "scan", help="Report which skills/tasks under --root load cleanly"
@@ -369,8 +373,10 @@ def register(sub, positive_int) -> None:
     fm_p.add_argument("--json", action="store_true", help="Print JSON instead of a table")
     fm_p.set_defaults(func=cmd_catalog_formats)
 
-    ts_p = catalog_sub.add_parser(
-        "trigger-set",
+    triggers_sub = eval_sub.add_parser("triggers", help="Trigger sets: build them from question sets").add_subparsers(
+        dest="eval_triggers_cmd", required=True)
+    ts_p = triggers_sub.add_parser(
+        "generate",
         help="Build a skill-selection query set (labels + leakage/framing lint) from question sets",
     )
     ts_p.add_argument("--catalog", required=True, help="Directory of the skills the agent will see")
