@@ -16,8 +16,9 @@ is cut. The first release is 0.1.0.
 
 ## Version numbers
 
-The version lives in one place: `project.version` in `pyproject.toml`.
-`dokimi --version`, `dokimi.__version__` and the `dokimi_version` field of the
+The version lives in `project.version` in `pyproject.toml`, with a copy in
+`package.version` of `../conda-recipe/meta.yaml` that `tests/test_conda_recipe.py`
+keeps equal to it. `dokimi --version`, `dokimi.__version__` and the `dokimi_version` field of the
 `dokimi run` manifest and of the subject scorecard `run_manifest` all read it. A source checkout reads `pyproject.toml` itself, an
 installed wheel its package metadata.
 
@@ -53,7 +54,8 @@ the `Fragment for package changes` step in `ci.yml`'s `static` job asks for it.
 1. **Release PR** (from a fork, like any PR). From `dokimi/`:
 
    ```bash
-   # bump project.version in pyproject.toml to X.Y.Z, then:
+   # bump project.version in pyproject.toml and package.version in
+   # ../conda-recipe/meta.yaml to X.Y.Z, then:
    scriv collect --version X.Y.Z          # fragments -> CHANGELOG.md section
    python scripts/check_release.py vX.Y.Z  # what the release workflow checks
    ```
