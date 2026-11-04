@@ -12,7 +12,10 @@ The fake harness prints Claude stream-json. With its Bash tool on and a prompt t
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -23,7 +26,8 @@ from dokimi.cli import build_parser
 from dokimi.repos import WorkTree, load_manifest
 from dokimi.repos.cli_traces import shell_reads
 from dokimi.repos.harness_profile import ProfileError, load_profile
-from dokimi.repos.reach import ASK, ASK_AFTER_BASH, ASK_AFTER_READ, ReachError, run_reach, scenarios
+from dokimi.repos.reach import (ASK, ASK_AFTER_BASH, ASK_AFTER_READ, ONLY_COMMAND_ENV, ReachError, run_reach,
+                                scenario_env, scenarios)
 from dokimi.repos.receipt import build_receipt
 from tests.test_repo_reach import _write
 from tests.test_repo_receipt import BUDGET, _record, _sources, _tree
@@ -108,7 +112,7 @@ def test_bash_scenarios_cat_each_probe_file_from_the_root():
         ("bash=a", "", "bash", "a/REACH_PROBE.txt"), ("bash=sub", "", "bash", "sub/REACH_PROBE.txt")]
     assert got[1].prompt == ("First use the Bash tool to run `cat sub/REACH_PROBE.txt`, and run no other command. "
                              "Then: " + ASK)
-    assert got[1].prompt == ASK_AFTER_BASH.format(path="sub/REACH_PROBE.txt") + ASK
+    assert got[1].prompt == ASK_AFTER_BASH.format(command="cat sub/REACH_PROBE.txt") + ASK
     assert not [s for s in scenarios(files) if s.tools == "bash"]  # the default kinds run no bash scenario
 
 
@@ -131,9 +135,47 @@ def test_a_fake_bash_run_reads_the_probe_of_a_directory_with_a_space(tmp_path, m
 
 def test_the_claude_code_profile_runs_the_bash_mode_with_the_bash_tool_alone():
     profile = load_profile("claude-code")
-    assert profile.argv(prompt="p", model="m", tools="bash")[-2:] == ["--tools", "Bash"]
+    assert profile.argv(prompt="p", model="m", tools="bash")[-4:-1] == ["--tools", "Bash", "--settings"]
     with pytest.raises(ProfileError, match="lists no arguments for tool mode 'bash'"):  # a reach mode, not a run's
         profile.argv(prompt="p", model="m", tools="bash", delegation="none")
+
+
+def _gate(command: str | None, call: str) -> int:
+    """Run the claude-code bash mode's PreToolUse hook on a Bash call, as Claude Code does, with the scenario env."""
+    argv = load_profile("claude-code").argv(prompt="p", model="m", tools="bash")
+    hooks = json.loads(argv[argv.index("--settings") + 1])["hooks"]["PreToolUse"]
+    assert [h["matcher"] for h in hooks] == ["Bash"]
+    env = {k: v for k, v in os.environ.items() if k != ONLY_COMMAND_ENV}
+    env.update({ONLY_COMMAND_ENV: command} if command is not None else {})
+    stdin = json.dumps({"tool_name": "Bash", "tool_input": {"command": call}})
+    return subprocess.run(["sh", "-c", hooks[0]["hooks"][0]["command"]], input=stdin, env=env, text=True,
+                          capture_output=True, timeout=60).returncode
+
+
+needs_sh = pytest.mark.skipif(not (shutil.which("sh") and shutil.which("python3")), reason="the hook needs sh, python3")
+PROBE = scenarios(["my docs/AGENTS.md"], ("bash",))[0]
+
+
+@needs_sh
+@pytest.mark.parametrize("call", ["curl x", "cat a && curl x", "cat a; id", "id", "env",
+                                  f"{PROBE.command} && id", f"{PROBE.command}; id", f"{PROBE.command} | head -1",
+                                  f"{PROBE.command}\nid", f"cat {PROBE.read}", ""])
+def test_the_claude_code_bash_mode_refuses_any_other_command(call):
+    assert _gate(PROBE.command, call) == 2  # exit 2: Claude Code blocks the call, in bypassPermissions too
+
+
+@needs_sh
+def test_the_claude_code_bash_mode_admits_the_probe_cat_and_fails_closed_without_one():
+    assert PROBE.command == "cat 'my docs/REACH_PROBE.txt'"
+    assert _gate(PROBE.command, PROBE.command) == 0
+    assert _gate(None, PROBE.command) == 2  # no command named: the hook errors, and refuses
+
+
+def test_only_a_bash_scenario_names_its_command_to_the_harness(tmp_path):
+    profile = load_profile("claude-code")
+    bash, read = scenarios(["sub/AGENTS.md"], ("bash", "read"))[::-1]
+    assert scenario_env(profile, bash, tmp_path).set[ONLY_COMMAND_ENV] == "cat sub/REACH_PROBE.txt" == bash.command
+    assert ONLY_COMMAND_ENV not in scenario_env(profile, read, tmp_path).set and read.command is None
 
 
 @pytest.mark.parametrize("harness", ["codex", "copilot"])

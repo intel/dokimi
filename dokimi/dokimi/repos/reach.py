@@ -89,7 +89,9 @@ ASK = ("This is a configuration check run by the owner of this repository. Your 
        "and nothing else. Report only what is already in your context; do not search for "
        "files. If there are none, answer NONE.")
 ASK_AFTER_READ = "First use the Read tool to read the file {path}, and read no other file. Then: "
-ASK_AFTER_BASH = "First use the Bash tool to run `cat {path}`, and run no other command. Then: "
+ASK_AFTER_BASH = "First use the Bash tool to run `{command}`, and run no other command. Then: "
+# The one shell command a bash scenario's harness may run; the profile's bash tool mode must refuse any other.
+ONLY_COMMAND_ENV = "DOKIMI_REACH_COMMAND"
 
 
 class ReachError(RuntimeError):
@@ -121,11 +123,16 @@ class Scenario:
     shadow: str | None = None  # the shadow file written for this scenario only
 
     @property
+    def command(self) -> str | None:
+        """The shell command a ``bash`` scenario names, the only one its harness may run."""
+        return f"cat {shell_word(self.read)}" if self.read and self.tools == "bash" else None
+
+    @property
     def prompt(self) -> str:
         if not self.read:
             return ASK
-        if self.tools == "bash":
-            return ASK_AFTER_BASH.format(path=shell_word(self.read)) + ASK
+        if self.command:
+            return ASK_AFTER_BASH.format(command=self.command) + ASK
         return ASK_AFTER_READ.format(path=self.read) + ASK
 
 
@@ -607,7 +614,7 @@ def _run_one(profile: HarnessProfile, scenario: Scenario, model: str, workspace:
                            "read": scenario.read, "returncode": None, "error": None,
                            "cost_usd": None, "num_turns": None, "reported": [], "unknown": [], "prose": None}
     try:
-        proc = process.run(argv, cwd=workspace / scenario.cwd, env=profile.env(config_dir),
+        proc = process.run(argv, cwd=workspace / scenario.cwd, env=scenario_env(profile, scenario, config_dir),
                            timeout=timeout_s, capture_limit=None)  # the trace is parsed whole
     except OSError as exc:
         row.update(error=f"{type(exc).__name__}: {exc}", _stdout="")
@@ -625,6 +632,14 @@ def _run_one(profile: HarnessProfile, scenario: Scenario, model: str, workspace:
                         + (f": {proc.stderr.strip()[:300]}" if proc.stderr.strip() else ""))
         return None, row
     return transcript, row
+
+
+def scenario_env(profile: HarnessProfile, scenario: Scenario, config_dir: Path) -> process.Env:
+    """The profile's child environment, plus, in a bash scenario, the one command its shell may run."""
+    env = profile.env(config_dir)
+    if not scenario.command:
+        return env
+    return process.Env(env.allow, {**env.set, ONLY_COMMAND_ENV: scenario.command})
 
 
 def _matrix(records: list[dict[str, Any]]) -> dict[str, dict[str, str]]:

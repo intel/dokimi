@@ -19,7 +19,7 @@
       "properties": {
         "none": {"type": "array", "items": {"type": "string"}},
         "read": {"type": "array", "items": {"type": "string"}},
-        "bash": {"type": "array", "items": {"type": "string"}, "description": "The shell tool alone: `repo reach --scenarios bash`. A profile whose shell commands already give its read events (Codex, Copilot) needs none."},
+        "bash": {"type": "array", "items": {"type": "string"}, "description": "The shell tool alone: `repo reach --scenarios bash`, on the host, so it must refuse every command but the one in DOKIMI_REACH_COMMAND. A profile whose shell commands already give its read events (Codex, Copilot) needs none."},
         "all": {"type": "array", "items": {"type": "string"}},
         "skills": {"type": "array", "items": {"type": "string"}, "description": "For `repo skill-reach`: the agent sees its skill list but can run nothing (Claude Code needs its Skill tool for the list to appear)."}
       }

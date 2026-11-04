@@ -1142,7 +1142,10 @@ Protocol:
       read of a file in `<dir>` loads that directory's guidance. Only with `--scenarios bash`
       (the default is `root,cwd,read`); a profile without a `bash` tool mode
       (Codex and Copilot, whose shell commands are already their reads) is a
-      usage error (exit 2) naming the profile.
+      usage error (exit 2) naming the profile. The shell runs on the host with
+      the harness's credentials, so the mode must refuse every other command:
+      Claude Code's gets the one `cat` in `DOKIMI_REACH_COMMAND`, and a
+      PreToolUse hook blocks any other call (and every call if the hook fails).
     - `shadow=.` and `shadow=<dir>`, only with `--scenarios shadow` (the
       default is `root,cwd,read`): the profile's `guidance.shadow_file` (§6)
       is written into the workspace for that one scenario, seeded with its own
