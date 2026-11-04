@@ -2005,10 +2005,13 @@ that runs the no-LLM checks on the caller's checkout and needs no secret.
   `dokimi @ git+https://github.com/intel/dokimi@<sha>#subdirectory=dokimi` with
   that commit's `requirements.lock.txt` as constraints, so a rerun checks with the
   same framework and dependencies. Moving the pin is a change to the calling
-  workflow, so it runs the smoke set.
+  workflow, so it runs the smoke set. The ref must contain `actions/setup`: a
+  ref from before that action fails at "Set up dokimi".
 - Other inputs: `manifest`, `max-parallel` (4), `warm` (`--warm`, for a cache that
   starts empty on every runner), `runs-on` (`ubuntu-latest`), `timeout-minutes`
-  (180, per task) and `dokimi-repository` (`intel/dokimi`).
+  (180, per task), `dokimi-repository` (`intel/dokimi`, the package installed) and
+  `dokimi-action-repository` (`intel/dokimi`, where the setup action is checked out, at
+  `dokimi-ref`). Testing a fork's commit sets both to the fork.
 
 ```yaml
 # .github/workflows/agent-evals.yml in the repository
