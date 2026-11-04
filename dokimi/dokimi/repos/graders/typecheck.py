@@ -158,16 +158,30 @@ def _checking(node: ast.expr) -> bool:
     return name in _ALWAYS_TRUE
 
 
+def _static(node: ast.expr) -> bool | None:
+    """The value mypy gives a condition built from ``TYPE_CHECKING`` with ``not``, ``and`` and ``or``; None when it
+    depends on anything else (``TYPE_CHECKING or x`` is true, ``not TYPE_CHECKING and x`` false)."""
+    if _checking(node):
+        return True
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+        value = _static(node.operand)
+        return None if value is None else not value
+    if isinstance(node, ast.BoolOp):
+        values = [_static(v) for v in node.values]
+        decides = isinstance(node.op, ast.Or)  # one true operand decides an or, one false an and
+        return decides if decides in values else (not decides) if all(v is (not decides) for v in values) else None
+    return None
+
+
 def _unchecked(text: str) -> list[int]:
-    """The lines of an ``if`` whose branch mypy never checks: ``if not TYPE_CHECKING:``, and ``if TYPE_CHECKING:`` with
-    an ``else``. A source that does not parse has none (mypy reports it)."""
+    """The lines of an ``if`` whose branch mypy never checks: the body when its condition is false by
+    ``TYPE_CHECKING`` (``if not TYPE_CHECKING:``), the ``else`` when it is true. A source that does not parse has none."""
     try:
         tree = ast.parse(text)
     except (SyntaxError, ValueError, RecursionError):
         return []
-    return [node.lineno for node in ast.walk(tree) if isinstance(node, ast.If) and (
-        (_checking(node.test) and node.orelse)
-        or (isinstance(node.test, ast.UnaryOp) and isinstance(node.test.op, ast.Not) and _checking(node.test.operand)))]
+    return [node.lineno for node in ast.walk(tree) if isinstance(node, ast.If)
+            and (_static(node.test) is False or (_static(node.test) is True and node.orelse))]
 
 
 def _image_provides(name: str) -> bool:

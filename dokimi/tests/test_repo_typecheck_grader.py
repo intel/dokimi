@@ -530,6 +530,10 @@ def test_no_type_check_in_a_listed_file_is_a_suppression(tmp_path, source):
     "MYPY = False\nif not MYPY:\n",
     "from typing import TYPE_CHECKING\n\nif TYPE_CHECKING:\n    pass\nelse:\n",
     "from typing import TYPE_CHECKING\n\nif len('a'):\n    pass\nelif not TYPE_CHECKING:\n",
+    "from typing import TYPE_CHECKING\n\nif TYPE_CHECKING or len('a'):\n    pass\nelse:\n",
+    "from typing import TYPE_CHECKING\n\nif len('a') or TYPE_CHECKING:\n    pass\nelse:\n",
+    "from typing import TYPE_CHECKING\n\nif not TYPE_CHECKING and len('a'):\n",
+    "from typing import TYPE_CHECKING\n\nif not not TYPE_CHECKING:\n    pass\nelse:\n",
 ])
 def test_a_branch_mypy_never_checks_is_a_suppression(tmp_path, head):
     # mypy takes TYPE_CHECKING as true: the bad line under it grades clean unless the guard is counted
@@ -542,6 +546,9 @@ def test_a_branch_mypy_never_checks_is_a_suppression(tmp_path, head):
     "from typing import TYPE_CHECKING\n\nif TYPE_CHECKING:\n    import json\n",
     "import sys\n\nif not sys.argv:\n    pass\n",
     "def f(:\n",
+    "from typing import TYPE_CHECKING\n\nif TYPE_CHECKING and len('a'):\n    pass\nelse:\n    pass\n",
+    "from typing import TYPE_CHECKING\n\nif not TYPE_CHECKING or len('a'):\n    pass\n",
+    "from typing import TYPE_CHECKING\n\nif not not TYPE_CHECKING:\n    pass\n",
 ])
 def test_unchecked_finds_no_branch_in_a_plain_type_checking_import(text):
     assert typecheck._unchecked(text) == []
