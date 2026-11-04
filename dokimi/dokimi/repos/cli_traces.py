@@ -24,10 +24,9 @@ import posixpath
 import re
 import shlex
 from datetime import datetime
-from pathlib import PureWindowsPath
 from typing import Any
 
-from .transcript import Transcript, _parse_time, clip_output, relative_path
+from .transcript import Transcript, _from_cwd, _parse_time, clip_output, relative_path
 
 _BASH_WRAP = re.compile(r"^(?:/\S*/)?(?:ba|z)?sh -lc (.+)$", re.S)
 _PRINTERS = {"cat", "head", "tail", "nl", "sed"}
@@ -771,14 +770,6 @@ def _copilot_tool(data: dict[str, Any], t: float | None, workdir: str | None, cw
                  **({"deleted": True} if verb == "Delete" else {})}
                 for verb, p in _PATCH_FILE.findall(text)]
     return [{"t": t, "kind": "tool", "name": name}]
-
-
-def _from_cwd(path: str, cwd: str) -> str:
-    """A tool's relative ``path`` joined to ``cwd``, the workspace-relative directory the CLI started in."""
-    if not cwd or path.startswith("/") or PureWindowsPath(path).is_absolute():
-        return path
-    # a Windows CLI separates with backslashes, which posixpath keeps as part of a name
-    return posixpath.normpath(posixpath.join(cwd, PureWindowsPath(path).as_posix()))
 
 
 def _copilot_result(out: Transcript, events: list[dict[str, Any]], data: dict[str, Any]) -> None:
