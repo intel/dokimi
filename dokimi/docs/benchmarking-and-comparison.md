@@ -277,7 +277,7 @@ the answer model and judge fixed when comparing arms.
 ### Skill arms in repository mode
 
 `repo run` arms take the same `+` composition. Besides `guidance:none`,
-`guidance:raw` and `guidance:bridge`, an arm can install Claude Code skills into
+`guidance:raw`, `guidance:bridge` and `guidance:overlay`, an arm can install Claude Code skills into
 the task workspace at `.claude/skills/<dir name>/` before the agent starts:
 
 - `skill:<path>`: one skill directory (holding `SKILL.md`);
@@ -321,7 +321,7 @@ the cells the way the skill arms are compared above.
   components (`role`, `task`, `example`, ...) have no heading tag, so a POML arm
   needs a decision about which element a heading maps to.
 - `guidance:as-skill`: the guidance files are removed (as `guidance:none` removes
-  them) and their text goes into `.claude/skills/<repo id>-guidance/SKILL.md`, each
+  them, the `AGENTS.<agent>.md` overlays too, which are not packaged) and their text goes into `.claude/skills/<repo id>-guidance/SKILL.md`, each
   file under a `## File: <path>` line with its text verbatim (a missing final newline is added); a symlink to another
   guidance file (`CLAUDE.md` to `AGENTS.md`) is packaged once under that file, and a
   symlink to any other file fails the cell. The frontmatter
