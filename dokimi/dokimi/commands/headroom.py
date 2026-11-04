@@ -22,6 +22,7 @@ from typing import Any
 from dokimi import records
 from dokimi.commands._output import exit_on_unwritable
 from dokimi.eval.judge_context import PROTOCOL_MIXED
+from dokimi.utils import InputError
 
 
 def _read_json(path) -> Any:
@@ -256,8 +257,7 @@ def cmd_eval_headroom(args: argparse.Namespace) -> None:
             data = _read_json(path)
             digest = _content_digest(data)
         except (records.RecordError, OSError, RecursionError) as e:  # RecursionError: nesting too deep for json
-            print(f"Error: {e}", file=sys.stderr)
-            sys.exit(2)
+            raise InputError(str(e)) from e
         _exit_unless_metadata_shaped(run, path)
         _exit_unless_pinnable(data, run, path)
         if digest in first_seen:

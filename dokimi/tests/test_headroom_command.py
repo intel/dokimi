@@ -18,6 +18,7 @@ import pytest
 from dokimi import records
 from dokimi.cli import build_parser
 from dokimi.commands.headroom import cmd_eval_headroom
+from dokimi.utils import InputError
 from dokimi.eval.headroom import (
     CEILING, DEFAULT_CEILING, DEFAULT_FLOOR, DEFAULT_MIN_REPS, FLOOR, _fmt, check_thresholds, format_table,
     headroom,
@@ -45,11 +46,9 @@ def test_command_writes_a_headroom_artifact_and_prints_the_table(tmp_path, capsy
     assert "ceiling" in printed and f"Wrote headroom artifact to {out}" in printed
 
 
-def test_command_exits_2_on_an_unreadable_input(tmp_path, capsys):
-    with pytest.raises(SystemExit) as exc:
+def test_command_refuses_an_unreadable_input_as_input_error(tmp_path):
+    with pytest.raises(InputError, match="cannot read .*missing.json"):
         cmd_eval_headroom(_args([tmp_path / "missing.json"]))
-    assert exc.value.code == 2
-    assert "file not found" in capsys.readouterr().err
 
 
 def _arms_file(path, scores, baseline="baseline"):
@@ -297,10 +296,8 @@ def test_command_refuses_a_wrong_baseline_name_with_exit_2(tmp_path, capsys):
 def test_command_exits_2_on_an_input_nested_too_deep_to_read(tmp_path, capsys):
     path = tmp_path / "deep.json"
     path.write_text("[" * 100000, encoding="utf-8")
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(InputError, match="not valid JSON"):
         cmd_eval_headroom(_args([path]))
-    assert exc.value.code == 2
-    assert "Error:" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(("field", "value", "kind"), [
