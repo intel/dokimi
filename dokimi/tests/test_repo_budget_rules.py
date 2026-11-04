@@ -154,6 +154,14 @@ def test_a_profile_that_does_not_read_rules_keeps_the_frontmatter_of_a_rule_link
     assert _by_path(payload)[("AGENTS.md", "guidance")]["chars"] == 29
 
 
+def test_a_profile_that_does_not_read_rules_counts_an_imported_rule_with_its_frontmatter(tmp_path):
+    # rules off: the rule is an ordinary import, counted in full (26 chars), not as a 5-char body
+    rule = "---\npaths:\n  - a\n---\nrule\n"
+    tree = _tree(tmp_path, {"CLAUDE.md": "@.claude/rules/r.md\n", ".claude/rules/r.md": rule})
+    payload = budget(tree, NAMES, None, False)
+    assert _by_path(payload)[(".claude/rules/r.md", "import")]["chars"] == len(rule) == 26
+
+
 @pytest.mark.parametrize("claude_md", ["@shared.md\n@.claude/rules/r.md\n", "@.claude/rules/r.md\n@shared.md\n"])
 def test_an_ordinary_import_keeps_the_frontmatter_that_a_rule_link_to_the_same_file_removes(tmp_path, claude_md):
     # CLAUDE.md imports shared.md whole, frontmatter included; the rule link to it loads only the body.
