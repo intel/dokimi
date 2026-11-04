@@ -10,6 +10,7 @@ litellm through its own transport and a panel through ``llm_call``; both needed 
 
 import pytest
 
+from dokimi import caching
 from dokimi.eval import Judge
 from dokimi.llm import LLM, Invoker
 
@@ -63,7 +64,7 @@ def completion(monkeypatch):
             "role": "assistant", "content": seen["payload"]}, "finish_reason": "stop"}])
 
     monkeypatch.setattr(litellm, "completion", fake)
-    monkeypatch.delenv("DOKIMI_RESPONSE_CACHE", raising=False)
+    monkeypatch.delenv(caching.RESPONSE_CACHE_ENV, raising=False)
     return seen
 
 
