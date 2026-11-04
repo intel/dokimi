@@ -733,7 +733,7 @@ listed file imports. When every listed file is missing, mypy does not run, and t
 is a blocking error (a syntax error, a duplicate module) that stops mypy before
 it reaches the listed files: then that error is the grade's, and the grade fails.
 Not counted, so not guarded: other code mypy takes as unreachable and does not check (under a `sys.version_info` or
-`sys.platform` guard the image's Python does not take, after `assert False`), a `TYPE_CHECKING` test inside a larger condition (`if not TYPE_CHECKING and x:`), and a change to an unlisted module that
+`sys.platform` guard the image's Python does not take, after `assert False`), and a change to an unlisted module that
 hides a listed file's error (a module `__getattr__` returning `Any`, a return type widened to `Any`). A repository's
 own code has both, and the grader cannot read the base to tell them from the agent's; `--warn-unreachable` would
 report only the `assert False` kind, along with the repository's own unreachable branches. A task that needs these
