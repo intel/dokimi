@@ -102,11 +102,12 @@ CODE_SPAN_RE = re.compile(r"(?<![\\`])(`+)(?!`)(.+?)(?<!`)\1(?!`)", re.DOTALL)
 BRACKET_RE = re.compile(r"\\\\|\\[\[\]]|[\[\]]")
 # A backslash before ASCII punctuation is an escape in a link destination (``guide\_notes.md``).
 _ESCAPE_RE = re.compile(r"\\([!-/:-@\[-`{-~])")
-# An inline link target balanced in parentheses to any depth (``a(b(c)).md``), in angle brackets (no line
+# An inline link target balanced in parentheses up to 32 deep (``a(b(c)).md``), in angle brackets (no line
 # break inside), with an optional title; split() reads one level of parentheses only, so these are read here.
 _TARGET_TITLE = r"""(?:\s+(?:"[^"]*"|'[^']*'|\([^()]*\)))?"""
 _LINK_OPEN_RE = re.compile(r"\]\(\s*")
 _LINK_END_RE = re.compile(rf"{_TARGET_TITLE}\s*\)")
+LINK_PAREN_DEPTH_MAX = 32
 # A reference label alone on its line: its destination may be on the next line.
 _LABEL_ONLY_RE = re.compile(r"^ {0,3}\[(?!\^)[^\]]+\]:[ \t]*$")
 # A line that starts a reference definition (its target is read by the splitter, not _inline_destinations).
@@ -420,6 +421,8 @@ def _destination_stop(line: str, start: int) -> Optional[int]:
             break
         if char == "(":
             depth += 1
+            if depth > LINK_PAREN_DEPTH_MAX:
+                return None  # cmark caps it too; unbounded, each ``](`` of a hostile body scans to its end
         elif char == ")":
             depth -= 1
         stop += 1
@@ -429,7 +432,7 @@ def _destination_stop(line: str, start: int) -> Optional[int]:
 def _inline_destinations(text: str) -> list[str]:
     """The destinations of the inline links in ``text``, as written (``<...>`` kept, a title left out).
 
-    A ``](`` opens a destination that runs to its matching parenthesis at any depth, or to the ``>``
+    A ``](`` opens a destination that runs to its matching parenthesis (up to 32 deep), or to the ``>``
     of an angle-bracketed one. The destination may start or end on another line of the paragraph.
     """
     found: list[str] = []
@@ -461,7 +464,7 @@ def _pieces(lines: list[str]) -> tuple[list[str], list[str]]:
 
     A code span is matched by its run of backticks, across the lines of its paragraph, and its text is
     taken whole. Its text and the escaped brackets are then blanked. Inline links are read from the
-    paragraph (any depth of parentheses, a destination over lines), and reference definitions by the
+    paragraph (parentheses up to 32 deep, a destination over lines), and reference definitions by the
     markdown splitter of L0 (``dokimi.repos.l0.markdown.split``), line by line. The splitter's inline
     reader is not used: it reads one level of parentheses and no escapes, so it would disagree with this one.
     """

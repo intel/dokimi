@@ -66,6 +66,26 @@ def test_a_link_destination_nested_deeper_than_one_level_is_checked(tmp_path):
     assert "'gone(x(y)).md'" in review.findings[0].message
 
 
+def test_a_link_destination_nested_past_32_levels_is_not_read(tmp_path):
+    def nested(depth: int) -> str:
+        return "a(" * depth + "b" + ")" * depth + ".md"
+    _skill(tmp_path / "skills", "deep", name="deep", description="Use for deep parens.",
+           body=f"See [a]({nested(32)}) and [b]({nested(33)}).\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _codes(review) == ["link-missing"]
+    assert repr(nested(32)) in review.findings[0].message
+
+
+def test_a_body_of_unclosed_links_is_reviewed_in_linear_time(tmp_path):
+    # Unbounded, each ``](`` scanned to the end of the paragraph: over a minute for this 60 KB body.
+    _skill(tmp_path / "skills", "hostile", name="hostile", description="Use for hostile bodies.",
+           body="[](" * 20000 + "\n")
+
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert review.findings == []
+
+
 def test_a_link_destination_nested_deeper_than_one_level_outside_the_skill_escapes(tmp_path):
     (tmp_path / "shared").mkdir()
     (tmp_path / "shared" / "a(b(c)).md").write_text("# A\n", encoding="utf-8")
