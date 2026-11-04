@@ -2,13 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Intel CI test for dokimi.
+Tests dokimi's installed package.
 
-GitHub Actions, through ci/hooks.py, and Intel's internal CI both run this with one
-built package installed in a clean environment. It runs dokimi's own test
-suite from the checkout's dokimi/ directory against that installed package,
-offline as dokimi's pytest settings make it, and writes a JUnit report for
-the internal CI.
+Runs with one built package installed in a clean environment, as ci/hooks.py
+sets up. It runs dokimi's own test suite from the checkout's dokimi/ directory
+against that installed package, offline as dokimi's pytest settings make it, and
+writes a JUnit report to $GH_CI_RESULTS.
 """
 
 import os
@@ -83,8 +82,7 @@ def main() -> int:
     if data.returncode:
         print(data.stderr or "a default data file is missing from the installed package")
         return 1
-    # Every package the internal CI tests reports into the same build, so each
-    # names its own suite.
+    # The suite name says which platform, Python and package kind ran.
     platform = os.environ.get("GH_CI_PLATFORM", "linux")
     cell = f"{platform}.py{expected}.{os.environ.get('GH_CI_KIND', 'conda')}"
     print("deselected, they need the source checkout: " + ", ".join(SOURCE_ONLY))

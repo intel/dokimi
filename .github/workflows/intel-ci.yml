@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-# Builds and tests the conda packages and wheels that Intel's internal CI tests again, see ci/README.md
+# Builds and tests dokimi's conda packages and wheels, see ci/README.md
 name: Intel CI
 
 on:
@@ -132,7 +132,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # The wheel is pure Python: pip builds it with the Python version of the cell.
+      # The wheel is pure Python: pip builds it with this job's Python version.
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: ${{ matrix.python }}

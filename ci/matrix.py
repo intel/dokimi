@@ -7,8 +7,7 @@ The platforms and Python versions this repository builds.
 Both are read from the repository's own build files.
 
 Every build system already has a standard place for both, so each is written
-once, where the build reads it, and the GitHub Actions matrix and Intel's
-internal CI both follow it:
+once, where the build reads it, and the GitHub Actions matrix follows it:
 
   rattler-build, selected by recipe.yaml
     Python versions  python: in variants.yaml next to the recipe
@@ -25,11 +24,10 @@ A recipe builds on every platform in PLATFORMS, Linux, Windows and macOS on
 Intel, unless a skip that depends on the platform alone rules one out, such as
 `skip: [win]` or `skip: true  # [osx]`; a skip that also depends on something
 else, such as `win and py < 311` or `osx and arm64`, skips some builds, not the
-platform. A pyproject.toml with OS Independent builds on all three, and one without
-Operating System classifiers on the platforms of the recipe, if there is one. Of the declared platforms, the matrix holds
-those GitHub Actions has runners for, BUILT_PLATFORMS. macOS builds and tests in
-GitHub Actions only: Intel's internal CI tests, scans and releases Linux and
-Windows.
+platform. A pyproject.toml with OS Independent builds on all three, and one
+without Operating System classifiers on the platforms of the recipe, if there is
+one. Of the declared platforms, the matrix holds those GitHub Actions has
+runners for, BUILT_PLATFORMS.
 
 meson-python, scikit-build-core and every other PEP 517 backend declare these in
 pyproject.toml too, so the wheel row covers them. Another convention, such as
@@ -42,10 +40,9 @@ Usage:
 Prints the build matrix as JSON for strategy.matrix: {"include": [{"platform":
 "linux", "name": "Linux", "python": "3.14"}, ...]}, every platform with every
 Python version. For a pull_request event only the oldest and the newest regular
-versions are listed, which is all Intel's internal CI tests on a pull request.
---github-output also writes NAME=<matrix> to $GITHUB_OUTPUT, for later jobs.
-Standard library only; reading pyproject.toml needs Python 3.11 or newer for
-tomllib.
+versions are listed. --github-output also writes NAME=<matrix> to
+$GITHUB_OUTPUT, for later jobs. Standard library only; reading pyproject.toml
+needs Python 3.11 or newer for tomllib.
 """
 
 import argparse

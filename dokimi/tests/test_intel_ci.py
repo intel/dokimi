@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Intel CI (ci/ and .github/workflows/intel-ci.yml) keeps what Intel's internal CI relies on."""
+"""ci/ and .github/workflows/intel-ci.yml: concurrency, package lists, data checks and the matrix."""
 
 from __future__ import annotations
 

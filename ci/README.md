@@ -5,7 +5,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # How Intel CI tests dokimi
 
-`.github/workflows/intel-ci.yml` builds and tests dokimi's conda package and wheel in GitHub Actions. Intel's internal CI then tests each package again on Intel machines and scans it. Everything it needs from this repository is in this directory, one workflow, the recipe, and `dokimi/pyproject.toml`. It only tests and scans: dokimi is published to PyPI by `release.yml`, which this does not replace.
+`.github/workflows/intel-ci.yml` builds dokimi's conda package and wheel in GitHub Actions and tests each one. It needs this directory, the recipe, and `dokimi/pyproject.toml`. It publishes nothing: `release.yml` publishes dokimi to PyPI.
 
 | File | Role |
 |---|---|
@@ -14,17 +14,17 @@ SPDX-License-Identifier: Apache-2.0
 | `../.github/workflows/intel-ci.yml` | One job reads both matrices. One job per Python version builds and uploads `dokimi Linux Python <version>`, and one builds `dokimi Linux Wheels Python <version>`. Then one job per package tests it. |
 | `matrix.py` | Reads the platforms and Python versions from the recipe, or with `--system wheel` from `dokimi/pyproject.toml`. A pull request gets the oldest and the newest versions. |
 | `build.py` | Builds one Python version: with conda-build, which runs the recipe's own tests, or with `--system wheel` with `pip wheel`. |
-| `hooks.py` | The workflow's test jobs: installs one package into a clean environment with the requirements in `config.yml`, and runs `test.py` the way Intel's internal CI does. A conda package's environment comes from conda-forge; a wheel's has only Python from conda-forge and everything else from PyPI, pinned by `dokimi/requirements.lock.txt` except on a release tag. |
-| `config.yml` | Tells Intel's internal CI which workflow builds the packages, what its artifacts are called, and what the tests need. |
-| `test.py` | Runs dokimi's own test suite, `dokimi/tests`, from the checkout against the installed package, in Actions and again in Intel's internal CI. |
+| `hooks.py` | The workflow's test jobs: installs one package into a clean environment with the requirements in `config.yml`, and runs `test.py`. A conda package's environment comes from conda-forge; a wheel's has only Python from conda-forge and everything else from PyPI, pinned by `dokimi/requirements.lock.txt` except on a release tag. |
+| `config.yml` | Names the workflow that builds the packages, its artifact names, and what the tests need. |
+| `test.py` | Runs dokimi's own test suite, `dokimi/tests`, from the checkout against the installed package. |
 
-`matrix.py`, `build.py` and `hooks.py` are shared with other Intel repositories. Here `matrix.py` and `build.py` also find the only `pyproject.toml` one directory down, as dokimi's lives in `dokimi/`, and `build.py` builds a pure Python wheel when `pyproject.toml` has no `[tool.cibuildwheel]`. `matrix.py` keeps Linux only, the one platform the workflow has runners for.
+`matrix.py` and `build.py` read the build system from the files present. They find the only `pyproject.toml` one directory down, as dokimi's lives in `dokimi/`, and `build.py` builds a pure Python wheel when `pyproject.toml` has no `[tool.cibuildwheel]`. `matrix.py` keeps Linux only, the one platform the workflow has runners for.
 
 **What `test.py` proves.** It prints where `dokimi` was imported from and fails if that is inside the checkout. The suite's `conftest.py` puts the checkout on `sys.path`, so pytest imports `dokimi` first (`-p dokimi`), in every xdist worker too. The suite stays offline, as `dokimi/pyproject.toml` makes it. The suite runs with `dokimi/` as the working directory, so the tests that read `data/` and `docs/` find them there. It also checks that the installed package ships its default data files.
 
-**A pull request into `main`.** Actions builds the oldest and the newest Python versions on Linux, as a conda package and as a wheel, and tests each package. Intel's internal CI notices the pull request within 3 minutes, waits for that whole run, and then tests and scans every package at once. Each package's results post as statuses on the pull request, with one more status that sums them up.
+**A pull request into `main`.** Actions builds the oldest and the newest Python versions on Linux, as a conda package and as a wheel, and tests each package.
 
-**A release tag.** Actions builds every declared version, and Intel's internal CI tests and scans all of them. Publishing stays with `release.yml`: the internal CI releases nothing for dokimi.
+**A push to `main` or a tag.** Actions builds and tests every declared version.
 
 To support another Python, add it to `conda-recipe/conda_build_config.yaml` for the conda package and as a classifier in `dokimi/pyproject.toml` for the wheel; nothing else lists versions. Try it locally from a conda base environment with conda-build:
 

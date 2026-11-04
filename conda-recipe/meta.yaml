@@ -11,7 +11,7 @@ source:
 build:
     noarch: python
     number: 0
-    # Intel CI builds and tests on Linux only; the wheel follows this.
+    # Linux only; the wheels follow the recipe's platforms.
     skip: true  # [not linux]
     script: $PYTHON -m pip install . -vv --no-deps --no-build-isolation
     entry_points:
