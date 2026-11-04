@@ -185,7 +185,7 @@ class RagasSeedExtractor:
         """Return generic fallback topics when extraction fails.
 
         Product-specific topic lists are evaluation content: supply them with
-        ``questions generate --topics <file>`` instead of hard-coding them
+        ``eval questions generate --topics <file>`` instead of hard-coding them
         here, so the fallback is the same for every library.
         """
         return ["installation", "getting started", "API overview",

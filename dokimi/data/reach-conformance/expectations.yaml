@@ -1,0 +1,117 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+# Vendor-documented state per file and reach scenario; unlisted means unknown (no claim).
+# Sources and scenario meanings: docs/reach-matrix.md.
+schema: reach_conformance.v1
+cases:
+  root-agents:
+    summary: AGENTS.md at the repository root, and nothing else.
+    claude-code:
+      why: With no CLAUDE.md in the working directory or above, Claude Code reads AGENTS.md.
+      files:
+        AGENTS.md: {"cwd=.": loaded}
+    codex:
+      why: Codex checks AGENTS.override.md then AGENTS.md in each directory from the git root to cwd.
+      files:
+        AGENTS.md: {"cwd=.": loaded}
+
+  nested-agents:
+    summary: A root AGENTS.md and a packages/app/AGENTS.md below it.
+    claude-code:
+      why: >-
+        Every AGENTS.md in the working directory and above loads at start-up. A subdirectory's
+        AGENTS.md loads when Claude reads a file there with the Read tool.
+      files:
+        AGENTS.md: {"cwd=.": loaded, "cwd=packages/app": loaded, "read=packages/app": loaded}
+        packages/app/AGENTS.md: {"cwd=.": not_loaded, "cwd=packages/app": loaded, "read=packages/app": loaded}
+    codex:
+      why: >-
+        Codex walks from the git root down to cwd, one file per directory. A directory off that path
+        is not read; the docs do not describe a read-triggered load, so read= is unknown.
+      files:
+        AGENTS.md: {"cwd=.": loaded, "cwd=packages/app": loaded}
+        packages/app/AGENTS.md: {"cwd=.": not_loaded, "cwd=packages/app": loaded}
+
+  claude-and-agents:
+    summary: A root CLAUDE.md beside a root AGENTS.md.
+    claude-code:
+      why: >-
+        AGENTS.md is read only when there is no CLAUDE.md in the working directory or above; the
+        default setting (claude-md-or-agents-md) reads the CLAUDE.md files alone.
+      files:
+        CLAUDE.md: {"cwd=.": loaded}
+        AGENTS.md: {"cwd=.": not_loaded}
+    codex:
+      why: >-
+        Codex checks AGENTS.override.md, AGENTS.md and the project_doc_fallback_filenames list only,
+        and CLAUDE.md is not on that list by default.
+      files:
+        AGENTS.md: {"cwd=.": loaded}
+        CLAUDE.md: {"cwd=.": not_loaded}
+
+  claude-imports-agents:
+    summary: A root CLAUDE.md that imports AGENTS.md with @AGENTS.md.
+    claude-code:
+      why: CLAUDE.md @path imports are expanded and loaded with the file that references them.
+      files:
+        CLAUDE.md: {"cwd=.": loaded}
+        AGENTS.md: {"cwd=.": loaded}
+    codex:
+      why: Codex does not read CLAUDE.md by default, so the import is never followed.
+      files:
+        AGENTS.md: {"cwd=.": loaded}
+        CLAUDE.md: {"cwd=.": not_loaded}
+
+  override-file:
+    summary: A root AGENTS.md beside an AGENTS.override.md.
+    claude-code:
+      why: The Claude Code AGENTS.md rules list AGENTS.override.md among the files it does not read.
+      files:
+        AGENTS.md: {"cwd=.": loaded}
+        AGENTS.override.md: {"cwd=.": not_loaded}
+    codex:
+      why: >-
+        In each directory AGENTS.override.md is used in place of AGENTS.md, and at most one of the
+        two is read.
+      files:
+        AGENTS.override.md: {"cwd=.": loaded}
+        AGENTS.md: {"cwd=.": not_loaded}
+
+  subtree-claude-shadow:
+    summary: sub/AGENTS.md and sub/CLAUDE.md in the same subdirectory.
+    claude-code:
+      why: >-
+        A CLAUDE.md in the working directory loads at start-up. AGENTS.md is not read in a directory
+        that has a CLAUDE.md of its own.
+      files:
+        sub/CLAUDE.md: {"cwd=.": not_loaded, "cwd=sub": loaded, "read=sub": loaded}
+        sub/AGENTS.md: {"cwd=.": not_loaded, "cwd=sub": not_loaded, "read=sub": not_loaded}
+    codex:
+      why: Codex reads sub/AGENTS.md when cwd is sub, and never reads CLAUDE.md by default.
+      files:
+        sub/AGENTS.md: {"cwd=.": not_loaded, "cwd=sub": loaded}
+        sub/CLAUDE.md: {"cwd=.": not_loaded, "cwd=sub": not_loaded}
+
+  large-file:
+    summary: A root AGENTS.md of about 40 KB, above Codex's 32 KiB default.
+    claude-code:
+      why: >-
+        No size limit is documented. The memory page advises under 200 lines per file, which is a
+        target and not a cut-off. So the state is unknown.
+      files: {}
+    codex:
+      why: >-
+        project_doc_max_bytes (default 32 KiB) caps the combined size of the chain. The docs do not
+        say whether a file that crosses the cap is cut, so the state is unknown.
+      files: {}
+
+  symlinked-file:
+    summary: CLAUDE.md is a symbolic link to AGENTS.md.
+    claude-code:
+      why: The docs do not say how a symbolic link named CLAUDE.md is read, so the state is unknown.
+      files: {}
+    codex:
+      why: Codex reads AGENTS.md itself, and the link's name is not one it checks.
+      files:
+        AGENTS.md: {"cwd=.": loaded}

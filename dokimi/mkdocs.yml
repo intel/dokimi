@@ -129,6 +129,7 @@ nav:
       - repo-evaluation-contract.md
       - repo-evaluation-mergeability.md
       - repo-evaluation-agent-modes.md
+      - reach-matrix.md
       - preparing-a-repository.md
       - preparing-a-repository-evidence.md
   - Extending Dokimi:

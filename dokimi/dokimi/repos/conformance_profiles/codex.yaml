@@ -1,0 +1,84 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+# The codex profile of the reach suite: profiles/codex.yaml plus a provider that reads CODEX_API_KEY, because the
+# built-in one sends no bearer (401 Missing bearer). Keep the two in step.
+schema: harness_profile.v1
+name: codex
+bin: codex  # npm's codex is a node launcher; mount the native one (.../vendor/<triple>/bin/codex) with --bin
+version_cmd: ["{bin}", "--version"]
+# Codex 0.160 runs every tool call through codex-code-mode-host, which it starts from
+# beside its own binary; without it in the container no command can run.
+bin_companions: [codex-code-mode-host]
+# `codex exec` is non-interactive; the prompt follows `--`, so a leading "-" is not a flag. No turn or spend cap:
+# {max_turns}/{budget} are not passed and the timeout bounds the run. CODEX_HOME is fresh per run (no --ignore-user-config).
+invoke:
+  - "{bin}"
+  - "exec"
+  - "--model"
+  - "{model}"
+  - "--ephemeral"
+  - "--skip-git-repo-check"
+  - "--json"
+  - "--color"
+  - "never"
+  - "{tools}"
+  - "--"
+  - "{prompt}"
+# Codex has no tool-off switch: `none` and `read` both get its bwrap sandbox, which needs user namespaces.
+# Where the host denies them every command fails; `all` relies on the framework's container for isolation.
+tools:
+  none: ["--sandbox", "read-only"]
+  read: ["--sandbox", "read-only"]
+  all: ["--dangerously-bypass-approvals-and-sandbox"]
+  # codex has no tool allow-list: this is the read sandbox, so the agent can still run commands; a look is caught afterwards and the cell reads fetched.
+  skills: ["--sandbox", "read-only"]
+config_dir_env: CODEX_HOME
+env_allow:
+  - PATH
+  - HOME
+  - LANG
+  - SYSTEMROOT
+  - CODEX_API_KEY
+# OPENAI_API_KEY is not forwarded: `all` mode's shell reads every forwarded variable, and `codex exec` reads neither key.
+  - OPENAI_BASE_URL
+  - http_proxy
+  - https_proxy
+  - no_proxy
+  - HTTP_PROXY
+  - HTTPS_PROXY
+  - NO_PROXY
+# The provider `model_provider` selects; its env_key names the variable that holds the bearer.
+config_files:
+  config.toml: |
+    model_provider = "conformance"
+
+    [model_providers.conformance]
+    name = "OpenAI"
+    base_url = "https://api.openai.com/v1"
+    wire_api = "responses"
+    env_key = "CODEX_API_KEY"
+egress:
+  - api.openai.com
+endpoint_env: OPENAI_BASE_URL
+trace: codex-json
+guidance:
+  names: [AGENTS.md, AGENTS.override.md]
+  resolution: codex-home + git-root-to-cwd + lazy-by-shell-read
+  imports: null
+  notes: >-
+    Documented for codex-cli 0.160: one AGENTS.override.md or AGENTS.md per
+    directory from the git root down to the working directory, joined root
+    first; an AGENTS.override.md replaces the AGENTS.md beside it. CLAUDE.md,
+    .github/copilot-instructions.md and .github/instructions are not read.
+    Measured on 0.160 with gpt-6-luna (oneDAL review task): root AGENTS.md
+    applied, subtree AGENTS.md applied only after the agent printed them with a
+    shell command; AGENTS.override.md hid the root AGENTS.md.
+skills:
+  project_dirs: [.codex/skills, .agents/skills]
+  user_dirs: ["config:skills", "home:.agents/skills"]
+  notes: >-
+    Measured on codex-cli 0.166.0 (Linux, gpt-6-sol): lists .agents/skills
+    and .codex/skills in the project, $CODEX_HOME/skills and ~/.agents/skills,
+    nested skills/group/<skill> and symlinked skill dirs. Skills that share
+    a name are all listed (identity is name + path).

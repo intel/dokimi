@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""eval checklist / cross-judge --grounded: an unreadable --questions file is bad input (exit 2)."""
+"""eval score checklist / cross-judge --grounded: an unreadable --questions file is bad input (exit 2)."""
 
 from __future__ import annotations
 
@@ -18,8 +18,8 @@ def _arms_file(tmp_path):
 
 
 @pytest.mark.parametrize("command", [
-    ["checklist"],
-    ["cross-judge", "--grounded", "--no-stored"],
+    ["score", "checklist"],
+    ["judge", "agreement", "--grounded", "--no-stored"],
 ], ids=["checklist", "cross-judge-grounded"])
 @pytest.mark.parametrize("content", [None, "{not json", "\xff\xfe"],
                          ids=["missing", "malformed", "not-utf8"])

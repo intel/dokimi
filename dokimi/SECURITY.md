@@ -46,58 +46,22 @@ The project is pre-1.0; only the latest `main` is supported. Fixes land on
 
 `pip-audit` against the locks (`requirements.lock.txt`,
 `requirements-docs.lock.txt`, `requirements-ci.lock.txt` and
-`requirements-mutation.lock.txt`) reports these advisories with no
-fix the locks can take:
+`requirements-mutation.lock.txt`) reports no advisory.
 
-- **filelock 3.32.7 — thirteen advisories** (fixed in 4.2.1, GHSA-j8f7-rjxc-mr56
-  in 4.0.9). Every litellm release requires `filelock<4.0`, so neither fix can be
-  locked. datasets, huggingface-hub and litellm (main lock) and cachecontrol,
-  python-discovery and virtualenv (tools lock) take `FileLock`, which is
-  `UnixFileLock` on Linux and macOS and `WindowsFileLock` on Windows. On a Unix
-  filesystem without `flock`, filelock turns that lock into a `SoftFileLock`
-  itself. huggingface-hub switches to a `SoftFileLock` when `FileLock` raises
-  `NotImplementedError`, but neither class raises it on its own platform
-  (`WindowsFileLock` reports a failed open as `OSError`), so that code never
-  runs. Their lock directories are the Hugging Face cache
-  (`~/.cache/huggingface` unless `HF_HOME` moves it) and the tools' user cache
-  and data directories. Drop all thirteen when litellm allows
-  `filelock>=4.2.1`.
-  - In the SQLite-backed `ReadWriteLock`, which no dependency of Dokimi uses:
-    GHSA-v4x8-3wr5-3wq8 and GHSA-9vhv-jxww-xfm5 (CVE-2026-112940,
-    CVE-2026-112913; POSIX and Windows), GHSA-j8f7-rjxc-mr56 (CVE-2026-112936;
-    it follows a symlink at the lock path into SQLite) and GHSA-cwqr-hh33-gh44
-    (CVE-2026-112915; a crafted lock database stalls every acquire).
-  - In `StrictSoftFileLock` and `SoftReadWriteLock`, which no dependency of
-    Dokimi uses: GHSA-9c4x-gm8v-wgc4 (CVE-2026-112911; both adopt a protocol
-    directory another account created). In `StrictSoftFileLock` only:
-    GHSA-6627-m3xw-93mp (CVE-2026-112908; claim directories created without the
-    lock's mode) and GHSA-m462-7rxw-wvpg (CVE-2026-112938; it follows a symlink
-    swapped in at `<path>.filelock`).
-  - In `UnixFileLock`, GHSA-69hj-f68j-2879 (CVE-2026-112909): another local
-    account that can rename or hard-link a file of the lock user onto a lock path
-    not yet created makes the next acquire truncate that file and, with an
-    explicit `mode` (huggingface-hub passes `0o664` and `0o666`), chmod it. It
-    applies where another account can rename files in the lock directory, such
-    as a Hugging Face cache several accounts share.
-  - In `WindowsFileLock`, GHSA-8mx5-7m5m-r77g (CVE-2026-112910): it ignores
-    `mode`, so the lock file takes the directory's inherited ACL. Where that ACL
-    lets another account read new files (a cache outside the user profile on a
-    shared Windows host), that account can hold the lock and stall a holder.
-  - In the soft locks on Windows, which no dependency of Dokimi takes:
-    GHSA-567q-5qvw-pf92 (CVE-2026-112907; another local account that can create
-    files in the lock directory can stall or break a lock holder).
-  - In `SoftFileLock` where it stands in for a missing `flock` on Unix:
-    GHSA-9j6q-wvj5-jgjg (CVE-2026-112912, low) tells another account that can
-    write the lock directory whether a path exists and is writable for the lock
-    user; GHSA-rfpc-qcw5-3pc4 (CVE-2026-112939) lets an account that can write a
-    holder's marker but not remove it forge the holder's PID and admit a second
-    holder (the marker takes the lock's `mode` less the umask, so
-    huggingface-hub's markers are group-writable under umask `002`); and
-    GHSA-fq56-3cx3-fjxp (CVE-2026-112935) admits two holders when an account
-    that can create files in the lock directory gets a stale-lock break to meet
-    a reused inode (ext4, xfs).
+The locks pin filelock 4.2.4 although every litellm release up to 1.106.6
+declares `filelock<4.0`. filelock 3.32.7, the newest version under that cap, has
+thirteen advisories, all fixed in 4.2.1. litellm lifted the cap on its main
+branch (`filelock<5`, BerriAI/litellm#49137) but has not released it yet, and its
+own code calls only `FileLock(path, timeout=..., mode=...)`, which 4.x keeps. So
+both lock headers pass `--override=requirements-overrides.txt`
+(`filelock>=4.2.1`), and every install that includes `requirements.lock.txt`
+passes `--no-deps`: the locks are the full closure, and pip's resolver would
+otherwise refuse litellm's declared cap (`pip check` reports that one mismatch).
+`pip install dokimi` outside the locks still resolves a filelock below 4 until
+litellm releases the change. Drop the override file and those `--no-deps` flags
+once a litellm release allows filelock 4.
 
-The locks do not contain ragas: it is the optional `[ragas]` extra (`eval ragas`,
+The locks do not contain ragas: it is the optional `[ragas]` extra (`eval score ragas`,
 `answers generate --ragas`), which installs ragas 0.3.9 and diskcache 5.6.3. Their
 advisories do not affect Dokimi:
 
@@ -117,14 +81,13 @@ The `ragas>=0.3.0` floor keeps out 0.2.3–0.2.x, which are affected by
 CVE-2025-45691 (GHSA-v2xr-wvrv-p969, file read through `retrieved_contexts`,
 fixed in 0.3.0).
 
-`.github/workflows/pip-audit.yml` runs `pip-audit` against the locks with exactly
-the thirteen filelock IDs ignored, on every PR or push that changes a lock or requirements file and daily
-on `main`; a daily run that finds a new advisory opens an issue rather than
+`.github/workflows/pip-audit.yml` runs `pip-audit` against the locks with no
+advisory ignored, on every PR or push that changes a lock or requirements file and
+daily on `main`; a daily run that finds a new advisory opens an issue rather than
 failing unrelated PRs. The `static` job in `.github/workflows/ci.yml` runs
-`bandit -ll` with no Medium or High finding allowed.
-The same IDs are ignored by osv-scanner through `dokimi/osv-scanner.toml`,
-which OpenSSF Scorecard runs, and by `allow-ghsas` in
-`.github/workflows/dependency-review.yml`, which fails a PR that adds or moves a
-dependency to a version with any other High or Critical advisory. A removed
-advisory comes out of the first list above, the `pip-audit` step, that file and
-`allow-ghsas` together.
+`bandit -ll` with no Medium or High finding allowed. An advisory Dokimi has to
+accept is explained in this section and ignored in three places together: the
+`pip-audit` step, `dokimi/osv-scanner.toml` (which OpenSSF Scorecard runs) and
+`allow-ghsas` in `.github/workflows/dependency-review.yml`, which fails a PR that
+adds or moves a dependency to a version with a High or Critical advisory;
+`tests/test_advisory_lists.py` keeps the three in step.

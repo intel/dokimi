@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/reach_conformance.v1.json",
+  "title": "Reach conformance expectations v1",
+  "description": "What each harness's vendor documentation says each fixture repository loads, per reach scenario (data/reach-conformance/expectations.yaml, docs/reach-matrix.md). A file or scenario that is not listed is unknown: the documentation does not say.",
+  "type": "object",
+  "required": ["schema", "cases"],
+  "properties": {
+    "schema": {"const": "reach_conformance.v1"},
+    "cases": {
+      "type": "object",
+      "description": "Keyed by the fixture repository's directory name.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["summary"],
+        "properties": {"summary": {"type": "string"}},
+        "additionalProperties": {"$ref": "#/$defs/harness"}
+      }
+    }
+  },
+  "$defs": {
+    "harness": {
+      "type": "object",
+      "required": ["why", "files"],
+      "additionalProperties": false,
+      "properties": {
+        "why": {"type": "string", "description": "The vendor documentation the states rest on, in short."},
+        "files": {
+          "type": "object",
+          "description": "Keyed by the guidance file's path inside the fixture.",
+          "additionalProperties": {
+            "type": "object",
+            "description": "Keyed by reach scenario id: cwd=., cwd=<dir> or read=<dir>.",
+            "additionalProperties": {"enum": ["loaded", "not_loaded", "unknown"]}
+          }
+        }
+      }
+    }
+  }
+}

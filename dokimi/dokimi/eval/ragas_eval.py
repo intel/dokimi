@@ -24,9 +24,24 @@ from typing import List, Dict, Any, Optional
 
 from dokimi.eval.question_text import require_question_text
 from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
+from dokimi.llm import credential_env_var, resolve_api_key
 from dokimi.records import BASELINE, CONTEXT, RecordLike, records
 
 logger = logging.getLogger(__name__)
+
+
+def _key(provider: str, api_key: Optional[str] = None) -> Optional[str]:
+    """*provider*'s key as ``llm.resolve_api_key`` reads it; ``None`` when none is set.
+
+    Raises:
+        ValueError: the ``file:`` key is unreadable or names an empty file. Given ``None``,
+            langchain would read the variable itself and send the ``file:`` string.
+    """
+    key = resolve_api_key(provider, api_key)
+    if key is None and (api_key or os.environ.get(credential_env_var(provider))):
+        source = "api_key" if api_key else credential_env_var(provider)
+        raise ValueError(f"{source} for provider {provider} names an empty key file")
+    return key
 
 
 def _import_ragas_runtime():
@@ -68,7 +83,7 @@ class RagasEvaluator:
         Args:
             llm_model:  LLM used internally by RAGAS for scoring.
             provider:   Provider — "openai", "anthropic", or "google".
-            api_key:    Optional API key (falls back to env var).
+            api_key:    Optional API key (falls back to env var); either may be ``file:<path>``.
             metrics:    Which metrics to compute. Defaults to all supported ones.
                         Choices: "faithfulness", "answer_relevancy",
                                  "context_precision", "context_recall".
@@ -82,6 +97,9 @@ class RagasEvaluator:
 
         self._ragas_llm = self._build_ragas_llm()
         self._metric_objects = self._build_metrics()
+        # Kept here, not on ragas's module-level metric, which every evaluator shares.
+        self._ragas_embeddings = (self._build_ragas_embeddings()
+                                  if "answer_relevancy" in self._requested else None)
 
     # -------------------------------------------------------------------------
     # Public API
@@ -152,6 +170,7 @@ class RagasEvaluator:
                     ds,
                     metrics=active_metrics,
                     llm=self._ragas_llm,
+                    embeddings=self._ragas_embeddings,
                     raise_exceptions=False,
                 )
                 df = result.to_pandas()
@@ -186,6 +205,7 @@ class RagasEvaluator:
                     ds_wod,
                     metrics=[ar_metric],
                     llm=self._ragas_llm,
+                    embeddings=self._ragas_embeddings,
                     raise_exceptions=False,
                 )
                 df_wod = result_wod.to_pandas()
@@ -225,11 +245,9 @@ class RagasEvaluator:
             from langchain_core.language_models import BaseChatModel
             lc_llm: BaseChatModel  # either provider's chat model
 
-            key = self._resolve_key()
-
             chat = {"openai": ChatOpenAI, "anthropic": ChatAnthropic}
             if self.provider in chat:
-                lc_llm = chat[self.provider](model=self.llm_model, api_key=key or None)
+                lc_llm = chat[self.provider](model=self.llm_model, api_key=_key(self.provider, self.api_key))
             else:
                 # RAGAS 0.2 needs a LangChain chat model, built here for openai and
                 # anthropic only. Any other provider (google/vertex/openrouter/bedrock)
@@ -240,7 +258,8 @@ class RagasEvaluator:
                     "falling back to %s/%s for judging.",
                     self.provider, DEFAULT_JUDGE_PROVIDER, DEFAULT_JUDGE_MODEL,
                 )
-                lc_llm = chat[DEFAULT_JUDGE_PROVIDER](model=DEFAULT_JUDGE_MODEL)
+                lc_llm = chat[DEFAULT_JUDGE_PROVIDER](model=DEFAULT_JUDGE_MODEL,
+                                                      api_key=_key(DEFAULT_JUDGE_PROVIDER))
 
             return LangchainLLMWrapper(lc_llm)
 
@@ -279,16 +298,20 @@ class RagasEvaluator:
             m.llm = self._ragas_llm
         return metrics
 
-    def _resolve_key(self) -> str:
-        """Resolve API key from instance or env."""
-        if self.api_key:
-            return self.api_key
-        env_map = {
-            "openai": "OPENAI_API_KEY",
-            "anthropic": "ANTHROPIC_API_KEY",
-            "google": "GEMINI_API_KEY",
-        }
-        return os.environ.get(env_map.get(self.provider, "OPENAI_API_KEY"), "")
+    def _build_ragas_embeddings(self):
+        """OpenAI embeddings for answer_relevancy, keyed as dokimi reads a key.
+
+        ragas embeds with OpenAI whatever the judge, and its own default reads
+        ``OPENAI_API_KEY`` as it is, a ``file:`` string included. ``None`` (no key) leaves
+        that default.
+        """
+        key = _key("openai")
+        if key is None:
+            return None
+        from langchain_openai import OpenAIEmbeddings
+        from ragas.embeddings import LangchainEmbeddingsWrapper
+        # ragas's default model (embedding_factory), so the scores do not move.
+        return LangchainEmbeddingsWrapper(OpenAIEmbeddings(model="text-embedding-ada-002", openai_api_key=key))
 
 
 class RagasResult:

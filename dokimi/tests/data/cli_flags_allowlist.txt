@@ -94,6 +94,7 @@
 --judges
 --keep
 --kind
+--labels  # repo hits judge (#291) adds it: a person's labels have no registry concept yet; a F1b migration names it
 --large-bytes
 --lexical-only
 --libraries
@@ -144,6 +145,7 @@
 --pairwise
 --pass-k  # repo compare (#155) adds it: no registry concept yet; a F1b migration names it
 --path-stability  # repo compare (#155) adds it: no registry concept yet; a F1b migration names it
+--per-arm  # repo hits sheet (#291) adds it: a sample size has no registry concept yet; a F1b migration names it
 --personas
 --personas-count
 --placebo-text
@@ -228,6 +230,7 @@
 --work-output-dir
 --work-repeats
 -o
+--catalogue  # repo skill-reach: the skill_fixtures.v1 YAML of SKILL.md placements; no registry concept covers a fixture catalogue
 --ceiling  # eval headroom (#279) adds it: no registry concept yet; a F1b migration names it
 --floor  # eval headroom (#279) adds it: no registry concept yet; a F1b migration names it
 --min-reps  # eval headroom (#279) adds it: no registry concept yet; a F1b migration names it

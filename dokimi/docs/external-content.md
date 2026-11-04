@@ -2,6 +2,7 @@
 depends_on:
   - dokimi/dokimi/external/**
   - dokimi/dokimi/commands/catalog.py
+  - dokimi/dokimi/commands/catalog_eval.py
 ---
 <!--
 Copyright (C) 2026 Intel Corporation
@@ -9,6 +10,65 @@ SPDX-License-Identifier: Apache-2.0
 -->
 
 # Pointing Dokimi At An External Content Repository
+
+## Key-free catalog planning and checks
+
+Run the deterministic catalog path against a local checkout:
+
+```bash
+dokimi catalog eval /path/to/catalog --tier static --out-dir /path/to/receipts
+dokimi catalog eval /path/to/catalog --tier static --out-dir /path/to/receipts --changed-from BASE
+```
+
+The dedicated output directory contains `catalog.json` (`catalog_eval.v1`),
+`plan.json` (`plan.v1`), `result.json` (`result.v1`) and `report.md`. The plan
+declares the always-run catalog integrity check and one static check per selected
+skill, with no model. The result accounts for exactly those checks. The installed
+checker fingerprint and input bundle/task digests bind the receipts to the bytes
+checked (vendored and VCS directories such as `.git`, `node_modules` and `.venv` inside a skill
+or task are not part of its digest). A catalog root that is itself a symlink is refused; a
+symlink in a parent directory is resolved once, and no link below the root is followed (with no `skills.yaml`, a linked directory beside a discovered skill or under `skills/` is an `unsafe-path` finding, not skipped; links elsewhere, such as `.claude/skills`, are ignored). No model, Docker, skill script, oracle or task verifier runs here.
+
+Tasks are discovered on disk and assigned using their `metadata.skill` field.
+`evaluation/harbor/suites.json` is cross-checked: a task present on disk but absent
+from a suite remains visible with a warning; a missing declared implemented task,
+unknown owner or contradictory ownership fails validation. A task that cannot be
+loaded (for example invalid TOML) is a `task-load` finding on its declaring skill, or on
+the catalog when no suite declares it. Planned tasks remain
+listed separately. Imported skills or suites with `evaluated_here: false` receive
+`checks_only`; local skills without actual tasks receive `no_tasks`; other skills
+receive `not_measured`. A static pass establishes none of their runtime outcomes,
+skill usefulness, discovery rate or hardware performance, and changes no catalog
+promotion status.
+
+`--changed-from` compares a locally available base commit with working-tree bytes,
+including untracked and ignored files that a skill or task bundle hashes (files
+under a vendored directory such as `node_modules` and any `.git` are not hashed, so
+they select nothing). Skill resources and owned tasks select their skill, and a
+changed or removed task also selects the skill that owned it at the base;
+registry, suite, shared machinery and unclaimed changes select conservatively.
+Selection limits what can fail: a finding in a skill that is not selected is
+listed in the report but does not fail the run, while a catalog-wide problem
+(manifest, suites, tasks root, a task with no known owner) always does.
+Removed skill paths remain visible in the selection receipt. An unavailable base
+selects all skills with an explicit note. A docs-only change can select no skills;
+the catalog integrity check still runs. Git paths are read as NUL-delimited data,
+and candidate hooks, external diff tools and filesystem monitors are not run.
+
+Exit 0 means the deterministic checks passed, exit 1 reports validation findings,
+and exit 2 reports unusable input or output. A failed validation rewrites the
+receipts with failure; an input error removes earlier success receipts and leaves
+an error report when the output directory is usable. The directory must be empty
+or contain only this command's earlier receipts, and must be outside the entire
+catalog checkout and its ancestors. The directory itself is never renamed or
+removed, so it may be a mount point, the current directory or sit under a
+read-only parent; receipts are staged in a scratch directory inside it. Linked catalog roots and inputs are refused.
+Successful outputs are prepared and schema-checked before replacement.
+
+This path can run in a read-only, key-free catalog workflow. It is not a substitute
+for qualified oracle/negative controls and complete paired trials before a scored
+skill promotion. The existing `repo-eval.yml` workflow reads repository task
+manifests rather than a Harbor skill catalog.
 
 This repository is the measuring instrument. The things it measures —
 skills, question sets, executable tasks, exploration tasks, agent profiles —
@@ -23,7 +83,7 @@ implicit default that points at a sibling checkout:
 |---|---|---|
 | `--root` | a whole content checkout to scan | `catalog scan` |
 | `--questions-root` | directory holding `<product_key>_golden.json` | `benchmark preflight/run/batch`, `evaluate`, `coverage`, `config_check` |
-| `--tasks-root` | directory of executable task dirs (each with `task.toml` or a BenchFlow `task.md`), or of exploration task YAML files | `tasks list/run`, `explore list/run`, `coverage`, `config_check` |
+| `--tasks-root` | directory of executable task dirs (each with `task.toml` or a BenchFlow `task.md`), or of exploration task YAML files | `eval tasks list`/`tasks run`, `explore list/run`, `coverage`, `config_check` |
 | `--repo-root` | the source tree an exploration task is scored against | `explore run` |
 | `--registry` | a `products.yaml` describing products this repo has never heard of | `benchmark preflight/run` |
 | `--questions` | one question-set file | `arms run`, `answers generate` |
@@ -251,7 +311,7 @@ report. Section 5 shows how to check the arm specs resolve first.
 `--tasks-root` is the directory that *contains* task directories:
 
 ```console
-$ python cli.py tasks list --tasks-root C:/Users/Public/content-repo/evaluation/harbor/tasks
+$ python cli.py eval tasks list --tasks-root C:/Users/Public/content-repo/evaluation/harbor/tasks
 demo-widget     easy    demo,widget
 onetbb-parallel-reduce  medium  onetbb
 ```
@@ -408,17 +468,17 @@ Worth knowing before you read a suspiciously clean result:
 
 | Command | Root missing | Exit |
 |---|---|---|
-| `catalog scan --root <missing>` | `--root is not a directory: <path>` | 1 |
+| `catalog scan --root <missing>` | `--root is not a directory: <path>` | 2 |
 | `catalog scan --root <no SKILL.md> --kind skills` | `no SKILL.md found under <path>` | 1 |
-| `tasks run --tasks-root <missing>` | `FileNotFoundError: Task directory not found: demo-widget` | 1 |
-| `tasks list --tasks-root <missing>` | prints nothing | 0 |
+| `tasks run --tasks-root <missing>` | `--tasks-root is not a directory: <path>` | 2 |
+| `eval tasks list --tasks-root <missing>` | `--tasks-root is not a directory: <path>` | 2 |
 | `explore list --tasks-root <missing>` | `--tasks-root is not a directory: <path>` | 2 |
 | `coverage` with no roots | every product reads `no`/`0`, plus an explicit note | 0 |
 | `evaluate`/`benchmark run` with a root lacking the golden set | `WARNING ... has no golden set for <product>` and continues | — |
 
-`tasks list` is the trap: an empty listing and a correct listing both exit 0,
-so a typo in a path looks like an empty checkout. `explore list` refuses an
-empty root with exit 2. The `coverage` matrix is explicit about it instead:
+`eval tasks list` is the trap for an existing directory: an empty listing and a correct listing
+both exit 0, so an empty checkout looks like a correct one. A missing root is refused with exit 2,
+not a silent success. `explore list` refuses an empty root with exit 2. The `coverage` matrix is explicit about it instead:
 
 ```console
 $ python -m dokimi.coverage
