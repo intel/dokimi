@@ -23,7 +23,8 @@ Usage:
 
 --python must be one of the declared versions; `python ci/matrix.py` lists them.
 
-Packages land directly in OUT, ready for actions/upload-artifact. A conda
+Packages land directly in OUT, ready for actions/upload-artifact, which like
+ci/hooks.py takes every package there: give each build an empty OUT. A conda
 recipe's own tests run during the build; Jenkins later runs ci/test.py against
 the uploaded artifacts, and builds with this script once more under Coverity for
 intel-innersource tags. Needs only the Python standard library. rattler-build is
@@ -266,8 +267,12 @@ def commands(
 
 
 def collect(scratch: Path, output: Path) -> list[Path]:
-    """Moves built packages into output, flat, and lists them."""
+    """
+    Moves built packages into output, flat, and lists them, not those an
+    earlier build left there.
+    """
     output.mkdir(parents=True, exist_ok=True)
+    built: list[Path] = []
     for package in sorted(scratch.rglob("*")):
         if (
             package.is_file()
@@ -275,13 +280,10 @@ def collect(scratch: Path, output: Path) -> list[Path]:
             and "broken" not in package.parts
         ):
             shutil.move(str(package), output / package.name)
-    built = sorted(
-        path
-        for path in output.iterdir()
-        if path.name.endswith(PACKAGE_SUFFIXES)
-    )
+            built.append(output / package.name)
+    built.sort()
     if not built:
-        raise BuildError(f"the build left no package in {output}")
+        raise BuildError("the build produced no package")
     return built
 
 

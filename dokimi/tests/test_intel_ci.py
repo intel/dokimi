@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import importlib.util
+import types
 from pathlib import Path
 
 import pytest
@@ -23,3 +25,25 @@ def _workflow(name: str) -> dict:
 def test_every_push_and_tag_run_keeps_its_own_concurrency_group() -> None:
     """Jenkins tests every main push: a shared group would drop a queued one, so group as ci.yml does."""
     assert _workflow("intel-ci.yml")["concurrency"] == _workflow("ci.yml")["concurrency"]
+
+
+def _script(name: str, monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
+    """A ci/ script as a module; build.py imports matrix.py from next to it."""
+    monkeypatch.syspath_prepend(str(_REPO / "ci"))
+    spec = importlib.util.spec_from_file_location(f"gh_ci_{name}", _REPO / "ci" / f"{name}.py")
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_build_lists_only_the_packages_it_built(tmp_path: Path,
+                                                monkeypatch: pytest.MonkeyPatch) -> None:
+    """A package an earlier build left in --output is neither reported nor rewritten as this build's."""
+    build = _script("build", monkeypatch)
+    out, scratch = tmp_path / "out", tmp_path / "scratch" / "wheel"
+    out.mkdir()
+    scratch.mkdir(parents=True)
+    (out / "dokimi-0.1.0-py3-none-any.whl").write_bytes(b"old")
+    (scratch / "dokimi-0.2.0-py3-none-any.whl").write_bytes(b"new")
+    assert build.collect(scratch.parent, out) == [out / "dokimi-0.2.0-py3-none-any.whl"]
