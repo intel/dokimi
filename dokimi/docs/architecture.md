@@ -300,8 +300,8 @@ next release.
   skills with near-duplicate descriptions (identical descriptions, or Jaccard index >= 0.5
   after stop-word removal when both have 3+ words left), on AGENTS.md files turned off, on
   unreadable files (non-UTF-8, dangling or out-of-tree link), on imports past the harness's
-  hop limit, and on a link at or below `.claude/rules` to a directory or out of the tree (the rules behind
-  it are not counted), each of which also trips `--fail-on-warning`. For a profile with `guidance.claude_rules` (Claude Code),
+  hop limit, and on a link at or below `.claude/rules` to a directory or out of the tree, or a root `.claude` link to a
+  directory with `rules/` or out of the tree (the rules behind it are not counted at start), each of which also trips `--fail-on-warning`. For a profile with `guidance.claude_rules` (Claude Code),
   `.claude/rules/**/*.md` files are `rule` entries: `start` in the root `.claude/rules/` when
   `paths` names no pattern, `lazy` when it does or in a subdirectory's `.claude/rules/`, but `start` whatever its `paths` when a root CLAUDE.md or
   AGENTS.md imports it, the frontmatter not counted. An `@` path in a rule is not followed, unless a CLAUDE.md or AGENTS.md
@@ -309,7 +309,7 @@ next release.
   (only `@path.md` imports are followed, so `@notes.txt` adds nothing;
   skills are read only from real `.claude/skills/*/SKILL.md` directories at the root, so a skill
   behind a linked directory is not seen, nor are the rules behind a link at or below `.claude/rules` (a warning
-  names it; a `.claude` link itself is neither counted nor named), and a
+  names it, as it does a root `.claude` link to a directory with `rules/` or out of the tree), and a
   nested `<subdir>/.claude/skills/` skill, which Claude
   Code loads on the first read in that subdirectory, is not counted; and imports past the profile's `guidance.import_max_depth`,
   four hops for Claude Code, which warn naming what was skipped). It is too high by whatever the

@@ -44,11 +44,11 @@ from typing import Any
 import yaml
 
 from dokimi.repos.source import RepoTree
+from dokimi.repos.unlisted_rules import RULES_ENTRY as _RULES_ENTRY, unlisted_rules
 
 SKILL_GLOB = re.compile(r"^\.claude/skills/[^/]+/SKILL\.md$")
 # Rules are discovered recursively, in the root .claude/rules/ and in a subdirectory's (docs: Memory).
 RULE_GLOB = re.compile(r"^(?:.+/)?\.claude/rules/(?:.+/)?[^/]+\.md$")
-_RULES_ENTRY = re.compile(r"^(?:.+/)?\.claude/rules(?:/.+)?$")
 _FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n(.*?)^---[ \t]*(?:\r?\n|\Z)", re.S | re.M)
 # The `paths:` key of frontmatter that does not parse: its line, read on its own (see _paths_block).
 _PATHS_LINE = re.compile(r"^paths[ \t]*:(.*)$")
@@ -437,6 +437,7 @@ def _rules(tree: RepoTree, files: list[str], counted: set[str], start_t: set[str
     by_target = {_target(tree, e["path"]): e for e in guidance}
     out = []
     dirs: set[str] = set()
+    warnings += unlisted_rules(tree, files)
     for f in sorted(f for f in files if _RULES_ENTRY.match(f)):
         try:
             if tree.is_dir(tree.resolve(f, dirs=True)):  # a tree lists a link to a directory as one entry

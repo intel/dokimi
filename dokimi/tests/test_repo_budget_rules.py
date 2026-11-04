@@ -5,10 +5,12 @@
 
 from __future__ import annotations
 
+import subprocess
+
 import pytest
 
 from dokimi.repos.budget import budget
-from dokimi.repos.source import WorkTree
+from dokimi.repos.source import GitTree, WorkTree
 
 NAMES = ("CLAUDE.md", "CLAUDE.local.md", "AGENTS.md")
 
@@ -23,6 +25,16 @@ def _tree(tmp_path, files):
 
 def _by_path(payload):
     return {(e["path"], e["kind"]): e for e in payload["entries"]}
+
+
+def _source(root, kind):
+    """``root`` committed to git, read as a work tree or as its HEAD commit."""
+    git = lambda *a: subprocess.run(["git", "-C", str(root), *a], check=True, capture_output=True,  # noqa: E731
+                                    text=True).stdout.strip()
+    git("init", "-q")
+    git("add", "-A")
+    git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "case")
+    return WorkTree(root) if kind == "worktree" else GitTree(root / ".git", git("rev-parse", "HEAD"))
 
 
 @pytest.mark.outcome("cjm-repo-budget")
@@ -280,6 +292,35 @@ def test_a_rules_link_out_of_the_tree_is_named(tmp_path):
     assert not [e for e in payload["entries"] if e["kind"] == "rule"]
     assert payload["warnings"] == [
         ".claude/rules/shared: a link that does not resolve in the tree; any rules behind it are not counted"]
+
+
+@pytest.mark.parametrize("kind", ["worktree", "git"])
+@pytest.mark.parametrize(("shared", "warnings"), [
+    ({"shared/.claude/rules/a.md": "rule body\n"},
+     [".claude: a link to a directory; the rules behind it are not counted at start"]),
+    ({"shared/.claude/skills/x/SKILL.md": "---\nname: x\ndescription: d\n---\nbody\n"}, []),
+])
+def test_a_root_claude_link_to_a_directory_names_the_rules_behind_it(tmp_path, kind, shared, warnings):
+    # Claude Code reads the rules behind a `.claude` link at start; the tree lists the link as one entry
+    _tree(tmp_path, {"CLAUDE.md": "root\n", **shared})
+    try:
+        (tmp_path / ".claude").symlink_to("shared/.claude", target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    assert budget(_source(tmp_path, kind), NAMES, rules=True)["warnings"] == warnings
+
+
+@pytest.mark.parametrize("kind", ["worktree", "git"])
+def test_a_root_claude_link_out_of_the_tree_is_named(tmp_path, kind):
+    _tree(tmp_path, {"outside/.claude/rules/a.md": "rule body\n", "repo/CLAUDE.md": "root\n"})
+    repo = tmp_path / "repo"
+    try:
+        (repo / ".claude").symlink_to("../outside/.claude", target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    payload = budget(_source(repo, kind), NAMES, rules=True)
+    assert payload["warnings"] == [
+        ".claude: a link that does not resolve in the tree; any rules behind it are not counted"]
 
 
 def test_a_rule_with_a_utf8_bom_reads_its_frontmatter(tmp_path):
