@@ -674,6 +674,8 @@ def _decode(data: bytes) -> str:
 
 GIT_TIMEOUT_SEC = 300.0
 GIT_ENV = Env.inherit({"GIT_TERMINAL_PROMPT": "0"})
+#: Git variables that name a repository outright: an inherited one redirects every git call.
+GIT_REPO_OVERRIDES = frozenset({"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE"})
 
 
 def git(*args: str, cwd: str | os.PathLike[str] | None = None, timeout: float = GIT_TIMEOUT_SEC,
