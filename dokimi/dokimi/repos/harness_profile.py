@@ -76,6 +76,11 @@ class HarnessProfile:
         return int(depth) if depth is not None else None
 
     @property
+    def reads_claude_rules(self) -> bool:
+        """Whether the harness reads ``.claude/rules/**/*.md`` (``guidance.claude_rules``)."""
+        return bool(self.guidance.get("claude_rules"))
+
+    @property
     def follows_imports(self) -> bool:
         """The harness declares an ``@`` import syntax (``guidance.imports`` not null); budget follows imports only then."""
         return self.guidance.get("imports") is not None

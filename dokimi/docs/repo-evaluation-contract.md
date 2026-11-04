@@ -49,9 +49,14 @@ SPDX-License-Identifier: Apache-2.0
 > files a root CLAUDE* turns off, or a CLAUDE.md, `CLAUDE.local.md` or `.claude/CLAUDE.md` in the
 > AGENTS.md file's own directory (not one in a parent below the root). Both rules hold only with a profile that sets
 > `guidance.claude_displaces_agents`, as `claude-code` does: with `copilot`, a root AGENTS.md is `start` beside a root CLAUDE.md. Imports are followed only with a profile that
-declares `guidance.imports` (`claude-code`; it is null for `codex` and `copilot`). The `start` total is not an upper bound: it is too low by what it does
-> not count (`.claude/rules/*.md` files, non-`.md` imports, skills behind a linked directory, nested
-> `.claude/skills/` skills, and
+declares `guidance.imports` (`claude-code`; it is null for `codex` and `copilot`). For a profile with `guidance.claude_rules` (`claude-code`),
+> `.claude/rules/**/*.md` files are `rule` entries: at start in the root `.claude/rules/` unless
+> their frontmatter's `paths` names a pattern, lazily then and in a subdirectory's `.claude/rules/`; a rule a root CLAUDE.md or AGENTS.md
+> imports is `start` whatever its `paths`;
+> an `@` path in a rule is not followed, unless a CLAUDE.md or AGENTS.md imports the rule: then its `@` imports are followed, transitively and within the hop limit.
+> A root import loads the rule at start; a nested CLAUDE.md import loads it lazily, when that nested file is read. The `start` total is not an upper bound:
+> it is too low by what it does not count (non-`.md` imports, skills behind a linked directory, rules behind a
+> link at or below `.claude/rules` to a directory or a root `.claude` link, or a submodule there, which warns, nested `.claude/skills/` skills, and
 > imports past the profile's `guidance.import_max_depth`, four hops for Claude Code, which warns
 > naming what was skipped), and too high by whatever the harness cuts from the skill listing.
 > Usage:
@@ -1347,15 +1352,15 @@ observations of that run. It cannot show:
   `\time cd sub` run /usr/bin/time); the forms that only drop a read are listed in
   [#374](https://github.com/intel/dokimi/issues/374);
 - when a source entered the request, or in what order (no timestamps);
-- start-up imports and skill listings from budget, which reach does not probe:
+- start-up imports, start-up rules and skill listings from budget, which reach does not probe:
   they appear with `observed: unknown`. A skill body is loaded on demand, so it
   is not listed; the receipt-level unknown says both;
 - anything a model under-reports; a prose-heavy answer is flagged.
 
 Each run lists its own `unknowns` (no usable answer, a source with one token
 reported, prose above the limit, unseeded tokens). The receipt-level `unknowns`
-repeat the limits above and carry the notice that start-up imports and skill
-listings are not probed.
+repeat the limits above and carry the notice that start-up imports, start-up rules and
+skill listings are not probed.
 
 The same receipt, run over the fixtures in `data/reach-conformance/` for several
 harnesses and versions, is the reach conformance matrix; see
