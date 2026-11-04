@@ -139,7 +139,7 @@ def resolve_model(model: str, provider: str) -> str:
     """The litellm model string for *model* at *provider*.
 
     A name with a ``/`` passes through, except on OpenRouter and openai-codex, which add
-    their own prefix, on openai and Vertex, where only a litellm route prefix counts.
+    their own prefix, on openai and Vertex, where only a litellm route counts, and on Bedrock.
     """
     name = _canonical(provider)
     if name == "openrouter":
@@ -155,8 +155,8 @@ def resolve_model(model: str, provider: str) -> str:
         return model if routed else f"openai/{model}"
     if name == "google-vertex":  # a Model Garden name (meta/llama-...) has a "/" but no route
         return model if model.startswith(("gemini/", "vertex_ai/")) else f"vertex_ai/{model}"
-    if "/" in model and not (name == "amazon-bedrock" and model.startswith("arn:")):
-        return model  # an ARN has a "/" too, but no route of its own
+    if "/" in model and (name != "amazon-bedrock" or model.startswith("bedrock/")):
+        return model  # on Bedrock, another "/" name (ARN, gemini/x) gets bedrock/: the key stays
     if name == "amazon-bedrock":
         # Bedrock's openai.* namespace answers only via the Converse API; the plain
         # bedrock/<model> route 404s on it (Anthropic models work either way).

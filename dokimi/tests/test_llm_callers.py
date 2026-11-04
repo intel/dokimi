@@ -91,6 +91,16 @@ def test_a_bedrock_arn_keeps_the_bedrock_route(caller, fake_llm):
 
 
 @pytest.mark.parametrize("caller", CALLERS)
+@pytest.mark.parametrize("model, route", [("gemini/gemini-2.5-pro", "bedrock/gemini/gemini-2.5-pro"),
+    ("openai/gpt-4o", "bedrock/openai/gpt-4o"), ("bedrock/us.anthropic.x", "bedrock/us.anthropic.x")])
+def test_a_bedrock_token_stays_on_the_bedrock_route(caller, model, route, fake_llm, monkeypatch):
+    # Passed through, gemini/x is another vendor's route, and litellm sends it the Bedrock token.
+    monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", "tok")
+    request = sent(caller, fake_llm, model, "amazon-bedrock")
+    assert (request.litellm_model, request.api_key) == (route, "tok")
+
+
+@pytest.mark.parametrize("caller", CALLERS)
 @pytest.mark.parametrize("model", ["meta/llama-3.1-405b-instruct-maas", "mistralai/mistral-large"])
 def test_a_vertex_model_garden_name_keeps_the_vertex_route(caller, model, fake_llm):
     # Its "/" is a publisher, not a litellm route: without vertex_ai/ litellm cannot place it.

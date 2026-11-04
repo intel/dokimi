@@ -27,6 +27,9 @@
     does. The answerer sent it `OPENAI_API_KEY`, and now reads `GEMINI_API_KEY` too.
   - The answerer routed a Bedrock ARN without its `bedrock/` prefix, so litellm could not place
     it. It now gets the prefix, as the judge always did.
+  - On Bedrock, a `/` name with another vendor's route (`gemini/...`, `openai/...`) gets
+    `bedrock/` too, so `AWS_BEARER_TOKEN_BEDROCK` goes only to Bedrock. The answerer sent it to
+    that vendor's route, with the Bedrock token as its key.
 
   Response-cache entries these four stored on Bedrock, Vertex or OpenRouter are not hit, because
   the key now includes the streaming flag, as every other caller's does. Those calls are paid once
