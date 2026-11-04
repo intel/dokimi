@@ -71,7 +71,20 @@
           "num_turns": {"type": ["integer", "null"]},
           "reported": {"type": "array", "items": {"type": "string"}},
           "unknown": {"type": "array", "items": {"type": "string"}},
-          "prose": {"type": ["integer", "null"], "description": "Words in the answer besides tokens; a high count flags an explanation or refusal."}
+          "prose": {"type": ["integer", "null"], "description": "Words in the answer besides tokens; a high count flags an explanation or refusal."},
+          "shadow": {
+            "type": "object",
+            "description": "A shadow scenario only (`--scenarios shadow`): the profile's guidance.shadow_file, written seeded at `path` for this scenario alone. It is not a tree file, so it has no `files` entry and no records; its result is here, with a record's fields.",
+            "required": ["path", "tokens", "head", "tail", "read_by_tool", "class"],
+            "properties": {
+              "path": {"type": "string"},
+              "tokens": {"type": "array", "items": {"type": "string", "pattern": "^RC[0-9A-F]{6}$"}, "minItems": 2, "maxItems": 2, "description": "Its head and tail tokens."},
+              "head": {"type": "boolean"},
+              "tail": {"type": "boolean"},
+              "read_by_tool": {"type": "boolean"},
+              "class": {"enum": ["loaded", "truncated", "fetched", "not_loaded", "error"]}
+            }
+          }
         }
       }
     },

@@ -14,8 +14,9 @@ repository offers an agent), ``plan`` (the cells a run promises to measure),
 ``result`` (one status per planned cell), ``repo_budget`` (what a repository puts
 into an agent's context), ``effective_instructions`` (the effective-instructions/v0
 receipt of a reach probe), ``need_graph`` and ``eval_coverage`` (a frozen need graph and an
-eval set's coverage of it) and ``task_inspect`` (which eval-task format each
-path under a tree is). This module stamps each with a
+eval set's coverage of it), ``task_inspect`` (which eval-task format each
+path under a tree is) and ``repo_hits_judged`` (a judge's labels of one replay
+cell's credited pairs). This module stamps each with a
 ``schema_version`` and validates it against the JSON Schema in
 ``dokimi/schemas/`` on save and load, so fixtures and baselines stay
 forward-compatible and self-describing.
@@ -67,6 +68,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "repo_ledger": "repo_ledger.v1",
     "need_graph": "need_graph.v1",
     "eval_coverage": "eval_coverage.v1",
+    "repo_hits_judged": "repo_hits_judged.v1",
 }
 
 # kind -> superseded versions still accepted on *load*, newest first. An artifact written under an

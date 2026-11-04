@@ -34,6 +34,7 @@ CONTENTS = {
     "repo_budget.v1": {"entries": 9},
     "effective_instructions.v1": {"receipts": 1},
     "repo_environment.v1": {"instructions": 4, "findings": 13},
+    "repo_hits_judged.v1": {"pairs": 3},
     "repo_readiness.v1": {"files": 2, "claims": 52},
     "result.v1": {"cells": 6},
     "subject_scorecard.v2": {"cells": 0},
