@@ -724,7 +724,7 @@ failed the task, and on a task with `score` that is a failed run with score
 
 `dokimi:typecheck` checks the listed files only. Its pass is "no error on a
 listed file" (an error in a module a listed file imports belongs to that module,
-not to the listed file; an installed module without types is read as `Any`, not an error), and a listed file that is missing fails. Silencing mypy fails too: a `# type: ignore` or `# mypy:` comment or the name `no_type_check` in a listed file, or a `.pyi` anywhere in the workspace (it would replace the module it names; a dot directory such as `.venv` or `.git` that holds no listed file is not read, as no import can name it), or a top-level module or package named as a standard-library one or one the image's site-packages provides (`json.py`, `requests/__init__.py`, the same replacement; the repository's own package is not one when the image installed it from the workspace directory, `pip install .` or `pip install -e .` there, which its `direct_url.json` records as `dir_info`, and is one when installed from any other directory), is a suppression, and the grade counts it in `n_suppressions`. A listed path
+not to the listed file; an installed module without types is read as `Any`, not an error), and a listed file that is missing fails. Silencing mypy fails too: a `# type: ignore` or `# mypy:` comment, the name `no_type_check`, or a branch mypy never checks because it takes `TYPE_CHECKING` (or `MYPY`) as true (`if not TYPE_CHECKING:`, the `else` of `if TYPE_CHECKING:`) in a listed file, or a `.pyi` anywhere in the workspace (it would replace the module it names; a dot directory such as `.venv` or `.git` that holds no listed file is not read, as no import can name it), or a top-level module or package named as a standard-library one or one the image's site-packages provides (`json.py`, `requests/__init__.py`, the same replacement; the repository's own package is not one when the image installed it from the workspace directory, `pip install .` or `pip install -e .` there, which its `direct_url.json` records as `dir_info`, and is one when installed from any other directory), is a suppression, and the grade counts it in `n_suppressions`. A listed path
 reached through a symbolic link is missing, not read. A symbolic link in the workspace whose target
 lies outside it (outside such a dot directory) refuses the whole grade (a grader error, not a pass), listed or not, whenever mypy runs, that is
 when some listed file is present: mypy follows an import through a link, so an unlisted module could supply what a
@@ -732,6 +732,12 @@ listed file imports. When every listed file is missing, mypy does not run, and t
 `n_missing` set, not a grader error, even if a link lies outside. The exception
 is a blocking error (a syntax error, a duplicate module) that stops mypy before
 it reaches the listed files: then that error is the grade's, and the grade fails.
+Not counted, so not guarded: other code mypy takes as unreachable and does not check (under a `sys.version_info` or
+`sys.platform` guard the image's Python does not take, after `assert False`), and a change to an unlisted module that
+hides a listed file's error (a module `__getattr__` returning `Any`, a return type widened to `Any`). A repository's
+own code has both, and the grader cannot read the base to tell them from the agent's; `--warn-unreachable` would
+report only the `assert False` kind, along with the repository's own unreachable branches. A task that needs these
+guarded checks them in its own `grade` entry point.
 `reference/` is optional. The task's `oracle` copies its `reference/` directory, when it has one, over the
 workspace, so a reference repair is what gets graded; its answer is empty. Without `reference/` the grade
 reads the listed files as they are, and the self-check (§4.3) runs the null step only: the untouched

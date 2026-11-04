@@ -15,6 +15,7 @@ time; mypy is imported by :func:`grade` and must be importable by the image's ``
 
 from __future__ import annotations
 
+import ast
 import importlib.metadata
 import importlib.util
 import io
@@ -43,6 +44,7 @@ _TAIL = re.compile(r"^(?::(?P<line>\d+))?(?::\d+)?: error: (?P<message>.*?)(?:\s
 # A listed file with one is not graded clean, whatever mypy then reports.
 _SILENCE = re.compile(r"#\s*(?:type:\s*ignore|mypy:)")
 _NO_TYPE_CHECK = "no_type_check"  # typing's decorator: mypy skips the body it wraps, under any import alias
+_ALWAYS_TRUE = ("TYPE_CHECKING", "MYPY")  # names mypy takes as true, as ``typing.X`` too, so their else is not checked
 
 
 def _safe_path(path: object) -> bool:
@@ -150,6 +152,24 @@ def _no_type_check(text: str) -> list[int]:
         return [n for n, line in enumerate(text.splitlines(), 1) if _NO_TYPE_CHECK in line]
 
 
+def _checking(node: ast.expr) -> bool:
+    """True for the name ``TYPE_CHECKING`` or ``MYPY``, bare or as an attribute (``typing.TYPE_CHECKING``)."""
+    name = node.id if isinstance(node, ast.Name) else node.attr if isinstance(node, ast.Attribute) else ""
+    return name in _ALWAYS_TRUE
+
+
+def _unchecked(text: str) -> list[int]:
+    """The lines of an ``if`` whose branch mypy never checks: ``if not TYPE_CHECKING:``, and ``if TYPE_CHECKING:`` with
+    an ``else``. A source that does not parse has none (mypy reports it)."""
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError, RecursionError):
+        return []
+    return [node.lineno for node in ast.walk(tree) if isinstance(node, ast.If) and (
+        (_checking(node.test) and node.orelse)
+        or (isinstance(node.test, ast.UnaryOp) and isinstance(node.test.op, ast.Not) and _checking(node.test.operand)))]
+
+
 def _image_provides(name: str) -> bool:
     """True when the image's site-packages provides the top-level module ``name``. The module is found, not imported;
     a dotted name is not looked up (find_spec would import its parent)."""
@@ -200,7 +220,8 @@ def _reachable(workspace: Path, listed: list[str]):
 
 
 def _silenced(workspace: Path, listed: list[str]) -> list[str]:
-    """Where the workspace silences mypy: ``file:line`` for a comment, the path for a stub (``.pyi`` shadows a module)
+    """Where the workspace silences mypy: ``file:line`` for a comment or a branch mypy never checks, the path for a
+    stub (``.pyi`` shadows a module)
     or for a top-level module named as a standard-library one or one the image's site-packages provides
     (``json.py``, ``requests/__init__.py``; not the repository installed from the workspace), on the workspace or a
     source root.
@@ -211,6 +232,7 @@ def _silenced(workspace: Path, listed: list[str]) -> list[str]:
         text = (workspace / p).read_text(encoding="utf-8", errors="replace")
         found += [f"{p}:{n}" for n, comment in _comments(text) if _SILENCE.search(comment)]
         found += [f"{p}:{n}" for n in _no_type_check(text)]
+        found += [f"{p}:{n}" for n in _unchecked(text)]
     for dirpath, _, filenames in _reachable(workspace, listed):
         found += [Path(dirpath, name).relative_to(workspace).as_posix() for name in filenames if name.endswith(".pyi")]
     for base in (workspace, *_package_roots(workspace, listed)):

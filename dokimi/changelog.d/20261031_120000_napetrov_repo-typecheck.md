@@ -15,5 +15,7 @@
   a statement that needs a function or loop around it (`break`, `continue`, `yield from`, `nonlocal`) is unresolved too.
 - The grader refuses a workspace module named as one the image's site-packages provides, as it does a standard-library name,
   except the repository's own package when the image installed it from the workspace directory (`pip install .` there).
+- A branch mypy never checks because of `TYPE_CHECKING` (`if not TYPE_CHECKING:`, the `else` of `if TYPE_CHECKING:`)
+  in a listed file is a suppression. Version and platform guards and unlisted modules are not guarded (§4.5).
 - The grader does not read a dot directory (`.venv`, `.git`) that holds no listed file: its `.pyi` files and links
   outside the workspace no longer fail or refuse a clean grade.
