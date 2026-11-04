@@ -75,7 +75,9 @@ skipped: 1 JSON with no leading schema_version, 1 JSON of an unknown schema_vers
 **Run ids.** A run artifact saved through `save_artifact` carries `run_id`
 ([#277](https://github.com/intel/dokimi/issues/277)): one id per dokimi
 process, written right after `schema_version`. A command that starts dokimi in
-child processes (`repo conformance`) gives each child its own id. `--run-id` on
+child processes (`repo conformance`) gives each child its own id. Re-saving a `questions` or
+`repo_ledger` file (both are run kinds, though often hand-written) replaces its `run_id` with this
+process's, so the file changes on every re-save. `--run-id` on
 `answers`, `eval` and `report` names an output directory, not this id. An
 artifact written before the envelope, or by a writer that bypasses
 `save_artifact`, has `run_id` `null`. Rows are not yet grouped by `run_id`

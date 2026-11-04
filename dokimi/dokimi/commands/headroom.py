@@ -5,8 +5,8 @@
 
 Reads one or more ``arms.v1`` files of the same question set (one per repetition) and writes a
 ``headroom.v1`` artifact with ``--out``, always printing the human table. A file repeated on the
-command line, or holding the same JSON content as an earlier one, is one run: the repeats are skipped with a
-note on stderr. See :mod:`dokimi.eval.headroom` for the rules.
+command line, or holding the same JSON content as an earlier one (its top-level run_id aside), is one run: the
+repeats are skipped with a note on stderr. See :mod:`dokimi.eval.headroom` for the rules.
 """
 
 from __future__ import annotations
@@ -44,7 +44,12 @@ def _canonical(value: Any) -> Any:
 
 
 def _content_digest(data: Any) -> str:
-    """Digest of the parsed JSON, so one run re-serialized (whitespace, key order, 95 vs 95.0) counts once."""
+    """Digest of the parsed JSON, so one run re-serialized (whitespace, key order, 95 vs 95.0) counts once.
+
+    The top-level ``run_id`` (#277) names the process that wrote the file, not its content, so it is left out.
+    """
+    if isinstance(data, dict):
+        data = {k: v for k, v in data.items() if k != "run_id"}
     return hashlib.sha256(json.dumps(_canonical(data), sort_keys=True).encode("utf-8")).hexdigest()
 
 

@@ -93,6 +93,17 @@ def test_an_arm_the_run_declares_but_an_item_lacks_is_unscored_for_that_item():
     assert item["unscored_arms"] == ["other"] and item["flag"] == FLOOR
 
 
+def test_runs_that_differ_only_in_run_id_count_once(tmp_path, capsys):
+    base = json.loads(_arms_file(tmp_path / "base.json", {"1": {"baseline": 95, "skill": 95}}).read_text(encoding="utf-8"))
+    first, second = tmp_path / "run1.json", tmp_path / "run2.json"
+    first.write_text(json.dumps({**base, "run_id": "20260101T000000Z-aaaaaaaa"}), encoding="utf-8")
+    second.write_text(json.dumps({**base, "run_id": "20260102T000000Z-bbbbbbbb"}), encoding="utf-8")
+    out = tmp_path / "headroom.json"
+    cmd_eval_headroom(_args([first, second], output=out))
+    assert json.loads(out.read_text(encoding="utf-8"))["runs"] == 1
+    assert f"skipped {second}: same content as {first}, counted once" in capsys.readouterr().err
+
+
 def test_command_refuses_an_unknown_no_skill_arm_and_lists_the_arms(tmp_path, capsys):
     path = _arms_file(tmp_path / "arms.json", {"1": {"baseline": 99, "skill": 99}})
     with pytest.raises(SystemExit) as exc:

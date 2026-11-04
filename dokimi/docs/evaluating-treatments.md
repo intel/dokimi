@@ -758,9 +758,9 @@ python cli.py eval headroom run1/arms.json run2/arms.json run3/arms.json \
   default of 3; the reps of several files add up.
 
 A run is one file. A file repeated on the command line, or holding the same JSON content as
-an earlier one (whitespace and key order do not count), is skipped with a note, so it does
-not add a rep. Numbers are compared as numbers: `95.0` and `95` are the same content. A question id repeated within one
-file is an error (exit 2): it would count as two runs.
+an earlier one (whitespace, key order and the top-level `run_id` do not count), is skipped with a
+note, so it does not add a rep. Numbers are compared as numbers: `95.0` and `95` are the same
+content. A question id repeated within one file is an error (exit 2): it would count as two runs.
 
 Cached replays are not detected. With `DOKIMI_RESPONSE_CACHE` set, a repeated `arms run` replays
 the same answers and judgments, but its file has a new `generated_at` and so counts as a fresh rep.
