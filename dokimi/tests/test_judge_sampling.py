@@ -90,8 +90,7 @@ def test_the_judge_carries_temperature_to_the_call(completion):
 
 
 # ── panel path ───────────────────────────────────────────────────────────────
-# A panel is a judge as far as `arms run --judge-panel` is concerned, and it
-# reaches litellm through llm_call rather than the transport the single Judge uses.
+# A panel judges `arms run --judge-panel`; it reaches litellm through llm_call, not the Judge's transport.
 
 _PANEL_PAYLOAD = (
     '{"reasoning":"r","correctness":80,"completeness":80,"specificity":80,'
