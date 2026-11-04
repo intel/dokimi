@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from dokimi import cli
-from dokimi.artifacts import save_artifact
+from dokimi.artifacts import current_run_id, save_artifact
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "artifacts"
 
@@ -130,7 +130,7 @@ def test_json_has_the_vocabulary_fields_and_every_count(monkeypatch, capsys, fil
     data = json.loads(_list(monkeypatch, capsys, "--json", "--kind", "arms").out)
 
     assert data["artifacts"] == [{
-        "schema_version": "arms.v1", "kind": "arms", "run_id": None, "subject": "onetbb",
+        "schema_version": "arms.v1", "kind": "arms", "run_id": current_run_id(), "subject": "onetbb",
         "model": "m", "generated_at": "2026-10-29T14:02:00Z", "path": "arms/onetbb.json",
         "size_bytes": (filled / "arms" / "onetbb.json").stat().st_size,
     }]

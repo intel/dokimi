@@ -49,13 +49,13 @@ def plan_cells(arms: Iterable[str], models: Iterable[str | None], tasks: Iterabl
 
 
 def plan_digest(plan: Mapping[str, Any]) -> str:
-    """``sha256:<hex>`` of the plan's canonical JSON, ``generated_at`` left out.
+    """``sha256:<hex>`` of the plan's canonical JSON, ``generated_at`` and ``run_id`` left out.
 
     The plan is hashed as :func:`dokimi.artifacts.save_artifact` writes it: a missing
     ``schema_version`` is filled in, so the digest of a dict taken before saving matches
     the digest of the same plan loaded back.
     """
-    body = {k: v for k, v in plan.items() if k != "generated_at"}
+    body = {k: v for k, v in plan.items() if k not in ("generated_at", "run_id")}
     body.setdefault("schema_version", _PLAN_SCHEMA)
     text = json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()

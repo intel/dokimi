@@ -6,6 +6,7 @@
   "type": "object",
   "required": ["schema_version", "model", "provider", "reps", "factors", "max_tokens", "system", "cues", "groups_sha256", "items", "results", "summary"],
   "properties": {
+    "run_id": {"type": "string", "minLength": 1, "maxLength": 128, "description": "The run that wrote this artifact (the run envelope, #277). Optional: artifacts written before it have none."},
     "schema_version": {"const": "tool_preference.v1"},
     "generated_at": {"type": "string"},
     "model": {"type": "string"},

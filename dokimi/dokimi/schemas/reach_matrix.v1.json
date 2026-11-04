@@ -6,6 +6,7 @@
   "type": "object",
   "required": ["schema_version", "generated_at", "expectations", "expectations_digest", "fixtures_digest", "runs", "cells", "summary"],
   "properties": {
+    "run_id": {"type": "string", "minLength": 1, "maxLength": 128, "description": "The run that wrote this artifact (the run envelope, #277). Optional: artifacts written before it have none."},
     "schema_version": {"const": "reach_matrix.v1"},
     "generated_at": {"type": "string"},
     "expectations": {"const": "reach_conformance.v1", "description": "The schema of the expectations file the documented states come from."},

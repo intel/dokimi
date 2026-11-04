@@ -7,6 +7,7 @@
   "required": ["schema_version", "tree", "entries", "totals", "skills", "duplicate_skills", "mcp_servers", "warnings"],
   "additionalProperties": false,
   "properties": {
+    "run_id": {"type": "string", "minLength": 1, "maxLength": 128, "description": "The run that wrote this artifact (the run envelope, #277). Optional: artifacts written before it have none."},
     "schema_version": {"const": "repo_budget.v1"},
     "tree": {"type": "string", "description": "Label of the inspected tree."},
     "entries": {

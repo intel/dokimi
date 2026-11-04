@@ -15,6 +15,7 @@
     "spans"
   ],
   "properties": {
+    "run_id": {"type": "string", "minLength": 1, "maxLength": 128, "description": "The run that wrote this artifact (the run envelope, #277). Optional: artifacts written before it have none."},
     "schema_version": {
       "const": "novelty.v1"
     },

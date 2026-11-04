@@ -6,6 +6,7 @@
   "description": "Static input checks and planning only; evaluation states never claim measured agent behavior.",
   "type": "object",
   "properties": {
+    "run_id": {"type": "string", "minLength": 1, "maxLength": 128, "description": "The run that wrote this artifact (the run envelope, #277). Optional: artifacts written before it have none."},
     "schema_version": {
       "const": "catalog_eval.v1"
     },

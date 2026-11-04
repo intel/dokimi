@@ -33,7 +33,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import secrets
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -88,8 +90,29 @@ SUPERSEDED_VERSIONS: dict[str, tuple[str, ...]] = {
 }
 
 
+#: Kinds that record a run or a diagnostic, so they carry the run envelope (``run_id``, #277).
+#: The authored ``dokimi_config`` and the generated ``cli_routes`` table do not.
+RUN_KINDS: frozenset[str] = frozenset(SCHEMA_VERSIONS) - {"dokimi_config", "cli_routes"}
+
+_run_id_lock = threading.Lock()
+_process_run_id: str | None = None
+
+
 class ArtifactValidationError(ValueError):
     """Raised when an artifact does not conform to its schema."""
+
+
+def current_run_id() -> str:
+    """The run id of this process: minted on first use, then the same for every artifact it saves.
+
+    One dokimi process is one run unless a caller passes ``run_id`` to :func:`save_artifact`.
+    """
+    global _process_run_id
+    with _run_id_lock:
+        if _process_run_id is None:
+            stamp_utc = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            _process_run_id = f"{stamp_utc}-{secrets.token_hex(4)}"
+        return _process_run_id
 
 
 def _schema_path(kind: str, version: str | None = None) -> Path:
@@ -151,18 +174,26 @@ def validate_artifact(kind: str, data: dict) -> None:
 
 
 def stamp(kind: str, data: dict) -> dict:
-    """Return ``data`` with its ``schema_version`` set for ``kind``."""
+    """Return a copy of ``data`` led by its ``schema_version`` for ``kind``, and its ``run_id`` for a run kind.
+
+    A printed ``--json`` document is stamped this way, so it carries the envelope the saved file has.
+    """
     if kind not in SCHEMA_VERSIONS:
         raise KeyError(f"Unknown artifact kind: {kind!r}")
-    data["schema_version"] = SCHEMA_VERSIONS[kind]
-    return data
+    head: dict[str, Any] = {"schema_version": SCHEMA_VERSIONS[kind]}
+    if kind in RUN_KINDS:
+        head["run_id"] = current_run_id()
+    return {**head, **{k: v for k, v in data.items() if k not in head}}
 
 
-def save_artifact(kind: str, data: dict, path: Path | str) -> dict:
+def save_artifact(kind: str, data: dict, path: Path | str, *, run_id: str | None = None) -> dict:
     """Write ``data`` to ``path`` as a ``kind`` artifact; return exactly what was written.
 
     - ``schema_version`` is set to the current version for ``kind`` and leads the document
       (a value already in ``data`` is replaced); ``data`` itself is not mutated.
+    - A run kind (:data:`RUN_KINDS`) also gets ``run_id`` right after it: the ``run_id`` argument,
+      else :func:`current_run_id`. A ``run_id`` inside ``data`` is not read, so a payload copied
+      from another artifact is written under this run. Other kinds keep ``data`` as given.
     - The payload is validated first. :class:`ArtifactValidationError` means nothing was
       written at ``path`` (a file already there is untouched); the rejected payload is kept
       at ``<name>.rejected`` so a paid run is not lost to a schema problem. A later valid
@@ -183,8 +214,10 @@ def save_artifact(kind: str, data: dict, path: Path | str) -> dict:
     """
     if kind not in SCHEMA_VERSIONS:
         raise KeyError(f"Unknown artifact kind: {kind!r}")
-    payload = {"schema_version": SCHEMA_VERSIONS[kind],
-               **{k: v for k, v in data.items() if k != "schema_version"}}
+    payload: dict[str, Any] = {"schema_version": SCHEMA_VERSIONS[kind]}
+    if kind in RUN_KINDS:
+        payload["run_id"] = current_run_id() if run_id is None else run_id
+    payload.update((k, v) for k, v in data.items() if k not in payload)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     text = json.dumps(payload, indent=2)

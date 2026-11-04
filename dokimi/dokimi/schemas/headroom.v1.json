@@ -7,6 +7,7 @@
   "required": ["schema_version", "no_skill_arm", "thresholds", "runs", "items", "summary", "inputs"],
   "additionalProperties": false,
   "properties": {
+    "run_id": {"type": "string", "minLength": 1, "maxLength": 128, "description": "The run that wrote this artifact (the run envelope, #277). Optional: artifacts written before it have none."},
     "schema_version": {"const": "headroom.v1"},
     "no_skill_arm": {"type": "string", "description": "The control arm read as no-skill."},
     "thresholds": {

@@ -127,7 +127,7 @@ def _show_text(shown: Shown) -> list[str]:
         ("subject", a.subject or "-"),
         ("model", a.model or "-"),
         ("time", when),
-        ("run_id", "- (no artifact records one yet)"),
+        ("run_id", a.run_id or "- (none recorded)"),
         ("size", f"{a.size_bytes:,} bytes"),
         ("contents", ", ".join(f"{key}: {n}" for key, n in shown.contents.items()) or "-"),
         ("next to it", shown.siblings_error or ", ".join(beside) or "-"),

@@ -6,6 +6,7 @@
   "type": "object",
   "required": ["schema_version", "repo", "harness", "model", "files", "scenarios", "records", "summary"],
   "properties": {
+    "run_id": {"type": "string", "minLength": 1, "maxLength": 128, "description": "The run that wrote this artifact (the run envelope, #277). Optional: artifacts written before it have none."},
     "schema_version": {"const": "guidance_reach.v1"},
     "generated_at": {"type": "string"},
     "repo": {

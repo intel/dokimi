@@ -7,6 +7,7 @@
   "required": ["schema_version", "plan_digest", "cells"],
   "additionalProperties": false,
   "properties": {
+    "run_id": {"type": "string", "minLength": 1, "maxLength": 128, "description": "The run that wrote this artifact (the run envelope, #277). Optional: artifacts written before it have none."},
     "schema_version": {"const": "result.v1"},
     "generated_at": {"type": "string"},
     "plan_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},

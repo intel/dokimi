@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from dokimi.artifacts import SCHEMA_VERSIONS, SUPERSEDED_VERSIONS, save_artifact
+from dokimi.artifacts import RUN_KINDS, SCHEMA_VERSIONS, SUPERSEDED_VERSIONS, current_run_id, save_artifact
 from dokimi.runs import kinds, runs_root, scan
 from dokimi.runs.scan import HEAD_BYTES, RunsRoot
 from dokimi.utils import InputError
@@ -87,8 +87,9 @@ def test_each_kind_is_listed_with_the_subject_model_and_time_it_records(tmp_path
 
     assert result.unreadable == [] and not result.skipped
     (found,) = result.artifacts
+    expected_run_id = current_run_id() if kinds.VERSION_KINDS[version] in RUN_KINDS else None
     assert found.to_json() == {
-        "schema_version": version, "kind": kinds.VERSION_KINDS[version], "run_id": None,
+        "schema_version": version, "kind": kinds.VERSION_KINDS[version], "run_id": expected_run_id,
         "subject": subject, "model": model, "generated_at": time,
         "path": f"some/dir/{version}.json", "size_bytes": path.stat().st_size,
     }

@@ -7,6 +7,7 @@
   "additionalProperties": false,
   "required": ["schema", "name", "bin", "version_cmd", "invoke", "tools", "trace"],
   "properties": {
+    "run_id": {"type": "string", "minLength": 1, "maxLength": 128, "description": "Reserved: the run envelope key (#277). Inputs are never stamped with it; accepted so the closed schema admits it."},
     "schema": {"const": "harness_profile.v1"},
     "name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},
     "bin": {"type": "string", "minLength": 1},

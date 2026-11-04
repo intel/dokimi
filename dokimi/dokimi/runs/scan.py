@@ -77,6 +77,7 @@ class Artifact:
     generated_at: str | None
     size_bytes: int
     mtime: float
+    run_id: str | None = None  # the run envelope (#277); None for an artifact written before it
 
     @property
     def kind(self) -> str:
@@ -102,8 +103,8 @@ class Artifact:
             return None
 
     def to_json(self) -> dict:
-        """The ``--json`` row. ``run_id`` is ``None``: no artifact records one yet (#277)."""
-        return {"schema_version": self.schema_version, "kind": self.kind, "run_id": None,
+        """The ``--json`` row; ``run_id`` is ``None`` for an artifact with no envelope."""
+        return {"schema_version": self.schema_version, "kind": self.kind, "run_id": self.run_id,
                 "subject": self.subject, "model": self.model, "generated_at": self.generated_at,
                 "path": self.path.as_posix(), "size_bytes": self.size_bytes}
 
@@ -189,11 +190,13 @@ def read_artifact(root: Path, path: Path, version: str, data: dict | None = None
     data = load_document(path, version) if data is None else data
     fields = FIELDS[VERSION_KINDS[version]]
     times = read_field(data, fields.time)
+    run_id = data.get("run_id")
     return Artifact(path=path.relative_to(root), schema_version=version,
                     subjects=read_field(data, fields.subject),
                     models=read_field(data, fields.model),
                     generated_at=times[0] if times else None,
-                    size_bytes=stat.st_size, mtime=stat.st_mtime)
+                    size_bytes=stat.st_size, mtime=stat.st_mtime,
+                    run_id=run_id if isinstance(run_id, str) and run_id else None)
 
 
 def _skip_reason(name: str) -> str | None:

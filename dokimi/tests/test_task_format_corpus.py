@@ -134,4 +134,7 @@ def test_writer_output_reads_back_as_its_format(tmp_path: Path, writer, fmt: str
     [report] = inspect_path(path)
     assert (report.format, report.items, report.problems) == (fmt, len(QUERIES), [])
     # The corpus copy is what the writer writes today.
-    assert json.loads(path.read_text()) == json.loads((CORPUS / committed).read_text())
+    written = json.loads(path.read_text())
+    if isinstance(written, dict):
+        written.pop("run_id", None)  # the envelope is per process; the committed copy has none
+    assert written == json.loads((CORPUS / committed).read_text())

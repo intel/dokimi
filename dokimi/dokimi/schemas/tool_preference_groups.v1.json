@@ -6,6 +6,7 @@
   "type": "object",
   "required": ["schema_version", "groups"],
   "properties": {
+    "run_id": {"type": "string", "minLength": 1, "maxLength": 128, "description": "Reserved: the run envelope key (#277). Inputs are never stamped with it; accepted so the closed schema admits it."},
     "schema_version": {"const": "tool_preference_groups.v1"},
     "system": {"type": "string", "description": "System prompt for every item; an empty string sends none. Default: a neutral 'use tools when they help' prompt."},
     "cues": {

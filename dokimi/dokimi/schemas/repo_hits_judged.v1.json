@@ -7,6 +7,7 @@
   "required": ["schema_version", "cell", "task", "arm", "model", "rep", "judge", "pairs", "counts", "n_threads", "recall", "recall_judged"],
   "additionalProperties": false,
   "properties": {
+    "run_id": {"type": "string", "minLength": 1, "maxLength": 128, "description": "The run that wrote this artifact (the run envelope, #277). Optional: artifacts written before it have none."},
     "schema_version": {"const": "repo_hits_judged.v1"},
     "cell": {"type": "string", "description": "The cell's directory name in the batch."},
     "task": {"type": "string"},

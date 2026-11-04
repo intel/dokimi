@@ -969,7 +969,7 @@ def _fixture_artifact(tmp_path: Path) -> dict:
 def test_the_committed_fixture_is_what_repo_inspect_emits(tmp_path):
     """Regenerate with ``DOKIMI_REGEN_FIXTURES=1 pytest tests/test_repo_environment.py -k committed_fixture``."""
     import os
-    data = _fixture_artifact(tmp_path)
+    data = {k: v for k, v in _fixture_artifact(tmp_path).items() if k != "run_id"}  # per process: not committed
     if os.environ.get("DOKIMI_REGEN_FIXTURES"):
         FIXTURE.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     assert json.loads(FIXTURE.read_text(encoding="utf-8")) == data

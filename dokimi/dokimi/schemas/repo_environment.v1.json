@@ -8,6 +8,7 @@
                "findings", "counts", "stages", "risk", "not_observed"],
   "additionalProperties": false,
   "properties": {
+    "run_id": {"type": "string", "minLength": 1, "maxLength": 128, "description": "The run that wrote this artifact (the run envelope, #277). Optional: artifacts written before it have none."},
     "schema_version": {"const": "repo_environment.v1"},
     "generated_at": {"type": "string"},
     "repo": {

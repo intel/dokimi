@@ -72,9 +72,14 @@ skipped: 1 JSON with no leading schema_version, 1 JSON of an unknown schema_vers
   records, `evaluated_at` for an eval; `null` when none), `path` (relative to
   the root) and `size_bytes`.
 
-**What it does not show yet.** No artifact records a `run_id` yet
-([#277](https://github.com/intel/dokimi/issues/277)), so rows are not grouped
-into runs and `run_id` is `null`. Files outside the root are not listed:
+**Run ids.** A run artifact saved through `save_artifact` carries `run_id`
+([#277](https://github.com/intel/dokimi/issues/277)): one id per dokimi
+process, written right after `schema_version`. A command that starts dokimi in
+child processes (`repo conformance`) gives each child its own id. `--run-id` on
+`answers`, `eval` and `report` names an output directory, not this id. An
+artifact written before the envelope, or by a writer that bypasses
+`save_artifact`, has `run_id` `null`. Rows are not yet grouped by `run_id`
+([#278](https://github.com/intel/dokimi/issues/278)). Files outside the root are not listed:
 
 - `repo run` writes its batches to `repo-runs/`, and its files carry no
   `schema_version`;
@@ -95,7 +100,7 @@ schema:     valid
 subject:    onetbb
 model:      gpt-6.1-sol
 time:       2026-10-29T14:02:11Z
-run_id:     - (no artifact records one yet)
+run_id:     20261029T140200Z-3f9a0c4e
 size:       3,503 bytes
 contents:   arms: 4, answers: 0
 next to it: onetbb.md, plugin_delta.json (plugin_delta.v1)
