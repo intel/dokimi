@@ -82,7 +82,7 @@ def _generator(content='["How do I use parallel_for with a custom range?", "Why 
 
     llm = Mock()
     llm.invoke.return_value = Mock(content=content)
-    with patch("dokimi.questions.llm_gen.ChatOpenAI", Mock(return_value=llm), create=True), \
+    with patch("dokimi.questions.llm_gen.Invoker", Mock(return_value=llm)), \
          patch("dokimi.questions.llm_gen.LANGCHAIN_AVAILABLE", True):
         return QuestionGenerator()
 

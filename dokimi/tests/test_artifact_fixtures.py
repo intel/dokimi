@@ -108,7 +108,7 @@ def test_the_judge_writes_only_declared_keys(tmp_path):
     llm.invoke.return_value = Mock(content=json.dumps({**scores, "aggregate": 80, "reasoning": {}}))
     answers = _answers_file(tmp_path)["answers"]
     out = tmp_path / "eval.json"
-    with patch("dokimi.eval.judge.ChatAnthropic", Mock(return_value=llm), create=True), \
+    with patch("dokimi.eval.judge.Invoker", Mock(return_value=llm)), \
          patch("dokimi.eval.judge.LANGCHAIN_AVAILABLE", True):
         judge = Judge(run_metadata={"note": "test"})
         real = judge._evaluate_answer_pair
