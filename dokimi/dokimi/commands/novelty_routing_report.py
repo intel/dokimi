@@ -241,7 +241,9 @@ def drop_queries_left_out(queries_by_skill: dict[str, list[str]], field: list[Ca
     ``{"skill", "reason", "keep_flag", "queries"}``.
     """
     names = {c.name for c in field}
-    unexplained = sorted(n for n in queries_by_skill if n not in names and n not in dropped)
+    # a name with a copy that failed to load is refused even when a rule also left a copy out
+    unexplained = sorted(n for n in queries_by_skill
+                         if n not in names and (n in unloaded or n not in dropped))
     if unexplained:
         raise InputError(_unexplained_message(unexplained, unloaded))
     kept = {name: queries for name, queries in queries_by_skill.items() if name in names}

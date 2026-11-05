@@ -263,6 +263,26 @@ def test_all_vs_all_refuses_only_when_no_query_remains(tmp_path):
     assert not (tmp_path / "o.json").exists()
 
 
+def test_all_vs_all_refuses_a_queried_name_whose_other_copy_failed_to_load(tmp_path):
+    # `review` has a malformed copy (failed to load) and a disabled copy (left out by a rule): the
+    # load error is the reason its queries cannot run, so the run refuses instead of dropping them.
+    root = tmp_path / "catalog"
+    _skill(root, "skills", "cache", "cache slow lookups")
+    _skill(root, "skills", "queue", "queue background jobs")
+    (root / "broken" / "review").mkdir(parents=True)
+    (root / "broken" / "review" / "SKILL.md").write_text("---\nname: [unclosed\n---\n# B\n",
+                                                         encoding="utf-8")
+    (root / "off" / "review").mkdir(parents=True)
+    (root / "off" / "review" / "SKILL.md").write_text(
+        "---\nname: review\ndescription: review a change\ndisable-model-invocation: true\n---\n# B\n",
+        encoding="utf-8")
+    queries = _queries(tmp_path, {"cache": ["cache my lookups"], "review": ["review my change"]})
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--estimate-only")
+    with pytest.raises(InputError, match="`review` is a catalog skill that failed to load"):
+        args.func(args)
+
+
 def test_all_vs_all_still_refuses_a_name_no_rule_left_out(tmp_path):
     root = tmp_path / "catalog"
     _skill(root, "skills", "cache", "cache slow lookups")
