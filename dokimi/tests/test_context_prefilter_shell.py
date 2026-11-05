@@ -59,6 +59,9 @@ def test_a_guidance_key_with_a_quoted_operator_like_argument_matches_the_same_co
      "cat <<docs/guide.md\nnotes\ndocs/guide.md", "Update"),
     ("- Run `Makefile` checks when behaviour changes.\n", "run checks when behaviour changes",
      "cat <<Makefile\nnotes\nMakefile", "Run"),
+    # a write target ends at the heredoc sign glued to it: the delimiter after `<<` is not part of the target
+    ("- Update `docs/guide.md` when behaviour changes.\n", "update behaviour changes",
+     "cat >notes.txt<<docs/guide.md\nnotes\ndocs/guide.md", "Update"),
 ])
 def test_a_heredoc_delimiter_word_is_not_a_path_the_command_touched(rule, prompt, command, marker):
     session = _session(_prompt(prompt), _tool("Bash", command=command))
