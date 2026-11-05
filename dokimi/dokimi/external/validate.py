@@ -27,9 +27,9 @@ files differ (a plugin copy with an extra ``agents/`` folder is still a mirror).
 Mirrors are common (one skill checked in under two plugin directories), and
 counting them twice inflates routing and coverage numbers.
 
-Same name, different content: a skill whose ``name`` another listed skill shares, with other bytes, is a
-``warn`` (``name-conflict``) naming the other path. A listed skill is one a harness offers (no
-``disable-model-invocation``, no spec error). Routing leaves that name out of the field rather than aborting.
+Same name, different content: a skill whose ``name`` another listed skill shares, with other bytes, is a ``warn`` (``name-conflict``) naming the other path. A listed skill is one a harness offers (no
+``disable-model-invocation``, no spec error other than a description over 1024 characters; see ``dokimi.external.listing.in_field``).
+Routing leaves that name out of the field rather than aborting.
 
 ``disable-model-invocation: true`` is not a finding: the model is never offered
 that skill, so it is reported as a flag (the same reading as the skill arm's
