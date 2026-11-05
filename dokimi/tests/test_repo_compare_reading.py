@@ -189,8 +189,8 @@ def test_min_detectable_effect_arithmetic():
     assert min_detectable(0.222, 26) == pytest.approx(min_detectable(0.444, 104), rel=0.05)
 
 
-def test_min_detectable_uses_the_t_quantiles_of_the_interval_at_small_n():
-    # four tasks: the interval is a t interval at df 3 (t(0.975, 3) = 3.182, t(0.80, 3) = 0.978), not normal ones
+def test_min_detectable_uses_t_quantiles_at_small_n():
+    # four tasks: the planning figure takes t at df 3 (t(0.975, 3) = 3.182, t(0.80, 3) = 0.978), not normal ones
     assert min_detectable(0.456435, 4) == pytest.approx(0.949594, abs=1e-6)
 
 
