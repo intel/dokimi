@@ -9,7 +9,7 @@ A samples file (JSON/JSONL rows of ``Sample`` fields: ``input``, ``target``, ``c
 imported or run. What it says in literals is read -- ``Sample(...)`` lists,
 ``json_dataset("<file>", FieldSpec(...))``, ``scorer=<name>(<literal kwargs>)``,
 ``multiple_choice()`` / ``system_message("...")`` solvers -- and anything computed is refused
-or counted as lossy. ``hf_dataset(...)`` is loaded with the optional ``datasets`` package (data,
+or counted as lossy. ``hf_dataset(...)`` is loaded with the ``datasets`` package (data,
 not the task's code). Scorer semantics follow ``inspect_ai/scorer`` (``match_str``, ``exact``,
 ``choice``, ``model_graded_qa``) at inspect-ai 0.3.283. A custom ``@scorer`` the file defines has
 no translation: it is judged on its docstring, the criterion, or stays unsupported without one.
@@ -314,7 +314,7 @@ def _hf_load(args: list[Any], kwargs: dict[str, Any]) -> Any:
     try:
         import datasets
     except ImportError as exc:
-        raise ValueError("hf_dataset needs the optional `datasets` package (pip install datasets); "
+        raise ValueError("hf_dataset needs the `datasets` package (pip install datasets); "
                          "or run the task natively and import its log") from exc
     try:
         return datasets.load_dataset(*args, **kwargs)  # nosec B615 - the task names its dataset and revision=

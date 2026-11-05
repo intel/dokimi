@@ -84,7 +84,7 @@ def test_hf_dataset_without_the_optional_package_says_how_to_get_it(tmp_path, mo
     task = _write(tmp_path / "t.py", (
         "@task\ndef t():\n"
         "    return Task(dataset=hf_dataset('json', data_files='s.jsonl', split='train'), scorer=match())\n"))
-    with pytest.raises(ValueError, match="optional `datasets` package"):
+    with pytest.raises(ValueError, match="hf_dataset needs the `datasets` package"):
         import_path(task, fmt="inspect-task")
 
 
