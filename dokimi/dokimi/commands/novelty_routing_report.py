@@ -51,8 +51,8 @@ def estimate_routing_usd(model: str, provider: str, prompts: list[int],
     """The list-price USD of the calls of a routing run, priced one call at a time.
 
     A long-context tier applies to the prompt of one call, so the run's total prompt is not
-    priced as one completion: each query's prompt and one pick are priced on their own, then
-    summed and multiplied by the repeats. ``None`` when a call has no list price.
+    priced as one completion: each query's prompt and ``SELECTION_REPLY_TOKENS`` of reply are
+    priced on their own, then summed and multiplied by the repeats. ``None`` when a call has no list price.
     """
     from dokimi.llm_pricing import list_cost_usd
     from dokimi.novelty.routing import SELECTION_REPLY_TOKENS
