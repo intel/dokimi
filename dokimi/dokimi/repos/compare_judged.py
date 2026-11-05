@@ -41,7 +41,9 @@ _SAID = {"no_file": f"no {HITS_JUDGED}", "stale": "stale: regraded since judging
          "other_cell": "not this cell's (cell, task, arm or model differ)", "no_threads": "with no gold thread",
          "unjudged": "with an unjudged pair",
          "unreadable": f"unreadable or not {SCHEMA_VERSIONS['repo_hits_judged']}"}
-HINT = "run `repo hits judge <batch> --judge PROVIDER/MODEL`"
+#: The reasons a rerun of ``repo hits judge`` can change: a cell with no gold thread gets the same null again.
+RERUN = tuple(r for r in REASONS if r not in ("read", "no_threads"))
+HINT ="run `repo hits judge <batch> --judge PROVIDER/MODEL`"
 
 
 def judge_names(metrics: tuple[str, ...]) -> list[str]:
@@ -123,12 +125,14 @@ def _same_pairs(saved: Any, matches: Any) -> bool:
 
 
 def check_reported(metrics: tuple[str, ...], cells: list[dict[str, Any]], scope: str = "") -> None:
-    """A ``judge:`` metric no selected cell reports is refused with the command that writes the files."""
+    """A ``judge:`` metric no selected cell reports is refused, with the command that writes the files when a
+    rerun can change a cell (:data:`RERUN`)."""
     for name in judge_names(metrics):
         if not any(name in c["metrics"] for c in cells):
-            why = _reasons(_counts(cells))
-            raise CompareError(f"no finished cell reports --metric {name}{scope}{f' ({why})' if why else ''}: "
-                               f"{HINT} first")
+            counts = _counts(cells)
+            why = _reasons(counts)
+            raise CompareError(f"no finished cell reports --metric {name}{scope}{f' ({why})' if why else ''}"
+                               + (f": {HINT} first" if _rerun(counts) else ""))
 
 
 def judged_cells(metrics: tuple[str, ...], arms: dict[str, list[dict[str, Any]]]) -> dict[str, Any] | None:
@@ -146,12 +150,18 @@ def _reasons(counts: dict[str, int]) -> str:
     return ", ".join(f"{counts[r]} {_SAID[r]}" for r in REASONS[1:] if counts[r])
 
 
+def _rerun(counts: dict[str, int]) -> bool:
+    return any(counts[r] for r in RERUN)
+
+
 def judged_lines(judged: dict[str, Any] | None) -> list[str]:
-    """One line per arm with a cell not read, and the note that compare does not calibrate the judge."""
+    """One line per arm with a cell not read (the rerun hint when one can change, :data:`RERUN`), and the note
+    that compare does not calibrate the judge."""
     if not judged:
         return []
     name = ", ".join(judged["metrics"])
-    lines = [f"{name}, {text}: {c['read']} of {c['cells']} cells read ({_reasons(c)}); run repo hits judge again"
+    lines = [f"{name}, {text}: {c['read']} of {c['cells']} cells read ({_reasons(c)})"
+             + ("; run repo hits judge again" if _rerun(c) else "")
              for text, c in judged["arms"].items() if c["read"] < c["cells"]]
     return lines + [f"note: {name} is a judge's labels of the credited pairs, at most recall; it is uncalibrated "
                     "unless repo hits judge --labels reported agreement for these arms (contract §9)"]

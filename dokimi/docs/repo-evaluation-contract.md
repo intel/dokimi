@@ -2153,8 +2153,10 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   `other_cell`, `no_threads`, `unjudged` and `unreadable`. The text prints one line per arm
   with a cell not read (`judge:recall_judged, guidance:none: 18 of 26 cells
   read (5 no hits_judged.json, 2 stale: regraded since judging, 1 with an
-  unjudged pair); run repo hits judge again`). When no selected cell reports
-  it, the refusal (exit 2) gives those counts and says to run
+  unjudged pair); run repo hits judge again`; the hint is left off when every
+  cell not read has no gold thread, whose null a rerun writes again). When no
+  selected cell reports it, the refusal (exit 2) gives those counts and, unless
+  every cell has no gold thread, says to run
   `repo hits judge <batch> --judge PROVIDER/MODEL` first. `hits_judged.json`
   carries no calibration, so compare cannot tell whether a person's labels
   backed the judge: the text adds one note, that the figure is a judge's

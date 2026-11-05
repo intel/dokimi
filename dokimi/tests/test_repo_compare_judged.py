@@ -118,6 +118,26 @@ def test_a_cell_with_no_gold_thread_is_counted_as_that_not_as_an_unjudged_pair(t
     assert "1 with no gold thread, 1 with an unjudged pair" in line
 
 
+def test_cells_with_no_gold_thread_alone_get_no_rerun_hint(tmp_path):
+    b = tmp_path / "b1"
+    _judged(b, "t1", NONE, 1, 2)
+    _judged(b, "t1", RAW, 1, 1)
+    _judged(b, "t3", RAW, 1, 0, recall=0.0, threads=0)  # a rerun writes the same null
+    _judged(b, "t3", NONE, 1, 0, recall=0.0, threads=0)
+    _judged(b, "t3", NONE, 2, 0, recall=0.0, threads=0, write=False)  # a rerun writes this one
+    lines = [x for x in format_compare(compare([b], NONE, metrics=("judge:recall_judged",))).splitlines()
+             if "cells read" in x]
+    assert lines == [f"judge:recall_judged, {NONE}: 1 of 3 cells read (1 no hits_judged.json, 1 with no gold "
+                     "thread); run repo hits judge again",
+                     f"judge:recall_judged, {RAW}: 1 of 2 cells read (1 with no gold thread)"]
+    c = tmp_path / "b2"
+    for arm in (NONE, RAW):
+        _judged(c, "t3", arm, 1, 0, recall=0.0, threads=0)
+    with pytest.raises(CompareError) as exc:
+        compare([c], NONE, metrics=("judge:recall_judged",))
+    assert str(exc.value) == "no finished cell reports --metric judge:recall_judged (2 with no gold thread)"
+
+
 def test_a_non_object_match_in_the_grade_is_skipped_as_the_judge_skips_it(tmp_path):
     b = tmp_path / "b1"
     _judged(b, "t1", NONE, 1, 2)
