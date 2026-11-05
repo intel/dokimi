@@ -368,8 +368,10 @@ def spend_text(spent_usd: float, unpriced: int) -> str:
 
 def judge_pair(ask: Ask, pair: Pair) -> dict[str, Any]:
     """The pair's record in ``hits_judged.json``; ``label`` null when its texts were not found, no reply parsed,
-    or the judge call failed (a provider error past the client's retries). :class:`BudgetSpent` propagates."""
+    or the judge call failed (a provider error past the client's retries). :class:`BudgetSpent` propagates.
+    ``comment`` and ``message`` are the grader's cuts the match holds: ``repo compare`` checks the grade still has them."""
     out: dict[str, Any] = {"thread": pair.hit.get("thread"), "finding": pair.hit.get("finding"),
+                           "comment": pair.hit.get("comment"), "message": pair.hit.get("message"),
                            "label": None, "reason": None}
     if pair.problem is not None:
         return {**out, "error": f"not judged: {pair.problem}"}

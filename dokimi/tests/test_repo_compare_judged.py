@@ -10,10 +10,12 @@ from pathlib import Path
 
 import pytest
 
+from dokimi import caching, llm
 from dokimi.artifacts import save_artifact
 from dokimi.cli import build_parser
 from dokimi.repos.compare import CompareError, compare, format_compare
 from dokimi.repos.hits_judge import cell_doc
+from tests import test_repo_hits_judge as hits
 from tests.test_repo_compare import _cell, _row
 
 JUDGED = "metric:judge:recall_judged"
@@ -82,6 +84,25 @@ def test_credited_pairs_that_changed_with_the_same_recall_make_the_file_stale(tm
     assert s["judged_cells"]["arms"][RAW] == {"cells": 3, "read": 1, "no_file": 0, "stale": 2, "other_cell": 0,
                                              "no_threads": 0, "unjudged": 0, "unreadable": 0}
     assert _row(s, JUDGED)["tasks"][0]["n_treatment"] == 1
+
+
+def test_a_regrade_that_rewords_a_credited_thread_makes_the_file_stale(tmp_path, monkeypatch):
+    monkeypatch.delenv(caching.RESPONSE_CACHE_ENV, raising=False)
+    batch = hits._batch(tmp_path)
+    args = build_parser().parse_args(["repo", "hits", "judge", str(batch), "--judge", hits.JUDGE])
+    with llm.use_adapter(llm.FakeAdapter(respond=hits._reply)):  # the real writer, a scripted judge
+        args.func(args)
+    gold = batch / "_eval" / "content" / "tasks" / hits.TASK / "gold.json"
+    gold.write_text(json.dumps([{**g, "comment": "mul should multiply"} if g["id"] == "t_op" else g
+                                for g in hits.GOLD]))
+    rd = batch / _name(hits.TASK, NONE, 1, hits.MODEL)
+    hits._grade(batch, rd)  # the same (thread, finding) pairs and recall, t_op's comment reworded
+    s = compare([batch], NONE, metrics=("judge:recall_judged",))
+    assert (s["judged_cells"]["arms"][NONE]["stale"], s["judged_cells"]["arms"][RAW]["read"]) == (1, 1)
+    doc = json.loads((rd / "hits_judged.json").read_text())
+    doc["pairs"] = [{k: v for k, v in p.items() if k not in ("comment", "message")} for p in doc["pairs"]]
+    (rd / "hits_judged.json").write_text(json.dumps(doc))  # written before the pairs recorded the cuts
+    assert compare([batch], NONE, metrics=("judge:recall_judged",))["judged_cells"]["arms"][NONE]["read"] == 1
 
 
 def test_a_cell_with_no_gold_thread_is_counted_as_that_not_as_an_unjudged_pair(tmp_path):
