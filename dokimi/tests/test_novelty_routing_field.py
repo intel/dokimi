@@ -541,6 +541,7 @@ def test_the_saved_result_lists_the_kept_skills_over_the_limit(tmp_path, all_vs_
     root = tmp_path / "catalog"
     _catalog_skill(root, "perf", "profile a slow binary with perf")
     _catalog_skill(root, "wide", "x" * 1100)
+    _catalog_skill(root, "edge", "x" * 1024)  # exactly at the limit: valid, no warning
     _catalog_skill(root, "db", "tune a slow database query")
     out = tmp_path / "r.json"
     if all_vs_all:
@@ -556,6 +557,7 @@ def test_the_saved_result_lists_the_kept_skills_over_the_limit(tmp_path, all_vs_
     args.func(args)
     field = json.loads(out.read_text(encoding="utf-8"))["field"]
     assert "wide" in field["competitors"] and field["left_out"] == []
+    assert "edge" in field["competitors"]
     assert [(w["skill"], w["length"], w["limit"]) for w in field["spec_warnings"]] == [
         ("wide", 1100, 1024)]
 
