@@ -309,6 +309,28 @@ def test_excluded_only_listing_keeps_the_text_around_it():
     assert "other" not in out and "Description" not in out
 
 
+_LISTING = "The following skills are available for use with the Skill tool:\n\n"
+
+
+def test_a_name_that_only_contains_a_kept_name_is_excluded():
+    text = _LISTING + "- sum-fast:sum-fast: Sum.\n- other: use instead of sum-fast.\n- summarize: x\n"
+    out = _texts(fd.normalize_request(_record_with(text), keep_skills=("sum-fast",)))
+    assert "sum-fast:sum-fast: Sum." in out
+    assert "other:" not in out and "summarize" not in out
+
+
+def test_the_listing_ends_at_its_closing_tag():
+    text = "<system-reminder>\n" + _LISTING + "- sum-fast:sum-fast: y\n- dataviz: x\n</system-reminder>\nafter"
+    out = _texts(fd.normalize_request(_record_with(text), keep_skills=("sum-fast",)))
+    assert "dataviz" not in out and "</system-reminder>" in out and "after" in out
+
+
+def test_a_bullet_list_after_the_listing_is_kept():
+    text = _LISTING + "- sum-fast:sum-fast: y\n- dataviz: x\n\nNotes:\n- Be concise"
+    out = _texts(fd.normalize_request(_record_with(text), keep_skills=("sum-fast",)))
+    assert "dataviz" not in out and "Notes:" in out and "- Be concise" in out
+
+
 @pytest.mark.parametrize("failure", [{"returncode": 1, "stderr": "auth failed"},
                                      {"returncode": 124, "timed_out": True}])
 def test_run_host_refuses_a_client_that_fails_after_it_posted(tmp_path, monkeypatch, failure):

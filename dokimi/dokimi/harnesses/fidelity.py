@@ -225,15 +225,32 @@ _REMINDER_ELEMENT = re.compile(r"<system-reminder>.*?</system-reminder>", re.DOT
 _SKILLS_HEADER = "The following skills are available for use with the Skill tool:"
 
 
+def _entry_skill(line: str) -> str:
+    """The skill an entry names: ``- <plugin>:<skill>: text`` or ``- <skill>: text``."""
+    head = re.split(r":\s", line[2:], maxsplit=1)[0]
+    return head.rsplit(":", 1)[-1]
+
+
 def _keep_listing(text: str, keep_skills: Sequence[str]) -> str:
-    """The skill listing with every entry not in *keep_skills* removed, continuation lines
-    included: an entry runs from its ``- `` line to the next entry or the next blank line."""
+    """The skill listing with every entry not in *keep_skills* removed, continuation lines included.
+
+    The listing runs from its header to the first blank line after an entry, or to a closing
+    tag. An entry runs from its ``- `` line to the next entry or the end of the listing. A name
+    counts as a whole: a kept name inside a description keeps nothing. A bullet list after the
+    listing is the request's own text and stays.
+    """
     kept: List[str] = []
-    skipping = False
+    in_listing = seen_entry = skipping = False
     for ln in text.split("\n"):
-        if ln.startswith("- "):
-            skipping = not any(n in ln for n in keep_skills)
-        elif not ln.strip():
+        if _SKILLS_HEADER in ln:
+            in_listing, seen_entry, skipping = True, False, False
+        elif in_listing:
+            if ln.startswith("- "):
+                seen_entry = True
+                skipping = _entry_skill(ln) not in keep_skills
+            elif ln.lstrip().startswith("</") or (seen_entry and not ln.strip()):
+                in_listing = skipping = False
+        else:
             skipping = False
         if not skipping:
             kept.append(ln)
