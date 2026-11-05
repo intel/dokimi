@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Mapping
 
-from dokimi.artifacts import is_run_id
+from dokimi.artifacts import INPUT_KINDS, is_run_id
 from dokimi.runs.kinds import FIELDS, VERSION_KINDS, read_field
 from dokimi.utils import InputError
 
@@ -189,9 +189,10 @@ def read_artifact(root: Path, path: Path, version: str, data: dict | None = None
     """
     stat = path.stat()
     data = load_document(path, version) if data is None else data
-    fields = FIELDS[VERSION_KINDS[version]]
+    kind = VERSION_KINDS[version]
+    fields = FIELDS[kind]
     times = read_field(data, fields.time)
-    run_id = data.get("run_id")
+    run_id = None if kind in INPUT_KINDS else data.get("run_id")  # an input kind has no envelope
     return Artifact(path=path.relative_to(root), schema_version=version,
                     run_id=run_id if is_run_id(run_id) else None,
                     subjects=read_field(data, fields.subject),

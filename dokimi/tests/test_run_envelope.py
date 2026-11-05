@@ -206,6 +206,7 @@ def test_the_cli_refuses_a_malformed_dokimi_run_id_before_the_command_runs(monke
 def test_runs_show_says_why_a_file_has_no_run_id(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("DOKIMI_RUNS_DIR", str(tmp_path))
     save_artifact("questions", _fixture("questions"), tmp_path / "questions.json")
+    save_artifact("questions", {"run_id": "stray-id", **_fixture("questions")}, tmp_path / "stray.json")
     (tmp_path / "old.json").write_text(json.dumps({"schema_version": "arms.v1", **_fixture("arms")}),
                                        encoding="utf-8")
     save_artifact("arms", _fixture("arms"), tmp_path / "new.json")
@@ -213,18 +214,19 @@ def test_runs_show_says_why_a_file_has_no_run_id(tmp_path, monkeypatch, capsys):
         (tmp_path / name).write_text(json.dumps({"schema_version": "arms.v1", "run_id": bad, **_fixture("arms")}),
                                      encoding="utf-8")
     shown = {}
-    for name in ("questions.json", "old.json", "new.json", "bad.json", "bad-id.json", "bad-nl.json"):
+    for name in ("questions.json", "stray.json", "old.json", "new.json", "bad.json", "bad-id.json", "bad-nl.json"):
         monkeypatch.setattr("sys.argv", ["dokimi", "runs", "show", name])
         cli.main()
         shown[name] = next(line for line in capsys.readouterr().out.splitlines() if line.startswith("run_id:"))
     assert shown == {"questions.json": "run_id:     - (an input kind: no envelope)",
+                     "stray.json": "run_id:     - (an input kind: no envelope)",
                      "old.json": "run_id:     - (saved before the envelope)",
                      "new.json": f"run_id:     {run_id()}",
                      "bad.json": "run_id:     - (not a run id: see the schema errors)",
                      "bad-id.json": "run_id:     - (not a run id: see the schema errors)",
                      "bad-nl.json": "run_id:     - (not a run id: see the schema errors)"}
     rows = {a.path.name: a.to_json()["run_id"] for a in scan(tmp_path).artifacts}
-    assert rows["bad-id.json"] is None and rows["bad-nl.json"] is None
+    assert rows["stray.json"] is None and rows["bad-id.json"] is None and rows["bad-nl.json"] is None
 
 
 def _save_in_a_new_process(path, environ) -> str:
