@@ -16,7 +16,7 @@ import pytest
 
 from dokimi import caching
 from dokimi.eval.judge import Judge
-from dokimi.utils import get_llm
+from dokimi.llm import LLM, Invoker
 
 DIMS = ("correctness", "completeness", "specificity", "code_quality", "actionability")
 
@@ -50,7 +50,7 @@ def _judge():
     judge._accumulate_usage = lambda usage: None
     judge.temperature = judge.seed = None
     judge._usage_lock, judge._usage_totals = threading.Lock(), {"redrawn_judgements": 0}
-    judge.llm = get_llm("amazon-bedrock", "m.x")
+    judge.llm = Invoker(LLM("m.x", "amazon-bedrock"))
     return judge
 
 
