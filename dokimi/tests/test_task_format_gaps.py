@@ -160,6 +160,16 @@ def test_hf_dataset_builder_name_is_not_a_task_path(tmp_path, monkeypatch):
     assert seen[0][1]["data_dir"] == str((tmp_path / "d" / "sub").resolve())
 
 
+def test_hf_dataset_data_dir_of_a_local_dataset_is_read_from_that_dataset(tmp_path, monkeypatch):
+    seen = _capture_hf_load(monkeypatch)
+    (tmp_path / "d" / "data" / "en").mkdir(parents=True)  # datasets reads data_dir= inside the local dataset folder
+    task = _write(tmp_path / "d" / "t.py", (
+        "@task\ndef t():\n"
+        "    return Task(dataset=hf_dataset('data', data_dir='en', split='train'), scorer=match())\n"))
+    import_path(task, fmt="inspect-task")
+    assert seen[0][1]["data_dir"] == str((tmp_path / "d" / "data" / "en").resolve())
+
+
 def test_hf_dataset_name_that_exists_only_in_the_working_directory_is_not_read(tmp_path, monkeypatch):
     seen = _capture_hf_load(monkeypatch)
     (tmp_path / "cwd" / "secrets").mkdir(parents=True)
@@ -264,7 +274,7 @@ def test_openai_modelgraded_spec_name_with_a_path_is_not_read(tmp_path):
                     "  args:\n    modelgraded_spec: ../x\n")
     data = _jsonl(tmp_path / "data" / "s.jsonl", [{"input": "What is 2+2?"}])
     imp = import_path(data, fmt="openai-evals", grader=str(grader))
-    assert not any("Grade whether" in str(c.get("criterion", "")) for c in _checks(imp))
+    assert _checks(imp) == [{"type": "unsupported", "native": "modelgraded:../x"}]
 
 
 def test_harbor_suites_manifest_with_a_non_object_suite_reports_it(tmp_path):

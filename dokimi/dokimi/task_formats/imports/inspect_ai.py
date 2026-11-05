@@ -250,7 +250,8 @@ def _task_files(value: Any, base: Path, name: str = "data_files") -> Any:
 
 
 # The loader's own builders: their name is never a path, and their data_dir= is a local directory.
-_HF_BUILDERS = frozenset({"arrow", "audiofolder", "csv", "imagefolder", "json", "pandas", "parquet", "text", "webdataset", "xml"})
+_HF_BUILDERS = frozenset({"arrow", "audiofolder", "csv", "hdf5", "imagefolder", "json", "niftifolder", "pandas", "parquet",
+                           "pdffolder", "text", "videofolder", "webdataset", "xml"})
 
 
 def _hf_local(value: str, base: Path) -> bool:
@@ -314,7 +315,9 @@ def _hf_call_args(node: ast.Call, base: Path) -> tuple[list[Any], dict[str, Any]
     # A hub dataset's data_dir= is a subfolder of its repo: only a local loader's, or one that leaves the task, is resolved.
     escapes = isinstance(data_dir, str) and (Path(data_dir).is_absolute() or ".." in Path(data_dir).parts)
     if data_dir is not None and (local or args[0] in _HF_BUILDERS or escapes):
-        kwargs["data_dir"] = _task_files(data_dir, base, "data_dir")
+        # datasets reads a local data_dir= from inside the local dataset's folder, so that folder is its root.
+        root = Path(args[0]) if local else base
+        kwargs["data_dir"] = _task_files(data_dir, root, "data_dir")
     if any(k.arg == "data_files" for k in node.keywords):
         kwargs["data_files"] = _task_files(kwargs.get("data_files"), base)
     return args, kwargs
