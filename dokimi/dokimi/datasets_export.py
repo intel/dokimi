@@ -38,6 +38,8 @@ _TASK_RUN_METRIC_COLS = (
 # Top-level metadata fields copied onto every row (when present).
 META_KEYS = (
     "schema_version",
+    "run_id",  # the run envelope (artifacts.ENVELOPE_KEYS), so exported rows group by run
+    "dokimi_version",
     "library",
     "library_id",
     "model",
