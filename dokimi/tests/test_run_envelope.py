@@ -146,8 +146,10 @@ def test_the_schema_types_the_envelope(key, value):
 def test_stamp_sets_what_save_writes(tmp_path):
     """A --json print of what --out saves is the same document."""
     payload = _fixture("task_inspect")
-    printed = stamp("task_inspect", dict(payload))
-    assert printed == save_artifact("task_inspect", payload, tmp_path / "t.json")
+    printed = stamp("task_inspect", payload)
+    saved = save_artifact("task_inspect", payload, tmp_path / "t.json")
+    assert printed == saved and list(printed) == list(saved)  # the same keys, in the same order
+    assert payload == _fixture("task_inspect")  # the caller's dict is not mutated
     assert not set(ENVELOPE_KEYS) & set(stamp("questions", _fixture("questions")))
 
 

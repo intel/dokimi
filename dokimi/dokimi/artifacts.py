@@ -215,13 +215,13 @@ def validate_artifact(kind: str, data: dict) -> None:
 
 
 def stamp(kind: str, data: dict) -> dict:
-    """Return ``data`` with its ``schema_version`` and :func:`envelope` set for ``kind``: the keys
-    :func:`save_artifact` writes, appended rather than first (a ``--json`` print of what ``--out`` saves)."""
+    """Return a copy of ``data`` led by its ``schema_version`` and :func:`envelope` for ``kind``, as
+    :func:`save_artifact` writes it: a ``--json`` print of what ``--out`` saves is the same document,
+    key order included. ``data`` itself is not mutated."""
     if kind not in SCHEMA_VERSIONS:
         raise KeyError(f"Unknown artifact kind: {kind!r}")
-    data["schema_version"] = SCHEMA_VERSIONS[kind]
-    data.update(envelope(kind))
-    return data
+    head = {"schema_version": SCHEMA_VERSIONS[kind], **envelope(kind)}
+    return {**head, **{k: v for k, v in data.items() if k not in head}}
 
 
 def save_artifact(kind: str, data: dict, path: Path | str) -> dict:
