@@ -21,7 +21,6 @@ from dokimi.artifacts import stamp, validate_artifact
 from dokimi.external.trigger_set import TriggerQuery, to_questions, to_reach, to_skill_creator
 from dokimi.questions.artifact import save_questions_artifact
 from dokimi.task_formats import inspect_path
-from tests.artifact_fixtures import without_envelope
 
 CORPUS = Path(__file__).parent / "fixtures" / "task_formats"
 MANIFEST = yaml.safe_load((CORPUS / "MANIFEST.yaml").read_text(encoding="utf-8"))
@@ -135,4 +134,4 @@ def test_writer_output_reads_back_as_its_format(tmp_path: Path, writer, fmt: str
     [report] = inspect_path(path)
     assert (report.format, report.items, report.problems) == (fmt, len(QUERIES), [])
     # The corpus copy is what the writer writes today.
-    assert without_envelope(json.loads(path.read_text())) == json.loads((CORPUS / committed).read_text())
+    assert json.loads(path.read_text()) == json.loads((CORPUS / committed).read_text())

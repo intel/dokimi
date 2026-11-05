@@ -105,6 +105,16 @@ def test_a_plan_keeps_its_digest_when_saved_in_another_process(tmp_path, monkeyp
     assert plan_digest(load_artifact("plan", tmp_path / "plan.json")) == plan_digest(plan)
 
 
+def test_a_question_set_saved_again_in_another_process_keeps_its_bytes(tmp_path, monkeypatch):
+    """Why a question set is an input: a subject scorecard's question_set_hash digests the bytes of
+    its question files, and a set is saved again by later runs (the pipeline's cache, a refine)."""
+    monkeypatch.setenv(artifacts.RUN_ID_ENV, "first")
+    save_artifact("questions", _fixture("questions"), tmp_path / "a.json")
+    monkeypatch.setenv(artifacts.RUN_ID_ENV, "second")
+    save_artifact("questions", load_artifact("questions", tmp_path / "a.json"), tmp_path / "b.json")
+    assert (tmp_path / "a.json").read_bytes() == (tmp_path / "b.json").read_bytes()
+
+
 def test_an_envelope_in_the_data_is_replaced_by_this_run(tmp_path):
     """A payload built from a loaded artifact records the process that saved it."""
     stale = {**_fixture("arms"), "run_id": "an-earlier-run", "dokimi_version": "0.0.1"}

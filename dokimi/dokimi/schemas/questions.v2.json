@@ -11,16 +11,6 @@
     "schema_version": {
       "const": "questions.v2"
     },
-    "run_id": {
-      "type": "string",
-      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])",
-      "description": "The envelope: the id of the run that saved this file (dokimi.artifacts.run_id). Absent from files saved before the envelope."
-    },
-    "dokimi_version": {
-      "type": "string",
-      "minLength": 1,
-      "description": "The envelope: the dokimi version that saved this file. Absent from files saved before the envelope."
-    },
     "library": {
       "description": "Product the set is for (curated sets, `eval questions refine`).",
       "type": "string"

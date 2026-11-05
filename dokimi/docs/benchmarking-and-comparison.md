@@ -917,8 +917,8 @@ An artifact of a registered run kind carries the run's envelope right after its
 
 - `run_id` is made once per process, when it is first needed (a CLI command makes it at start),
   from the UTC time and 8 random hex digits. So every file one process writes shares it: a
-  pipeline's questions, answers and eval, or a catalog run's report and result. `runs list --json`
-  and `runs show` print it.
+  pipeline's answers and eval, or a catalog run's report and result. `runs list --json` and
+  `runs show` print it.
 - `DOKIMI_RUN_ID` gives several commands one id, for example the steps of a CI job. It is 1-128
   letters, digits, `.`, `_` or `-` and starts with a letter or a digit, so it can name a
   directory. Any other value exits 2 before a command runs (`--help` and `--version` still work).
@@ -929,8 +929,11 @@ An artifact of a registered run kind carries the run's envelope right after its
 - The `--run-id` flag of `answers generate`, `eval score pointwise` and `report eval` names the
   output directory only; the envelope's `run_id` is the process's. The `run_id` of each
   `effective_instructions` receipt is that receipt's own, not the envelope.
-- The input kinds carry no envelope: `plan`, `dokimi_config`, `repo_ledger` and `need_graph` are
-  what a run is given, and `cli_routes` describes the CLI. A plan in particular is hashed whole:
+- The input kinds carry no envelope: `questions`, `plan`, `dokimi_config`, `repo_ledger` and
+  `need_graph` are what a run is given, and `cli_routes` describes the CLI. A question set is
+  reused across runs (`--questions-from`, a curated set, the pipeline's cache), and a subject
+  scorecard's `question_set_hash` digests its bytes, so a `run_id` in it would change that hash
+  with every process that saved it. A plan in particular is hashed whole:
   the completeness check compares its digest with the result's `plan_digest`, and a `run_id` in
   the plan would change that digest with every process that saved it. `harness_profile`,
   `repo_manifest` and `tool_preference_groups` are inputs too, validated but never saved.
