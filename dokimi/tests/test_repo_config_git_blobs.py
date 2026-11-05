@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 from dokimi import utils
-from dokimi.repo_config import load_repo_config
+from dokimi.repo_config import ConfigError, load_repo_config
 from dokimi.utils import git_tree, tree_digest
 
 HEADER = "schema_version: dokimi_config.v1\n"
@@ -112,6 +112,29 @@ def test_a_file_the_top_tracks_counts_though_a_nested_repository_ignores_it(tmp_
     assert _hashes(root) == before
     (inner / rel).write_text("two\n")  # the top's index tracks it: git stores the edit
     assert _hashes(root)[0] != before[0]
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_a_nested_repository_git_cannot_read_fails_the_hash(tmp_path):
+    root = _repo(tmp_path / "r", FILES)
+    inner = root / "skills/a/vendor"
+    inner.mkdir()
+    _git(inner, "init", "-q")
+    (inner / ".gitignore").write_text("*.log\n")
+    (inner / "x.log").write_text("log\n")
+    (inner / ".git/index").write_bytes(b"garbage")  # git sees a repository here, but cannot read it
+    with pytest.raises(ConfigError, match="vendor: git cannot read this nested repository"):
+        _hashes(root)
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_a_top_repository_git_cannot_list_hashes_the_bytes_on_disk(tmp_path):
+    root = _repo(tmp_path / "r", FILES)
+    (root / "skills/a/__pycache__").mkdir()
+    (root / "skills/a/__pycache__/x.pyc").write_bytes(b"ignored\n")
+    (root / ".git/index").write_bytes(b"garbage")  # git still finds the top, but cannot list what it ignores
+    assert git_tree(root) is None
+    assert tree_digest(root / "skills/a", git=True) == tree_digest(root / "skills/a", git=None)
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="needs git")

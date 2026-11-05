@@ -1,6 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
+import errno
 import hashlib
 import json
 import os
@@ -160,7 +161,7 @@ class GitTree:
     def skipped(self, path: Path) -> bool:
         """True for what git leaves out: an ignored path below the base, by the top's rules or (unless the top tracks it)
         by those of a nested repository holding it, or anything under a ``.git`` (a nested repository's own). An ignored
-        directory above the base is not this walk's to apply."""
+        directory above the base is not this walk's to apply. OSError when git cannot read such a nested repository."""
         rel = self.top_rel(path)
         if rel is None:
             return False
@@ -181,7 +182,12 @@ class GitTree:
     def _inner_ignored(self, rel: str) -> frozenset[str] | None:
         if rel not in self.nested:  # one git call per nested repository, none for a directory without .git
             here = self.top / rel
-            self.nested[rel] = (_ignored_paths(os.fspath(here)) or frozenset()) if os.path.lexists(here / ".git") else None
+            if not os.path.lexists(here / ".git"):
+                self.nested[rel] = None
+            elif (inner := _ignored_paths(os.fspath(here))) is not None:
+                self.nested[rel] = inner
+            else:  # leaving nothing out would hash its ignored files only where git cannot read it
+                raise OSError(errno.EIO, "git cannot read this nested repository", os.fspath(here))
         return self.nested[rel]
 
 
@@ -201,10 +207,10 @@ def git_tree(base: Path) -> GitTree | None:
         top = run(["git", "-C", os.fspath(base), "rev-parse", "--show-toplevel"], timeout=60, env=_git_env())
         if not top.ok:
             return None
+        top_dir = os.fsdecode(top.stdout_bytes).strip()
+        ignored = _ignored_paths(top_dir)
     except OSError:
         return None
-    top_dir = os.fsdecode(top.stdout_bytes).strip()
-    ignored = _ignored_paths(top_dir)
     if ignored is None:
         return None
     top_real = Path(os.path.realpath(top_dir))
@@ -217,14 +223,11 @@ def git_tree(base: Path) -> GitTree | None:
 
 def _ignored_paths(top: str) -> frozenset[str] | None:
     """The untracked, ignored paths of the work tree at ``top`` that git would not descend into (a directory by its
-    name), relative to ``top``; a tracked file is never listed. None if git fails."""
+    name), relative to ``top``; a tracked file is never listed. None if git fails; OSError if it cannot start."""
     from dokimi.process import run
 
-    try:
-        listed = run(["git", "-C", top, "ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"],
-                     timeout=120, env=_git_env(), capture_limit=None)
-    except OSError:
-        return None
+    listed = run(["git", "-C", top, "ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"],
+                 timeout=120, env=_git_env(), capture_limit=None)
     if not listed.ok:
         return None
     return frozenset(os.fsdecode(name).rstrip("/") for name in listed.stdout_bytes.split(b"\0") if name)
