@@ -299,6 +299,26 @@ def test_only_the_request_model_is_blanked_in_the_text():
     assert "'claude-haiku-5-5'" in out and "'claude-fable-5-1'" in out
 
 
+def test_residue_flags_each_run_specific_pattern():
+    dirty = {
+        "date": "Today's date is 2026-11-04.",
+        "month-year": "Knowledge cutoff: November 2026.",
+        "slash-date": "saved 2026/11/05",
+        "uuid": "id 0b1c2d3e-4f50-4a6b-8c7d-9e0f1a2b3c4d",
+        "hex": "digest " + "ab" * 32,
+        "version": "cc_version=2.1.318.07b",
+        "abs-path": "cwd /usr/src/app",
+        "workspace-path": "cwd /workspace/repo",
+        "users-path": "cwd /Users/bob/x",
+        "home-path": "cwd /home/bob/x",
+        "email": "contact bob@intel.com",
+        "model": "claude-haiku-4-5",
+    }
+    for name, text in dirty.items():
+        assert fd.residue({"model": text} if name == "model" else {"x": text}), name
+    assert fd.residue({"x": "clean text"}) == []
+
+
 def test_excluded_only_listing_keeps_the_text_around_it():
     # An excluded-only listing used to drop the whole block, so the text after it (here an
     # expected-skill marker) never reached the comparison or the leak audit.

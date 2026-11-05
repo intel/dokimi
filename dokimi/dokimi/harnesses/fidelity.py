@@ -173,6 +173,9 @@ _HEX64 = re.compile(r"\b[0-9a-f]{64}\b")
 _DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?Z?)?\b")
 _MONTH_YEAR = re.compile(rf"\b(?:{_MONTHS}) \d{{4}}\b")
 _VERSION_TAG = re.compile(r"(cc_version=|claude-cli/|Claude Code )[0-9][0-9A-Za-z.\-]*")
+_SLASH_DATE = re.compile(r"\b\d{4}/\d{2}/\d{2}\b")
+_EMAIL = re.compile(r"\b[\w.+\-]+@[\w\-]+(?:\.[\w\-]+)+\b")
+_ABS_PATH = re.compile(r"/(?:tmp|mnt|localdisk|nfs|home|root|var|opt|usr|workspace|Users)/")
 _MODEL_NAME = re.compile(r"named [A-Z][A-Za-z]+ [0-9][0-9.]*")
 _IDS = re.compile(r"\b(?:msg|toolu|req|call)_[A-Za-z0-9]{6,}\b")
 _PLATFORM = re.compile(r"(Platform: |Shell: |OS Version: )[^\n]*")
@@ -385,8 +388,9 @@ def residue(value: Any) -> List[str]:
         found.append(f"model: {value['model']!r}")  # the request's own model id, not blanked
 
     def fn(text: str) -> str:
-        for name, pat in (("date", _DATE), ("uuid", _UUID), ("hex", _HEX64), ("version", _VERSION_TAG),
-                          ("abs-path", re.compile(r"/(?:tmp|mnt|localdisk|nfs|home|root|var)/"))):
+        for name, pat in (("date", _DATE), ("slash-date", _SLASH_DATE), ("month-year", _MONTH_YEAR),
+                          ("uuid", _UUID), ("hex", _HEX64),
+                          ("version", _VERSION_TAG), ("abs-path", _ABS_PATH), ("email", _EMAIL)):
             if pat.search(text):
                 found.append(f"{name}: {text[:80]!r}")
         return text
