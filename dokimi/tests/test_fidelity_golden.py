@@ -193,7 +193,8 @@ def test_capture_arm_passes_the_arm_prompt_skill_and_seal_to_the_client(tmp_path
 
 def test_run_host_gives_the_client_only_the_fixed_environment(tmp_path, monkeypatch):
     seen: dict = {}
-    monkeypatch.setattr(fd.process, "run", lambda argv, **kw: seen.update(argv=list(argv), **kw))
+    monkeypatch.setattr(fd.process, "run",
+                        lambda argv, **kw: seen.update(argv=list(argv), **kw) or fd.process.reply())
     fd.run_host("/bin/claude", ["-p", "x"], workdir=tmp_path, scratch=tmp_path / "s")("http://127.0.0.1:9")
     assert seen["argv"] == ["/bin/claude", "-p", "x"]
     assert seen["env"].allow == ()
@@ -203,7 +204,8 @@ def test_run_host_gives_the_client_only_the_fixed_environment(tmp_path, monkeypa
 
 def test_run_docker_builds_the_container_command(tmp_path, monkeypatch):
     seen: dict = {}
-    monkeypatch.setattr(fd.process, "run", lambda argv, **kw: seen.update(argv=list(argv), **kw))
+    monkeypatch.setattr(fd.process, "run",
+                        lambda argv, **kw: seen.update(argv=list(argv), **kw) or fd.process.reply())
     runner = fd.run_docker("img:1", "/bin/claude", ["-p", "x"], workdir=tmp_path,
                            plugin_dir=tmp_path / "plugin", uid=1001, gid=1002)
     runner("http://127.0.0.1:9")
@@ -289,3 +291,21 @@ def test_excluded_only_listing_keeps_the_text_around_it():
     assert "expected_skill: sum-fast" in out
     assert "other" not in out and "Description" not in out
 
+
+@pytest.mark.parametrize("failure", [{"returncode": 1, "stderr": "auth failed"},
+                                     {"returncode": 124, "timed_out": True}])
+def test_run_host_refuses_a_client_that_fails_after_it_posted(tmp_path, monkeypatch, failure):
+    # A client that posts its request and then exits nonzero or times out must not be
+    # recorded as a capture: the runner raises, so no golden is compared or refreshed.
+    monkeypatch.setattr(fd.process, "run", lambda argv, **kw: fd.process.reply(**failure))
+    runner = fd.run_host("/bin/claude", ["-p", "x"], workdir=tmp_path, scratch=tmp_path / "s")
+    with pytest.raises(RuntimeError, match="/bin/claude"):
+        runner("http://127.0.0.1:9")
+
+
+def test_run_docker_refuses_a_client_that_fails_after_it_posted(tmp_path, monkeypatch):
+    monkeypatch.setattr(fd.process, "run", lambda argv, **kw: fd.process.reply(returncode=1, stderr="boom"))
+    runner = fd.run_docker("img:1", "/bin/claude", ["-p", "x"], workdir=tmp_path,
+                           plugin_dir=None, uid=1001, gid=1002)
+    with pytest.raises(RuntimeError, match="boom"):
+        runner("http://127.0.0.1:9")

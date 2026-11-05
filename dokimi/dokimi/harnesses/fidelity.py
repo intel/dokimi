@@ -393,6 +393,16 @@ def client_env(base_url: str, home: str, config: str) -> dict:
     })
 
 
+def _require_ok(done: process.Completed, binary: str) -> None:
+    """Raise unless the client exited 0. A client can post its request and then fail or hang;
+    the request is recorded all the same, so a failed run must not stand as a capture."""
+    if done.ok:
+        return
+    lines = [ln.strip() for ln in (done.stderr or done.stdout).splitlines() if ln.strip()]
+    why = "timed out" if done.timed_out else f"exit {done.returncode}"
+    raise RuntimeError(f"fidelity client {binary} {why}" + (f": {lines[-1]}" if lines else ""))
+
+
 def run_host(binary: str, args: List[str], *, workdir: Path, scratch: Path,
              timeout: float = 300.0) -> Callable[[str], None]:
     """A runner for :func:`record` that runs *binary* on this host, in *workdir*."""
@@ -401,7 +411,9 @@ def run_host(binary: str, args: List[str], *, workdir: Path, scratch: Path,
         config = home / "config"
         config.mkdir(parents=True, exist_ok=True)
         env = client_env(base_url, str(home), str(config))
-        process.run([binary, *args], timeout=timeout, env=process.Env.only(set=env), cwd=str(workdir))
+        done = process.run([binary, *args], timeout=timeout, env=process.Env.only(set=env),
+                           cwd=str(workdir))
+        _require_ok(done, binary)
 
     return run
 
@@ -425,7 +437,7 @@ def run_docker(image: str, binary: str, args: List[str], *, workdir: Path, plugi
         cmd = ["docker", "run", "--rm", "--network", "host", "-u", f"{uid}:{gid}",
                "--tmpfs", f"{_CONTAINER_HOME}:uid={uid},gid={gid}", "-w", str(workdir),
                *mounts, *env_args, image, "/opt/agent/claude", *args]
-        process.run(cmd, timeout=timeout, env=process.Env.inherit())
+        _require_ok(process.run(cmd, timeout=timeout, env=process.Env.inherit()), binary)
 
     return run
 
