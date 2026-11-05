@@ -21,8 +21,7 @@ from dokimi.defaults import (
     DEFAULT_ANSWER_PROVIDER,
     DEFAULT_RETRIEVAL_TOP_K,
 )
-from dokimi.llm import llm_call_with_usage, LANGCHAIN_AVAILABLE
-from dokimi.llm_cli import BACKENDS as CLI_BACKENDS
+from dokimi.llm import llm_call_with_usage, LANGCHAIN_AVAILABLE, check_caller_provider
 from dokimi.metrics.usage import UsageRecord, to_record
 
 from .reranker import SimpleReranker, SentenceTransformerReranker, SENTENCE_TRANSFORMERS_AVAILABLE
@@ -101,12 +100,7 @@ class Answerer:
         self.api_key = api_key
 
         # The answer call goes through llm_call_with_usage, which picks the provider's client itself.
-        if provider not in ("openai", "anthropic", "google", "gemini", "google-vertex",
-                            "openrouter", "amazon-bedrock", "vertex_ai", *CLI_BACKENDS):
-            raise ValueError(
-                f"Unsupported provider: '{provider}'. "
-                "Use 'openai', 'anthropic', 'google', 'openrouter', 'amazon-bedrock' or 'claude-cli'."
-            )
+        check_caller_provider(provider)
         # None means the default: the doc source must never get max_results=None (it would return every chunk).
         self.top_k = DEFAULT_RETRIEVAL_TOP_K if top_k is None else top_k
         self.debug_retrieval = debug_retrieval
