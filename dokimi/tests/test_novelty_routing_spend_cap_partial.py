@@ -283,3 +283,35 @@ def test_a_command_that_writes_no_partial_still_says_nothing_was_written():
 
     with pytest.raises(SystemExit, match="nothing was written"):
         _stops_at_cap(command)(None)
+
+
+def test_a_partial_run_skips_a_sidecar_it_cannot_read(tmp_path, monkeypatch):
+    _provider(monkeypatch, UsageRecord(cost_usd=0.1))
+    args, out = _single(tmp_path, QUERIES, "--max-usd", "5")
+    args.func(args)                                          # a finished routing.json
+    side = out.with_suffix(".partial.json")
+    side.write_text("not json", encoding="utf-8")            # a sidecar this cannot read is no partial result
+    _provider(monkeypatch, UsageRecord(cost_usd=0.6))
+    again = _again(tmp_path, out, "third", "--max-usd", "0.5")
+    with pytest.raises(SystemExit):
+        again.func(again)
+    assert side.read_text(encoding="utf-8") == "not json"    # it is left as it is
+    third = out.with_name("routing.partial2.json")
+    assert json.loads(third.read_text(encoding="utf-8"))["status"] == "partial"
+
+
+def test_a_partial_model_line_with_five_answered_calls_has_no_warning(capsys):
+    from dokimi.commands.novelty_routing_report import print_all_vs_all_model
+
+    print_all_vs_all_model({"partial": {"calls_done": 6, "calls_planned": 9},
+                            "n_scored": {"a": 3, "b": 2}}, None)
+    out = capsys.readouterr().out
+    assert "partial: 6 of 9 calls, 5 answered" in out
+    assert "WARNING" not in out
+
+
+def test_the_blind_skill_warning_needs_a_lexical_arm(capsys):
+    from dokimi.commands.novelty_routing_report import warn_blind_skills
+
+    warn_blind_skills({}, {"a": ["q"]})
+    assert capsys.readouterr().err == ""
