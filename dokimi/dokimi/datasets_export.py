@@ -38,6 +38,7 @@ _TASK_RUN_METRIC_COLS = (
 # Top-level metadata fields copied onto every row (when present).
 META_KEYS = (
     "schema_version",
+    "run_id",
     "library",
     "library_id",
     "model",

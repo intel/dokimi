@@ -77,6 +77,20 @@ def test_export_answers_artifact_jsonl(tmp_path):
     assert json.loads(rows[0]["with_docs"])["answer"] == "a"
 
 
+def test_export_answers_row_carries_the_run_id(tmp_path):
+    """The export puts the artifact's run_id on its rows, so rows can be grouped by run."""
+    src = tmp_path / "a.json"
+    src.write_text(json.dumps({
+        "schema_version": "answers.v1",
+        "run_id": "20261105T120000Z-abcdef12",
+        "model": "gpt-6.1-sol",
+        "answers": [{"question_id": "q1", "with_docs": {"answer": "a"}}],
+    }))
+    primary = export_artifact("answers", src, tmp_path / "out", fmt="jsonl")
+    [row] = [json.loads(line) for line in primary.read_text().strip().splitlines()]
+    assert row["run_id"] == "20261105T120000Z-abcdef12"
+
+
 def test_dataset_card_contents():
     card = dataset_card("questions", Path("my_questions.json"), 5, ["id", "question"])
     assert "Schema version:** questions.v2" in card
