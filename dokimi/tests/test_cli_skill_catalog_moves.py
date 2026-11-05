@@ -117,6 +117,17 @@ def test_the_retired_roots_are_gone_from_the_parser():
         assert root not in {r.name for r in cli_routes.ROOTS}
 
 
+@pytest.mark.parametrize(
+    "argv",
+    [["skill"], ["skill", "novelty"], ["trace"], ["data"], ["data", "import"]],
+    ids=lambda argv: " ".join(argv),
+)
+def test_the_new_groups_require_a_subcommand(argv):
+    with pytest.raises(SystemExit) as exc:
+        build_parser().parse_args(argv)
+    assert exc.value.code == 2
+
+
 def test_new_roots_sit_in_their_sections():
     sections = {root.name: root.section for root in cli_routes.ROOTS}
     assert sections["skill"] == "Subjects"
