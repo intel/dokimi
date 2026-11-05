@@ -12,6 +12,7 @@ import json
 import os
 import shutil
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -241,6 +242,37 @@ def test_hf_dataset_limit_applies_to_the_import_and_is_not_a_loader_argument(tmp
         "                scorer=match())\n"))
     imp = import_path(task, fmt="inspect-task")
     assert [q["question"] for q in imp.questions] == ["q0", "q1"]
+
+
+def test_hf_dataset_stops_reading_the_split_at_the_limit(tmp_path, monkeypatch):
+    def rows():  # a stream that fails if the importer asks for a row past the limit
+        yield {"question": "q0", "answer": "a"}
+        yield {"question": "q1", "answer": "a"}
+        raise AssertionError("read past limit=2")
+
+    fake = types.ModuleType("datasets")
+    fake.load_dataset = lambda *args, **kwargs: rows()
+    monkeypatch.setitem(sys.modules, "datasets", fake)
+    task = _write(tmp_path / "t.py", (
+        "@task\ndef t():\n"
+        "    return Task(dataset=hf_dataset('org/big', split='train', streaming=True, limit=2,\n"
+        "                                   sample_fields=FieldSpec(input='question', target='answer')),\n"
+        "                scorer=match())\n"))
+    imp = import_path(task, fmt="inspect-task")
+    assert [q["question"] for q in imp.questions] == ["q0", "q1"]
+
+
+def test_hf_dataset_refuses_a_computed_loader_argument_instead_of_forwarding_none(tmp_path, monkeypatch):
+    calls = []
+    fake = types.ModuleType("datasets")
+    fake.load_dataset = lambda *args, **kwargs: calls.append(kwargs) or []
+    monkeypatch.setitem(sys.modules, "datasets", fake)
+    task = _write(tmp_path / "t.py", (
+        "@task\ndef t():\n"
+        "    return Task(dataset=hf_dataset('org/repo', split='train', revision=REVISION), scorer=match())\n"))
+    with pytest.raises(ValueError, match="revision= must be a literal"):
+        import_path(task, fmt="inspect-task")
+    assert calls == []  # the loader was never asked for the default revision
 
 
 # --- review of #402: promptfoo code configs ----------------------------------------------------

@@ -18,6 +18,7 @@ no translation: it is judged on its docstring, the criterion, or stays unsupport
 from __future__ import annotations
 
 import ast
+import itertools
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
@@ -164,6 +165,15 @@ def _literal(node: ast.AST) -> Any:
         return None
 
 
+def _is_literal(node: ast.AST) -> bool:
+    """True when the expression is a literal value, so ``None`` from it is the value and not a failed read."""
+    try:
+        ast.literal_eval(node)
+    except (ValueError, SyntaxError, TypeError):
+        return False
+    return True
+
+
 def _kwargs(call: ast.Call) -> dict[str, Any]:
     return {k.arg: _literal(k.value) for k in call.keywords if k.arg}
 
@@ -246,6 +256,11 @@ def _hf_rows(node: ast.Call, base: Path) -> list[dict[str, Any]]:
     directory). A ``split=`` must be a literal: the default split is not read here. ``limit=`` is
     Inspect's sample count, applied here, not passed to the loader.
     """
+    for k in node.keywords:
+        if k.arg is None:
+            raise ValueError("hf_dataset: **options is not read; name each loader argument as a literal")
+        if k.arg not in ("sample_fields", "limit") and not _is_literal(k.value):
+            raise ValueError(f"hf_dataset: {k.arg}= must be a literal value; a computed one is not read")
     args = [_literal(a) for a in node.args]
     kwargs = {k: v for k, v in _kwargs(node).items() if k not in ("sample_fields", "limit")}
     if not args and isinstance(kwargs.get("path"), str):
@@ -277,8 +292,10 @@ def _hf_rows(node: ast.Call, base: Path) -> list[dict[str, Any]]:
         raise ValueError(f"hf_dataset could not load {args[0]}: {exc}") from exc
     fields = _field_spec(node)
     spec = {**_FIELD_DEFAULTS, **fields} if fields else {}
-    rows = [{k: r.get(v) for k, v in spec.items() if v in r} if spec else r for r in (dict(r) for r in loaded)]
-    return rows[:limit] if limit is not None else rows
+    source = (dict(r) for r in loaded)
+    if limit is not None:  # stop the stream at the limit: a streamed split is not read to its end
+        source = itertools.islice(source, limit)
+    return [{k: r.get(v) for k, v in spec.items() if v in r} if spec else r for r in source]
 
 
 def _scorer_docs(tree: ast.AST) -> dict[str, str]:
