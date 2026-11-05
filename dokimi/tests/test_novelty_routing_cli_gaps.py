@@ -244,6 +244,35 @@ def test_an_out_under_a_file_is_refused_before_the_call(tmp_path):
         checked_out_path(str(blocker / "sub" / "routing.json"), "routing")
 
 
+def test_a_dangling_out_symlink_into_a_missing_directory_is_refused_before_the_call(tmp_path):
+    from dokimi.commands.novelty_routing_inputs import checked_out_path
+
+    link = tmp_path / "routing.json"
+    link.symlink_to(tmp_path / "missing" / "result.json")
+    with pytest.raises(InputError, match="does not exist"):
+        checked_out_path(str(link), "routing")
+
+
+def test_an_out_symlink_under_a_file_is_refused_before_the_call(tmp_path):
+    from dokimi.commands.novelty_routing_inputs import checked_out_path
+
+    blocker = tmp_path / "not-a-dir"
+    blocker.write_text("x", encoding="utf-8")
+    link = tmp_path / "routing.json"
+    link.symlink_to(blocker / "result.json")
+    with pytest.raises(InputError, match="is not a directory"):
+        checked_out_path(str(link), "routing")
+
+
+def test_an_out_symlink_to_a_missing_file_in_an_existing_directory_is_accepted(tmp_path):
+    from dokimi.commands.novelty_routing_inputs import checked_out_path
+
+    (tmp_path / "out").mkdir()
+    link = tmp_path / "routing.json"
+    link.symlink_to(tmp_path / "out" / "result.json")
+    assert checked_out_path(str(link), "routing") == link
+
+
 def test_an_out_file_that_cannot_be_written_is_refused_up_front(tmp_path, monkeypatch):
     import os
 

@@ -22,22 +22,28 @@ def checked_out_path(out: str | None, command: str) -> Path:
 
     The file must not be a directory. Its missing parent directories are fine: the writer creates
     them. But the nearest existing ancestor must be a directory the run can write into, and an
-    existing file must itself be writable.
+    existing file must itself be writable. A symlink is checked where it points: the writer
+    follows it, and creates only the link's own parent, not the target's.
 
     Raises:
         InputError: ``--out`` is missing, is a directory, sits under a path that is not a
-            directory, or is not writable.
+            directory, is a symlink into a missing directory, or is not writable.
     """
     if not out:
         raise InputError(f"{command} needs --out <file>")
     path = Path(out)
     if path.is_dir():
         raise InputError(f"--out {out} is a directory: pass a file path, e.g. {path / 'routing.json'}")
-    ancestor = next((p for p in path.parents if p.exists()), path.parent)
+    # realpath follows a symlink even when it dangles, so the checks below see the file that is written.
+    target = Path(os.path.realpath(path))
+    if path.is_symlink() and not target.parent.exists():
+        raise InputError(f"--out {out} is a symlink to {target}, whose directory does not exist: "
+                         "the writer creates only the link's own directory")
+    ancestor = next((p for p in target.parents if p.exists()), target.parent)
     if not ancestor.is_dir():
         raise InputError(f"--out {out}: {ancestor} is not a directory, so the file cannot be created under it")
-    if path.exists():
-        writable = os.access(path, os.W_OK)
+    if target.exists():
+        writable = os.access(target, os.W_OK)
     else:
         writable = os.access(ancestor, os.W_OK | os.X_OK)
     if not writable:
