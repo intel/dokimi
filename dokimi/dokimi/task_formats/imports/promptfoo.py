@@ -69,7 +69,7 @@ def _code_config(path: Path) -> Any:
             if "bad option" in done.stderr and flags:
                 raise ValueError(f"{path}: this node is too old to read a .ts config; it needs Node 22.6 or later "
                                  "(type stripping), or export the config to .mjs, YAML or JSON")
-            named = re.search(r"^\w*Error: .*$", done.stderr, re.M)
+            named = re.search(r"^\w*Error(?: \[\w+\])?: .*$", done.stderr, re.M)
             raise ValueError(f"{path}: node could not read the config: {named.group(0) if named else 'no error text'}")
         try:
             return json.loads(out.read_text(encoding="utf-8"))
