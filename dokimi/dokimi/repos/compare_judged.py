@@ -43,7 +43,7 @@ _SAID = {"no_file": f"no {HITS_JUDGED}", "stale": "stale: regraded since judging
          "unreadable": f"unreadable or not {SCHEMA_VERSIONS['repo_hits_judged']}"}
 #: The reasons a rerun of ``repo hits judge`` can change: a cell with no gold thread gets the same null again.
 RERUN = tuple(r for r in REASONS if r not in ("read", "no_threads"))
-HINT ="run `repo hits judge <batch> --judge PROVIDER/MODEL`"
+HINT = "run `repo hits judge <batch> --judge PROVIDER/MODEL`"
 
 
 def judge_names(metrics: tuple[str, ...]) -> list[str]:
