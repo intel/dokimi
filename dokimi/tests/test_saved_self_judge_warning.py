@@ -77,17 +77,23 @@ def _judge_argv(tmp_path):
     }
 
 
-def _cases():
-    import pathlib
-    import tempfile
+CASES = [  # (module whose warn_recorded_self_judge the command calls, command words)
+    ("dokimi.commands.judge_reliability", ("eval", "score", "pairwise")),
+    ("dokimi.commands.judge_reliability", ("eval", "score", "checklist")),
+    ("dokimi.commands.judge_reliability", ("eval", "judge", "wording")),
+    ("dokimi.commands.judge_reliability", ("eval", "judge", "agreement")),
+    ("dokimi.commands.evaluate", ("eval", "judge", "validate")),
+    ("dokimi.utils", ("eval", "score", "reference")),
+    ("dokimi.commands.questions", ("eval", "questions", "analyze")),
+    ("dokimi.commands.questions", ("eval", "questions", "review")),
+]
 
-    tmp = pathlib.Path(tempfile.mkdtemp())
-    return [(mod, argv) for mod, argvs in _judge_argv(tmp).items() for argv in argvs]
 
-
-@pytest.mark.parametrize("module,argv", _cases(), ids=lambda v: v if isinstance(v, str) else " ".join(v[:3]))
-def test_command_checks_the_recorded_model(module, argv, monkeypatch):
+@pytest.mark.parametrize("module,words", CASES, ids=[" ".join(w) for _, w in CASES])
+def test_command_checks_the_recorded_model(module, words, tmp_path, monkeypatch):
     import importlib
+
+    argv = next(a for argvs in _judge_argv(tmp_path).values() for a in argvs if tuple(a[:3]) == words)
 
     seen = []
 
@@ -114,3 +120,15 @@ def test_pairwise_checks_the_escalation_judge_too(tmp_path, monkeypatch):
     with pytest.raises(Stop):
         args.func(args)
     assert ("gpt-6.1-sol", "openai") in seen
+
+
+def test_validate_with_a_typed_scorer_does_not_warn(tmp_path, monkeypatch):
+    from dokimi.commands import evaluate
+
+    calls = []
+    monkeypatch.setattr(evaluate, "warn_recorded_self_judge", lambda data, judges, *a, **k: calls.extend(judges))
+    args = parse_args(["eval", "judge", "validate", "--answers", str(_arms_file(tmp_path)),
+                       "--scorer", "typed:none", "--output", str(tmp_path / "o.json")])
+    with pytest.raises(SystemExit):
+        args.func(args)
+    assert calls == []

@@ -264,7 +264,9 @@ def cmd_eval_grounding(args: argparse.Namespace) -> None:
 
 
 def _validity_judges(args: argparse.Namespace) -> list[tuple[str, str]]:
-    """``(model, provider)`` of the judge, then of the escalation judge when one is named."""
+    """``(model, provider)`` of the judge, then of the escalation judge; none for a typed scorer."""
+    if args.scorer != "judge":  # a typed scorer reads the answer and calls no judge
+        return []
     judges = [(args.judge_model, args.judge_provider)]
     if args.escalate_model:
         judges.append((args.escalate_model, getattr(args, "escalate_provider", None) or args.judge_provider))
