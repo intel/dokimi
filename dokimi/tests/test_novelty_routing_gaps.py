@@ -136,7 +136,7 @@ def test_the_catalog_subdir_the_error_names_routes_the_field(tmp_path, capsys):
     assert f"--catalog {suggested}" in str(exc.value)
     # the suggested command is the one that routes: the copies under that directory are the field
     args = _parse("novelty", "routing", "--catalog", suggested, "--artifact", artifact,
-                  "--queries-from-headings")
+                  "--queries-from-headings", "--out", str(tmp_path / "routing.json"))
     args.func(args)
     assert "1 competitors" in capsys.readouterr().err
 
