@@ -82,6 +82,8 @@ def test_p_at_zero_is_the_sign_flip_p_exact_and_monte_carlo():
             assert ShiftTest(d, seed).p(0.0) == sign_flip_p(d, seed=seed, exact=True), (d, seed)
     near_tie = [1.0] * 16 + [1e-12]  # within EPS of 0: a tie, so 16 changed and still exact, as sign_flip_p has it
     assert ShiftTest(near_tie).p(0.0) == sign_flip_p(near_tie, exact=True) == 2 / 2 ** 16
+    tied = [0.0, 1e-12, -1e-12]  # every delta tied: no p at 0, nor where a shift ties every delta again
+    assert ShiftTest(tied).p(0.0) is sign_flip_p(tied) is None and ShiftTest([2.0] * 3).p(2.0) is None
 
 
 def test_the_interval_excludes_zero_exactly_when_p_is_below_005():
