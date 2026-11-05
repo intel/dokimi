@@ -500,7 +500,12 @@ def test_a_suite_that_picks_an_individual_file_of_its_skill_is_refused(tmp_path,
 
 @pytest.mark.parametrize(
     ("suite", "claimed"),
-    [("'{skill}/*.json'", "skills/a/q.json"), ("'{skill}/tests/*.json'", "skills/a/tests/q.json")],
+    [
+        ("'{skill}/*.json'", "skills/a/q.json"),
+        ("'{skill}/tests/*.json'", "skills/a/tests/q.json"),
+        # a sibling whose name starts with the evals directory's name is not under it
+        ("'{skill}/evals-old/*.json'", "skills/a/evals-old/q.json"),
+    ],
 )
 def test_an_individual_file_outside_the_evals_directory_is_refused(tmp_path, suite, claimed):
     body = HEADER + f"subjects:\n  - id: skill/a\n    path: skills/a\n    suite: {suite}\n"
@@ -510,6 +515,17 @@ def test_an_individual_file_outside_the_evals_directory_is_refused(tmp_path, sui
     with pytest.raises(ConfigError, match="skill/a") as err:
         load_repo_config(root).subjects(hashes=False)
     assert claimed in str(err.value) and "skills/a/evals" in str(err.value)
+
+
+def test_a_file_whose_path_starts_with_a_claimed_directory_name_is_still_refused(tmp_path):
+    # ref/ is claimed whole; refs.md is a file of the skill outside it, though its path starts with "skills/a/ref"
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: '{skill}/*'\n"
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": body, "skills/a/ref/x.md": "x\n", "skills/a/refs.md": "r\n",
+    })
+    with pytest.raises(ConfigError, match="skill/a") as err:
+        load_repo_config(root).subjects(hashes=False)
+    assert "skills/a/refs.md" in str(err.value)
 
 
 def test_a_suite_may_claim_individual_files_under_its_evals_directory(tmp_path):
