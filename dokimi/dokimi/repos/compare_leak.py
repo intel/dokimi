@@ -87,7 +87,8 @@ def _kind(cells: list[dict[str, Any]], metas: list[Any]) -> str | None:
     if any(isinstance(m, dict) and "arm_patch" in m for m in metas) or any(
             str(c["arm"]).startswith("patch:") for c in cells):
         return "patch"
-    return None
+    # An unreadable meta.json hides what the arm is: check it, so its replay tasks are reported unknown.
+    return "guidance:rev" if any(isinstance(m, str) for m in metas) else None
 
 
 def _arm_entry(text: str, kind: str, read: list[tuple[str, Any, Any]]) -> dict[str, Any]:
@@ -197,7 +198,7 @@ def _by_name(rev: dict[str, Any], spec: dict[str, Any]) -> _State:
     pr = spec.get("source_pr")
     if pr is None:
         return _CLEAN  # no PR to be named
-    if isinstance(pr, bool) or not isinstance(pr, (int, str)) or not re.fullmatch(r"[0-9]+", str(pr)):
+    if isinstance(pr, bool) or not isinstance(pr, (int, str)) or not re.fullmatch(r"[0-9]{1,18}", str(pr)):
         return ("unknown", "source_pr is not a PR number")
     commits = rev.get("guidance_commits")
     if not isinstance(commits, list):
@@ -238,6 +239,7 @@ def _when(value: Any) -> datetime | None:
 def format_leak(entries: list[dict[str, Any]]) -> list[str]:
     """The text lines of ``summary["leak"]``: per checked arm its counts, then the tasks behind them."""
     lines = []
+    flagged = {t for e in entries for t in (*e["by_date"], *e["by_name"])}
     for e in entries:
         revs = ", ".join(f"{r['rev']} {r['sha'][:12]}" for r in e["revisions"])
         lines += ["", f"leak check {e['arm']}{f' ({revs})' if revs else ''}: {len(e['checked'])} checked, "
@@ -256,8 +258,9 @@ def format_leak(entries: list[dict[str, Any]]) -> list[str]:
         for task, reason in e["unknown"].items():
             by_reason.setdefault(reason, []).append(task)
         lines += [f"  unknown, {reason}: {_capped(tasks)}" for reason, tasks in by_reason.items()]
-        if e["clean"] and (e["by_date"] or e["by_name"]):
-            lines.append("  clean: " + " ".join(f"--task {t}" for t in e["clean"]))
+        keep = [t for t in e["clean"] if t not in flagged]  # a task another checked arm flags keeps its leak
+        if keep and (e["by_date"] or e["by_name"]):
+            lines.append("  clean: " + " ".join(f"--task {t}" for t in keep))
     return lines
 
 

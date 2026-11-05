@@ -290,6 +290,7 @@ def test_the_cells_of_one_task_flag_it_together(tmp_path):
     ({"arm": REV, "arm_rev": {"guidance_latest": {}, "guidance_commits": [7]}}, _spec(1),
      "a guidance_commits entry has no subject"),
     ({"arm": REV, "arm_rev": {"guidance_latest": {}}}, _spec(1), "no guidance_commits recorded"),
+    (None, _spec(1) | {"source_pr": "9" * 5000}, "source_pr is not a PR number"),
 ])
 def test_a_cell_file_of_the_wrong_shape_makes_its_task_unknown(tmp_path, meta, spec, reason):
     batch = tmp_path / "b1"
@@ -318,3 +319,29 @@ def test_a_cell_with_a_task_but_no_meta_json_is_unknown(tmp_path):
     next(batch.glob(f"*{REV.replace(':', '-')}*")).joinpath("meta.json").unlink()
     leak = _leak(compare([batch], "guidance:none"))
     assert leak["unknown"] == {"review_replay_pr1": "its meta.json has no arm_rev object"}
+
+
+def test_a_custom_named_arm_with_an_unreadable_meta_json_has_its_tasks_unknown(tmp_path):
+    batch = tmp_path / "b1"
+    _cell(batch, "review_replay_pr1", "guidance:none", spec=_spec(1))
+    _cell(batch, "review_replay_pr1", "custom:arm", spec=_spec(1))
+    (next(batch.glob("*custom-arm*")) / "meta.json").write_text("{not json")
+    leak = _leak(compare([batch], "guidance:none"))
+    assert leak["arm"] == "custom:arm"
+    assert leak["unknown"] == {"review_replay_pr1": "its meta.json is not readable JSON"}
+
+
+def test_a_clean_task_another_checked_arm_flags_is_not_suggested_as_a_task_option(tmp_path):
+    other = "guidance:rev:" + "e" * 40
+    early = _rev({"AGENTS.md": _commit(SHA["root"], EARLY)}, [_commit(SHA["named"], EARLY, "Rules from #3103")])
+    late = _rev({"AGENTS.md": _commit(SHA["root"], LATE)})
+    late["arm"] = other
+    specs = {"review_replay_pr3103": _spec(3103, files=["a.py"]), "review_replay_pr3200": _spec(3200, files=["b.py"]),
+             "review_replay_pr3300": _spec(3300, public="2026-05-01T00:00:00Z", files=["c.py"])}
+    batch = tmp_path / "b1"
+    for task, spec in specs.items():
+        for arm, meta in (("guidance:none", None), (REV, early), (other, late)):
+            _cell(batch, task, arm, meta=meta, spec=spec)
+    lines = format_compare(compare([batch], "guidance:none")).splitlines()
+    # REV flags only pr3103 by name; `other` flags pr3103 and pr3200 by date; pr3300 is clean in both
+    assert [line for line in lines if line.startswith("  clean:")] == ["  clean: --task review_replay_pr3300"] * 2
