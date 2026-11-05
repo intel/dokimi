@@ -29,6 +29,7 @@ from dokimi.artifacts import schema_errors
 from dokimi.eval.stats import adjust_pvalues
 
 from .compare import EPS, PRIMARY, _num, compare, load_batches, min_sign_flip_p, parse_selector, selector_matches
+from .compare_interval import format_interval
 from .compare_reach import ALPHA
 from .compare_tasks import CompareError
 
@@ -275,7 +276,7 @@ def format_ledger(result: dict[str, Any]) -> str:
         lines.append(f"{where}, {e['measure'] or 'not measured'}: {e['verdict']}")
         if e["paired"]:
             d = e["delta"]
-            ci = "-" if d["lo"] is None else f"[{d['lo']:+.3f}, {d['hi']:+.3f}]"
+            ci = format_interval(d["lo"], d["hi"])  # an end is open (None) at 5 or fewer paired cases
             label = "mean score" if e["measure"] == "score" else "pass rate"  # a score is not a success rate
             lines.append(f"  paired {e['paired']} of {e['linked']} linked: {label} {_num(e['baseline_mean'])} -> "
                          f"{_num(e['treatment_mean'])}, delta {d['mean']:+.3f} {ci}, p {_p(e['p'])}, "
