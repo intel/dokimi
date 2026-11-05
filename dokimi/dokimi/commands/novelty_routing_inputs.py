@@ -39,6 +39,11 @@ def checked_out_path(out: str | None, command: str) -> Path:
     if path.is_symlink() and not target.parent.exists():
         raise InputError(f"--out {out} is a symlink to {target}, whose directory does not exist: "
                          "the writer creates only the link's own directory")
+    # A dangling symlink among the parents: the writer's mkdir of that parent fails on it.
+    for parent in path.parents:
+        if parent.is_symlink() and not parent.exists():
+            raise InputError(f"--out {out}: {parent} is a dangling symlink, so the writer cannot create "
+                             "its directory")
     ancestor = next((p for p in target.parents if p.exists()), target.parent)
     if not ancestor.is_dir():
         raise InputError(f"--out {out}: {ancestor} is not a directory, so the file cannot be created under it")

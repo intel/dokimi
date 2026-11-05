@@ -253,6 +253,14 @@ def test_a_dangling_out_symlink_into_a_missing_directory_is_refused_before_the_c
         checked_out_path(str(link), "routing")
 
 
+def test_an_out_under_a_dangling_directory_symlink_is_refused_before_the_call(tmp_path):
+    from dokimi.commands.novelty_routing_inputs import checked_out_path
+
+    (tmp_path / "outdir").symlink_to(tmp_path / "missing")
+    with pytest.raises(InputError, match="dangling symlink"):
+        checked_out_path(str(tmp_path / "outdir" / "routing.json"), "routing")
+
+
 def test_an_out_symlink_under_a_file_is_refused_before_the_call(tmp_path):
     from dokimi.commands.novelty_routing_inputs import checked_out_path
 
