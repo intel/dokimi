@@ -4,8 +4,8 @@
   events, and shell functions no longer keep a read at the wrong directory or of a command that
   did not run** — `cd $(printf sub; true) | cat; cat AGENTS.md` and its `&` and backtick forms
   (the substitution's own `;` no longer ends the piped or backgrounded part), `source
-  .venv/bin/activate; cat AGENTS.md` (a virtualenv's activate script alone is assumed to run no
-  `cd`), `case $x in a) echo case;; esac; cat AGENTS.md` (a `case` opens only as a command word),
+  .venv/bin/activate; cat AGENTS.md` (a virtualenv's activate script alone, also with a redirection
+  such as `> /dev/null`, is assumed to run no `cd`), `case $x in a) echo case;; esac; cat AGENTS.md` (a `case` opens only as a command word),
   `time cat AGENTS.md`, `time -p cat AGENTS.md`, `time X=1 cat AGENTS.md`, `X=1 time cat
   AGENTS.md` and `command cat AGENTS.md` now read `AGENTS.md`. `f() { cd sub; }; f; cat AGENTS.md`
   read the root's `AGENTS.md`; a call of a function whose body names `cd`, `pushd`, `popd`,

@@ -1299,7 +1299,8 @@ per scenario).
       subshell, pipeline or background job, and not refused), so such a file
       can be classed `loaded`. `source` or `.` of a virtualenv's activate script
       alone (`source .venv/bin/activate`, `. "/opt/venv/bin/activate"`: one
-      operand ending in `bin/activate`, no more arguments) is assumed to move
+      operand ending in `bin/activate`, no more arguments, a redirection
+      such as `> /dev/null` aside) is assumed to move
       no shell: the scripts venv, virtualenv and uv write set variables and
       `PATH` and run no `cd`. Any other `source` (`source env.sh`, a computed
       `source $V/bin/activate`, `bin/activate.fish`) may;

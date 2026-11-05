@@ -456,7 +456,10 @@ def test_a_subshell_list_records_no_reads_and_moves_nothing():
 
 @pytest.mark.parametrize("command", ["source .venv/bin/activate; cat AGENTS.md", ". .venv/bin/activate && cat AGENTS.md",
                                      'source "/opt/venv/bin/activate"; cat AGENTS.md', "source bin/activate\ncat AGENTS.md",
-                                     "builtin source venv/bin/activate; cat AGENTS.md"])
+                                     "builtin source venv/bin/activate; cat AGENTS.md",
+                                     "source .venv/bin/activate >/dev/null; cat AGENTS.md",
+                                     ". .venv/bin/activate > /dev/null 2>&1 && cat AGENTS.md",
+                                     "source .venv/bin/activate < /dev/null; cat AGENTS.md"])
 def test_sourcing_a_virtualenvs_activate_script_keeps_the_directory(command):
     # venv, virtualenv and uv activate scripts set variables and PATH and run no cd (#374)
     assert shell_walk(command) == (["AGENTS.md"], False, 0)
@@ -464,7 +467,9 @@ def test_sourcing_a_virtualenvs_activate_script_keeps_the_directory(command):
 
 @pytest.mark.parametrize("command", ["source env.sh; cat AGENTS.md", "source x/bin/activate extra; cat AGENTS.md",
                                      "source $V/bin/activate; cat AGENTS.md", "source bin/activate.fish; cat AGENTS.md",
-                                     "source activate; cat AGENTS.md", "eval bin/activate; cat AGENTS.md"])
+                                     "source activate; cat AGENTS.md", "eval bin/activate; cat AGENTS.md",
+                                     "source $V/bin/activate > /dev/null; cat AGENTS.md", "source */bin/activate; cat AGENTS.md",
+                                     "source env.sh > /dev/null; cat AGENTS.md", "source x/bin/activate y >log; cat AGENTS.md"])
 def test_sourcing_anything_but_an_activate_script_alone_still_loses_the_directory(command):
     assert shell_walk(command) == ([], True, 1)
 
@@ -475,7 +480,8 @@ def test_an_activate_in_an_earlier_call_keeps_the_next_calls_relative_read():
 
 
 @pytest.mark.parametrize("command", ["time cat AGENTS.md", "time -p cat AGENTS.md", "time X=1 cat AGENTS.md",
-                                     "cd sub && time cat AGENTS.md", "source .venv/bin/activate && cat AGENTS.md"])
+                                     "cd sub && time cat AGENTS.md", "source .venv/bin/activate && cat AGENTS.md",
+                                     "source .venv/bin/activate >/dev/null && cat AGENTS.md"])
 def test_a_failed_timed_or_activated_read_of_one_file_is_no_read(command):
     events = _events(_call("a", command), _result("a", "No such file", True))
     assert [(e["kind"], e["rc"]) for e in events] == [("command", 1)]

@@ -28,6 +28,7 @@ _LEAD = _KEYWORDS | {"{", "time"}
 # what a ``case`` count leaves out: quoted text and escapes (each one ``q``), then backtick and ``$( )`` substitutions
 _QUOTED = re.compile(r"\\.|'[^']*'|\"(?:\\.|[^\"\\])*\"", re.S)
 _SUBSTITUTION = re.compile(r"`[^`]*`|\$\(")
+_EXPANDS = re.compile(r"[$`*?\[{]")  # a word the shell expands (``$V/bin/activate``, ``*/bin/activate``): not known here
 
 
 def _time_keyword(text: str) -> bool:
@@ -63,7 +64,8 @@ def _cd(here: str | None, args: list[str]) -> str | None:
 
 def _runs_dir(outer: str, dirs: Collection[str] = _DIRS, functions: Collection[str] = ()) -> bool:
     """Whether a part's text, or its outer text (:class:`~dokimi.repos.shell_split.Part`), runs a directory builtin, as
-    ``cd $(...)`` and ``X="a b" cd "$D"`` do, or may (:func:`_may_run_dir`); a subshell ``(cd x; ...)`` has no such
+    ``cd $(...)`` and ``X="a b" cd "$D"`` do, or may (:func:`_may_run_dir`), but for a virtualenv's activate
+    (``source .venv/bin/activate > /dev/null``: :func:`_activates`); a subshell ``(cd x; ...)`` has no such
     text, so it changes nothing outside itself. Text shlex cannot split is read word by word (:func:`_unquoted`): its
     command word counts, and when a quote up to it does not close (``X="a b c" cd``), any builtin's name in it counts.
     ``dirs`` are those names: ``_DIRS``, and the script's functions that name one (``f > log`` of ``f() { cd x; }``);
@@ -84,7 +86,7 @@ def _runs_dir(outer: str, dirs: Collection[str] = _DIRS, functions: Collection[s
         return False
     if told is not None and not all(told[:len(words) - len(rest) + at + 1]):
         return any(w in dirs for w in words)
-    return not via_env and rest[at] in dirs
+    return not via_env and rest[at] in dirs and not _activates(rest[at], rest[at + 1:], literal=True)
 
 
 def _may_run_dir(words: list[str], timed: bool) -> bool:
@@ -250,11 +252,24 @@ def _past_time(words: list[str]) -> int:
     return 0 if any(i is not None and i < len(words) and words[i] in _DIRS for i in (at, loose)) else at
 
 
-def _activates(name: str, args: list[str]) -> bool:
+def _activates(name: str, args: list[str], literal: bool = False) -> bool:
     """Whether ``name`` and its unquoted ``args`` are ``source`` or ``.`` of a virtualenv's activate script and nothing
-    more: one operand whose last two components are ``bin/activate`` (``.venv/bin/activate``, ``"/opt/v/bin/activate"``).
-    Assumed to move no shell: the scripts venv, virtualenv and uv write set variables and ``PATH`` and run no ``cd``."""
-    return name in ("source", ".") and len(args) == 1 and args[0].split("/")[-2:] == ["bin", "activate"]
+    more but redirections (``> /dev/null``): one operand whose last two components are ``bin/activate``
+    (``.venv/bin/activate``, ``"/opt/v/bin/activate"``); ``literal``: one with no expansion (not ``$V/bin/activate``), for
+    a part the walker does not split itself (:func:`_runs_dir`). Assumed to move no shell: the scripts venv, virtualenv
+    and uv write set variables and ``PATH`` and run no ``cd``."""
+    operands = _operands(args)
+    return (name in ("source", ".") and len(operands) == 1 and operands[0].split("/")[-2:] == ["bin", "activate"]
+            and not (literal and _EXPANDS.search(operands[0])))
+
+
+def _operands(args: list[str]) -> list[str]:
+    """``args`` past their redirections (``> log``, ``2>&1``), which are no operands."""
+    out, at = [], 0
+    while (at := _past_redirections(args, at, False)) < len(args):
+        out.append(args[at])
+        at += 1
+    return out
 
 
 def _is_cd(part: str) -> bool:
