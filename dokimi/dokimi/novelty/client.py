@@ -63,7 +63,7 @@ class SpendCap:
             if self.spent_usd >= self.limit_usd:
                 raise SpendCapReached(
                     f"spend cap reached: ${self.spent_usd:.2f} of ${self.limit_usd:.2f} "
-                    f"after {self.calls} calls (next call: {model}); nothing was written. "
+                    f"after {self.calls} calls (next call: {model}). "
                     "Raise --max-usd, or measure less (a cheaper --tier, a lower --max-atoms)"
                 )
 

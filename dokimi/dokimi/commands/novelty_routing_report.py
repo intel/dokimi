@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, NoReturn
 from dokimi.utils import InputError
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
 
@@ -161,10 +162,18 @@ def print_routing_summary(payload: dict, n_competitors: int, self_derived: bool)
               "a rate by 20 points or more, so do not quote it as a routing rate")
     if "model" in payload:
         row = payload["model"]
+        partial = payload.get("partial")
+        basis = (f"partial: {partial['calls_done']} of {partial['calls_planned']} calls"
+                 if partial else f"n_queries {row['n_queries']} given")
         print(f"model    selection {row['selection_rate']}  "
               f"({row['selection_rate_among_answered']} among answered; "
               f"{row['n_abstained']} abstained, {row['n_failed']} failed)  "
-              f"[{row['model']}]  n_queries {row['n_queries']} given{tag}")
+              f"[{row['model']}]  {basis}{tag}")
+        answered = row["n_calls"] - row["n_failed"]
+        if partial and answered < 5:
+            print(f"WARNING: only {answered} model call{'' if answered == 1 else 's'} answered; "
+                  "one call moves a rate by 20 points or more, so do not quote it as a "
+                  "routing rate")
         if row["n_abstained"]:
             of_calls = f" of {row['n_calls']} calls" if row["repeats"] > 1 else ""
             print(f"{row['n_abstained']}{of_calls} abstained or unparseable: the raw reply "
@@ -254,3 +263,57 @@ def exit_partial_all_vs_all(model_arm: dict, cost: dict | None, failed: int, sen
                      f"({model_arm['first_error']}); the partial result leaves the failed calls "
                      "out of model-arm scoring, and a query with a failed repeat out of the "
                      f"repeat-noise rates, is in {out}")
+
+
+def partial_block(model_arm: dict) -> dict:
+    """What a routing result gains when the cap stopped its model arm: ``status`` and ``partial``.
+
+    ``status`` is how a routing record says what kind it is (``ok``, ``no_queries``), so a reader
+    that checks it does not take a prefix of the run for a finished measurement.
+    """
+    return {"status": "partial", "partial": model_arm["partial"]} if "partial" in model_arm else {}
+
+
+def save_result(payload: dict, out: Path, model_arm: dict) -> Path:
+    """Write a routing result and return where it went.
+
+    ``model_arm`` is the arm the cap may have stopped: its ``partial`` block, if any, marks the
+    result (:func:`partial_block`). A partial result goes to ``out`` unless ``out`` already holds something that is not itself a
+    partial result (a finished measurement, or a file this cannot read): then it goes to
+    ``<out stem>.partial.json`` beside it, so a cap does not replace a complete run with a prefix.
+    """
+    payload.update(partial_block(model_arm))
+    if "partial" in payload and out.exists():
+        try:
+            earlier = json.loads(out.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            earlier = {}
+        if not (isinstance(earlier, dict) and "partial" in earlier):
+            out = out.with_suffix(".partial.json")
+    out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return out
+
+
+def stop_if_partial(payload: dict, out: Path, show: Callable[[], None]) -> None:
+    """Exit non-zero when ``--max-usd`` stopped the run; the result is already saved in ``out``.
+
+    ``show`` prints the summary and cost lines first, so the calls paid for are on the console.
+    The partial block says how many of the planned model calls were made.
+    """
+    partial = payload.get("partial")
+    if partial is None:
+        return
+    show()
+    raise SystemExit(f"{partial['message']}. The partial result, {partial['calls_done']} of "
+                     f"{partial['calls_planned']} model calls, is in {out}")
+
+
+def warn_blind_skills(result: dict, queries_by_skill: dict[str, list[str]]) -> None:
+    """Warn when the lexical arm scores none of a skill's queries: its own rate is then None."""
+    lexical = result.get("lexical")
+    if not lexical:
+        return
+    blind = [name for name in sorted(queries_by_skill) if lexical["n_scored"].get(name) == 0]
+    if blind:
+        print(f"WARNING: the lexical arm cannot score any query of {', '.join(blind)} "
+              "(no content word in them), so their lexical own_rate is None", file=sys.stderr)
