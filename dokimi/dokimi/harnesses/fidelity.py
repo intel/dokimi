@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, List, Optional, Sequence
 
 from dokimi import process
+from dokimi.harnesses.agent_sandbox import agent_env
 from dokimi.harnesses.payload_audit import Leak, new_leaks
 
 #: The Claude Code release the golden is captured with; CI installs this one.
@@ -49,6 +50,10 @@ FIXTURE_MODEL = "claude-haiku-4-5"
 
 #: Request headers kept in the capture. Session ids and SDK build headers are per run.
 KEPT_HEADERS = ("anthropic-beta", "anthropic-version", "x-app", "user-agent")
+
+#: Headers whose values name an API version or a capability, not a per-run value: kept raw
+#: (only the model id is blanked), so a change of the version or of a dated beta is a diff.
+RAW_HEADERS = ("anthropic-beta", "anthropic-version")
 
 _SSE_EVENTS: Sequence[tuple] = (
     ("message_start", {"type": "message_start", "message": {
@@ -167,7 +172,7 @@ _UUID = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 _HEX64 = re.compile(r"\b[0-9a-f]{64}\b")
 _DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?Z?)?\b")
 _MONTH_YEAR = re.compile(rf"\b(?:{_MONTHS}) \d{{4}}\b")
-_VERSION_TAG = re.compile(r"(cc_version=|claude-cli/|Claude Code )[0-9][0-9.]*")
+_VERSION_TAG = re.compile(r"(cc_version=|claude-cli/|Claude Code )[0-9][0-9A-Za-z.\-]*")
 _MODEL_ID = re.compile(r"\bclaude-[a-z0-9.\-]+\b")
 _MODEL_NAME = re.compile(r"named [A-Z][A-Za-z]+ [0-9][0-9.]*")
 _IDS = re.compile(r"\b(?:msg|toolu|req|call)_[A-Za-z0-9]{6,}\b")
@@ -208,19 +213,48 @@ def _walk(value: Any, fn: Callable[[str], str]) -> Any:
 
 #: Reminders this build adds to every request (a token budget, the operator's attribution
 #: rule); a user's agent in a clean container has neither, so the golden leaves them out.
-OPERATOR_REMINDERS = ("<total_tokens>", "Attribution for git commits")
+OPERATOR_REMINDERS = ("<total_tokens>", "Attribution for git commits", "End git commit messages with")
 _TOKEN_BUDGET = re.compile(r"\n*<total_tokens>.*?</total_tokens>", re.DOTALL)
+#: The operator's commit-attribution rule, as the reminder words it in each build.
+_ATTRIBUTION_MARKS = ("Attribution for git commits", "End git commit messages with")
+_ATTRIBUTION = re.compile(r"^[^\n]*(?:%s)[^\n]*(?:\n|$)" % "|".join(map(re.escape, _ATTRIBUTION_MARKS)),
+                          re.MULTILINE)
+_REMINDER_ELEMENT = re.compile(r"<system-reminder>.*?</system-reminder>", re.DOTALL)
 _SKILLS_HEADER = "The following skills are available for use with the Skill tool:"
 
 
+def _keep_listing(text: str, keep_skills: Sequence[str]) -> str:
+    """The skill listing with every entry not in *keep_skills* removed, continuation lines
+    included: an entry runs from its ``- `` line to the next entry or the next blank line."""
+    kept: List[str] = []
+    skipping = False
+    for ln in text.split("\n"):
+        if ln.startswith("- "):
+            skipping = not any(n in ln for n in keep_skills)
+        elif not ln.strip():
+            skipping = False
+        if not skipping:
+            kept.append(ln)
+    return "\n".join(kept)
+
+
 def _keep_text(text: str, keep_skills: Sequence[str]) -> Optional[str]:
-    """The text of one block with the operator extras out; None drops the block."""
-    if any(marker in text for marker in OPERATOR_REMINDERS):
-        return None
+    """The text of one block with the operator extras out; None drops the block.
+
+    Only the operator's own reminder is removed: its ``<system-reminder>`` element, or a bare
+    line with its marker, and the delimited token budget. Other text in the same block is
+    kept. A block left empty by that is dropped.
+    """
+    cleaned = _REMINDER_ELEMENT.sub(
+        lambda m: "" if any(mk in m.group(0) for mk in _ATTRIBUTION_MARKS) else m.group(0), text)
+    cleaned = _ATTRIBUTION.sub("", _TOKEN_BUDGET.sub("", cleaned))
+    if cleaned != text and not re.sub(r"</?system-reminder>|\s", "", cleaned):
+        return None  # only the reminder's wrapper is left: the block was the reminder
+    text = cleaned
     if _SKILLS_HEADER not in text:
         return text
-    kept = [ln for ln in text.split("\n") if not ln.startswith("- ") or any(n in ln for n in keep_skills)]
-    return "\n".join(kept) if any(ln.startswith("- ") for ln in kept) else None
+    kept = _keep_listing(text, keep_skills)
+    return kept if any(ln.startswith("- ") for ln in kept.split("\n")) else None
 
 
 def _strip_content(content: Any, keep_skills: Sequence[str]) -> Any:
@@ -270,7 +304,9 @@ def normalize_request(record: dict, *, workdir: str = "", home: str = "",
 
     body = _strip_operator_extras(dict(record.get("body") or {}), keep_skills)
     headers = {k: v for k, v in (record.get("headers") or {}).items() if k in KEPT_HEADERS}
-    return {"headers": _walk(headers, fn), **_walk(body, fn)}
+    kept = {k: (_MODEL_ID.sub("<MODEL>", v) if k in RAW_HEADERS else _walk(v, fn))
+            for k, v in headers.items()}
+    return {"headers": kept, **_walk(body, fn)}
 
 
 # -- golden I/O and comparison ----------------------------------------------------------
@@ -318,6 +354,9 @@ def residue(value: Any) -> List[str]:
     The golden must have none, so a refresh that captured a dirty value fails the unit test.
     """
     found: List[str] = []
+    if isinstance(value, dict) and isinstance(value.get("headers"), dict):
+        # The raw headers are API versions and capability names: their dates are the point.
+        value = {**value, "headers": {k: v for k, v in value["headers"].items() if k not in RAW_HEADERS}}
 
     def fn(text: str) -> str:
         for name, pat in (("date", _DATE), ("uuid", _UUID), ("hex", _HEX64), ("version", _VERSION_TAG),
@@ -337,8 +376,9 @@ _CONTAINER_HOME = "/home/agent"
 
 
 def client_env(base_url: str, home: str, config: str) -> dict:
-    """The client's environment: no operator variables, the recording server as the API."""
-    return {
+    """The client's environment: the arm's sealed skill switches (:func:`agent_env`), no
+    operator variables, the recording server as the API."""
+    return agent_env({}, {
         "PATH": "/usr/local/bin:/usr/bin:/bin",
         "HOME": home,
         "CLAUDE_CONFIG_DIR": config,
@@ -346,7 +386,7 @@ def client_env(base_url: str, home: str, config: str) -> dict:
         "ANTHROPIC_API_KEY": "sk-fidelity-not-a-key",
         "DISABLE_AUTOUPDATER": "1",
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-    }
+    })
 
 
 def run_host(binary: str, args: List[str], *, workdir: Path, scratch: Path,

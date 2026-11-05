@@ -57,9 +57,10 @@ def main(argv: list[str] | None = None) -> int:
     image = None if args.host else args.image
     for case in CASES:
         scratch = Path(tempfile.mkdtemp(prefix=f"fidelity-{case}-"))
+        # The container's uid and gid matter only for a container capture (Unix only).
+        ids = {"uid": os.getuid(), "gid": os.getgid()} if image else {}
         try:
-            request = capture_arm(case, binary=binary, scratch=scratch, image=image,
-                                  uid=os.getuid(), gid=os.getgid())
+            request = capture_arm(case, binary=binary, scratch=scratch, image=image, **ids)
         finally:
             shutil.rmtree(scratch, ignore_errors=True)
         dirty = residue(request)

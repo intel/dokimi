@@ -105,8 +105,8 @@ def test_docker_claude_payload_matches_golden(case, tmp_path):
             pytest.fail(f"claude {fd.PINNED_CLAUDE_VERSION} is not on PATH but DOKIMI_FIDELITY_REQUIRED=1")
         pytest.skip(f"claude {fd.PINNED_CLAUDE_VERSION} is not on PATH")
     golden = fd.load_golden(GOLDEN_DIR / f"{case}.json")["request"]
-    actual = fd.capture_arm(case, binary=binary, scratch=tmp_path, image=IMAGE,
-                            uid=os.getuid(), gid=os.getgid())
+    ids = {"uid": os.getuid(), "gid": os.getgid()} if IMAGE else {}  # container captures only
+    actual = fd.capture_arm(case, binary=binary, scratch=tmp_path, image=IMAGE, **ids)
     skill_text = SKILL_MD.read_text(encoding="utf-8")
     leaks = fd.leaks_against(actual, golden, allowed=[fd.FIXTURE_INSTRUCTION, skill_text])
     assert [lk.as_dict() for lk in leaks] == []
@@ -116,7 +116,14 @@ def test_docker_claude_payload_matches_golden(case, tmp_path):
 # -- the runners and the recording server, without a real client -------------------------
 
 FAKE_CLIENT = """#!PYTHON
-import json, os, urllib.request
+import json, os, sys, urllib.request
+# What the test asserts about the launch: the argv it got and the sealed skill switches.
+seen = {"argv": sys.argv[1:], "env": {k: os.environ.get(k) for k in (
+    "CLAUDE_CODE_DISABLE_BUNDLED_SKILLS", "CLAUDE_CODE_DISABLE_CLAUDE_API_SKILL",
+    "CLAUDE_CODE_DISABLE_POLICY_SKILLS")}}
+if os.environ.get("CLAUDE_CONFIG_DIR"):
+    with open(os.path.join(os.environ["CLAUDE_CONFIG_DIR"], "launch.json"), "w", encoding="utf-8") as fh:
+        json.dump(seen, fh)
 base = os.environ["ANTHROPIC_BASE_URL"]
 main = {"model": "claude-haiku-4-5", "stream": False,
         "system": [{"type": "text", "text": "You are an agent."}],
@@ -158,12 +165,30 @@ def test_messages_request_refuses_a_client_with_no_tools_request():
 
 def test_capture_arm_runs_the_arm_argv_through_a_client(tmp_path):
     binary = _fake_client(tmp_path / "bin")
-    request = fd.capture_arm("skill", binary=binary, scratch=tmp_path / "scratch")
+    scratch = tmp_path / "scratch"
+    request = fd.capture_arm("skill", binary=binary, scratch=scratch)
     assert [tool["name"] for tool in request["tools"]] == ["Bash"]
     assert request["model"] == "<MODEL>"
     assert request["messages"][0]["content"][0]["text"] == fd.FIXTURE_INSTRUCTION
     with pytest.raises(ValueError):
         fd.capture_arm("nope", binary=binary, scratch=tmp_path / "other")
+
+
+def test_capture_arm_passes_the_arm_prompt_skill_and_seal_to_the_client(tmp_path):
+    # The fake client records what it was launched with: the prompt, the sealed flags and
+    # the skill plugin must reach the client, not only be built by the arm's argv builder.
+    binary = _fake_client(tmp_path / "bin")
+    scratch = tmp_path / "scratch"
+    fd.capture_arm("skill", binary=binary, scratch=scratch)
+    launch = json.loads((scratch / "home" / "config" / "launch.json").read_text(encoding="utf-8"))
+    argv = launch["argv"]
+    assert any(fd.FIXTURE_INSTRUCTION in arg for arg in argv)  # the task is inside the -p prompt
+    assert "--dangerously-skip-permissions" in argv
+    assert argv[argv.index("--setting-sources") + 1] == ""
+    assert argv[argv.index("--plugin-dir") + 1] == str(scratch / "plugin")
+    assert launch["env"] == {"CLAUDE_CODE_DISABLE_BUNDLED_SKILLS": "1",
+                             "CLAUDE_CODE_DISABLE_CLAUDE_API_SKILL": "1",
+                             "CLAUDE_CODE_DISABLE_POLICY_SKILLS": "1"}
 
 
 def test_run_host_gives_the_client_only_the_fixed_environment(tmp_path, monkeypatch):
@@ -200,3 +225,56 @@ def test_golden_round_trip_and_diff(tmp_path):
     assert doc["_meta"]["case"] == "bare" and doc["request"] == request
     assert fd.diff_requests(request, doc["request"]) == []
     assert any(line.startswith(("-", "+")) for line in fd.diff_requests({"model": "<MODEL>", "tools": [1]}, doc["request"]))
+
+
+def _record_with(text: str, headers: dict | None = None) -> dict:
+    body = {"model": "claude-haiku-4-5", "messages": [{"role": "user", "content": [{"type": "text", "text": text}]}]}
+    return {"path": "/v1/messages", "headers": headers or {}, "body": body}
+
+
+def _texts(request: dict) -> str:
+    return "\n".join(block["text"] for msg in request["messages"] for block in msg["content"])
+
+
+def test_excluded_skill_entries_leave_no_continuation_lines():
+    listing = ("The following skills are available for use with the Skill tool:\n\n"
+               "- sum-fast:sum-fast: Sum.\n"
+               "- other: Description.\nContinuation instruction\nTRIGGER: use for plotting.\n"
+               "- dataviz: Charts.\nTRIGGER: use for plotting.\n\nAfter the listing.")
+    out = _texts(fd.normalize_request(_record_with(listing), keep_skills=("sum-fast",)))
+    assert "sum-fast:sum-fast: Sum." in out
+    assert "other" not in out and "Continuation" not in out and "TRIGGER" not in out
+    assert "dataviz" not in out and "After the listing." in out
+
+
+def test_operator_reminder_keeps_the_other_text_of_its_block():
+    bare = "Attribution for git commits: X\nexpected_skill: sum-fast"
+    wrapped = ("<system-reminder>\nAttribution for git commits: X\n</system-reminder>\n"
+               "<system-reminder>\nexpected_skill: sum-fast\n</system-reminder>")
+    for text in (bare, wrapped):
+        out = _texts(fd.normalize_request(_record_with(text)))
+        assert "expected_skill: sum-fast" in out and "Attribution" not in out
+
+
+def test_a_block_that_is_only_an_operator_reminder_is_dropped():
+    for text in ("<total_tokens>5000 left</total_tokens>",
+                 "<system-reminder>\n- End git commit messages with:\nCo-Authored-By: X\n</system-reminder>"):
+        out = fd.normalize_request(_record_with(text))
+        assert out["messages"][0]["content"] == []
+
+
+def test_billing_version_suffix_is_blanked_in_full():
+    assert fd.normalize_text("cc_version=2.1.318.07b; cch=1") == "cc_version=<VERSION>; cch=1"
+    assert fd.normalize_text("cc_version=2.1.318.07") == "cc_version=<VERSION>"
+    assert fd.residue({"x": fd.normalize_text("cc_version=2.1.318.07b")}) == []
+
+
+def test_api_version_and_beta_are_compared_raw():
+    def headers(version: str, beta: str) -> dict:
+        return {"anthropic-version": version, "anthropic-beta": beta}
+
+    old = fd.normalize_request(_record_with("hi", headers("2023-06-01", "context-management-2025-06-27")))
+    new = fd.normalize_request(_record_with("hi", headers("2024-06-01", "context-management-2025-10-01")))
+    assert old["headers"]["anthropic-version"] == "2023-06-01"
+    assert old["headers"] != new["headers"]
+    assert fd.diff_requests(new, old) != []
