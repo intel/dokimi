@@ -125,7 +125,7 @@ def run_id() -> str:
     global _generated_run_id
     given = os.environ.get(RUN_ID_ENV, "")
     if given:
-        if not _RUN_ID.fullmatch(given):
+        if not is_run_id(given):
             raise InputError(f"{RUN_ID_ENV}={given!r} is not a run id: 1-128 letters, digits, '.', '_' "
                              f"or '-', starting with a letter or a digit")
         return given
@@ -134,6 +134,11 @@ def run_id() -> str:
             _generated_run_id = (f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}-"
                                  f"{secrets.token_hex(4)}")
         return _generated_run_id
+
+
+def is_run_id(value: object) -> bool:
+    """Whether ``value`` is a run id :func:`run_id` could write."""
+    return isinstance(value, str) and _RUN_ID.fullmatch(value) is not None
 
 
 def envelope(kind: str) -> dict[str, str]:

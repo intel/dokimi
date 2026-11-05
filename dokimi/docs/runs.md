@@ -75,8 +75,9 @@ skipped: 1 JSON with no leading schema_version, 1 JSON of an unknown schema_vers
 **The `run_id`** is the run envelope's
 ([#277](https://github.com/intel/dokimi/issues/277), see
 [the envelope](benchmarking-and-comparison.md#the-run-envelope)): the files one
-command writes share it. It is `null` for a file saved before the envelope
-and for an input kind such as a plan.
+process writes share it. It is `null` for a file saved before the envelope,
+for an input kind such as a plan, and for a `run_id` that is not a run id
+(`runs show` lists the schema error).
 
 **What it does not show yet.** Rows are not grouped into runs by `run_id`.
 Files outside the root are not listed:

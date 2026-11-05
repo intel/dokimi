@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Mapping
 
+from dokimi.artifacts import is_run_id
 from dokimi.runs.kinds import FIELDS, VERSION_KINDS, read_field
 from dokimi.utils import InputError
 
@@ -72,7 +73,7 @@ class Artifact:
 
     path: Path  # relative to the root
     schema_version: str
-    run_id: str | None  # the envelope's (#277); None in a file saved before it
+    run_id: str | None  # the envelope's (#277); None in a file saved before it, or not a run id
     subjects: tuple[str, ...]
     models: tuple[str, ...]
     generated_at: str | None
@@ -192,7 +193,7 @@ def read_artifact(root: Path, path: Path, version: str, data: dict | None = None
     times = read_field(data, fields.time)
     run_id = data.get("run_id")
     return Artifact(path=path.relative_to(root), schema_version=version,
-                    run_id=run_id if isinstance(run_id, str) and run_id else None,
+                    run_id=run_id if is_run_id(run_id) else None,
                     subjects=read_field(data, fields.subject),
                     models=read_field(data, fields.model),
                     generated_at=times[0] if times else None,
