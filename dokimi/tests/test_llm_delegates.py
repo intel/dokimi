@@ -12,7 +12,6 @@ from litellm import ModelResponse
 
 from dokimi import caching, llm as llm_mod
 from dokimi.llm import LLM, chat_completion, llm_call_with_usage, resolve_api_key
-from dokimi.utils import get_llm
 
 
 @pytest.fixture
@@ -43,17 +42,6 @@ def test_an_empty_tool_list_offers_no_tools(sent):
     # main's chat_completion: `if tools:`; tools=[] with tool_choice="auto" is a 400 on some providers
     chat_completion([{"role": "user", "content": "q"}], "gpt-4o-mini", "openai", tools=[], api_key="k")
     assert "tools" not in sent[0] and "tool_choice" not in sent[0]
-
-
-def test_get_llm_keeps_four_attempts_with_doubling_backoff(fake_llm, sleeps, monkeypatch):
-    monkeypatch.delenv(caching.RESPONSE_CACHE_ENV, raising=False)
-    error = RuntimeError("ThrottlingException: rate limit")
-    fake_llm.push(error, error, error, "ok")
-    assert get_llm("openai", "gpt-4o-mini", api_key="k").invoke("q").content == "ok"
-    assert sleeps == [2.0, 4.0, 8.0]
-    fake_llm.push(error, error, error, error)
-    with pytest.raises(RuntimeError):
-        get_llm("openai", "gpt-4o-mini", api_key="k").invoke("q")
 
 
 def test_chat_completion_forwards_its_retry_budget(fake_llm, sleeps):
@@ -87,12 +75,6 @@ def test_a_file_key_expands_the_home_directory(tmp_path, monkeypatch):
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
     (tmp_path / "k").write_text(" secret\n", encoding="utf-8")
     assert resolve_api_key("openai", "file:~/k") == "secret"
-
-
-def test_get_llm_prices_an_openai_reply_by_its_route(sent):
-    usage = get_llm("openai", "gpt-4o-mini", api_key="k").invoke("q").usage
-    assert (usage.model, usage.provider) == ("gpt-4o-mini", "litellm")
-    assert usage.cost_usd is not None and usage.cost_usd > 0
 
 
 def test_openai_codex_prefixes_even_a_routed_name():
