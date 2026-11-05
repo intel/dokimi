@@ -10,6 +10,8 @@ Every new path is a live parser, and the route table lists it.
 from __future__ import annotations
 
 import argparse
+import pathlib
+import re
 import shlex
 
 import pytest
@@ -137,3 +139,25 @@ def test_new_roots_sit_in_their_sections():
 
 def test_tombstones_are_consistent():
     assert cli_routes.tombstone_problems() == []
+
+
+# Pages and comments that tell a reader what to run: a retired name there sends them to a tombstone.
+RUNNABLE_DOCS = [
+    "docs/methodology.md",
+    "docs/context-window.md",
+    "docs/session-prefilter.md",
+    "docs/repo-evaluation-contract.md",
+    "tests/data/cli_flags_allowlist.txt",
+]
+RETIRED_NAMES = re.compile(r"\bcontext (trace|prefilter|consistency)\b|\bdataset export\b")
+
+
+def test_docs_name_the_new_commands_not_the_retired_ones():
+    project = pathlib.Path(__file__).resolve().parents[1]
+    hits = [
+        f"{rel}:{number}: {line.strip()}"
+        for rel in RUNNABLE_DOCS
+        for number, line in enumerate((project / rel).read_text(encoding="utf-8").splitlines(), 1)
+        if RETIRED_NAMES.search(line)
+    ]
+    assert hits == []
