@@ -36,19 +36,25 @@ def define(known: Functions, script: str) -> frozenset[str]:
     of a virtualenv's activate (``git add .`` names none). A body in parentheses (``f() ( cd sub )``,
     ``function f ( cd sub )``) runs in a subshell: its name is known, so a call of it is no read, but it moves nothing. A definition is found
     anywhere outside quotes, in a subshell or never run too, and a name defined again keeps what each definition
-    named: both drop reads only."""
+    named: both drop reads only. Linear in the script: each body's own text is read once."""
     masked = _MASK.sub(lambda m: (" " if m.group()[0] == "#" else "q") * len(m.group()), script)
-    for m in _DEF.finditer(masked):
-        name = _name(script, m)
-        end = _body_end(masked, m.end())
-        known[name] = known.get(name, frozenset()) | _words(script[m.end():end], masked[m.end():end])
+    for name, spans in _bodies(script, masked).items():
+        own = _words("\n".join(script[s:e] for s, e in spans), "\n".join(masked[s:e] for s, e in spans))
+        known[name] = known.get(name, frozenset()) | own
     for m in _SUBSHELL_DEF.finditer(masked):
         name = _name(script, m)
         known[name] = known.get(name, frozenset())
-    movers: frozenset[str] = frozenset()
-    while (more := frozenset(n for n, words in known.items() if words & (_DIRS | movers))) != movers:
-        movers = more
-    return movers
+    callers: dict[str, set[str]] = {}
+    for name, words in known.items():
+        for called in known.keys() & words:
+            callers.setdefault(called, set()).add(name)
+    movers = {n for n, words in known.items() if words & _DIRS}
+    todo = list(movers)
+    while todo:  # a caller of a mover is one; each name is taken once
+        for name in callers.get(todo.pop(), set()) - movers:
+            movers.add(name)
+            todo.append(name)
+    return frozenset(movers)
 
 
 def _name(script: str, m: re.Match[str]) -> str:
@@ -57,14 +63,24 @@ def _name(script: str, m: re.Match[str]) -> str:
     return _unquote(script[start:end]) or script[start:end]
 
 
-def _body_end(masked: str, start: int) -> int:
-    """Where the body that opened before ``start`` closes, its nested braces counted; the end of the script if never."""
-    depth = 1
-    for m in _BRACE.finditer(masked, start):
-        depth += 1 if m.group() == "{" else -1
-        if not depth:
-            return m.start()
-    return len(masked)
+def _bodies(script: str, masked: str) -> dict[str, list[tuple[int, int]]]:
+    """The spans of each brace function's own body text, in one pass over the braces: a body nested in it is its own,
+    but its head (``g() {``) stays in the outer's, which so names ``g``; a body never closed runs to the end."""
+    opens = {m.end() - 1: _name(script, m) for m in _DEF.finditer(masked)}  # a body's ``{`` -> its function
+    spans: dict[str, list[tuple[int, int]]] = {name: [] for name in opens.values()}
+    stack: list[str | None] = []  # per open brace, the innermost function it is in
+    last = 0
+    for at in sorted({m.start() for m in _BRACE.finditer(masked)} | opens.keys()):
+        if stack and stack[-1] is not None:
+            spans[stack[-1]].append((last, at))
+        if masked[at] == "{":
+            stack.append(opens.get(at, stack[-1] if stack else None))
+        elif stack:
+            stack.pop()
+        last = at + 1
+    if stack and stack[-1] is not None:
+        spans[stack[-1]].append((last, len(masked)))
+    return spans
 
 
 def _words(body: str, masked: str) -> frozenset[str]:

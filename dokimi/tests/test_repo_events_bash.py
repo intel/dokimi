@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import time
 
 import pytest
 
@@ -493,6 +494,7 @@ def test_a_failed_timed_or_activated_read_of_one_file_is_no_read(command):
     "g() { f; }; f() { cd sub; }; g; cat AGENTS.md", "f() { cd sub; }; f > log; cat AGENTS.md",
     "f() { cd sub; }; time f; cat AGENTS.md", "f() { case $1 in a) cd sub;; esac; }; f a; cat AGENTS.md",
     "f() { cd sub; }; case x in x) f;; esac; cat AGENTS.md", 'f() { "cd" sub; }; X=1 f; cat AGENTS.md',
+    "f() { g() { cd sub; }; }; f; cat AGENTS.md", "f() { { cd sub; }; }; f; cat AGENTS.md",
 ])
 def test_a_call_of_a_function_that_names_a_directory_builtin_loses_the_directory(command):
     # the call runs the body's cd in this shell, as an eval may (#374)
@@ -768,3 +770,12 @@ def test_a_definition_whose_close_is_not_seen_keeps_the_rest_of_the_script_as_it
     # bash closes the body at ``}>``, which is not seen here: the body runs to the end, its cd included (a definition
     # later in the script counts for a call before it)
     assert shell_walk("f; cat AGENTS.md\nf() { cd sub; }>/dev/null") == ([], True, 1)
+
+
+@pytest.mark.parametrize("script", ["\n".join(f"f{i}() {{ echo {i}" for i in range(2000)) + "\ncd x",
+                                    "\n".join(f"g{i}() {{ g{i + 1}; }}" for i in range(1000)) + "\ng1000() { cd x; }"])
+def test_many_unclosed_definitions_or_a_long_call_chain_walk_in_linear_time(script):
+    # each body's own text is read once, and each function is found a mover once: quadratic, these took seconds
+    start = time.perf_counter()
+    assert shell_walk("f0; g0; cat AGENTS.md\n" + script) == ([], True, 1)
+    assert time.perf_counter() - start < 2
