@@ -566,7 +566,7 @@ def paired_summary(pairs: list[dict[str, Any]], measure: str = "gate", seed: int
         "n_tasks": len(pairs),
         "baseline_mean": _round(_mean([p["baseline"] for p in pairs])),
         "treatment_mean": _round(_mean([p["treatment"] for p in pairs])),
-        "delta": {"mean": mean if exact else round(mean, 4), "lo": lo, "hi": hi, "method": METHOD},
+        "delta": {"mean": mean if exact else round(mean, 4) + 0.0, "lo": lo, "hi": hi, "method": METHOD},  # no -0.0
         "p": p,
         "p_holm": None,
         "p_holm_floor": None,
