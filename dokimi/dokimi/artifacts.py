@@ -105,7 +105,7 @@ INPUT_KINDS: frozenset[str] = frozenset({"plan", "dokimi_config", "repo_ledger",
 ENVELOPE_KEYS: tuple[str, ...] = ("run_id", "dokimi_version")
 
 RUN_ID_ENV = "DOKIMI_RUN_ID"
-_RUN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")  # the schemas' run_id pattern, anchored
+_RUN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")  # the schemas' run_id pattern, for fullmatch
 _generated_run_id: str | None = None
 _run_id_lock = threading.Lock()
 
