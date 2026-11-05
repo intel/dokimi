@@ -9,7 +9,8 @@
   `time cat AGENTS.md`, `time -p cat AGENTS.md`, `time X=1 cat AGENTS.md`, `X=1 time cat
   AGENTS.md` and `command cat AGENTS.md` now read `AGENTS.md`. `f() { cd sub; }; f; cat AGENTS.md`
   read the root's `AGENTS.md`; a call of a function whose body names `cd`, `pushd`, `popd`,
-  `eval`, `source` or `.` now loses the directory as an `eval` does; a function an earlier Claude
+  `eval`, `source` or `.` (these two as a command, not of an activate script: `git add .` names
+  none) now loses the directory as an `eval` does; a function an earlier Claude
   Code Bash call defined is not carried to the next, which starts in a new shell. A definition whose `{` is on a later line (`f()`, a newline, `{ cd
   sub; }`) no longer runs its body's `cd`: it is only defined. A call of a function named like a
   printer (`cat() { echo hi; }; cat AGENTS.md`, `\cat AGENTS.md` and a body in parentheses,

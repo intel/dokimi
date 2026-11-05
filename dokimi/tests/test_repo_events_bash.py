@@ -507,6 +507,19 @@ def test_a_function_naming_no_directory_builtin_or_called_in_a_subshell_moves_no
     assert shell_walk(command) == (["AGENTS.md"], False, 0)
 
 
+@pytest.mark.parametrize("body", ["find . -name x", "git add .", "echo source", "echo 'a; . b'",
+                                  "source .venv/bin/activate", ". .venv/bin/activate >/dev/null"])
+def test_a_dot_or_source_in_a_body_that_is_no_command_word_or_sources_an_activate_moves_nothing(body):
+    # ``.`` as a path, an argument or quoted text runs nothing; an activate script alone runs no cd, as at the top level
+    assert shell_walk(f"f() {{ {body}; }}; f; cat AGENTS.md") == (["AGENTS.md"], False, 0)
+
+
+@pytest.mark.parametrize("body", ["echo hi; . env.sh", "if source env.sh; then :; fi", "X=1 builtin source env.sh",
+                                  "source $V/bin/activate", "case $1 in a) . env.sh;; esac", "echo x\n  . env.sh"])
+def test_a_dot_or_source_as_a_command_word_of_a_body_loses_the_directory(body):
+    assert shell_walk(f"f() {{ {body}; }}; f; cat AGENTS.md") == ([], True, 1)
+
+
 def test_a_function_an_earlier_call_defined_does_not_move_the_shell_of_a_later_call():
     # Claude Code starts each Bash call in a new shell: it keeps the directory, not the functions; ``f`` is not found
     got = _process(_call("a", "f() { cd sub; }"), _result("a"), _call("b", "f; cat AGENTS.md"), _result("b"),

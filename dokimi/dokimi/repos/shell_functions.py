@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 
-from .shell_words import _DIRS, _unquote, _unquoted
+from .shell_words import _DIRS, _runs_dir, _unquote, _unquoted
 
 Functions = dict[str, frozenset[str]]  # a function's name -> the words of its body
 
@@ -25,19 +25,23 @@ _SUBSHELL_DEF = re.compile(r"(?<![^\s;&|(){}])(?:function\s+([^\s(){};&|<>]+)\s*
                            r"|([^\s(){};&|<>=$`]+)\s*\(\s*\)\s*\()")
 _BRACE = re.compile(r"(?<![^\s;&|(){}])(?:\{(?=\s|$)|\}(?=[\s;&|)]|$))")  # a brace group's ``{`` or ``}`` as a word
 _BREAK = re.compile(r"[\s;&|()<>`{}$]+")
+_COMMAND_END = re.compile(r"[;&|()`{}\n]")  # where a command of a body ends, outside quotes: the next one may start
+_SOURCES = frozenset({"source", "."})  # named by a body only as a command's word
 
 
 def define(known: Functions, script: str) -> frozenset[str]:
     """Add the functions ``script`` defines (``f() { ...; }``, ``function f { ...; }``) to ``known``, and return the
     names in ``known`` whose call may move the shell: the body names a directory builtin, or a function that does
-    (``g() { f; }``), as any word (``case x in a) cd sub;; esac`` too). A body in parentheses (``f() ( cd sub )``,
+    (``g() { f; }``), as any word (``case x in a) cd sub;; esac`` too); ``source`` and ``.`` only as a command's word, not
+    of a virtualenv's activate (``git add .`` names none). A body in parentheses (``f() ( cd sub )``,
     ``function f ( cd sub )``) runs in a subshell: its name is known, so a call of it is no read, but it moves nothing. A definition is found
     anywhere outside quotes, in a subshell or never run too, and a name defined again keeps what each definition
     named: both drop reads only."""
     masked = _MASK.sub(lambda m: (" " if m.group()[0] == "#" else "q") * len(m.group()), script)
     for m in _DEF.finditer(masked):
         name = _name(script, m)
-        known[name] = known.get(name, frozenset()) | _words(script[m.end():_body_end(masked, m.end())])
+        end = _body_end(masked, m.end())
+        known[name] = known.get(name, frozenset()) | _words(script[m.end():end], masked[m.end():end])
     for m in _SUBSHELL_DEF.finditer(masked):
         name = _name(script, m)
         known[name] = known.get(name, frozenset())
@@ -63,6 +67,11 @@ def _body_end(masked: str, start: int) -> int:
     return len(masked)
 
 
-def _words(body: str) -> frozenset[str]:
-    """The words of a function's body, unquoted (``"cd"``, ``\\cd``: ``cd``), split at blanks and shell syntax."""
-    return frozenset(_unquoted([w for w in _BREAK.split(body) if w]))
+def _words(body: str, masked: str) -> frozenset[str]:
+    """The words of a function's body, unquoted (``"cd"``, ``\\cd``: ``cd``), split at blanks and shell syntax; ``source``
+    and ``.`` only as a command's word (:func:`~dokimi.repos.shell_words._runs_dir`), so neither ``find . -name x`` nor
+    ``source .venv/bin/activate`` names one. ``masked`` is the body with its quoted text masked, where commands end."""
+    ends = [m.start() for m in _COMMAND_END.finditer(masked)]
+    sourced = {"source" for start, end in zip([0, *(e + 1 for e in ends)], [*ends, len(body)], strict=True)
+               if _runs_dir(body[start:end], _SOURCES)}
+    return frozenset(_unquoted([w for w in _BREAK.split(body) if w])) - _SOURCES | sourced
