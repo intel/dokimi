@@ -5,9 +5,8 @@
 
 Runs after the readers of :mod:`dokimi.external.catalog`. A skill that loaded
 gets every check below. A skill that did not load gets one check only: broken
-YAML in its frontmatter, reported as ``frontmatter-parse`` with the YAML error,
-because the loader reads broken YAML as "no description" and its load error
-would otherwise hide the cause. Other load errors stay the scan's own. Checks
+YAML in its frontmatter, reported as ``frontmatter-parse`` with the YAML error.
+The load error also says "invalid YAML", with the line. Other load errors stay the scan's own. Checks
 follow the Agent Skills spec:
 
 - ``name`` is the directory name, kebab-case (lowercase letters, digits and
