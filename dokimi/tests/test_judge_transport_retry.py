@@ -3,7 +3,7 @@
 
 """Transient transport faults must not cost a judge cell its score.
 
-The Bedrock judge path had no retry anywhere: get_llm's _LLM.invoke called
+The Bedrock judge path had no retry anywhere: its transport called
 litellm.completion bare, and judge.py's parse-retry loop invoked the model
 OUTSIDE its own try block, so a ServiceUnavailableError propagated straight out
 and became a null score. A crossed pilot lost 11 of 20 questions to exactly
@@ -12,8 +12,8 @@ this.
 
 import pytest
 
-import dokimi.utils as utils
 from dokimi.eval import Judge
+from dokimi.llm import LLM, Invoker
 
 TRANSIENT = ('litellm.ServiceUnavailableError: BedrockException - {"message":'
              '"The system encountered an unexpected error during processing. '
@@ -52,27 +52,31 @@ def _flaky(n_fail, payload=GOOD):
 
 
 # ── transport layer ─────────────────────────────────────────────────────────
-def test_get_llm_retries_transient_and_succeeds(monkeypatch):
+def _bedrock():
+    return Invoker(LLM("us.anthropic.x", "amazon-bedrock", "k"))
+
+
+def test_the_judge_transport_retries_transient_and_succeeds(monkeypatch):
     import litellm
     fn, state = _flaky(2)
     monkeypatch.setattr(litellm, "completion", fn)
-    llm = utils.get_llm("amazon-bedrock", "us.anthropic.x", api_key="k")
+    llm = _bedrock()
     resp = llm.invoke("p")
     assert resp.content == GOOD
     assert state["calls"] == 3, "should have retried twice then succeeded"
 
 
-def test_get_llm_gives_up_after_exhausting_retries(monkeypatch):
+def test_the_judge_transport_gives_up_after_exhausting_retries(monkeypatch):
     import litellm
     fn, state = _flaky(99)
     monkeypatch.setattr(litellm, "completion", fn)
-    llm = utils.get_llm("amazon-bedrock", "us.anthropic.x", api_key="k")
+    llm = _bedrock()
     with pytest.raises(Exception, match="ServiceUnavailable"):
         llm.invoke("p")
     assert state["calls"] > 1, "must have attempted more than once"
 
 
-def test_get_llm_does_not_retry_permanent_errors(monkeypatch):
+def test_the_judge_transport_does_not_retry_permanent_errors(monkeypatch):
     import litellm
     state = {"calls": 0}
 
@@ -81,7 +85,7 @@ def test_get_llm_does_not_retry_permanent_errors(monkeypatch):
         raise Exception("AuthenticationError: invalid api key")
 
     monkeypatch.setattr(litellm, "completion", fn)
-    llm = utils.get_llm("amazon-bedrock", "us.anthropic.x", api_key="k")
+    llm = _bedrock()
     with pytest.raises(Exception, match="Authentication"):
         llm.invoke("p")
     assert state["calls"] == 1, "a bad key must not be retried"
