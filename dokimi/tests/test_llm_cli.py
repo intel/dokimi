@@ -280,28 +280,15 @@ def test_sampling_the_cli_cannot_honour_is_named():
     assert llm.unsupported_sampling_params("sonnet", "claude-cli") == []
 
 
-def test_judge_and_get_llm_reach_the_cli_backend(runner):
+def test_the_judge_and_a_generator_reach_the_cli_backend(runner):
     from dokimi.eval.judge import JUDGE_PROVIDERS, Judge
-    from dokimi.utils import get_llm
+    from dokimi.personas.generator import PersonaGenerator
 
     assert "claude-cli" in JUDGE_PROVIDERS and "claude-cli" in llm.ANSWER_PROVIDERS
     runner.answers.extend([reply(_ok("judged")), reply(_ok("generated"))])
     assert Judge(model="sonnet", provider="claude-cli").llm.invoke("grade").content == "judged"
-    resp = get_llm("claude-cli", "haiku").invoke("write")
+    resp = PersonaGenerator(model="haiku", provider="claude-cli").llm.invoke("write")
     assert resp.content == "generated" and resp.usage.provider == "claude-cli"
-
-
-def test_get_llm_imports_llm_cli_from_its_own_module():
-    import ast
-    import inspect
-
-    from dokimi.utils import get_llm
-
-    tree = ast.parse(inspect.getsource(get_llm))
-    borrowed = [alias.name for node in ast.walk(tree)
-                if isinstance(node, ast.ImportFrom) and node.module == "dokimi.llm"
-                for alias in node.names if alias.name == "llm_cli"]
-    assert borrowed == []  # it works only while llm.py happens to import the module
 
 
 def test_the_backend_doc_names_tools_as_the_command_that_refuses_a_cli_provider():

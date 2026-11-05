@@ -16,8 +16,7 @@ from dokimi.questions.llm_gen import QuestionGenerator
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _make_generator():
-    with patch("dokimi.questions.llm_gen.ChatOpenAI"), \
-         patch("dokimi.questions.llm_gen.ChatAnthropic"):
+    with patch("dokimi.questions.llm_gen.Invoker"):
         return QuestionGenerator(model="gpt-6.1-sol", provider="openai")
 
 
