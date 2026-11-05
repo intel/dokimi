@@ -49,6 +49,18 @@ def test_retargeting_a_link_on_the_way_to_the_config_moves_the_smoke_set(tmp_pat
     assert impact.unclaimed == []
 
 
+def test_a_link_with_brackets_on_the_way_to_the_config_is_claimed_as_written(tmp_path):
+    # shared is matched as a glob: the hop c[1] unescaped would match c1 and miss the link itself
+    root = _tree(tmp_path / "repo", {"real/config.yaml": HEADER + "subjects: []\n", "c1": "x\n"})
+    try:
+        (root / "c[1]").symlink_to("real", target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    impact = load_repo_config(root, explicit=root / "c[1]" / "config.yaml").subjects_for_changed(["c[1]", "c1"])
+    assert impact.shared == ["c[1]"]
+    assert impact.unclaimed == ["c1"]
+
+
 @pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs privileges on Windows")
 def test_a_nested_skill_linked_to_a_sibling_inside_the_outer_skill_is_refused(tmp_path):
     body = HEADER + ("subjects:\n  - id: skill/outer\n    path: skills/outer\n"
