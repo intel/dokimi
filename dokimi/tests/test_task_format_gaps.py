@@ -211,6 +211,28 @@ def test_openai_modelgraded_spec_prompt_is_the_criterion_when_there_is_no_ideal(
                              "native": "modelgraded:fact-lite"}]
 
 
+def test_openai_modelgraded_spec_name_with_a_path_is_not_read(tmp_path):
+    # The registry file one level up would be read if the spec name were joined to the path unchecked.
+    reg = tmp_path / "registry"
+    (reg / "modelgraded").mkdir(parents=True)
+    # The key is the spec name as written, so only the joined path can find this prompt.
+    _write(reg / "x.yaml", "'../x':\n  prompt: |-\n    Grade whether [Submission]: {completion} agrees with [Question]: {input}.\n"
+                           "  choice_strings: AB\n")
+    grader = _write(reg / "evals" / "lite.yaml",
+                    "lite:\n  id: lite\n  class: modelgraded.classify:ModelBasedClassify\n"
+                    "  args:\n    modelgraded_spec: ../x\n")
+    data = _jsonl(tmp_path / "data" / "s.jsonl", [{"input": "What is 2+2?"}])
+    imp = import_path(data, fmt="openai-evals", grader=str(grader))
+    assert not any("Grade whether" in str(c.get("criterion", "")) for c in _checks(imp))
+
+
+def test_harbor_suites_manifest_with_a_non_object_suite_reports_it(tmp_path):
+    manifest = _write(tmp_path / "evaluation" / "harbor" / "suites.json", '{"suites": [1]}\n')
+    report = detect(manifest)
+    assert report.format == "harbor-suites"
+    assert "suites must be a list of objects" in report.problems
+
+
 # --- review of #402: the importers' edge cases -------------------------------------------------
 
 
