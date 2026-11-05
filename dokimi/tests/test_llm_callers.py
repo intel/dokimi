@@ -15,7 +15,8 @@ from dokimi.cli import parse_args
 from dokimi.eval import arms_run
 from dokimi.eval.arms_run import ArmsRunConfig
 from dokimi.eval.judge import Judge
-from dokimi.llm import PROVIDERS, credential_env_var, resolve_model
+from dokimi.llm import CALLER_PROVIDERS, PROVIDERS, check_caller_provider, credential_env_var, resolve_model
+from dokimi.llm_cli import BACKENDS
 from dokimi.personas.generator import PersonaGenerator
 from dokimi.questions.llm_gen import QuestionGenerator
 from dokimi.questions.validator import QuestionValidator
@@ -162,3 +163,13 @@ def test_the_pipeline_commands_refuse_it_before_any_answer(argv, sonnet_box, tmp
     with pytest.raises(InputError, match=f"Bedrock has no model '{BARE}'"):
         args.func(args)
     assert list(tmp_path.iterdir()) == []
+
+
+
+def test_the_answerer_judge_and_generators_take_one_provider_list():
+    # main's four copies of the tuple, merged; openai-codex stays out though their CLI offers it.
+    assert CALLER_PROVIDERS == ("openai", "anthropic", "google", "gemini", "google-vertex", "openrouter",
+                                "amazon-bedrock", "vertex_ai", *BACKENDS)
+    for provider in ("openai-codex", "azure"):
+        with pytest.raises(ValueError, match=f"Unsupported provider: '{provider}'"):
+            check_caller_provider(provider)
