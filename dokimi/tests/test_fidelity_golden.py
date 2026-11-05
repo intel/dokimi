@@ -42,7 +42,7 @@ def test_normalization_blanks_run_specific_text():
     text = ("Primary working directory: /opt/fidelity-x/work\n - Is a git repository: true\n"
             "Today's date is 2026-11-04. cc_version=2.1.318.075; msg_01AbCdEfGhIj0123456789ab "
             "claude-haiku-4-5 named Haiku 4.5 Platform: linux")
-    out = fd.normalize_text(text, workdir="/opt/fidelity-x/work")
+    out = fd.normalize_text(text, workdir="/opt/fidelity-x/work", model="claude-haiku-4-5")
     assert "<WORKDIR>" in out and "<DATE>" in out and "<VERSION>" in out
     assert "<ID>" in out and "<MODEL>" in out and "<HOST>" in out and "<GIT>" in out
     assert fd.residue(out) == []
@@ -280,6 +280,23 @@ def test_api_version_and_beta_are_compared_raw():
     assert old["headers"]["anthropic-version"] == "2023-06-01"
     assert old["headers"] != new["headers"]
     assert fd.diff_requests(new, old) != []
+
+
+def test_a_dated_beta_named_after_a_model_is_compared_raw():
+    def beta(name: str) -> dict:
+        return {"anthropic-beta": f"a-2025-05-14,{name}"}
+
+    old = fd.normalize_request(_record_with("hi", beta("claude-code-20250219")))
+    new = fd.normalize_request(_record_with("hi", beta("claude-code-99999999")))
+    assert fd.diff_requests(new, old) != []
+
+
+def test_only_the_request_model_is_blanked_in_the_text():
+    # The system prompt names the other models: a wrong id there must stay a diff.
+    text = "The exact model ID is claude-haiku-4-5. Model IDs: Haiku 5.5: 'claude-haiku-5-5', Fable 5.1: 'claude-fable-5-1'."
+    out = _texts(fd.normalize_request(_record_with(text)))
+    assert "claude-haiku-4-5" not in out and "The exact model ID is <MODEL>." in out
+    assert "'claude-haiku-5-5'" in out and "'claude-fable-5-1'" in out
 
 
 def test_excluded_only_listing_keeps_the_text_around_it():

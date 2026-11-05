@@ -173,19 +173,22 @@ _HEX64 = re.compile(r"\b[0-9a-f]{64}\b")
 _DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?Z?)?\b")
 _MONTH_YEAR = re.compile(rf"\b(?:{_MONTHS}) \d{{4}}\b")
 _VERSION_TAG = re.compile(r"(cc_version=|claude-cli/|Claude Code )[0-9][0-9A-Za-z.\-]*")
-_MODEL_ID = re.compile(r"\bclaude-[a-z0-9.\-]+\b")
 _MODEL_NAME = re.compile(r"named [A-Z][A-Za-z]+ [0-9][0-9.]*")
 _IDS = re.compile(r"\b(?:msg|toolu|req|call)_[A-Za-z0-9]{6,}\b")
 _PLATFORM = re.compile(r"(Platform: |Shell: |OS Version: )[^\n]*")
 _GIT = re.compile(r"Is a git repository: (?:true|false)")
 
 
-def normalize_text(text: str, *, workdir: str = "", home: str = "") -> str:
-    """Blank the run-specific parts of one string. Order matters: paths first."""
+def normalize_text(text: str, *, workdir: str = "", home: str = "", model: str = "") -> str:
+    """Blank the run-specific parts of one string. Order matters: paths first.
+
+    ``model`` is the request's own model id, the only one blanked: the system prompt names other
+    models, and a wrong id there is a change the golden must show.
+    """
     # Claude Code names its per-project memory dir after the cwd, non-alphanumerics as dashes.
     slug = re.sub(r"[^A-Za-z0-9]", "-", workdir)
     for raw, token in ((workdir, "<WORKDIR>"), (slug, "<WORKDIR_SLUG>"),
-                       (home, "<HOME>")):
+                       (home, "<HOME>"), (model, "<MODEL>")):
         if raw:
             text = text.replace(raw, token)
     text = _UUID.sub("<UUID>", text)
@@ -195,7 +198,6 @@ def normalize_text(text: str, *, workdir: str = "", home: str = "") -> str:
     text = _MONTH_YEAR.sub("<MONTH YEAR>", text)
     text = _VERSION_TAG.sub(lambda m: m.group(1) + "<VERSION>", text)
     text = _MODEL_NAME.sub("named <MODEL_NAME>", text)
-    text = _MODEL_ID.sub("<MODEL>", text)
     text = _PLATFORM.sub(lambda m: m.group(1) + "<HOST>", text)
     text = _GIT.sub("Is a git repository: <GIT>", text)
     return text
@@ -303,13 +305,14 @@ def normalize_request(record: dict, *, workdir: str = "", home: str = "",
     :data:`KEPT_HEADERS`; the body's ``metadata.user_id`` carries per-run ids, so it is
     normalized like any string. Dates, versions, ids and host facts are blanked.
     """
+    model = str((record.get("body") or {}).get("model") or "")
+
     def fn(text: str) -> str:
-        return normalize_text(text, workdir=workdir, home=home)
+        return normalize_text(text, workdir=workdir, home=home, model=model)
 
     body = _strip_operator_extras(dict(record.get("body") or {}), keep_skills)
     headers = {k: v for k, v in (record.get("headers") or {}).items() if k in KEPT_HEADERS}
-    kept = {k: (_MODEL_ID.sub("<MODEL>", v) if k in RAW_HEADERS else _walk(v, fn))
-            for k, v in headers.items()}
+    kept = {k: (v if k in RAW_HEADERS else _walk(v, fn)) for k, v in headers.items()}
     return {"headers": kept, **_walk(body, fn)}
 
 
@@ -361,10 +364,12 @@ def residue(value: Any) -> List[str]:
     if isinstance(value, dict) and isinstance(value.get("headers"), dict):
         # The raw headers are API versions and capability names: their dates are the point.
         value = {**value, "headers": {k: v for k, v in value["headers"].items() if k not in RAW_HEADERS}}
+    if isinstance(value, dict) and value.get("model") not in (None, "<MODEL>"):
+        found.append(f"model: {value['model']!r}")  # the request's own model id, not blanked
 
     def fn(text: str) -> str:
         for name, pat in (("date", _DATE), ("uuid", _UUID), ("hex", _HEX64), ("version", _VERSION_TAG),
-                          ("model", _MODEL_ID), ("abs-path", re.compile(r"/(?:tmp|mnt|localdisk|nfs|home|root|var)/"))):
+                          ("abs-path", re.compile(r"/(?:tmp|mnt|localdisk|nfs|home|root|var)/"))):
             if pat.search(text):
                 found.append(f"{name}: {text[:80]!r}")
         return text

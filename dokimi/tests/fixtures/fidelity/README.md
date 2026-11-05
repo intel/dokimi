@@ -14,8 +14,9 @@ golden cases of a docker-claude arm, for one fixed task (`Fix the off-by-one in 
   the skill listing with that skill's own entry.
 
 Each file is the normalized request (`dokimi.harnesses.fidelity.normalize_request`):
-dates, versions, ids, the model, the work dir and host facts are blanked to tokens such as
-`<DATE>`, `<VERSION>`, `<UUID>`, `<MODEL>`, `<WORKDIR>` and `<HOST>`.
+dates, versions, ids, the request's own model, the work dir and host facts are blanked to tokens
+such as `<DATE>`, `<VERSION>`, `<UUID>`, `<MODEL>`, `<WORKDIR>` and `<HOST>`. The other model ids
+the system prompt names, and the raw `anthropic-beta` and `anthropic-version` headers, are kept as sent.
 `_meta` records the version and the case. `skill/sum-fast/SKILL.md` is a fixture, not a
 skill dokimi ships.
 
