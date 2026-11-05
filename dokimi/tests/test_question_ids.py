@@ -110,14 +110,13 @@ def test_eval_report_accepts_integer_ids(tmp_path):
 
 
 def test_answerer_keeps_question_zero():
-    from unittest.mock import Mock, patch
+    from unittest.mock import patch
 
     import dokimi.eval.answerer as answerer_mod
 
     usage = {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
     with (
         patch.object(answerer_mod, "llm_call_with_usage", return_value=("an answer", usage)),
-        patch.object(answerer_mod, "ChatOpenAI", Mock, create=True),
         patch.object(answerer_mod, "LANGCHAIN_AVAILABLE", True),
     ):
         answerer = answerer_mod.Answerer()

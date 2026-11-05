@@ -5,16 +5,19 @@
 
 The answerer's temperature was made settable first; the judge kept sampling at
 the provider default, so grading noise stayed uncontrollable. The judge reaches
-litellm by three different paths and all three needed the same treatment.
+litellm through its own transport and a panel through ``llm_call``; both needed it.
 """
 
-import dokimi.llm as llm_mod
+import pytest
+
+from dokimi import caching
 from dokimi.eval import Judge
+from dokimi.llm import LLM, Invoker
 
 
 def test_judge_hands_sampling_params_to_its_client_and_output():
     j = Judge(model="m", provider="openai", temperature=0.0, seed=7)
-    assert (j.llm.temperature, j.llm.seed) == (0.0, 7)
+    assert (j.llm.llm.temperature, j.llm.llm.seed) == (0.0, 7)
     assert j._build_evaluation_output([])["judge_temperature"] == 0.0
 
 
@@ -47,54 +50,48 @@ def test_judge_defaults_leave_sampling_unset():
     assert j.seed is None
 
 
-def test_chat_shim_forwards_temperature(monkeypatch):
-    seen = {}
+@pytest.fixture
+def completion(monkeypatch):
+    """litellm.completion, recording each call's kwargs and answering ``seen["payload"]``."""
+    import litellm
+    from litellm import ModelResponse
 
-    def fake(prompt, model, provider="openai", api_key=None, **kw):
+    seen: dict = {"payload": "x"}
+
+    def fake(**kw):
         seen.update(kw)
-        return "ok", None
+        return ModelResponse(model=kw["model"], choices=[{"index": 0, "message": {
+            "role": "assistant", "content": seen["payload"]}, "finish_reason": "stop"}])
 
-    monkeypatch.setattr(llm_mod, "llm_call_with_usage", fake)
-    llm_mod.ChatOpenAI(model="m", temperature=0.0, seed=3).invoke("p")
-    assert seen["temperature"] == 0.0
-    assert seen["seed"] == 3
-
-
-def test_chat_shim_omits_sampling_when_unset(monkeypatch):
-    seen = {}
-
-    def fake(prompt, model, provider="openai", api_key=None, **kw):
-        seen.update(kw)
-        return "ok", None
-
-    monkeypatch.setattr(llm_mod, "llm_call_with_usage", fake)
-    llm_mod.ChatAnthropic(model="m").invoke("p")
-    assert seen.get("temperature") is None
-    assert seen.get("seed") is None
+    monkeypatch.setattr(litellm, "completion", fake)
+    monkeypatch.delenv(caching.RESPONSE_CACHE_ENV, raising=False)
+    return seen
 
 
-def test_judge_openai_path_carries_temperature_to_the_call(monkeypatch):
-    # Judge -> ChatOpenAI -> llm_call_with_usage
-    seen = {}
+@pytest.mark.parametrize("provider", ["openai", "anthropic", "amazon-bedrock"])
+def test_the_judge_transport_forwards_temperature_and_seed(completion, provider):
+    Invoker(LLM("m.x", provider, "k", temperature=0.0, seed=5)).invoke("p")
+    assert (completion["temperature"], completion["seed"]) == (0.0, 5)
 
-    payload = (
+
+@pytest.mark.parametrize("provider", ["openai", "anthropic", "amazon-bedrock"])
+def test_the_judge_transport_omits_sampling_when_unset(completion, provider):
+    Invoker(LLM("m.x", provider, "k")).invoke("p")
+    assert "temperature" not in completion and "seed" not in completion
+
+
+def test_the_judge_carries_temperature_to_the_call(completion):
+    completion["payload"] = (
         '{"reasoning":"r","correctness":80,"completeness":80,"specificity":80,'
         '"code_quality":80,"actionability":80,"aggregate":80}'
     )
-
-    def fake(prompt, model, provider="openai", api_key=None, **kw):
-        seen.update(kw)
-        return payload, None
-
-    monkeypatch.setattr(llm_mod, "llm_call_with_usage", fake)
     j = Judge(model="m", provider="openai", temperature=0.0)
     j.score_answer(library_name="L", question="q", answer="a")
-    assert seen["temperature"] == 0.0
+    assert completion["temperature"] == 0.0
 
 
 # ── panel path ───────────────────────────────────────────────────────────────
-# A panel is a judge as far as `arms run --judge-panel` is concerned, and it
-# reaches litellm through llm_call rather than the shims the single Judge uses.
+# A panel judges `arms run --judge-panel`; it reaches litellm through llm_call, not the Judge's transport.
 
 _PANEL_PAYLOAD = (
     '{"reasoning":"r","correctness":80,"completeness":80,"specificity":80,'
@@ -170,56 +167,6 @@ def test_panel_default_roster_carries_sampling(monkeypatch):
     panel.score_answer(library_name="L", question="q", answer="a")
 
     assert seen and all(kw["temperature"] == 0.0 for kw in seen)
-
-
-def test_get_llm_forwards_temperature_to_completion(monkeypatch):
-    from dokimi import utils
-
-    seen = {}
-
-    class _Resp:
-        class _C:
-            class _M:
-                content = "x"
-            message = _M()
-        choices = [_C()]
-        usage = None
-
-    def fake_completion(**kw):
-        seen.update(kw)
-        return _Resp()
-
-    import litellm
-    monkeypatch.setattr(litellm, "completion", fake_completion)
-    llm = utils.get_llm("amazon-bedrock", "us.anthropic.x", api_key="k",
-                        temperature=0.0, seed=5)
-    llm.invoke("p")
-    assert seen["temperature"] == 0.0
-    assert seen["seed"] == 5
-
-
-def test_get_llm_omits_sampling_when_unset(monkeypatch):
-    from dokimi import utils
-
-    seen = {}
-
-    class _Resp:
-        class _C:
-            class _M:
-                content = "x"
-            message = _M()
-        choices = [_C()]
-        usage = None
-
-    def fake_completion(**kw):
-        seen.update(kw)
-        return _Resp()
-
-    import litellm
-    monkeypatch.setattr(litellm, "completion", fake_completion)
-    utils.get_llm("amazon-bedrock", "us.anthropic.x", api_key="k").invoke("p")
-    assert "temperature" not in seen
-    assert "seed" not in seen
 
 
 # ── parse-failure re-draws at pinned sampling ────────────────────────────────
