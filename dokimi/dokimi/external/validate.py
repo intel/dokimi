@@ -68,7 +68,7 @@ import yaml
 
 from dokimi.repos.l0.markdown import split as split_markdown
 from dokimi.skills import Skill
-from dokimi.utils import parse_frontmatter_strict
+from dokimi.utils import describe_yaml_error, parse_frontmatter_strict
 
 from .catalog import SkillCatalogEntry, _within
 
@@ -160,7 +160,12 @@ def _strict_meta(text: str) -> tuple[dict, Optional[Finding]]:
     """The frontmatter of ``text``, or a ``frontmatter-parse`` error carrying the YAML message."""
     try:
         meta, _ = parse_frontmatter_strict(text)
-    except (yaml.YAMLError, RecursionError) as exc:  # nesting too deep for the YAML parser
+    except yaml.YAMLError as exc:
+        # The same line and hint as the loader's load error, so the row and this finding agree.
+        return {}, Finding(
+            "error", "frontmatter-parse", f"frontmatter is not valid YAML: {describe_yaml_error(exc)}"
+        )
+    except RecursionError as exc:  # nesting too deep for the YAML parser: no line to name
         message = " ".join(str(exc).split())  # the YAML message is several lines; keep one
         return {}, Finding(
             "error", "frontmatter-parse", f"frontmatter is not valid YAML: {message}"

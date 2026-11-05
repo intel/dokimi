@@ -251,7 +251,7 @@ def test_frontmatter_with_a_bare_colon_is_a_frontmatter_parse_error(tmp_path):
     assert finding.code == "frontmatter-parse"
     assert finding.level == "error"
     assert finding.message.startswith(
-        "frontmatter is not valid YAML: mapping values are not allowed"
+        "frontmatter is not valid YAML: line 3: mapping values are not allowed"
     )
     assert "\n" not in finding.message
 
