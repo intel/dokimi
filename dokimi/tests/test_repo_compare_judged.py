@@ -26,11 +26,11 @@ def _name(task: str, arm: str, rep: int, model: str = "m-1") -> str:
 
 def _judged(batch: Path, task: str, arm: str, rep: int, same: int, *, recall: float = 1.0,
             unjudged: int = 0, write: bool = True, grade: dict | None = None,
-            credited: list[tuple[int, int]] | None = None, model: str = "m-1") -> Path:
+            credited: list[tuple[int, int]] | None = None, model: str = "m-1", threads: int = 4) -> Path:
     """A replay cell graded with ``recall`` over 4 threads and, with ``write``, its hits_judged.json from the
     real writer: ``same`` pairs labelled same point and ``unjudged`` pairs with no label. ``credited`` is the
 (thread, finding) pairs grade.json credits now (default: the judged ones)."""
-    _cell(batch, task, arm, rep, metrics={"recall": recall, "n_threads": 4, **(grade or {})}, model=model)
+    _cell(batch, task, arm, rep, metrics={"recall": recall, "n_threads": threads, **(grade or {})}, model=model)
     rd = batch / _name(task, arm, rep, model)
     pairs = ([{"thread": i, "finding": i, "label": "same point", "reason": "same"} for i in range(same)]
              + [{"thread": 10 + i, "finding": 10 + i, "label": None, "reason": None, "error": "judge call failed"}
@@ -40,7 +40,7 @@ def _judged(batch: Path, task: str, arm: str, rep: int, same: int, *, recall: fl
     doc["details"] = {"matches": [{"thread": t, "finding": f} for t, f in now]}
     (rd / "grade.json").write_text(json.dumps(doc))
     if write:
-        rec = {"cell": rd.name, "task": task, "arm": arm, "model": model, "rep": rep, "n_threads": 4,
+        rec = {"cell": rd.name, "task": task, "arm": arm, "model": model, "rep": rep, "n_threads": threads,
                "recall": recall, "parse_error": False}
         save_artifact("repo_hits_judged", cell_doc(rec, ("openai", "judge-1"), pairs), rd / "hits_judged.json")
     return rd
@@ -63,7 +63,7 @@ def test_judged_recall_is_compared_next_to_recall_per_task(tmp_path):
     recall = _row(s, "metric:recall")  # grade.json's recall, read as before
     assert [(t["baseline"], t["treatment"]) for t in recall["tasks"]] == [(0.5, 0.75), (0.5, 1.0), (0.25, 0.25)]
     assert s["judged_cells"] == {"metrics": ["judge:recall_judged"], "arms": {
-        arm: {"cells": n, "read": n, "no_file": 0, "stale": 0, "other_cell": 0, "unjudged": 0, "unreadable": 0}
+        arm: {"cells": n, "read": n, "no_file": 0, "stale": 0, "other_cell": 0, "no_threads": 0, "unjudged": 0, "unreadable": 0}
         for arm, n in ((NONE, 4), (RAW, 4))}}
     text = format_compare(s).splitlines()
     assert not [line for line in text if "cells read" in line]  # every cell read: no line per arm
@@ -80,7 +80,32 @@ def test_credited_pairs_that_changed_with_the_same_recall_make_the_file_stale(tm
     _judged(b, "t1", RAW, 3, 1, grade={"n_threads": 5})  # the task's gold changed size
     s = compare([b], NONE, metrics=("judge:recall_judged",))
     assert s["judged_cells"]["arms"][RAW] == {"cells": 3, "read": 1, "no_file": 0, "stale": 2, "other_cell": 0,
-                                             "unjudged": 0, "unreadable": 0}
+                                             "no_threads": 0, "unjudged": 0, "unreadable": 0}
+    assert _row(s, JUDGED)["tasks"][0]["n_treatment"] == 1
+
+
+def test_a_cell_with_no_gold_thread_is_counted_as_that_not_as_an_unjudged_pair(tmp_path):
+    b = tmp_path / "b1"
+    _judged(b, "t1", NONE, 1, 2)
+    _judged(b, "t1", RAW, 1, 1)
+    _judged(b, "t3", RAW, 1, 0, recall=0.0, threads=0)  # no gold thread: recall_judged null, no pair to judge
+    _judged(b, "t1", RAW, 2, 1, unjudged=1)
+    s = compare([b], NONE, metrics=("judge:recall_judged",))
+    counts = s["judged_cells"]["arms"][RAW]
+    assert (counts["read"], counts["no_threads"], counts["unjudged"]) == (1, 1, 1)
+    line = next(x for x in format_compare(s).splitlines() if "cells read" in x)
+    assert "1 with no gold thread, 1 with an unjudged pair" in line
+
+
+def test_a_non_object_match_in_the_grade_is_skipped_as_the_judge_skips_it(tmp_path):
+    b = tmp_path / "b1"
+    _judged(b, "t1", NONE, 1, 2)
+    rd = _judged(b, "t1", RAW, 1, 1)
+    grade = json.loads((rd / "grade.json").read_text())
+    grade["details"]["matches"].append("not an object")  # a hand-edited grade.json
+    (rd / "grade.json").write_text(json.dumps(grade))
+    s = compare([b], NONE, metrics=("judge:recall_judged",))
+    assert s["judged_cells"]["arms"][RAW]["read"] == 1
     assert _row(s, JUDGED)["tasks"][0]["n_treatment"] == 1
 
 
@@ -119,7 +144,7 @@ def test_a_cell_whose_file_does_not_hold_up_is_left_out_and_counted(tmp_path):
     task = _row(s, JUDGED)["tasks"][0]
     assert (task["baseline"], task["treatment"], task["n_baseline"], task["n_treatment"]) == (0.5, 0.25, 1, 1)
     assert s["judged_cells"]["arms"][RAW] == {"cells": 11, "read": 1, "no_file": 1, "stale": 1, "other_cell": 1,
-                                             "unjudged": 1, "unreadable": 6}
+                                             "no_threads": 0, "unjudged": 1, "unreadable": 6}
     assert s["judged_cells"]["arms"][NONE]["read"] == 1
     lines = [line for line in format_compare(s).splitlines() if "cells read" in line]
     assert lines == ["judge:recall_judged, guidance:raw: 1 of 11 cells read (1 no hits_judged.json, 1 stale: "
@@ -210,4 +235,4 @@ def test_cli_compares_judged_recall_as_json(tmp_path, capsys):
     assert rows[JUDGED]["delta"]["mean"] == pytest.approx(0.5) and rows[JUDGED]["tasks"][0]["n_treatment"] == 1
     assert rows["metric:recall"]["tasks"][0]["n_treatment"] == 2
     assert out["judged_cells"]["arms"][RAW] == {"cells": 2, "read": 1, "no_file": 1, "stale": 0, "other_cell": 0,
-                                               "unjudged": 0, "unreadable": 0}
+                                               "no_threads": 0, "unjudged": 0, "unreadable": 0}

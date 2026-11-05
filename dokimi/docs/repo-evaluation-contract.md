@@ -2141,13 +2141,13 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   (else the cell was regraded since judging, even to the same recall: the file is stale, and `repo hits judge` removes such files only
   when it runs again), and whose `recall_judged` is a finite number. Any other
   cell (no file, a stale file, another cell's file, a null `recall_judged`
-  from an unjudged pair, a file that cannot be read, is not JSON or is not
+  from an unjudged pair or a cell with no gold thread, a file that cannot be read, is not JSON or is not
   `repo_hits_judged.v1`) does not report it, as a cell lacking a `grade.json`
   metric does: it is left out of its task's mean and `n`, and a null is never
   read as 0. `--json` gives `judged_cells` (`null` without a `judge:` metric):
   `metrics`, the `judge:` names asked for, and `arms`, per compared arm its
   `cells` (of the compared models) and the counts `read`, `no_file`, `stale`,
-  `other_cell`, `unjudged` and `unreadable`. The text prints one line per arm
+  `other_cell`, `no_threads`, `unjudged` and `unreadable`. The text prints one line per arm
   with a cell not read (`judge:recall_judged, guidance:none: 18 of 26 cells
   read (5 no hits_judged.json, 2 stale: regraded since judging, 1 with an
   unjudged pair); run repo hits judge again`). When no selected cell reports
