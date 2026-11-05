@@ -913,7 +913,7 @@ An artifact of a registered run kind carries the run's envelope right after its
   and `runs show` print it.
 - `DOKIMI_RUN_ID` gives several commands one id, for example the steps of a CI job. It is 1-128
   letters, digits, `.`, `_` or `-` and starts with a letter or a digit, so it can name a
-  directory. Any other value exits 2 before the command does anything, whatever the command.
+  directory. Any other value exits 2 before a command runs (`--help` and `--version` still work).
   A dokimi process started by another (`scripts/reach_conformance.py` runs `repo reach` per
   fixture) makes its own id unless `DOKIMI_RUN_ID` is set; that script passes it through.
 - A file saved again records the process that saved it, and so does an artifact built from a
