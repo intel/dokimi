@@ -139,7 +139,7 @@ changes a score; it tells you whether a grading block is worth trusting.
 | Inspect model-graded | The C/P/I grade becomes the checklist's covered/split/absent verdict. Inspect's grader template is not used. |
 | OpenAI evals | The registry YAML (`--grader`) names the class. With no YAML, `match` is the default. Custom `evals.elsuite` classes are refused. `ModelBasedClassify` specs (`fact`, `closedqa`, ...) and their choice scores become one judge check against `ideal`. A row with no `ideal` takes the spec's `prompt` from `registry/modelgraded/<spec>.yaml` as its criterion; a spec name with a `/` or `..` in it is not read. |
 | skill-creator | The grader marks expectations against the run's transcript and output files. Here they are judged on the answer text. `files` are recorded but not attached. |
-| promptfoo | `providers` are replaced by the answer track's model. Only `{{ var }}` substitution is done (filters, tags and `file://` vars are left as written). Prompt files must be text/JSON/YAML inside the config directory (`.js`/`.py` prompts are not run). Assert `transform`, `scenarios` and the schema of `is-json` are not applied. A code config (`.js`, `.mjs`, `.ts`) is run by `node`, which exports its JSON; a `.ts` one needs Node 22.6 or later. |
+| promptfoo | `providers` are replaced by the answer track's model. Only `{{ var }}` substitution is done (filters, tags and `file://` vars are left as written). Prompt files must be text/JSON/YAML inside the config directory (`.js`/`.py` prompts are not run). Assert `transform`, `scenarios` and the schema of `is-json` are not applied. A code config (`.js`, `.cjs`, `.mjs`, `.ts`) is run by `node`, which exports its JSON; a `.ts` one needs Node 22.6 or later. |
 
 ## Delegating to the native tool
 

@@ -130,8 +130,49 @@ def test_hf_dataset_refuses_a_computed_field_spec_before_loading(tmp_path, spec)
         import_path(task, fmt="inspect-task")
 
 
+def _capture_hf_load(monkeypatch):
+    """Replace the loader (no network, no datasets package) and record the arguments it is given."""
+    from dokimi.task_formats.imports import inspect_ai
+    seen = []
+    rows = [{"input": "2+2?", "target": "4"}]
+    monkeypatch.setattr(inspect_ai, "_hf_load", lambda args, kwargs: seen.append((args, kwargs)) or rows)
+    return seen
+
+
+def test_hf_dataset_hub_name_and_its_data_dir_are_left_as_they_are(tmp_path, monkeypatch):
+    seen = _capture_hf_load(monkeypatch)
+    (tmp_path / "d" / "en").mkdir(parents=True)  # a task folder named like the hub subfolder must not capture it
+    task = _write(tmp_path / "d" / "t.py", (
+        "@task\ndef t():\n"
+        "    return Task(dataset=hf_dataset('org/ds', data_dir='en', split='train'), scorer=match())\n"))
+    import_path(task, fmt="inspect-task")
+    assert seen == [(["org/ds"], {"data_dir": "en", "split": "train"})]
+
+
+def test_hf_dataset_builder_name_is_not_a_task_path(tmp_path, monkeypatch):
+    seen = _capture_hf_load(monkeypatch)
+    (tmp_path / "d" / "json").mkdir(parents=True)
+    task = _write(tmp_path / "d" / "t.py", (
+        "@task\ndef t():\n"
+        "    return Task(dataset=hf_dataset('json', data_dir='sub', split='train'), scorer=match())\n"))
+    import_path(task, fmt="inspect-task")
+    assert seen[0][0] == ["json"]
+    assert seen[0][1]["data_dir"] == str((tmp_path / "d" / "sub").resolve())
+
+
+def test_hf_dataset_name_that_exists_only_in_the_working_directory_is_not_read(tmp_path, monkeypatch):
+    seen = _capture_hf_load(monkeypatch)
+    (tmp_path / "cwd" / "secrets").mkdir(parents=True)
+    (tmp_path / "d").mkdir()
+    monkeypatch.chdir(tmp_path / "cwd")  # the loader resolves a relative local name from the process directory
+    task = _write(tmp_path / "d" / "t.py", (
+        "@task\ndef t():\n"
+        "    return Task(dataset=hf_dataset('secrets', split='train'), scorer=match())\n"))
+    import_path(task, fmt="inspect-task")
+    assert seen[0][0] == [str((tmp_path / "d" / "secrets").resolve())]
+
+
 def test_hf_dataset_path_and_data_dir_outside_the_task_are_refused(tmp_path):
-    pytest.importorskip("datasets")
     (tmp_path / "outside").mkdir()
     _jsonl(tmp_path / "outside" / "train.jsonl", [{"question": "SECRET?", "answer": "x"}])
     for call in (f"hf_dataset({str(tmp_path / 'outside')!r}, split='train')",

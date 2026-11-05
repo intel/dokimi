@@ -249,11 +249,17 @@ def _task_files(value: Any, base: Path, name: str = "data_files") -> Any:
     raise ValueError(f"hf_dataset {name} must be literal paths, or a list or dict of them")
 
 
-def _hf_path(value: str, base: Path) -> str:
-    """The loader's dataset path. A local one (absolute, a ``..``, or a name in the task) is resolved in the task like
-    ``data_files=``; a hub name or a builder (``json``) is passed on as it is."""
-    local = bool(value) and (Path(value).is_absolute() or ".." in Path(value).parts or (base / value).exists())
-    return _task_files(value, base, "path") if local else value
+# The loader's own builders: their name is never a path, and their data_dir= is a local directory.
+_HF_BUILDERS = frozenset({"arrow", "audiofolder", "csv", "imagefolder", "json", "pandas", "parquet", "text", "webdataset", "xml"})
+
+
+def _hf_local(value: str, base: Path) -> bool:
+    """True when the loader would read ``value`` as a local path: absolute, a ``..``, or a name that exists in the task
+    or in the working directory (``datasets`` resolves a relative local name from there). A builder is never a path."""
+    if not value or value in _HF_BUILDERS:
+        return False
+    path = Path(value)
+    return path.is_absolute() or ".." in path.parts or (base / value).exists() or path.exists()
 
 
 def _hf_literal_keywords(node: ast.Call) -> None:
@@ -301,9 +307,14 @@ def _hf_call_args(node: ast.Call, base: Path) -> tuple[list[Any], dict[str, Any]
         raise ValueError("hf_dataset: the path and split= must be literal strings")
     if kwargs.get("trust_remote_code"):
         raise ValueError("hf_dataset: trust_remote_code= would run the dataset's own loader code on import; refused")
-    args[0] = _hf_path(args[0], base)
-    if kwargs.get("data_dir") is not None:
-        kwargs["data_dir"] = _task_files(kwargs["data_dir"], base, "data_dir")
+    local = _hf_local(args[0], base)
+    if local:
+        args[0] = _task_files(args[0], base, "path")
+    data_dir = kwargs.get("data_dir")
+    # A hub dataset's data_dir= is a subfolder of its repo: only a local loader's, or one that leaves the task, is resolved.
+    escapes = isinstance(data_dir, str) and (Path(data_dir).is_absolute() or ".." in Path(data_dir).parts)
+    if data_dir is not None and (local or args[0] in _HF_BUILDERS or escapes):
+        kwargs["data_dir"] = _task_files(data_dir, base, "data_dir")
     if any(k.arg == "data_files" for k in node.keywords):
         kwargs["data_files"] = _task_files(kwargs.get("data_files"), base)
     return args, kwargs
