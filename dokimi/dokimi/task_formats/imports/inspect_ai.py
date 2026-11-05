@@ -249,18 +249,38 @@ def _task_files(value: Any, base: Path) -> Any:
     raise ValueError("hf_dataset data_files must be literal paths, or a list or dict of them")
 
 
-def _hf_rows(node: ast.Call, base: Path) -> list[dict[str, Any]]:
-    """Rows of ``hf_dataset(path, split=..., ...)``, mapped through its FieldSpec.
-
-    The optional ``datasets`` package loads them (a local ``data_files=`` must sit in the task's
-    directory). A ``split=`` must be a literal: the default split is not read here. ``limit=`` is
-    Inspect's sample count, applied here, not passed to the loader.
-    """
+def _hf_literal_keywords(node: ast.Call) -> None:
+    """Refuse a keyword the importer cannot read as a literal; ``sample_fields`` and ``limit`` are checked apart."""
     for k in node.keywords:
         if k.arg is None:
             raise ValueError("hf_dataset: **options is not read; name each loader argument as a literal")
         if k.arg not in ("sample_fields", "limit") and not _is_literal(k.value):
             raise ValueError(f"hf_dataset: {k.arg}= must be a literal value; a computed one is not read")
+
+
+def _hf_sample_fields(node: ast.Call) -> None:
+    """``sample_fields=`` must be a FieldSpec, or None: a converter function is not translated."""
+    for k in node.keywords:
+        if k.arg == "sample_fields" and not (
+            (isinstance(k.value, ast.Call) and _name(k.value) == "FieldSpec")
+            or (isinstance(k.value, ast.Constant) and k.value.value is None)
+        ):
+            raise ValueError("hf_dataset: sample_fields= must be a FieldSpec(...); a converter function is not translated")
+
+
+def _hf_limit(node: ast.Call) -> Optional[int]:
+    """The ``limit=`` sample count of an hf_dataset call, or None when it has none."""
+    limit_node = next((k.value for k in node.keywords if k.arg == "limit"), None)
+    if limit_node is None:
+        return None
+    limit = _literal(limit_node)
+    if not isinstance(limit, int) or isinstance(limit, bool) or limit < 0:
+        raise ValueError("hf_dataset: limit= must be a literal count of samples")
+    return limit
+
+
+def _hf_call_args(node: ast.Call, base: Path) -> tuple[list[Any], dict[str, Any]]:
+    """The loader's positional and keyword arguments, literal and checked; ``data_files=`` resolved in the task."""
     args = [_literal(a) for a in node.args]
     kwargs = {k: v for k, v in _kwargs(node).items() if k not in ("sample_fields", "limit")}
     if not args and isinstance(kwargs.get("path"), str):
@@ -269,27 +289,36 @@ def _hf_rows(node: ast.Call, base: Path) -> list[dict[str, Any]]:
         raise ValueError("hf_dataset: the path and split= must be literal strings")
     if kwargs.get("trust_remote_code"):
         raise ValueError("hf_dataset: trust_remote_code= would run the dataset's own loader code on import; refused")
-    for k in node.keywords:
-        if k.arg == "sample_fields" and not (
-            (isinstance(k.value, ast.Call) and _name(k.value) == "FieldSpec")
-            or (isinstance(k.value, ast.Constant) and k.value.value is None)
-        ):
-            raise ValueError("hf_dataset: sample_fields= must be a FieldSpec(...); a converter function is not translated")
-    limit_node = next((k.value for k in node.keywords if k.arg == "limit"), None)
-    limit = _literal(limit_node) if limit_node is not None else None
-    if limit_node is not None and (not isinstance(limit, int) or isinstance(limit, bool) or limit < 0):
-        raise ValueError("hf_dataset: limit= must be a literal count of samples")
+    if any(k.arg == "data_files" for k in node.keywords):
+        kwargs["data_files"] = _task_files(kwargs.get("data_files"), base)
+    return args, kwargs
+
+
+def _hf_load(args: list[Any], kwargs: dict[str, Any]) -> Any:
+    """The split from the optional ``datasets`` package; the loader's own errors are reported with its name."""
     try:
         import datasets
     except ImportError as exc:
         raise ValueError("hf_dataset needs the optional `datasets` package (pip install datasets); "
                          "or run the task natively and import its log") from exc
-    if any(k.arg == "data_files" for k in node.keywords):
-        kwargs["data_files"] = _task_files(kwargs.get("data_files"), base)
     try:
-        loaded = datasets.load_dataset(*args, **kwargs)  # nosec B615 - the task names its dataset and revision=
+        return datasets.load_dataset(*args, **kwargs)  # nosec B615 - the task names its dataset and revision=
     except Exception as exc:  # the loader's own errors (network, schema) are the user's to read
         raise ValueError(f"hf_dataset could not load {args[0]}: {exc}") from exc
+
+
+def _hf_rows(node: ast.Call, base: Path) -> list[dict[str, Any]]:
+    """Rows of ``hf_dataset(path, split=..., ...)``, mapped through its FieldSpec.
+
+    The optional ``datasets`` package loads them (a local ``data_files=`` must sit in the task's
+    directory). A ``split=`` must be a literal: the default split is not read here. ``limit=`` is
+    Inspect's sample count, applied here, not passed to the loader.
+    """
+    _hf_literal_keywords(node)
+    _hf_sample_fields(node)
+    limit = _hf_limit(node)
+    args, kwargs = _hf_call_args(node, base)
+    loaded = _hf_load(args, kwargs)
     fields = _field_spec(node)
     spec = {**_FIELD_DEFAULTS, **fields} if fields else {}
     source: Iterator[dict[str, Any]] = (dict(r) for r in loaded)
