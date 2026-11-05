@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Mapping, Tuple
 
-from dokimi.defaults import BEDROCK_MODEL_IDS, bedrock_profile
+from dokimi.defaults import BEDROCK_MODEL_IDS
 
 if TYPE_CHECKING:
     from dokimi.process import Env
@@ -573,75 +573,6 @@ def same_evaluator(answer_provider: str, answer_model: str, judge_provider: str,
 
     return (same_model(answer_model, judge_model)
             or llm_cli.same_model(answer_provider, answer_model, judge_provider, judge_model))
-
-
-def _read_key(value: str) -> str:
-    """Resolve API key value: supports 'file:~/path' references."""
-    if not value:
-        return value
-    if value.startswith("file:"):
-        path = os.path.expanduser(value[5:])
-        try:
-            with open(path, encoding="utf-8") as fh:
-                return fh.read().strip()
-        except Exception:
-            return value
-    return value
-
-
-def bedrock_litellm_model(model: str) -> str:
-    """The litellm model string ``get_llm`` sends to Bedrock for ``model``."""
-    # A Bedrock id always has a dot ("anthropic.", "us.anthropic.", "amazon.").
-    # Only a bare name gets mapped: a known one (such as the default judge) to its
-    # inference profile, any other to the box's default Sonnet.
-    if not model.startswith("arn:") and "." not in model:
-        model = bedrock_profile(model) or os.environ.get("ANTHROPIC_DEFAULT_SONNET_MODEL", model)
-    # Bedrock's openai.* namespace 404s on the plain invoke route; it only
-    # answers via Converse (mirrors llm.resolve_model).
-    prefix = "bedrock/converse/" if "openai." in model else "bedrock/"
-    return f"{prefix}{model}"
-
-
-def get_llm(provider: str, model: str, api_key: str | None = None,
-            temperature: float | None = None, seed: int | None = None) -> Any:
-    """A chat wrapper, ``.invoke(prompt, draw=, cache_if=)`` -> ``.content``/``.usage``.
-
-    A delegate to :class:`dokimi.llm.LLM` that keeps this path's own provider
-    table (it differs from :func:`dokimi.llm.resolve_model`: a bare Bedrock name
-    falls back to ``$ANTHROPIC_DEFAULT_SONNET_MODEL``, OpenRouter gets
-    ``max_tokens=2000``, Bedrock reads only its bearer token) and its cache keys.
-    No caller is left in the package; it goes with its tests.
-    """
-    from dokimi import llm_cli
-    from dokimi.llm import LLM, _GetLLMCompat, Invoker
-
-    if llm_cli.backend(provider) is not None:  # a logged-in CLI: no route, no key
-        return Invoker(LLM(model, provider, temperature=temperature, seed=seed))
-    api_key = _read_key(api_key) if api_key else api_key
-    max_tokens: int | None = None
-    key: str | None
-    if provider == "openrouter":
-        key = api_key or _read_key(os.environ.get("OPENROUTER_API_KEY", ""))
-        route = model if model.startswith("openrouter/") else f"openrouter/{model}"
-        max_tokens = 2000
-    elif provider in ("google", "gemini", "google-vertex"):
-        # Route Gemini via Vertex AI adapter
-        route = model if model.startswith("vertex_ai/") else f"vertex_ai/{model}"
-        key = api_key or _read_key(os.environ.get("GEMINI_API_KEY", ""))
-    elif provider == "amazon-bedrock":
-        route = bedrock_litellm_model(model)
-        key = _read_key(os.environ.get("AWS_BEARER_TOKEN_BEDROCK", ""))
-    elif provider == "openai":
-        route = model
-        key = api_key or _read_key(os.environ.get("OPENAI_API_KEY", ""))
-    elif provider == "anthropic":
-        route = model if model.startswith("anthropic/") else f"anthropic/{model}"
-        key = api_key or _read_key(os.environ.get("ANTHROPIC_API_KEY", ""))
-    else:
-        route = model if "/" in model else f"{provider}/{model}"
-        key = api_key
-    return Invoker(_GetLLMCompat(model, provider, max_tokens=max_tokens,
-                                  temperature=temperature, seed=seed, route=route, key=key))
 
 
 def question_id(q: Dict[str, Any]) -> Any:

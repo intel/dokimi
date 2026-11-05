@@ -72,7 +72,7 @@ def _judge_run(tmp_path, concurrency):
 
     out = tmp_path / "eval.json"
     answers = [{"question_id": i if i != 1.5 else "q1", "question_text": "t"} for i in _ids()]
-    with patch("dokimi.eval.judge.ChatAnthropic", Mock(), create=True), \
+    with patch("dokimi.eval.judge.Invoker", Mock()), \
          patch("dokimi.eval.judge.LANGCHAIN_AVAILABLE", True):
         judge = Judge()
         with patch.object(judge, "_evaluate_answer_pair", side_effect=evaluate), \

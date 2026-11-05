@@ -19,12 +19,11 @@ import pytest
 from dokimi import caching, llm as llm_mod
 from dokimi.defaults import bedrock_profile
 from dokimi.llm import (
-    LLM, PROVIDERS, FakeAdapter, LiteLLMAdapter, Reply, Request, ToolCall, Unparseable,
+    LLM, PROVIDERS, FakeAdapter, Invoker, LiteLLMAdapter, Reply, Request, ToolCall, Unparseable,
     credential_env_var, ask_parsed, chat_completion, is_retryable, llm_call, llm_call_with_usage,
     resolve_api_key, resolve_model, unsupported_sampling_params, use_adapter,
 )
 from dokimi.metrics.usage import UsageRecord
-from dokimi.utils import get_llm
 
 
 @pytest.fixture
@@ -252,7 +251,7 @@ def test_unsupported_sampling_params_never_block_when_the_check_fails(monkeypatc
 
 PREFIX = "p" * caching.MIN_CACHEABLE_PREFIX_CHARS
 
-# File names main's ``llm_call_with_usage`` and ``utils.get_llm`` wrote for these calls,
+# File names main's ``llm_call_with_usage`` wrote for these calls,
 # recorded by running that code against a stubbed ``litellm.completion``.
 MAIN_WRITTEN = [
     ("3e7199be1714ff54b3d8e70f9999496954ca9bed4f428c63e0bdb2eafc318590",
@@ -265,11 +264,6 @@ MAIN_WRITTEN = [
                  max_tokens=500).complete("ask", draw=2)),
     ("79a2f845dc1f573efb5fc17ff243719c5918a4b318624064699797c8378e9d6c",
      lambda: LLM("gpt-6.1-sol", "openai", api_key="k").complete("ask", stream=True)),
-    ("4c8f44a8bb0344dec5b8471f8c6ec99c2bbf785f5dd323fc2b99c48f0275af9c",
-     lambda: get_llm("amazon-bedrock", "claude-sonnet-5-5", "k").invoke("ask")),
-    ("22510fd74bf01210757177f302f9b6728b81e9e3b31572bd6245f0c88af78dfd",
-     lambda: get_llm("openrouter", "openai/gpt-oss-120b", "k", temperature=0.0).invoke(
-         "ask", draw=1)),
     # Off the installed price map, so routed as openai/gpt-6.1-terra here; main sent it bare.
     ("c6dc142638019230bb9f5876e709302f8eafd63ea9a22a5990bc086fd7d07e3e",
      lambda: LLM("gpt-6.1-terra", "openai", api_key="k").complete("ask")),
@@ -278,7 +272,7 @@ MAIN_WRITTEN = [
 
 @pytest.mark.parametrize("key, call", MAIN_WRITTEN,
                          ids=["plain", "system+prefix", "pinned+max_tokens+draw", "stream",
-                              "get_llm-bedrock", "get_llm-openrouter", "openai-rerouted"])
+                              "openai-rerouted"])
 def test_an_entry_main_wrote_is_hit(key, call, cache_dir, fake_llm):
     usage = UsageRecord(total_tokens=7, cost_usd=0.002, cost_known_calls=1)
     (cache_dir / f"{key}.json").write_text(
@@ -453,31 +447,15 @@ def test_the_legacy_calls_forward_retries_max_tokens_and_stream(fake_llm, no_cac
     assert sleeps == [0.25, 0.5]  # max_retries=0: no retry, no sleep
 
 
-def test_draw_is_forwarded_by_the_legacy_calls_and_the_shims(fake_llm, cache_dir):
+def test_draw_is_forwarded_by_the_legacy_calls_and_the_invoker(fake_llm, cache_dir):
     fake_llm.push("d0", "d1", "c1")
-    shim = llm_mod.ChatOpenAI("gpt-6.1-sol", api_key="k")
-    assert shim.invoke("q").content == "d0"
-    assert shim.invoke("q", draw=1).content == "d1"  # its own sample, not draw 0's entry
-    assert shim.invoke("q", draw=1).content == "d1"  # and replayed as such
+    invoker = Invoker(LLM("gpt-6.1-sol", "openai", api_key="k"))
+    assert invoker.invoke("q").content == "d0"
+    assert invoker.invoke("q", draw=1).content == "d1"  # its own sample, not draw 0's entry
+    assert invoker.invoke("q", draw=1).content == "d1"  # and replayed as such
     assert llm_call("q", "gpt-6.1-sol", "openai", api_key="k", draw=1) == "d1"
     assert llm_call("q", "gpt-6.1-sol", "openai", api_key="k", draw=2) == "c1"
     assert len(fake_llm.requests) == 3
-
-
-def test_get_llm_reads_an_explicit_file_key(tmp_path, fake_llm, no_cache):
-    key_file = tmp_path / "key"
-    key_file.write_text("secret\n", encoding="utf-8")
-    fake_llm.push("ok")
-    get_llm("openai", "gpt-6.1-sol", api_key=f"file:{key_file}").invoke("q")
-    assert fake_llm.requests[0].api_key == "secret"
-
-
-def test_the_chat_shims_delegate_with_their_provider(fake_llm, no_cache):
-    fake_llm.push("a", "b")
-    assert llm_mod.ChatOpenAI("gpt-6.1-sol", api_key="k", temperature=0.0).invoke("q").content == "a"
-    assert llm_mod.ChatAnthropic("claude-sonnet-5-5", api_key="k").invoke("q").content == "b"
-    assert [(r.litellm_model, r.temperature) for r in fake_llm.requests] == [
-        ("gpt-6.1-sol", 0.0), ("anthropic/claude-sonnet-5-5", None)]
 
 
 def test_chat_completion_is_llm_chat_returning_the_raw_response(fake_llm):
@@ -490,33 +468,6 @@ def test_chat_completion_is_llm_chat_returning_the_raw_response(fake_llm):
     (req,) = fake_llm.requests
     assert (req.tools, req.tool_choice, req.max_tokens, req.seed, req.api_key) == (
         tools, "required", 0, 1, "k")
-
-
-@pytest.mark.parametrize("provider, model, route, env, max_tokens", [
-    ("openrouter", "x/y", "openrouter/x/y", "OPENROUTER_API_KEY", 2000),
-    ("google", "gemini-2.5-pro", "vertex_ai/gemini-2.5-pro", "GEMINI_API_KEY", None),
-    ("anthropic", "claude-sonnet-5-5", "anthropic/claude-sonnet-5-5", "ANTHROPIC_API_KEY", None),
-    ("openai", "gpt-6.1-sol", "gpt-6.1-sol", "OPENAI_API_KEY", None),
-    ("amazon-bedrock", "m.x", "bedrock/m.x", "AWS_BEARER_TOKEN_BEDROCK", None),
-])
-def test_get_llm_keeps_its_own_routes_keys_and_labels(provider, model, route, env, max_tokens,
-                                                      monkeypatch, fake_llm, no_cache):
-    monkeypatch.setenv(env, "from-env")
-    fake_llm.push("ok")
-    resp = get_llm(provider, model).invoke("q")
-    (req,) = fake_llm.requests
-    assert (req.litellm_model, req.api_key, req.max_tokens) == (route, "from-env", max_tokens)
-    assert (resp.content, resp.usage.model, resp.usage.provider) == ("ok", route, "litellm")
-
-
-def test_get_llm_on_bedrock_reads_only_the_bearer_token(monkeypatch, fake_llm, no_cache):
-    monkeypatch.delenv("AWS_BEARER_TOKEN_BEDROCK", raising=False)
-    monkeypatch.setenv("ANTHROPIC_DEFAULT_SONNET_MODEL", "us.anthropic.sonnet")
-    fake_llm.push("ok", "ok")
-    get_llm("amazon-bedrock", "claude-sonnet-4-5", api_key="ignored").invoke("q")
-    get_llm("azure", "gpt-4o", api_key="explicit").invoke("q")
-    assert [(r.litellm_model, r.api_key) for r in fake_llm.requests] == [
-        ("bedrock/us.anthropic.sonnet", ""), ("azure/gpt-4o", "explicit")]
 
 
 # ── the seam ────────────────────────────────────────────────────────────────

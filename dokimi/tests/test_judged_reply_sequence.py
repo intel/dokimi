@@ -18,7 +18,7 @@ from dokimi.eval.judge import Judge
 from dokimi.eval.panel import JudgeConfig, JudgePanel
 from dokimi.eval.rubric import FORMAT_REMINDER
 from dokimi.judged import REDRAW_REMINDER, judged_reply
-from dokimi.llm import ChatOpenAI, Unparseable
+from dokimi.llm import LLM, Invoker, Unparseable
 
 JUDGE_GOOD = (
     '{"correctness": 80, "completeness": 80, "specificity": 80, '
@@ -43,7 +43,7 @@ def _judge(temperature=None, seed=None):
     judge._accumulate_usage = lambda usage: None
     judge.temperature, judge.seed = temperature, seed
     judge._usage_lock, judge._usage_totals = threading.Lock(), {"redrawn_judgements": 0}
-    judge.llm = ChatOpenAI(model="gpt-x", api_key="k", temperature=temperature, seed=seed)
+    judge.llm = Invoker(LLM("gpt-x", "openai", "k", temperature=temperature, seed=seed))
     return judge
 
 
@@ -155,7 +155,7 @@ def test_panel_pinned_three_unparseable_replies_fail_the_vote_and_store_nothing(
 def _pairwise_judge(pinned):
     from dokimi.eval.pairwise import PairwiseJudge
 
-    llm = ChatOpenAI(model="gpt-x", api_key="k", temperature=0.0 if pinned else None, seed=7 if pinned else None)
+    llm = Invoker(LLM("gpt-x", "openai", "k", temperature=0.0 if pinned else None, seed=7 if pinned else None))
     return PairwiseJudge(
         ask=lambda prompt, draw=0, cache_if=None: llm.invoke(prompt, draw=draw, cache_if=cache_if).content,
         pinned=pinned,
