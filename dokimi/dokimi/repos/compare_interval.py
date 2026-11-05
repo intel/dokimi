@@ -133,5 +133,11 @@ def includes_zero(lo: float | None, hi: float | None) -> bool:
 
 
 def format_interval(lo: float | None, hi: float | None) -> str:
-    """``[lo, hi]`` at 3 decimals, an open end as ``-inf`` or ``+inf``."""
-    return f"[{'-inf' if lo is None else f'{lo:+.3f}'}, {'+inf' if hi is None else f'{hi:+.3f}'}]"
+    """``[lo, hi]`` at 3 decimals, an open end as ``-inf`` or ``+inf``; a non-zero end 3 decimals would print as
+    ``0.000`` gets 2 significant digits, so the text shows the side of 0 the row's verdict puts it on."""
+    return f"[{'-inf' if lo is None else _end_text(lo)}, {'+inf' if hi is None else _end_text(hi)}]"
+
+
+def _end_text(end: float) -> str:
+    text = f"{end:+.3f}"
+    return f"{end:+.2g}" if end and float(text) == 0 else text

@@ -2074,7 +2074,8 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   counts, the tied ones included (their delta becomes -theta), and the smallest p over n tasks is `2 / 2^n`, so
   both ends are bounded from 6 tasks on, whatever the ties, and open (`null` in `--json`, `-inf` / `+inf` in the
   text) at 5 or fewer, one task included. The test stays exact, with no mid-p: p(theta) is a step function and the
-  ends are its step points, so an end can be a delta itself, or 0.
+  ends are its step points, so an end can be a delta itself, or 0. The text prints an end at 3 decimals, and a
+  non-zero end that would print as `0.000` at 2 significant digits (`+0.0002`), so it keeps its side of 0.
   A `process` count, `first_prompt_tokens` or `first_useful_*` only one arm reports for the shared tasks of a
   (treatment, model) is not compared; a warning names it. When neither arm
   reports it (a batch run before `repo run` recorded it), the row is absent.

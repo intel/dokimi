@@ -319,6 +319,23 @@ def test_a_gate_interval_against_p_holm_is_flagged(tmp_path):
                      "uncorrected; p_holm decides this row"] * 2
 
 
+def test_a_small_interval_against_p_holm_prints_its_ends_off_zero(tmp_path):
+    # six score deltas of +0.0002 per treatment: both ends +0.0002, which 3 decimals would print as +0.000
+    b = tmp_path / "b"
+    for i in range(6):
+        _cell(b, f"t{i}", "guidance:none", 1, score=0.5)
+        for arm in ("guidance:raw", "guidance:other"):
+            _cell(b, f"t{i}", arm, 1, score=0.5002)
+    s = compare([b], "guidance:none")
+    assert _row(s, "score")["delta"]["lo"] > 0 and _row(s, "score")["p_holm"] == 0.0625
+    lines = format_compare(s).splitlines()
+    assert [line.split()[4:7] for line in lines if line.startswith("  score  ")] == [
+        ["+0.000", "[+0.0002,", "+0.0002]"]] * 2  # the mean column stays at 3 decimals
+    assert [line for line in lines if line.startswith("  score: the interval")] == [
+        "  score: the interval [+0.0002, +0.0002] excludes 0 but p_holm 0.0625 is ≥ 0.05: the interval is "
+        "uncorrected; p_holm decides this row"] * 2
+
+
 def test_a_family_of_one_has_nothing_to_disagree_with(tmp_path):
     # p_holm is the raw p 0.031 there, and the interval agrees with the raw p: no note
     _six_of_seven_up(tmp_path / "one", ("guidance:raw",))

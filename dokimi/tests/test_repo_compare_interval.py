@@ -135,6 +135,11 @@ def test_an_open_end_prints_as_inf():
     assert format_interval(None, 0.5) == "[-inf, +0.500]" and format_interval(-0.25, None) == "[-0.250, +inf]"
 
 
+def test_an_end_three_decimals_would_print_as_zero_keeps_its_sign_and_value():
+    assert format_interval(1e-4, 4.9e-4) == "[+0.0001, +0.00049]" and format_interval(-3e-4, 0.0) == "[-0.0003, +0.000]"
+    assert format_interval(1e-8, 0.0005) == "[+1e-08, +0.001]"  # an exact (ledger) end is not rounded to 4 places
+
+
 def test_json_rows_name_the_interval_method_and_open_ends_are_null(tmp_path, capsys):
     b = tmp_path / "b"
     for task in ("fix_a", "fix_b", "fix_c"):
