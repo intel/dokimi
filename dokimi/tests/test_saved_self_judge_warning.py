@@ -98,14 +98,47 @@ def test_command_checks_the_recorded_model(module, words, tmp_path, monkeypatch)
     seen = []
 
     def stop(data, judges, context, roles=("answer", "judge")):
-        seen.append((context, list(judges), roles))
+        seen.append((context, list(judges), roles, data))
         raise Stop
 
     monkeypatch.setattr(importlib.import_module(module), "warn_recorded_self_judge", stop)
     args = parse_args(argv)
     with pytest.raises(Stop):
         args.func(args)
+    assert seen[0][0] == " ".join(words)
     assert ("gpt-6.1-sol", "openai") in seen[0][1]
+    assert seen[0][2] == (("generator", "reviewer") if module.endswith("questions") else ("answer", "judge"))
+    assert isinstance(seen[0][3], dict) and seen[0][3].get("model") == "gpt-6.1-sol"
+
+
+def test_reference_with_no_judge_does_not_warn(tmp_path, monkeypatch):
+    from dokimi.utils import warn_recorded_self_judge as real
+    import dokimi.utils
+
+    calls = []
+    monkeypatch.setattr(dokimi.utils, "warn_recorded_self_judge", lambda *a, **k: calls.append(a) or real(*a, **k))
+    args = parse_args(["eval", "score", "reference", "--answers", str(_arms_file(tmp_path)),
+                       "--questions", str(_questions_file(tmp_path)), "--no-judge",
+                       "--output", str(tmp_path / "o.json")])
+    try:
+        args.func(args)
+    except SystemExit:
+        pass
+    assert calls == []
+
+
+def test_validate_pairwise_checks_the_escalation_judge(tmp_path, monkeypatch):
+    from dokimi.commands import evaluate
+
+    seen = []
+    monkeypatch.setattr(evaluate, "warn_recorded_self_judge",
+                        lambda data, judges, context, **_: (seen.extend(judges), (_ for _ in ()).throw(Stop)))
+    args = parse_args(["eval", "judge", "validate", "--answers", str(_arms_file(tmp_path)),
+                       "--mode", "pairwise", "--judge-provider", "anthropic", "--escalate-model", "gpt-6.1-sol",
+                       "--escalate-provider", "openai", "--output", str(tmp_path / "o.json")])
+    with pytest.raises(Stop):
+        args.func(args)
+    assert ("gpt-6.1-sol", "openai") in seen
 
 
 def test_pairwise_checks_the_escalation_judge_too(tmp_path, monkeypatch):
