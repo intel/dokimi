@@ -150,6 +150,36 @@ def test_a_non_object_match_in_the_grade_is_skipped_as_the_judge_skips_it(tmp_pa
     assert _row(s, JUDGED)["tasks"][0]["n_treatment"] == 1
 
 
+def test_a_parse_error_cell_has_no_matches_and_reports_its_measured_0(tmp_path):
+    b = tmp_path / "b1"
+    _judged(b, "t1", NONE, 1, 2)
+    rd = _judged(b, "t1", RAW, 1, 0, recall=0.0, write=False)
+    (rd / "grade.json").write_text(json.dumps({"metrics": {"recall": 0.0, "n_threads": 4, "parse_error": True}}))
+    rec = {"cell": rd.name, "task": "t1", "arm": RAW, "model": "m-1", "rep": 1, "n_threads": 4, "recall": 0.0,
+           "parse_error": True}
+    save_artifact("repo_hits_judged", cell_doc(rec, ("openai", "judge-1"), []), rd / "hits_judged.json")
+    s = compare([b], NONE, metrics=("judge:recall_judged",))
+    task = _row(s, JUDGED)["tasks"][0]
+    assert (s["judged_cells"]["arms"][RAW]["read"], task["treatment"], task["n_treatment"]) == (1, 0.0, 1)
+
+
+@pytest.mark.parametrize("change", ["matches not a list", "a pair fewer in the file"])
+def test_judged_pairs_that_do_not_line_up_with_the_grade_are_stale(tmp_path, change):
+    b = tmp_path / "b1"
+    _judged(b, "t1", NONE, 1, 2)
+    if change == "matches not a list":  # load_hits leaves this grade out, so repo hits judge removes its file
+        rd = _judged(b, "t1", RAW, 1, 0, recall=0.0)
+        grade = json.loads((rd / "grade.json").read_text())
+        (rd / "grade.json").write_text(json.dumps({**grade, "details": {"matches": {"0": {"thread": 0}}}}))
+    else:  # a hand-edited file, the grade's recall unchanged
+        rd = _judged(b, "t1", RAW, 1, 2, recall=0.5)
+        doc = json.loads((rd / "hits_judged.json").read_text())
+        (rd / "hits_judged.json").write_text(json.dumps({**doc, "pairs": doc["pairs"][:1]}))
+    _judged(b, "t1", RAW, 2, 1)
+    s = compare([b], NONE, metrics=("judge:recall_judged",))
+    assert (s["judged_cells"]["arms"][RAW]["stale"], s["judged_cells"]["arms"][RAW]["read"]) == (1, 1)
+
+
 def test_a_plain_compare_has_no_judged_cells_and_no_note(tmp_path):
     b = tmp_path / "b1"
     _judged(b, "t1", NONE, 1, 1)
