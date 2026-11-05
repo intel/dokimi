@@ -15,7 +15,7 @@ import pytest
 
 from dokimi.cli import build_parser
 from dokimi.eval.stats import mean_ci
-from dokimi.repos import compare_interval
+from dokimi.repos import compare, compare_interval
 from dokimi.repos.compare import paired_summary, sign_flip_p
 from dokimi.repos.compare_interval import ShiftTest, format_interval, sign_flip_interval
 
@@ -123,11 +123,15 @@ def test_p_at_zero_is_the_sign_flip_p_exact_and_monte_carlo():
     assert ShiftTest(tied).p(0.0) is sign_flip_p(tied) is None and ShiftTest([2.0] * 3).p(2.0) is None
 
 
-def test_the_row_p_places_zero_where_large_deltas_round_p_at_zero_apart():
-    # at 1e9 patterns tying the observed sum round apart: p(0) can read 0.047 against the printed 0.0625
+@pytest.mark.parametrize(("summed", "p", "lo"), [(math.fsum, 0.0625, 0.0), (_left_to_right, 0.046875, 1e-4)],
+                         ids=["compensated", "left_to_right"])
+def test_the_row_p_places_zero_where_large_deltas_round_p_at_zero_apart(monkeypatch, summed, p, lo):
+    # at 1e9 patterns tying the observed sum round apart: p(0) can read 0.047 against the printed 0.0625; the
+    # printed p itself is sum()'s, 0.0625 compensated (3.12 on) and 0.047 left to right (3.11): 0 follows either
+    monkeypatch.setattr(compare, "sum", summed, raising=False)
     a, b, c = 1e9 + 1 / 3, 1e9 + 0.1, 2e9 + 0.2
     row = paired_summary(_pairs([a, b, c, a, -b, a, b]))
-    assert row["p"] == 0.0625 and row["delta"]["lo"] == 0.0 and row["interval_p_disagree"] is False
+    assert row["p"] == p and row["delta"]["lo"] == lo and row["interval_p_disagree"] is False
 
 
 def test_the_interval_excludes_zero_exactly_when_p_is_below_005():
