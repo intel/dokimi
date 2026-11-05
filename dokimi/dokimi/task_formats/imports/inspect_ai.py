@@ -314,12 +314,12 @@ def _hf_call_args(node: ast.Call, base: Path) -> tuple[list[Any], dict[str, Any]
     data_dir = kwargs.get("data_dir")
     # A hub dataset's data_dir= is a subfolder of its repo: only a local loader's, or one that leaves the task, is resolved.
     escapes = isinstance(data_dir, str) and (Path(data_dir).is_absolute() or ".." in Path(data_dir).parts)
+    # datasets reads a local dataset's data_dir= and data_files= from inside its folder, so that folder is their root.
+    root = Path(args[0]) if local else base
     if data_dir is not None and (local or args[0] in _HF_BUILDERS or escapes):
-        # datasets reads a local data_dir= from inside the local dataset's folder, so that folder is its root.
-        root = Path(args[0]) if local else base
         kwargs["data_dir"] = _task_files(data_dir, root, "data_dir")
     if any(k.arg == "data_files" for k in node.keywords):
-        kwargs["data_files"] = _task_files(kwargs.get("data_files"), base)
+        kwargs["data_files"] = _task_files(kwargs.get("data_files"), root)
     return args, kwargs
 
 
