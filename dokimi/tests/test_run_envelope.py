@@ -95,14 +95,17 @@ def test_an_input_kind_is_saved_with_no_envelope(tmp_path, kind):
     assert not set(ENVELOPE_KEYS) & set(written)
 
 
-def test_a_plan_keeps_its_digest_when_saved_in_another_process(tmp_path, monkeypatch):
-    """Why a plan is an input: the completeness check compares the plan's digest with the result's
-    plan_digest, and a run id in the plan would change that digest in every process."""
+def test_a_plan_carries_the_envelope_and_keeps_its_digest(tmp_path, monkeypatch):
+    """A plan is saved with its run's envelope, so it groups with the run's result; the completeness
+    check compares the plan's digest with the result's plan_digest, so the envelope is not hashed."""
     plan = _fixture("plan")
     monkeypatch.setenv(artifacts.RUN_ID_ENV, "first")
-    save_artifact("plan", plan, tmp_path / "plan.json")
+    save_artifact("plan", plan, tmp_path / "first.json")
     monkeypatch.setenv(artifacts.RUN_ID_ENV, "second")
-    assert plan_digest(load_artifact("plan", tmp_path / "plan.json")) == plan_digest(plan)
+    save_artifact("plan", load_artifact("plan", tmp_path / "first.json"), tmp_path / "second.json")
+    first, second = (load_artifact("plan", tmp_path / f"{n}.json") for n in ("first", "second"))
+    assert (first["run_id"], second["run_id"]) == ("first", "second")
+    assert plan_digest(first) == plan_digest(second) == plan_digest(plan)
 
 
 def test_a_question_set_saved_again_in_another_process_keeps_its_bytes(tmp_path, monkeypatch):
@@ -145,7 +148,7 @@ def test_stamp_sets_what_save_writes(tmp_path):
     payload = _fixture("task_inspect")
     printed = stamp("task_inspect", dict(payload))
     assert printed == save_artifact("task_inspect", payload, tmp_path / "t.json")
-    assert not set(ENVELOPE_KEYS) & set(stamp("plan", _fixture("plan")))
+    assert not set(ENVELOPE_KEYS) & set(stamp("questions", _fixture("questions")))
 
 
 def test_the_run_id_is_made_once_per_process(fresh_id):
@@ -200,7 +203,7 @@ def test_the_cli_refuses_a_malformed_dokimi_run_id_before_the_command_runs(monke
 
 def test_runs_show_says_why_a_file_has_no_run_id(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("DOKIMI_RUNS_DIR", str(tmp_path))
-    save_artifact("plan", _fixture("plan"), tmp_path / "plan.json")
+    save_artifact("questions", _fixture("questions"), tmp_path / "questions.json")
     (tmp_path / "old.json").write_text(json.dumps({"schema_version": "arms.v1", **_fixture("arms")}),
                                        encoding="utf-8")
     save_artifact("arms", _fixture("arms"), tmp_path / "new.json")
@@ -208,11 +211,11 @@ def test_runs_show_says_why_a_file_has_no_run_id(tmp_path, monkeypatch, capsys):
         (tmp_path / name).write_text(json.dumps({"schema_version": "arms.v1", "run_id": bad, **_fixture("arms")}),
                                      encoding="utf-8")
     shown = {}
-    for name in ("plan.json", "old.json", "new.json", "bad.json", "bad-id.json", "bad-nl.json"):
+    for name in ("questions.json", "old.json", "new.json", "bad.json", "bad-id.json", "bad-nl.json"):
         monkeypatch.setattr("sys.argv", ["dokimi", "runs", "show", name])
         cli.main()
         shown[name] = next(line for line in capsys.readouterr().out.splitlines() if line.startswith("run_id:"))
-    assert shown == {"plan.json": "run_id:     - (an input kind: no envelope)",
+    assert shown == {"questions.json": "run_id:     - (an input kind: no envelope)",
                      "old.json": "run_id:     - (saved before the envelope)",
                      "new.json": f"run_id:     {run_id()}",
                      "bad.json": "run_id:     - (not a run id: see the schema errors)",

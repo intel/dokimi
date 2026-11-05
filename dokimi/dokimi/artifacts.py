@@ -100,9 +100,10 @@ SUPERSEDED_VERSIONS: dict[str, tuple[str, ...]] = {
 #: Kinds that are not a run's product: what a run is given (a question set, a repository's config, a
 #: rule ledger, a frozen need graph) and the CLI's route table. :func:`save_artifact` gives them no
 #: envelope. A question set is reused across runs and digested by its bytes (``question_set_hash`` of a
-#: subject scorecard), so a run id in it would change that digest on every re-save.
+#: subject scorecard), so a run id in it would change that digest on every re-save. A plan is a run's
+#: product: it carries the envelope, which ``plan_digest`` leaves out.
 INPUT_KINDS: frozenset[str] = frozenset({"questions", "dokimi_config", "repo_ledger", "need_graph",
-                                         "cli_routes", "plan"})
+                                         "cli_routes"})
 
 #: The envelope keys :func:`save_artifact` writes on a run kind, after ``schema_version``.
 ENVELOPE_KEYS: tuple[str, ...] = ("run_id", "dokimi_version")

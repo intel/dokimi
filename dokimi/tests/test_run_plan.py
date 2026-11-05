@@ -197,6 +197,13 @@ def test_the_plan_schema_constant_matches_artifacts():
     assert plan_module._PLAN_SCHEMA == SCHEMA_VERSIONS["plan"]
 
 
+def test_plan_digest_leaves_out_the_whole_envelope():
+    from dokimi.artifacts import ENVELOPE_KEYS
+    from dokimi.runner import plan as plan_module
+
+    assert set(ENVELOPE_KEYS) | {"generated_at"} == plan_module._UNHASHED
+
+
 def test_the_result_schema_status_enum_matches_statuses():
     import json
 
