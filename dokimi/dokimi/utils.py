@@ -220,7 +220,7 @@ def _nested_allowed(repo: Path, rel: str) -> _Allowed:
     failure raises an OSError naming the repository (see :func:`_nested_git`)."""
     git_dir = f"--git-dir={os.fspath(repo / '.git')}"
     top = _nested_git(repo, [git_dir, "rev-parse", "--show-toplevel"], timeout=60)
-    if Path(os.path.realpath(os.fsdecode(top).strip())) != repo:
+    if Path(os.path.realpath(os.fsdecode(top).rstrip("\n"))) != repo:
         raise OSError(None, "git reads this .git as a repository elsewhere", os.fspath(repo))
     listed = _nested_git(repo, ["ls-files", "--cached", "--others", "--exclude-standard", "-z"], timeout=120)
     files: set[str] = set()
