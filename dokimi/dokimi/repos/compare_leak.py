@@ -44,6 +44,7 @@ from typing import Any
 from .budget import RULE_GLOB
 from .guidance_history import GUIDANCE_COMMITS_CAP
 from .receipt import SUBTREE_NAMES
+from .workspace import _SKILL_PREFIXES, ARMS, FORMAT_ARM
 
 #: Instruction files that apply to their own directory and below; any other guidance path applies everywhere
 SCOPED_NAMES = (*SUBTREE_NAMES, "GEMINI.md")
@@ -87,7 +88,10 @@ def _kind(cells: list[dict[str, Any]], metas: list[Any]) -> str | None:
     if any(isinstance(m, dict) and "arm_patch" in m for m in metas) or any(
             str(c["arm"]).startswith("patch:") for c in cells):
         return "patch"
-    # An unreadable meta.json hides what the arm is: check it, so its replay tasks are reported unknown.
+    if all(str(c["arm"]).split("+")[0] in ARMS or str(c["arm"]).startswith((FORMAT_ARM, *_SKILL_PREFIXES))
+           for c in cells):
+        return None  # the name says it has no history (guidance:none, guidance:format=, skill:...), whatever meta.json is
+    # An unreadable meta.json hides what an arm of another name is: check it, so its replay tasks are reported unknown.
     return "guidance:rev" if any(isinstance(m, str) for m in metas) else None
 
 

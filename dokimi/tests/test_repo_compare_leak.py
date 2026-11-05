@@ -331,6 +331,22 @@ def test_a_custom_named_arm_with_an_unreadable_meta_json_has_its_tasks_unknown(t
     assert leak["unknown"] == {"review_replay_pr1": "its meta.json is not readable JSON"}
 
 
+@pytest.mark.parametrize("plain", ["guidance:none", "guidance:raw", "guidance:format=yaml", "guidance:none+skill:lint",
+                                   "skill:lint"])
+def test_an_arm_named_without_history_is_not_checked_whatever_its_meta_json(tmp_path, plain):
+    """One unreadable ``meta.json`` in a plain arm leaves it out of the check, and the rev arm keeps its clean line."""
+    meta = _rev({"AGENTS.md": _commit(SHA["root"], LATE)})
+    specs = {"review_replay_pr1": _spec(1, public="2026-05-01T00:00:00Z"), "review_replay_pr2": _spec(2)}
+    batch = tmp_path / "b1"
+    for task, spec in specs.items():
+        _cell(batch, task, plain, meta={"arm": plain}, spec=spec)
+        _cell(batch, task, REV, meta=meta, spec=spec)
+    (next(batch.glob(f"review_replay_pr1__{plain.replace(':', '-')}__*")) / "meta.json").write_text("{broken")
+    summary = compare([batch], plain)
+    assert [e["arm"] for e in summary["leak"]] == [REV]
+    assert "  clean: --task review_replay_pr1" in format_compare(summary).splitlines()
+
+
 def test_a_clean_task_another_checked_arm_flags_is_not_suggested_as_a_task_option(tmp_path):
     other = "guidance:rev:" + "e" * 40
     early = _rev({"AGENTS.md": _commit(SHA["root"], EARLY)}, [_commit(SHA["named"], EARLY, "Rules from #3103")])
