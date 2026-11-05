@@ -5,8 +5,13 @@
 
 from __future__ import annotations
 
+import functools
 import json
+import math
+import operator
 import random
+
+import pytest
 
 from dokimi.cli import build_parser
 from dokimi.eval.stats import mean_ci
@@ -53,12 +58,32 @@ def test_an_end_is_open_at_five_or_fewer_tasks_and_bounded_from_six():
     assert sign_flip_interval([5.0] * 6, sign_flip_p([5.0] * 6)) == (5.0, 5.0)
 
 
-def test_an_end_is_bounded_at_deltas_too_large_to_move_by_one():
+def _left_to_right(xs, start=0.0):
+    """``sum`` of floats as Python 3.11 adds them: in order, uncompensated (3.12 made ``sum`` compensated)."""
+    return functools.reduce(operator.add, xs, start)
+
+
+@pytest.mark.parametrize("summed", [sum, _left_to_right], ids=["builtin", "left_to_right"])
+def test_an_end_is_bounded_at_deltas_too_large_to_move_by_one(monkeypatch, summed):
     # 1e16 + 1.0 == 1e16: a far bound 1 past the extreme tied every shifted delta and left the end open
+    monkeypatch.setattr(compare_interval, "sum", summed, raising=False)  # 3.11's sum() put 2e16's end at 2e16 + 4
     for v in (1e16, 1e150):  # finite measures go up to SCORE_BOUND, 1e150
         assert sign_flip_interval([v] * 6, sign_flip_p([v] * 6)) == (v, v)
         assert sign_flip_interval([-v] * 6, sign_flip_p([-v] * 6)) == (-v, -v)
     assert sign_flip_interval([1e16] * 5 + [2e16], sign_flip_p([1e16] * 5 + [2e16])) == (1e16, 2e16)
+
+
+def test_the_ends_are_the_same_whether_python_sums_compensated_or_left_to_right(monkeypatch):
+    # sum() of floats is compensated from Python 3.12 on and not before: a row's ends must not depend on the Python
+    rng = random.Random(11)
+    rows = [[scale * rng.uniform(-0.6, 1.0) for _ in range(rng.randint(6, 24))]
+            for scale in (1e6, 1e13, 1e16, 1e100) for _ in range(10)]
+    ps = [sign_flip_p(d) for d in rows]
+    ends = {}
+    for name, summed in (("builtin", sum), ("compensated", math.fsum), ("left_to_right", _left_to_right)):
+        monkeypatch.setattr(compare_interval, "sum", summed, raising=False)
+        ends[name] = [sign_flip_interval(d, p, rounded=False) for d, p in zip(rows, ps, strict=True)]
+    assert ends["builtin"] == ends["compensated"] == ends["left_to_right"]
 
 
 def test_large_deltas_keep_the_ends_and_the_p_of_the_shifted_deltas():

@@ -6,9 +6,11 @@
 ``p(theta)`` is the two-sided sign-flip p of the shifted deltas ``d - theta`` over every task, as
 :func:`~.compare.sign_flip_p` computes it on them: a shifted delta within :data:`EPS` of 0 is a tie, so a task tied
 at 0 counts again once ``theta`` moves off 0. Exact, a sign pattern counts when its sum falls short of the observed
-one by at most :data:`EPS`, the observed sum taken as the least of the Python sum and the product's sums for the
-observed signs and their mirror: from deltas of about 1e6 on the two round apart by more than :data:`EPS`, and the
-observed pattern would not count itself.
+one by at most :data:`EPS`, the observed sum taken as the least of its exactly rounded sum and the product's sums for
+the observed signs and their mirror: from deltas of about 1e6 on the two round apart by more than :data:`EPS`, and the
+observed pattern would not count itself. The observed sum and the mean the bisection starts from are
+:func:`math.fsum`'s, not ``sum``'s, which is compensated from Python 3.12 on and adds left to right before: so the
+ends are the same on every Python.
 
 The interval is every ``theta`` with ``p(theta)`` at least :data:`~.compare_reach.ALPHA`, uncorrected; each end is bisected between the mean (where p is 1) and a far bound past
 every delta and 0 (1 past the extreme, twice it from 1 on), where the shifted deltas share one sign and p is at its floor, ``2 / 2**n`` over n tasks exact.
@@ -83,7 +85,7 @@ class ShiftTest:
         moved = x[x != 0.0]
         if not moved.size:
             return None
-        observed = abs(sum(moved.tolist()))  # summed as sign_flip_p sums, in its order
+        observed = abs(math.fsum(moved.tolist()))  # exactly rounded: sum() rounds differently before 3.12
         if moved.size <= EXACT_MAX:
             sums = np.abs(_patterns(moved.size) @ moved)  # rows 0 and -1: the observed signs and their mirror
             least = min(observed, float(sums[0]), float(sums[-1]))  # the product rounds them otherwise from 1e6 on
@@ -99,7 +101,7 @@ def sign_flip_interval(deltas: list[float], p_zero: float | None, seed: int = 0,
 
     ``p_zero`` is the row's p, :func:`~.compare.sign_flip_p` of ``deltas`` (``None``: every delta tied, no evidence
     against 0): it decides whether 0 is inside."""
-    test, mean = ShiftTest(deltas, seed), sum(deltas) / len(deltas)
+    test, mean = ShiftTest(deltas, seed), math.fsum(deltas) / len(deltas)
     zero_inside, low, high = p_zero is None or p_zero >= ALPHA, min(*deltas, 0.0), max(*deltas, 0.0)
     # far is 1 past the extreme, or twice it from 1 on: 1e16 + 1.0 rounds back onto 1e16, all tied
     ends = (_end(test, mean, low - max(1.0, -low), zero_inside),
