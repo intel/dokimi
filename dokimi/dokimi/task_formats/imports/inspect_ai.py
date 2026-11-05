@@ -235,18 +235,25 @@ def _scorer(node: Optional[ast.AST], imp: Imported) -> tuple[str, dict[str, Any]
     return _name(first), kwargs
 
 
-def _task_files(value: Any, base: Path) -> Any:
-    """``data_files=`` with every name resolved inside the task's directory: a name, or a list or dict of them."""
+def _task_files(value: Any, base: Path, name: str = "data_files") -> Any:
+    """A loader's local ``name=`` with every path resolved inside the task's directory: a path, or a list or dict of them."""
     if isinstance(value, str):
         files = (base / value).resolve()
         if not files.is_relative_to(base.resolve()):
-            raise ValueError(f"hf_dataset data_files {value} is outside the task's directory")
+            raise ValueError(f"hf_dataset {name} {value} is outside the task's directory")
         return str(files)
     if isinstance(value, (list, tuple)):
-        return [_task_files(v, base) for v in value]
+        return [_task_files(v, base, name) for v in value]
     if isinstance(value, dict):
-        return {k: _task_files(v, base) for k, v in value.items()}
-    raise ValueError("hf_dataset data_files must be literal paths, or a list or dict of them")
+        return {k: _task_files(v, base, name) for k, v in value.items()}
+    raise ValueError(f"hf_dataset {name} must be literal paths, or a list or dict of them")
+
+
+def _hf_path(value: str, base: Path) -> str:
+    """The loader's dataset path. A local one (absolute, a ``..``, or a name in the task) is resolved in the task like
+    ``data_files=``; a hub name or a builder (``json``) is passed on as it is."""
+    local = bool(value) and (Path(value).is_absolute() or ".." in Path(value).parts or (base / value).exists())
+    return _task_files(value, base, "path") if local else value
 
 
 def _hf_literal_keywords(node: ast.Call) -> None:
@@ -289,6 +296,9 @@ def _hf_call_args(node: ast.Call, base: Path) -> tuple[list[Any], dict[str, Any]
         raise ValueError("hf_dataset: the path and split= must be literal strings")
     if kwargs.get("trust_remote_code"):
         raise ValueError("hf_dataset: trust_remote_code= would run the dataset's own loader code on import; refused")
+    args[0] = _hf_path(args[0], base)
+    if kwargs.get("data_dir") is not None:
+        kwargs["data_dir"] = _task_files(kwargs["data_dir"], base, "data_dir")
     if any(k.arg == "data_files" for k in node.keywords):
         kwargs["data_files"] = _task_files(kwargs.get("data_files"), base)
     return args, kwargs

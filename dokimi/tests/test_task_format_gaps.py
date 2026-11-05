@@ -118,6 +118,19 @@ def test_hf_dataset_data_files_outside_the_task_are_refused(tmp_path):
         import_path(task, fmt="inspect-task")
 
 
+def test_hf_dataset_path_and_data_dir_outside_the_task_are_refused(tmp_path):
+    pytest.importorskip("datasets")
+    (tmp_path / "outside").mkdir()
+    _jsonl(tmp_path / "outside" / "train.jsonl", [{"question": "SECRET?", "answer": "x"}])
+    for call in (f"hf_dataset({str(tmp_path / 'outside')!r}, split='train')",
+                 f"hf_dataset('json', data_dir={str(tmp_path / 'outside')!r}, split='train')",
+                 "hf_dataset('json', data_dir='../outside', split='train')",
+                 "hf_dataset('../outside', split='train')"):
+        task = _write(tmp_path / "d" / "t.py", f"@task\ndef t():\n    return Task(dataset={call}, scorer=match())\n")
+        with pytest.raises(ValueError, match="outside the task's directory"):
+            import_path(task, fmt="inspect-task")
+
+
 # --- (c) promptfoo configs written as code ----------------------------------------------------
 
 
