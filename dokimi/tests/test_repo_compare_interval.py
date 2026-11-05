@@ -168,6 +168,14 @@ def test_a_mean_rounded_to_zero_is_zero_not_negative_zero():
     assert json.dumps(mean) == "0.0" and f"{mean:+.3f}" == "+0.000"
 
 
+@pytest.mark.parametrize("sign", [1, -1])
+def test_a_tiny_mean_stays_inside_its_interval_kept_off_zero(sign):
+    # both ends of six deltas of 4e-5 round to 0 and are kept at 0.0001; the mean at 4 places was 0.0, outside them
+    delta = paired_summary(_pairs([sign * 4e-5] * 6))["delta"]
+    assert (delta["lo"], delta["mean"], delta["hi"]) == (sign * 1e-4,) * 3
+    assert paired_summary(_pairs([4e-5] * 5 + [-1e-5]))["delta"]["mean"] == 0.0  # interval [-0.0001, +0.0001]
+
+
 def test_an_open_end_prints_as_inf():
     assert format_interval(None, 0.5) == "[-inf, +0.500]" and format_interval(-0.25, None) == "[-0.250, +inf]"
 

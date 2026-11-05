@@ -136,6 +136,12 @@ def _rounded(end: float | None) -> float | None:
     return math.copysign(1e-4, end) if out == 0 and end != 0 else out + 0.0  # + 0.0: no -0.0
 
 
+def within(mean: float, lo: float | None, hi: float | None) -> float:
+    """``mean`` held inside ``[lo, hi]``, an open end unbounded: :func:`_rounded` puts an end below 5e-5 at ±0.0001,
+    past a mean 4 places put at 0."""
+    return min(max(mean, -math.inf if lo is None else lo), math.inf if hi is None else hi)
+
+
 def includes_zero(lo: float | None, hi: float | None) -> bool:
     """Whether the interval holds 0, an open end unbounded."""
     return (lo is None or lo <= 0) and (hi is None or hi >= 0)

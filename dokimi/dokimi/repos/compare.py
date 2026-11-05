@@ -114,7 +114,7 @@ from dokimi.eval.stats import correct_family
 from dokimi.utils import same_model
 
 from .compare_interval import (EPS, EXACT_MAX, METHOD, N_RESAMPLES, format_interval, includes_zero,
-                               sign_flip_interval)
+                               sign_flip_interval, within)
 from .compare_reach import ALPHA, holm_floor, min_detectable
 from .compare_tasks import CompareError, select_tasks
 from .compare_values import finite_values, task_values
@@ -567,7 +567,8 @@ def paired_summary(pairs: list[dict[str, Any]], measure: str = "gate", seed: int
         "n_tasks": len(pairs),
         "baseline_mean": _round(_mean([p["baseline"] for p in pairs])),
         "treatment_mean": _round(_mean([p["treatment"] for p in pairs])),
-        "delta": {"mean": mean if exact else round(mean, 4) + 0.0, "lo": lo, "hi": hi, "method": METHOD},  # no -0.0
+        "delta": {"mean": mean if exact else within(round(mean, 4) + 0.0, lo, hi), "lo": lo, "hi": hi,  # no -0.0
+                  "method": METHOD},
         "p": p,
         "p_holm": None,
         "p_holm_floor": None,
