@@ -380,9 +380,11 @@ def test_promptfoo_typescript_config_on_an_old_node_says_what_it_needs(tmp_path,
 @pytest.mark.skipif(shutil.which("node") is None, reason="node is not on PATH")
 def test_promptfoo_typescript_config_is_read_by_node(tmp_path):
     import subprocess
-    probe = subprocess.run(["node", "--experimental-strip-types", "-e", ""], capture_output=True)
+    # The flag alone is not enough: a node without type stripping can accept it and still refuse a .ts file.
+    probe_file = _write(tmp_path / "probe.ts", "const n: number = 1;\nconsole.log(n);\n")
+    probe = subprocess.run(["node", "--experimental-strip-types", str(probe_file)], capture_output=True)
     if probe.returncode != 0:
-        pytest.skip("node is older than 22.6: no type stripping for .ts configs")
+        pytest.skip("node cannot load a .ts file (older than 22.6, or built without type stripping)")
     config = _write(tmp_path / "promptfooconfig.ts", (
         "type Cfg = { prompts: string[] };\n"
         "const cfg: Cfg = { prompts: ['hi'], tests: [{ vars: {}, assert: [{ type: 'contains', value: 'hi' }] }] };\n"
