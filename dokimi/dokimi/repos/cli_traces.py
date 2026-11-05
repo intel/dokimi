@@ -124,21 +124,19 @@ def shell_reads_moved(script: str, cwd: str = "") -> tuple[list[str], bool]:
     return shell_walk(script, cwd)[:2]
 
 
-def shell_walk(script: str, cwd: str = "", functions: Functions | None = None) -> tuple[list[str], bool, int]:
-    """:func:`shell_reads_moved`, and how many relative files its printing commands named at a directory not known.
-    ``functions``: those an earlier script defined in the same shell; this script's definitions are added to it, and a
-    call of any of them is no read."""
-    reads, walk = _walk_script(script, cwd, functions)
+def shell_walk(script: str, cwd: str = "") -> tuple[list[str], bool, int]:
+    """:func:`shell_reads_moved`, and how many relative files its printing commands named at a directory not known."""
+    reads, walk = _walk_script(script, cwd)
     return reads, walk.shell_moved, walk.unknown
 
 
-def _walk_script(script: str, cwd: str, functions: Functions | None = None) -> tuple[list[str], _Walk]:
+def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
     out: list[str] = []
     previous = ""
     # a line continuation is removed, not made a space (``cat AGENTS\<newline>.md`` reads AGENTS.md); a heredoc body
     # is input, not commands
     script = _HEREDOC.sub(lambda m: m.group(3), _CONTINUATION.sub("", script))
-    known: Functions = {} if functions is None else functions
+    known: Functions = {}
     walk = _Walk(posixpath.normpath(cwd) if cwd else "", define(known, script), known)
     for part, after, in_subshell, outer in split_script(script):
         op, previous = previous, after
@@ -171,7 +169,7 @@ class _Walk:
 
     def __init__(self, here: str | None, movers: frozenset[str] = frozenset(), functions: Functions | None = None) -> None:
         self.here = here
-        self.functions = {} if functions is None else functions  # the shell functions the script, or an earlier one, defined
+        self.functions = {} if functions is None else functions  # the shell functions the script defines
         self.dirs = _DIRS | movers  # and those whose call may move the shell (``shell_functions.define``)
         self.moved = False  # a cd was seen in this shell: after ||, the directory is not known
         self.shell_moved = False  # a directory builtin ran in the script's shell, not in a subshell

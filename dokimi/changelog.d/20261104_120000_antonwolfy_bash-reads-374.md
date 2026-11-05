@@ -9,8 +9,8 @@
   `time cat AGENTS.md`, `time -p cat AGENTS.md`, `time X=1 cat AGENTS.md`, `X=1 time cat
   AGENTS.md` and `command cat AGENTS.md` now read `AGENTS.md`. `f() { cd sub; }; f; cat AGENTS.md`
   read the root's `AGENTS.md`; a call of a function whose body names `cd`, `pushd`, `popd`,
-  `eval`, `source` or `.` now loses the directory as an `eval` does, also when an earlier Claude
-  Code Bash call defined it. A definition whose `{` is on a later line (`f()`, a newline, `{ cd
+  `eval`, `source` or `.` now loses the directory as an `eval` does; a function an earlier Claude
+  Code Bash call defined is not carried to the next, which starts in a new shell. A definition whose `{` is on a later line (`f()`, a newline, `{ cd
   sub; }`) no longer runs its body's `cd`: it is only defined. A call of a function named like a
   printer (`cat() { echo hi; }; cat AGENTS.md`, `\cat AGENTS.md` and a body in parentheses,
   `cat() ( echo hi )` or `function cat ( echo hi )`, too) is no read, while `command
@@ -21,7 +21,5 @@
   nothing. `time -x cat AGENTS.md` and `time --help cat AGENTS.md` are no read (the keyword takes
   only `-p` and `--`), and a failed `source 'my env/bin/activate' && cat AGENTS.md` is no read.
   `env command cat AGENTS.md` and `/usr/bin/env command cat AGENTS.md` are no read, and `env
-  command -p cd sub` moves no shell: `env` runs a program named `command`, not the builtin. A
-  Bash call that a hook or the permissions refused defines no function for the later calls: a
-  refused `cat() { echo hi; }` leaves the next `cat AGENTS.md` a read. So `guidance_read` and
+  command -p cd sub` moves no shell: `env` runs a program named `command`, not the builtin. So `guidance_read` and
   `unknown_reads` can change for such traces.

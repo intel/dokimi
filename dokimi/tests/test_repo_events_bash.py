@@ -501,19 +501,21 @@ def test_a_function_naming_no_directory_builtin_or_called_in_a_subshell_moves_no
     assert shell_walk(command) == (["AGENTS.md"], False, 0)
 
 
-def test_a_function_an_earlier_call_defined_moves_the_shell_when_a_later_call_runs_it():
-    # Claude Code keeps the shell's functions between Bash calls, as it keeps its directory
+def test_a_function_an_earlier_call_defined_does_not_move_the_shell_of_a_later_call():
+    # Claude Code starts each Bash call in a new shell: it keeps the directory, not the functions; ``f`` is not found
     got = _process(_call("a", "f() { cd sub; }"), _result("a"), _call("b", "f; cat AGENTS.md"), _result("b"),
                    _call("c", "cat README.md"), _result("c"))
-    assert (got["unknown_reads"], got["guidance_read"]) == (2, [])
-    events = _events(_call("a", "f() { cd sub; }"), _result("a"), _call("b", "f"), _result("b"),
-                     _call("c", "cat AGENTS.md"), _result("c"))
-    assert _reads(events) == []
+    assert (got["unknown_reads"], got["guidance_read"]) == (0, ["AGENTS.md"])
 
 
-def test_a_function_an_earlier_call_defined_with_no_cd_keeps_the_later_read():
-    events = _events(_call("a", "g() { echo hi; }"), _result("a"), _call("b", "g; cat AGENTS.md"), _result("b"))
-    assert _reads(events) == ["AGENTS.md"]
+@pytest.mark.parametrize("first, second", [
+    ("cat() { echo hi; }", "cat AGENTS.md"), ("command() { echo F; }", "command cat AGENTS.md"),
+    ("cat() ( echo FN )", "time cat AGENTS.md"), ("function cat ( echo FN )", "cat AGENTS.md"),
+])
+def test_a_function_an_earlier_call_defined_shadows_no_printer_in_a_later_call(first, second):
+    events = _events(_call("a", first), _result("a"), _call("b", second), _result("b"),
+                     _call("c", "head README.md"), _result("c"))
+    assert _reads(events) == ["AGENTS.md", "README.md"]
 
 
 _LATER_BRACE = ["f()\n{\n  cd sub\n}\n", "function f\n{\n  cd sub\n}\n", "f()\n\n# it's the body\n{\n  cd sub\n}\n",
@@ -589,42 +591,6 @@ def test_command_before_another_prefix_still_runs_the_directory_builtin(command)
 def test_a_function_named_like_a_directory_builtin_or_naming_one_loses_the_directory(command):
     # the function, not the builtin, runs; a definition later in the script counts too, so its cd may not be the one
     assert shell_walk(command) == ([], True, 1)
-
-
-def test_a_function_an_earlier_call_defined_shadows_a_printer_in_a_later_call():
-    events = _events(_call("a", "cat() { echo hi; }"), _result("a"), _call("b", "cat AGENTS.md"), _result("b"),
-                     _call("c", "command cat README.md"), _result("c"))
-    assert _reads(events) == ["README.md"]
-
-
-_REFUSAL_TEXT = {"hook": "PreToolUse:Bash hook error: no", "permissions": "Permission to use Bash has been denied"}
-
-
-def _refused_first(refusal: str | None, first: str, then: str) -> tuple[dict, ...]:
-    """``first`` refused by a hook's result or the final record's ``permission_denials`` (None: it ran), then ``then``."""
-    return (_call("a", first), _result("a", _REFUSAL_TEXT.get(refusal, ""), bool(refusal)), _call("b", then),
-            _result("b"), _denials("a") if refusal == "permissions" else {})
-
-
-@pytest.mark.parametrize("refusal, later", [("hook", [("read", "AGENTS.md", None)]),
-                                            ("permissions", [("read", "AGENTS.md", None)]), (None, [])])
-def test_a_refused_call_defines_no_function_that_shadows_a_later_printer(refusal, later):
-    events = _events(*_refused_first(refusal, "cat() { echo hi; }", "cat AGENTS.md"))
-    assert [(e["kind"], e.get("path"), e.get("denied")) for e in events] == [
-        ("command", None, True if refusal else None), *later, ("command", None, None)]
-
-
-@pytest.mark.parametrize("refusal, got", [("hook", (0, ["AGENTS.md"])), ("permissions", (0, ["AGENTS.md"])),
-                                          (None, (1, []))])  # None: f ran in this shell, its cd may have moved it
-def test_a_refused_call_defines_no_function_that_moves_the_shell(refusal, got):
-    metrics = _process(*_refused_first(refusal, "f() { cd sub; }", "f; cat AGENTS.md"))
-    assert (metrics["unknown_reads"], metrics["guidance_read"]) == got
-
-
-def test_a_refused_call_keeps_the_functions_an_earlier_call_defined():
-    events = _events(_call("a", "cat() { echo hi; }"), _result("a"), _call("b", "g() { echo; }"),
-                     _result("b", "PreToolUse:Bash hook error: no", True), _call("c", "cat AGENTS.md"), _result("c"))
-    assert _reads(events) == []
 
 
 @pytest.mark.parametrize("command", [
@@ -705,14 +671,6 @@ def test_a_function_named_like_a_wrapper_that_names_a_cd_loses_the_directory(com
     assert shell_walk(command) == ([], True, 1)
 
 
-@pytest.mark.parametrize("first, second", [("command() { echo F; }", "command cat AGENTS.md"),
-                                           ("cat() ( echo FN )", "time cat AGENTS.md")])
-def test_a_wrapper_or_subshell_function_an_earlier_call_defined_shadows_a_later_read(first, second):
-    events = _events(_call("a", first), _result("a"), _call("b", second), _result("b"),
-                     _call("c", "head README.md"), _result("c"))
-    assert _reads(events) == ["README.md"]
-
-
 @pytest.mark.parametrize("command", ["cat() ( echo FN ); time cat AGENTS.md", "cat() ( echo FN ); cat AGENTS.md",
                                      "function cat() ( echo FN ); cat AGENTS.md", "cat()\n(\n  echo FN\n)\ncat AGENTS.md"])
 def test_a_function_with_a_subshell_body_named_like_a_printer_is_no_read(command):
@@ -754,15 +712,6 @@ def test_a_brace_word_in_a_subshell_body_opens_no_body_that_hides_the_cd_after_i
     assert shell_walk(command) == (["sub/AGENTS.md"], True, 0)
 
 
-def test_a_function_keyword_subshell_definition_in_an_earlier_call_shadows_and_moves_nothing():
-    events = _events(_call("a", "function cat ( echo FN )"), _result("a"), _call("b", "cat AGENTS.md"), _result("b"),
-                     _call("c", "head README.md"), _result("c"))
-    assert _reads(events) == ["README.md"]
-    events = _events(_call("a", "function f ( cd sub ); f"), _result("a"), _call("b", "cat AGENTS.md"), _result("b"),
-                     _call("c", "f"), _result("c"), _call("d", "head README.md"), _result("d"))
-    assert _reads(events) == ["AGENTS.md", "README.md"]
-
-
 @pytest.mark.parametrize("command", ["time -x cat AGENTS.md; true", "time --help cat AGENTS.md; true",
                                      "time -pp cat AGENTS.md; true", "time -p -p cat AGENTS.md", "time -- -p cat AGENTS.md"])
 def test_a_dash_word_the_time_keyword_takes_as_no_option_is_the_command_name(command):
@@ -782,6 +731,6 @@ def test_a_cd_after_a_dash_word_the_time_keyword_takes_as_no_option_still_loses_
 
 
 def test_a_definition_whose_close_is_not_seen_keeps_the_rest_of_the_script_as_its_body():
-    # bash closes the body at ``}>``, which is not seen here: the body runs to the end, its cd included
-    events = _events(_call("a", "f() { cd sub; }>/dev/null"), _result("a"), _call("b", "f; cat AGENTS.md"), _result("b"))
-    assert _reads(events) == []
+    # bash closes the body at ``}>``, which is not seen here: the body runs to the end, its cd included (a definition
+    # later in the script counts for a call before it)
+    assert shell_walk("f; cat AGENTS.md\nf() { cd sub; }>/dev/null") == ([], True, 1)

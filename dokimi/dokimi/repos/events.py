@@ -22,10 +22,11 @@ A shell command that only prints files (:func:`~dokimi.repos.cli_traces.shell_re
 ``read`` event per file, before its ``command`` event: a Codex or Copilot shell command, and
 Claude Code's ``Bash`` tool. Claude Code keeps the shell's directory from one ``Bash`` call to the
 next, so once any call ran a ``cd`` in that shell (not in a subshell, a pipeline or a background
-job), or called a function that an earlier call (or itself) defined with a ``cd`` in its body, later relative
+job), or called a function that it defined with a ``cd`` in its body, later relative
 reads are not recorded, the parent's and every subagent's alike: subagents may
-share the parent's shell, and dropping a read is the safe side either way. A refused call ran nothing:
-it moves no shell, defines no function for the later calls, and its reads stay, ``denied``, after a move too (a relative one then has no
+share the parent's shell, and dropping a read is the safe side either way. Its functions do not carry
+over: each call starts a new shell, only the directory kept. A refused call ran nothing:
+it moves no shell, and its reads stay, ``denied``, after a move too (a relative one then has no
 ``path``: which file it named is not known; ``guidance_read``, reach and skill use skip a denied read). The reads are settled when the trace ends,
 since a ``permission_denials`` entry comes only in the final result.
 
@@ -46,7 +47,6 @@ from typing import Any
 from dokimi.context.trace import parse_trace
 
 from .cli_traces import _failed_read, codex_json, copilot_json, shell_walk
-from .shell_functions import Functions
 from .transcript import Transcript, _parse_time, clip_output, relative_path
 
 TRACE_FORMATS = ("claude-stream-json", "codex-json", "copilot-json", "text")
@@ -174,17 +174,12 @@ def _deny(stream: _Stream, tool_id: Any) -> None:
 
 def _walk_bash(out: Transcript, stream: _Stream) -> None:
     """Each Bash call's command walked (:func:`~dokimi.repos.cli_traces.shell_walk`), once every result and denial
-    is in, in the trace's order, and a read event put before its command event for each file it names. The shell
-    keeps the functions a call defines for the later calls, but a refused call ran nothing, so it defines none: each
-    call is walked on a copy of the functions the calls before it defined, kept only when it was not denied
-    (``cat() { echo hi; }`` refused, then ``cat AGENTS.md``, reads the file)."""
-    functions: Functions = {}
+    is in, in the trace's order, and a read event put before its command event for each file it names. Each call is
+    walked alone: Claude Code starts it in a new shell, which keeps the directory but no function an earlier call
+    defined (``cat() { echo hi; }``, then ``cat AGENTS.md``, reads the file)."""
     for call in stream.bash.values():
-        defined = dict(functions)
-        call.named, call.moves, call.unknown = shell_walk(call.text, stream.cwd, defined)
+        call.named, call.moves, call.unknown = shell_walk(call.text, stream.cwd)
         call.reads = [_read(call.event, p, stream.workdir) for p in call.named]
-        if call.result != "denied":
-            functions = defined
     if stream.bash:
         out.events[:] = [e for event in out.events
                          for e in (*(stream.bash[id(event)].reads if id(event) in stream.bash else ()), event)]
