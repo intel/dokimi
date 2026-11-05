@@ -19,6 +19,14 @@ class Stop(Exception):
     pass
 
 
+def _stop_recording(seen):
+    """A stand-in for warn_recorded_self_judge: records the judges it is given, then stops the command."""
+    def stop(data, judges, context, **_):
+        seen.extend(judges)
+        raise Stop
+    return stop
+
+
 def test_recorded_same_model_warns_once(capsys):
     assert warn_recorded_self_judge(
         {**SELF, "answers": []}, [("claude-sonnet-5-5", "anthropic"), ("gpt-6.1-sol", "openai")], "x")
@@ -137,8 +145,7 @@ def test_validate_pairwise_checks_the_escalation_judge(tmp_path, monkeypatch):
     from dokimi.commands import evaluate
 
     seen = []
-    monkeypatch.setattr(evaluate, "warn_recorded_self_judge",
-                        lambda data, judges, context, **_: (seen.extend(judges), (_ for _ in ()).throw(Stop)))
+    monkeypatch.setattr(evaluate, "warn_recorded_self_judge", _stop_recording(seen))
     args = parse_args(["eval", "judge", "validate", "--answers", str(_arms_file(tmp_path)),
                        "--mode", "pairwise", "--judge-provider", "anthropic", "--escalate-model", "gpt-6.1-sol",
                        "--escalate-provider", "openai", "--output", str(tmp_path / "o.json")])
@@ -151,8 +158,7 @@ def test_pairwise_checks_the_escalation_judge_too(tmp_path, monkeypatch):
     from dokimi.commands import judge_reliability
 
     seen = []
-    monkeypatch.setattr(judge_reliability, "warn_recorded_self_judge",
-                        lambda data, judges, context, **_: (seen.extend(judges), (_ for _ in ()).throw(Stop)))
+    monkeypatch.setattr(judge_reliability, "warn_recorded_self_judge", _stop_recording(seen))
     args = parse_args(["eval", "score", "pairwise", "--answers", str(_arms_file(tmp_path)),
                        "--judge-provider", "anthropic", "--escalate-model", "gpt-6.1-sol",
                        "--escalate-provider", "openai", "--output", str(tmp_path / "o.json")])
