@@ -20,7 +20,7 @@ from __future__ import annotations
 import ast
 import itertools
 from pathlib import Path
-from typing import Any, Mapping, Optional
+from typing import Any, Iterator, Mapping, Optional
 
 from dokimi.eval.reference_checks import blank_value, squad_normalize
 from dokimi.task_formats.imports.common import (
@@ -292,7 +292,7 @@ def _hf_rows(node: ast.Call, base: Path) -> list[dict[str, Any]]:
         raise ValueError(f"hf_dataset could not load {args[0]}: {exc}") from exc
     fields = _field_spec(node)
     spec = {**_FIELD_DEFAULTS, **fields} if fields else {}
-    source = (dict(r) for r in loaded)
+    source: Iterator[dict[str, Any]] = (dict(r) for r in loaded)
     if limit is not None:  # stop the stream at the limit: a streamed split is not read to its end
         source = itertools.islice(source, limit)
     return [{k: r.get(v) for k, v in spec.items() if v in r} if spec else r for r in source]
