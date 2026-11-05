@@ -244,11 +244,33 @@ def print_attractors(result: dict) -> None:
 
 
 def print_all_vs_all_model(model_arm: dict, cost: dict | None) -> None:
-    """The noise and cost lines of an all-vs-all run; silent without ``--model``."""
+    """The model, noise and cost lines of an all-vs-all run; silent without ``--model``."""
+    partial = model_arm.get("partial")
+    if partial:
+        answered = sum(model_arm.get("n_scored", {}).values())
+        print(f"model    partial: {partial['calls_done']} of {partial['calls_planned']} calls, "
+              f"{answered} answered")
+        if answered < 5:
+            print(f"WARNING: only {answered} model call{'' if answered == 1 else 's'} answered; "
+                  "one call moves a rate by 20 points or more, so do not quote it as a "
+                  "routing rate")
     if model_arm.get("noise"):
         print_noise(model_arm)
     if cost is not None:
         print_cost(cost)
+
+
+def print_all_vs_all_summary(result: dict, n_field: int, n_skills: int, model_arm: dict,
+                             cost: dict | None) -> None:
+    """The summary of an all-vs-all run: the field line, the attractors, the model lines.
+
+    Printed for a finished run and for one the cap stopped; the model line of the latter says how
+    many calls it rests on.
+    """
+    print(f"all-vs-all: {n_field} skills in the field, {result['n_queries']} queries over "
+          f"{n_skills} skills with queries")
+    print_attractors(result)
+    print_all_vs_all_model(model_arm, cost)
 
 
 def exit_partial_all_vs_all(model_arm: dict, cost: dict | None, failed: int, sent: int,
@@ -274,22 +296,37 @@ def partial_block(model_arm: dict) -> dict:
     return {"status": "partial", "partial": model_arm["partial"]} if "partial" in model_arm else {}
 
 
+def _is_partial_file(path: Path) -> bool:
+    """Whether ``path`` holds a partial result; a file this cannot read is not one."""
+    try:
+        earlier = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return isinstance(earlier, dict) and "partial" in earlier
+
+
+def _partial_destination(out: Path) -> Path:
+    """The first of ``<out stem>.partial.json``, ``<out stem>.partial2.json``, ... that is free
+    or holds a partial result, so a partial result never replaces a finished one."""
+    base = out.with_suffix("")
+    candidate, number = base.with_name(f"{base.name}.partial.json"), 2
+    while candidate.exists() and not _is_partial_file(candidate):
+        candidate, number = base.with_name(f"{base.name}.partial{number}.json"), number + 1
+    return candidate
+
+
 def save_result(payload: dict, out: Path, model_arm: dict) -> Path:
     """Write a routing result and return where it went.
 
     ``model_arm`` is the arm the cap may have stopped: its ``partial`` block, if any, marks the
-    result (:func:`partial_block`). A partial result goes to ``out`` unless ``out`` already holds something that is not itself a
-    partial result (a finished measurement, or a file this cannot read): then it goes to
-    ``<out stem>.partial.json`` beside it, so a cap does not replace a complete run with a prefix.
+    result (:func:`partial_block`). A partial result goes to ``out`` unless ``out`` already holds
+    something that is not itself a partial result (a finished measurement, or a file this cannot
+    read): then it goes to the first sidecar beside it (:func:`_partial_destination`) that is free
+    or already partial, so a cap does not replace a complete run with a prefix.
     """
     payload.update(partial_block(model_arm))
-    if "partial" in payload and out.exists():
-        try:
-            earlier = json.loads(out.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            earlier = {}
-        if not (isinstance(earlier, dict) and "partial" in earlier):
-            out = out.with_suffix(".partial.json")
+    if "partial" in payload and out.exists() and not _is_partial_file(out):
+        out = _partial_destination(out)
     out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return out
 

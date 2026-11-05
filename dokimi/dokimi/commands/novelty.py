@@ -23,8 +23,7 @@ from dokimi.commands.inputs import placebo_text_for_arms_or_exit
 from dokimi.commands.novelty_routing_inputs import load_all_vs_all_field, load_routing_field
 from dokimi.commands.novelty_routing_report import (
     exit_partial_all_vs_all,
-    print_all_vs_all_model,
-    print_attractors,
+    print_all_vs_all_summary,
     print_routing_estimate,
     print_routing_summary,
     no_queries_reason,
@@ -351,14 +350,12 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     if selector is not None:
         payload["cost"] = roll_up_cost([selector])
     out = save_result(payload, out, model_arm)
-    stop_if_partial(payload, out, lambda: print_all_vs_all_model(model_arm, payload.get("cost")))
+    summary = (result, len(field), len(queries_by_skill), model_arm, payload.get("cost"))
+    stop_if_partial(payload, out, lambda: print_all_vs_all_summary(*summary))
     if failed:
         exit_partial_all_vs_all(model_arm, payload.get("cost"), failed, sent, out)
     print(f"OK Saved all-vs-all routing: {out}")
-    print(f"all-vs-all: {len(field)} skills in the field, {result['n_queries']} queries over "
-          f"{len(queries_by_skill)} skills with queries")
-    print_attractors(result)
-    print_all_vs_all_model(model_arm, payload.get("cost"))
+    print_all_vs_all_summary(*summary)
 
 
 def _field_record(args: argparse.Namespace, competitors: list, left_out: list[str]) -> dict:

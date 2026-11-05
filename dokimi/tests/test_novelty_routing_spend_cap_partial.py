@@ -99,7 +99,11 @@ def test_a_call_with_no_price_also_leaves_the_partial_result(tmp_path, monkeypat
     with pytest.raises(SystemExit, match="no price is known"):
         args.func(args)
     payload = json.loads(out.read_text(encoding="utf-8"))
-    assert payload["partial"]["reason"] == "spend_cap" and payload["partial"]["calls_done"] == 0
+    assert payload["partial"]["reason"] == "spend_cap" and payload["partial"]["calls_done"] == 1
+    # The reply came back and was paid for, so it is scored, not lost; no further call is made.
+    row = payload["model"]["per_query"][0]
+    assert "error" not in row and row["picked"] is not None
+    assert len(payload["model"]["per_query"]) == 1
 
 
 def test_a_run_the_cap_did_not_stop_has_no_partial_marker(tmp_path, monkeypatch):
@@ -143,6 +147,10 @@ def test_an_all_vs_all_run_stopped_by_the_cap_scores_the_queries_it_finished(
     assert payload["cost"]["llm_calls"] == 2
     shown = capsys.readouterr().out
     assert "cost     2 calls" in shown and "OK Saved" not in shown
+    # The summary of a finished run, marked partial: the field line, the attractors, the model line.
+    assert "all-vs-all: 2 skills in the field, 3 queries" in shown
+    assert "model    partial: 2 of 3 calls, 2 answered" in shown
+    assert "WARNING: only 2 model calls answered" in shown
 
 
 def test_an_all_vs_all_run_stopped_early_leaves_the_skills_it_never_reached_unscored(
@@ -238,6 +246,25 @@ def test_a_partial_run_writes_over_an_earlier_partial_one(tmp_path, monkeypatch)
     with pytest.raises(SystemExit):
         again.func(again)
     assert not out.with_suffix(".partial.json").exists()
+
+
+def test_a_partial_run_skips_a_sidecar_that_holds_a_finished_result(tmp_path, monkeypatch):
+    _provider(monkeypatch, UsageRecord(cost_usd=0.1))
+    args, out = _single(tmp_path, QUERIES, "--max-usd", "5")
+    args.func(args)                                          # a finished routing.json
+    side = out.with_suffix(".partial.json")
+    sidecar = _again(tmp_path, side, "sidecar", "--max-usd", "5")
+    sidecar.func(sidecar)                                    # a finished routing.partial.json
+    finished, finished_side = out.read_text(encoding="utf-8"), side.read_text(encoding="utf-8")
+    _provider(monkeypatch, UsageRecord(cost_usd=0.6))
+    again = _again(tmp_path, out, "third", "--max-usd", "0.5")
+    with pytest.raises(SystemExit) as stop:
+        again.func(again)
+    third = out.with_name("routing.partial2.json")
+    assert out.read_text(encoding="utf-8") == finished        # the finished result stays
+    assert side.read_text(encoding="utf-8") == finished_side  # and so does the finished sidecar
+    assert json.loads(third.read_text(encoding="utf-8"))["status"] == "partial"
+    assert str(third) in str(stop.value)
 
 
 def test_a_single_run_capped_before_any_query_finished_has_no_noise_block(tmp_path, monkeypatch):

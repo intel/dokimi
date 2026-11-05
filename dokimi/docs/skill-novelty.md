@@ -750,7 +750,8 @@ top level (and under the model arm), and no `partial` key when the run finished.
 only when partial), so a script that checks `status == "ok"` does not take a prefix of the run for
 a finished measurement. The model line says `partial: N of M calls` in place of the query count,
 and warns when fewer than five calls were answered. When `--out` already holds a result that is
-not itself partial, the partial one goes to `<out stem>.partial.json` beside it and the exit
+not itself partial, the partial one goes to the first of `<out stem>.partial.json`,
+`<out stem>.partial2.json`, ... beside it that is free or already partial, and the exit
 message names that path, so a cap never replaces a finished measurement. The calls made are
 scored as in a run with failed calls: a single run's `model.per_query` holds them, and
 `model.n_calls` is `N` rather than queries times repeats. In all-vs-all the calls never made are

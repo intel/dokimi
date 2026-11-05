@@ -45,6 +45,7 @@ from dokimi.skills import Skill
 from dokimi.utils import InputError, parse_frontmatter
 
 from .client import LLMClient, SpendCapReached, parse_json_object
+from .noise import partial_record, repeat_noise
 
 if TYPE_CHECKING:
     from dokimi.external.validate import SkillReview
@@ -262,6 +263,25 @@ def _pick_row(base: dict, reply: str, order: list[int], candidates: list[Candida
             "order": [candidates[i].name for i in order]}
 
 
+def _ask_once(client, prompt: str, base: dict, order: list[int], candidates: list[Candidate],
+              gold: int) -> tuple[dict | None, str | None]:
+    """One call of the routing loop: its row, and the cap's message when the cap stops the run.
+
+    A call the cap refused before it was made has no row. A call whose price is unknown was paid
+    for, so its reply is scored, and the caller stops after it.
+    """
+    try:
+        reply = client.text(prompt, accept=partial(_is_pick_reply, n_cards=len(order)),
+                            draw=base["repeat"])
+    except SpendCapReached as exc:
+        if exc.reply is None:
+            return None, str(exc)
+        return _pick_row(base, exc.reply, order, candidates, gold), str(exc)
+    except Exception as exc:  # noqa: BLE001 - one failed query must not lose the rest
+        return {**base, "picked": None, "error": str(exc)[:200] or type(exc).__name__}, None
+    return _pick_row(base, reply, order, candidates, gold), None
+
+
 def model_routing(
     candidates: list[Candidate], queries: list[str], *, client: LLMClient, gold: int = 0,
     seed: int = 0, repeats: int = 1,
@@ -310,23 +330,18 @@ def model_routing(
         prompt = _SELECT_PROMPT.format(query=query, cards=cards)
         group: list[dict] = []
         for repeat in range(repeats):
-            base = {"query": query, "repeat": repeat}
-            try:
-                reply = client.text(
-                    prompt, accept=partial(_is_pick_reply, n_cards=len(order)), draw=repeat,
-                )
-            except SpendCapReached as exc:
-                capped = str(exc)  # the calls already paid for stay in ``picks``
+            row, stopped = _ask_once(client, prompt, {"query": query, "repeat": repeat},
+                                     order, candidates, gold)
+            if row is not None:
+                picks.append(row)
+                group.append(row)
+            if stopped is not None:
+                capped = stopped  # the calls already paid for stay in ``picks``
                 break
-            except Exception as exc:  # noqa: BLE001 - one failed query must not lose the rest
-                row = {**base, "picked": None, "error": str(exc)[:200] or type(exc).__name__}
-            else:
-                row = _pick_row(base, reply, order, candidates, gold)
-            picks.append(row)
-            group.append(row)
+        if len(group) == repeats:  # a query stopped half-way is no sample of the repeat noise
+            groups.append(group)
         if capped is not None:
             break
-        groups.append(group)  # a query stopped half-way is no sample of the repeat noise
 
     answered = [p for p in picks if "correct" in p]
     hits = sum(1 for p in answered if p["correct"])
@@ -360,64 +375,6 @@ def model_routing(
     if capped is not None:
         result["partial"] = partial_record(capped, len(picks), len(queries) * repeats)
     return result
-
-
-def partial_record(message: str, calls_done: int, calls_planned: int) -> dict:
-    """The marker of a result cut short by ``--max-usd``: what ran, of what was planned."""
-    return {"reason": "spend_cap", "calls_done": calls_done, "calls_planned": calls_planned,
-            "message": message}
-
-
-def repeat_noise(groups: list[list[dict]]) -> dict:
-    """Agreement across the repeats of each query, and the run-to-run spread of the rate.
-
-    A query's agreement is the share of its answered repeats that gave its most common
-    pick; an abstention counts as a pick. ``selection_rate_by_repeat`` reads each repeat as
-    its own run over the same queries, and ``half_range`` is half the gap between the
-    highest and the lowest of those rates. It is a crude sampling noise floor: a few repeats
-    estimate it coarsely, and it says nothing about a change of cards or queries. The
-    per-repeat rates cover only the queries with no failed call in any repeat
-    (``n_queries_compared``), so a transient error does not read as noise.
-
-    Args:
-        groups: One list per query, holding that query's rows in repeat order.
-    """
-    per_query: list[dict] = []
-    for group in groups:
-        labels = [
-            "(abstained)" if row.get("abstained") else row["picked"]
-            for row in group if not row.get("error")
-        ]
-        modal, agreement = None, None
-        if labels:
-            modal, count = Counter(labels).most_common(1)[0]
-            agreement = round(count / len(labels), 4)
-        per_query.append({
-            "query": group[0]["query"],
-            "modal_pick": modal,
-            "agreement": agreement,
-            "picks": labels,
-            "n_correct": sum(1 for row in group if row.get("correct")),
-        })
-    repeats = len(groups[0]) if groups else 0
-    rates: list[float | None] = []
-    # Every repeat's rate is taken over the same queries: those with no failed call in any
-    # repeat. Dividing each repeat by its own non-errored rows would compare different
-    # denominators and report a transient provider error as sampling noise.
-    complete = [group for group in groups if not any(row.get("error") for row in group)]
-    for repeat in range(repeats):
-        rates.append(round(sum(1 for g in complete if g[repeat].get("correct")) / len(complete), 4)
-                     if complete else None)
-    known = [rate for rate in rates if rate is not None]
-    agreements = [row["agreement"] for row in per_query if row["agreement"] is not None]
-    return {
-        "mean_agreement": round(sum(agreements) / len(agreements), 4) if agreements else None,
-        "unstable_queries": sum(1 for a in agreements if a < 1),
-        "selection_rate_by_repeat": rates,
-        "n_queries_compared": len(complete),
-        "half_range": round((max(known) - min(known)) / 2, 4) if len(known) > 1 else None,
-        "per_query": per_query,
-    }
 
 
 # Only spaces indent a fence (a tab is four columns, so it makes indented code), and a

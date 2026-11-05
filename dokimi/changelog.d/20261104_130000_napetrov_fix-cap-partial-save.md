@@ -7,5 +7,7 @@
   `partial` block (`reason: spend_cap`, `calls_done`, `calls_planned`) and
   `status: "partial"`, prints the summary (marked `partial: N of M calls`) and
   `cost` lines, and still exits non-zero. If `--out` already holds a finished
-  result, the partial one goes to `<out stem>.partial.json` instead. `novelty analyze`,
+  result, the partial one goes to `<out stem>.partial.json` instead (or the next
+  free `<out stem>.partial2.json`, ... when that file already holds a finished result).
+  The price-unknown call's reply is scored, not dropped. `novelty analyze`,
   `atoms`, `probe` and `shorten` still write nothing when the cap stops them.

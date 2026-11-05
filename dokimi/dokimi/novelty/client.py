@@ -39,7 +39,12 @@ class SpendCapReached(BaseException):
     A ``BaseException``, like ``KeyboardInterrupt``: the stages treat a failed call as a
     missing datum and catch ``Exception``, so an ``Exception`` here would be absorbed one
     call at a time and the run would carry on with every later call refused.
+
+    ``reply`` is set when the refused call came back with a reply (a call with no price): that
+    call was paid for, so the caller can still score the reply before it stops.
     """
+
+    reply: str | None = None
 
 
 @dataclass
@@ -133,7 +138,11 @@ class LLMClient:
             # UsageRecord is frozen; re-stamp the role so cost rolls up per role.
             self.usage.append(replace(usage, role=self.role))
         if self.cap is not None:
-            self.cap.record(usage, self.model)
+            try:
+                self.cap.record(usage, self.model)
+            except SpendCapReached as exc:
+                exc.reply = reply or ""  # the call is paid for: the caller keeps its reply
+                raise
         return reply or ""
 
     def json_object(
