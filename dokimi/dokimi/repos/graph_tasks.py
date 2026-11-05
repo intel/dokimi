@@ -389,7 +389,7 @@ def _prompt(c: Candidate, key: str) -> str:
     amb = (f" The repository has {c.same_name} symbols named `{c.name}`; only the one above counts."
            if c.ambiguous else "")
     if _shares_a_name(c.gold):
-        amb += " Two answers share a name in one file: write each with its namespace or class (`ns::Name`)."
+        amb += " Two answers share a name in one file: write each with its namespace or class (`ns::Name`, `Class.name`)."
     return (f"You are working in a checkout of this repository (the current directory). {ask}{amb} Do not modify "
             f"any files. End your answer with a fenced ```json block holding {_ANSWER[key]}.")
 
