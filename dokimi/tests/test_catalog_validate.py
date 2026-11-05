@@ -154,10 +154,19 @@ def test_a_disabled_copy_of_a_name_is_not_a_name_conflict(tmp_path):
 
 def test_a_spec_error_copy_of_a_name_is_not_a_name_conflict(tmp_path):
     _skill(tmp_path / "skills", "x", name="x", description="Use for x.")
-    _skill(tmp_path / "plugins", "x", name="x", description="y" * 1100)
+    _skill(tmp_path / "plugins", "z", name="x", description="Use for x, misplaced.")  # name-mismatch
     reviews = review_skills(read_skill_manifest(tmp_path))
     assert all(f.code != "name-conflict" for r in reviews for f in r.findings)
     assert sorted(r.state for r in reviews) == ["error", "ok"]
+
+
+def test_a_copy_whose_only_error_is_the_description_length_is_a_name_conflict(tmp_path):
+    # the routing field keeps such a skill (harnesses differ on it), so its name clashes with a valid copy
+    _skill(tmp_path / "skills", "x", name="x", description="Use for x.")
+    _skill(tmp_path / "plugins", "x", name="x", description="y" * 1100)
+    reviews = review_skills(read_skill_manifest(tmp_path))
+    assert [f.code for r in reviews for f in r.findings if f.code == "name-conflict"] == [
+        "name-conflict", "name-conflict"]
 
 
 def test_disable_model_invocation_is_reported_as_a_flag_not_a_finding(tmp_path):

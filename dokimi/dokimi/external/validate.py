@@ -72,6 +72,7 @@ from dokimi.skills import Skill
 from dokimi.utils import parse_frontmatter_strict
 
 from .catalog import SkillCatalogEntry, _within
+from .listing import in_field
 
 NAME_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 NAME_MAX = 64
@@ -778,13 +779,12 @@ def _name_conflicts(by_name: dict[str, list[tuple[SkillReview, str, str]]]) -> N
     """A warning on each listed skill that shares its name with a listed skill of different content.
 
     Listed means a harness offers it: a skill with ``disable-model-invocation`` or a spec error is
-    left out of the routing field by default, so its copy is no conflict. Identical copies are not
+    left out of the routing field by default (see ``in_field``), so its copy is no conflict. Identical copies are not
     a conflict (they are the duplicate above). The routing field skips such a name, so the scan
     names both paths to say which skills are affected.
     """
     for name, group in by_name.items():
-        group = [entry for entry in group
-                 if not entry[0].disable_model_invocation and entry[0].state != "error"]
+        group = [entry for entry in group if in_field(entry[0])]
         for review, _, digest in group:
             others = sorted({other for _, other, other_digest in group if other_digest != digest})
             if not others:

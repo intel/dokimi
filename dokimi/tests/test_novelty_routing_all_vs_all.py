@@ -28,8 +28,8 @@ def _parse(*argv):
     return build_parser().parse_args(list(argv))
 
 
-def _catalog_skill(root, name, description):
-    skill_dir = root / "skills" / name
+def _catalog_skill(root, name, description, dir_name=None):
+    skill_dir = root / "skills" / (dir_name or name)
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text(
         f"---\nname: {name}\ndescription: {description}\n---\n\n# B\n", encoding="utf-8")
@@ -480,7 +480,7 @@ def test_queries_for_a_skill_the_field_left_out_are_refused_with_the_real_reason
     root = tmp_path / "catalog"
     _cat(root, {"cache": "cache slow lookups", "queue": "queue background jobs"})
     if left_out == "spec_error":
-        _catalog_skill(root, "db", "x" * 1100)
+        _catalog_skill(root, "db", "tune a slow database query", dir_name="db-dir")
     else:
         _catalog_skill(root, "db", "tune a slow database query")
         _catalog_skill(root / "plugins" / "p", "db", "migrate a database schema")
@@ -653,7 +653,7 @@ def test_a_single_artifact_routing_run_records_the_field_rule_too(tmp_path):
     args.func(args)
     field = json.loads(out.read_text(encoding="utf-8"))["field"]
     assert field == {"include_disabled": True, "include_invalid": False,
-                     "competitors": ["db"], "left_out": []}
+                     "competitors": ["db"], "left_out": [], "spec_warnings": []}
 
 
 def test_console_says_how_many_tied_and_unscored_queries_are_not_counted_as_picks(

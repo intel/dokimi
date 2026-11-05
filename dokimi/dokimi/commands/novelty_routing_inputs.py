@@ -59,12 +59,13 @@ def routing_field(args: argparse.Namespace, exclude: set[str],
     """The field ``--competitors`` and ``--catalog`` name, without the names in ``exclude``.
 
     What was left out of the field, and why, is appended to ``left_out`` when given. Each
-    name a rule leaves out maps to its rules in ``dropped`` (when given).
+    name a rule leaves out maps to its rules in ``dropped`` (when given). A skill kept with a
+    description over 1024 characters is warned about here and listed in the saved field rule.
 
     Raises:
         OSError, ValueError, RecursionError: A reference or the catalog cannot be loaded.
     """
-    from dokimi.novelty.routing import catalog_competitors
+    from dokimi.novelty.routing import catalog_competitors, over_limit_warnings
 
     competitors = named_competitors(args, left_out, dropped)
     if args.catalog:
@@ -83,6 +84,8 @@ def routing_field(args: argparse.Namespace, exclude: set[str],
                   file=sys.stderr)
         print(f"--catalog {args.catalog}: {len(catalog)} competitors", file=sys.stderr)
         competitors += catalog
+    for warning in over_limit_warnings(competitors):
+        print(f"WARNING: skill {warning['skill']!r}: {warning['message']}", file=sys.stderr)
     return competitors
 
 
@@ -117,3 +120,12 @@ def load_routing_field(
     except (OSError, ValueError, RecursionError) as exc:
         raise InputError(f"cannot load an artifact: {exc}") from exc
     return gold, body, competitors, left_out
+
+
+def field_record(args: argparse.Namespace, competitors: list[Candidate], left_out: list[str]) -> dict:
+    """The field rule a routing result was measured under, saved next to the result."""
+    from dokimi.novelty.routing import over_limit_warnings
+
+    return {**{name: bool(getattr(args, name)) for name in ("include_disabled", "include_invalid")},
+            "competitors": [c.name for c in competitors], "left_out": left_out,
+            "spec_warnings": over_limit_warnings(competitors)}

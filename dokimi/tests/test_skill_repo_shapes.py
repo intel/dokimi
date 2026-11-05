@@ -45,7 +45,7 @@ EXPECT: dict[str, Expect] = {
     "vendored_dir": _ok(*_TWO),
     "zero_skill": Expect(frozenset({1, 2}), frozenset({1, 2}), 2, None),
     "plugins_nesting": _ok("door-check", "gizmo-lint", "widget-polish"),
-    "description_too_long": Expect(frozenset({0}), frozenset({1}), 0, ("door-check",)),
+    "description_too_long": Expect(frozenset({0}), frozenset({1}), 0, _TWO),  # still a scan error, kept in the field
     "name_not_dir": Expect(frozenset({0}), frozenset({1}), 0, ("door-check",)),
     "title_case_name": Expect(frozenset({0}), frozenset({1}), 0, ("door-check",)),
     "links_escape": _ok(*_TWO),
