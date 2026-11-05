@@ -205,18 +205,19 @@ def test_all_vs_all_drops_the_queries_of_a_spec_error_skill_and_runs_the_rest(tm
     _skill(root, "skills", "queue", "queue background jobs")
     _skill(root, "skills", "db", "x" * 1100)  # over 1024 characters: a spec error
     queries = _queries(tmp_path, {"cache": ["cache my lookups"], "queue": ["queue my jobs"],
-                                  "db": ["tune my database"]})
+                                  "db": ["tune my database", "index my tables"]})
     out = tmp_path / "o.json"
     args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
                   "--queries-by-skill", str(queries), "--out", str(out))
     args.func(args)
     err = capsys.readouterr().err
     assert "WARNING" in err and "`db`" in err and "--include-invalid" in err
+    assert "dropped 2 queries of" in err
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["result"]["n_queries"] == 2
     assert set(payload["result"]["lexical"]["confusion"]) == {"cache", "queue"}
     assert payload["field"]["dropped_queries"] == [
-        {"skill": "db", "reason": "invalid", "keep_flag": "--include-invalid", "queries": 1}]
+        {"skill": "db", "reason": "invalid", "keep_flag": "--include-invalid", "queries": 2}]
 
 
 def test_all_vs_all_names_the_flag_that_keeps_each_dropped_skill(tmp_path, capsys):
