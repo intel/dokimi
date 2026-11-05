@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -91,6 +92,10 @@ def test_every_save_in_one_process_shares_the_run_id(tmp_path):
 
     assert _read(tmp_path / "a.json")["run_id"] == current_run_id()
     assert _read(tmp_path / "b.json")["run_id"] == current_run_id()
+
+
+def test_the_process_run_id_is_a_utc_stamp_and_a_random_suffix():
+    assert re.fullmatch(r"\d{8}T\d{6}Z-[0-9a-f]{8}", current_run_id())
 
 
 def test_an_explicit_run_id_wins_over_the_process_run(tmp_path):
