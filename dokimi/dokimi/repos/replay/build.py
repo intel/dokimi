@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from ..manifest import RepoManifest, match_glob
+from ..overlays import overlay_of
 from .history import History, addressed, carry
 from .threads import PullRequest, ReplayError, Thread, gold_problem, review_bodies
 
@@ -199,7 +200,8 @@ def _anchor_problem(h: History, manifest: RepoManifest, commit: str, path: str, 
 
 
 def _left_out(manifest: RepoManifest, path: str) -> bool:
-    return any(match_glob(g, path) for g in manifest.guidance_globs) or manifest.in_eval_dir(path)
+    return (any(match_glob(g, path) for g in manifest.guidance_globs) or overlay_of(path) is not None
+            or manifest.in_eval_dir(path))
 
 
 def _where(t: Thread) -> str:

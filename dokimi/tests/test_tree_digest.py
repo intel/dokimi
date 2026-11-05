@@ -331,6 +331,47 @@ def test_an_absolute_link_that_leaves_the_tree_and_comes_back_digests_the_same_a
     assert tree_digest(roots["a"]) == tree_digest(roots["b"])
 
 
+def test_an_absolute_link_in_a_subdirectory_that_leaves_the_tree_and_comes_back_is_read_from_its_directory(tmp_path):
+    # sub/l -> <root>/../t/x folds to the root's x, so the text climbs out of sub first: ../x, not x
+    from dokimi.utils import link_text
+
+    root = _write(tmp_path / "t", {"x": "x\n", "sub/x": "inner\n"})
+    try:
+        (root / "sub" / "l").symlink_to(os.path.join(root, "..", "t", "x"))
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    assert link_text(root / "sub" / "l", root) == "../x"
+
+
+def test_an_absolute_link_into_a_sibling_whose_name_starts_with_the_roots_is_outside_the_tree(tmp_path):
+    # <tmp>/t2/q.json shares the prefix <tmp>/t but not the directory: it is external, not the relative 2/q.json
+    from dokimi.utils import link_text
+
+    root = _write(tmp_path / "t", {"2/q.json": "[]\n"})
+    sibling = _write(tmp_path / "t2", {"q.json": "[]\n"})
+    try:
+        (root / "l").symlink_to(sibling / "q.json")
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    assert link_text(root / "l", root) == os.fspath(sibling / "q.json")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="':' is not allowed in a Windows file name")
+@pytest.mark.skipif(shutil.which("git") is None, reason="the mode bit comes from git's index; needs git")
+def test_a_tracked_file_whose_name_starts_with_a_colon_takes_its_mode_from_the_index(tmp_path):
+    # without --literal-pathspecs git reads ':x.sh' as pathspec magic naming x.sh, and the disk bit would count
+    root = _write(tmp_path / "t", {":x.sh": "echo\n"})
+    (root / ":x.sh").chmod(0o644)  # the disk bit stays put, so only the index can tell the modes apart
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    subprocess.run(["git", "-C", str(root), "add", "--", ":(literal):x.sh"], check=True)
+    _track_executable(root, ":x.sh")
+    before = tree_digest(root / ":x.sh")  # a file root: git is asked for its name as the pathspec
+    (root / ":x.sh").chmod(0o755)
+    assert tree_digest(root / ":x.sh") == before
+    _index_mode(root, ":x.sh", "-x")
+    assert tree_digest(root / ":x.sh") != before
+
+
 @symlinks
 def test_a_dotdot_after_a_missing_directory_is_kept_so_the_link_does_not_digest_as_its_folded_target(tmp_path):
     # root/gone/../x is ENOENT while gone is absent (a dangling link), not root/x: the two must not digest alike

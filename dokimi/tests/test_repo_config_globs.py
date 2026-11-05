@@ -180,6 +180,14 @@ def test_many_double_stars_in_shared_match_a_deep_change_in_linear_time(tmp_path
     assert (impact.shared, impact.unclaimed) == ([deep + "zzz"], [deep + "b"])
 
 
+def test_a_leading_double_star_in_shared_matches_no_directory_so_it_claims_a_root_file(tmp_path):
+    # '**/Makefile' claims the root Makefile too: a leading ** matches zero directories, as it does deeper down
+    body = HEADER + "shared: ['**/Makefile']\n"
+    root = _tree(tmp_path / "repo", {".github/dokimi/config.yaml": body, "Makefile": "all:\n", "src/Makefile": "all:\n"})
+    impact = load_repo_config(root).subjects_for_changed(["Makefile", "src/Makefile", "src/Makefile.in"])
+    assert (impact.shared, impact.unclaimed) == (["Makefile", "src/Makefile"], ["src/Makefile.in"])
+
+
 @pytest.mark.timeout(10)
 def test_many_double_stars_in_a_suite_walk_a_deep_tree_in_linear_time(tmp_path):
     def suite_hash(suite):

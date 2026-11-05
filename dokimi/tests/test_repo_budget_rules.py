@@ -219,6 +219,10 @@ def test_an_ordinary_import_keeps_the_frontmatter_that_a_rule_link_to_the_same_f
     # null and empty items name no pattern, with or without unrelated malformed YAML
     pytest.param("paths: null\nunused: [unclosed\n", "start", id="unparsed-null-unrelated-malformed"),
     pytest.param('paths: ["", ""]\nunused: [unclosed\n', "start", id="unparsed-empty-items-unrelated-malformed"),
+    # the paths key itself does not parse (an unclosed list), so its items are read as text: null and ~ are no pattern
+    pytest.param("paths: [null\n", "start", id="unparsed-key-null-item"),
+    pytest.param("paths: [~\n", "start", id="unparsed-key-tilde-item"),
+    pytest.param("paths: [null, ~, src/**\n", "lazy", id="unparsed-key-null-tilde-and-a-pattern"),
     pytest.param('paths: ["", ""]\n', "start", id="parsed-empty-items"),
     # a value that is not a string names no pattern (not measured either way)
     pytest.param("paths: true\n", "start", id="paths-boolean"),
@@ -497,6 +501,38 @@ def test_an_alias_of_a_rule_is_followed_as_an_import(tmp_path):
 
     assert _by_path(payload)[("extra.md", "import")]["when"] == "start"
     assert _by_path(payload)[(".claude/rules/r.md", "rule")]["when"] == "start"
+
+
+def test_an_alias_of_a_rule_drops_the_rules_frontmatter_before_its_imports_are_followed(tmp_path):
+    # the alias resolves to a rule, so it loads the rule's body: an @path in the frontmatter is no import
+    rule = "---\npaths: []\nnote: see @../extra.md\n---\nbody\n"
+    tree = _tree(tmp_path, {"CLAUDE.md": "@docs/alias.md\n", "extra.md": "x\n", ".claude/rules/r.md": rule})
+    (tmp_path / "docs").mkdir()
+    try:
+        (tmp_path / "docs/alias.md").symlink_to(tmp_path / ".claude/rules/r.md")
+    except OSError:
+        pytest.skip("symlinks unavailable")
+
+    payload = budget(tree, NAMES, rules=True)
+
+    assert not [e for e in payload["entries"] if e["path"] == "extra.md"]
+    assert payload["totals"]["start"] == len("@docs/alias.md\n") + len("body\n")
+
+
+def test_an_import_of_a_rule_linked_to_a_plain_file_keeps_the_rules_body_count(tmp_path):
+    # the import names the rule path, so it loads the rule (body only), not the plain file it links to (18 chars)
+    tree = _tree(tmp_path, {"CLAUDE.md": "@.claude/rules/r.md\n", "shared.md": "---\nk: v\n---\nrule\n"})
+    (tmp_path / ".claude/rules").mkdir(parents=True)
+    try:
+        (tmp_path / ".claude/rules/r.md").symlink_to(tmp_path / "shared.md")
+    except OSError:
+        pytest.skip("symlinks unavailable")
+
+    payload = budget(tree, NAMES, rules=True)
+
+    assert _by_path(payload)[(".claude/rules/r.md", "rule")] == {
+        "path": ".claude/rules/r.md", "kind": "rule", "when": "start", "chars": len("rule\n")}
+    assert payload["totals"]["start"] == len("@.claude/rules/r.md\n") + len("rule\n")
 
 
 @pytest.mark.parametrize("claude_md", ["@.claude/rules/r.md\n@shared.md\n", "@shared.md\n@.claude/rules/r.md\n"])

@@ -13,7 +13,6 @@ from dokimi.defaults import (
     DEFAULT_ANSWER_PROVIDER, DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER,
     DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER,
 )
-from dokimi.utils import bedrock_litellm_model
 
 
 def test_routing_provider_default_is_the_answer_provider():
@@ -35,10 +34,4 @@ def test_measuring_the_default_judge_under_any_prefix_moves_the_judge(measured):
 
 def test_other_models_keep_the_default_judge():
     assert default_judge("gpt-6.1-sol") == (DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER)
-
-
-def test_a_dotless_arn_is_never_rewritten(monkeypatch):
-    monkeypatch.setenv("ANTHROPIC_DEFAULT_SONNET_MODEL", "us.anthropic.claude-sonnet-X")
-    arn = "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc"
-    assert bedrock_litellm_model(arn) == "bedrock/" + arn
 

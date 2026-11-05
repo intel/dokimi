@@ -22,7 +22,7 @@ except ImportError:
     SENTENCE_TRANSFORMERS_AVAILABLE = False
 
 from dokimi.llm import LLM, ChatModel, Invoker
-from dokimi.llm import ChatOpenAI, ChatAnthropic, LANGCHAIN_AVAILABLE
+from dokimi.llm import LANGCHAIN_AVAILABLE
 from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
 
 
@@ -122,18 +122,11 @@ class QuestionValidator:
         self.llm_provider = llm_provider
         self.api_key = api_key
 
-        self.llm: Optional[ChatModel]
-        if LANGCHAIN_AVAILABLE:
-            if llm_provider == "openai":
-                self.llm = ChatOpenAI(model=llm_model, api_key=api_key)
-            elif llm_provider == "anthropic":
-                self.llm = ChatAnthropic(model=llm_model, api_key=api_key)
-            else:
-                # An explicit api_key wins; without one LLM reads the provider's own variable
-                # (llm.PROVIDERS, OPENAI_API_KEY off the table, see llm.credential_env_var).
-                self.llm = Invoker(LLM(llm_model, llm_provider, api_key))
-        else:
-            self.llm = None
+        # An explicit api_key wins; without one LLM reads the provider's own variable
+        # (llm.PROVIDERS, OPENAI_API_KEY off the table, see llm.credential_env_var).
+        self.llm: Optional[ChatModel] = (
+            Invoker(LLM(llm_model, llm_provider, api_key)) if LANGCHAIN_AVAILABLE else None
+        )
         self.threshold = threshold
 
         # Pick the embedding backend before resolving its model/threshold, so a

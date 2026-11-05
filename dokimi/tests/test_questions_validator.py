@@ -86,7 +86,7 @@ class TestQuestionValidatorInit:
     def test_init_defaults(self):
         with patch('dokimi.questions.validator.LANGCHAIN_AVAILABLE', True), \
              patch('dokimi.questions.validator.OPENAI_AVAILABLE', True), \
-             patch('dokimi.questions.validator.ChatOpenAI', Mock(), create=True), \
+             patch('dokimi.questions.validator.Invoker', Mock()), \
              patch('dokimi.questions.validator.OpenAI', Mock(), create=True), \
              patch.dict('os.environ', {'OPENAI_API_KEY': 'dummy'}):
             # Pinned to the OpenAI backend: under "auto" the result would
@@ -99,7 +99,7 @@ class TestQuestionValidatorInit:
     def test_init_custom(self):
         with patch('dokimi.questions.validator.LANGCHAIN_AVAILABLE', True), \
              patch('dokimi.questions.validator.OPENAI_AVAILABLE', True), \
-             patch('dokimi.questions.validator.ChatOpenAI', Mock(), create=True), \
+             patch('dokimi.questions.validator.Invoker', Mock()), \
              patch('dokimi.questions.validator.OpenAI', Mock(), create=True):
             val = QuestionValidator(threshold=70, similarity_threshold=0.90)
         # A 65 passes the default threshold of 60 but not a custom 70; the stats carry the
@@ -122,7 +122,7 @@ class TestQuestionValidatorInit:
 class TestValidateQuestion:
     def test_returns_score_dict(self, mock_llm_validator):
         mock_cls = Mock(return_value=mock_llm_validator)
-        with patch('dokimi.questions.validator.ChatOpenAI', mock_cls, create=True), \
+        with patch('dokimi.questions.validator.Invoker', mock_cls), \
              patch('dokimi.questions.validator.LANGCHAIN_AVAILABLE', True), \
              patch('dokimi.questions.validator.OPENAI_AVAILABLE', False):
             val = QuestionValidator()
@@ -146,7 +146,7 @@ class TestValidateQuestion:
         mock_llm_validator.invoke.return_value.content = "Not JSON"
         mock_cls = Mock(return_value=mock_llm_validator)
         
-        with patch('dokimi.questions.validator.ChatOpenAI', mock_cls, create=True), \
+        with patch('dokimi.questions.validator.Invoker', mock_cls), \
              patch('dokimi.questions.validator.LANGCHAIN_AVAILABLE', True), \
              patch('dokimi.questions.validator.OPENAI_AVAILABLE', False):
             val = QuestionValidator()
@@ -169,7 +169,7 @@ class TestValidateAndDedupe:
         mock_openai_cls = Mock(return_value=mock_openai_embeddings)
         mock_llm_cls = Mock(return_value=mock_llm_validator)
         
-        with patch('dokimi.questions.validator.ChatOpenAI', mock_llm_cls, create=True), \
+        with patch('dokimi.questions.validator.Invoker', mock_llm_cls), \
              patch('dokimi.questions.validator.OpenAI', mock_openai_cls, create=True), \
              patch('dokimi.questions.validator.LANGCHAIN_AVAILABLE', True), \
              patch('dokimi.questions.validator.OPENAI_AVAILABLE', True), \
@@ -200,7 +200,7 @@ class TestValidateAndDedupe:
         mock_openai_cls = Mock(return_value=mock_embeddings)
         mock_llm_cls = Mock(return_value=mock_llm)
         
-        with patch('dokimi.questions.validator.ChatOpenAI', mock_llm_cls, create=True), \
+        with patch('dokimi.questions.validator.Invoker', mock_llm_cls), \
              patch('dokimi.questions.validator.OpenAI', mock_openai_cls, create=True), \
              patch('dokimi.questions.validator.LANGCHAIN_AVAILABLE', True), \
              patch('dokimi.questions.validator.OPENAI_AVAILABLE', True), \
@@ -220,7 +220,7 @@ class TestValidateAndDedupe:
         mock_openai_cls = Mock(return_value=mock_openai_embeddings)
         mock_llm_cls = Mock(return_value=mock_llm_validator)
         
-        with patch('dokimi.questions.validator.ChatOpenAI', mock_llm_cls, create=True), \
+        with patch('dokimi.questions.validator.Invoker', mock_llm_cls), \
              patch('dokimi.questions.validator.OpenAI', mock_openai_cls, create=True), \
              patch('dokimi.questions.validator.LANGCHAIN_AVAILABLE', True), \
              patch('dokimi.questions.validator.OPENAI_AVAILABLE', True), \
@@ -359,7 +359,7 @@ class TestNoOpVisibility:
 
     def test_scored_run_reports_performed(self, sample_questions, mock_llm_validator):
         mock_llm_cls = Mock(return_value=mock_llm_validator)
-        with patch('dokimi.questions.validator.ChatOpenAI', mock_llm_cls, create=True), \
+        with patch('dokimi.questions.validator.Invoker', mock_llm_cls), \
              patch('dokimi.questions.validator.LANGCHAIN_AVAILABLE', True), \
              patch('dokimi.questions.validator.OPENAI_AVAILABLE', False), \
              patch('dokimi.questions.validator.SENTENCE_TRANSFORMERS_AVAILABLE', False):
