@@ -127,6 +127,16 @@ def test_keep_copies_under_must_name_a_directory_inside_the_catalog(tmp_path, va
         args.func(args)
 
 
+def test_keep_copies_under_a_symlink_loop_is_a_usage_error_not_a_traceback(tmp_path):
+    root = _ponytail(tmp_path / "ponytail")
+    (root / "loop").symlink_to("loop")
+    args = _parse("novelty", "routing", "--catalog", str(root), "--keep-copies-under", "loop",
+                  "--artifact", f"skill:{root}/skills/review", "--queries-from-headings")
+    # Python 3.11 and 3.12 name the loop; 3.13 resolves it to a path that is not a directory.
+    with pytest.raises(InputError, match="--keep-copies-under .*(symlink loop|not a directory)"):
+        args.func(args)
+
+
 def test_keep_copies_under_needs_a_catalog(tmp_path):
     _skill(tmp_path, "skills", "review", "review a change for correctness")
     args = _parse("novelty", "routing", "--keep-copies-under", "skills",
