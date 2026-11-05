@@ -27,7 +27,7 @@ _TIME = re.compile(r"\s*(?:(?:[{!]|if|then|else|elif|do|while|until)\s+)*time(?=
 _LEAD = _KEYWORDS | {"{", "time"}
 # what a ``case`` count leaves out: quoted text and escapes (each one ``q``), then backtick and ``$( )`` substitutions
 _QUOTED = re.compile(r"\\.|'[^']*'|\"(?:\\.|[^\"\\])*\"", re.S)
-_SUBSTITUTION = re.compile(r"`[^`]*`|\$\([^()]*\)")
+_SUBSTITUTION = re.compile(r"`[^`]*`|\$\(")
 
 
 def _time_keyword(text: str) -> bool:
@@ -292,11 +292,29 @@ def _loses(name: str, words: list[str], conditional: bool, timed: bool, via_env:
 
 def _case_tokens(text: str) -> list[str]:
     """The words and ``(``, ``)``, ``|`` of a part's ``text`` that the shell reads as syntax: a quoted or escaped
-    word (``"case"``, ``\\case``) is none, and a substitution's text is left out (one nested in another may stay)."""
-    text = _QUOTED.sub("q", text)
-    while (inner := _SUBSTITUTION.sub("q", text)) != text:
-        text = inner
-    return re.findall(r"[()|]|[^\s()|]+", text)
+    word (``"case"``, ``\\case``) is none, and a substitution's text is left out, its parentheses counted as
+    :func:`~dokimi.repos.shell_split.split_script` counts them (``$(case $x in (a) echo;; esac)``)."""
+    return re.findall(r"[()|]|[^\s()|]+", _unsubstituted(_QUOTED.sub("q", text)))
+
+
+def _unsubstituted(text: str) -> str:
+    """``text`` with each backtick or ``$( )`` substitution one ``q``; a ``$(`` that does not close runs to the end, as
+    the splitter keeps the rest of the script in it."""
+    out, at = [], 0
+    while m := _SUBSTITUTION.search(text, at):
+        out.append(text[at:m.start()] + "q")
+        at = m.end() if m.group() != "$(" else _closing(text, m.end())
+    return "".join(out) + text[at:]
+
+
+def _closing(text: str, at: int) -> int:
+    """The index past the ``)`` that closes a ``(`` just before ``at``, nested parentheses counted; the end if none does."""
+    depth = 1
+    for i in range(at, len(text)):
+        depth += {"(": 1, ")": -1}.get(text[i], 0)
+        if not depth:
+            return i + 1
+    return len(text)
 
 
 def _case_opens(text: str) -> int:

@@ -605,6 +605,21 @@ def test_a_case_word_that_is_no_command_word_opens_no_case(command):
 
 
 @pytest.mark.parametrize("command", [
+    "v=$(case $x in (a) echo;; esac); cat AGENTS.md", "v=$(case $x in (a) cd sub;; esac); cat AGENTS.md",
+    "echo $(echo $(case $x in (a|b) echo;; esac)) | cat; cat AGENTS.md", "v=$(case $x in (a) echo `(case)`;; esac); cat AGENTS.md",
+    "v=$( (true) | case $x in (a) echo;; esac); cat AGENTS.md",
+])
+def test_a_case_inside_a_substitution_with_a_parenthesised_pattern_hides_nothing_after_it(command):
+    # the substitution ends at the ``)`` that balances its ``$(``, as the splitter ends it: its esac is inside it
+    assert shell_walk(command) == (["AGENTS.md"], False, 0)
+
+
+def test_a_substitution_that_does_not_close_holds_the_rest_of_the_script():
+    # bash fails on it; the cat is inside the substitution, a subshell's text, so it is no read
+    assert shell_walk("v=$(case $x in (a) echo;; esac; cat AGENTS.md") == ([], False, 0)
+
+
+@pytest.mark.parametrize("command", [
     "case $x in a) case $y in b) cd sub;; esac;; esac; cat AGENTS.md",
     "case $x in a) (case $y in b) echo;; esac); cd sub;; esac; cat AGENTS.md",
     "case $x in a) echo | case $y in b) echo;; esac; cd sub;; esac; cat AGENTS.md",
