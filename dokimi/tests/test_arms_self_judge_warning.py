@@ -15,3 +15,20 @@ def test_other_family_is_silent(capsys):
                         judge=True, judge_model="claude-sonnet-5-5", judge_provider="anthropic")
     assert warn_self_judging(cfg) is False
     assert capsys.readouterr().err == ""
+
+
+def test_check_judge_calls_the_warning(monkeypatch):
+    """`arms run --judge` and `subjects run --judge` both go through _check_judge."""
+    from dokimi.eval import arms_run
+
+    class Stop(Exception):
+        pass
+
+    monkeypatch.setattr(arms_run, "check_bedrock_model", lambda *a: None)
+    monkeypatch.setattr(arms_run, "probe_sampling", lambda *a: None)
+    monkeypatch.setattr(arms_run, "warn_self_judging", lambda cfg: (_ for _ in ()).throw(Stop))
+    cfg = ArmsRunConfig(product="p", judge=True, judge_model="m", judge_provider="openai")
+    import pytest
+
+    with pytest.raises(Stop):
+        arms_run._check_judge(cfg, [{"question": "q"}])

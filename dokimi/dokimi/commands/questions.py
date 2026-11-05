@@ -15,20 +15,7 @@ from dokimi.llm import ANSWER_PROVIDERS
 from dokimi.commands._output import exit_on_unwritable
 from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
 from dokimi.exit_codes import EXIT_USAGE
-
-
-def _warn_same_as_generator(questions_data, args: argparse.Namespace, context: str) -> None:
-    """Warn (never refuse) when the reviewing model is the one the questions file names as generator.
-
-    Silent when the file does not record ``model`` and ``provider`` (a hand-written set).
-    """
-    if not isinstance(questions_data, dict):
-        return
-    model, provider = questions_data.get("model"), questions_data.get("provider")
-    if isinstance(model, str) and isinstance(provider, str):
-        from dokimi.utils import warn_judge_independence
-
-        warn_judge_independence(provider, model, args.provider, args.model, context=context)
+from dokimi.utils import warn_recorded_self_judge
 
 
 def _load_questions_json(path: str):
@@ -123,7 +110,8 @@ def cmd_questions_panel_review(args: argparse.Namespace) -> None:
     n_eff = min(len(questions), args.limit) if args.limit else len(questions)
     print(f"Panel review: {n_eff} questions × {len(reviewers)} reviewers → {n_eff * len(reviewers)} LLM calls")
     print(f"Reviewers: {', '.join(reviewers)} | Model: {args.provider}/{args.model}\n")
-    _warn_same_as_generator(questions_data, args, "questions panel")
+    warn_recorded_self_judge(questions_data, [(args.model, args.provider)], "eval questions review",
+                             roles=("generator", "reviewer"))
 
     reviewer = QuestionPanelReviewer(
         reviewers=reviewers, model=args.model,
@@ -239,7 +227,8 @@ def cmd_questions_analyze(args: argparse.Namespace) -> None:
 
     print(f"Analyzing {len(questions)} questions for '{args.product}'...")
     print(f"Model: {args.provider}/{args.model} | concurrency: {args.concurrency}\n")
-    _warn_same_as_generator(questions_data, args, "questions analyze")
+    warn_recorded_self_judge(questions_data, [(args.model, args.provider)], "eval questions analyze",
+                             roles=("generator", "reviewer"))
 
     analyzer = QuestionQualityAnalyzer(
         model=args.model,

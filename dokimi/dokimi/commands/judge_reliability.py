@@ -19,7 +19,7 @@ from dokimi.defaults import (
 )
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY
-from dokimi.utils import InputError, read_json_input
+from dokimi.utils import InputError, read_json_input, warn_recorded_self_judge
 from dokimi.commands._output import write_text_or_exit
 from dokimi.exit_codes import EXIT_FAILURE, EXIT_USAGE
 
@@ -68,22 +68,6 @@ def _load_answers(path: str):
 
     data = _read_json(path)
     return data, list(read(data, source=path, section="answers").records)
-
-
-def _warn_saved_answers(data: Any, judges: Sequence[tuple[str, str]], context: str) -> None:
-    """Warn (never refuse) for each judge that is the model the saved answers name.
-
-    Silent when the file does not record ``model`` and ``provider``.
-    """
-    if not isinstance(data, dict):
-        return
-    model, provider = data.get("model"), data.get("provider")
-    if not (isinstance(model, str) and isinstance(provider, str)):
-        return
-    from dokimi.utils import warn_judge_independence
-
-    for judge_model, judge_provider in judges:
-        warn_judge_independence(provider, model, judge_provider, judge_model, context=context)
 
 
 def _load_points(path: str):
@@ -145,6 +129,14 @@ def _check_judge_temperature(judges: list[tuple[str, str]], temperature) -> None
             sys.exit(EXIT_USAGE)
 
 
+def _pairwise_judges(args: argparse.Namespace) -> list[tuple[str, str]]:
+    """``(model, provider)`` of the pairwise judge, then of the escalation judge when one is named."""
+    judges = [(args.judge_model, args.judge_provider)]
+    if getattr(args, "escalate_model", None):
+        judges.append((args.escalate_model, args.escalate_provider or args.judge_provider))
+    return judges
+
+
 def pairwise_judge(args: argparse.Namespace):
     """A both-order pairwise judge from --judge-* and optional --escalate-* args; returns (judge, label)."""
     from dokimi.eval.judge import Judge
@@ -157,12 +149,10 @@ def pairwise_judge(args: argparse.Namespace):
         return lambda prompt, draw=0, cache_if=None: llm.invoke(prompt, draw=draw, cache_if=cache_if).content
 
     label = f"{args.judge_provider}/{args.judge_model} pairwise"
-    judges = [(args.judge_model, args.judge_provider)]
+    judges = _pairwise_judges(args)
     escalate = None
-    if getattr(args, "escalate_model", None):
-        provider = args.escalate_provider or args.judge_provider
-        judges.append((args.escalate_model, provider))
-        label += f" → {provider}/{args.escalate_model}"
+    if len(judges) > 1:
+        label += f" → {judges[1][1]}/{judges[1][0]}"
     _check_judge_temperature(judges, temperature)
     if len(judges) > 1:
         escalate = asker(*judges[1])
@@ -181,10 +171,8 @@ def cmd_eval_pairwise(args: argparse.Namespace) -> None:
     arms = [a.strip() for a in args.arms.split(",")] if args.arms else None
     _require_arms(args.answers, records, "eval score pairwise")
     pairwise_jobs(records, baseline_arm=baseline, arms=arms)  # refuse a blank question before the probe call
+    warn_recorded_self_judge(data, _pairwise_judges(args), "eval score pairwise")
     judge, label = pairwise_judge(args)
-    escalate = [(args.escalate_model, args.escalate_provider or args.judge_provider)] \
-        if getattr(args, "escalate_model", None) else []
-    _warn_saved_answers(data, [(args.judge_model, args.judge_provider), *escalate], "eval score pairwise")
     print(f"Pairwise comparison: {label}, {len(records)} questions, baseline `{baseline}`")
     report = run_arm_pairwise(
         records, judge, label=label, library=library, baseline_arm=baseline, arms=arms,
@@ -213,11 +201,11 @@ def cmd_eval_checklist(args: argparse.Namespace) -> None:
     from dokimi.eval.judge import Judge
 
     data, records = _load_answers(args.answers)
+    warn_recorded_self_judge(data, [(args.judge_model, args.judge_provider)], "eval score checklist")
     points = _load_points(args.questions)
     baseline = args.baseline_arm or (data.get("baseline_arm") if isinstance(data, dict) else None) or "baseline"
     arms = [a.strip() for a in args.arms.split(",")] if args.arms else None
     _require_arms(args.answers, records, "eval score checklist")
-    _warn_saved_answers(data, [(args.judge_model, args.judge_provider)], "eval score checklist")
     checklist_jobs(records, points, arms=arms)  # refuse a blank question before the probe call
     _check_judge_temperature([(args.judge_model, args.judge_provider)], args.judge_temperature)
     llm = Judge(model=args.judge_model, provider=args.judge_provider, temperature=args.judge_temperature).llm
@@ -251,7 +239,7 @@ def cmd_eval_judge_wording(args: argparse.Namespace) -> None:
     from dokimi.eval.judge_wording import WORDINGS, run_wording
 
     data, answers = _load_answers(args.answers)
-    _warn_saved_answers(data, [(args.judge_model, args.judge_provider)], "eval judge wording")
+    warn_recorded_self_judge(data, [(args.judge_model, args.judge_provider)], "eval judge wording")
     library = args.product or (data.get("library_name") if isinstance(data, dict) else None) or "the library"
     variants = [v.strip() for v in args.variants.split(",")] if args.variants else list(DEGRADATIONS)
     wordings = [w.strip() for w in args.wordings.split(",")] if args.wordings else list(WORDINGS)
@@ -421,7 +409,7 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
             print(f"Error: --judges entry '{spec}' must be provider/model, provider in {JUDGE_PROVIDERS}",
                   file=sys.stderr)
             sys.exit(2)
-        _warn_saved_answers(data, [(model, provider)], "eval judge agreement")
+        warn_recorded_self_judge(data, [(model, provider)], "eval judge agreement")
         print(f"Scoring with {spec} ...", flush=True)
         judge = Judge(model=model, provider=provider, temperature=args.judge_temperature)
         for grounding in ([None, truth] if truth and args.both else [truth]):

@@ -25,7 +25,7 @@ from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY, NoUsablePairs
 from dokimi.commands._output import write_text_or_exit
 from dokimi.exit_codes import EXIT_USAGE
-from dokimi.utils import warn_judge_independence
+from dokimi.utils import warn_judge_independence, warn_recorded_self_judge
 
 
 _warn_judge_independence = warn_judge_independence
@@ -263,6 +263,14 @@ def cmd_eval_grounding(args: argparse.Namespace) -> None:
         print(f"\n✅ Grounding report saved to {out}")
 
 
+def _validity_judges(args: argparse.Namespace) -> list[tuple[str, str]]:
+    """``(model, provider)`` of the judge, then of the escalation judge when one is named."""
+    judges = [(args.judge_model, args.judge_provider)]
+    if args.escalate_model:
+        judges.append((args.escalate_model, getattr(args, "escalate_provider", None) or args.judge_provider))
+    return judges
+
+
 def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
     """Measure whether the judge can order pairs whose ordering is known."""
     if args.mode != "pairwise" and (args.escalate_model or args.escalate_ties):
@@ -284,6 +292,7 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
     run = _load_answers(args.answers)
     answers = list(run.records)
     library = args.product or run.meta.get("library_name") or "the library"
+    warn_recorded_self_judge(run.meta, _validity_judges(args), "eval judge validate")
 
     variants = [v.strip() for v in args.variants.split(",")] if args.variants else list(DEGRADATIONS)
     unknown = sorted(set(variants) - set(DEGRADATIONS))
