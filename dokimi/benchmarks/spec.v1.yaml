@@ -72,11 +72,10 @@ future:
     enabled: false
     min_score: 0.85
 
-# Sanity bounds on the static track's doc set, not targets: min_docs catches a glob
-# that matched almost nothing, max_docs one that escaped; raise it with each new doc.
+# min_docs catches a glob that matched almost nothing. No max_docs: a fixed cap
+# needed a bump per new doc and raced between PRs (see changelog.d).
 golden_manifest:
   min_docs: 10
-  max_docs: 38
   include:
     - docs/**/*.md
   exclude:

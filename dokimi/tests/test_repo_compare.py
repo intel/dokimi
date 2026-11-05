@@ -117,7 +117,7 @@ def test_seed_reaches_the_bootstrap_and_the_sign_flip(tmp_path, monkeypatch):
     seen = []
 
     def spy(name, result):
-        return lambda deltas, seed: seen.append((name, seed)) or result
+        return lambda deltas, seed, **_: seen.append((name, seed)) or result
 
     monkeypatch.setattr(compare_mod, "bootstrap_ci", spy("bootstrap", {"mean": 0.0, "lo": -1.0, "hi": 1.0}))
     monkeypatch.setattr(compare_mod, "mean_ci", spy("t", {"mean": 0.0, "lo": -1.0, "hi": 1.0}))
@@ -963,3 +963,15 @@ def test_arms_from_batches_with_different_built_in_graders_warn(tmp_path):
     _cell(new, "fix_a", "guidance:raw", 1)
     s = compare([old, new], "old/guidance:raw", ["new/guidance:raw"])
     assert s["warnings"] == ["new/guidance:raw vs old/guidance:raw: the batches ran from different graders (g1, g2)"]
+
+
+def test_the_printed_statistics_stay_rounded_and_full_precision_is_opt_in():
+    # repo compare --json prints these as they were before the ledger; only the ledger asks for exact values.
+    from dokimi.repos.compare import paired_summary
+
+    deltas = [1 / 3, 1 / 3, -0.1]
+    pairs = [{"task": f"t{i}", "baseline": 0.0, "treatment": d, "delta": d} for i, d in enumerate(deltas)]
+    plain, exact = paired_summary(pairs), paired_summary(pairs, exact=True)
+    assert plain["delta"]["mean"] == round(sum(deltas) / 3, 4)
+    assert exact["delta"]["mean"] == sum(deltas) / 3
+    assert plain["p"] == round(exact["p"], 6)

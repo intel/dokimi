@@ -82,6 +82,20 @@ def test_each_reach_class_maps_to_its_observed_and_thread_states(tmp_path, cls):
     assert src["states"]["followed"] == "unknown"
 
 
+def test_a_start_up_rule_imported_by_claude_md_is_a_receipt_source_under_claude_code(tmp_path):
+    # with rules read, budget counts the import as a rule (not an import): the receipt must still list it
+    from dokimi.repos.budget import budget
+
+    tree = _tree(tmp_path, {"CLAUDE.md": "@.claude/rules/r.md\n", ".claude/rules/r.md": "body\n"})
+    payload = budget(tree, ("CLAUDE.md", "AGENTS.md"), None, True)
+    assert [(e["path"], e["kind"], e["when"]) for e in payload["entries"] if e["path"].endswith("r.md")] == [
+        (".claude/rules/r.md", "rule", "start")]
+    reach = _reach([_record("CLAUDE.md", "cwd=.", "loaded")], [ROOT_ROW])
+    src = _sources(build_receipt(reach, payload, tree), "cwd=.")
+    assert src[".claude/rules/r.md"]["expected"] is True
+    assert src[".claude/rules/r.md"]["sha256"] is not None
+
+
 def test_a_source_the_probe_did_not_record_has_no_dokimi_method(tmp_path):
     tree = _tree(tmp_path, {"AGENTS.md": "a\n", "CLAUDE.md": "c\n", "docs/style.md": "d\n"})
     reach = _reach([_record("AGENTS.md", "cwd=.", "loaded")], [ROOT_ROW])
@@ -639,3 +653,38 @@ def test_from_an_empty_file_name_is_a_usage_error_and_runs_no_probe(tmp_path, mo
         args.func(args)
     assert exc.value.code == 2 and "--from needs a file name" in capsys.readouterr().err
     assert not (tmp_path / "out" / "reach.json").exists()
+
+
+def test_a_scoped_rule_alias_of_a_nested_agents_md_is_not_expected_in_its_subtree(tmp_path):
+    # sub/AGENTS.md loads only through the rule link, whose paths do not match the read in sub/: budget says lazy,
+    # but the subtree is not where it activates, so the receipt cannot say it is expected there
+    from dokimi.repos.budget import budget
+
+    tree = _tree(tmp_path, {"CLAUDE.md": "root\n", "sub/AGENTS.md": "---\npaths: other/**\n---\nagents\n"})
+    (tmp_path / ".claude/rules").mkdir(parents=True)
+    try:
+        (tmp_path / ".claude/rules/agents.md").symlink_to(tmp_path / "sub/AGENTS.md")
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    payload = budget(tree, ("CLAUDE.md", "CLAUDE.local.md", "AGENTS.md"), None, True, claude_displaces_agents=True)
+    records = [_record("sub/AGENTS.md", s, "not_loaded") for s in ("cwd=.", "read=sub")]
+    files = [{"path": "sub/AGENTS.md", "head": "RC000005", "tail": "RC000006"}]
+    receipt = build_receipt(_reach(records, [ROOT_ROW, SUB_ROW], files=files), payload, tree)
+    assert _sources(receipt, "read=sub")["sub/AGENTS.md"]["expected"] == "unknown"
+
+
+def test_a_scoped_rule_alias_of_a_nested_claude_md_keeps_its_own_check_in_its_subtree(tmp_path):
+    # sub/CLAUDE.md loads where the work reaches sub/ whatever the rule's paths say, so the receipt keeps its check
+    from dokimi.repos.budget import budget
+
+    tree = _tree(tmp_path, {"CLAUDE.md": "root\n", "sub/CLAUDE.md": "---\npaths: other/**\n---\nsub\n"})
+    (tmp_path / ".claude/rules").mkdir(parents=True)
+    try:
+        (tmp_path / ".claude/rules/x.md").symlink_to(tmp_path / "sub/CLAUDE.md")
+    except OSError:
+        pytest.skip("symlinks unavailable")
+    payload = budget(tree, ("CLAUDE.md", "CLAUDE.local.md", "AGENTS.md"), None, True)
+    records = [_record("sub/CLAUDE.md", s, "not_loaded") for s in ("cwd=.", "read=sub")]
+    files = [{"path": "sub/CLAUDE.md", "head": "RC000005", "tail": "RC000006"}]
+    receipt = build_receipt(_reach(records, [ROOT_ROW, SUB_ROW], files=files), payload, tree)
+    assert _sources(receipt, "read=sub")["sub/CLAUDE.md"]["expected"] is True

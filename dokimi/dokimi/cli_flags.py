@@ -242,6 +242,7 @@ CONCEPTS: tuple[Concept, ...] = (
             Flag("--answers", "FILE", "path"),
             Flag("--registry", "FILE", "path"),
             Flag("--from", "RUN", "text"),
+            Flag("--ledger", "FILE", "path"),
             Flag("--index", "FILE", "path", meaning="a SCIP code index of the tree"),
         ),
         banned=("--product", "--library", "--libraries", "--target", "--root", "--repo-root",

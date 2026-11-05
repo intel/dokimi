@@ -19,8 +19,9 @@ from ..source import RepoTree, SourceError
 from ..static import STATUS_CLASSES, check_static, status_class
 from .adapters import ADAPTERS, detect
 from .core import Claim, Scan
+from .typecheck import Check, check_fences
 
-__all__ = ["ADAPTERS", "Claim", "Scan", "guidance_files", "scan_repo"]
+__all__ = ["ADAPTERS", "Check", "Claim", "Scan", "guidance_files", "scan_repo"]
 
 
 def guidance_files(tree: RepoTree, manifest: RepoManifest) -> list[str]:
@@ -52,12 +53,14 @@ def _is_build_input(path: str) -> bool:
             or name in ("BUILD", "BUILD.bazel", "WORKSPACE", "WORKSPACE.bazel", "MODULE.bazel"))
 
 
-def scan_repo(tree: RepoTree, manifest: RepoManifest, static: dict[str, Any] | None = None) -> dict[str, Any]:
+def scan_repo(tree: RepoTree, manifest: RepoManifest, static: dict[str, Any] | None = None,
+              typecheck: Check | None = None) -> dict[str, Any]:
     """The ``repo_readiness.v1`` payload (without ``schema_version``) for ``tree``.
 
     ``static`` is the document the repository's ``static`` entry point wrote.
     Its claims replace the framework's claim on the same file, line and text,
-    because the repository knows its own rules better.
+    because the repository knows its own rules better. ``typecheck`` adds the
+    ``python_fence`` claims (§8.2); None leaves the Python fences unchecked.
     """
     files = guidance_files(tree, manifest)
     scan = Scan(tree, frozenset(manifest.build_systems), repo_url=manifest.source_url, guidance=tuple(files))
@@ -68,9 +71,10 @@ def scan_repo(tree: RepoTree, manifest: RepoManifest, static: dict[str, Any] | N
     skipped: dict[str, str] = {}
     scan.preload(files, skipped)
     aliases = _aliases(tree, files)
-    for f in files:
-        if f not in skipped and f not in aliases:
-            scan.check_file(f)
+    checked = [f for f in files if f not in skipped and f not in aliases]
+    for f in checked:
+        scan.check_file(f)
+    typecheck_block = None if typecheck is None else check_fences(scan, checked, typecheck)
     framework = [dict(c.to_dict(), source="framework") for c in scan.claims]
 
     static_info: dict[str, Any] | None = None
@@ -108,6 +112,7 @@ def scan_repo(tree: RepoTree, manifest: RepoManifest, static: dict[str, Any] | N
         "by_kind": _grouped(claims, "kind"),
         "by_file": _grouped(claims, "file"),
         "static": static_info,
+        "typecheck": typecheck_block,
         "warnings": warnings,
         "incomplete": bool(reasons),
         "incomplete_reasons": reasons,

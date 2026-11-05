@@ -165,6 +165,7 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("tools", "preference"), PAID),
     Leaf(("context", "trace"), FREE),
     Leaf(("context", "consistency"), FREE),
+    Leaf(("context", "prefilter"), FREE),
     Leaf(("runs", "list"), FREE),
     Leaf(("runs", "show"), FREE),
     Leaf(("backends",), FREE),

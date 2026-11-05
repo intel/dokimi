@@ -54,6 +54,7 @@
         "resolution": {"type": "string"},
         "imports": {"type": ["string", "null"]},
         "import_max_depth": {"type": "integer", "minimum": 1, "description": "How many hops of @imports the harness follows from a guidance file; absent: unlimited."},
+        "claude_rules": {"type": "boolean", "description": "The harness reads .claude/rules/**/*.md (repo budget counts them); absent: false."},
         "shadow_file": {"type": "string", "minLength": 1, "description": "A file the harness loads by convention that, put in a directory, should turn the other guidance there off: a file name or a path relative to the directory (CLAUDE.local.md for Claude Code). `repo reach --scenarios shadow` writes it for one scenario at a time; absent: that kind is refused."},
         "claude_displaces_agents": {"type": "boolean", "description": "`repo budget` reports every AGENTS.md off when a root CLAUDE.md, CLAUDE.local.md or .claude/CLAUDE.md resolves, and a nested one when its own directory holds one (Claude Code's rules). Default false: no AGENTS.md is off."},
         "notes": {"type": "string"}
@@ -90,6 +91,11 @@
         "write": {"type": "string"},
         "content": {"type": "string"}
       }
+    },
+    "overlay": {
+      "type": ["string", "null"],
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "The agent name of the AGENTS.<overlay>.md the guidance:overlay arm keeps for this harness (agentsmd/agents.md#185). Absent or null: the arm cannot run with this profile."
     }
   }
 }

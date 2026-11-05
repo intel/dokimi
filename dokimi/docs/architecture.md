@@ -299,12 +299,18 @@ next release.
   non-empty body line, as Claude Code does. It warns on skills with no description or body text,
   skills with near-duplicate descriptions (identical descriptions, or Jaccard index >= 0.5
   after stop-word removal when both have 3+ words left), on AGENTS.md files turned off, on
-  unreadable files (non-UTF-8, dangling or out-of-tree link), and on imports past the harness's
-  hop limit, each of which also trips
-  `--fail-on-warning`. `start` is not an upper bound: it is too low by what it does not count
-  (`.claude/rules/*.md` files; only `@path.md` imports are followed, so `@notes.txt` adds nothing;
+  unreadable files (non-UTF-8, dangling or out-of-tree link), on imports past the harness's
+  hop limit, and on a link at or below `.claude/rules` to a directory or out of the tree, or a root `.claude` link to a
+  directory with `rules/` or out of the tree, or a git submodule at `.claude` or at or below `.claude/rules` (the rules behind it are not counted at start), each of which also trips `--fail-on-warning`. For a profile with `guidance.claude_rules` (Claude Code),
+  `.claude/rules/**/*.md` files are `rule` entries: `start` in the root `.claude/rules/` when
+  `paths` names no pattern, `lazy` when it does or in a subdirectory's `.claude/rules/`, but `start` whatever its `paths` when a root CLAUDE.md or
+  AGENTS.md imports it, the frontmatter not counted. An `@` path in a rule is not followed, unless a CLAUDE.md or AGENTS.md
+  imports the rule: then its `@` imports are followed, transitively and within the hop limit. A root import loads the rule at start; a nested CLAUDE.md import loads it lazily, when that nested file is read. `start` is not an upper bound: it is too low by what it does not count
+  (only `@path.md` imports are followed, so `@notes.txt` adds nothing;
   skills are read only from real `.claude/skills/*/SKILL.md` directories at the root, so a skill
-  behind a linked directory is not seen, and a nested `<subdir>/.claude/skills/` skill, which Claude
+  behind a linked directory is not seen, nor are the rules behind a link at or below `.claude/rules` (a warning
+  names it, as it does a root `.claude` link to a directory with `rules/` or out of the tree, and such a git submodule), and a
+  nested `<subdir>/.claude/skills/` skill, which Claude
   Code loads on the first read in that subdirectory, is not counted; and imports past the profile's `guidance.import_max_depth`,
   four hops for Claude Code, which warn naming what was skipped). It is too high by whatever the
   harness cuts from the skill listing: the listing is charged in full, and the harness cuts it past
@@ -359,6 +365,10 @@ next release.
   what its `--task` selection keeps; `dokimi/repos/compare_reach.py` how small
   an effect a row can find (`mde`, an uncorrected t-based estimate, and the
   lowest `p_holm` Holm's family leaves it).
+- `dokimi/repos/ledger.py` — `repo compare --ledger`: loads a `repo_ledger.v1`
+  file (rules with their hypothesis, arm, linked cases and review date) and gives
+  each rule a verdict from `repo compare` over its own cases, Holm-corrected
+  across the rules. [rule-ledger.md](rule-ledger.md).
 - `dokimi/repos/selfcheck.py` — `eval check`: on each task
   `grade` must fail the untouched workspace and pass it after `oracle`, and an
   isolation probe must not see the tasks or the source from the agent's
@@ -409,6 +419,11 @@ separate profiles: result (`pass@k`, `pass^k`), path (tool-mix JSD, edit
 distance of tool and action sequences, resource spread, strategy groups) and
 conformance to a YAML process contract; `python cli.py context consistency`.
 Guide: [run-consistency.md](run-consistency.md).
+`dokimi/context/session_log.py` reads a Claude Code session log into prompt and
+tool events; `dokimi/context/prefilter.py` matches a guidance file's rules
+against them (trigger, acted, corrected) and ranks candidates for ablation.
+Both are deterministic; `python cli.py context prefilter`. Guide:
+[session-prefilter.md](session-prefilter.md).
 
 ## Shared building blocks
 

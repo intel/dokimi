@@ -181,7 +181,7 @@ def _per_group(entries, key, hit):
     return {k: f"{a}/{b}" for k, (a, b) in counts.items()}
 
 
-def grade_seeds(task, task_dir, answer):
+def grade_seeds(task, task_dir, answer, run_dir=None):
     """``review_seeds``: the result dict (``pass`` and flat metrics, lists and objects for details)."""
     man = _read_json(task_dir, task.get("manifest", "manifest.json"))
     seeds, decoys = man.get("seeds", []), man.get("decoys", [])
@@ -211,7 +211,7 @@ def grade_seeds(task, task_dir, answer):
     return out
 
 
-def oracle_seeds(task, task_dir):
+def oracle_seeds(task, task_dir, run_dir=None):
     """The reference answer: ``oracle.json`` (a list of findings) in a fence."""
     with open(str(task_dir / task.get("oracle_answer", "oracle.json")), encoding="utf-8") as fh:
         # ``` can only sit in a JSON string: escape it as oracle_replay does, or it closes the fence
@@ -250,7 +250,7 @@ def _match(g, i, f, distance):
             "message": _cut(f.get("message")), "distance": distance}
 
 
-def grade_replay(task, task_dir, answer):
+def grade_replay(task, task_dir, answer, run_dir=None):
     """``review_replay``: score-only, ``recall`` over the human threads."""
     gold = _read_json(task_dir, task.get("gold", "gold.json"))
     findings = findings_of(answer)
@@ -276,7 +276,7 @@ def grade_replay(task, task_dir, answer):
             "precision_proxy": _ratio(near, len(findings)), "decoys_flagged": []}
 
 
-def oracle_replay(task, task_dir):
+def oracle_replay(task, task_dir, run_dir=None):
     """The reference answer: one finding per gold thread, at its anchor."""
     gold = _read_json(task_dir, task.get("gold", "gold.json"))
     ans = [{"file": g["file"], "line": g["line"], "severity": "minor", "rule": g.get("kind", ""),

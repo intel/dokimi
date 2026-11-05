@@ -49,9 +49,14 @@ SPDX-License-Identifier: Apache-2.0
 > files a root CLAUDE* turns off, or a CLAUDE.md, `CLAUDE.local.md` or `.claude/CLAUDE.md` in the
 > AGENTS.md file's own directory (not one in a parent below the root). Both rules hold only with a profile that sets
 > `guidance.claude_displaces_agents`, as `claude-code` does: with `copilot`, a root AGENTS.md is `start` beside a root CLAUDE.md. Imports are followed only with a profile that
-declares `guidance.imports` (`claude-code`; it is null for `codex` and `copilot`). The `start` total is not an upper bound: it is too low by what it does
-> not count (`.claude/rules/*.md` files, non-`.md` imports, skills behind a linked directory, nested
-> `.claude/skills/` skills, and
+declares `guidance.imports` (`claude-code`; it is null for `codex` and `copilot`). For a profile with `guidance.claude_rules` (`claude-code`),
+> `.claude/rules/**/*.md` files are `rule` entries: at start in the root `.claude/rules/` unless
+> their frontmatter's `paths` names a pattern, lazily then and in a subdirectory's `.claude/rules/`; a rule a root CLAUDE.md or AGENTS.md
+> imports is `start` whatever its `paths`;
+> an `@` path in a rule is not followed, unless a CLAUDE.md or AGENTS.md imports the rule: then its `@` imports are followed, transitively and within the hop limit.
+> A root import loads the rule at start; a nested CLAUDE.md import loads it lazily, when that nested file is read. The `start` total is not an upper bound:
+> it is too low by what it does not count (non-`.md` imports, skills behind a linked directory, rules behind a
+> link at or below `.claude/rules` to a directory or a root `.claude` link, or a submodule there, which warns, nested `.claude/skills/` skills, and
 > imports past the profile's `guidance.import_max_depth`, four hops for Claude Code, which warns
 > naming what was skipped), and too high by whatever the harness cuts from the skill listing.
 > Usage:
@@ -325,7 +330,7 @@ belongs to the repository's grader and is passed through unread, except `grader`
 3. `git init` and commit (no history, so fixes cannot leak)
 4. apply `setup_patches`
 5. apply the arm: `guidance:none`, `guidance:raw`, `guidance:bridge`,
-   `guidance:rev:<rev>`, `patch:<file>`, `guidance:format=xml` (the guidance
+   `guidance:overlay`, `guidance:rev:<rev>`, `patch:<file>`, `guidance:format=xml` (the guidance
    files rendered as tagged sections, `dokimi/repos/guidance_format.py`) or
    `guidance:as-skill` (the guidance files removed, their text packaged as one
    skill, see [Guidance formats and packaging](benchmarking-and-comparison.md#guidance-formats-and-packaging))
@@ -341,13 +346,30 @@ Every `guidance:*` arm is made by the framework from `guidance.globs`, the
 harness profile and the source's own history; a repository supplies no arm
 content:
 
-- `none` deletes every file the globs match at the base; `raw` keeps them.
+- `none` deletes every file the globs match at the base and every overlay
+  `AGENTS.<agent>.md`, which is matched by its name, not by the globs; `as-skill`
+  drops the same files, packaging only the matched ones; `raw` keeps them. The `rev:` arm keeps the overlays: a repository with overlays that wants a
+  revision without them lists `**/AGENTS.*.md` in `guidance.globs` too.
 - `bridge` exists only for a profile with a `bridge` key. It writes that file
   (for Claude Code, a `CLAUDE.md` containing `@AGENTS.md`) next to every
   matched `AGENTS.md`, not only at the root. Whether a harness needs it
   depends on its version: Claude Code 2.1.286 loads `AGENTS.md` itself, but
   only when no `CLAUDE.md` is in its start-up chain, so a repository-side
   bridge arm would mean different things on different versions.
+- `overlay` exists only for a profile with an `overlay` key (the agent name, for
+  Claude Code `claude`). It is the per-agent overlay of agentsmd/agents.md#185:
+  `AGENTS.<agent>.md` beside an `AGENTS.md`, at any depth. The workspace keeps
+  the base `AGENTS.md` and the `AGENTS.<overlay>.md` files and removes every
+  other `AGENTS.<name>.md` (not the harness's own names such as
+  `AGENTS.override.md`, nor files under `.claude`). The files are recognised by
+  name, not by `guidance.globs`. The name must be the `overlay` key of a builtin
+  profile (`claude`, `codex`, `copilot`): `AGENTS.ja.md` is an ordinary file. A
+  profile loaded from a path can reuse one of those names (a copy of `claude-code.yaml`
+  keeps `overlay: claude`), but one whose `overlay` key is not a builtin name has no
+  recognised overlay, so its arm is refused. A base with no `AGENTS.md` at its root, or
+  with no `AGENTS.<overlay>.md`, is a preparation error, so a cell cannot be the base alone
+  or an overlay with no base by accident. The arm
+  does not make a harness load its overlay: the reach probe reports that.
 - `rev:<rev>` keeps the base's code and replaces its guidance with that of
   another revision of the source: the base's matched files are deleted and the
   files the globs match at `<rev>` (outside `eval_dir`) are written. It answers
@@ -619,7 +641,8 @@ measure the patch's text, such as a guidance line, not the tool.
 For every task, before any paid run:
 
 - the null workspace (prepared, untouched) must fail the gate
-- the workspace after `oracle` must pass the gate
+- the workspace after `oracle` must pass the gate (a `dokimi:typecheck` task with no `reference/`
+  has no oracle step: its null step alone must fail, §4.5)
 - for score-only tasks, the oracle must reach `score.max` on `score.metric`
 - the agent container must not be able to read any file under `tasks` or
   `{source_dir}` (§1.1)
@@ -668,7 +691,8 @@ repository's checks with its own without knowing their rules.
 A task whose `grader` is `dokimi:<name>` is graded by the framework, not by
 the repository's `grade` and `oracle` entry points; any other name goes to
 those entry points. Such a task is data only: its directory holds
-`task.json`, the patch and the JSON files the grader reads. The `dokimi:`
+`task.json`, the patch and the JSON files the grader reads (and, for
+`dokimi:typecheck`, an optional `reference/` directory, §4.5 below). The `dokimi:`
 prefix is the framework's: an unknown `dokimi:` name fails `eval check` and
 the run's grade, and is never handed to the repository.
 
@@ -678,7 +702,9 @@ framework's grader code is mounted read-only at `/eval/graders` (never into
 the agent's container) and runs as
 `python3 -I -B /eval/graders/main.py grade|oracle <name> <task dir> /eval/run`,
 where `<task dir>` is the task's directory under `{eval_dir}`. It uses the
-standard library only and the image's `python3` (3.8 or newer). `-I` keeps
+standard library only and the image's `python3` (3.8 or newer), except
+`dokimi:typecheck`, which imports the image's mypy (the pinned one, on Python
+3.10 or newer). `-I` keeps
 `PYTHONPATH` from `image.env` and the workspace off `sys.path`; `-B` prevents
 writing `.pyc` files to the read-only mount. An image with no `python3` on
 `PATH` is a grader failure that says so: the grader exits 127 and its
@@ -692,7 +718,8 @@ other exit 127 is reported as a plain `grade exited 127`.
   `pass: null` with `errors`. A metric the task's `gate` names that the grader
   did not produce is `null`.
 - `oracle` writes the reference answer to `answer.txt` and leaves the
-  workspace alone.
+  workspace alone, except `dokimi:typecheck`, whose `oracle` copies `reference/`
+  over the workspace (see its paragraph below).
 
 A review task with `pass: null` is scored, not gated: give it `score`. A `gate`
 on its metrics is not applied (`success` is null), and without `score` the run
@@ -721,6 +748,34 @@ failed the task, and on a task with `score` that is a failed run with score
 |---|---|---|---|---|
 | `dokimi:review_seeds` | `manifest.json` (`manifest`); oracle answer `oracle.json` (`oracle_answer`), a list of findings | `null`; for a manifest with no seeds (a clean-diff control), `true` when no finding is `blocker` or `major` | `n_findings`, `n_severe`, `n_decoys`, `unmatched`, `recall` (`null` with no seeds) | `seeds_hit`, `decoys_flagged`, `recall_by_class` (`"hit/total"`) |
 | `dokimi:review_replay` | `gold.json` (`gold`); `task.json` `window`, default 5 | `null` (score-only) | `n_findings`, `n_severe`, `n_threads`, `recall` (= `recall_all`), `recall_addressed`, `precision_proxy` | `threads_hit`, `matches`, `recall_by_kind`, `decoys_flagged` (always `[]`) |
+| `dokimi:typecheck` | none: the task's own fields `tool` (`mypy`), `version` (the image's mypy, exactly), `paths` (workspace-relative files) | `true` when no error is reported on a listed file, every listed file exists, and nothing silences mypy, else `false` | `n_errors`, `n_missing`, `n_suppressions`, `n_files` | `errors` (first 50, `file:line: message [code]`, and each silenced spot), `missing`, `tool`, `tool_version` |
+
+`dokimi:typecheck` checks the listed files only. Its pass is "no error on a
+listed file" (an error in a module a listed file imports belongs to that module,
+not to the listed file; an installed module without types is read as `Any`, not an error), and a listed file that is missing fails. Silencing mypy fails too: a `# type: ignore` or `# mypy:` comment, the name `no_type_check`, or a branch mypy never checks because it takes `TYPE_CHECKING` (or `MYPY`) as true (`if not TYPE_CHECKING:`, the `else` of `if TYPE_CHECKING:`, and the same for a condition that combines it with `not`, `and` or `or`, such as `if not TYPE_CHECKING and x:` or `if TYPE_CHECKING or x:` with an `else`) in a listed file, or a `.pyi` anywhere in the workspace (it would replace the module it names; a dot directory such as `.venv` or `.git` that holds no listed file is not read, as no import can name it), or a top-level module or package named as a standard-library one or one the image's site-packages provides (`json.py`, `requests/__init__.py`, the same replacement; the repository's own package is not one when the image installed it from the workspace directory, `pip install .` or `pip install -e .` there, which its `direct_url.json` records as `dir_info`, and is one when installed from any other directory), is a suppression, and the grade counts it in `n_suppressions`. A listed path
+reached through a symbolic link is missing, not read. A symbolic link in the workspace whose target
+lies outside it (outside such a dot directory) refuses the whole grade (a grader error, not a pass), listed or not, whenever mypy runs, that is
+when some listed file is present: mypy follows an import through a link, so an unlisted module could supply what a
+listed file imports. When every listed file is missing, mypy does not run, and the grade is a failure with
+`n_missing` set, not a grader error, even if a link lies outside. The exception
+is a blocking error (a syntax error, a duplicate module) that stops mypy before
+it reaches the listed files: then that error is the grade's, and the grade fails.
+Not counted, so not guarded: other code mypy takes as unreachable and does not check (under a `sys.version_info` or
+`sys.platform` guard the image's Python does not take, after `assert False`), and a change to an unlisted module that
+hides a listed file's error (a module `__getattr__` returning `Any`, a return type widened to `Any`). A repository's
+own code has both, and the grader cannot read the base to tell them from the agent's; `--warn-unreachable` would
+report only the `assert False` kind, along with the repository's own unreachable branches. A task that needs these
+guarded checks them in its own `grade` entry point.
+`reference/` is optional. The task's `oracle` copies its `reference/` directory, when it has one, over the
+workspace, so a reference repair is what gets graded; its answer is empty. Without `reference/` the grade
+reads the listed files as they are, and the self-check (§4.3) runs the null step only: the untouched
+listed files must fail, since there is no reference repair for the oracle step to pass.
+It runs mypy in-process in the grading container, so the image's `python3`
+must import the pinned mypy: a `version` other than the installed one is a
+grader failure, not a fail. It is not "no new errors against the base": the
+grader is stdlib-only and cannot run `git` to read the base, and it does not
+start basedpyright (the L0 check, §8.2, runs mypy or basedpyright on the host, as `--typecheck-tool` selects). A repository that
+needs that comparison writes it in its own `grade` entry point.
 
 `manifest.json` is `{"seeds": [{id, class, file, lines, kw}], "decoys":
 [{id, file, lines, kw}]}`; `file` `"*"` matches any file, and `kw` is a
@@ -871,8 +926,10 @@ that a commit on the first-parent path up to the reviewed revision answered (as
 
 **Guidance and `eval_dir` are left out.** Workspace preparation applies the
 arm before the review patch (§3, steps 5 and 7): `guidance:none` deletes the
-files the guidance globs match and `guidance:rev:` replaces them, so a hunk on
-one would not apply, and a guidance file the PR adds would reach every arm.
+files the guidance globs match and every `AGENTS.<agent>.md` overlay,
+`guidance:overlay` deletes the overlays of other agents and `guidance:rev:`
+replaces the matched files, so a hunk on one would not apply, and a guidance
+file the PR adds would reach every arm. Overlays count as guidance here.
 `eval_dir` is never in a workspace. Files of either kind are left out of the
 patch and listed in `left_out_files`, and their threads are left out of
 `gold.json`. A pull request that changes nothing else gets no task.
@@ -987,6 +1044,7 @@ guidance:                            # DECLARED; verified by the reach probe, ne
   shadow_file: CLAUDE.local.md       # written by `repo reach --scenarios shadow` (§7)
   claude_displaces_agents: true      # repo budget: a root CLAUDE* turns off every AGENTS.md, a nested one its own directory's
 bridge: {for: AGENTS.md, write: CLAUDE.md, content: "@AGENTS.md"}
+overlay: claude                      # the AGENTS.claude.md the guidance:overlay arm keeps (agentsmd/agents.md#185)
 args_if_present:                     # argv added after the "{tools}" element when the workspace file exists and the tool mode is `all`
   .mcp.json: ["--mcp-config", ".mcp.json"]
 ```
@@ -1060,7 +1118,8 @@ args_if_present:                     # argv added after the "{tools}" element wh
 - `answer_format` converts the final answer before grading. `codex-review`
   keeps Codex's review text and appends a ```` ```json ```` block of findings
   `{file, line, end_line, severity, priority, rule, message}` parsed from its
-  `- [P1] title — path:12-14` lines (a failed run, an empty answer or a `[Pn]`
+  `- [P1] title — path:12-14` lines (a failed run, an empty answer, an answer
+  with no finding and no clean-verdict sentence, or a `[Pn]`
   header that does not parse gets no block, so no block means no review, not a clean one; a priority outside P0–P3 gets `severity` null): `file` relative to the workspace,
   `severity` `blocker` (P0), `major` (P1) or `minor` (P2, P3), `rule` the title
   and `message` the body. The final message decides when it holds a finding or
@@ -1236,6 +1295,25 @@ per scenario).
       It is not a tree file, so it has no `files` entry, no records and no
       matrix row; the matrix prints one line per shadow scenario with its
       class.
+- Overlays (`overlays` in `guidance_reach.v1`, the design note of §3): every
+  `AGENTS.<name>.md` is probed, even where the globs miss it, so a foreign overlay
+  is tested rather than assumed absent. The expectation is that foreign overlays are
+  `not_loaded`. `cross_loaded` lists each foreign overlay some scenario reported
+  as `loaded`, `truncated` or `fetched`; the text report prints it as a `finding:`
+  line. `own_loaded` lists the harness's own overlays that loaded in some scenario;
+  when none did, the text report says so, but only if some own-overlay scenario
+  read as `not_loaded` and every own-overlay scenario gave a usable answer (none
+  errored, none was a refusal); otherwise it says loading could not be
+  determined. `own` is the profile's `overlay`.
+  `ambiguous` lists the names of a load that could have been read under another
+  name: a file with aliases when any harness-native guidance file is present in
+  the probe (it could import the target), or when the alias group holds two
+  overlay names. Those loads are neither own nor cross loads. The rule does not
+  depend on the profile's `guidance.imports`: codex and copilot (`imports: null`)
+  have it too, so with their `AGENTS.md` in the probe every overlay link is
+  ambiguous and never a `finding:`. The text
+  report prints no own-overlay note for them, and a foreign target with an own
+  alias is listed there too, not reported as a cross load.
 - If payload capture is available, a `payload` field records whether each
   token was in the request bytes. This settles cells where the model
   under-reports, which is how a small model produces false `truncated` cells.
@@ -1347,15 +1425,15 @@ observations of that run. It cannot show:
   `\time cd sub` run /usr/bin/time); the forms that only drop a read are listed in
   [#374](https://github.com/intel/dokimi/issues/374);
 - when a source entered the request, or in what order (no timestamps);
-- start-up imports and skill listings from budget, which reach does not probe:
+- start-up imports, start-up rules and skill listings from budget, which reach does not probe:
   they appear with `observed: unknown`. A skill body is loaded on demand, so it
   is not listed; the receipt-level unknown says both;
 - anything a model under-reports; a prose-heavy answer is flagged.
 
 Each run lists its own `unknowns` (no usable answer, a source with one token
 reported, prose above the limit, unseeded tokens). The receipt-level `unknowns`
-repeat the limits above and carry the notice that start-up imports and skill
-listings are not probed.
+repeat the limits above and carry the notice that start-up imports, start-up rules and
+skill listings are not probed.
 
 The same receipt, run over the fixtures in `data/reach-conformance/` for several
 harnesses and versions, is the reach conformance matrix; see
@@ -1692,6 +1770,58 @@ these numbers; both are `info` with `low` confidence: on
 oneDAL they tracked agent cost or error over 39 modules only, which cannot
 separate structure from question design.
 Whether the index is current is not checked: `not_observed` says so.
+
+### 8.2 Python fences (`repo scan --typecheck`)
+
+`--typecheck` type-checks every fence tagged
+`python`, `py` or `python3` in the guidance files, with `--typecheck-tool mypy|basedpyright`
+(default mypy). Each fence that parses is one
+`python_fence` claim, so the report and `--fail-on-fail` treat it like any other
+claim:
+
+- `ok`: the tool reports no error in the fence.
+- `fail`: a stale-API candidate. The claim's line is the error's line in the
+  guidance file, and its `why` names the first error (`mypy: line N: message`).
+- `unresolved`: the fence is not valid Python (a placeholder such as `f(<arg>)`),
+  is too deeply nested for the parser, or no `--python-env` was given, so nothing
+  was checked. It is also unresolved when its only errors are missing context (any
+  undefined name, as from an earlier fence or an omitted import, so a removed builtin such as
+  `unicode` is unresolved too; `await`/`return`/`yield`/`yield from`, `break`/`continue` outside a loop,
+  `async with`/`async for` outside a function, `nonlocal` at module level, a relative import above the fence's package), or a module the
+  environment does not have (see below), or when the
+  repository is older than the tool checks (mypy: Python 3.10). The reason says which.
+
+`--python-env PYTHON` names the repository's interpreter, a virtualenv with its
+pinned dependencies installed (and the repository itself, if its fences import
+it). The fences are checked against that site-packages with imports followed
+silently (`--follow-imports=silent`), so only errors in the fence count. A
+module the environment does not have is `unresolved`, not `fail`: the fence's own
+import fails, so nothing it says about that module can be checked, and a fence that
+imports an uninstalled package is not a stale-API candidate. Two missing modules are `fail` all the same: a
+standard-library one the repository's Python lacks (`import imp` on 3.13; the names are dokimi's Python's and
+those the pinned mypy's typeshed lists), and with mypy a submodule of a package the repository interpreter finds as a regular package (`json.nosuch`, `yaml.nosuch`; not a relative import, nor a namespace package such as `google`). A module the environment has without types
+(no `py.typed` or stubs) is `unresolved` too: mypy reads it as `Any`. A real error in the same fence still
+fails it. `pip install
+dokimi` does not install mypy: the tested pin is `requirements-test.txt`
+(`mypy==2.4.0`), and a missing mypy exits 2. basedpyright must be on `PATH` and
+is recorded with the version it reports, not pinned by dokimi. The report's
+`typecheck` block names the tool, its version, the interpreter (`null`: unknown) and the counts
+(`fences`, `checked`, `fail`, `unknown`, `syntax`); it is `null` without the
+flag. `--python-env` and `--typecheck-tool` need `--typecheck`. The fences are parsed with the
+grammar of the repository interpreter's version, and mypy runs with that
+`--python-version` and an explicit empty config, so the subject's and the host's
+mypy settings do not apply. basedpyright gets the same version as `pythonVersion`
+in its explicit project file, since `--pythonpath` alone sets the import paths. The tools run on the host through
+`dokimi.process`; one run covers every fence of the repository. When mypy stops on a blocking error, it runs
+again on the fences that error did not name, so one fence cannot leave the others unchecked.
+
+```bash
+python cli.py repo scan <source> --manifest <path> --typecheck --python-env <repo-venv>/bin/python
+```
+
+A guidance note under test can be scored the same way as any other content:
+feed the note as a `patch:<file>` arm (see §3) and grade the arm's workspace with
+the `dokimi:typecheck` grader above.
 
 ## 9. Running
 

@@ -325,6 +325,9 @@ code.
 - [context-window.md](context-window.md) — read a run's context window from
   its Claude Code trace with `cli.py context trace`: start-up load, growth,
   compactions, tool-result weight. No LLM call.
+- [session-prefilter.md](session-prefilter.md) — which AGENTS.md or CLAUDE.md rules
+  the Claude Code session logs triggered, acted on and were corrected on, with
+  `cli.py context prefilter`: candidates for ablation, not verdicts. No LLM call.
 - [run-consistency.md](run-consistency.md) — repeated runs of one task with
   `cli.py context consistency`: result stability (pass^k), path stability
   (tool mix, order, actions, strategies), process-contract conformance.
@@ -376,6 +379,10 @@ code.
 - [preparing-a-repository-evidence.md](preparing-a-repository-evidence.md) —
   the runs behind each figure on that page: task set, arms, model, cell count
   and raw count.
+- [rule-ledger.md](rule-ledger.md) — one row per guidance rule: its
+  hypothesis, the replay or executable cases of the failures it prevents, and
+  the review date; `repo compare --ledger` gives each rule a keep, review or
+  insufficient-evidence verdict. The cut decision stays with a person.
 
 ## Extending Dokimi
 

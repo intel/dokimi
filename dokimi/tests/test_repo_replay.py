@@ -333,6 +333,30 @@ def test_the_tasks_pass_the_self_check_and_apply_under_guidance_none(hist, tmp_p
         assert arm == "guidance:none" or _read(ws, "AGENTS.md") == ["# guidance"]  # the base's, not the PR's
 
 
+def test_a_pr_that_edits_an_agents_overlay_leaves_it_out_and_applies_under_guidance_none(hist, tmp_path):
+    root = hist["root"]
+    main = git(root, "rev-parse", "--abbrev-ref", "HEAD")
+    _put(root, "AGENTS.codex.md", ["# for codex"])
+    _commit(root, "an overlay")
+    git(root, "checkout", "-qb", "pr20")
+    _put(root, "AGENTS.codex.md", ["# for codex", "pr20"])
+    _set(root, "src/r.py", 3, "r3 pr")
+    rev = _commit(root, "overlay and code")
+    merge = _squash(root, main, "pr20")
+    git(root, "branch", "-q", "-D", "pr20")
+    _replay(root, _pages(_pr(20, rev, merge, [_t("src/r.py", 3, rev)])), root / ".agent-eval/tasks")
+    task, _, patch = _load(root / ".agent-eval/tasks", 20)
+    assert task["left_out_files"] == ["AGENTS.codex.md"] and "AGENTS.codex.md" not in patch
+    _commit(root, "replay task")
+    source = RepoSource.parse(f"{root}@HEAD")
+    tree = open_source(source)
+    manifest = load_manifest(tree, ".agent-eval/repo-eval.yaml")
+    task = load_tasks(export_eval_dir(tree, manifest, tmp_path / "content"), manifest, ["review_replay_pr20"])[0]
+    prepare_workspace(source_git_dir(source, tree), manifest, task, "guidance:none", tmp_path / "none")
+    ws = tmp_path / "none" / "workspace"
+    assert _read(ws, "src/r.py")[2] == "r3 pr" and not (ws / "AGENTS.codex.md").exists()
+
+
 # ------------------------------------------------------------------ the other pull requests
 
 
