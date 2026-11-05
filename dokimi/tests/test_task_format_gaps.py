@@ -181,6 +181,16 @@ def test_hf_dataset_data_files_of_a_local_dataset_are_read_from_that_dataset(tmp
     assert seen[0][1]["data_files"] == str((tmp_path / "d" / "data" / "s.jsonl").resolve())
 
 
+def test_hf_dataset_data_files_with_a_data_dir_are_read_from_that_folder(tmp_path, monkeypatch):
+    seen = _capture_hf_load(monkeypatch)
+    (tmp_path / "d" / "data" / "en").mkdir(parents=True)
+    task = _write(tmp_path / "d" / "t.py", (
+        "@task\ndef t():\n"
+        "    return Task(dataset=hf_dataset('data', data_dir='en', data_files='s.jsonl', split='train'), scorer=match())\n"))
+    import_path(task, fmt="inspect-task")
+    assert seen[0][1]["data_files"] == str((tmp_path / "d" / "data" / "en" / "s.jsonl").resolve())
+
+
 def test_hf_dataset_name_that_exists_only_in_the_working_directory_is_not_read(tmp_path, monkeypatch):
     seen = _capture_hf_load(monkeypatch)
     (tmp_path / "cwd" / "secrets").mkdir(parents=True)

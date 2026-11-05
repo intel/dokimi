@@ -318,6 +318,7 @@ def _hf_call_args(node: ast.Call, base: Path) -> tuple[list[Any], dict[str, Any]
     root = Path(args[0]) if local else base
     if data_dir is not None and (local or args[0] in _HF_BUILDERS or escapes):
         kwargs["data_dir"] = _task_files(data_dir, root, "data_dir")
+        root = Path(kwargs["data_dir"])  # data_files= is relative to data_dir= when both are given
     if any(k.arg == "data_files" for k in node.keywords):
         kwargs["data_files"] = _task_files(kwargs.get("data_files"), root)
     return args, kwargs
