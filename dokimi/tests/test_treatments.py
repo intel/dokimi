@@ -226,6 +226,23 @@ def test_create_treatment_baseline():
     assert isinstance(create_treatment("baseline"), BaselineTreatment)
 
 
+def test_doc_library_id_prefers_the_mcp_source_id_over_the_registry(tmp_path):
+    from dokimi.mcp.factory import create_doc_source_client
+    from dokimi.registry import ProductRegistry
+
+    path = tmp_path / "products.yaml"
+    path.write_text(
+        "products:\n  demo:\n    name: demo\n    description: x\n    context7_id: declared/id\n",
+        encoding="utf-8",
+    )
+    client = create_doc_source_client("mcp:http=http://127.0.0.1:9/mcp;id=source/id")
+    arm = DocTreatment(client, rerank_threshold=0.0)
+
+    resolved = resolve_doc_library_id([arm], "demo", registry=ProductRegistry(path=path))
+
+    assert resolved == "source/id"
+
+
 def test_create_treatment_profile_and_skill(demo_skill):
     assert isinstance(
         create_treatment("profile:data/agent_profiles/concise_expert.md"), AgentProfileTreatment

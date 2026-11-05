@@ -123,10 +123,11 @@ def validate_supported_matrix_harnesses(cells) -> None:
 def resolve_doc_library_id(treatments, product: str, explicit_id=None, registry=None):
     """Resolve a library id for the first doc arm, before plugin wrapping.
 
-    Same three-step order as the ``answers``/``questions`` commands: explicit
-    flag, then the product's ``context7_id`` in ``products.yaml``, then the
-    client's own resolution. When no id can be named the ``ValueError`` is
-    raised to the caller, which stops the run: substituting the product name
+    Same order as the ``answers``/``questions`` commands: explicit flag, then
+    the ``;id=`` of an ``mcp:`` source, then the product's ``context7_id`` in
+    ``products.yaml``, then the client's own resolution. When no id can be
+    named the ``ValueError`` is raised to the caller, which stops the run:
+    substituting the product name
     would query an id that does not exist and record an empty-retrieval doc
     arm as a measurement. Other failures (an unreachable MCP server, say) still
     fall back to the product name and are reported by the arm itself.
