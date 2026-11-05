@@ -11,8 +11,9 @@
   `patch_files`, applies to every task. A task is unknown, with the reason, when it has no
   `public_at` (by date), the arm is a `patch:` arm, the batch recorded no guidance history, or a cell
   file has the wrong shape. The `--json` summary's `leak` lists each checked arm's `checked`,
-  `by_date`, `by_name`, `unknown`, `clean` and `names_truncated`; the text prints the counts, the
-  tasks named with their commits and the clean tasks as `--task` options. No delta, interval, p or
+  `not_checked`, `by_date`, `by_name`, `unknown`, `clean` and `names_truncated`; the text prints the
+  counts, the tasks named with their commits and, as `--task` options, the clean tasks with the ones
+  the check does not read (a hand-written task stays in the comparison). No delta, interval, p or
   exit code changes.
 - **`repo tasks replay` writes `patch_files`** — each `task.json` lists the paths `change.patch`
   changes, a rename as both its paths, for `repo compare` to scope a nested guidance file by.

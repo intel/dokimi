@@ -105,6 +105,7 @@ def _arm_entry(text: str, kind: str, read: list[tuple[str, Any, Any]]) -> dict[s
             rev = meta.get("arm_rev") if isinstance(meta, dict) else None
             truncated |= isinstance(rev, dict) and rev.get("guidance_commits_truncated") is True
     entry: dict[str, Any] = {"arm": text, "kind": kind, "revisions": _revisions(read), "checked": sorted(states),
+                             "not_checked": sorted({task for task, _, _ in read} - set(states)),
                              "by_date": {}, "by_name": {}, "unknown": {}, "clean": [], "names_truncated": truncated}
     for task in sorted(states):
         date, name = _merge([d for d, _ in states[task]]), _merge([n for _, n in states[task]])
@@ -241,7 +242,8 @@ def _when(value: Any) -> datetime | None:
 
 
 def format_leak(entries: list[dict[str, Any]]) -> list[str]:
-    """The text lines of ``summary["leak"]``: per checked arm its counts, then the tasks behind them."""
+    """The text lines of ``summary["leak"]``: per checked arm its counts, then the tasks behind them; ``clean:``
+    holds its clean tasks and those it does not check, as the ``--task`` options that leave out the flagged ones."""
     lines = []
     flagged = {t for e in entries for t in (*e["by_date"], *e["by_name"], *e["unknown"])}
     for e in entries:
@@ -262,7 +264,8 @@ def format_leak(entries: list[dict[str, Any]]) -> list[str]:
         for task, reason in e["unknown"].items():
             by_reason.setdefault(reason, []).append(task)
         lines += [f"  unknown, {reason}: {_capped(tasks)}" for reason, tasks in by_reason.items()]
-        keep = [t for t in e["clean"] if t not in flagged]  # a task another arm flags or cannot vouch for is not clean there
+        # a task another arm flags or cannot vouch for is not clean there; one the check does not read stays compared
+        keep = sorted({*e["clean"], *e["not_checked"]} - flagged)
         if keep and (e["by_date"] or e["by_name"]):
             lines.append("  clean: " + " ".join(f"--task {t}" for t in keep))
     return lines

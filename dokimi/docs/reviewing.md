@@ -213,7 +213,7 @@ these, in order, before writing what it showed (the fields:
   `patch_files` was committed after its `public_at`) and by name (a guidance
   commit's subject names its PR), unknown and clean; under it the tasks
   flagged by name with their commits, the unknown ones with the reason, and
-  the clean ones as `--task` options (`--json`: `leak`, every id; contract
+  the clean ones, with the tasks it does not check, as `--task` options (`--json`: `leak`, every id; contract
   §9). Log by hand
   where that record falls short (`by name covers only the newest 200`, an
   unknown task, a `patch:` arm, or a commit under a name or link target no

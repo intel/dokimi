@@ -249,8 +249,25 @@ def test_a_task_that_is_not_replay_style_is_not_checked(tmp_path):
     meta = _rev({"AGENTS.md": _commit(SHA["root"], LATE)})
     specs = {"fix_a": {"id": "fix_a", "family": "fix"}, "review_replay_pr1": _spec(1)}
     leak = _leak(compare([_batch(tmp_path, meta, specs)], "guidance:none"))
-    assert leak["checked"] == ["review_replay_pr1"]
+    assert leak["checked"] == ["review_replay_pr1"] and leak["not_checked"] == ["fix_a"]
     assert compare([_batch(tmp_path / "x", meta, {"fix_a": specs["fix_a"]})], "guidance:none")["leak"] == []
+
+
+def test_the_clean_task_options_keep_the_tasks_the_check_does_not_read(tmp_path):
+    """A mixed batch: the rerun ``--task`` line leaves out the flagged replay task only, not the hand-written ones."""
+    meta = _rev({"AGENTS.md": _commit(SHA["root"], LATE)})
+    specs = {"review_replay_pr1": _spec(1, public="2026-05-01T00:00:00Z"), "review_replay_pr2": _spec(2),
+             "fix_a": {"id": "fix_a", "family": "fix"}}
+    batch = _batch(tmp_path, meta, specs)
+    _cell(batch, "fix_b", "guidance:none")  # no task.json at all
+    _cell(batch, "fix_b", REV, meta=meta)
+    _cell(batch, "fix_c", "guidance:none")
+    _cell(batch, "fix_c", REV, meta=meta)  # REV does not read fix_c, a later batch's other arm flags it by date
+    other, b2 = "guidance:rev:" + "e" * 40, tmp_path / "b2"
+    _cell(b2, "fix_c", "guidance:none", spec=_spec(3))
+    _cell(b2, "fix_c", other, meta=meta | {"arm": other}, spec=_spec(3))
+    lines = format_compare(compare([batch, b2], "guidance:none")).splitlines()
+    assert "  clean: --task fix_a --task fix_b --task review_replay_pr1" in lines
 
 
 def test_task_narrows_the_check_to_the_selected_tasks(tmp_path):

@@ -2192,13 +2192,16 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   Cells of one task may differ (pooled batches): a flag any cell sets counts.
   The `--json` summary's `leak` holds one entry per checked arm (`[]` when
   none is): `arm`, `kind` (`guidance:rev` or `patch`), `revisions` (each
-  `rev` and `sha`), `checked`, `by_date` (task → the latest applicable
+  `rev` and `sha`), `checked`, `not_checked` (the arm's other tasks, whose
+  `task.json` is absent or not replay-style), `by_date` (task → the latest applicable
   commit that tripped it: `path`, `sha`, `committed`, `public_at`,
   `scoped`), `by_name` (task → the commit shas), `unknown` (task → reason),
   `clean` (flagged by neither and not unknown) and `names_truncated`. The
   text prints per checked arm a line of the counts, the tasks flagged by name
-  with their commits, and, when some tasks are flagged and some clean, the
-  clean ones as `--task` options, to compare without the flagged tasks. The
+  with their commits, and, when some tasks are flagged and some are not, the
+  clean ones and the `not_checked` ones as `--task` options, to compare
+  without the flagged tasks; a task another arm flags or reports unknown is
+  left out of them. The
   flags change no delta, interval, p or exit code.
 
 CI for a repository: `.github/workflows/repo-eval.yml` is a reusable workflow
