@@ -137,13 +137,16 @@ class GitTree:
     untracked, ignored paths git leaves out (top-relative, a directory by its name as ``ls-files --directory`` gives it),
     and the blob ids of the tracked files git finds unchanged (their index entries). A tree is a snapshot: build one per
     digest. ``indexed`` is left out of the hash only: a mapping cannot hash, and equality must see the snapshot.
-    ``nested`` is filled as a walk meets directories: for one holding ``.git`` (a nested repository or submodule), the
-    paths its own git ignores, relative to it; None for any other. It is a cache, so equality and the hash leave it out."""
+    ``tracked`` holds every path the top's index holds and each directory above one: git stores those, so a nested
+    repository's rules never leave them out. ``nested`` is filled as a walk meets directories: for one holding ``.git``
+    (a nested repository or submodule), the paths its own git ignores, relative to it; None for any other. It is a
+    cache, so equality and the hash leave it out."""
 
     top: Path
     base: str
     ignored: frozenset[str]
     indexed: Mapping[str, str] = field(hash=False)
+    tracked: frozenset[str] = frozenset()
     nested: dict[str, frozenset[str] | None] = field(default_factory=dict, hash=False, compare=False, repr=False)
 
     def top_rel(self, path: Path) -> str | None:
@@ -155,9 +158,9 @@ class GitTree:
             return None
 
     def skipped(self, path: Path) -> bool:
-        """True for what git leaves out: an ignored path below the base, by the top's rules or by those of a nested
-        repository holding it, or anything under a ``.git`` (a nested repository's own). An ignored directory above the
-        base is not this walk's to apply."""
+        """True for what git leaves out: an ignored path below the base, by the top's rules or (unless the top tracks it)
+        by those of a nested repository holding it, or anything under a ``.git`` (a nested repository's own). An ignored
+        directory above the base is not this walk's to apply."""
         rel = self.top_rel(path)
         if rel is None:
             return False
@@ -165,7 +168,7 @@ class GitTree:
         first = len(self.base.split("/")) + 1 if self.base else 1
         if ".git" in parts or any("/".join(parts[:i]) in self.ignored for i in range(first, len(parts) + 1)):
             return True
-        return any(self._inner_skips(parts, j, first) for j in range(1, len(parts)))
+        return rel not in self.tracked and any(self._inner_skips(parts, j, first) for j in range(1, len(parts)))
 
     def _inner_skips(self, parts: list[str], j: int, first: int) -> bool:
         """True when the directory ``parts[:j]`` is a nested repository that ignores ``parts[j:]`` or a directory of it
@@ -209,7 +212,7 @@ def git_tree(base: Path) -> GitTree | None:
         base_rel = Path(os.path.realpath(base)).relative_to(top_real).as_posix()
     except ValueError:
         return None
-    return GitTree(top_real, "" if base_rel == "." else base_rel, ignored, _index_blobs(top_dir))
+    return GitTree(top_real, "" if base_rel == "." else base_rel, ignored, *_index_blobs(top_dir))
 
 
 def _ignored_paths(top: str) -> frozenset[str] | None:
@@ -227,10 +230,11 @@ def _ignored_paths(top: str) -> frozenset[str] | None:
     return frozenset(os.fsdecode(name).rstrip("/") for name in listed.stdout_bytes.split(b"\0") if name)
 
 
-def _index_blobs(top: str) -> dict[str, str]:
+def _index_blobs(top: str) -> tuple[dict[str, str], frozenset[str]]:
     """The index's blob id for each tracked file that git finds unchanged in the work tree. ``hash-object`` does not read
     the index, so it would fold a committed CRLF file under core.autocrlf. Flagged entries (skip-worktree, assume-unchanged)
-    are left out: git does not look at those files, so their disk content is hashed."""
+    are left out: git does not look at those files, so their disk content is hashed. Second, every path the index holds
+    and each directory above one (``GitTree.tracked``). No blob id if any git call fails; no path if ``ls-files`` does."""
     from dokimi.process import run
 
     env = _git_env()
@@ -239,16 +243,20 @@ def _index_blobs(top: str) -> dict[str, str]:
     # --no-optional-locks: status refreshes its view in memory and does not rewrite the index
     dirty = run(["git", "-C", top, "--no-optional-locks", "status", "--porcelain=v1", "-z", "-uno"], timeout=120,
                 env=env, capture_limit=None)
-    if not (staged.ok and tags.ok and dirty.ok):
-        return {}
+    trusted = staged.ok and tags.ok and dirty.ok  # a failed ls-files prints no entry, so ``held`` stays empty
     changed = _worktree_changed(dirty.stdout_bytes) | _flagged(tags.stdout_bytes)
     out: dict[str, str] = {}
+    held: set[str] = set()
     for entry in staged.stdout_bytes.split(b"\0"):
         meta, _, name = entry.partition(b"\t")
         fields = meta.split()
-        if name and len(fields) == 3 and fields[2] == b"0" and os.fsdecode(name) not in changed:
-            out[os.fsdecode(name)] = os.fsdecode(fields[1])
-    return out
+        if not name:
+            continue
+        rel = os.fsdecode(name)
+        held.update(rel.rsplit("/", i)[0] for i in range(rel.count("/") + 1))  # the path and each directory above it
+        if trusted and len(fields) == 3 and fields[2] == b"0" and rel not in changed:
+            out[rel] = os.fsdecode(fields[1])
+    return out, frozenset(held)
 
 
 def _worktree_changed(status: bytes) -> set[str]:

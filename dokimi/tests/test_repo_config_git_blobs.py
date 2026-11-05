@@ -87,6 +87,34 @@ def test_a_file_a_nested_repository_ignores_does_not_move_the_hash(tmp_path):
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_a_file_the_top_tracks_counts_under_a_nested_ignore_when_git_status_fails(tmp_path):
+    root = _repo(tmp_path / "r", {**FILES, "skills/a/vendor/lib.pyc": "one\n"})
+    inner = root / "skills/a/vendor"
+    _git(inner, "init", "-q")
+    (inner / ".gitignore").write_text("*.pyc\n")
+    ref = (root / ".git/HEAD").read_text().split()[1]
+    (root / ".git" / ref).write_text("1" * 40 + "\n")  # HEAD names a missing commit: status fails, ls-files works
+    before = _hashes(root)
+    (inner / "lib.pyc").write_text("two\n")
+    assert _hashes(root)[0] != before[0]
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+@pytest.mark.parametrize("rel", ["lib.pyc", "build/out.txt"])
+def test_a_file_the_top_tracks_counts_though_a_nested_repository_ignores_it(tmp_path, rel):
+    root = _repo(tmp_path / "r", {**FILES, f"skills/a/vendor/{rel}": "one\n"})
+    inner = root / "skills/a/vendor"
+    _git(inner, "init", "-q")
+    (inner / ".gitignore").write_text("*.pyc\nbuild/\n")
+    (inner / "build").mkdir(exist_ok=True)
+    before = _hashes(root)
+    (inner / "build/new.txt").write_text("new\n")  # the top does not track it: the inner rules leave it out
+    assert _hashes(root) == before
+    (inner / rel).write_text("two\n")  # the top's index tracks it: git stores the edit
+    assert _hashes(root)[0] != before[0]
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
 @pytest.mark.skipif(os.name == "nt", reason="Windows file names cannot hold a newline, a quote or a CR")
 @pytest.mark.parametrize("name", ["we\nird.txt", '"quoted.txt', "cr.txt\r"])
 def test_a_name_git_stdin_misreads_digests_the_same_edited_and_committed(tmp_path, name):
