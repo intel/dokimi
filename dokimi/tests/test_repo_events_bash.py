@@ -635,6 +635,21 @@ def test_a_case_inside_a_substitution_with_a_parenthesised_pattern_hides_nothing
     assert shell_walk(command) == (["AGENTS.md"], False, 0)
 
 
+@pytest.mark.parametrize("command", [
+    "v=$(case x in x) echo hi; cat INNER.md;; esac); cat AGENTS.md", "v=$(case x in x) cd sub;; esac); cat AGENTS.md",
+    "echo $(case x in a|b) echo; cat INNER.md;; esac) | cat; cat AGENTS.md",
+    "v=$(if true; then case x in x) echo; cat INNER.md;; esac; fi); cat AGENTS.md",
+    "v=$(case x in x) case y in y) echo; cat INNER.md;; esac;; esac); cat AGENTS.md",
+    "v=$(case x in a|case) echo; cat INNER.md;; esac); cat AGENTS.md",
+    "v=$(case x in a) echo;; b) echo; cat INNER.md;; esac); cat AGENTS.md",
+    "v=$(case x in x) echo | case y in y) :;; esac;; esac); cat AGENTS.md",
+    "v=$(case x in\n  x) echo hi\n     cat INNER.md;;\nesac\n); cat AGENTS.md", "v=$(echo case x); cat AGENTS.md",
+])
+def test_a_case_pattern_without_its_open_parenthesis_does_not_close_the_substitution(command):
+    # the pattern's ``)`` ends the pattern: the arm's cat and cd are inside the substitution, so only AGENTS.md is read
+    assert shell_walk(command) == (["AGENTS.md"], False, 0)
+
+
 def test_a_substitution_that_does_not_close_holds_the_rest_of_the_script():
     # bash fails on it; the cat is inside the substitution, a subshell's text, so it is no read
     assert shell_walk("v=$(case $x in (a) echo;; esac; cat AGENTS.md") == ([], False, 0)
@@ -645,6 +660,7 @@ def test_a_substitution_that_does_not_close_holds_the_rest_of_the_script():
     "case $x in a) (case $y in b) echo;; esac); cd sub;; esac; cat AGENTS.md",
     "case $x in a) echo | case $y in b) echo;; esac; cd sub;; esac; cat AGENTS.md",
     'case $x in a) echo; "esac"; cd sub;; esac; cat AGENTS.md',
+    "case $x in a) v=$(case $y in b) echo;; esac); cd sub;; esac; cat AGENTS.md",
 ])
 def test_a_nested_case_still_nests_and_a_quoted_esac_closes_nothing(command):
     # the cd is in an arm of the outer case, which may have run: the cat is at a directory not known

@@ -12,6 +12,8 @@ import re
 import shlex
 from collections.abc import Collection
 
+from .shell_split import substitution_end
+
 _SYSTEM_BIN = {"/bin", "/usr/bin", "/usr/local/bin"}
 _ASSIGN = re.compile(r"[A-Za-z_]\w*=")  # a NAME=value word: a variable set for the command that follows
 # a redirection word (``>``, ``2>err``, ``</dev/null``, ``&>>log``, ``{fd}>x``): group 1 is its attached target, if any
@@ -318,18 +320,8 @@ def _unsubstituted(text: str) -> str:
     out, at = [], 0
     while m := _SUBSTITUTION.search(text, at):
         out.append(text[at:m.start()] + "q")
-        at = m.end() if m.group() != "$(" else _closing(text, m.end())
+        at = m.end() if m.group() != "$(" else substitution_end(text, m.end())
     return "".join(out) + text[at:]
-
-
-def _closing(text: str, at: int) -> int:
-    """The index past the ``)`` that closes a ``(`` just before ``at``, nested parentheses counted; the end if none does."""
-    depth = 1
-    for i in range(at, len(text)):
-        depth += {"(": 1, ")": -1}.get(text[i], 0)
-        if not depth:
-            return i + 1
-    return len(text)
 
 
 def _case_opens(text: str) -> int:
