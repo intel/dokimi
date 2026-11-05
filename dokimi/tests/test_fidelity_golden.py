@@ -278,3 +278,14 @@ def test_api_version_and_beta_are_compared_raw():
     assert old["headers"]["anthropic-version"] == "2023-06-01"
     assert old["headers"] != new["headers"]
     assert fd.diff_requests(new, old) != []
+
+
+def test_excluded_only_listing_keeps_the_text_around_it():
+    # An excluded-only listing used to drop the whole block, so the text after it (here an
+    # expected-skill marker) never reached the comparison or the leak audit.
+    listing = ("The following skills are available for use with the Skill tool:\n\n"
+               "- other: Description.\n\nexpected_skill: sum-fast")
+    out = _texts(fd.normalize_request(_record_with(listing), keep_skills=("sum-fast",)))
+    assert "expected_skill: sum-fast" in out
+    assert "other" not in out and "Description" not in out
+

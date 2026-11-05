@@ -254,7 +254,11 @@ def _keep_text(text: str, keep_skills: Sequence[str]) -> Optional[str]:
     if _SKILLS_HEADER not in text:
         return text
     kept = _keep_listing(text, keep_skills)
-    return kept if any(ln.startswith("- ") for ln in kept.split("\n")) else None
+    if any(ln.startswith("- ") for ln in kept.split("\n")):
+        return kept
+    # Every entry was excluded: the listing goes, but the text around it is the request's too.
+    rest = kept.replace(_SKILLS_HEADER, "", 1).strip()
+    return rest or None
 
 
 def _strip_content(content: Any, keep_skills: Sequence[str]) -> Any:
