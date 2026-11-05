@@ -8,6 +8,8 @@
   sends the same request. A direct `get_llm(provider, m)` call becomes the same line, but the route
   and key then follow `dokimi.llm`'s table: an unknown bare Bedrock name is no longer replaced by
   `$ANTHROPIC_DEFAULT_SONNET_MODEL`, OpenRouter has no 2000-token cap, Bedrock uses the key it is
-  given, usage records the model and provider instead of the route and `litellm`, and replies
+  given, an openai model not in litellm's openai table goes out as "openai/<model>", an unreadable
+  "file:" key raises instead of being sent as text, usage records the model and provider instead of
+  the route and `litellm`, and replies
   `get_llm` cached are not found. In place of `bedrock_litellm_model(m)`,
   `dokimi.llm.resolve_model(m, "amazon-bedrock")` gives the route under the same table.
