@@ -65,8 +65,8 @@ def test_large_deltas_keep_the_ends_and_the_p_of_the_shifted_deltas():
     # at 1e7 the product's rounding passed EPS: the observed pattern stopped counting and both ends moved
     d = [0.62, 0.18, 0.94, -0.37, 0.71, 0.29, 0.83, 0.56, -0.05]
     big = [1e7 * x for x in d]
-    lo, hi = sign_flip_interval(d, sign_flip_p(d), exact=True)
-    big_lo, big_hi = sign_flip_interval(big, sign_flip_p(big), exact=True)
+    lo, hi = sign_flip_interval(d, sign_flip_p(d), rounded=False)
+    big_lo, big_hi = sign_flip_interval(big, sign_flip_p(big), rounded=False)
     assert abs(big_lo - 1e7 * lo) < 10 and abs(big_hi - 1e7 * hi) < 10, (big_lo, big_hi)  # 1e7 * TOL is 1
     test = ShiftTest(big)
     for theta in (1e5 * i + 0.37 for i in range(-200, 201)):  # off the deltas' grid, where sums tie exactly
@@ -118,7 +118,7 @@ def test_the_ends_are_step_points_of_p():
     for d in ([10.0, 12.0, 11.0, 9.0, 13.0, 10.0, -2.0], [1.0] * 6 + [0.0], [0.5, -0.5, 0.25, -0.25, 0.5, -0.5],
               N_FINDINGS_26):
         test = ShiftTest(d)
-        lo, hi = sign_flip_interval(d, sign_flip_p(d), exact=True)
+        lo, hi = sign_flip_interval(d, sign_flip_p(d), rounded=False)
         assert test.p(lo) >= 0.05 > test.p(lo - 1e-6) and test.p(hi) >= 0.05 > test.p(hi + 1e-6), d
     assert sign_flip_interval([10.0, 12.0, 11.0, 9.0, 13.0, 10.0, -2.0], 0.03125) == (4.0, 12.0)
 
@@ -149,7 +149,7 @@ def test_an_open_end_prints_as_inf():
 
 def test_an_end_three_decimals_would_print_as_zero_keeps_its_sign_and_value():
     assert format_interval(1e-4, 4.9e-4) == "[+0.0001, +0.00049]" and format_interval(-3e-4, 0.0) == "[-0.0003, +0.000]"
-    assert format_interval(1e-8, 0.0005) == "[+1e-08, +0.001]"  # an exact (ledger) end is not rounded to 4 places
+    assert format_interval(1e-8, 0.0005) == "[+1e-08, +0.001]"  # an end not rounded to 4 places
 
 
 def test_json_rows_name_the_interval_method_and_open_ends_are_null(tmp_path, capsys):

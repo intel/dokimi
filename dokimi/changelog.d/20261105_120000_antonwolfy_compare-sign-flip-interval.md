@@ -9,7 +9,8 @@
   or fewer: `delta.lo` / `delta.hi` are then `null` in `--json` (before, only a single task had `null`
   ends) and print as `-inf` / `+inf`, in `repo compare` and in the `--ledger` text. There, a non-zero end
   that 3 decimals would print as `0.000` prints at 2 significant digits (`+0.0002`), so an interval that
-  excludes 0 no longer reads `[+0.000, +0.000]`. Each `--json` row
-  names its method, `delta.method` `sign_flip_inversion`. `interval_p_disagree` now fires only where
+  excludes 0 no longer reads `[+0.000, +0.000]`. Each `--json` row, and each rule result of the ledger,
+  names its method, `delta.method` `sign_flip_inversion` (`null` for a rule result with no pairs); the ledger's ends
+  stay at 4 places, as before. `interval_p_disagree` now fires only where
   Holm's correction lifts a gate or score row's p across 0.05, and its note says the interval is
   uncorrected and `p_holm` decides the row. Printed p, `p_holm`, `mde` and `p_holm_floor` do not change.

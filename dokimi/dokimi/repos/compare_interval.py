@@ -93,8 +93,9 @@ class ShiftTest:
 
 
 def sign_flip_interval(deltas: list[float], p_zero: float | None, seed: int = 0, *,
-                       exact: bool = False) -> tuple[float | None, float | None]:
-    """``(lo, hi)`` of one row (module docstring), ``None`` for an open end; rounded to 4 places unless ``exact``.
+                       rounded: bool = True) -> tuple[float | None, float | None]:
+    """``(lo, hi)`` of one row (module docstring), ``None`` for an open end; rounded to 4 places unless not
+    ``rounded``, even for an exact p: an end is only known within :data:`TOL`, so its further digits are noise.
 
     ``p_zero`` is the row's p, :func:`~.compare.sign_flip_p` of ``deltas`` (``None``: every delta tied, no evidence
     against 0): it decides whether 0 is inside."""
@@ -103,7 +104,7 @@ def sign_flip_interval(deltas: list[float], p_zero: float | None, seed: int = 0,
     # far is 1 past the extreme, or twice it from 1 on: 1e16 + 1.0 rounds back onto 1e16, all tied
     ends = (_end(test, mean, low - max(1.0, -low), zero_inside),
             _end(test, mean, high + max(1.0, high), zero_inside))
-    return ends if exact else (_rounded(ends[0]), _rounded(ends[1]))
+    return (_rounded(ends[0]), _rounded(ends[1])) if rounded else ends
 
 
 def _end(test: ShiftTest, mean: float, far: float, zero_inside: bool) -> float | None:

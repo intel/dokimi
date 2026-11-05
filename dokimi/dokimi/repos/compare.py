@@ -178,7 +178,8 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
             models: list[str] | None = None, metrics: tuple[str, ...] = (), seed: int = 0,
             pass_k: int | None = None, path_stability: bool = False, tasks: list[str] | None = None,
             *, exact: bool = False) -> dict[str, Any]:
-    """``exact``: the statistics at full precision (the ledger's verdicts read them); otherwise rounded as printed."""
+    """``exact``: p and the mean delta at full precision (the ledger's verdicts read them); otherwise rounded as
+    printed. The interval's ends are at 4 places either way: bisection only knows them within 1e-7."""
     metrics = tuple(dict.fromkeys(metrics))
     if pass_k is not None and pass_k < 1:
         raise CompareError(f"--pass-k must be at least 1, got {pass_k}")
@@ -558,7 +559,7 @@ def paired_summary(pairs: list[dict[str, Any]], measure: str = "gate", seed: int
     """
     deltas = [p["delta"] for p in pairs]
     p = sign_flip_p(deltas, seed=seed, exact=exact)
-    lo, hi = sign_flip_interval(deltas, p, seed=seed, exact=exact)
+    lo, hi = sign_flip_interval(deltas, p, seed=seed)
     mean = sum(deltas) / len(deltas)
     sd = statistics.stdev(deltas) if len(deltas) > 1 else 0.0
     reachable = min_sign_flip_p(sum(abs(d) > EPS for d in deltas)) < ALPHA  # else no effect can be detected

@@ -147,8 +147,8 @@ def _head(rule: Rule, baseline: str, linked: int, missing: list[str]) -> dict[st
     return {"rule": rule.id, "rule_text": rule.text, "source": rule.source, "hypothesis": rule.hypothesis,
             "arm": rule.arm, "baseline": baseline, "linked": linked, "missing": missing, "model": None,
             "measure": None, "paired": 0, "error": None, "mixed": False, "changed": 0, "headroom": None,
-            "baseline_mean": None, "treatment_mean": None, "delta": {"mean": None, "lo": None, "hi": None},
-            "up": 0, "down": 0, "tied": 0, "p": None, "p_holm": None, "unmeasured": 0, "warnings": []}
+            "baseline_mean": None, "treatment_mean": None,
+            "delta": {"mean": None, "lo": None, "hi": None, "method": None}, "up": 0, "down": 0, "tied": 0, "p": None, "p_holm": None, "unmeasured": 0, "warnings": []}
 
 
 def _rule_entries(rule: Rule, batch_dirs: list[Path], default_baseline: str, models: list[str] | None,
@@ -223,7 +223,8 @@ def _entry(head: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
     d = row["delta"]
     out = {**head, "model": row["model"], "measure": row["measure"], "paired": row["n_tasks"],
            "baseline_mean": row["baseline_mean"], "treatment_mean": row["treatment_mean"],
-           "delta": {"mean": d["mean"], "lo": d["lo"], "hi": d["hi"]}, "up": row["up"], "down": row["down"],
+           "delta": {"mean": d["mean"], "lo": d["lo"], "hi": d["hi"], "method": d["method"]}, "up": row["up"],
+           "down": row["down"],
            "tied": row["tied"], "p": row["p"], "headroom": row["headroom"], "mixed": False,
            "changed": row["up"] + row["down"], "unmeasured": row["unmeasured"], "warnings": []}
     if row["headroom"]:
