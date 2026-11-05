@@ -342,3 +342,77 @@ def test_promptfoo_typescript_config_is_read_by_node(tmp_path):
         "export default cfg;\n"))
     imp = import_path(config, fmt="promptfoo")
     assert len(imp.questions) == 1
+
+
+# --- coverage of the refusals this PR adds (codecov on 2ced76d1) -------------------------------
+
+
+def test_hf_dataset_refuses_a_star_star_options_argument(tmp_path):
+    task = _write(tmp_path / "t.py", (
+        "@task\ndef t():\n"
+        "    return Task(dataset=hf_dataset('json', data_files='s.jsonl', split='train', **OPTIONS), scorer=match())\n"))
+    with pytest.raises(ValueError, match=r"\*\*options is not read"):
+        import_path(task, fmt="inspect-task")
+
+
+def test_hf_dataset_refuses_a_data_files_value_that_is_not_a_path(tmp_path):
+    task = _write(tmp_path / "t.py", (
+        "@task\ndef t():\n"
+        "    return Task(dataset=hf_dataset('json', data_files=5, split='train'), scorer=match())\n"))
+    with pytest.raises(ValueError, match="data_files must be literal paths"):
+        import_path(task, fmt="inspect-task")
+
+
+def test_hf_dataset_refuses_a_loader_call_without_a_split(tmp_path):
+    task = _write(tmp_path / "t.py", (
+        "@task\ndef t():\n"
+        "    return Task(dataset=hf_dataset('json', data_files='s.jsonl'), scorer=match())\n"))
+    with pytest.raises(ValueError, match="the path and split= must be literal strings"):
+        import_path(task, fmt="inspect-task")
+
+
+def test_hf_dataset_names_the_loaders_own_error(tmp_path, monkeypatch):
+    def load(*args, **kwargs):
+        raise RuntimeError("no such split")
+
+    fake = types.ModuleType("datasets")
+    fake.load_dataset = load
+    monkeypatch.setitem(sys.modules, "datasets", fake)
+    task = _write(tmp_path / "t.py", (
+        "@task\ndef t():\n"
+        "    return Task(dataset=hf_dataset('org/repo', split='train'), scorer=match())\n"))
+    with pytest.raises(ValueError, match="hf_dataset could not load org/repo: no such split"):
+        import_path(task, fmt="inspect-task")
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not on PATH")
+def test_promptfoo_code_config_that_writes_no_json_is_refused(tmp_path):
+    config = _write(tmp_path / "promptfooconfig.mjs", "process.exit(0);\n")
+    with pytest.raises(ValueError, match="node wrote no JSON for the config"):
+        import_path(config, fmt="promptfoo")
+
+
+def test_promptfoo_code_config_without_node_is_a_problem_in_detect(tmp_path, monkeypatch):
+    config = _write(tmp_path / "promptfooconfig.mjs", "export default {};\n")
+    monkeypatch.setattr(shutil, "which", lambda name, *a, **k: None)
+    report = detect(config)
+    assert report.format == "promptfoo"
+    assert "a JS/TS promptfoo config is read by node, which is not on PATH" in report.problems
+
+
+def test_suites_manifest_whose_tasks_are_not_a_list_is_a_problem(tmp_path):
+    report = detect(_write(tmp_path / "evaluation" / "harbor" / "suites.json", json.dumps(
+        {"suites": [{"skill": "a", "tasks": 5}]})))
+    assert report.problems == ["each suite's tasks must be a list of objects"]
+
+
+@pytest.mark.parametrize("body", ["  prompt: '   '\n", ""], ids=["blank-prompt", "no-prompt"])
+def test_openai_modelgraded_spec_without_a_usable_prompt_gives_no_criterion(tmp_path, body):
+    reg = tmp_path / "registry"
+    _write(reg / "modelgraded" / "fact-blank.yaml", "fact-blank:\n" + body + "  choice_strings: AB\n")
+    grader = _write(reg / "evals" / "blank.yaml",
+                    "blank:\n  id: blank\n  class: modelgraded.classify:ModelBasedClassify\n"
+                    "  args:\n    modelgraded_spec: fact-blank\n")
+    data = _jsonl(tmp_path / "data" / "s.jsonl", [{"input": "What is 2+2?"}])
+    imp = import_path(data, fmt="openai-evals", grader=str(grader))
+    assert _checks(imp) == [{"type": "unsupported", "native": "modelgraded:fact-blank"}]
