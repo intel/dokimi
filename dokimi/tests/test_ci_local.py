@@ -150,6 +150,25 @@ def test_pip_install_line_dropped_rest_of_step_runs(env: dict[str, Any]) -> None
     assert [c["cmd"][-1].strip() for c in env["calls"]] == ["echo after"]
 
 
+def test_global_claude_install_is_skipped_locally(env: dict[str, Any]) -> None:
+    """The fidelity job's global npm install never runs on a contributor's machine."""
+    wf = ("on: pull_request\njobs:\n  fidelity:\n    steps:\n"
+          "      - name: Install the pinned Claude Code\n"
+          "        run: npm install -g @anthropic-ai/claude-code@2.1.318 && claude --version\n"
+          "      - name: Run the fidelity golden\n        run: echo golden\n")
+    (cl.WORKFLOWS / "x.yml").write_text(wf)
+    cl.run(ns(jobs="fidelity"))
+    assert [c["cmd"][-1].strip() for c in env["calls"]] == ["echo golden"]
+
+
+def test_host_install_entries_match_real_steps() -> None:
+    """Every HOST_INSTALL tuple names a real job and step, catching renames."""
+    steps = {(job_id, step.get("name")) for _, wf in cl.load_workflows()
+             for job_id, job in wf["jobs"].items() for step in job.get("steps", [])}
+    for entry in cl.HOST_INSTALL:
+        assert entry in steps, f"HOST_INSTALL entry {entry} does not match a real job and step"
+
+
 def test_unknown_job_id_is_an_error(env: dict[str, Any], capsys: Any) -> None:
     """A stale --jobs id fails before anything runs instead of being skipped."""
     assert cl.run(ns(jobs="a,lint")) == 2
