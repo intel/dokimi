@@ -25,6 +25,12 @@ def test_recorded_same_model_warns_once(capsys):
     assert capsys.readouterr().err.count(WARN) == 1
 
 
+def test_repeated_judge_warns_once_per_distinct_judge(capsys):
+    judges = [("gpt-6.1-sol", "openai"), ("gpt-6.1-sol", "openai"), ("gpt-6.1-sol", "anthropic")]
+    assert warn_recorded_self_judge(SELF, judges, "x")
+    assert capsys.readouterr().err.count(WARN) == 2
+
+
 def test_recorded_without_model_is_silent(capsys):
     assert not warn_recorded_self_judge({"answers": []}, [("gpt-6.1-sol", "openai")], "x")
     assert not warn_recorded_self_judge([], [("gpt-6.1-sol", "openai")], "x")

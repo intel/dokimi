@@ -602,7 +602,7 @@ def warn_recorded_self_judge(
     if not (isinstance(model, str) and isinstance(provider, str)):
         return False
     hits = [warn_judge_independence(provider, model, jp, jm, context=context, roles=roles)
-            for jm, jp in judges]
+            for jm, jp in dict.fromkeys(judges)]
     return any(hits)
 
 
