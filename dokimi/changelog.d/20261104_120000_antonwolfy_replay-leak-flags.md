@@ -4,7 +4,7 @@
   arm whose cells record `arm_rev`, a replay task (its `task.json` has `public_at` or `source_pr`) is
   flagged by date when a guidance file that applies to it has its `guidance_latest` commit committed
   after the task's `public_at`, and by name when a `guidance_commits` subject names its PR (`#<n>`,
-  `<owner>/<repo>#<n>` of its own repository, or the PR's URL; `#31030` and `other/repo#3103` do not
+  `PR#<n>`, `PR <n>`, `GH-<n>`, `<owner>/<repo>#<n>` of its own repository, or the PR's URL; `#31030` and `other/repo#3103` do not
   name `#3103`).
   A nested `AGENTS.md`, `CLAUDE.md`, `CLAUDE.local.md` or `GEMINI.md` applies to the tasks that patch
   a path under its directory; any other guidance file, and every file for a task with no

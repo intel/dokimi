@@ -19,7 +19,8 @@ thread because a rule was written from it (https://github.com/intel/dokimi/issue
   so does every file to a task with no ``patch_files`` (one built before ``repo tasks replay`` wrote it), and its entry
   says ``scoped: false``. A task with no ``public_at`` is unknown by date. ``@`` imports are not followed:
   ``guidance_latest`` holds no import graph, so a nested file a root file imports counts as scoped.
-- **by name**: an ``arm_rev.guidance_commits`` subject names the task's PR: ``#<source_pr>`` not preceded
+- **by name**: an ``arm_rev.guidance_commits`` subject names the task's PR: ``#<source_pr>``, or ``<source_pr>``
+  after ``PR``, ``PR#``, ``PR #`` or ``GH-`` (any case), not preceded
   by a word character, ``/``, ``.`` or ``-`` (what a repository name holds), ``<owner>/<repo>#<source_pr>``
   of the task's own ``source_url``, or that PR's URL, none followed by a digit. ``other/repo#<n>`` does not
   count, no text is compared, and a task
@@ -221,9 +222,10 @@ def _by_name(rev: dict[str, Any], spec: dict[str, Any]) -> _State:
 
 
 def names_pr(pr: int, source_url: Any) -> re.Pattern[str]:
-    """What names PR ``pr`` in a subject: ``#<pr>``, and with a ``.../<owner>/<repo>/pull/<n>`` ``source_url``
-    ``<owner>/<repo>#<pr>`` and the PR's URL with nothing glued before its host; never followed by a digit."""
-    forms = [rf"(?<![\w/.-])#{pr}(?!\d)"]
+    """What names PR ``pr`` in a subject: ``#<pr>``, ``PR<pr>``, ``PR#<pr>``, ``PR <pr>``, ``GH-<pr>``, and with a
+    ``.../<owner>/<repo>/pull/<n>`` ``source_url`` ``<owner>/<repo>#<pr>`` and the PR's URL with nothing glued
+    before its host; never followed by a digit."""
+    forms = [rf"(?<![\w/.-])(?:#|PR\s*#?|GH-){pr}(?!\d)"]
     found = re.fullmatch(r"https?://([^/]+)/([^/]+)/([^/]+)/pull/\d+/?", source_url) \
         if isinstance(source_url, str) else None
     if found:

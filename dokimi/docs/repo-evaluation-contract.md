@@ -2178,7 +2178,8 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   `@` imports are not followed (`guidance_latest` holds no import graph): a nested
   file that a root file imports counts as scoped, so it can be missed.
   A task is flagged **by name** when a `guidance_commits` subject names its
-  PR: `#<source_pr>` not preceded by a word character, `/`, `.` or `-`,
+  PR: `#<source_pr>`, or `<source_pr>` after `PR`, `PR#`, `PR #` or `GH-`
+  (any case: `pr#3103`, `PR 3103`), not preceded by a word character, `/`, `.` or `-`,
   `<owner>/<repo>#<source_pr>` of the task's own `source_url`, or that PR's
   URL (its host not glued to a longer name), none followed by a digit
   (`#31030`, `other/repo#3103`, `other/repo-#3103` and `notgithub.com/<owner>/<repo>/pull/3103`

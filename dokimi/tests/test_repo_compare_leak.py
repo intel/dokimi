@@ -177,6 +177,17 @@ def test_the_latest_applicable_commit_is_the_one_recorded(tmp_path):
     ("Rules from NumPy/dpnp#3103.", True),
     ("See https://github.com/numpy/dpnp/pull/3103 for why", True),
     ("(#3103)", True),
+    ("Add rule from PR#3103 review", True),
+    ("Add rule from pr#3103 review", True),
+    ("Rules from PR #3103", True),
+    ("Rules from PR 3103", True),
+    ("Rules from GH-3103", True),
+    ("Rules from gh-3103", True),
+    ("Rules from PR#31030", False),
+    ("Rules from GH-31030", False),
+    ("Rules from dpnp#3103", False),  # a repository's name, not PR
+    ("Rules from SPR#3103", False),
+    ("Rules from other/PR#3103", False),
     ("Fix #31030", False),
     ("Rules from other/repo-#3103", False),  # - and . are repository-name characters
     ("Rules from other/repo.#3103", False),
