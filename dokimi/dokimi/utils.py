@@ -559,6 +559,27 @@ def same_evaluator(answer_provider: str, answer_model: str, judge_provider: str,
             or llm_cli.same_model(answer_provider, answer_model, judge_provider, judge_model))
 
 
+def warn_judge_independence(
+    answer_provider: str,
+    answer_model: str,
+    judge_provider: str,
+    judge_model: str,
+    context: str = "run",
+) -> bool:
+    """Emit a non-fatal warning when answer and judge are the same model (on any provider route)."""
+    import sys
+
+    same = same_evaluator(answer_provider, answer_model, judge_provider, judge_model)
+    if same:
+        print(
+            "⚠ Evaluator independence warning "
+            f"({context}): answer model equals judge model "
+            f"[{answer_provider}/{answer_model}] and [{judge_provider}/{judge_model}] — potential self-referential bias.",
+            file=sys.stderr,
+        )
+    return same
+
+
 def _read_key(value: str) -> str:
     """Resolve API key value: supports 'file:~/path' references."""
     if not value:

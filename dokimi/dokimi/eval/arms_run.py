@@ -14,7 +14,6 @@ Paths, saving, the rollup and exit codes stay with the commands.
 from __future__ import annotations
 
 import functools
-import sys
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
@@ -29,7 +28,7 @@ from dokimi.defaults import (
 from dokimi.eval.arms_refusals import refuse_cli_arms, refuse_cli_cell, refuse_cli_cell_model
 from dokimi.eval.cells import HARNESS_ARMS_RUNNER, MatrixCellDescriptor
 from dokimi.eval.question_text import EmptyQuestionError
-from dokimi.utils import InputError, check_bedrock_model, question_id, same_evaluator
+from dokimi.utils import InputError, check_bedrock_model, question_id, warn_judge_independence
 
 if TYPE_CHECKING:
     from dokimi.eval import Judge, JudgePanel
@@ -301,17 +300,9 @@ def warn_self_judging(config: ArmsRunConfig) -> bool:
 
     ``--judge-panel`` runs each role on ``judge_model``, so one check covers both judges.
     """
-    same = same_evaluator(config.provider, config.model,
-                          config.judge_provider, config.judge_model)
-    if same:
-        print(
-            "⚠ Evaluator independence warning (judged run): answer model equals judge model "
-            f"[{config.provider}/{config.model}] and "
-            f"[{config.judge_provider}/{config.judge_model}] — potential self-referential "
-            "bias. Pass --judge-model/--judge-provider of another family.",
-            file=sys.stderr,
-        )
-    return same
+    return warn_judge_independence(config.provider, config.model,
+                                   config.judge_provider, config.judge_model,
+                                   context="judged run")
 
 
 def _build_judge(config: ArmsRunConfig):
