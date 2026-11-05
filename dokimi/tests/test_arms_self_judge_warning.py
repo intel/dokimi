@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
 """arms run / subjects run warn (never refuse) when the judge is the answer model."""
 
 from dokimi.eval.arms_run import ArmsRunConfig, warn_self_judging

@@ -1,3 +1,5 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
 """Every judge path that reads a saved file warns (never refuses) on self-judging.
 
 The call-site tests run each command through the real parser with the warning replaced by
