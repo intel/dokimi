@@ -125,6 +125,23 @@ def test_function_gold_is_the_innermost_enclosing_function_and_skips_module_leve
     assert c.gold == ("src/api.py::helper", "src/cli.py::inner", "src/cli.py::outer")
 
 
+@pytest.mark.parametrize("outer_range", [(0, 4), None], ids=["ranged-function", "class-range-only"])
+def test_a_function_without_a_range_keeps_the_gold_at_file_level(tmp_path, outer_range):
+    # a reference inside a function with no range is no function's gold, so the gold would silently drop it
+    outer, bare, klass = _fn("outer", mod="cli"), _fn("bare", mod="cli"), _cls("Box", mod="cli")
+    docs = {
+        "src/core.py": [_occ("src/core.py", 0, RUN, True, (0, 3))],
+        "src/cli.py": [_occ("src/cli.py", 0, outer, True, outer_range), _occ("src/cli.py", 2, RUN),
+                       _occ("src/cli.py", 6, bare, True), _occ("src/cli.py", 7, RUN),
+                       _occ("src/cli.py", 9, klass, True, (9, 12))],
+        "src/api.py": [_occ("src/api.py", 1, RUN)],
+    }
+    p = plan(_index(docs), list(docs), _opts(tmp_path))
+    assert p.granularity == "files"
+    (c,) = [o.candidate for o in p.outcomes if o.candidate.name == "run"]
+    assert c.gold == ("src/api.py", "src/cli.py")
+
+
 def test_derives_gold_is_the_direct_subclasses(tmp_path):
     base, a, b, grand = _cls("Base"), _cls("A", mod="a"), _cls("B", mod="b"), _cls("G", mod="g")
     docs = {"src/base.py": [_occ("src/base.py", 0, base, True)], "src/a.py": [_occ("src/a.py", 0, a, True)],

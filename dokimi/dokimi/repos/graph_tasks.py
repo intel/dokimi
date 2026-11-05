@@ -91,13 +91,21 @@ class Plan:
     outcomes: list[Outcome] = field(default_factory=list)
 
 
+def _every_function_ranged(index: CodeIndex) -> bool:
+    """True when each function the index defines has an enclosing range. With one unranged, a reference inside it
+    is no function's gold, as module-level code is not, and the gold would drop it silently: files then."""
+    return all(not function_like(s) or all(o.enclosing is not None and o.enclosing_span is not None
+                                           for o in index.definitions(s))
+               for s in index.symbols())
+
+
 def plan(index: CodeIndex, tree_files: list[str], opts: Options) -> Plan:
     """Map the index onto the tree, list the candidates and choose the tasks; nothing is written."""
     documents = index.files()
     prefix, _ = detect_prefix(documents, tree_files)
     in_tree = set(tree_files)
     repo_path = {doc: prefix + doc for doc in documents if prefix + doc in in_tree}
-    granularity = "functions" if index.has_enclosing_ranges else "files"
+    granularity = "functions" if index.has_enclosing_ranges and _every_function_ranged(index) else "files"
     sep = "::" if index.tool.startswith("scip-clang") else "."
     names = _in_file_names(index)
     references = _references(index, repo_path, granularity, sep, opts, names)
