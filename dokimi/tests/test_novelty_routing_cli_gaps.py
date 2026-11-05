@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 
 import pytest
 
@@ -289,6 +291,39 @@ def test_an_out_file_that_cannot_be_written_is_refused_up_front(tmp_path, monkey
     monkeypatch.setattr(os, "access", lambda path, mode: False)
     with pytest.raises(InputError, match="not writable"):
         checked_out_path(str(tmp_path / "routing.json"), "routing")
+
+
+# Real permissions, not a patched os.access: a regression to paying for every call needs the
+# checks themselves to be exercised. Root ignores file modes, so these skip there.
+_CANNOT_CHMOD = sys.platform == "win32" or (hasattr(os, "geteuid") and os.geteuid() == 0)
+
+
+@pytest.mark.skipif(_CANNOT_CHMOD, reason="file modes are not enforced here")
+def test_an_existing_read_only_out_file_is_refused_before_any_call(tmp_path):
+    from dokimi.commands.novelty_routing_inputs import checked_out_path
+
+    out = tmp_path / "routing.json"
+    out.write_text("{}", encoding="utf-8")
+    out.chmod(0o444)
+    try:
+        with pytest.raises(InputError, match="not writable"):
+            checked_out_path(str(out), "routing")
+    finally:
+        out.chmod(0o644)
+
+
+@pytest.mark.skipif(_CANNOT_CHMOD, reason="file modes are not enforced here")
+def test_a_new_out_file_in_a_read_only_directory_is_refused_before_any_call(tmp_path):
+    from dokimi.commands.novelty_routing_inputs import checked_out_path
+
+    folder = tmp_path / "ro"
+    folder.mkdir()
+    folder.chmod(0o555)
+    try:
+        with pytest.raises(InputError, match="not writable"):
+            checked_out_path(str(folder / "routing.json"), "routing")
+    finally:
+        folder.chmod(0o755)
 
 
 def test_a_valid_out_file_is_returned_as_a_path(tmp_path):
