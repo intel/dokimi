@@ -450,6 +450,26 @@ def test_a_malformed_gold_is_a_grader_error(tmp_path, bad):
         _grade(tmp_path, fence({"files": []}), {**GOLD, **bad})
 
 
+def test_an_excluded_gold_entry_is_refused_whatever_the_spelling_of_the_exclude(tmp_path):
+    gold = {"answer_key": "files", "gold": ["src/a.py"], "exclude": ["./src/a.py"]}
+    with pytest.raises(ValueError, match="must not lie in an exclude file"):
+        _grade(tmp_path, fence({"files": []}), gold)
+
+
+def test_answer_paths_and_the_exclude_list_are_normalised_before_scoring(tmp_path):
+    gold = {"answer_key": "files", "gold": ["src/a.py", "src/b.py"], "accepted": ["src/c.py"],
+            "exclude": ["./src/def.py"]}
+    g = _grade(tmp_path, fence({"files": ["/src/a.py", "src\\b.py", "src/def.py", "./src/c.py", "src/x.py"]}), gold)
+    assert (g["recall"], g["n_answer"], g["n_false_positive"]) == (1.0, 4, 1)
+    assert g["false_positive"] == ["src/x.py"]
+
+
+def test_a_bare_name_of_an_accepted_item_is_neither_a_hit_nor_a_false_positive(tmp_path):
+    gold = {"answer_key": "functions", "gold": ["src/a.py::A.run"], "accepted": ["src/b.py::B.go"]}
+    g = _grade(tmp_path, fence({"functions": ["src/a.py::A.run", "src/b.py::go"]}), gold)
+    assert (g["recall"], g["n_false_positive"]) == (1.0, 0)
+
+
 def test_graph_enum_is_a_known_builtin_and_runs_as_the_container_runs_it(tmp_path):
     assert "graph_enum" in NAMES and "graph_enum" in main.GRADERS
     task_dir, run_dir = tmp_path / "task", tmp_path / "run"
