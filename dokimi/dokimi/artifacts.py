@@ -97,11 +97,8 @@ SUPERSEDED_VERSIONS: dict[str, tuple[str, ...]] = {
 }
 
 
-#: Kinds that are not a run's product: what a run is given (a question set, a repository's config, a
-#: rule ledger, a frozen need graph) and the CLI's route table. :func:`save_artifact` gives them no
-#: envelope. A question set is reused across runs and digested by its bytes (``question_set_hash`` of a
-#: subject scorecard), so a run id in it would change that digest on every re-save. A plan is a run's
-#: product: it carries the envelope, which ``plan_digest`` leaves out.
+#: What a run is given (question sets, whose bytes ``question_set_hash`` digests, a config, a ledger, a need
+#: graph) and the CLI's route table: :func:`save_artifact` gives them no envelope (#277, #387).
 INPUT_KINDS: frozenset[str] = frozenset({"questions", "dokimi_config", "repo_ledger", "need_graph",
                                          "cli_routes"})
 
