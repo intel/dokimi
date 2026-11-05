@@ -61,6 +61,18 @@ def test_an_end_is_bounded_at_deltas_too_large_to_move_by_one():
     assert sign_flip_interval([1e16] * 5 + [2e16], sign_flip_p([1e16] * 5 + [2e16])) == (1e16, 2e16)
 
 
+def test_large_deltas_keep_the_ends_and_the_p_of_the_shifted_deltas():
+    # at 1e7 the product's rounding passed EPS: the observed pattern stopped counting and both ends moved
+    d = [0.62, 0.18, 0.94, -0.37, 0.71, 0.29, 0.83, 0.56, -0.05]
+    big = [1e7 * x for x in d]
+    lo, hi = sign_flip_interval(d, sign_flip_p(d), exact=True)
+    big_lo, big_hi = sign_flip_interval(big, sign_flip_p(big), exact=True)
+    assert abs(big_lo - 1e7 * lo) < 10 and abs(big_hi - 1e7 * hi) < 10, (big_lo, big_hi)  # 1e7 * TOL is 1
+    test = ShiftTest(big)
+    for theta in (1e5 * i + 0.37 for i in range(-200, 201)):  # off the deltas' grid, where sums tie exactly
+        assert test.p(theta) == sign_flip_p([x - theta for x in big], exact=True), theta
+
+
 def test_tied_tasks_count_once_shifted_off_zero():
     # one changed task of six: p 1 at 0, yet off 0 the five ties count and bound the interval on both sides
     assert sign_flip_p([1.0, 0, 0, 0, 0, 0]) == 1.0

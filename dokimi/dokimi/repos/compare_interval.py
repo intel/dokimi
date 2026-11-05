@@ -5,8 +5,12 @@
 
 ``p(theta)`` is the two-sided sign-flip p of the shifted deltas ``d - theta`` over every task, as
 :func:`~.compare.sign_flip_p` computes it on them: a shifted delta within :data:`EPS` of 0 is a tie, so a task tied
-at 0 counts again once ``theta`` moves off 0. The interval is every ``theta`` with ``p(theta)`` at least
-:data:`~.compare_reach.ALPHA`, uncorrected; each end is bisected between the mean (where p is 1) and a far bound past
+at 0 counts again once ``theta`` moves off 0. Exact, a sign pattern counts when its sum falls short of the observed
+one by at most :data:`EPS`, the observed sum taken as the least of the Python sum and the product's sums for the
+observed signs and their mirror: from deltas of about 1e6 on the two round apart by more than :data:`EPS`, and the
+observed pattern would not count itself.
+
+The interval is every ``theta`` with ``p(theta)`` at least :data:`~.compare_reach.ALPHA`, uncorrected; each end is bisected between the mean (where p is 1) and a far bound past
 every delta and 0 (1 past the extreme, twice it from 1 on), where the shifted deltas share one sign and p is at its floor, ``2 / 2**n`` over n tasks exact.
 So an end is open (``None``) at 5 or fewer tasks, and both are bounded from 6 tasks on, whatever the ties.
 
@@ -79,11 +83,13 @@ class ShiftTest:
         moved = x[x != 0.0]
         if not moved.size:
             return None
-        observed = abs(sum(moved.tolist())) - EPS  # summed as sign_flip_p sums, in its order
+        observed = abs(sum(moved.tolist()))  # summed as sign_flip_p sums, in its order
         if moved.size <= EXACT_MAX:
-            return int(np.count_nonzero(np.abs(_patterns(moved.size) @ moved) >= observed)) / 2 ** moved.size
+            sums = np.abs(_patterns(moved.size) @ moved)  # rows 0 and -1: the observed signs and their mirror
+            least = min(observed, float(sums[0]), float(sums[-1]))  # the product rounds them otherwise from 1e6 on
+            return int(np.count_nonzero(sums >= least - EPS)) / 2 ** moved.size
         signs = _draws(self.seed, self.changed, self.d.size, self.n_resamples)
-        return (int(np.count_nonzero(np.abs(signs @ x) >= observed)) + 1) / (self.n_resamples + 1)
+        return (int(np.count_nonzero(np.abs(signs @ x) >= observed - EPS)) + 1) / (self.n_resamples + 1)
 
 
 def sign_flip_interval(deltas: list[float], p_zero: float | None, seed: int = 0, *,
