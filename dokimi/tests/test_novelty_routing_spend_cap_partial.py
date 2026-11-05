@@ -315,3 +315,30 @@ def test_the_blind_skill_warning_needs_a_lexical_arm(capsys):
 
     warn_blind_skills({}, {"a": ["q"]})
     assert capsys.readouterr().err == ""
+
+
+def test_an_all_vs_all_repeat_run_stopped_mid_query_pins_its_counts(tmp_path, monkeypatch):
+    # Skills db (1 query), net (2), perf (2); two repeats; 0.4 per call and a 1.00 cap. db runs
+    # both its repeats, net's first query gets one of its two, and perf is never reached.
+    _provider(monkeypatch, UsageRecord(cost_usd=0.4))
+    root, queries = _catalog(tmp_path)
+    extra = root / "skills" / "net"
+    extra.mkdir(parents=True)
+    (extra / "SKILL.md").write_text(
+        "---\nname: net\ndescription: debug slow network sockets\n---\n\n# B\n", encoding="utf-8")
+    by_skill = {**json.loads(queries.read_text()), "net": ["trace a socket", "dump packets"]}
+    queries.write_text(json.dumps(by_skill), encoding="utf-8")
+    out = tmp_path / "o.json"
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(out),
+                  "--model", "m", "--repeats", "2", "--max-usd", "1")
+    with pytest.raises(SystemExit, match="spend cap reached"):
+        args.func(args)
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert (payload["partial"]["calls_done"], payload["partial"]["calls_planned"]) == (3, 10)
+    model = payload["result"]["model"]
+    assert model["n_unscored"]["net"] == 3             # 4 planned, 1 made: the refused repeats
+    assert model["n_unscored"]["perf"] == 4            # never reached: 2 queries x 2 repeats
+    noise = model["noise"]
+    assert noise["n_queries_compared"] == 1            # only the query asked in full (db's)
+    assert [row["query"] for row in noise["per_query"]] == ["add an index"]
