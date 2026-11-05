@@ -118,6 +118,18 @@ def test_hf_dataset_data_files_outside_the_task_are_refused(tmp_path):
         import_path(task, fmt="inspect-task")
 
 
+@pytest.mark.parametrize("spec", ["FieldSpec(input=COL, target='answer')", "FieldSpec('question', target='answer')",
+                                  "FieldSpec(**{'input': 'question'})"])
+def test_hf_dataset_refuses_a_computed_field_spec_before_loading(tmp_path, spec):
+    task = _write(tmp_path / "t.py", (
+        "COL = 'question'\n"
+        "@task\ndef t():\n"
+        f"    return Task(dataset=hf_dataset('json', data_files='s.jsonl', split='train', sample_fields={spec}),\n"
+        "                scorer=match())\n"))
+    with pytest.raises(ValueError, match="FieldSpec.*literal keyword"):
+        import_path(task, fmt="inspect-task")
+
+
 def test_hf_dataset_path_and_data_dir_outside_the_task_are_refused(tmp_path):
     pytest.importorskip("datasets")
     (tmp_path / "outside").mkdir()

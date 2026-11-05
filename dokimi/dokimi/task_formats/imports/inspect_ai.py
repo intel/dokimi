@@ -266,13 +266,18 @@ def _hf_literal_keywords(node: ast.Call) -> None:
 
 
 def _hf_sample_fields(node: ast.Call) -> None:
-    """``sample_fields=`` must be a FieldSpec, or None: a converter function is not translated."""
+    """``sample_fields=`` must be a FieldSpec, or None: a converter function is not translated. Its columns must be
+    literal keywords: a computed or positional one is not read by ``_field_spec``, so it would fall back to the default
+    columns without a word."""
     for k in node.keywords:
-        if k.arg == "sample_fields" and not (
-            (isinstance(k.value, ast.Call) and _name(k.value) == "FieldSpec")
-            or (isinstance(k.value, ast.Constant) and k.value.value is None)
-        ):
+        if k.arg != "sample_fields" or (isinstance(k.value, ast.Constant) and k.value.value is None):
+            continue
+        if not (isinstance(k.value, ast.Call) and _name(k.value) == "FieldSpec"):
             raise ValueError("hf_dataset: sample_fields= must be a FieldSpec(...); a converter function is not translated")
+        spec = k.value
+        if spec.args or any(f.arg is None or not _is_literal(f.value) for f in spec.keywords):
+            raise ValueError("hf_dataset: FieldSpec(...) must name each column as a literal keyword, e.g. "
+                             "FieldSpec(input='question'); a computed or positional mapping is not read")
 
 
 def _hf_limit(node: ast.Call) -> Optional[int]:
