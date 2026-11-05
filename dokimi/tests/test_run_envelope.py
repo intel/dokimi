@@ -164,7 +164,7 @@ def test_dokimi_run_id_names_the_run_and_an_empty_one_is_unset(fresh_id, monkeyp
     assert run_id() == own
 
 
-@pytest.mark.parametrize("value", ["-leading-dash", ".hidden", "a/b", "a b", "../up", "x" * 129, "naïve"])
+@pytest.mark.parametrize("value", ["-leading-dash", ".hidden", "a/b", "a b", "../up", "x" * 129, "naïve", "ok\n"])
 def test_a_malformed_dokimi_run_id_is_an_input_error(fresh_id, monkeypatch, tmp_path, value):
     monkeypatch.setenv(artifacts.RUN_ID_ENV, value)
     with pytest.raises(InputError, match="DOKIMI_RUN_ID"):
@@ -176,15 +176,16 @@ def test_a_malformed_dokimi_run_id_is_an_input_error(fresh_id, monkeypatch, tmp_
     assert kept == {"schema_version": "arms.v1", **_fixture("arms")}
 
 
-def test_the_cli_refuses_a_malformed_dokimi_run_id_before_the_command_runs(monkeypatch, capsys):
+@pytest.mark.parametrize("value", ["a/b", "ok\n"])
+def test_the_cli_refuses_a_malformed_dokimi_run_id_before_the_command_runs(monkeypatch, capsys, value):
     ran = []
-    monkeypatch.setenv(artifacts.RUN_ID_ENV, "a/b")
+    monkeypatch.setenv(artifacts.RUN_ID_ENV, value)
     monkeypatch.setattr("sys.argv", ["dokimi", "runs", "list"])
     monkeypatch.setattr("dokimi.commands.runs.cmd_runs_list", lambda args: ran.append(args))
     with pytest.raises(SystemExit) as exc:
         cli.main()
     assert exc.value.code == 2 and not ran
-    assert "DOKIMI_RUN_ID='a/b' is not a run id" in capsys.readouterr().err
+    assert f"DOKIMI_RUN_ID={value!r} is not a run id" in capsys.readouterr().err
 
 
 def test_runs_show_says_why_a_file_has_no_run_id(tmp_path, monkeypatch, capsys):
@@ -193,11 +194,11 @@ def test_runs_show_says_why_a_file_has_no_run_id(tmp_path, monkeypatch, capsys):
     (tmp_path / "old.json").write_text(json.dumps({"schema_version": "arms.v1", **_fixture("arms")}),
                                        encoding="utf-8")
     save_artifact("arms", _fixture("arms"), tmp_path / "new.json")
-    for name, bad in (("bad.json", 7), ("bad-id.json", "bad id")):
+    for name, bad in (("bad.json", 7), ("bad-id.json", "bad id"), ("bad-nl.json", "abc\n")):
         (tmp_path / name).write_text(json.dumps({"schema_version": "arms.v1", "run_id": bad, **_fixture("arms")}),
                                      encoding="utf-8")
     shown = {}
-    for name in ("plan.json", "old.json", "new.json", "bad.json", "bad-id.json"):
+    for name in ("plan.json", "old.json", "new.json", "bad.json", "bad-id.json", "bad-nl.json"):
         monkeypatch.setattr("sys.argv", ["dokimi", "runs", "show", name])
         cli.main()
         shown[name] = next(line for line in capsys.readouterr().out.splitlines() if line.startswith("run_id:"))
@@ -205,9 +206,10 @@ def test_runs_show_says_why_a_file_has_no_run_id(tmp_path, monkeypatch, capsys):
                      "old.json": "run_id:     - (saved before the envelope)",
                      "new.json": f"run_id:     {run_id()}",
                      "bad.json": "run_id:     - (not a run id: see the schema errors)",
-                     "bad-id.json": "run_id:     - (not a run id: see the schema errors)"}
-    (bad_id,) = [a for a in scan(tmp_path).artifacts if a.path.name == "bad-id.json"]
-    assert bad_id.to_json()["run_id"] is None
+                     "bad-id.json": "run_id:     - (not a run id: see the schema errors)",
+                     "bad-nl.json": "run_id:     - (not a run id: see the schema errors)"}
+    rows = {a.path.name: a.to_json()["run_id"] for a in scan(tmp_path).artifacts}
+    assert rows["bad-id.json"] is None and rows["bad-nl.json"] is None
 
 
 def _save_in_a_new_process(path, environ) -> str:
