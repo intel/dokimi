@@ -97,29 +97,21 @@ class TestPersonaGenerator:
     
     def test_init_openai(self):
         """Test initialization with OpenAI provider."""
-        mock_cls = Mock()
-        with patch('dokimi.personas.generator.ChatOpenAI', mock_cls, create=True), \
-             patch('dokimi.personas.generator.LANGCHAIN_AVAILABLE', True):
-            generator = PersonaGenerator(model="gpt-6.1-sol", provider="openai")
-            assert generator.model == "gpt-6.1-sol"
-            assert generator.provider == "openai"
-            mock_cls.assert_called_once_with(model="gpt-6.1-sol", api_key=None)
-    
+        generator = PersonaGenerator(model="gpt-6.1-sol", provider="openai")
+        assert (generator.model, generator.provider) == ("gpt-6.1-sol", "openai")
+        assert (generator.llm.llm.provider, generator.llm.llm.api_key) == ("openai", None)
+        assert generator.llm.litellm_model == "gpt-6.1-sol"
+
     def test_init_anthropic(self):
         """Test initialization with Anthropic provider."""
-        mock_cls = Mock()
-        with patch('dokimi.personas.generator.ChatAnthropic', mock_cls, create=True), \
-             patch('dokimi.personas.generator.LANGCHAIN_AVAILABLE', True):
-            generator = PersonaGenerator(model="claude-haiku", provider="anthropic", api_key="test-key")
-            assert generator.model == "claude-haiku"
-            assert generator.provider == "anthropic"
-            mock_cls.assert_called_once_with(model="claude-haiku", api_key="test-key")
-    
+        generator = PersonaGenerator(model="claude-haiku", provider="anthropic", api_key="test-key")
+        assert (generator.model, generator.provider) == ("claude-haiku", "anthropic")
+        assert (generator.llm.llm.provider, generator.llm.llm.api_key) == ("anthropic", "test-key")
+        assert generator.llm.litellm_model == "anthropic/claude-haiku"
+
     def test_init_unsupported_provider(self):
         """Test initialization with unsupported provider."""
-        mock_cls = Mock()
-        with patch('dokimi.personas.generator.ChatOpenAI', mock_cls, create=True), \
-             patch('dokimi.personas.generator.LANGCHAIN_AVAILABLE', True):
+        with patch('dokimi.personas.generator.LANGCHAIN_AVAILABLE', True):
             with pytest.raises(ValueError) as exc_info:
                 PersonaGenerator(provider="unsupported")
             assert "Unsupported provider" in str(exc_info.value)
@@ -139,7 +131,7 @@ class TestPersonaGenerator:
         mock_llm.invoke.return_value = mock_response
         mock_cls = Mock(return_value=mock_llm)
         
-        with patch('dokimi.personas.generator.ChatOpenAI', mock_cls, create=True), \
+        with patch('dokimi.personas.generator.Invoker', mock_cls), \
              patch('dokimi.personas.generator.LANGCHAIN_AVAILABLE', True):
             generator = PersonaGenerator(model="gpt-6.1-sol")
             result = generator.generate_personas("oneTBB", sample_analysis, target_count=5)
@@ -175,7 +167,7 @@ class TestPersonaGenerator:
         mock_llm.invoke.return_value = mock_response
         mock_cls = Mock(return_value=mock_llm)
         
-        with patch('dokimi.personas.generator.ChatOpenAI', mock_cls, create=True), \
+        with patch('dokimi.personas.generator.Invoker', mock_cls), \
              patch('dokimi.personas.generator.LANGCHAIN_AVAILABLE', True):
             generator = PersonaGenerator()
             with caplog.at_level(logging.INFO, logger="dokimi.personas.generator"):
@@ -193,7 +185,7 @@ class TestPersonaGenerator:
         mock_llm.invoke.return_value = mock_response
         mock_cls = Mock(return_value=mock_llm)
         
-        with patch('dokimi.personas.generator.ChatOpenAI', mock_cls, create=True), \
+        with patch('dokimi.personas.generator.Invoker', mock_cls), \
              patch('dokimi.personas.generator.LANGCHAIN_AVAILABLE', True):
             generator = PersonaGenerator()
             with pytest.raises((json.JSONDecodeError, ValueError)):
@@ -207,7 +199,7 @@ class TestPersonaGenerator:
         mock_llm.invoke.return_value = mock_response
         mock_cls = Mock(return_value=mock_llm)
         
-        with patch('dokimi.personas.generator.ChatOpenAI', mock_cls, create=True), \
+        with patch('dokimi.personas.generator.Invoker', mock_cls), \
              patch('dokimi.personas.generator.LANGCHAIN_AVAILABLE', True):
             generator = PersonaGenerator()
             with pytest.raises(ValueError) as exc_info:
@@ -225,7 +217,7 @@ class TestPersonaGenerator:
         mock_llm.invoke.return_value = mock_response
         mock_cls = Mock(return_value=mock_llm)
         
-        with patch('dokimi.personas.generator.ChatOpenAI', mock_cls, create=True), \
+        with patch('dokimi.personas.generator.Invoker', mock_cls), \
              patch('dokimi.personas.generator.LANGCHAIN_AVAILABLE', True):
             generator = PersonaGenerator()
             with pytest.raises(ValueError) as exc_info:
