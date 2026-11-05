@@ -27,6 +27,7 @@ import math
 import os
 import re
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
@@ -39,12 +40,16 @@ from dokimi.task_formats.source import FileSource
 
 FORMAT = "promptfoo"
 
-#: Imports the config module and prints its default export (or the module) as JSON; functions
-#: and other values JSON cannot hold are left out. ``argv[1]`` is the config's absolute path.
+#: Imports the config module and writes its default export (or the module) as JSON to the file
+#: ``argv[2]``, not to stdout: the config's own logging shares stdout. Functions and other values
+#: JSON cannot hold are left out, except a ``transform`` function, which is kept as ``true`` so the
+#: assert is flagged as untranslated. ``argv[1]`` is the config's absolute path.
 _NODE_READER = (
     "import { pathToFileURL } from 'node:url';"
+    "import { writeFileSync } from 'node:fs';"
     "const m = await import(pathToFileURL(process.argv[1]).href);"
-    "process.stdout.write(JSON.stringify(m.default ?? m));"
+    "const keep = (k, v) => (typeof v === 'function' && k === 'transform' ? true : v);"
+    "writeFileSync(process.argv[2], JSON.stringify(m.default ?? m, keep));"
 )
 
 
@@ -55,16 +60,23 @@ def _code_config(path: Path) -> Any:
                          "install node, or export the config to YAML or JSON")
     from dokimi.process import Env, run
 
-    target = os.fspath(path.resolve())
-    done = run([node, "--input-type=module", "-e", _NODE_READER, target], timeout=60, env=Env.inherit(),
-               cwd=path.resolve().parent)
-    if not done.ok:
-        named = re.search(r"^\w*Error: .*$", done.stderr, re.M)
-        raise ValueError(f"{path}: node could not read the config: {named.group(0) if named else 'no error text'}")
-    try:
-        return json.loads(done.stdout)
-    except ValueError as exc:
-        raise ValueError(f"{path}: node printed no JSON for the config ({exc})") from exc
+    target = path.resolve()
+    # A .ts config needs Node's type stripping (22.6+); older Node has no flag for it and refuses.
+    flags = ["--experimental-strip-types"] if target.suffix.lower() == ".ts" else []
+    with tempfile.TemporaryDirectory(prefix="dokimi-promptfoo-") as tmp:
+        out = Path(tmp) / "config.json"
+        done = run([node, *flags, "--input-type=module", "-e", _NODE_READER, os.fspath(target), os.fspath(out)],
+                   timeout=60, env=Env.inherit(), cwd=target.parent)
+        if not done.ok:
+            if "bad option" in done.stderr and flags:
+                raise ValueError(f"{path}: this node is too old to read a .ts config; it needs Node 22.6 or later "
+                                 "(type stripping), or export the config to .mjs, YAML or JSON")
+            named = re.search(r"^\w*Error: .*$", done.stderr, re.M)
+            raise ValueError(f"{path}: node could not read the config: {named.group(0) if named else 'no error text'}")
+        try:
+            return json.loads(out.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise ValueError(f"{path}: node wrote no JSON for the config ({exc})") from exc
 
 
 def _config(path: Path) -> Any:

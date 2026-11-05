@@ -9,6 +9,7 @@ optional ``hf_dataset`` loader, promptfoo configs written as code (read by node)
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -182,3 +183,130 @@ def test_openai_modelgraded_spec_prompt_is_the_criterion_when_there_is_no_ideal(
     assert _checks(imp) == [{"type": "judge",
                              "criterion": "Grade whether [Submission]: the answer agrees with [Question]: the question.",
                              "native": "modelgraded:fact-lite"}]
+
+
+# --- review of #402: the importers' edge cases -------------------------------------------------
+
+
+def test_hf_dataset_data_files_collections_outside_the_task_are_refused(tmp_path):
+    pytest.importorskip("datasets")
+    for files in ("['/tmp/outside.jsonl']", "{'train': ['/tmp/outside.jsonl']}", "['../outside.jsonl']"):
+        task = _write(tmp_path / "d" / "t.py", (
+            "@task\ndef t():\n"
+            f"    return Task(dataset=hf_dataset('json', data_files={files}, split='train'), scorer=match())\n"))
+        with pytest.raises(ValueError, match="outside the task's directory"):
+            import_path(task, fmt="inspect-task")
+
+
+def test_hf_dataset_data_files_collection_inside_the_task_loads_relative_to_it(tmp_path):
+    pytest.importorskip("datasets")
+    _jsonl(tmp_path / "data" / "s.jsonl", [{"question": "2+2?", "answer": "4"}])
+    task = _write(tmp_path / "t.py", (
+        "@task\ndef t():\n"
+        "    return Task(dataset=hf_dataset('json', data_files={'train': ['data/s.jsonl']}, split='train',\n"
+        "                                   sample_fields=FieldSpec(input='question', target='answer')),\n"
+        "                scorer=match())\n"))
+    imp = import_path(task, fmt="inspect-task")
+    assert imp.questions[0]["question"] == "2+2?"
+
+
+def test_hf_dataset_refuses_a_sample_fields_converter_it_cannot_read(tmp_path):
+    task = _write(tmp_path / "t.py", (
+        "@task\ndef t():\n"
+        "    return Task(dataset=hf_dataset('json', data_files='s.jsonl', split='train', sample_fields=to_sample),\n"
+        "                scorer=match())\n"))
+    with pytest.raises(ValueError, match="sample_fields= must be a FieldSpec"):
+        import_path(task, fmt="inspect-task")
+
+
+def test_hf_dataset_accepts_the_path_as_a_keyword(tmp_path):
+    pytest.importorskip("datasets")
+    _jsonl(tmp_path / "s.jsonl", [{"question": "2+2?", "answer": "4"}])
+    task = _write(tmp_path / "t.py", (
+        "@task\ndef t():\n"
+        "    return Task(dataset=hf_dataset(path='json', data_files='s.jsonl', split='train',\n"
+        "                                   sample_fields=FieldSpec(input='question', target='answer')),\n"
+        "                scorer=match())\n"))
+    imp = import_path(task, fmt="inspect-task")
+    assert imp.questions[0]["question"] == "2+2?"
+
+
+def test_hf_dataset_limit_applies_to_the_import_and_is_not_a_loader_argument(tmp_path):
+    pytest.importorskip("datasets")
+    _jsonl(tmp_path / "s.jsonl", [{"question": f"q{i}", "answer": "a"} for i in range(3)])
+    task = _write(tmp_path / "t.py", (
+        "@task\ndef t():\n"
+        "    return Task(dataset=hf_dataset('json', data_files='s.jsonl', split='train', limit=2,\n"
+        "                                   sample_fields=FieldSpec(input='question', target='answer')),\n"
+        "                scorer=match())\n"))
+    imp = import_path(task, fmt="inspect-task")
+    assert [q["question"] for q in imp.questions] == ["q0", "q1"]
+
+
+# --- review of #402: promptfoo code configs ----------------------------------------------------
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not on PATH")
+def test_promptfoo_code_config_that_logs_on_import_still_reads(tmp_path):
+    config = _write(tmp_path / "promptfooconfig.mjs", (
+        "console.log('loading');\n"
+        "process.stdout.write('module output\\n');\n"
+        "export default { prompts: ['hi'], tests: [{ vars: {}, assert: [{ type: 'contains', value: 'hi' }] }] };\n"))
+    imp = import_path(config, fmt="promptfoo")
+    assert len(imp.questions) == 1
+    assert _checks(imp)[0]["values"] == ["hi"]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not on PATH")
+def test_promptfoo_code_config_keeps_a_large_prompt_whole(tmp_path):
+    config = _write(tmp_path / "promptfooconfig.mjs", (
+        "export default { prompts: ['x'.repeat(2 * 1024 * 1024)],\n"
+        "  tests: [{ vars: {}, assert: [{ type: 'contains', value: 'x' }] }] };\n"))
+    imp = import_path(config, fmt="promptfoo")
+    assert len(imp.questions) == 1
+    assert len(imp.questions[0]["question"]) >= 2 * 1024 * 1024
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not on PATH")
+def test_promptfoo_code_config_function_transform_is_flagged_not_dropped(tmp_path):
+    config = _write(tmp_path / "promptfooconfig.mjs", (
+        "export default { prompts: ['hi'], tests: [{ vars: {}, assert: [\n"
+        "  { type: 'equals', value: 'Paris', transform: (output) => output.trim() }] }] };\n"))
+    imp = import_path(config, fmt="promptfoo")
+    assert imp.lossy["assert transform not applied"] == 1
+
+
+def test_hf_dataset_limit_must_be_a_literal_count(tmp_path):
+    task = _write(tmp_path / "t.py", (
+        "@task\ndef t():\n"
+        "    return Task(dataset=hf_dataset('json', data_files='s.jsonl', split='train', limit=N), scorer=match())\n"))
+    with pytest.raises(ValueError, match="limit= must be a literal count"):
+        import_path(task, fmt="inspect-task")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="needs a POSIX shell script as a stand-in node")
+def test_promptfoo_typescript_config_on_an_old_node_says_what_it_needs(tmp_path, monkeypatch):
+    fake = _write(tmp_path / "bin" / "node", (
+        "#!/bin/sh\n"
+        "for a in \"$@\"; do case \"$a\" in --experimental-strip-types) echo 'node: bad option: --experimental-strip-types' >&2; exit 9;; esac; done\n"
+        "exit 0\n"))
+    fake.chmod(0o755)
+    config = _write(tmp_path / "promptfooconfig.ts", "export default { prompts: [] };\n")
+    real_which = shutil.which
+    monkeypatch.setattr(shutil, "which", lambda name, *a, **k: str(fake) if name == "node" else real_which(name, *a, **k))
+    with pytest.raises(ValueError, match="needs Node 22.6 or later"):
+        import_path(config, fmt="promptfoo")
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not on PATH")
+def test_promptfoo_typescript_config_is_read_by_node(tmp_path):
+    import subprocess
+    probe = subprocess.run(["node", "--experimental-strip-types", "-e", ""], capture_output=True)
+    if probe.returncode != 0:
+        pytest.skip("node is older than 22.6: no type stripping for .ts configs")
+    config = _write(tmp_path / "promptfooconfig.ts", (
+        "type Cfg = { prompts: string[] };\n"
+        "const cfg: Cfg = { prompts: ['hi'], tests: [{ vars: {}, assert: [{ type: 'contains', value: 'hi' }] }] };\n"
+        "export default cfg;\n"))
+    imp = import_path(config, fmt="promptfoo")
+    assert len(imp.questions) == 1
