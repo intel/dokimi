@@ -37,7 +37,9 @@ FAMILY = "navigate"
 ID_MAX = 80
 HASH_LEN = 8
 
-Scopes = dict[str, list[tuple[int, int, str]]]
+# per document: (start line, start col, end line, end col, in-file name), the span half-open; the name is None
+# for a class body, which holds a reference that is no function's
+Scopes = dict[str, list[tuple[int, int, int, int, str | None]]]
 
 
 @dataclass(frozen=True)
@@ -97,8 +99,9 @@ def plan(index: CodeIndex, tree_files: list[str], opts: Options) -> Plan:
     repo_path = {doc: prefix + doc for doc in documents if prefix + doc in in_tree}
     granularity = "functions" if index.has_enclosing_ranges else "files"
     sep = "::" if index.tool.startswith("scip-clang") else "."
-    references = _references(index, repo_path, granularity, sep, opts)
-    derives = _derives(index, repo_path, sep, opts)
+    names = _in_file_names(index)
+    references = _references(index, repo_path, granularity, sep, opts, names)
+    derives = _derives(index, repo_path, sep, opts, names)
     rng = random.Random(opts.seed)
     used: set[str] = set()
     chosen = _choose(references, opts.references, rng, used) + _choose(derives, opts.derives, rng, used)
@@ -129,14 +132,34 @@ def task_id(c: Candidate) -> str:
     return f"graph_{c.kind}_{slug}"[:ID_MAX - HASH_LEN - 1] + f"_{digest}"
 
 
-def in_file_name(symbol: str) -> str | None:
+def in_file_name(symbol: str, qualified: bool = False) -> str | None:
     """The name inside its file: the descriptors after the leading namespaces (the module, a C++ namespace),
-    joined by ``.``; ``Impl.run`` for a method, ``run`` for a module function."""
+    joined by ``.``; ``Impl.run`` for a method, ``run`` for a module function. ``qualified`` keeps the
+    namespaces too (``ns.Child``), for a name the file shares with another symbol."""
     found = descriptors(symbol)
     if not found:
         return None
+    if qualified:
+        return ".".join(name for name, _ in found)
     inner = [name for i, (name, _) in enumerate(found) if any(mark != "/" for _, mark in found[:i + 1])]
     return ".".join(inner) or found[-1][0]
+
+
+def _in_file_names(index: CodeIndex) -> dict[str, str | None]:
+    """The in-file name of each global symbol. Two symbols of one file that share a name keep their namespaces
+    (``ns1.Child`` and ``ns2.Child``): otherwise they collapse into one gold item, and either answer scores it."""
+    names = {s: in_file_name(s) for s in index.symbols()}
+    forms: dict[tuple[str, str], set[str]] = {}
+    for s, short in names.items():
+        for occ in index.definitions(s):
+            if short is not None:
+                forms.setdefault((occ.path, short), set()).add(in_file_name(s, qualified=True) or short)
+    clash = {key for key, spelled in forms.items() if len(spelled) > 1}
+    out: dict[str, str | None] = {}
+    for s, short in names.items():
+        shared = short is not None and any((occ.path, short) in clash for occ in index.definitions(s))
+        out[s] = (in_file_name(s, qualified=True) or short) if shared else short
+    return out
 
 
 def _target_files(index: CodeIndex, symbol: str, repo_path: dict[str, str]) -> tuple[str, ...] | None:
@@ -157,7 +180,7 @@ def _name(symbol: str, sep: str) -> tuple[str, str] | None:
 
 
 def _references(index: CodeIndex, repo_path: dict[str, str], granularity: str, sep: str,
-                opts: Options) -> list[Candidate]:
+                opts: Options, names: dict[str, str | None]) -> list[Candidate]:
     groups: dict[str, list[str]] = {}  # qualified name -> its symbols (C++ overloads share one)
     short: dict[str, str] = {}
     for s in index.symbols():
@@ -168,7 +191,7 @@ def _references(index: CodeIndex, repo_path: dict[str, str], granularity: str, s
     same: dict[str, int] = {}
     for q in groups:
         same[short[q]] = same.get(short[q], 0) + 1
-    scopes = _function_scopes(index) if granularity == "functions" else None
+    scopes = _function_scopes(index, names) if granularity == "functions" else None
     out = []
     for qualified, symbols in sorted(groups.items()):
         found = _group_referrers(index, symbols, repo_path, scopes)
@@ -210,51 +233,66 @@ def _referrers(index: CodeIndex, symbol: str, repo_path: dict[str, str], defined
         if scopes is None:
             gold.add(path)
             continue
-        fn = _innermost(scopes.get(occ.path, ()), occ.line)
+        fn = _innermost(scopes.get(occ.path, ()), occ.line, occ.start_col)
         if fn is not None:  # module-level code and class bodies are not a function
             gold.add(f"{path}::{fn}")
     return gold
 
 
-def _function_scopes(index: CodeIndex) -> Scopes:
-    """Per document, the line span and in-file name of each function definition that has an enclosing range."""
+def _function_scopes(index: CodeIndex, names: dict[str, str | None]) -> Scopes:
+    """Per document, the span and in-file name of each function definition with an enclosing range, and the span
+    of each class definition (its name None): a reference in a class body is no function's, even inside one."""
     scopes: Scopes = {}
     for doc in index.files():
         for occ in index.occurrences(doc):
-            if occ.is_definition and occ.enclosing is not None and function_like(occ.symbol):
-                name = in_file_name(occ.symbol)
-                if name:
-                    scopes.setdefault(doc, []).append((*occ.enclosing, name))
+            if not (occ.is_definition and occ.enclosing is not None):
+                continue
+            if function_like(occ.symbol):
+                name = names.get(occ.symbol) or in_file_name(occ.symbol)
+                if not name:
+                    continue
+            elif occ.symbol.endswith("#"):
+                name = None
+            else:
+                continue
+            first, last = occ.enclosing
+            sl, sc, el, ec = occ.enclosing_span or (first, 0, last + 1, 0)
+            scopes.setdefault(doc, []).append((sl, sc, el, ec, name))
     return scopes
 
 
-def _innermost(scopes: Any, line: int) -> str | None:
-    """The function whose span holds ``line`` and starts last (a nested function is inside its parent)."""
-    best: tuple[int, int, str] | None = None
-    for first, last, name in scopes:
-        if first <= line <= last and (best is None or (first, -last) > (best[0], -best[1])):
-            best = (first, last, name)
-    return best[2] if best else None
+def _innermost(scopes: Any, line: int, col: int) -> str | None:
+    """The name of the innermost scope whose half-open span holds (``line``, ``col``): the one that starts last,
+    so a nested definition wins over its parent, and of two that share a line the one starting later holds it.
+    None when that scope is a class body, or no scope holds the reference."""
+    best: tuple[tuple[int, int], str | None] | None = None
+    for sl, sc, el, ec, name in scopes:
+        if (sl, sc) <= (line, col) < (el, ec) and (best is None or (sl, sc) > best[0]):
+            best = ((sl, sc), name)
+    return best[1] if best else None
 
 
-def _class_items(index: CodeIndex, symbol: str, repo_path: dict[str, str]) -> list[str] | None:
+def _class_items(index: CodeIndex, symbol: str, repo_path: dict[str, str],
+                 names: dict[str, str | None]) -> list[str] | None:
     """``path::Class`` for each tree file that defines the class, or None when it is not gradable."""
-    files, name = _target_files(index, symbol, repo_path), in_file_name(symbol)
+    files, name = _target_files(index, symbol, repo_path), names.get(symbol)
     if files is None or name is None:
         return None
     return [f"{f}::{name}" for f in files]
 
 
-def _listed_items(index: CodeIndex, symbol: str, repo_path: dict[str, str]) -> list[str]:
+def _listed_items(index: CodeIndex, symbol: str, repo_path: dict[str, str],
+                  names: dict[str, str | None]) -> list[str]:
     """``path::Class`` for every file that defines a class only accepted, a test's or one outside the tree
     included (its index path then): it is never required, so naming it must not count against the answer."""
-    name = in_file_name(symbol)
+    name = names.get(symbol)
     if name is None:
         return []
     return [f"{repo_path.get(occ.path, occ.path)}::{name}" for occ in index.definitions(symbol)]
 
 
-def _derives(index: CodeIndex, repo_path: dict[str, str], sep: str, opts: Options) -> list[Candidate]:
+def _derives(index: CodeIndex, repo_path: dict[str, str], sep: str, opts: Options,
+             names: dict[str, str | None]) -> list[Candidate]:
     classes = [s for s in index.symbols() if s.endswith("#")]
     subs: dict[str, list[str]] = {}
     listed: dict[str, list[str]] = {}  # every class the index lists the base for, before the reduction
@@ -274,7 +312,7 @@ def _derives(index: CodeIndex, repo_path: dict[str, str], sep: str, opts: Option
         defined = _target_files(index, base, repo_path) if named else None
         if named is None or defined is None or not opts.min_subclasses <= len(children) <= opts.max_gold:
             continue
-        items = [_class_items(index, child, repo_path) for child in children]
+        items = [_class_items(index, child, repo_path, names) for child in children]
         if any(i is None for i in items):  # a subclass outside the tree, or a test's: not gradable
             continue
         gold = {i[0] for i in items if i}
@@ -282,7 +320,7 @@ def _derives(index: CodeIndex, repo_path: dict[str, str], sep: str, opts: Option
         # reduction dropped this one from: right to name, not required
         accepted = {x for i in items if i for x in i[1:]}
         for other in set(listed.get(base, ())) - set(children):
-            accepted.update(_listed_items(index, other, repo_path))
+            accepted.update(_listed_items(index, other, repo_path, names))
         out.append(Candidate("derives", (base,), named[0], named[1], defined, tuple(sorted(gold)),
                              tuple(sorted(accepted - gold)), same.get(named[0], 1)))
     return out
@@ -321,6 +359,12 @@ _ANSWER = {
 }
 
 
+def _shares_a_name(gold: tuple[str, ...]) -> bool:
+    """Two gold items of one file whose last names agree (``ns1.Child`` and ``ns2.Child``)."""
+    keys = [(item.partition("::")[0], item.partition("::")[2].rpartition(".")[2]) for item in gold]
+    return len(set(keys)) < len(keys)
+
+
 def _prompt(c: Candidate, key: str) -> str:
     where = f"`{c.qualified}` (defined in {', '.join(c.defined_in)})"
     if len(c.symbols) > 1:
@@ -329,13 +373,15 @@ def _prompt(c: Candidate, key: str) -> str:
         ask = (f"List every file that references {where}, other than the files that define it. A reference is "
                "any use: a call, or a mention as a type or a value. Test files count.")
     elif key == "functions":
-        ask = (f"List every function or method whose body references {where}, other than those in the files "
-               "that define it. A reference is any use: a call, or a mention as a type or a value. Module-level "
-               "code and class bodies are not a function; test functions count.")
+        ask = (f"List every function or method whose definition (its signature or its body) references {where}, "
+               "other than those in the files that define it. A reference is any use: a call, or a mention as a "
+               "type or a value. Module-level code and class bodies are not a function; test functions count.")
     else:
         ask = f"List every class that derives directly from {where}: its direct subclasses, not theirs."
     amb = (f" The repository has {c.same_name} symbols named `{c.name}`; only the one above counts."
            if c.ambiguous else "")
+    if _shares_a_name(c.gold):
+        amb += " Two answers share a name in one file: write each with its namespace or class (`ns::Name`)."
     return (f"You are working in a checkout of this repository (the current directory). {ask}{amb} Do not modify "
             f"any files. End your answer with a fenced ```json block holding {_ANSWER[key]}.")
 

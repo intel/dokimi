@@ -196,6 +196,50 @@ def test_two_methods_of_one_name_in_a_file_are_two_gold_items(tmp_path):
     assert c.gold == ("src/cli.py::A.run", "src/cli.py::B.run")
 
 
+def test_same_named_subclasses_in_two_namespaces_of_one_file_are_two_gold_items(tmp_path):
+    base, ch1, ch2 = "cxx . . $ Base#", "cxx . . $ ns1/Child#", "cxx . . $ ns2/Child#"
+    docs = {"src/base.h": [_occ("src/base.h", 0, base, True)],
+            "src/children.h": [_occ("src/children.h", 0, ch1, True), _occ("src/children.h", 5, ch2, True)]}
+    p = plan(_index(docs, {ch1: (base,), ch2: (base,)}, tool="scip-clang 0.4.0"), list(docs),
+             _opts(tmp_path, references=0))
+    (cand,) = [o.candidate for o in p.outcomes if o.candidate.name == "Base"]
+    assert cand.gold == ("src/children.h::ns1.Child", "src/children.h::ns2.Child")
+    assert "namespace or class" in graph_tasks._prompt(cand, "classes")  # the answer must say which one
+
+
+def test_same_named_callers_in_two_namespaces_of_one_file_are_two_gold_items(tmp_path):
+    c1, c2, target = "cxx . . $ ns1/caller().", "cxx . . $ ns2/caller().", "cxx . . $ run()."
+    docs = {"src/core.cpp": [_occ("src/core.cpp", 0, target, True, (0, 1))],
+            "src/x.cpp": [_occ("src/x.cpp", 0, c1, True, (0, 3)), _occ("src/x.cpp", 2, target),
+                          _occ("src/x.cpp", 4, c2, True, (4, 7)), _occ("src/x.cpp", 5, target)]}
+    p = plan(_index(docs, tool="scip-clang 0.4.0"), list(docs), _opts(tmp_path))
+    (cand,) = [o.candidate for o in p.outcomes if o.candidate.name == "run"]
+    assert cand.gold == ("src/x.cpp::ns1.caller", "src/x.cpp::ns2.caller")
+
+
+def test_a_reference_in_a_class_body_inside_a_function_is_no_function_gold(tmp_path):
+    factory, local = _fn("factory", mod="api"), _cls("Local", mod="api")
+    docs = {"src/core.py": [_occ("src/core.py", 0, RUN, True, (0, 3))],
+            "src/api.py": [_occ("src/api.py", 0, factory, True, (0, 5)), _occ("src/api.py", 1, local, True, (1, 4)),
+                           _occ("src/api.py", 2, RUN)],
+            "src/cli.py": [_occ("src/cli.py", 0, _fn("g1", mod="cli"), True, (0, 2)), _occ("src/cli.py", 1, RUN)],
+            "src/web.py": [_occ("src/web.py", 0, _fn("g2", mod="web"), True, (0, 2)), _occ("src/web.py", 1, RUN)]}
+    p = plan(_index(docs), list(docs), _opts(tmp_path))
+    (c,) = [o.candidate for o in p.outcomes if o.candidate.name == "run"]
+    assert c.gold == ("src/cli.py::g1", "src/web.py::g2")
+
+
+def test_two_functions_on_one_line_each_own_the_reference_inside_its_range(tmp_path):
+    a, b = _fn("a", mod="one"), _fn("b", mod="one")
+    docs = {"src/core.py": [_occ("src/core.py", 0, RUN, True, (0, 3))],
+            "src/one.py": [Occurrence("src/one.py", 0, 0, 0, 1, a, DEFINITION, (0, 0), (0, 0, 0, 10)),
+                           Occurrence("src/one.py", 0, 11, 0, 12, b, DEFINITION, (0, 0), (0, 11, 0, 30)),
+                           Occurrence("src/one.py", 0, 20, 0, 21, RUN, 0, None, None)]}
+    p = plan(_index(docs), list(docs), _opts(tmp_path, min_gold=1))
+    (c,) = [o.candidate for o in p.outcomes if o.candidate.name == "run"]
+    assert c.gold == ("src/one.py::b",)
+
+
 def test_task_ids_of_two_targets_with_one_name_differ():
     one = graph_tasks.Candidate("references", (RUN,), "run", "p.m.run", ("a.py",), ("b.py",), (), 2)
     other = graph_tasks.Candidate("references", (ALT_RUN,), "run", "p.alt.run", ("a.py",), ("b.py",), (), 2)
@@ -326,6 +370,11 @@ def test_a_method_of_another_class_never_names_the_gold_method(tmp_path):
 def test_a_repo_directory_in_a_path_is_kept(tmp_path):
     gold = {"answer_key": "files", "gold": ["tests/fixtures/repo/a.py"], "exclude": ["src/repo/a.py"]}
     assert _grade(tmp_path, fence({"files": gold["gold"]}), gold)["f1"] == 1.0
+
+
+def test_a_blank_gold_entry_is_a_grader_error_not_an_unanswerable_task(tmp_path):
+    with pytest.raises(ValueError, match="gold entries"):
+        _grade(tmp_path, fence({"files": []}), {**GOLD, "gold": ["src/a.py", " "]})
 
 
 @pytest.mark.parametrize("bad", [{"gold": []}, {"exclude": "src/def.py"}, {"accepted": None}, {"gold": [1]}])

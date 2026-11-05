@@ -41,6 +41,8 @@ def _read_gold(task, task_dir):
         raise ValueError(f"gold answer_key must be one of {', '.join(KEYS)}, not {found!r}")
     for key, required in (("gold", True), ("exclude", False), ("accepted", False)):
         _str_list(gold, key, required)
+    if any(not norm_item(x) for x in gold["gold"]):  # a blank entry can never be answered: the oracle scores 0
+        raise ValueError("gold entries must name a file or a symbol, not a blank string")
     return gold
 
 

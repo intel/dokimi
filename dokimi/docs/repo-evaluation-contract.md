@@ -997,8 +997,9 @@ Two questions:
 - **references**: every file that references one function, outside the files
   that define it. On an index with enclosing ranges (scip-python) the answer is
   functions, `path::name` with the name as it reads inside its file
-  (`Impl.run` for a method), the innermost function holding each reference;
-  module-level code and class bodies are not a function. Test files count. SCIP
+  (`Impl.run` for a method), the innermost function whose definition (signature
+  or body) holds each reference; module-level code and class bodies are not a
+  function. Test files count. SCIP
   does not tell a call from another use, so the question is references, not
   calls. C++ overloads share one qualified name the prompt cannot tell apart,
   so they are one target and the prompt says how many overloads count.
@@ -1034,7 +1035,7 @@ manifest needs `entry_points: {}` when every task uses a built-in grader. A
 task directory that has a `task.json` is kept and printed as `kept <id>`;
 `--force` rewrites it.
 
-**Grading.** The agent's last ```` ```json ```` fence is the answer; one
+**Grading.** The agent's last parseable ```` ```json ```` fence is the answer (a later fence that does not parse is skipped, as `dokimi:graph_enum` reads it); one
 without the answer key as a list gives `pass: false`, `parse_error: true` and
 every metric 0, a failed run. A path is cut after the agent's workspace and
 loses a leading `./`; in a name `::` reads as `.` and a trailing `()` is
