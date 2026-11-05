@@ -614,6 +614,13 @@ def test_a_function_named_like_a_directory_builtin_or_naming_one_loses_the_direc
     assert shell_walk(command) == ([], True, 1)
 
 
+@pytest.mark.parametrize("command", ["echo }; f() { cd sub; }; f; cat AGENTS.md",
+                                     "f() { cd sub; }; echo }; f; cat AGENTS.md"])
+def test_a_brace_that_closes_no_group_keeps_the_function_bodies_found(command):
+    # ``echo }`` prints a brace: no group is open, so it closes nothing and f's body still names its cd
+    assert shell_walk(command) == ([], True, 1)
+
+
 @pytest.mark.parametrize("command", [
     "case $x in a) echo case;; esac; cat AGENTS.md", "case $x in a|case) echo;; esac; cat AGENTS.md",
     'case $x in a) echo "case";; esac; cat AGENTS.md', r"case $x in a) echo \case;; esac; cat AGENTS.md",
@@ -665,6 +672,13 @@ def test_a_substitution_that_does_not_close_holds_the_rest_of_the_script():
 def test_a_nested_case_still_nests_and_a_quoted_esac_closes_nothing(command):
     # the cd is in an arm of the outer case, which may have run: the cat is at a directory not known
     assert shell_walk(command) == ([], True, 1)
+
+
+@pytest.mark.parametrize("command", ["v=$(case $x in (esac) cat INNER.md;; esac); cat AGENTS.md",
+                                     "v=$(esac; cat INNER.md; :); cat AGENTS.md"])
+def test_an_esac_with_no_case_innermost_closes_nothing(command):
+    # a pattern ``(esac)``, or an esac with no case open (bash refuses the script): the ``)`` still ends the substitution
+    assert shell_walk(command) == (["AGENTS.md"], False, 0)
 
 
 @pytest.mark.parametrize("command", ["time cat AGENTS.md", "time -p cat AGENTS.md", "time X=1 cat AGENTS.md",
