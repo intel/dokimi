@@ -40,10 +40,8 @@ from dokimi.task_formats.source import FileSource
 
 FORMAT = "promptfoo"
 
-#: Imports the config module and writes its default export (or the module) as JSON to the file
-#: ``argv[2]``, not to stdout: the config's own logging shares stdout. Functions and other values
-#: JSON cannot hold are left out, except a ``transform`` function, which is kept as ``true`` so the
-#: assert is flagged as untranslated. ``argv[1]`` is the config's absolute path.
+#: Writes the config as JSON to ``argv[2]``, not stdout, which the config's own logging shares.
+#: A function is dropped, except a ``transform``, kept as ``true`` so its assert is flagged.
 _NODE_READER = (
     "import { pathToFileURL } from 'node:url';"
     "import { writeFileSync } from 'node:fs';"
