@@ -43,6 +43,9 @@ def _read_gold(task, task_dir):
         _str_list(gold, key, required)
     if any(not norm_item(x) for x in gold["gold"]):  # a blank entry can never be answered: the oracle scores 0
         raise ValueError("gold entries must name a file or a symbol, not a blank string")
+    excluded = {norm_path(p) for p in gold.get("exclude", [])}
+    if any(_path(norm_item(x)) in excluded for x in gold["gold"]):  # grade drops such an answer: F1 is 0 for the oracle
+        raise ValueError("gold entries must not lie in an exclude file: grade drops them")
     return gold
 
 

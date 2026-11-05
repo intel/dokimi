@@ -377,6 +377,14 @@ def test_a_blank_gold_entry_is_a_grader_error_not_an_unanswerable_task(tmp_path)
         _grade(tmp_path, fence({"files": []}), {**GOLD, "gold": ["src/a.py", " "]})
 
 
+@pytest.mark.parametrize("entry", ["src/a.py", "src/a.py::run", "./src/a.py::Impl.run()"])
+def test_a_gold_entry_in_an_excluded_file_is_a_grader_error_not_a_zero_oracle(tmp_path, entry):
+    # the grader drops every answer in an excluded file, so such a gold entry could never score
+    gold = {"answer_key": "files", "gold": [entry], "exclude": ["src/a.py"]}
+    with pytest.raises(ValueError, match="exclude"):
+        _grade(tmp_path, fence({"files": [entry]}), gold)
+
+
 @pytest.mark.parametrize("bad", [{"gold": []}, {"exclude": "src/def.py"}, {"accepted": None}, {"gold": [1]}])
 def test_a_malformed_gold_is_a_grader_error(tmp_path, bad):
     with pytest.raises(ValueError, match="must be a"):
