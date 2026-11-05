@@ -39,11 +39,15 @@ _BULLET_MARK = re.compile(r"^[ \t]*(?:[-*]|\d+[.)])[ \t]*(?:\*\*)?\[P\d\]", re.M
 _HEADER_TAIL = re.compile(r"\[P\d\].*?(?:—| [-] )|[\w./-]*[./][\w./-]*:\d+(?:-\d+)?\W*[ \t\r]*$", re.I)
 _FINDING_MARK = re.compile(_BULLET_MARK.pattern + r"|^[ \t]*(?:\*\*)?\[P\d\]", re.M | re.I)
 # a clean verdict is a whole sentence ("Done. No issues found."); a qualified one ("No issues found beyond the
-# leak above.") is not, so it cannot drop an earlier finding
+# leak above.") is not, so it cannot drop an earlier finding, and an answer with neither it nor a finding gets no block
+_NOUN = r"(?:issues|findings|problems|bugs|defects|regressions)"
+_WHERE = r"(?: (?:in|with) (?:this|the) (?:patch|change|commit|diff))?"
 _CLEAN_VERDICT = re.compile(
-    r"(?:^|[.!?:\n])[ \t]*(?:no (?:issues|findings|problems|bugs|defects)"
-    r"(?: (?:were |was )?(?:found|detected|identified|reported))?(?: in (?:this|the) (?:patch|change|commit|diff))?"
-    r"|(?:the )?(?:patch|change|commit|diff) (?:is|looks) correct|lgtm)[ \t]*(?:[.!\n]|$)", re.I)
+    r"(?:^|[.!?:\n])[ \t]*(?:no " + _NOUN + r"(?: (?:were |was )?(?:found|detected|identified|reported))?" + _WHERE
+    + r"|(?:i )?(?:found|find|see) no " + _NOUN + _WHERE
+    + r"|(?:i )?(?:did not|didn't|could not|couldn't) (?:find|identify|spot) any " + _NOUN + _WHERE
+    + r"|(?:the )?(?:patch|change|commit|diff) (?:is|looks) (?:correct|good)|lgtm|looks good(?: to me)?)"
+    r"[ \t]*(?:[.!\n]|$)", re.I)
 
 
 def codex_review_findings(text: str, workdir: str | None = None) -> list[dict[str, Any]]:
@@ -110,9 +114,10 @@ def convert_answer(fmt: str | None, answer: str, workdir: str | None = None, *, 
     neither ("Review finished.") only points back at the review, so the block is built from every message.
     Without ``messages`` only ``answer`` is read.
 
-    A ``failed`` run or an empty answer stays as it is: a missing review, not a clean one. So does
-    an answer with more finding markers than findings parsed: no block is appended, so a grader
-    does not read a review that reported a problem as a clean one.
+    A ``failed`` run or an empty answer stays as it is: a missing review, not a clean one. So does an
+    answer with no finding and no clean verdict ("Unable to review."), and an answer with more finding
+    markers than findings parsed: no block is appended, so a grader does not read a review that reported
+    a problem, or none, as a clean one.
     """
     texts = list(messages) or [answer]
     if fmt is None or failed or not any(t.strip() for t in texts):
@@ -139,6 +144,8 @@ def convert_answer(fmt: str | None, answer: str, workdir: str | None = None, *, 
         log.warning("%s: %d finding marker(s) in the answer but %d parsed; no findings block", fmt,
                     len(findings) + unparsed, len(findings))
         return answer
-    if not findings and not answer.strip():  # an empty final answer is a missing review, as with one message
+    if not findings and not _CLEAN_VERDICT.search(texts[-1]):  # an empty block is a claim the review made
         return answer
-    return f"{answer}\n\n```json\n{json.dumps(findings, indent=1)}\n```\n"
+    # a fence in a message would close the block early: escaped in the JSON, as the review oracles do
+    block = json.dumps(findings, indent=1).replace("```", "\\u0060\\u0060\\u0060")
+    return f"{answer}\n\n```json\n{block}\n```\n"
