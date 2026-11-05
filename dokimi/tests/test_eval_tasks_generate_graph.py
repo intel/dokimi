@@ -257,6 +257,48 @@ def test_two_functions_on_one_line_each_own_the_reference_inside_its_range(tmp_p
     assert c.gold == ("src/one.py::b",)
 
 
+@pytest.mark.parametrize("col, owned", [(0, True), (9, True), (10, False)],
+                         ids=["first-column", "last-column", "end-column"])
+def test_a_span_holds_its_first_and_last_column_and_not_its_end_column(tmp_path, col, owned):
+    a, cli_g = _fn("a", mod="one"), _fn("g", mod="cli")
+    docs = {"src/core.py": [_occ("src/core.py", 0, RUN, True, (0, 3))],
+            "src/one.py": [Occurrence("src/one.py", 0, 0, 0, 1, a, DEFINITION, (0, 0), (0, 0, 0, 10)),
+                           Occurrence("src/one.py", 0, col, 0, col + 1, RUN, 0, None, None)],
+            "src/cli.py": [_occ("src/cli.py", 0, cli_g, True, (0, 2)), _occ("src/cli.py", 1, RUN)]}
+    p = plan(_index(docs), list(docs), _opts(tmp_path, min_gold=1))
+    (c,) = [o.candidate for o in p.outcomes if RUN in o.candidate.symbols]
+    assert c.gold == tuple(sorted(("src/cli.py::g", *(("src/one.py::a",) if owned else ()))))
+
+
+@pytest.mark.parametrize("line, owned", [(3, False), (4, True)], ids=["class-last-line", "after-the-class"])
+def test_a_class_range_without_a_span_ends_after_its_last_line(tmp_path, line, owned):
+    # factory is ranged over lines 0..9; class Box has a range but no span, so it runs lines 1..3 (end excluded)
+    box = _cls("Box", mod="api")
+    docs = {"src/core.py": [_occ("src/core.py", 0, RUN, True, (0, 3))],
+            "src/api.py": [_occ("src/api.py", 0, _fn("factory", mod="api"), True, (0, 9)),
+                           Occurrence("src/api.py", 1, 0, 1, 1, box, DEFINITION, (1, 3), None),
+                           Occurrence("src/api.py", line, 0, line, 1, RUN, 0, None, None)],
+            "src/cli.py": [_occ("src/cli.py", 0, _fn("g", mod="cli"), True, (0, 2)), _occ("src/cli.py", 1, RUN)]}
+    p = plan(_index(docs), list(docs), _opts(tmp_path, min_gold=1))
+    (c,) = [o.candidate for o in p.outcomes if RUN in o.candidate.symbols]
+    assert c.gold == tuple(sorted(("src/cli.py::g", *(("src/api.py::factory",) if owned else ()))))
+
+
+def test_a_function_a_test_file_also_defines_is_a_target_with_both_files(tmp_path):
+    docs = _callers_docs()
+    docs["tests/test_core.py"] = [*docs["tests/test_core.py"], _occ("tests/test_core.py", 0, RUN, True)]
+    p = plan(_index(docs), TREE, _opts(tmp_path, min_gold=1))
+    (c,) = [o.candidate for o in p.outcomes if RUN in o.candidate.symbols]
+    assert c.defined_in == ("src/core.py", "tests/test_core.py")
+
+
+def test_a_function_defined_outside_the_tree_is_not_a_target(tmp_path):
+    docs = _callers_docs()
+    docs["build/gen.py"] = [_occ("build/gen.py", 0, RUN, True)]  # indexed, but not a file of this revision
+    p = plan(_index(docs), TREE, _opts(tmp_path, min_gold=1))
+    assert not [o for o in p.outcomes if RUN in o.candidate.symbols]
+
+
 def test_task_ids_of_two_targets_with_one_name_differ():
     one = graph_tasks.Candidate("references", (RUN,), "run", "p.m.run", ("a.py",), ("b.py",), (), 2)
     other = graph_tasks.Candidate("references", (ALT_RUN,), "run", "p.alt.run", ("a.py",), ("b.py",), (), 2)
