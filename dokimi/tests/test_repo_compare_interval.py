@@ -123,6 +123,13 @@ def test_p_at_zero_is_the_sign_flip_p_exact_and_monte_carlo():
     assert ShiftTest(tied).p(0.0) is sign_flip_p(tied) is None and ShiftTest([2.0] * 3).p(2.0) is None
 
 
+def test_the_row_p_places_zero_where_large_deltas_round_p_at_zero_apart():
+    # at 1e9 patterns tying the observed sum round apart: p(0) can read 0.047 against the printed 0.0625
+    a, b, c = 1e9 + 1 / 3, 1e9 + 0.1, 2e9 + 0.2
+    row = paired_summary(_pairs([a, b, c, a, -b, a, b]))
+    assert row["p"] == 0.0625 and row["delta"]["lo"] == 0.0 and row["interval_p_disagree"] is False
+
+
 def test_the_interval_excludes_zero_exactly_when_p_is_below_005():
     rng = random.Random(2)
     shapes = [(n, rng.randint(0, n)) for n in rng.choices(range(1, 17), k=150)]

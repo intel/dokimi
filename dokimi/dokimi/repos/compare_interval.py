@@ -21,8 +21,9 @@ ALPHA, so the interval excludes 0 exactly when p < ALPHA. Exact up to :data:`EXA
 with one cached ``2**k x k`` sign matrix per k and one matrix-vector product per theta; Monte Carlo above, with one
 :data:`N_RESAMPLES` x n sign matrix drawn once from the seed and reused at every theta (common random numbers), so the
 ends are the same from run to run. Its columns of the changed tasks are the draws :func:`~.compare.sign_flip_p`
-makes for that seed, so the Monte Carlo ``p(0)`` is the printed p. ``p(theta)`` is a step function and the ends are
-its step points, within :data:`TOL`: there is no mid-p, which would no longer agree with the exact p a row prints.
+makes for that seed, so the Monte Carlo ``p(0)`` is the printed p up to the rounding :class:`ShiftTest` names.
+``p(theta)`` is a step function and the ends are its step points, within :data:`TOL`: there is no mid-p, which would
+no longer agree with the exact p a row prints.
 """
 
 from __future__ import annotations
@@ -71,7 +72,10 @@ def _draws(seed: int, changed: int, n: int, n_resamples: int) -> np.ndarray:
 
 class ShiftTest:
     """The sign-flip p of ``deltas - theta`` over every task at any ``theta``, unrounded; at 0 it is
-    :func:`~.compare.sign_flip_p` of ``deltas``, Monte Carlo draws included."""
+    :func:`~.compare.sign_flip_p` of ``deltas``, Monte Carlo draws included, up to rounding. From deltas of about 1e6
+    on, a sign pattern whose sum ties the observed one in exact arithmetic (magnitudes that repeat, such as 1e9 + 0.1)
+    can round to one side of it in the product and to the other in ``sum()``, so ``p(0)`` can differ there: the
+    row's own p, not ``p(0)``, places 0 (:func:`sign_flip_interval`)."""
 
     def __init__(self, deltas: list[float], seed: int = 0, n_resamples: int = N_RESAMPLES) -> None:
         changed = [x for x in deltas if abs(x) > EPS]
