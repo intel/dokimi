@@ -53,6 +53,14 @@ def test_an_end_is_open_at_five_or_fewer_tasks_and_bounded_from_six():
     assert sign_flip_interval([5.0] * 6, sign_flip_p([5.0] * 6)) == (5.0, 5.0)
 
 
+def test_an_end_is_bounded_at_deltas_too_large_to_move_by_one():
+    # 1e16 + 1.0 == 1e16: a far bound 1 past the extreme tied every shifted delta and left the end open
+    for v in (1e16, 1e150):  # finite measures go up to SCORE_BOUND, 1e150
+        assert sign_flip_interval([v] * 6, sign_flip_p([v] * 6)) == (v, v)
+        assert sign_flip_interval([-v] * 6, sign_flip_p([-v] * 6)) == (-v, -v)
+    assert sign_flip_interval([1e16] * 5 + [2e16], sign_flip_p([1e16] * 5 + [2e16])) == (1e16, 2e16)
+
+
 def test_tied_tasks_count_once_shifted_off_zero():
     # one changed task of six: p 1 at 0, yet off 0 the five ties count and bound the interval on both sides
     assert sign_flip_p([1.0, 0, 0, 0, 0, 0]) == 1.0

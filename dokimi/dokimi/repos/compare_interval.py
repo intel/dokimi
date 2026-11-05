@@ -7,7 +7,7 @@
 :func:`~.compare.sign_flip_p` computes it on them: a shifted delta within :data:`EPS` of 0 is a tie, so a task tied
 at 0 counts again once ``theta`` moves off 0. The interval is every ``theta`` with ``p(theta)`` at least
 :data:`~.compare_reach.ALPHA`, uncorrected; each end is bisected between the mean (where p is 1) and a far bound past
-every delta and 0, where the shifted deltas share one sign and p is at its floor, ``2 / 2**n`` over n tasks exact.
+every delta and 0 (1 past the extreme, twice it from 1 on), where the shifted deltas share one sign and p is at its floor, ``2 / 2**n`` over n tasks exact.
 So an end is open (``None``) at 5 or fewer tasks, and both are bounded from 6 tasks on, whatever the ties.
 
 Whether 0 is inside is the row's own p's call (the caller passes it): 0 is inside exactly when that p is at least
@@ -93,9 +93,10 @@ def sign_flip_interval(deltas: list[float], p_zero: float | None, seed: int = 0,
     ``p_zero`` is the row's p, :func:`~.compare.sign_flip_p` of ``deltas`` (``None``: every delta tied, no evidence
     against 0): it decides whether 0 is inside."""
     test, mean = ShiftTest(deltas, seed), sum(deltas) / len(deltas)
-    zero_inside = p_zero is None or p_zero >= ALPHA
-    ends = (_end(test, mean, min(*deltas, 0.0) - 1.0, zero_inside),
-            _end(test, mean, max(*deltas, 0.0) + 1.0, zero_inside))
+    zero_inside, low, high = p_zero is None or p_zero >= ALPHA, min(*deltas, 0.0), max(*deltas, 0.0)
+    # far is 1 past the extreme, or twice it from 1 on: 1e16 + 1.0 rounds back onto 1e16, all tied
+    ends = (_end(test, mean, low - max(1.0, -low), zero_inside),
+            _end(test, mean, high + max(1.0, high), zero_inside))
     return ends if exact else (_rounded(ends[0]), _rounded(ends[1]))
 
 
