@@ -345,3 +345,19 @@ def test_a_clean_task_another_checked_arm_flags_is_not_suggested_as_a_task_optio
     lines = format_compare(compare([batch], "guidance:none")).splitlines()
     # REV flags only pr3103 by name; `other` flags pr3103 and pr3200 by date; pr3300 is clean in both
     assert [line for line in lines if line.startswith("  clean:")] == ["  clean: --task review_replay_pr3300"] * 2
+
+
+def test_a_clean_task_another_checked_arm_cannot_vouch_for_is_not_suggested(tmp_path):
+    other = "guidance:rev:" + "e" * 40
+    flags = _rev({"AGENTS.md": _commit(SHA["root"], LATE)})
+    old = {"arm": other, "arm_rev": {"rev": "main", "sha": "e" * 40}}  # recorded before the history was
+    specs = {"review_replay_pr3200": _spec(3200, files=["a.py"]), "review_replay_pr3300": _spec(3300, files=["b.py"])}
+    batch = tmp_path / "b1"
+    _cell(batch, "review_replay_pr3200", "guidance:none", spec=specs["review_replay_pr3200"])
+    _cell(batch, "review_replay_pr3200", REV, meta=flags, spec=specs["review_replay_pr3200"])
+    _cell(batch, "review_replay_pr3300", "guidance:none", spec=specs["review_replay_pr3300"])
+    _cell(batch, "review_replay_pr3300", REV, meta=_rev({"AGENTS.md": _commit(SHA["root"], EARLY)}),
+          spec=specs["review_replay_pr3300"])
+    _cell(batch, "review_replay_pr3300", other, meta=old, spec=specs["review_replay_pr3300"])
+    lines = format_compare(compare([batch], "guidance:none")).splitlines()
+    assert not any(line.startswith("  clean:") for line in lines)

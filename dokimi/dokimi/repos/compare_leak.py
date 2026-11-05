@@ -239,7 +239,7 @@ def _when(value: Any) -> datetime | None:
 def format_leak(entries: list[dict[str, Any]]) -> list[str]:
     """The text lines of ``summary["leak"]``: per checked arm its counts, then the tasks behind them."""
     lines = []
-    flagged = {t for e in entries for t in (*e["by_date"], *e["by_name"])}
+    flagged = {t for e in entries for t in (*e["by_date"], *e["by_name"], *e["unknown"])}
     for e in entries:
         revs = ", ".join(f"{r['rev']} {r['sha'][:12]}" for r in e["revisions"])
         lines += ["", f"leak check {e['arm']}{f' ({revs})' if revs else ''}: {len(e['checked'])} checked, "
@@ -258,7 +258,7 @@ def format_leak(entries: list[dict[str, Any]]) -> list[str]:
         for task, reason in e["unknown"].items():
             by_reason.setdefault(reason, []).append(task)
         lines += [f"  unknown, {reason}: {_capped(tasks)}" for reason, tasks in by_reason.items()]
-        keep = [t for t in e["clean"] if t not in flagged]  # a task another checked arm flags keeps its leak
+        keep = [t for t in e["clean"] if t not in flagged]  # a task another arm flags or cannot vouch for is not clean there
         if keep and (e["by_date"] or e["by_name"]):
             lines.append("  clean: " + " ".join(f"--task {t}" for t in keep))
     return lines
