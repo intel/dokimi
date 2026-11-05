@@ -623,6 +623,16 @@ def test_a_query_that_failed_on_every_repeat_has_no_agreement_to_report():
     }
 
 
+def test_two_repeats_that_disagree_report_the_agreement_and_the_unstable_query():
+    # The most common repeated run: two repeats of one query, PERF then TBB. Agreement is 1/2
+    # for the modal pick, so the mean is reported, not null. A ``repeats > 2`` guard would hide it.
+    client = _scripted([PERF.name, TBB.name])
+    noise = model_routing([PERF, TBB], ["q1"], client=client, repeats=2)["noise"]
+    (query,) = noise["per_query"]
+    assert query["agreement"] == 0.5
+    assert noise["mean_agreement"] == 0.5 and noise["unstable_queries"] == 1
+
+
 def _completions(monkeypatch, tmp_path, replies: list[str]) -> list[list[dict]]:
     """Route the real default transport into scripted completions, with the cache on."""
     import litellm
