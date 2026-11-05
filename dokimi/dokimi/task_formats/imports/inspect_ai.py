@@ -308,16 +308,17 @@ def _hf_call_args(node: ast.Call, base: Path) -> tuple[list[Any], dict[str, Any]
         raise ValueError("hf_dataset: the path and split= must be literal strings")
     if kwargs.get("trust_remote_code"):
         raise ValueError("hf_dataset: trust_remote_code= would run the dataset's own loader code on import; refused")
-    local = _hf_local(args[0], base)
-    if local:
-        args[0] = _task_files(args[0], base, "path")
+    if _hf_local(args[0], base):
+        # A local dataset folder or file: datasets reads its README configs and paths from wherever they point, and
+        # those can leave the task. Only a builder named with data_files= in the task's directory is read.
+        raise ValueError(f"hf_dataset: {args[0]} is a local dataset folder or file, and it is not read; name a builder "
+                         "with data_files= in the task's directory, e.g. hf_dataset('json', data_files='s.jsonl', split='train')")
     data_dir = kwargs.get("data_dir")
-    # A hub dataset's data_dir= is a subfolder of its repo: only a local loader's, or one that leaves the task, is resolved.
+    # A hub dataset's data_dir= is a subfolder of its repo: only a builder's, or one that leaves the task, is resolved.
     escapes = isinstance(data_dir, str) and (Path(data_dir).is_absolute() or ".." in Path(data_dir).parts)
-    # datasets reads a local dataset's data_dir= and data_files= from inside its folder, so that folder is their root.
-    root = Path(args[0]) if local else base
-    if data_dir is not None and (local or args[0] in _HF_BUILDERS or escapes):
-        kwargs["data_dir"] = _task_files(data_dir, root, "data_dir")
+    root = base
+    if data_dir is not None and (args[0] in _HF_BUILDERS or escapes):
+        kwargs["data_dir"] = _task_files(data_dir, base, "data_dir")
         root = Path(kwargs["data_dir"])  # data_files= is relative to data_dir= when both are given
     if any(k.arg == "data_files" for k in node.keywords):
         kwargs["data_files"] = _task_files(kwargs.get("data_files"), root)

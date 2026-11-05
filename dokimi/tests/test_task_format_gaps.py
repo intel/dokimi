@@ -160,47 +160,31 @@ def test_hf_dataset_builder_name_is_not_a_task_path(tmp_path, monkeypatch):
     assert seen[0][1]["data_dir"] == str((tmp_path / "d" / "sub").resolve())
 
 
-def test_hf_dataset_data_dir_of_a_local_dataset_is_read_from_that_dataset(tmp_path, monkeypatch):
+@pytest.mark.parametrize("call", [
+    "hf_dataset('data', split='train')",
+    "hf_dataset('data', data_dir='en', split='train')",
+    "hf_dataset('data', data_files='s.jsonl', split='train')",
+    "hf_dataset('secrets', split='train')",
+])
+def test_hf_dataset_local_dataset_folder_is_refused_not_read(tmp_path, monkeypatch, call):
     seen = _capture_hf_load(monkeypatch)
-    (tmp_path / "d" / "data" / "en").mkdir(parents=True)  # datasets reads data_dir= inside the local dataset folder
-    task = _write(tmp_path / "d" / "t.py", (
-        "@task\ndef t():\n"
-        "    return Task(dataset=hf_dataset('data', data_dir='en', split='train'), scorer=match())\n"))
-    import_path(task, fmt="inspect-task")
-    assert seen[0][1]["data_dir"] == str((tmp_path / "d" / "data" / "en").resolve())
-
-
-def test_hf_dataset_data_files_of_a_local_dataset_are_read_from_that_dataset(tmp_path, monkeypatch):
-    seen = _capture_hf_load(monkeypatch)
-    (tmp_path / "d" / "data").mkdir(parents=True)
-    (tmp_path / "d" / "s.jsonl").write_text("{}\n")  # the same name in the task must not be picked instead
-    task = _write(tmp_path / "d" / "t.py", (
-        "@task\ndef t():\n"
-        "    return Task(dataset=hf_dataset('data', data_files='s.jsonl', split='train'), scorer=match())\n"))
-    import_path(task, fmt="inspect-task")
-    assert seen[0][1]["data_files"] == str((tmp_path / "d" / "data" / "s.jsonl").resolve())
+    (tmp_path / "d" / "data" / "en").mkdir(parents=True)
+    (tmp_path / "cwd" / "secrets").mkdir(parents=True)
+    monkeypatch.chdir(tmp_path / "cwd")  # a name that exists only in the working directory is local too
+    task = _write(tmp_path / "d" / "t.py", f"@task\ndef t():\n    return Task(dataset={call}, scorer=match())\n")
+    with pytest.raises(ValueError, match="is not read"):
+        import_path(task, fmt="inspect-task")
+    assert seen == []
 
 
 def test_hf_dataset_data_files_with_a_data_dir_are_read_from_that_folder(tmp_path, monkeypatch):
     seen = _capture_hf_load(monkeypatch)
-    (tmp_path / "d" / "data" / "en").mkdir(parents=True)
+    (tmp_path / "d" / "en").mkdir(parents=True)
     task = _write(tmp_path / "d" / "t.py", (
         "@task\ndef t():\n"
-        "    return Task(dataset=hf_dataset('data', data_dir='en', data_files='s.jsonl', split='train'), scorer=match())\n"))
+        "    return Task(dataset=hf_dataset('json', data_dir='en', data_files='s.jsonl', split='train'), scorer=match())\n"))
     import_path(task, fmt="inspect-task")
-    assert seen[0][1]["data_files"] == str((tmp_path / "d" / "data" / "en" / "s.jsonl").resolve())
-
-
-def test_hf_dataset_name_that_exists_only_in_the_working_directory_is_not_read(tmp_path, monkeypatch):
-    seen = _capture_hf_load(monkeypatch)
-    (tmp_path / "cwd" / "secrets").mkdir(parents=True)
-    (tmp_path / "d").mkdir()
-    monkeypatch.chdir(tmp_path / "cwd")  # the loader resolves a relative local name from the process directory
-    task = _write(tmp_path / "d" / "t.py", (
-        "@task\ndef t():\n"
-        "    return Task(dataset=hf_dataset('secrets', split='train'), scorer=match())\n"))
-    import_path(task, fmt="inspect-task")
-    assert seen[0][0] == [str((tmp_path / "d" / "secrets").resolve())]
+    assert seen[0][1]["data_files"] == str((tmp_path / "d" / "en" / "s.jsonl").resolve())
 
 
 def test_hf_dataset_path_and_data_dir_outside_the_task_are_refused(tmp_path):
@@ -211,8 +195,9 @@ def test_hf_dataset_path_and_data_dir_outside_the_task_are_refused(tmp_path):
                  "hf_dataset('json', data_dir='../outside', split='train')",
                  "hf_dataset('../outside', split='train')"):
         task = _write(tmp_path / "d" / "t.py", f"@task\ndef t():\n    return Task(dataset={call}, scorer=match())\n")
-        with pytest.raises(ValueError, match="outside the task's directory"):
+        with pytest.raises(ValueError, match="is not read|outside the task's directory"):
             import_path(task, fmt="inspect-task")
+
 
 
 # --- (c) promptfoo configs written as code ----------------------------------------------------
