@@ -13,6 +13,7 @@ import pytest
 import dokimi.commands.novelty as novelty_cmd
 from dokimi.cli import build_parser
 from dokimi.novelty.client import LLMClient
+from dokimi.novelty.routing import catalog_competitors
 from dokimi.utils import InputError
 
 
@@ -89,6 +90,15 @@ def test_keep_copies_under_keeps_the_copy_under_the_other_directory_when_asked(t
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["field"]["competitors"] == ["audit"]
     assert any("openclaw" in note for note in payload["field"]["left_out"])
+
+
+def test_keep_copies_under_puts_the_kept_copy_in_the_field_not_the_other(tmp_path):
+    # Competitor names are the same for both copies, so only the description shows which copy is listed.
+    root = _ponytail(tmp_path / "ponytail")
+    kept = catalog_competitors(str(root), {"review"}, keep_copies_under="skills")
+    assert [c.description for c in kept] == ["audit the repository for leftovers"]
+    other = catalog_competitors(str(root), {"review"}, keep_copies_under=".openclaw/skills")
+    assert [c.description for c in other] == ["audit a repository, openclaw copy"]
 
 
 def test_keep_copies_under_that_matches_no_copy_leaves_the_name_a_conflict(tmp_path):
