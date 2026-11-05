@@ -1,8 +1,8 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""The judge's two response-cache defects: the `get_llm` path (Bedrock, Vertex,
-OpenRouter) bypassed the cache and had no retry, and a judge retry after an
+"""The judge's two response-cache defects: its Bedrock, Vertex and OpenRouter path
+(then ``utils.get_llm``) bypassed the cache and had no retry, and a judge retry after an
 unparseable reply replayed the same cached reply instead of drawing a new one."""
 
 import threading
@@ -13,7 +13,7 @@ import pytest
 
 from dokimi import caching
 from dokimi.eval.judge import Judge
-from dokimi.utils import get_llm
+from dokimi.llm import LLM, Invoker
 
 GOOD = (
     '{"correctness": 80, "completeness": 80, "specificity": 80, '
@@ -39,6 +39,10 @@ def _completion(texts):
     return completion, calls
 
 
+def _bedrock(model="m.x"):
+    return Invoker(LLM(model, "amazon-bedrock"))
+
+
 @pytest.fixture
 def cache_dir(tmp_path, monkeypatch):
     monkeypatch.setenv(caching.RESPONSE_CACHE_ENV, str(tmp_path))
@@ -53,10 +57,10 @@ def test_draw_zero_keeps_existing_cache_keys():
     assert k0 != k1
 
 
-def test_get_llm_path_is_cached(cache_dir, monkeypatch):
+def test_the_bedrock_path_is_cached(cache_dir, monkeypatch):
     completion, calls = _completion(["first", "second"])
     monkeypatch.setattr("litellm.completion", completion)
-    llm = get_llm("amazon-bedrock", "us.anthropic.claude-haiku-4-5-20251001-v1:0")
+    llm = _bedrock("us.anthropic.claude-haiku-4-5-20251001-v1:0")
     assert llm.invoke("p").content == "first"
     assert llm.invoke("p").content == "first"  # replayed, not re-paid
     assert len(calls) == 1
@@ -64,12 +68,12 @@ def test_get_llm_path_is_cached(cache_dir, monkeypatch):
     assert len(calls) == 2
 
 
-def test_get_llm_path_retries_throttling(monkeypatch):
+def test_the_bedrock_path_retries_throttling(monkeypatch):
     monkeypatch.delenv(caching.RESPONSE_CACHE_ENV, raising=False)
     monkeypatch.setattr("time.sleep", lambda s: None)
     completion, calls = _completion([RuntimeError("ThrottlingException: rate limit"), "ok"])
     monkeypatch.setattr("litellm.completion", completion)
-    assert get_llm("amazon-bedrock", "m.x").invoke("p").content == "ok"
+    assert _bedrock().invoke("p").content == "ok"
     assert len(calls) == 2
 
 
@@ -82,7 +86,7 @@ def test_bedrock_service_unavailable_is_retried(monkeypatch):
     )
     completion, calls = _completion([err, "ok"])
     monkeypatch.setattr("litellm.completion", completion)
-    assert get_llm("amazon-bedrock", "m.x").invoke("p").content == "ok"
+    assert _bedrock().invoke("p").content == "ok"
     assert len(calls) == 2
 
 
@@ -91,16 +95,16 @@ def test_permanent_unavailable_is_not_retried(monkeypatch):
     completion, calls = _completion([RuntimeError("This model is unavailable in this region"), "ok"])
     monkeypatch.setattr("litellm.completion", completion)
     with pytest.raises(RuntimeError):
-        get_llm("amazon-bedrock", "m.x").invoke("p")
+        _bedrock().invoke("p")
     assert len(calls) == 1
 
 
-def test_get_llm_path_does_not_retry_real_errors(monkeypatch):
+def test_the_bedrock_path_does_not_retry_real_errors(monkeypatch):
     monkeypatch.delenv(caching.RESPONSE_CACHE_ENV, raising=False)
     completion, calls = _completion([ValueError("AccessDeniedException"), "ok"])
     monkeypatch.setattr("litellm.completion", completion)
     with pytest.raises(ValueError):
-        get_llm("amazon-bedrock", "m.x").invoke("p")
+        _bedrock().invoke("p")
     assert len(calls) == 1
 
 
@@ -109,7 +113,7 @@ def test_judge_retry_escapes_a_cached_unparseable_reply(cache_dir, monkeypatch):
     # the retries replayed it and the answer lost its score.
     completion, calls = _completion(["not json", GOOD, GOOD])
     monkeypatch.setattr("litellm.completion", completion)
-    judge = _judge(get_llm("amazon-bedrock", "m.x"))
+    judge = _judge(_bedrock())
     assert judge.score_answer(library_name="L", question="q", answer="a")["aggregate"] == 80.0
     assert len(calls) == 2
     # The unparseable draw-0 reply was not stored; a re-run replays draw 1 without
@@ -132,7 +136,7 @@ def test_three_unparseable_replies_do_not_become_a_permanent_failure(cache_dir, 
     the cache on replayed the failure without calling the model."""
     completion, calls = _completion(["not json", "still not", "nope", GOOD])
     monkeypatch.setattr("litellm.completion", completion)
-    judge = _judge(get_llm("amazon-bedrock", "m.x"))
+    judge = _judge(_bedrock())
     with pytest.raises(ValueError):
         judge.score_answer(library_name="L", question="q", answer="a")
     assert len(calls) == 3
@@ -142,12 +146,10 @@ def test_three_unparseable_replies_do_not_become_a_permanent_failure(cache_dir, 
 
 
 def test_llm_call_path_does_not_store_unparseable_judge_replies(cache_dir, monkeypatch):
-    """OpenAI/Anthropic judges go through llm_call_with_usage, which stores too."""
-    from dokimi.llm import ChatOpenAI
-
+    """An OpenAI judge stores replies too."""
     completion, calls = _completion(["not json", "still not", "nope", GOOD])
     monkeypatch.setattr("litellm.completion", completion)
-    judge = _judge(ChatOpenAI(model="gpt-x", api_key="k"))
+    judge = _judge(Invoker(LLM("gpt-x", "openai", "k")))
     with pytest.raises(ValueError):
         judge.score_answer(library_name="L", question="q", answer="a")
     assert not list(cache_dir.glob("*.json"))
@@ -159,7 +161,7 @@ def test_an_unparseable_entry_already_in_the_cache_is_not_replayed(cache_dir, mo
     """Entries stored before the check existed must not keep poisoning the run."""
     completion, calls = _completion(["not json", GOOD])
     monkeypatch.setattr("litellm.completion", completion)
-    llm = get_llm("amazon-bedrock", "m.x")
+    llm = _bedrock()
     assert llm.invoke("p").content == "not json"  # no cache_if: stored as before
     assert llm.invoke("p", cache_if=lambda t: t.startswith("{")).content == GOOD
     assert len(calls) == 2
@@ -186,7 +188,7 @@ def test_pairwise_retries_an_unparseable_reply_and_never_caches_it(cache_dir, mo
 
     completion, calls = _completion(["Verdict:", "A", "B", "A"])
     monkeypatch.setattr("litellm.completion", completion)
-    judge = PairwiseJudge(ask=_asker(get_llm("amazon-bedrock", "m.x")))
+    judge = PairwiseJudge(ask=_asker(_bedrock()))
     assert judge.compare("L", "q", "x", "y").score == 1
     assert len(calls) == 3
     assert calls[1]["messages"] == calls[0]["messages"]  # the same prompt, a new draw
@@ -201,7 +203,7 @@ def test_checklist_retries_an_unparseable_reply_and_never_caches_it(cache_dir, m
 
     completion, calls = _completion(["Verdict:", "YES", "NO", "YES"])
     monkeypatch.setattr("litellm.completion", completion)
-    ask = _asker(get_llm("amazon-bedrock", "m.x"))
+    ask = _asker(_bedrock())
     (v,) = ck.check_answer(ask, "q", "a", ["point"])
     assert (v.covered, v.absent, len(calls)) == (True, False, 3)
     assert len(list(cache_dir.glob("*.json"))) == 2
@@ -252,9 +254,7 @@ def test_panel_non_numeric_dimension_is_retried_and_not_cached(cache_dir, monkey
 
 
 def _pinned_judge(seed=7):
-    from dokimi.llm import ChatOpenAI
-
-    judge = _judge(ChatOpenAI(model="gpt-x", api_key="k", temperature=0.0, seed=seed))
+    judge = _judge(Invoker(LLM("gpt-x", "openai", "k", temperature=0.0, seed=seed)))
     judge.temperature, judge.seed = 0.0, seed
     return judge
 
@@ -333,8 +333,6 @@ def test_replay_probe_lets_a_non_miss_error_propagate(cache_dir):
 
 
 def test_replay_only_raises_on_a_miss_and_sends_nothing(cache_dir, fake_llm):
-    from dokimi.llm import LLM
-
     with caching.replay_only(), pytest.raises(caching.CacheMiss):
         LLM("gpt-x", "openai", api_key="k").complete("p")
     assert fake_llm.requests == []

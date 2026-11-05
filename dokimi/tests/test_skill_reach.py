@@ -459,6 +459,44 @@ def test_cli_run_reports_a_missing_work_dir_and_a_blocked_out_dir(tmp_path, caps
     assert not (tmp_path / "out").exists()
 
 
+def test_cli_run_reports_an_artifact_it_cannot_write_and_exits_1(tmp_path, capsys):
+    # the run itself succeeds; a directory where skill-discovery.json goes makes the save raise an OSError
+    (tmp_path / "out" / "skill-discovery.json").mkdir(parents=True)
+    work = tmp_path / "work"
+    work.mkdir()
+    with pytest.raises(SystemExit) as exc:
+        _cli("--harness", str(_profile(tmp_path)), "--only", "project-client", "--out", str(tmp_path / "out"),
+             "--work-dir", str(work))
+    assert exc.value.code == 1
+    captured = capsys.readouterr()
+    assert "✗ " in captured.err and "skill-discovery.json" in captured.err and "wrote " not in captured.out
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the wrapper is a POSIX shell script")
+def test_cli_run_starts_the_harness_with_the_bin_it_is_given(tmp_path, capsys):
+    # the wrapper runs the same fake harness in crash mode: only a run through --bin reports its exit 2
+    wrapper = tmp_path / "harness-wrapper"
+    wrapper.write_text(f'#!/bin/sh\nFAKE_MODE=crash exec "{sys.executable}" "$@"\n', encoding="utf-8")
+    wrapper.chmod(0o755)
+    work = tmp_path / "work"
+    work.mkdir()
+    with pytest.raises(SystemExit) as exc:
+        _cli("--harness", str(_profile(tmp_path)), "--only", "project-client", "--out", str(tmp_path / "out"),
+             "--work-dir", str(work), "--bin", str(wrapper))
+    assert exc.value.code == 1
+    assert "error in cwd=.: exit 2 (no answer): boom" in capsys.readouterr().out
+
+
+def test_cli_run_with_keep_leaves_the_fixture_and_names_it(tmp_path, capsys):
+    work = tmp_path / "work"
+    work.mkdir()
+    _cli("--harness", str(_profile(tmp_path)), "--only", "project-client", "--out", str(tmp_path / "out"),
+         "--work-dir", str(work), "--keep")
+    artifact = json.loads((tmp_path / "out" / "skill-discovery.json").read_text(encoding="utf-8"))
+    kept = list(work.resolve().iterdir())
+    assert [str(p) for p in kept] == [artifact["workspace"]] and (kept[0] / "ws" / ".git").is_dir()
+
+
 def test_cli_refuses_a_budget_for_a_harness_with_no_spend_cap(capsys):
     with pytest.raises(SystemExit) as exc:
         _cli("--harness", "codex", "--budget", "0.01", "--dry-run")

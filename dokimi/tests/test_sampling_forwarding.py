@@ -9,7 +9,7 @@ import pytest
 
 import dokimi.llm as llm_mod
 from dokimi import caching
-from dokimi.utils import get_llm
+from dokimi.llm import LLM, Invoker
 
 
 def _resp(text="ok"):
@@ -43,9 +43,9 @@ def test_llm_call_cache_keys_on_temperature_and_seed(cache_dir, requests):
     assert [{k: r[k] for k in ("temperature", "seed") if k in r} for r in requests] == SETTINGS[:4]
 
 
-def test_get_llm_cache_keys_on_temperature_and_seed(cache_dir, requests):
+def test_the_judge_transport_cache_keys_on_temperature_and_seed(cache_dir, requests):
     for sampling in SETTINGS:
-        get_llm("amazon-bedrock", "us.anthropic.x", "k", **sampling).invoke("ask")
+        Invoker(LLM("us.anthropic.x", "amazon-bedrock", "k", **sampling)).invoke("ask")
     assert [{k: r[k] for k in ("temperature", "seed") if k in r} for r in requests] == SETTINGS[:4]
 
 
