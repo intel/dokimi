@@ -34,7 +34,7 @@ Wheels build with cibuildwheel, in a manylinux container on Linux, as
 pyproject.toml's [tool.cibuildwheel] says; a pyproject.toml without it builds a
 pure Python wheel with `pip wheel`. Run-time
 requirements that pyproject.toml cannot declare, because the conda package gets
-them from its recipe instead, go in [tool.gh-ci]
+them from its recipe instead, go in [tool.ci-build]
 wheel-requires: build.py adds them to each wheel's metadata.
 """
 
@@ -138,13 +138,13 @@ def pyproject_tools(pyproject: Path) -> dict:
 
 
 def wheel_requires(pyproject: Path) -> list[str]:
-    """[tool.gh-ci] wheel-requires from pyproject.toml."""
-    tool = pyproject_tools(pyproject).get("gh-ci", {})
+    """[tool.ci-build] wheel-requires from pyproject.toml."""
+    tool = pyproject_tools(pyproject).get("ci-build", {})
     requires = tool.get("wheel-requires", [])
     if not isinstance(requires, list) or not all(
         isinstance(r, str) for r in requires
     ):
-        raise BuildError("[tool.gh-ci] wheel-requires must be a list of specs")
+        raise BuildError("[tool.ci-build] wheel-requires must be a list of specs")
     return requires
 
 
