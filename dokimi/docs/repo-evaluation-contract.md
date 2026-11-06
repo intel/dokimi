@@ -1640,7 +1640,9 @@ and after `*` or `**` they add nothing), `[...]` is one of its letters, digits o
 `release/*` matches `release/**`, `release/v1` matches `release/v[12]`, and
 `**` alone names no path. A range that runs backwards or mixes lowercase,
 uppercase and digits (`9-0`, `a-Z`) makes its `[...]` literal text. A
-`--branch` name matches only when equal. The reason names the first match, hooks before workflows, with the line of
+`--branch` name matches only when equal, and so does any source for a claim whose
+last segment ends in an extension some file of the tree has (`release/CHANGELOG.md`
+in a tree with a `.md` file), which reads as a file. The reason names the first match, hooks before workflows, with the line of
 its value: `branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)`,
 `branch of no-commit-to-branch (.pre-commit-config.yaml:19)` or `branch filter of
 on.push (.github/workflows/ci.yml:3)`. A file that is missing, not read or does not parse, an

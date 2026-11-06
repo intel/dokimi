@@ -363,6 +363,9 @@ _PUSH = {".github/workflows/ci.yml": 'name: ci\non:\n  push:\n    branches: [mai
     ("release/1.x", _pre_commit("\n        -   --branch\n        -   release/1.x"),
      "branch of no-commit-to-branch (.pre-commit-config.yaml:19)"),
     ("release/*", _PUSH, "branch filter of on.push (.github/workflows/ci.yml:4)"),
+    # `.x` is an extension the tree uses, so `release/1.x` reads as a file, but a name equal to it still counts
+    ("release/1.x", {**_pre_commit("[--branch, release/1.x]"), "src/gen.x": ""},
+     "branch of no-commit-to-branch (.pre-commit-config.yaml:17)"),
     ("dependabot/*", {".github/workflows/pr.yaml": "on:\n  pull_request:\n    branches-ignore:\n      - 'dependabot/**'\n"},
      "branch filter of on.pull_request (.github/workflows/pr.yaml:4)"),
     ("release/v*", {".github/workflows/ci.yml": '"on": {push: {branches: ["release/v*"]}}\n'},
@@ -392,6 +395,10 @@ _NO_GLOB = "glob {} matches nothing in the tree; a build may create it"
 
 @pytest.mark.parametrize("claim, files, verdict", [
     ("feature/*", {**_pre_commit(_DPNP), **_PUSH}, ("unresolved", _NO_GLOB.format("feature/*"))),
+    # a last segment with an extension some tracked file has is a file: a pattern does not name it
+    ("release/CHANGELOG.md", _PUSH, ("unresolved", "tried release/CHANGELOG.md")),
+    ("maintenance/*.yaml", _pre_commit(_DPNP), ("unresolved", _NO_GLOB.format("maintenance/*.yaml"))),
+    ("release/1.x", {**_pre_commit("[--pattern, 'release/.*']"), "src/gen.x": ""}, ("unresolved", "tried release/1.x")),
     # a root `maintenance/` makes it a path: one stale glob still fails
     ("maintenance/*.zzz", {**_pre_commit(_DPNP), "maintenance/notes.md": ""},
      ("fail", "maintenance/ exists but nothing in it matches *.zzz")),
@@ -419,7 +426,7 @@ _NO_GLOB = "glob {} matches nothing in the tree; a build may create it"
      ("unresolved", "tried release/v1")),
 ])
 def test_a_path_like_claim_no_branch_source_names_keeps_its_path_verdict(tmp_path, claim, files, verdict):
-    """No match, a root directory, another hook's id, a string `args`, a bad regex, malformed YAML, a `run:` script
+    """No match, a file extension the tree uses, a root directory, another hook's id, a string `args`, a bad regex, malformed YAML, a `run:` script
     a filter whose pattern does not start with the claim's first directory, a `*` across `/`, an escaped `*` and a
     backwards range: today's verdict."""
     assert _path_verdict(tmp_path, claim, files) == verdict

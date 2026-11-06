@@ -11,6 +11,7 @@ The path rule (:mod:`.core`) takes a path-like claim one of them names for a bra
 
 from __future__ import annotations
 
+import posixpath
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -56,17 +57,27 @@ class Source:
     rx: re.Pattern[str] | None
     why: str
 
-    def names(self, claim: str, fills: list[str]) -> bool:
-        """``claim`` is the text, or a pattern starting with its literal first directory matches every filling of it."""
+    def names(self, claim: str, fills: list[str], file: bool = False) -> bool:
+        """``claim`` is the text, or, unless it reads as a ``file``, a pattern starting with its literal first directory
+        matches every filling of it."""
         head = claim.split("/")[0]
         literal = "/" in claim and head != "" and not re.search(r"[*?\[<{]", head)
-        led = literal and self.text.lstrip("^!").startswith(head + "/")
+        led = literal and not file and self.text.lstrip("^!").startswith(head + "/")
         return claim == self.text or (self.rx is not None and led and all(self.rx.match(f) for f in fills))
 
 
 def branch_of(scan: Scan, claim: str, fills: list[str]) -> str | None:
-    """The reason of the first source that names ``claim`` (``fills``: it with its wildcards filled in), else None."""
-    return next((s.why for s in _sources(scan) if s.names(claim, fills)), None)
+    """The reason of the first source that names ``claim`` (``fills``: it with its wildcards filled in), else None.
+
+    A claim whose last segment ends in an extension some tracked file has (``release/CHANGELOG.md``) reads as a file:
+    only a source equal to it names it.
+    """
+    file = posixpath.splitext(claim.rstrip("/"))[1] in _extensions(scan)
+    return next((s.why for s in _sources(scan) if s.names(claim, fills, file)), None)
+
+
+def _extensions(scan: Scan) -> set[str]:
+    return scan.cached("file_extensions", lambda: {posixpath.splitext(f)[1] for f in scan.files} - {""})
 
 
 def _sources(scan: Scan) -> list[Source]:
