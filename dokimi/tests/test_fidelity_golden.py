@@ -159,6 +159,16 @@ def test_record_keeps_every_request_and_the_main_turn(tmp_path):
     assert records[1]["body"]["stream"] is True
 
 
+def test_capture_arm_refuses_a_request_for_another_model(tmp_path, monkeypatch):
+    # The model is blanked in the golden, so a client that sends another one is refused here.
+    other = _fake_client(tmp_path / "bin")
+    script = Path(other)
+    script.write_text(script.read_text(encoding="utf-8").replace(
+        'main = {"model": "claude-haiku-4-5"', 'main = {"model": "claude-sonnet-4-6"'), encoding="utf-8")
+    with pytest.raises(ValueError, match="claude-sonnet-4-6"):
+        fd.capture_arm("bare", binary=other, scratch=tmp_path / "scratch")
+
+
 def test_messages_request_refuses_a_client_with_no_tools_request():
     with pytest.raises(ValueError):
         fd.messages_request([{"path": "/v1/messages", "body": {"stream": True}}])

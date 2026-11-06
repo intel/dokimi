@@ -155,6 +155,14 @@ def messages_request(records: Iterable[dict]) -> dict:
     raise ValueError("the client sent no /v1/messages request with tools")
 
 
+def check_model(rec: dict, model: str) -> None:
+    """Raise unless the request names *model*. The request's model is blanked by
+    :func:`normalize_request`, so a wrong one is caught here or not at all."""
+    sent = (rec.get("body") or {}).get("model")
+    if sent != model:
+        raise ValueError(f"the arm asked for model {model!r} but the client sent {sent!r}")
+
+
 def arm_argv(harness: Any, task: Any, *, treatment: Any = None, plugin_dir: Optional[str] = None,
              model: Optional[str] = FIXTURE_MODEL, output_dir: Path) -> List[str]:
     """The ``claude`` argv a docker-claude arm passes after the executable.
@@ -517,4 +525,5 @@ def capture_arm(case: str, *, binary: str, scratch: Path, image: Optional[str] =
         runner = run_host(binary, args, workdir=workdir, scratch=scratch)
         home = str(scratch / "home")
     turn = messages_request(record(runner))
+    check_model(turn, FIXTURE_MODEL)
     return normalize_request(turn, workdir=str(workdir), home=home)
