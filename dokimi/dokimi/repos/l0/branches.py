@@ -103,15 +103,11 @@ def _read_sources(scan: Scan) -> tuple[list[Source], dict[str, str]]:
 
 
 def _load(scan: Scan, path: str) -> Any:
-    text, loader = scan.text(path), None
+    text = scan.text(path)
     try:
-        loader = _Loader(text)  # its reader rejects a control character such as U+0001 already here
-        return loader.get_single_data()
+        return yaml.load(text, Loader=_Loader)  # nosec B506 - a SafeLoader subclass
     except Exception:  # PyYAML's constructors raise more than YAMLError: a bad date, tag value, depth
         return None
-    finally:
-        if loader is not None:
-            loader.dispose()
 
 
 def _hook_sources(scan: Scan) -> list[Source]:
