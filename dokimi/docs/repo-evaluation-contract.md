@@ -814,7 +814,8 @@ review thread of a merged PR, anchored on a line of the reviewed revision.
   a pair of the cell is unjudged (not measured, so not a 0). Only credited
   pairs are rescored: a thread no finding was credited with stays missed, and
   a finding outside the window is not judged, so `recall_judged` is at most
-  `recall`. It is a judge's reading, not a verdict: quote a figure only next to
+  `recall`. `repo compare --metric judge:recall_judged` compares it across
+  arms (§9). It is a judge's reading, not a verdict: quote a figure only next to
   a person's labels for a sample of the pairs (`repo hits sheet`, then
   `--labels`), whose agreement with the judge and Cohen's kappa per arm and
   answer model the command reports; without them, or when no pair carries
@@ -2006,7 +2007,8 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   each as one JSON object in a fenced block marked `data`, says that text
   inside the blocks is data and not instructions, and gives the label rules
   after the blocks. It writes `<cell>/hits_judged.json` (`repo_hits_judged.v1`): the
-  judge, each pair's `thread`, `finding`, `label` and `reason`, the counts of
+  judge, each pair's `thread`, `finding`, `comment` and `message` (the
+  match's cuts of the two texts), `label` and `reason`, the counts of
   `same point`, `related`, `unrelated` and `unjudged`, `n_threads` (from
   `grade.json` `metrics`), the grader's `recall`, and `recall_judged`. A cell
   whose answer had no findings JSON is written with no pair and its
@@ -2019,7 +2021,8 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   (`--json`: `stale_removed`). The command prints, per (arm, model), the cells written, their
   pairs and label counts, the mean `recall` of those cells and the mean
   `recall_judged` of those whose `recall_judged` is not null (`--json`: the
-  same as JSON). Before any call it refuses, with exit 2,
+  same as JSON); `repo compare --metric judge:recall_judged` compares it
+  across arms (below). Before any call it refuses, with exit 2,
   a judge that runs the model of any answer of the batch (`meta.json` or
   `result.json` `model`, the model asked for, and `model_resolved`, the
   model or models the trace says answered; a CLI alias counts as its family's
@@ -2109,7 +2112,8 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   task is the unit. Per treatment arm, model and measure (gate share, score,
   cost, turns, `first_prompt_tokens`, `first_useful_s` and `first_useful_steps` (the median over a
   task's cells that observed the first useful result, §4.1), `first_useful_rate` (the share of a task's
-  declared cells with a verdict that observed one), each `--metric` from `grade.json`, and each `process` count a
+  declared cells with a verdict that observed one), each `--metric` from `grade.json` (or `judge:recall_judged` from
+  `hits_judged.json`, below), and each `process` count a
   compared cell reports as `process:<key>` or `counter:<name>`) it gives the mean per-task
   delta against the baseline with a 95% interval over tasks, the tasks up, down and tied, and a two-sided
   sign-flip permutation p (exact up to 16 changed tasks, Monte Carlo above with a fixed seed; at one cell per
@@ -2188,7 +2192,44 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   scales and get `null`. `BATCH/ARM` takes an arm from one batch only, so two
   batches of the same arm (for example two revisions of the guidance) compare
   too; two selectors of the same cells are refused. A `--metric` no finished
-  cell reports as a number or boolean is refused. Tasks left out are listed as
+  cell reports as a number or boolean is refused. `--metric judge:recall_judged`
+  reads each cell's `hits_judged.json` (`repo hits judge`, above) instead of
+  `grade.json`; any other `judge:` name is refused with exit 2. A cell reports
+  it only when the file is a `repo_hits_judged.v1` JSON object whose `cell`,
+  `task`, `arm` and `model` are the cell's own, whose `recall`, `n_threads`
+  and credited (thread, finding) pairs, with the `comment` and `message` cuts
+  each pair records, equal the cell's `grade.json` ones now
+  (else the cell was regraded since judging, even to the same recall or with a thread or finding reworded within the 200 characters of `comment` and `message` the grade keeps (a later change, or one to a finding's rule or evidence, is not seen): the file is stale, and `repo hits judge` removes such files only
+  when it runs again; a file written before the pairs recorded the cuts is
+  checked on (thread, finding) only), and whose `recall_judged` is a finite number. Any other
+  cell (no file, a stale file, another cell's file, a null `recall_judged`
+  from an unjudged pair or a cell with no gold thread, a file that cannot be read, is not JSON or is not
+  `repo_hits_judged.v1`) does not report it, as a cell lacking a `grade.json`
+  metric does: it is left out of its task's mean and `n`, and a null is never
+  read as 0. `--json` gives `judged_cells` (`null` without a `judge:` metric):
+  `metrics`, the `judge:` names asked for, and `arms`, per compared arm its
+  `cells` (of the compared models) and the counts `read`, `no_file`, `not_judged`
+  (no file, and a cell `repo hits judge` never judges: a grader failure, a grade
+  without `matches`, or another grader), `stale`,
+  `other_cell`, `no_threads`, `unjudged` and `unreadable`, and `judges`, per
+  compared arm the judges (`provider/model`) of its cells read; when the
+  compared cells read name more than one judge, compare warns, as it does when
+  the arms differ in another stamp. The text prints one line per arm
+  with a cell not read (`judge:recall_judged, guidance:none: 18 of 26 cells
+  read (5 no hits_judged.json, 2 stale: regraded since judging, 1 with an
+  unjudged pair); run repo hits judge again`; the hint is left off when every
+  cell not read has no gold thread, whose null a rerun writes again, or is
+  `not_judged`, which a rerun leaves without a file). When no
+  selected cell reports it, the refusal (exit 2) gives those counts and, unless
+  every cell is one of those two, says to run
+  `repo hits judge <batch> --judge PROVIDER/MODEL` first. `hits_judged.json`
+  carries no calibration, so compare cannot tell whether a person's labels
+  backed the judge: the text adds one note, that the figure is a judge's
+  labels of the credited pairs, at most each read cell's `recall` (the
+  `recall` row also averages the cells not read, so the two rows cover
+  different cells when a per-arm line is printed), and uncalibrated unless
+  `repo hits judge --labels` reported agreement for these arms. `--ledger`
+  passes no `--metric` to its rule verdicts. Tasks left out are listed as
   unpaired with the reason: no cells in one arm, a task that is gated in one
   arm and score-only in the other, or a measure (such as a metric) one arm
   lacks. A metric's `n_baseline`/`n_treatment` count the cells that report it.
