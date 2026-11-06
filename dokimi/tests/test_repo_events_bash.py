@@ -660,6 +660,23 @@ def test_a_case_pattern_without_its_open_parenthesis_does_not_close_the_substitu
     assert shell_walk(command) == (["AGENTS.md"], False, 0)
 
 
+@pytest.mark.parametrize("words", [
+    "echo then case x", "echo do case it", "grep -e then case x", "echo time case x", "echo else case x",
+    "echo $(date) case x", "ls -d $(pwd) case 2>/dev/null","echo $(case x in x) echo;; esac) case x",
+    "case x in x) echo $(date) case y;; esac",
+])
+def test_a_case_word_after_an_argument_keyword_or_a_substitution_opens_no_case(words):
+    # an argument ``case`` opens no case: the substitution ends at its ``)``, so the cd after it moves the shell
+    assert shell_walk(f"v=$({words}); cd sub; cat AGENTS.md") == (["sub/AGENTS.md"], True, 0)
+
+
+@pytest.mark.parametrize("pattern", ["x)", "(x)"])
+def test_a_case_word_after_a_pattern_opens_a_nested_case(pattern):
+    # the inner esac closes the inner case, so ``b)`` is still the outer case's pattern: the cd is in the substitution
+    command = f"v=$(case x in {pattern} case y in y) :;; esac;; b)\ncd sub;; esac); cat AGENTS.md"
+    assert shell_walk(command) == (["AGENTS.md"], False, 0)
+
+
 def test_a_substitution_that_does_not_close_holds_the_rest_of_the_script():
     # bash fails on it; the cat is inside the substitution, a subshell's text, so it is no read
     assert shell_walk("v=$(case $x in (a) echo;; esac; cat AGENTS.md") == ([], False, 0)

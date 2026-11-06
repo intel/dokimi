@@ -10,7 +10,7 @@ from typing import NamedTuple
 
 # ``case`` and ``esac`` as words; a ``case`` takes a word after it, so ``a|case)`` is a pattern
 _CASE_WORD = re.compile(r"case(?=[ \t\n])|esac(?=[\s;&|)`]|$)")
-_KEYWORD_END = re.compile(r"(?:^|[\s;&|()`])(?:if|then|else|elif|do|while|until|!|\{|time)$")
+_KEYWORD_END = re.compile(r"(?<![^\s;&|()`])(?:if|then|else|elif|do|while|until|!|\{|time)$")
 
 
 class Part(NamedTuple):
@@ -57,6 +57,7 @@ class _Splitter:
         self.opened: list[str] = []  # the open ``$(``, ``(`` and, inside a ``$(``, ``case``, innermost last
         self.paren = False  # the part being built holds a parenthesis
         self.tick = False  # inside a backtick substitution, a subshell as ``$( )`` is
+        self.pattern_end = -1  # the index of the last ``case`` pattern's ``)``, after which a command word starts
 
     def add(self, text: str) -> None:
         self.cur.append(text)
@@ -98,10 +99,13 @@ class _Splitter:
     def _paren(self, i: int) -> None:
         """Take the parenthesis at ``i``; a ``)`` in an open ``case`` ends a pattern, not what holds the case."""
         self.paren = True
+        top = self.opened[-1:]
         if self.script[i] == "(":
             self.opened.append("$(" if self.script[i - 1:i] == "$" else "(")
-        elif self.opened[-1:] not in ([], ["case"]):
+        elif top not in ([], ["case"]):
             self.opened.pop()
+        if self.script[i] == ")" and top != ["$("] and self.opened[-1:] == ["case"]:
+            self.pattern_end = i
         self.cur.append(self.script[i])
 
     def _case_word(self, i: int) -> str:
@@ -117,11 +121,19 @@ class _Splitter:
         return m.group()
 
     def _command_word(self, i: int) -> bool:
-        """Whether the word at ``i`` is a command word: first in a list (``$(case``, ``;; esac``) or after a keyword
-        and a blank (``then case``)."""
-        before = self.script[max(0, i - 64):i]
-        rest = before.rstrip(" \t")
-        return not rest or rest[-1] in ";&|()`\n" or (rest != before and _KEYWORD_END.search(rest) is not None)
+        """Whether the word at ``i`` is a command word: first in a list (``$(case``, ``;; esac``), after a ``case``
+        pattern's ``)``, or after a blank and a keyword that is one (``then case``, not ``echo then case``)."""
+        while True:
+            before = self.script[max(0, i - 64):i]
+            rest = before.rstrip(" \t")
+            if not rest or rest[-1] in ";&|(`\n":
+                return True
+            if rest[-1] == ")":
+                return i - len(before) + len(rest) - 1 == self.pattern_end
+            keyword = _KEYWORD_END.search(rest) if rest != before else None
+            if keyword is None:
+                return False
+            i = i - len(before) + keyword.start()
 
     def _quoted(self, i: int) -> int:
         script, c = self.script, self.script[i]
