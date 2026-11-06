@@ -76,7 +76,9 @@ def _run_single_library(entry, output_dir: str, model: str, provider: str, judge
         judge_provider=judge_provider,
         judge_temperature=judge_temperature,
         judge_placeholder=judge_placeholder,
-        context7_id=entry.context7_id,
+        # The resolver finds entry.context7_id via product_key, after an mcp: ;id=;
+        # passed as the explicit id it would beat ;id= (#310).
+        context7_id=None,
         doc_source=doc_source,
         max_tokens_per_question=max_tokens_per_question,
         force_regen=force_regen,
