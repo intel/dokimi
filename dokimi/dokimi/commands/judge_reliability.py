@@ -206,8 +206,8 @@ def cmd_eval_checklist(args: argparse.Namespace) -> None:
     arms = [a.strip() for a in args.arms.split(",")] if args.arms else None
     _require_arms(args.answers, records, "eval score checklist")
     checklist_jobs(records, points, arms=arms)  # refuse a blank question before the probe call
-    warn_recorded_self_judge(data, [(args.judge_model, args.judge_provider)], "eval score checklist")
     _check_judge_temperature([(args.judge_model, args.judge_provider)], args.judge_temperature)
+    warn_recorded_self_judge(data, [(args.judge_model, args.judge_provider)], "eval score checklist")
     llm = Judge(model=args.judge_model, provider=args.judge_provider, temperature=args.judge_temperature).llm
     label = f"{args.judge_provider}/{args.judge_model}"
     print(f"Required-point coverage: {label}, {len(records)} questions, baseline `{baseline}`")
@@ -250,6 +250,7 @@ def cmd_eval_judge_wording(args: argparse.Namespace) -> None:
     if unknown:
         print(f"Error: unknown degradation(s): {unknown}; known: {sorted(DEGRADATIONS)}", file=sys.stderr)
         sys.exit(2)
+    _check_judge_temperature([(args.judge_model, args.judge_provider)], args.judge_temperature)
     warn_recorded_self_judge(data, [(args.judge_model, args.judge_provider)], "eval judge wording")
     pairs = _build(answers, {}, n_bases=args.bases, seed=args.seed, variants=variants, library=library).pairs
     label = f"{args.judge_provider}/{args.judge_model}"
@@ -257,7 +258,6 @@ def cmd_eval_judge_wording(args: argparse.Namespace) -> None:
     print(f"Judge wording sensitivity: {label}, {len(pairs)} pairs x {n_cond} conditions "
           f"(original, {args.redraws} re-draw(s), {', '.join(wordings)})")
 
-    _check_judge_temperature([(args.judge_model, args.judge_provider)], args.judge_temperature)
 
     def scorer_for(template, draw):
         return judge_scorer(Judge(model=args.judge_model, provider=args.judge_provider,
