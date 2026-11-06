@@ -47,6 +47,7 @@
 --count
 --custom-questions
 --debug-retrieval
+--derives  # eval tasks generate (#41): a task count per question kind; no registry concept yet
 --description
 --doc-source
 --docker
@@ -168,6 +169,7 @@
 --ragas-provider
 --rebuild-image
 --redraws
+--references  # eval tasks generate (#41): a task count per question kind; no registry concept yet
 --regular-runs
 --repeats
 --repo
