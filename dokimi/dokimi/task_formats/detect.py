@@ -22,7 +22,8 @@ from typing import Any
 
 from dokimi.task_formats import links
 from dokimi.task_formats.configs import (
-    InspectTaskProbe, OpenAIEvalsSpecProbe, PromptfooProbe, PromptfooTestsProbe,
+    HarborSuitesProbe, InspectTaskProbe, OpenAIEvalsSpecProbe, PromptfooProbe, PromptfooTestsProbe,
+    is_promptfoo_code,
 )
 from dokimi.task_formats.datasets import (
     ExploreTaskProbe, InspectSamplesProbe, OpenAIEvalsProbe, QuestionsProbe,
@@ -41,7 +42,7 @@ FILE_PROBES: tuple[Probe, ...] = (
     LfsPointerProbe(), SweBenchProbe(), InspectSamplesProbe(), OpenAIEvalsProbe(),
     SkillCreatorEvalsProbe(), SkillCreatorTriggerProbe(), SkillReachProbe(), QuestionsProbe(),
     PromptfooProbe(), PromptfooTestsProbe(), OpenAIEvalsSpecProbe(), ExploreTaskProbe(),
-    InspectTaskProbe(),
+    InspectTaskProbe(), HarborSuitesProbe(),
 )
 PROBES: tuple[Probe, ...] = DIR_PROBES + FILE_PROBES
 _BY_NAME = {p.name: p for p in PROBES}
@@ -142,7 +143,7 @@ class _Scan:
             if child.name not in SKIP_DIRS and not child.name.startswith("."):
                 self.walk(child)
             return
-        if not child.is_file() or child.suffix.lower() not in SCAN_SUFFIXES:
+        if not child.is_file() or not (child.suffix.lower() in SCAN_SUFFIXES or is_promptfoo_code(child)):
             return  # a FIFO or device would block or never end
         self.files += 1
         if self.files > MAX_SCAN_FILES:

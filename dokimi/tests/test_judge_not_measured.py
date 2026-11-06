@@ -49,10 +49,10 @@ def test_cross_judge_strict_fails_when_no_arm_was_measured(tmp_path, monkeypatch
         del ev["scores"]["skill"]
     empty = tmp_path / "empty.json"
     empty.write_text(json.dumps(unpaired), encoding="utf-8")
-    # A judge that errored on every call is a failed run (exit 2), not only an incomplete verdict.
+    # A judge that errored on every call is a failed run (exit 1: a runtime failure), not only an incomplete verdict.
     for argv, arms, exit_code, why in (
         (["--answers", str(errored), "--no-stored", "--judges", "amazon-bedrock/m"], {"skill": "NOT MEASURED"},
-         2, "Error: amazon-bedrock/m (aggregate) scored none of its 16 answers"),
+         1, "Error: amazon-bedrock/m (aggregate) scored none of its 16 answers"),
         (["--answers", str(empty)], {}, 1, "✗ incomplete"),
     ):
         code = _strict_exit(["eval", "judge", "agreement", *argv, "--output", str(tmp_path / "cj.json"), "--strict"])

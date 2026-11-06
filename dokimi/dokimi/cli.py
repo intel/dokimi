@@ -21,10 +21,8 @@ from dokimi.commands import (
     context,
     dashboard,
     data,
-    dataset,
     evaluate,
     explore,
-    ingest,
     library,
     novelty,
     orchestrate,
@@ -34,6 +32,7 @@ from dokimi.commands import (
     report,
     run,
     runs,
+    skill,
     subjects,
     tasks,
     tools,
@@ -136,17 +135,16 @@ def build_parser() -> argparse.ArgumentParser:
     arms.register(sub, positive_int)            # arms
     subjects.register(sub, positive_int)        # subjects (scorecards)
     tasks.register(sub, positive_int, eval_sub)  # tasks; eval tasks list, eval inspect
-    catalog.register(sub, positive_int, eval_sub)  # catalog; eval triggers generate
+    catalog.register(sub, positive_int, eval_sub)  # catalog; eval triggers generate; catalog intents
     explore.register(sub, positive_int)         # explore (ExploreBench)
-    dataset.register(sub, positive_int)         # dataset
-    ingest.register(sub, positive_int)          # ingest
-    novelty.register(sub, positive_int)         # novelty (content novelty)
+    skill.register(sub, positive_int)           # skill: novelty, shorten (#94 M2)
+    novelty.register(sub, positive_int)         # novelty (routing, view: not yet moved)
     repo.register(sub, positive_int, eval_sub)  # repo; eval check
     tools.register(sub, positive_int)           # tools (tool-choice probes)
-    context.register(sub, positive_int)         # context (context window of a run)
+    context.register(sub, positive_int)         # trace: inspect, consistency, prefilter (#94 M2)
     runs.register(sub, positive_int)            # runs (the artifacts under the runs root)
     backends.register(sub, positive_int)        # backends (CLI providers)
-    data.register(sub, positive_int)            # data (schema; M2 adds export, import and models)
+    data.register(sub, positive_int)            # data: schema, export, import docling (#94 M2)
 
     _label_routes(p)
     return p

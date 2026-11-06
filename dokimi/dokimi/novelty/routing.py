@@ -41,6 +41,7 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from dokimi.external.listing import only_description_too_long
 from dokimi.skills import Skill
 from dokimi.utils import InputError, parse_frontmatter
 
@@ -482,11 +483,30 @@ def non_skill_reason(ref: str) -> str | None:
     return None
 
 
+def over_limit_warnings(competitors: list[Candidate], *, under_test: bool = False) -> list[dict]:
+    """One record per skill whose description is over the 1024-character limit.
+
+    ``competitors`` are skills of the field, or, with ``under_test``, the skill under test,
+    which the message names as such.
+    """
+    from dokimi.external.validate import DESCRIPTION_MAX
+
+    kept = ("the skill under test, measured with its full description" if under_test
+            else "kept in the field with its full description")
+    return [{"skill": c.name, "length": len(c.description), "limit": DESCRIPTION_MAX,
+             "message": f"description is {len(c.description)} characters, over the {DESCRIPTION_MAX} "
+                        f"limit; {kept} (harnesses differ: "
+                        "pi.dev rejects the skill, Claude Code truncates past about 1,536 "
+                        "characters)"}
+            for c in competitors if len(c.description) > DESCRIPTION_MAX]
+
+
 def competitor_left_out(ref: str, *, include_disabled: bool, include_invalid: bool) -> str | None:
     """Why an explicit ``skill:`` competitor is left out of the field, as the note says, or None.
 
     The same two rules as a catalog skill: a ``disable-model-invocation`` skill (unless
-    ``include_disabled``) and a skill with a spec error (unless ``include_invalid``).
+    ``include_disabled``) and a skill with a spec error (unless ``include_invalid``). A
+    description over 1024 characters, as the only spec error, does not leave a skill out.
     """
     from dokimi.external.catalog import SkillCatalogEntry
     from dokimi.external.validate import review_skills
@@ -509,7 +529,7 @@ def competitor_left_out(ref: str, *, include_disabled: bool, include_invalid: bo
     entry = SkillCatalogEntry(name=skill.name, status=None, path=path.parent,
                               source_root=root, skill=skill)
     review = review_skills([entry])[0]
-    if review is None or review.state != "error":
+    if review is None or review.state != "error" or only_description_too_long(review):
         return None
     problems = "; ".join(f.message for f in review.findings if f.level == "error")
     return f"spec error ({problems}; --include-invalid keeps it)"
@@ -578,8 +598,9 @@ def catalog_competitors(root: str, exclude: set[str],
     the catalog has. A declared skill that cannot be loaded is left out and described in
     ``notes`` (when given) rather than aborting the run. A skill with
     ``disable-model-invocation`` is left out too, unless ``include_disabled``. A skill with a
-    spec error (``catalog scan`` reports it as an error, e.g. a description over 1024
-    characters) is left out too, unless ``include_invalid``. A mirror, a byte-identical
+    spec error (``catalog check`` reports it as an error, e.g. a name that is not its directory
+    name) is left out too, unless ``include_invalid``. A description over 1024 characters, as the
+    only error, keeps the skill (harnesses differ on it; see ``only_description_too_long``). A mirror, a byte-identical
     ``SKILL.md`` under another path (a plugin copy of the ``skills/`` tree), is left out too:
     the copy nearest the catalog root stands for the card. Disabled and spec-error copies are
     filtered according to the flags first. A name whose remaining copies differ in content leaves
@@ -631,7 +652,7 @@ def _eligible_catalog_skills(root: str, exclude: set[str], notes: list[str] | No
             continue
         if skill.name in exclude:
             continue
-        # the digest and the disabled flag are the review's, so routing and catalog scan cannot disagree
+        # the digest and the disabled flag are the review's, so routing and catalog check cannot disagree
         loaded.append((skill, review.content_sha256 or "", review))
     # the flags first: a copy no harness lists (disabled, or a spec error) does not make its name a conflict
     listed: list[tuple[Skill, str]] = []
@@ -650,7 +671,8 @@ def _left_out_by_flag(skill: Skill, review: SkillReview, include_disabled: bool,
     The note names the first rule; ``dropped`` (when given) gets every rule that applies.
     """
     disabled = not include_disabled and review.disable_model_invocation
-    invalid = not include_invalid and review.state == "error"
+    invalid = (not include_invalid and review.state == "error"
+               and not only_description_too_long(review))
     if dropped is not None and (disabled or invalid):
         dropped.setdefault(skill.name, set()).update(
             why for why, hit in (("disabled", disabled), ("invalid", invalid)) if hit)
@@ -674,7 +696,7 @@ def _conflicting_names(listed: list[tuple[Skill, str]], notes: list[str] | None,
 
     Two skills with one name and different bytes cannot both stand for the card, so the name
     leaves the field. The rest of the field stays. ``listed`` holds only the copies the flags
-    let into the field, so ``catalog scan`` names the same copies as conflicting.
+    let into the field, so ``catalog check`` names the same copies as conflicting.
     """
     digests: dict[str, set[str]] = {}
     for skill, digest in listed:

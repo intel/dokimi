@@ -99,7 +99,7 @@ def test_unreadable_skill_fails_the_scan_like_a_load_error(tmp_path, monkeypatch
         return real_read_bytes(self)
 
     monkeypatch.setattr(Path, "read_bytes", read_bytes)
-    args = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path), "--kind", "skills"])
+    args = build_parser().parse_args(["catalog", "check", "--root", str(tmp_path), "--kind", "skills"])
     with pytest.raises(SystemExit) as exc_info:
         args.func(args)
     assert exc_info.value.code == 1

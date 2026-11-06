@@ -17,6 +17,7 @@ the config says they are.
 from __future__ import annotations
 
 import re
+import shutil
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -50,11 +51,22 @@ def _promptfoo_named(source: FileSource) -> bool:
     return source.path.name.startswith("promptfooconfig") and source.suffix in (".yaml", ".yml", ".json")
 
 
+#: A promptfoo config written as code. Only its name is checked by a scan; it is read (with
+#: `node`) by the import, never by inspect.
+PROMPTFOO_CODE_SUFFIXES = (".js", ".mjs", ".cjs", ".ts")
+
+
+def is_promptfoo_code(path: Path) -> bool:
+    return path.name.startswith("promptfooconfig") and path.suffix.lower() in PROMPTFOO_CODE_SUFFIXES
+
+
 class PromptfooProbe:
     name = "promptfoo"
     target = "file"
 
     def fingerprint(self, source: FileSource) -> Fingerprint | None:
+        if is_promptfoo_code(source.path):
+            return Fingerprint(0.9, ("file name", "code config"))
         if source.suffix not in (".yaml", ".yml", ".json"):
             return None
         named = _promptfoo_named(source)
@@ -71,6 +83,12 @@ class PromptfooProbe:
         return Fingerprint(min(1.0, 0.5 + 0.1 * len(signals) + 0.1 * len(keys)), signals + keys)
 
     def describe(self, source: FileSource) -> Report:
+        if is_promptfoo_code(source.path):
+            report = Report(source.path, self.name, KIND_ANSWER_ONLY)
+            report.details["code_config"] = "read by node at import; inspect does not run it"
+            if shutil.which("node") is None:
+                report.problems.append("a JS/TS promptfoo config is read by node, which is not on PATH")
+            return report
         data: dict[str, Any] = source.data if isinstance(source.data, dict) else {}
         tests = data.get("tests")
         report = Report(source.path, self.name, KIND_ANSWER_ONLY,
@@ -198,6 +216,44 @@ class OpenAIEvalsSpecProbe:
         report.details["model_graded"] = sum("modelgraded" in str(s["class"]) for s in specs.values())
         if refs:
             report.details["references"] = refs
+        return report
+
+
+# --- Harbor catalog manifest (evaluation/harbor/suites.json) -------------------
+
+FORMAT_HARBOR_SUITES = "harbor-suites"
+BY_CATALOG = "catalog"
+
+
+def _suites_shape(source: FileSource) -> tuple[list[str], int]:
+    """Problems a suites manifest has, and the tasks it names, as the catalog reads it."""
+    from dokimi.external.catalog import _manifest_tasks  # the catalog's own reader, so the two cannot drift
+
+    try:
+        return [], len(_manifest_tasks(source.data, source.path))
+    except ValueError as exc:
+        return [str(exc).removeprefix(f"invalid suites.json at {source.path}: ")], 0
+
+
+class HarborSuitesProbe:
+    """``suites.json`` of a Harbor catalog: the executable tasks it names, read by ``catalog``."""
+
+    name = FORMAT_HARBOR_SUITES
+    target = "file"
+
+    def fingerprint(self, source: FileSource) -> Fingerprint | None:
+        data = source.data
+        if source.path.name != "suites.json" or not isinstance(data, dict) or "suites" not in data:
+            return None
+        if source.path.resolve().parent.parts[-2:] != ("evaluation", "harbor"):
+            return None  # the catalog reads only <root>/evaluation/harbor/suites.json
+        return Fingerprint(0.9, ("file name", "suites"))
+
+    def describe(self, source: FileSource) -> Report:
+        problems, count = _suites_shape(source)
+        report = Report(source.path, self.name, KIND_EXECUTABLE, items=count)
+        report.problems.extend([*source.problems, *problems])
+        report.consumers.append(BY_CATALOG)
         return report
 
 

@@ -17,7 +17,7 @@
     "format": {
       "enum": ["harbor", "task-md", "terminal-bench-v1", "swe-bench", "inspect-samples", "inspect-task",
                "openai-evals", "openai-evals-spec", "skill-creator-evals", "skill-creator-trigger",
-               "skill-reach", "promptfoo", "promptfoo-tests", "dokimi-questions", "dokimi-explore-task",
+               "skill-reach", "harbor-suites", "promptfoo", "promptfoo-tests", "dokimi-questions", "dokimi-explore-task",
                "git-lfs-pointer", "unknown"],
       "description": "The probe that claimed the item. `git-lfs-pointer` is a dataset file whose content was never fetched (`details.expected_format` names its format when a config in the scan names it); `unknown` is a path no probe claims."
     },
@@ -43,7 +43,7 @@
         "consumers": {
           "type": "array",
           "minItems": 1,
-          "items": {"enum": ["harbor", "docker-*", "benchflow", "questions track", "explore track", "catalog trigger-set", "questions import", "eval triggers generate", "eval import", "none-yet"]},
+          "items": {"enum": ["harbor", "docker-*", "benchflow", "questions track", "explore track", "catalog trigger-set", "questions import", "eval triggers generate", "eval import", "catalog", "none-yet"]},
           "description": "What in dokimi reads the item today; `none-yet` when nothing does."
         },
         "alternatives": {

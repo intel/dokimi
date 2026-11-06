@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Reference, link and description checks of ``catalog scan``: links, mirror drift and near-duplicates (split from ``test_catalog_validate``)."""
+"""Reference, link and description checks of ``catalog check``: links, mirror drift and near-duplicates (split from ``test_catalog_validate``)."""
 
 from __future__ import annotations
 

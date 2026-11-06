@@ -12,6 +12,7 @@ import json
 
 import pytest
 
+from dokimi import cli
 from dokimi.cli import build_parser
 from dokimi.commands import baseline as baseline_mod
 
@@ -236,3 +237,20 @@ def test_compare_with_no_saved_baseline_exits_2_and_says_to_save_one(run, tmp_pa
         run("compare", "--eval", str(eval_file))
     assert exc.value.code == 2
     assert "No baselines found. Save one first" in capsys.readouterr().out
+
+
+def test_compare_refuses_an_eval_record_it_cannot_read_with_the_error_line_and_exit_2(
+        run, tmp_path, monkeypatch, capsys):
+    good = tmp_path / "good.json"
+    good.write_text(json.dumps(_EVAL), encoding="utf-8")
+    run("save", "--from-eval", str(good), "--name", "b")
+    bad = tmp_path / "bad.json"
+    bad.write_text(json.dumps({"evaluations": [{"with_docs": {"aggregate": 1.0}}]}), encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["dokimi", "baseline", "compare", "--baseline", "b", "--eval", str(bad)])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert err.startswith("Error: "), err
+    assert str(bad) in err
+    assert "❌" not in err
