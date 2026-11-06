@@ -11,7 +11,7 @@ caveats — not a subject-level novelty score. There is deliberately nothing her
 
 Novelty analysis is not run as part of a subject run: the cost is
 ``atoms x probes x arms x (answer + grade)`` and the study's sweep cost 11561 gradings. Artifacts
-are produced by ``novelty analyze`` and attached to a subject run by path.
+are produced by ``skill novelty analyze`` and attached to a subject run by path.
 """
 
 from __future__ import annotations

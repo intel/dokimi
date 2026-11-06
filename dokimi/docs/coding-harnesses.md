@@ -21,7 +21,7 @@ pass rate against a baseline harness.
 ## Task Layouts
 
 Two layouts are read, and a root may mix them. `task.md` is read by
-`eval tasks list`, `coverage` and `catalog scan`; it is run by `docker-oracle` and
+`eval tasks list`, `coverage` and `catalog check`; it is run by `docker-oracle` and
 by the `benchflow*:<agent>` harnesses (BenchFlow reads it natively), and a
 `command:` harness runs whatever it is given. What each harness refuses
 follows the files it reads, and a refused cell is an error (missing data),
@@ -1065,7 +1065,7 @@ telemetry promoted to `metric_*` columns, the full `metrics`/`operations` blocks
 kept as JSON-encoded columns:
 
 ```bash
-python cli.py dataset export --kind task_runs \
+python cli.py data export --kind task_runs \
   --input results/skill-task-arms.json \
   --out-dir results/skill-task-arms-dataset --format jsonl   # or parquet / hf
 ```
@@ -1289,7 +1289,7 @@ to lay a checkout out, how to scan it before you spend money on it, and what
 every command does when a root is missing. This section covers only the
 harness-specific part.
 
-Scan the checkout first (`python cli.py catalog scan --root <checkout>`), then
+Scan the checkout first (`python cli.py catalog check --root <checkout>`), then
 use the entries it reports the same way as local ones:
 
 ```bash

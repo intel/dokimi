@@ -146,7 +146,7 @@ def test_export_task_runs_jsonl(tmp_path):
 def _run_export(src: Path, out: Path, kind: str = "answers", *extra: str) -> None:
     from dokimi.cli import build_parser
 
-    args = build_parser().parse_args(["dataset", "export", "--kind", kind, "--input", str(src),
+    args = build_parser().parse_args(["data", "export", "--kind", kind, "--input", str(src),
                                       "--out-dir", str(out), *extra])
     args.func(args)
 

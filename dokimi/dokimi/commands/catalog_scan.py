@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""``catalog scan --per-skill``: each skill reviewed alone, streamed to JSONL, with ``--jobs`` and ``--resume``.
+"""``catalog check --per-skill``: each skill reviewed alone, streamed to JSONL, with ``--jobs`` and ``--resume``.
 
 The cross-catalog checks (``duplicate``, ``name-conflict``, ``mirror-drift``,
 ``description-near-duplicate``) need every skill loaded at once. This mode gives them up,
@@ -183,7 +183,7 @@ def _print_text(root: Path, declared: int, tally: _Tally, resumed: int,
 def scan_per_skill(args, root: Path, report: dict, as_json: bool, pairs: list) -> tuple[bool, int]:
     """Review each ``(entry, nested_in)`` pair alone; returns (exit 1 wanted, skills declared).
 
-    Without ``--jsonl`` the rows go into ``report["skills"]`` as the cross-catalog scan puts them.
+    Without ``--jsonl`` the rows go into ``report["skills"]`` as the cross-catalog check puts them.
     With it they stream to that file, and stdout gets the counts only.
     """
     declared = len(pairs)

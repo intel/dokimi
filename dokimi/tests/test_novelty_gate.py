@@ -369,7 +369,7 @@ def test_the_kind_agreement_check_takes_the_worse_arm_and_names_it():
 
 
 def test_two_files_in_one_arm_are_judged_on_the_worse_one():
-    # `novelty items --out` keys rows by source file, so two seeds share an arm.
+    # `skill novelty items --out` keys rows by source file, so two seeds share an arm.
     verdict = evaluate_novelty(_artifact(items={"kind_agreement": {
         "seed0.json": {"arm": "full", "n_atoms_multi_kind": 10, "n_agree": 2,
                        "agreement": 0.2, "disagreeing": []},

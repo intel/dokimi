@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""``catalog scan --per-skill`` and ``review_skill_dir``: a skill reviewed alone has no cross-catalog check."""
+"""``catalog check --per-skill`` and ``review_skill_dir``: a skill reviewed alone has no cross-catalog check."""
 
 from __future__ import annotations
 
@@ -61,13 +61,13 @@ def test_cli_per_skill_drops_name_conflict_and_the_default_scan_keeps_it(tmp_pat
     _two_plugins_with_one_skill_name(tmp_path)
     parser = build_parser()
 
-    args = parser.parse_args(["catalog", "scan", "--root", str(tmp_path), "--kind", "skills",
+    args = parser.parse_args(["catalog", "check", "--root", str(tmp_path), "--kind", "skills",
                               "--format", "json"])
     args.func(args)
     default_rows = json.loads(capsys.readouterr().out)["skills"]
     assert any("name-conflict" in _codes_of_row(row) for row in default_rows)
 
-    args = parser.parse_args(["catalog", "scan", "--root", str(tmp_path), "--kind", "skills",
+    args = parser.parse_args(["catalog", "check", "--root", str(tmp_path), "--kind", "skills",
                               "--format", "json", "--per-skill"])
     args.func(args)
     per_skill_rows = json.loads(capsys.readouterr().out)["skills"]

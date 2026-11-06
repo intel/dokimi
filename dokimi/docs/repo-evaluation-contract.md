@@ -507,7 +507,7 @@ Claude. `subagent_calls` counts the parent's and subagents' `Agent`/`Task`
 calls; `null` when the harness wrote no result record.
 `first_prompt_tokens` is what the first main-thread model call was sent
 (`input + cache_creation + cache_read` tokens of that call, counted once per
-message id, as `context trace` reads it): everything start-up loaded plus the
+message id, as `trace inspect` reads it): everything start-up loaded plus the
 task, so two arms that differ only in guidance differ there by what start-up
 loaded of it. It is `null` when the trace has no main-thread call with
 `usage`, and for a trace format that carries none (`text`).

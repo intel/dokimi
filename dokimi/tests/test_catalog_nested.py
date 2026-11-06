@@ -29,7 +29,7 @@ _BROKEN_INNER = "---\nname: sub-beta\n---\n# Beta without a description\n"
 
 
 def _scan(argv: list[str], capsys) -> tuple[str, int]:
-    args = build_parser().parse_args(["catalog", "scan", "--kind", "skills", *argv])
+    args = build_parser().parse_args(["catalog", "check", "--kind", "skills", *argv])
     try:
         args.func(args)
     except SystemExit as exc:

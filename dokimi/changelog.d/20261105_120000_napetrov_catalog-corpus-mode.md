@@ -5,7 +5,7 @@ SPDX-License-Identifier: Apache-2.0
 
 ### Added
 
-- **`catalog scan` corpus mode for large catalogs** — `--per-skill` reviews each skill alone, so the
+- **`catalog check` corpus mode for large catalogs** — `--per-skill` reviews each skill alone, so the
   cross-catalog checks (`duplicate`, `name-conflict`, `mirror-drift`, `description-near-duplicate`) do
   not fire between unrelated skills. A `SKILL.md` nested in another skill's directory is marked with
   `nested_in` in JSON and with a `note` in text; `--skip-nested` leaves it out. With `--per-skill`,

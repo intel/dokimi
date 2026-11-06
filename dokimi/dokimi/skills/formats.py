@@ -6,7 +6,7 @@
 The loader reads one format, the Agent Skills ``SKILL.md`` package
 (agentskills.io), which Claude Code, OpenAI Codex, Gemini CLI and GitHub Copilot
 all read. Other ecosystems ship guidance in shapes the loader does not load;
-this module names them so a catalog scan can say what a checkout holds and
+this module names them so a catalog check can say what a checkout holds and
 which part of it dokimi can evaluate. Nothing here loads or runs a package.
 
 Formats, and what selects each one at run time:

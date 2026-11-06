@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""``catalog scan --per-skill --jsonl``: one row per skill as it is reviewed, with ``--jobs`` and ``--resume``."""
+"""``catalog check --per-skill --jsonl``: one row per skill as it is reviewed, with ``--jobs`` and ``--resume``."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ def _catalog(root: Path) -> None:
 
 
 def _args(argv: list[str]):
-    return build_parser().parse_args(["catalog", "scan", "--kind", "skills", *argv])
+    return build_parser().parse_args(["catalog", "check", "--kind", "skills", *argv])
 
 
 def _run(argv: list[str], capsys) -> tuple[str, int]:
