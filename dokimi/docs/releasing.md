@@ -96,15 +96,18 @@ Each release carries, next to the sdist and wheel:
 
 ```bash
 gh release download vX.Y.Z -R intel/dokimi
-# signature
+# signature: signed by release.yml on the tag
 python -m pip install sigstore
 python -m sigstore verify github dokimi-X.Y.Z-py3-none-any.whl \
   --bundle dokimi-X.Y.Z-py3-none-any.whl.sigstore.json \
-  --repository intel/dokimi --ref refs/tags/vX.Y.Z
-# provenance
-gh attestation verify dokimi-X.Y.Z-py3-none-any.whl -R intel/dokimi
+  --repository intel/dokimi --ref refs/tags/vX.Y.Z --name release
+# provenance, from the attached file (offline) or the repository's attestations
+gh attestation verify dokimi-X.Y.Z-py3-none-any.whl -R intel/dokimi \
+  --signer-workflow intel/dokimi/.github/workflows/release.yml \
+  --bundle dokimi-X.Y.Z.intoto.jsonl
 ```
 
+The same commands check the sdist (`dokimi-X.Y.Z.tar.gz`).
 Releases before this (v0.1.0) are unsigned.
 
 ## Enabling PyPI

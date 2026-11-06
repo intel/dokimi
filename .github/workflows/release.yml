@@ -5,7 +5,8 @@ name: release
 
 # Publishing a GitHub Release (tag vX.Y.Z) checks that the tree is that version
 # (scripts/check_release.py), builds the sdist and wheel, smoke-tests the
-# installed wheel, attaches both to the release and, once PyPI is enabled,
+# installed wheel, signs both and attaches them with their Sigstore bundles and
+# build provenance to the release and, once PyPI is enabled,
 # uploads them with Trusted Publishing. docs/releasing.md has the whole
 # procedure. A manual run builds and checks without uploading anything; given a
 # tag, it checks out and checks that tag, not the branch it was dispatched from.
