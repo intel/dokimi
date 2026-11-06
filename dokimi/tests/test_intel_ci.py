@@ -9,11 +9,14 @@ import email
 import importlib.util
 import subprocess
 import sys
+import tomllib
 import types
 from pathlib import Path
 
 import pytest
 import yaml
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
 
 from dokimi import config, intents, registry
 from dokimi.runner import spec
@@ -31,6 +34,25 @@ def _workflow(name: str) -> dict:
 def test_every_push_and_tag_run_keeps_its_own_concurrency_group() -> None:
     """Each main push is tested: a shared group would drop a queued one, so group as ci.yml does."""
     assert _workflow("intel-ci.yml")["concurrency"] == _workflow("ci.yml")["concurrency"]
+
+
+def _requirements(specs: list[str]) -> dict[str, Requirement]:
+    parsed = (Requirement(s) for s in specs if s.strip() and not s.lstrip().startswith("#"))
+    return {canonicalize_name(r.name): r for r in parsed}
+
+
+def test_the_test_cells_install_every_test_requirement() -> None:
+    """A conda test cell gets only the package and config.yml's list, so that list carries the suite's own."""
+    project = _REPO / "dokimi"
+    suite = _requirements((project / "requirements-test.txt").read_text(encoding="utf-8").splitlines())
+    package = _requirements(tomllib.loads((project / "pyproject.toml").read_text(encoding="utf-8"))
+                            ["project"]["dependencies"])
+    listed = _requirements(yaml.safe_load((_REPO / "ci" / "config.yml").read_text(encoding="utf-8"))
+                           ["test"]["requires"])
+    missing = {name: str(r.specifier) for name, r in suite.items()
+               if name not in package and name not in ("pytest-cov", "diff-cover")
+               and (name not in listed or listed[name].specifier != r.specifier)}
+    assert missing == {}
 
 
 def _script(name: str, monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:

@@ -8,7 +8,7 @@ artifacts:
   conda: "dokimi {platform} Python {python}"
   wheel: "dokimi {platform} Wheels Python {python}"
 test:
-  # dokimi/requirements-test.txt without the coverage and lint tools; the names are the same on PyPI.
+  # dokimi/requirements-test.txt without the coverage tools and the package's own requirements; the names are the same on PyPI.
   requires:
     - "pytest >=9.0.3"
     - "hypothesis >=6.100"
@@ -19,3 +19,4 @@ test:
     - "pytest-xdist >=3.6"
     - "markdown-it-py >=3"
     - packaging
+    - "mypy ==2.4.0"
