@@ -14,8 +14,8 @@ if TYPE_CHECKING:
 def only_description_too_long(review: SkillReview) -> bool:
     """Whether every spec error of ``review`` is a description over 1024 characters.
 
-    Harnesses differ on such a skill: Claude Code lists it with the description cut short, pi.dev
-    rejects it. The routing field keeps it, so a result is not silently measured without a skill
+    Harnesses differ on such a skill: pi.dev rejects it, Claude Code lists it and truncates the
+    description past about 1,536 characters. The routing field keeps it, so a result is not silently measured without a skill
     that some harness would list. Any other spec error still leaves a skill out.
     """
     errors = [f for f in review.findings if f.level == "error"]

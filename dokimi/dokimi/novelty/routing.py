@@ -489,8 +489,9 @@ def over_limit_warnings(competitors: list[Candidate]) -> list[dict]:
 
     return [{"skill": c.name, "length": len(c.description), "limit": DESCRIPTION_MAX,
              "message": f"description is {len(c.description)} characters, over the {DESCRIPTION_MAX} "
-                        "limit; kept in the field with its full description (Claude Code cuts it "
-                        "short in its listing, pi.dev rejects the skill)"}
+                        "limit; kept in the field with its full description (harnesses differ: "
+                        "pi.dev rejects the skill, Claude Code truncates past about 1,536 "
+                        "characters)"}
             for c in competitors if len(c.description) > DESCRIPTION_MAX]
 
 

@@ -533,6 +533,9 @@ def test_a_kept_skill_over_the_limit_warns_with_its_name_and_length(tmp_path, ca
     assert "WARNING: skill 'wide': description is 1100 characters" in err
     assert "WARNING: skill 'huge': description is 1500 characters" in err
     assert "kept in the field with its full description" in err
+    assert ("harnesses differ: pi.dev rejects the skill, Claude Code truncates past about "
+            "1,536 characters") in err
+    assert "cuts it short" not in err
     assert err.count("WARNING") == 2
 
 
