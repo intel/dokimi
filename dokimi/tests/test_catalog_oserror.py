@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from dokimi.cli import build_parser
 from dokimi.external import read_skill_manifest, review_skills
 
 
@@ -83,3 +84,21 @@ def test_stat_error_on_an_unloaded_sibling_is_no_review_and_no_crash(tmp_path, m
 
     assert reviews["bad"] is None
     assert reviews["good"].state == "ok"
+
+
+def test_unreadable_skill_fails_the_scan_like_a_load_error(tmp_path, monkeypatch):
+    # A load error always exits 1; a SKILL.md read failure after load must not exit 0 without --strict.
+    _skill(tmp_path, "good")
+    _skill(tmp_path, "sib")
+    real_read_bytes = Path.read_bytes
+
+    def read_bytes(self):
+        if self.parent.name == "sib":
+            raise _too_long(self)
+        return real_read_bytes(self)
+
+    monkeypatch.setattr(Path, "read_bytes", read_bytes)
+    args = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path), "--kind", "skills"])
+    with pytest.raises(SystemExit) as exc_info:
+        args.func(args)
+    assert exc_info.value.code == 1
