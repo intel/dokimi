@@ -460,8 +460,8 @@ def exit_partial_all_vs_all(model_arm: dict, cost: dict | None, failed: int, sen
                      f"repeat-noise rates, is in {out}")
 
 
-def field_record(args: argparse.Namespace, competitors: list, left_out: list[str],
-                 dropped_queries: list[dict] | None = None, gold: object | None = None) -> dict:
+def field_record(args: argparse.Namespace, competitors: list[Candidate], left_out: list[str],
+                 dropped_queries: list[dict] | None = None, gold: Candidate | None = None) -> dict:
     """The field rule a routing result was measured under, saved next to the result.
 
     ``dropped_queries`` (all-vs-all only) lists each skill whose queries were dropped, with the
