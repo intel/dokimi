@@ -444,7 +444,7 @@ def run_host(binary: str, args: List[str], *, workdir: Path, scratch: Path,
     """A runner for :func:`record` that runs *binary* on this host, in *workdir*."""
     def run(base_url: str) -> None:
         home = scratch / "home"
-        config = home / "config"
+        config = home / ".claude"  # as container_agent sets it: the memory path is in the request
         config.mkdir(parents=True, exist_ok=True)
         env = client_env(base_url, str(home), str(config))
         done = process.run([binary, *args], timeout=timeout, env=process.Env.only(set=env),
@@ -466,7 +466,7 @@ def run_docker(image: str, binary: str, args: List[str], *, workdir: Path, plugi
         mounts = ["-v", f"{binary}:/opt/agent/claude:ro", "-v", f"{workdir}:{workdir}"]
         if plugin_dir is not None:
             mounts += ["-v", f"{plugin_dir}:{plugin_dir}:ro"]
-        env = client_env(base_url, _CONTAINER_HOME, f"{_CONTAINER_HOME}/config")
+        env = client_env(base_url, _CONTAINER_HOME, f"{_CONTAINER_HOME}/.claude")
         env_args: List[str] = []
         for key, value in env.items():
             env_args += ["-e", f"{key}={value}"]

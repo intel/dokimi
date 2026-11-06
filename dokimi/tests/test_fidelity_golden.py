@@ -191,7 +191,7 @@ def test_capture_arm_passes_the_arm_prompt_skill_and_seal_to_the_client(tmp_path
     binary = _fake_client(tmp_path / "bin")
     scratch = tmp_path / "scratch"
     fd.capture_arm("skill", binary=binary, scratch=scratch, skill_dir=SKILL_DIR)
-    launch = json.loads((scratch / "home" / "config" / "launch.json").read_text(encoding="utf-8"))
+    launch = json.loads((scratch / "home" / ".claude" / "launch.json").read_text(encoding="utf-8"))
     argv = launch["argv"]
     assert any(fd.FIXTURE_INSTRUCTION in arg for arg in argv)  # the task is inside the -p prompt
     assert "--dangerously-skip-permissions" in argv
@@ -211,6 +211,7 @@ def test_run_host_gives_the_client_only_the_fixed_environment(tmp_path, monkeypa
     assert seen["env"].allow == ()
     assert seen["env"].set["HOME"] == str(tmp_path / "s" / "home")
     assert seen["env"].set["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:9"
+    assert seen["env"].set["CLAUDE_CONFIG_DIR"] == str(tmp_path / "s" / "home" / ".claude")
 
 
 def test_run_docker_builds_the_container_command(tmp_path, monkeypatch):
@@ -227,6 +228,7 @@ def test_run_docker_builds_the_container_command(tmp_path, monkeypatch):
     assert f"{tmp_path / 'plugin'}:{tmp_path / 'plugin'}:ro" in argv
     assert "1001:1002" in argv and "ANTHROPIC_BASE_URL=http://127.0.0.1:9" in argv
     assert argv[-4:] == ["img:1", "/opt/agent/claude", "-p", "x"]
+    assert "CLAUDE_CONFIG_DIR=/home/agent/.claude" in argv  # container_agent's layout
     assert seen["env"].allow is None  # the docker client inherits the parent environment
 
 
