@@ -195,8 +195,8 @@ def _nested_ignored(repo: Path, rel: str) -> frozenset[str]:
     own git as :func:`git_tree` reads the top's: a denylist, so a name git spells otherwise (``core.ignorecase``) is not
     dropped. Its ``.git`` is pinned as the repository, so a ``.git`` git cannot read fails here instead of letting git
     walk up to the enclosing repository. A git failure raises an OSError naming the repository."""
-    marker = repo / ".git"
-    top = _work_git(repo, ["rev-parse", "--show-toplevel"], 60, marker=marker).stdout_bytes
+    # --git-dir only: a --work-tree pin would make --show-toplevel name ``repo`` whatever the .git says
+    top = _work_git(repo, [f"--git-dir={repo / '.git'}", "rev-parse", "--show-toplevel"], 60).stdout_bytes
     if Path(os.path.realpath(os.fsdecode(top).rstrip("\n"))) != repo:
         raise OSError(None, "git reads this .git as a repository elsewhere", os.fspath(repo))
     # plain discovery here (rev-parse has shown it finds this .git): git's ownership check applies to discovery only
