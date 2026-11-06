@@ -385,6 +385,11 @@ _NO_GLOB = "glob {} matches nothing in the tree; a build may create it"
      ("unresolved", _NO_GLOB.format("maintenance/*"))),
     ("release/*", {".github/workflows/ci.yml": "env: {D: 2026-02-30}\non: {push: {branches: ['release/**']}}\n"},
      ("unresolved", _NO_GLOB.format("release/*"))),
+    # a control character YAML refuses before parsing, in either file
+    ("maintenance/*", {".pre-commit-config.yaml": _pre_commit(_DPNP)[".pre-commit-config.yaml"] + "# \x01\n"},
+     ("unresolved", _NO_GLOB.format("maintenance/*"))),
+    ("release/*", {".github/workflows/ci.yml": "on: {push: {branches: ['release/**']}}\n# \x01\n"},
+     ("unresolved", _NO_GLOB.format("release/*"))),
     ("release/1.x", {".github/workflows/ci.yml": "on: push\njobs: {x: {steps: [{run: git push origin release/1.x}]}}\n"},
      ("unresolved", "tried release/1.x")),
     ("src/gone.py", {".github/workflows/ci.yml": "on: {push: {branches: ['**']}}\n"}, ("unresolved", "tried src/gone.py")),

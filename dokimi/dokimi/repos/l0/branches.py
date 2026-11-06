@@ -74,13 +74,15 @@ def _sources(scan: Scan) -> list[Source]:
 
 
 def _load(scan: Scan, path: str) -> Any:
-    loader = _Loader(scan.text(path))
+    text, loader = scan.text(path), None
     try:
+        loader = _Loader(text)  # its reader rejects a control character such as U+0001 already here
         return loader.get_single_data()
     except Exception:  # PyYAML's constructors raise more than YAMLError: a bad date, tag value, depth
         return None
     finally:
-        loader.dispose()
+        if loader is not None:
+            loader.dispose()
 
 
 def _hook_sources(scan: Scan) -> list[Source]:
