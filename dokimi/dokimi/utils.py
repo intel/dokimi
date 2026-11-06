@@ -270,8 +270,9 @@ def _work_git(base: Path, args: list[str], timeout: float, cwd: Path | None = No
 
 
 def _index_blobs(top: str) -> tuple[dict[str, str], frozenset[str]]:
-    """Every path the index lists (with its parent directories), and the index's blob id for each tracked file that git finds unchanged in the work tree. ``hash-object`` does not read
-    the index, so it would fold a committed CRLF file under core.autocrlf. Flagged entries (skip-worktree, assume-unchanged)
+    """Every path the index lists (with its parent directories), and the index's blob id for each tracked file that git
+    finds unchanged in the work tree. ``hash-object`` does not read the index, so it would fold a committed CRLF file
+    under core.autocrlf. Flagged entries (skip-worktree, assume-unchanged)
     are left out: git does not look at those files, so their disk content is hashed."""
     staged = _work_git(Path(top), ["ls-files", "-s", "-z"], 120)
     tags = _work_git(Path(top), ["ls-files", "-v", "-z"], 120)

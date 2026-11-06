@@ -15,9 +15,9 @@ SPDX-License-Identifier: Apache-2.0
   directory without its evals and without any nested skill directory, which is its own subject) and
   `suite_hash`. In a git work tree both hash each file's git blob id, so ignored paths, a nested `.git` and a CRLF
   checkout (`core.autocrlf`) leave them as they are, and a committed line-ending change moves them; inside a nested
-  repository its own ignore rules apply, except to a file the top tracks. A work tree that git cannot read (a `.git` that is present but broken,
-  safe.directory, a timeout, a required clean filter that fails, no git binary), the top one or a nested repository, is a config error naming its path
-  and git's message, not a silent fallback. A root in no work tree hashes the bytes on disk. A skill's suite claims whole directories of its skill (its evals, or a directory such as
+  repository its own ignore rules apply, except to a file the top tracks. A work tree that git cannot read (a `.git`
+  that is present but broken, safe.directory, a timeout, a required clean filter that fails, no git binary), the top
+  one or a nested repository, is a config error naming its path and git's message, not a silent fallback. A root in no work tree hashes the bytes on disk. A skill's suite claims whole directories of its skill (its evals, or a directory such as
   `tests/**`), and those directories leave `skill_sha`. A suite may pick individual files under its skill's
   `evals` directory; those files leave `skill_sha` and move `suite_hash`. A suite that picks an individual file
   elsewhere in its skill (`SKILL.md`, a script, a reference) is refused at load, naming the subject and the file. A link in a suite that resolves into its skill is refused too. An explicit subject whose id is taken by a default skill at another directory is refused instead of silently replacing it. `baseline.store: false`
