@@ -20,3 +20,5 @@
   agreement, half-range and unstable-queries fields are `null`. The console `noise` line prints only
   for two or more repeats. Code that tested `noise` for `null` should test
   `noise["n_repeats"] > 1`.
+- `novelty routing` and `--all-vs-all` refuse an `--out` that is not a regular file (a FIFO,
+  a device such as `/dev/null` or `/dev/stdout`) or a symlink loop, before the first model call.

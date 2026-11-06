@@ -24,7 +24,8 @@ def _refuse_a_non_file(path: Path, label: str, hint: str) -> None:
     try:
         mode = os.stat(path).st_mode
     except OSError as exc:
-        if exc.errno == errno.ELOOP:
+        # Windows reports a loop as WinError 1921 (ERROR_CANT_RESOLVE_FILENAME), not ELOOP.
+        if exc.errno == errno.ELOOP or getattr(exc, "winerror", None) == 1921:
             raise InputError(f"{label} is a symlink loop, so the file cannot be written{hint}") from exc
         return  # missing, or under a non-directory: checked_out_path names it
     if not stat.S_ISREG(mode):

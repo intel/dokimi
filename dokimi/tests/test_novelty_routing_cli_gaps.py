@@ -383,7 +383,8 @@ def test_all_vs_all_with_one_repeat_keeps_the_noise_block_and_prints_no_noise_li
                   "--queries-by-skill", str(queries), "--out", str(out), "--model", "m")
     args.func(args)
     noise = json.loads(out.read_text(encoding="utf-8"))["result"]["model"]["noise"]
-    assert (noise["n_repeats"], noise["mean_agreement"], noise["half_range"]) == (1, None, None)
+    assert (noise["n_repeats"], noise["mean_agreement"], noise["half_range"],
+            noise["unstable_queries"]) == (1, None, None, None)
     assert "noise    " not in capsys.readouterr().out
 
 
