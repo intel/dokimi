@@ -93,6 +93,7 @@
 --judge-temperature
 --judges
 --keep
+--keep-copies-under  # novelty routing: keeps only the copies under a directory of a same-name catalog skill; no registry concept yet
 --kind
 --labels  # repo hits judge (#291) adds it: a person's labels have no registry concept yet; a F1b migration names it
 --large-bytes
