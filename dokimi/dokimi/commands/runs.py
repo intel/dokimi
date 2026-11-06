@@ -21,7 +21,7 @@ from dokimi.runs.scan import (
     scan,
     select,
 )
-from dokimi.runs.show import Shown, ShownRun, names_a_run, show, show_run
+from dokimi.runs.show import Shown, ShownRun, show_target
 from dokimi.utils import InputError
 
 
@@ -201,10 +201,10 @@ def cmd_runs_show(args: argparse.Namespace) -> None:
     if not root.exists():
         raise InputError(f"no runs root: {plain(root.path.as_posix())}/ does not exist "
                          f"(DOKIMI_RUNS_DIR names another root)")
-    if names_a_run(root.path, args.path):
-        _show_run(root.path.as_posix(), show_run(root.path, args.path), args.json)
+    shown = show_target(root.path, args.path)
+    if isinstance(shown, ShownRun):
+        _show_run(root.path.as_posix(), shown, args.json)
         return
-    shown = show(root.path, args.path)
     if args.json:
         print(json.dumps(_show_json(shown, root.path.as_posix()), indent=2))
     else:
@@ -240,7 +240,7 @@ def register(sub: argparse._SubParsersAction, positive_int) -> None:
     show_p.add_argument("path", metavar="PATH|RUN_ID",
                         help="The artifact: its path as runs list prints it (relative to the "
                              "root), or an absolute path inside the root. Or a run_id from runs "
-                             "list, when no file or directory has that name")
+                             "list, when no artifact file has that name")
     show_p.add_argument("--json", action="store_true",
                         help="Print the artifact's fields, schema errors and neighbours (for a "
                              "run_id: the run's artifacts) as JSON")

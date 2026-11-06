@@ -142,10 +142,12 @@ answers.v1  onetbb   gpt-6.1-sol        2026-10-28 09:40  onetbb_r7/answers/onet
 ```
 
 A `run_id` from `runs list` shows the artifacts that carry it, as `runs list`
-rows, newest first. It is read as a run id only when no file or directory of
-that name exists, neither under the root nor from the working directory: a
-path always wins. When a file under the root could not be read, the count and
-the first one are printed, since it may belong to the run. `--json` prints
+rows, newest first. A file `runs show` can open wins: one of that name under
+the root, or reached from the working directory and inside the root. A
+directory of that name (a run's own, `results/nightly-7/`) does not, nor does
+a path outside the root; when no artifact has the `run_id`, such a name gets
+the error it got before. When a file under the root could not be read, the
+count and the first one are printed, since it may belong to the run. `--json` prints
 `root`, `run_id`, `artifacts` (the `runs list --json` rows) and `unreadable`.
 
 ## Exit codes
@@ -156,4 +158,4 @@ the first one are printed, since it may belong to the run. `--json` prints
 | `results/` does not exist (`runs list` prints "no runs") | 0 |
 | `DOKIMI_RUNS_DIR` does not exist, or the root is not a directory | 2 |
 | `runs show`: no root, a path outside the root (or a symlink that leads out of it), a missing file, a directory, or a file that is not a readable artifact of a registered kind | 2 |
-| `runs show RUN_ID`: no file of that name and no artifact under the root with that `run_id` | 2 |
+| `runs show RUN_ID`: nothing of that name and no artifact under the root with that `run_id` (the error counts the files that could not be read) | 2 |

@@ -14,5 +14,6 @@ SPDX-License-Identifier: Apache-2.0
   `--subject` filter the rows before they are grouped.
 - **`dokimi runs show RUN_ID` shows one run**: the artifacts that carry that `run_id`, as
   `runs list` rows, and the files under the root that could not be read, since one may belong
-  to the run. The argument is read as a run id only when no file or directory of that name
-  exists, so a path still wins. A run id that no artifact has exits 2.
+  to the run. An artifact file of that name still wins (under the root, or from the working
+  directory and inside the root); a directory of that name, such as the run's own, does not. A
+  run id that no artifact has exits 2.

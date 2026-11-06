@@ -296,7 +296,7 @@ def test_an_mtime_past_the_year_9999_is_shown_as_seconds(monkeypatch, capsys, ro
     real = show(root, "arms/plugin_delta.json")
     far = Shown(artifact=dataclasses.replace(real.artifact, mtime=253402300800.0),
                 schema=real.schema, errors=[], contents=real.contents)
-    monkeypatch.setattr(runs_cmd, "show", lambda root, address: far)
+    monkeypatch.setattr(runs_cmd, "show_target", lambda root, address: far)
 
     out = _show(monkeypatch, capsys, "arms/plugin_delta.json").out
 
@@ -451,20 +451,58 @@ def test_json_of_a_run_has_its_artifacts_as_runs_list_rows(monkeypatch, capsys, 
     assert (row["path"], row["kind"], row["run_id"]) == ("e2.json", "eval", "nightly-2")
 
 
-def test_a_file_or_directory_of_the_run_ids_name_is_shown_instead(monkeypatch, capsys, runs):
+def test_a_run_id_wins_over_a_directory_or_a_path_outside_the_root(monkeypatch, capsys, runs):
+    """``DOKIMI_RUN_ID=nightly-1`` writing into ``results/nightly-1/`` is the natural layout."""
     (runs / "nightly-1").mkdir()
-    assert _fails(monkeypatch, capsys, "nightly-1") == (
-        "Error: nightly-1 is a directory; runs show takes one artifact file\n")
+    (runs.parent / "nightly-2").write_text("{}", encoding="utf-8")  # in the working directory
 
-    (runs / "nightly-1").rmdir()
-    (runs.parent / "nightly-1").write_text("{}", encoding="utf-8")  # from the working directory
-    assert _fails(monkeypatch, capsys, "nightly-1") == "Error: nightly-1 is not under the runs root results/\n"
+    assert _show(monkeypatch, capsys, "nightly-1").out.startswith("run_id:     nightly-1\n")
+    assert _show(monkeypatch, capsys, "nightly-2").out.startswith("run_id:     nightly-2\n")
+
+
+def test_an_artifact_file_of_the_run_ids_name_is_shown_instead(monkeypatch, capsys, runs):
+    save_artifact("eval", _fixture("eval.v1"), runs / "nightly-1")
+
+    assert _show(monkeypatch, capsys, "nightly-1").out.startswith("path:       nightly-1\n")
+
+
+def test_with_no_such_run_a_directory_or_an_outside_path_keeps_its_error(monkeypatch, capsys,
+                                                                         runs):
+    (runs / "nightly-3").mkdir()
+    (runs.parent / "nightly-4").write_text("{}", encoding="utf-8")
+
+    assert _fails(monkeypatch, capsys, "nightly-3") == (
+        "Error: nightly-3 is a directory; runs show takes one artifact file\n")
+    assert _fails(monkeypatch, capsys, "nightly-4") == (
+        "Error: nightly-4 is not under the runs root results/\n")
+
+
+@pytest.mark.skipif(os.name == "nt" or os.geteuid() == 0,
+                    reason="POSIX permissions; root searches every directory")
+def test_a_name_that_cannot_be_looked_up_gets_the_reason_not_the_run_id_error(monkeypatch, capsys,
+                                                                              runs):
+    runs.chmod(0o600)
+    try:
+        err = _fails(monkeypatch, capsys, "e1.json")
+    finally:
+        runs.chmod(0o755)
+
+    assert err == "Error: e1.json: cannot read: Permission denied\n"
 
 
 def test_a_run_id_no_artifact_has_exits_2(monkeypatch, capsys, runs):
     assert _fails(monkeypatch, capsys, "nightly-3") == (
         "Error: no file nightly-3 under the runs root results/, and no artifact there has that "
         "run_id\n")
+    assert _fails(monkeypatch, capsys, "Nightly-1").startswith("Error: no file Nightly-1 ")
+
+
+def test_a_run_id_no_artifact_has_counts_the_files_that_could_not_be_read(monkeypatch, capsys,
+                                                                          runs):
+    (runs / "broken.json").write_text('{"schema_version": "eval.v1", "x": [', encoding="utf-8")
+
+    assert _fails(monkeypatch, capsys, "nightly-3").endswith(
+        "has that run_id; 1 file under the root could not be read\n")
 
 
 def test_an_input_kinds_stray_run_id_does_not_make_it_part_of_the_run(monkeypatch, capsys, runs):
