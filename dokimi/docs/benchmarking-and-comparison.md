@@ -90,7 +90,7 @@ Every command takes its models from `dokimi/defaults.py`, and every surface
 The judge is a different family from the answerer, so the judge-independence
 warning stays quiet on default flags; answering with `claude-sonnet-5-5` moves the
 novelty judge to `openai/gpt-6.1-sol` and makes `benchmark`, `eval score pointwise`,
-`eval score panel` and `evaluate` warn (`arms` and `subjects` do not check). Escalation
+`eval score panel`, `evaluate`, `arms run` and `subjects run` warn. Escalation
 judges (`--escalate-model`) have no default; `claude-opus-5-5` ($4 / $20) is the
 natural tie-break above the Sonnet judge. On `--provider amazon-bedrock` the bare
 names `claude-sonnet-5-5`, `claude-opus-5-5` and `claude-haiku-5-5` resolve to the
